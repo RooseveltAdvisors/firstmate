@@ -82,6 +82,7 @@ test_security_and_signature_contract_is_preserved() {
   assert_grep '  pull_request_target:' "$WORKFLOW" "workflow must use pull_request_target so the base branch copy always runs"
   assert_no_grep '  pull_request:' "$WORKFLOW" "workflow must not use pull_request; that trigger lets a PR edit/delete the workflow and exempt itself"
   assert_no_grep 'branches:' "$WORKFLOW" "workflow must not filter branches; every PR must emit the check"
+  assert_no_grep 'branches-ignore:' "$WORKFLOW" "workflow must not filter branches-ignore; every PR must emit the check"
   assert_no_grep 'paths:' "$WORKFLOW" "workflow must not filter paths; every PR must emit the check"
   assert_no_grep 'paths-ignore:' "$WORKFLOW" "workflow must not filter paths-ignore; every PR must emit the check"
 
