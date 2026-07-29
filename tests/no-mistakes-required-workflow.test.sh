@@ -76,18 +76,27 @@ test_run_names_are_ordered_and_unique() {
 }
 
 test_security_and_signature_contract_is_preserved() {
-  assert_grep '  pull_request:' "$WORKFLOW" "workflow must use pull_request"
-  assert_no_grep 'pull_request_target' "$WORKFLOW" "workflow must not use pull_request_target"
+  # Hardened gate: pull_request_target with no branch/path filters so the base
+  # branch copy always runs and every PR emits the check. This prevents a PR
+  # that edits or deletes the workflow from exempting itself.
+  assert_grep '  pull_request_target:' "$WORKFLOW" "workflow must use pull_request_target so the base branch copy always runs"
+  assert_no_grep '  pull_request:' "$WORKFLOW" "workflow must not use pull_request; that trigger lets a PR edit/delete the workflow and exempt itself"
+  assert_no_grep 'branches:' "$WORKFLOW" "workflow must not filter branches; every PR must emit the check"
+  assert_no_grep 'paths:' "$WORKFLOW" "workflow must not filter paths; every PR must emit the check"
+  assert_no_grep 'paths-ignore:' "$WORKFLOW" "workflow must not filter paths-ignore; every PR must emit the check"
+
   assert_grep '  contents: read' "$WORKFLOW" "contents permission must remain read-only"
   assert_no_grep 'contents: write' "$WORKFLOW" "workflow must not gain contents write permission"
   assert_no_grep 'secrets.' "$WORKFLOW" "workflow must not read secrets"
   assert_no_grep 'actions/checkout' "$WORKFLOW" "workflow must not check out fork code"
+  assert_grep 'timeout-minutes: 5' "$WORKFLOW" "workflow must declare a 5-minute timeout"
+
   assert_grep 'name: PR must be raised via no-mistakes' "$WORKFLOW" "stable required check name changed"
   assert_grep "$MARKER" "$WORKFLOW" "signature marker changed"
   assert_grep "github.event.pull_request.user.login != 'github-actions[bot]'" "$WORKFLOW" "github-actions bot exemption changed"
   assert_grep "github.event.pull_request.user.login != 'dependabot[bot]'" "$WORKFLOW" "dependabot bot exemption changed"
   assert_no_grep 'release-please[bot]' "$WORKFLOW" "Firstmate must not exempt release-please"
-  pass "fork, permission, check-name, marker, and bot-exemption contracts are preserved"
+  pass "pull_request_target, no filters, permission, no checkout, marker, and firstmate-specific bot-exemption contracts are preserved"
 }
 
 test_signature_sequence_at_fixed_head
