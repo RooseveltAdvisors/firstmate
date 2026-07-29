@@ -96,7 +96,7 @@ test_security_and_signature_contract_is_preserved() {
   assert_grep "$MARKER" "$WORKFLOW" "signature marker changed"
   assert_grep "github.event.pull_request.user.login != 'github-actions[bot]'" "$WORKFLOW" "github-actions bot exemption changed"
   assert_grep "github.event.pull_request.user.login != 'dependabot[bot]'" "$WORKFLOW" "dependabot bot exemption changed"
-  assert_no_grep 'release-please[bot]' "$WORKFLOW" "Firstmate must not exempt release-please"
+  assert_grep "github.event.pull_request.user.login != 'release-please[bot]'" "$WORKFLOW" "canonical gate must exempt release-please[bot]"
   pass "pull_request_target, no filters, permission, no checkout, marker, and firstmate-specific bot-exemption contracts are preserved"
 }
 
