@@ -942,6 +942,51 @@ test_secondmate_evergreen_idle_past_threshold_surfaces() {
   pass "an evergreen secondmate idle past the threshold over a quiet home surfaces one stale wake"
 }
 
+# Away mode keeps EXACTLY the semantics it had before posture existed: the daemon
+# owns triage there, and its wake vocabulary parses `stale: <window>`
+# positionally, so a decorated posture wake would be mis-parsed rather than
+# escalated. The posture path therefore emits nothing at all while state/.afk
+# exists. Both halves run off the same fixture primer, so the ONLY difference
+# between total silence and one surfaced wake is the away-mode flag itself.
+test_secondmate_evergreen_idle_afk_gated() {
+  local dir state fakebin out window pid queued key
+  dir=$(make_case secondmate-evergreen-idle-afk); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; window="test:fm-awaymate"
+  prime_idle_secondmate "$dir" awaymate "$window" "$dir/pane.txt" >/dev/null
+  date '+%s' > "$state/.afk"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$dir/pane.txt" \
+    FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$dir/data" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_SECONDMATE_IDLE_STALE_SECS=60 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  if ! wait_live "$pid" 40; then
+    reap "$pid"; fail "away mode surfaced an idle evergreen secondmate: $(cat "$out")"
+  fi
+  [ ! -s "$out" ] || { reap "$pid"; fail "away-mode idle evergreen secondmate printed a wake reason: $(cat "$out")"; }
+  reap "$pid"
+  queued=$(awk -F '\t' -v w="$window" '$3 == "stale" && $4 == w { n++ } END { print n + 0 }' "$state/.wake-queue" 2>/dev/null)
+  [ "${queued:-0}" -eq 0 ] || fail "away mode queued ${queued} secondmate idle stale wakes, expected 0"
+  grep -F "away mode owns triage" "$state/.watch-triage.log" >/dev/null \
+    || fail "the away-mode gate did not record that the daemon owns this triage: $(cat "$state/.watch-triage.log" 2>/dev/null)"
+
+  # Control: the identical fixture with no .afk still surfaces exactly one wake,
+  # so normal-mode coverage is untouched by the gate.
+  dir=$(make_case secondmate-evergreen-idle-afk-control); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; window="test:fm-awaymate"
+  key=$(prime_idle_secondmate "$dir" awaymate "$window" "$dir/pane.txt")
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$dir/pane.txt" \
+    FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$dir/data" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_SECONDMATE_IDLE_STALE_SECS=60 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 40 || { reap "$pid"; fail "without .afk the same idle evergreen secondmate did not surface"; }
+  grep -F "stale: $window" "$out" >/dev/null || fail "the un-gated control emitted no stale wake: $(cat "$out")"
+  queued=$(awk -F '\t' -v w="$window" '$3 == "stale" && $4 == w { n++ } END { print n + 0 }' "$state/.wake-queue")
+  [ "$queued" -eq 1 ] || fail "the un-gated control queued $queued stale wakes, expected 1"
+  [ -s "$state/.stale-$key" ] || fail "the un-gated control did not advance the stale suppressor"
+  pass "away mode leaves a non-paused evergreen secondmate entirely alone; the same case without .afk surfaces exactly one"
+}
+
 # The mesh case: a secondmate that runs only on externally timed pings is meant
 # to sit quiet, so no amount of idling makes it stale.
 test_secondmate_pingmodel_idle_never_surfaces() {
@@ -1501,6 +1546,7 @@ test_exited_declared_pause_is_bounded_but_live_gate_surfaces
 test_secondmate_paused_resurfaces_in_normal_mode
 test_secondmate_nonpaused_stale_remains_suppressed
 test_secondmate_evergreen_idle_past_threshold_surfaces
+test_secondmate_evergreen_idle_afk_gated
 test_secondmate_pingmodel_idle_never_surfaces
 test_secondmate_evergreen_idle_with_working_home_crew_absorbed
 test_scout_idle_unaffected_by_secondmate_posture

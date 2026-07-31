@@ -447,7 +447,8 @@ secondmate_home_path() {  # <id> [state-dir]
 
 # 0 when ANY crew recorded in secondmate home <home> is provably working. Runs
 # fm-crew-state.sh - the authoritative run-step and busy-pane read - against that
-# home's own operational directories and maps the verdict through the same
+# home's own operational directories, every one of them overridden so nothing
+# resolves back to the caller's home, and maps the verdict through the same
 # absorb-class helper crew_absorb_class uses, so "is anything running in there"
 # is decided exactly as it is everywhere else and never by a status-log tail.
 # An empty, missing, or unreadable home returns 1: a
@@ -464,6 +465,7 @@ secondmate_home_has_active_crew() {  # <home>
     cid=${cid%.meta}
     [ -n "$cid" ] || continue
     line=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
+      FM_CONFIG_OVERRIDE="$home/config" FM_PROJECTS_OVERRIDE="$home/projects" \
       "$FM_CREW_STATE_BIN" "$cid" 2>/dev/null) || true
     if [ "$(_fm_absorb_class_of_state_line "$line")" = working ]; then
       return 0

@@ -30,11 +30,17 @@
 #                          also carries a "demand-deep-inspection" marker so the
 #                          wake payload itself, not just repetition, forces a
 #                          closer look instead of another routine supervision
-#                          resume. A secondmate is judged by its recorded posture
-#                          instead (fm-classify-lib.sh): a ping-model one's idle
-#                          pane never surfaces, while an evergreen one's surfaces
-#                          once past FM_SECONDMATE_IDLE_STALE_SECS with nothing
-#                          provably working in its own home. Unless afk is active.
+#                          resume. Unless afk is active.
+#                          A secondmate is judged by its recorded posture instead
+#                          (fm-classify-lib.sh): a ping-model one's idle pane
+#                          never surfaces, while an evergreen one's surfaces once
+#                          past FM_SECONDMATE_IDLE_STALE_SECS with nothing
+#                          provably working in its own home. That posture rule is
+#                          afk-gated as well: while state/.afk exists it does not
+#                          run at all, so away mode keeps exactly its prior
+#                          semantics of leaving a non-paused secondmate alone. A
+#                          secondmate's declared pause or captain hold is
+#                          unaffected and still absorbed on its own cadence.
 #   check: <script>: <out> authenticated check output, always actionable
 #   check: rejected unauthenticated state checks: <paths>
 #                          unsafe state checks were refused without execution
@@ -395,8 +401,17 @@ pause_state_class() {  # <window> <task>
 # A hash already carried by that suppressor answers first, before the posture
 # test, because the costly home scan behind it can only re-confirm a wake this
 # window has already surfaced.
+# Away mode answers before all of that: while state/.afk exists the daemon owns
+# triage, and its wake vocabulary parses `stale: <window>` positionally, so this
+# path emits nothing there and away mode keeps exactly the semantics it had
+# before posture existed - a non-paused secondmate is left alone. A declared
+# pause or captain hold never reaches here and is unaffected.
 handle_secondmate_idle_stale() {  # <window> <task> <hash>
   local win=$1 task=$2 h=$3 key idle
+  if afk_present; then
+    triage_log "skipped secondmate idle triage (away mode owns triage): $win"
+    return
+  fi
   key=$(printf '%s' "$win" | tr ':/.' '___')
   [ "$(cat "$STATE/.stale-$key" 2>/dev/null || true)" = "$h" ] && return
   idle=$(age_of "$STATE/.hash-$key")

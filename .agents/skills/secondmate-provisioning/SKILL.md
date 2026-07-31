@@ -29,7 +29,7 @@ The home-seeded `data/charter.md` is the sole owner of boilerplate idle-by-defau
 The `scope:` field is used during intake.
 The `projects:` field is a non-exclusive clone list, not ownership.
 One optional field may be appended as the very last parenthetical field, after `added <date>`, as `; posture: ping-model`, and it records only that value, for a secondmate that acts solely on externally timed pings from the main home and is therefore meant to sit quiet between them; omit it for every secondmate that owns a continuous standing loop.
-That trailing position is required rather than stylistic: the other readers of this line extract `home:` and `projects:` by fixed field order, so a `posture:` field placed anywhere earlier silently returns an empty `projects:` and corrupts a later respawn.
+That trailing position is required rather than stylistic: the other readers of this line extract `home:` and `projects:` by fixed field order, so a `posture:` field placed anywhere earlier silently returns an empty `projects:` and corrupts a later respawn, and placing it before `home:` is worse still - every home reader requires `(home: ` adjacency, so all of them return empty, which breaks the bootstrap home fallback and defeats `bin/fm-home-seed.sh`'s duplicate-home and duplicate-id refusals.
 Supervision reads it live, so correcting a posture takes effect without restarting the secondmate, and `bin/fm-classify-lib.sh` owns what each posture means for an idle endpoint, including the evergreen default that applies to an absent or unrecognized value.
 
 ## Charter and seed
