@@ -803,8 +803,49 @@ ROWS
   pass "bootstrap validates crew-dispatch.json and reports malformed or unverified configs"
 }
 
+# config/gh-auth-skip must suppress the gh auth check entirely: on setups where
+# `gh auth status` blocks on a credential-store read, skipping only the printed
+# diagnostic would still hang, so the invocation itself must not happen.
+test_gh_auth_skip_flag() {
+  local label flag case_dir fakebin calls out n
+  n=0
+  while IFS='^' read -r label flag; do
+    [ -n "$label" ] || continue
+    n=$((n + 1))
+    case_dir="$TMP_ROOT/gh-auth-$n"
+    mkdir -p "$case_dir/home/config"
+    printf '%s\n' manual > "$case_dir/home/config/backlog-backend"
+    [ "$flag" = 1 ] && : > "$case_dir/home/config/gh-auth-skip"
+    fakebin=$(make_fake_toolchain "$case_dir")
+    calls="$case_dir/gh-calls"
+    cat > "$fakebin/gh" <<SH
+#!/usr/bin/env bash
+if [ "\${1:-}" = auth ] && [ "\${2:-}" = status ]; then
+  printf '%s\n' "\$*" >> '$calls'
+  exit 1
+fi
+exit 0
+SH
+    chmod +x "$fakebin/gh"
+    out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
+      FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
+    if [ "$flag" = 1 ]; then
+      [ -z "$out" ] || fail "$label: expected silence, got: $out"
+      [ ! -e "$calls" ] || fail "$label: gh auth status was invoked despite the skip flag"
+    else
+      [ "$out" = "NEEDS_GH_AUTH" ] || fail "$label: expected NEEDS_GH_AUTH, got: $out"
+      [ -e "$calls" ] || fail "$label: expected gh auth status to run"
+    fi
+  done <<'ROWS'
+absent flag keeps the gh auth check^0
+present flag skips the check and the gh invocation^1
+ROWS
+  pass "config/gh-auth-skip suppresses the gh auth check and its invocation"
+}
+
 test_bootstrap_reporting
 test_no_mistakes_min_version
+test_gh_auth_skip_flag
 test_git_is_required_with_supported_install_instruction
 test_orca_backend_gates_orca_tool_only_when_selected
 test_session_provider_backends_do_not_require_tmux

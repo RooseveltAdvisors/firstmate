@@ -845,7 +845,13 @@ fi
 if command -v tasks-axi >/dev/null 2>&1 && ! fm_tasks_axi_compatible; then
   echo "MISSING: tasks-axi (install: $(install_cmd tasks-axi))"
 fi
-gh auth status >/dev/null 2>&1 || echo "NEEDS_GH_AUTH"
+# A home may opt out of the GitHub auth check entirely with config/gh-auth-skip:
+# on some setups `gh auth status` blocks on a credential-store read and fires a
+# per-invocation GUI approval prompt, so the flag must skip the invocation itself,
+# not just the diagnostic line.
+if [ ! -e "$CONFIG/gh-auth-skip" ]; then
+  gh auth status >/dev/null 2>&1 || echo "NEEDS_GH_AUTH"
+fi
 # Worktree-tangle check: the firstmate primary checkout (FM_ROOT) must sit on its
 # default branch, not a feature branch (see fm-tangle-lib.sh). Scoped to the
 # primary only; detached-HEAD worktrees and secondmate homes never trip it.
