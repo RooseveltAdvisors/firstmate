@@ -789,19 +789,36 @@ initialize_no_mistakes_project() {
   }
 }
 
+# The `posture:` field already recorded on <id>'s route line, rendered as the
+# trailing registry field so write_registry can carry it across the rewrite.
+# Posture is hand-edited supervision policy owned by the captain and read live by
+# bin/fm-classify-lib.sh, and re-seeding an id to its own home is allowed, so the
+# rewrite must not silently revert a recorded posture to the evergreen default.
+# Empty when the entry or the field is absent.
+registry_recorded_posture() {  # <id>
+  local id=$1 value
+  [ -f "$REG" ] || return 0
+  value=$(grep -E "^- $id( |$)" "$REG" 2>/dev/null | tail -1 \
+    | sed -n 's/.*[(;][[:space:]]*posture:[[:space:]]*\([^;)]*\).*/\1/p' \
+    | sed 's/[[:space:]]*$//')
+  [ -n "$value" ] || return 0
+  printf '; posture: %s' "$value"
+}
+
 write_registry() {
-  local id=$1 home=$2 projects_csv=$3 brief=$4 scope summary tmp today
+  local id=$1 home=$2 projects_csv=$3 brief=$4 scope summary tmp today posture
   mkdir -p "$DATA"
   scope=$(registry_scope_for_brief "$brief")
   summary=$(registry_summary_for_brief "$brief")
   today=$(date +%F)
+  posture=$(registry_recorded_posture "$id")
   tmp="$REG.tmp.$$"
   if [ -f "$REG" ]; then
     grep -vE "^- $id( |$)" "$REG" > "$tmp" || true
   else
     : > "$tmp"
   fi
-  printf -- '- %s - %s (home: %s; scope: %s; projects: %s; added %s)\n' "$id" "$summary" "$home" "$scope" "$projects_csv" "$today" >> "$tmp"
+  printf -- '- %s - %s (home: %s; scope: %s; projects: %s; added %s%s)\n' "$id" "$summary" "$home" "$scope" "$projects_csv" "$today" "$posture" >> "$tmp"
   mv "$tmp" "$REG"
 }
 

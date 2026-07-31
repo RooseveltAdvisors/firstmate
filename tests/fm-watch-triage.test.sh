@@ -279,22 +279,39 @@ test_crew_absorb_class_classifier() {
 # registry line. Every path that is not an exact `ping-model` must land on the
 # demanding evergreen default, so a missing registry, an unregistered id, an
 # omitted field, or a typo can never quietly exempt a secondmate from
-# supervision.
+# supervision. The field's TRAILING position, after `added <date>`, is the
+# grammar the secondmate-provisioning skill pins, so every fixture here uses it.
 test_secondmate_posture_classifier() {
   local dir reg
   dir=$(make_case posture-read); reg="$dir/secondmates.md"
   [ "$(secondmate_posture mate "$dir/absent.md")" = evergreen ] || fail "missing registry did not default to evergreen"
   cat > "$reg" <<'EOF'
 - loop - keeps a standing watch (home: /homes/loop; scope: the fleet; projects: a, b; added 2026-07-30)
-- pinged - runs demo checks on request (home: /homes/pinged; scope: demos; projects: a; posture: ping-model; added 2026-07-30)
-- typo - fat-fingered posture (home: /homes/typo; scope: x; projects: a; posture: pingmodel; added 2026-07-30)
+- pinged - runs demo checks on request (home: /homes/pinged; scope: demos; projects: a; added 2026-07-30; posture: ping-model)
+- typo - fat-fingered posture (home: /homes/typo; scope: x; projects: a; added 2026-07-30; posture: pingmodel)
 EOF
   [ "$(secondmate_posture loop "$reg")" = evergreen ] || fail "an omitted posture field did not default to evergreen"
-  [ "$(secondmate_posture pinged "$reg")" = ping-model ] || fail "a recorded ping-model posture was not read"
+  [ "$(secondmate_posture pinged "$reg")" = ping-model ] || fail "the pinned trailing posture field was not read"
   [ "$(secondmate_posture typo "$reg")" = evergreen ] || fail "an unrecognized posture value did not fall back to evergreen"
   [ "$(secondmate_posture absent "$reg")" = evergreen ] || fail "an unregistered id did not default to evergreen"
   [ "$(secondmate_posture "" "$reg")" = evergreen ] || fail "an empty id did not default to evergreen"
-  pass "secondmate_posture: only an exact ping-model field exempts; everything else reads evergreen"
+  assert_registry_projects_readable "$reg" pinged a
+  # Why the trailing position is pinned rather than free: the other readers of
+  # this line are position-locked, so the same value placed among the earlier
+  # fields makes projects: unreadable. Nothing here may rely on that form.
+  printf '%s\n' '- mid - legacy placement (home: /homes/mid; scope: x; projects: a; posture: ping-model; added 2026-07-30)' > "$reg.mid"
+  assert_registry_projects_readable "$reg.mid" mid ''
+  pass "secondmate_posture: only an exact trailing ping-model field exempts; everything else reads evergreen"
+}
+
+# The projects: value that the position-locked shared registry reader
+# (bin/fm-ff-lib.sh) extracts from <registry>'s <id> line, asserted to equal
+# <expected>; an empty <expected> means that reader cannot parse the line at all.
+assert_registry_projects_readable() {  # <registry> <id> <expected>
+  local reg=$1 entry=$2 expected=$3 got
+  got=$( . "$ROOT/bin/fm-ff-lib.sh" >/dev/null 2>&1; secondmate_registry_field "$reg" "$entry" projects || true )
+  [ "$got" = "$expected" ] \
+    || fail "the position-locked projects reader returned '$got' for $entry, expected '$expected'"
 }
 
 # The full idle test, including its threshold boundary and the home scan that
@@ -306,7 +323,7 @@ test_secondmate_idle_is_stale_classifier() {
   export FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh"
   export FM_DATA_OVERRIDE="$dir"
   cat > "$dir/secondmates.md" <<'EOF'
-- pinged - runs demo checks on request (home: /homes/pinged; scope: demos; projects: a; posture: ping-model; added 2026-07-30)
+- pinged - runs demo checks on request (home: /homes/pinged; scope: demos; projects: a; added 2026-07-30; posture: ping-model)
 EOF
   fm_write_meta "$state/loop.meta" "window=test:fm-loop" "kind=secondmate" "home=$home"
   fm_write_meta "$state/pinged.meta" "window=test:fm-pinged" "kind=secondmate" "home=$home"
@@ -338,8 +355,16 @@ EOF
   secondmate_home_has_active_crew "" && fail "an empty home path was read as active"
   secondmate_home_has_active_crew "$dir/no-such-home" && fail "a missing home was read as active"
 
+  # A mistyped operator override falls back to the named default and keeps
+  # surfacing: a malformed tunable must never buy a fleet-wide exemption.
+  FM_SECONDMATE_IDLE_STALE_SECS=45m
+  secondmate_idle_is_stale loop $((FM_SECONDMATE_IDLE_STALE_SECS_DEFAULT + 1)) "$state" \
+    || fail "a non-numeric threshold override exempted an over-threshold evergreen secondmate"
+  secondmate_idle_is_stale loop $((FM_SECONDMATE_IDLE_STALE_SECS_DEFAULT - 1)) "$state" \
+    && fail "a non-numeric threshold override did not fall back to the default threshold"
+
   unset FM_FAKE_CREW_STATE_homecrew FM_DATA_OVERRIDE FM_SECONDMATE_IDLE_STALE_SECS
-  pass "secondmate_idle_is_stale: ping-model exempt, threshold boundary exact, active home crew absorbs, stopped home surfaces"
+  pass "secondmate_idle_is_stale: ping-model exempt, threshold boundary exact, malformed override falls back to the default, active home crew absorbs, stopped home surfaces"
 }
 
 # signal_crew_provably_working: a no-verb "signal:" wake is benign ONLY when EVERY
@@ -926,7 +951,7 @@ test_secondmate_pingmodel_idle_never_surfaces() {
   prime_idle_secondmate "$dir" pingmate "$window" "$dir/pane.txt" >/dev/null
   mkdir -p "$dir/data"
   cat > "$dir/data/secondmates.md" <<EOF
-- pingmate - runs demo checks on request (home: $dir/home; scope: demos; projects: a; posture: ping-model; added 2026-07-30)
+- pingmate - runs demo checks on request (home: $dir/home; scope: demos; projects: a; added 2026-07-30; posture: ping-model)
 EOF
   PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$dir/pane.txt" \
     FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$dir/data" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \

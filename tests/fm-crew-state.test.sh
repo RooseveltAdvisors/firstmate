@@ -981,7 +981,7 @@ test_secondmate_busy_pane_follows_posture() {
   fm_write_meta "$d/state/loopmate.meta" "window=fm:fm-loopmate" "worktree=$d/wt" "kind=secondmate" "home=$d/wt"
   fm_write_meta "$d/state/pingmate.meta" "window=fm:fm-pingmate" "worktree=$d/wt" "kind=secondmate" "home=$d/wt"
   cat > "$d/data/secondmates.md" <<EOF
-- pingmate - runs demo checks on request (home: $d/wt; scope: demos; projects: a; posture: ping-model; added 2026-07-30)
+- pingmate - runs demo checks on request (home: $d/wt; scope: demos; projects: a; added 2026-07-30; posture: ping-model)
 EOF
   printf 'working: reconciling routed items\n' > "$d/state/loopmate.status"
   printf 'working: reconciling routed items\n' > "$d/state/pingmate.status"

@@ -392,15 +392,18 @@ pause_state_class() {  # <window> <task>
 # own. Below the threshold it deliberately does NOT advance the stale suppressor,
 # so the same unchanged hash is re-judged once the threshold passes; past it the
 # ordinary non-terminal stale path surfaces the wake once per distinct hash.
+# A hash already carried by that suppressor answers first, before the posture
+# test, because the costly home scan behind it can only re-confirm a wake this
+# window has already surfaced.
 handle_secondmate_idle_stale() {  # <window> <task> <hash>
   local win=$1 task=$2 h=$3 key idle
   key=$(printf '%s' "$win" | tr ':/.' '___')
+  [ "$(cat "$STATE/.stale-$key" 2>/dev/null || true)" = "$h" ] && return
   idle=$(age_of "$STATE/.hash-$key")
   if ! secondmate_idle_is_stale "$task" "$idle" "$STATE"; then
     triage_log "absorbed stale (secondmate idle ${idle}s, healthy for its posture): $win"
     return
   fi
-  [ "$(cat "$STATE/.stale-$key" 2>/dev/null || true)" = "$h" ] && return
   surface_nonterminal_stale "$win" "$h" \
     "stale: $win (secondmate idle ${idle}s with nothing running in its home - its standing loop has stopped)"
 }

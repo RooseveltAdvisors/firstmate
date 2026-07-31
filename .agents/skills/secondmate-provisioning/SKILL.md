@@ -28,7 +28,8 @@ The `home:` path points to the seeded home containing `data/charter.md`; no extr
 The home-seeded `data/charter.md` is the sole owner of boilerplate idle-by-default behavior, the normal delegation lifecycle, and standard escalation contracts, so point to that charter rather than restating those contracts in the registry entry.
 The `scope:` field is used during intake.
 The `projects:` field is a non-exclusive clone list, not ownership.
-One optional field may be inserted among the parenthetical fields as `posture: ping-model;`, and it records only that value, for a secondmate that acts solely on externally timed pings from the main home and is therefore meant to sit quiet between them; omit it for every secondmate that owns a continuous standing loop.
+One optional field may be appended as the very last parenthetical field, after `added <date>`, as `; posture: ping-model`, and it records only that value, for a secondmate that acts solely on externally timed pings from the main home and is therefore meant to sit quiet between them; omit it for every secondmate that owns a continuous standing loop.
+That trailing position is required rather than stylistic: the other readers of this line extract `home:` and `projects:` by fixed field order, so a `posture:` field placed anywhere earlier silently returns an empty `projects:` and corrupts a later respawn.
 Supervision reads it live, so correcting a posture takes effect without restarting the secondmate, and `bin/fm-classify-lib.sh` owns what each posture means for an idle endpoint, including the evergreen default that applies to an absent or unrecognized value.
 
 ## Charter and seed

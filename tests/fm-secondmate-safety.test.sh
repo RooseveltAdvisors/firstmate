@@ -106,7 +106,24 @@ EOF
   if FM_HOME="$home" "$ROOT/bin/fm-home-seed.sh" owner alpha >/dev/null 2>&1; then
     fail "owner subcommand still succeeded after routing moved to scopes"
   fi
-  pass "seed allows overlapping project clone lists and drops the owns/owner routing"
+
+  # posture: is hand-edited supervision policy read live by bin/fm-classify-lib.sh,
+  # and re-seeding an id to its own home is allowed, so the registry rewrite must
+  # carry a recorded posture through instead of silently reverting it to the
+  # evergreen default and stale-waking a secondmate that is behaving correctly.
+  sed 's/^\(- design .*\))$/\1; posture: ping-model)/' "$home/data/secondmates.md" > "$TMP_ROOT/overlap-reg.tmp"
+  mv "$TMP_ROOT/overlap-reg.tmp" "$home/data/secondmates.md"
+  assert_grep '- design ' "$home/data/secondmates.md" "test setup lost the design registry line"
+  assert_grep '; posture: ping-model)' "$home/data/secondmates.md" "test setup failed to record a posture"
+  FM_HOME="$home" FM_SECONDMATE_CHARTER='feature design for alpha beta' \
+    FM_SECONDMATE_SCOPE='feature design for alpha beta' \
+    "$ROOT/bin/fm-home-seed.sh" design "$design" alpha beta >/dev/null \
+    || fail "re-seeding a secondmate to its own home was refused"
+  grep -E -- '^- design .*; posture: ping-model\)$' "$home/data/secondmates.md" >/dev/null \
+    || fail "same-home re-seed dropped the recorded posture: $(grep -F -- '- design ' "$home/data/secondmates.md")"
+  grep -E -- '^- design .*projects: alpha, beta; added ' "$home/data/secondmates.md" >/dev/null \
+    || fail "re-seed left projects unreadable to the position-locked readers"
+  pass "seed allows overlapping project clone lists, drops the owns/owner routing, and preserves a recorded posture across a same-home re-seed"
 }
 
 test_home_seed_validate_rejects_duplicate_homes() {

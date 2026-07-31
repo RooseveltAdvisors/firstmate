@@ -211,7 +211,7 @@ A structurally gone pane becomes `missing`, a restored agent-less shell becomes 
 Unlike tmux process-name inspection, native registration can classify Pi without guessing from a generic interpreter name.
 
 The session-start sweep uses this probe.
-Mid-session secondmate liveness is not implemented because idle secondmates are deliberately exempt from stale-pane escalation and need a separate periodic identity signal.
+Mid-session secondmate liveness is not implemented because an idle secondmate pane is judged by its recorded posture on the watcher's own poll cadence, owned by `bin/fm-classify-lib.sh`, and this probe would still need a separate periodic identity signal.
 
 ## Push events and polling fallback
 

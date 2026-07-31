@@ -409,7 +409,9 @@ FM_SECONDMATE_POSTURE_DEFAULT=evergreen
 # goes quiet between iterations and while its own crews work, so the threshold
 # must clear a whole slow iteration before it accuses the loop of stalling.
 # 45 minutes is an interim value pending real-world tuning;
-# FM_SECONDMATE_IDLE_STALE_SECS overrides it.
+# FM_SECONDMATE_IDLE_STALE_SECS overrides it, and a non-numeric override falls
+# back to this default rather than disabling the test, so a mistyped tunable
+# cannot buy the whole fleet an exemption from supervision.
 FM_SECONDMATE_IDLE_STALE_SECS_DEFAULT=2700
 
 # The posture recorded for secondmate <id>: `ping-model`, else the evergreen
@@ -477,10 +479,12 @@ secondmate_home_has_active_crew() {  # <home>
 # Ordered cheapest test first: a ping-model secondmate and a below-threshold pane
 # both answer before the costly home scan runs.
 secondmate_idle_is_stale() {  # <id> <idle-secs> [state-dir]
-  local id=$1 idle=${2:-} state=${3:-}
+  local id=$1 idle=${2:-} state=${3:-} secs
   [ "$(secondmate_posture "$id")" = ping-model ] && return 1
   case "$idle" in ''|*[!0-9]*) return 1 ;; esac
-  [ "$idle" -ge "${FM_SECONDMATE_IDLE_STALE_SECS:-$FM_SECONDMATE_IDLE_STALE_SECS_DEFAULT}" ] || return 1
+  secs=${FM_SECONDMATE_IDLE_STALE_SECS:-$FM_SECONDMATE_IDLE_STALE_SECS_DEFAULT}
+  case "$secs" in ''|*[!0-9]*) secs=$FM_SECONDMATE_IDLE_STALE_SECS_DEFAULT ;; esac
+  [ "$idle" -ge "$secs" ] || return 1
   ! secondmate_home_has_active_crew "$(secondmate_home_path "$id" "$state")"
 }
 
