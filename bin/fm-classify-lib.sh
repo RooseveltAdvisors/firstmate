@@ -13,13 +13,14 @@
 # daemon keeps its escalation-digest seen-markers; the watcher keeps its .seen-*
 # signatures).
 #
-# The one exception is the absorb classification (crew_absorb_class and its
-# working/paused wrappers). It is NOT a pure status-file read: it reuses
-# bin/fm-crew-state.sh, which may make a bounded no-mistakes call, to decide
-# whether a crew that just stopped its turn or went stale is working, deliberately
-# paused, or neither. Callers run it ONLY on no-verb signal handling and first
-# sighting of a stale hash, never on every wake, so the per-wake triage stays
-# cheap.
+# The exceptions are the absorb classification (crew_absorb_class and its
+# working/paused wrappers) and the secondmate idle-posture test built on it. They
+# are NOT pure status-file reads: they reuse bin/fm-crew-state.sh, which may make
+# a bounded no-mistakes call, to decide whether a crew that just stopped its turn
+# or went stale is working, deliberately paused, or neither. Callers run them ONLY
+# on no-verb signal handling, first sighting of a stale hash, and an idle
+# secondmate already past its posture threshold, never on every wake, so the
+# per-wake triage stays cheap.
 
 # Directory of this library, used to locate the sibling fm-crew-state.sh reader.
 # Resolved at source time from BASH_SOURCE so it works whether sourced by a
@@ -332,9 +333,18 @@ signal_reason_is_actionable() {  # <file> ...
 # run it only on no-verb signal and first-sighting stale paths, never every wake.
 # FM_CREW_STATE_BIN lets tests stub the verdict.
 crew_absorb_class() {  # <id>
-  local id=$1 line state src
+  local id=$1 line
   [ -n "$id" ] || { printf 'none'; return; }
   line=$("$FM_CREW_STATE_BIN" "$id" 2>/dev/null) || true
+  _fm_absorb_class_of_state_line "$line"
+}
+
+# The absorb verdict for one already-read fm-crew-state.sh line, split out of
+# crew_absorb_class so a cross-home read (secondmate_home_has_active_crew) can
+# invoke the same reader against another home's directories and still share this
+# one state -> absorb-class mapping.
+_fm_absorb_class_of_state_line() {  # <state-line>
+  local line=$1 state src
   case "$line" in state:*) ;; *) printf 'none'; return ;; esac
   state=${line#state: }; state=${state%% *}
   if [ "$state" = paused ]; then printf 'paused'; return; fi
@@ -361,6 +371,117 @@ crew_is_provably_working() {  # <id>
 # escalating a possible wedge.
 crew_is_paused() {  # <id>
   [ "$(crew_absorb_class "$1")" = paused ]
+}
+
+# --- secondmate idle posture ------------------------------------------------
+#
+# A secondmate's POSTURE says what an idle endpoint MEANS for that secondmate,
+# and this library is the single owner of that meaning. There are two:
+#
+#   evergreen  - the default. The secondmate owns a continuous standing loop, so
+#                a pane unchanged for FM_SECONDMATE_IDLE_STALE_SECS with nothing
+#                running anywhere in its own home is a STALLED loop, and wakes
+#                firstmate through the ordinary stale path.
+#   ping-model - the secondmate acts only on externally timed pings from the main
+#                home and is DESIGNED to sit quiet between them, so its idle
+#                endpoint stays healthy however long the quiet lasts.
+#
+# Posture describes supervision only. It says nothing about work initiation: an
+# evergreen secondmate with an empty queue still waits for routed work rather
+# than inventing its own, and surfacing its idle pane is what lets firstmate
+# decide which of those two situations it is looking at.
+#
+# The value is recorded per secondmate as an optional `posture:` field in that
+# secondmate's data/secondmates.md route line, whose grammar the
+# secondmate-provisioning skill owns. Reading it live from the registry rather
+# than freezing it into state/<id>.meta at spawn is deliberate: correcting a
+# posture must not require restarting a live secondmate and discarding its
+# session.
+#
+# Anything but an exact `ping-model` - absent field, unregistered id, missing
+# registry, typo - reads as evergreen, so missing or malformed data can never
+# quietly buy a secondmate an exemption from supervision.
+FM_SECONDMATE_POSTURE_DEFAULT=evergreen
+
+# How long an evergreen secondmate's pane may sit byte-identical before that
+# idleness is itself the finding. Deliberately far longer than the wedge
+# threshold (FM_STALE_ESCALATE_SECS, default 240s): a standing loop legitimately
+# goes quiet between iterations and while its own crews work, so the threshold
+# must clear a whole slow iteration before it accuses the loop of stalling.
+# 45 minutes is an interim value pending real-world tuning;
+# FM_SECONDMATE_IDLE_STALE_SECS overrides it.
+FM_SECONDMATE_IDLE_STALE_SECS_DEFAULT=2700
+
+# The posture recorded for secondmate <id>: `ping-model`, else the evergreen
+# default. Pure read of the route registry (default $FM_HOME/data/secondmates.md;
+# the second argument overrides the file for tests and cross-home reads).
+secondmate_posture() {  # <id> [registry-file]
+  local id=$1 reg=${2:-} line value=''
+  if [ -n "$id" ]; then
+    [ -n "$reg" ] || reg="${FM_DATA_OVERRIDE:-${FM_HOME:-.}/data}/secondmates.md"
+    if [ -f "$reg" ]; then
+      line=$(grep -E "^- $id( |$)" "$reg" 2>/dev/null | tail -1 || true)
+      value=$(printf '%s\n' "$line" \
+        | sed -n 's/.*[(;][[:space:]]*posture:[[:space:]]*\([^;)]*\).*/\1/p' \
+        | sed 's/[[:space:]]*$//')
+    fi
+  fi
+  case "$value" in
+    ping-model) printf 'ping-model' ;;
+    *) printf '%s' "$FM_SECONDMATE_POSTURE_DEFAULT" ;;
+  esac
+}
+
+# The home path recorded for secondmate <id> in this home's task metadata
+# (`home=`, written by fm-spawn for every kind=secondmate record). Empty when the
+# record or the field is missing.
+secondmate_home_path() {  # <id> [state-dir]
+  local id=$1 state=${2:-${STATE:-${FM_STATE_OVERRIDE:-${FM_HOME:-.}/state}}} meta
+  [ -n "$id" ] || return 0
+  meta="$state/$id.meta"
+  [ -f "$meta" ] || return 0
+  grep '^home=' "$meta" 2>/dev/null | tail -1 | cut -d= -f2- || true
+}
+
+# 0 when ANY crew recorded in secondmate home <home> is provably working. Runs
+# fm-crew-state.sh - the authoritative run-step and busy-pane read - against that
+# home's own operational directories and maps the verdict through the same
+# absorb-class helper crew_absorb_class uses, so "is anything running in there"
+# is decided exactly as it is everywhere else and never by a status-log tail.
+# An empty, missing, or unreadable home returns 1: a
+# home that cannot be SHOWN to have work under way must not buy its secondmate
+# silence.
+# Costly - one bounded fm-crew-state.sh read per crew in that home - so callers
+# reach it only after the cheap posture and idle-age tests have already passed.
+secondmate_home_has_active_crew() {  # <home>
+  local home=$1 meta cid line
+  [ -n "$home" ] && [ -d "$home/state" ] || return 1
+  for meta in "$home"/state/*.meta; do
+    [ -e "$meta" ] || continue
+    cid=$(basename "$meta")
+    cid=${cid%.meta}
+    [ -n "$cid" ] || continue
+    line=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
+      "$FM_CREW_STATE_BIN" "$cid" 2>/dev/null) || true
+    if [ "$(_fm_absorb_class_of_state_line "$line")" = working ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# 0 when secondmate <id>'s idle endpoint must wake firstmate: an evergreen
+# posture, idle for at least the threshold, and nothing provably working anywhere
+# in its own home. <idle-secs> is how long that pane has been unchanged, which the
+# caller already tracks, so this predicate owns no timer state of its own.
+# Ordered cheapest test first: a ping-model secondmate and a below-threshold pane
+# both answer before the costly home scan runs.
+secondmate_idle_is_stale() {  # <id> <idle-secs> [state-dir]
+  local id=$1 idle=${2:-} state=${3:-}
+  [ "$(secondmate_posture "$id")" = ping-model ] && return 1
+  case "$idle" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$idle" -ge "${FM_SECONDMATE_IDLE_STALE_SECS:-$FM_SECONDMATE_IDLE_STALE_SECS_DEFAULT}" ] || return 1
+  ! secondmate_home_has_active_crew "$(secondmate_home_path "$id" "$state")"
 }
 
 # 0 (benign/absorb) if EVERY task referenced by a no-verb "signal:" wake is provably

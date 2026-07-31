@@ -604,9 +604,17 @@ fi
 [ -n "$BACKEND_TARGET" ] || emit unknown none "no backend target recorded"
 pane_readable "$BACKEND_TARGET" || emit unknown none "backend target gone: $BACKEND_TARGET"
 
-# Secondmates idle on their own watcher (idle pane = healthy), so the busy
-# signature is not meaningful for them; read their state from the status log only.
-if [ "$KIND" != secondmate ] && crew_pane_is_busy "$BACKEND_TARGET"; then
+# A ping-model secondmate is expected to sit quiet between externally timed
+# pings, so a busy signature is not a meaningful current-state source for it;
+# read its state from the status log only. Every other crew - including an
+# evergreen secondmate, which owns a continuous standing loop and is therefore
+# genuinely busy or genuinely stopped like any crewmate - is read from the pane.
+# fm-classify-lib.sh owns the posture contract.
+BUSY_SIGNATURE_MEANINGFUL=1
+if [ "$KIND" = secondmate ] && [ "$(secondmate_posture "$ID")" = ping-model ]; then
+  BUSY_SIGNATURE_MEANINGFUL=0
+fi
+if [ "$BUSY_SIGNATURE_MEANINGFUL" = 1 ] && crew_pane_is_busy "$BACKEND_TARGET"; then
   emit working pane "harness busy"
 fi
 

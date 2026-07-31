@@ -139,8 +139,10 @@ make_no_timeout_toolbin() {  # <dir> -> echoes toolbin path
 
 # Run the helper for one case dir. FM_FAKE_* env (run output, busy flag) are read
 # from the caller's environment by the fakes above.
+# FM_DATA_OVERRIDE keeps the secondmate posture lookup hermetic: without it the
+# helper would resolve data/secondmates.md relative to the runner's own home.
 run_crew_state() {  # <case-dir> <id>
-  PATH="$1/fakebin:$PATH" FM_STATE_OVERRIDE="$1/state" "$CREW_STATE" "$2"
+  PATH="$1/fakebin:$PATH" FM_STATE_OVERRIDE="$1/state" FM_DATA_OVERRIDE="$1/data" "$CREW_STATE" "$2"
 }
 
 new_case() {  # <name> -> echoes case dir with an empty state/
@@ -964,6 +966,40 @@ test_no_run_idle_secondmate_resolved_event_not_state() {
   pass "a trailing resolved: event does not corrupt state render (idle stays idle)"
 }
 
+# The pane busy signature is meaningful for a secondmate only when its posture
+# says the pane should be doing something. An evergreen secondmate owns a
+# continuous standing loop, so its busy pane is real current-state evidence
+# exactly like a crewmate's; a ping-model one is expected to sit quiet between
+# externally timed pings, so its pane stays a non-source and the status log
+# decides. fm-classify-lib.sh owns the posture contract; this pins that
+# fm-crew-state honors it in both directions.
+test_secondmate_busy_pane_follows_posture() {
+  reset_fakes
+  local d out; d=$(new_case secondmate-posture-busy)
+  mkdir -p "$d/wt" "$d/data"
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/loopmate.meta" "window=fm:fm-loopmate" "worktree=$d/wt" "kind=secondmate" "home=$d/wt"
+  fm_write_meta "$d/state/pingmate.meta" "window=fm:fm-pingmate" "worktree=$d/wt" "kind=secondmate" "home=$d/wt"
+  cat > "$d/data/secondmates.md" <<EOF
+- pingmate - runs demo checks on request (home: $d/wt; scope: demos; projects: a; posture: ping-model; added 2026-07-30)
+EOF
+  printf 'working: reconciling routed items\n' > "$d/state/loopmate.status"
+  printf 'working: reconciling routed items\n' > "$d/state/pingmate.status"
+  FM_FAKE_AXI_STATUS=""
+  FM_FAKE_BUSY=1
+  out=$(run_crew_state "$d" loopmate)
+  assert_contains "$out" "source: pane" "an evergreen secondmate's busy pane was not read as current state"
+  assert_contains "$out" "state: working" "an evergreen secondmate's busy pane did not report working"
+  out=$(run_crew_state "$d" pingmate)
+  assert_contains "$out" "source: status-log" "a ping-model secondmate's pane was consulted despite its posture"
+  # Idle again: an evergreen secondmate is no longer masked as busy, and both
+  # postures fall through to the same status-log source.
+  FM_FAKE_BUSY=0
+  out=$(run_crew_state "$d" loopmate)
+  assert_contains "$out" "source: status-log" "an idle evergreen secondmate did not fall through to its status log"
+  pass "the secondmate pane busy signature is read for an evergreen posture and skipped for ping-model"
+}
+
 test_dead_window_ignores_stale_status_log() {
   reset_fakes
   local d; d=$(new_case dead-window)
@@ -1265,6 +1301,7 @@ test_no_run_idle_pane_uses_keyed_log
 test_no_run_idle_pane_paused
 test_no_run_idle_pane_custom_paused_verb
 test_no_run_idle_secondmate_resolved_event_not_state
+test_secondmate_busy_pane_follows_posture
 test_dead_window_ignores_stale_status_log
 test_dead_window_still_reports_terminal_run_step
 test_dead_window_still_reports_active_run_step

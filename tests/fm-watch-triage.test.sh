@@ -275,6 +275,73 @@ test_crew_absorb_class_classifier() {
   pass "crew_absorb_class: working/paused/none from one read; crew_is_paused and crew_is_provably_working agree"
 }
 
+# secondmate_posture reads the optional `posture:` field out of the route
+# registry line. Every path that is not an exact `ping-model` must land on the
+# demanding evergreen default, so a missing registry, an unregistered id, an
+# omitted field, or a typo can never quietly exempt a secondmate from
+# supervision.
+test_secondmate_posture_classifier() {
+  local dir reg
+  dir=$(make_case posture-read); reg="$dir/secondmates.md"
+  [ "$(secondmate_posture mate "$dir/absent.md")" = evergreen ] || fail "missing registry did not default to evergreen"
+  cat > "$reg" <<'EOF'
+- loop - keeps a standing watch (home: /homes/loop; scope: the fleet; projects: a, b; added 2026-07-30)
+- pinged - runs demo checks on request (home: /homes/pinged; scope: demos; projects: a; posture: ping-model; added 2026-07-30)
+- typo - fat-fingered posture (home: /homes/typo; scope: x; projects: a; posture: pingmodel; added 2026-07-30)
+EOF
+  [ "$(secondmate_posture loop "$reg")" = evergreen ] || fail "an omitted posture field did not default to evergreen"
+  [ "$(secondmate_posture pinged "$reg")" = ping-model ] || fail "a recorded ping-model posture was not read"
+  [ "$(secondmate_posture typo "$reg")" = evergreen ] || fail "an unrecognized posture value did not fall back to evergreen"
+  [ "$(secondmate_posture absent "$reg")" = evergreen ] || fail "an unregistered id did not default to evergreen"
+  [ "$(secondmate_posture "" "$reg")" = evergreen ] || fail "an empty id did not default to evergreen"
+  pass "secondmate_posture: only an exact ping-model field exempts; everything else reads evergreen"
+}
+
+# The full idle test, including its threshold boundary and the home scan that
+# keeps a secondmate silent while its own crew is working.
+test_secondmate_idle_is_stale_classifier() {
+  local dir state fakebin home
+  dir=$(make_case posture-idle); state="$dir/state"; fakebin="$dir/fakebin"
+  home="$dir/home"; mkdir -p "$home/state" "$home/data"
+  export FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh"
+  export FM_DATA_OVERRIDE="$dir"
+  cat > "$dir/secondmates.md" <<'EOF'
+- pinged - runs demo checks on request (home: /homes/pinged; scope: demos; projects: a; posture: ping-model; added 2026-07-30)
+EOF
+  fm_write_meta "$state/loop.meta" "window=test:fm-loop" "kind=secondmate" "home=$home"
+  fm_write_meta "$state/pinged.meta" "window=test:fm-pinged" "kind=secondmate" "home=$home"
+
+  export FM_SECONDMATE_IDLE_STALE_SECS=600
+
+  # A ping-model secondmate stays healthy however long it idles.
+  secondmate_idle_is_stale pinged 999999 "$state" && fail "a ping-model secondmate was classed stale while idle"
+
+  # Threshold boundary for the evergreen default: one second short absorbs, the
+  # threshold itself surfaces.
+  secondmate_idle_is_stale loop 599 "$state" && fail "an evergreen secondmate below the threshold was classed stale"
+  secondmate_idle_is_stale loop 600 "$state" || fail "an evergreen secondmate at the threshold was not classed stale"
+  secondmate_idle_is_stale loop notanumber "$state" && fail "a non-numeric idle age was classed stale"
+
+  # Past the threshold, one provably-working crew inside the home keeps it quiet.
+  fm_write_meta "$home/state/homecrew.meta" "window=test:fm-homecrew" "kind=ship"
+  export FM_FAKE_CREW_STATE_homecrew='state: working · source: run-step · validating (running)'
+  secondmate_idle_is_stale loop 999 "$state" && fail "an evergreen secondmate with a working crew in its home was classed stale"
+  secondmate_home_has_active_crew "$home" || fail "a working crew in the home was not detected"
+
+  # The same crew stopped leaves nothing running anywhere in the home.
+  FM_FAKE_CREW_STATE_homecrew='state: unknown · source: none · no current-state source available'
+  secondmate_home_has_active_crew "$home" && fail "a stopped crew in the home was read as active"
+  secondmate_idle_is_stale loop 999 "$state" || fail "an evergreen secondmate idle over a stopped home was not classed stale"
+
+  # An unresolvable home cannot be shown to have work under way, so it must not
+  # buy silence.
+  secondmate_home_has_active_crew "" && fail "an empty home path was read as active"
+  secondmate_home_has_active_crew "$dir/no-such-home" && fail "a missing home was read as active"
+
+  unset FM_FAKE_CREW_STATE_homecrew FM_DATA_OVERRIDE FM_SECONDMATE_IDLE_STALE_SECS
+  pass "secondmate_idle_is_stale: ping-model exempt, threshold boundary exact, active home crew absorbs, stopped home surfaces"
+}
+
 # signal_crew_provably_working: a no-verb "signal:" wake is benign ONLY when EVERY
 # task it references is provably working; if any crew has stopped, or no task can be
 # resolved, it surfaces. Files map to ids by stripping .status / .turn-ended.
@@ -799,11 +866,124 @@ test_secondmate_nonpaused_stale_remains_suppressed() {
     FM_STATE_OVERRIDE="$state" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
   if ! wait_live "$pid" 30; then
-    reap "$pid"; fail "watcher surfaced an ordinary secondmate stale pane: $(cat "$out")"
+    reap "$pid"; fail "watcher surfaced a freshly idle secondmate pane: $(cat "$out")"
   fi
-  [ ! -s "$out" ] || { reap "$pid"; fail "ordinary secondmate stale pane printed a wake reason: $(cat "$out")"; }
+  [ ! -s "$out" ] || { reap "$pid"; fail "freshly idle secondmate pane printed a wake reason: $(cat "$out")"; }
   reap "$pid"
-  pass "a non-paused secondmate retains normal stale suppression"
+  pass "a non-paused secondmate below its posture idle threshold stays suppressed"
+}
+
+# Setup shared by the two posture-driven idle cases below: a kind=secondmate
+# window whose pane has been unchanged since well before the threshold, over an
+# empty home with nothing running in it. Echoes the derived stale key so the
+# caller can assert on suppressor state.
+prime_idle_secondmate() {  # <dir> <task> <window> <capture-file>
+  local dir=$1 task=$2 window=$3 capture_file=$4 state="$1/state" key back
+  mkdir -p "$dir/home/state" "$dir/home/data"
+  printf 'standing by\n' > "$capture_file"
+  fm_write_meta "$state/$task.meta" "window=$window" "kind=secondmate" "home=$dir/home"
+  printf 'working: reconciling routed items\n' > "$state/$task.status"
+  printf '%s' "$(seen_sig "$state/$task.status")" > "$state/.seen-${task}_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  printf '%s' "$(hash_text "standing by")" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  # The pane-hash marker's mtime IS the idle clock, so backdate it rather than
+  # waiting out a real threshold.
+  back=$(( $(date +%s) - 500 ))
+  if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$state/.hash-$key"
+  else touch -m -d "@$back" "$state/.hash-$key"; fi
+  printf '%s\n' "$key"
+}
+
+# The captain's standing directive: an evergreen secondmate owns a continuous
+# loop, so a pane idle past the threshold with nothing running in its own home is
+# a stopped loop and must reach firstmate through the ordinary stale path.
+test_secondmate_evergreen_idle_past_threshold_surfaces() {
+  local dir state fakebin out window key pid queued
+  dir=$(make_case secondmate-evergreen-idle); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; window="test:fm-loopmate"
+  key=$(prime_idle_secondmate "$dir" loopmate "$window" "$dir/pane.txt")
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$dir/pane.txt" \
+    FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$dir/data" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_SECONDMATE_IDLE_STALE_SECS=60 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 40 || { reap "$pid"; fail "watcher did not surface an idle evergreen secondmate"; }
+  grep -F "stale: $window" "$out" >/dev/null || fail "idle evergreen secondmate emitted no stale wake: $(cat "$out")"
+  grep -F "nothing running in its home" "$out" >/dev/null || fail "stale wake omitted why the idle pane is a finding: $(cat "$out")"
+  queued=$(awk -F '\t' -v w="$window" '$3 == "stale" && $4 == w { n++ } END { print n + 0 }' "$state/.wake-queue")
+  [ "$queued" -eq 1 ] || fail "idle evergreen secondmate queued $queued stale wakes, expected 1"
+  [ -s "$state/.stale-$key" ] || fail "the stale suppressor was not advanced, so the same idle hash would re-fire"
+  pass "an evergreen secondmate idle past the threshold over a quiet home surfaces one stale wake"
+}
+
+# The mesh case: a secondmate that runs only on externally timed pings is meant
+# to sit quiet, so no amount of idling makes it stale.
+test_secondmate_pingmodel_idle_never_surfaces() {
+  local dir state fakebin out window pid
+  dir=$(make_case secondmate-pingmodel-idle); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; window="test:fm-pingmate"
+  prime_idle_secondmate "$dir" pingmate "$window" "$dir/pane.txt" >/dev/null
+  mkdir -p "$dir/data"
+  cat > "$dir/data/secondmates.md" <<EOF
+- pingmate - runs demo checks on request (home: $dir/home; scope: demos; projects: a; posture: ping-model; added 2026-07-30)
+EOF
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$dir/pane.txt" \
+    FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$dir/data" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_SECONDMATE_IDLE_STALE_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  if ! wait_live "$pid" 40; then
+    reap "$pid"; fail "watcher surfaced a ping-model secondmate's expected idle pane: $(cat "$out")"
+  fi
+  [ ! -s "$out" ] || { reap "$pid"; fail "ping-model secondmate printed a wake reason: $(cat "$out")"; }
+  reap "$pid"
+  pass "a ping-model secondmate idle past any threshold never surfaces"
+}
+
+# An evergreen secondmate sitting quiet BECAUSE its own crew is working is doing
+# its job; the home scan must absorb it.
+test_secondmate_evergreen_idle_with_working_home_crew_absorbed() {
+  local dir state fakebin out window pid
+  dir=$(make_case secondmate-evergreen-busy-home); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; window="test:fm-busyhome"
+  prime_idle_secondmate "$dir" busyhome "$window" "$dir/pane.txt" >/dev/null
+  fm_write_meta "$dir/home/state/homecrew.meta" "window=test:fm-homecrew" "kind=ship"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$dir/pane.txt" \
+    FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$dir/data" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_FAKE_CREW_STATE_homecrew='state: working · source: run-step · validating (running)' \
+    FM_SECONDMATE_IDLE_STALE_SECS=60 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  if ! wait_live "$pid" 40; then
+    reap "$pid"; fail "watcher surfaced a secondmate whose own crew is working: $(cat "$out")"
+  fi
+  [ ! -s "$out" ] || { reap "$pid"; fail "secondmate with a working home crew printed a wake reason: $(cat "$out")"; }
+  reap "$pid"
+  pass "an evergreen secondmate idle while a crew in its home works is absorbed"
+}
+
+# Scouts and ordinary crewmates never consult posture: an idle scout pane with no
+# captain-relevant status still follows the plain non-terminal stale path.
+test_scout_idle_unaffected_by_secondmate_posture() {
+  local dir state fakebin out window pid
+  dir=$(make_case scout-posture-unaffected); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; window="test:fm-scouty"
+  printf 'standing by\n' > "$dir/pane.txt"
+  fm_write_meta "$state/scouty.meta" "window=$window" "kind=scout"
+  printf 'working: reading the code\n' > "$state/scouty.status"
+  printf '%s' "$(seen_sig "$state/scouty.status")" > "$state/.seen-scouty_status"
+  printf '%s' "$(hash_text "standing by")" > "$state/.hash-$(printf '%s' "$window" | tr ':/.' '___')"
+  printf '1\n' > "$state/.count-$(printf '%s' "$window" | tr ':/.' '___')"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$dir/pane.txt" \
+    FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$dir/data" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_SECONDMATE_IDLE_STALE_SECS=999999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 40 || { reap "$pid"; fail "a stopped scout was not surfaced through the ordinary stale path"; }
+  grep -F "stale: $window" "$out" >/dev/null || fail "stopped scout emitted no stale wake: $(cat "$out")"
+  grep -F "secondmate idle" "$out" >/dev/null && fail "a scout was judged by the secondmate posture rule: $(cat "$out")"
+  pass "scouts keep the ordinary stopped-crew stale path, untouched by secondmate posture"
 }
 
 test_secondmate_unpause_clears_pause_tracking() {
@@ -1277,6 +1457,8 @@ test_classifier_primitives
 test_crew_is_provably_working_classifier
 test_status_is_paused_classifier
 test_crew_absorb_class_classifier
+test_secondmate_posture_classifier
+test_secondmate_idle_is_stale_classifier
 test_signal_crew_provably_working_classifier
 test_provably_working_signal_absorbed
 test_turn_ended_provably_working_absorbed
@@ -1293,6 +1475,10 @@ test_nonterminal_stale_paused_absorbed_then_resurfaced
 test_exited_declared_pause_is_bounded_but_live_gate_surfaces
 test_secondmate_paused_resurfaces_in_normal_mode
 test_secondmate_nonpaused_stale_remains_suppressed
+test_secondmate_evergreen_idle_past_threshold_surfaces
+test_secondmate_pingmodel_idle_never_surfaces
+test_secondmate_evergreen_idle_with_working_home_crew_absorbed
+test_scout_idle_unaffected_by_secondmate_posture
 test_secondmate_unpause_clears_pause_tracking
 test_nonterminal_stale_pause_transitions_reclassify_unchanged_hash
 test_nonterminal_paused_rechecks_authoritative_state

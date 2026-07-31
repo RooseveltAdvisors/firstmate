@@ -30,7 +30,11 @@
 #                          also carries a "demand-deep-inspection" marker so the
 #                          wake payload itself, not just repetition, forces a
 #                          closer look instead of another routine supervision
-#                          resume. Unless afk is active.
+#                          resume. A secondmate is judged by its recorded posture
+#                          instead (fm-classify-lib.sh): a ping-model one's idle
+#                          pane never surfaces, while an evergreen one's surfaces
+#                          once past FM_SECONDMATE_IDLE_STALE_SECS with nothing
+#                          provably working in its own home. Unless afk is active.
 #   check: <script>: <out> authenticated check output, always actionable
 #   check: rejected unauthenticated state checks: <paths>
 #                          unsafe state checks were refused without execution
@@ -378,10 +382,34 @@ pause_state_class() {  # <window> <task>
   printf '%s' "$class"
 }
 
-surface_nonterminal_stale() {  # <window> <hash>
-  local win=$1 h=$2 key task last
+# Triage an idle secondmate pane that declared no pause or captain hold. Only an
+# evergreen secondmate reaches here - the stale backbone skips a non-paused
+# ping-model one outright - and its quiet is a finding only once
+# fm-classify-lib.sh's posture test says so: idle past
+# FM_SECONDMATE_IDLE_STALE_SECS with nothing provably working in its own home.
+# The idle age is the pane-hash marker's own mtime, since the watcher already
+# rewrites .hash-<key> on every pane change, so this needs no timer file of its
+# own. Below the threshold it deliberately does NOT advance the stale suppressor,
+# so the same unchanged hash is re-judged once the threshold passes; past it the
+# ordinary non-terminal stale path surfaces the wake once per distinct hash.
+handle_secondmate_idle_stale() {  # <window> <task> <hash>
+  local win=$1 task=$2 h=$3 key idle
   key=$(printf '%s' "$win" | tr ':/.' '___')
-  fm_wake_append stale "$win" "stale: $win" || exit 1
+  idle=$(age_of "$STATE/.hash-$key")
+  if ! secondmate_idle_is_stale "$task" "$idle" "$STATE"; then
+    triage_log "absorbed stale (secondmate idle ${idle}s, healthy for its posture): $win"
+    return
+  fi
+  [ "$(cat "$STATE/.stale-$key" 2>/dev/null || true)" = "$h" ] && return
+  surface_nonterminal_stale "$win" "$h" \
+    "stale: $win (secondmate idle ${idle}s with nothing running in its home - its standing loop has stopped)"
+}
+
+surface_nonterminal_stale() {  # <window> <hash> [reason]
+  local win=$1 h=$2 reason=${3:-} key task last
+  [ -n "$reason" ] || reason="stale: $win"
+  key=$(printf '%s' "$win" | tr ':/.' '___')
+  fm_wake_append stale "$win" "$reason" || exit 1
   printf '%s' "$h" > "$STATE/.stale-$key"
   rm -f "$STATE/.stale-since-$key"
   task=$(window_to_task "$win" "$STATE")
@@ -393,7 +421,7 @@ surface_nonterminal_stale() {  # <window> <hash>
   else
     rm -f "$STATE/.paused-$key" "$STATE/.paused-rechecked-$key" "$STATE/.paused-resurfaced-$key"
   fi
-  wake "stale: $win"
+  wake "$reason"
 }
 
 # Check and heartbeat cadence must survive actionable exits and restarts: the
@@ -556,10 +584,11 @@ event_wait_or_sleep() {
   while IFS= read -r w; do
     b=$(window_backend "$w")
     fm_backend_has_push "$b" || continue
-    # Secondmate endpoints are supervised via status writes, not pane/agent
-    # state (an idle or blocked secondmate agent pane is healthy by design), so
-    # they are excluded from the fast escalation exactly as the stale loop skips
-    # them.
+    # Secondmate endpoints are supervised via status writes, not sub-second
+    # pane/agent transitions, so they stay off the fast escalation. An evergreen
+    # secondmate's idle pane does now surface, but only after a threshold
+    # measured in tens of minutes (fm-classify-lib.sh), which the poll loop
+    # reaches on its own; this path only ever shortens latency.
     [ "$(window_kind "$w")" = secondmate ] && continue
     session=${w%%:*}
     if [ -z "$first_backend" ]; then first_backend=$b; first_session=$session; fi
@@ -838,7 +867,13 @@ EOF
     if ! status_is_paused_or_captain_held "$last" && [ -e "$STATE/.paused-$key" ]; then
       clear_pause_tracking "$w"
     fi
-    if [ "$kind" = secondmate ] && ! status_is_paused "$last"; then
+    # A ping-model secondmate is DESIGNED to sit quiet between externally timed
+    # pings, so its idle pane is healthy and the stale backbone skips it entirely
+    # unless it declared a pause. An evergreen secondmate owns a standing loop, so
+    # it rides this same backbone and is triaged by posture below.
+    # fm-classify-lib.sh owns what each posture means.
+    if [ "$kind" = secondmate ] && ! status_is_paused "$last" \
+       && [ "$(secondmate_posture "$task")" = ping-model ]; then
       continue
     fi
     tail40=$(fm_backend_capture "$(window_backend "$w")" "$w" 40 "$(window_label "$w")" 2>/dev/null) || continue
@@ -862,10 +897,20 @@ EOF
         # The pane is idle/stale at hash $h. Triage decides whether this wakes
         # firstmate. Detection itself is unchanged from above.
         if [ "$kind" = secondmate ]; then
-          case "$(pause_state_class "$w" "$task")" in
-            paused) handle_paused_stale "$w" "$task" "$h" ;;
-            *)      clear_pause_tracking "$w" ;;
-          esac
+          # A declared pause or captain hold wins for either posture: the wait is
+          # deliberate, so absorb it on the bounded pause cadence. Without one,
+          # only an evergreen secondmate is here, and the posture test decides
+          # whether its quiet is a stopped standing loop. Gating on the status
+          # line first also keeps the costly current-state read off every poll of
+          # an ordinary idle secondmate.
+          if status_is_paused_or_captain_held "$last"; then
+            case "$(pause_state_class "$w" "$task")" in
+              paused) handle_paused_stale "$w" "$task" "$h" ;;
+              *)      clear_pause_tracking "$w" ;;
+            esac
+          else
+            handle_secondmate_idle_stale "$w" "$task" "$h"
+          fi
         elif afk_present; then
           # Daemon owns triage: one-shot per distinct stale hash, as before.
           if [ "$(cat "$sf" 2>/dev/null || true)" != "$h" ]; then
