@@ -481,13 +481,23 @@ secondmate_home_has_active_crew() {  # <home>
 # Ordered cheapest test first: a ping-model secondmate and a below-threshold pane
 # both answer before the costly home scan runs.
 secondmate_idle_is_stale() {  # <id> <idle-secs> [state-dir]
-  local id=$1 idle=${2:-} state=${3:-} secs
+  local id=$1 idle=${2:-} state=${3:-}
+  secondmate_idle_past_threshold "$id" "$idle" || return 1
+  ! secondmate_home_has_active_crew "$(secondmate_home_path "$id" "$state")"
+}
+
+# The whole of that test EXCEPT the costly home scan: 0 when <id>'s posture makes
+# a quiet pane a finding at all and it has been unchanged for at least the
+# threshold. Split out so a caller polling this every cycle can decide when to
+# pay for the scan without re-deriving posture or threshold semantics, which this
+# library still solely owns.
+secondmate_idle_past_threshold() {  # <id> <idle-secs>
+  local id=$1 idle=${2:-} secs
   [ "$(secondmate_posture "$id")" = ping-model ] && return 1
   case "$idle" in ''|*[!0-9]*) return 1 ;; esac
   secs=${FM_SECONDMATE_IDLE_STALE_SECS:-$FM_SECONDMATE_IDLE_STALE_SECS_DEFAULT}
   case "$secs" in ''|*[!0-9]*) secs=$FM_SECONDMATE_IDLE_STALE_SECS_DEFAULT ;; esac
-  [ "$idle" -ge "$secs" ] || return 1
-  ! secondmate_home_has_active_crew "$(secondmate_home_path "$id" "$state")"
+  [ "$idle" -ge "$secs" ]
 }
 
 # 0 (benign/absorb) if EVERY task referenced by a no-verb "signal:" wake is provably

@@ -1033,6 +1033,66 @@ test_secondmate_evergreen_idle_with_working_home_crew_absorbed() {
   pass "an evergreen secondmate idle while a crew in its home works is absorbed"
 }
 
+# Lines in <log> exactly matching crew id <id>, i.e. how many times the stubbed
+# fm-crew-state.sh was invoked for it (0 for a missing or empty log).
+scan_count() {  # <log> <id>
+  local n
+  n=$(grep -c "^$2\$" "$1" 2>/dev/null || true)
+  case "$n" in ''|*[!0-9]*) n=0 ;; esac
+  printf '%s' "$n"
+}
+
+# Wait up to <ticks> 0.1s ticks for <log> to hold at least <n> invocations of <id>.
+wait_scan_count() {  # <log> <id> <n> [ticks]
+  local limit=${4:-40} i=0
+  while [ "$i" -lt "$limit" ]; do
+    [ "$(scan_count "$1" "$2")" -ge "$3" ] && return 0
+    sleep 0.1
+    i=$((i + 1))
+  done
+  return 1
+}
+
+# An evergreen secondmate idling while its own crews work is the normal steady
+# state, and it absorbs WITHOUT advancing the stale suppressor by design, so the
+# costly home scan would otherwise re-run on every poll for as long as that crew
+# works. The per-process memo bounds that, but only for a home that has not
+# changed: a fresh status append in the home must bypass it immediately rather
+# than waiting out the TTL, since that is exactly the state a new scan would read.
+test_secondmate_home_scan_memoized_until_home_changes() {
+  local dir state fakebin out window pid log
+  dir=$(make_case secondmate-home-scan-memo); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; window="test:fm-memohome"; log="$dir/scans.log"
+  prime_idle_secondmate "$dir" memohome "$window" "$dir/pane.txt" >/dev/null
+  fm_write_meta "$dir/home/state/homecrew.meta" "window=test:fm-homecrew" "kind=ship"
+  printf 'working: first pass\n' > "$dir/home/state/homecrew.status"
+  : > "$log"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$dir/pane.txt" \
+    FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$dir/data" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_FAKE_CREW_STATE_homecrew='state: working · source: run-step · validating (running)' \
+    FM_FAKE_CREW_STATE_LOG="$log" \
+    FM_SECONDMATE_IDLE_STALE_SECS=60 FM_POLL=0.2 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_scan_count "$log" homecrew 1 60 || { reap "$pid"; fail "the secondmate's home was never scanned: $(cat "$out")"; }
+  # Many further polls under the TTL against an unchanged home: no rescan.
+  sleep 1.5
+  [ "$(scan_count "$log" homecrew)" -eq 1 ] \
+    || { reap "$pid"; fail "the home was rescanned $(scan_count "$log" homecrew) times for an unchanged absorbing home, expected 1"; }
+
+  # New wake-relevant state in that home must not wait out the TTL.
+  printf 'working: second pass\n' >> "$dir/home/state/homecrew.status"
+  wait_scan_count "$log" homecrew 2 60 \
+    || { reap "$pid"; fail "a fresh status append in the home did not bypass the memoized verdict"; }
+  sleep 1.5
+  [ "$(scan_count "$log" homecrew)" -le 3 ] \
+    || { reap "$pid"; fail "the memo was not re-established after the home changed: $(scan_count "$log" homecrew) scans"; }
+  kill -0 "$pid" 2>/dev/null || { reap "$pid"; fail "the memoized absorb path exited the watcher: $(cat "$out")"; }
+  reap "$pid"
+  [ ! -s "$out" ] || fail "the memoized absorb path printed a wake reason: $(cat "$out")"
+  pass "the secondmate home scan is memoized for an unchanged absorbing home and re-runs at once when that home changes"
+}
+
 # Scouts and ordinary crewmates never consult posture: an idle scout pane with no
 # captain-relevant status still follows the plain non-terminal stale path.
 test_scout_idle_unaffected_by_secondmate_posture() {
@@ -1549,6 +1609,7 @@ test_secondmate_evergreen_idle_past_threshold_surfaces
 test_secondmate_evergreen_idle_afk_gated
 test_secondmate_pingmodel_idle_never_surfaces
 test_secondmate_evergreen_idle_with_working_home_crew_absorbed
+test_secondmate_home_scan_memoized_until_home_changes
 test_scout_idle_unaffected_by_secondmate_posture
 test_secondmate_unpause_clears_pause_tracking
 test_nonterminal_stale_pause_transitions_reclassify_unchanged_hash

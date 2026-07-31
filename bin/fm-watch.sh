@@ -388,6 +388,52 @@ pause_state_class() {  # <window> <task>
   printf '%s' "$class"
 }
 
+# Ceiling on how long a memoized "a crew in this home is working" verdict may
+# stand for an otherwise unchanged home. It covers only the one change no cheap
+# signature can see - a crew that stops without writing anything - so it is far
+# shorter than FM_SECONDMATE_IDLE_STALE_SECS and adds at most this much
+# recognition delay to a stopped standing loop.
+SECONDMATE_HOME_SCAN_TTL_SECS=${FM_SECONDMATE_HOME_SCAN_TTL_SECS:-300}
+
+# Cheap change signature over a secondmate home's own append-only status logs.
+# Any crew in there writing a new line changes this, which is what makes a
+# memoized home verdict bypassed immediately rather than waited out.
+home_status_sig() {  # <home>
+  local home=$1 f out=''
+  [ -n "$home" ] || return 0
+  for f in "$home"/state/*.status; do
+    [ -e "$f" ] || continue
+    out="$out|$(stat_sig "$f")"
+  done
+  printf '%s' "$out"
+}
+
+# Per-process memo for the costly home crew scan (secondmate_home_has_active_crew
+# forks one fm-crew-state.sh per crew in that home, each of which may run a
+# bounded no-mistakes read), mirroring the push-capability memo above. One slot
+# per task, so several idle secondmates do not evict each other, holding
+# "<epoch> <key>" for the last scan that found a working crew. The key carries
+# the absorbing pane hash and that home's status signature, so any new
+# wake-relevant state misses by construction; the TTL bounds only the rest.
+# Process-scoped, so no watcher state file exists to outlive a restart.
+_home_scan_memo_var() {  # <task>
+  printf '_home_scan_memo_%s' "$(printf '%s' "$1" | tr -c 'A-Za-z0-9' '_')"
+}
+
+home_scan_memo_hit() {  # <task> <key>
+  local var val ts
+  var=$(_home_scan_memo_var "$1")
+  val=${!var:-}
+  ts=${val%% *}
+  case "$ts" in ''|*[!0-9]*) return 1 ;; esac
+  [ "${val#* }" = "$2" ] || return 1
+  [ "$(( $(date +%s) - ts ))" -lt "$SECONDMATE_HOME_SCAN_TTL_SECS" ]
+}
+
+home_scan_memo_store() {  # <task> <key>
+  printf -v "$(_home_scan_memo_var "$1")" '%s %s' "$(date +%s)" "$2"
+}
+
 # Triage an idle secondmate pane that declared no pause or captain hold. Only an
 # evergreen secondmate reaches here - the stale backbone skips a non-paused
 # ping-model one outright - and its quiet is a finding only once
@@ -406,8 +452,10 @@ pause_state_class() {  # <window> <task>
 # path emits nothing there and away mode keeps exactly the semantics it had
 # before posture existed - a non-paused secondmate is left alone. A declared
 # pause or captain hold never reaches here and is unaffected.
+# An idle-but-absorbing secondmate deliberately leaves the stale suppressor
+# alone, so only the memo below keeps its home scan off every poll.
 handle_secondmate_idle_stale() {  # <window> <task> <hash>
-  local win=$1 task=$2 h=$3 key idle
+  local win=$1 task=$2 h=$3 key idle home memo_key
   if afk_present; then
     triage_log "skipped secondmate idle triage (away mode owns triage): $win"
     return
@@ -415,8 +463,19 @@ handle_secondmate_idle_stale() {  # <window> <task> <hash>
   key=$(printf '%s' "$win" | tr ':/.' '___')
   [ "$(cat "$STATE/.stale-$key" 2>/dev/null || true)" = "$h" ] && return
   idle=$(age_of "$STATE/.hash-$key")
-  if ! secondmate_idle_is_stale "$task" "$idle" "$STATE"; then
+  if ! secondmate_idle_past_threshold "$task" "$idle"; then
     triage_log "absorbed stale (secondmate idle ${idle}s, healthy for its posture): $win"
+    return
+  fi
+  home=$(secondmate_home_path "$task" "$STATE")
+  memo_key="$h $(home_status_sig "$home")"
+  if home_scan_memo_hit "$task" "$memo_key"; then
+    triage_log "absorbed stale (secondmate idle ${idle}s, memoized working crew in its home): $win"
+    return
+  fi
+  if secondmate_home_has_active_crew "$home"; then
+    home_scan_memo_store "$task" "$memo_key"
+    triage_log "absorbed stale (secondmate idle ${idle}s, a crew in its home is working): $win"
     return
   fi
   surface_nonterminal_stale "$win" "$h" \
