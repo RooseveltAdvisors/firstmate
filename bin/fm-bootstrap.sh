@@ -55,6 +55,10 @@
 #          tasks-axi default backend is silent. quota-axi is required for the
 #          agent-owned dispatch-profile array procedure in AGENTS.md section 4
 #          and .agents/skills/quota-array-dispatch/SKILL.md.
+#          NEEDS_GH_AUTH is OPTED OUT per home by the presence file
+#          config/gh-auth-skip, which skips the `gh auth status` invocation
+#          itself, not merely its diagnostic line - so a silent home with that
+#          flag is unchecked, never proven authenticated.
 #          X mode is OPTIONAL and inert unless FM_HOME/.env has a non-empty
 #          FMX_PAIRING_TOKEN. When opted in, bootstrap requires curl+jq, writes
 #          the relay poll shim and 30s cadence config, and prints an FMX line.
