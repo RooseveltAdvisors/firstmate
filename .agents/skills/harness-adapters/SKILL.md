@@ -341,7 +341,7 @@ Its `Stop` command fires only when the current workspace holds a `.fm-grok-turne
 The hook reads `$GROK_WORKSPACE_ROOT`, which is always set for hooks and equals the worktree.
 This keeps the hook outside the worktree, needs no trust grant, and writes only firstmate-owned files.
 `fm-teardown` removes the worktree pointer before returning a pooled worktree.
-Secondmate spawns skip the pointer (idle panes are healthy, no stale-pane detection for them).
+Secondmate spawns skip the pointer because a secondmate endpoint is supervised through its routed status writes and the watcher's pane-idle posture test, owned by `bin/fm-classify-lib.sh`, rather than a per-turn signal.
 
 **Primary-session guard fact (verified 2026-07-08, Grok 0.2.91).**
 The firstmate PRIMARY's own `.grok/hooks/fm-primary-turnend-guard.json` invokes `bin/fm-turnend-guard-grok.sh`.

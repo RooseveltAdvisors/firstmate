@@ -623,11 +623,12 @@ fi
 # FM_CLASSIFY_RESOLVE_VERB), and any future decision-only sibling - is NOT a state:
 # it exists solely to CLOSE a keyed decision in the durable fold, so a trailing
 # resolved: must never become the current state or leak its resolution prose as the
-# detail. Skipping it lets a just-resolved idle crew (typically a secondmate, which
-# has no busy check above) fall through to the idle default instead of rendering
-# `unknown` with the resolution note as `doing`. map_log_state is the single owner of
-# the verb->state mapping (including the configurable paused verb), so reusing its
-# `unknown` verdict as the "not a state" test needs no second verb list here.
+# detail. Skipping it lets a just-resolved idle crew (typically a ping-model
+# secondmate, the one kind whose busy check above is skipped) fall through to the
+# idle default instead of rendering `unknown` with the resolution note as `doing`.
+# map_log_state is the single owner of the verb->state mapping (including the
+# configurable paused verb), so reusing its `unknown` verdict as the "not a state"
+# test needs no second verb list here.
 if [ -n "$LOG_VERB" ]; then
   LOG_STATE=$(map_log_state "$LOG_LINE")
   if [ "$LOG_STATE" != unknown ]; then
