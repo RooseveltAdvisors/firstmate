@@ -53,24 +53,45 @@ EOF
 # one of these DOD blocks, since a broken heredoc corrupts or empties the
 # generated brief content, not just the script's own syntax.
 test_ship_modes_generate_clean_briefs() {
-  local home id brief status
+  local home spec id proj kind push brief status
   home="$TMP_ROOT/ship-home"
   write_registry "$home"
 
-  for id_proj in "brief-nomistakes-a1:no-registry-proj" "brief-directpr-a2:direct-proj" "brief-localonly-a3:local-proj"; do
-    id=${id_proj%%:*}
-    proj=${id_proj##*:}
-    FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" "$proj" >/dev/null 2>&1; status=$?
+  # <task-id>:<project>:<ship|scout>:<push|nopush>, where push marks the scaffolds
+  # whose Rule 1 permits pushing. Scout and local-only forbid pushing outright
+  # (docs/architecture.md: scout tasks never push), so Rule 3 must not offer them
+  # a `git push` capability, while the never-gh-auth half stays universal.
+  for spec in "brief-nomistakes-a1:no-registry-proj:ship:push" \
+              "brief-directpr-a2:direct-proj:ship:push" \
+              "brief-localonly-a3:local-proj:ship:nopush" \
+              "brief-scoutmode-a4:scout-proj:scout:nopush"; do
+    IFS=: read -r id proj kind push <<<"$spec"
+    if [ "$kind" = scout ]; then
+      FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" "$proj" --scout >/dev/null 2>&1; status=$?
+    else
+      FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" "$proj" >/dev/null 2>&1; status=$?
+    fi
     expect_code 0 "$status" "fm-brief.sh $id $proj should exit 0"
     brief="$home/data/$id/brief.md"
     assert_present "$brief" "$id: brief was not scaffolded"
     assert_grep "# Definition of done" "$brief" "$id: brief missing Definition of done section"
     assert_grep "{TASK}" "$brief" "$id: brief missing the {TASK} placeholder"
-    assert_grep "mid-task \`working:\` line (including setup complete) is nonterminal" "$brief" \
+    [ "$kind" = scout ] || assert_grep "mid-task \`working:\` line (including setup complete) is nonterminal" "$brief" \
       "$id: brief missing nonterminal working:/setup-complete gate protection"
     assert_no_grep "EOF" "$brief" "$id: brief leaked a heredoc EOF marker (unterminated heredoc)"
+    assert_grep "Never run \`gh auth status\` or \`gh auth login\`" "$brief" \
+      "$id: brief lost the universal never-gh-auth rule"
+    assert_grep "append \`blocked:\` with the exact error and stop; never try to re-authenticate" "$brief" \
+      "$id: brief lost the universal blocked-on-GitHub-failure instruction"
+    if [ "$push" = push ]; then
+      assert_grep "ordinary \`gh-axi\` API operations and \`git push\` over SSH do work" "$brief" \
+        "$id: push-capable brief lost the GitHub capability clause"
+    else
+      assert_no_grep "\`git push\` over SSH do work" "$brief" \
+        "$id: brief whose Rule 1 forbids pushing was offered a git push capability"
+    fi
   done
-  pass "fm-brief.sh: no-mistakes/direct-PR/local-only briefs generate cleanly"
+  pass "fm-brief.sh: no-mistakes/direct-PR/local-only/scout briefs generate cleanly with mode-scoped GitHub rules"
 }
 
 test_faster_paths_use_configured_authority_without_stacked_review() {

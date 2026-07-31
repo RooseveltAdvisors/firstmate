@@ -226,6 +226,7 @@ EOF
 )
 fi
 
+GH_PUSH_CLAUSE=" Within what rule 1 permits, ordinary \`gh-axi\` API operations and \`git push\` over SSH do work - use them when the task genuinely needs GitHub."
 GH_CAPABILITY=''
 
 if [ "$KIND" = scout ]; then
@@ -287,7 +288,7 @@ case "$MODE" in
   direct-PR)
     SETUP2=""
     RULE1='1. Never push to the default branch (push only your `fm/'"$ID"'` branch). Never merge a PR.'
-    GH_CAPABILITY=" Within what rule 1 permits, ordinary \`gh-axi\` API operations and \`git push\` over SSH do work - use them when the task genuinely needs GitHub."
+    GH_CAPABILITY="$GH_PUSH_CLAUSE"
     DOD=$(cat <<EOF
 # Definition of done
 This project ships **direct-PR**: you raise the PR yourself, without the no-mistakes pipeline.
@@ -314,7 +315,7 @@ EOF
     SETUP2="
 2. Run \`no-mistakes doctor\`; if it reports the repo is not initialized here, run \`no-mistakes init\`."
     RULE1='1. Never push to the default branch. Never merge a PR.'
-    GH_CAPABILITY=" Within what rule 1 permits, ordinary \`gh-axi\` API operations and \`git push\` over SSH do work - use them when the task genuinely needs GitHub."
+    GH_CAPABILITY="$GH_PUSH_CLAUSE"
     DOD=$(cat <<EOF
 # Definition of done
 The task is complete only when committed on your branch.
