@@ -398,19 +398,68 @@ test_bootstrap_state_failure_cleans_client_and_child() {
   pass "fm-herdr-lab: state-write rollback stops both owned bootstrap processes"
 }
 
-test_bootstrap_workspace_failure_rolls_back_journaled_pane() {
-  local name="fm-lab-bootstrap-workspace-failure-$$" status=0
+test_bootstrap_pending_zero_pids_cleanup() {
+  local name="fm-lab-bootstrap-zero-pids-$$" dir pane owner
+  : > "$FAKE_LOG"
+  run_with_fake fm_herdr_lab_provision "$name" || fail "zero-PID fixture provision failed"
+  dir="$TRIPWIRES/$name.bootstrap-client"
+  pane="$name:w1:p1"
+  owner="fm-herdr-lab:${name}:1:1:1"
+  mkdir "$dir"
+  chmod 700 "$dir"
+  run_with_fake fm_herdr_lab_write_bootstrap_record \
+    "$name" "" "" "" "" "$owner" "$pane" || fail "zero-PID pending record write failed"
+  printf '%s\n' "$pane" > "$FAKE_STATE/$name.pane"
+  run_with_fake fm_herdr_lab_stop_bootstrap_client "$name" 1 \
+    || fail "zero-PID pending cleanup did not close its exact pane"
+  assert_absent "$TRIPWIRES/$name.bootstrap-client" \
+    "zero-PID pending cleanup left its retired state behind"
+  assert_absent "$FAKE_STATE/$name.pane" \
+    "zero-PID pending cleanup left its exact pane behind"
+  run_with_fake fm_herdr_lab_teardown "$name" || fail "teardown after zero-PID cleanup failed"
+  pass "fm-herdr-lab: pending zero PIDs are absent before cleanup ownership checks"
+}
+
+test_bootstrap_workspace_failure_retains_unresolved_pane() {
+  local name="fm-lab-bootstrap-workspace-failure-$$" status=0 saved server_pid
   : > "$FAKE_LOG"
   run_with_fake fm_herdr_lab_provision "$name" || fail "workspace-failure fixture provision failed"
+  saved=$(declare -f fm_herdr_lab_raw)
+  eval "$(declare -f fm_herdr_lab_raw | sed '1s/fm_herdr_lab_raw/fm_herdr_lab_raw_original/')"
+  fm_herdr_lab_raw() {
+    local out
+    out=$(fm_herdr_lab_raw_original "$@") || {
+      if [ "${2:-} ${3:-}" = "workspace create" ]; then
+        printf '%s\n' "$name:foreign:w9:p9" > "$FAKE_STATE/$name.pane"
+      fi
+      return 1
+    }
+    printf '%s\n' "$out"
+  }
   FM_FAKE_HERDR_WORKSPACE_CREATE_FAIL_AFTER_PANE=1 \
     run_with_fake fm_herdr_lab_bootstrap_pane "$name" >/dev/null 2>&1 || status=$?
+  eval "$saved"
+  unset -f fm_herdr_lab_raw_original
   expect_code 1 "$status" "workspace creation failure after pane visibility must fail"
-  assert_absent "$TRIPWIRES/$name.bootstrap-client" \
-    "workspace creation failure left journaled client state after rollback"
-  assert_absent "$FAKE_STATE/$name.pane" \
-    "workspace creation failure left the externally visible pane behind"
-  run_with_fake fm_herdr_lab_teardown "$name" || fail "teardown after workspace creation rollback failed"
-  pass "fm-herdr-lab: journaled workspace failures roll back the pane and client state"
+  assert_present "$TRIPWIRES/$name.bootstrap-client/client.state" \
+    "workspace creation failure discarded unresolved pane evidence"
+  [ "$(cat "$FAKE_STATE/$name.pane")" = "$name:foreign:w9:p9" ] \
+    || fail "workspace creation failure changed the foreign pane fixture"
+  ! grep -F "pane close $name:foreign:w9:p9" "$FAKE_LOG" >/dev/null \
+    || fail "pending cleanup inferred ownership from a single foreign pane"
+  status=0
+  run_with_fake fm_herdr_lab_stop "$name" >/dev/null 2>&1 || status=$?
+  expect_code 1 "$status" "stop must retain unresolved pending pane evidence"
+  assert_present "$TRIPWIRES/$name.bootstrap-client/client.state" \
+    "stop discarded unresolved pending pane evidence"
+  ! grep -F "session stop $name" "$FAKE_LOG" >/dev/null \
+    || fail "unresolved pending pane reached session stop"
+  server_pid=$(cat "$FAKE_STATE/$name.server-pid")
+  kill -TERM "$server_pid" 2>/dev/null || true
+  rm -rf "$TRIPWIRES/$name.bootstrap-client" "$FAKE_STATE/sessions/$name"
+  rm -f "$TRIPWIRES/$name.fleet-state.json" "$TRIPWIRES/$name.session-identity.json" \
+    "$FAKE_STATE/$name" "$FAKE_STATE/$name.server-pid" "$FAKE_STATE/$name.pane"
+  pass "fm-herdr-lab: unresolved pending pane cleanup retains evidence and fails closed"
 }
 
 test_bootstrap_post_create_ownership_failure_retains_journal() {
@@ -686,7 +735,8 @@ test_failed_delete_retains_tripwire
 test_timed_out_provision_cancels_late_launch
 test_stop_failure_is_propagated
 test_bootstrap_state_failure_cleans_client_and_child
-test_bootstrap_workspace_failure_rolls_back_journaled_pane
+test_bootstrap_pending_zero_pids_cleanup
+test_bootstrap_workspace_failure_retains_unresolved_pane
 test_bootstrap_post_create_ownership_failure_retains_journal
 test_bootstrap_record_retirement_retains_state_on_unexpected_entry
 test_bootstrap_pane_is_scoped_owned_and_cleaned

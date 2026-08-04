@@ -790,33 +790,31 @@ fm_herdr_lab_stop_recorded_process() { # <pid> <start> <owner> <label>
 
 fm_herdr_lab_stop_owned_processes() { # <client-pid> <client-start> <attach-pid> <attach-start> <owner>
   local client_pid=$1 client_start=$2 attach_pid=$3 attach_start=$4 owner=$5 status=0
-  if [ -n "$attach_pid" ]; then
+  if [[ "$attach_pid" =~ ^[0-9]+$ ]] && [ "$attach_pid" -gt 1 ]; then
     fm_herdr_lab_stop_recorded_process "$attach_pid" "$attach_start" "$owner" "bootstrap PTY child" || status=$?
   fi
-  if [ -n "$client_pid" ]; then
+  if [[ "$client_pid" =~ ^[0-9]+$ ]] && [ "$client_pid" -gt 1 ]; then
     fm_herdr_lab_stop_recorded_process "$client_pid" "$client_start" "$owner" "bootstrap client" || status=$?
     wait "$client_pid" 2>/dev/null || true
   fi
   return "$status"
 }
 
-fm_herdr_lab_discover_bootstrap_pane() { # <session>
-  local name=$1 panes pane_count pane
+fm_herdr_lab_require_no_bootstrap_panes() { # <session>
+  local name=$1 panes pane_count
   panes=$(fm_herdr_lab_cli "$name" pane list 2>/dev/null) || return 1
-  pane_count=$(printf '%s' "$panes" | jq -er '
-    select((.result.panes | type) == "array") | (.result.panes | length)
-  ' 2>/dev/null) || return 1
-  case "$pane_count" in
-    0) return 2 ;;
-    1)
-      pane=$(printf '%s' "$panes" | jq -er '
-        .result.panes[0].pane_id | select(type == "string" and length > 0)
-      ' 2>/dev/null) || return 1
-      [[ "$pane" =~ ^[a-zA-Z0-9_:\-]+$ ]] || return 1
-      printf '%s\n' "$pane"
-      ;;
-    *) return 1 ;;
-  esac
+  pane_count=$(printf '%s' "$panes" | jq -es '
+    if length != 1 then error("expected one pane-list document") else .[0] end
+    | .result.panes
+    | if type == "array" then length else error("pane inventory is not an array") end
+  ' 2>/dev/null) || {
+    fm_herdr_lab_error "bootstrap pane inventory is unreadable during pending cleanup"
+    return 1
+  }
+  [ "$pane_count" -eq 0 ] || {
+    fm_herdr_lab_error "bootstrap pane identity is unresolved in '$name'; retaining cleanup evidence"
+    return 1
+  }
 }
 
 fm_herdr_lab_bootstrap_dir_entries_safe() { # <dir> <record> <log>
@@ -941,7 +939,7 @@ fm_herdr_lab_close_bootstrap_pane() { # <session> <pane>
 }
 
 fm_herdr_lab_stop_bootstrap_client() { # <session>
-  local name=$1 close_pane=${2:-0} dir pane pending pane_status=0
+  local name=$1 close_pane=${2:-0} dir pane pending
   fm_herdr_lab_recover_bootstrap_retirement "$name" || return 1
   dir=$(fm_herdr_lab_bootstrap_dir "$name")
   [ ! -e "$dir" ] && [ ! -L "$dir" ] && return 0
@@ -957,20 +955,8 @@ fm_herdr_lab_stop_bootstrap_client() { # <session>
   if [ "$pending" = 1 ]; then
     fm_herdr_lab_require_owned_session "$name" any || return 1
     if [ -z "$pane" ]; then
-      pane=$(fm_herdr_lab_discover_bootstrap_pane "$name" 2>/dev/null) || pane_status=$?
-      case "$pane_status" in
-        0)
-          fm_herdr_lab_write_bootstrap_record \
-            "$name" "" "" "" "" "$FM_HERDR_LAB_BOOTSTRAP_OWNER" "$pane" || return 1
-          ;;
-        2) pane= ;;
-        *)
-          fm_herdr_lab_error "bootstrap cleanup could not identify the pending pane in '$name'"
-          return 1
-          ;;
-      esac
-    fi
-    if [ -n "$pane" ]; then
+      fm_herdr_lab_require_no_bootstrap_panes "$name" || return 1
+    else
       fm_herdr_lab_close_bootstrap_pane "$name" "$pane" || return 1
     fi
   elif [ "$close_pane" = 1 ] && [ -n "$pane" ]; then
@@ -980,7 +966,7 @@ fm_herdr_lab_stop_bootstrap_client() { # <session>
 }
 
 fm_herdr_lab_cleanup_bootstrap_attempt() { # <session> <pane> <client-pid> <client-start> <attach-pid> <attach-start> <owner>
-  local name=$1 pane=$2 client_pid=$3 client_start=$4 attach_pid=$5 attach_start=$6 owner=$7 status=0 pane_status=0
+  local name=$1 pane=$2 client_pid=$3 client_start=$4 attach_pid=$5 attach_start=$6 owner=$7 status=0
   if fm_herdr_lab_read_bootstrap_record "$name" >/dev/null 2>&1; then
     [ -n "$pane" ] || pane=$FM_HERDR_LAB_BOOTSTRAP_PANE
   else
@@ -991,15 +977,7 @@ fm_herdr_lab_cleanup_bootstrap_attempt() { # <session> <pane> <client-pid> <clie
   if [ "$status" -eq 0 ] && [ -z "$pane" ]; then
     fm_herdr_lab_require_owned_session "$name" any || status=$?
     if [ "$status" -eq 0 ]; then
-      pane=$(fm_herdr_lab_discover_bootstrap_pane "$name" 2>/dev/null) || pane_status=$?
-      case "$pane_status" in
-        0)
-          fm_herdr_lab_write_bootstrap_record \
-            "$name" "" "" "" "" "$owner" "$pane" || status=$?
-          ;;
-        2) pane= ;;
-        *) status=1 ;;
-      esac
+      fm_herdr_lab_require_no_bootstrap_panes "$name" || status=$?
     fi
   fi
   if [ "$status" -eq 0 ] && [ -n "$pane" ]; then
