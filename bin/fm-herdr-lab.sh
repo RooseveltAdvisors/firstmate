@@ -107,10 +107,14 @@ fm_herdr_lab_path_identity() { # <path>
   local path=$1
   [ -e "$path" ] && [ ! -L "$path" ] || return 1
   if [ "$(uname -s 2>/dev/null)" = Darwin ]; then
-    stat -f '%d:%i' "$path" 2>/dev/null
+    stat -f '%d:%i:%z:%m:%c' "$path" 2>/dev/null
   else
-    stat -c '%d:%i' "$path" 2>/dev/null
+    stat -c '%d:%i:%s:%Y:%Z:%y:%z' "$path" 2>/dev/null | tr -d ' '
   fi
+}
+
+fm_herdr_lab_path_identity_key() { # <identity>
+  printf '%s' "$1" | cut -d: -f1-2
 }
 
 fm_herdr_lab_session_snapshot() { # <session>
@@ -192,7 +196,57 @@ fm_herdr_lab_write_session_identity() { # <session> <server-pid> <server-start> 
     --argjson server_pid "$server_pid" \
     --arg server_start "$server_start" \
     --arg owner "$owner" \
-    '{name:$name,socket_path:$socket,socket_dir_identity:$socket_dir_identity,socket_identity:$socket_identity,server_pid:$server_pid,server_start:$server_start,owner:$owner}' \
+    '{name:$name,socket_path:$socket,socket_dir_identity:$socket_dir_identity,socket_identity:$socket_identity,server_pid:$server_pid,server_start:$server_start,owner:$owner,state:"running"}' \
+    > "$tmp") || { rm -f "$tmp"; return 1; }
+  mv "$tmp" "$record"
+}
+
+fm_herdr_lab_write_stopped_session_identity() { # <session>
+  local name=$1 snapshot socket socket_dir current_dir_identity record tmp
+  fm_herdr_lab_read_session_identity "$name" || return 1
+  [ "$FM_HERDR_LAB_IDENTITY_STATE" = running ] || {
+    fm_herdr_lab_error "named session identity for '$name' was not running before stop"
+    return 1
+  }
+  snapshot=$(fm_herdr_lab_session_snapshot "$name") || {
+    fm_herdr_lab_error "cannot read the stopped named session identity for '$name'"
+    return 1
+  }
+  printf '%s' "$snapshot" | jq -e --arg name "$name" --arg socket "$FM_HERDR_LAB_IDENTITY_SOCKET" '
+    .name == $name
+    and .default == false
+    and .running == false
+    and .socket_path == $socket
+  ' >/dev/null 2>&1 || {
+    fm_herdr_lab_error "named session '$name' did not stop with its owned identity"
+    return 1
+  }
+  socket=$FM_HERDR_LAB_IDENTITY_SOCKET
+  socket_dir=${socket%/*}
+  [ "$socket_dir" != "$socket" ] || socket_dir=.
+  current_dir_identity=$(fm_herdr_lab_path_identity "$socket_dir") || {
+    fm_herdr_lab_error "cannot identify the stopped named session directory for '$name'"
+    return 1
+  }
+  [ "$(fm_herdr_lab_path_identity_key "$current_dir_identity")" = \
+    "$(fm_herdr_lab_path_identity_key "$FM_HERDR_LAB_IDENTITY_SOCKET_DIR")" ] || {
+      fm_herdr_lab_error "stopped named session directory identity changed for '$name'"
+      return 1
+    }
+  [ ! -e "$socket" ] && [ ! -L "$socket" ] || {
+    fm_herdr_lab_error "stopped named session '$name' retained an ambiguous socket"
+    return 1
+  }
+  record=$(fm_herdr_lab_identity_path "$name")
+  tmp="$record.tmp.$$"
+  (umask 077; jq -nc \
+    --arg name "$name" \
+    --arg socket "$socket" \
+    --arg socket_dir_identity "$current_dir_identity" \
+    --argjson server_pid "$FM_HERDR_LAB_IDENTITY_SERVER_PID" \
+    --arg server_start "$FM_HERDR_LAB_IDENTITY_SERVER_START" \
+    --arg owner "$FM_HERDR_LAB_IDENTITY_OWNER" \
+    '{name:$name,socket_path:$socket,socket_dir_identity:$socket_dir_identity,socket_identity:"absent",server_pid:$server_pid,server_start:$server_start,owner:$owner,state:"stopped"}' \
     > "$tmp") || { rm -f "$tmp"; return 1; }
   mv "$tmp" "$record"
 }
@@ -215,7 +269,9 @@ fm_herdr_lab_read_session_identity() { # <session>; sets FM_HERDR_LAB_IDENTITY_*
     | select((.server_pid | type) == "number")
     | select((.server_start | type) == "string")
     | select((.owner | type) == "string")
-    | [.name,.socket_path,.socket_dir_identity,.socket_identity,.server_pid,.server_start,.owner]
+    | select((.state | type) == "string")
+    | select(.state == "running" or .state == "stopped")
+    | [.name,.socket_path,.socket_dir_identity,.socket_identity,.server_pid,.server_start,.owner,.state]
     | @tsv
   ' "$record" 2>/dev/null) || {
     fm_herdr_lab_error "named session identity for '$name' is malformed"
@@ -228,14 +284,16 @@ fm_herdr_lab_read_session_identity() { # <session>; sets FM_HERDR_LAB_IDENTITY_*
     FM_HERDR_LAB_IDENTITY_SOCKET_STAT \
     FM_HERDR_LAB_IDENTITY_SERVER_PID \
     FM_HERDR_LAB_IDENTITY_SERVER_START \
-    FM_HERDR_LAB_IDENTITY_OWNER <<< "$identity"
+    FM_HERDR_LAB_IDENTITY_OWNER \
+    FM_HERDR_LAB_IDENTITY_STATE <<< "$identity"
   [ "$FM_HERDR_LAB_IDENTITY_NAME" = "$name" ] \
-    && [[ "$FM_HERDR_LAB_IDENTITY_SOCKET_DIR" =~ ^[0-9]+:[0-9]+$ ]] \
-    && [[ "$FM_HERDR_LAB_IDENTITY_SOCKET_STAT" =~ ^[0-9]+:[0-9]+$ ]] \
+    && [[ "$FM_HERDR_LAB_IDENTITY_SOCKET_DIR" =~ ^[0-9A-Za-z:+._-]+$ ]] \
+    && { [ "$FM_HERDR_LAB_IDENTITY_SOCKET_STAT" = absent ] || [[ "$FM_HERDR_LAB_IDENTITY_SOCKET_STAT" =~ ^[0-9A-Za-z:+._-]+$ ]]; } \
     && [[ "$FM_HERDR_LAB_IDENTITY_SERVER_PID" =~ ^[0-9]+$ ]] \
     && [ "$FM_HERDR_LAB_IDENTITY_SERVER_PID" -gt 1 ] \
     && [ -n "$FM_HERDR_LAB_IDENTITY_SERVER_START" ] \
-    && [[ "$FM_HERDR_LAB_IDENTITY_OWNER" =~ ^fm-herdr-lab-session:${name}:[0-9]+:[0-9]+:[0-9]+$ ]] || {
+    && [[ "$FM_HERDR_LAB_IDENTITY_OWNER" =~ ^fm-herdr-lab-session:${name}:[0-9]+:[0-9]+:[0-9]+$ ]] \
+    && [[ "$FM_HERDR_LAB_IDENTITY_STATE" = running || "$FM_HERDR_LAB_IDENTITY_STATE" = stopped ]] || {
       fm_herdr_lab_error "named session identity for '$name' is malformed or mismatched"
       return 1
     }
@@ -284,6 +342,10 @@ fm_herdr_lab_require_owned_session() { # <session> <true|false|any>
     return 1
   }
   if [ "$running" = true ]; then
+    [ "$FM_HERDR_LAB_IDENTITY_STATE" = running ] || {
+      fm_herdr_lab_error "named session '$name' became running without its recorded helper-owned server"
+      return 1
+    }
     fm_herdr_lab_session_process_is_owned \
       "$FM_HERDR_LAB_IDENTITY_SERVER_PID" \
       "$FM_HERDR_LAB_IDENTITY_SERVER_START" \
@@ -299,13 +361,23 @@ fm_herdr_lab_require_owned_session() { # <session> <true|false|any>
       fm_herdr_lab_error "named session socket identity changed for '$name'"
       return 1
     }
-  elif [ -e "$socket" ] || [ -L "$socket" ]; then
-    current_socket_identity=$(fm_herdr_lab_path_identity "$socket") || {
-      fm_herdr_lab_error "named session socket for stopped '$name' is ambiguous"
+  else
+    [ "$FM_HERDR_LAB_IDENTITY_STATE" = stopped ] || {
+      fm_herdr_lab_error "named session '$name' stopped without a helper-owned stop receipt"
       return 1
     }
-    [ "$current_socket_identity" = "$FM_HERDR_LAB_IDENTITY_SOCKET_STAT" ] || {
-      fm_herdr_lab_error "named session socket identity changed for '$name'"
+    if [ -e "$socket" ] || [ -L "$socket" ]; then
+      current_socket_identity=$(fm_herdr_lab_path_identity "$socket") || {
+        fm_herdr_lab_error "named session socket for stopped '$name' is ambiguous"
+        return 1
+      }
+      [ "$current_socket_identity" = "$FM_HERDR_LAB_IDENTITY_SOCKET_STAT" ] || {
+        fm_herdr_lab_error "named session socket identity changed for stopped '$name'"
+        return 1
+      }
+    fi
+    [ "$FM_HERDR_LAB_IDENTITY_SOCKET_STAT" = absent ] || {
+      fm_herdr_lab_error "stopped named session '$name' has an unexpected recorded socket"
       return 1
     }
   fi
@@ -603,6 +675,8 @@ fm_herdr_lab_single_child_pid() { # <pid>
 
 fm_herdr_lab_write_bootstrap_record() { # <session> <client-pid> <client-start> <attach-pid> <attach-start> <owner> [pane]
   local name=$1 client_pid=$2 client_start=$3 attach_pid=$4 attach_start=$5 owner=$6 pane=${7:-} record tmp
+  [ -n "$client_pid" ] || { client_pid=0; client_start=pending; }
+  [ -n "$attach_pid" ] || { attach_pid=0; attach_start=pending; }
   record=$(fm_herdr_lab_bootstrap_record_path "$name")
   tmp="$record.tmp.$$"
   (umask 077; printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
@@ -631,17 +705,28 @@ fm_herdr_lab_read_bootstrap_record() { # <session>; sets FM_HERDR_LAB_BOOTSTRAP_
   [ -z "$extra" ] \
     && [ "$FM_HERDR_LAB_BOOTSTRAP_SESSION" = "$name" ] \
     && [[ "$FM_HERDR_LAB_BOOTSTRAP_PID" =~ ^[0-9]+$ ]] \
-    && [ -n "$FM_HERDR_LAB_BOOTSTRAP_START" ] \
     && [[ "$FM_HERDR_LAB_BOOTSTRAP_ATTACH_PID" =~ ^[0-9]+$ ]] \
-    && [ -n "$FM_HERDR_LAB_BOOTSTRAP_ATTACH_START" ] \
     && [[ "$FM_HERDR_LAB_BOOTSTRAP_OWNER" =~ ^fm-herdr-lab:${name}:[0-9]+:[0-9]+:[0-9]+$ ]] \
-    && [ "$FM_HERDR_LAB_BOOTSTRAP_PID" -gt 1 ] \
-    && [ "$FM_HERDR_LAB_BOOTSTRAP_ATTACH_PID" -gt 1 ] \
-    && [ "$FM_HERDR_LAB_BOOTSTRAP_PID" != "$FM_HERDR_LAB_BOOTSTRAP_ATTACH_PID" ] \
     && { [ -z "$FM_HERDR_LAB_BOOTSTRAP_PANE" ] || [[ "$FM_HERDR_LAB_BOOTSTRAP_PANE" =~ ^[a-zA-Z0-9_:\-]+$ ]]; } || {
       fm_herdr_lab_error "bootstrap client state for '$name' is malformed or mismatched"
       return 1
     }
+  FM_HERDR_LAB_BOOTSTRAP_PENDING=0
+  if [ "$FM_HERDR_LAB_BOOTSTRAP_PID" -eq 0 ] \
+     && [ "$FM_HERDR_LAB_BOOTSTRAP_ATTACH_PID" -eq 0 ] \
+     && [ "$FM_HERDR_LAB_BOOTSTRAP_START" = pending ] \
+     && [ "$FM_HERDR_LAB_BOOTSTRAP_ATTACH_START" = pending ]; then
+    FM_HERDR_LAB_BOOTSTRAP_PENDING=1
+  elif [ "$FM_HERDR_LAB_BOOTSTRAP_PID" -gt 1 ] \
+       && [ "$FM_HERDR_LAB_BOOTSTRAP_ATTACH_PID" -gt 1 ] \
+       && [ "$FM_HERDR_LAB_BOOTSTRAP_PID" != "$FM_HERDR_LAB_BOOTSTRAP_ATTACH_PID" ] \
+       && [ -n "$FM_HERDR_LAB_BOOTSTRAP_START" ] \
+       && [ -n "$FM_HERDR_LAB_BOOTSTRAP_ATTACH_START" ]; then
+    :
+  else
+    fm_herdr_lab_error "bootstrap client state for '$name' has an invalid lifecycle"
+    return 1
+  fi
 }
 
 fm_herdr_lab_process_is_owned() { # <pid> <start> <owner>
@@ -651,6 +736,10 @@ fm_herdr_lab_process_is_owned() { # <pid> <start> <owner>
 }
 
 fm_herdr_lab_require_bootstrap_processes() { # uses FM_HERDR_LAB_BOOTSTRAP_*
+  [ "${FM_HERDR_LAB_BOOTSTRAP_PENDING:-0}" -eq 0 ] || {
+    fm_herdr_lab_error "bootstrap client state is still pending pane mutation"
+    return 1
+  }
   fm_herdr_lab_process_is_owned \
     "$FM_HERDR_LAB_BOOTSTRAP_PID" "$FM_HERDR_LAB_BOOTSTRAP_START" "$FM_HERDR_LAB_BOOTSTRAP_OWNER" \
     && fm_herdr_lab_process_is_owned \
@@ -711,16 +800,96 @@ fm_herdr_lab_stop_owned_processes() { # <client-pid> <client-start> <attach-pid>
   return "$status"
 }
 
+fm_herdr_lab_discover_bootstrap_pane() { # <session>
+  local name=$1 panes pane_count pane
+  panes=$(fm_herdr_lab_cli "$name" pane list 2>/dev/null) || return 1
+  pane_count=$(printf '%s' "$panes" | jq -er '
+    select((.result.panes | type) == "array") | (.result.panes | length)
+  ' 2>/dev/null) || return 1
+  case "$pane_count" in
+    0) return 2 ;;
+    1)
+      pane=$(printf '%s' "$panes" | jq -er '
+        .result.panes[0].pane_id | select(type == "string" and length > 0)
+      ' 2>/dev/null) || return 1
+      [[ "$pane" =~ ^[a-zA-Z0-9_:\-]+$ ]] || return 1
+      printf '%s\n' "$pane"
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+fm_herdr_lab_bootstrap_dir_entries_safe() { # <dir> <record> <log>
+  local dir=$1 record=$2 log=$3 entry
+  [ -d "$dir" ] && [ ! -L "$dir" ] || return 1
+  [ -f "$record" ] && [ ! -L "$record" ] || return 1
+  if [ -e "$log" ] || [ -L "$log" ]; then
+    [ -f "$log" ] && [ ! -L "$log" ] || return 1
+  fi
+  (
+    shopt -s nullglob dotglob
+    for entry in "$dir"/*; do
+      case "$entry" in
+        "$record"|"$log") ;;
+        *) exit 1 ;;
+      esac
+    done
+  )
+}
+
+fm_herdr_lab_recover_bootstrap_retirement() { # <session>
+  local name=$1 dir record retired
+  dir=$(fm_herdr_lab_bootstrap_dir "$name")
+  record=$(fm_herdr_lab_bootstrap_record_path "$name")
+  retired="$dir.retiring.state"
+  [ ! -e "$retired" ] && [ ! -L "$retired" ] && return 0
+  [ ! -e "$dir" ] && [ ! -L "$dir" ] || {
+    fm_herdr_lab_error "bootstrap client retirement evidence for '$name' is ambiguous"
+    return 1
+  }
+  mkdir "$dir" || return 1
+  chmod 700 "$dir" || { rmdir "$dir" 2>/dev/null || true; return 1; }
+  mv "$retired" "$record" || {
+    rmdir "$dir" 2>/dev/null || true
+    return 1
+  }
+}
+
 fm_herdr_lab_remove_bootstrap_record() { # <session>
-  local name=$1 dir record log
+  local name=$1 dir record log retired
+  fm_herdr_lab_recover_bootstrap_retirement "$name" || return 1
   dir=$(fm_herdr_lab_bootstrap_dir "$name")
   record=$(fm_herdr_lab_bootstrap_record_path "$name")
   log=$(fm_herdr_lab_bootstrap_log_path "$name")
-  rm -f "$record" "$log" || return 1
-  rmdir "$dir" 2>/dev/null || {
+  retired="$dir.retiring.state"
+  fm_herdr_lab_bootstrap_dir_entries_safe "$dir" "$record" "$log" || {
     fm_herdr_lab_error "bootstrap client state directory for '$name' contains unexpected state"
     return 1
   }
+  [ ! -e "$retired" ] && [ ! -L "$retired" ] || {
+    fm_herdr_lab_error "bootstrap client retirement evidence for '$name' is ambiguous"
+    return 1
+  }
+  mv "$record" "$retired" || return 1
+  if ! rm -f "$log"; then
+    mv "$retired" "$record" 2>/dev/null || true
+    return 1
+  fi
+  if rmdir "$dir" 2>/dev/null; then
+    rm -f "$retired" || {
+      fm_herdr_lab_error "bootstrap client retirement evidence for '$name' could not be removed"
+      return 1
+    }
+    return 0
+  fi
+  if [ ! -e "$record" ] && [ ! -L "$record" ]; then
+    mv "$retired" "$record" 2>/dev/null || {
+      fm_herdr_lab_error "bootstrap client retirement for '$name' failed with retained evidence outside its state directory"
+      return 1
+    }
+  fi
+  fm_herdr_lab_error "bootstrap client state directory for '$name' could not be retired"
+  return 1
 }
 
 fm_herdr_lab_close_bootstrap_pane() { # <session> <pane>
@@ -772,35 +941,72 @@ fm_herdr_lab_close_bootstrap_pane() { # <session> <pane>
 }
 
 fm_herdr_lab_stop_bootstrap_client() { # <session>
-  local name=$1 close_pane=${2:-0} dir pane
+  local name=$1 close_pane=${2:-0} dir pane pending pane_status=0
+  fm_herdr_lab_recover_bootstrap_retirement "$name" || return 1
   dir=$(fm_herdr_lab_bootstrap_dir "$name")
   [ ! -e "$dir" ] && [ ! -L "$dir" ] && return 0
   fm_herdr_lab_read_bootstrap_record "$name" || return 1
   pane=$FM_HERDR_LAB_BOOTSTRAP_PANE
+  pending=$FM_HERDR_LAB_BOOTSTRAP_PENDING
   fm_herdr_lab_stop_owned_processes \
     "$FM_HERDR_LAB_BOOTSTRAP_PID" \
     "$FM_HERDR_LAB_BOOTSTRAP_START" \
     "$FM_HERDR_LAB_BOOTSTRAP_ATTACH_PID" \
     "$FM_HERDR_LAB_BOOTSTRAP_ATTACH_START" \
     "$FM_HERDR_LAB_BOOTSTRAP_OWNER" || return 1
-  if [ "$close_pane" = 1 ] && [ -n "$pane" ]; then
+  if [ "$pending" = 1 ]; then
+    fm_herdr_lab_require_owned_session "$name" any || return 1
+    if [ -z "$pane" ]; then
+      pane=$(fm_herdr_lab_discover_bootstrap_pane "$name" 2>/dev/null) || pane_status=$?
+      case "$pane_status" in
+        0)
+          fm_herdr_lab_write_bootstrap_record \
+            "$name" "" "" "" "" "$FM_HERDR_LAB_BOOTSTRAP_OWNER" "$pane" || return 1
+          ;;
+        2) pane= ;;
+        *)
+          fm_herdr_lab_error "bootstrap cleanup could not identify the pending pane in '$name'"
+          return 1
+          ;;
+      esac
+    fi
+    if [ -n "$pane" ]; then
+      fm_herdr_lab_close_bootstrap_pane "$name" "$pane" || return 1
+    fi
+  elif [ "$close_pane" = 1 ] && [ -n "$pane" ]; then
     fm_herdr_lab_close_bootstrap_pane "$name" "$pane" || return 1
   fi
   fm_herdr_lab_remove_bootstrap_record "$name"
 }
 
 fm_herdr_lab_cleanup_bootstrap_attempt() { # <session> <pane> <client-pid> <client-start> <attach-pid> <attach-start> <owner>
-  local name=$1 pane=$2 client_pid=$3 client_start=$4 attach_pid=$5 attach_start=$6 owner=$7 dir log status=0
-  dir=$(fm_herdr_lab_bootstrap_dir "$name")
-  log=$(fm_herdr_lab_bootstrap_log_path "$name")
+  local name=$1 pane=$2 client_pid=$3 client_start=$4 attach_pid=$5 attach_start=$6 owner=$7 status=0 pane_status=0
+  if fm_herdr_lab_read_bootstrap_record "$name" >/dev/null 2>&1; then
+    [ -n "$pane" ] || pane=$FM_HERDR_LAB_BOOTSTRAP_PANE
+  else
+    status=1
+  fi
   fm_herdr_lab_stop_owned_processes \
     "$client_pid" "$client_start" "$attach_pid" "$attach_start" "$owner" || status=$?
+  if [ "$status" -eq 0 ] && [ -z "$pane" ]; then
+    fm_herdr_lab_require_owned_session "$name" any || status=$?
+    if [ "$status" -eq 0 ]; then
+      pane=$(fm_herdr_lab_discover_bootstrap_pane "$name" 2>/dev/null) || pane_status=$?
+      case "$pane_status" in
+        0)
+          fm_herdr_lab_write_bootstrap_record \
+            "$name" "" "" "" "" "$owner" "$pane" || status=$?
+          ;;
+        2) pane= ;;
+        *) status=1 ;;
+      esac
+    fi
+  fi
   if [ "$status" -eq 0 ] && [ -n "$pane" ]; then
     fm_herdr_lab_close_bootstrap_pane "$name" "$pane" || status=$?
   fi
   if [ "$status" -eq 0 ]; then
-    rm -f "$log" || status=$?
-    rmdir "$dir" 2>/dev/null || status=$?
+    fm_herdr_lab_remove_bootstrap_record "$name" || status=$?
   else
     fm_herdr_lab_error "bootstrap rollback for '$name' did not complete"
   fi
@@ -869,18 +1075,24 @@ fm_herdr_lab_bootstrap_pane() { # <session>
   chmod 700 "$dir" || { rmdir "$dir"; return 1; }
   log=$(fm_herdr_lab_bootstrap_log_path "$name")
   owner="fm-herdr-lab:${name}:$$:${RANDOM}:${RANDOM}"
-  cwd=$(pwd -P) || {
+  fm_herdr_lab_write_bootstrap_record "$name" "" "" "" "" "$owner" "" || {
     rmdir "$dir"
+    fm_herdr_lab_error "cannot journal the bootstrap pane mutation for '$name'"
+    return 1
+  }
+  cwd=$(pwd -P) || {
+    fm_herdr_lab_remove_bootstrap_record "$name" || true
     fm_herdr_lab_error "cannot determine the bootstrap pane working directory"
     return 1
   }
   fm_herdr_lab_require_owned_running "$name" || {
-    rmdir "$dir" 2>/dev/null || true
     fm_herdr_lab_error "named session ownership changed before bootstrap pane creation"
     return 1
   }
   create_out=$(fm_herdr_lab_raw "$name" workspace create --cwd "$cwd" --label "fm-herdr-lab-bootstrap" --no-focus 2>/dev/null) || {
-    rmdir "$dir"
+    fm_herdr_lab_cleanup_bootstrap_attempt \
+      "$name" "" "" "" "" "" "$owner" \
+      || fm_herdr_lab_error "could not roll back the bootstrap pane after workspace creation failure"
     fm_herdr_lab_error "could not create the authoritative bootstrap pane in '$name'"
     return 1
   }
@@ -888,16 +1100,29 @@ fm_herdr_lab_bootstrap_pane() { # <session>
     .result.root_pane.pane_id
     | select(type == "string" and length > 0)
   ' 2>/dev/null) || {
-    rmdir "$dir"
+    fm_herdr_lab_cleanup_bootstrap_attempt \
+      "$name" "" "" "" "" "" "$owner" \
+      || fm_herdr_lab_error "could not roll back the bootstrap pane after malformed workspace output"
     fm_herdr_lab_error "bootstrap pane creation returned no authoritative pane identity"
     return 1
   }
   [[ "$pane" =~ ^[a-zA-Z0-9_:\-]+$ ]] || {
-    rmdir "$dir"
+    fm_herdr_lab_cleanup_bootstrap_attempt \
+      "$name" "" "" "" "" "" "$owner" \
+      || fm_herdr_lab_error "could not roll back the bootstrap pane after malformed pane identity"
     fm_herdr_lab_error "bootstrap pane creation returned a malformed pane identity"
     return 1
   }
+  fm_herdr_lab_write_bootstrap_record "$name" "" "" "" "" "$owner" "$pane" || {
+    fm_herdr_lab_cleanup_bootstrap_attempt \
+      "$name" "$pane" "" "" "" "" "$owner" \
+      || fm_herdr_lab_error "could not roll back the bootstrap pane after journaling its identity"
+    return 1
+  }
   fm_herdr_lab_require_owned_running "$name" || {
+    fm_herdr_lab_cleanup_bootstrap_attempt \
+      "$name" "$pane" "" "" "" "" "$owner" \
+      || fm_herdr_lab_error "could not retain or roll back the bootstrap pane after ownership changed"
     fm_herdr_lab_error "named session ownership changed before bootstrap client attachment; retaining bootstrap evidence"
     return 1
   }
@@ -1027,6 +1252,7 @@ fm_herdr_lab_stop() { # <session>
       fm_herdr_lab_check_tripwire "$name" || return 1
       fm_herdr_lab_require_owned_session "$name" true || return 1
       fm_herdr_lab_raw "$name" session stop "$name" --json || return 1
+      fm_herdr_lab_write_stopped_session_identity "$name" || return 1
       ;;
     false) : ;;
     *) fm_herdr_lab_error "refusing stop for '$name': running state is ambiguous"; return 1 ;;

@@ -79,6 +79,11 @@ case "$1 ${2:-}" in
     if [ "${FM_FAKE_HERDR_BOOTSTRAP_NO_PANE:-}" != 1 ]; then
       printf '%s\n' "$session:w1:p1" > "$state/$session.pane"
     fi
+    [ "${FM_FAKE_HERDR_WORKSPACE_CREATE_FAIL_AFTER_PANE:-}" != 1 ] || exit 98
+    if [ "${FM_FAKE_HERDR_WORKSPACE_CREATE_MALFORMED:-}" = 1 ]; then
+      printf '%s\n' '{"result":{"workspace":{}}}'
+      exit 0
+    fi
     jq -nc --arg session "$session" \
       '{result:{workspace:{workspace_id:($session + ":w1")},tab:{tab_id:($session + ":w1:t1")},root_pane:{pane_id:($session + ":w1:p1")}}}'
     ;;
@@ -147,6 +152,8 @@ run_with_fake() {
     FM_FAKE_HERDR_STOP_FAIL="${FM_FAKE_HERDR_STOP_FAIL:-}" \
     FM_FAKE_HERDR_BOOTSTRAP_NO_PANE="${FM_FAKE_HERDR_BOOTSTRAP_NO_PANE:-}" \
     FM_FAKE_HERDR_FOREIGN_PROVISION="${FM_FAKE_HERDR_FOREIGN_PROVISION:-}" \
+    FM_FAKE_HERDR_WORKSPACE_CREATE_FAIL_AFTER_PANE="${FM_FAKE_HERDR_WORKSPACE_CREATE_FAIL_AFTER_PANE:-}" \
+    FM_FAKE_HERDR_WORKSPACE_CREATE_MALFORMED="${FM_FAKE_HERDR_WORKSPACE_CREATE_MALFORMED:-}" \
     FM_HERDR_LAB_BOOTSTRAP_MAX_ATTEMPTS="${FM_HERDR_LAB_BOOTSTRAP_MAX_ATTEMPTS:-}" \
     FM_HERDR_LAB_STATE_DIR="$TRIPWIRES" \
     "$@"
@@ -264,6 +271,32 @@ test_stopped_owned_lab_can_reprovision() {
   pass "fm-herdr-lab: an owned stopped lab can re-provision safely"
 }
 
+test_stopped_session_refuses_foreign_restart_and_stop() {
+  local name="fm-lab-stopped-foreign-$$" status=0 foreign_stop_line
+  : > "$FAKE_LOG"
+  run_with_fake fm_herdr_lab_provision "$name" || fail "stopped-session ownership fixture provision failed"
+  run_with_fake fm_herdr_lab_stop "$name" || fail "stopped-session ownership fixture stop failed"
+  FM_FAKE_HERDR_FOREIGN_PROVISION=1 run_with_fake herdr server --session "$name" \
+    >/dev/null || fail "foreign stopped-session restart fixture failed"
+  FM_FAKE_HERDR_FOREIGN_PROVISION=1 run_with_fake herdr session stop "$name" --json --session "$name" \
+    >/dev/null || fail "foreign stopped-session stop fixture failed"
+  foreign_stop_line=$(wc -l < "$FAKE_LOG" | tr -d ' ')
+
+  run_with_fake fm_herdr_lab_provision "$name" >/dev/null 2>&1 || status=$?
+  expect_code 1 "$status" "re-provision must reject a foreign restart-stop of a retained session"
+  ! tail -n +$((foreign_stop_line + 1)) "$FAKE_LOG" | grep -F "session stop $name --json --session $name" >/dev/null \
+    || fail "foreign stopped-session rejection reached helper session stop"
+  status=0
+  run_with_fake fm_herdr_lab_teardown "$name" >/dev/null 2>&1 || status=$?
+  expect_code 1 "$status" "teardown must reject a foreign restart-stop of a retained session"
+  ! grep -F "session delete $name --json --session $name" "$FAKE_LOG" >/dev/null \
+    || fail "foreign stopped-session rejection reached session delete"
+
+  rm -f "$TRIPWIRES/$name.fleet-state.json" "$TRIPWIRES/$name.session-identity.json" "$FAKE_STATE/$name"
+  rm -rf "$FAKE_STATE/sessions/$name"
+  pass "fm-herdr-lab: stopped-session ownership rejects a foreign restart-stop before adoption"
+}
+
 test_prepare_uses_guarded_owned_provisioning() {
   local name="fm-lab-prepare-owned-$$"
   : > "$FAKE_LOG"
@@ -348,9 +381,14 @@ test_bootstrap_state_failure_cleans_client_and_child() {
   : > "$FAKE_LOG"
   run_with_fake fm_herdr_lab_provision "$name" || fail "bootstrap state-failure fixture provision failed"
   saved=$(declare -f fm_herdr_lab_write_bootstrap_record)
-  fm_herdr_lab_write_bootstrap_record() { return 1; }
+  eval "$(declare -f fm_herdr_lab_write_bootstrap_record | sed '1s/fm_herdr_lab_write_bootstrap_record/fm_herdr_lab_write_bootstrap_record_original/')"
+  fm_herdr_lab_write_bootstrap_record() {
+    [ -n "${2:-}" ] && return 1
+    fm_herdr_lab_write_bootstrap_record_original "$@"
+  }
   run_with_fake fm_herdr_lab_bootstrap_pane "$name" >/dev/null 2>&1 || status=$?
   eval "$saved"
+  unset -f fm_herdr_lab_write_bootstrap_record_original
   expect_code 1 "$status" "bootstrap state write failure must fail"
   assert_absent "$TRIPWIRES/$name.bootstrap-client" \
     "bootstrap state-write rollback left client state behind"
@@ -358,6 +396,79 @@ test_bootstrap_state_failure_cleans_client_and_child() {
   kill -0 "$attach_pid" 2>/dev/null && fail "bootstrap state-write rollback left its PTY child running"
   run_with_fake fm_herdr_lab_teardown "$name" || fail "teardown after bootstrap state-write failure failed"
   pass "fm-herdr-lab: state-write rollback stops both owned bootstrap processes"
+}
+
+test_bootstrap_workspace_failure_rolls_back_journaled_pane() {
+  local name="fm-lab-bootstrap-workspace-failure-$$" status=0
+  : > "$FAKE_LOG"
+  run_with_fake fm_herdr_lab_provision "$name" || fail "workspace-failure fixture provision failed"
+  FM_FAKE_HERDR_WORKSPACE_CREATE_FAIL_AFTER_PANE=1 \
+    run_with_fake fm_herdr_lab_bootstrap_pane "$name" >/dev/null 2>&1 || status=$?
+  expect_code 1 "$status" "workspace creation failure after pane visibility must fail"
+  assert_absent "$TRIPWIRES/$name.bootstrap-client" \
+    "workspace creation failure left journaled client state after rollback"
+  assert_absent "$FAKE_STATE/$name.pane" \
+    "workspace creation failure left the externally visible pane behind"
+  run_with_fake fm_herdr_lab_teardown "$name" || fail "teardown after workspace creation rollback failed"
+  pass "fm-herdr-lab: journaled workspace failures roll back the pane and client state"
+}
+
+test_bootstrap_post_create_ownership_failure_retains_journal() {
+  local name="fm-lab-bootstrap-post-create-owner-$$" socket_dir reserve_dir status=0 saved server_pid
+  : > "$FAKE_LOG"
+  run_with_fake fm_herdr_lab_provision "$name" || fail "post-create ownership fixture provision failed"
+  socket_dir="$FAKE_STATE/sessions/$name"
+  reserve_dir="$FAKE_STATE/sessions/$name-reserve"
+  saved=$(declare -f fm_herdr_lab_raw)
+  eval "$(declare -f fm_herdr_lab_raw | sed '1s/fm_herdr_lab_raw/fm_herdr_lab_raw_original/')"
+  fm_herdr_lab_raw() {
+    local out
+    out=$(fm_herdr_lab_raw_original "$@") || return 1
+    if [ "${2:-} ${3:-}" = "workspace create" ]; then
+      rm -f "$socket_dir/herdr.sock"
+      rmdir "$socket_dir"
+      mkdir "$reserve_dir"
+      mkdir "$socket_dir"
+      rmdir "$reserve_dir"
+      : > "$socket_dir/herdr.sock"
+    fi
+    printf '%s\n' "$out"
+  }
+  run_with_fake fm_herdr_lab_bootstrap_pane "$name" >/dev/null 2>&1 || status=$?
+  eval "$saved"
+  unset -f fm_herdr_lab_raw_original
+  expect_code 1 "$status" "post-create ownership change must fail bootstrap-pane"
+  assert_present "$TRIPWIRES/$name.bootstrap-client/client.state" \
+    "post-create ownership failure discarded its mutation journal"
+  assert_present "$FAKE_STATE/$name.pane" \
+    "post-create ownership failure lost the pane cleanup target"
+  status=0
+  run_with_fake fm_herdr_lab_stop "$name" >/dev/null 2>&1 || status=$?
+  expect_code 1 "$status" "stop must retain a post-create journal after ownership mismatch"
+  assert_present "$TRIPWIRES/$name.bootstrap-client/client.state" \
+    "stop discarded retained post-create cleanup evidence"
+  server_pid=$(cat "$FAKE_STATE/$name.server-pid")
+  kill -TERM "$server_pid" 2>/dev/null || true
+  rm -rf "$TRIPWIRES/$name.bootstrap-client" "$FAKE_STATE/sessions/$name"
+  rm -f "$TRIPWIRES/$name.fleet-state.json" "$TRIPWIRES/$name.session-identity.json" \
+    "$FAKE_STATE/$name" "$FAKE_STATE/$name.server-pid" "$FAKE_STATE/$name.pane"
+  pass "fm-herdr-lab: post-create ownership failure retains retryable pane evidence"
+}
+
+test_bootstrap_record_retirement_retains_state_on_unexpected_entry() {
+  local name="fm-lab-bootstrap-retirement-$$" status=0
+  : > "$FAKE_LOG"
+  run_with_fake fm_herdr_lab_provision "$name" || fail "retirement fixture provision failed"
+  run_with_fake fm_herdr_lab_bootstrap_pane "$name" >/dev/null || fail "retirement fixture bootstrap failed"
+  : > "$TRIPWIRES/$name.bootstrap-client/unexpected.state"
+  run_with_fake fm_herdr_lab_stop "$name" >/dev/null 2>&1 || status=$?
+  expect_code 1 "$status" "unexpected bootstrap state must block record retirement"
+  assert_present "$TRIPWIRES/$name.bootstrap-client/client.state" \
+    "record retirement removed ownership evidence before safe directory removal"
+  rm -f "$TRIPWIRES/$name.bootstrap-client/unexpected.state"
+  run_with_fake fm_herdr_lab_stop "$name" >/dev/null || fail "retry after safe state retirement refusal failed"
+  run_with_fake fm_herdr_lab_teardown "$name" || fail "teardown after record retirement retry failed"
+  pass "fm-herdr-lab: ownership records survive an unsafe state-directory retirement"
 }
 
 test_bootstrap_pane_is_scoped_owned_and_cleaned() {
@@ -568,12 +679,16 @@ test_provision_run_and_guarded_teardown
 test_missing_tripwire_blocks_destruction
 test_changed_default_trips_after_teardown
 test_stopped_owned_lab_can_reprovision
+test_stopped_session_refuses_foreign_restart_and_stop
 test_prepare_uses_guarded_owned_provisioning
 test_provision_refuses_posthoc_foreign_session
 test_failed_delete_retains_tripwire
 test_timed_out_provision_cancels_late_launch
 test_stop_failure_is_propagated
 test_bootstrap_state_failure_cleans_client_and_child
+test_bootstrap_workspace_failure_rolls_back_journaled_pane
+test_bootstrap_post_create_ownership_failure_retains_journal
+test_bootstrap_record_retirement_retains_state_on_unexpected_entry
 test_bootstrap_pane_is_scoped_owned_and_cleaned
 test_bootstrap_pane_failure_is_bounded_and_cleans_client
 test_bootstrap_pane_refuses_mismatched_ownership
