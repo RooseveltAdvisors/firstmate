@@ -297,6 +297,39 @@ test_stopped_session_refuses_foreign_restart_and_stop() {
   pass "fm-herdr-lab: stopped-session ownership rejects a foreign restart-stop before adoption"
 }
 
+test_stopped_receipt_rejects_precommit_generation_race() {
+  local name="fm-lab-stop-receipt-race-$$" saved status=0
+  : > "$FAKE_LOG"
+  run_with_fake fm_herdr_lab_provision "$name" || fail "stop-receipt race fixture provision failed"
+  saved=$(declare -f fm_herdr_lab_write_stopped_session_identity)
+  eval "$(declare -f fm_herdr_lab_write_stopped_session_identity | sed '1s/fm_herdr_lab_write_stopped_session_identity/fm_herdr_lab_write_stopped_session_identity_original/')"
+  fm_herdr_lab_write_stopped_session_identity() {
+    "$REAL_SLEEP" 0.02
+    FM_FAKE_HERDR_FOREIGN_PROVISION=1 run_with_fake herdr server --session "$name" \
+      >/dev/null || fail "foreign stop-receipt restart fixture failed"
+    FM_FAKE_HERDR_FOREIGN_PROVISION=1 run_with_fake herdr session stop "$name" --json --session "$name" \
+      >/dev/null || fail "foreign stop-receipt stop fixture failed"
+    fm_herdr_lab_write_stopped_session_identity_original "$@"
+  }
+  run_with_fake fm_herdr_lab_stop "$name" >/dev/null 2>&1 || status=$?
+  eval "$saved"
+  unset -f fm_herdr_lab_write_stopped_session_identity_original
+  expect_code 1 "$status" "stop must reject a foreign generation before stopped identity commit"
+  assert_present "$TRIPWIRES/$name.stop-generation.json" \
+    "stop race discarded its durable generation receipt"
+  [ "$(jq -r '.state' "$TRIPWIRES/$name.session-identity.json")" = running ] \
+    || fail "stop race committed an unproven stopped identity"
+  status=0
+  run_with_fake fm_herdr_lab_provision "$name" >/dev/null 2>&1 || status=$?
+  expect_code 1 "$status" "re-provision must reject the raced stop generation"
+  ! grep -F "session delete $name" "$FAKE_LOG" >/dev/null \
+    || fail "stop-generation race reached session deletion"
+  rm -f "$TRIPWIRES/$name.fleet-state.json" "$TRIPWIRES/$name.session-identity.json" \
+    "$TRIPWIRES/$name.stop-generation.json" "$FAKE_STATE/$name"
+  rm -rf "$FAKE_STATE/sessions/$name"
+  pass "fm-herdr-lab: stopped identity is bound to its durable server generation receipt"
+}
+
 test_prepare_uses_guarded_owned_provisioning() {
   local name="fm-lab-prepare-owned-$$"
   : > "$FAKE_LOG"
@@ -323,6 +356,26 @@ test_provision_refuses_posthoc_foreign_session() {
   rm -f "$TRIPWIRES/$name.fleet-state.json" "$TRIPWIRES/$name.session-claim.json" "$FAKE_STATE/$name"
   rm -rf "$FAKE_STATE/sessions/$name"
   pass "fm-herdr-lab: provision binds ownership at the server creation boundary"
+}
+
+test_provision_refuses_stale_bootstrap_evidence() {
+  local name="fm-lab-stale-bootstrap-dir-$$" retiring_name="fm-lab-stale-retiring-$$" status=0
+  : > "$FAKE_LOG"
+  mkdir -p "$TRIPWIRES/$name.bootstrap-client"
+  run_with_fake fm_herdr_lab_provision "$name" >/dev/null 2>&1 || status=$?
+  expect_code 1 "$status" "provision must reject a stale bootstrap directory"
+  ! grep -F "server --session $name" "$FAKE_LOG" >/dev/null \
+    || fail "stale bootstrap directory reached named server creation"
+  rmdir "$TRIPWIRES/$name.bootstrap-client"
+
+  : > "$TRIPWIRES/$retiring_name.bootstrap-client.retiring.state"
+  status=0
+  run_with_fake fm_herdr_lab_provision "$retiring_name" >/dev/null 2>&1 || status=$?
+  expect_code 1 "$status" "provision must reject stale retiring evidence"
+  ! grep -F "server --session $retiring_name" "$FAKE_LOG" >/dev/null \
+    || fail "stale retiring evidence reached named server creation"
+  rm -f "$TRIPWIRES/$retiring_name.bootstrap-client.retiring.state"
+  pass "fm-herdr-lab: same-name provisioning refuses stale bootstrap lifecycle evidence"
 }
 
 test_failed_delete_retains_tripwire() {
@@ -420,12 +473,42 @@ test_bootstrap_pending_zero_pids_cleanup() {
   pass "fm-herdr-lab: pending zero PIDs are absent before cleanup ownership checks"
 }
 
+test_bootstrap_journals_client_before_pty_discovery() {
+  local name="fm-lab-bootstrap-partial-client-$$" marker="$TMP_ROOT/partial-client.marker" saved status=0 client_pid
+  : > "$FAKE_LOG"
+  run_with_fake fm_herdr_lab_provision "$name" || fail "partial-client fixture provision failed"
+  saved=$(declare -f fm_herdr_lab_single_child_pid)
+  fm_herdr_lab_single_child_pid() {
+    fm_herdr_lab_read_bootstrap_record "$name" || return 1
+    if [ "$FM_HERDR_LAB_BOOTSTRAP_PID" = "$1" ] \
+       && [ "$FM_HERDR_LAB_BOOTSTRAP_PID" -gt 1 ] \
+       && [ "$FM_HERDR_LAB_BOOTSTRAP_START" != pending ] \
+       && [ "$FM_HERDR_LAB_BOOTSTRAP_ATTACH_PID" -eq 0 ] \
+       && [ "$FM_HERDR_LAB_BOOTSTRAP_ATTACH_START" = pending ]; then
+      : > "$marker"
+    fi
+    return 1
+  }
+  FM_HERDR_LAB_BOOTSTRAP_MAX_ATTEMPTS=1 \
+    run_with_fake fm_herdr_lab_bootstrap_pane "$name" >/dev/null 2>&1 || status=$?
+  eval "$saved"
+  expect_code 1 "$status" "missing PTY discovery must fail after partial client journaling"
+  assert_present "$marker" "bootstrap client PID/start identity was not journaled before PTY discovery"
+  assert_absent "$TRIPWIRES/$name.bootstrap-client" \
+    "verified partial client cleanup left lifecycle evidence behind"
+  client_pid=$(cat "$FAKE_STATE/$name.client-pid")
+  kill -0 "$client_pid" 2>/dev/null && fail "partial client cleanup left its owned PTY child running"
+  run_with_fake fm_herdr_lab_teardown "$name" || fail "teardown after partial-client cleanup failed"
+  pass "fm-herdr-lab: client PID/start identity is journaled before PTY discovery"
+}
+
 test_bootstrap_workspace_failure_retains_unresolved_pane() {
   local name="fm-lab-bootstrap-workspace-failure-$$" status=0 saved server_pid
   : > "$FAKE_LOG"
   run_with_fake fm_herdr_lab_provision "$name" || fail "workspace-failure fixture provision failed"
   saved=$(declare -f fm_herdr_lab_raw)
   eval "$(declare -f fm_herdr_lab_raw | sed '1s/fm_herdr_lab_raw/fm_herdr_lab_raw_original/')"
+  # shellcheck disable=SC2329
   fm_herdr_lab_raw() {
     local out
     out=$(fm_herdr_lab_raw_original "$@") || {
@@ -535,8 +618,9 @@ test_bootstrap_pane_is_scoped_owned_and_cleaned() {
   pane=$(printf '%s' "$out" | jq -r '.pane_id // empty')
   [ "$pane" = "$name:w1:p1" ] || fail "bootstrap result did not return the authoritative pane id: $out"
   pid=$(printf '%s' "$out" | jq -r '.client_pid // empty')
-  [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null \
-    || fail "bootstrap result did not identify a live owned client PID: $out"
+  if ! [[ "$pid" =~ ^[0-9]+$ ]] || ! kill -0 "$pid" 2>/dev/null; then
+    fail "bootstrap result did not identify a live owned client PID: $out"
+  fi
   assert_present "$TRIPWIRES/$name.bootstrap-client/client.state" \
     "bootstrap did not persist its owned client state"
 
@@ -729,13 +813,16 @@ test_missing_tripwire_blocks_destruction
 test_changed_default_trips_after_teardown
 test_stopped_owned_lab_can_reprovision
 test_stopped_session_refuses_foreign_restart_and_stop
+test_stopped_receipt_rejects_precommit_generation_race
 test_prepare_uses_guarded_owned_provisioning
 test_provision_refuses_posthoc_foreign_session
+test_provision_refuses_stale_bootstrap_evidence
 test_failed_delete_retains_tripwire
 test_timed_out_provision_cancels_late_launch
 test_stop_failure_is_propagated
 test_bootstrap_state_failure_cleans_client_and_child
 test_bootstrap_pending_zero_pids_cleanup
+test_bootstrap_journals_client_before_pty_discovery
 test_bootstrap_workspace_failure_retains_unresolved_pane
 test_bootstrap_post_create_ownership_failure_retains_journal
 test_bootstrap_record_retirement_retains_state_on_unexpected_entry
