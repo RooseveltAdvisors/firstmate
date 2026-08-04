@@ -108,6 +108,7 @@ pass "repro setup: two real fm-<id> task tabs exist (crewmate-shaped and secondm
 fm_herdr_lab_stop "$SESSION" >/dev/null 2>&1 \
   || fail "could not stop the isolated session for the restart"
 sleep 0.5
+fm_herdr_lab_provision "$SESSION" || fail "the helper could not re-provision the owned isolated session"
 fm_backend_herdr_server_ensure "$SESSION" || fail "the isolated session's server did not come back up after the restart"
 
 if ! herdr pane get "$CREW_PANE_ID" --session "$SESSION" >/dev/null 2>&1; then

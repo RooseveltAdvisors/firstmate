@@ -51,6 +51,11 @@ case "$1 ${2:-}" in
     mkdir -p "$socket_dir"
     : > "$socket"
     printf '%s\n' running > "$state/$session"
+    if [ "${FM_FAKE_HERDR_FOREIGN_PROVISION:-}" = 1 ]; then
+      exit 0
+    fi
+    printf '%s\n' "$$" > "$state/$session.server-pid"
+    exec "$FM_FAKE_HERDR_REAL_SLEEP" 300
     ;;
   "status --json")
     if [ "$lab_state" = running ]; then
@@ -93,12 +98,20 @@ case "$1 ${2:-}" in
   "session stop")
     [ "$3" = "$session" ] || exit 91
     [ "${FM_FAKE_HERDR_STOP_FAIL:-}" != 1 ] || exit 97
+    if [ -f "$state/$session.server-pid" ]; then
+      kill -TERM "$(cat "$state/$session.server-pid")" 2>/dev/null || true
+      rm -f "$state/$session.server-pid"
+    fi
     rm -f "$socket"
     printf '%s\n' stopped > "$state/$session"
     ;;
   "session delete")
     [ "$3" = "$session" ] || exit 92
     [ "${FM_FAKE_HERDR_DELETE_FAIL:-}" != 1 ] || exit 93
+    if [ -f "$state/$session.server-pid" ]; then
+      kill -TERM "$(cat "$state/$session.server-pid")" 2>/dev/null || true
+      rm -f "$state/$session.server-pid"
+    fi
     rm -rf "$socket_dir"
     printf '%s\n' deleted > "$state/$session"
     ;;
@@ -112,6 +125,17 @@ chmod +x "$FAKEBIN/herdr"
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-herdr-lab.sh"
 
+cleanup_fake_servers() {
+  local pid_file pid
+  for pid_file in "$FAKE_STATE"/*.server-pid; do
+    [ -f "$pid_file" ] || continue
+    pid=$(cat "$pid_file")
+    kill -TERM "$pid" 2>/dev/null || true
+  done
+  fm_test_cleanup
+}
+trap cleanup_fake_servers EXIT
+
 run_with_fake() {
   PATH="$FAKEBIN:$PATH" \
     FM_FAKE_HERDR_STATE="$FAKE_STATE" \
@@ -122,6 +146,7 @@ run_with_fake() {
     FM_FAKE_HERDR_DELETE_FAIL="${FM_FAKE_HERDR_DELETE_FAIL:-}" \
     FM_FAKE_HERDR_STOP_FAIL="${FM_FAKE_HERDR_STOP_FAIL:-}" \
     FM_FAKE_HERDR_BOOTSTRAP_NO_PANE="${FM_FAKE_HERDR_BOOTSTRAP_NO_PANE:-}" \
+    FM_FAKE_HERDR_FOREIGN_PROVISION="${FM_FAKE_HERDR_FOREIGN_PROVISION:-}" \
     FM_HERDR_LAB_BOOTSTRAP_MAX_ATTEMPTS="${FM_HERDR_LAB_BOOTSTRAP_MAX_ATTEMPTS:-}" \
     FM_HERDR_LAB_STATE_DIR="$TRIPWIRES" \
     "$@"
@@ -237,6 +262,34 @@ test_stopped_owned_lab_can_reprovision() {
   assert_present "$TRIPWIRES/$name.fleet-state.json" "re-provision removed the lab ownership tripwire"
   run_with_fake fm_herdr_lab_teardown "$name" || fail "teardown after re-provision failed"
   pass "fm-herdr-lab: an owned stopped lab can re-provision safely"
+}
+
+test_prepare_uses_guarded_owned_provisioning() {
+  local name="fm-lab-prepare-owned-$$"
+  : > "$FAKE_LOG"
+  run_with_fake fm_herdr_lab_prepare "$name" || fail "prepare did not use guarded provisioning"
+  [ "$(cat "$FAKE_STATE/$name")" = running ] || fail "prepare left the named session stopped"
+  assert_present "$TRIPWIRES/$name.session-identity.json" \
+    "prepare did not bind the helper-owned session identity"
+  run_with_fake fm_herdr_lab_teardown "$name" || fail "prepare-created session could not be cleaned"
+  pass "fm-herdr-lab: prepare compatibility uses the owned provision and cleanup path"
+}
+
+test_provision_refuses_posthoc_foreign_session() {
+  local name="fm-lab-foreign-provision-$$" status=0
+  : > "$FAKE_LOG"
+  FM_FAKE_HERDR_FOREIGN_PROVISION=1 run_with_fake fm_herdr_lab_provision "$name" \
+    >/dev/null 2>&1 || status=$?
+  expect_code 1 "$status" "provision must reject a session not bound to its live server launch"
+  assert_present "$TRIPWIRES/$name.session-claim.json" \
+    "ambiguous provision removed its creation-boundary evidence"
+  assert_absent "$TRIPWIRES/$name.session-identity.json" \
+    "ambiguous provision adopted a foreign same-name session"
+  ! grep -F "session stop $name" "$FAKE_LOG" >/dev/null \
+    || fail "ambiguous provision reached session stop"
+  rm -f "$TRIPWIRES/$name.fleet-state.json" "$TRIPWIRES/$name.session-claim.json" "$FAKE_STATE/$name"
+  rm -rf "$FAKE_STATE/sessions/$name"
+  pass "fm-herdr-lab: provision binds ownership at the server creation boundary"
 }
 
 test_failed_delete_retains_tripwire() {
@@ -432,11 +485,91 @@ test_bootstrap_pane_refuses_recreated_named_session() {
   pass "fm-herdr-lab: named-session directory identity rejects stale same-name state"
 }
 
+test_identity_parser_refuses_concatenated_records() {
+  local name="fm-lab-identity-records-$$" identity original status=0
+  : > "$FAKE_LOG"
+  run_with_fake fm_herdr_lab_provision "$name" || fail "identity parser fixture provision failed"
+  identity="$TRIPWIRES/$name.session-identity.json"
+  original=$(cat "$identity")
+  printf '%s\n%s\n' "$original" "$original" > "$identity"
+  run_with_fake fm_herdr_lab_stop "$name" >/dev/null 2>&1 || status=$?
+  expect_code 1 "$status" "concatenated identity records must be ambiguous"
+  ! grep -F "session stop $name" "$FAKE_LOG" >/dev/null \
+    || fail "ambiguous identity records reached session stop"
+  printf '%s\n' "$original" > "$identity"
+  run_with_fake fm_herdr_lab_teardown "$name" || fail "identity parser fixture cleanup failed"
+  pass "fm-herdr-lab: session identity accepts exactly one JSON document"
+}
+
+test_bootstrap_revalidates_before_workspace_mutation() {
+  local name="fm-lab-bootstrap-revalidate-$$" socket_dir reserve_dir marker status=0 saved server_pid
+  : > "$FAKE_LOG"
+  run_with_fake fm_herdr_lab_provision "$name" || fail "bootstrap revalidation fixture provision failed"
+  socket_dir="$FAKE_STATE/sessions/$name"
+  reserve_dir="$FAKE_STATE/sessions/$name-reserve"
+  marker="$FAKE_STATE/$name.recreated"
+  saved=$(declare -f fm_herdr_lab_cli)
+  eval "$(declare -f fm_herdr_lab_cli | sed '1s/fm_herdr_lab_cli/fm_herdr_lab_cli_original/')"
+  fm_herdr_lab_cli() {
+    local out
+    if [ "${2:-} ${3:-}" = "pane list" ] && [ ! -f "$marker" ]; then
+      out=$(fm_herdr_lab_cli_original "$@") || return 1
+      rm -f "$socket_dir/herdr.sock"
+      rmdir "$socket_dir"
+      mkdir "$reserve_dir"
+      mkdir "$socket_dir"
+      rmdir "$reserve_dir"
+      : > "$socket_dir/herdr.sock"
+      : > "$marker"
+      printf '%s\n' "$out"
+      return 0
+    fi
+    fm_herdr_lab_cli_original "$@"
+  }
+  run_with_fake fm_herdr_lab_bootstrap_pane "$name" >/dev/null 2>&1 || status=$?
+  eval "$saved"
+  unset -f fm_herdr_lab_cli_original
+  expect_code 1 "$status" "bootstrap must refuse replacement before workspace creation"
+  ! grep -F "workspace create" "$FAKE_LOG" >/dev/null \
+    || fail "bootstrap mutated a replacement session after its ownership snapshot"
+  server_pid=$(cat "$FAKE_STATE/$name.server-pid")
+  kill -TERM "$server_pid" 2>/dev/null || true
+  rm -f "$TRIPWIRES/$name.fleet-state.json" "$TRIPWIRES/$name.session-identity.json" \
+    "$FAKE_STATE/$name" "$FAKE_STATE/$name.server-pid" "$marker"
+  rm -rf "$socket_dir"
+  pass "fm-herdr-lab: bootstrap revalidates ownership immediately before mutation"
+}
+
+test_process_identity_is_locale_stable() {
+  local pid utc eastern
+  "$REAL_SLEEP" 30 &
+  pid=$!
+  utc=$(LC_ALL=C TZ=UTC fm_herdr_lab_process_start "$pid") || fail "could not read UTC process identity"
+  eastern=$(LC_ALL=C TZ=America/New_York fm_herdr_lab_process_start "$pid") \
+    || fail "could not read alternate-timezone process identity"
+  kill -TERM "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  [ "$utc" = "$eastern" ] || fail "process identity changed across timezone settings"
+  pass "fm-herdr-lab: process identity is stable across caller locale and timezone"
+}
+
+test_real_proof_retains_cleanup_evidence() {
+  grep -F "if [ \"\$CLEANED\" -eq 1 ] || [ -z \"\$SESSION\" ]; then" \
+    "$ROOT/tests/fm-herdr-lab-bootstrap-e2e.test.sh" >/dev/null \
+    || fail "real proof does not gate temporary-root removal on guarded cleanup"
+  grep -F 'retaining cleanup evidence at %s' \
+    "$ROOT/tests/fm-herdr-lab-bootstrap-e2e.test.sh" >/dev/null \
+    || fail "real proof does not report retained cleanup evidence"
+  pass "fm-herdr-lab: real proof retains and reports evidence after cleanup refusal"
+}
+
 test_refuses_unsafe_names
 test_provision_run_and_guarded_teardown
 test_missing_tripwire_blocks_destruction
 test_changed_default_trips_after_teardown
 test_stopped_owned_lab_can_reprovision
+test_prepare_uses_guarded_owned_provisioning
+test_provision_refuses_posthoc_foreign_session
 test_failed_delete_retains_tripwire
 test_timed_out_provision_cancels_late_launch
 test_stop_failure_is_propagated
@@ -445,3 +578,7 @@ test_bootstrap_pane_is_scoped_owned_and_cleaned
 test_bootstrap_pane_failure_is_bounded_and_cleans_client
 test_bootstrap_pane_refuses_mismatched_ownership
 test_bootstrap_pane_refuses_recreated_named_session
+test_identity_parser_refuses_concatenated_records
+test_bootstrap_revalidates_before_workspace_mutation
+test_process_identity_is_locale_stable
+test_real_proof_retains_cleanup_evidence

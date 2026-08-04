@@ -18,9 +18,17 @@ CLEANED=0
 cleanup() {
   local status=$?
   if [ "$CLEANED" -eq 0 ] && [ -n "$SESSION" ]; then
-    FM_HERDR_LAB_STATE_DIR="$STATE_DIR" "$HELPER" teardown "$SESSION" >/dev/null 2>&1 || status=1
+    if FM_HERDR_LAB_STATE_DIR="$STATE_DIR" "$HELPER" teardown "$SESSION" >/dev/null 2>&1; then
+      CLEANED=1
+    else
+      status=1
+    fi
   fi
-  rm -rf "$TMP_ROOT"
+  if [ "$CLEANED" -eq 1 ] || [ -z "$SESSION" ]; then
+    rm -rf "$TMP_ROOT"
+  else
+    printf 'not ok - guarded teardown refused; retaining cleanup evidence at %s\n' "$TMP_ROOT" >&2
+  fi
   exit "$status"
 }
 trap cleanup EXIT

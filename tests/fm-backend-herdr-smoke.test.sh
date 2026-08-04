@@ -227,6 +227,7 @@ pass "real herdr: list_live stays scoped to each home's own workspace - neither 
 fm_herdr_lab_stop "$SESSION" >/dev/null 2>&1 \
   || fail "could not stop the isolated session for the restart-stability check"
 sleep 0.5
+fm_herdr_lab_provision "$SESSION" || fail "the helper could not re-provision the owned isolated session"
 fm_backend_herdr_server_ensure "$SESSION" || fail "the isolated session's server did not come back up after the stop"
 
 POST_LIST=$(herdr workspace list --session "$SESSION" 2>&1)
