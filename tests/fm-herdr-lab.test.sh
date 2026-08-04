@@ -30,6 +30,8 @@ session=$last
 default_socket=$(cat "$state/default-socket")
 lab_state=absent
 [ ! -f "$state/$session" ] || lab_state=$(cat "$state/$session")
+socket_dir="$state/sessions/$session"
+socket="$socket_dir/herdr.sock"
 
 case "$1 ${2:-}" in
   "session list")
@@ -38,14 +40,16 @@ case "$1 ${2:-}" in
     else
       running=false
       [ "$lab_state" = running ] && running=true
-      jq -nc --arg socket "$default_socket" --arg name "$session" --argjson running "$running" \
-        '{sessions:[{default:true,name:"default",running:true,socket_path:$socket},{default:false,name:$name,running:$running,socket_path:("/tmp/" + $name + ".sock")}]}'
+      jq -nc --arg default_socket "$default_socket" --arg socket "$socket" --arg name "$session" --argjson running "$running" \
+        '{sessions:[{default:true,name:"default",running:true,socket_path:$default_socket},{default:false,name:$name,running:$running,socket_path:$socket}]}'
     fi
     ;;
   "server --session")
     if [ "${FM_FAKE_HERDR_SERVER_DELAY:-0}" != 0 ]; then
       "$FM_FAKE_HERDR_REAL_SLEEP" "$FM_FAKE_HERDR_SERVER_DELAY"
     fi
+    mkdir -p "$socket_dir"
+    : > "$socket"
     printf '%s\n' running > "$state/$session"
     ;;
   "status --json")
@@ -65,6 +69,14 @@ case "$1 ${2:-}" in
       printf '%s\n' '{"id":"cli:pane:list","result":{"type":"pane_list","panes":[]}}'
     fi
     ;;
+  "workspace create")
+    [ "$lab_state" = running ] || exit 95
+    if [ "${FM_FAKE_HERDR_BOOTSTRAP_NO_PANE:-}" != 1 ]; then
+      printf '%s\n' "$session:w1:p1" > "$state/$session.pane"
+    fi
+    jq -nc --arg session "$session" \
+      '{result:{workspace:{workspace_id:($session + ":w1")},tab:{tab_id:($session + ":w1:t1")},root_pane:{pane_id:($session + ":w1:p1")}}}'
+    ;;
   "--session $session")
     [ "$lab_state" = running ] || exit 94
     printf '%s\n' "$$" > "$state/$session.client-pid"
@@ -73,13 +85,21 @@ case "$1 ${2:-}" in
     fi
     exec "$FM_FAKE_HERDR_REAL_SLEEP" 300
     ;;
+  "pane close")
+    [ -f "$state/$session.pane" ] && [ "$(cat "$state/$session.pane")" = "$3" ] || exit 96
+    rm -f "$state/$session.pane"
+    printf '%s\n' '{"ok":true}'
+    ;;
   "session stop")
     [ "$3" = "$session" ] || exit 91
+    [ "${FM_FAKE_HERDR_STOP_FAIL:-}" != 1 ] || exit 97
+    rm -f "$socket"
     printf '%s\n' stopped > "$state/$session"
     ;;
   "session delete")
     [ "$3" = "$session" ] || exit 92
     [ "${FM_FAKE_HERDR_DELETE_FAIL:-}" != 1 ] || exit 93
+    rm -rf "$socket_dir"
     printf '%s\n' deleted > "$state/$session"
     ;;
   *)
@@ -100,6 +120,7 @@ run_with_fake() {
     FM_FAKE_HERDR_SERVER_DELAY="${FM_FAKE_HERDR_SERVER_DELAY:-0}" \
     FM_FAKE_HERDR_FAST_POLL="${FM_FAKE_HERDR_FAST_POLL:-}" \
     FM_FAKE_HERDR_DELETE_FAIL="${FM_FAKE_HERDR_DELETE_FAIL:-}" \
+    FM_FAKE_HERDR_STOP_FAIL="${FM_FAKE_HERDR_STOP_FAIL:-}" \
     FM_FAKE_HERDR_BOOTSTRAP_NO_PANE="${FM_FAKE_HERDR_BOOTSTRAP_NO_PANE:-}" \
     FM_HERDR_LAB_BOOTSTRAP_MAX_ATTEMPTS="${FM_HERDR_LAB_BOOTSTRAP_MAX_ATTEMPTS:-}" \
     FM_HERDR_LAB_STATE_DIR="$TRIPWIRES" \
@@ -257,6 +278,35 @@ SH
   pass "fm-herdr-lab: timed-out provisioning cancels the launch before teardown"
 }
 
+test_stop_failure_is_propagated() {
+  local name="fm-lab-stop-failure-$$" status=0
+  : > "$FAKE_LOG"
+  run_with_fake fm_herdr_lab_provision "$name" || fail "stop-failure fixture provision failed"
+  FM_FAKE_HERDR_STOP_FAIL=1 run_with_fake fm_herdr_lab_stop "$name" >/dev/null 2>&1 || status=$?
+  expect_code 1 "$status" "failed session stop must fail the guarded stop"
+  [ "$(cat "$FAKE_STATE/$name")" = running ] || fail "failed session stop changed the named lab state"
+  ! grep -F "session delete $name" "$FAKE_LOG" >/dev/null || fail "failed session stop reached deletion"
+  run_with_fake fm_herdr_lab_teardown "$name" || fail "teardown after a propagated stop failure failed"
+  pass "fm-herdr-lab: session stop failures remain destructive-call barriers"
+}
+
+test_bootstrap_state_failure_cleans_client_and_child() {
+  local name="fm-lab-bootstrap-state-failure-$$" status=0 saved attach_pid
+  : > "$FAKE_LOG"
+  run_with_fake fm_herdr_lab_provision "$name" || fail "bootstrap state-failure fixture provision failed"
+  saved=$(declare -f fm_herdr_lab_write_bootstrap_record)
+  fm_herdr_lab_write_bootstrap_record() { return 1; }
+  run_with_fake fm_herdr_lab_bootstrap_pane "$name" >/dev/null 2>&1 || status=$?
+  eval "$saved"
+  expect_code 1 "$status" "bootstrap state write failure must fail"
+  assert_absent "$TRIPWIRES/$name.bootstrap-client" \
+    "bootstrap state-write rollback left client state behind"
+  attach_pid=$(cat "$FAKE_STATE/$name.client-pid")
+  kill -0 "$attach_pid" 2>/dev/null && fail "bootstrap state-write rollback left its PTY child running"
+  run_with_fake fm_herdr_lab_teardown "$name" || fail "teardown after bootstrap state-write failure failed"
+  pass "fm-herdr-lab: state-write rollback stops both owned bootstrap processes"
+}
+
 test_bootstrap_pane_is_scoped_owned_and_cleaned() {
   local name="fm-lab-bootstrap-$$" before out pane pid line
   : > "$FAKE_LOG"
@@ -348,6 +398,40 @@ test_bootstrap_pane_refuses_mismatched_ownership() {
   pass "fm-herdr-lab: bootstrap and cleanup fail closed on mismatched ownership"
 }
 
+test_bootstrap_pane_refuses_recreated_named_session() {
+  local name="fm-lab-bootstrap-session-owner-$$" socket_dir reserve_dir status=0 original_identity replacement_identity
+  : > "$FAKE_LOG"
+  run_with_fake fm_herdr_lab_provision "$name" || fail "bootstrap session-ownership fixture provision failed"
+  socket_dir="$FAKE_STATE/sessions/$name"
+  original_identity=$(fm_herdr_lab_path_identity "$socket_dir") || fail "could not record the original session identity"
+  rm -f "$socket_dir/herdr.sock"
+  rmdir "$socket_dir"
+  reserve_dir="$FAKE_STATE/sessions/$name-reserve"
+  mkdir "$reserve_dir"
+  mkdir -p "$socket_dir"
+  rmdir "$reserve_dir"
+  : > "$socket_dir/herdr.sock"
+  replacement_identity=$(fm_herdr_lab_path_identity "$socket_dir") || fail "could not record the recreated session identity"
+  [ "$replacement_identity" != "$original_identity" ] || fail "session recreation fixture reused the original identity"
+
+  run_with_fake fm_herdr_lab_bootstrap_pane "$name" >/dev/null 2>&1 || status=$?
+  expect_code 1 "$status" "bootstrap-pane must refuse a recreated same-name session"
+  status=0
+  run_with_fake fm_herdr_lab_stop "$name" >/dev/null 2>&1 || status=$?
+  expect_code 1 "$status" "stop must refuse a recreated same-name session"
+  ! grep -F "session stop $name" "$FAKE_LOG" >/dev/null \
+    || fail "recreated-session refusal reached session stop"
+  [ "$(cat "$FAKE_STATE/$name")" = running ] || fail "recreated-session refusal changed the named lab state"
+  status=0
+  run_with_fake fm_herdr_lab_teardown "$name" >/dev/null 2>&1 || status=$?
+  expect_code 1 "$status" "teardown must refuse a recreated same-name session"
+  ! grep -F "session delete $name" "$FAKE_LOG" >/dev/null \
+    || fail "recreated-session refusal reached session delete"
+  rm -f "$TRIPWIRES/$name.fleet-state.json" "$TRIPWIRES/$name.session-identity.json" "$FAKE_STATE/$name"
+  rm -rf "$socket_dir"
+  pass "fm-herdr-lab: named-session directory identity rejects stale same-name state"
+}
+
 test_refuses_unsafe_names
 test_provision_run_and_guarded_teardown
 test_missing_tripwire_blocks_destruction
@@ -355,6 +439,9 @@ test_changed_default_trips_after_teardown
 test_stopped_owned_lab_can_reprovision
 test_failed_delete_retains_tripwire
 test_timed_out_provision_cancels_late_launch
+test_stop_failure_is_propagated
+test_bootstrap_state_failure_cleans_client_and_child
 test_bootstrap_pane_is_scoped_owned_and_cleaned
 test_bootstrap_pane_failure_is_bounded_and_cleans_client
 test_bootstrap_pane_refuses_mismatched_ownership
+test_bootstrap_pane_refuses_recreated_named_session

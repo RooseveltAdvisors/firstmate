@@ -20,10 +20,11 @@
 # operation.
 # Session stop is available only through guarded stop or teardown, and session
 # delete is available only through teardown.
-# Both paths perform a fresh refuse-default check immediately before each
+# Both paths perform a fresh named-session ownership check immediately before each
 # destructive call.
 # Provision records the running default session as a fleet-state tripwire and
 # teardown requires that record to be identical afterward.
+# Provision also records the helper-owned named session directory identity.
 # Bootstrap-pane requires an owned running zero-pane lab, attaches one isolated
 # PTY client, and prints {"session":...,"pane_id":...,"client_pid":...}.
 set -u
@@ -49,6 +50,10 @@ fm_herdr_lab_state_dir() {
 
 fm_herdr_lab_tripwire_path() { # <session>
   printf '%s/%s.fleet-state.json' "$(fm_herdr_lab_state_dir)" "$1"
+}
+
+fm_herdr_lab_identity_path() { # <session>
+  printf '%s/%s.session-identity.json' "$(fm_herdr_lab_state_dir)" "$1"
 }
 
 fm_herdr_lab_bootstrap_dir() { # <session>
@@ -93,6 +98,160 @@ fm_herdr_lab_fleet_state() { # <session>
   printf '%s\n' "$snapshot"
 }
 
+fm_herdr_lab_path_identity() { # <path>
+  local path=$1
+  [ -e "$path" ] && [ ! -L "$path" ] || return 1
+  if [ "$(uname -s 2>/dev/null)" = Darwin ]; then
+    stat -f '%d:%i' "$path" 2>/dev/null
+  else
+    stat -c '%d:%i' "$path" 2>/dev/null
+  fi
+}
+
+fm_herdr_lab_session_snapshot() { # <session>
+  local name=$1 sessions
+  sessions=$(fm_herdr_lab_session_list "$name" 2>/dev/null) || return 1
+  printf '%s' "$sessions" | jq -er --arg name "$name" '
+    [.sessions[]? | select(.name == $name)]
+    | select(length == 1)
+    | .[0]
+  ' 2>/dev/null
+}
+
+fm_herdr_lab_write_session_identity() { # <session>
+  local name=$1 snapshot socket socket_dir socket_dir_identity socket_identity record tmp
+  snapshot=$(fm_herdr_lab_session_snapshot "$name") || {
+    fm_herdr_lab_error "cannot read the named session identity for '$name'"
+    return 1
+  }
+  printf '%s' "$snapshot" | jq -e '
+    .default == false
+    and .running == true
+    and (.socket_path | type) == "string"
+    and (.socket_path | startswith("/"))
+    and (.socket_path | length) > 0
+  ' >/dev/null 2>&1 || {
+    fm_herdr_lab_error "named session '$name' has an invalid owned-session identity"
+    return 1
+  }
+  socket=$(printf '%s' "$snapshot" | jq -er '.socket_path' 2>/dev/null) || return 1
+  socket_dir=${socket%/*}
+  [ "$socket_dir" != "$socket" ] || socket_dir=.
+  socket_dir_identity=$(fm_herdr_lab_path_identity "$socket_dir") || {
+    fm_herdr_lab_error "cannot identify the named session directory for '$name'"
+    return 1
+  }
+  socket_identity=$(fm_herdr_lab_path_identity "$socket") || {
+    fm_herdr_lab_error "cannot identify the named session socket for '$name'"
+    return 1
+  }
+  record=$(fm_herdr_lab_identity_path "$name")
+  tmp="$record.tmp.$$"
+  (umask 077; jq -nc \
+    --arg name "$name" \
+    --arg socket "$socket" \
+    --arg socket_dir_identity "$socket_dir_identity" \
+    --arg socket_identity "$socket_identity" \
+    '{name:$name,socket_path:$socket,socket_dir_identity:$socket_dir_identity,socket_identity:$socket_identity}' \
+    > "$tmp") || { rm -f "$tmp"; return 1; }
+  mv "$tmp" "$record"
+}
+
+fm_herdr_lab_read_session_identity() { # <session>; sets FM_HERDR_LAB_IDENTITY_*
+  local name=$1 record identity
+  record=$(fm_herdr_lab_identity_path "$name")
+  [ -f "$record" ] && [ ! -L "$record" ] || {
+    fm_herdr_lab_error "named session identity for '$name' is absent or ambiguous"
+    return 1
+  }
+  identity=$(jq -er '
+    select((.name | type) == "string")
+    | select((.socket_path | type) == "string" and (.socket_path | startswith("/")))
+    | select((.socket_dir_identity | type) == "string")
+    | select((.socket_identity | type) == "string")
+    | [.name,.socket_path,.socket_dir_identity,.socket_identity]
+    | @tsv
+  ' "$record" 2>/dev/null) || {
+    fm_herdr_lab_error "named session identity for '$name' is malformed"
+    return 1
+  }
+  IFS=$'\t' read -r \
+    FM_HERDR_LAB_IDENTITY_NAME \
+    FM_HERDR_LAB_IDENTITY_SOCKET \
+    FM_HERDR_LAB_IDENTITY_SOCKET_DIR \
+    FM_HERDR_LAB_IDENTITY_SOCKET_STAT <<< "$identity"
+  [ "$FM_HERDR_LAB_IDENTITY_NAME" = "$name" ] \
+    && [[ "$FM_HERDR_LAB_IDENTITY_SOCKET_DIR" =~ ^[0-9]+:[0-9]+$ ]] \
+    && [[ "$FM_HERDR_LAB_IDENTITY_SOCKET_STAT" =~ ^[0-9]+:[0-9]+$ ]] || {
+      fm_herdr_lab_error "named session identity for '$name' is malformed or mismatched"
+      return 1
+    }
+}
+
+fm_herdr_lab_require_owned_session() { # <session> <true|false|any>
+  local name=$1 expected=${2:-any} snapshot running socket socket_dir current_dir_identity current_socket_identity
+  fm_herdr_lab_validate_name "$name" || return 1
+  case "$expected" in
+    true|false|any) ;;
+    *) fm_herdr_lab_error "invalid named-session ownership state"; return 1 ;;
+  esac
+  fm_herdr_lab_read_session_identity "$name" || return 1
+  [ "$FM_HERDR_LAB_IDENTITY_NAME" = "$name" ] || {
+    fm_herdr_lab_error "named session identity mismatch for '$name'"
+    return 1
+  }
+  snapshot=$(fm_herdr_lab_session_snapshot "$name") || {
+    fm_herdr_lab_error "cannot read Herdr sessions while verifying '$name'"
+    return 1
+  }
+  printf '%s' "$snapshot" | jq -e --arg name "$name" --arg socket "$FM_HERDR_LAB_IDENTITY_SOCKET" \
+    '.name == $name and .default == false and .socket_path == $socket and (.running | type) == "boolean"' \
+    >/dev/null 2>&1 || {
+      fm_herdr_lab_error "named session '$name' is absent, ambiguous, default, or mismatched"
+      return 1
+    }
+  running=$(printf '%s' "$snapshot" | jq -r '.running' 2>/dev/null) || return 1
+  case "$expected" in
+    true|false)
+      [ "$running" = "$expected" ] || {
+        fm_herdr_lab_error "named session '$name' has unexpected running state"
+        return 1
+      }
+      ;;
+  esac
+  socket=$FM_HERDR_LAB_IDENTITY_SOCKET
+  socket_dir=${socket%/*}
+  [ "$socket_dir" != "$socket" ] || socket_dir=.
+  current_dir_identity=$(fm_herdr_lab_path_identity "$socket_dir") || {
+    fm_herdr_lab_error "named session directory identity for '$name' is unavailable"
+    return 1
+  }
+  [ "$current_dir_identity" = "$FM_HERDR_LAB_IDENTITY_SOCKET_DIR" ] || {
+    fm_herdr_lab_error "named session directory identity changed for '$name'"
+    return 1
+  }
+  if [ "$running" = true ]; then
+    current_socket_identity=$(fm_herdr_lab_path_identity "$socket") || {
+      fm_herdr_lab_error "named session socket identity for '$name' is unavailable"
+      return 1
+    }
+    [ "$current_socket_identity" = "$FM_HERDR_LAB_IDENTITY_SOCKET_STAT" ] || {
+      fm_herdr_lab_error "named session socket identity changed for '$name'"
+      return 1
+    }
+  elif [ -e "$socket" ] || [ -L "$socket" ]; then
+    current_socket_identity=$(fm_herdr_lab_path_identity "$socket") || {
+      fm_herdr_lab_error "named session socket for stopped '$name' is ambiguous"
+      return 1
+    }
+    [ "$current_socket_identity" = "$FM_HERDR_LAB_IDENTITY_SOCKET_STAT" ] || {
+      fm_herdr_lab_error "named session socket identity changed for '$name'"
+      return 1
+    }
+  fi
+  FM_HERDR_LAB_SESSION_RUNNING=$running
+}
+
 fm_herdr_lab_prepare() { # <session>
   local name=$1 sessions state_dir tripwire
   fm_herdr_lab_validate_name "$name" || return 1
@@ -111,7 +270,7 @@ fm_herdr_lab_prepare() { # <session>
   state_dir=$(fm_herdr_lab_state_dir)
   tripwire=$(fm_herdr_lab_tripwire_path "$name")
   mkdir -p "$state_dir" || return 1
-  [ ! -e "$tripwire" ] || {
+  [ ! -e "$tripwire" ] && [ ! -L "$tripwire" ] || {
     fm_herdr_lab_error "tripwire already exists for '$name'; refusing ambiguous ownership"
     return 1
   }
@@ -184,7 +343,7 @@ fm_herdr_lab_cancel_provision() { # <pid>
 }
 
 fm_herdr_lab_provision() { # <session>
-  local name=$1 sessions tripwire running attempt server_pid max_attempts timeout_seconds
+  local name=$1 sessions tripwire running attempt server_pid max_attempts timeout_seconds named_count
   fm_herdr_lab_validate_name "$name" || return 1
   command -v herdr >/dev/null 2>&1 || { fm_herdr_lab_error "herdr is required"; return 1; }
   command -v jq >/dev/null 2>&1 || { fm_herdr_lab_error "jq is required"; return 1; }
@@ -193,36 +352,48 @@ fm_herdr_lab_provision() { # <session>
     fm_herdr_lab_error "cannot list Herdr sessions before provisioning '$name'"
     return 1
   }
-  if printf '%s' "$sessions" | jq -e --arg name "$name" '.sessions[]? | select(.name == $name)' >/dev/null 2>&1; then
+  named_count=$(printf '%s' "$sessions" | jq -er --arg name "$name" '[.sessions[]? | select(.name == $name)] | length' 2>/dev/null) || {
+    fm_herdr_lab_error "cannot determine whether session '$name' already exists"
+    return 1
+  }
+  case "$named_count" in
+    0)
+      fm_herdr_lab_prepare "$name" || return 1
+      ;;
+    1)
     tripwire=$(fm_herdr_lab_tripwire_path "$name")
-    [ -f "$tripwire" ] || {
+    [ -f "$tripwire" ] && [ ! -L "$tripwire" ] || {
       fm_herdr_lab_error "missing fleet-state tripwire for existing session '$name'; refusing to adopt it"
       return 1
     }
-    fm_herdr_lab_refuse_if_default "$name" || return 1
-    running=$(printf '%s' "$sessions" | jq -r --arg name "$name" \
-      '.sessions[]? | select(.name == $name) | .running' 2>/dev/null)
+    fm_herdr_lab_require_owned_session "$name" any || return 1
+    running=$FM_HERDR_LAB_SESSION_RUNNING
     [ "$running" = false ] || {
       fm_herdr_lab_error "session '$name' is not stopped; refusing to re-provision it"
       return 1
     }
     fm_herdr_lab_check_tripwire "$name" || return 1
-  else
-    fm_herdr_lab_prepare "$name" || return 1
-  fi
+      ;;
+    *)
+      fm_herdr_lab_error "session '$name' is ambiguous; refusing to provision it"
+      return 1
+      ;;
+  esac
   fm_herdr_lab_raw "$name" server >/dev/null 2>&1 &
   server_pid=$!
   attempt=0
   max_attempts=300
   timeout_seconds=60
-  while [ "$attempt" -lt 100 ]; do
+  while [ "$attempt" -lt "$max_attempts" ]; do
     running=$(fm_herdr_lab_cli "$name" status --json 2>/dev/null | jq -r '.server.running // false' 2>/dev/null) || running=false
     if [ "$running" = true ]; then
-      fm_herdr_lab_refuse_if_default "$name" || {
-        fm_herdr_lab_cancel_provision "$server_pid"
-        return 1
-      }
-      return 0
+      if fm_herdr_lab_write_session_identity "$name"; then
+        fm_herdr_lab_require_owned_session "$name" true || {
+          fm_herdr_lab_cancel_provision "$server_pid"
+          return 1
+        }
+        return 0
+      fi
     fi
     sleep 0.2
     attempt=$((attempt + 1))
@@ -250,49 +421,37 @@ fm_herdr_lab_check_tripwire() { # <session>
 }
 
 fm_herdr_lab_verify_tripwire() { # <session>
-  local name=$1 tripwire
+  local name=$1 tripwire identity
   fm_herdr_lab_check_tripwire "$name" || return 1
   tripwire=$(fm_herdr_lab_tripwire_path "$name")
+  identity=$(fm_herdr_lab_identity_path "$name")
+  if [ -e "$identity" ] || [ -L "$identity" ]; then
+    [ -f "$identity" ] && [ ! -L "$identity" ] || {
+      fm_herdr_lab_error "named session identity for '$name' is ambiguous; retaining teardown evidence"
+      return 1
+    }
+    rm -f "$identity" || return 1
+  fi
   rm -f "$tripwire"
 }
 
 fm_herdr_lab_process_start() { # <pid>
-  local pid=$1 raw rest
-  local -a fields
-  [ -r "/proc/$pid/stat" ] || return 1
-  raw=$(<"/proc/$pid/stat") || return 1
-  rest=${raw#*) }
-  read -r -a fields <<< "$rest"
-  [ "${#fields[@]}" -ge 20 ] || return 1
-  [[ "${fields[19]}" =~ ^[0-9]+$ ]] || return 1
-  printf '%s\n' "${fields[19]}"
+  ps -o lstart= -p "$1" 2>/dev/null | sed 's/^[[:space:]]*//; s/[[:space:]]*$//'
 }
 
 fm_herdr_lab_process_state() { # <pid>
-  local pid=$1 raw rest
-  local -a fields
-  [ -r "/proc/$pid/stat" ] || return 1
-  raw=$(<"/proc/$pid/stat") || return 1
-  rest=${raw#*) }
-  read -r -a fields <<< "$rest"
-  [ "${#fields[@]}" -ge 1 ] || return 1
-  printf '%s\n' "${fields[0]}"
+  ps -o state= -p "$1" 2>/dev/null | sed 's/[[:space:]]//g'
 }
 
 fm_herdr_lab_process_has_owner() { # <pid> <owner-token>
-  local pid=$1 owner=$2 entry
-  [ -r "/proc/$pid/environ" ] || return 1
-  while IFS= read -r -d '' entry; do
-    [ "$entry" = "FM_HERDR_LAB_BOOTSTRAP_OWNER=$owner" ] && return 0
-  done < "/proc/$pid/environ"
-  return 1
+  local pid=$1 owner=$2
+  ps eww -p "$pid" 2>/dev/null | grep -F -- "FM_HERDR_LAB_BOOTSTRAP_OWNER=$owner" >/dev/null
 }
 
 fm_herdr_lab_single_child_pid() { # <pid>
   local pid=$1 raw
   local -a children
-  [ -r "/proc/$pid/task/$pid/children" ] || return 1
-  raw=$(<"/proc/$pid/task/$pid/children") || return 1
+  raw=$(pgrep -P "$pid" 2>/dev/null | tr '\n' ' ' || true)
   read -r -a children <<< "$raw"
   [ "${#children[@]}" -eq 1 ] || return 1
   [[ "${children[0]}" =~ ^[0-9]+$ ]] || return 1
@@ -329,13 +488,14 @@ fm_herdr_lab_read_bootstrap_record() { # <session>; sets FM_HERDR_LAB_BOOTSTRAP_
   [ -z "$extra" ] \
     && [ "$FM_HERDR_LAB_BOOTSTRAP_SESSION" = "$name" ] \
     && [[ "$FM_HERDR_LAB_BOOTSTRAP_PID" =~ ^[0-9]+$ ]] \
-    && [[ "$FM_HERDR_LAB_BOOTSTRAP_START" =~ ^[0-9]+$ ]] \
+    && [ -n "$FM_HERDR_LAB_BOOTSTRAP_START" ] \
     && [[ "$FM_HERDR_LAB_BOOTSTRAP_ATTACH_PID" =~ ^[0-9]+$ ]] \
-    && [[ "$FM_HERDR_LAB_BOOTSTRAP_ATTACH_START" =~ ^[0-9]+$ ]] \
+    && [ -n "$FM_HERDR_LAB_BOOTSTRAP_ATTACH_START" ] \
     && [[ "$FM_HERDR_LAB_BOOTSTRAP_OWNER" =~ ^fm-herdr-lab:${name}:[0-9]+:[0-9]+:[0-9]+$ ]] \
     && [ "$FM_HERDR_LAB_BOOTSTRAP_PID" -gt 1 ] \
     && [ "$FM_HERDR_LAB_BOOTSTRAP_ATTACH_PID" -gt 1 ] \
-    && [ "$FM_HERDR_LAB_BOOTSTRAP_PID" != "$FM_HERDR_LAB_BOOTSTRAP_ATTACH_PID" ] || {
+    && [ "$FM_HERDR_LAB_BOOTSTRAP_PID" != "$FM_HERDR_LAB_BOOTSTRAP_ATTACH_PID" ] \
+    && { [ -z "$FM_HERDR_LAB_BOOTSTRAP_PANE" ] || [[ "$FM_HERDR_LAB_BOOTSTRAP_PANE" =~ ^[a-zA-Z0-9_:\-]+$ ]]; } || {
       fm_herdr_lab_error "bootstrap client state for '$name' is malformed or mismatched"
       return 1
     }
@@ -360,29 +520,52 @@ fm_herdr_lab_require_bootstrap_processes() { # uses FM_HERDR_LAB_BOOTSTRAP_*
 
 fm_herdr_lab_stop_recorded_process() { # <pid> <start> <owner> <label>
   local pid=$1 start=$2 owner=$3 label=$4 attempt=0 current
-  [ -e "/proc/$pid" ] || return 0
+  kill -0 "$pid" 2>/dev/null || return 0
   fm_herdr_lab_process_is_owned "$pid" "$start" "$owner" || {
     fm_herdr_lab_error "$label PID $pid has stale or mismatched ownership"
     return 1
   }
   kill -TERM "$pid" 2>/dev/null || {
-    [ ! -e "/proc/$pid" ] && return 0
+    kill -0 "$pid" 2>/dev/null || return 0
     fm_herdr_lab_error "could not stop $label PID $pid"
     return 1
   }
   while [ "$attempt" -lt 50 ]; do
-    [ -e "/proc/$pid" ] || return 0
-    current=$(fm_herdr_lab_process_start "$pid" 2>/dev/null) || return 0
+    kill -0 "$pid" 2>/dev/null || return 0
+    case "$(fm_herdr_lab_process_state "$pid" 2>/dev/null)" in
+      Z*) return 0 ;;
+    esac
+    current=$(fm_herdr_lab_process_start "$pid" 2>/dev/null) || {
+      kill -0 "$pid" 2>/dev/null || return 0
+      fm_herdr_lab_error "could not inspect $label PID $pid while stopping"
+      return 1
+    }
+    [ -n "$current" ] || {
+      kill -0 "$pid" 2>/dev/null || return 0
+      fm_herdr_lab_error "$label PID $pid changed identity while stopping"
+      return 1
+    }
     [ "$current" = "$start" ] || {
       fm_herdr_lab_error "$label PID $pid changed identity while stopping"
       return 1
     }
-    [ "$(fm_herdr_lab_process_state "$pid" 2>/dev/null)" != Z ] || return 0
     sleep 0.1
     attempt=$((attempt + 1))
   done
   fm_herdr_lab_error "$label PID $pid did not stop after TERM"
   return 1
+}
+
+fm_herdr_lab_stop_owned_processes() { # <client-pid> <client-start> <attach-pid> <attach-start> <owner>
+  local client_pid=$1 client_start=$2 attach_pid=$3 attach_start=$4 owner=$5 status=0
+  if [ -n "$attach_pid" ]; then
+    fm_herdr_lab_stop_recorded_process "$attach_pid" "$attach_start" "$owner" "bootstrap PTY child" || status=$?
+  fi
+  if [ -n "$client_pid" ]; then
+    fm_herdr_lab_stop_recorded_process "$client_pid" "$client_start" "$owner" "bootstrap client" || status=$?
+    wait "$client_pid" 2>/dev/null || true
+  fi
+  return "$status"
 }
 
 fm_herdr_lab_remove_bootstrap_record() { # <session>
@@ -397,27 +580,90 @@ fm_herdr_lab_remove_bootstrap_record() { # <session>
   }
 }
 
+fm_herdr_lab_close_bootstrap_pane() { # <session> <pane>
+  local name=$1 expected=$2 panes pane_count pane after_count
+  fm_herdr_lab_check_tripwire "$name" || return 1
+  fm_herdr_lab_require_owned_session "$name" any || return 1
+  panes=$(fm_herdr_lab_cli "$name" pane list 2>/dev/null) || {
+    fm_herdr_lab_error "cannot inspect the bootstrap pane before cleanup"
+    return 1
+  }
+  pane_count=$(printf '%s' "$panes" | jq -er '
+    select((.result.panes | type) == "array") | (.result.panes | length)
+  ' 2>/dev/null) || {
+    fm_herdr_lab_error "bootstrap pane inventory is unreadable during cleanup"
+    return 1
+  }
+  case "$pane_count" in
+    0) return 0 ;;
+    1) ;;
+    *)
+      fm_herdr_lab_error "bootstrap cleanup found an ambiguous $pane_count-pane inventory in '$name'"
+      return 1
+      ;;
+  esac
+  pane=$(printf '%s' "$panes" | jq -er '.result.panes[0].pane_id | select(type == "string" and length > 0)' 2>/dev/null) || {
+    fm_herdr_lab_error "bootstrap cleanup found an unidentified pane in '$name'"
+    return 1
+  }
+  [ "$pane" = "$expected" ] || {
+    fm_herdr_lab_error "bootstrap cleanup refused a pane identity mismatch in '$name'"
+    return 1
+  }
+  fm_herdr_lab_raw "$name" pane close "$expected" --json >/dev/null 2>&1 || {
+    fm_herdr_lab_error "could not close the owned bootstrap pane in '$name'"
+    return 1
+  }
+  after_count=$(fm_herdr_lab_cli "$name" pane list 2>/dev/null | jq -er '
+    select((.result.panes | type) == "array") | (.result.panes | length)
+  ' 2>/dev/null) || {
+    fm_herdr_lab_error "could not confirm bootstrap pane cleanup in '$name'"
+    return 1
+  }
+  [ "$after_count" -eq 0 ] || {
+    fm_herdr_lab_error "bootstrap pane '$expected' remains after cleanup"
+    return 1
+  }
+}
+
 fm_herdr_lab_stop_bootstrap_client() { # <session>
-  local name=$1 dir
+  local name=$1 close_pane=${2:-0} dir pane
   dir=$(fm_herdr_lab_bootstrap_dir "$name")
   [ ! -e "$dir" ] && [ ! -L "$dir" ] && return 0
   fm_herdr_lab_read_bootstrap_record "$name" || return 1
-  fm_herdr_lab_stop_recorded_process \
+  pane=$FM_HERDR_LAB_BOOTSTRAP_PANE
+  fm_herdr_lab_stop_owned_processes \
     "$FM_HERDR_LAB_BOOTSTRAP_PID" \
     "$FM_HERDR_LAB_BOOTSTRAP_START" \
-    "$FM_HERDR_LAB_BOOTSTRAP_OWNER" \
-    "bootstrap client" || return 1
-  wait "$FM_HERDR_LAB_BOOTSTRAP_PID" 2>/dev/null || true
-  fm_herdr_lab_stop_recorded_process \
     "$FM_HERDR_LAB_BOOTSTRAP_ATTACH_PID" \
     "$FM_HERDR_LAB_BOOTSTRAP_ATTACH_START" \
-    "$FM_HERDR_LAB_BOOTSTRAP_OWNER" \
-    "bootstrap PTY child" || return 1
+    "$FM_HERDR_LAB_BOOTSTRAP_OWNER" || return 1
+  if [ "$close_pane" = 1 ] && [ -n "$pane" ]; then
+    fm_herdr_lab_close_bootstrap_pane "$name" "$pane" || return 1
+  fi
   fm_herdr_lab_remove_bootstrap_record "$name"
 }
 
+fm_herdr_lab_cleanup_bootstrap_attempt() { # <session> <pane> <client-pid> <client-start> <attach-pid> <attach-start> <owner>
+  local name=$1 pane=$2 client_pid=$3 client_start=$4 attach_pid=$5 attach_start=$6 owner=$7 dir log status=0
+  dir=$(fm_herdr_lab_bootstrap_dir "$name")
+  log=$(fm_herdr_lab_bootstrap_log_path "$name")
+  fm_herdr_lab_stop_owned_processes \
+    "$client_pid" "$client_start" "$attach_pid" "$attach_start" "$owner" || status=$?
+  if [ "$status" -eq 0 ] && [ -n "$pane" ]; then
+    fm_herdr_lab_close_bootstrap_pane "$name" "$pane" || status=$?
+  fi
+  if [ "$status" -eq 0 ]; then
+    rm -f "$log" || status=$?
+    rmdir "$dir" 2>/dev/null || status=$?
+  else
+    fm_herdr_lab_error "bootstrap rollback for '$name' did not complete"
+  fi
+  return "$status"
+}
+
 fm_herdr_lab_require_owned_running() { # <session>
-  local name=$1 tripwire sessions identity
+  local name=$1 tripwire
   fm_herdr_lab_validate_name "$name" || return 1
   tripwire=$(fm_herdr_lab_tripwire_path "$name")
   [ -f "$tripwire" ] && [ ! -L "$tripwire" ] || {
@@ -425,34 +671,26 @@ fm_herdr_lab_require_owned_running() { # <session>
     return 1
   }
   fm_herdr_lab_check_tripwire "$name" || return 1
-  sessions=$(fm_herdr_lab_session_list "$name" 2>/dev/null) || {
-    fm_herdr_lab_error "cannot read Herdr sessions before bootstrap-pane"
-    return 1
-  }
-  identity=$(printf '%s' "$sessions" | jq -er --arg name "$name" '
-    [.sessions[]? | select(.name == $name)]
-    | select(length == 1)
-    | .[0]
-    | select(.default == false and .running == true)
-    | .name
-  ' 2>/dev/null) || {
+  fm_herdr_lab_require_owned_session "$name" true || {
     fm_herdr_lab_error "bootstrap-pane requires exactly one owned running non-default session named '$name'"
-    return 1
-  }
-  [ "$identity" = "$name" ] || {
-    fm_herdr_lab_error "bootstrap-pane session identity mismatch for '$name'"
     return 1
   }
 }
 
 fm_herdr_lab_bootstrap_pane() { # <session>
-  local name=$1 dir log panes pane_count pane client_pid client_start attach_pid attach_start owner command attempt
+  local name=$1 dir log panes pane_count pane listed_pane client_pid client_start attach_pid attach_start owner command attempt platform cwd create_out pane_ready=0
   local max_attempts=${FM_HERDR_LAB_BOOTSTRAP_MAX_ATTEMPTS:-100}
   fm_herdr_lab_require_owned_running "$name" || return 1
   command -v script >/dev/null 2>&1 || { fm_herdr_lab_error "script is required for bootstrap-pane"; return 1; }
-  command -v setsid >/dev/null 2>&1 || { fm_herdr_lab_error "setsid is required for bootstrap-pane"; return 1; }
   command -v stty >/dev/null 2>&1 || { fm_herdr_lab_error "stty is required for bootstrap-pane"; return 1; }
-  [ -r /proc/self/stat ] || { fm_herdr_lab_error "/proc process identity is required for bootstrap-pane"; return 1; }
+  command -v ps >/dev/null 2>&1 || { fm_herdr_lab_error "ps is required for bootstrap-pane"; return 1; }
+  command -v pgrep >/dev/null 2>&1 || { fm_herdr_lab_error "pgrep is required for bootstrap-pane"; return 1; }
+  platform=$(uname -s 2>/dev/null) || { fm_herdr_lab_error "cannot determine bootstrap-pane platform"; return 1; }
+  case "$platform" in
+    Linux) command -v setsid >/dev/null 2>&1 || { fm_herdr_lab_error "setsid is required for Linux bootstrap-pane"; return 1; } ;;
+    Darwin) ;;
+    *) fm_herdr_lab_error "bootstrap-pane is unsupported on '$platform'"; return 1 ;;
+  esac
   [[ "$max_attempts" =~ ^[0-9]+$ ]] && [ "$max_attempts" -ge 1 ] && [ "$max_attempts" -le 100 ] || {
     fm_herdr_lab_error "invalid bootstrap-pane wait bound"
     return 1
@@ -486,11 +724,41 @@ fm_herdr_lab_bootstrap_pane() { # <session>
   chmod 700 "$dir" || { rmdir "$dir"; return 1; }
   log=$(fm_herdr_lab_bootstrap_log_path "$name")
   owner="fm-herdr-lab:${name}:$$:${RANDOM}:${RANDOM}"
+  cwd=$(pwd -P) || {
+    rmdir "$dir"
+    fm_herdr_lab_error "cannot determine the bootstrap pane working directory"
+    return 1
+  }
+  create_out=$(fm_herdr_lab_raw "$name" workspace create --cwd "$cwd" --label "fm-herdr-lab-bootstrap" --no-focus 2>/dev/null) || {
+    rmdir "$dir"
+    fm_herdr_lab_error "could not create the authoritative bootstrap pane in '$name'"
+    return 1
+  }
+  pane=$(printf '%s' "$create_out" | jq -er '
+    .result.root_pane.pane_id
+    | select(type == "string" and length > 0)
+  ' 2>/dev/null) || {
+    rmdir "$dir"
+    fm_herdr_lab_error "bootstrap pane creation returned no authoritative pane identity"
+    return 1
+  }
+  [[ "$pane" =~ ^[a-zA-Z0-9_:\-]+$ ]] || {
+    rmdir "$dir"
+    fm_herdr_lab_error "bootstrap pane creation returned a malformed pane identity"
+    return 1
+  }
   command="unset HERDR_ENV HERDR_PANE_ID HERDR_TAB_ID HERDR_WORKSPACE_ID; stty rows 24 cols 80; exec herdr --session '$name'"
-  HERDR_SESSION="$name" \
-    FM_HERDR_LAB_BOOTSTRAP_OWNER="$owner" \
-    TERM=xterm-256color \
-    setsid script -q -e -c "$command" /dev/null > "$log" 2>&1 </dev/null &
+  if [ "$platform" = Darwin ]; then
+    HERDR_SESSION="$name" \
+      FM_HERDR_LAB_BOOTSTRAP_OWNER="$owner" \
+      TERM=xterm-256color \
+      script -q "$log" /bin/sh -c "$command" </dev/null >/dev/null 2>&1 &
+  else
+    HERDR_SESSION="$name" \
+      FM_HERDR_LAB_BOOTSTRAP_OWNER="$owner" \
+      TERM=xterm-256color \
+      setsid script -q -e -c "$command" "$log" </dev/null >/dev/null 2>&1 &
+  fi
   client_pid=$!
 
   attempt=0
@@ -504,10 +772,9 @@ fm_herdr_lab_bootstrap_pane() { # <session>
   done
   if [ -z "$client_start" ] \
      || ! fm_herdr_lab_process_has_owner "$client_pid" "$owner"; then
-    kill -TERM "$client_pid" 2>/dev/null || true
-    wait "$client_pid" 2>/dev/null || true
-    rm -f "$log"
-    rmdir "$dir" 2>/dev/null || true
+    fm_herdr_lab_cleanup_bootstrap_attempt \
+      "$name" "$pane" "$client_pid" "$client_start" "" "" "$owner" \
+      || fm_herdr_lab_error "could not roll back the bootstrap pane after client startup failure"
     fm_herdr_lab_error "bootstrap client for '$name' did not start with a verifiable owner identity"
     return 1
   fi
@@ -531,24 +798,23 @@ fm_herdr_lab_bootstrap_pane() { # <session>
     attempt=$((attempt + 1))
   done
   if [ -z "$attach_pid" ] || [ -z "$attach_start" ]; then
-    kill -TERM "$client_pid" 2>/dev/null || true
-    wait "$client_pid" 2>/dev/null || true
-    rm -f "$log"
-    rmdir "$dir" 2>/dev/null || true
+    fm_herdr_lab_cleanup_bootstrap_attempt \
+      "$name" "$pane" "$client_pid" "$client_start" "$attach_pid" "$attach_start" "$owner" \
+      || fm_herdr_lab_error "could not roll back the bootstrap pane after PTY startup failure"
     fm_herdr_lab_error "bootstrap client for '$name' did not expose one verifiable PTY child"
     return 1
   fi
   fm_herdr_lab_write_bootstrap_record \
-    "$name" "$client_pid" "$client_start" "$attach_pid" "$attach_start" "$owner" || {
-      kill -TERM "$client_pid" 2>/dev/null || true
-      wait "$client_pid" 2>/dev/null || true
-      rm -f "$log"
-      rmdir "$dir" 2>/dev/null || true
+    "$name" "$client_pid" "$client_start" "$attach_pid" "$attach_start" "$owner" "$pane" || {
+      fm_herdr_lab_cleanup_bootstrap_attempt \
+        "$name" "$pane" "$client_pid" "$client_start" "$attach_pid" "$attach_start" "$owner" \
+        || fm_herdr_lab_error "could not roll back the bootstrap pane after state write failure"
       return 1
     }
   fm_herdr_lab_read_bootstrap_record "$name" || {
-    fm_herdr_lab_stop_bootstrap_client "$name" \
-      || fm_herdr_lab_error "could not clean bootstrap client after a state-read failure"
+    fm_herdr_lab_cleanup_bootstrap_attempt \
+      "$name" "$pane" "$client_pid" "$client_start" "$attach_pid" "$attach_start" "$owner" \
+      || fm_herdr_lab_error "could not clean bootstrap pane after a state-read failure"
     return 1
   }
 
@@ -562,10 +828,15 @@ fm_herdr_lab_bootstrap_pane() { # <session>
     case "$pane_count" in
       0|'') ;;
       1)
-        pane=$(printf '%s' "$panes" | jq -er '
+        listed_pane=$(printf '%s' "$panes" | jq -er '
           .result.panes[0].pane_id | select(type == "string" and length > 0)
         ' 2>/dev/null || true)
-        [ -n "$pane" ] && break
+        if [ "$listed_pane" = "$pane" ]; then
+          pane_ready=1
+          break
+        fi
+        fm_herdr_lab_error "bootstrap-pane returned a pane identity mismatch in '$name'"
+        break
         ;;
       *)
         fm_herdr_lab_error "bootstrap-pane created an ambiguous $pane_count-pane inventory in '$name'"
@@ -575,24 +846,18 @@ fm_herdr_lab_bootstrap_pane() { # <session>
     sleep 0.1
     attempt=$((attempt + 1))
   done
-  if [ -z "${pane:-}" ]; then
-    fm_herdr_lab_stop_bootstrap_client "$name" \
+  if [ "$pane_ready" -ne 1 ]; then
+    fm_herdr_lab_stop_bootstrap_client "$name" 1 \
       || fm_herdr_lab_error "could not clean bootstrap client after pane wait failure"
     fm_herdr_lab_error "lab session '$name' did not produce exactly one bootstrap pane within 10 seconds"
     return 1
   fi
-  fm_herdr_lab_write_bootstrap_record \
-    "$name" "$client_pid" "$client_start" "$attach_pid" "$attach_start" "$owner" "$pane" || {
-    fm_herdr_lab_stop_bootstrap_client "$name" \
-      || fm_herdr_lab_error "could not clean bootstrap client after state write failure"
-    return 1
-  }
   jq -nc --arg session "$name" --arg pane_id "$pane" --argjson client_pid "$client_pid" \
     '{session:$session,pane_id:$pane_id,client_pid:$client_pid}'
 }
 
 fm_herdr_lab_stop() { # <session>
-  local name=$1 tripwire sessions running
+  local name=$1 tripwire running
   fm_herdr_lab_validate_name "$name" || return 1
   tripwire=$(fm_herdr_lab_tripwire_path "$name")
   [ -f "$tripwire" ] && [ ! -L "$tripwire" ] || {
@@ -601,22 +866,10 @@ fm_herdr_lab_stop() { # <session>
   }
   fm_herdr_lab_check_tripwire "$name" || return 1
   fm_herdr_lab_stop_bootstrap_client "$name" || return 1
-  sessions=$(fm_herdr_lab_session_list "$name" 2>/dev/null) || {
-    fm_herdr_lab_error "refusing stop because session list failed"
-    return 1
-  }
-  running=$(printf '%s' "$sessions" | jq -r --arg name "$name" '
-    [.sessions[]? | select(.name == $name)]
-    | select(length == 1)
-    | .[0]
-    | select(.default == false)
-    | .running
-  ' 2>/dev/null) || {
-    fm_herdr_lab_error "refusing stop for '$name': session is absent, ambiguous, or default"
-    return 1
-  }
+  fm_herdr_lab_require_owned_session "$name" any || return 1
+  running=$FM_HERDR_LAB_SESSION_RUNNING
   case "$running" in
-    true) fm_herdr_lab_raw "$name" session stop "$name" --json ;;
+    true) fm_herdr_lab_raw "$name" session stop "$name" --json || return 1 ;;
     false) : ;;
     *) fm_herdr_lab_error "refusing stop for '$name': running state is ambiguous"; return 1 ;;
   esac
@@ -624,7 +877,7 @@ fm_herdr_lab_stop() { # <session>
 }
 
 fm_herdr_lab_teardown() { # <session>
-  local name=$1 tripwire sessions delete_status=0
+  local name=$1 tripwire sessions delete_status=0 named_count identity
   fm_herdr_lab_validate_name "$name" || return 1
   tripwire=$(fm_herdr_lab_tripwire_path "$name")
   [ -f "$tripwire" ] && [ ! -L "$tripwire" ] || {
@@ -636,20 +889,41 @@ fm_herdr_lab_teardown() { # <session>
     fm_herdr_lab_error "cannot list Herdr sessions before teardown"
     return 1
   }
-  if ! printf '%s' "$sessions" | jq -e --arg name "$name" '.sessions[]? | select(.name == $name)' >/dev/null 2>&1; then
-    fm_herdr_lab_stop_bootstrap_client "$name" || return 1
-    fm_herdr_lab_verify_tripwire "$name"
-    return
-  fi
+  named_count=$(printf '%s' "$sessions" | jq -er --arg name "$name" '[.sessions[]? | select(.name == $name)] | length' 2>/dev/null) || {
+    fm_herdr_lab_error "cannot determine whether lab session '$name' exists"
+    return 1
+  }
+  case "$named_count" in
+    0)
+      fm_herdr_lab_stop_bootstrap_client "$name" || return 1
+      identity=$(fm_herdr_lab_identity_path "$name")
+      if [ -e "$identity" ] || [ -L "$identity" ]; then
+        fm_herdr_lab_error "lab session '$name' disappeared before teardown; retaining ownership evidence"
+        return 1
+      fi
+      fm_herdr_lab_verify_tripwire "$name"
+      return
+      ;;
+    1) ;;
+    *)
+      fm_herdr_lab_error "lab session '$name' is ambiguous before teardown"
+      return 1
+      ;;
+  esac
   fm_herdr_lab_stop "$name" >/dev/null || return 1
   sleep 0.5
-  fm_herdr_lab_refuse_if_default "$name" || return 1
+  fm_herdr_lab_require_owned_session "$name" false || return 1
+  fm_herdr_lab_check_tripwire "$name" || return 1
   fm_herdr_lab_raw "$name" session delete "$name" --json >/dev/null 2>&1 || delete_status=$?
   sessions=$(fm_herdr_lab_session_list "$name" 2>/dev/null) || {
     fm_herdr_lab_error "cannot confirm removal of lab session '$name' after teardown"
     return 1
   }
-  if printf '%s' "$sessions" | jq -e --arg name "$name" '.sessions[]? | select(.name == $name)' >/dev/null 2>&1; then
+  named_count=$(printf '%s' "$sessions" | jq -er --arg name "$name" '[.sessions[]? | select(.name == $name)] | length' 2>/dev/null) || {
+    fm_herdr_lab_error "cannot determine whether lab session '$name' remains after teardown"
+    return 1
+  }
+  if [ "$named_count" -ne 0 ]; then
     if [ "$delete_status" -ne 0 ]; then
       fm_herdr_lab_error "session delete failed for '$name' and the lab session remains"
     else
