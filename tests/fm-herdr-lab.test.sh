@@ -55,6 +55,24 @@ case "$1 ${2:-}" in
       printf '%s\n' '{"server":{"running":false}}'
     fi
     ;;
+  "pane list")
+    pane=
+    [ ! -f "$state/$session.pane" ] || pane=$(cat "$state/$session.pane")
+    if [ -n "$pane" ]; then
+      jq -nc --arg pane "$pane" --arg session "$session" \
+        '{id:"cli:pane:list",result:{type:"pane_list",panes:[{pane_id:$pane,workspace_id:($session + ":w1"),tab_id:($session + ":t1")}]}}'
+    else
+      printf '%s\n' '{"id":"cli:pane:list","result":{"type":"pane_list","panes":[]}}'
+    fi
+    ;;
+  "--session $session")
+    [ "$lab_state" = running ] || exit 94
+    printf '%s\n' "$$" > "$state/$session.client-pid"
+    if [ "${FM_FAKE_HERDR_BOOTSTRAP_NO_PANE:-}" != 1 ]; then
+      printf '%s\n' "$session:w1:p1" > "$state/$session.pane"
+    fi
+    exec "$FM_FAKE_HERDR_REAL_SLEEP" 300
+    ;;
   "session stop")
     [ "$3" = "$session" ] || exit 91
     printf '%s\n' stopped > "$state/$session"
@@ -82,6 +100,8 @@ run_with_fake() {
     FM_FAKE_HERDR_SERVER_DELAY="${FM_FAKE_HERDR_SERVER_DELAY:-0}" \
     FM_FAKE_HERDR_FAST_POLL="${FM_FAKE_HERDR_FAST_POLL:-}" \
     FM_FAKE_HERDR_DELETE_FAIL="${FM_FAKE_HERDR_DELETE_FAIL:-}" \
+    FM_FAKE_HERDR_BOOTSTRAP_NO_PANE="${FM_FAKE_HERDR_BOOTSTRAP_NO_PANE:-}" \
+    FM_HERDR_LAB_BOOTSTRAP_MAX_ATTEMPTS="${FM_HERDR_LAB_BOOTSTRAP_MAX_ATTEMPTS:-}" \
     FM_HERDR_LAB_STATE_DIR="$TRIPWIRES" \
     "$@"
 }
@@ -161,6 +181,9 @@ test_missing_tripwire_blocks_destruction() {
   printf '%s\n' running > "$FAKE_STATE/$name"
   : > "$FAKE_LOG"
   before=$(wc -l < "$FAKE_LOG")
+  run_with_fake fm_herdr_lab_bootstrap_pane "$name" >/dev/null 2>&1 || status=$?
+  expect_code 1 "$status" "missing tripwire must refuse bootstrap-pane"
+  status=0
   run_with_fake fm_herdr_lab_teardown "$name" >/dev/null 2>&1 || status=$?
   expect_code 1 "$status" "missing tripwire must refuse teardown"
   after=$(wc -l < "$FAKE_LOG")
@@ -234,6 +257,97 @@ SH
   pass "fm-herdr-lab: timed-out provisioning cancels the launch before teardown"
 }
 
+test_bootstrap_pane_is_scoped_owned_and_cleaned() {
+  local name="fm-lab-bootstrap-$$" before out pane pid line
+  : > "$FAKE_LOG"
+  run_with_fake fm_herdr_lab_provision "$name" || fail "bootstrap fixture provision failed"
+  before=$(cat "$TRIPWIRES/$name.fleet-state.json")
+  [ "$(run_with_fake fm_herdr_lab_cli "$name" pane list | jq '.result.panes | length')" = 0 ] \
+    || fail "freshly provisioned lab was not a zero-pane fixture"
+
+  out=$(HERDR_SESSION=default run_with_fake fm_herdr_lab_bootstrap_pane "$name") \
+    || fail "bootstrap-pane failed"
+  [ "$(printf '%s' "$out" | jq -r '.session')" = "$name" ] \
+    || fail "bootstrap result did not bind the named session"
+  pane=$(printf '%s' "$out" | jq -r '.pane_id // empty')
+  [ "$pane" = "$name:w1:p1" ] || fail "bootstrap result did not return the authoritative pane id: $out"
+  pid=$(printf '%s' "$out" | jq -r '.client_pid // empty')
+  [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null \
+    || fail "bootstrap result did not identify a live owned client PID: $out"
+  assert_present "$TRIPWIRES/$name.bootstrap-client/client.state" \
+    "bootstrap did not persist its owned client state"
+
+  run_with_fake fm_herdr_lab_stop "$name" >/dev/null || fail "stop did not clean the bootstrap client"
+  kill -0 "$pid" 2>/dev/null && fail "stop left the owned bootstrap client running"
+  assert_absent "$TRIPWIRES/$name.bootstrap-client" "stop left bootstrap client state behind"
+  [ "$(cat "$TRIPWIRES/$name.fleet-state.json")" = "$before" ] \
+    || fail "stop changed the default-session fleet tripwire"
+  run_with_fake fm_herdr_lab_stop "$name" >/dev/null \
+    || fail "repeated stop was not safe for the already-clean bootstrap client"
+  run_with_fake fm_herdr_lab_teardown "$name" || fail "teardown after bootstrap stop failed"
+  [ "$(cat "$FAKE_STATE/default-socket")" = '/home/test/.config/herdr/herdr.sock' ] \
+    || fail "bootstrap lifecycle changed the default-session evidence"
+
+  while IFS= read -r line; do
+    case "$line" in
+      *"--session $name") : ;;
+      *) fail "bootstrap lifecycle Herdr call lacks the exact trailing lab session: $line" ;;
+    esac
+  done < "$FAKE_LOG"
+  grep -Fx -- "--session $name" "$FAKE_LOG" >/dev/null \
+    || fail "bootstrap client did not attach with the exact trailing named session"
+  pass "fm-herdr-lab: zero-pane bootstrap is scoped, machine-readable, owned, and cleanly repeatable"
+}
+
+test_bootstrap_pane_failure_is_bounded_and_cleans_client() {
+  local name="fm-lab-bootstrap-timeout-$$" status=0 client_pid
+  : > "$FAKE_LOG"
+  run_with_fake fm_herdr_lab_provision "$name" || fail "bootstrap timeout fixture provision failed"
+  FM_HERDR_LAB_BOOTSTRAP_MAX_ATTEMPTS=1 FM_FAKE_HERDR_BOOTSTRAP_NO_PANE=1 \
+    run_with_fake fm_herdr_lab_bootstrap_pane "$name" >/dev/null 2>&1 || status=$?
+  expect_code 1 "$status" "zero-pane bootstrap timeout must fail boundedly"
+  assert_absent "$TRIPWIRES/$name.bootstrap-client" \
+    "failed bootstrap left owned client state behind"
+  client_pid=$(cat "$FAKE_STATE/$name.client-pid")
+  kill -0 "$client_pid" 2>/dev/null && fail "failed bootstrap left its owned client running"
+  assert_present "$TRIPWIRES/$name.fleet-state.json" \
+    "failed bootstrap removed the lab fleet-state tripwire"
+  run_with_fake fm_herdr_lab_teardown "$name" || fail "teardown after bootstrap timeout failed"
+  pass "fm-herdr-lab: bootstrap pane wait is bounded and failure cleans only its owned client"
+}
+
+test_bootstrap_pane_refuses_mismatched_ownership() {
+  local name="fm-lab-bootstrap-owner-$$" dir status=0
+  : > "$FAKE_LOG"
+  run_with_fake fm_herdr_lab_provision "$name" || fail "bootstrap ownership fixture provision failed"
+  dir="$TRIPWIRES/$name.bootstrap-client"
+  mkdir "$dir"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t\n' \
+    'fm-lab-someone-else' 999999 1 999998 1 'fm-herdr-lab:fm-lab-someone-else:1:1:1' \
+    > "$dir/client.state"
+
+  run_with_fake fm_herdr_lab_bootstrap_pane "$name" >/dev/null 2>&1 || status=$?
+  expect_code 1 "$status" "bootstrap-pane must refuse mismatched ownership state"
+  status=0
+  run_with_fake fm_herdr_lab_stop "$name" >/dev/null 2>&1 || status=$?
+  expect_code 1 "$status" "stop must refuse mismatched bootstrap ownership state"
+  [ "$(cat "$FAKE_STATE/$name")" = running ] \
+    || fail "ownership refusal stopped the named lab"
+  ! grep -F "session stop $name" "$FAKE_LOG" >/dev/null \
+    || fail "ownership refusal reached a destructive Herdr call"
+
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t\n' \
+    "$name" 999999 1 999998 1 "fm-herdr-lab:${name}:1:1:1" > "$dir/client.state"
+  status=0
+  run_with_fake fm_herdr_lab_bootstrap_pane "$name" >/dev/null 2>&1 || status=$?
+  expect_code 1 "$status" "bootstrap-pane must refuse stale recorded ownership"
+
+  rm -f "$dir/client.state"
+  rmdir "$dir"
+  run_with_fake fm_herdr_lab_teardown "$name" || fail "teardown after removing foreign fixture failed"
+  pass "fm-herdr-lab: bootstrap and cleanup fail closed on mismatched ownership"
+}
+
 test_refuses_unsafe_names
 test_provision_run_and_guarded_teardown
 test_missing_tripwire_blocks_destruction
@@ -241,3 +355,6 @@ test_changed_default_trips_after_teardown
 test_stopped_owned_lab_can_reprovision
 test_failed_delete_retains_tripwire
 test_timed_out_provision_cancels_late_launch
+test_bootstrap_pane_is_scoped_owned_and_cleaned
+test_bootstrap_pane_failure_is_bounded_and_cleans_client
+test_bootstrap_pane_refuses_mismatched_ownership
