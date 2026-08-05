@@ -122,24 +122,34 @@ fm_herdr_lab_lifecycle_lock_expired() { # <path>
 }
 
 fm_herdr_lab_reclaim_lifecycle_lock() { # <session>
-  local name=$1 lock stale
+  local name=$1 lock stale claim status=1
   lock=$(fm_herdr_lab_lifecycle_lock_path "$name")
-  if [ -f "$lock" ] && [ ! -L "$lock" ]; then
-    fm_herdr_lab_lifecycle_lock_stale "$name" || return 1
-    stale="$lock.stale.${BASHPID:-$$}.$RANDOM"
-    mv "$lock" "$stale" 2>/dev/null || return 1
-    rm -f "$stale" || return 1
-    return 0
+  claim="$lock.reclaim"
+  if mkdir "$claim" 2>/dev/null; then
+    if [ -f "$lock" ] && [ ! -L "$lock" ]; then
+      if fm_herdr_lab_lifecycle_lock_stale "$name"; then
+        stale="$lock.stale.${BASHPID:-$$}.$RANDOM"
+        mv "$lock" "$stale" 2>/dev/null && rm -f "$stale"
+        status=$?
+      fi
+    elif [ -d "$lock" ] && [ ! -L "$lock" ]; then
+      if fm_herdr_lab_lifecycle_lock_expired "$lock"; then
+        stale="$lock.stale.${BASHPID:-$$}.$RANDOM"
+        mv "$lock" "$stale" 2>/dev/null && rmdir "$stale" 2>/dev/null
+        status=$?
+      fi
+    else
+      status=0
+    fi
+    rmdir "$claim" 2>/dev/null || status=1
+    return "$status"
   fi
-  [ -d "$lock" ] && [ ! -L "$lock" ] || return 1
-  fm_herdr_lab_lifecycle_lock_expired "$lock" || return 1
-  stale="$lock.stale.${BASHPID:-$$}.$RANDOM"
-  mv "$lock" "$stale" 2>/dev/null || return 1
-  rmdir "$stale" 2>/dev/null
+  [ -d "$claim" ] && [ ! -L "$claim" ] && fm_herdr_lab_lifecycle_lock_expired "$claim" && rmdir "$claim" 2>/dev/null
+  return 1
 }
 
 fm_herdr_lab_lock_session() { # <session>
-  local name=${1:-} state_dir lock depth lock_pid lock_start owner tmp tmp_name current_pid borrowed attempt=0
+  local name=${1:-} state_dir lock claim depth lock_pid lock_start owner tmp tmp_name current_pid borrowed attempt=0
   fm_herdr_lab_validate_name "$name" || return 1
   current_pid=${BASHPID:-$$}
   if [ "${FM_HERDR_LAB_LOCK_NAME:-}" = "$name" ]; then
@@ -181,7 +191,17 @@ fm_herdr_lab_lock_session() { # <session>
     return 1
   }
   owner="fm-herdr-lab-lock:${name}:${lock_pid}:$RANDOM"
+  claim="$lock.reclaim"
   while [ "$attempt" -lt 3 ]; do
+    if [ -e "$claim" ] || [ -L "$claim" ]; then
+      if [ -d "$claim" ] && [ ! -L "$claim" ] && fm_herdr_lab_lifecycle_lock_expired "$claim"; then
+        rmdir "$claim" 2>/dev/null || true
+      fi
+      if [ -e "$claim" ] || [ -L "$claim" ]; then
+        fm_herdr_lab_error "stale lifecycle lock recovery for '$name' is already in progress"
+        return 1
+      fi
+    fi
     tmp="$state_dir/.${name}.lifecycle.lock.tmp.${lock_pid}.$RANDOM"
     tmp_name=${tmp##*/}
     (umask 077; printf '%s\t%s\t%s\t%s\n' "$name" "$lock_pid" "$lock_start" "$owner" > "$tmp") || {
