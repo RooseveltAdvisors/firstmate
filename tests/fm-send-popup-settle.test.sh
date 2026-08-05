@@ -37,6 +37,7 @@ set -u
 SEND="$ROOT/bin/fm-send.sh"
 
 TMP_ROOT=$(fm_test_tmproot fm-send-popup-settle)
+CASE_INDEX=0
 
 # Same stub shape as fm-send-settle.test.sh: a fake tmux that drives the submit
 # path to a clean "empty" verdict on the first Enter, and a fake sleep that records
@@ -79,7 +80,8 @@ first_settle() {  # <expected> <label> <harness|--explicit> <message> [selector-
   local expected=$1 label=$2 harness=$3 msg=$4
   local selector_form=${5:-legacy}
   local dir fb log home target rc first meta_id
-  dir="$TMP_ROOT/case-$RANDOM"; mkdir -p "$dir/state"
+  CASE_INDEX=$((CASE_INDEX + 1))
+  dir="$TMP_ROOT/case-$CASE_INDEX"; mkdir -p "$dir/state"
   fb=$(make_stubs "$dir"); log="$dir/sleep.log"; home="$dir"
   if [ "$harness" = --explicit ]; then
     target="sess:win"
