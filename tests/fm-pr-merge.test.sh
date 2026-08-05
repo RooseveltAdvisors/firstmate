@@ -53,31 +53,10 @@ exit 0
 SH
   cat > "$case_dir/fakebin/gh" <<SH
 #!/usr/bin/env bash
-FM_TEST_DEFAULT_GH_HEAD='$head'
-SH
-  cat >> "$case_dir/fakebin/gh" <<'SH'
-if [ "${1:-} ${2:-}" = "api graphql" ]; then
-  if [ -n "${FM_TEST_GH_REVIEW_COUNT_FILE:-}" ]; then
-    count=0
-    [ ! -f "$FM_TEST_GH_REVIEW_COUNT_FILE" ] || count=$(cat "$FM_TEST_GH_REVIEW_COUNT_FILE")
-    count=$((count + 1))
-    printf '%s\n' "$count" > "$FM_TEST_GH_REVIEW_COUNT_FILE"
-    if [ "$count" -ge 2 ] && [ -n "${FM_TEST_GH_REVIEW_SECOND_JSON+x}" ]; then
-      printf '%s\n' "$FM_TEST_GH_REVIEW_SECOND_JSON"
-      exit 0
-    fi
-  fi
-  if [ -n "${FM_TEST_GH_REVIEW_JSON+x}" ]; then
-    printf '%s\n' "$FM_TEST_GH_REVIEW_JSON"
-  else
-    printf '%s\n' '[{"data":{"repository":{"pullRequest":{"reviewThreads":{"totalCount":0,"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}}]'
-  fi
-  exit 0
-fi
-case "${1:-} ${2:-}" in
+case "\${1:-} \${2:-}" in
   "pr view")
-    case " $* " in
-      *headRefOid*) printf '%s\n' "$FM_TEST_DEFAULT_GH_HEAD" ; exit 0 ;;
+    case " \$* " in
+      *headRefOid*) printf '%s\n' '$head' ; exit 0 ;;
     esac
     ;;
 esac
@@ -100,10 +79,6 @@ exit 0
 SH
   cat > "$case_dir/fakebin/gh" <<'SH'
 #!/usr/bin/env bash
-if [ "${1:-} ${2:-}" = "api graphql" ]; then
-  printf '%s\n' '[{"data":{"repository":{"pullRequest":{"reviewThreads":{"totalCount":0,"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}}]'
-  exit 0
-fi
 exit 0
 SH
   chmod +x "$case_dir/fakebin/gh-axi" "$case_dir/fakebin/gh"
@@ -326,32 +301,6 @@ test_parses_pr_url_for_gh_axi() {
   pass "fm-pr-merge parses a GitHub PR URL into gh-axi number and --repo arguments"
 }
 
-test_new_review_thread_refuses_merge_after_readiness() {
-  local case_dir count_file rc
-  case_dir=$(make_case review-thread-race)
-  mkdir -p "$case_dir/wt"
-  add_gh_mocks "$case_dir" aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-  : > "$case_dir/gh-axi.log"
-  count_file="$case_dir/review-count"
-
-  set +e
-  FM_TEST_GH_REVIEW_COUNT_FILE=$count_file \
-  FM_TEST_GH_REVIEW_SECOND_JSON='[{"data":{"repository":{"pullRequest":{"reviewThreads":{"totalCount":1,"nodes":[{"id":"thread-1","isResolved":false}],"pageInfo":{"hasNextPage":false,"endCursor":"cursor-1"}}}}}}]' \
-    run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/24 \
-      > "$case_dir/stdout" 2> "$case_dir/stderr"
-  rc=$?
-  set -e
-
-  expect_code 1 "$rc" "review-thread-race: fm-pr-merge should refuse a newly added review thread"
-  assert_grep '1 unresolved review conversation' "$case_dir/stderr" \
-    "review-thread-race: pre-merge refusal was not actionable"
-  [ "$(cat "$count_file")" -eq 2 ] \
-    || fail "review-thread-race: readiness and pre-merge did not perform two independent queries"
-  [ ! -s "$case_dir/gh-axi.log" ] \
-    || fail "review-thread-race: gh-axi merge ran after a review thread appeared"
-  pass "fm-pr-merge rechecks review conversations immediately before landing"
-}
-
 test_records_pr_and_head_before_merging
 test_merge_failure_propagates_after_recording
 test_extra_merge_args_forwarded
@@ -362,4 +311,3 @@ test_repo_override_args_refuse_before_recording
 test_explicit_merge_method_not_overridden
 test_method_equals_merge_method_not_overridden
 test_parses_pr_url_for_gh_axi
-test_new_review_thread_refuses_merge_after_readiness

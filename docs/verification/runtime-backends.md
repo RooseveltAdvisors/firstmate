@@ -453,47 +453,6 @@ FM_AFK_PI_HERDR_E2E=1 HERDR_LAB_HELPER=bin/fm-herdr-lab.sh \
 Observed guarantees: pending composer input refused injection and raised one alert; idle Pi accepted one marked escalation; the return gate refused ordinary work while a live blocker remained; resolving the blocker allowed the return flow.
 The dedicated Herdr daemon workspace topology is covered by `tests/fm-afk-launch.test.sh` and preserves the captain tab's pane count.
 
-## Docker Sandboxes lifecycle substrate
-
-The inert Stage 1 implementation was verified on 2026-08-05 without installing or mutating Docker Sandboxes, initializing host policy, starting services, touching fleet hosts, using Herdr, supplying credentials, or doing real repository work in a sandbox.
-No Docker Sandbox microVM was launched, so this section records no filesystem, network, private-Docker, host-Docker-socket, credential, Scopey, Herdr, or external cleanup proof.
-Those guarantees remain required Stage 2 gates rather than inferred results.
-
-The maintained hermetic commands are:
-
-```sh
-bash -n bin/fm-sandbox.sh tests/fm-sandbox.test.sh
-shellcheck -x bin/fm-sandbox.sh tests/fm-sandbox.test.sh
-bash tests/fm-sandbox.test.sh
-```
-
-Observed bounded output:
-
-```text
-ok - fm-sandbox: inventory and doctor are read-only, role-aware, and deny-by-default
-ok - fm-sandbox: immutable journal transitions and terminal cleanup are idempotent
-ok - fm-sandbox: prepare, commit, rollback, and cleanup recover after bounded crash points
-ok - fm-sandbox: host capacity is atomic and task-root custody rejects symlinks
-ok - fm-sandbox: Stage 1 is inert and every worker, Herdr, credential, and live-sbx path is absent
-```
-
-The suite creates only temporary Git fixtures and fake capability binaries.
-It verifies exact config and policy parsing, all-disabled host facts, `launchSupported=false`, read-only doctor behavior, committed-only clone custody, immutable task and host identity, one-time stable-id binding, bounded cleanup, idempotent terminal states, crash recovery at every journal transition, atomic `maxConcurrent` enforcement, symlink refusal, and absence of spawn, teardown, Herdr, credential, kit, Docker-socket, and mutating `sbx` integration.
-
-Every supported harness and backend remains outside this increment:
-
-| Axis | Stage 1 result |
-| --- | --- |
-| claude, codex, opencode, pi, pi-signed, grok, kimi | No harness is launched or modified. |
-| tmux, Herdr, Zellij, Orca, cmux | No backend is selected, launched, steered, recovered, or torn down. |
-| secondmates | No configuration or lifecycle behavior changes. |
-| local and remote hosts | Inventory facts only; all launch paths refuse. |
-| gpu and srv roles | Explicitly inventoried but never eligible for Stage 1 work. |
-
-The source concept and official Docker Sandboxes contracts were reviewed before the original implementation, including the microVM and private-Docker model, balanced and lockdown network policy, allowlisted logs and rules, clone mode, task secrets, custom `spec.yaml` kits, and the unresolved danger of persistent subscription authentication.
-Stage 1 intentionally retains only the safe local facts and journal boundaries that do not require pretending those execution guarantees exist.
-The named non-default Herdr-lab microVM proof, harmless fixture, host-sentinel denial, fleet/private-network denial, host-Docker-socket denial, private-Docker success, disposable-clone edit/build/test, and live/default Herdr fleet invariance are deferred intact to the separately blocked Stage 2.
-
 ## Zellij
 
 The current compatibility floor and latest verification are Zellij 0.44.0 with `jq` on macOS aarch64.

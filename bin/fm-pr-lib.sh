@@ -213,19 +213,6 @@ fm_pr_head_valid() {
   [[ "$head" =~ ^[0-9a-f]{40}$|^[0-9a-f]{64}$ ]]
 }
 
-# One authoritative provider adapter owns review-conversation pagination and
-# response validation. Callers supply only identity fields already produced by
-# fm_pr_url_parse; neither readiness nor merge carries forge-specific API logic.
-fm_pr_review_conversations_require_resolved() {
-  local script_dir=$1 provider=$2 host=$3 project_path=$4 number=$5
-  if ! command -v node >/dev/null 2>&1; then
-    echo "error: checking review conversations requires node on PATH" >&2
-    return 1
-  fi
-  node "$script_dir/fm-pr-review-conversations.mjs" \
-    "$provider" "$host" "$project_path" "$number"
-}
-
 fm_pr_file_mode() {
   if [ "$(uname)" = Darwin ]; then
     stat -f %Lp "$1" 2>/dev/null

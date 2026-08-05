@@ -1,8 +1,7 @@
 # GitLab merge request watch verification
 
-Empirical record for GitLab merge-state polling, alongside the existing GitHub watch.
-The merge-state commands below were run on 2026-07-21 and their output is reproduced exactly.
-The later review-conversation readiness gate is summarized in [architecture.md](architecture.md#delivery-modes-are-explicit-per-task), with its current regression coverage in `tests/fm-pr-check-security.test.sh` and `tests/fm-pr-merge.test.sh`.
+Empirical record for the merge watch on GitLab, alongside the existing GitHub watch.
+Every command below was run on 2026-07-21 and its output is reproduced exactly.
 
 ## Versions
 
@@ -18,7 +17,7 @@ GNU bash, version 5.3.9(1)-release (x86_64-pc-linux-gnu)
 
 All live evidence here reads <https://gitlab.com/KarotKris/gitlab-merge-watch-fixture>, a public project that exists only to be this evidence.
 It holds one deliberately merged merge request and one deliberately open one, so both outcomes can be shown against real data.
-Every merge-state polling command against it reads a public merge request and needs no credential, so a reader can rerun those commands and see the same output.
+Every command against it reads a public merge request and needs no credential, so a reader can rerun each one and see the same output.
 Its README asks that the open merge request be left open.
 
 A non-default host appears below only as the placeholder `gitlab.example`, which resolves nowhere.
@@ -70,9 +69,20 @@ $ cd /tmp && glab mr view 2 -R https://gitlab.com/KarotKris/gitlab-merge-watch-f
 open
 ```
 
-## Stored records and polling a real merge request
+## End to end: arming and polling a real merge request
 
-The captured records include two fixture tasks and one placeholder-host task, showing the host and the full project namespace as data:
+Three tasks were armed, two against the fixture and one against the placeholder host:
+
+```
+$ fm-pr-check.sh e1 https://gitlab.com/KarotKris/gitlab-merge-watch-fixture/-/merge_requests/1
+armed: state/e1.check.sh
+$ fm-pr-check.sh e2 https://gitlab.com/KarotKris/gitlab-merge-watch-fixture/-/merge_requests/2
+armed: state/e2.check.sh
+$ fm-pr-check.sh e3 https://gitlab.example/group/subgroup/project/-/merge_requests/7
+armed: state/e3.check.sh
+```
+
+The stored record for each, showing the host and the full project namespace as data:
 
 ```
 $ cat state/e1.pr-poll
@@ -136,7 +146,7 @@ $ PATH="$noglab" fm-pr-poll.sh --validated $(tr '\n' ' ' < state/e1.pr-poll)
 $ PATH="$noglab" fm-pr-poll.sh --validated $(tr '\n' ' ' < state/e3.pr-poll)
 ```
 
-Readiness is the point where that can be reported, so it neutralizes any existing poll and refuses instead of arming a watch that can never fire:
+Arming is the one point where that can be reported, so it refuses there instead of arming a watch that can never fire:
 
 ```
 $ PATH="$noglab" fm-pr-check.sh e5 https://gitlab.com/KarotKris/gitlab-merge-watch-fixture/-/merge_requests/1
@@ -155,7 +165,7 @@ armed: state/e6.check.sh
 ## Upgrade path from an existing armed watch
 
 The stored record gained the provider tag, so its version moved to `fm-pr-poll-registration-v2` and a record written by the previous release no longer parses.
-The existing non-executing migration handles that: it never runs the old artifact, rechecks review conversations, and rebuilds the poll from the task's recorded pull request URL only when the complete response proves readiness.
+The existing non-executing migration handles that: it never runs the old artifact, and rebuilds the poll from the task's recorded pull request URL.
 Starting from a poll armed exactly as the previous release wrote it:
 
 ```
@@ -178,7 +188,7 @@ $ fm-pr-poll.sh --validated $(tr '\n' ' ' < state/t1.pr-poll)
 merged
 ```
 
-If review conversations, permissions, or pagination cannot prove readiness, migration leaves the legacy watch quarantined and unarmed instead of restoring unsafe monitoring.
+No armed watch is lost by upgrading.
 
 ## What this change does not cover
 

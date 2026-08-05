@@ -132,31 +132,6 @@ cmux is experimental, GUI-first, macOS-only, and can be selected explicitly or b
 cmux's container shape is one workspace per task with one surface, no per-home container split; workspace titles are scoped by the active home label plus a short hash of the resolved `FM_ROOT` path, and `--secondmate` spawns are refused, mirroring Orca.
 Codex App support is recorded in `docs/codex-app-backend.md`; it is not selectable as a runtime backend.
 
-## Docker Sandboxes lifecycle substrate
-
-Stage 1 is an inert, journaled lifecycle substrate for a possible future Docker Sandboxes worker path.
-It is not a runtime backend, scheduler, worker launcher, Herdr integration, remote transport, policy installer, credential broker, or claim that a microVM boundary has been exercised.
-`fm-spawn.sh`, `fm-teardown.sh`, every harness adapter, Scopey, and every runtime backend remain unchanged by this stage.
-
-`bin/fm-sandbox.sh` owns a read-only host inventory and doctor plus local custody of a committed-only disposable clone.
-The inventory exposes exact role, transport, priority, CPU, memory, concurrency, policy, authentication, and private-network facts instead of computing an opaque score.
-Every tracked example host is disabled, `launchSupported` is always false, unsupported roles and transports carry explicit refusal reasons, and no command creates, runs, enters, stops, or removes a Docker Sandbox.
-
-The local state machine binds one validated task id, exact host id, reservation, task root, work copy, source commit and immutable Git identity, policy id, resource limits, and caller-supplied ownership nonce in `state/<id>.sandbox.json`; the `identity` command generates a random nonce for callers.
-Its normal transitions are `preparing` to `prepared`, `commit_pending` to `committed`, and `cleanup_pending` to `cleanup_finalizing` to `cleanup_releasing` to `cleaned`.
-Before a stable sandbox id is bound, an explicit rollback or local preparation failure may instead pass through `rollback_pending` to `rolled_back`.
-The `commit` command accepts one caller-supplied stable sandbox id exactly once, but Stage 1 never obtains or validates that id against an external sandbox service.
-
-Host capacity is claimed under the existing private wake-lock primitive and counted from identity-bound per-task reservations, never from a PID, label, ambient session, inventory ordering, or path alone.
-Task-root and work-copy operations reject symlinks, unexpected ownership, non-canonical paths, and source-tree identity overlap before bounded removal.
-Failpoints exercise recovery after each journal-before-side-effect boundary, and `recover` resumes only known local transient states without inventing external state.
-`cleanup-begin` emits an exact task, host, stable-id, and nonce receipt; a future Stage 2 controller must prove its external destructive action before returning that same identity to `cleanup-commit`, which only finalizes local state and custody.
-
-The required future Stage 2 remains separately blocked behind Stage 1 review and rollout authorization.
-It must preserve Herdr as the only worker runtime, integrate Scopey as ordinary workers require, implement task-scoped credential refusal or handoff, authenticate the remote-host boundary, prove network and mount policy inside a real disposable microVM, and retain every existing Firstmate lifecycle owner.
-It may not silently fall back to tmux, ordinary containers, privileged containers, DinD, a host Docker socket, persistent subscription authentication, or host-global secrets.
-Current operator facts live in [configuration.md](configuration.md#docker-sandboxes-lifecycle-substrate), while [runtime backend verification](verification/runtime-backends.md#docker-sandboxes-lifecycle-substrate) records only the Stage 1 hermetic evidence actually observed.
-
 ## Worktrees, not branches in your checkout
 
 Crewmates never intentionally touch your project clone; [treehouse](https://github.com/kunchenguid/treehouse) pools clean worktrees for tmux, herdr, zellij, and cmux tasks, while Orca creates its own worktrees for `backend=orca`.
@@ -250,8 +225,7 @@ A ship brief records its mode as a fixed machine-readable line and the spawn ref
 When a selected delivery path calls for a diff, `bin/fm-review-diff.sh` refreshes the authoritative base and, when task meta records `pr=`, always fetches and compares against `refs/pull/<n>/head` by default (recorded `pr_head=` is only an offline fallback) before falling back to the local branch with a warning.
 For target project repos shipped through their own no-mistakes pipeline, commits under `.no-mistakes/evidence/` are the pipeline's PR-viewable validation evidence and are expected to stay in the crew branch until the evidence-hosting design changes.
 The firstmate repo itself is the exception: its `.no-mistakes/` directory is local state, stays gitignored, and is rejected by CI if tracked.
-Review-conversation readiness is owned by `bin/fm-pr-review-conversations.mjs`, which validates the complete paginated GitHub review-thread or GitLab discussion response and fails closed unless it proves zero unresolved conversations.
-`bin/fm-pr-check.sh` invokes that owner before recording ready state, and PR-based task merges go through `bin/fm-pr-merge.sh`, which records `pr=` and any available `pr_head=` through the same check before querying the owner again immediately before `gh-axi pr merge`.
+PR-based task merges go through `bin/fm-pr-merge.sh`, which records `pr=` and any available `pr_head=` through `bin/fm-pr-check.sh` before calling `gh-axi pr merge`.
 The helper requires a full `https://github.com/<owner>/<repo>/pull/<n>` URL, invokes `gh-axi pr merge <n> --repo <owner>/<repo>`, defaults to `--squash`, preserves explicit merge-method flags, and rejects malformed URLs or repo override flags before recording merge state; a well-formed GitLab merge request URL (see [docs/gitlab-merge-watch.md](gitlab-merge-watch.md)) is refused too, explicitly, rather than sent to the wrong forge.
 Teardown is fail-closed for ship worktrees: dirty worktrees refuse, and committed work must be landed before the worktree is returned.
 [`bin/fm-teardown.sh`](../bin/fm-teardown.sh)'s header owns the landed-work proofs, PR-discovery fallback, and stale-lock recovery procedure.

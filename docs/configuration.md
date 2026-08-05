@@ -94,43 +94,6 @@ The caller-facing label remains `fm-<id>`, but the actual cmux workspace title i
 Test cleanup must use the guarded path in [`docs/cmux-backend.md`](cmux-backend.md#current-operation-and-safety), never enumerate-and-close every workspace.
 `config/backend` is inherited into secondmate homes under the primary-authoritative contract owned by [`secondmate-provisioning`](../.agents/skills/secondmate-provisioning/SKILL.md).
 
-## Docker Sandboxes lifecycle substrate
-
-The tracked Stage 1 surface is inert and disabled in ordinary startup, spawn, supervision, recovery, teardown, and secondmate paths.
-It does not accept an enablement marker, launch a worker, invoke Herdr, call a mutating `sbx` command, install policy, transfer credentials, or provide a rollout path.
-The stable state-machine design is in [architecture.md](architecture.md#docker-sandboxes-lifecycle-substrate), while `bin/fm-sandbox.sh --help` owns exact commands, fields, transition preconditions, and exit behavior.
-
-An operator may copy [`docs/examples/sandbox-hosts.json`](examples/sandbox-hosts.json) to the active home's gitignored `config/sandbox-hosts.json` for offline inventory and journal tests.
-Leave `stage` at `1`, `launchEnabled` false, and every host disabled.
-The exact policy contract is deny-all with only the named public model-provider, Git-forge, and package-registry domains allowed, private networks denied, no host Docker socket, no host mounts, disposable committed-clone workspaces, ephemeral task-scoped secrets, no persistent auth, and no shared skills.
-Stage 1 validates these facts but does not install, query, or enforce host policy.
-
-The host schema records `id`, `role`, `transport`, `hostname`, `enabled`, `priority`, `cpus`, `memory`, `maxConcurrent`, `profile`, `authMode`, and `privateNetworkGrant`.
-`priority` is an inspectable ordering fact and is never folded into an opaque scheduler score.
-Roles preserve the future fleet posture as data: `dev` is primary, `agt` adds disposable capacity, `gpu` requires an explicit GPU design, `svc` requires bounded staging-aware limits, and `srv` remains external production.
-All roles refuse launch in Stage 1, and `ssh-fixed` remains a reserved fact rather than an implemented remote command channel.
-
-Use only the read-only discovery commands for capability inventory:
-
-```sh
-bin/fm-sandbox.sh inventory --json
-bin/fm-sandbox.sh doctor --host <id> --json
-```
-
-`doctor` may report local `sbx version` and KVM presence, but it does not start a daemon, initialize policy, authenticate, install software, connect to another host, or claim the requested policy is active.
-Every doctor result keeps `launchSupported` false and includes the applicable refusal reason.
-
-The remaining commands exercise only local journal and disposable-copy custody for maintainers.
-`prepare` requires an explicit canonical task root under the configured task-root base, normally `/tmp/fm-<task>`, then atomically reserves configured capacity, creates its `sandbox/workcopy`, and clones committed Git state with local object sharing disabled.
-`commit` records one caller-supplied stable sandbox id once, `rollback` is available only before that identity exists, `cleanup-begin` produces the exact ownership receipt required by a future controller, and `cleanup-commit` finalizes local state only after the caller returns that same identity.
-`recover` resumes only journaled local transient states and refuses ambiguous or missing ownership.
-
-Do not create `config/sandbox-workers-enabled`; it is reserved for the separately reviewed Stage 2 and has no effect in Stage 1.
-Do not pass sandbox options to `fm-spawn.sh`; none are accepted.
-Do not supply agent credentials, OAuth directories, persistent auth, host-global secrets, production environment files, or real repository work to this substrate.
-Stage 2 must separately implement and prove the Herdr, Scopey, authenticated remote-host, task-scoped credential, network-policy, private-Docker, host-sentinel, host-Docker-socket, work synchronization, and exact external cleanup contracts before any fleet rollout is considered.
-The evidence actually maintained for Stage 1 is in [runtime backend verification](verification/runtime-backends.md#docker-sandboxes-lifecycle-substrate).
-
 ## Away-mode supervisor backend (FM_SUPERVISOR_BACKEND / FM_SUPERVISOR_TARGET)
 
 The `/afk` sub-supervisor injects escalation digests into firstmate's own pane independently of where new task endpoints are spawned.
