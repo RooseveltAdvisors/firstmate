@@ -1,7 +1,7 @@
 # Herdr runtime backend
 
 Herdr is an experimental agent-native terminal backend with native per-pane agent state and push events.
-Firstmate requires Herdr protocol 14 or newer; versions 0.7.1, 0.7.3, 0.7.4, and 0.7.5 are verified, with protocol-16 features enabled only when available.
+Firstmate requires Herdr protocol 14 or newer; versions 0.7.1, 0.7.3, 0.7.4, 0.7.5, and 0.8.0 are verified, with protocol-16 features enabled only when available.
 Herdr provides the terminal session while Treehouse continues to provide task worktrees.
 [`configuration.md`](configuration.md#runtime-backend-configbackend--fm_backend) owns shared backend selection and metadata semantics.
 
@@ -27,8 +27,8 @@ An auto-detected Herdr spawn prints an opt-out notice.
 Spawn stops before creating a Herdr container or acquiring a task worktree when `herdr`, `jq`, or the protocol floor is unavailable.
 No separate first-run provisioning is required.
 
-The required CI lane uses the pinned installers in `bin/fm-install-herdr.sh` and `bin/fm-install-treehouse.sh`.
-Those script headers own release assets, checksums, download bounds, and post-install gates.
+The required CI lane builds its exact Herdr source revision with `bin/fm-install-herdr.sh` and installs its exact Treehouse release with `bin/fm-install-treehouse.sh`.
+Those script headers own the respective source and release pins, prerequisites, integrity constraints, and post-build or post-install gates.
 Real harness credential tests remain opt-in rather than part of default CI.
 
 ## Watching and task containers
