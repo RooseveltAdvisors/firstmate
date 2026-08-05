@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
-# Record a PR-ready task: store one validated canonical pr=<url> and the forge's
-# exact pr_head=<sha> when available, then atomically arm a static merge poll.
+# Record a PR-ready task only after the authoritative forge adapter proves zero
+# unresolved review conversations, then store one validated canonical pr=<url>
+# and the forge's exact pr_head=<sha> when available before atomically arming a
+# static merge poll.
 # The watcher check source is byte-for-byte bin/fm-pr-poll.sh; task and PR data
 # live only in a private sidecar and are never interpolated into shell source.
 # A GitHub pull request URL and a GitLab merge request URL are both accepted,
 # including a merge request on a self-hosted GitLab instance.
+# API, permission, pagination, and response-shape ambiguity fail closed before
+# PR metadata or monitoring changes.
 # Usage: fm-pr-check.sh <task-id> <pr-url>
 set -eu
 
@@ -55,6 +59,12 @@ if [ "$PROVIDER" = gitlab ] && ! command -v glab >/dev/null 2>&1; then
   echo "error: watching a GitLab merge request requires glab on PATH" >&2
   exit 1
 fi
+
+# A worker report and green status checks are wake evidence, not proof that the
+# forge's review conversations are resolved. Verify the complete conversation
+# set before recording PR metadata or publishing the ready/merge monitor.
+fm_pr_review_conversations_require_resolved \
+  "$SCRIPT_DIR" "$PROVIDER" "$HOST" "$PROJECT_PATH" "$NUMBER" || exit 1
 
 # Neutralize any pre-fix poll before recording or arming this task. The
 # migration never executes legacy artifacts and holds watcher exclusion while

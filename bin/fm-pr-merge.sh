@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Merge a task's PR after recording pr= and any available pr_head= through
-# bin/fm-pr-check.sh, so teardown can verify landed work after squash merges.
+# bin/fm-pr-check.sh, then querying review conversations again immediately
+# before landing so teardown can verify landed work after squash merges without
+# leaving a readiness-to-merge race.
 # The full canonical GitHub PR URL is parsed by bin/fm-pr-lib.sh and the derived
 # owner/repository and PR number are passed to gh-axi as separate arguments.
 #
@@ -80,5 +82,11 @@ merge_args=()
 if ! caller_has_merge_method "$@"; then
   merge_args=(--squash)
 fi
+
+# Close the readiness-to-merge race with a fresh forge read immediately before
+# the landing command. fm-pr-check performs its own earlier readiness query;
+# neither result is cached or inferred from status checks.
+fm_pr_review_conversations_require_resolved \
+  "$SCRIPT_DIR" github github.com "$PR_OWNER/$PR_REPO" "$PR_NUMBER" || exit 1
 
 gh-axi pr merge "$PR_NUMBER" --repo "$PR_OWNER/$PR_REPO" "${merge_args[@]+"${merge_args[@]}"}" "$@"

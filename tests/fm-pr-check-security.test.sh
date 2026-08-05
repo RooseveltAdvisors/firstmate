@@ -64,6 +64,18 @@ SH
   cat > "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FM_TEST_GH_LOG"
+if [ "${1:-} ${2:-}" = "api graphql" ]; then
+  if [ "${FM_TEST_GH_REVIEW_FAIL:-0}" != 0 ]; then
+    printf '%s\n' "${FM_TEST_GH_REVIEW_ERROR:-review query failed}" >&2
+    exit 1
+  fi
+  if [ -n "${FM_TEST_GH_REVIEW_JSON+x}" ]; then
+    printf '%s\n' "$FM_TEST_GH_REVIEW_JSON"
+  else
+    printf '%s\n' '[{"data":{"repository":{"pullRequest":{"reviewThreads":{"totalCount":0,"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}}]'
+  fi
+  exit 0
+fi
 case " $* " in
   *" headRefOid "*) printf '%s\n' "${FM_TEST_GH_HEAD:-0123456789abcdef0123456789abcdef01234567}" ;;
   *" state "*)
@@ -83,6 +95,18 @@ SH
   cat > "$fakebin/glab" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FM_TEST_GLAB_LOG"
+[ "${1:-}" != api ] || {
+  if [ "${FM_TEST_GLAB_REVIEW_FAIL:-0}" != 0 ]; then
+    printf '%s\n' "${FM_TEST_GLAB_REVIEW_ERROR:-review query failed}" >&2
+    exit 1
+  fi
+  if [ -n "${FM_TEST_GLAB_REVIEW_JSON+x}" ]; then
+    printf '%s\n' "$FM_TEST_GLAB_REVIEW_JSON"
+  else
+    printf '%s\n' '[]'
+  fi
+  exit 0
+}
 [ "${FM_TEST_GLAB_FAIL:-0}" = 0 ] || exit 1
 [ "${FM_TEST_GLAB_SLEEP:-0}" = 0 ] || sleep "$FM_TEST_GLAB_SLEEP"
 printf 'title:\tfixture merge request\nstate:\t%s\nauthor:\tsomeone\n' "${FM_TEST_GLAB_STATE:-opened}"
@@ -637,6 +661,123 @@ SH
       || fail "legacy task teardown changed the reserved migration namespace"
   done
   pass "valid direct and merge flows record exact metadata and reject multiline head metadata"
+}
+
+test_github_review_conversation_readiness_gate() {
+  local dir state rc pages
+  dir=$(make_case github-review-conversations)
+  state="$dir/home/state"
+  write_task_meta "$dir"
+  printf 'done: PR https://github.com/o/r/pull/7 checks green\n' > "$state/task-a.status"
+
+  set +e
+  FM_TEST_GH_REVIEW_JSON='[{"data":{"repository":{"pullRequest":{"reviewThreads":{"totalCount":1,"nodes":[{"isResolved":false}],"pageInfo":{"hasNextPage":false,"endCursor":"cursor-1"}}}}}}]' \
+    run_check_entry "$dir" task-a https://github.com/o/r/pull/7 > "$dir/unresolved.out" 2> "$dir/unresolved.err"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "green checks plus an unresolved GitHub review thread entered ready monitoring"
+  assert_grep '1 unresolved review conversation' "$dir/unresolved.err" \
+    "unresolved GitHub refusal was not actionable"
+  assert_no_grep 'pr=' "$state/task-a.meta" "unresolved GitHub review thread reached PR metadata"
+  assert_poll_absent "$state" task-a
+
+  FM_TEST_GH_REVIEW_JSON='[{"data":{"repository":{"pullRequest":{"reviewThreads":{"totalCount":1,"nodes":[{"isResolved":true}],"pageInfo":{"hasNextPage":false,"endCursor":"cursor-1"}}}}}}]' \
+    run_check_entry "$dir" task-a https://github.com/o/r/pull/7 > "$dir/resolved.out" 2> "$dir/resolved.err" \
+    || fail "zero unresolved GitHub review threads refused readiness: $(cat "$dir/resolved.err")"
+  assert_grep 'armed: state/task-a.check.sh' "$dir/resolved.out" \
+    "resolved GitHub review threads did not enter monitoring"
+
+  rm -f "$state/task-a.check.sh" "$state/task-a.pr-poll" "$state/task-a.pr-poll-registration"
+  pages='[{"data":{"repository":{"pullRequest":{"reviewThreads":{"totalCount":2,"nodes":[{"isResolved":true}],"pageInfo":{"hasNextPage":true,"endCursor":"cursor-1"}}}}}},{"data":{"repository":{"pullRequest":{"reviewThreads":{"totalCount":2,"nodes":[{"isResolved":false}],"pageInfo":{"hasNextPage":false,"endCursor":"cursor-2"}}}}}}]'
+  set +e
+  FM_TEST_GH_REVIEW_JSON=$pages run_check_entry "$dir" task-a https://github.com/o/r/pull/7 \
+    > "$dir/paginated.out" 2> "$dir/paginated.err"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "unresolved GitHub review thread on a later page was missed"
+  assert_grep '1 unresolved review conversation' "$dir/paginated.err" \
+    "later-page GitHub refusal was not actionable"
+  assert_grep 'api graphql --paginate --slurp' "$dir/gh.log" \
+    "GitHub review query did not request the complete paginated set"
+
+  set +e
+  FM_TEST_GH_REVIEW_JSON='[{"data":{"repository":{"pullRequest":{"reviewThreads":{"totalCount":1,"nodes":[{"isResolved":true}],"pageInfo":{"hasNextPage":true,"endCursor":"cursor-1"}}}}}}]' \
+    run_check_entry "$dir" task-a https://github.com/o/r/pull/7 > "$dir/ambiguous.out" 2> "$dir/ambiguous.err"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "incomplete GitHub pagination was treated as a complete review set"
+  assert_grep 'ambiguous GitHub review conversation pagination' "$dir/ambiguous.err" \
+    "GitHub pagination ambiguity lacked an actionable diagnostic"
+
+  set +e
+  FM_TEST_GH_REVIEW_FAIL=1 FM_TEST_GH_REVIEW_ERROR='permission denied for reviewThreads' \
+    run_check_entry "$dir" task-a https://github.com/o/r/pull/7 \
+    > "$dir/api-fail.out" 2> "$dir/api-fail.err"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "GitHub review API failure was treated as zero unresolved threads"
+  assert_grep 'GitHub review conversation query failed' "$dir/api-fail.err" \
+    "GitHub review API failure lacked an actionable diagnostic"
+  assert_grep 'permission denied for reviewThreads' "$dir/api-fail.err" \
+    "GitHub permission failure detail was discarded"
+
+  set +e
+  FM_TEST_GH_REVIEW_JSON='[{"data":{"repository":{"pullRequest":{"reviewThreads":{"totalCount":1,"nodes":[{"isResolved":"pending"}],"pageInfo":{"hasNextPage":false,"endCursor":"cursor-1"}}}}}}]' \
+    run_check_entry "$dir" task-a https://github.com/o/r/pull/7 > "$dir/malformed.out" 2> "$dir/malformed.err"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "malformed GitHub review response was treated as zero unresolved threads"
+  assert_grep 'malformed GitHub review conversation response' "$dir/malformed.err" \
+    "malformed GitHub review response lacked an actionable diagnostic"
+  pass "GitHub readiness distinguishes wake evidence, unresolved threads, pagination, and API ambiguity"
+}
+
+test_gitlab_review_conversation_readiness_gate() {
+  local dir state rc url
+  dir=$(make_case gitlab-review-conversations)
+  state="$dir/home/state"
+  url=https://gitlab.example/group/subgroup/project/-/merge_requests/7
+  write_task_meta "$dir"
+
+  set +e
+  FM_TEST_GLAB_REVIEW_JSON='[{"id":"discussion-1","individual_note":false,"notes":[{"resolvable":true,"resolved":false}]}]' \
+    run_check_entry "$dir" task-a "$url" > "$dir/unresolved.out" 2> "$dir/unresolved.err"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "an unresolved GitLab discussion entered ready monitoring"
+  assert_grep '1 unresolved review conversation' "$dir/unresolved.err" \
+    "unresolved GitLab refusal was not actionable"
+  assert_poll_absent "$state" task-a
+
+  FM_TEST_GLAB_REVIEW_JSON='[{"id":"discussion-1","individual_note":false,"notes":[{"resolvable":true,"resolved":true}]},{"id":"note-1","individual_note":true,"notes":[{"resolvable":false,"resolved":false}]}]' \
+    run_check_entry "$dir" task-a "$url" > "$dir/resolved.out" 2> "$dir/resolved.err" \
+    || fail "zero unresolved GitLab discussions refused readiness: $(cat "$dir/resolved.err")"
+  assert_grep 'armed: state/task-a.check.sh' "$dir/resolved.out" \
+    "resolved GitLab discussions did not enter monitoring"
+  assert_grep 'api projects/group%2Fsubgroup%2Fproject/merge_requests/7/discussions?per_page=100 --hostname gitlab.example --paginate --output json' "$dir/glab.log" \
+    "GitLab review query did not request the complete paginated discussion set"
+
+  set +e
+  FM_TEST_GLAB_REVIEW_FAIL=1 FM_TEST_GLAB_REVIEW_ERROR='403 insufficient_scope' \
+    run_check_entry "$dir" task-a "$url" \
+    > "$dir/api-fail.out" 2> "$dir/api-fail.err"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "GitLab review API failure was treated as zero unresolved discussions"
+  assert_grep 'GitLab review conversation query failed' "$dir/api-fail.err" \
+    "GitLab review API failure lacked an actionable diagnostic"
+  assert_grep '403 insufficient_scope' "$dir/api-fail.err" \
+    "GitLab permission failure detail was discarded"
+
+  set +e
+  FM_TEST_GLAB_REVIEW_JSON='[{"id":"discussion-1","individual_note":false,"notes":[{"resolvable":true}]}]' \
+    run_check_entry "$dir" task-a "$url" > "$dir/malformed.out" 2> "$dir/malformed.err"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "malformed GitLab review response was treated as zero unresolved discussions"
+  assert_grep 'malformed GitLab review conversation response' "$dir/malformed.err" \
+    "malformed GitLab review response lacked an actionable diagnostic"
+  pass "GitLab readiness matches the fail-closed paginated review-conversation contract"
 }
 
 run_watcher_bounded() {
@@ -3322,6 +3463,8 @@ test_gitlab_merged_poll_retires() {
 }
 
 test_parser_matrix
+test_github_review_conversation_readiness_gate
+test_gitlab_review_conversation_readiness_gate
 test_gitlab_merge_watch
 test_merged_poll_retires_once
 test_persistent_secondmate_retirement_is_poll_only

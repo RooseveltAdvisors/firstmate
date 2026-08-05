@@ -116,6 +116,8 @@ test_no_mistakes_dod_wording() {
     "no-mistakes DOD must render literal backticks around help"
   assert_no_grep "no-mistakes' own guidance" "$brief" \
     "no-mistakes DOD regressed to the apostrophe form that breaks bash -n"
+  assert_grep "That status is wake evidence only; firstmate independently verifies the forge's review conversations before readiness and again immediately before merge." "$brief" \
+    "no-mistakes DOD made the worker report authoritative for review conversations"
   pass "fm-brief.sh: no-mistakes DOD wording avoids the apostrophe regression"
 }
 
