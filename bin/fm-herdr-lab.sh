@@ -153,12 +153,14 @@ fm_herdr_lab_lifecycle_reclaim_stale() { # <session>
 }
 
 fm_herdr_lab_reclaim_lifecycle_lock() { # <session>
-  local name=$1 lock stale claim status=1 claim_pid claim_start claim_owner claim_tmp current_pid
+  local name=$1 lock stale claim stale_claim status=1 claim_pid claim_start claim_owner claim_tmp current_pid
   lock=$(fm_herdr_lab_lifecycle_lock_path "$name")
   claim="$lock.reclaim"
   if [ -e "$claim" ] || [ -L "$claim" ]; then
     fm_herdr_lab_lifecycle_reclaim_stale "$name" || return 1
-    rm -f "$claim" || return 1
+    stale_claim="$claim.stale.${BASHPID:-$$}.$RANDOM"
+    mv "$claim" "$stale_claim" 2>/dev/null || return 1
+    rm -f "$stale_claim" || return 1
   fi
   current_pid=${BASHPID:-$$}
   claim_pid=$current_pid
