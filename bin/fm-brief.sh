@@ -398,6 +398,7 @@ Two firstmate-specific rules layer on top of that guidance:
 - Avoid \`--yes\`: it would silently bypass firstmate's authority check and any required captain escalation.
 
 After /no-mistakes reports CI green (the CI-ready return point - do not wait for it to keep monitoring in the background until merge), append \`done: PR {url} checks green\` and stop. You are finished.
+That status is wake evidence only; firstmate independently verifies the forge's review conversations before readiness and again immediately before merge.
 EOF
     ;;
 esac

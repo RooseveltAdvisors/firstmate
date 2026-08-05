@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
-# Record a PR-ready task: store one validated canonical pr=<url> and the forge's
-# exact pr_head=<sha> when available, then atomically arm a static merge poll.
+# Record a PR-ready task only after the authoritative forge adapter proves zero
+# unresolved review conversations, then store one validated canonical pr=<url>
+# and the forge's exact pr_head=<sha> when available before atomically arming a
+# static merge poll.
 # The watcher check source is byte-for-byte bin/fm-pr-poll.sh; task and PR data
 # live only in a private sidecar and are never interpolated into shell source.
 # A GitHub pull request URL and a GitLab merge request URL are both accepted,
 # including a merge request on a self-hosted GitLab instance.
+# API, permission, pagination, and response-shape ambiguity fail closed before
+# replacement PR metadata or monitoring is published.
 # Usage: fm-pr-check.sh <task-id> <pr-url>
 set -eu
 
@@ -47,6 +51,11 @@ fm_pr_poll_retirement_recover_one "$STATE" "$ID" "$SCRIPT_DIR/fm-pr-poll.sh" || 
   exit 1
 }
 
+# Neutralize any pre-fix poll before recording or arming this task. The
+# migration never executes legacy artifacts and holds watcher exclusion while
+# it quarantines or rebuilds them.
+"$SCRIPT_DIR/fm-pr-check-migrate.sh" --checks-safe "$ID" || exit 1
+
 # Refuse to arm a GitLab watch with no glab on PATH. The poll is silent on
 # every error by design, so a missing CLI would be indistinguishable from a
 # merge request that is never merged. Arming is the one point where that can be
@@ -56,11 +65,13 @@ if [ "$PROVIDER" = gitlab ] && ! command -v glab >/dev/null 2>&1; then
   exit 1
 fi
 
-# Neutralize any pre-fix poll before recording or arming this task. The
-# migration never executes legacy artifacts and holds watcher exclusion while
-# it quarantines or rebuilds them.
-"$SCRIPT_DIR/fm-pr-check-migrate.sh" --checks-safe || exit 1
 "$FM_ROOT/bin/fm-guard.sh" || true
+
+# A worker report and green status checks are wake evidence, not proof that the
+# forge's review conversations are resolved. Verify the complete conversation
+# set before recording PR metadata or publishing the ready/merge monitor.
+fm_pr_review_conversations_require_resolved \
+  "$SCRIPT_DIR" "$PROVIDER" "$HOST" "$PROJECT_PATH" "$NUMBER" || exit 1
 
 # pr_head is recorded only when the forge's CLI can supply it. gh exposes the
 # head commit as a selectable field; plain glab exposes it only inside its JSON
