@@ -366,6 +366,8 @@ test_provision_refuses_stale_bootstrap_evidence() {
   mkdir -p "$TRIPWIRES/$name.bootstrap-client"
   run_with_fake fm_herdr_lab_provision "$name" >/dev/null 2>&1 || status=$?
   expect_code 1 "$status" "provision must reject a stale bootstrap directory"
+  assert_absent "$TRIPWIRES/$name.session-claim.json" \
+    "stale bootstrap evidence left a pending session claim"
   ! grep -F "server --session $name" "$FAKE_LOG" >/dev/null \
     || fail "stale bootstrap directory reached named server creation"
   rmdir "$TRIPWIRES/$name.bootstrap-client"
@@ -374,6 +376,8 @@ test_provision_refuses_stale_bootstrap_evidence() {
   status=0
   run_with_fake fm_herdr_lab_provision "$retiring_name" >/dev/null 2>&1 || status=$?
   expect_code 1 "$status" "provision must reject stale retiring evidence"
+  assert_absent "$TRIPWIRES/$retiring_name.session-claim.json" \
+    "stale retiring evidence left a pending session claim"
   ! grep -F "server --session $retiring_name" "$FAKE_LOG" >/dev/null \
     || fail "stale retiring evidence reached named server creation"
   rm -f "$TRIPWIRES/$retiring_name.bootstrap-client.retiring.state"

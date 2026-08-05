@@ -61,6 +61,10 @@ fm_herdr_lab_claim_path() { # <session>
   printf '%s/%s.session-claim.json' "$(fm_herdr_lab_state_dir)" "$1"
 }
 
+fm_herdr_lab_lifecycle_lock_path() { # <session>
+  printf '%s/%s.lifecycle.lock' "$(fm_herdr_lab_state_dir)" "$1"
+}
+
 fm_herdr_lab_stop_receipt_path() { # <session>
   printf '%s/%s.stop-generation.json' "$(fm_herdr_lab_state_dir)" "$1"
 }
@@ -175,6 +179,56 @@ fm_herdr_lab_acquire_session_claim() { # <session>
     fm_herdr_lab_error "could not atomically acquire the session creation claim for '$name'"
     return 1
   }
+}
+
+fm_herdr_lab_lock_session() { # <session>
+  local name=${1:-} state_dir lock depth
+  fm_herdr_lab_validate_name "$name" || return 1
+  if [ "${FM_HERDR_LAB_LOCK_NAME:-}" = "$name" ]; then
+    depth=${FM_HERDR_LAB_LOCK_DEPTH:-1}
+    FM_HERDR_LAB_LOCK_DEPTH=$((depth + 1))
+    return 0
+  fi
+  [ -z "${FM_HERDR_LAB_LOCK_NAME:-}" ] || {
+    fm_herdr_lab_error "another named session lifecycle lock is already held"
+    return 1
+  }
+  state_dir=$(fm_herdr_lab_state_dir)
+  mkdir -p "$state_dir" || {
+    fm_herdr_lab_error "could not prepare the lifecycle lock directory"
+    return 1
+  }
+  lock=$(fm_herdr_lab_lifecycle_lock_path "$name")
+  mkdir "$lock" 2>/dev/null || {
+    fm_herdr_lab_error "lifecycle operation for '$name' is already in progress"
+    return 1
+  }
+  chmod 700 "$lock" 2>/dev/null || {
+    rmdir "$lock" 2>/dev/null || true
+    fm_herdr_lab_error "could not secure the lifecycle lock for '$name'"
+    return 1
+  }
+  FM_HERDR_LAB_LOCK_NAME=$name
+  FM_HERDR_LAB_LOCK_DEPTH=1
+}
+
+fm_herdr_lab_unlock_session() { # <session>
+  local name=${1:-} lock depth
+  [ "${FM_HERDR_LAB_LOCK_NAME:-}" = "$name" ] || {
+    fm_herdr_lab_error "lifecycle lock ownership mismatch for '$name'"
+    return 1
+  }
+  depth=${FM_HERDR_LAB_LOCK_DEPTH:-0}
+  [ "$depth" -gt 1 ] && {
+    FM_HERDR_LAB_LOCK_DEPTH=$((depth - 1))
+    return 0
+  }
+  lock=$(fm_herdr_lab_lifecycle_lock_path "$name")
+  rmdir "$lock" 2>/dev/null || {
+    fm_herdr_lab_error "could not release the lifecycle lock for '$name'"
+    return 1
+  }
+  unset FM_HERDR_LAB_LOCK_NAME FM_HERDR_LAB_LOCK_DEPTH
 }
 
 fm_herdr_lab_write_session_identity() { # <session> <server-pid> <server-start> <owner>
@@ -659,9 +713,8 @@ fm_herdr_lab_require_owned_session() { # <session> <true|false|any>
   FM_HERDR_LAB_SESSION_RUNNING=$running
 }
 
-fm_herdr_lab_owned_raw() { # <session> <true|false> <herdr arguments...>
+fm_herdr_lab_owned_session_socket_locked() { # <session> <true|false>
   local name=$1 expected=$2 socket current_socket_identity
-  shift 2
   fm_herdr_lab_require_owned_session "$name" "$expected" || return 1
   fm_herdr_lab_read_session_identity "$name" || return 1
   socket=$FM_HERDR_LAB_IDENTITY_SOCKET
@@ -674,8 +727,29 @@ fm_herdr_lab_owned_raw() { # <session> <true|false> <herdr arguments...>
       fm_herdr_lab_error "named session socket identity changed for '$name'"
       return 1
     }
+  else
+    [ ! -e "$socket" ] && [ ! -L "$socket" ] || {
+      fm_herdr_lab_error "stopped named session socket for '$name' is ambiguous"
+      return 1
+    }
   fi
+  printf '%s\n' "$socket"
+}
+
+fm_herdr_lab_owned_raw_locked() { # <session> <true|false> <herdr arguments...>
+  local name=$1 expected=$2 socket
+  shift 2
+  socket=$(fm_herdr_lab_owned_session_socket_locked "$name" "$expected") || return 1
   FM_HERDR_LAB_RAW_SOCKET="$socket" fm_herdr_lab_raw "$name" "$@"
+}
+
+fm_herdr_lab_owned_raw() { # <session> <true|false> <herdr arguments...>
+  local name=${1:-} status
+  fm_herdr_lab_lock_session "$name" || return 1
+  fm_herdr_lab_owned_raw_locked "$@"
+  status=$?
+  fm_herdr_lab_unlock_session "$name" || status=1
+  return "$status"
 }
 
 fm_herdr_lab_prepare_state() { # <session>
@@ -768,7 +842,7 @@ fm_herdr_lab_cli() { # <session> <herdr arguments...>
   fm_herdr_lab_raw "$name" "$@"
 }
 
-fm_herdr_lab_run() { # <session> <herdr arguments...>
+fm_herdr_lab_run_locked() { # <session> <herdr arguments...>
   local name=$1 socket
   shift
   fm_herdr_lab_require_owned_running "$name" || return 1
@@ -777,6 +851,15 @@ fm_herdr_lab_run() { # <session> <herdr arguments...>
   FM_HERDR_LAB_RAW_SOCKET="$socket" fm_herdr_lab_cli "$name" "$@" || return 1
   fm_herdr_lab_check_tripwire "$name" || return 1
   fm_herdr_lab_require_owned_session "$name" true
+}
+
+fm_herdr_lab_run() { # <session> <herdr arguments...>
+  local name=${1:-} status
+  fm_herdr_lab_lock_session "$name" || return 1
+  fm_herdr_lab_run_locked "$@"
+  status=$?
+  fm_herdr_lab_unlock_session "$name" || status=1
+  return "$status"
 }
 
 fm_herdr_lab_cancel_provision() { # <pid>
@@ -806,6 +889,32 @@ fm_herdr_lab_clear_safe_claim() { # <session>
   fi
 }
 
+fm_herdr_lab_release_prelaunch_claim() { # <session> <owner>
+  local name=$1 owner=$2 claim record
+  claim=$(fm_herdr_lab_claim_path "$name")
+  [ -f "$claim" ] && [ ! -L "$claim" ] || return 1
+  if [ ! -s "$claim" ]; then
+    rm -f "$claim"
+    return $?
+  fi
+  record=$(jq -ser --arg name "$name" --arg owner "$owner" '
+    select(length == 1)
+    | .[0]
+    | select(type == "object" and .name == $name and .server_pid == 0
+      and .server_start == "pending" and .owner == $owner)
+    | "pending"
+  ' "$claim" 2>/dev/null) || return 1
+  [ "$record" = pending ] || return 1
+  rm -f "$claim"
+}
+
+fm_herdr_lab_abort_prelaunch() { # <session> <owner>
+  local name=$1 owner=$2
+  fm_herdr_lab_release_prelaunch_claim "$name" "$owner" || \
+    fm_herdr_lab_error "retaining the session creation claim for '$name' because its ownership is ambiguous"
+  return 1
+}
+
 fm_herdr_lab_require_no_bootstrap_evidence() { # <session>
   local name=$1 dir retired
   dir=$(fm_herdr_lab_bootstrap_dir "$name")
@@ -817,7 +926,7 @@ fm_herdr_lab_require_no_bootstrap_evidence() { # <session>
     }
 }
 
-fm_herdr_lab_provision() { # <session>
+fm_herdr_lab_provision_locked() { # <session>
   local name=$1 sessions tripwire running attempt server_pid server_start owner claim stop_receipt max_attempts timeout_seconds named_count mode state_dir
   fm_herdr_lab_validate_name "$name" || return 1
   command -v herdr >/dev/null 2>&1 || { fm_herdr_lab_error "herdr is required"; return 1; }
@@ -828,45 +937,72 @@ fm_herdr_lab_provision() { # <session>
   claim=$(fm_herdr_lab_claim_path "$name")
   fm_herdr_lab_acquire_session_claim "$name" || return 1
   owner="fm-herdr-lab-session:${name}:$$:${RANDOM}:${RANDOM}"
-  fm_herdr_lab_write_session_claim "$name" 0 pending "$owner" || return 1
+  fm_herdr_lab_write_session_claim "$name" 0 pending "$owner" || {
+    fm_herdr_lab_release_prelaunch_claim "$name" "$owner" || \
+      fm_herdr_lab_error "retaining the session creation claim for '$name' because its ownership is ambiguous"
+    return 1
+  }
   sessions=$(fm_herdr_lab_session_list "$name" 2>/dev/null) || {
     fm_herdr_lab_error "cannot list Herdr sessions before provisioning '$name'"
+    fm_herdr_lab_abort_prelaunch "$name" "$owner"
     return 1
   }
   named_count=$(printf '%s' "$sessions" | jq -er --arg name "$name" '[.sessions[]? | select(.name == $name)] | length' 2>/dev/null) || {
     fm_herdr_lab_error "cannot determine whether session '$name' already exists"
+    fm_herdr_lab_abort_prelaunch "$name" "$owner"
     return 1
   }
-  fm_herdr_lab_require_no_bootstrap_evidence "$name" || return 1
+  fm_herdr_lab_require_no_bootstrap_evidence "$name" || {
+    fm_herdr_lab_abort_prelaunch "$name" "$owner"
+    return 1
+  }
   case "$named_count" in
     0)
-      fm_herdr_lab_prepare_state "$name" 1 || return 1
+      fm_herdr_lab_prepare_state "$name" 1 || {
+        fm_herdr_lab_abort_prelaunch "$name" "$owner"
+        return 1
+      }
       mode=new
       ;;
     1)
     tripwire=$(fm_herdr_lab_tripwire_path "$name")
     [ -f "$tripwire" ] && [ ! -L "$tripwire" ] || {
       fm_herdr_lab_error "missing fleet-state tripwire for existing session '$name'; refusing to adopt it"
+      fm_herdr_lab_abort_prelaunch "$name" "$owner"
       return 1
     }
-    fm_herdr_lab_require_owned_session "$name" any || return 1
+    fm_herdr_lab_require_owned_session "$name" any || {
+      fm_herdr_lab_abort_prelaunch "$name" "$owner"
+      return 1
+    }
     running=$FM_HERDR_LAB_SESSION_RUNNING
     [ "$running" = false ] || {
       fm_herdr_lab_error "session '$name' is not stopped; refusing to re-provision it"
+      fm_herdr_lab_abort_prelaunch "$name" "$owner"
       return 1
     }
-    fm_herdr_lab_check_tripwire "$name" || return 1
+    fm_herdr_lab_check_tripwire "$name" || {
+      fm_herdr_lab_abort_prelaunch "$name" "$owner"
+      return 1
+    }
     mode=restart
       ;;
     *)
       fm_herdr_lab_error "session '$name' is ambiguous; refusing to provision it"
+      fm_herdr_lab_abort_prelaunch "$name" "$owner"
       return 1
       ;;
   esac
 
   case "$mode" in
-    new) fm_herdr_lab_require_session_absent "$name" || return 1 ;;
-    restart) fm_herdr_lab_require_owned_session "$name" false || return 1 ;;
+    new) fm_herdr_lab_require_session_absent "$name" || {
+      fm_herdr_lab_abort_prelaunch "$name" "$owner"
+      return 1
+    } ;;
+    restart) fm_herdr_lab_require_owned_session "$name" false || {
+      fm_herdr_lab_abort_prelaunch "$name" "$owner"
+      return 1
+    } ;;
   esac
   HERDR_SESSION="$name" \
     FM_HERDR_LAB_SESSION_OWNER="$owner" \
@@ -930,6 +1066,15 @@ fm_herdr_lab_provision() { # <session>
   fm_herdr_lab_clear_safe_claim "$name" || true
   fm_herdr_lab_error "lab session '$name' did not report running within $timeout_seconds seconds"
   return 1
+}
+
+fm_herdr_lab_provision() { # <session>
+  local name=${1:-} status
+  fm_herdr_lab_lock_session "$name" || return 1
+  fm_herdr_lab_provision_locked "$@"
+  status=$?
+  fm_herdr_lab_unlock_session "$name" || status=1
+  return "$status"
 }
 
 fm_herdr_lab_prepare() { # <session>
@@ -1406,8 +1551,8 @@ fm_herdr_lab_require_owned_running() { # <session>
   }
 }
 
-fm_herdr_lab_bootstrap_pane() { # <session>
-  local name=$1 dir log panes pane_count pane listed_pane client_pid client_start attach_pid attach_start owner command attempt platform cwd create_out pane_ready=0
+fm_herdr_lab_bootstrap_pane_locked() { # <session>
+  local name=$1 dir log panes pane_count pane listed_pane client_pid client_start attach_pid attach_start owner command attempt platform cwd create_out socket pane_ready=0
   local max_attempts=${FM_HERDR_LAB_BOOTSTRAP_MAX_ATTEMPTS:-100}
   fm_herdr_lab_require_owned_running "$name" || return 1
   command -v script >/dev/null 2>&1 || { fm_herdr_lab_error "script is required for bootstrap-pane"; return 1; }
@@ -1467,7 +1612,7 @@ fm_herdr_lab_bootstrap_pane() { # <session>
     fm_herdr_lab_error "named session ownership changed before bootstrap pane creation"
     return 1
   }
-  create_out=$(fm_herdr_lab_raw "$name" workspace create --cwd "$cwd" --label "fm-herdr-lab-bootstrap" --no-focus 2>/dev/null) || {
+  create_out=$(fm_herdr_lab_owned_raw "$name" true workspace create --cwd "$cwd" --label "fm-herdr-lab-bootstrap" --no-focus 2>/dev/null) || {
     fm_herdr_lab_cleanup_bootstrap_attempt \
       "$name" "" "" "" "" "" "$owner" \
       || fm_herdr_lab_error "could not roll back the bootstrap pane after workspace creation failure"
@@ -1497,7 +1642,7 @@ fm_herdr_lab_bootstrap_pane() { # <session>
       || fm_herdr_lab_error "could not roll back the bootstrap pane after journaling its identity"
     return 1
   }
-  fm_herdr_lab_require_owned_running "$name" || {
+  socket=$(fm_herdr_lab_owned_running_socket_locked "$name") || {
     fm_herdr_lab_cleanup_bootstrap_attempt \
       "$name" "$pane" "" "" "" "" "$owner" \
       || fm_herdr_lab_error "could not retain or roll back the bootstrap pane after ownership changed"
@@ -1507,11 +1652,13 @@ fm_herdr_lab_bootstrap_pane() { # <session>
   command="unset HERDR_ENV HERDR_PANE_ID HERDR_TAB_ID HERDR_WORKSPACE_ID; stty rows 24 cols 80; exec herdr --session '$name'"
   if [ "$platform" = Darwin ]; then
     HERDR_SESSION="$name" \
+      HERDR_SOCKET_PATH="$socket" \
       FM_HERDR_LAB_BOOTSTRAP_OWNER="$owner" \
       TERM=xterm-256color \
       script -q "$log" /bin/sh -c "$command" </dev/null >/dev/null 2>&1 &
   else
     HERDR_SESSION="$name" \
+      HERDR_SOCKET_PATH="$socket" \
       FM_HERDR_LAB_BOOTSTRAP_OWNER="$owner" \
       TERM=xterm-256color \
       setsid script -q -e -c "$command" "$log" </dev/null >/dev/null 2>&1 &
@@ -1633,7 +1780,22 @@ fm_herdr_lab_bootstrap_pane() { # <session>
     '{session:$session,pane_id:$pane_id,client_pid:$client_pid}'
 }
 
-fm_herdr_lab_stop() { # <session>
+fm_herdr_lab_owned_running_socket_locked() { # <session>
+  local name=$1
+  fm_herdr_lab_require_owned_running "$name" || return 1
+  fm_herdr_lab_owned_session_socket_locked "$name" true
+}
+
+fm_herdr_lab_bootstrap_pane() { # <session>
+  local name=${1:-} status
+  fm_herdr_lab_lock_session "$name" || return 1
+  fm_herdr_lab_bootstrap_pane_locked "$@"
+  status=$?
+  fm_herdr_lab_unlock_session "$name" || status=1
+  return "$status"
+}
+
+fm_herdr_lab_stop_locked() { # <session>
   local name=$1 tripwire running receipt
   fm_herdr_lab_validate_name "$name" || return 1
   tripwire=$(fm_herdr_lab_tripwire_path "$name")
@@ -1669,7 +1831,16 @@ fm_herdr_lab_stop() { # <session>
   fm_herdr_lab_check_tripwire "$name"
 }
 
-fm_herdr_lab_teardown() { # <session>
+fm_herdr_lab_stop() { # <session>
+  local name=${1:-} status
+  fm_herdr_lab_lock_session "$name" || return 1
+  fm_herdr_lab_stop_locked "$@"
+  status=$?
+  fm_herdr_lab_unlock_session "$name" || status=1
+  return "$status"
+}
+
+fm_herdr_lab_teardown_locked() { # <session>
   local name=$1 tripwire sessions delete_status=0 named_count identity
   fm_herdr_lab_validate_name "$name" || return 1
   tripwire=$(fm_herdr_lab_tripwire_path "$name")
@@ -1703,7 +1874,7 @@ fm_herdr_lab_teardown() { # <session>
       return 1
       ;;
   esac
-  fm_herdr_lab_stop "$name" >/dev/null || return 1
+  fm_herdr_lab_stop_locked "$name" >/dev/null || return 1
   sleep 0.5
   fm_herdr_lab_check_tripwire "$name" || return 1
   fm_herdr_lab_owned_raw "$name" false session delete "$name" --json >/dev/null 2>&1 || delete_status=$?
@@ -1724,6 +1895,15 @@ fm_herdr_lab_teardown() { # <session>
     return 1
   fi
   fm_herdr_lab_verify_tripwire "$name"
+}
+
+fm_herdr_lab_teardown() { # <session>
+  local name=${1:-} status
+  fm_herdr_lab_lock_session "$name" || return 1
+  fm_herdr_lab_teardown_locked "$@"
+  status=$?
+  fm_herdr_lab_unlock_session "$name" || status=1
+  return "$status"
 }
 
 fm_herdr_lab_name() { # <label>
