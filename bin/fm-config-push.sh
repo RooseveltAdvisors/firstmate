@@ -266,6 +266,18 @@ while IFS='|' read -r id home _window meta; do
       errors=1
       continue
     fi
+    remote_lock="$STATE/.fm-config-push-remote-$id.lock"
+    remote_lock_attempts=0
+    while ! fm_lock_try_acquire "$remote_lock"; do
+      remote_lock_attempts=$((remote_lock_attempts + 1))
+      if [ "$remote_lock_attempts" -ge 1200 ]; then
+        echo "  inheritance: error - remote route lock timed out"
+        errors=1
+        break
+      fi
+      sleep 0.1
+    done
+    [ "$remote_lock_attempts" -lt 1200 ] || continue
     remote_rc=0
     receive_out=$(fm_ssh_run "$FM_REMOTE_HOST" env "FM_HOME=$FM_REMOTE_HOME" "FM_ROOT_OVERRIDE=$FM_REMOTE_HOME" \
       "$FM_REMOTE_HOME/bin/fm-config-push.sh" --remote-receive "$id" <"$archive") || remote_rc=$?
@@ -276,6 +288,7 @@ while IFS='|' read -r id home _window meta; do
         echo "  inheritance: error - remote receive unreadable"
       fi
       errors=1
+      fm_lock_release "$remote_lock" || true
       continue
     fi
     printf '%s\n' "$receive_out" | sed '/^config-reread-pointer: /d'
@@ -297,6 +310,7 @@ while IFS='|' read -r id home _window meta; do
     done <<EOF
 $(printf '%s\n' "$receive_out" | sed -n 's/^config-reread-pointer: //p')
 EOF
+    fm_lock_release "$remote_lock" || true
     continue
   elif [ "$?" -eq 2 ]; then
     printf 'secondmate %s: skipped - invalid remote identity\n' "$id"

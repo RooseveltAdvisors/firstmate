@@ -91,6 +91,36 @@ emit() {  # <state> <source> [detail]
   exit 0
 }
 
+if [ "$ID" = --remote-herdr-state ]; then
+  [ "$#" -eq 3 ] || { echo "usage: fm-crew-state.sh --remote-herdr-state <target> <harness>" >&2; exit 2; }
+  REMOTE_TARGET=$2
+  REMOTE_HARNESS=$3
+  case "$REMOTE_TARGET" in -*) echo unknown; exit 0 ;; esac
+  fm_remote_id_valid "$REMOTE_TARGET" || { echo unknown; exit 0; }
+  case "$REMOTE_HARNESS" in claude|codex|opencode|pi|pi-signed|grok|kimi) ;; *) echo unknown; exit 0 ;; esac
+  fm_backend_source herdr >/dev/null 2>&1 || { echo unknown; exit 0; }
+  fm_backend_herdr_parse_target "$REMOTE_TARGET" || { echo unknown; exit 0; }
+  fm_backend_target_exists herdr "$REMOTE_TARGET" || { echo unknown; exit 0; }
+  REMOTE_NATIVE=$(fm_backend_herdr_classify_agent_status \
+    "$(fm_backend_herdr_agent_status_raw "$FM_BACKEND_HERDR_SESSION" "$FM_BACKEND_HERDR_PANE")")
+  if [ "$REMOTE_NATIVE" = busy ]; then
+    echo busy
+    exit 0
+  fi
+  if REMOTE_TAIL=$(fm_backend_herdr_cli "$FM_BACKEND_HERDR_SESSION" pane read \
+    "$FM_BACKEND_HERDR_PANE" --source recent --lines 200 2>/dev/null); then
+    if printf '%s' "$REMOTE_TAIL" | tail -40 | grep -v '^[[:space:]]*$' | tail -12 \
+      | fm_busy_lines_match "$REMOTE_HARNESS"; then
+      echo busy
+    else
+      echo idle
+    fi
+  else
+    echo unknown
+  fi
+  exit 0
+fi
+
 # --- meta resolution --------------------------------------------------------
 
 [ -f "$META" ] || emit unknown none "no metadata for $ID"
@@ -108,11 +138,16 @@ if [ "$KIND" = secondmate ] && [ "${FM_REMOTE_STATE_LOCAL:-0}" != 1 ]; then
   if fm_secondmate_remote_identity "$META" "$FM_HOME/data/secondmates.md" "$ID"; then
     [ "$(fm_backend_of_meta "$META")" = herdr ] \
       || emit unknown remote-host "remote Secondmate backend must be Herdr"
+    remote_target=$(fm_backend_target_of_meta "$META")
+    [ -n "$remote_target" ] || emit unknown remote-host "remote target is missing"
     if remote_state=$(fm_ssh_run "$FM_REMOTE_HOST" env \
       "FM_HOME=$FM_REMOTE_HOME" "FM_ROOT_OVERRIDE=$FM_REMOTE_HOME" FM_REMOTE_STATE_LOCAL=1 \
-      "$FM_REMOTE_HOME/bin/fm-crew-state.sh" "$ID"); then
-      printf '%s\n' "$remote_state"
-      exit 0
+      "$FM_REMOTE_HOME/bin/fm-crew-state.sh" --remote-herdr-state "$remote_target" "$HARNESS"); then
+      case "$remote_state" in
+        busy) emit working pane "remote agent busy" ;;
+        idle) emit unknown pane "remote agent idle" ;;
+        *) emit unknown remote-host "remote state unreadable on host $FM_REMOTE_HOST" ;;
+      esac
     else
       remote_rc=$?
     fi

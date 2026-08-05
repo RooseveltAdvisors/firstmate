@@ -977,11 +977,11 @@ fm_pending_reply_tick() {  # <state-dir>
         if [ -n "$delivered" ]; then
           if remote_state=$(fm_ssh_run "$FM_REMOTE_HOST" env \
             "FM_HOME=$FM_REMOTE_HOME" "FM_ROOT_OVERRIDE=$FM_REMOTE_HOME" FM_REMOTE_STATE_LOCAL=1 \
-            "$FM_REMOTE_HOME/bin/fm-crew-state.sh" "$task_id"); then
+            "$FM_REMOTE_HOME/bin/fm-crew-state.sh" --remote-herdr-state \
+            "$(fm_backend_target_of_meta "$meta")" "$(fm_meta_get "$meta" harness)"); then
             case "$remote_state" in
-              'state: working'* ) busy=busy ;;
-              'state: done'*|'state: parked'*|'state: blocked'*|'state: paused'*|'state: failed'*) busy=idle ;;
-              'state: unknown'*'no current-state source available'*) busy=idle ;;
+              busy) busy=busy ;;
+              idle) busy=idle ;;
               *) busy=unknown ;;
             esac
           else

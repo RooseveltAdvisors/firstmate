@@ -16,6 +16,9 @@ SSH_LOG="$TMP_ROOT/ssh.log"
 SSH_INPUT="$TMP_ROOT/ssh.input"
 STATUS_REPLY="$TMP_ROOT/status.reply"
 SENTINEL="$TMP_ROOT/injected"
+CONFIG_EVENTS="$TMP_ROOT/config.events"
+CONFIG_ENTERED="$TMP_ROOT/config.entered"
+CONFIG_RELEASE="$TMP_ROOT/config.release"
 
 cat >"$FAKEBIN/ssh" <<'SH'
 #!/usr/bin/env bash
@@ -35,6 +38,18 @@ case "${FM_TEST_SSH_MODE:-ok}" in
     esac
     exit 0
     ;;
+  config-lock)
+    case "$last" in
+      *--remote-receive*)
+        cat >/dev/null
+        printf 'receive\n' >>"$FM_TEST_CONFIG_EVENTS"
+        if mkdir "$FM_TEST_CONFIG_ENTERED" 2>/dev/null; then
+          while [ ! -f "$FM_TEST_CONFIG_RELEASE" ]; do sleep 0.02; done
+        fi
+        ;;
+    esac
+    exit 0
+    ;;
   exec) bash -c "$last" ;;
   state) printf '%s\n' 'state: working · source: pane · remote agent busy' ;;
   status) cat "$FM_TEST_SSH_STATUS" ;;
@@ -42,9 +57,9 @@ case "${FM_TEST_SSH_MODE:-ok}" in
     case "$last" in
       *fm-crew-state.sh*)
         if [ "$FM_TEST_SSH_MODE" = tick-busy ]; then
-          printf '%s\n' 'state: working · source: pane · remote agent busy'
+          printf '%s\n' busy
         else
-          printf '%s\n' 'state: unknown · source: none · no current-state source available'
+          printf '%s\n' idle
         fi
         ;;
       *) cat "$FM_TEST_SSH_STATUS" ;;
@@ -62,6 +77,20 @@ export FM_SSH_BIN="$FAKEBIN/ssh"
 export FM_TEST_SSH_LOG="$SSH_LOG"
 export FM_TEST_SSH_INPUT="$SSH_INPUT"
 export FM_TEST_SSH_STATUS="$STATUS_REPLY"
+export FM_TEST_CONFIG_EVENTS="$CONFIG_EVENTS"
+export FM_TEST_CONFIG_ENTERED="$CONFIG_ENTERED"
+export FM_TEST_CONFIG_RELEASE="$CONFIG_RELEASE"
+
+cat >"$FAKEBIN/herdr" <<'SH'
+#!/usr/bin/env bash
+case "$1 $2" in
+  'pane get') printf '%s\n' '{"result":{"pane":{"pane_id":"workspace:pane"}}}' ;;
+  'agent get') printf '%s\n' "{\"result\":{\"agent\":{\"agent_status\":\"${FM_TEST_HERDR_STATE:-working}\"}}}" ;;
+  'pane read') printf '%s\n' "${FM_TEST_HERDR_PANE:-idle prompt}" ;;
+  *) exit 1 ;;
+esac
+SH
+chmod +x "$FAKEBIN/herdr"
 
 test_registry_and_input_boundaries() {
   local registry="$TMP_ROOT/secondmates.md"
@@ -155,8 +184,9 @@ test_send_state_and_pending_reply() {
   [ "$(fm_pending_reply_get "$ambiguous_rec" phase)" = resolved ] \
     || fail "late reply did not reconcile ambiguous remote delivery"
 
-  out=$(FM_TEST_SSH_MODE=state FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-crew-state.sh" housing-watch)
+  out=$(FM_TEST_SSH_MODE=tick-busy FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-crew-state.sh" housing-watch)
   case "$out" in 'state: working'*'source: pane'*) ;; *) fail "remote current-state command was not reused: $out" ;; esac
+  grep -F -- '--remote-herdr-state' "$SSH_LOG" >/dev/null || fail "remote current state still depended on self metadata"
   out=$(FM_TEST_SSH_MODE=unreachable FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-crew-state.sh" housing-watch)
   case "$out" in 'state: unreachable'*'source: remote-host'*) ;; *) fail "SSH loss was not explicit unreachable: $out" ;; esac
   out=$(FM_TEST_SSH_MODE=fail FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-crew-state.sh" housing-watch)
@@ -202,6 +232,17 @@ test_send_state_and_pending_reply() {
   pass "remote routing: acknowledged marked send, state classes, and idempotent late-reply reconciliation"
 }
 
+test_remote_state_reads_recorded_target_without_meta() {
+  local out
+  out=$(PATH="$FAKEBIN:$PATH" FM_TEST_HERDR_STATE=working FM_HOME="$TMP_ROOT/no-meta" \
+    FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-crew-state.sh" --remote-herdr-state pilot:workspace:pane codex)
+  [ "$out" = busy ] || fail "direct remote target did not report native busy state: $out"
+  out=$(PATH="$FAKEBIN:$PATH" FM_TEST_HERDR_STATE=idle FM_HOME="$TMP_ROOT/no-meta" \
+    FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-crew-state.sh" --remote-herdr-state pilot:workspace:pane codex)
+  [ "$out" = idle ] || fail "direct remote target did not report verified idle state: $out"
+  pass "remote current state: recorded Herdr target needs no remote self metadata"
+}
+
 test_config_push_uses_allowlisted_archive() {
   local home=$1 listing
   printf 'codex\n' >"$home/config/crew-harness"
@@ -221,6 +262,28 @@ test_config_push_uses_allowlisted_archive() {
   grep -F "$FM_FROMFIRST_MARK" "$SSH_LOG" >/dev/null || fail "remote reread pointer was not marked at the parent"
   grep -F -- '--remote-reread-sent' "$SSH_LOG" >/dev/null || fail "remote reread delivery was not acknowledged"
   pass "remote config push: existing owner receives only the inherited allowlist"
+}
+
+test_config_push_serializes_remote_route() {
+  local home=$1 first second count i=0
+  rm -rf "$CONFIG_ENTERED"
+  rm -f "$CONFIG_EVENTS" "$CONFIG_RELEASE"
+  FM_TEST_SSH_MODE=config-lock FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
+    "$ROOT/bin/fm-config-push.sh" >/dev/null 2>/dev/null &
+  first=$!
+  while [ ! -d "$CONFIG_ENTERED" ] && [ "$i" -lt 100 ]; do sleep 0.02; i=$((i + 1)); done
+  [ -d "$CONFIG_ENTERED" ] || fail "first remote config transaction did not reach receive"
+  FM_TEST_SSH_MODE=config-lock FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
+    "$ROOT/bin/fm-config-push.sh" >/dev/null 2>/dev/null &
+  second=$!
+  sleep 0.2
+  count=$(wc -l <"$CONFIG_EVENTS" | tr -d ' ')
+  [ "$count" = 1 ] || fail "concurrent remote config transaction bypassed the parent route lock"
+  : >"$CONFIG_RELEASE"
+  wait "$first" || fail "first serialized remote config push failed"
+  wait "$second" || fail "second serialized remote config push failed"
+  [ "$(wc -l <"$CONFIG_EVENTS" | tr -d ' ')" = 2 ] || fail "serialized remote config transaction did not resume"
+  pass "remote config push: parent route lock preserves generation order"
 }
 
 test_config_receive_applies_owner_and_rejects_extra_paths() {
@@ -258,5 +321,7 @@ test_registry_and_input_boundaries
 test_strict_ssh_and_quoting
 PARENT=$(make_parent)
 test_send_state_and_pending_reply "$PARENT"
+test_remote_state_reads_recorded_target_without_meta
 test_config_push_uses_allowlisted_archive "$PARENT"
+test_config_push_serializes_remote_route "$PARENT"
 test_config_receive_applies_owner_and_rejects_extra_paths
