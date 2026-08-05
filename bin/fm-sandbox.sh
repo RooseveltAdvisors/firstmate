@@ -26,8 +26,8 @@
 # that id is committed. cleanup-begin emits the immutable receipt that Stage 2
 # must verify before any external removal; cleanup-commit only finalizes local
 # state after Stage 2 supplies the same stable id. recover resumes only local
-# `preparing`, `commit_pending`, `rollback_pending`, or `cleanup_finalizing`
-# transactions and never guesses external sandbox state.
+# `preparing`, `commit_pending`, `rollback_pending`, `cleanup_finalizing`, or
+# `cleanup_releasing` transactions and never guesses external sandbox state.
 #
 # The ownership journal is state/<task-id>.sandbox.json. Host reservations live
 # below a private coordination root and are counted while holding the existing

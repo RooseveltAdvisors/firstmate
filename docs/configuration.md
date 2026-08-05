@@ -119,7 +119,7 @@ bin/fm-sandbox.sh doctor --host <id> --json
 Every doctor result keeps `launchSupported` false and includes the applicable refusal reason.
 
 The remaining commands exercise only local journal and disposable-copy custody for maintainers.
-`prepare` validates one exact task and host, atomically reserves configured capacity, creates `/tmp/fm-<task>/sandbox/workcopy` or an explicitly supplied safe test root, and clones committed Git state with local object sharing disabled.
+`prepare` requires an explicit canonical task root under the configured task-root base, normally `/tmp/fm-<task>`, then atomically reserves configured capacity, creates its `sandbox/workcopy`, and clones committed Git state with local object sharing disabled.
 `commit` records one caller-supplied stable sandbox id once, `rollback` is available only before that identity exists, `cleanup-begin` produces the exact ownership receipt required by a future controller, and `cleanup-commit` finalizes local state only after the caller returns that same identity.
 `recover` resumes only journaled local transient states and refuses ambiguous or missing ownership.
 

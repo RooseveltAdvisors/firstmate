@@ -121,12 +121,12 @@ It is not a runtime backend, scheduler, worker launcher, Herdr integration, remo
 The inventory exposes exact role, transport, priority, CPU, memory, concurrency, policy, authentication, and private-network facts instead of computing an opaque score.
 Every tracked example host is disabled, `launchSupported` is always false, unsupported roles and transports carry explicit refusal reasons, and no command creates, runs, enters, stops, or removes a Docker Sandbox.
 
-The local state machine binds one validated task id, exact host id, reservation, task root, work copy, source commit and immutable Git identity, policy id, resource limits, and random ownership nonce in `state/<id>.sandbox.json`.
+The local state machine binds one validated task id, exact host id, reservation, task root, work copy, source commit and immutable Git identity, policy id, resource limits, and caller-supplied ownership nonce in `state/<id>.sandbox.json`; the `identity` command generates a random nonce for callers.
 Its normal transitions are `preparing` to `prepared`, `commit_pending` to `committed`, and `cleanup_pending` to `cleanup_finalizing` to `cleanup_releasing` to `cleaned`.
-A pre-identity failure may instead pass through `rollback_pending` to `rolled_back`.
+Before a stable sandbox id is bound, an explicit rollback or local preparation failure may instead pass through `rollback_pending` to `rolled_back`.
 The `commit` command accepts one caller-supplied stable sandbox id exactly once, but Stage 1 never obtains or validates that id against an external sandbox service.
 
-Host capacity is claimed under the existing private wake-lock primitive and counted from immutable per-task reservations, never from a PID, label, ambient session, inventory ordering, or path alone.
+Host capacity is claimed under the existing private wake-lock primitive and counted from identity-bound per-task reservations, never from a PID, label, ambient session, inventory ordering, or path alone.
 Task-root and work-copy operations reject symlinks, unexpected ownership, non-canonical paths, and source-tree identity overlap before bounded removal.
 Failpoints exercise recovery after each journal-before-side-effect boundary, and `recover` resumes only known local transient states without inventing external state.
 `cleanup-begin` emits an exact task, host, stable-id, and nonce receipt; a future Stage 2 controller must prove its external destructive action before returning that same identity to `cleanup-commit`, which only finalizes local state and custody.
