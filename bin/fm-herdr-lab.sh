@@ -138,30 +138,11 @@ fm_herdr_lab_read_lifecycle_reclaim() { # <session>; sets FM_HERDR_LAB_RECLAIM_*
   [[ "$FM_HERDR_LAB_RECLAIM_OWNER" =~ ^fm-herdr-lab-reclaim:${name}:[0-9]+:[0-9]+$ ]] || return 1
 }
 
-fm_herdr_lab_lifecycle_reclaim_stale() { # <session>
-  local name=$1 current state
-  fm_herdr_lab_read_lifecycle_reclaim "$name" || return 1
-  state=$(fm_herdr_lab_process_state "$FM_HERDR_LAB_RECLAIM_PID" 2>/dev/null || true)
-  case "$state" in
-    Z*) return 0 ;;
-    '') return 1 ;;
-  esac
-  if kill -0 "$FM_HERDR_LAB_RECLAIM_PID" 2>/dev/null; then
-    current=$(fm_herdr_lab_process_start "$FM_HERDR_LAB_RECLAIM_PID" 2>/dev/null || true)
-    [ -n "$current" ] && [ "$current" != "$FM_HERDR_LAB_RECLAIM_START" ] || return 1
-  fi
-}
-
 fm_herdr_lab_reclaim_lifecycle_lock() { # <session>
-  local name=$1 lock stale claim stale_claim status=1 claim_pid claim_start claim_owner claim_tmp current_pid
+  local name=$1 lock stale claim status=1 claim_pid claim_start claim_owner claim_tmp current_pid
   lock=$(fm_herdr_lab_lifecycle_lock_path "$name")
   claim="$lock.reclaim"
-  if [ -e "$claim" ] || [ -L "$claim" ]; then
-    fm_herdr_lab_lifecycle_reclaim_stale "$name" || return 1
-    stale_claim="$claim.stale.${BASHPID:-$$}.$RANDOM"
-    mv "$claim" "$stale_claim" 2>/dev/null || return 1
-    rm -f "$stale_claim" || return 1
-  fi
+  [ ! -e "$claim" ] && [ ! -L "$claim" ] || return 1
   current_pid=${BASHPID:-$$}
   claim_pid=$current_pid
   claim_start=$(fm_herdr_lab_process_start "$claim_pid" 2>/dev/null || true)
