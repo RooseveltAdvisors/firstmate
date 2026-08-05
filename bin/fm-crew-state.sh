@@ -91,6 +91,19 @@ emit() {  # <state> <source> [detail]
   exit 0
 }
 
+if [ "$ID" = --remote-status ]; then
+  [ "$#" -eq 2 ] || { echo "usage: fm-crew-state.sh --remote-status <id>" >&2; exit 2; }
+  REMOTE_STATUS_ID=$2
+  fm_remote_id_valid "$REMOTE_STATUS_ID" || exit 1
+  REMOTE_STATUS_PATH="$STATE/$REMOTE_STATUS_ID.status"
+  if [ ! -e "$REMOTE_STATUS_PATH" ] && [ ! -L "$REMOTE_STATUS_PATH" ]; then
+    exit 0
+  fi
+  [ -f "$REMOTE_STATUS_PATH" ] && [ ! -L "$REMOTE_STATUS_PATH" ] || exit 1
+  cat "$REMOTE_STATUS_PATH"
+  exit $?
+fi
+
 if [ "$ID" = --remote-herdr-state ]; then
   [ "$#" -eq 3 ] || { echo "usage: fm-crew-state.sh --remote-herdr-state <target> <harness>" >&2; exit 2; }
   REMOTE_TARGET=$2

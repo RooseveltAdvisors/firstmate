@@ -55,14 +55,15 @@ case "${FM_TEST_SSH_MODE:-ok}" in
   status) cat "$FM_TEST_SSH_STATUS" ;;
   tick-busy|tick-idle)
     case "$last" in
-      *fm-crew-state.sh*)
+      *--remote-status*) [ ! -f "$FM_TEST_SSH_STATUS" ] || cat "$FM_TEST_SSH_STATUS" ;;
+      *--remote-herdr-state*)
         if [ "$FM_TEST_SSH_MODE" = tick-busy ]; then
           printf '%s\n' busy
         else
           printf '%s\n' idle
         fi
         ;;
-      *) cat "$FM_TEST_SSH_STATUS" ;;
+      *) [ ! -f "$FM_TEST_SSH_STATUS" ] || cat "$FM_TEST_SSH_STATUS" ;;
     esac
     ;;
   fail) printf '%s\n' 'secret remote diagnostic' >&2; exit 1 ;;
@@ -221,7 +222,7 @@ test_send_state_and_pending_reply() {
     "$ROOT/bin/fm-send.sh" fm-housing-watch "turn-state request" >/dev/null 2>/dev/null \
     || fail "turn-state remote send failed"
   rec=$(find "$home/state/pending-replies" -type f ! -name '.*' -exec grep -l 'turn-state request' {} + | head -1)
-  : >"$STATUS_REPLY"
+  rm -f "$STATUS_REPLY"
   FM_TEST_SSH_MODE=tick-busy fm_pending_reply_tick "$home/state"
   [ "$(fm_pending_reply_get "$rec" turn_seen_busy)" = 1 ] || fail "remote working state was not observed as busy"
   FM_TEST_SSH_MODE=tick-idle fm_pending_reply_tick "$home/state"
@@ -230,6 +231,24 @@ test_send_state_and_pending_reply() {
   FM_TEST_SSH_MODE=tick-idle fm_pending_reply_tick "$home/state"
   [ "$(fm_pending_reply_get "$rec" phase)" = escalated ] || fail "remote recovery turn could not escalate"
   pass "remote routing: acknowledged marked send, state classes, and idempotent late-reply reconciliation"
+}
+
+test_remote_status_read_distinguishes_absent() {
+  local home="$TMP_ROOT/status-home" out rc
+  mkdir -p "$home/state"
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-crew-state.sh" --remote-status housing-watch) \
+    || fail "absent remote status was not readable empty history"
+  [ -z "$out" ] || fail "absent remote status emitted content"
+  printf 'working: present\n' >"$home/state/housing-watch.status"
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-crew-state.sh" --remote-status housing-watch) \
+    || fail "regular remote status was unreadable"
+  [ "$out" = 'working: present' ] || fail "remote status bytes changed"
+  rm -f "$home/state/housing-watch.status"
+  ln -s "$home/elsewhere" "$home/state/housing-watch.status"
+  FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-crew-state.sh" \
+    --remote-status housing-watch >/dev/null 2>&1; rc=$?
+  [ "$rc" -ne 0 ] || fail "unsafe remote status was accepted as absent"
+  pass "remote status: absent history is empty, unsafe files unreadable"
 }
 
 test_remote_state_reads_recorded_target_without_meta() {
@@ -321,6 +340,7 @@ test_registry_and_input_boundaries
 test_strict_ssh_and_quoting
 PARENT=$(make_parent)
 test_send_state_and_pending_reply "$PARENT"
+test_remote_status_read_distinguishes_absent
 test_remote_state_reads_recorded_target_without_meta
 test_config_push_uses_allowlisted_archive "$PARENT"
 test_config_push_serializes_remote_route "$PARENT"

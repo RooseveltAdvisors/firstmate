@@ -957,7 +957,9 @@ fm_pending_reply_tick() {  # <state-dir>
           continue
         fi
         remote_status=$(mktemp "${TMPDIR:-/tmp}/fm-remote-status.XXXXXX") || continue
-        if fm_ssh_run "$FM_REMOTE_HOST" cat -- "$FM_REMOTE_HOME/state/$task_id.status" >"$remote_status"; then
+        if fm_ssh_run "$FM_REMOTE_HOST" env \
+          "FM_HOME=$FM_REMOTE_HOME" "FM_ROOT_OVERRIDE=$FM_REMOTE_HOME" \
+          "$FM_REMOTE_HOME/bin/fm-crew-state.sh" --remote-status "$task_id" >"$remote_status"; then
           fm_pending_reply_set "$rec" reachability reachable || true
           if fm_pending_reply_try_resolve "$state" "$corr" "$remote_status"; then
             rm -f "$remote_status"
