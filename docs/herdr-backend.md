@@ -252,9 +252,11 @@ It provisions only non-default names beginning with `fm-lab-`, records the serve
 Immediately before every destructive call it re-queries the named session and refuses empty, missing, literal `default`, or `default:true` identities.
 Every post-provision helper mutation and client attach also carries the recorded `--expected-generation` so Herdr rejects a stale same-name replacement atomically.
 Its before/after tripwire requires the live default-session snapshot to remain byte-identical.
+For a freshly provisioned, owned, running zero-pane lab, `bootstrap-pane` creates one helper-owned workspace and PTY client and returns the session, pane id, and client PID as JSON.
+It refuses existing panes or ambiguous bootstrap evidence and retains exact cleanup evidence until the recorded client and pane can be proved owned or absent.
 
 The helper's header and `--help` own exact commands.
-Tests use thin compatibility wrappers in `tests/herdr-test-safety.sh` and never duplicate the destructive policy.
+`tests/herdr-test-safety.sh` provides thin compatibility wrappers for backend tests; direct lab-helper tests use `bin/fm-herdr-lab.sh` itself and never duplicate the destructive policy.
 
 ## Active limits
 
@@ -277,8 +279,10 @@ tests/fm-backend-herdr-respawn-idem-e2e.test.sh
 tests/fm-backend-herdr-workspace-per-home-e2e.test.sh
 tests/fm-backend-herdr-presentation-e2e.test.sh
 tests/fm-backend-herdr-eventwait-smoke.test.sh
+tests/fm-herdr-lab.test.sh
 tests/fm-herdr-session-cleanup.test.sh
 tests/fm-herdr-session-cleanup-e2e.test.sh
+tests/fm-herdr-lab-bootstrap-e2e.test.sh
 tests/fm-afk-inject-herdr-e2e.test.sh
 tests/fm-afk-pi-herdr-return-e2e.test.sh
 ```
