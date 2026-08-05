@@ -230,6 +230,13 @@ test_send_state_and_pending_reply() {
   FM_TEST_SSH_MODE=tick-busy fm_pending_reply_tick "$home/state"
   FM_TEST_SSH_MODE=tick-idle fm_pending_reply_tick "$home/state"
   [ "$(fm_pending_reply_get "$rec" phase)" = escalated ] || fail "remote recovery turn could not escalate"
+  : >"$SSH_LOG"
+  FM_TEST_SSH_MODE=tick-busy fm_pending_reply_tick "$home/state"
+  [ "$(grep -c -- '--remote-status' "$SSH_LOG")" = 1 ] || fail "remote status was read more than once per task tick"
+  [ "$(grep -c -- '--remote-herdr-state' "$SSH_LOG")" = 1 ] || fail "remote state was read more than once per task tick"
+  : >"$SSH_LOG"
+  FM_TEST_SSH_MODE=unreachable fm_pending_reply_tick "$home/state"
+  [ "$(grep -c -- '--remote-status' "$SSH_LOG")" = 1 ] || fail "unreachable remote status retried per correlation"
   pass "remote routing: acknowledged marked send, state classes, and idempotent late-reply reconciliation"
 }
 

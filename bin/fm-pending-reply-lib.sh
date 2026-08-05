@@ -929,7 +929,9 @@ fm_pending_reply_tick_one() {  # <state-dir> <corr_id> <busy_state> [secondmate-
 fm_pending_reply_tick() {  # <state-dir>
   local state=$1 dir rec corr task_id phase delivered meta backend target label busy sm_home harness
   local observation observation_task found i parent_home remote remote_rc remote_status remote_state
-  local -a observation_tasks=() observation_values=()
+  local remote_index remote_found remote_status_reachability remote_state_result cleanup_path
+  local -a observation_tasks=() observation_values=() remote_tasks=() remote_status_paths=()
+  local -a remote_status_reachabilities=() remote_state_results=()
   dir=$(fm_pending_reply_dir "$state")
   [ -d "$dir" ] || return 0
   for rec in "$dir"/*; do
@@ -956,45 +958,69 @@ fm_pending_reply_tick() {  # <state-dir>
           fm_pending_reply_set "$rec" reachability unreadable || true
           continue
         fi
-        remote_status=$(mktemp "${TMPDIR:-/tmp}/fm-remote-status.XXXXXX") || continue
-        if fm_ssh_run "$FM_REMOTE_HOST" env \
-          "FM_HOME=$FM_REMOTE_HOME" "FM_ROOT_OVERRIDE=$FM_REMOTE_HOME" \
-          "$FM_REMOTE_HOME/bin/fm-crew-state.sh" --remote-status "$task_id" >"$remote_status"; then
-          fm_pending_reply_set "$rec" reachability reachable || true
-          if fm_pending_reply_try_resolve "$state" "$corr" "$remote_status"; then
-            rm -f "$remote_status"
-            continue
+        remote_found=0
+        for ((i = 0; i < ${#remote_tasks[@]}; i++)); do
+          [ "${remote_tasks[$i]}" = "$task_id" ] || continue
+          remote_index=$i
+          remote_found=1
+          break
+        done
+        if [ "$remote_found" = 0 ]; then
+          remote_index=${#remote_tasks[@]}
+          remote_status=$(mktemp "${TMPDIR:-/tmp}/fm-remote-status.XXXXXX" 2>/dev/null || true)
+          remote_status_reachability=unreadable
+          if [ -n "$remote_status" ]; then
+            if fm_ssh_run "$FM_REMOTE_HOST" env \
+              "FM_HOME=$FM_REMOTE_HOME" "FM_ROOT_OVERRIDE=$FM_REMOTE_HOME" \
+              "$FM_REMOTE_HOME/bin/fm-crew-state.sh" --remote-status "$task_id" >"$remote_status"; then
+              remote_status_reachability=reachable
+            else
+              remote_rc=$?
+              if [ "$remote_rc" -eq "$FM_SSH_UNREACHABLE_RC" ]; then
+                remote_status_reachability=unreachable
+              fi
+            fi
           fi
-        else
-          remote_rc=$?
-          rm -f "$remote_status"
-          if [ "$remote_rc" -eq "$FM_SSH_UNREACHABLE_RC" ]; then
-            fm_pending_reply_set "$rec" reachability unreachable || true
-          else
-            fm_pending_reply_set "$rec" reachability unreadable || true
-          fi
+          remote_tasks+=("$task_id")
+          remote_status_paths+=("$remote_status")
+          remote_status_reachabilities+=("$remote_status_reachability")
+          remote_state_results+=(not-read)
+        fi
+        remote_status=${remote_status_paths[$remote_index]}
+        remote_status_reachability=${remote_status_reachabilities[$remote_index]}
+        fm_pending_reply_set "$rec" reachability "$remote_status_reachability" || true
+        [ "$remote_status_reachability" = reachable ] || continue
+        if fm_pending_reply_try_resolve "$state" "$corr" "$remote_status"; then
           continue
         fi
-        rm -f "$remote_status"
         if [ -n "$delivered" ]; then
-          if remote_state=$(fm_ssh_run "$FM_REMOTE_HOST" env \
-            "FM_HOME=$FM_REMOTE_HOME" "FM_ROOT_OVERRIDE=$FM_REMOTE_HOME" FM_REMOTE_STATE_LOCAL=1 \
-            "$FM_REMOTE_HOME/bin/fm-crew-state.sh" --remote-herdr-state \
-            "$(fm_backend_target_of_meta "$meta")" "$(fm_meta_get "$meta" harness)"); then
-            case "$remote_state" in
-              busy) busy=busy ;;
-              idle) busy=idle ;;
-              *) busy=unknown ;;
-            esac
-          else
-            remote_rc=$?
-            if [ "$remote_rc" -eq "$FM_SSH_UNREACHABLE_RC" ]; then
-              fm_pending_reply_set "$rec" reachability unreachable || true
+          remote_state_result=${remote_state_results[$remote_index]}
+          if [ "$remote_state_result" = not-read ]; then
+            if remote_state=$(fm_ssh_run "$FM_REMOTE_HOST" env \
+              "FM_HOME=$FM_REMOTE_HOME" "FM_ROOT_OVERRIDE=$FM_REMOTE_HOME" FM_REMOTE_STATE_LOCAL=1 \
+              "$FM_REMOTE_HOME/bin/fm-crew-state.sh" --remote-herdr-state \
+              "$(fm_backend_target_of_meta "$meta")" "$(fm_meta_get "$meta" harness)"); then
+              case "$remote_state" in
+                busy|idle) remote_state_result=$remote_state ;;
+                *) remote_state_result=unknown ;;
+              esac
             else
-              fm_pending_reply_set "$rec" reachability unreadable || true
+              remote_rc=$?
+              if [ "$remote_rc" -eq "$FM_SSH_UNREACHABLE_RC" ]; then
+                remote_state_result=unreachable
+              else
+                remote_state_result=unreadable
+              fi
             fi
-            continue
+            remote_state_results[$remote_index]=$remote_state_result
           fi
+          case "$remote_state_result" in
+            busy|idle|unknown) busy=$remote_state_result ;;
+            unreachable|unreadable)
+              fm_pending_reply_set "$rec" reachability "$remote_state_result" || true
+              continue
+              ;;
+          esac
         fi
       elif [ "$?" -eq 2 ]; then
         fm_pending_reply_set "$rec" reachability unreadable || true
@@ -1070,6 +1096,9 @@ fm_pending_reply_tick() {  # <state-dir>
       fi
     fi
     fm_pending_reply_tick_one "$state" "$corr" "$busy" "$sm_home" || true
+  done
+  for cleanup_path in "${remote_status_paths[@]}"; do
+    [ -z "$cleanup_path" ] || rm -f "$cleanup_path"
   done
   return 0
 }
