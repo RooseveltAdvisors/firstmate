@@ -521,7 +521,7 @@ SH
   [ ! -s "$log" ] || fail "unreachable remote triggered a local lifecycle operation: $(cat "$log")"
 
   out=$(run_bootstrap "$tmuxfb:$fb" "$w/home" zsh "$log" FM_SSH_BIN="$fb/ssh" FM_TEST_REMOTE_STATE=dead)
-  assert_contains "$out" "remote current state unreadable on host dev; Stage 2 owns recovery" \
+  assert_contains "$out" "remote state unreadable on host dev; no local relaunch" \
     "a readable remote dead state must stay outside Stage 1 recovery"
   [ ! -s "$log" ] || fail "remote dead state triggered a local lifecycle operation: $(cat "$log")"
   pass "sweep: unreachable and remote-dead outcomes never authorize local relaunch"
