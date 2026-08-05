@@ -2,7 +2,7 @@
 
 Empirical record for GitLab merge-state polling, alongside the existing GitHub watch.
 The merge-state commands below were run on 2026-07-21 and their output is reproduced exactly.
-The later review-conversation readiness gate is summarized in [architecture.md](architecture.md#project-modes-are-explicit), with its current regression coverage in `tests/fm-pr-check-security.test.sh` and `tests/fm-pr-merge.test.sh`.
+The later review-conversation readiness gate is summarized in [architecture.md](architecture.md#delivery-modes-are-explicit-per-task), with its current regression coverage in `tests/fm-pr-check-security.test.sh` and `tests/fm-pr-merge.test.sh`.
 
 ## Versions
 
