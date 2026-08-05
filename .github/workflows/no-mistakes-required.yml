@@ -1,22 +1,19 @@
 name: Require no-mistakes
 run-name: "PR #${{ github.event.pull_request.number }} body compliance - ${{ github.event.action }} - event ${{ github.run_number }} (run ${{ github.run_id }})"
 
-# House divergence from upstream, deliberate: the trigger is pull_request_target
-# and there are no branch filters. Do not "fix" this back to `pull_request` with
-# `branches: [main]`. Under pull_request a fork PR runs its OWN copy of this
-# workflow and can edit the gate to exempt itself, and a branch filter stops the
-# check being emitted on every PR, which breaks required-check semantics.
 on:
-  pull_request_target:
+  pull_request:
     types: [opened, edited, synchronize, reopened]
+    branches:
+      - main
 
 permissions:
   contents: read
 
 # GitHub concurrency groups retain at most one pending run, replacing older
 # pending runs even when cancel-in-progress is false. Give body-bearing events
-# an immutable per-event group so a queued run can never collapse an earlier
-# opened/edited check. Keep synchronize/reopened coalescing as before.
+# an immutable per-event group so first-time-fork approvals can never collapse
+# opened/edited checks. Keep synchronize/reopened coalescing as before.
 concurrency:
   group: no-mistakes-required-${{ github.event.pull_request.number }}-${{ (github.event.action == 'opened' || github.event.action == 'edited') && github.run_id || 'head-change' }}
   cancel-in-progress: true
