@@ -333,14 +333,36 @@ fm_herdr_lab_validate_generation() { # <generation>
   [[ "$1" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]
 }
 
+fm_herdr_lab_validate_session_identity() { # <generation-or-legacy-identity>
+  fm_herdr_lab_validate_generation "$1" \
+    || [[ "$1" =~ ^legacy:[0-9A-Za-z:+._-]+$ ]]
+}
+
+fm_herdr_lab_path_identity() { # <path>
+  [ -e "$1" ] && [ ! -L "$1" ] || return 1
+  if [ "$(uname -s 2>/dev/null)" = Darwin ]; then
+    stat -f '%d:%i:%z:%m:%c' "$1" 2>/dev/null
+  else
+    stat -c '%d:%i:%s:%Y:%Z:%y:%z' "$1" 2>/dev/null | tr -d ' '
+  fi
+}
+
+fm_herdr_lab_path_identity_key() { # <identity>
+  printf '%s' "$1" | cut -d: -f1-2
+}
+
 fm_herdr_lab_guarded_raw() { # <session> <generation> <herdr arguments...>
   local name=$1 generation=$2
   shift 2
-  fm_herdr_lab_validate_generation "$generation" || {
-    fm_herdr_lab_error "refusing a Herdr call with a malformed server generation"
+  fm_herdr_lab_validate_session_identity "$generation" || {
+    fm_herdr_lab_error "refusing a Herdr call with a malformed server identity"
     return 1
   }
-  herdr "$@" --expected-generation "$generation" --session "$name"
+  if fm_herdr_lab_validate_generation "$generation"; then
+    herdr "$@" --expected-generation "$generation" --session "$name"
+  else
+    herdr "$@" --session "$name"
+  fi
 }
 
 fm_herdr_lab_session_list() { # <session>
@@ -392,26 +414,54 @@ fm_herdr_lab_require_session_absent() { # <session>
 }
 
 fm_herdr_lab_running_generation() { # <session> [expected-generation]
-  local name=$1 expected=${2:-} output generation
+  local name=$1 expected=${2:-} output status_record status running session generation socket socket_dir dir_identity
   if [ -n "$expected" ]; then
     output=$(fm_herdr_lab_guarded_raw "$name" "$expected" status server --json 2>/dev/null) || return 1
   else
     output=$(fm_herdr_lab_raw "$name" status server --json 2>/dev/null) || return 1
   fi
-  generation=$(printf '%s' "$output" | jq -ser --arg name "$name" '
+  status_record=$(printf '%s' "$output" | jq -ser --arg name "$name" '
     select(length == 1)
     | .[0]
     | select(type == "object")
     | select(.status == "running" and .running == true and .session == $name)
-    | .generation
-    | select(type == "string")
+    | [
+        .status,
+        (.running | tostring),
+        .session,
+        (if (.generation | type) == "string" and (.generation | length) > 0 then .generation else "none" end),
+        (if (.socket | type) == "string" and (.socket | length) > 0 then .socket else "none" end)
+      ]
+    | @tsv
   ' 2>/dev/null) || return 1
-  if [ -z "$generation" ] || ! fm_herdr_lab_validate_generation "$generation"; then
-    fm_herdr_lab_error "server status for '$name' has no canonical generation"
+  IFS=$'\t' read -r status running session generation socket <<< "$status_record"
+  if [ "$status" != running ] || [ "$running" != true ] || [ "$session" != "$name" ]; then
+    fm_herdr_lab_error "server status for '$name' is absent or ambiguous"
+    return 1
+  fi
+  if [ "$generation" = none ]; then
+    [ "$socket" != none ] || {
+      fm_herdr_lab_error "server status for '$name' has no usable session socket"
+      return 1
+    }
+    [[ "$socket" = /* ]] || {
+      fm_herdr_lab_error "server status for '$name' has no usable session socket"
+      return 1
+    }
+    socket_dir=${socket%/*}
+    [ "$socket_dir" != "$socket" ] || socket_dir=.
+    dir_identity=$(fm_herdr_lab_path_identity "$socket_dir") || {
+      fm_herdr_lab_error "server status for '$name' has no usable session identity"
+      return 1
+    }
+    generation="legacy:$(fm_herdr_lab_path_identity_key "$dir_identity")"
+  fi
+  if ! fm_herdr_lab_validate_session_identity "$generation"; then
+    fm_herdr_lab_error "server status for '$name' has no canonical session identity"
     return 1
   fi
   [ -z "$expected" ] || [ "$generation" = "$expected" ] || {
-    fm_herdr_lab_error "server status for '$name' returned a mismatched generation"
+    fm_herdr_lab_error "server status for '$name' returned a mismatched session identity"
     return 1
   }
   printf '%s\n' "$generation"
@@ -447,7 +497,7 @@ fm_herdr_lab_acquire_session_claim() { # <session>
 
 fm_herdr_lab_write_session_identity() { # <session> <generation> <server-pid> <server-start> <owner>
   local name=$1 generation=$2 server_pid=$3 server_start=$4 owner=$5 record tmp
-  fm_herdr_lab_validate_generation "$generation" || return 1
+  fm_herdr_lab_validate_session_identity "$generation" || return 1
   fm_herdr_lab_session_process_is_owned "$server_pid" "$server_start" "$owner" || {
     fm_herdr_lab_error "cannot bind '$name' to the helper-owned server launch"
     return 1
@@ -491,7 +541,7 @@ fm_herdr_lab_read_stop_receipt() { # <session>; sets FM_HERDR_LAB_STOP_*
     FM_HERDR_LAB_STOP_GENERATION \
     FM_HERDR_LAB_STOP_STATE <<< "$identity"
   if [ "$FM_HERDR_LAB_STOP_NAME" != "$name" ] \
-     || ! fm_herdr_lab_validate_generation "$FM_HERDR_LAB_STOP_GENERATION"; then
+     || ! fm_herdr_lab_validate_session_identity "$FM_HERDR_LAB_STOP_GENERATION"; then
     fm_herdr_lab_error "stop generation receipt for '$name' is malformed or mismatched"
     return 1
   fi
@@ -709,7 +759,7 @@ fm_herdr_lab_read_session_identity() { # <session>; sets FM_HERDR_LAB_IDENTITY_*
     FM_HERDR_LAB_IDENTITY_OWNER \
     FM_HERDR_LAB_IDENTITY_STATE <<< "$identity"
   if [ "$FM_HERDR_LAB_IDENTITY_NAME" != "$name" ] \
-     || ! fm_herdr_lab_validate_generation "$FM_HERDR_LAB_IDENTITY_GENERATION" \
+     || ! fm_herdr_lab_validate_session_identity "$FM_HERDR_LAB_IDENTITY_GENERATION" \
      || ! [[ "$FM_HERDR_LAB_IDENTITY_SERVER_PID" =~ ^[0-9]+$ ]] \
      || [ "$FM_HERDR_LAB_IDENTITY_SERVER_PID" -le 1 ] \
      || [ -z "$FM_HERDR_LAB_IDENTITY_SERVER_START" ] \
@@ -759,6 +809,14 @@ fm_herdr_lab_require_owned_session() { # <session> <true|false|any>
       fm_herdr_lab_error "named session server generation changed for '$name'"
       return 1
     }
+    if ! fm_herdr_lab_validate_generation "$FM_HERDR_LAB_IDENTITY_GENERATION" \
+       && ! fm_herdr_lab_session_process_is_owned \
+         "$FM_HERDR_LAB_IDENTITY_SERVER_PID" \
+         "$FM_HERDR_LAB_IDENTITY_SERVER_START" \
+         "$FM_HERDR_LAB_IDENTITY_OWNER"; then
+      fm_herdr_lab_error "legacy named session '$name' is no longer bound to its helper-owned server"
+      return 1
+    fi
   else
     [ "$FM_HERDR_LAB_IDENTITY_STATE" = stopped ] || {
       fm_herdr_lab_error "named session '$name' stopped without a helper-owned stop receipt"
@@ -1683,6 +1741,10 @@ fm_herdr_lab_bootstrap_pane_locked() { # <session>
   local name=$1 dir log panes pane_count pane listed_pane client_pid client_start attach_pid attach_start owner command attempt platform cwd create_out generation pane_ready=0
   local max_attempts=${FM_HERDR_LAB_BOOTSTRAP_MAX_ATTEMPTS:-100}
   fm_herdr_lab_require_owned_running "$name" || return 1
+  fm_herdr_lab_validate_generation "$FM_HERDR_LAB_IDENTITY_GENERATION" || {
+    fm_herdr_lab_error "bootstrap-pane requires Herdr's generation/expected-generation contract"
+    return 1
+  }
   command -v script >/dev/null 2>&1 || { fm_herdr_lab_error "script is required for bootstrap-pane"; return 1; }
   command -v stty >/dev/null 2>&1 || { fm_herdr_lab_error "stty is required for bootstrap-pane"; return 1; }
   command -v ps >/dev/null 2>&1 || { fm_herdr_lab_error "ps is required for bootstrap-pane"; return 1; }
@@ -1787,7 +1849,7 @@ fm_herdr_lab_bootstrap_pane_locked() { # <session>
   else
     FM_HERDR_LAB_BOOTSTRAP_OWNER="$owner" \
       TERM=xterm-256color \
-      setsid script -q -e -c "$command" "$log" </dev/null >/dev/null 2>&1 &
+      setsid --wait script -q -e -c "$command" "$log" </dev/null >/dev/null 2>&1 &
   fi
   client_pid=$!
   client_start=pending
