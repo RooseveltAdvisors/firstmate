@@ -26,6 +26,11 @@ ID_ROLLBACK_CRASH="sbxrollbackcrash$$"
 ID_CAP_A="sbxcapa$$"
 ID_CAP_B="sbxcapb$$"
 ID_LINK="sbxlink$$"
+ID_RACE="sbxrace$$"
+ID_PARTIAL="sbxpartial$$"
+ID_MISSING="sbxmissing$$"
+ID_OVERLAP="sbxoverlap$$"
+ID_EQUAL="sbxequal$$"
 
 NONCE_MAIN=11111111111111111111111111111111
 NONCE_ROLLBACK=22222222222222222222222222222222
@@ -38,12 +43,18 @@ NONCE_ROLLBACK_CRASH=55555555555555555555555555555555
 NONCE_CAP_A=66666666666666666666666666666666
 NONCE_CAP_B=77777777777777777777777777777777
 NONCE_LINK=88888888888888888888888888888888
+NONCE_RACE=12121212121212121212121212121212
+NONCE_PARTIAL=13131313131313131313131313131313
+NONCE_MISSING=14141414141414141414141414141414
+NONCE_OVERLAP=15151515151515151515151515151515
+NONCE_EQUAL=16161616161616161616161616161616
 
 cleanup_test() {
   local id
   for id in "$ID_MAIN" "$ID_ROLLBACK" "$ID_CRASH" "$ID_COMMIT_CRASH" \
     "$ID_CLEAN_LOCAL_CRASH" "$ID_CLEAN_RELEASE_CRASH" "$ID_RESERVATION_CRASH" \
-    "$ID_ROLLBACK_CRASH" "$ID_CAP_A" "$ID_CAP_B" "$ID_LINK"; do
+    "$ID_ROLLBACK_CRASH" "$ID_CAP_A" "$ID_CAP_B" "$ID_LINK" "$ID_RACE" \
+    "$ID_PARTIAL" "$ID_MISSING" "$ID_OVERLAP" "$ID_EQUAL"; do
     rm -rf -- "$TASK_BASE/fm-$id"
   done
   fm_test_cleanup
@@ -333,6 +344,78 @@ test_atomic_capacity_and_path_custody() {
   pass "fm-sandbox: host capacity is atomic and task-root custody rejects symlinks"
 }
 
+test_task_transition_lock() {
+  local p1 p2 rc1=0 rc2=0
+  prepare_task "$ID_RACE" "$NONCE_RACE" > "$TMP_ROOT/race-a.out" 2>&1 &
+  p1=$!
+  prepare_task "$ID_RACE" "$NONCE_RACE" > "$TMP_ROOT/race-b.out" 2>&1 &
+  p2=$!
+  wait "$p1" || rc1=$?
+  wait "$p2" || rc2=$?
+  [ "$rc1" = 0 ] && [ "$rc2" = 0 ] \
+    || fail "same-task prepare operations were not serialized (rc1=$rc1 rc2=$rc2)"
+  assert_lifecycle "$ID_RACE" prepared
+  run_sandbox rollback "$ID_RACE"
+  pass "fm-sandbox: task lifecycle operations share a task-scoped lock"
+}
+
+test_incomplete_copy_recovery_and_missing_accounting() {
+  local owner reservation workcopy out
+  if FM_SANDBOX_TEST_MODE=1 FM_SANDBOX_TEST_FAILPOINT=after-reservation \
+      prepare_task "$ID_PARTIAL" "$NONCE_PARTIAL" >/dev/null 2>&1; then
+    fail "partial-copy recovery setup unexpectedly succeeded"
+  fi
+  owner=$(owner_path "$ID_PARTIAL")
+  workcopy="$(task_root "$ID_PARTIAL")/sandbox/workcopy"
+  reservation=$(jq -r .reservation "$owner")
+  mkdir "$(task_root "$ID_PARTIAL")/sandbox"
+  git clone --quiet --no-local --no-hardlinks "$SOURCE" "$workcopy"
+  rm -f "$workcopy/README.md"
+  run_sandbox recover "$ID_PARTIAL" --json >/dev/null
+  assert_lifecycle "$ID_PARTIAL" rolled_back
+  assert_absent "$workcopy" "recovery promoted an incomplete disposable copy"
+  assert_absent "$reservation" "recovery left the incomplete-copy reservation"
+
+  prepare_task "$ID_MISSING" "$NONCE_MISSING"
+  run_sandbox commit "$ID_MISSING" --sandbox-id stable-missing-001
+  reservation=$(jq -r .reservation "$(owner_path "$ID_MISSING")")
+  rm -f "$reservation"
+  if run_sandbox cleanup-begin "$ID_MISSING" >/dev/null 2>&1; then
+    fail "cleanup-begin accepted a missing reservation"
+  fi
+  assert_lifecycle "$ID_MISSING" committed
+  out=$(run_sandbox status "$ID_MISSING" --json)
+  [ "$(jq -r .accounting.reservation_present <<EOF
+$out
+EOF
+)" = false ] || fail "status hid the missing reservation"
+  [ "$(jq -r .accounting.next_action <<EOF
+$out
+EOF
+)" = recover ] || fail "status did not require recovery for missing accounting"
+  pass "fm-sandbox: incomplete copies and missing cleanup accounting fail closed"
+}
+
+test_source_and_task_roots_do_not_overlap() {
+  local equal_source="$TMP_ROOT/fm-$ID_EQUAL"
+  fm_git_init_commit "$equal_source"
+  if FM_SANDBOX_TASK_ROOT_BASE="$TMP_ROOT" run_sandbox prepare "$ID_EQUAL" \
+      --host dev --name "fm-$ID_EQUAL" --nonce "$NONCE_EQUAL" \
+      --source "$equal_source" --task-root "$equal_source" >/dev/null 2>&1; then
+    fail "prepare accepted an equal source and task root"
+  fi
+  assert_absent "$(owner_path "$ID_EQUAL")" "equal-root refusal published a journal"
+  assert_absent "$equal_source/sandbox" "equal-root refusal changed the source tree"
+  if FM_SANDBOX_TASK_ROOT_BASE="$SOURCE" run_sandbox prepare "$ID_OVERLAP" \
+      --host dev --name "fm-$ID_OVERLAP" --nonce "$NONCE_OVERLAP" \
+      --source "$SOURCE" --task-root "$SOURCE/fm-$ID_OVERLAP" >/dev/null 2>&1; then
+    fail "prepare accepted an overlapping source and task root"
+  fi
+  assert_absent "$(owner_path "$ID_OVERLAP")" "overlap refusal published a journal"
+  assert_absent "$SOURCE/fm-$ID_OVERLAP" "overlap refusal created a task root"
+  pass "fm-sandbox: source and task-root boundaries are disjoint before custody"
+}
+
 test_stage2_is_absent() {
   local sandbox spawn teardown ignored
   sandbox=$(cat "$SCRIPT")
@@ -367,4 +450,7 @@ test_inventory_doctor_and_policy_contract
 test_prepare_commit_and_cleanup_journal
 test_rollback_and_crash_recovery
 test_atomic_capacity_and_path_custody
+test_task_transition_lock
+test_incomplete_copy_recovery_and_missing_accounting
+test_source_and_task_roots_do_not_overlap
 test_stage2_is_absent

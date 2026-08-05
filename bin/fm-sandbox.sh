@@ -49,8 +49,10 @@ KVM_PATH="${FM_SANDBOX_KVM_PATH:-/dev/kvm}"
 SBX="${FM_SANDBOX_SBX:-sbx}"
 JOURNAL_SCHEMA=fm-sandbox-journal.v1
 RESERVATION_SCHEMA=fm-sandbox-reservation.v1
-LOCK_PATH=
-LOCK_HELD=0
+TASK_LOCK_PATH=
+TASK_LOCK_HELD=0
+HOST_LOCK_PATH=
+HOST_LOCK_HELD=0
 
 usage() {
   sed -n '2,37p' "$0" | sed 's/^# \{0,1\}//'
@@ -62,15 +64,23 @@ die() {
 }
 
 release_lock() {
-  if [ "$LOCK_HELD" = 1 ]; then
-    LOCK_HELD=0
-    fm_lock_release "$LOCK_PATH" || true
+  if [ "$HOST_LOCK_HELD" = 1 ]; then
+    HOST_LOCK_HELD=0
+    fm_lock_release "$HOST_LOCK_PATH" || true
+  fi
+}
+
+release_task_lock() {
+  if [ "$TASK_LOCK_HELD" = 1 ]; then
+    TASK_LOCK_HELD=0
+    fm_lock_release "$TASK_LOCK_PATH" || true
   fi
 }
 
 on_exit() {
   local status=$?
   release_lock
+  release_task_lock
   return "$status"
 }
 
@@ -304,24 +314,53 @@ ensure_state_root() {
     || die "sandbox state root is unsafe: $STATE"
 }
 
-ensure_coordination() {
-  local host=$1
+ensure_coordination_root() {
   ensure_state_root
   ensure_owned_dir "$COORD_ROOT"
+  ensure_owned_dir "$COORD_ROOT/tasks"
+}
+
+ensure_coordination() {
+  local host=$1
+  ensure_coordination_root
   ensure_owned_dir "$COORD_ROOT/$host"
   ensure_owned_dir "$COORD_ROOT/$host/reservations"
 }
 
-acquire_host_lock() {
-  local host=$1
-  ensure_coordination "$host"
+ensure_lock_helpers() {
   if ! declare -F fm_lock_acquire_wait >/dev/null 2>&1; then
     # shellcheck source=bin/fm-wake-lib.sh
     . "$SCRIPT_DIR/fm-wake-lib.sh"
   fi
-  LOCK_PATH="$COORD_ROOT/$host/lock"
-  fm_lock_acquire_wait "$LOCK_PATH" || die "could not acquire sandbox host lock for $host"
-  LOCK_HELD=1
+}
+
+acquire_task_lock() {
+  local task=$1 path
+  valid_id "$task" || die "invalid sandbox task lock identity"
+  path="$COORD_ROOT/tasks/$task.lock"
+  if [ "$TASK_LOCK_HELD" = 1 ]; then
+    [ "$TASK_LOCK_PATH" = "$path" ] || die "sandbox task lock identity changed"
+    return 0
+  fi
+  ensure_coordination_root
+  ensure_lock_helpers
+  TASK_LOCK_PATH=$path
+  fm_lock_acquire_wait "$TASK_LOCK_PATH" || die "could not acquire sandbox task lock for $task"
+  TASK_LOCK_HELD=1
+}
+
+acquire_host_lock() {
+  local host=$1 path
+  path="$COORD_ROOT/$host/lock"
+  if [ "$HOST_LOCK_HELD" = 1 ]; then
+    [ "$HOST_LOCK_PATH" = "$path" ] || die "sandbox host lock identity changed"
+    return 0
+  fi
+  ensure_coordination "$host"
+  ensure_lock_helpers
+  HOST_LOCK_PATH=$path
+  fm_lock_acquire_wait "$HOST_LOCK_PATH" || die "could not acquire sandbox host lock for $host"
+  HOST_LOCK_HELD=1
 }
 
 reservation_path() {
@@ -389,6 +428,14 @@ reservation_sandbox_id_matches() {
   journal_id=$(jq -r '.sandbox_id // empty' "$journal")
   reservation_id=$(jq -r '.sandbox_id // empty' "$path")
   [ "$journal_id" = "$reservation_id" ]
+}
+
+reservation_intact() {
+  local journal=$1 path
+  path=$(jq -r .reservation "$journal")
+  [ -e "$path" ] && [ ! -L "$path" ] || return 1
+  reservation_matches "$path" "$journal" || return 1
+  reservation_sandbox_id_matches "$path" "$journal"
 }
 
 write_reservation() {
@@ -467,8 +514,20 @@ resolve_source() {
   printf '%s\n' "$real"
 }
 
+paths_overlap() {
+  local left=$1 right=$2
+  [ "$left" = "$right" ] && return 0
+  case "$left/" in
+    "$right/"*) return 0 ;;
+  esac
+  case "$right/" in
+    "$left/"*) return 0 ;;
+  esac
+  return 1
+}
+
 ensure_task_root() {
-  local task=$1 requested=$2 base_real parent parent_real root_real
+  local task=$1 requested=$2 source=${3:-} base_real parent parent_real root_real expected
   [ "$(basename "$requested")" = "fm-$task" ] || die "sandbox task root is not task-bound"
   [ -d "$TASK_ROOT_BASE" ] && [ ! -L "$TASK_ROOT_BASE" ] || die "sandbox task-root base is missing or symlinked"
   base_real=$(cd "$TASK_ROOT_BASE" && pwd -P) || die "sandbox task-root base cannot be resolved"
@@ -476,6 +535,10 @@ ensure_task_root() {
   [ ! -L "$parent" ] || die "sandbox task-root parent is symlinked"
   parent_real=$(cd "$parent" && pwd -P) || die "sandbox task-root parent cannot be resolved"
   [ "$parent_real" = "$base_real" ] || die "sandbox task root is outside its configured base"
+  expected="$base_real/fm-$task"
+  if [ -n "$source" ] && paths_overlap "$source" "$expected"; then
+    die "sandbox source worktree overlaps task root"
+  fi
   if [ -e "$requested" ] || [ -L "$requested" ]; then
     [ -d "$requested" ] && [ ! -L "$requested" ] && [ -O "$requested" ] || die "sandbox task root is unsafe"
   else
@@ -483,21 +546,26 @@ ensure_task_root() {
   fi
   chmod 700 "$requested" || die "could not restrict sandbox task root"
   root_real=$(cd "$requested" && pwd -P) || die "sandbox task root cannot be resolved"
-  [ "$root_real" = "$base_real/fm-$task" ] || die "sandbox task root canonical identity mismatch"
+  [ "$root_real" = "$expected" ] || die "sandbox task root canonical identity mismatch"
   printf '%s\n' "$root_real"
 }
 
 recorded_paths_safe() {
-  local journal=$1 task root workcopy base_real parent_real root_real
+  local journal=$1 task root workcopy source source_real base_real parent_real root_real
   task=$(jq -r .task_id "$journal")
   root=$(jq -r .task_root "$journal")
   workcopy=$(jq -r .workcopy "$journal")
+  source=$(jq -r .source_worktree "$journal")
   [ "$(basename "$root")" = "fm-$task" ] || return 1
   [ -d "$TASK_ROOT_BASE" ] && [ ! -L "$TASK_ROOT_BASE" ] || return 1
   base_real=$(cd "$TASK_ROOT_BASE" && pwd -P) || return 1
+  [ -d "$source" ] && [ ! -L "$source" ] || return 1
+  source_real=$(cd "$source" && pwd -P) || return 1
+  [ "$source_real" = "$source" ] || return 1
   [ -d "$root" ] && [ ! -L "$root" ] && [ -O "$root" ] || return 1
   parent_real=$(cd "$(dirname "$root")" && pwd -P) || return 1
   root_real=$(cd "$root" && pwd -P) || return 1
+  paths_overlap "$source_real" "$root_real" && return 1
   [ "$parent_real" = "$base_real" ] && [ "$root_real" = "$base_real/fm-$task" ] \
     && [ "$workcopy" = "$root_real/sandbox/workcopy" ]
 }
@@ -587,6 +655,7 @@ parse_prepare() {
     die "prepare requires valid task, host, name, and nonce identities"
   fi
   [ -n "$source" ] && [ -n "$task_root" ] || die "prepare requires --source and --task-root"
+  acquire_task_lock "$task"
   host_data=$(host_json "$host") || exit 1
   max=$(jq -r .maxConcurrent <<EOF
 $host_data
@@ -599,9 +668,9 @@ EOF
   memory=$(jq -r .memory <<EOF
 $host_data
 EOF
-)
+  )
   source_real=$(resolve_source "$source")
-  root_real=$(ensure_task_root "$task" "$task_root")
+  root_real=$(ensure_task_root "$task" "$task_root" "$source_real")
   source_commit=$(git -C "$source_real" rev-parse HEAD)
   owner=$(journal_path "$task")
   reservation=$(reservation_path "$host" "$nonce")
@@ -617,6 +686,8 @@ EOF
       || die "existing sandbox journal identity disagrees with prepare"
     lifecycle=$(jq -r .lifecycle "$owner")
     [ "$lifecycle" = prepared ] || die "existing sandbox journal requires recover or a terminal transition; lifecycle=$lifecycle"
+    reservation_intact "$owner" || die "existing sandbox journal has missing or mismatched reservation accounting"
+    workcopy_complete "$owner" || die "existing sandbox workcopy is incomplete; recovery is required"
     return 0
   fi
   [ ! -e "$sandbox" ] && [ ! -L "$sandbox" ] || die "sandbox task directory exists without an ownership journal"
@@ -641,9 +712,9 @@ EOF
     rollback_internal "$task"
     die "could not create committed-only sandbox workcopy; local transaction rolled back"
   fi
-  if [ "$(git -C "$workcopy" rev-parse HEAD 2>/dev/null || true)" != "$source_commit" ]; then
+  if ! reservation_intact "$owner" || ! workcopy_complete "$owner"; then
     rollback_internal "$task"
-    die "sandbox workcopy commit differs from its journal; local transaction rolled back"
+    die "sandbox workcopy or reservation disagrees with its journal; local transaction rolled back"
   fi
   json_update "$owner" ".lifecycle=\"prepared\" | .updated_at=\$now" --arg now "$(utc_now_iso)" || {
     rollback_internal "$task"
@@ -653,6 +724,7 @@ EOF
 
 rollback_internal() {
   local task=$1 owner lifecycle sandbox_id host
+  acquire_task_lock "$task"
   ensure_state_root
   owner=$(journal_path "$task")
   journal_valid "$owner" "$task" || die "missing or malformed sandbox journal for rollback"
@@ -689,6 +761,7 @@ rollback_internal() {
 
 commit_internal() {
   local task=$1 sandbox_id=$2 owner lifecycle host reservation current reserved_id
+  acquire_task_lock "$task"
   ensure_state_root
   valid_id "$sandbox_id" || die "commit requires a valid stable sandbox id"
   owner=$(journal_path "$task")
@@ -696,6 +769,11 @@ commit_internal() {
   lifecycle=$(jq -r .lifecycle "$owner")
   current=$(jq -r '.sandbox_id // empty' "$owner")
   if [ "$lifecycle" = committed ] && [ "$current" = "$sandbox_id" ]; then
+    host=$(jq -r .host_id "$owner")
+    reservation=$(jq -r .reservation "$owner")
+    acquire_host_lock "$host"
+    reservation_intact "$owner" || die "sandbox reservation is missing or mismatched during commit"
+    release_lock
     return 0
   fi
   case "$lifecycle" in
@@ -727,20 +805,25 @@ commit_internal() {
 }
 
 cleanup_begin() {
-  local task=$1 json=${2:-} owner lifecycle
+  local task=$1 json=${2:-} owner lifecycle host
   [ -z "$json" ] || [ "$json" = --json ] || die "cleanup-begin accepts only --json"
+  acquire_task_lock "$task"
   ensure_state_root
   owner=$(journal_path "$task")
   journal_valid "$owner" "$task" || die "missing or malformed sandbox journal for cleanup"
   lifecycle=$(jq -r .lifecycle "$owner")
   case "$lifecycle" in
-    committed)
-      json_update "$owner" ".lifecycle=\"cleanup_pending\" | .cleanup_requested_at=\$now | .updated_at=\$now" \
-        --arg now "$(utc_now_iso)" || die "could not begin sandbox cleanup journal"
-      ;;
-    cleanup_pending) ;;
+    committed|cleanup_pending) ;;
     *) die "cleanup-begin refuses lifecycle=$lifecycle" ;;
   esac
+  host=$(jq -r .host_id "$owner")
+  acquire_host_lock "$host"
+  reservation_intact "$owner" || die "sandbox reservation is missing or mismatched before cleanup receipt"
+  if [ "$lifecycle" = committed ]; then
+    json_update "$owner" ".lifecycle=\"cleanup_pending\" | .cleanup_requested_at=\$now | .updated_at=\$now" \
+      --arg now "$(utc_now_iso)" || die "could not begin sandbox cleanup journal"
+  fi
+  release_lock
   if [ "$json" = --json ]; then
     jq '{schema:"fm-sandbox-cleanup-receipt.v1",task_id,host_id,sandbox_name,sandbox_id,nonce,lifecycle}' "$owner"
   else
@@ -750,6 +833,7 @@ cleanup_begin() {
 
 cleanup_finalize() {
   local task=$1 sandbox_id=$2 owner lifecycle current host reservation
+  acquire_task_lock "$task"
   ensure_state_root
   valid_id "$sandbox_id" || die "cleanup-commit requires a valid stable sandbox id"
   owner=$(journal_path "$task")
@@ -800,26 +884,30 @@ cleanup_finalize() {
 }
 
 workcopy_complete() {
-  local owner=$1 workcopy expected
+  local owner=$1 workcopy expected status
   workcopy=$(jq -r .workcopy "$owner")
   expected=$(jq -r .source_commit "$owner")
   recorded_paths_safe "$owner" || return 1
   [ -d "$workcopy" ] && [ ! -L "$workcopy" ] \
-    && [ "$(git -C "$workcopy" rev-parse HEAD 2>/dev/null || true)" = "$expected" ]
+    && [ "$(git -C "$workcopy" rev-parse HEAD 2>/dev/null || true)" = "$expected" ] \
+    || return 1
+  status=$(git -C "$workcopy" status --porcelain=v1 --untracked-files=all 2>/dev/null) || return 1
+  [ -z "$status" ] || return 1
+  git -C "$workcopy" diff --quiet --no-ext-diff HEAD -- || return 1
+  git -C "$workcopy" diff --cached --quiet --no-ext-diff HEAD -- || return 1
 }
 
 status_task() {
   local task=$1 json=${2:-} owner reservation workcopy reservation_present=false workcopy_present=false next out lifecycle
   [ -z "$json" ] || [ "$json" = --json ] || die "status accepts only --json"
+  acquire_task_lock "$task"
   ensure_state_root
   owner=$(journal_path "$task")
   journal_valid "$owner" "$task" || die "missing or malformed sandbox journal for task $task"
   reservation=$(jq -r .reservation "$owner")
   workcopy=$(jq -r .workcopy "$owner")
   if [ -e "$reservation" ] || [ -L "$reservation" ]; then
-    reservation_matches "$reservation" "$owner" || die "sandbox reservation accounting is ambiguous"
-    reservation_sandbox_id_matches "$reservation" "$owner" \
-      || die "sandbox reservation stable id accounting is ambiguous"
+    reservation_intact "$owner" || die "sandbox reservation accounting is ambiguous"
     reservation_present=true
   fi
   [ -d "$workcopy" ] && [ ! -L "$workcopy" ] && workcopy_present=true
@@ -839,6 +927,12 @@ status_task() {
       ;;
     *) next=manual-inspection ;;
   esac
+  if [ "$reservation_present" = false ]; then
+    case "$lifecycle" in
+      rolled_back|cleaned) ;;
+      *) next=recover ;;
+    esac
+  fi
   out=$(jq -c --arg next "$next" --argjson reservation "$reservation_present" \
     --argjson workcopy "$workcopy_present" \
     '. + {accounting:{reservation_present:$reservation,workcopy_present:$workcopy,
@@ -855,6 +949,7 @@ EOF
 recover_task() {
   local task=$1 json=${2:-} owner lifecycle sandbox_id
   [ -z "$json" ] || [ "$json" = --json ] || die "recover accepts only --json"
+  acquire_task_lock "$task"
   ensure_state_root
   owner=$(journal_path "$task")
   journal_valid "$owner" "$task" || die "missing or malformed sandbox journal for recovery"

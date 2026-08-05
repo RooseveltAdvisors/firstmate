@@ -103,7 +103,7 @@ Leave `stage` at `1`, `launchEnabled` false, and every host disabled.
 The exact policy contract is deny-all with only the named public model-provider, Git-forge, and package-registry domains allowed, private networks denied, no host Docker socket, no host mounts, disposable committed-clone workspaces, ephemeral task-scoped secrets, no persistent auth, and no shared skills.
 Stage 1 validates these facts but does not install, query, or enforce host policy.
 
-The host schema records `id`, `role`, `transport`, `hostname`, `enabled`, `priority`, `cpus`, `memory`, `maxConcurrent`, `profiles`, `authMode`, and `privateNetworkGrant`.
+The host schema records `id`, `role`, `transport`, `hostname`, `enabled`, `priority`, `cpus`, `memory`, `maxConcurrent`, `profile`, `authMode`, and `privateNetworkGrant`.
 `priority` is an inspectable ordering fact and is never folded into an opaque scheduler score.
 Roles preserve the future fleet posture as data: `dev` is primary, `agt` adds disposable capacity, `gpu` requires an explicit GPU design, `svc` requires bounded staging-aware limits, and `srv` remains external production.
 All roles refuse launch in Stage 1, and `ssh-fixed` remains a reserved fact rather than an implemented remote command channel.
