@@ -50,10 +50,6 @@ generation_file="$state/$session.generation"
 generation=
 [ ! -f "$generation_file" ] || generation=$(cat "$generation_file")
 
-if [ "${FM_FAKE_HERDR_NO_GENERATION:-}" = 1 ] && [ -n "$expected" ]; then
-  printf '%s\n' 'fake herdr: --expected-generation is unsupported' >&2
-  exit 89
-fi
 if [ -n "$expected" ] && [ "$expected" != "$generation" ]; then
   printf '%s\n' '{"error":{"code":"generation_mismatch"}}' >&2
   exit 99
@@ -95,22 +91,17 @@ case "$first $second" in
     ;;
   "status server")
     if [ "$lab_state" = running ]; then
-      if [ "${FM_FAKE_HERDR_NO_GENERATION:-}" = 1 ]; then
+      if [ "${FM_FAKE_HERDR_STATUS_OMIT_GENERATION:-}" = 1 ]; then
         jq -nc --arg session "$session" --arg socket "$socket" \
-          '{status:"running",running:true,version:"0.7.4",protocol:16,socket:$socket,session:$session}'
+          '{status:"running",running:true,session:$session,socket:$socket}'
       else
         jq -nc --arg generation "$generation" --arg session "$session" --arg socket "$socket" \
           '{status:"running",running:true,generation:$generation,session:$session,socket:$socket}'
       fi
       [ "${FM_FAKE_HERDR_STATUS_EXTRA_RECORD:-}" != 1 ] || printf '%s\n' '{"extra":true}'
     else
-      if [ "${FM_FAKE_HERDR_NO_GENERATION:-}" = 1 ]; then
-        jq -nc --arg session "$session" --arg socket "$socket" \
-          '{status:"not_running",running:false,version:"0.7.4",protocol:16,socket:$socket,session:$session}'
-      else
-        jq -nc --arg session "$session" --arg socket "$socket" \
-          '{status:"not_running",running:false,generation:null,session:$session,socket:$socket}'
-      fi
+      jq -nc --arg session "$session" --arg socket "$socket" \
+        '{status:"not_running",running:false,generation:null,session:$session,socket:$socket}'
     fi
     ;;
   "pane list")
@@ -219,7 +210,7 @@ run_with_fake() {
     FM_FAKE_HERDR_WORKSPACE_CREATE_FAIL_AFTER_PANE="${FM_FAKE_HERDR_WORKSPACE_CREATE_FAIL_AFTER_PANE:-}" \
     FM_FAKE_HERDR_WORKSPACE_CREATE_MALFORMED="${FM_FAKE_HERDR_WORKSPACE_CREATE_MALFORMED:-}" \
     FM_FAKE_HERDR_STATUS_EXTRA_RECORD="${FM_FAKE_HERDR_STATUS_EXTRA_RECORD:-}" \
-    FM_FAKE_HERDR_NO_GENERATION="${FM_FAKE_HERDR_NO_GENERATION:-}" \
+    FM_FAKE_HERDR_STATUS_OMIT_GENERATION="${FM_FAKE_HERDR_STATUS_OMIT_GENERATION:-}" \
     FM_FAKE_HERDR_PANE_CLOSE_REPLACEMENT="${FM_FAKE_HERDR_PANE_CLOSE_REPLACEMENT:-}" \
     FM_HERDR_LAB_BOOTSTRAP_MAX_ATTEMPTS="${FM_HERDR_LAB_BOOTSTRAP_MAX_ATTEMPTS:-}" \
     FM_HERDR_LAB_STATE_DIR="$TRIPWIRES" \
@@ -854,28 +845,17 @@ test_generation_parser_refuses_ambiguous_status() {
   pass "fm-herdr-lab: server generation accepts exactly one machine-readable status document"
 }
 
-test_legacy_herdr_status_contract_remains_compatible() {
-  local name="fm-lab-legacy-status-$$" identity status=0
+test_generation_parser_requires_server_generation() {
+  local name="fm-lab-generation-required-$$" generation status=0
   : > "$FAKE_LOG"
-  FM_FAKE_HERDR_NO_GENERATION=1 run_with_fake fm_herdr_lab_provision "$name" \
-    || fail "legacy-status fixture provision failed"
-  identity=$(jq -er '.generation' "$TRIPWIRES/$name.session-identity.json") \
-    || fail "legacy-status fixture did not record its session identity"
-  [[ "$identity" = legacy:* ]] || fail "legacy-status fixture recorded a generation instead of a legacy identity"
-  FM_FAKE_HERDR_NO_GENERATION=1 run_with_fake fm_herdr_lab_cli "$name" workspace list \
-    >/dev/null || fail "legacy-status fixture rejected a safe scoped call"
-  FM_FAKE_HERDR_NO_GENERATION=1 run_with_fake fm_herdr_lab_bootstrap_pane "$name" \
-    >/dev/null 2>&1 || status=$?
-  expect_code 1 "$status" "bootstrap-pane must require atomic generation support"
-  ! grep -F "workspace create" "$FAKE_LOG" >/dev/null \
-    || fail "generation-gated bootstrap-pane mutated a legacy session"
-  FM_FAKE_HERDR_NO_GENERATION=1 run_with_fake fm_herdr_lab_stop "$name" \
-    >/dev/null || fail "legacy-status fixture stop failed"
-  FM_FAKE_HERDR_NO_GENERATION=1 run_with_fake fm_herdr_lab_teardown "$name" \
-    >/dev/null || fail "legacy-status fixture teardown failed"
-  ! grep -F -- "--expected-generation" "$FAKE_LOG" >/dev/null \
-    || fail "legacy-status lifecycle sent an unsupported generation guard"
-  pass "fm-herdr-lab: older named-session status remains compatible without weakening bootstrap guards"
+  run_with_fake fm_herdr_lab_provision "$name" || fail "generation-required fixture provision failed"
+  generation=$(jq -er '.generation' "$TRIPWIRES/$name.session-identity.json") \
+    || fail "generation-required fixture has no recorded generation"
+  FM_FAKE_HERDR_STATUS_OMIT_GENERATION=1 \
+    run_with_fake fm_herdr_lab_running_generation "$name" "$generation" >/dev/null 2>&1 || status=$?
+  expect_code 1 "$status" "server status without a generation must fail closed"
+  run_with_fake fm_herdr_lab_teardown "$name" || fail "generation-required fixture cleanup failed"
+  pass "fm-herdr-lab: server status requires the authoritative generation contract"
 }
 
 test_bootstrap_revalidates_before_workspace_mutation() {
@@ -961,7 +941,7 @@ test_bootstrap_pane_refuses_mismatched_ownership
 test_bootstrap_pane_refuses_recreated_named_session
 test_identity_parser_refuses_concatenated_records
 test_generation_parser_refuses_ambiguous_status
-test_legacy_herdr_status_contract_remains_compatible
+test_generation_parser_requires_server_generation
 test_bootstrap_revalidates_before_workspace_mutation
 test_process_identity_is_locale_stable
 test_real_proof_retains_cleanup_evidence

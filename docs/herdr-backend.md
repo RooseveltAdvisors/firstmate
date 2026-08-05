@@ -248,10 +248,9 @@ Never use ambient `herdr server stop` for Firstmate verification.
 An environment-only session selection can silently reach a different running server, and the ambient stop command has no explicit target.
 
 `bin/fm-herdr-lab.sh` is the sole supported lifecycle helper for isolated verification.
-It provisions only non-default names beginning with `fm-lab-`, records the server-authored generation when the installed Herdr exposes that contract, appends an explicit trailing `--session` to allowed task commands, refuses caller-supplied session or generation scope and server/session lifecycle subcommands, and performs destructive stop/delete only through its guarded lifecycle actions.
+It provisions only non-default names beginning with `fm-lab-`, records the server-authored generation, appends an explicit trailing `--session` to allowed task commands, refuses caller-supplied session or generation scope and server/session lifecycle subcommands, and performs destructive stop/delete only through its guarded lifecycle actions.
 Immediately before every destructive call it re-queries the named session and refuses empty, missing, literal `default`, or `default:true` identities.
-With generation-capable Herdr, every post-provision helper mutation and client attach also carries the recorded `--expected-generation` so Herdr rejects a stale same-name replacement atomically.
-Older named-session Herdr releases remain usable for lifecycle checks through their session-directory identity, but `bootstrap-pane` refuses them because they cannot provide an atomic generation guard.
+Every post-provision helper mutation and client attach also carries the recorded `--expected-generation` so Herdr rejects a stale same-name replacement atomically.
 Its before/after tripwire requires the live default-session snapshot to remain byte-identical.
 For a freshly provisioned, owned, running zero-pane lab, `bootstrap-pane` creates one helper-owned workspace and PTY client and returns the session, pane id, and client PID as JSON.
 It refuses existing panes or ambiguous bootstrap evidence and retains exact cleanup evidence until the recorded client and pane can be proved owned or absent.

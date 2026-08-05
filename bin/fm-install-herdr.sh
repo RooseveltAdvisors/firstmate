@@ -1,27 +1,23 @@
 #!/usr/bin/env bash
-# fm-install-herdr.sh - install CI's pinned, verified Herdr build.
+# fm-install-herdr.sh - build CI's pinned, verified Herdr source revision.
 #
-# Single owner of the exact Herdr version, official release asset URL, and
-# SHA-256 pin used by the required real-Herdr CI lane. Never installs a
-# floating package-manager latest.
+# Single owner of the exact Herdr source commit used by the required real-Herdr
+# CI lane. Never installs a floating package-manager latest.
 #
 # Usage:
 #   fm-install-herdr.sh <destination-directory>
 #
-# Pins Herdr v0.7.4 (protocol 16), the suite-verified protocol-16 release.
-# Selects the official GitHub Releases asset for the host OS/arch, downloads
-# with a bounded max size, verifies SHA-256 before install, then refuses to
-# finish unless the binary reports the exact pin version and a client protocol
-# at or above the required floor (16 for the real-Herdr family).
+# Pins RooseveltAdvisors/herdr commit 30f338a3 (Herdr 0.8.0, protocol 19), the
+# suite-verified generation-capable revision. Fetches only that commit, builds
+# its locked dependency graph, then refuses to finish unless the binary reports
+# the exact version and protocol.
 set -eu
 
 # Exact pin - change only with a re-verified real-Herdr matrix.
-FM_HERDR_CI_VERSION=0.7.4
-FM_HERDR_CI_TAG="v${FM_HERDR_CI_VERSION}"
-FM_HERDR_CI_MIN_PROTOCOL=16
-# Bounded download ceiling (bytes). The largest official 0.7.4 asset is under 20 MiB.
-FM_HERDR_CI_MAX_BYTES=25000000
-FM_HERDR_CI_REPO=ogulcancelik/herdr
+FM_HERDR_CI_VERSION=0.8.0
+FM_HERDR_CI_PROTOCOL=19
+FM_HERDR_CI_COMMIT=30f338a3794a71b405ac813998e56ea03792fccc
+FM_HERDR_CI_REPO=https://github.com/RooseveltAdvisors/herdr.git
 
 die() {
   printf 'fm-install-herdr.sh: %s\n' "$*" >&2
@@ -30,67 +26,50 @@ die() {
 
 DESTINATION=${1:?usage: fm-install-herdr.sh <destination-directory>}
 
-os=$(uname -s)
-arch=$(uname -m)
-case "${os}-${arch}" in
-  Linux-x86_64)
-    ASSET=herdr-linux-x86_64
-    SHA256=bc0fc02d4ba500f9cac2353a43e67fe036785ecca6eb55378e050fac3c103059
-    ;;
-  Linux-aarch64|Linux-arm64)
-    ASSET=herdr-linux-aarch64
-    SHA256=544e0002de42806d1ab64ccdef3a7e7414f24717b0b6b022bc9e57d2eefd26a2
-    ;;
-  Darwin-arm64)
-    ASSET=herdr-macos-aarch64
-    SHA256=24992e1625dbdcb18354a59e299e4b263c312400b31396cdc07cd46ed57f24a7
-    ;;
-  Darwin-x86_64)
-    ASSET=herdr-macos-x86_64
-    SHA256=ddf430133352e1712413d5d865b34a485546f4658893fc89986257d65a7585a8
-    ;;
-  *)
-    die "unsupported platform ${os}-${arch}; official Herdr assets are linux/macos x86_64 and aarch64"
-    ;;
-esac
-
-URL="https://github.com/${FM_HERDR_CI_REPO}/releases/download/${FM_HERDR_CI_TAG}/${ASSET}"
 TMP=$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/fm-herdr.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
+SOURCE="$TMP/source"
 
-printf 'fm-install-herdr.sh: downloading %s from %s\n' "$ASSET" "$URL" >&2
-# --fail: HTTP errors; --location: follow redirects; --max-filesize: bound.
-curl -fsSL --max-filesize "$FM_HERDR_CI_MAX_BYTES" "$URL" -o "$TMP/$ASSET" \
-  || die "download failed for $URL (bounded at $FM_HERDR_CI_MAX_BYTES bytes)"
+command -v git >/dev/null 2>&1 || die "git is required to fetch the pinned Herdr source"
+command -v cargo >/dev/null 2>&1 || die "cargo is required to build the pinned Herdr source"
+command -v jq >/dev/null 2>&1 || die "jq is required to verify the pinned Herdr build"
 
-if command -v sha256sum >/dev/null 2>&1; then
-  ACTUAL_SHA256=$(sha256sum "$TMP/$ASSET" | awk '{print $1}')
-elif command -v shasum >/dev/null 2>&1; then
-  ACTUAL_SHA256=$(shasum -a 256 "$TMP/$ASSET" | awk '{print $1}')
-else
-  die "need sha256sum or shasum to verify the Herdr asset"
-fi
+printf 'fm-install-herdr.sh: fetching %s at %s\n' \
+  "$FM_HERDR_CI_REPO" "$FM_HERDR_CI_COMMIT" >&2
+git init -q "$SOURCE" || die "could not initialize the temporary Herdr source checkout"
+git -C "$SOURCE" remote add origin "$FM_HERDR_CI_REPO" \
+  || die "could not configure the pinned Herdr source"
+git -C "$SOURCE" fetch --quiet --depth 1 origin "$FM_HERDR_CI_COMMIT" \
+  || die "could not fetch pinned Herdr commit $FM_HERDR_CI_COMMIT"
+fetched_commit=$(git -C "$SOURCE" rev-parse FETCH_HEAD 2>/dev/null) \
+  || die "could not identify the fetched Herdr commit"
+[ "$fetched_commit" = "$FM_HERDR_CI_COMMIT" ] \
+  || die "fetched Herdr commit $fetched_commit, expected $FM_HERDR_CI_COMMIT"
+git -C "$SOURCE" checkout --quiet --detach "$FM_HERDR_CI_COMMIT" \
+  || die "could not check out pinned Herdr commit $FM_HERDR_CI_COMMIT"
 
-[ "$ACTUAL_SHA256" = "$SHA256" ] || die "checksum mismatch for $ASSET (expected $SHA256, got $ACTUAL_SHA256)"
+printf 'fm-install-herdr.sh: building pinned Herdr source\n' >&2
+cargo build --locked --release --manifest-path "$SOURCE/Cargo.toml" \
+  || die "could not build pinned Herdr commit $FM_HERDR_CI_COMMIT"
 
 mkdir -p "$DESTINATION"
-install -m 0755 "$TMP/$ASSET" "$DESTINATION/herdr"
+install -m 0755 "$SOURCE/target/release/herdr" "$DESTINATION/herdr"
 
-# Post-install version and protocol gates (no floating latest).
+# Post-build version and protocol gates (no floating latest).
 installed_version=$("$DESTINATION/herdr" --version 2>/dev/null | awk '{print $2; exit}')
 [ "$installed_version" = "$FM_HERDR_CI_VERSION" ] \
-  || die "installed herdr version is '${installed_version:-<empty>}', expected exact pin $FM_HERDR_CI_VERSION"
+  || die "built herdr version is '${installed_version:-<empty>}', expected exact pin $FM_HERDR_CI_VERSION"
 
 status=$("$DESTINATION/herdr" status --json 2>/dev/null) \
-  || die "could not run 'herdr status --json' after install"
+  || die "could not run 'herdr status --json' after build"
 protocol=$(printf '%s' "$status" | jq -r '.client.protocol // empty' 2>/dev/null) \
-  || die "jq is required to parse herdr status after install"
+  || die "could not parse herdr status after build"
 case "$protocol" in
   ''|*[!0-9]*) die "could not read herdr client protocol from status --json" ;;
 esac
-[ "$protocol" -ge "$FM_HERDR_CI_MIN_PROTOCOL" ] \
-  || die "herdr protocol $protocol is below the required floor $FM_HERDR_CI_MIN_PROTOCOL"
+[ "$protocol" -eq "$FM_HERDR_CI_PROTOCOL" ] \
+  || die "herdr protocol $protocol does not match exact pin $FM_HERDR_CI_PROTOCOL"
 
-printf 'fm-install-herdr.sh: installed herdr %s (protocol %s) to %s\n' \
-  "$installed_version" "$protocol" "$DESTINATION/herdr" >&2
+printf 'fm-install-herdr.sh: built herdr %s (protocol %s) from %s to %s\n' \
+  "$installed_version" "$protocol" "$FM_HERDR_CI_COMMIT" "$DESTINATION/herdr" >&2
 "$DESTINATION/herdr" --version

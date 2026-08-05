@@ -147,7 +147,7 @@ jobs:
           path: ${{ runner.temp }}/fm-test/fm-test-timing-portable-serial.json
           if-no-files-found: warn
 
-  # Required real-Herdr lane: pinned install, serial real-herdr-gated family,
+  # Required real-Herdr lane: pinned source build, serial real-herdr-gated family,
   # hard-fail on "skip: herdr not found". Starts on Linux x86_64; if a genuine
   # platform invariant fails (focus, cleanup, default-session tripwire), keep
   # the failure evidence and move the job to macOS rather than skip assertions.
@@ -166,11 +166,11 @@ jobs:
           set -eu
           command -v jq >/dev/null || { echo "::error::jq is required"; exit 1; }
           command -v python3 >/dev/null || { echo "::error::python3 is required"; exit 1; }
-          command -v curl >/dev/null || { echo "::error::curl is required"; exit 1; }
-          command -v tar >/dev/null || { echo "::error::tar is required"; exit 1; }
+          command -v git >/dev/null || { echo "::error::git is required"; exit 1; }
+          command -v cargo >/dev/null || { echo "::error::cargo is required"; exit 1; }
           jq --version
           python3 --version
-      - name: Install pinned Herdr
+      - name: Build pinned Herdr source
         run: |
           set -eu
           bin/fm-install-herdr.sh "$RUNNER_TEMP/bin"
@@ -182,10 +182,10 @@ jobs:
           # worktree acquisition (presentation, workspace-per-home, autodetect).
           bin/fm-install-treehouse.sh "$RUNNER_TEMP/bin"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-      - name: Assert Herdr pin and protocol floor
+      - name: Assert Herdr pin and protocol
         run: |
           set -eu
-          command -v herdr >/dev/null || { echo "::error::herdr not on PATH after install"; exit 1; }
+          command -v herdr >/dev/null || { echo "::error::herdr not on PATH after build"; exit 1; }
           command -v treehouse >/dev/null || { echo "::error::treehouse not on PATH after install"; exit 1; }
           herdr --version
           treehouse --version
@@ -193,15 +193,15 @@ jobs:
           printf '%s\n' "$status"
           version=$(printf '%s' "$status" | jq -r '.client.version // empty')
           protocol=$(printf '%s' "$status" | jq -r '.client.protocol // empty')
-          [ "$version" = "0.7.4" ] || {
-            echo "::error::expected exact Herdr pin 0.7.4, got ${version:-<empty>}"
+          [ "$version" = "0.8.0" ] || {
+            echo "::error::expected exact Herdr pin 0.8.0, got ${version:-<empty>}"
             exit 1
           }
           case "$protocol" in
             ''|*[!0-9]*) echo "::error::could not read client protocol"; exit 1 ;;
           esac
-          [ "$protocol" -ge 16 ] || {
-            echo "::error::herdr protocol $protocol is below the required floor 16"
+          [ "$protocol" -eq 19 ] || {
+            echo "::error::herdr protocol $protocol does not match the required pin 19"
             exit 1
           }
       - name: Start default Herdr session for fleet-state tripwire

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Contract tests for the pinned Herdr / Treehouse CI installers and the
+# Contract tests for the pinned Herdr / Treehouse CI fixtures and the
 # bounded Herdr lab cleanup helper. These tests do not download release assets
 # and never start or stop the captain's default Herdr session.
 set -u
@@ -19,26 +19,26 @@ assert_present "$CLEANUP" "bin/fm-herdr-ci-cleanup.sh is missing"
 [ -x "$TREEHOUSE_INSTALL" ] || fail "fm-install-treehouse.sh must be executable"
 [ -x "$CLEANUP" ] || fail "fm-herdr-ci-cleanup.sh must be executable"
 
-test_herdr_installer_pins_exact_version_and_checksums() {
-  assert_grep 'FM_HERDR_CI_VERSION=0.7.4' "$HERDR_INSTALL" \
-    "Herdr installer must pin suite-verified 0.7.4"
-  assert_grep 'FM_HERDR_CI_MIN_PROTOCOL=16' "$HERDR_INSTALL" \
-    "Herdr installer must require protocol floor 16"
-  assert_grep 'ogulcancelik/herdr' "$HERDR_INSTALL" \
-    "Herdr installer must use the official GitHub release source"
-  assert_grep 'herdr-linux-x86_64' "$HERDR_INSTALL" \
-    "Herdr installer must name the Linux x86_64 release asset"
-  assert_grep 'bc0fc02d4ba500f9cac2353a43e67fe036785ecca6eb55378e050fac3c103059' "$HERDR_INSTALL" \
-    "Herdr installer must pin the Linux x86_64 SHA-256"
-  assert_grep 'sha256sum' "$HERDR_INSTALL" \
-    "Herdr installer must verify a SHA-256 checksum"
-  assert_grep '--max-filesize' "$HERDR_INSTALL" \
-    "Herdr installer must bound the download size"
+test_herdr_installer_pins_generation_capable_source() {
+  assert_grep 'FM_HERDR_CI_VERSION=0.8.0' "$HERDR_INSTALL" \
+    "Herdr installer must pin suite-verified 0.8.0"
+  assert_grep 'FM_HERDR_CI_PROTOCOL=19' "$HERDR_INSTALL" \
+    "Herdr installer must require exact protocol 19"
+  assert_grep 'FM_HERDR_CI_COMMIT=30f338a3794a71b405ac813998e56ea03792fccc' "$HERDR_INSTALL" \
+    "Herdr installer must pin the generation-capable source commit"
+  assert_grep 'RooseveltAdvisors/herdr' "$HERDR_INSTALL" \
+    "Herdr installer must use the landed Herdr source"
+  assert_grep "fetch --quiet --depth 1 origin \"\$FM_HERDR_CI_COMMIT\"" "$HERDR_INSTALL" \
+    "Herdr installer must fetch only the exact source commit"
+  assert_grep 'cargo build --locked --release' "$HERDR_INSTALL" \
+    "Herdr installer must build the locked source revision"
   assert_no_grep 'brew install' "$HERDR_INSTALL" \
     "Herdr installer must not use a floating package-manager install"
   assert_no_grep 'apt-get install' "$HERDR_INSTALL" \
     "Herdr installer must not use a floating package-manager install"
-  pass "Herdr installer pins exact version, asset, checksum, and protocol floor"
+  assert_no_grep '0.7.4' "$HERDR_INSTALL" \
+    "Herdr installer must not retain the incompatible legacy pin"
+  pass "Herdr installer pins the exact generation-capable source and protocol"
 }
 
 test_treehouse_installer_pins_exact_version_and_checksums() {
@@ -75,6 +75,9 @@ test_cleanup_only_targets_job_owned_lab_sessions() {
 test_ci_wires_installers_and_required_lane() {
   assert_grep 'tests-herdr:' "$CI" "CI must define the required Herdr Behavior job"
   assert_grep 'fm-install-herdr.sh' "$CI" "CI must call the Herdr installer"
+  assert_grep 'Build pinned Herdr source' "$CI" "CI must build the source-pinned Herdr fixture"
+  assert_grep 'expected exact Herdr pin 0.8.0' "$CI" "CI must assert the exact Herdr version"
+  assert_grep 'required pin 19' "$CI" "CI must assert exact protocol 19"
   assert_grep 'fm-install-treehouse.sh' "$CI" "CI must call the Treehouse installer"
   assert_grep 'fm-herdr-ci-cleanup.sh snapshot' "$CI" "CI must snapshot sessions before the suite"
   assert_grep 'fm-herdr-ci-cleanup.sh teardown' "$CI" "CI must teardown job-owned sessions after"
@@ -100,7 +103,7 @@ test_ci_wires_installers_and_required_lane() {
   pass "CI wires pinned installers into a required serial Herdr lane"
 }
 
-test_herdr_installer_pins_exact_version_and_checksums
+test_herdr_installer_pins_generation_capable_source
 test_treehouse_installer_pins_exact_version_and_checksums
 test_cleanup_only_targets_job_owned_lab_sessions
 test_ci_wires_installers_and_required_lane
