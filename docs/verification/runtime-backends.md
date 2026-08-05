@@ -251,6 +251,83 @@ FM_AFK_PI_HERDR_E2E=1 HERDR_LAB_HELPER=bin/fm-herdr-lab.sh \
 Observed guarantees: pending composer input refused injection and raised one alert; idle Pi accepted one marked escalation; the return gate refused ordinary work while a live blocker remained; resolving the blocker allowed the return flow.
 The dedicated Herdr daemon workspace topology is covered by `tests/fm-afk-launch.test.sh` and preserves the captain tab's pane count.
 
+## Docker Sandboxes execution layer
+
+The first implementation verification ran on 2026-08-04 without installing sbx, initializing host policy, starting a sandbox daemon, touching fleet hosts, or using the live/default Herdr session.
+Docker Sandboxes was not installed in the implementation worktree, so the real microVM proof remains an explicit rollout gate rather than a claimed result.
+The implementation targets the official 0.35.0 CLI contract and pins Scopey 0.1.3 by release SHA-256 for Linux x64 and arm64.
+
+The source video was inspected from its complete auto-generated English transcript with this read-only command:
+
+```sh
+yt-dlp --write-auto-subs --sub-langs en --sub-format vtt --skip-download \
+  https://youtu.be/SyTfzEgzjHs
+```
+
+The transcript confirmed the `sbx` microVM model, private per-sandbox Docker daemon, balanced and locked-down network choices, network logs and rules, clone mode, secret injection, `spec.yaml` kits, the custom Pi kit demonstration, and the unresolved subscription-auth persistence warning.
+Current official Docker references were checked at [Get started](https://docs.docker.com/ai/sandboxes/get-started/), [Architecture](https://docs.docker.com/ai/sandboxes/architecture/), [Default security posture](https://docs.docker.com/ai/sandboxes/security/defaults/), [Credentials](https://docs.docker.com/ai/sandboxes/security/credentials/), [Codex](https://docs.docker.com/ai/sandboxes/agents/codex/), [Local policy](https://docs.docker.com/ai/sandboxes/governance/local/), [Kit spec](https://docs.docker.com/ai/sandboxes/customize/kit-reference/), and [0.35.0 release notes](https://docs.docker.com/ai/sandboxes/release-notes/).
+Those references confirm Ubuntu 24.04 and KVM requirements, stable ids in `sbx ls --json`, `sbx run --name` reattachment, deny-all policy checks, direct-mount and clone caveats, default shared-skill mounts, host-proxy credentials, private-address blocking, private Docker, and experimental kit semantics.
+The clone documentation also confirms that `--clone` exposes ignored and untracked source files through its read-only source mount, which is why Firstmate first makes a sanitized committed-only disposable clone rather than pointing sbx at a Treehouse worktree.
+
+The maintained hermetic commands were:
+
+```sh
+bash -n bin/fm-sandbox.sh bin/fm-spawn.sh bin/fm-teardown.sh \
+  tests/fm-sandbox.test.sh tests/fm-sandbox-herdr-e2e.test.sh
+shellcheck -x bin/fm-sandbox.sh tests/fm-sandbox.test.sh \
+  tests/fm-sandbox-herdr-e2e.test.sh \
+  assets/sandbox-kits/firstmate-codex/files/home/.local/libexec/firstmate/install-scopey.sh
+bash tests/fm-sandbox.test.sh
+bash tests/fm-sandbox-herdr-e2e.test.sh
+```
+
+Observed bounded output:
+
+```text
+ok - fm-sandbox: rollout is disabled and non-mutating by default
+ok - fm-sandbox: doctor reports exact host capabilities, roles, and limits without a scheduler score
+ok - fm-sandbox: prepare, status bridge, committed-work sync, immutable ownership, and bounded cleanup are vertical
+ok - fm-sandbox: runtime, harness, network, mount, Scopey, and remote-boundary contracts are explicit
+skip: set FM_RUN_SANDBOX_HERDR_E2E=1 for the controlled Docker Sandboxes + Herdr lab proof
+```
+
+The stateful fake sbx test records every CLI argument and simulates one stable-id microVM, policy decisions and logs, in-VM ownership marker, task-scoped secret stdin, Codex turn, committed edit, and removal.
+It verifies no daemon query while rollout is disabled, no ordinary or privileged container fallback, no host Docker-socket mount or ambient Docker endpoint, no ignored `.env` copy, `--no-share-skills`, fixed CPU and memory, explicit production and private-address denies, exact host and sandbox metadata, bridged status and turn-end events, clean commit synchronization, and refusal before destructive cleanup when the nonce differs.
+Source assertions pin sandbox launches to verified Codex plus Herdr and confirm that ordinary `fm-teardown.sh` calls the exact sandbox owner before endpoint and worktree destruction.
+
+Every supported harness and backend was reviewed for the first increment:
+
+| Axis | Result |
+| --- | --- |
+| Codex with Herdr | Supported when every explicit feature, host, credential, policy, and microVM capability gate passes. |
+| claude, opencode, pi, pi-signed, grok, kimi | Refused before endpoint creation; no adapter or auth behavior is guessed. |
+| tmux, Zellij, Orca, cmux | Refused before endpoint creation; no fallback to Herdr or tmux occurs. |
+| secondmates | Refused; the local version 1 configuration is not inherited. |
+| remote `ssh-fixed` hosts | Inventoried with an explicit refusal until an authenticated fixed-command protocol exists. |
+| gpu and srv roles | Refused; no implicit GPU allocation or production experiment exists. |
+
+The controlled real proof is [`tests/fm-sandbox-herdr-e2e.test.sh`](../../tests/fm-sandbox-herdr-e2e.test.sh).
+It uses only `bin/fm-herdr-lab.sh`, generates a named non-`default` session, installs the required teardown trap before provisioning, routes every task-specific Herdr command through the helper, and stops through the helper before its final guarded teardown.
+The harmless tracked-on-the-fly fixture contains one small Dockerfile and sentinel marker, never a real repository.
+The proof requires a host sentinel to be unreadable, production and fleet-private requests to fail, the private microVM Docker daemon to build and run the fixture image, the disposable clone to edit and test, the commit to synchronize to the ordinary fixture worktree, the exact sandbox to clean up, and the helper's before/after tripwire to find the live default Herdr fleet identical.
+
+Run it only after the documented dev rollout with a secret read silently from the approved ephemeral broker:
+
+```sh
+read -rs FM_SANDBOX_OPENAI_API_KEY
+export FM_SANDBOX_OPENAI_API_KEY
+FM_RUN_SANDBOX_HERDR_E2E=1 tests/fm-sandbox-herdr-e2e.test.sh
+unset FM_SANDBOX_OPENAI_API_KEY
+```
+
+The expected successful terminal line is:
+
+```text
+ok - named Herdr lab proved microVM filesystem/network/Docker/workcopy isolation and exact cleanup
+```
+
+Do not record the key, host-private paths, host inventory, sandbox nonce, or Docker login output in maintained evidence.
+
 ## Zellij
 
 The current compatibility floor and latest verification are Zellij 0.44.0 with `jq` on macOS aarch64.

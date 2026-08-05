@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Spawn a direct report: a crewmate in a treehouse or Orca worktree, or a
 # secondmate in its isolated firstmate home.
-# Usage: fm-spawn.sh <task-id> <project-dir> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--scout]
+# Usage: fm-spawn.sh <task-id> <project-dir> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--sandbox-host <id>] [--scout]
 #        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] --secondmate
 #   --harness <name> is the explicit per-spawn harness/profile adapter. The old
 #   positional harness arg still works for back-compat.
@@ -27,6 +27,13 @@
 #   A backend spawn refusal (missing dependency, version gate, unauthenticated
 #   socket, or unsupported secondmate mode) is terminal for that selected backend;
 #   callers must surface it instead of silently retrying another backend.
+#   --sandbox-host <id> opts an ordinary Codex ship/scout into the disabled-by-
+#   default Docker Sandboxes microVM layer owned by bin/fm-sandbox.sh. It requires
+#   backend=herdr and never changes, selects, or falls back from that runtime.
+#   The helper's doctor runs before endpoint creation; its help owns exact host,
+#   policy, credential, workspace, Scopey, ownership, and cleanup mechanics.
+#   A recovery that already has execution=sandbox in exact task metadata reuses
+#   that recorded host/name/nonce even when --sandbox-host is omitted.
 #   Herdr additionally supports a default-off presentation-only layout when the
 #   local config/herdr-presentation-spaces flag exists. A clean fresh task first
 #   writes state/<id>.herdr-presentation atomically, then creates a disposable
@@ -152,10 +159,13 @@ HARNESS_ARG=
 MODEL=
 EFFORT=
 BACKEND_ARG=
+SANDBOX_HOST=
+SANDBOX_PROFILE=codex-github-bun-v1
 HARNESS_SET=0
 MODEL_SET=0
 EFFORT_SET=0
 BACKEND_SET=0
+SANDBOX_HOST_SET=0
 POS=()
 want_value=
 for a in "$@"; do
@@ -168,6 +178,7 @@ for a in "$@"; do
       model) MODEL=$a; MODEL_SET=1 ;;
       effort) EFFORT=$a; EFFORT_SET=1 ;;
       backend) BACKEND_ARG=$a; BACKEND_SET=1 ;;
+      sandbox-host) SANDBOX_HOST=$a; SANDBOX_HOST_SET=1 ;;
       *) echo "error: internal parser state for --$want_value" >&2; exit 1 ;;
     esac
     want_value=
@@ -184,6 +195,8 @@ for a in "$@"; do
     --effort=*) EFFORT=${a#--effort=}; EFFORT_SET=1 ;;
     --backend) want_value=backend ;;
     --backend=*) BACKEND_ARG=${a#--backend=}; BACKEND_SET=1 ;;
+    --sandbox-host) want_value=sandbox-host ;;
+    --sandbox-host=*) SANDBOX_HOST=${a#--sandbox-host=}; SANDBOX_HOST_SET=1 ;;
     *) POS+=("$a") ;;
   esac
 done
@@ -192,6 +205,7 @@ done
 [ "$MODEL_SET" -eq 0 ] || [ -n "$MODEL" ] || { echo "error: --model requires a non-empty value" >&2; exit 1; }
 [ "$EFFORT_SET" -eq 0 ] || [ -n "$EFFORT" ] || { echo "error: --effort requires a non-empty value" >&2; exit 1; }
 [ "$BACKEND_SET" -eq 0 ] || [ -n "$BACKEND_ARG" ] || { echo "error: --backend requires a non-empty value" >&2; exit 1; }
+[ "$SANDBOX_HOST_SET" -eq 0 ] || [ -n "$SANDBOX_HOST" ] || { echo "error: --sandbox-host requires a non-empty value" >&2; exit 1; }
 case "$EFFORT" in
   ''|low|medium|high|xhigh|max) ;;
   *) echo "error: --effort must be one of low, medium, high, xhigh, max" >&2; exit 1 ;;
@@ -358,6 +372,7 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
   [ -z "$MODEL" ] || shared_args+=(--model "$MODEL")
   [ -z "$EFFORT" ] || shared_args+=(--effort "$EFFORT")
   [ -z "$BACKEND_ARG" ] || shared_args+=(--backend "$BACKEND_ARG")
+  [ -z "$SANDBOX_HOST" ] || shared_args+=(--sandbox-host "$SANDBOX_HOST")
   for pair in "${POS[@]}"; do
     case "$pair" in
       *=*) : ;;
@@ -383,6 +398,20 @@ if ! fm_lock_try_acquire "$SPAWN_TASK_LOCK"; then
   exit 1
 fi
 SPAWN_TASK_LOCK_HELD=1
+# Recovery reuses the exact sandbox identity already bound to this task. A new
+# caller may still pass --sandbox-host, but it must agree with durable metadata.
+EXISTING_SANDBOX_NAME=
+EXISTING_SANDBOX_NONCE=
+if [ -f "$STATE/$ID.meta" ] && [ "$(grep -c '^execution=sandbox$' "$STATE/$ID.meta" 2>/dev/null || true)" = 1 ]; then
+  RECORDED_SANDBOX_HOST=$(grep '^sandbox_host=' "$STATE/$ID.meta" | cut -d= -f2-)
+  if [ -n "$SANDBOX_HOST" ] && [ "$SANDBOX_HOST" != "$RECORDED_SANDBOX_HOST" ]; then
+    echo "error: sandbox recovery host '$SANDBOX_HOST' disagrees with recorded host '$RECORDED_SANDBOX_HOST'" >&2
+    exit 1
+  fi
+  SANDBOX_HOST=$RECORDED_SANDBOX_HOST
+  EXISTING_SANDBOX_NAME=$(grep '^sandbox_name=' "$STATE/$ID.meta" | cut -d= -f2-)
+  EXISTING_SANDBOX_NONCE=$(grep '^sandbox_nonce=' "$STATE/$ID.meta" | cut -d= -f2-)
+fi
 PROJ=
 ARG3=
 FIRSTMATE_HOME=
@@ -459,8 +488,10 @@ launch_template() {
   esac
 }
 
+RAW_LAUNCH=0
 case "$ARG3" in
   *' '*)  # raw launch command (unverified-adapter escape hatch)
+    RAW_LAUNCH=1
     LAUNCH=$ARG3
     HARNESS=""
     for word in $LAUNCH; do
@@ -494,6 +525,26 @@ case "$ARG3" in
     LAUNCH=$(launch_template "$HARNESS" "$KIND") || { echo "error: unknown harness '$HARNESS'; pass a raw launch command to use an unverified adapter" >&2; exit 1; }
     ;;
 esac
+
+SANDBOX_NAME=
+SANDBOX_NONCE=
+SANDBOX_OWNER=
+if [ -n "$SANDBOX_HOST" ]; then
+  [ "$RAW_LAUNCH" -eq 0 ] || { echo "error: sandbox execution refuses raw launch commands" >&2; exit 1; }
+  [ "$BACKEND" = herdr ] || { echo "error: sandbox execution requires backend=herdr; got $BACKEND (no fallback)" >&2; exit 1; }
+  [ "$HARNESS" = codex ] || { echo "error: sandbox execution supports only verified harness=codex; got $HARNESS" >&2; exit 1; }
+  [ "$KIND" != secondmate ] || { echo "error: sandbox execution does not support secondmates" >&2; exit 1; }
+  "$FM_ROOT/bin/fm-sandbox.sh" doctor --host "$SANDBOX_HOST" >/dev/null || exit 1
+  if [ -n "$EXISTING_SANDBOX_NAME" ] && [ -n "$EXISTING_SANDBOX_NONCE" ]; then
+    SANDBOX_NAME=$EXISTING_SANDBOX_NAME
+    SANDBOX_NONCE=$EXISTING_SANDBOX_NONCE
+  else
+    read -r SANDBOX_NAME SANDBOX_NONCE <<EOF
+$("$FM_ROOT/bin/fm-sandbox.sh" identity "$ID" "$SANDBOX_HOST")
+EOF
+  fi
+  SANDBOX_OWNER="$STATE/$ID.sandbox.json"
+fi
 
 case "$HARNESS" in
   pi|pi-signed) LAUNCH="FM_PI_HARNESS=$HARNESS $LAUNCH" ;;
@@ -1444,6 +1495,16 @@ META_WINDOW=$T
   echo "tasktmp=$TASK_TMP"
   echo "model=${MODEL:-default}"
   echo "effort=${EFFORT:-default}"
+  if [ -n "$SANDBOX_HOST" ]; then
+    echo "execution=sandbox"
+    echo "sandbox_host=$SANDBOX_HOST"
+    echo "sandbox_profile=$SANDBOX_PROFILE"
+    echo "sandbox_name=$SANDBOX_NAME"
+    echo "sandbox_nonce=$SANDBOX_NONCE"
+    echo "sandbox_owner=$SANDBOX_OWNER"
+    echo "sandbox_log=$STATE/$ID.sandbox-network.json"
+    echo "sandbox_brief=$BRIEF_REAL"
+  fi
   # backend= is written only for a non-default (non-tmux) backend, so the
   # default path's meta stays byte-identical (absent backend= means tmux;
   # data/fm-backend-design-d7's P1 compatibility contract).
@@ -1474,6 +1535,11 @@ META_WINDOW=$T
 } > "$STATE/$ID.meta"
 [ "$BACKEND" = orca ] && ORCA_ABORT_CLEANUP=0
 
+if [ -n "$SANDBOX_HOST" ]; then
+  "$FM_ROOT/bin/fm-sandbox.sh" prepare "$ID" || exit 1
+  unset FM_SANDBOX_OPENAI_API_KEY FM_SANDBOX_GITHUB_TOKEN
+fi
+
 sq_brief=$(shell_quote "$BRIEF")
 sq_turnend=$(shell_quote "$TURNEND")
 sq_piext=$(shell_quote "$STATE/$ID.pi-ext.ts")
@@ -1493,6 +1559,9 @@ LAUNCH=${LAUNCH//__OPINPUT__/$sq_opinput}
 if [ "$KIND" = secondmate ]; then
   sq_home=$(shell_quote "$PROJ_ABS")
   LAUNCH="FM_ROOT_OVERRIDE= FM_STATE_OVERRIDE= FM_DATA_OVERRIDE= FM_PROJECTS_OVERRIDE= FM_CONFIG_OVERRIDE= FM_HOME=$sq_home $LAUNCH"
+fi
+if [ -n "$SANDBOX_HOST" ]; then
+  LAUNCH="$(shell_quote "$FM_ROOT/bin/fm-sandbox.sh") run $(shell_quote "$ID")"
 fi
 # Export GOTMPDIR into the crewmate's pane shell so the agent and every child
 # process (go build, go test, ...) inherit it. Sent before the launch command so

@@ -42,6 +42,11 @@
 # `workspace close`. It retires the non-authoritative journal only when a
 # read-only token correlation agrees with that endpoint and pane closure is
 # confirmed. Otherwise the journal stays quarantined for manual inspection.
+# A task with execution=sandbox first removes its Docker Sandboxes microVM
+# through bin/fm-sandbox.sh after ordinary landed-work safety passes and before
+# its worktree or Herdr endpoint is destroyed. That owner requires exact task
+# meta, ownership journal, stable sbx id/name, and in-VM nonce agreement. Even
+# --force never weakens sandbox ownership proof or falls back to a label/path.
 # Projected closes share the presentation-order lock, refuse to close the
 # captain's active tab, and restore the exact response-derived pre-close tab
 # if Herdr's last-pane cleanup focuses an unrelated neighboring workspace.
@@ -1114,6 +1119,14 @@ if [ -d "$WT" ] && [ "$FORCE" != "--force" ]; then
   fi
 fi
 
+EXECUTION=$(meta_value "$META" execution)
+if [ "$EXECUTION" = sandbox ]; then
+  "$FM_ROOT/bin/fm-sandbox.sh" cleanup "$ID" || {
+    echo "error: sandbox cleanup refused for task $ID; preserving task endpoint, worktree, and state" >&2
+    exit 1
+  }
+fi
+
 # Best-effort: drop the local task branch so the shared repo does not accumulate refs.
 if [ "$BACKEND" = orca ] && [ "$KIND" != secondmate ]; then
   if [ "$ORCA_PATH_MATCH_VERIFIED" != 1 ]; then
@@ -1227,6 +1240,8 @@ fm_backend_clear_transition "$BACKEND" "$STATE" "$T" || true
 [ -n "$TASK_TMP" ] && rm -rf "$TASK_TMP"
 remove_pr_poll_artifacts "$STATE" "$ID" || exit 1
 rm -f "$STATE/$ID.status" "$STATE/$ID.turn-ended" "$STATE/$ID.meta" \
+  "$STATE/$ID.sandbox.json" \
+  "$STATE/$ID.sandbox-network.json" \
   "$STATE/$ID.pi-ext.ts" "$STATE/$ID.grok-turnend-token" \
   "$STATE/$ID.kimi-turnend-token"
 if [ "$KIND" != scout ] && [ "$KIND" != secondmate ] && [ "$MODE" != local-only ]; then

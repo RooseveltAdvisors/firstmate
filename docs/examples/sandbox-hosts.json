@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "hosts": [
+    {
+      "id": "dev",
+      "role": "dev",
+      "transport": "local",
+      "hostname": "dev",
+      "enabled": false,
+      "priority": 10,
+      "cpus": 8,
+      "memory": "16GiB",
+      "maxConcurrent": 3,
+      "profiles": ["codex-github-bun-v1"],
+      "authMode": "ephemeral-api-key",
+      "privateNetworkGrant": false
+    },
+    {
+      "id": "agt-01",
+      "role": "agt",
+      "transport": "ssh-fixed",
+      "hostname": "agt-01",
+      "enabled": false,
+      "priority": 20,
+      "cpus": 4,
+      "memory": "8GiB",
+      "maxConcurrent": 1,
+      "profiles": ["codex-github-bun-v1"],
+      "authMode": "ephemeral-api-key",
+      "privateNetworkGrant": false
+    },
+    {
+      "id": "gpu",
+      "role": "gpu",
+      "transport": "ssh-fixed",
+      "hostname": "gpu",
+      "enabled": false,
+      "priority": 90,
+      "cpus": 4,
+      "memory": "8GiB",
+      "maxConcurrent": 1,
+      "profiles": ["codex-github-bun-v1"],
+      "authMode": "ephemeral-api-key",
+      "privateNetworkGrant": false
+    },
+    {
+      "id": "svc",
+      "role": "svc",
+      "transport": "ssh-fixed",
+      "hostname": "svc",
+      "enabled": false,
+      "priority": 80,
+      "cpus": 2,
+      "memory": "4GiB",
+      "maxConcurrent": 1,
+      "profiles": ["codex-github-bun-v1"],
+      "authMode": "ephemeral-api-key",
+      "privateNetworkGrant": false
+    },
+    {
+      "id": "srv",
+      "role": "srv",
+      "transport": "ssh-fixed",
+      "hostname": "srv",
+      "enabled": false,
+      "priority": 100,
+      "cpus": 2,
+      "memory": "4GiB",
+      "maxConcurrent": 1,
+      "profiles": ["codex-github-bun-v1"],
+      "authMode": "ephemeral-api-key",
+      "privateNetworkGrant": false
+    }
+  ]
+}

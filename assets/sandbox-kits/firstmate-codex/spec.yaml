@@ -1,0 +1,43 @@
+schemaVersion: "1"
+kind: mixin
+name: firstmate-codex
+displayName: Firstmate Codex worker boundary
+description: Pinned Scopey integration and task-profile network boundary for a Firstmate Codex worker.
+network:
+  allowedDomains:
+    - api.openai.com
+    - github.com
+    - api.github.com
+    - objects.githubusercontent.com
+    - raw.githubusercontent.com
+    - registry.npmjs.org
+    - bun.sh
+    - docker.io
+    - registry-1.docker.io
+    - auth.docker.io
+  deniedDomains:
+    - arcs.health
+    - "*.arcs.health"
+    - zeta.health
+    - "*.zeta.health"
+    - covenant.clinic
+    - "*.covenant.clinic"
+    - "*.home.arcs.internal"
+    - "*.internal"
+    - localhost
+    - dev
+    - srv
+    - svc
+    - gpu
+commands:
+  install:
+    - command: /home/agent/.local/libexec/firstmate/install-scopey.sh
+      user: "0"
+      description: Install the pinned Scopey release after checksum verification.
+    - command: scopey setup --no-claude --codex --no-grok --no-pi --no-opencode --force --write-config
+      user: "1000"
+      description: Install only the Codex Scopey hook in the sandbox-local home.
+agentContext: |
+  Scopey is installed for this Codex worker and provides advisory course correction.
+  Scopey never authorizes stopping work that remains within the Firstmate brief.
+  Host-private Firstmate state is not mounted; use the task-scoped `.firstmate/status` bridge described by the launch prompt.
