@@ -26,6 +26,10 @@ test_herdr_installer_pins_generation_capable_source() {
     "Herdr installer must require exact protocol 19"
   assert_grep 'FM_HERDR_CI_COMMIT=30f338a3794a71b405ac813998e56ea03792fccc' "$HERDR_INSTALL" \
     "Herdr installer must pin the generation-capable source commit"
+  assert_grep 'FM_HERDR_CI_ZIG_VERSION=0.15.2' "$HERDR_INSTALL" \
+    "Herdr installer must require the source-compatible Zig version"
+  assert_grep 'command -v zig' "$HERDR_INSTALL" \
+    "Herdr installer must fail before fetching when Zig is unavailable"
   assert_grep 'RooseveltAdvisors/herdr' "$HERDR_INSTALL" \
     "Herdr installer must use the landed Herdr source"
   assert_grep "fetch --quiet --depth 1 origin \"\$FM_HERDR_CI_COMMIT\"" "$HERDR_INSTALL" \
@@ -76,6 +80,9 @@ test_ci_wires_installers_and_required_lane() {
   assert_grep 'tests-herdr:' "$CI" "CI must define the required Herdr Behavior job"
   assert_grep 'fm-install-herdr.sh' "$CI" "CI must call the Herdr installer"
   assert_grep 'Build pinned Herdr source' "$CI" "CI must build the source-pinned Herdr fixture"
+  assert_grep 'uses: mlugg/setup-zig@v2' "$CI" "CI must install Zig before building Herdr"
+  assert_grep 'version: 0.15.2' "$CI" "CI must pin the source-compatible Zig version"
+  assert_grep 'command -v zig' "$CI" "CI must fail early when Zig setup is unavailable"
   assert_grep 'expected exact Herdr pin 0.8.0' "$CI" "CI must assert the exact Herdr version"
   assert_grep 'required pin 19' "$CI" "CI must assert exact protocol 19"
   assert_grep 'fm-install-treehouse.sh' "$CI" "CI must call the Treehouse installer"

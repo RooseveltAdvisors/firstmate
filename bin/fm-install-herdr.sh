@@ -17,6 +17,7 @@ set -eu
 FM_HERDR_CI_VERSION=0.8.0
 FM_HERDR_CI_PROTOCOL=19
 FM_HERDR_CI_COMMIT=30f338a3794a71b405ac813998e56ea03792fccc
+FM_HERDR_CI_ZIG_VERSION=0.15.2
 FM_HERDR_CI_REPO=https://github.com/RooseveltAdvisors/herdr.git
 
 die() {
@@ -33,6 +34,9 @@ SOURCE="$TMP/source"
 command -v git >/dev/null 2>&1 || die "git is required to fetch the pinned Herdr source"
 command -v cargo >/dev/null 2>&1 || die "cargo is required to build the pinned Herdr source"
 command -v jq >/dev/null 2>&1 || die "jq is required to verify the pinned Herdr build"
+command -v zig >/dev/null 2>&1 || die "zig $FM_HERDR_CI_ZIG_VERSION is required to build the pinned Herdr source"
+[ "$(zig version 2>/dev/null)" = "$FM_HERDR_CI_ZIG_VERSION" ] \
+  || die "zig $FM_HERDR_CI_ZIG_VERSION is required to build the pinned Herdr source"
 
 printf 'fm-install-herdr.sh: fetching %s at %s\n' \
   "$FM_HERDR_CI_REPO" "$FM_HERDR_CI_COMMIT" >&2
