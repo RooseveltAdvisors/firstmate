@@ -97,28 +97,30 @@ fm_herdr_lab_read_lifecycle_lock() { # <session>; sets FM_HERDR_LAB_LOCK_RECORD_
 }
 
 fm_herdr_lab_lifecycle_lock_live() { # <session>
-  local name=$1 current
+  local name=$1 current state
   fm_herdr_lab_read_lifecycle_lock "$name" || return 1
+  state=$(fm_herdr_lab_process_state "$FM_HERDR_LAB_LOCK_RECORD_PID" 2>/dev/null || true)
+  case "$state" in
+    Z*) return 1 ;;
+    '') return 1 ;;
+  esac
   kill -0 "$FM_HERDR_LAB_LOCK_RECORD_PID" 2>/dev/null || return 1
   current=$(fm_herdr_lab_process_start "$FM_HERDR_LAB_LOCK_RECORD_PID" 2>/dev/null || true)
   [ -n "$current" ] && [ "$current" = "$FM_HERDR_LAB_LOCK_RECORD_START" ]
 }
 
 fm_herdr_lab_lifecycle_lock_stale() { # <session>
-  local name=$1 current
+  local name=$1 current state
   fm_herdr_lab_read_lifecycle_lock "$name" || return 1
+  state=$(fm_herdr_lab_process_state "$FM_HERDR_LAB_LOCK_RECORD_PID" 2>/dev/null || true)
+  case "$state" in
+    Z*) return 0 ;;
+    '') return 1 ;;
+  esac
   if kill -0 "$FM_HERDR_LAB_LOCK_RECORD_PID" 2>/dev/null; then
     current=$(fm_herdr_lab_process_start "$FM_HERDR_LAB_LOCK_RECORD_PID" 2>/dev/null || true)
     [ -n "$current" ] && [ "$current" != "$FM_HERDR_LAB_LOCK_RECORD_START" ] || return 1
   fi
-}
-
-fm_herdr_lab_lifecycle_lock_expired() { # <path>
-  local lock=$1 now modified
-  now=$(date +%s 2>/dev/null) || return 1
-  modified=$(stat -c %Y "$lock" 2>/dev/null || stat -f %m "$lock" 2>/dev/null) || return 1
-  [[ "$now" =~ ^[0-9]+$ ]] && [[ "$modified" =~ ^[0-9]+$ ]] || return 1
-  [ "$modified" -le "$now" ] && [ "$((now - modified))" -ge 300 ]
 }
 
 fm_herdr_lab_reclaim_lifecycle_lock() { # <session>
@@ -133,18 +135,13 @@ fm_herdr_lab_reclaim_lifecycle_lock() { # <session>
         status=$?
       fi
     elif [ -d "$lock" ] && [ ! -L "$lock" ]; then
-      if fm_herdr_lab_lifecycle_lock_expired "$lock"; then
-        stale="$lock.stale.${BASHPID:-$$}.$RANDOM"
-        mv "$lock" "$stale" 2>/dev/null && rmdir "$stale" 2>/dev/null
-        status=$?
-      fi
+      status=1
     else
       status=0
     fi
     rmdir "$claim" 2>/dev/null || status=1
     return "$status"
   fi
-  [ -d "$claim" ] && [ ! -L "$claim" ] && fm_herdr_lab_lifecycle_lock_expired "$claim" && rmdir "$claim" 2>/dev/null
   return 1
 }
 
@@ -194,13 +191,8 @@ fm_herdr_lab_lock_session() { # <session>
   claim="$lock.reclaim"
   while [ "$attempt" -lt 3 ]; do
     if [ -e "$claim" ] || [ -L "$claim" ]; then
-      if [ -d "$claim" ] && [ ! -L "$claim" ] && fm_herdr_lab_lifecycle_lock_expired "$claim"; then
-        rmdir "$claim" 2>/dev/null || true
-      fi
-      if [ -e "$claim" ] || [ -L "$claim" ]; then
-        fm_herdr_lab_error "stale lifecycle lock recovery for '$name' is already in progress"
-        return 1
-      fi
+      fm_herdr_lab_error "stale lifecycle lock recovery for '$name' is already in progress"
+      return 1
     fi
     tmp="$state_dir/.${name}.lifecycle.lock.tmp.${lock_pid}.$RANDOM"
     tmp_name=${tmp##*/}
