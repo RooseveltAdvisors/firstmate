@@ -23,6 +23,18 @@ Keep the always-inline routing rules in `AGENTS.md` authoritative: route by natu
 - <id> - <one-sentence charter summary> (home: <absolute-home-path>; scope: <natural-language responsibility>; projects: <project-a>, <project-b>; added <date>)
 ```
 
+A remote route adds exactly one optional field after `home:`:
+
+```markdown
+- <id> - <one-sentence charter summary> (home: <absolute-remote-home-path>; host: <ssh-alias-or-dns-name>; scope: <natural-language responsibility>; projects: <project-a>, <project-b>; added <date>)
+```
+
+Absent `host:` means the existing local route with unchanged behavior.
+`host:` is an SSH alias or DNS name only, never `user@host` or an option, and must resolve through operator-owned SSH configuration to a non-root account with strict known-host verification and authentication already established.
+The primary initiates every automated connection and never copies credentials or enables forwarding.
+Stage 1 accepts manually provisioned remote routes for transport only; `fm-home-seed.sh`, `fm-spawn.sh`, recovery, handoff, update, and teardown remain local and must not fall back locally for a remote route.
+Remote Secondmates use Herdr and share one stable named Herdr session per remote host; interactive attachment is Herdr's native responsibility, not Firstmate's SSH automation transport.
+
 Each registry entry stays concise and single-line: the summary is one sentence naming the durable charter, `scope:` is the natural-language intake responsibility, `projects:` is the non-exclusive clone list, and any extra prose is limited to genuinely domain-specific hard rules that change routing or safety for that secondmate.
 The `home:` path points to the seeded home containing `data/charter.md`; no extra registry pointer field is needed.
 The home-seeded `data/charter.md` is the sole owner of boilerplate idle-by-default behavior, the normal delegation lifecycle, and standard escalation contracts, so point to that charter rather than restating those contracts in the registry entry.

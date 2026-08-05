@@ -28,7 +28,8 @@
 #       and scope are derived from the filled charter brief.
 #   fm-home-seed.sh validate
 #       Refuse duplicate ids, duplicate homes, and nested or overlapping homes in
-#       data/secondmates.md.
+#       data/secondmates.md, and validate any optional remote host identity.
+#       Seeding itself remains local; Stage 1 does not accept a remote-host flag.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -39,6 +40,9 @@ PROJECTS="${FM_PROJECTS_OVERRIDE:-$FM_HOME/projects}"
 REG="$DATA/secondmates.md"
 SUB_HOME_MARKER=".fm-secondmate-home"
 
+# shellcheck source=bin/fm-ssh-lib.sh
+. "$SCRIPT_DIR/fm-ssh-lib.sh"
+
 usage() {
   echo "usage: fm-home-seed.sh <id> <home|-> {<project>...|--no-projects}" >&2
   echo "       fm-home-seed.sh validate" >&2
@@ -46,6 +50,10 @@ usage() {
 
 registry_home_for_line() {
   sed -n 's/^[^(]*(home: \([^;)]*\);.*/\1/p'
+}
+
+registry_host_for_line() {
+  sed -n 's/.*[;(][[:space:]]*host:[[:space:]]*\([^;)]*\)[;)].*/\1/p' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
 }
 
 normalize_registry_text() {
@@ -176,7 +184,7 @@ path_is_ancestor_of() {
 }
 
 registry_home_conflict_for_assignment() {
-  local id=$1 home=$2 target line registered_id registered_home registered_key
+  local id=$1 home=$2 target line registered_id registered_home registered_key registered_host
   [ -f "$REG" ] || return 1
   target=$(resolved_path "$home")
   while IFS= read -r line; do
@@ -184,6 +192,8 @@ registry_home_conflict_for_assignment() {
       "- "*)
         registered_id=${line#- }
         registered_id=${registered_id%% *}
+        registered_host=$(printf '%s\n' "$line" | registry_host_for_line 2>/dev/null || true)
+        [ -z "$registered_host" ] || continue
         registered_home=$(printf '%s\n' "$line" | registry_home_for_line)
         [ -n "$registered_home" ] || continue
         registered_key=$(resolved_path "$registered_home")
@@ -203,7 +213,7 @@ registry_home_conflict_for_assignment() {
 }
 
 registry_id_conflict_for_assignment() {
-  local id=$1 home=$2 target line registered_id registered_home registered_key
+  local id=$1 home=$2 target line registered_id registered_home registered_key registered_host
   [ -f "$REG" ] || return 1
   target=$(resolved_path "$home")
   while IFS= read -r line; do
@@ -212,8 +222,13 @@ registry_id_conflict_for_assignment() {
         registered_id=${line#- }
         registered_id=${registered_id%% *}
         [ "$registered_id" = "$id" ] || continue
+        registered_host=$(printf '%s\n' "$line" | registry_host_for_line 2>/dev/null || true)
         registered_home=$(printf '%s\n' "$line" | registry_home_for_line)
         [ -n "$registered_home" ] || continue
+        if [ -n "$registered_host" ]; then
+          printf '%s:%s\n' "$registered_host" "$registered_home"
+          return 0
+        fi
         registered_key=$(resolved_path "$registered_home")
         [ "$registered_key" = "$target" ] && continue
         printf '%s\n' "$registered_key"
@@ -225,7 +240,7 @@ registry_id_conflict_for_assignment() {
 }
 
 validate_registry() {
-  local tmp line id registered_home home_key duplicate_homes duplicate_ids overlaps
+  local tmp line id registered_home registered_host home_key duplicate_homes duplicate_ids overlaps
   tmp=$(mktemp "${TMPDIR:-/tmp}/fm-firstmates.XXXXXX")
   if [ -f "$REG" ]; then
     while IFS= read -r line; do
@@ -235,7 +250,22 @@ validate_registry() {
           id=${id%% *}
           registered_home=$(printf '%s\n' "$line" | registry_home_for_line)
           [ -n "$registered_home" ] || continue
-          home_key=$(resolved_path "$registered_home")
+          registered_host=$(printf '%s\n' "$line" | registry_host_for_line 2>/dev/null || true)
+          if [ -n "$registered_host" ]; then
+            if ! fm_remote_host_valid "$registered_host"; then
+              rm -f "$tmp"
+              printf 'error: invalid remote secondmate host for %s: %s\n' "$id" "$registered_host" >&2
+              return 1
+            fi
+            if ! fm_remote_path_valid "$registered_home"; then
+              rm -f "$tmp"
+              printf 'error: invalid remote secondmate home for %s: %s\n' "$id" "$registered_home" >&2
+              return 1
+            fi
+            home_key="$registered_host:$registered_home"
+          else
+            home_key=$(resolved_path "$registered_home")
+          fi
           printf '%s\t%s\n' "$home_key" "$id" >> "$tmp"
           ;;
       esac

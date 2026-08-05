@@ -138,6 +138,11 @@ There is no shared learnings file by captain decision.
 
 Persistent secondmate routes live locally in `data/secondmates.md`.
 The concise single-line route contract is owned by the [`secondmate-provisioning` skill](../.agents/skills/secondmate-provisioning/SKILL.md#routing-table), including the parser-compatible fields, one-sentence summary requirement, `home:` pointer to the seeded charter, and limit on extra registry prose.
+That owner also defines the optional `host:` identity for an already-provisioned remote home; absence preserves the local route.
+Remote automation is parent-initiated OpenSSH through `bin/fm-ssh-lib.sh`, with strict known-host checking, batch mode, bounded operation time, an unprivileged remote account, and no forwarding or credential copying.
+Marked `fm-send.sh` delivery, `fm-crew-state.sh`, pending-reply status reconciliation, and `fm-config-push.sh` reuse those commands in the remote home.
+An SSH or network failure reports `unreachable`, never dead, missing, idle, or permission for a local launch.
+Stage 1 never provisions, launches, recovers, updates, hands work to, or retires a remote home.
 `fm-home-seed.sh validate` refuses duplicate ids, duplicate homes, and nested or overlapping homes.
 The main first mate routes by reading those scopes with judgment; the project list is provisioning data, not exclusive ownership.
 Use `fm-home-seed.sh <id> - {<project>...|--no-projects}` to lease a fresh firstmate worktree for the secondmate home.

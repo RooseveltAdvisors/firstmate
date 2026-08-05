@@ -103,6 +103,8 @@ PRIMARY_HARNESS=$("$SCRIPT_DIR/fm-harness.sh" 2>/dev/null || printf unknown)
 . "$SCRIPT_DIR/fm-backend.sh"
 # shellcheck source=bin/fm-tasks-axi-lib.sh
 . "$SCRIPT_DIR/fm-tasks-axi-lib.sh"
+# shellcheck source=bin/fm-ssh-lib.sh
+. "$SCRIPT_DIR/fm-ssh-lib.sh"
 
 STATUS_TAIL=${FM_SESSION_START_STATUS_TAIL:-5}
 case "$STATUS_TAIL" in ''|*[!0-9]*) STATUS_TAIL=5 ;; esac
@@ -355,7 +357,19 @@ for meta in "$STATE"/*.meta; do
 
   window=$(fm_meta_get "$meta" window)
   target=$(fm_backend_target_of_meta "$meta")
-  if [ -n "$window" ]; then
+  if fm_secondmate_remote_identity "$meta" "$DATA/secondmates.md" "$id"; then
+    current=$(
+      FM_HOME="$FM_HOME" FM_ROOT_OVERRIDE="$FM_ROOT" FM_STATE_OVERRIDE="$STATE" \
+        "$SCRIPT_DIR/fm-crew-state.sh" "$id" 2>/dev/null || true
+    )
+    case "$current" in
+      'state: unreachable'*) printf 'endpoint: unreachable (host=%s backend=herdr window=%s)\n' "$FM_REMOTE_HOST" "$window" ;;
+      'state: unknown'*'source: remote-host'*) printf 'endpoint: unreadable (host=%s backend=herdr window=%s)\n' "$FM_REMOTE_HOST" "$window" ;;
+      *) printf 'endpoint: reachable (host=%s backend=herdr window=%s)\n' "$FM_REMOTE_HOST" "$window" ;;
+    esac
+  elif [ "$?" -eq 2 ]; then
+    printf 'endpoint: unreadable (invalid remote identity)\n'
+  elif [ -n "$window" ]; then
     backend=$(fm_backend_of_meta "$meta")
     if fm_backend_target_exists "$backend" "${target:-$window}" "fm-$id"; then
       printf 'endpoint: alive (backend=%s window=%s)\n' "$backend" "$window"

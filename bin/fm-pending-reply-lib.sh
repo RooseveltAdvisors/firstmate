@@ -68,6 +68,8 @@ _FM_PENDING_REPLY_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd 2>/dev/n
 . "$_FM_PENDING_REPLY_LIB_DIR/fm-backend.sh"
 # shellcheck source=bin/fm-tmux-lib.sh
 . "$_FM_PENDING_REPLY_LIB_DIR/fm-tmux-lib.sh"
+# shellcheck source=bin/fm-ssh-lib.sh
+. "$_FM_PENDING_REPLY_LIB_DIR/fm-ssh-lib.sh"
 
 FM_PENDING_REPLY_SCHEMA='fm-pending-reply.v1'
 FM_PENDING_REPLY_CORR_RE='corr=[A-Fa-f0-9]{16}'
@@ -926,7 +928,7 @@ fm_pending_reply_tick_one() {  # <state-dir> <corr_id> <busy_state> [secondmate-
 # state, and optional secondmate-home wrong-home path checks.
 fm_pending_reply_tick() {  # <state-dir>
   local state=$1 dir rec corr task_id phase delivered meta backend target label busy sm_home harness
-  local observation observation_task found i
+  local observation observation_task found i parent_home remote remote_rc remote_status
   local -a observation_tasks=() observation_values=()
   dir=$(fm_pending_reply_dir "$state")
   [ -d "$dir" ] || return 0
@@ -960,11 +962,43 @@ fm_pending_reply_tick() {  # <state-dir>
         ;;
     esac
     meta="$state/${task_id}.meta"
+    remote=0
+    parent_home=$(fm_pending_reply_get "$rec" parent_home)
+    if [ -f "$meta" ]; then
+      if fm_secondmate_remote_identity "$meta" "$parent_home/data/secondmates.md" "$task_id"; then
+        remote=1
+        if [ "$(fm_backend_of_meta "$meta")" != herdr ]; then
+          fm_pending_reply_set "$rec" reachability unreadable || true
+          continue
+        fi
+        remote_status=$(mktemp "${TMPDIR:-/tmp}/fm-remote-status.XXXXXX") || continue
+        if fm_ssh_run "$FM_REMOTE_HOST" cat -- "$FM_REMOTE_HOME/state/$task_id.status" >"$remote_status"; then
+          fm_pending_reply_set "$rec" reachability reachable || true
+          if fm_pending_reply_try_resolve "$state" "$corr" "$remote_status"; then
+            rm -f "$remote_status"
+            continue
+          fi
+        else
+          remote_rc=$?
+          rm -f "$remote_status"
+          if [ "$remote_rc" -eq "$FM_SSH_UNREACHABLE_RC" ]; then
+            fm_pending_reply_set "$rec" reachability unreachable || true
+          else
+            fm_pending_reply_set "$rec" reachability unreadable || true
+          fi
+          continue
+        fi
+        rm -f "$remote_status"
+      elif [ "$?" -eq 2 ]; then
+        fm_pending_reply_set "$rec" reachability unreadable || true
+        continue
+      fi
+    fi
     if [ "$phase" = escalated ]; then
       if fm_pending_reply_try_resolve "$state" "$corr"; then
         continue
       fi
-      if [ -f "$meta" ]; then
+      if [ "$remote" = 0 ] && [ -f "$meta" ]; then
         sm_home=$(fm_meta_get "$meta" home)
         if [ -n "$sm_home" ]; then
           fm_pending_reply_detect_wrong_home "$state" "$corr" "$sm_home" || true
@@ -987,7 +1021,9 @@ fm_pending_reply_tick() {  # <state-dir>
     busy=unknown
     sm_home=
     harness=
-    if [ -f "$meta" ]; then
+    if [ "$remote" = 1 ]; then
+      busy=unknown
+    elif [ -f "$meta" ]; then
       backend=$(fm_backend_of_meta "$meta")
       target=$(fm_backend_target_of_meta "$meta")
       sm_home=$(fm_meta_get "$meta" home)

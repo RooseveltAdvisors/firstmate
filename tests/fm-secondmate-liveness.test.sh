@@ -490,6 +490,43 @@ test_sweep_converges_no_retouch_once_alive() {
   pass "sweep: idempotent by construction - a live secondmate is never re-touched on a later run"
 }
 
+test_remote_loss_and_dead_read_never_relaunch_locally() {
+  local w fb tmuxfb log out
+  w=$(new_world sweep-remote)
+  mkdir -p "$w/home/data"
+  cat >"$w/home/data/secondmates.md" <<'EOF'
+- housing-watch - Housing route (home: /srv/firstmate-housing; host: dev; scope: housing watch; projects: housing; added 2026-08-05)
+EOF
+  cat >"$w/home/state/housing-watch.meta" <<'EOF'
+window=pilot:workspace:pane
+kind=secondmate
+harness=codex
+backend=herdr
+home=/srv/firstmate-housing
+EOF
+  fb=$(make_toolchain "$w"); tmuxfb=$(make_liveness_tmux "$w")
+  cat >"$fb/ssh" <<'SH'
+#!/usr/bin/env bash
+case "${FM_TEST_REMOTE_STATE:-unreachable}" in
+  unreachable) exit 255 ;;
+  dead) printf '%s\n' 'state: unknown · source: none · endpoint unavailable' ;;
+esac
+SH
+  chmod +x "$fb/ssh"
+  log="$w/calls.log"; : >"$log"
+
+  out=$(run_bootstrap "$tmuxfb:$fb" "$w/home" zsh "$log" FM_SSH_BIN="$fb/ssh" FM_TEST_REMOTE_STATE=unreachable)
+  assert_contains "$out" "remote host dev unreachable; no local relaunch" \
+    "SSH loss must be unreachable rather than a dead local endpoint"
+  [ ! -s "$log" ] || fail "unreachable remote triggered a local lifecycle operation: $(cat "$log")"
+
+  out=$(run_bootstrap "$tmuxfb:$fb" "$w/home" zsh "$log" FM_SSH_BIN="$fb/ssh" FM_TEST_REMOTE_STATE=dead)
+  assert_contains "$out" "remote current state unreadable on host dev; Stage 2 owns recovery" \
+    "a readable remote dead state must stay outside Stage 1 recovery"
+  [ ! -s "$log" ] || fail "remote dead state triggered a local lifecycle operation: $(cat "$log")"
+  pass "sweep: unreachable and remote-dead outcomes never authorize local relaunch"
+}
+
 test_sweep_skipped_under_detect_only() {
   local w fb tmuxfb log out
   w=$(new_world sweep-detect-only)
@@ -539,6 +576,7 @@ test_sweep_never_acts_on_transient_unreadability
 test_sweep_reports_missing_endpoint_relaunch_failure
 test_sweep_never_acts_on_unverified_harness_dead_reading
 test_sweep_converges_no_retouch_once_alive
+test_remote_loss_and_dead_read_never_relaunch_locally
 test_sweep_skipped_under_detect_only
 test_sweep_noop_with_no_secondmate_meta
 

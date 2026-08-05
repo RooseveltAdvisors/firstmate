@@ -1,0 +1,206 @@
+#!/usr/bin/env bash
+# Hermetic Stage 1 remote-Secondmate transport checks.
+# A fake ssh binary records argv and never contacts a host.
+set -u
+
+# shellcheck source=tests/lib.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=bin/fm-ssh-lib.sh
+. "$ROOT/bin/fm-ssh-lib.sh"
+# shellcheck source=bin/fm-marker-lib.sh
+. "$ROOT/bin/fm-marker-lib.sh"
+
+TMP_ROOT=$(fm_test_tmproot fm-remote-secondmate)
+FAKEBIN=$(fm_fakebin "$TMP_ROOT")
+SSH_LOG="$TMP_ROOT/ssh.log"
+SSH_INPUT="$TMP_ROOT/ssh.input"
+STATUS_REPLY="$TMP_ROOT/status.reply"
+SENTINEL="$TMP_ROOT/injected"
+
+cat >"$FAKEBIN/ssh" <<'SH'
+#!/usr/bin/env bash
+set -u
+: >"$FM_TEST_SSH_LOG"
+last=
+for arg in "$@"; do
+  printf '%s\n' "$arg" >>"$FM_TEST_SSH_LOG"
+  last=$arg
+done
+case "${FM_TEST_SSH_MODE:-ok}" in
+  ok) exit 0 ;;
+  capture) cat >"$FM_TEST_SSH_INPUT"; exit 0 ;;
+  exec) bash -c "$last" ;;
+  state) printf '%s\n' 'state: working · source: pane · remote agent busy' ;;
+  status) cat "$FM_TEST_SSH_STATUS" ;;
+  fail) printf '%s\n' 'secret remote diagnostic' >&2; exit 1 ;;
+  unreachable) printf '%s\n' 'private key path and host-key detail' >&2; exit 255 ;;
+  sleep) sleep 3 ;;
+  *) exit 2 ;;
+esac
+SH
+chmod +x "$FAKEBIN/ssh"
+
+export FM_SSH_BIN="$FAKEBIN/ssh"
+export FM_TEST_SSH_LOG="$SSH_LOG"
+export FM_TEST_SSH_INPUT="$SSH_INPUT"
+export FM_TEST_SSH_STATUS="$STATUS_REPLY"
+
+test_registry_and_input_boundaries() {
+  local registry="$TMP_ROOT/secondmates.md"
+  cat >"$registry" <<'EOF'
+- local-one - Local route (home: /srv/local-one; scope: local work; projects: app; added 2026-08-05)
+- housing-watch - Housing route (home: /srv/firstmate-housing; host: dev; scope: housing watch; projects: housing; added 2026-08-05)
+EOF
+  [ "$(fm_secondmate_registry_field "$registry" local-one home)" = /srv/local-one ] || fail "local registry parsing changed"
+  ! fm_secondmate_registry_field "$registry" local-one host >/dev/null 2>&1 || fail "a local route acquired a host"
+  [ "$(fm_secondmate_registry_field "$registry" housing-watch host)" = dev ] || fail "remote host was not parsed"
+  [ "$(fm_secondmate_registry_field "$registry" housing-watch home)" = /srv/firstmate-housing ] || fail "remote home was not parsed"
+  for host in 'user@dev' '-oProxyCommand=bad' 'dev;touch-x'; do
+    ! fm_remote_host_valid "$host" || fail "unsafe host accepted: $host"
+  done
+  for path in relative '/srv/../root' '/srv/with space' '/'; do
+    ! fm_remote_path_valid "$path" || fail "unsafe remote path accepted: $path"
+  done
+  pass "remote registry: optional host preserves local parsing and rejects unsafe identities"
+}
+
+test_strict_ssh_and_quoting() {
+  local out rc
+  export FM_TEST_SSH_MODE=exec
+  out=$(fm_ssh_run dev printf '%s' "safe'; touch '$SENTINEL'; :") || fail "quoted argv call failed"
+  [ "$out" = "safe'; touch '$SENTINEL'; :" ] || fail "remote argv bytes changed"
+  [ ! -e "$SENTINEL" ] || fail "remote argv escaped shell quoting"
+  for option in BatchMode=yes StrictHostKeyChecking=yes ForwardAgent=no ClearAllForwardings=yes PasswordAuthentication=no; do
+    grep -Fx -- "$option" "$SSH_LOG" >/dev/null || fail "missing strict SSH option $option"
+  done
+  # shellcheck disable=SC2016 # This literal must expand only on the remote side.
+  grep -F 'test "$(id -u)" -ne 0 && exec' "$SSH_LOG" >/dev/null || fail "remote root refusal is missing"
+  FM_TEST_SSH_MODE=unreachable fm_ssh_run dev true >/dev/null 2>"$TMP_ROOT/error"; rc=$?
+  [ "$rc" -eq "$FM_SSH_UNREACHABLE_RC" ] || fail "SSH/host-key loss was not unreachable: $rc"
+  [ ! -s "$TMP_ROOT/error" ] || fail "SSH diagnostics were not redacted"
+  FM_TEST_SSH_MODE=fail fm_ssh_run dev true >/dev/null 2>"$TMP_ROOT/error"; rc=$?
+  [ "$rc" -eq "$FM_SSH_UNREADABLE_RC" ] || fail "remote command failure was not unreadable: $rc"
+  FM_TEST_SSH_MODE=sleep FM_SSH_OPERATION_TIMEOUT=1 fm_ssh_run dev true >/dev/null; rc=$?
+  [ "$rc" -eq "$FM_SSH_UNREACHABLE_RC" ] || fail "bounded timeout was not unreachable: $rc"
+  pass "SSH transport: strict options, safe argv, redaction, failure classes, and whole-operation timeout"
+}
+
+make_parent() {
+  local home="$TMP_ROOT/parent"
+  mkdir -p "$home/state" "$home/data" "$home/config"
+  cat >"$home/state/housing-watch.meta" <<'EOF'
+window=pilot:workspace:pane
+worktree=/srv/firstmate-housing
+project=/srv/firstmate-housing
+harness=codex
+kind=secondmate
+mode=secondmate
+yolo=off
+backend=herdr
+home=/srv/firstmate-housing
+EOF
+  cat >"$home/data/secondmates.md" <<'EOF'
+- housing-watch - Housing route (home: /srv/firstmate-housing; host: dev; scope: housing watch; projects: housing; added 2026-08-05)
+EOF
+  printf '%s\n' "$home"
+}
+
+test_send_state_and_pending_reply() {
+  local home=$1 corr rec out rc before after pending_before pending_after
+  FM_TEST_SSH_MODE=ok FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" FM_SEND_SETTLE=0 \
+    "$ROOT/bin/fm-send.sh" fm-housing-watch "inspect housing" >/dev/null 2>"$TMP_ROOT/send.err" \
+    || fail "marked remote send was not acknowledged"
+  rec=$(find "$home/state/pending-replies" -type f ! -name '.*' | head -1)
+  [ -f "$rec" ] || fail "remote send did not create the parent expectation"
+  grep -q '^delivered_epoch=.' "$rec" || fail "remote send acknowledgement was not committed"
+  grep -F "$FM_FROMFIRST_MARK" "$SSH_LOG" >/dev/null || fail "remote send lost the from-firstmate marker"
+  grep -F 'inspect housing' "$SSH_LOG" >/dev/null || fail "remote send lost its request body"
+
+  pending_before=$(find "$home/state/pending-replies" -type f ! -name '.*' | wc -l | tr -d ' ')
+  FM_TEST_SSH_MODE=unreachable FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" FM_SEND_SETTLE=0 \
+    "$ROOT/bin/fm-send.sh" fm-housing-watch "undeliverable request" >/dev/null 2>/dev/null; rc=$?
+  [ "$rc" -ne 0 ] || fail "unreachable remote send was acknowledged"
+  pending_after=$(find "$home/state/pending-replies" -type f ! -name '.*' | wc -l | tr -d ' ')
+  [ "$pending_before" = "$pending_after" ] || fail "undelivered remote send left a pending expectation"
+
+  out=$(FM_TEST_SSH_MODE=state FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-crew-state.sh" housing-watch)
+  case "$out" in 'state: working'*'source: pane'*) ;; *) fail "remote current-state command was not reused: $out" ;; esac
+  out=$(FM_TEST_SSH_MODE=unreachable FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-crew-state.sh" housing-watch)
+  case "$out" in 'state: unreachable'*'source: remote-host'*) ;; *) fail "SSH loss was not explicit unreachable: $out" ;; esac
+  out=$(FM_TEST_SSH_MODE=fail FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-crew-state.sh" housing-watch)
+  case "$out" in 'state: unknown'*'remote state unreadable'*) ;; *) fail "unreadable remote state was misclassified: $out" ;; esac
+
+  corr=$(sed -n 's/^corr_id=//p' "$rec")
+  printf 'done: [corr=%s] housing watch complete\n' "$corr" >"$STATUS_REPLY"
+  # shellcheck source=bin/fm-pending-reply-lib.sh
+  . "$ROOT/bin/fm-pending-reply-lib.sh"
+  FM_TEST_SSH_MODE=status fm_pending_reply_tick "$home/state"
+  [ "$(fm_pending_reply_get "$rec" phase)" = resolved ] || fail "late remote reply did not reconcile idempotently"
+  FM_TEST_SSH_MODE=status fm_pending_reply_tick "$home/state"
+  [ "$(fm_pending_reply_get "$rec" phase)" = resolved ] || fail "late reply reconciliation was not idempotent"
+
+  FM_TEST_SSH_MODE=ok FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" FM_SEND_SETTLE=0 \
+    "$ROOT/bin/fm-send.sh" fm-housing-watch "second request" >/dev/null 2>/dev/null || fail "second remote send failed"
+  for rec in "$home/state/pending-replies"/*; do
+    [ "$(fm_pending_reply_get "$rec" phase)" = resolved ] || break
+  done
+  before=$(fm_pending_reply_get "$rec" phase)
+  FM_TEST_SSH_MODE=fail fm_pending_reply_tick "$home/state"
+  after=$(fm_pending_reply_get "$rec" phase)
+  [ "$before" = "$after" ] || fail "unreadable remote status advanced a pending expectation"
+  [ "$(fm_pending_reply_get "$rec" reachability)" = unreadable ] || fail "pending reply lacks unreadable classification"
+  : >"$SSH_LOG"
+  FM_TEST_SSH_MODE=unreachable fm_pending_reply_tick "$home/state"
+  after=$(fm_pending_reply_get "$rec" phase)
+  [ "$before" = "$after" ] || fail "unreachable remote cleared or advanced a pending expectation"
+  [ "$(fm_pending_reply_get "$rec" reachability)" = unreachable ] || fail "pending reply lacks unreachable classification"
+  [ "$(grep -c . "$SSH_LOG")" -gt 0 ] || fail "remote status was not attempted"
+  pass "remote routing: acknowledged marked send, state classes, and idempotent late-reply reconciliation"
+}
+
+test_config_push_uses_allowlisted_archive() {
+  local home=$1 listing
+  printf 'codex\n' >"$home/config/crew-harness"
+  printf 'must-not-leave\n' >"$home/config/private-secret"
+  FM_TEST_SSH_MODE=capture FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
+    "$ROOT/bin/fm-config-push.sh" >"$TMP_ROOT/config.out" 2>"$TMP_ROOT/config.err" \
+    || fail "remote config push was not acknowledged"
+  listing=$(tar -tf "$SSH_INPUT") || fail "config push did not send an archive"
+  case "$listing" in *config/crew-harness*) ;; *) fail "allowlisted config was not pushed" ;; esac
+  case "$listing" in *private-secret*) fail "non-allowlisted config entered the remote archive" ;; esac
+  grep -F '/srv/firstmate-housing/bin/fm-config-push.sh' "$SSH_LOG" >/dev/null \
+    || fail "config push did not reuse the remote Firstmate command"
+  grep -F -- '--remote-receive' "$SSH_LOG" >/dev/null || fail "config push did not select receive mode"
+  pass "remote config push: existing owner receives only the inherited allowlist"
+}
+
+test_config_receive_applies_owner_and_rejects_extra_paths() {
+  local remote="$TMP_ROOT/remote-home" source="$TMP_ROOT/receive-source" archive="$TMP_ROOT/receive.tar" rc
+  mkdir -p "$remote/data" "$remote/state" "$remote/config" "$remote/projects" "$source/data"
+  printf '%s\n' housing-watch >"$remote/.fm-secondmate-home"
+  cat >"$source/data/captain-shared.md" <<'EOF'
+# Shared captain preferences
+This file is main-authoritative and read-only in secondmate homes.
+It must not be edited there; discoveries return to the main firstmate through marked status or a document pointer.
+EOF
+  tar -cf "$archive" -C "$source" .
+  FM_HOME="$remote" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-config-push.sh" \
+    --remote-receive housing-watch <"$archive" >/dev/null 2>"$TMP_ROOT/receive.err" \
+    || fail "remote receive did not apply through the inheritance owner"
+  cmp -s "$source/data/captain-shared.md" "$remote/data/captain-shared.md" \
+    || fail "remote receive did not preserve inherited bytes"
+  printf 'not allowed\n' >"$source/extra"
+  tar -cf "$archive" -C "$source" extra
+  FM_HOME="$remote" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-config-push.sh" \
+    --remote-receive housing-watch <"$archive" >/dev/null 2>/dev/null; rc=$?
+  [ "$rc" -ne 0 ] || fail "remote receive accepted a non-allowlisted archive path"
+  [ ! -e "$remote/extra" ] || fail "rejected archive escaped into the remote home"
+  pass "remote config receive: existing inheritance owner applies safe bytes and rejects extra paths"
+}
+
+test_registry_and_input_boundaries
+test_strict_ssh_and_quoting
+PARENT=$(make_parent)
+test_send_state_and_pending_reply "$PARENT"
+test_config_push_uses_allowlisted_archive "$PARENT"
+test_config_receive_applies_owner_and_rejects_extra_paths

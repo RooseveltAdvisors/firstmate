@@ -39,6 +39,8 @@
 #          fm_backend_agent_state: skipped distinguishes an existing ambiguous
 #          process, an unreadable target, and an unverified backend; respawn
 #          failed names whether the endpoint was missing or agent-less.
+#          A remote route is read through SSH and is never relaunched locally;
+#          transport loss reports remote host unreachable distinctly.
 #          Already-live and successfully relaunched secondmates are silent
 #          unless FM_BOOTSTRAP_VERBOSE_FACTS=1 requests BOOTSTRAP_INFO facts.
 #          A TANGLE line means the firstmate primary checkout (FM_ROOT) is stranded
@@ -429,6 +431,20 @@ secondmate_liveness_sweep() {
     [ -f "$meta" ] || continue
     grep -q '^kind=secondmate$' "$meta" 2>/dev/null || continue
     id=$(basename "$meta" .meta)
+    if fm_secondmate_remote_identity "$meta" "$DATA/secondmates.md" "$id"; then
+      out=$(FM_HOME="$FM_HOME" FM_ROOT_OVERRIDE="$FM_ROOT" FM_STATE_OVERRIDE="$STATE" \
+        "$SCRIPT_DIR/fm-crew-state.sh" "$id" 2>/dev/null || true)
+      case "$out" in
+        'state: unreachable'*) echo "SECONDMATE_LIVENESS: secondmate $id: skipped: remote host $FM_REMOTE_HOST unreachable; no local relaunch" ;;
+        'state: unknown'*'source: remote-host'*) echo "SECONDMATE_LIVENESS: secondmate $id: skipped: remote state unreadable on host $FM_REMOTE_HOST; no local relaunch" ;;
+        'state: working'*|'state: parked'*|'state: done'*|'state: blocked'*|'state: paused'*|'state: failed'*) ;;
+        *) echo "SECONDMATE_LIVENESS: secondmate $id: skipped: remote current state unreadable on host $FM_REMOTE_HOST; Stage 2 owns recovery" ;;
+      esac
+      continue
+    elif [ "$?" -eq 2 ]; then
+      echo "SECONDMATE_LIVENESS: secondmate $id: skipped: invalid remote identity; no local relaunch"
+      continue
+    fi
     window=$(fm_meta_get "$meta" window)
     [ -n "$window" ] || continue
     harness=$(fm_meta_get "$meta" harness)

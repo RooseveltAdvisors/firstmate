@@ -41,6 +41,17 @@ The secondmate process and every child it launches resolve the same home label; 
 Attach to the selected named Herdr session and switch to the relevant home workspace to watch its task tabs.
 Routine supervision uses `bin/fm-peek.sh <id>` and `FM_HOME=<home> bin/fm-send.sh <id> '<text>'` without attaching.
 
+Herdr 0.8 also provides native remote attachment:
+
+```sh
+herdr --remote <ssh-target> --session <stable-host-session>
+```
+
+Use one stable named Herdr session per remote host so every Secondmate and its workers on that host appear together in the remote Agents sidebar.
+The local GPU Agents panel does not federate rows from other Herdr servers.
+Firstmate provides consolidated cross-host state, while operators use native Herdr remote attach for full remote panes.
+Firstmate's parent-routed OpenSSH automation is a separate noninteractive channel and does not reimplement attach or issue Herdr lifecycle commands.
+
 Workspace and tab creation use `--no-focus`.
 The first workspace in a completely empty Herdr session must become focused because no prior target exists, but later task creation does not intentionally steal focus.
 

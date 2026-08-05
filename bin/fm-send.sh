@@ -36,6 +36,10 @@
 # resolves the expectation. Set FM_PENDING_REPLY_EXISTING_CORR=<id> when
 # re-sending a recovery request for an already-open expectation so a second
 # record is not created. Direct unmarked captain input never creates one.
+# A secondmate route with optional host= uses strict parent-initiated SSH to run
+# this same fm-send command against the recorded Herdr target in the remote home.
+# SSH success is the delivery acknowledgement; unreachable and unreadable remain
+# failures, discard only a newly undelivered expectation, and never fall back locally.
 #
 # After a successful text submit fm-send pauses FM_SEND_SETTLE seconds (default 1,
 # 0 disables) before returning: submit confirmation only proves the text was
@@ -75,6 +79,8 @@ fi
 . "$SCRIPT_DIR/fm-marker-lib.sh"
 # shellcheck source=bin/fm-pending-reply-lib.sh
 . "$SCRIPT_DIR/fm-pending-reply-lib.sh"
+# shellcheck source=bin/fm-ssh-lib.sh
+. "$SCRIPT_DIR/fm-ssh-lib.sh"
 
 FM_GUARD_CONTINUE_LINE='This is a supervision warning only; the requested message WILL still be sent.' "$SCRIPT_DIR/fm-guard.sh" || true
 
@@ -202,9 +208,25 @@ MARK_FROM_FIRSTMATE=0
 PENDING_REPLY_CORR=
 PENDING_REPLY_CREATED=0
 TARGET_TASK_ID=
+TARGET_REMOTE_HOST=
+TARGET_REMOTE_HOME=
 if [ -n "$TARGET_SELECTOR" ] && [ -n "$TARGET_META" ] && [ "$(fm_meta_get "$TARGET_META" kind)" = secondmate ]; then
   MARK_FROM_FIRSTMATE=1
   TARGET_TASK_ID=$(fm_send_id_from_meta "$TARGET_META")
+  if fm_secondmate_remote_identity "$TARGET_META" "$FM_HOME/data/secondmates.md" "$TARGET_TASK_ID"; then
+    TARGET_REMOTE_HOST=$FM_REMOTE_HOST
+    TARGET_REMOTE_HOME=$FM_REMOTE_HOME
+    if [ "$TARGET_BACKEND" != herdr ]; then
+      echo "error: remote secondmate $TARGET_TASK_ID must use the Herdr backend; refusing fallback to $TARGET_BACKEND" >&2
+      exit 1
+    fi
+  else
+    remote_identity_rc=$?
+    if [ "$remote_identity_rc" -eq 2 ]; then
+      echo "error: remote identity for secondmate $TARGET_TASK_ID is invalid" >&2
+      exit 1
+    fi
+  fi
 fi
 
 # Resolve the target's harness from its meta (recorded by fm-spawn), used only to
@@ -220,9 +242,23 @@ fi
 # error with the attempted resolution attached.
 
 if [ "${1:-}" = "--key" ]; then
-  if ! fm_backend_send_key "$TARGET_BACKEND" "$T" "$2" "$EXPECTED_LABEL"; then
-    echo "error: key '$2' not sent to $T ($TARGET_BACKEND send failed; tried $RESOLUTION_TRIED)" >&2
-    exit 1
+  if [ -n "$TARGET_REMOTE_HOST" ]; then
+    if fm_ssh_run "$TARGET_REMOTE_HOST" env \
+      "FM_HOME=$TARGET_REMOTE_HOME" "FM_ROOT_OVERRIDE=$TARGET_REMOTE_HOME" \
+      "$TARGET_REMOTE_HOME/bin/fm-send.sh" "$T" --key "$2" >/dev/null; then
+      :
+    else
+      send_rc=$?
+      if [ "$send_rc" -eq "$FM_SSH_UNREACHABLE_RC" ]; then
+        echo "error: key '$2' not sent; remote host '$TARGET_REMOTE_HOST' is unreachable" >&2
+      else
+        echo "error: key '$2' not sent; remote target on host '$TARGET_REMOTE_HOST' is unreadable" >&2
+      fi
+      exit 1
+    fi
+  elif ! fm_backend_send_key "$TARGET_BACKEND" "$T" "$2" "$EXPECTED_LABEL"; then
+      echo "error: key '$2' not sent to $T ($TARGET_BACKEND send failed; tried $RESOLUTION_TRIED)" >&2
+      exit 1
   fi
 else
   MESSAGE=$*
@@ -270,11 +306,32 @@ else
   sleep_s=${FM_SEND_SLEEP:-0.4}
   # Type once, submit, verify. Only exact empty confirms delivery; every other
   # verdict preserves the loud refusal boundary.
-  if ! verdict=$(fm_backend_send_text_submit "$TARGET_BACKEND" "$T" "$MESSAGE" "$retries" "$sleep_s" "$settle" "$EXPECTED_LABEL"); then
+  if [ -n "$TARGET_REMOTE_HOST" ]; then
+    if fm_ssh_run "$TARGET_REMOTE_HOST" env \
+      "FM_HOME=$TARGET_REMOTE_HOME" "FM_ROOT_OVERRIDE=$TARGET_REMOTE_HOME" \
+      FM_SEND_SETTLE=0 "$TARGET_REMOTE_HOME/bin/fm-send.sh" "$T" "$MESSAGE" >/dev/null; then
+      verdict=empty
+      send_rc=0
+    else
+      send_rc=$?
+      verdict=send-failed
+    fi
+  elif verdict=$(fm_backend_send_text_submit "$TARGET_BACKEND" "$T" "$MESSAGE" "$retries" "$sleep_s" "$settle" "$EXPECTED_LABEL"); then
+    send_rc=0
+  else
+    send_rc=$?
+  fi
+  if [ "$send_rc" -ne 0 ]; then
     if [ "$PENDING_REPLY_CREATED" = 1 ] && [ -n "$PENDING_REPLY_CORR" ]; then
       fm_pending_reply_discard_undelivered "$STATE" "$PENDING_REPLY_CORR" || true
     fi
-    echo "error: text not sent to $T ($TARGET_BACKEND send failed; tried $RESOLUTION_TRIED)" >&2
+    if [ "$send_rc" -eq "$FM_SSH_UNREACHABLE_RC" ]; then
+      echo "error: text not sent; remote host '$TARGET_REMOTE_HOST' is unreachable" >&2
+    elif [ -n "$TARGET_REMOTE_HOST" ]; then
+      echo "error: text not sent; remote target on host '$TARGET_REMOTE_HOST' is unreadable" >&2
+    else
+      echo "error: text not sent to $T ($TARGET_BACKEND send failed; tried $RESOLUTION_TRIED)" >&2
+    fi
     exit 1
   fi
   case "$verdict" in

@@ -16,9 +16,12 @@
 # fixed mapping logic, no heuristics and no LLM. Output is one stable, parseable,
 # token-tight line firstmate can read every heartbeat:
 #
-#   state: <working|parked|done|blocked|paused|failed|unknown> · source: <run-step|pane|status-log|none> · <detail>
+#   state: <working|parked|done|blocked|paused|failed|unreachable|unknown> · source: <run-step|pane|status-log|remote-host|none> · <detail>
 #
 # Logic, in order:
+#   0. A remote Secondmate route runs this same read on its host through the
+#      strict SSH transport; loss is `unreachable`, while a readable remote
+#      result passes through unchanged.
 #   1. Resolve worktree + backend target + kind from state/<id>.meta.
 #   2. Matching no-mistakes run for this crew's branch AND current code identity,
 #      active or terminal (from `axi status`, or the coarse `no-mistakes runs`
@@ -62,6 +65,8 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 . "$SCRIPT_DIR/fm-backend.sh"
 # shellcheck source=bin/fm-classify-lib.sh
 . "$SCRIPT_DIR/fm-classify-lib.sh"
+# shellcheck source=bin/fm-ssh-lib.sh
+. "$SCRIPT_DIR/fm-ssh-lib.sh"
 
 ID=${1:-}
 [ -n "$ID" ] || { echo "usage: fm-crew-state.sh <id>" >&2; exit 2; }
@@ -98,6 +103,27 @@ WT=$(meta_value worktree)
 KIND=$(meta_value kind)
 HARNESS=$(meta_value harness)
 [ -n "$KIND" ] || KIND=ship
+
+if [ "$KIND" = secondmate ] && [ "${FM_REMOTE_STATE_LOCAL:-0}" != 1 ]; then
+  if fm_secondmate_remote_identity "$META" "$FM_HOME/data/secondmates.md" "$ID"; then
+    [ "$(fm_backend_of_meta "$META")" = herdr ] \
+      || emit unknown remote-host "remote Secondmate backend must be Herdr"
+    if remote_state=$(fm_ssh_run "$FM_REMOTE_HOST" env \
+      "FM_HOME=$FM_REMOTE_HOME" "FM_ROOT_OVERRIDE=$FM_REMOTE_HOME" FM_REMOTE_STATE_LOCAL=1 \
+      "$FM_REMOTE_HOME/bin/fm-crew-state.sh" "$ID"); then
+      printf '%s\n' "$remote_state"
+      exit 0
+    else
+      remote_rc=$?
+    fi
+    if [ "$remote_rc" -eq "$FM_SSH_UNREACHABLE_RC" ]; then
+      emit unreachable remote-host "host $FM_REMOTE_HOST unreachable"
+    fi
+    emit unknown remote-host "remote state unreadable on host $FM_REMOTE_HOST"
+  elif [ "$?" -eq 2 ]; then
+    emit unknown remote-host "invalid remote identity for $ID"
+  fi
+fi
 
 # A torn-down (or never-created) worktree has no current state to read.
 if [ -z "$WT" ] || [ ! -d "$WT" ]; then

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Push declared inherited local material to live secondmate homes.
 # Usage: fm-config-push.sh [--help]
+#        fm-config-push.sh --remote-receive <secondmate-id>  # SSH-internal
 #
 # Mid-session convergence for inherited local material such as
 # config/crew-dispatch.json edits or data/captain-shared.md updates. This
@@ -15,6 +16,8 @@
 # Unchanged config and data/captain-shared.md-only updates send no reread
 # message unless a previous send failure is pending for that home.
 # Warnings-only skips exit 0; real propagation or reread-send errors exit non-zero.
+# For a route with host=, the parent streams only the fixed allowlist over strict
+# SSH to this script's --remote-receive mode in the existing remote home.
 set -u
 
 usage() {
@@ -43,15 +46,24 @@ Environment overrides follow the rest of firstmate:
   FM_STATE_OVERRIDE state dir
   FM_DATA_OVERRIDE  data dir
   FM_CONFIG_OVERRIDE config dir
+
+--remote-receive is the noninteractive SSH endpoint used by another Firstmate
+home. It accepts only the declared inheritance archive on stdin, applies it
+through fm-config-inherit-lib.sh, and never launches or manages Herdr.
 EOF
 }
 
+REMOTE_RECEIVE_ID=
 case "${1:-}" in
   -h|--help)
     usage
     exit 0
     ;;
   "")
+    ;;
+  --remote-receive)
+    [ "$#" -eq 2 ] || { echo "usage: fm-config-push.sh --remote-receive <secondmate-id>" >&2; exit 2; }
+    REMOTE_RECEIVE_ID=$2
     ;;
   *)
     echo "usage: fm-config-push.sh [--help]" >&2
@@ -75,6 +87,8 @@ SECONDMATES_MD="$DATA/secondmates.md"
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 # shellcheck source=bin/fm-config-inherit-lib.sh
 . "$SCRIPT_DIR/fm-config-inherit-lib.sh"
+# shellcheck source=bin/fm-ssh-lib.sh
+. "$SCRIPT_DIR/fm-ssh-lib.sh"
 
 print_item_report() {
   local report=$1 item status reason
@@ -87,6 +101,92 @@ print_item_report() {
     fi
   done < "$report"
 }
+
+config_push_archive() {  # <archive>
+  local archive=$1 stage item src dest rc=0
+  stage=$(mktemp -d "${TMPDIR:-/tmp}/fm-config-push.XXXXXX") || return 1
+  mkdir -p "$stage/config" "$stage/data" || { rm -rf "$stage"; return 1; }
+  for item in $FM_INHERITABLE_CONFIG; do
+    src="$CONFIG/$item"
+    dest="$stage/config/$item"
+    [ -e "$src" ] || [ -L "$src" ] || continue
+    if [ ! -f "$src" ] || [ -L "$src" ] || [ "$(fm_inherit_file_link_count "$src")" != 1 ]; then
+      rc=1
+      break
+    fi
+    cp "$src" "$dest" || { rc=1; break; }
+  done
+  src="$DATA/$FM_SHARED_CAPTAIN_FILE"
+  if [ "$rc" -eq 0 ] && { [ -e "$src" ] || [ -L "$src" ]; }; then
+    if ! shared_captain_file_safe_existing "$src" || ! shared_captain_header_valid "$src"; then
+      rc=1
+    else
+      cp "$src" "$stage/data/$FM_SHARED_CAPTAIN_FILE" || rc=1
+    fi
+  fi
+  [ "$rc" -ne 0 ] || tar -cf "$archive" -C "$stage" . || rc=1
+  rm -rf "$stage"
+  return "$rc"
+}
+
+config_push_remote_receive() {  # <id>; archive on stdin
+  local id=$1 stage archive list path item report home_lock out rc=0
+  fm_remote_id_valid "$id" || return 1
+  [ -f "$FM_HOME/.fm-secondmate-home" ] && [ ! -L "$FM_HOME/.fm-secondmate-home" ] \
+    && [ "$(cat "$FM_HOME/.fm-secondmate-home" 2>/dev/null)" = "$id" ] || return 1
+  stage=$(mktemp -d "${TMPDIR:-/tmp}/fm-config-receive.XXXXXX") || return 1
+  archive=$(mktemp "${TMPDIR:-/tmp}/fm-config-receive-archive.XXXXXX") || { rm -rf "$stage"; return 1; }
+  list=$(mktemp "${TMPDIR:-/tmp}/fm-config-receive-list.XXXXXX") || { rm -rf "$stage"; rm -f "$archive"; return 1; }
+  report=$(mktemp "${TMPDIR:-/tmp}/fm-config-receive-report.XXXXXX") || { rm -rf "$stage"; rm -f "$archive" "$list"; return 1; }
+  cat >"$archive" || rc=1
+  [ "$rc" -ne 0 ] || tar -tf "$archive" >"$list" 2>/dev/null || rc=1
+  if [ "$rc" -eq 0 ]; then
+    while IFS= read -r path; do
+      case "$path" in
+        ./|./config/|./data/|"./data/$FM_SHARED_CAPTAIN_FILE") ;;
+        ./config/*)
+          item=${path#./config/}
+          case " $FM_INHERITABLE_CONFIG " in *" $item "*) ;; *) rc=1; break ;; esac
+          ;;
+        *) rc=1; break ;;
+      esac
+    done <"$list"
+  fi
+  [ "$rc" -ne 0 ] || tar -xf "$archive" -C "$stage" 2>/dev/null || rc=1
+  for item in $FM_INHERITABLE_CONFIG; do
+    path="$stage/config/$item"
+    [ ! -e "$path" ] && [ ! -L "$path" ] && continue
+    [ -f "$path" ] && [ ! -L "$path" ] || rc=1
+  done
+  path="$stage/data/$FM_SHARED_CAPTAIN_FILE"
+  if [ -e "$path" ] || [ -L "$path" ]; then
+    [ -f "$path" ] && [ ! -L "$path" ] || rc=1
+  fi
+  if [ "$rc" -eq 0 ]; then
+    home_lock=$(fm_config_inherit_lock_path "$FM_HOME") || rc=1
+  fi
+  if [ "$rc" -eq 0 ]; then
+    fm_lock_acquire_wait "$home_lock" || rc=1
+  fi
+  if [ "$rc" -eq 0 ]; then
+    FM_CONFIG_INHERIT_REPORT="$report" \
+      propagate_secondmate_inheritance "$stage" "$FM_HOME" "$stage/config" "$stage/data" || rc=1
+    if ! out=$(FM_CONFIG_REREAD_SKIP_PENDING=0 fm_config_send_reread_nudge "$id" "$FM_HOME" "$report" 2>&1); then
+      [ -z "$out" ] || printf '%s\n' "$out" >&2
+      rc=1
+    fi
+    fm_lock_release "$home_lock" || true
+  fi
+  print_item_report "$report"
+  rm -rf "$stage"
+  rm -f "$archive" "$list" "$report"
+  return "$rc"
+}
+
+if [ -n "$REMOTE_RECEIVE_ID" ]; then
+  config_push_remote_receive "$REMOTE_RECEIVE_ID"
+  exit $?
+fi
 
 records=$(mktemp "${TMPDIR:-/tmp}/fm-config-push-records.XXXXXX" 2>/dev/null) || exit 1
 reports=""
@@ -112,6 +212,44 @@ seen_homes=""
 errors=0
 while IFS='|' read -r id home _window meta; do
   [ -n "$id" ] || continue
+  if fm_secondmate_remote_identity "$meta" "$SECONDMATES_MD" "$id"; then
+    remote_backend=$(grep '^backend=' "$meta" 2>/dev/null | tail -1 | cut -d= -f2- || true)
+    [ -n "$remote_backend" ] || remote_backend=tmux
+    if [ "$remote_backend" != herdr ]; then
+      printf 'secondmate %s: skipped - remote Secondmate backend must be Herdr\n' "$id"
+      errors=1
+      continue
+    fi
+    identity="$FM_REMOTE_HOST:$FM_REMOTE_HOME"
+    case " $seen_homes " in
+      *" $identity "*) printf 'secondmate %s (%s): skipped - already processed for another live meta\n' "$id" "$identity"; continue ;;
+    esac
+    seen_homes="$seen_homes $identity"
+    printf 'secondmate %s (%s):\n' "$id" "$identity"
+    archive=$(mktemp "${TMPDIR:-/tmp}/fm-config-push-archive.XXXXXX") || { errors=1; continue; }
+    reports="$reports $archive"
+    if ! config_push_archive "$archive"; then
+      echo "  inheritance: error - could not build safe archive"
+      errors=1
+      continue
+    fi
+    remote_rc=0
+    fm_ssh_run "$FM_REMOTE_HOST" env "FM_HOME=$FM_REMOTE_HOME" "FM_ROOT_OVERRIDE=$FM_REMOTE_HOME" \
+      "$FM_REMOTE_HOME/bin/fm-config-push.sh" --remote-receive "$id" <"$archive" || remote_rc=$?
+    if [ "$remote_rc" -ne 0 ]; then
+      if [ "$remote_rc" -eq "$FM_SSH_UNREACHABLE_RC" ]; then
+        echo "  inheritance: unreachable"
+      else
+        echo "  inheritance: error - remote receive unreadable"
+      fi
+      errors=1
+    fi
+    continue
+  elif [ "$?" -eq 2 ]; then
+    printf 'secondmate %s: skipped - invalid remote identity\n' "$id"
+    errors=1
+    continue
+  fi
   if [ -z "$home" ]; then
     printf 'secondmate %s: skipped - no home= in %s and no registry home\n' "$id" "$meta"
     continue

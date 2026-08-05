@@ -6,6 +6,18 @@ This record contains reusable version-scoped evidence for active runtime guarant
 The backend guides own current setup, safety boundaries, and limitations.
 Exact task chronology, branch names, temporary homes, local paths, process ids, thread ids, and delivery transcripts remain in private reports or PR evidence.
 
+## Remote Secondmate transport
+
+Stage 1 was verified hermetically on 2026-08-05 with a fake SSH executable; no test contacted a host.
+`tests/fm-remote-secondmate.test.sh` covers optional-host parsing and local absence, hostile host/path/argv rejection, strict OpenSSH options, redacted host-key and command failures, whole-operation timeout, marked-send acknowledgement, readable and unreadable remote state, explicit `unreachable`, parent-owned pending records, idempotent late replies, unreachable recovery suppression, and allowlisted config push/receive.
+Existing local compatibility remains covered by `tests/fm-send-secondmate-marker.test.sh`, `tests/fm-crew-state.test.sh`, `tests/fm-pending-reply.test.sh`, `tests/fm-secondmate-liveness.test.sh`, and `tests/fm-secondmate-sync.test.sh`.
+
+The harness axis is unchanged for Claude, Codex, OpenCode, Pi, pi-signed, Grok, and Kimi because the parent transports the already-marked text to the existing remote `fm-send.sh`; harness-specific submission remains owned there.
+The runtime-backend axis intentionally accepts only Herdr for a remote Secondmate.
+Tmux, Zellij, Orca, and cmux remain local-only for this route, and SSH is not a runtime backend.
+Herdr 0.8 native remote attach is the operator pane path and was not duplicated or live-tested in this transport-only change.
+The local GPU Agents panel does not federate remote-server rows, so Firstmate owns consolidated state while native Herdr remote attach owns full remote panes.
+
 ## tmux
 
 Foreground-process behavior was verified on 2026-07-07 with tmux 3.6a on macOS.

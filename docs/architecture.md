@@ -166,6 +166,10 @@ The same project may appear in multiple secondmate homes when their scopes diffe
 Secondmates are idle by default: after startup recovery reconciles only work already in their own home, an empty queue waits silently for routed tasks, and they never self-initiate surveys or audits.
 When called with `FM_HOME=<this-firstmate-home>` or when `FM_HOME` is already set to the active firstmate home, metadata-routed `fm-send.sh` requests to a live `kind=secondmate` use the live-charter-compatible `from-firstmate` carrier owned by `bin/fm-operational-input.sh`, so the secondmate returns terse answers through status lines and detailed answers through docs plus status pointers instead of replying only in its own chat.
 The parent guards every marked request against a missing correlated report without reading the secondmate conversation; `bin/fm-pending-reply-lib.sh` owns the correlation, recovery, escalation, and retention contract.
+For a route with the optional `host:` field, the parent keeps that pending-reply record locally and uses strict parent-initiated OpenSSH to run the existing `fm-send.sh`, `fm-crew-state.sh`, and config-push owner in the remote home.
+Remote status is read over the same boundary, so a late correlated reply resolves the parent record idempotently after connectivity returns.
+Transport loss is `unreachable` and freezes recovery delivery for that expectation; it never becomes endpoint death or local relaunch authority.
+This boundary is not a runtime backend, reverse tunnel, shared filesystem, or per-worker remote execution facility.
 Explicit backend-target sends and direct human typing stay unmarked, so captain intervention in a secondmate pane remains conversational.
 After seeding a secondmate, `fm-backlog-handoff.sh` validates the fleet-specific handoff, then atomically delegates already-judged in-scope queued item moves to `tasks-axi mv` so the domain queue starts in the right place.
 Idle secondmate panes are healthy; teardown is explicit and refuses while the secondmate home has in-flight work unless the captain has approved discard with `--force`.

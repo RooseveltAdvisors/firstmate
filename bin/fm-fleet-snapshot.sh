@@ -399,7 +399,7 @@ backlog_json() {  # [<backlog-path>] - defaults to this home's $BACKLOG
 
 task_json_lines() {
   local meta id kind harness mode yolo project worktree home projects backend target status_log report_path
-  local pr pr_source event_json current_json endpoint_exists agent_alive meta_json status_json report_json worktree_json home_json
+  local pr pr_source event_json current_json endpoint_exists agent_alive meta_json status_json report_json worktree_json home_json remote
   local last_event_raw current_state current_source pending_decision blocked_event report_present=0 pr_from_status
   local open_decisions_tsv open_decisions_json
 
@@ -467,8 +467,12 @@ task_json_lines() {
     pending_decision=$(printf '%s' "$open_decisions_json" | jq 'if any(.[]; .verb == "needs-decision") then 1 else 0 end')
     blocked_event=$(printf '%s' "$open_decisions_json" | jq 'if any(.[]; .verb == "blocked") then 1 else 0 end')
 
+    remote=0
+    if [ "$kind" = secondmate ] && fm_secondmate_remote_identity "$meta" "$DATA/secondmates.md" "$id"; then
+      remote=1
+    fi
     endpoint_exists=null
-    if [ -n "$target" ]; then
+    if [ "$remote" = 0 ] && [ -n "$target" ]; then
       if fm_backend_target_exists "$backend" "$target" "fm-$id" >/dev/null 2>&1; then
         endpoint_exists=true
       else
@@ -476,7 +480,9 @@ task_json_lines() {
       fi
     fi
     agent_alive=not_checked
-    if [ "$kind" = secondmate ] && [ -n "$target" ]; then
+    if [ "$remote" = 1 ]; then
+      case "$current_state" in unreachable) agent_alive=unreachable ;; *) agent_alive=unknown ;; esac
+    elif [ "$kind" = secondmate ] && [ -n "$target" ]; then
       agent_alive=$(fm_backend_agent_alive "$backend" "$target" 2>/dev/null || printf unknown)
     fi
 
@@ -485,7 +491,9 @@ task_json_lines() {
     status_json=$event_json
     report_json=$(path_present_json "$report_path")
     if [ -n "$worktree" ]; then worktree_json=$(path_present_json "$worktree"); else worktree_json=$(jq -n '{path:null,present:false}'); fi
-    if [ -n "$home" ]; then home_json=$(path_present_json "$home"); else home_json=$(jq -n '{path:null,present:false}'); fi
+    if [ "$remote" = 1 ]; then
+      home_json=$(jq -n --arg path "$home" '{path:$path,present:null}')
+    elif [ -n "$home" ]; then home_json=$(path_present_json "$home"); else home_json=$(jq -n '{path:null,present:false}'); fi
 
     jq -n \
       --arg id "$id" \
@@ -533,7 +541,8 @@ task_json_lines() {
         secondmate_projects:($projects | if . == "" then [] else split(",") | map(gsub("^[[:space:]]+|[[:space:]]+$"; "")) | map(select(. != "")) end),
         current_state:($current_state + {observed_at:$observed_at,freshness:"fresh"}),
         endpoint:{target:($target | if . == "" then null else . end),exists:$endpoint_exists,agent_alive:$agent_alive,
-          status:(if $endpoint_exists == false then "absent"
+          status:(if $agent_alive == "unreachable" then "unreachable"
+                  elif $endpoint_exists == false then "absent"
                   elif $agent_alive == "alive" or $agent_alive == "dead" then $agent_alive
                   else "unknown" end),
           observed_at:$observed_at,freshness:"fresh"},

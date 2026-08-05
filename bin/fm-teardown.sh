@@ -106,6 +106,8 @@ SUB_HOME_MARKER=".fm-secondmate-home"
 . "$SCRIPT_DIR/fm-gate-refuse-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
+# shellcheck source=bin/fm-ssh-lib.sh
+. "$SCRIPT_DIR/fm-ssh-lib.sh"
 if [ "$#" -lt 1 ] || ! fm_task_id_path_safe "$1"; then
   echo "error: invalid teardown request" >&2
   exit 2
@@ -138,6 +140,13 @@ ORCA_PATH_MATCH_VERIFIED=0
 
 KIND=$(grep '^kind=' "$META" | cut -d= -f2- || true)
 [ -n "$KIND" ] || KIND=ship
+if [ "$KIND" = secondmate ]; then
+  REMOTE_HOST=$(fm_secondmate_registry_field "$SECONDMATE_REG" "$ID" host 2>/dev/null || true)
+  if [ -n "$REMOTE_HOST" ]; then
+    echo "REFUSED: secondmate $ID is on remote host $REMOTE_HOST; remote retirement belongs to Stage 2" >&2
+    exit 1
+  fi
+fi
 MODE=$(grep '^mode=' "$META" | cut -d= -f2- || true)
 [ -n "$MODE" ] || MODE=no-mistakes
 
