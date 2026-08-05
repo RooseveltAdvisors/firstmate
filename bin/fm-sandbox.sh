@@ -62,6 +62,19 @@ SBX="${FM_SANDBOX_SBX:-sbx}"
 KIT="$FM_ROOT/assets/sandbox-kits/firstmate-codex"
 PROFILE=codex-github-bun-v1
 SCHEMA=fm-sandbox-owner.v1
+HOST_LOCK_ROOT="${FM_SANDBOX_HOST_LOCK_ROOT:-/tmp/firstmate-sandbox-host-locks}"
+HOST_LOCK=
+HOST_LOCK_HELD=0
+PREPARE_ROLLBACK_ACTIVE=0
+PREPARE_TASK=
+PREPARE_OWNER=
+PREPARE_TASK_TMP=
+PREPARE_WORKCOPY=
+PREPARE_NAME=
+PREPARE_HOST=
+PREPARE_NONCE=
+PREPARE_SBX_ID=
+PREPARE_RESERVATION=
 
 usage() {
   sed -n '2,50p' "$0" | sed 's/^# \{0,1\}//'
@@ -71,6 +84,20 @@ die() {
   echo "error: $*" >&2
   exit 1
 }
+
+sandbox_exit_cleanup() {
+  local status=$?
+  if [ "$PREPARE_ROLLBACK_ACTIVE" = 1 ]; then
+    prepare_rollback || true
+  fi
+  if [ "$HOST_LOCK_HELD" = 1 ]; then
+    HOST_LOCK_HELD=0
+    fm_lock_release "$HOST_LOCK" || true
+  fi
+  return "$status"
+}
+
+trap sandbox_exit_cleanup EXIT
 
 valid_id() {
   [[ ${1:-} =~ ^[a-zA-Z0-9_:-]+$ ]]
@@ -375,10 +402,18 @@ EOF
 }
 
 policy_expect() { # <name> <allowed|denied> <target>
-  local name=$1 expected=$2 target=$3 out
-  out=$("$SBX" policy check network --sandbox "$name" "$target" 2>&1) || true
-  case "$expected:$out" in
-    allowed:Allowed:*|allowed:*allowed*|denied:Denied:*|denied:*denied*) return 0 ;;
+  local name=$1 expected=$2 target=$3 out status decision
+  set +e
+  out=$("$SBX" policy check network --sandbox "$name" "$target" 2>&1)
+  status=$?
+  set -e
+  [ "$status" = 0 ] || {
+    echo "error: sandbox policy check failed for $target with status $status; got: $out" >&2
+    return 1
+  }
+  decision=${out%%:*}
+  case "$decision:$expected" in
+    Allowed:allowed|Denied:denied) return 0 ;;
   esac
   echo "error: sandbox policy expected $expected for $target; got: $out" >&2
   return 1
@@ -413,9 +448,192 @@ $marker
 EOF
 }
 
+acquire_host_lock() { # <host>
+  local host=$1 host_dir
+  if ! declare -F fm_lock_acquire_wait >/dev/null 2>&1; then
+    # shellcheck source=bin/fm-wake-lib.sh
+    . "$SCRIPT_DIR/fm-wake-lib.sh"
+  fi
+  if [ -e "$HOST_LOCK_ROOT" ] || [ -L "$HOST_LOCK_ROOT" ]; then
+    [ -d "$HOST_LOCK_ROOT" ] && [ ! -L "$HOST_LOCK_ROOT" ] || die "sandbox host lock root is not a regular directory"
+  else
+    (umask 077; mkdir "$HOST_LOCK_ROOT") || die "could not create sandbox host lock root"
+  fi
+  host_dir="$HOST_LOCK_ROOT/$host"
+  (umask 077; mkdir -p "$host_dir/reservations") || die "could not create sandbox host reservation directory"
+  [ -d "$host_dir" ] && [ ! -L "$host_dir" ] || die "sandbox host lock directory is not a regular directory"
+  [ -d "$host_dir/reservations" ] && [ ! -L "$host_dir/reservations" ] \
+    || die "sandbox host reservation directory is not a regular directory"
+  HOST_LOCK="$host_dir/lock"
+  fm_lock_acquire_wait "$HOST_LOCK" || die "could not acquire sandbox host lock for $host"
+  HOST_LOCK_HELD=1
+}
+
+reservation_path() { # <host> <nonce>
+  printf '%s/%s/reservations/%s.json\n' "$HOST_LOCK_ROOT" "$1" "$2"
+}
+
+write_reservation() { # <path> <task> <host> <name> <nonce> <owner>
+  local path=$1 task=$2 host=$3 name=$4 nonce=$5 owner=$6 tmp now
+  now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  tmp=$(mktemp "${path}.tmp.XXXXXX")
+  if jq -n --arg schema fm-sandbox-reservation.v1 --arg task "$task" \
+      --arg host "$host" --arg name "$name" --arg nonce "$nonce" --arg owner "$owner" \
+      --arg pid "${BASHPID:-$$}" --arg now "$now" \
+      '{schema:$schema,task_id:$task,host_id:$host,sandbox_name:$name,nonce:$nonce,owner:$owner,pid:$pid,created_at:$now}' \
+      > "$tmp"; then
+    chmod 600 "$tmp"
+    mv "$tmp" "$path"
+  else
+    rm -f "$tmp"
+    return 1
+  fi
+}
+
+reservation_is_active() { # <reservation>
+  local path=$1 owner pid lifecycle sbx_id
+  [ -f "$path" ] && [ ! -L "$path" ] || return 1
+  owner=$(jq -r '.owner // empty' "$path" 2>/dev/null || true)
+  pid=$(jq -r '.pid // empty' "$path" 2>/dev/null || true)
+  if [ -f "$owner" ] && [ ! -L "$owner" ]; then
+    lifecycle=$(jq -r '.lifecycle // empty' "$owner" 2>/dev/null || true)
+    [ "$lifecycle" != removed ] || return 1
+    sbx_id=$(jq -r '.sandbox_id // empty' "$owner" 2>/dev/null || true)
+    [ -n "$sbx_id" ] && [ "$sbx_id" != null ] && return 0
+  fi
+  fm_pid_alive "$pid"
+}
+
+reserve_host_slot() { # <task> <host> <name> <nonce> <owner> <max> <existing>
+  local task=$1 host=$2 name=$3 nonce=$4 owner=$5 max=$6 existing=$7
+  local path reservation active=0
+  path=$(reservation_path "$host" "$nonce")
+  if [ -e "$path" ] || [ -L "$path" ]; then
+    [ -f "$path" ] && [ ! -L "$path" ] || die "sandbox host reservation is not a regular file"
+    jq -e --arg task "$task" --arg host "$host" --arg name "$name" --arg nonce "$nonce" --arg owner "$owner" \
+      '.schema == "fm-sandbox-reservation.v1" and .task_id == $task and .host_id == $host and .sandbox_name == $name and .nonce == $nonce and .owner == $owner' \
+      "$path" >/dev/null || die "sandbox host reservation identity mismatch"
+    PREPARE_RESERVATION="$path"
+    return 0
+  fi
+  if [ "$existing" != 1 ]; then
+    for reservation in "$HOST_LOCK_ROOT/$host/reservations"/*.json; do
+      [ -f "$reservation" ] && [ ! -L "$reservation" ] || continue
+      if reservation_is_active "$reservation"; then
+        active=$((active + 1))
+      else
+        rm -f "$reservation"
+      fi
+    done
+    [ "$active" -lt "$max" ] || die "sandbox host $host is at configured maxConcurrent=$max"
+  fi
+  write_reservation "$path" "$task" "$host" "$name" "$nonce" "$owner" \
+    || die "could not publish sandbox host reservation"
+  PREPARE_RESERVATION="$path"
+}
+
+release_reservation() { # <path> <task> <host> <name> <nonce> <owner>
+  local path=$1 task=$2 host=$3 name=$4 nonce=$5 owner=$6
+  [ -f "$path" ] && [ ! -L "$path" ] || return 1
+  jq -e --arg task "$task" --arg host "$host" --arg name "$name" --arg nonce "$nonce" --arg owner "$owner" \
+    '.schema == "fm-sandbox-reservation.v1" and .task_id == $task and .host_id == $host and .sandbox_name == $name and .nonce == $nonce and .owner == $owner' \
+    "$path" >/dev/null || return 1
+  rm -f "$path"
+}
+
+ensure_task_root() { # <path>
+  local tasktmp=$1 parent parent_real tasktmp_real old_umask
+  [ "$tasktmp" = /tmp/* ] || die "sandbox task temp root must be under /tmp"
+  parent=$(dirname "$tasktmp")
+  [ -d "$parent" ] || die "sandbox task temp parent is missing"
+  parent_real=$(cd "$parent" && pwd -P) || die "sandbox task temp parent cannot be resolved"
+  if [ -e "$tasktmp" ] || [ -L "$tasktmp" ]; then
+    [ -d "$tasktmp" ] && [ ! -L "$tasktmp" ] || die "sandbox task temp root is missing or symlinked"
+  else
+    old_umask=$(umask)
+    umask 077
+    mkdir "$tasktmp"
+    umask "$old_umask"
+  fi
+  [ -d "$tasktmp" ] && [ ! -L "$tasktmp" ] && [ -O "$tasktmp" ] \
+    || die "sandbox task temp root is not owned by the controller"
+  tasktmp_real=$(cd "$tasktmp" && pwd -P) || die "sandbox task temp root cannot be resolved"
+  [ "$tasktmp_real" = "$parent_real/$(basename "$tasktmp")" ] \
+    || die "sandbox task temp root resolves outside its parent"
+  chmod 700 "$tasktmp"
+}
+
+prepare_owner_matches() {
+  [ -f "$PREPARE_OWNER" ] && [ ! -L "$PREPARE_OWNER" ] || return 1
+  jq -e --arg schema "$SCHEMA" --arg task "$PREPARE_TASK" --arg host "$PREPARE_HOST" \
+    --arg name "$PREPARE_NAME" --arg nonce "$PREPARE_NONCE" --arg workcopy "$PREPARE_WORKCOPY" \
+    '.schema == $schema and .task_id == $task and .host_id == $host and .sandbox_name == $name and .nonce == $nonce and .workcopy == $workcopy' \
+    "$PREPARE_OWNER" >/dev/null 2>&1
+}
+
+prepare_rollback() {
+  local candidate candidate_id candidate_workspace marker sandbox_present=0 removed=0 now
+  [ "$PREPARE_ROLLBACK_ACTIVE" = 1 ] || return 0
+  PREPARE_ROLLBACK_ACTIVE=0
+  if [ -n "$PREPARE_NAME" ]; then
+    if [ -n "$PREPARE_SBX_ID" ]; then
+      candidate=$(inventory_match "$PREPARE_NAME" "$PREPARE_SBX_ID" 2>/dev/null || true)
+    else
+      candidate=$(inventory_match "$PREPARE_NAME" 2>/dev/null || true)
+    fi
+    if [ -n "$candidate" ]; then
+      candidate_id=$(jq -r '.id // empty' <<EOF
+$candidate
+EOF
+)
+      candidate_workspace=$(jq -r '.workspace // .path // empty' <<EOF
+$candidate
+EOF
+)
+      if [ -n "$candidate_id" ] && { [ -z "$candidate_workspace" ] || [ "$candidate_workspace" = "$PREPARE_WORKCOPY" ]; }; then
+        marker=$("$SBX" exec "$PREPARE_NAME" -- cat /etc/firstmate-owner 2>/dev/null || true)
+        if [ -z "$marker" ]; then
+          write_owner_marker "$PREPARE_NAME" "$PREPARE_TASK" "$PREPARE_HOST" "$candidate_id" "$PREPARE_NONCE" \
+            >/dev/null 2>&1 || true
+        fi
+        if verify_owner_marker "$PREPARE_NAME" "$PREPARE_TASK" "$PREPARE_HOST" "$candidate_id" "$PREPARE_NONCE"; then
+          if "$SBX" rm --force "$PREPARE_NAME" >/dev/null 2>&1 \
+             && ! inventory_match "$PREPARE_NAME" "$candidate_id" >/dev/null 2>&1; then
+            removed=1
+          else
+            sandbox_present=1
+          fi
+        else
+          sandbox_present=1
+        fi
+      else
+        sandbox_present=1
+      fi
+    fi
+  fi
+  if [ "$sandbox_present" = 0 ] && [ "$removed" = 1 -o -z "$candidate" ]; then
+    if [ -d "$PREPARE_WORKCOPY" ] && [ ! -L "$PREPARE_WORKCOPY" ] \
+       && [ "$PREPARE_WORKCOPY" = "$PREPARE_TASK_TMP/sandbox/workcopy" ]; then
+      rm -rf "$PREPARE_WORKCOPY"
+    fi
+    if prepare_owner_matches; then
+      rm -f "$PREPARE_OWNER"
+    fi
+    if [ -n "$PREPARE_RESERVATION" ]; then
+      release_reservation "$PREPARE_RESERVATION" "$PREPARE_TASK" "$PREPARE_HOST" \
+        "$PREPARE_NAME" "$PREPARE_NONCE" "$PREPARE_OWNER" || true
+    fi
+  elif prepare_owner_matches; then
+    now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    sidecar_update "$PREPARE_OWNER" '.lifecycle="failed" | .failure="sandbox preparation failed; inspect ownership before retry" | .updated_at=$now' \
+      --arg now "$now" || true
+    echo "warning: sandbox preparation failed with an owned sandbox still present; preserving its journal for exact recovery" >&2
+  fi
+}
+
 prepare() { # <task>
   local id=$1 meta host profile name nonce owner source tasktmp workcopy branch commit host_data brief_source
-  local cpus memory max active existing sbx_obj sbx_id now tmp token github_token openai_auth
+  local cpus memory max sbx_obj sbx_id now tmp token github_token openai_auth
   validate_task_meta "$id"
   enabled || die "sandbox rollout is disabled; $ENABLE_FILE must contain exactly v1"
   meta="$STATE/$id.meta"
@@ -427,6 +645,7 @@ prepare() { # <task>
   source=$(meta_exact "$meta" worktree) || die "sandbox task has no exact worktree"
   tasktmp=$(meta_exact "$meta" tasktmp) || die "sandbox task has no exact task temp root"
   [ "$tasktmp" = "/tmp/fm-$id" ] || die "sandbox task temp root is not task-bound"
+  ensure_task_root "$tasktmp"
   [ -d "$source" ] && [ ! -L "$source" ] || die "sandbox source worktree is missing or symlinked"
   [ "$(git -C "$source" rev-parse --show-toplevel 2>/dev/null)" = "$source" ] \
     || die "sandbox source is not an exact git worktree root"
@@ -448,16 +667,18 @@ EOF
     || die "sandbox host $host does not permit profile $PROFILE"
 $host_data
 EOF
-  active=0
-  for existing in "$STATE"/*.sandbox.json; do
-    [ -f "$existing" ] || continue
-    if jq -e --arg host "$host" '.host_id == $host and (.lifecycle | IN("creating","created","running","stopped"))' "$existing" >/dev/null 2>&1; then
-      active=$((active + 1))
-    fi
-  done
+  PREPARE_TASK=$id
+  PREPARE_OWNER=$owner
+  PREPARE_TASK_TMP=$tasktmp
+  PREPARE_WORKCOPY="$tasktmp/sandbox/workcopy"
+  PREPARE_NAME=$name
+  PREPARE_HOST=$host
+  PREPARE_NONCE=$nonce
+  acquire_host_lock "$host"
   if [ -f "$owner" ]; then
     sbx_id=$(jq -r '.sandbox_id // empty' "$owner")
     [ -n "$sbx_id" ] || die "existing sandbox journal has no stable sandbox id"
+    reserve_host_slot "$id" "$host" "$name" "$nonce" "$owner" "$max" 1
     inventory_match "$name" "$sbx_id" >/dev/null || die "existing sandbox inventory does not match its ownership journal"
     verify_owner_marker "$name" "$id" "$host" "$sbx_id" "$nonce" \
       || die "existing sandbox ownership marker does not match"
@@ -480,13 +701,14 @@ EOF
     fi
     return 0
   fi
-  [ "$active" -lt "$max" ] || die "sandbox host $host is at configured maxConcurrent=$max"
+  PREPARE_ROLLBACK_ACTIVE=1
+  reserve_host_slot "$id" "$host" "$name" "$nonce" "$owner" "$max" 0
   token=${FM_SANDBOX_OPENAI_API_KEY:-}
   [ -n "$token" ] || die "new sandbox requires ephemeral FM_SANDBOX_OPENAI_API_KEY; subscription OAuth is unsupported"
   github_token=${FM_SANDBOX_GITHUB_TOKEN:-}
   workcopy="$tasktmp/sandbox/workcopy"
   [ ! -e "$tasktmp/sandbox" ] || die "sandbox task directory already exists without an ownership journal"
-  mkdir -p "$tasktmp/sandbox"
+  (umask 077; mkdir "$tasktmp/sandbox")
   git clone --quiet --no-local --no-hardlinks "$source" "$workcopy"
   branch=$(git -C "$source" symbolic-ref --quiet --short HEAD) || die "sandbox source must be on a named branch"
   commit=$(git -C "$source" rev-parse HEAD)
@@ -508,6 +730,7 @@ EOF
       workcopy:$workcopy,source_worktree:$source,source_branch:$branch,
       source_commit:$commit,synced_commit:$commit,limits:{cpus:$cpus,memory:$memory},
       lifecycle:"creating",openai_auth:"absent",github_auth:"absent",
+      host_reservation:$nonce,
       created_at:$now,updated_at:$now}' > "$tmp"
   chmod 600 "$tmp"
   mv "$tmp" "$owner"
@@ -538,9 +761,10 @@ EOF
       --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   else
     # shellcheck disable=SC2016
-    sidecar_update "$owner" '.github_auth="absent" | .updated_at=$now' \
-      --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      sidecar_update "$owner" '.github_auth="absent" | .updated_at=$now' \
+        --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   fi
+  PREPARE_ROLLBACK_ACTIVE=0
 }
 
 sync_commits() { # <task>
