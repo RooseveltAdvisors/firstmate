@@ -14,6 +14,7 @@ SBX_LOG="$TMP_ROOT/sbx.log"
 SOURCE="$TMP_ROOT/source"
 TASK_BASE="$TMP_ROOT/task-roots"
 SCRIPT="$ROOT/bin/fm-sandbox.sh"
+REAL_MKDIR=$(command -v mkdir)
 
 ID_MAIN="sbxmain$$"
 ID_ROLLBACK="sbxrollback$$"
@@ -34,6 +35,7 @@ ID_EQUAL="sbxequal$$"
 ID_SOURCE_GONE="sbxsourcegone$$"
 ID_SOURCE_REUSE="sbxsourcereuse$$"
 ID_IGNORED="sbxignored$$"
+ID_COORD="sbxcoord$$"
 
 NONCE_MAIN=11111111111111111111111111111111
 NONCE_ROLLBACK=22222222222222222222222222222222
@@ -54,6 +56,7 @@ NONCE_EQUAL=16161616161616161616161616161616
 NONCE_SOURCE_GONE=17171717171717171717171717171717
 NONCE_SOURCE_REUSE=19191919191919191919191919191919
 NONCE_IGNORED=18181818181818181818181818181818
+NONCE_COORD=20202020202020202020202020202020
 
 cleanup_test() {
   local id
@@ -61,7 +64,7 @@ cleanup_test() {
     "$ID_CLEAN_LOCAL_CRASH" "$ID_CLEAN_RELEASE_CRASH" "$ID_RESERVATION_CRASH" \
     "$ID_ROLLBACK_CRASH" "$ID_CAP_A" "$ID_CAP_B" "$ID_LINK" "$ID_RACE" \
     "$ID_PARTIAL" "$ID_MISSING" "$ID_OVERLAP" "$ID_EQUAL" "$ID_SOURCE_GONE" \
-    "$ID_SOURCE_REUSE" "$ID_IGNORED"; do
+    "$ID_SOURCE_REUSE" "$ID_IGNORED" "$ID_COORD"; do
     rm -rf -- "$TASK_BASE/fm-$id"
   done
   fm_test_cleanup
@@ -87,13 +90,25 @@ esac
 SH
 chmod +x "$FAKEBIN/sbx"
 
+cat > "$FAKEBIN/mkdir" <<'SH'
+#!/usr/bin/env bash
+set -eu
+if [ "${FM_SANDBOX_TEST_COORDINATION_RACE:-}" = 1 ] \
+    && [ "$#" = 1 ] && [ "$1" = "${FM_SANDBOX_COORDINATION_ROOT:-}" ]; then
+  "$FM_REAL_MKDIR" "$@"
+  exit 1
+fi
+exec "$FM_REAL_MKDIR" "$@"
+SH
+chmod +x "$FAKEBIN/mkdir"
+
 run_sandbox() {
   PATH="$FAKEBIN:$PATH" \
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$TMP_ROOT" FM_STATE_OVERRIDE="$STATE" \
     FM_CONFIG_OVERRIDE="$CONFIG" FM_SANDBOX_HOSTS_OVERRIDE="${FM_SANDBOX_HOSTS_OVERRIDE:-$HOSTS}" \
     FM_SANDBOX_TASK_ROOT_BASE="${FM_SANDBOX_TASK_ROOT_BASE:-$TASK_BASE}" \
     FM_SANDBOX_HOSTNAME=sandbox-test-host FM_SANDBOX_KVM_PATH=/dev/null \
-    FM_SANDBOX_SBX=sbx FM_FAKE_SBX_LOG="$SBX_LOG" \
+    FM_SANDBOX_SBX=sbx FM_FAKE_SBX_LOG="$SBX_LOG" FM_REAL_MKDIR="$REAL_MKDIR" \
     "$SCRIPT" "$@"
 }
 
@@ -176,6 +191,15 @@ EOF
     fail "inventory accepted a non-deny-all contract"
   fi
   pass "fm-sandbox: inventory and doctor are read-only, role-aware, and deny-by-default"
+}
+
+test_concurrent_coordination_initialization() {
+  local coordination="$STATE/concurrent-coordination"
+  FM_SANDBOX_COORDINATION_ROOT="$coordination" \
+    FM_SANDBOX_TEST_COORDINATION_RACE=1 \
+    prepare_task "$ID_COORD" "$NONCE_COORD"
+  FM_SANDBOX_COORDINATION_ROOT="$coordination" run_sandbox rollback "$ID_COORD"
+  pass "fm-sandbox: concurrent first-use coordination initialization is idempotent"
 }
 
 test_prepare_commit_and_cleanup_journal() {
@@ -493,6 +517,7 @@ test_stage2_is_absent() {
 
 make_source
 test_inventory_doctor_and_policy_contract
+test_concurrent_coordination_initialization
 test_prepare_commit_and_cleanup_journal
 test_rollback_and_crash_recovery
 test_atomic_capacity_and_path_custody

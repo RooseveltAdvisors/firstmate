@@ -304,7 +304,10 @@ ensure_owned_dir() {
   else
     parent=$(dirname "$path")
     [ -d "$parent" ] && [ ! -L "$parent" ] && [ -O "$parent" ] || die "unsafe sandbox directory parent: $parent"
-    (umask 077; mkdir "$path") || die "could not create sandbox directory: $path"
+    if ! (umask 077; mkdir "$path"); then
+      [ -d "$path" ] && [ ! -L "$path" ] && [ -O "$path" ] \
+        || die "could not create sandbox directory: $path"
+    fi
   fi
   chmod 700 "$path" || die "could not restrict sandbox directory: $path"
 }
