@@ -59,7 +59,7 @@ Full detail on every feature lives in [docs/architecture.md](docs/architecture.m
 ### Requirements
 
 - A verified primary agent harness: Claude Code, Grok, Pi, `pi-signed`, Codex, or OpenCode.
-- Git and the GitHub CLI, authenticated through `gh auth login`.
+- Git, Node.js, and the GitHub CLI, authenticated through `gh auth login`.
 - The CLI and dependencies for your selected runtime backend; tmux is the reference default.
 
 The first mate detects and offers to install supported missing tools after you approve.

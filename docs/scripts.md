@@ -81,7 +81,7 @@ The shared no-mistakes gate refusal for fleet lifecycle entrypoints is summarize
 | `fm-pr-lib.sh`           | Own canonical task and PR validation plus private atomic PR-poll publication and identity-bound retirement |
 | `fm-pr-review-conversations.mjs` | Require a complete forge response proving zero unresolved GitHub review threads or GitLab discussions |
 | `fm-pr-poll.sh`          | Provide the byte-static watcher program for validated PR/MR-poll sidecars           |
-| `fm-pr-check-migrate.sh` | Quarantine older task polls without execution and rebuild only canonical polls       |
+| `fm-pr-check-migrate.sh` | Quarantine older task polls without execution and rebuild only canonical review-ready polls |
 | `fm-pr-check.sh`         | Verify review conversations, record validated PR metadata, then atomically arm a static merge poll |
 | `fm-pr-merge.sh`         | Record PR metadata, recheck review conversations, then merge a canonical GitHub URL  |
 | `fm-promote.sh`          | Promote a scout task in place to a protected ship task                               |
