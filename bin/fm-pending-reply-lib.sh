@@ -1012,7 +1012,7 @@ fm_pending_reply_tick() {  # <state-dir>
                 remote_state_result=unreadable
               fi
             fi
-            remote_state_results[$remote_index]=$remote_state_result
+            remote_state_results[remote_index]=$remote_state_result
           fi
           case "$remote_state_result" in
             busy|idle|unknown) busy=$remote_state_result ;;
