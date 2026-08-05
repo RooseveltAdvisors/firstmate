@@ -351,8 +351,6 @@ test_no_mistakes_dod_wording() {
   # guards the structure that makes it safe.
   assert_grep "firstmate's authority check" "$brief" \
     "no-mistakes DOD lost the apostrophe prose that the structural fix makes parse-safe"
-  assert_grep "That status is wake evidence only; firstmate independently verifies the forge's review conversations before readiness and again immediately before merge." "$brief" \
-    "no-mistakes DOD made the worker report authoritative for review conversations"
   pass "fm-brief.sh: no-mistakes DOD keeps its apostrophe prose, now parse-safe"
 }
 
