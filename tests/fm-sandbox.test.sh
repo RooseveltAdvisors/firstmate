@@ -36,6 +36,7 @@ ID_SOURCE_GONE="sbxsourcegone$$"
 ID_SOURCE_REUSE="sbxsourcereuse$$"
 ID_IGNORED="sbxignored$$"
 ID_COORD="sbxcoord$$"
+ID_INERT="sbxinert$$"
 
 NONCE_MAIN=11111111111111111111111111111111
 NONCE_ROLLBACK=22222222222222222222222222222222
@@ -57,6 +58,7 @@ NONCE_SOURCE_GONE=17171717171717171717171717171717
 NONCE_SOURCE_REUSE=19191919191919191919191919191919
 NONCE_IGNORED=18181818181818181818181818181818
 NONCE_COORD=20202020202020202020202020202020
+NONCE_INERT=21212121212121212121212121212121
 
 cleanup_test() {
   local id
@@ -64,7 +66,7 @@ cleanup_test() {
     "$ID_CLEAN_LOCAL_CRASH" "$ID_CLEAN_RELEASE_CRASH" "$ID_RESERVATION_CRASH" \
     "$ID_ROLLBACK_CRASH" "$ID_CAP_A" "$ID_CAP_B" "$ID_LINK" "$ID_RACE" \
     "$ID_PARTIAL" "$ID_MISSING" "$ID_OVERLAP" "$ID_EQUAL" "$ID_SOURCE_GONE" \
-    "$ID_SOURCE_REUSE" "$ID_IGNORED" "$ID_COORD"; do
+    "$ID_SOURCE_REUSE" "$ID_IGNORED" "$ID_COORD" "$ID_INERT"; do
     rm -rf -- "$TASK_BASE/fm-$id"
   done
   fm_test_cleanup
@@ -90,6 +92,33 @@ esac
 SH
 chmod +x "$FAKEBIN/sbx"
 
+# Every external tool a live Stage 2 would need, shadowed by a recorder that
+# logs its argv and refuses. Inertness is then observed from what the scripts
+# actually execute across this whole suite, so an indirect spelling such as
+# `op=create; "$SBX" "$op"` is caught exactly like a literal `"$SBX" create`.
+DENY_LOG="$TMP_ROOT/denied.log"
+: > "$DENY_LOG"
+for stage2_tool in docker podman ssh scp herdr op; do
+  cat > "$FAKEBIN/$stage2_tool" <<'SH'
+#!/usr/bin/env bash
+printf '%s %s\n' "${0##*/}" "$*" >> "$FM_FAKE_DENY_LOG"
+exit 42
+SH
+  chmod +x "$FAKEBIN/$stage2_tool"
+done
+
+# Ambient host state a live Stage 2 would want and Stage 1 must never touch:
+# provider credentials, a reachable Docker endpoint, host SSH and 1Password
+# material. Each carries a sentinel that must not surface in any artifact.
+HOST_HOME="$TMP_ROOT/host-home"
+SENTINEL_CREDENTIAL='stage2-provider-credential-must-not-leak'
+SENTINEL_SSH='stage2-host-ssh-material-must-not-leak'
+SENTINEL_OP='stage2-1password-item-must-not-leak'
+SENTINEL_DOCKER='tcp://stage2-docker-endpoint.invalid:2375'
+mkdir -p "$HOST_HOME/.ssh" "$HOST_HOME/.config/op"
+printf '%s\n' "$SENTINEL_SSH" > "$HOST_HOME/.ssh/id_ed25519"
+printf '%s\n' "$SENTINEL_OP" > "$HOST_HOME/.config/op/config"
+
 cat > "$FAKEBIN/mkdir" <<'SH'
 #!/usr/bin/env bash
 set -eu
@@ -109,8 +138,18 @@ run_sandbox() {
     FM_SANDBOX_TASK_ROOT_BASE="${FM_SANDBOX_TASK_ROOT_BASE:-$TASK_BASE}" \
     FM_SANDBOX_HOSTNAME=sandbox-test-host FM_SANDBOX_KVM_PATH=/dev/null \
     FM_SANDBOX_SBX=sbx FM_FAKE_SBX_LOG="$SBX_LOG" FM_REAL_MKDIR="$REAL_MKDIR" \
+    FM_FAKE_DENY_LOG="$DENY_LOG" \
     "$SCRIPT" "$@"
 }
+
+# run_sandbox with the ambient host state a live Stage 2 would consume. A
+# subshell so the poisoned environment cannot leak into the next call.
+run_sandbox_poisoned() (
+  export HOME="$HOST_HOME" DOCKER_HOST="$SENTINEL_DOCKER" \
+    FM_SANDBOX_OPENAI_API_KEY="$SENTINEL_CREDENTIAL" \
+    OPENAI_API_KEY="$SENTINEL_CREDENTIAL" ANTHROPIC_API_KEY="$SENTINEL_CREDENTIAL"
+  run_sandbox "$@"
+)
 
 task_root() {
   printf '%s/fm-%s\n' "$TASK_BASE" "$1"
@@ -486,27 +525,37 @@ test_source_and_task_roots_do_not_overlap() {
   pass "fm-sandbox: source and task-root boundaries are disjoint before custody"
 }
 
+# Stage 1 inertness, proven by execution rather than by reading the scripts.
+# The whole verb surface runs once more under an environment carrying provider
+# credentials, a host Docker endpoint, and host SSH/1Password material; the
+# recorders installed above then answer, for this run and every earlier test in
+# the file, what Stage 1 actually executed.
 test_stage2_is_absent() {
-  local sandbox spawn teardown
-  sandbox=$(cat "$SCRIPT")
-  spawn=$(cat "$ROOT/bin/fm-spawn.sh")
-  teardown=$(cat "$ROOT/bin/fm-teardown.sh")
-  assert_not_contains "$spawn" '--sandbox-host' "Stage 1 is wired into worker spawn"
-  assert_not_contains "$teardown" 'fm-sandbox.sh' "Stage 1 is wired into task teardown"
-  assert_not_contains "$sandbox" 'FM_SANDBOX_OPENAI_API_KEY' "Stage 1 accepts provider credentials"
-  assert_not_contains "$sandbox" 'secret set' "Stage 1 injects sandbox secrets"
-  assert_not_contains "$sandbox" 'lab-proof)' "Stage 1 exposes the deferred real proof"
-  assert_not_contains "$sandbox" 'herdr ' "Stage 1 reaches Herdr or a default Herdr session"
-  assert_not_contains "$sandbox" "\"\$SBX\" create" "Stage 1 creates a live microVM"
-  assert_not_contains "$sandbox" "\"\$SBX\" run" "Stage 1 launches a worker"
-  assert_not_contains "$sandbox" "\"\$SBX\" rm" "Stage 1 removes an external sandbox"
-  assert_not_contains "$sandbox" 'docker run' "Stage 1 falls back to an ordinary container"
-  assert_not_contains "$sandbox" '--privileged' "Stage 1 falls back to a privileged container"
-  assert_not_contains "$sandbox" 'DOCKER_HOST' "Stage 1 accepts an ambient host Docker endpoint"
-  assert_not_contains "$sandbox" '/var/run/docker.sock' "Stage 1 references the host Docker socket"
-  assert_not_contains "$sandbox" '--mount' "Stage 1 mounts a host path"
-  assert_not_contains "$sandbox" '/.ssh' "Stage 1 references host SSH state"
-  assert_not_contains "$sandbox" '1Password' "Stage 1 references host 1Password state"
+  local out inert_root sentinel
+  inert_root=$(task_root "$ID_INERT")
+  out=$({
+    run_sandbox_poisoned inventory --json
+    run_sandbox_poisoned doctor --host dev --json
+    run_sandbox_poisoned identity "$ID_INERT" dev
+    run_sandbox_poisoned prepare "$ID_INERT" --host dev --name "fm-$ID_INERT" \
+      --nonce "$NONCE_INERT" --source "$SOURCE" --task-root "$inert_root"
+    run_sandbox_poisoned status "$ID_INERT" --json
+    run_sandbox_poisoned commit "$ID_INERT" --sandbox-id inert-sandbox-001
+    run_sandbox_poisoned cleanup-begin "$ID_INERT" --json
+    run_sandbox_poisoned cleanup-commit "$ID_INERT" --sandbox-id inert-sandbox-001
+  } 2>&1) || fail "Stage 1 lifecycle failed under an ambient-credential environment"
+
+  [ ! -s "$DENY_LOG" ] ||
+    fail "Stage 1 executed a Stage 2 tool: $(sort -u "$DENY_LOG" | head -5 | tr '\n' ';')"
+  [ "$(sort -u "$SBX_LOG")" = version ] ||
+    fail "Stage 1 called a mutating sbx operation: $(sort -u "$SBX_LOG" | tr '\n' ';')"
+
+  for sentinel in "$SENTINEL_CREDENTIAL" "$SENTINEL_SSH" "$SENTINEL_OP" "$SENTINEL_DOCKER"; do
+    assert_not_contains "$out" "$sentinel" "Stage 1 echoed ambient host credentials or endpoints"
+    ! grep -RlF -- "$sentinel" "$STATE" "$TASK_BASE" 2>/dev/null | grep -q . ||
+      fail "Stage 1 persisted ambient host credentials or endpoints into its own artifacts"
+  done
+
   assert_absent "$ROOT/tests/fm-sandbox-herdr-e2e.test.sh" "Stage 1 retained the Herdr proof"
   assert_absent "$ROOT/assets/sandbox-kits/firstmate-codex/spec.yaml" "Stage 1 retained an executable kit"
   # Assert the guarantee (the path is ignored), not the .gitignore bytes: a
@@ -515,7 +564,75 @@ test_stage2_is_absent() {
     fail "host inventory is not gitignored"
   git -C "$ROOT" check-ignore -q config/sandbox-workers-enabled ||
     fail "future rollout gate is not gitignored"
-  pass "fm-sandbox: Stage 1 is inert and every worker, Herdr, credential, and live-sbx path is absent"
+  pass "fm-sandbox: Stage 1 never runs a Stage 2 tool, a mutating sbx call, or a host credential"
+}
+
+# Stage 1 must also be unreachable from the worker lifecycle. Proven by running
+# a real spawn and a real teardown out of a mirrored bin/ whose fm-sandbox.sh is
+# a recorder: any wiring fires it, however the call is spelled, and any wiring
+# that instead reimplemented the lifecycle would leave its ownership journal.
+test_worker_lifecycle_never_reaches_stage1() {
+  local case_dir mirror home proj wt fakebin log id out status
+  id="sbxwiring$$"
+  case_dir="$TMP_ROOT/wiring"
+  mirror="$case_dir/mirror"
+  home="$case_dir/home"
+  proj="$case_dir/project"
+  wt="$case_dir/worktree"
+  log="$case_dir/fm-sandbox-invocations.log"
+  mkdir -p "$mirror" "$home/data/$id" "$home/projects" "$home/state" "$home/config"
+  cp -R "$ROOT/bin" "$mirror/bin"
+  cat > "$mirror/bin/fm-sandbox.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$FM_FAKE_SANDBOX_LOG"
+exit 0
+SH
+  chmod +x "$mirror/bin/fm-sandbox.sh"
+  : > "$log"
+
+  fakebin=$(fm_fakebin "$case_dir")
+  cat > "$fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+set -u
+case "$*" in
+  *"#{pane_current_path}"*) printf '%s\n' "${FM_FAKE_PANE_PATH:-}"; exit 0 ;;
+esac
+case "${1:-}" in
+  display-message) printf 'firstmate\n'; exit 0 ;;
+esac
+exit 0
+SH
+  chmod +x "$fakebin/tmux"
+  fm_fake_exit0 "$fakebin" treehouse gh tasks-axi
+  printf 'codex\n' > "$home/config/crew-harness"
+  fm_git_worktree "$proj" "$wt" "wt-$id"
+  printf 'brief for %s\n' "$id" > "$home/data/$id/brief.md"
+  touch "$home/state/.last-watcher-beat"
+
+  run_wiring_case() {
+    local script=$1
+    shift
+    FM_ROOT_OVERRIDE='' FM_HOME="$home" \
+      FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
+      FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
+      FM_SPAWN_NO_GUARD=1 FM_BACKEND=tmux TMUX="fake,1,0" \
+      FM_FAKE_PANE_PATH="$wt" FM_FAKE_SANDBOX_LOG="$log" \
+      PATH="$fakebin:$PATH" \
+      "$mirror/bin/$script" "$@" 2>&1
+  }
+
+  out=$(run_wiring_case fm-spawn.sh "$id" "$proj" --mode local-only --yolo off)
+  status=$?
+  expect_code 0 "$status" "mirrored spawn did not complete"$'\n'"$out"
+  out=$(run_wiring_case fm-teardown.sh "$id" --force)
+  status=$?
+  expect_code 0 "$status" "mirrored teardown did not complete"$'\n'"$out"
+
+  [ ! -s "$log" ] ||
+    fail "worker spawn/teardown reached the Stage 1 lifecycle: $(tr '\n' ';' < "$log")"
+  assert_absent "$home/state/$id.sandbox.json" \
+    "worker spawn/teardown produced a Stage 1 ownership journal"
+  pass "fm-sandbox: worker spawn and teardown never reach the Stage 1 sandbox lifecycle"
 }
 
 make_source
@@ -528,3 +645,4 @@ test_task_transition_lock
 test_incomplete_copy_recovery_and_missing_accounting
 test_source_and_task_roots_do_not_overlap
 test_stage2_is_absent
+test_worker_lifecycle_never_reaches_stage1
