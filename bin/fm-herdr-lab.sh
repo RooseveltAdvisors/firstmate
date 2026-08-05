@@ -115,7 +115,10 @@ fm_herdr_lab_lifecycle_lock_stale() { # <session>
   state=$(fm_herdr_lab_process_state "$FM_HERDR_LAB_LOCK_RECORD_PID" 2>/dev/null || true)
   case "$state" in
     Z*) return 0 ;;
-    '') return 1 ;;
+    '')
+      kill -0 "$FM_HERDR_LAB_LOCK_RECORD_PID" 2>/dev/null && return 1
+      return 0
+      ;;
   esac
   if kill -0 "$FM_HERDR_LAB_LOCK_RECORD_PID" 2>/dev/null; then
     current=$(fm_herdr_lab_process_start "$FM_HERDR_LAB_LOCK_RECORD_PID" 2>/dev/null || true)
@@ -1035,16 +1038,7 @@ fm_herdr_lab_provision_locked() { # <session>
       fm_herdr_lab_abort_prelaunch "$name" "$owner"
       return 1
     }
-    fm_herdr_lab_owned_raw "$name" false session delete "$name" --json >/dev/null 2>&1 || {
-      fm_herdr_lab_error "stopped generation for '$name' changed before guarded re-provision"
-      fm_herdr_lab_abort_prelaunch "$name" "$owner"
-      return 1
-    }
-    fm_herdr_lab_retire_stopped_generation "$name" || {
-      fm_herdr_lab_abort_prelaunch "$name" "$owner"
-      return 1
-    }
-    mode=restart
+    mode=resume
       ;;
     *)
       fm_herdr_lab_error "session '$name' is ambiguous; refusing to provision it"
@@ -1062,9 +1056,18 @@ fm_herdr_lab_provision_locked() { # <session>
       fm_herdr_lab_abort_prelaunch "$name" "$owner"
       return 1
     } ;;
+    resume) fm_herdr_lab_require_owned_session "$name" false || {
+      fm_herdr_lab_abort_prelaunch "$name" "$owner"
+      return 1
+    } ;;
   esac
-  FM_HERDR_LAB_SESSION_OWNER="$owner" \
-    herdr server --session "$name" >/dev/null 2>&1 &
+  if [ "$mode" = resume ]; then
+    FM_HERDR_LAB_SESSION_OWNER="$owner" \
+      herdr server --expected-generation "$FM_HERDR_LAB_IDENTITY_GENERATION" --session "$name" >/dev/null 2>&1 &
+  else
+    FM_HERDR_LAB_SESSION_OWNER="$owner" \
+      herdr server --session "$name" >/dev/null 2>&1 &
+  fi
   server_pid=$!
   attempt=0
   server_start=
@@ -1105,7 +1108,7 @@ fm_herdr_lab_provision_locked() { # <session>
           fm_herdr_lab_cancel_provision "$server_pid"
           return 1
         }
-        if [ "$mode" = restart ]; then
+        if [ "$mode" = restart ] || [ "$mode" = resume ]; then
           stop_receipt=$(fm_herdr_lab_stop_receipt_path "$name")
           rm -f "$stop_receipt" || {
             fm_herdr_lab_cancel_provision "$server_pid"

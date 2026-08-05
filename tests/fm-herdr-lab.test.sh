@@ -327,17 +327,43 @@ test_changed_default_trips_after_teardown() {
 }
 
 test_stopped_owned_lab_can_reprovision() {
-  local name="fm-lab-reprovision-$$"
+  local name="fm-lab-reprovision-$$" pane old_generation new_generation
+  pane="$name:w1:p1"
   : > "$FAKE_LOG"
   run_with_fake fm_herdr_lab_provision "$name" || fail "initial provision failed"
+  old_generation=$(cat "$FAKE_STATE/$name.generation")
+  printf '%s\n' "$pane" > "$FAKE_STATE/$name.pane"
   run_with_fake fm_herdr_lab_stop "$name" || fail "guarded stop failed"
   [ "$(cat "$FAKE_STATE/$name")" = stopped ] || fail "guarded stop did not stop the lab session"
   assert_present "$TRIPWIRES/$name.fleet-state.json" "stop removed the lab ownership tripwire"
   run_with_fake fm_herdr_lab_provision "$name" || fail "re-provision after guarded stop failed"
+  new_generation=$(cat "$FAKE_STATE/$name.generation")
   [ "$(cat "$FAKE_STATE/$name")" = running ] || fail "re-provision did not restart the stopped lab session"
+  [ "$new_generation" != "$old_generation" ] || fail "re-provision did not bind a fresh server generation"
+  [ "$(cat "$FAKE_STATE/$name.pane")" = "$pane" ] || fail "re-provision deleted the stopped session layout"
+  ! grep -F "session delete $name" "$FAKE_LOG" >/dev/null \
+    || fail "re-provision deleted the stopped session before restart"
+  grep -F "server --expected-generation $old_generation --session $name" "$FAKE_LOG" >/dev/null \
+    || fail "re-provision did not atomically bind restart to the stopped generation"
   assert_present "$TRIPWIRES/$name.fleet-state.json" "re-provision removed the lab ownership tripwire"
   run_with_fake fm_herdr_lab_teardown "$name" || fail "teardown after re-provision failed"
-  pass "fm-herdr-lab: an owned stopped lab can re-provision safely"
+  pass "fm-herdr-lab: an owned stopped lab re-provisions without deleting its persisted layout"
+}
+
+test_dead_lifecycle_lock_is_reclaimed() {
+  local name="fm-lab-dead-lock-$$" lock owner_pid owner_start
+  lock="$TRIPWIRES/$name.lifecycle.lock"
+  "$REAL_SLEEP" 30 &
+  owner_pid=$!
+  owner_start=$(fm_herdr_lab_process_start "$owner_pid") || fail "could not identify dead-lock fixture owner"
+  printf '%s\t%s\t%s\t%s\n' \
+    "$name" "$owner_pid" "$owner_start" "fm-herdr-lab-lock:${name}:${owner_pid}:1" > "$lock"
+  kill -TERM "$owner_pid" 2>/dev/null || true
+  wait "$owner_pid" 2>/dev/null || true
+
+  run_with_fake fm_herdr_lab_provision "$name" || fail "dead lifecycle lock was not reclaimed"
+  run_with_fake fm_herdr_lab_teardown "$name" || fail "dead-lock fixture teardown failed"
+  pass "fm-herdr-lab: a lifecycle lock whose owner exited is reclaimed"
 }
 
 test_stopped_session_refuses_foreign_restart_and_stop() {
@@ -391,7 +417,7 @@ test_stopped_receipt_rejects_precommit_generation_race() {
   status=0
   run_with_fake fm_herdr_lab_provision "$name" >/dev/null 2>&1 || status=$?
   expect_code 1 "$status" "re-provision must reject the raced stop generation"
-  grep -F "session delete $name --json --expected-generation" "$FAKE_LOG" >/dev/null \
+  grep -F "server --expected-generation" "$FAKE_LOG" >/dev/null \
     || fail "stop-generation race did not reach the core-owned atomic generation check"
   rm -f "$TRIPWIRES/$name.fleet-state.json" "$TRIPWIRES/$name.session-identity.json" \
     "$TRIPWIRES/$name.stop-generation.json" "$FAKE_STATE/$name"
@@ -920,6 +946,7 @@ test_provision_run_and_guarded_teardown
 test_missing_tripwire_blocks_destruction
 test_changed_default_trips_after_teardown
 test_stopped_owned_lab_can_reprovision
+test_dead_lifecycle_lock_is_reclaimed
 test_stopped_session_refuses_foreign_restart_and_stop
 test_stopped_receipt_rejects_precommit_generation_race
 test_prepare_uses_guarded_owned_provisioning
