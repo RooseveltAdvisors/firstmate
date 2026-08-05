@@ -20,7 +20,7 @@ SENTINEL="$TMP_ROOT/injected"
 cat >"$FAKEBIN/ssh" <<'SH'
 #!/usr/bin/env bash
 set -u
-: >"$FM_TEST_SSH_LOG"
+: >>"$FM_TEST_SSH_LOG"
 last=
 for arg in "$@"; do
   printf '%s\n' "$arg" >>"$FM_TEST_SSH_LOG"
@@ -29,9 +29,27 @@ done
 case "${FM_TEST_SSH_MODE:-ok}" in
   ok) exit 0 ;;
   capture) cat >"$FM_TEST_SSH_INPUT"; exit 0 ;;
+  config)
+    case "$last" in
+      *--remote-receive*) cat >"$FM_TEST_SSH_INPUT"; printf '%s\n' 'config-reread-pointer: /srv/firstmate-housing/state/.fm-inherited-config-reread.1' ;;
+    esac
+    exit 0
+    ;;
   exec) bash -c "$last" ;;
   state) printf '%s\n' 'state: working · source: pane · remote agent busy' ;;
   status) cat "$FM_TEST_SSH_STATUS" ;;
+  tick-busy|tick-idle)
+    case "$last" in
+      *fm-crew-state.sh*)
+        if [ "$FM_TEST_SSH_MODE" = tick-busy ]; then
+          printf '%s\n' 'state: working · source: pane · remote agent busy'
+        else
+          printf '%s\n' 'state: unknown · source: none · no current-state source available'
+        fi
+        ;;
+      *) cat "$FM_TEST_SSH_STATUS" ;;
+    esac
+    ;;
   fail) printf '%s\n' 'secret remote diagnostic' >&2; exit 1 ;;
   unreachable) printf '%s\n' 'private key path and host-key detail' >&2; exit 255 ;;
   sleep) sleep 3 ;;
@@ -66,6 +84,7 @@ EOF
 
 test_strict_ssh_and_quoting() {
   local out rc
+  : >"$SSH_LOG"
   export FM_TEST_SSH_MODE=exec
   out=$(fm_ssh_run dev printf '%s' "safe'; touch '$SENTINEL'; :") || fail "quoted argv call failed"
   [ "$out" = "safe'; touch '$SENTINEL'; :" ] || fail "remote argv bytes changed"
@@ -106,7 +125,7 @@ EOF
 }
 
 test_send_state_and_pending_reply() {
-  local home=$1 corr rec out rc before after pending_before pending_after
+  local home=$1 corr rec ambiguous_rec out rc before after pending_before pending_after
   FM_TEST_SSH_MODE=ok FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" FM_SEND_SETTLE=0 \
     "$ROOT/bin/fm-send.sh" fm-housing-watch "inspect housing" >/dev/null 2>"$TMP_ROOT/send.err" \
     || fail "marked remote send was not acknowledged"
@@ -117,11 +136,24 @@ test_send_state_and_pending_reply() {
   grep -F 'inspect housing' "$SSH_LOG" >/dev/null || fail "remote send lost its request body"
 
   pending_before=$(find "$home/state/pending-replies" -type f ! -name '.*' | wc -l | tr -d ' ')
-  FM_TEST_SSH_MODE=unreachable FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" FM_SEND_SETTLE=0 \
+  FM_PENDING_REPLY_GRACE_SECS=0 FM_TEST_SSH_MODE=unreachable FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" FM_SEND_SETTLE=0 \
     "$ROOT/bin/fm-send.sh" fm-housing-watch "undeliverable request" >/dev/null 2>/dev/null; rc=$?
   [ "$rc" -ne 0 ] || fail "unreachable remote send was acknowledged"
   pending_after=$(find "$home/state/pending-replies" -type f ! -name '.*' | wc -l | tr -d ' ')
-  [ "$pending_before" = "$pending_after" ] || fail "undelivered remote send left a pending expectation"
+  [ "$pending_after" -eq $((pending_before + 1)) ] || fail "ambiguous remote send lost its pending expectation"
+  ambiguous_rec=$(find "$home/state/pending-replies" -type f ! -name '.*' -exec grep -l 'undeliverable request' {} + | head -1)
+  [ -f "$ambiguous_rec" ] || fail "ambiguous remote send record is missing"
+  corr=$(sed -n 's/^corr_id=//p' "$ambiguous_rec")
+  # shellcheck source=bin/fm-pending-reply-lib.sh
+  . "$ROOT/bin/fm-pending-reply-lib.sh"
+  fm_pending_reply_reconcile_delivery "$home/state" "$corr" \
+    || fail "ambiguous remote send did not enter delivery-unknown reconciliation"
+  [ "$(fm_pending_reply_get "$ambiguous_rec" phase)" = delivery_unknown ] \
+    || fail "ambiguous remote send was not retained as delivery_unknown"
+  printf 'done: [corr=%s] delayed ambiguous delivery reply\n' "$corr" >"$STATUS_REPLY"
+  FM_TEST_SSH_MODE=status fm_pending_reply_tick "$home/state"
+  [ "$(fm_pending_reply_get "$ambiguous_rec" phase)" = resolved ] \
+    || fail "late reply did not reconcile ambiguous remote delivery"
 
   out=$(FM_TEST_SSH_MODE=state FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-crew-state.sh" housing-watch)
   case "$out" in 'state: working'*'source: pane'*) ;; *) fail "remote current-state command was not reused: $out" ;; esac
@@ -132,8 +164,6 @@ test_send_state_and_pending_reply() {
 
   corr=$(sed -n 's/^corr_id=//p' "$rec")
   printf 'done: [corr=%s] housing watch complete\n' "$corr" >"$STATUS_REPLY"
-  # shellcheck source=bin/fm-pending-reply-lib.sh
-  . "$ROOT/bin/fm-pending-reply-lib.sh"
   FM_TEST_SSH_MODE=status fm_pending_reply_tick "$home/state"
   [ "$(fm_pending_reply_get "$rec" phase)" = resolved ] || fail "late remote reply did not reconcile idempotently"
   FM_TEST_SSH_MODE=status fm_pending_reply_tick "$home/state"
@@ -155,6 +185,20 @@ test_send_state_and_pending_reply() {
   [ "$before" = "$after" ] || fail "unreachable remote cleared or advanced a pending expectation"
   [ "$(fm_pending_reply_get "$rec" reachability)" = unreachable ] || fail "pending reply lacks unreachable classification"
   [ "$(grep -c . "$SSH_LOG")" -gt 0 ] || fail "remote status was not attempted"
+
+  export FM_PENDING_REPLY_GRACE_SECS=0
+  FM_TEST_SSH_MODE=ok FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" FM_SEND_SETTLE=0 \
+    "$ROOT/bin/fm-send.sh" fm-housing-watch "turn-state request" >/dev/null 2>/dev/null \
+    || fail "turn-state remote send failed"
+  rec=$(find "$home/state/pending-replies" -type f ! -name '.*' -exec grep -l 'turn-state request' {} + | head -1)
+  : >"$STATUS_REPLY"
+  FM_TEST_SSH_MODE=tick-busy fm_pending_reply_tick "$home/state"
+  [ "$(fm_pending_reply_get "$rec" turn_seen_busy)" = 1 ] || fail "remote working state was not observed as busy"
+  FM_TEST_SSH_MODE=tick-idle fm_pending_reply_tick "$home/state"
+  [ "$(fm_pending_reply_get "$rec" phase)" = recovery_sent ] || fail "remote idle state did not trigger recovery"
+  FM_TEST_SSH_MODE=tick-busy fm_pending_reply_tick "$home/state"
+  FM_TEST_SSH_MODE=tick-idle fm_pending_reply_tick "$home/state"
+  [ "$(fm_pending_reply_get "$rec" phase)" = escalated ] || fail "remote recovery turn could not escalate"
   pass "remote routing: acknowledged marked send, state classes, and idempotent late-reply reconciliation"
 }
 
@@ -162,7 +206,8 @@ test_config_push_uses_allowlisted_archive() {
   local home=$1 listing
   printf 'codex\n' >"$home/config/crew-harness"
   printf 'must-not-leave\n' >"$home/config/private-secret"
-  FM_TEST_SSH_MODE=capture FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
+  : >"$SSH_LOG"
+  FM_TEST_SSH_MODE=config FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
     "$ROOT/bin/fm-config-push.sh" >"$TMP_ROOT/config.out" 2>"$TMP_ROOT/config.err" \
     || fail "remote config push was not acknowledged"
   listing=$(tar -tf "$SSH_INPUT") || fail "config push did not send an archive"
@@ -171,24 +216,35 @@ test_config_push_uses_allowlisted_archive() {
   grep -F '/srv/firstmate-housing/bin/fm-config-push.sh' "$SSH_LOG" >/dev/null \
     || fail "config push did not reuse the remote Firstmate command"
   grep -F -- '--remote-receive' "$SSH_LOG" >/dev/null || fail "config push did not select receive mode"
+  grep -F 'CONFIG_REREAD: /srv/firstmate-housing/state/.fm-inherited-config-reread.1' "$SSH_LOG" >/dev/null \
+    || fail "parent did not route the remote reread pointer"
+  grep -F "$FM_FROMFIRST_MARK" "$SSH_LOG" >/dev/null || fail "remote reread pointer was not marked at the parent"
+  grep -F -- '--remote-reread-sent' "$SSH_LOG" >/dev/null || fail "remote reread delivery was not acknowledged"
   pass "remote config push: existing owner receives only the inherited allowlist"
 }
 
 test_config_receive_applies_owner_and_rejects_extra_paths() {
-  local remote="$TMP_ROOT/remote-home" source="$TMP_ROOT/receive-source" archive="$TMP_ROOT/receive.tar" rc
-  mkdir -p "$remote/data" "$remote/state" "$remote/config" "$remote/projects" "$source/data"
+  local remote="$TMP_ROOT/remote-home" source="$TMP_ROOT/receive-source" archive="$TMP_ROOT/receive.tar" out pointer rc
+  mkdir -p "$remote/data" "$remote/state" "$remote/config" "$remote/projects" "$source/data" "$source/config"
   printf '%s\n' housing-watch >"$remote/.fm-secondmate-home"
   cat >"$source/data/captain-shared.md" <<'EOF'
 # Shared captain preferences
 This file is main-authoritative and read-only in secondmate homes.
 It must not be edited there; discoveries return to the main firstmate through marked status or a document pointer.
 EOF
+  printf 'codex\n' >"$source/config/crew-harness"
   tar -cf "$archive" -C "$source" .
-  FM_HOME="$remote" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-config-push.sh" \
-    --remote-receive housing-watch <"$archive" >/dev/null 2>"$TMP_ROOT/receive.err" \
+  out=$(FM_HOME="$remote" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-config-push.sh" \
+    --remote-receive housing-watch <"$archive" 2>"$TMP_ROOT/receive.err") \
     || fail "remote receive did not apply through the inheritance owner"
   cmp -s "$source/data/captain-shared.md" "$remote/data/captain-shared.md" \
     || fail "remote receive did not preserve inherited bytes"
+  pointer=$(printf '%s\n' "$out" | sed -n 's/^config-reread-pointer: //p')
+  [ -f "$pointer" ] && [ -f "$pointer.pending" ] || fail "remote receive did not retain a parent-routed reread pointer"
+  FM_HOME="$remote" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-config-push.sh" \
+    --remote-reread-sent housing-watch "$pointer" >/dev/null \
+    || fail "remote receive did not accept parent delivery acknowledgement"
+  [ ! -e "$pointer.pending" ] || fail "remote reread acknowledgement did not clear pending delivery"
   printf 'not allowed\n' >"$source/extra"
   tar -cf "$archive" -C "$source" extra
   FM_HOME="$remote" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-config-push.sh" \

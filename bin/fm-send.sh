@@ -38,8 +38,8 @@
 # record is not created. Direct unmarked captain input never creates one.
 # A secondmate route with optional host= uses strict parent-initiated SSH to run
 # this same fm-send command against the recorded Herdr target in the remote home.
-# SSH success is the delivery acknowledgement; unreachable and unreadable remain
-# failures, discard only a newly undelivered expectation, and never fall back locally.
+# SSH success is the delivery acknowledgement; ambiguous failures retain the
+# prepared expectation for late reconciliation and never fall back locally.
 #
 # After a successful text submit fm-send pauses FM_SEND_SETTLE seconds (default 1,
 # 0 disables) before returning: submit confirmation only proves the text was
@@ -322,7 +322,7 @@ else
     send_rc=$?
   fi
   if [ "$send_rc" -ne 0 ]; then
-    if [ "$PENDING_REPLY_CREATED" = 1 ] && [ -n "$PENDING_REPLY_CORR" ]; then
+    if [ -z "$TARGET_REMOTE_HOST" ] && [ "$PENDING_REPLY_CREATED" = 1 ] && [ -n "$PENDING_REPLY_CORR" ]; then
       fm_pending_reply_discard_undelivered "$STATE" "$PENDING_REPLY_CORR" || true
     fi
     if [ "$send_rc" -eq "$FM_SSH_UNREACHABLE_RC" ]; then

@@ -928,7 +928,7 @@ fm_pending_reply_tick_one() {  # <state-dir> <corr_id> <busy_state> [secondmate-
 # state, and optional secondmate-home wrong-home path checks.
 fm_pending_reply_tick() {  # <state-dir>
   local state=$1 dir rec corr task_id phase delivered meta backend target label busy sm_home harness
-  local observation observation_task found i parent_home remote remote_rc remote_status
+  local observation observation_task found i parent_home remote remote_rc remote_status remote_state
   local -a observation_tasks=() observation_values=()
   dir=$(fm_pending_reply_dir "$state")
   [ -d "$dir" ] || return 0
@@ -945,24 +945,9 @@ fm_pending_reply_tick() {  # <state-dir>
     fm_pending_reply_reconcile_delivery "$state" "$corr" || true
     phase=$(fm_pending_reply_get "$rec" phase)
     delivered=$(fm_pending_reply_get "$rec" delivered_epoch)
-    if [ -z "$delivered" ]; then
-      case "$phase" in
-        delivery_unknown|escalated)
-          fm_pending_reply_tick_one "$state" "$corr" unknown "" || true
-          ;;
-      esac
-      continue
-    fi
-    case "$phase" in
-      awaiting_report|recovery_sending)
-        if [ -n "$(fm_pending_reply_get "$rec" recovery_attempted_epoch)" ]; then
-          fm_pending_reply_reconcile_recovery "$state" "$corr" || true
-          phase=$(fm_pending_reply_get "$rec" phase)
-        fi
-        ;;
-    esac
     meta="$state/${task_id}.meta"
     remote=0
+    busy=unknown
     parent_home=$(fm_pending_reply_get "$rec" parent_home)
     if [ -f "$meta" ]; then
       if fm_secondmate_remote_identity "$meta" "$parent_home/data/secondmates.md" "$task_id"; then
@@ -989,11 +974,47 @@ fm_pending_reply_tick() {  # <state-dir>
           continue
         fi
         rm -f "$remote_status"
+        if [ -n "$delivered" ]; then
+          if remote_state=$(fm_ssh_run "$FM_REMOTE_HOST" env \
+            "FM_HOME=$FM_REMOTE_HOME" "FM_ROOT_OVERRIDE=$FM_REMOTE_HOME" FM_REMOTE_STATE_LOCAL=1 \
+            "$FM_REMOTE_HOME/bin/fm-crew-state.sh" "$task_id"); then
+            case "$remote_state" in
+              'state: working'* ) busy=busy ;;
+              'state: done'*|'state: parked'*|'state: blocked'*|'state: paused'*|'state: failed'*) busy=idle ;;
+              'state: unknown'*'no current-state source available'*) busy=idle ;;
+              *) busy=unknown ;;
+            esac
+          else
+            remote_rc=$?
+            if [ "$remote_rc" -eq "$FM_SSH_UNREACHABLE_RC" ]; then
+              fm_pending_reply_set "$rec" reachability unreachable || true
+            else
+              fm_pending_reply_set "$rec" reachability unreadable || true
+            fi
+            continue
+          fi
+        fi
       elif [ "$?" -eq 2 ]; then
         fm_pending_reply_set "$rec" reachability unreadable || true
         continue
       fi
     fi
+    if [ -z "$delivered" ]; then
+      case "$phase" in
+        delivery_unknown|escalated)
+          fm_pending_reply_tick_one "$state" "$corr" unknown "" || true
+          ;;
+      esac
+      continue
+    fi
+    case "$phase" in
+      awaiting_report|recovery_sending)
+        if [ -n "$(fm_pending_reply_get "$rec" recovery_attempted_epoch)" ]; then
+          fm_pending_reply_reconcile_recovery "$state" "$corr" || true
+          phase=$(fm_pending_reply_get "$rec" phase)
+        fi
+        ;;
+    esac
     if [ "$phase" = escalated ]; then
       if fm_pending_reply_try_resolve "$state" "$corr"; then
         continue
@@ -1018,11 +1039,10 @@ fm_pending_reply_tick() {  # <state-dir>
     esac
     backend=tmux
     target=
-    busy=unknown
     sm_home=
     harness=
     if [ "$remote" = 1 ]; then
-      busy=unknown
+      :
     elif [ -f "$meta" ]; then
       backend=$(fm_backend_of_meta "$meta")
       target=$(fm_backend_target_of_meta "$meta")

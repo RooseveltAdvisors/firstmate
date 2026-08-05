@@ -2,6 +2,7 @@
 # Push declared inherited local material to live secondmate homes.
 # Usage: fm-config-push.sh [--help]
 #        fm-config-push.sh --remote-receive <secondmate-id>  # SSH-internal
+#        fm-config-push.sh --remote-reread-sent <secondmate-id> <path>  # SSH-internal
 #
 # Mid-session convergence for inherited local material such as
 # config/crew-dispatch.json edits or data/captain-shared.md updates. This
@@ -50,10 +51,13 @@ Environment overrides follow the rest of firstmate:
 --remote-receive is the noninteractive SSH endpoint used by another Firstmate
 home. It accepts only the declared inheritance archive on stdin, applies it
 through fm-config-inherit-lib.sh, and never launches or manages Herdr.
+--remote-reread-sent clears one delivered reread pointer retained by that endpoint.
 EOF
 }
 
 REMOTE_RECEIVE_ID=
+REMOTE_REREAD_SENT_ID=
+REMOTE_REREAD_SENT_PATH=
 case "${1:-}" in
   -h|--help)
     usage
@@ -64,6 +68,11 @@ case "${1:-}" in
   --remote-receive)
     [ "$#" -eq 2 ] || { echo "usage: fm-config-push.sh --remote-receive <secondmate-id>" >&2; exit 2; }
     REMOTE_RECEIVE_ID=$2
+    ;;
+  --remote-reread-sent)
+    [ "$#" -eq 3 ] || { echo "usage: fm-config-push.sh --remote-reread-sent <secondmate-id> <path>" >&2; exit 2; }
+    REMOTE_REREAD_SENT_ID=$2
+    REMOTE_REREAD_SENT_PATH=$3
     ;;
   *)
     echo "usage: fm-config-push.sh [--help]" >&2
@@ -171,9 +180,12 @@ config_push_remote_receive() {  # <id>; archive on stdin
   if [ "$rc" -eq 0 ]; then
     FM_CONFIG_INHERIT_REPORT="$report" \
       propagate_secondmate_inheritance "$stage" "$FM_HOME" "$stage/config" "$stage/data" || rc=1
+    fm_config_reread_send_pointer() { printf 'config-reread-pointer: %s\n' "$2"; }
     if ! out=$(FM_CONFIG_REREAD_SKIP_PENDING=0 fm_config_send_reread_nudge "$id" "$FM_HOME" "$report" 2>&1); then
       [ -z "$out" ] || printf '%s\n' "$out" >&2
       rc=1
+    elif [ -n "$out" ]; then
+      printf '%s\n' "$out"
     fi
     fm_lock_release "$home_lock" || true
   fi
@@ -183,8 +195,29 @@ config_push_remote_receive() {  # <id>; archive on stdin
   return "$rc"
 }
 
+config_push_remote_reread_sent() {  # <id> <instruction-path>
+  local id=$1 instruction_path=$2 state prefix pending
+  fm_remote_id_valid "$id" || return 1
+  [ -f "$FM_HOME/.fm-secondmate-home" ] && [ ! -L "$FM_HOME/.fm-secondmate-home" ] \
+    && [ "$(cat "$FM_HOME/.fm-secondmate-home" 2>/dev/null)" = "$id" ] || return 1
+  state="$FM_HOME/${FM_CONFIG_REREAD_INSTRUCTION_PREFIX_REL%/*}"
+  prefix=${FM_CONFIG_REREAD_INSTRUCTION_PREFIX_REL##*/}
+  case "$instruction_path" in "$state/$prefix"*) ;; *) return 1 ;; esac
+  case "${instruction_path#"$state/$prefix"}" in ''|*[!a-zA-Z0-9_.:-]*) return 1 ;; esac
+  pending="$instruction_path.pending"
+  [ -f "$instruction_path" ] && [ ! -L "$instruction_path" ] \
+    && [ -f "$pending" ] && [ ! -L "$pending" ] \
+    && [ "$(cat "$pending" 2>/dev/null)" = "$instruction_path" ] || return 1
+  rm -f "$pending" || return 1
+  fm_config_reread_cleanup_sent "$FM_HOME"
+}
+
 if [ -n "$REMOTE_RECEIVE_ID" ]; then
   config_push_remote_receive "$REMOTE_RECEIVE_ID"
+  exit $?
+fi
+if [ -n "$REMOTE_REREAD_SENT_ID" ]; then
+  config_push_remote_reread_sent "$REMOTE_REREAD_SENT_ID" "$REMOTE_REREAD_SENT_PATH"
   exit $?
 fi
 
@@ -234,8 +267,8 @@ while IFS='|' read -r id home _window meta; do
       continue
     fi
     remote_rc=0
-    fm_ssh_run "$FM_REMOTE_HOST" env "FM_HOME=$FM_REMOTE_HOME" "FM_ROOT_OVERRIDE=$FM_REMOTE_HOME" \
-      "$FM_REMOTE_HOME/bin/fm-config-push.sh" --remote-receive "$id" <"$archive" || remote_rc=$?
+    receive_out=$(fm_ssh_run "$FM_REMOTE_HOST" env "FM_HOME=$FM_REMOTE_HOME" "FM_ROOT_OVERRIDE=$FM_REMOTE_HOME" \
+      "$FM_REMOTE_HOME/bin/fm-config-push.sh" --remote-receive "$id" <"$archive") || remote_rc=$?
     if [ "$remote_rc" -ne 0 ]; then
       if [ "$remote_rc" -eq "$FM_SSH_UNREACHABLE_RC" ]; then
         echo "  inheritance: unreachable"
@@ -243,7 +276,27 @@ while IFS='|' read -r id home _window meta; do
         echo "  inheritance: error - remote receive unreadable"
       fi
       errors=1
+      continue
     fi
+    printf '%s\n' "$receive_out" | sed '/^config-reread-pointer: /d'
+    while IFS= read -r instruction_path; do
+      [ -n "$instruction_path" ] || continue
+      if ! FM_HOME="$FM_HOME" FM_ROOT_OVERRIDE="$FM_ROOT" FM_STATE_OVERRIDE="$STATE" FM_SEND_SETTLE=0 \
+        "$SCRIPT_DIR/fm-send.sh" "fm-$id" "CONFIG_REREAD: $instruction_path" >/dev/null; then
+        echo "  config-reread: send failed"
+        errors=1
+        break
+      fi
+      if ! fm_ssh_run "$FM_REMOTE_HOST" env "FM_HOME=$FM_REMOTE_HOME" "FM_ROOT_OVERRIDE=$FM_REMOTE_HOME" \
+        "$FM_REMOTE_HOME/bin/fm-config-push.sh" --remote-reread-sent "$id" "$instruction_path"; then
+        echo "  config-reread: acknowledgement failed"
+        errors=1
+        break
+      fi
+      echo "  config-reread: sent"
+    done <<EOF
+$(printf '%s\n' "$receive_out" | sed -n 's/^config-reread-pointer: //p')
+EOF
     continue
   elif [ "$?" -eq 2 ]; then
     printf 'secondmate %s: skipped - invalid remote identity\n' "$id"
