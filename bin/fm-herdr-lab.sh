@@ -123,26 +123,77 @@ fm_herdr_lab_lifecycle_lock_stale() { # <session>
   fi
 }
 
+fm_herdr_lab_read_lifecycle_reclaim() { # <session>; sets FM_HERDR_LAB_RECLAIM_*
+  local name=$1 claim record extra
+  claim=$(fm_herdr_lab_lifecycle_lock_path "$name").reclaim
+  [ -f "$claim" ] && [ ! -L "$claim" ] || return 1
+  record=$(sed -n '1p' "$claim" 2>/dev/null) || return 1
+  extra=$(sed -n '2p' "$claim" 2>/dev/null) || return 1
+  [ -n "$record" ] && [ -z "$extra" ] || return 1
+  IFS=$'\t' read -r FM_HERDR_LAB_RECLAIM_NAME FM_HERDR_LAB_RECLAIM_PID FM_HERDR_LAB_RECLAIM_START FM_HERDR_LAB_RECLAIM_OWNER <<< "$record" || return 1
+  [ "$FM_HERDR_LAB_RECLAIM_NAME" = "$name" ] || return 1
+  [[ "$FM_HERDR_LAB_RECLAIM_PID" =~ ^[0-9]+$ ]] || return 1
+  [ "$FM_HERDR_LAB_RECLAIM_PID" -gt 1 ] || return 1
+  [ -n "$FM_HERDR_LAB_RECLAIM_START" ] || return 1
+  [[ "$FM_HERDR_LAB_RECLAIM_OWNER" =~ ^fm-herdr-lab-reclaim:${name}:[0-9]+:[0-9]+$ ]] || return 1
+}
+
+fm_herdr_lab_lifecycle_reclaim_stale() { # <session>
+  local name=$1 current state
+  fm_herdr_lab_read_lifecycle_reclaim "$name" || return 1
+  state=$(fm_herdr_lab_process_state "$FM_HERDR_LAB_RECLAIM_PID" 2>/dev/null || true)
+  case "$state" in
+    Z*) return 0 ;;
+    '') return 1 ;;
+  esac
+  if kill -0 "$FM_HERDR_LAB_RECLAIM_PID" 2>/dev/null; then
+    current=$(fm_herdr_lab_process_start "$FM_HERDR_LAB_RECLAIM_PID" 2>/dev/null || true)
+    [ -n "$current" ] && [ "$current" != "$FM_HERDR_LAB_RECLAIM_START" ] || return 1
+  fi
+}
+
 fm_herdr_lab_reclaim_lifecycle_lock() { # <session>
-  local name=$1 lock stale claim status=1
+  local name=$1 lock stale claim status=1 claim_pid claim_start claim_owner claim_tmp current_pid
   lock=$(fm_herdr_lab_lifecycle_lock_path "$name")
   claim="$lock.reclaim"
-  if mkdir "$claim" 2>/dev/null; then
-    if [ -f "$lock" ] && [ ! -L "$lock" ]; then
-      if fm_herdr_lab_lifecycle_lock_stale "$name"; then
-        stale="$lock.stale.${BASHPID:-$$}.$RANDOM"
-        mv "$lock" "$stale" 2>/dev/null && rm -f "$stale"
-        status=$?
-      fi
-    elif [ -d "$lock" ] && [ ! -L "$lock" ]; then
-      status=1
-    else
-      status=0
-    fi
-    rmdir "$claim" 2>/dev/null || status=1
-    return "$status"
+  if [ -e "$claim" ] || [ -L "$claim" ]; then
+    fm_herdr_lab_lifecycle_reclaim_stale "$name" || return 1
+    rm -f "$claim" || return 1
   fi
-  return 1
+  current_pid=${BASHPID:-$$}
+  claim_pid=$current_pid
+  claim_start=$(fm_herdr_lab_process_start "$claim_pid" 2>/dev/null || true)
+  [ -n "$claim_start" ] || return 1
+  claim_owner="fm-herdr-lab-reclaim:${name}:${claim_pid}:$RANDOM"
+  claim_tmp="$claim.tmp.${claim_pid}.$RANDOM"
+  (umask 077; printf '%s\t%s\t%s\t%s\n' "$name" "$claim_pid" "$claim_start" "$claim_owner" > "$claim_tmp") || {
+    rm -f "$claim_tmp"
+    return 1
+  }
+  if ! ln "$claim_tmp" "$claim" 2>/dev/null; then
+    rm -f "$claim_tmp"
+    return 1
+  fi
+  rm -f "$claim_tmp"
+  fm_herdr_lab_read_lifecycle_reclaim "$name" || return 1
+  [ "$FM_HERDR_LAB_RECLAIM_PID" = "$claim_pid" ] && [ "$FM_HERDR_LAB_RECLAIM_START" = "$claim_start" ] && [ "$FM_HERDR_LAB_RECLAIM_OWNER" = "$claim_owner" ] || return 1
+  if [ -f "$lock" ] && [ ! -L "$lock" ]; then
+    if fm_herdr_lab_lifecycle_lock_stale "$name"; then
+      stale="$lock.stale.${BASHPID:-$$}.$RANDOM"
+      mv "$lock" "$stale" 2>/dev/null && rm -f "$stale"
+      status=$?
+    fi
+  elif [ -d "$lock" ] && [ ! -L "$lock" ]; then
+    status=1
+  else
+    status=0
+  fi
+  if fm_herdr_lab_read_lifecycle_reclaim "$name" && [ "$FM_HERDR_LAB_RECLAIM_PID" = "$claim_pid" ] && [ "$FM_HERDR_LAB_RECLAIM_START" = "$claim_start" ] && [ "$FM_HERDR_LAB_RECLAIM_OWNER" = "$claim_owner" ]; then
+    rm -f "$claim" || status=1
+  else
+    status=1
+  fi
+  return "$status"
 }
 
 fm_herdr_lab_lock_session() { # <session>
@@ -191,7 +242,11 @@ fm_herdr_lab_lock_session() { # <session>
   claim="$lock.reclaim"
   while [ "$attempt" -lt 3 ]; do
     if [ -e "$claim" ] || [ -L "$claim" ]; then
-      fm_herdr_lab_error "stale lifecycle lock recovery for '$name' is already in progress"
+      if fm_herdr_lab_reclaim_lifecycle_lock "$name"; then
+        attempt=$((attempt + 1))
+        continue
+      fi
+      fm_herdr_lab_error "stale lifecycle lock recovery for '$name' is already in progress or ambiguous"
       return 1
     fi
     tmp="$state_dir/.${name}.lifecycle.lock.tmp.${lock_pid}.$RANDOM"
