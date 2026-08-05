@@ -81,12 +81,87 @@ fm_herdr_lab_bootstrap_log_path() { # <session>
   printf '%s/client.log' "$(fm_herdr_lab_bootstrap_dir "$1")"
 }
 
+fm_herdr_lab_read_lifecycle_lock() { # <session>; sets FM_HERDR_LAB_LOCK_RECORD_*
+  local name=$1 lock record extra
+  lock=$(fm_herdr_lab_lifecycle_lock_path "$name")
+  [ -f "$lock" ] && [ ! -L "$lock" ] || return 1
+  record=$(sed -n '1p' "$lock" 2>/dev/null) || return 1
+  extra=$(sed -n '2p' "$lock" 2>/dev/null) || return 1
+  [ -n "$record" ] && [ -z "$extra" ] || return 1
+  IFS=$'\t' read -r FM_HERDR_LAB_LOCK_RECORD_NAME FM_HERDR_LAB_LOCK_RECORD_PID FM_HERDR_LAB_LOCK_RECORD_START FM_HERDR_LAB_LOCK_RECORD_OWNER <<< "$record" || return 1
+  [ "$FM_HERDR_LAB_LOCK_RECORD_NAME" = "$name" ] || return 1
+  [[ "$FM_HERDR_LAB_LOCK_RECORD_PID" =~ ^[0-9]+$ ]] || return 1
+  [ "$FM_HERDR_LAB_LOCK_RECORD_PID" -gt 1 ] || return 1
+  [ -n "$FM_HERDR_LAB_LOCK_RECORD_START" ] || return 1
+  [[ "$FM_HERDR_LAB_LOCK_RECORD_OWNER" =~ ^fm-herdr-lab-lock:${name}:[0-9]+:[0-9]+$ ]] || return 1
+}
+
+fm_herdr_lab_lifecycle_lock_live() { # <session>
+  local name=$1 current
+  fm_herdr_lab_read_lifecycle_lock "$name" || return 1
+  kill -0 "$FM_HERDR_LAB_LOCK_RECORD_PID" 2>/dev/null || return 1
+  current=$(fm_herdr_lab_process_start "$FM_HERDR_LAB_LOCK_RECORD_PID" 2>/dev/null || true)
+  [ -n "$current" ] && [ "$current" = "$FM_HERDR_LAB_LOCK_RECORD_START" ]
+}
+
+fm_herdr_lab_lifecycle_lock_stale() { # <session>
+  local name=$1 current
+  fm_herdr_lab_read_lifecycle_lock "$name" || return 1
+  if kill -0 "$FM_HERDR_LAB_LOCK_RECORD_PID" 2>/dev/null; then
+    current=$(fm_herdr_lab_process_start "$FM_HERDR_LAB_LOCK_RECORD_PID" 2>/dev/null || true)
+    [ -n "$current" ] && [ "$current" != "$FM_HERDR_LAB_LOCK_RECORD_START" ] || return 1
+  fi
+}
+
+fm_herdr_lab_lifecycle_lock_expired() { # <path>
+  local lock=$1 now modified
+  now=$(date +%s 2>/dev/null) || return 1
+  modified=$(stat -c %Y "$lock" 2>/dev/null || stat -f %m "$lock" 2>/dev/null) || return 1
+  [[ "$now" =~ ^[0-9]+$ ]] && [[ "$modified" =~ ^[0-9]+$ ]] || return 1
+  [ "$modified" -le "$now" ] && [ "$((now - modified))" -ge 300 ]
+}
+
+fm_herdr_lab_reclaim_lifecycle_lock() { # <session>
+  local name=$1 lock stale
+  lock=$(fm_herdr_lab_lifecycle_lock_path "$name")
+  if [ -f "$lock" ] && [ ! -L "$lock" ]; then
+    fm_herdr_lab_lifecycle_lock_stale "$name" || return 1
+    stale="$lock.stale.${BASHPID:-$$}.$RANDOM"
+    mv "$lock" "$stale" 2>/dev/null || return 1
+    rm -f "$stale" || return 1
+    return 0
+  fi
+  [ -d "$lock" ] && [ ! -L "$lock" ] || return 1
+  fm_herdr_lab_lifecycle_lock_expired "$lock" || return 1
+  stale="$lock.stale.${BASHPID:-$$}.$RANDOM"
+  mv "$lock" "$stale" 2>/dev/null || return 1
+  rmdir "$stale" 2>/dev/null
+}
+
 fm_herdr_lab_lock_session() { # <session>
-  local name=${1:-} state_dir lock depth
+  local name=${1:-} state_dir lock depth lock_pid lock_start owner tmp tmp_name current_pid borrowed attempt=0
   fm_herdr_lab_validate_name "$name" || return 1
+  current_pid=${BASHPID:-$$}
   if [ "${FM_HERDR_LAB_LOCK_NAME:-}" = "$name" ]; then
-    depth=${FM_HERDR_LAB_LOCK_DEPTH:-1}
-    FM_HERDR_LAB_LOCK_DEPTH=$((depth + 1))
+    fm_herdr_lab_read_lifecycle_lock "$name" || {
+      fm_herdr_lab_error "lifecycle lock for '$name' is absent or malformed"
+      return 1
+    }
+    if [ "${FM_HERDR_LAB_LOCK_PID:-}" = "$current_pid" ]; then
+      [ "$FM_HERDR_LAB_LOCK_RECORD_PID" = "$FM_HERDR_LAB_LOCK_PID" ] && [ "$FM_HERDR_LAB_LOCK_RECORD_START" = "${FM_HERDR_LAB_LOCK_START:-}" ] && [ "$FM_HERDR_LAB_LOCK_RECORD_OWNER" = "${FM_HERDR_LAB_LOCK_OWNER:-}" ] || {
+        fm_herdr_lab_error "lifecycle lock ownership changed for '$name'"
+        return 1
+      }
+      depth=${FM_HERDR_LAB_LOCK_DEPTH:-1}
+      FM_HERDR_LAB_LOCK_DEPTH=$((depth + 1))
+      return 0
+    fi
+    [ "$FM_HERDR_LAB_LOCK_RECORD_PID" = "${FM_HERDR_LAB_LOCK_PID:-}" ] && [ "$FM_HERDR_LAB_LOCK_RECORD_START" = "${FM_HERDR_LAB_LOCK_START:-}" ] && [ "$FM_HERDR_LAB_LOCK_RECORD_OWNER" = "${FM_HERDR_LAB_LOCK_OWNER:-}" ] || {
+      fm_herdr_lab_error "lifecycle lock ownership changed for '$name'"
+      return 1
+    }
+    borrowed=${FM_HERDR_LAB_LOCK_BORROWED_DEPTH:-0}
+    FM_HERDR_LAB_LOCK_BORROWED_DEPTH=$((borrowed + 1))
     return 0
   fi
   [ -z "${FM_HERDR_LAB_LOCK_NAME:-}" ] || {
@@ -99,36 +174,103 @@ fm_herdr_lab_lock_session() { # <session>
     return 1
   }
   lock=$(fm_herdr_lab_lifecycle_lock_path "$name")
-  mkdir "$lock" 2>/dev/null || {
-    fm_herdr_lab_error "lifecycle operation for '$name' is already in progress"
+  lock_pid=$current_pid
+  lock_start=$(fm_herdr_lab_process_start "$lock_pid" 2>/dev/null || true)
+  [ -n "$lock_start" ] || {
+    fm_herdr_lab_error "could not identify the lifecycle lock owner for '$name'"
     return 1
   }
-  chmod 700 "$lock" 2>/dev/null || {
-    rmdir "$lock" 2>/dev/null || true
-    fm_herdr_lab_error "could not secure the lifecycle lock for '$name'"
+  owner="fm-herdr-lab-lock:${name}:${lock_pid}:$RANDOM"
+  while [ "$attempt" -lt 3 ]; do
+    tmp="$state_dir/.${name}.lifecycle.lock.tmp.${lock_pid}.$RANDOM"
+    tmp_name=${tmp##*/}
+    (umask 077; printf '%s\t%s\t%s\t%s\n' "$name" "$lock_pid" "$lock_start" "$owner" > "$tmp") || {
+      rm -f "$tmp"
+      fm_herdr_lab_error "could not prepare the lifecycle lock for '$name'"
+      return 1
+    }
+    if [ ! -e "$lock" ] && [ ! -L "$lock" ] && ln "$tmp" "$lock" 2>/dev/null; then
+      if [ -f "$lock" ] && [ ! -L "$lock" ]; then
+        rm -f "$tmp"
+        fm_herdr_lab_read_lifecycle_lock "$name" || {
+          fm_herdr_lab_error "lifecycle lock for '$name' was not recorded safely"
+          return 1
+        }
+        [ "$FM_HERDR_LAB_LOCK_RECORD_PID" = "$lock_pid" ] && [ "$FM_HERDR_LAB_LOCK_RECORD_START" = "$lock_start" ] && [ "$FM_HERDR_LAB_LOCK_RECORD_OWNER" = "$owner" ] || {
+          fm_herdr_lab_error "lifecycle lock for '$name' was replaced during acquisition"
+          return 1
+        }
+        FM_HERDR_LAB_LOCK_NAME=$name
+        FM_HERDR_LAB_LOCK_PID=$lock_pid
+        FM_HERDR_LAB_LOCK_START=$lock_start
+        FM_HERDR_LAB_LOCK_OWNER=$owner
+        FM_HERDR_LAB_LOCK_DEPTH=1
+        FM_HERDR_LAB_LOCK_BORROWED_DEPTH=0
+        return 0
+      fi
+      if [ -d "$lock" ] && [ ! -L "$lock" ]; then
+        rm -f "$lock/$tmp_name" 2>/dev/null || true
+      fi
+    fi
+    rm -f "$tmp"
+    if fm_herdr_lab_lifecycle_lock_live "$name"; then
+      fm_herdr_lab_error "lifecycle operation for '$name' is already in progress"
+      return 1
+    fi
+    if fm_herdr_lab_reclaim_lifecycle_lock "$name"; then
+      attempt=$((attempt + 1))
+      continue
+    fi
+    if [ ! -e "$lock" ] && [ ! -L "$lock" ]; then
+      attempt=$((attempt + 1))
+      continue
+    fi
+    fm_herdr_lab_error "lifecycle lock for '$name' is stale or ambiguous"
     return 1
-  }
-  FM_HERDR_LAB_LOCK_NAME=$name
-  FM_HERDR_LAB_LOCK_DEPTH=1
+  done
+  fm_herdr_lab_error "could not acquire the lifecycle lock for '$name'"
+  return 1
 }
 
 fm_herdr_lab_unlock_session() { # <session>
-  local name=${1:-} lock depth
+  local name=${1:-} lock depth current_pid borrowed
   [ "${FM_HERDR_LAB_LOCK_NAME:-}" = "$name" ] || {
     fm_herdr_lab_error "lifecycle lock ownership mismatch for '$name'"
     return 1
   }
+  current_pid=${BASHPID:-$$}
+  if [ "${FM_HERDR_LAB_LOCK_PID:-}" != "$current_pid" ]; then
+    borrowed=${FM_HERDR_LAB_LOCK_BORROWED_DEPTH:-0}
+    [ "$borrowed" -gt 0 ] || {
+      fm_herdr_lab_error "lifecycle lock ownership mismatch for '$name'"
+      return 1
+    }
+    if [ "$borrowed" -gt 1 ]; then
+      FM_HERDR_LAB_LOCK_BORROWED_DEPTH=$((borrowed - 1))
+    else
+      unset FM_HERDR_LAB_LOCK_BORROWED_DEPTH
+    fi
+    return 0
+  fi
   depth=${FM_HERDR_LAB_LOCK_DEPTH:-0}
   [ "$depth" -gt 1 ] && {
     FM_HERDR_LAB_LOCK_DEPTH=$((depth - 1))
     return 0
   }
+  fm_herdr_lab_read_lifecycle_lock "$name" || {
+    fm_herdr_lab_error "lifecycle lock for '$name' is absent or malformed"
+    return 1
+  }
+  [ "$FM_HERDR_LAB_LOCK_RECORD_PID" = "${FM_HERDR_LAB_LOCK_PID:-}" ] && [ "$FM_HERDR_LAB_LOCK_RECORD_START" = "${FM_HERDR_LAB_LOCK_START:-}" ] && [ "$FM_HERDR_LAB_LOCK_RECORD_OWNER" = "${FM_HERDR_LAB_LOCK_OWNER:-}" ] || {
+    fm_herdr_lab_error "lifecycle lock ownership changed for '$name'"
+    return 1
+  }
   lock=$(fm_herdr_lab_lifecycle_lock_path "$name")
-  rmdir "$lock" 2>/dev/null || {
+  rm -f "$lock" || {
     fm_herdr_lab_error "could not release the lifecycle lock for '$name'"
     return 1
   }
-  unset FM_HERDR_LAB_LOCK_NAME FM_HERDR_LAB_LOCK_DEPTH
+  unset FM_HERDR_LAB_LOCK_NAME FM_HERDR_LAB_LOCK_PID FM_HERDR_LAB_LOCK_START FM_HERDR_LAB_LOCK_OWNER FM_HERDR_LAB_LOCK_DEPTH FM_HERDR_LAB_LOCK_BORROWED_DEPTH
 }
 
 fm_herdr_lab_raw() { # <session> <herdr arguments...>
