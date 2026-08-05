@@ -673,6 +673,7 @@ test_github_review_conversation_readiness_gate() {
   state="$dir/home/state"
   write_task_meta "$dir"
   printf 'done: PR https://github.com/o/r/pull/7 checks green\n' > "$state/task-a.status"
+  printf 'legacy readiness poll\n' > "$state/task-a.check.sh"
 
   set +e
   FM_TEST_GH_REVIEW_JSON='[{"data":{"repository":{"pullRequest":{"reviewThreads":{"totalCount":1,"nodes":[{"id":"thread-1","isResolved":false}],"pageInfo":{"hasNextPage":false,"endCursor":"cursor-1"}}}}}}]' \
@@ -684,6 +685,8 @@ test_github_review_conversation_readiness_gate() {
     "unresolved GitHub refusal was not actionable"
   assert_no_grep 'pr=' "$state/task-a.meta" "unresolved GitHub review thread reached PR metadata"
   assert_poll_absent "$state" task-a
+  find "$state/.pr-check-quarantine" -name 'task-a.check.*' -type f | grep . >/dev/null \
+    || fail "unresolved GitHub review thread left the legacy readiness poll unneutralized"
 
   FM_TEST_GH_REVIEW_JSON='[{"data":{"repository":{"pullRequest":{"reviewThreads":{"totalCount":1,"nodes":[{"id":"thread-1","isResolved":true}],"pageInfo":{"hasNextPage":false,"endCursor":"cursor-1"}}}}}}]' \
     run_check_entry "$dir" task-a https://github.com/o/r/pull/7 > "$dir/resolved.out" 2> "$dir/resolved.err" \
