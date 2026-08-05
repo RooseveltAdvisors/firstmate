@@ -44,6 +44,7 @@ OUT=$(HERDR_SESSION=default "$HELPER" bootstrap-pane "$SESSION") \
 OUT_SESSION=$(printf '%s' "$OUT" | jq -r '.session // empty')
 PANE=$(printf '%s' "$OUT" | jq -r '.pane_id // empty')
 CLIENT_PID=$(printf '%s' "$OUT" | jq -r '.client_pid // empty')
+IDENTITY="$STATE_DIR/$SESSION.session-identity.json"
 [ "$OUT_SESSION" = "$SESSION" ] || fail "bootstrap-pane returned the wrong session: $OUT"
 [ -n "$PANE" ] || fail "bootstrap-pane returned no pane identity: $OUT"
 [[ "$CLIENT_PID" =~ ^[0-9]+$ ]] || fail "bootstrap-pane returned no client PID: $OUT"
@@ -52,8 +53,12 @@ PANE_INFO=$("$HELPER" run "$SESSION" pane get "$PANE") \
   || fail 'the authoritative bootstrap pane could not be read'
 printf '%s' "$PANE_INFO" | jq -e --arg pane "$PANE" '.result.pane.pane_id == $pane' >/dev/null \
   || fail "the real Herdr pane identity did not round-trip: $PANE_INFO"
-[ -f "$STATE_DIR/$SESSION.session-identity.json" ] \
+[ -f "$IDENTITY" ] \
   || fail 'bootstrap proof lost the helper-owned named-session identity'
+GENERATION=$(jq -er '.generation' "$IDENTITY") \
+  || fail 'bootstrap proof lost the authoritative server generation'
+[[ "$GENERATION" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] \
+  || fail "bootstrap proof recorded a malformed server generation: $GENERATION"
 pass 'real isolated named lab creates and identifies one helper-owned bootstrap pane'
 
 "$HELPER" stop "$SESSION" >/dev/null || fail 'guarded stop did not clean the real bootstrap client'

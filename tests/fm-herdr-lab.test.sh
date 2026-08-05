@@ -20,20 +20,45 @@ cat > "$FAKEBIN/herdr" <<'SH'
 set -eu
 printf '%s\n' "$*" >> "$FM_FAKE_HERDR_LOG"
 state=$FM_FAKE_HERDR_STATE
-last=
-for arg in "$@"; do
-  previous=$last
-  last=$arg
+args=("$@")
+count=${#args[@]}
+[ "$count" -ge 2 ] && [ "${args[$((count - 2))]}" = --session ] || {
+  echo "fake herdr: missing trailing --session" >&2
+  exit 90
+}
+session=${args[$((count - 1))]}
+expected=
+command_args=()
+index=0
+while [ "$index" -lt "$((count - 2))" ]; do
+  arg=${args[$index]}
+  if [ "$arg" = --expected-generation ]; then
+    index=$((index + 1))
+    [ "$index" -lt "$((count - 2))" ] || exit 89
+    expected=${args[$index]}
+  else
+    command_args+=("$arg")
+  fi
+  index=$((index + 1))
 done
-[ "${previous:-}" = --session ] || { echo "fake herdr: missing trailing --session" >&2; exit 90; }
-session=$last
 default_socket=$(cat "$state/default-socket")
 lab_state=absent
 [ ! -f "$state/$session" ] || lab_state=$(cat "$state/$session")
 socket_dir="$state/sessions/$session"
 socket="$socket_dir/herdr.sock"
+generation_file="$state/$session.generation"
+generation=
+[ ! -f "$generation_file" ] || generation=$(cat "$generation_file")
 
-case "$1 ${2:-}" in
+if [ -n "$expected" ] && [ "$expected" != "$generation" ]; then
+  printf '%s\n' '{"error":{"code":"generation_mismatch"}}' >&2
+  exit 99
+fi
+
+first=${command_args[0]:-}
+second=${command_args[1]:-}
+
+case "$first $second" in
   "session list")
     if [ "$lab_state" = absent ] || [ "$lab_state" = deleted ]; then
       jq -nc --arg socket "$default_socket" '{sessions:[{default:true,name:"default",running:true,socket_path:$socket}]}'
@@ -44,24 +69,34 @@ case "$1 ${2:-}" in
         '{sessions:[{default:true,name:"default",running:true,socket_path:$default_socket},{default:false,name:$name,running:$running,socket_path:$socket}]}'
     fi
     ;;
-  "server --session")
+  "server ")
     if [ "${FM_FAKE_HERDR_SERVER_DELAY:-0}" != 0 ]; then
       "$FM_FAKE_HERDR_REAL_SLEEP" "$FM_FAKE_HERDR_SERVER_DELAY"
     fi
+    counter=0
+    [ ! -f "$state/generation-counter" ] || counter=$(cat "$state/generation-counter")
+    counter=$((counter + 1))
+    printf '%s\n' "$counter" > "$state/generation-counter"
+    printf -v suffix '%012x' "$counter"
+    generation="00000000-0000-4000-8000-$suffix"
     mkdir -p "$socket_dir"
     : > "$socket"
     printf '%s\n' running > "$state/$session"
+    printf '%s\n' "$generation" > "$generation_file"
     if [ "${FM_FAKE_HERDR_FOREIGN_PROVISION:-}" = 1 ]; then
       exit 0
     fi
     printf '%s\n' "$$" > "$state/$session.server-pid"
     exec "$FM_FAKE_HERDR_REAL_SLEEP" 300
     ;;
-  "status --json")
+  "status server")
     if [ "$lab_state" = running ]; then
-      printf '%s\n' '{"server":{"running":true}}'
+      jq -nc --arg generation "$generation" --arg session "$session" --arg socket "$socket" \
+        '{status:"running",running:true,generation:$generation,session:$session,socket:$socket}'
+      [ "${FM_FAKE_HERDR_STATUS_EXTRA_RECORD:-}" != 1 ] || printf '%s\n' '{"extra":true}'
     else
-      printf '%s\n' '{"server":{"running":false}}'
+      jq -nc --arg session "$session" --arg socket "$socket" \
+        '{status:"not_running",running:false,generation:null,session:$session,socket:$socket}'
     fi
     ;;
   "pane list")
@@ -87,7 +122,8 @@ case "$1 ${2:-}" in
     jq -nc --arg session "$session" \
       '{result:{workspace:{workspace_id:($session + ":w1")},tab:{tab_id:($session + ":w1:t1")},root_pane:{pane_id:($session + ":w1:p1")}}}'
     ;;
-  "--session $session")
+  " ")
+    [ -n "$expected" ] || exit 88
     [ "$lab_state" = running ] || exit 94
     printf '%s\n' "$$" > "$state/$session.client-pid"
     if [ "${FM_FAKE_HERDR_BOOTSTRAP_NO_PANE:-}" != 1 ]; then
@@ -96,12 +132,25 @@ case "$1 ${2:-}" in
     exec "$FM_FAKE_HERDR_REAL_SLEEP" 300
     ;;
   "pane close")
-    [ -f "$state/$session.pane" ] && [ "$(cat "$state/$session.pane")" = "$3" ] || exit 96
+    [ -f "$state/$session.pane" ] && [ "$(cat "$state/$session.pane")" = "${command_args[2]:-}" ] || exit 96
     rm -f "$state/$session.pane"
+    if [ "${FM_FAKE_HERDR_PANE_CLOSE_REPLACEMENT:-}" = 1 ]; then
+      printf '%s\n' "$session:w1:p2" > "$state/$session.pane"
+    fi
     printf '%s\n' '{"ok":true}'
     ;;
+  "pane get")
+    if [ -f "$state/$session.pane" ] && [ "$(cat "$state/$session.pane")" = "${command_args[2]:-}" ]; then
+      jq -nc --arg pane "${command_args[2]}" --arg session "$session" \
+        '{result:{pane:{pane_id:$pane,workspace_id:($session + ":w1")}}}'
+    else
+      jq -nc --arg pane "${command_args[2]:-}" \
+        '{error:{code:"pane_not_found",message:("pane " + $pane + " not found")}}' >&2
+      exit 1
+    fi
+    ;;
   "session stop")
-    [ "$3" = "$session" ] || exit 91
+    [ "${command_args[2]:-}" = "$session" ] || exit 91
     [ "${FM_FAKE_HERDR_STOP_FAIL:-}" != 1 ] || exit 97
     if [ -f "$state/$session.server-pid" ]; then
       kill -TERM "$(cat "$state/$session.server-pid")" 2>/dev/null || true
@@ -111,13 +160,14 @@ case "$1 ${2:-}" in
     printf '%s\n' stopped > "$state/$session"
     ;;
   "session delete")
-    [ "$3" = "$session" ] || exit 92
+    [ "${command_args[2]:-}" = "$session" ] || exit 92
     [ "${FM_FAKE_HERDR_DELETE_FAIL:-}" != 1 ] || exit 93
     if [ -f "$state/$session.server-pid" ]; then
       kill -TERM "$(cat "$state/$session.server-pid")" 2>/dev/null || true
       rm -f "$state/$session.server-pid"
     fi
     rm -rf "$socket_dir"
+    rm -f "$generation_file" "$state/$session.pane"
     printf '%s\n' deleted > "$state/$session"
     ;;
   *)
@@ -154,6 +204,8 @@ run_with_fake() {
     FM_FAKE_HERDR_FOREIGN_PROVISION="${FM_FAKE_HERDR_FOREIGN_PROVISION:-}" \
     FM_FAKE_HERDR_WORKSPACE_CREATE_FAIL_AFTER_PANE="${FM_FAKE_HERDR_WORKSPACE_CREATE_FAIL_AFTER_PANE:-}" \
     FM_FAKE_HERDR_WORKSPACE_CREATE_MALFORMED="${FM_FAKE_HERDR_WORKSPACE_CREATE_MALFORMED:-}" \
+    FM_FAKE_HERDR_STATUS_EXTRA_RECORD="${FM_FAKE_HERDR_STATUS_EXTRA_RECORD:-}" \
+    FM_FAKE_HERDR_PANE_CLOSE_REPLACEMENT="${FM_FAKE_HERDR_PANE_CLOSE_REPLACEMENT:-}" \
     FM_HERDR_LAB_BOOTSTRAP_MAX_ATTEMPTS="${FM_HERDR_LAB_BOOTSTRAP_MAX_ATTEMPTS:-}" \
     FM_HERDR_LAB_STATE_DIR="$TRIPWIRES" \
     "$@"
@@ -174,10 +226,12 @@ test_refuses_unsafe_names() {
 }
 
 test_provision_run_and_guarded_teardown() {
-  local name='' line_count status=0 stop_line delete_line
+  local name='' generation line_count status=0 stop_line delete_line
   name="fm-lab-behavior-$$"
   : > "$FAKE_LOG"
   run_with_fake fm_herdr_lab_provision "$name" || fail "provision failed"
+  generation=$(jq -er '.generation' "$TRIPWIRES/$name.session-identity.json") \
+    || fail "provision did not record the authoritative generation"
   [ "$(cat "$FAKE_STATE/$name")" = running ] || fail "provision did not start the named lab session"
   assert_present "$TRIPWIRES/$name.fleet-state.json" "provision did not record the fleet-state tripwire"
 
@@ -196,6 +250,10 @@ test_provision_run_and_guarded_teardown() {
   status=0
   run_with_fake fm_herdr_lab_cli "$name" status --session=default >/dev/null 2>&1 || status=$?
   expect_code 1 "$status" "caller-supplied equals-form session flag must be refused"
+  status=0
+  run_with_fake fm_herdr_lab_cli "$name" status --expected-generation 00000000-0000-4000-8000-000000000001 \
+    >/dev/null 2>&1 || status=$?
+  expect_code 1 "$status" "caller-supplied generation scope must be refused"
   status=0
   run_with_fake fm_herdr_lab_cli "$name" --handoff server stop >/dev/null 2>&1 || status=$?
   expect_code 1 "$status" "a leading option shifting server stop past the guard must be refused"
@@ -218,13 +276,16 @@ test_provision_run_and_guarded_teardown() {
     esac
   done < "$FAKE_LOG"
   line_count=$(wc -l < "$FAKE_LOG" | tr -d ' ')
-  stop_line=$(grep -n "^session stop $name --json --session $name$" "$FAKE_LOG" | cut -d: -f1)
-  delete_line=$(grep -n "^session delete $name --json --session $name$" "$FAKE_LOG" | cut -d: -f1)
+  stop_line=$(grep -n "^session stop $name --json --expected-generation $generation --session $name$" "$FAKE_LOG" | cut -d: -f1)
+  delete_line=$(grep -n "^session delete $name --json --expected-generation $generation --session $name$" "$FAKE_LOG" | cut -d: -f1)
   if [ -z "$stop_line" ] || [ -z "$delete_line" ] || [ "$line_count" -le "$delete_line" ]; then
     fail "teardown did not emit explicit stop/delete followed by the after tripwire"
   fi
-  sed -n "$((stop_line - 1))p" "$FAKE_LOG" | grep -F "session list --json --session $name" >/dev/null \
-    || fail "stop was not immediately preceded by a fresh refuse-default session list"
+  sed -n "$((stop_line - 1))p" "$FAKE_LOG" \
+    | grep -F "status server --json --expected-generation $generation --session $name" >/dev/null \
+    || fail "stop was not immediately preceded by an authoritative generation check"
+  sed -n "$((stop_line - 2))p" "$FAKE_LOG" | grep -F "session list --json --session $name" >/dev/null \
+    || fail "stop generation check was not preceded by a fresh refuse-default session list"
   sed -n "$((delete_line - 1))p" "$FAKE_LOG" | grep -F "session list --json --session $name" >/dev/null \
     || fail "delete was not immediately preceded by a fresh refuse-default session list"
   pass "fm-herdr-lab: provisioning, scoped calls, guarded teardown, and fleet tripwire are deterministic"
@@ -316,20 +377,20 @@ test_stopped_receipt_rejects_precommit_generation_race() {
   run_with_fake fm_herdr_lab_stop "$name" >/dev/null 2>&1 || status=$?
   eval "$saved"
   unset -f fm_herdr_lab_write_stopped_session_identity_original
-  expect_code 1 "$status" "stop must reject a foreign generation before stopped identity commit"
+  expect_code 0 "$status" "stop should retain its receipt when a stopped generation is replaced after the guarded mutation"
   assert_present "$TRIPWIRES/$name.stop-generation.json" \
     "stop race discarded its durable generation receipt"
-  [ "$(jq -r '.state' "$TRIPWIRES/$name.session-identity.json")" = running ] \
-    || fail "stop race committed an unproven stopped identity"
+  [ "$(jq -r '.state' "$TRIPWIRES/$name.session-identity.json")" = stopped ] \
+    || fail "stop race did not retain its stopped-generation identity"
   status=0
   run_with_fake fm_herdr_lab_provision "$name" >/dev/null 2>&1 || status=$?
   expect_code 1 "$status" "re-provision must reject the raced stop generation"
-  ! grep -F "session delete $name" "$FAKE_LOG" >/dev/null \
-    || fail "stop-generation race reached session deletion"
+  grep -F "session delete $name --json --expected-generation" "$FAKE_LOG" >/dev/null \
+    || fail "stop-generation race did not reach the core-owned atomic generation check"
   rm -f "$TRIPWIRES/$name.fleet-state.json" "$TRIPWIRES/$name.session-identity.json" \
     "$TRIPWIRES/$name.stop-generation.json" "$FAKE_STATE/$name"
   rm -rf "$FAKE_STATE/sessions/$name"
-  pass "fm-herdr-lab: stopped identity is bound to its durable server generation receipt"
+  pass "fm-herdr-lab: stopped identity defers replacement refusal to the core generation guard"
 }
 
 test_prepare_uses_guarded_owned_provisioning() {
@@ -512,13 +573,13 @@ test_bootstrap_workspace_failure_retains_unresolved_pane() {
   local name="fm-lab-bootstrap-workspace-failure-$$" status=0 saved server_pid
   : > "$FAKE_LOG"
   run_with_fake fm_herdr_lab_provision "$name" || fail "workspace-failure fixture provision failed"
-  saved=$(declare -f fm_herdr_lab_raw)
-  eval "$(declare -f fm_herdr_lab_raw | sed '1s/fm_herdr_lab_raw/fm_herdr_lab_raw_original/')"
+  saved=$(declare -f fm_herdr_lab_guarded_raw)
+  eval "$(declare -f fm_herdr_lab_guarded_raw | sed '1s/fm_herdr_lab_guarded_raw/fm_herdr_lab_guarded_raw_original/')"
   # shellcheck disable=SC2329
-  fm_herdr_lab_raw() {
+  fm_herdr_lab_guarded_raw() {
     local out
-    out=$(fm_herdr_lab_raw_original "$@") || {
-      if [ "${2:-} ${3:-}" = "workspace create" ]; then
+    out=$(fm_herdr_lab_guarded_raw_original "$@") || {
+      if [ "${3:-} ${4:-}" = "workspace create" ]; then
         printf '%s\n' "$name:foreign:w9:p9" > "$FAKE_STATE/$name.pane"
       fi
       return 1
@@ -528,7 +589,7 @@ test_bootstrap_workspace_failure_retains_unresolved_pane() {
   FM_FAKE_HERDR_WORKSPACE_CREATE_FAIL_AFTER_PANE=1 \
     run_with_fake fm_herdr_lab_bootstrap_pane "$name" >/dev/null 2>&1 || status=$?
   eval "$saved"
-  unset -f fm_herdr_lab_raw_original
+  unset -f fm_herdr_lab_guarded_raw_original
   expect_code 1 "$status" "workspace creation failure after pane visibility must fail"
   assert_present "$TRIPWIRES/$name.bootstrap-client/client.state" \
     "workspace creation failure discarded unresolved pane evidence"
@@ -552,30 +613,24 @@ test_bootstrap_workspace_failure_retains_unresolved_pane() {
 }
 
 test_bootstrap_post_create_ownership_failure_retains_journal() {
-  local name="fm-lab-bootstrap-post-create-owner-$$" socket_dir reserve_dir status=0 saved server_pid
+  local name="fm-lab-bootstrap-post-create-owner-$$" status=0 saved server_pid replacement_generation
   : > "$FAKE_LOG"
   run_with_fake fm_herdr_lab_provision "$name" || fail "post-create ownership fixture provision failed"
-  socket_dir="$FAKE_STATE/sessions/$name"
-  reserve_dir="$FAKE_STATE/sessions/$name-reserve"
-  saved=$(declare -f fm_herdr_lab_raw)
-  eval "$(declare -f fm_herdr_lab_raw | sed '1s/fm_herdr_lab_raw/fm_herdr_lab_raw_original/')"
-  fm_herdr_lab_raw() {
+  replacement_generation=00000000-0000-4000-8000-ffffffffffff
+  saved=$(declare -f fm_herdr_lab_guarded_raw)
+  eval "$(declare -f fm_herdr_lab_guarded_raw | sed '1s/fm_herdr_lab_guarded_raw/fm_herdr_lab_guarded_raw_original/')"
+  fm_herdr_lab_guarded_raw() {
     local out
-    out=$(fm_herdr_lab_raw_original "$@") || return 1
-    if [ "${2:-} ${3:-}" = "workspace create" ]; then
-      rm -f "$socket_dir/herdr.sock"
-      rmdir "$socket_dir"
-      mkdir "$reserve_dir"
-      mkdir "$socket_dir"
-      rmdir "$reserve_dir"
-      : > "$socket_dir/herdr.sock"
+    out=$(fm_herdr_lab_guarded_raw_original "$@") || return 1
+    if [ "${3:-} ${4:-}" = "workspace create" ]; then
+      printf '%s\n' "$replacement_generation" > "$FAKE_STATE/$name.generation"
     fi
     printf '%s\n' "$out"
   }
   run_with_fake fm_herdr_lab_bootstrap_pane "$name" >/dev/null 2>&1 || status=$?
   eval "$saved"
-  unset -f fm_herdr_lab_raw_original
-  expect_code 1 "$status" "post-create ownership change must fail bootstrap-pane"
+  unset -f fm_herdr_lab_guarded_raw_original
+  expect_code 1 "$status" "post-create generation change must fail bootstrap-pane"
   assert_present "$TRIPWIRES/$name.bootstrap-client/client.state" \
     "post-create ownership failure discarded its mutation journal"
   assert_present "$FAKE_STATE/$name.pane" \
@@ -590,7 +645,8 @@ test_bootstrap_post_create_ownership_failure_retains_journal() {
   rm -rf "$TRIPWIRES/$name.bootstrap-client" "$FAKE_STATE/sessions/$name"
   rm -f "$TRIPWIRES/$name.fleet-state.json" "$TRIPWIRES/$name.session-identity.json" \
     "$FAKE_STATE/$name" "$FAKE_STATE/$name.server-pid" "$FAKE_STATE/$name.pane"
-  pass "fm-herdr-lab: post-create ownership failure retains retryable pane evidence"
+  rm -f "$FAKE_STATE/$name.generation"
+  pass "fm-herdr-lab: post-create generation failure retains retryable pane evidence"
 }
 
 test_bootstrap_record_retirement_retains_state_on_unexpected_entry() {
@@ -610,9 +666,11 @@ test_bootstrap_record_retirement_retains_state_on_unexpected_entry() {
 }
 
 test_bootstrap_pane_is_scoped_owned_and_cleaned() {
-  local name="fm-lab-bootstrap-$$" before out pane pid line
+  local name="fm-lab-bootstrap-$$" before generation out pane pid line
   : > "$FAKE_LOG"
   run_with_fake fm_herdr_lab_provision "$name" || fail "bootstrap fixture provision failed"
+  generation=$(jq -er '.generation' "$TRIPWIRES/$name.session-identity.json") \
+    || fail "bootstrap fixture has no authoritative generation"
   before=$(cat "$TRIPWIRES/$name.fleet-state.json")
   [ "$(run_with_fake fm_herdr_lab_cli "$name" pane list | jq '.result.panes | length')" = 0 ] \
     || fail "freshly provisioned lab was not a zero-pane fixture"
@@ -647,8 +705,8 @@ test_bootstrap_pane_is_scoped_owned_and_cleaned() {
       *) fail "bootstrap lifecycle Herdr call lacks the exact trailing lab session: $line" ;;
     esac
   done < "$FAKE_LOG"
-  grep -Fx -- "--session $name" "$FAKE_LOG" >/dev/null \
-    || fail "bootstrap client did not attach with the exact trailing named session"
+  grep -Fx -- "--expected-generation $generation --session $name" "$FAKE_LOG" >/dev/null \
+    || fail "bootstrap client did not attach with its generation and exact trailing named session"
   pass "fm-herdr-lab: zero-pane bootstrap is scoped, machine-readable, owned, and cleanly repeatable"
 }
 
@@ -667,6 +725,26 @@ test_bootstrap_pane_failure_is_bounded_and_cleans_client() {
     "failed bootstrap removed the lab fleet-state tripwire"
   run_with_fake fm_herdr_lab_teardown "$name" || fail "teardown after bootstrap timeout failed"
   pass "fm-herdr-lab: bootstrap pane wait is bounded and failure cleans only its owned client"
+}
+
+test_bootstrap_cleanup_accepts_authoritative_pane_absence() {
+  local name="fm-lab-bootstrap-pane-absent-$$" out pane
+  : > "$FAKE_LOG"
+  run_with_fake fm_herdr_lab_provision "$name" || fail "pane-absence fixture provision failed"
+  out=$(run_with_fake fm_herdr_lab_bootstrap_pane "$name") || fail "pane-absence fixture bootstrap failed"
+  pane=$(printf '%s' "$out" | jq -er '.pane_id') || fail "pane-absence fixture has no pane identity"
+  FM_FAKE_HERDR_PANE_CLOSE_REPLACEMENT=1 run_with_fake fm_herdr_lab_stop "$name" >/dev/null \
+    || fail "stop rejected authoritative absence of its recorded bootstrap pane"
+  assert_absent "$TRIPWIRES/$name.bootstrap-client" \
+    "authoritative pane absence retained a completed client record"
+  [ "$(cat "$FAKE_STATE/$name.pane")" = "$name:w1:p2" ] \
+    || fail "cleanup changed the replacement pane after the recorded pane disappeared"
+  ! grep -F "pane close $name:w1:p2" "$FAKE_LOG" >/dev/null \
+    || fail "cleanup inferred ownership of the replacement pane"
+  grep -F "pane get $pane --expected-generation" "$FAKE_LOG" >/dev/null \
+    || fail "cleanup did not authoritatively check the recorded pane identity"
+  run_with_fake fm_herdr_lab_teardown "$name" || fail "pane-absence fixture teardown failed"
+  pass "fm-herdr-lab: cleanup accepts only authoritative absence of its exact recorded pane"
 }
 
 test_bootstrap_pane_refuses_mismatched_ownership() {
@@ -702,37 +780,34 @@ test_bootstrap_pane_refuses_mismatched_ownership() {
 }
 
 test_bootstrap_pane_refuses_recreated_named_session() {
-  local name="fm-lab-bootstrap-session-owner-$$" socket_dir reserve_dir status=0 original_identity replacement_identity
+  local name="fm-lab-bootstrap-session-owner-$$" socket_dir status=0 original_generation replacement_generation server_pid
   : > "$FAKE_LOG"
   run_with_fake fm_herdr_lab_provision "$name" || fail "bootstrap session-ownership fixture provision failed"
   socket_dir="$FAKE_STATE/sessions/$name"
-  original_identity=$(fm_herdr_lab_path_identity "$socket_dir") || fail "could not record the original session identity"
-  rm -f "$socket_dir/herdr.sock"
-  rmdir "$socket_dir"
-  reserve_dir="$FAKE_STATE/sessions/$name-reserve"
-  mkdir "$reserve_dir"
-  mkdir -p "$socket_dir"
-  rmdir "$reserve_dir"
-  : > "$socket_dir/herdr.sock"
-  replacement_identity=$(fm_herdr_lab_path_identity "$socket_dir") || fail "could not record the recreated session identity"
-  [ "$replacement_identity" != "$original_identity" ] || fail "session recreation fixture reused the original identity"
+  original_generation=$(cat "$FAKE_STATE/$name.generation")
+  replacement_generation=00000000-0000-4000-8000-eeeeeeeeeeee
+  [ "$replacement_generation" != "$original_generation" ] || fail "replacement generation fixture reused the original identity"
+  printf '%s\n' "$replacement_generation" > "$FAKE_STATE/$name.generation"
 
   run_with_fake fm_herdr_lab_bootstrap_pane "$name" >/dev/null 2>&1 || status=$?
-  expect_code 1 "$status" "bootstrap-pane must refuse a recreated same-name session"
+  expect_code 1 "$status" "bootstrap-pane must refuse a replacement same-name generation"
   status=0
   run_with_fake fm_herdr_lab_stop "$name" >/dev/null 2>&1 || status=$?
-  expect_code 1 "$status" "stop must refuse a recreated same-name session"
+  expect_code 1 "$status" "stop must refuse a replacement same-name generation"
   ! grep -F "session stop $name" "$FAKE_LOG" >/dev/null \
     || fail "recreated-session refusal reached session stop"
-  [ "$(cat "$FAKE_STATE/$name")" = running ] || fail "recreated-session refusal changed the named lab state"
+  [ "$(cat "$FAKE_STATE/$name")" = running ] || fail "replacement-generation refusal changed the named lab state"
   status=0
   run_with_fake fm_herdr_lab_teardown "$name" >/dev/null 2>&1 || status=$?
-  expect_code 1 "$status" "teardown must refuse a recreated same-name session"
+  expect_code 1 "$status" "teardown must refuse a replacement same-name generation"
   ! grep -F "session delete $name" "$FAKE_LOG" >/dev/null \
     || fail "recreated-session refusal reached session delete"
-  rm -f "$TRIPWIRES/$name.fleet-state.json" "$TRIPWIRES/$name.session-identity.json" "$FAKE_STATE/$name"
+  server_pid=$(cat "$FAKE_STATE/$name.server-pid")
+  kill -TERM "$server_pid" 2>/dev/null || true
+  rm -f "$TRIPWIRES/$name.fleet-state.json" "$TRIPWIRES/$name.session-identity.json" \
+    "$FAKE_STATE/$name" "$FAKE_STATE/$name.server-pid" "$FAKE_STATE/$name.generation"
   rm -rf "$socket_dir"
-  pass "fm-herdr-lab: named-session directory identity rejects stale same-name state"
+  pass "fm-herdr-lab: authoritative generation guards reject stale same-name state"
 }
 
 test_identity_parser_refuses_concatenated_records() {
@@ -751,25 +826,33 @@ test_identity_parser_refuses_concatenated_records() {
   pass "fm-herdr-lab: session identity accepts exactly one JSON document"
 }
 
+test_generation_parser_refuses_ambiguous_status() {
+  local name="fm-lab-generation-records-$$" generation status=0
+  : > "$FAKE_LOG"
+  run_with_fake fm_herdr_lab_provision "$name" || fail "generation parser fixture provision failed"
+  generation=$(jq -er '.generation' "$TRIPWIRES/$name.session-identity.json") \
+    || fail "generation parser fixture has no recorded generation"
+  FM_FAKE_HERDR_STATUS_EXTRA_RECORD=1 \
+    run_with_fake fm_herdr_lab_running_generation "$name" "$generation" >/dev/null 2>&1 || status=$?
+  expect_code 1 "$status" "concatenated server-status records must be ambiguous"
+  run_with_fake fm_herdr_lab_teardown "$name" || fail "generation parser fixture cleanup failed"
+  pass "fm-herdr-lab: server generation accepts exactly one machine-readable status document"
+}
+
 test_bootstrap_revalidates_before_workspace_mutation() {
-  local name="fm-lab-bootstrap-revalidate-$$" socket_dir reserve_dir marker status=0 saved server_pid
+  local name="fm-lab-bootstrap-revalidate-$$" socket_dir marker status=0 saved server_pid replacement_generation
   : > "$FAKE_LOG"
   run_with_fake fm_herdr_lab_provision "$name" || fail "bootstrap revalidation fixture provision failed"
   socket_dir="$FAKE_STATE/sessions/$name"
-  reserve_dir="$FAKE_STATE/sessions/$name-reserve"
   marker="$FAKE_STATE/$name.recreated"
+  replacement_generation=00000000-0000-4000-8000-dddddddddddd
   saved=$(declare -f fm_herdr_lab_cli)
   eval "$(declare -f fm_herdr_lab_cli | sed '1s/fm_herdr_lab_cli/fm_herdr_lab_cli_original/')"
   fm_herdr_lab_cli() {
     local out
     if [ "${2:-} ${3:-}" = "pane list" ] && [ ! -f "$marker" ]; then
       out=$(fm_herdr_lab_cli_original "$@") || return 1
-      rm -f "$socket_dir/herdr.sock"
-      rmdir "$socket_dir"
-      mkdir "$reserve_dir"
-      mkdir "$socket_dir"
-      rmdir "$reserve_dir"
-      : > "$socket_dir/herdr.sock"
+      printf '%s\n' "$replacement_generation" > "$FAKE_STATE/$name.generation"
       : > "$marker"
       printf '%s\n' "$out"
       return 0
@@ -779,15 +862,15 @@ test_bootstrap_revalidates_before_workspace_mutation() {
   run_with_fake fm_herdr_lab_bootstrap_pane "$name" >/dev/null 2>&1 || status=$?
   eval "$saved"
   unset -f fm_herdr_lab_cli_original
-  expect_code 1 "$status" "bootstrap must refuse replacement before workspace creation"
+  expect_code 1 "$status" "bootstrap must refuse a replacement generation before workspace creation"
   ! grep -F "workspace create" "$FAKE_LOG" >/dev/null \
     || fail "bootstrap mutated a replacement session after its ownership snapshot"
   server_pid=$(cat "$FAKE_STATE/$name.server-pid")
   kill -TERM "$server_pid" 2>/dev/null || true
   rm -f "$TRIPWIRES/$name.fleet-state.json" "$TRIPWIRES/$name.session-identity.json" \
-    "$FAKE_STATE/$name" "$FAKE_STATE/$name.server-pid" "$marker"
+    "$FAKE_STATE/$name" "$FAKE_STATE/$name.server-pid" "$FAKE_STATE/$name.generation" "$marker"
   rm -rf "$socket_dir"
-  pass "fm-herdr-lab: bootstrap revalidates ownership immediately before mutation"
+  pass "fm-herdr-lab: bootstrap revalidates generation immediately before mutation"
 }
 
 test_process_identity_is_locale_stable() {
@@ -834,9 +917,11 @@ test_bootstrap_post_create_ownership_failure_retains_journal
 test_bootstrap_record_retirement_retains_state_on_unexpected_entry
 test_bootstrap_pane_is_scoped_owned_and_cleaned
 test_bootstrap_pane_failure_is_bounded_and_cleans_client
+test_bootstrap_cleanup_accepts_authoritative_pane_absence
 test_bootstrap_pane_refuses_mismatched_ownership
 test_bootstrap_pane_refuses_recreated_named_session
 test_identity_parser_refuses_concatenated_records
+test_generation_parser_refuses_ambiguous_status
 test_bootstrap_revalidates_before_workspace_mutation
 test_process_identity_is_locale_stable
 test_real_proof_retains_cleanup_evidence
