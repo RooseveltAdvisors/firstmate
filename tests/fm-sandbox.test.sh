@@ -31,6 +31,8 @@ ID_PARTIAL="sbxpartial$$"
 ID_MISSING="sbxmissing$$"
 ID_OVERLAP="sbxoverlap$$"
 ID_EQUAL="sbxequal$$"
+ID_SOURCE_GONE="sbxsourcegone$$"
+ID_IGNORED="sbxignored$$"
 
 NONCE_MAIN=11111111111111111111111111111111
 NONCE_ROLLBACK=22222222222222222222222222222222
@@ -48,13 +50,16 @@ NONCE_PARTIAL=13131313131313131313131313131313
 NONCE_MISSING=14141414141414141414141414141414
 NONCE_OVERLAP=15151515151515151515151515151515
 NONCE_EQUAL=16161616161616161616161616161616
+NONCE_SOURCE_GONE=17171717171717171717171717171717
+NONCE_IGNORED=18181818181818181818181818181818
 
 cleanup_test() {
   local id
   for id in "$ID_MAIN" "$ID_ROLLBACK" "$ID_CRASH" "$ID_COMMIT_CRASH" \
     "$ID_CLEAN_LOCAL_CRASH" "$ID_CLEAN_RELEASE_CRASH" "$ID_RESERVATION_CRASH" \
     "$ID_ROLLBACK_CRASH" "$ID_CAP_A" "$ID_CAP_B" "$ID_LINK" "$ID_RACE" \
-    "$ID_PARTIAL" "$ID_MISSING" "$ID_OVERLAP" "$ID_EQUAL"; do
+    "$ID_PARTIAL" "$ID_MISSING" "$ID_OVERLAP" "$ID_EQUAL" "$ID_SOURCE_GONE" \
+    "$ID_IGNORED"; do
     rm -rf -- "$TASK_BASE/fm-$id"
   done
   fm_test_cleanup
@@ -360,7 +365,7 @@ test_task_transition_lock() {
 }
 
 test_incomplete_copy_recovery_and_missing_accounting() {
-  local owner reservation workcopy out
+  local owner reservation workcopy out source_backup
   if FM_SANDBOX_TEST_MODE=1 FM_SANDBOX_TEST_FAILPOINT=after-reservation \
       prepare_task "$ID_PARTIAL" "$NONCE_PARTIAL" >/dev/null 2>&1; then
     fail "partial-copy recovery setup unexpectedly succeeded"
@@ -393,6 +398,31 @@ EOF
 $out
 EOF
 )" = recover ] || fail "status did not require recovery for missing accounting"
+
+  prepare_task "$ID_SOURCE_GONE" "$NONCE_SOURCE_GONE"
+  source_backup="$TMP_ROOT/source-backup"
+  mv "$SOURCE" "$source_backup"
+  if FM_SANDBOX_TEST_MODE=1 FM_SANDBOX_TEST_FAILPOINT=after-rollback-mark \
+      run_sandbox rollback "$ID_SOURCE_GONE" >/dev/null 2>&1; then
+    fail "source-disappearance crash setup unexpectedly succeeded"
+  fi
+  assert_lifecycle "$ID_SOURCE_GONE" rollback_pending
+  run_sandbox recover "$ID_SOURCE_GONE" --json >/dev/null
+  mv "$source_backup" "$SOURCE"
+  assert_lifecycle "$ID_SOURCE_GONE" rolled_back
+
+  if FM_SANDBOX_TEST_MODE=1 FM_SANDBOX_TEST_FAILPOINT=after-reservation \
+      prepare_task "$ID_IGNORED" "$NONCE_IGNORED" >/dev/null 2>&1; then
+    fail "ignored-file recovery setup unexpectedly succeeded"
+  fi
+  owner=$(owner_path "$ID_IGNORED")
+  workcopy="$(task_root "$ID_IGNORED")/sandbox/workcopy"
+  mkdir "$(task_root "$ID_IGNORED")/sandbox"
+  git clone --quiet --no-local --no-hardlinks "$SOURCE" "$workcopy"
+  printf '%s\n' 'ignored credential that must not survive custody validation' > "$workcopy/.env"
+  run_sandbox recover "$ID_IGNORED" --json >/dev/null
+  assert_lifecycle "$ID_IGNORED" rolled_back
+  assert_absent "$workcopy" "recovery promoted a workcopy containing ignored files"
   pass "fm-sandbox: incomplete copies and missing cleanup accounting fail closed"
 }
 

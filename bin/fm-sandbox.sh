@@ -551,21 +551,16 @@ ensure_task_root() {
 }
 
 recorded_paths_safe() {
-  local journal=$1 task root workcopy source source_real base_real parent_real root_real
+  local journal=$1 task root workcopy base_real parent_real root_real
   task=$(jq -r .task_id "$journal")
   root=$(jq -r .task_root "$journal")
   workcopy=$(jq -r .workcopy "$journal")
-  source=$(jq -r .source_worktree "$journal")
   [ "$(basename "$root")" = "fm-$task" ] || return 1
   [ -d "$TASK_ROOT_BASE" ] && [ ! -L "$TASK_ROOT_BASE" ] || return 1
   base_real=$(cd "$TASK_ROOT_BASE" && pwd -P) || return 1
-  [ -d "$source" ] && [ ! -L "$source" ] || return 1
-  source_real=$(cd "$source" && pwd -P) || return 1
-  [ "$source_real" = "$source" ] || return 1
   [ -d "$root" ] && [ ! -L "$root" ] && [ -O "$root" ] || return 1
   parent_real=$(cd "$(dirname "$root")" && pwd -P) || return 1
   root_real=$(cd "$root" && pwd -P) || return 1
-  paths_overlap "$source_real" "$root_real" && return 1
   [ "$parent_real" = "$base_real" ] && [ "$root_real" = "$base_real/fm-$task" ] \
     && [ "$workcopy" = "$root_real/sandbox/workcopy" ]
 }
@@ -891,7 +886,7 @@ workcopy_complete() {
   [ -d "$workcopy" ] && [ ! -L "$workcopy" ] \
     && [ "$(git -C "$workcopy" rev-parse HEAD 2>/dev/null || true)" = "$expected" ] \
     || return 1
-  status=$(git -C "$workcopy" status --porcelain=v1 --untracked-files=all 2>/dev/null) || return 1
+  status=$(git -C "$workcopy" status --porcelain=v1 --untracked-files=all --ignored=matching 2>/dev/null) || return 1
   [ -z "$status" ] || return 1
   git -C "$workcopy" diff --quiet --no-ext-diff HEAD -- || return 1
   git -C "$workcopy" diff --cached --quiet --no-ext-diff HEAD -- || return 1
