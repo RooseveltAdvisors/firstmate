@@ -1,6 +1,6 @@
 ---
 name: updatefirstmate
-description: Self-update a running firstmate and its secondmates to the latest from origin. Use when the captain invokes /updatefirstmate (e.g. "/updatefirstmate", "update firstmate", "pull the latest firstmate"). Fast-forwards this firstmate repo's default branch and every secondmate home from origin (fast-forward only, never forced, never disruptive), then re-reads AGENTS.md and nudges each updated secondmate to do the same, so the whole tree runs the latest bin/ and instructions.
+description: Self-update a running firstmate and its local secondmates to the latest from origin. Use when the captain invokes /updatefirstmate (e.g. "/updatefirstmate", "update firstmate", "pull the latest firstmate"). Fast-forwards this firstmate repo's default branch and every local secondmate home from origin (fast-forward only, never forced, never disruptive), then re-reads AGENTS.md and nudges each updated local secondmate to do the same; remote-route updates remain out of scope.
 user-invocable: true
 metadata:
   internal: true
@@ -11,7 +11,8 @@ metadata:
 Self-update firstmate in place.
 Firstmate is its own repo, behind the same no-mistakes gate as any project, so new tracked material (`AGENTS.md`, `bin/`, `.agents/skills/`, and public `skills/`) reaches `main` and then sits there until each running firstmate pulls it.
 Only `AGENTS.md`, `bin/`, and `.agents/skills/` are a running firstmate instruction surface; public `skills/` is installer-facing and is not loaded by firstmate.
-This skill performs that pull for the running main firstmate and every secondmate, without disturbing any in-flight work.
+This skill performs that pull for the running main firstmate and every local secondmate, without disturbing any in-flight work.
+Remote routes are skipped because the Stage 1 transport does not update or mutate remote tracked files; [`secondmate-provisioning`](../secondmate-provisioning/SKILL.md#routing-table) owns that support boundary.
 
 The update is **fast-forward only** - the same sanctioned self-write as the fleet sync firstmate already runs.
 It never forces, never creates a merge commit, never stashes, and advances a target only on a clean fast-forward; anything dirty, diverged, offline, or on the wrong branch is skipped and reported.
@@ -24,7 +25,8 @@ This touches only the firstmate repo and its own worktrees, never anything under
    ```sh
    bin/fm-update.sh
    ```
-   It fast-forwards this firstmate repo's default branch from origin, then fast-forwards every registered secondmate home (each a treehouse worktree of this same repo, leased at a detached HEAD on the default branch) the same way.
+   It fast-forwards this firstmate repo's default branch from origin, then fast-forwards every registered local secondmate home (each a treehouse worktree of this same repo, leased at a detached HEAD on the default branch) the same way.
+   Registered remote routes are omitted rather than contacted or updated.
    It prints one status line per target (`updated <old>..<new>` / `already current` / `skipped: <reason>`), followed by two action lines that tell you exactly what to do next:
    - `reread-firstmate: yes|no`
    - `nudge-secondmates: fm-<id>...|none`
@@ -34,7 +36,7 @@ This touches only the firstmate repo and its own worktrees, never anything under
    **Read `AGENTS.md` now** (CLAUDE.md is a symlink to it) to refresh your operating instructions before doing anything else, so you are acting on the new instructions rather than the stale ones you were started with.
    When it printed `reread-firstmate: no`, nothing changed for you - skip the re-read.
 
-3. **Nudge each updated live secondmate.**
+3. **Nudge each updated live local secondmate.**
    For every target listed on the `nudge-secondmates:` line (do nothing when it says `none`), send a one-line re-read nudge so that secondmate picks up its new instructions too:
    ```sh
    FM_HOME=<this-firstmate-home> bin/fm-send.sh <id> 'firstmate was updated to the latest - please re-read your AGENTS.md to pick up the new instructions.'
@@ -56,5 +58,6 @@ This touches only the firstmate repo and its own worktrees, never anything under
 - **Only the firstmate repo and its worktrees** are touched, never `projects/`.
   It is the same sanctioned self-write as the fleet sync.
 - **Secondmates are never disrupted.**
-  A secondmate gets a tracked-files fast-forward (safe while it is mid-task, since its work lives in gitignored operational dirs and separate project worktrees) plus a gentle re-read nudge.
+  A local secondmate gets a tracked-files fast-forward (safe while it is mid-task, since its work lives in gitignored operational dirs and separate project worktrees) plus a gentle re-read nudge.
+  A remote secondmate is left untouched.
   It is never torn down, interrupted, or forced.

@@ -143,7 +143,7 @@ Remote automation is parent-initiated OpenSSH through `bin/fm-ssh-lib.sh`, with 
 Marked `fm-send.sh` delivery, `fm-crew-state.sh`, pending-reply status reconciliation, and `fm-config-push.sh` reuse those commands in the remote home.
 An SSH or network failure reports `unreachable`, never dead, missing, idle, or permission for a local launch.
 Stage 1 never provisions, launches, recovers, updates, hands work to, or retires a remote home.
-`fm-home-seed.sh validate` refuses duplicate ids, duplicate homes, and nested or overlapping homes.
+`fm-home-seed.sh validate` refuses duplicate ids, duplicate route identities, invalid remote identities, and nested or overlapping local homes.
 The main first mate routes by reading those scopes with judgment; the project list is provisioning data, not exclusive ownership.
 Use `fm-home-seed.sh <id> - {<project>...|--no-projects}` to lease a fresh firstmate worktree for the secondmate home.
 Use the deliberate `--no-projects` signal only for a firstmate-repo domain that needs no separate project clones.
@@ -279,13 +279,14 @@ If bootstrap kills a timed-out refresh, it replays any completed `fm-fleet-sync.
 A killed refresh (or a teardown process kill) can leave an orphaned `.git/packed-refs.lock` in a clone, which makes the next refresh's fetch fail with Git's `Unable to create '...packed-refs.lock': File exists`.
 On that signature only, `fm-fleet-sync.sh` retries the fetch with a bounded wait for the lock to self-clear, then removes the lock and retries once more only when it can prove the lock stale, exactly like the `fm-teardown.sh` `index.lock` recovery.
 It never removes a live lock, leaves any other failure shape untouched, and prints every wait, retry, and removal to stderr plus a one-line `recovered:` summary to stdout on success so that this session-start relay still surfaces the recovery.
-The locked session-start bootstrap step also runs the guarded local secondmate sync for recorded live secondmate homes, then propagates declared inherited local material into each validated live home.
+The locked session-start bootstrap step also runs the guarded local secondmate sync for recorded live local secondmate homes, then propagates declared inherited local material into each validated local live home.
 It emits `SECONDMATE_SYNC:` only when a home was skipped for an actionable sync reason, inheritance failed, or a divergent shared captain-preference copy was quarantined.
 When a running home advances and its loaded instruction surface (`AGENTS.md`, `bin/`, or `.agents/skills/`) changed, bootstrap sends the re-read nudge itself through the stable `fm-<id>` selector and reports the exact completed send as `BOOTSTRAP_INFO:`.
 If that send fails, bootstrap keeps an idempotent retry marker and emits `NUDGE_SECONDMATES:` with the failure reason.
-The same bootstrap run emits `SECONDMATE_LIVENESS:` only when a registered secondmate is skipped or its relaunch fails; already-live and successfully relaunched secondmates are handled silently.
+The same bootstrap run emits `SECONDMATE_LIVENESS:` when a registered secondmate cannot be guaranteed live or a local relaunch fails; already-live and successfully relaunched local secondmates are handled silently, while remote routes are observed but never relaunched.
 For a mid-session inherited local-material edit where tracked-file sync is not needed, run `bin/fm-config-push.sh`.
-It uses the same live secondmate discovery and propagation helper as bootstrap, prints each live home's `crew-dispatch.json`, `crew-harness`, `backlog-backend`, `herdr-presentation-spaces`, and `data/captain-shared.md` result as `pushed`, `unchanged`, `skipped`, or `error`, and exits non-zero for real propagation errors or config-reread send failures.
+For local routes it reuses bootstrap's propagation helper; for remote routes it sends only that helper's fixed allowlist to the existing remote receiver over the transport described above.
+It prints each live home's `crew-dispatch.json`, `crew-harness`, `backlog-backend`, `herdr-presentation-spaces`, and `data/captain-shared.md` result as `pushed`, `unchanged`, `skipped`, or `error`, and exits non-zero for real propagation errors or config-reread send failures.
 When an allowlisted config item changes for an already-running home, it sends the literal-content reread pointer described in [`secondmate-provisioning`](../.agents/skills/secondmate-provisioning/SKILL.md); unchanged allowlisted config sends no pointer unless a previous delivery is pending.
 The locked bootstrap inheritance pass uses the same per-home changed-set and reread path for already-running homes; see `secondmate-provisioning` for the single contract owner.
 That live discovery starts from `state/*.meta` records with `kind=secondmate`; `data/secondmates.md` only backfills `home=` for older or incomplete meta records.

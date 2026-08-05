@@ -23,7 +23,8 @@ It never tears down a task, merges a PR, dispatches new work, or mutates any tas
    The command's header and `--help` output own its exact fields, bounds, opt-ins, and output contract.
    When the captain asks to include PRs, use the command's live-PR opt-in; otherwise keep the default local-only read.
    If the command is unavailable, fall back to `bin/fm-fleet-snapshot.sh --json` and `bin/fm-crew-state.sh <id>`; never infer current state from a raw `tail` of `state/<id>.status`, which is append-only wake-event history whose last line goes stale.
-   For registered secondmates, use the snapshot's structured-home classification and provenance; a parent event or bounded terminal contradiction is fallback evidence, never authority over readable structured home state.
+   For registered local secondmates, use the snapshot's structured-home classification and provenance; a parent event or bounded terminal contradiction is fallback evidence, never authority over readable structured home state.
+   A remote route has no cross-host structured-home summary in Stage 1, so report only its parent-observed current state or explicit reachability classification and do not infer child-home backlog or completion facts.
    Structured captain-held decisions come from `decision-hold-lifecycle` and appear under `decisions_open`; do not scrape reports or visual-review artifacts to supplement them.
    A queued item under `gates` only becomes "next work" when its blocker is gone and its time/date gate has arrived; until then it stays queued with the reason.
    The `(main-inventory)` gate is an action-free integrity warning rather than queued work: render it under Charted Next with the related `omitted` disclosure, never invent an Underway row from backlog-only state, and never move it into Captain's Call.
@@ -34,7 +35,7 @@ It never tears down a task, merges a PR, dispatches new work, or mutates any tas
    The report uses the same four complete sections as the chat (see the chat-response contract below), in the same order, each always present, and adds the detail the chat omits:
    - **Title** - `# Bearings - <day> <YYYY-MM-DD>` (use "Morning status" only when the captain specifically asks for a morning brief), followed by two or three sentences framing where things stand.
    - **Captain's Call** - every open decision summarized with its options from the structured decision record, plus each PR ready to merge and each needed credential or login, every PR with the full `https://...` URL, never a bare `#number`.
-   - **Recently Landed** - the bounded current recent-completions baseline from structured state across the main fleet and every registered secondmate home, rendered in full on every run.
+   - **Recently Landed** - the bounded current recent-completions baseline from structured state across the main fleet and every registered local secondmate home, rendered in full on every run.
    - **Underway** - each live direct report making progress, with its current state, and the plans / main pickup pointers worth reopening (`data/<id>/report.md` files, `.lavish/*.html` boards).
    - **Charted Next** - queued or gated work, including any main-inventory integrity warning, with each item's blocker, date, or integrity reason.
 
@@ -52,7 +53,7 @@ Every `/bearings` chat response renders EXACTLY these four sections, in THIS ord
 
 1. **Captain's Call** - ONLY items that need the captain's own action now: a decision to make, a PR to approve or merge, a credential or login to provide, or a blocker only the captain can clear.
    Empty-state: "Nothing needs your action right now."
-2. **Recently Landed** - the bounded current recent-completions baseline: merged PRs, completed scouts, and finished local-only merges across the main fleet and every registered secondmate home.
+2. **Recently Landed** - the bounded current recent-completions baseline: merged PRs, completed scouts, and finished local-only merges across the main fleet and every registered local secondmate home.
    Empty-state: "No recent completions are in the current baseline."
 3. **Underway** - live work progressing on its own, one line of current state per direct report.
    Empty-state: "Nothing is underway."
