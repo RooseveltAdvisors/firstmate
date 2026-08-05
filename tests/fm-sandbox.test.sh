@@ -487,11 +487,10 @@ test_source_and_task_roots_do_not_overlap() {
 }
 
 test_stage2_is_absent() {
-  local sandbox spawn teardown ignored
+  local sandbox spawn teardown
   sandbox=$(cat "$SCRIPT")
   spawn=$(cat "$ROOT/bin/fm-spawn.sh")
   teardown=$(cat "$ROOT/bin/fm-teardown.sh")
-  ignored=$(cat "$ROOT/.gitignore")
   assert_not_contains "$spawn" '--sandbox-host' "Stage 1 is wired into worker spawn"
   assert_not_contains "$teardown" 'fm-sandbox.sh' "Stage 1 is wired into task teardown"
   assert_not_contains "$sandbox" 'FM_SANDBOX_OPENAI_API_KEY' "Stage 1 accepts provider credentials"
@@ -510,8 +509,12 @@ test_stage2_is_absent() {
   assert_not_contains "$sandbox" '1Password' "Stage 1 references host 1Password state"
   assert_absent "$ROOT/tests/fm-sandbox-herdr-e2e.test.sh" "Stage 1 retained the Herdr proof"
   assert_absent "$ROOT/assets/sandbox-kits/firstmate-codex/spec.yaml" "Stage 1 retained an executable kit"
-  assert_contains "$ignored" 'config/sandbox-hosts.json' "host inventory is not gitignored"
-  assert_contains "$ignored" 'config/sandbox-workers-enabled' "future rollout gate is not gitignored"
+  # Assert the guarantee (the path is ignored), not the .gitignore bytes: a
+  # broader rule such as "config/" satisfies this without naming each file.
+  git -C "$ROOT" check-ignore -q config/sandbox-hosts.json ||
+    fail "host inventory is not gitignored"
+  git -C "$ROOT" check-ignore -q config/sandbox-workers-enabled ||
+    fail "future rollout gate is not gitignored"
   pass "fm-sandbox: Stage 1 is inert and every worker, Herdr, credential, and live-sbx path is absent"
 }
 
