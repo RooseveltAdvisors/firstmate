@@ -11,6 +11,26 @@ command -v herdr >/dev/null 2>&1 || { echo 'skip: herdr not found'; exit 0; }
 command -v jq >/dev/null 2>&1 || { echo 'skip: jq not found'; exit 0; }
 [ -x "$HELPER" ] || { echo "skip: Herdr lab helper not executable at $HELPER"; exit 0; }
 
+herdr_generation_contract_available() {
+  local help status
+  help=$(herdr status server --help 2>&1) || return 1
+  case "$help" in
+    *--expected-generation*) ;;
+    *) return 1 ;;
+  esac
+  status=$(herdr status server --json --session default 2>/dev/null) || return 1
+  printf '%s' "$status" | jq -e '
+    type == "object"
+    and (.generation | type == "string")
+    and (.generation | test("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"))
+  ' >/dev/null 2>&1
+}
+
+herdr_generation_contract_available || {
+  echo 'skip: installed Herdr lacks the generation/expected-generation contract'
+  exit 0
+}
+
 TMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/fm-herdr-lab-bootstrap-e2e.XXXXXX")
 STATE_DIR="$TMP_ROOT/lab-state"
 SESSION=
