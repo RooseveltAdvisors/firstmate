@@ -310,7 +310,6 @@ fm_herdr_lab_retire_stopped_generation() { # <session>
   fm_herdr_lab_read_session_identity "$name" || return 1
   fm_herdr_lab_read_stop_receipt "$name" || return 1
   [ "$FM_HERDR_LAB_IDENTITY_STATE" = stopped ] \
-    && [ "$FM_HERDR_LAB_STOP_STATE" = stopped ] \
     && [ "$FM_HERDR_LAB_STOP_GENERATION" = "$FM_HERDR_LAB_IDENTITY_GENERATION" ] || {
       fm_herdr_lab_error "cannot retire a mismatched stopped generation for '$name'"
       return 1
@@ -320,6 +319,13 @@ fm_herdr_lab_retire_stopped_generation() { # <session>
     '[.sessions[]? | select(.name == $name)] | length' 2>/dev/null) || return 1
   [ "$named_count" -eq 0 ] || {
     fm_herdr_lab_error "stopped generation for '$name' was not deleted before retirement"
+    return 1
+  }
+  if [ "$FM_HERDR_LAB_STOP_STATE" = retired ]; then
+    return 0
+  fi
+  [ "$FM_HERDR_LAB_STOP_STATE" = stopped ] || {
+    fm_herdr_lab_error "cannot retire a mismatched stopped generation for '$name'"
     return 1
   }
   receipt=$(fm_herdr_lab_stop_receipt_path "$name")
@@ -800,6 +806,7 @@ fm_herdr_lab_provision_locked() { # <session>
       tripwire=$(fm_herdr_lab_tripwire_path "$name")
       if [ -e "$tripwire" ] || [ -L "$tripwire" ]; then
         if [ ! -f "$tripwire" ] || [ -L "$tripwire" ] \
+           || ! fm_herdr_lab_retire_stopped_generation "$name" \
            || ! fm_herdr_lab_require_retired_session "$name" \
            || ! fm_herdr_lab_check_tripwire "$name"; then
           fm_herdr_lab_error "existing state for absent session '$name' is not an authoritatively retired generation"
@@ -973,8 +980,10 @@ fm_herdr_lab_verify_tripwire() { # <session>
     fm_herdr_lab_error "session creation claim for '$name' remains; retaining teardown evidence"
     return 1
   }
-  if [ -e "$identity" ] || [ -L "$identity" ] +     || [ -e "$stop_receipt" ] || [ -L "$stop_receipt" ]; then
-    [ -f "$identity" ] && [ ! -L "$identity" ] +      && [ -f "$stop_receipt" ] && [ ! -L "$stop_receipt" ] || {
+  if [ -e "$identity" ] || [ -L "$identity" ] \
+     || [ -e "$stop_receipt" ] || [ -L "$stop_receipt" ]; then
+    [ -f "$identity" ] && [ ! -L "$identity" ] \
+      && [ -f "$stop_receipt" ] && [ ! -L "$stop_receipt" ] || {
         fm_herdr_lab_error "named session retirement evidence for '$name' is absent or ambiguous"
         return 1
       }
@@ -1785,6 +1794,10 @@ fm_herdr_lab_teardown_locked() { # <session>
     0)
       identity=$(fm_herdr_lab_identity_path "$name")
       if [ -e "$identity" ] || [ -L "$identity" ]; then
+        fm_herdr_lab_retire_stopped_generation "$name" || {
+          fm_herdr_lab_error "lab session '$name' disappeared before teardown; retaining ownership evidence"
+          return 1
+        }
         fm_herdr_lab_require_retired_session "$name" || {
           fm_herdr_lab_error "lab session '$name' disappeared before teardown; retaining ownership evidence"
           return 1
