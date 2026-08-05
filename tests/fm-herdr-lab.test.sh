@@ -209,6 +209,7 @@ test_provision_run_and_guarded_teardown() {
   run_with_fake fm_herdr_lab_teardown "$name" || fail "guarded teardown failed"
   [ "$(cat "$FAKE_STATE/$name")" = deleted ] || fail "teardown did not delete the lab session"
   assert_absent "$TRIPWIRES/$name.fleet-state.json" "successful teardown left its tripwire behind"
+  run_with_fake fm_herdr_lab_teardown "$name" || fail "repeated teardown was not idempotent"
 
   while IFS= read -r line; do
     case "$line" in
@@ -230,7 +231,7 @@ test_provision_run_and_guarded_teardown() {
 }
 
 test_missing_tripwire_blocks_destruction() {
-  local name="fm-lab-no-tripwire-$$" status=0 before after
+  local name="fm-lab-no-tripwire-$$" status=0 before
   printf '%s\n' running > "$FAKE_STATE/$name"
   : > "$FAKE_LOG"
   before=$(wc -l < "$FAKE_LOG")
@@ -239,9 +240,10 @@ test_missing_tripwire_blocks_destruction() {
   status=0
   run_with_fake fm_herdr_lab_teardown "$name" >/dev/null 2>&1 || status=$?
   expect_code 1 "$status" "missing tripwire must refuse teardown"
-  after=$(wc -l < "$FAKE_LOG")
-  [ "$before" = "$after" ] || fail "missing tripwire reached Herdr instead of refusing before destructive calls"
-  pass "fm-herdr-lab: missing tripwire refuses teardown before any Herdr call"
+  ! tail -n +$((before + 1)) "$FAKE_LOG" \
+    | grep -v -Fx -- "session list --json --session $name" >/dev/null \
+    || fail "missing tripwire reached a destructive Herdr call"
+  pass "fm-herdr-lab: missing tripwire refuses destructive teardown calls"
 }
 
 test_changed_default_trips_after_teardown() {
