@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Hermetic contract tests for the opt-in Docker Sandboxes execution layer.
+# Hermetic tests for the inert Docker Sandboxes Stage 1 lifecycle journal.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -7,118 +7,64 @@ set -u
 
 TMP_ROOT=$(fm_test_tmproot fm-sandbox)
 FAKEBIN=$(fm_fakebin "$TMP_ROOT")
-FAKE_SBX_STATE="$TMP_ROOT/sbx-state"
-FAKE_SBX_LOG="$TMP_ROOT/sbx.log"
 STATE="$TMP_ROOT/state"
 CONFIG="$TMP_ROOT/config"
-SOURCE="$TMP_ROOT/source"
-BRIEF="$TMP_ROOT/brief.md"
 HOSTS="$CONFIG/sandbox-hosts.json"
-ENABLE="$CONFIG/sandbox-workers-enabled"
-ID="sbxtest$$"
-TASK_TMP="/tmp/fm-$ID"
-META="$STATE/$ID.meta"
-OWNER="$STATE/$ID.sandbox.json"
-NAME="fm-$ID-0123456789ab"
-NONCE=0123456789abcdef0123456789abcdef
+SBX_LOG="$TMP_ROOT/sbx.log"
+SOURCE="$TMP_ROOT/source"
+TASK_BASE="$TMP_ROOT/task-roots"
 SCRIPT="$ROOT/bin/fm-sandbox.sh"
-KIT="$ROOT/assets/sandbox-kits/firstmate-codex"
+
+ID_MAIN="sbxmain$$"
+ID_ROLLBACK="sbxrollback$$"
+ID_CRASH="sbxcrash$$"
+ID_RESERVATION_CRASH="sbxreservationcrash$$"
+ID_COMMIT_CRASH="sbxcommitcrash$$"
+ID_CLEAN_LOCAL_CRASH="sbxcleanlocalcrash$$"
+ID_CLEAN_RELEASE_CRASH="sbxcleanreleasecrash$$"
+ID_ROLLBACK_CRASH="sbxrollbackcrash$$"
+ID_CAP_A="sbxcapa$$"
+ID_CAP_B="sbxcapb$$"
+ID_LINK="sbxlink$$"
+
+NONCE_MAIN=11111111111111111111111111111111
+NONCE_ROLLBACK=22222222222222222222222222222222
+NONCE_CRASH=33333333333333333333333333333333
+NONCE_RESERVATION_CRASH=99999999999999999999999999999999
+NONCE_COMMIT_CRASH=44444444444444444444444444444444
+NONCE_CLEAN_LOCAL_CRASH=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+NONCE_CLEAN_RELEASE_CRASH=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+NONCE_ROLLBACK_CRASH=55555555555555555555555555555555
+NONCE_CAP_A=66666666666666666666666666666666
+NONCE_CAP_B=77777777777777777777777777777777
+NONCE_LINK=88888888888888888888888888888888
 
 cleanup_test() {
-  rm -rf "$TASK_TMP"
+  local id
+  for id in "$ID_MAIN" "$ID_ROLLBACK" "$ID_CRASH" "$ID_COMMIT_CRASH" \
+    "$ID_CLEAN_LOCAL_CRASH" "$ID_CLEAN_RELEASE_CRASH" "$ID_RESERVATION_CRASH" \
+    "$ID_ROLLBACK_CRASH" "$ID_CAP_A" "$ID_CAP_B" "$ID_LINK"; do
+    rm -rf -- "$TASK_BASE/fm-$id"
+  done
   fm_test_cleanup
 }
 trap cleanup_test EXIT
-mkdir -p "$FAKE_SBX_STATE" "$STATE" "$CONFIG"
-: > "$FAKE_SBX_LOG"
 
-cat > "$HOSTS" <<'JSON'
-{
-  "version": 1,
-  "hosts": [
-    {
-      "id": "dev",
-      "role": "dev",
-      "transport": "local",
-      "hostname": "sandbox-test-host",
-      "enabled": true,
-      "priority": 10,
-      "cpus": 3,
-      "memory": "6GiB",
-      "maxConcurrent": 2,
-      "profiles": ["codex-github-bun-v1"],
-      "authMode": "ephemeral-api-key",
-      "privateNetworkGrant": false
-    },
-    {
-      "id": "srv",
-      "role": "srv",
-      "transport": "ssh-fixed",
-      "hostname": "srv",
-      "enabled": false,
-      "priority": 100,
-      "cpus": 2,
-      "memory": "4GiB",
-      "maxConcurrent": 1,
-      "profiles": ["codex-github-bun-v1"],
-      "authMode": "ephemeral-api-key",
-      "privateNetworkGrant": false
-    }
-  ]
-}
-JSON
+mkdir -p "$STATE" "$CONFIG" "$TASK_BASE"
+cp "$ROOT/docs/examples/sandbox-hosts.json" "$HOSTS"
+tmp_hosts=$(mktemp "$TMP_ROOT/hosts.XXXXXX")
+jq '(.hosts[] | select(.id == "dev") | .hostname) = "sandbox-test-host"
+    | (.hosts[] | select(.id == "dev") | .maxConcurrent) = 1' "$HOSTS" > "$tmp_hosts"
+mv "$tmp_hosts" "$HOSTS"
+: > "$SBX_LOG"
 
 cat > "$FAKEBIN/sbx" <<'SH'
 #!/usr/bin/env bash
 set -eu
 printf '%s\n' "$*" >> "$FM_FAKE_SBX_LOG"
-state=$FM_FAKE_SBX_STATE
-case "${1:-} ${2:-}" in
-  "version ") printf '%s\n' 'Docker Sandboxes version 0.35.0' ;;
-  "ls --json")
-    if [ -f "$state/inventory.json" ]; then jq -s '.' "$state/inventory.json"; else printf '%s\n' '[]'; fi
-    ;;
-  "policy ls") printf '%s\n' '[{"name":"deny-all","source":"local","status":"active"}]' ;;
-  "policy check")
-    target=${@: -1}
-    case "$target" in
-      api.openai.com|github.com|registry.npmjs.org|registry-1.docker.io) printf 'Allowed: %s\n' "$target" ;;
-      *) printf 'Denied: %s\n' "$target" ;;
-    esac
-    ;;
-  "policy log") printf '%s\n' '[{"decision":"deny","host":"portal.arcs.health"}]' ;;
-  "create --name")
-    name=$3
-    workspace=${@: -1}
-    jq -nc --arg name "$name" --arg workspace "$workspace" \
-      '{name:$name,id:"sbx-stable-001",workspace:$workspace}' > "$state/inventory.json"
-    ;;
-  "exec "*)
-    name=$2
-    [ "$(jq -r .name "$state/inventory.json")" = "$name" ] || exit 40
-    [ "${3:-}" = -- ] || exit 43
-    if [ "${4:-}" = cat ]; then
-      cat "$state/owner.json"
-    else
-      printf '%s\n' "${@: -1}" > "$state/owner.json"
-    fi
-    ;;
-  "secret set")
-    secret=$(cat)
-    [ "$secret" = ephemeral-openai-test ] || [ "$secret" = ephemeral-github-test ] || exit 41
-    printf '%s\n' "$3:$4" >> "$state/secrets"
-    ;;
-  "run --name")
-    workspace=$(jq -r .workspace "$state/inventory.json")
-    printf '%s\n' '# changed safely inside fake microVM' >> "$workspace/README.md"
-    git -C "$workspace" add README.md
-    git -C "$workspace" -c user.name='Sandbox Test' -c user.email='sandbox@example.invalid' commit -qm sandbox-change
-    printf '%s\n' 'done: fake sandbox edit, build, and test complete' >> "$workspace/.firstmate/status"
-    touch "$workspace/.firstmate/turn-ended"
-    sleep 2
-    ;;
-  "rm --force") rm -f "$state/inventory.json" ;;
-  *) echo "unexpected fake sbx invocation: $*" >&2; exit 42 ;;
+case "${1:-}" in
+  version) printf '%s\n' 'Docker Sandboxes version 0.35.0' ;;
+  *) echo "unexpected Stage 1 sbx operation: $*" >&2; exit 42 ;;
 esac
 SH
 chmod +x "$FAKEBIN/sbx"
@@ -126,155 +72,299 @@ chmod +x "$FAKEBIN/sbx"
 run_sandbox() {
   PATH="$FAKEBIN:$PATH" \
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$TMP_ROOT" FM_STATE_OVERRIDE="$STATE" \
-    FM_CONFIG_OVERRIDE="$CONFIG" FM_SANDBOX_HOSTS_OVERRIDE="$HOSTS" \
-    FM_SANDBOX_ENABLE_OVERRIDE="$ENABLE" FM_SANDBOX_KVM_PATH=/dev/null \
-    FM_SANDBOX_HOSTNAME=sandbox-test-host FM_SANDBOX_SBX=sbx \
-    FM_FAKE_SBX_STATE="$FAKE_SBX_STATE" FM_FAKE_SBX_LOG="$FAKE_SBX_LOG" \
+    FM_CONFIG_OVERRIDE="$CONFIG" FM_SANDBOX_HOSTS_OVERRIDE="${FM_SANDBOX_HOSTS_OVERRIDE:-$HOSTS}" \
+    FM_SANDBOX_TASK_ROOT_BASE="${FM_SANDBOX_TASK_ROOT_BASE:-$TASK_BASE}" \
+    FM_SANDBOX_HOSTNAME=sandbox-test-host FM_SANDBOX_KVM_PATH=/dev/null \
+    FM_SANDBOX_SBX=sbx FM_FAKE_SBX_LOG="$SBX_LOG" \
     "$SCRIPT" "$@"
 }
 
-write_meta() {
-  fm_write_meta "$META" \
-    'window=fm-lab-test:pane-1' \
-    "worktree=$SOURCE" \
-    "project=$SOURCE" \
-    'harness=codex' \
-    'kind=ship' \
-    'mode=local-only' \
-    'yolo=off' \
-    "tasktmp=$TASK_TMP" \
-    'model=default' \
-    'effort=high' \
-    'execution=sandbox' \
-    'backend=herdr' \
-    'herdr_session=fm-lab-test' \
-    'herdr_workspace_id=workspace-1' \
-    'herdr_tab_id=tab-1' \
-    'herdr_pane_id=pane-1' \
-    'sandbox_host=dev' \
-    'sandbox_profile=codex-github-bun-v1' \
-    "sandbox_name=$NAME" \
-    "sandbox_nonce=$NONCE" \
-    "sandbox_owner=$OWNER" \
-    "sandbox_brief=$BRIEF"
+task_root() {
+  printf '%s/fm-%s\n' "$TASK_BASE" "$1"
 }
 
-test_rollout_disabled_is_non_mutating() {
-  local out
-  : > "$FAKE_SBX_LOG"
-  out=$(run_sandbox inventory --json)
-  [ "$(jq -r .rolloutEnabled <<EOF
-$out
-EOF
-)" = false ] || fail "inventory should report tracked rollout disabled"
-  assert_not_contains "$(cat "$FAKE_SBX_LOG")" "ls --json" "disabled inventory must not start or query the sbx daemon"
-  assert_not_contains "$(cat "$FAKE_SBX_LOG")" "policy ls" "disabled inventory must not inspect live policy"
-  pass "fm-sandbox: rollout is disabled and non-mutating by default"
+owner_path() {
+  printf '%s/%s.sandbox.json\n' "$STATE" "$1"
 }
 
-test_doctor_and_role_facts() {
-  local out
-  printf '%s\n' v1 > "$ENABLE"
-  out=$(run_sandbox doctor --host dev --json)
-  [ "$(jq -r .eligible <<EOF
-$out
-EOF
-)" = true ] || fail "doctor should accept the complete local microVM capability fixture: $out"
-  [ "$(jq -r .limits.cpus <<EOF
-$out
-EOF
-)" = 3 ] || fail "doctor did not preserve inspectable CPU limits"
-  out=$(run_sandbox inventory --json)
-  [ "$(jq -r '.hosts[] | select(.id == "srv") | .refusalReason' <<EOF
-$out
-EOF
-)" = host-disabled ] || fail "inventory did not report the production host refusal fact"
-  pass "fm-sandbox: doctor reports exact host capabilities, roles, and limits without a scheduler score"
+prepare_task() {
+  local id=$1 nonce=$2
+  run_sandbox prepare "$id" --host dev --name "fm-$id" --nonce "$nonce" \
+    --source "$SOURCE" --task-root "$(task_root "$id")"
 }
 
-test_prepare_run_sync_and_cleanup() {
-  local out log marker rm_before rm_after
+assert_lifecycle() {
+  local id=$1 expected=$2 owner
+  owner=$(owner_path "$id")
+  [ "$(jq -r .lifecycle "$owner")" = "$expected" ] \
+    || fail "task $id lifecycle is not $expected"
+}
+
+make_source() {
   fm_git_init_commit "$SOURCE"
-  git -C "$SOURCE" branch -M "fm/$ID"
-  printf '%s\n' 'never copy this ignored secret' > "$SOURCE/.env"
   printf '%s\n' '.env' > "$SOURCE/.gitignore"
+  printf '%s\n' 'production-like secret that must not clone' > "$SOURCE/.env"
   git -C "$SOURCE" add .gitignore
-  git -C "$SOURCE" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qm ignore-env
-  printf '%s\n' '# fixture brief' > "$BRIEF"
-  write_meta
-
-  if run_sandbox prepare "$ID" >/dev/null 2>&1; then
-    fail "prepare should refuse without an ephemeral task-scoped OpenAI key"
-  fi
-  assert_absent "$OWNER" "credential refusal should happen before ownership publication or sandbox creation"
-
-  FM_SANDBOX_OPENAI_API_KEY=ephemeral-openai-test \
-    FM_SANDBOX_GITHUB_TOKEN=ephemeral-github-test run_sandbox prepare "$ID"
-  assert_present "$OWNER" "prepare did not publish machine-readable ownership metadata"
-  [ "$(jq -r .sandbox_id "$OWNER")" = sbx-stable-001 ] || fail "stable sandbox id was not recorded"
-  [ "$(jq -r .host_id "$OWNER")" = dev ] || fail "exact host was not recorded"
-  [ "$(jq -r .limits.cpus "$OWNER")" = 3 ] || fail "CPU limit was not recorded"
-  assert_absent "$TASK_TMP/sandbox/workcopy/.env" "ignored production-like .env leaked into disposable clone"
-  marker=$(cat "$FAKE_SBX_STATE/owner.json")
-  [ "$(jq -r .nonce <<EOF
-$marker
-EOF
-)" = "$NONCE" ] || fail "in-VM immutable ownership marker lacks the task nonce"
-  log=$(cat "$FAKE_SBX_LOG")
-  assert_contains "$log" "create --name $NAME --cpus 3 --memory 6GiB --no-share-skills --kit $KIT codex $TASK_TMP/sandbox/workcopy" \
-    "prepare did not use bounded resources, the pinned kit, or private skill isolation"
-  assert_not_contains "$log" "/var/run/docker.sock" "prepare exposed the host Docker socket"
-  assert_not_contains "$log" "docker run" "prepare fell back to an ordinary container"
-  assert_not_contains "$log" "--mount $HOME" "prepare mounted the host home"
-  assert_not_contains "$log" ".ssh" "prepare exposed host SSH state"
-  assert_not_contains "$log" ".codex" "prepare exposed persistent Codex authentication state"
-  assert_contains "$log" "policy check network --sandbox $NAME portal.arcs.health" "production-domain deny was not verified"
-  assert_contains "$log" "policy check network --sandbox $NAME 192.168.0.6" "fleet-private IP deny was not verified"
-
-  run_sandbox run "$ID"
-  assert_grep '# changed safely inside fake microVM' "$SOURCE/README.md" "committed sandbox edit was not fast-forwarded to the ordinary task worktree"
-  assert_grep 'done: fake sandbox edit, build, and test complete' "$STATE/$ID.status" "task-scoped status bridge did not surface sandbox completion"
-  assert_present "$STATE/$ID.turn-ended" "task-scoped turn-end bridge did not surface the Codex turn"
-  assert_present "$STATE/$ID.sandbox-network.json" "task-scoped sandbox policy log was not recorded"
-  [ "$(jq -r .synced_commit "$OWNER")" = "$(git -C "$SOURCE" rev-parse HEAD)" ] || fail "synced commit was not recorded exactly"
-
-  cp "$FAKE_SBX_STATE/owner.json" "$FAKE_SBX_STATE/owner.good"
-  jq '.nonce="wrong"' "$FAKE_SBX_STATE/owner.good" > "$FAKE_SBX_STATE/owner.json"
-  rm_before=$(grep -c '^rm --force' "$FAKE_SBX_LOG" || true)
-  if run_sandbox cleanup "$ID" >/dev/null 2>&1; then
-    fail "cleanup should refuse a mismatched immutable ownership nonce"
-  fi
-  rm_after=$(grep -c '^rm --force' "$FAKE_SBX_LOG" || true)
-  [ "$rm_before" = "$rm_after" ] || fail "mismatched ownership reached destructive sbx rm"
-  cp "$FAKE_SBX_STATE/owner.good" "$FAKE_SBX_STATE/owner.json"
-  run_sandbox cleanup "$ID"
-  [ "$(jq -r .lifecycle "$OWNER")" = removed ] || fail "bounded cleanup did not record removal"
-  assert_absent "$FAKE_SBX_STATE/inventory.json" "bounded cleanup left the exact sandbox present"
-  pass "fm-sandbox: prepare, status bridge, committed-work sync, immutable ownership, and bounded cleanup are vertical"
+  git -C "$SOURCE" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' \
+    commit -qm ignore-env
 }
 
-test_static_lifecycle_boundaries() {
-  local spawn teardown sandbox kit
+test_inventory_doctor_and_policy_contract() {
+  local out bad
+  : > "$SBX_LOG"
+  out=$(run_sandbox inventory --json)
+  [ "$(jq -r .stage <<EOF
+$out
+EOF
+)" = 1 ] || fail "inventory does not identify inert Stage 1"
+  [ "$(jq -r .launchEnabled <<EOF
+$out
+EOF
+)" = false ] || fail "inventory claims launch is enabled"
+  [ "$(jq -r .policy.mode <<EOF
+$out
+EOF
+)" = deny-all ] || fail "inventory lost the deny-all policy contract"
+  [ "$(jq -r .policy.hostDockerSocket <<EOF
+$out
+EOF
+)" = false ] || fail "inventory permits the host Docker socket"
+  [ "$(jq -r '.policy.hostMounts | length' <<EOF
+$out
+EOF
+)" = 0 ] || fail "inventory permits host mounts"
+  out=$(run_sandbox doctor --host dev --json)
+  [ "$(jq -r .launchSupported <<EOF
+$out
+EOF
+)" = false ] || fail "doctor authorizes Stage 1 launch"
+  [ "$(jq -r .refusalReason <<EOF
+$out
+EOF
+)" = stage1-journal-only ] || fail "doctor did not report the explicit Stage 1 refusal"
+  out=$(run_sandbox doctor --host srv --json)
+  [ "$(jq -r .refusalReason <<EOF
+$out
+EOF
+)" = production-role-deferred ] || fail "doctor did not report the production role refusal"
+  assert_not_contains "$(cat "$SBX_LOG")" 'ls --json' "doctor queried the sandbox daemon"
+  assert_not_contains "$(cat "$SBX_LOG")" 'policy' "doctor queried live policy"
+  [ "$(sort -u "$SBX_LOG")" = version ] \
+    || fail "inventory or doctor called more than the read-only sbx version command"
+
+  bad=$(mktemp "$TMP_ROOT/bad-hosts.XXXXXX")
+  jq '.policy.mode="balanced"' "$HOSTS" > "$bad"
+  if FM_SANDBOX_HOSTS_OVERRIDE="$bad" run_sandbox inventory --json >/dev/null 2>&1; then
+    fail "inventory accepted a non-deny-all contract"
+  fi
+  pass "fm-sandbox: inventory and doctor are read-only, role-aware, and deny-by-default"
+}
+
+test_prepare_commit_and_cleanup_journal() {
+  local owner reservation receipt
+  prepare_task "$ID_MAIN" "$NONCE_MAIN"
+  owner=$(owner_path "$ID_MAIN")
+  assert_present "$owner" "prepare did not publish its ownership journal"
+  assert_lifecycle "$ID_MAIN" prepared
+  [ "$(jq -r .sandbox_id "$owner")" = null ] || fail "prepare fabricated a stable sandbox id"
+  [ "$(jq -r .stage "$owner")" = 1 ] || fail "journal does not identify Stage 1"
+  [ "$(jq -r .task_id "$owner")" = "$ID_MAIN" ] || fail "journal lost its exact task identity"
+  [ "$(jq -r .host_id "$owner")" = dev ] || fail "journal lost its exact host identity"
+  [ "$(jq -r .sandbox_name "$owner")" = "fm-$ID_MAIN" ] || fail "journal lost its sandbox name"
+  [ "$(jq -r .nonce "$owner")" = "$NONCE_MAIN" ] || fail "journal lost its ownership nonce"
+  [ "$(jq -r .limits.maxConcurrent "$owner")" = 1 ] || fail "journal lost the host concurrency limit"
+  assert_absent "$(task_root "$ID_MAIN")/sandbox/workcopy/.env" \
+    "committed-only clone copied an ignored secret"
+  reservation=$(jq -r .reservation "$owner")
+  assert_present "$reservation" "prepare did not atomically claim host capacity"
+  [ "$(jq -r .accounting.next_action <<EOF
+$(run_sandbox status "$ID_MAIN" --json)
+EOF
+)" = stage2-create-or-rollback ] || fail "prepared journal does not stop at the Stage 2 boundary"
+
+  run_sandbox commit "$ID_MAIN" --sandbox-id stable-sandbox-001
+  assert_lifecycle "$ID_MAIN" committed
+  [ "$(jq -r .sandbox_id "$reservation")" = stable-sandbox-001 ] \
+    || fail "reservation did not receive the immutable stable id"
+  run_sandbox commit "$ID_MAIN" --sandbox-id stable-sandbox-001
+  if run_sandbox commit "$ID_MAIN" --sandbox-id different-id >/dev/null 2>&1; then
+    fail "commit allowed a stable sandbox id to change"
+  fi
+
+  receipt=$(run_sandbox cleanup-begin "$ID_MAIN" --json)
+  [ "$(jq -r .sandbox_id <<EOF
+$receipt
+EOF
+)" = stable-sandbox-001 ] || fail "cleanup receipt lost the stable sandbox id"
+  assert_lifecycle "$ID_MAIN" cleanup_pending
+  if run_sandbox cleanup-commit "$ID_MAIN" --sandbox-id wrong-stable-id >/dev/null 2>&1; then
+    fail "cleanup accepted a stable sandbox id outside the ownership journal"
+  fi
+  assert_present "$(task_root "$ID_MAIN")/sandbox/workcopy" \
+    "wrong cleanup identity removed the disposable clone"
+  run_sandbox cleanup-commit "$ID_MAIN" --sandbox-id stable-sandbox-001
+  assert_lifecycle "$ID_MAIN" cleaned
+  assert_absent "$(task_root "$ID_MAIN")/sandbox" "cleanup left the disposable clone"
+  assert_absent "$reservation" "cleanup left the exact host reservation"
+  assert_present "$owner" "cleanup deleted machine-readable accounting"
+  run_sandbox recover "$ID_MAIN" --json >/dev/null
+  pass "fm-sandbox: immutable journal transitions and terminal cleanup are idempotent"
+}
+
+test_rollback_and_crash_recovery() {
+  local owner reservation
+  prepare_task "$ID_ROLLBACK" "$NONCE_ROLLBACK"
+  reservation=$(jq -r .reservation "$(owner_path "$ID_ROLLBACK")")
+  run_sandbox rollback "$ID_ROLLBACK"
+  assert_lifecycle "$ID_ROLLBACK" rolled_back
+  assert_absent "$(task_root "$ID_ROLLBACK")/sandbox" "rollback left the disposable clone"
+  assert_absent "$reservation" "rollback left the exact host reservation"
+  if run_sandbox commit "$ID_ROLLBACK" --sandbox-id impossible >/dev/null 2>&1; then
+    fail "rolled-back ownership accepted a later sandbox id"
+  fi
+
+  if FM_SANDBOX_TEST_MODE=1 FM_SANDBOX_TEST_FAILPOINT=after-journal \
+      prepare_task "$ID_CRASH" "$NONCE_CRASH" >/dev/null 2>&1; then
+    fail "prepare crash failpoint unexpectedly succeeded"
+  fi
+  owner=$(owner_path "$ID_CRASH")
+  assert_lifecycle "$ID_CRASH" preparing
+  assert_absent "$(jq -r .reservation "$owner")" "journal-first crash claimed capacity too early"
+  run_sandbox recover "$ID_CRASH" --json >/dev/null
+  assert_lifecycle "$ID_CRASH" rolled_back
+
+  if FM_SANDBOX_TEST_MODE=1 FM_SANDBOX_TEST_FAILPOINT=after-reservation \
+      prepare_task "$ID_RESERVATION_CRASH" "$NONCE_RESERVATION_CRASH" >/dev/null 2>&1; then
+    fail "reservation crash failpoint unexpectedly succeeded"
+  fi
+  owner=$(owner_path "$ID_RESERVATION_CRASH")
+  assert_lifecycle "$ID_RESERVATION_CRASH" preparing
+  assert_present "$(jq -r .reservation "$owner")" "reserved crash lost its capacity claim"
+  run_sandbox recover "$ID_RESERVATION_CRASH" --json >/dev/null
+  assert_lifecycle "$ID_RESERVATION_CRASH" rolled_back
+
+  prepare_task "$ID_COMMIT_CRASH" "$NONCE_COMMIT_CRASH"
+  if FM_SANDBOX_TEST_MODE=1 FM_SANDBOX_TEST_FAILPOINT=after-commit-mark \
+      run_sandbox commit "$ID_COMMIT_CRASH" --sandbox-id stable-crash-001 >/dev/null 2>&1; then
+    fail "commit crash failpoint unexpectedly succeeded"
+  fi
+  assert_lifecycle "$ID_COMMIT_CRASH" commit_pending
+  run_sandbox recover "$ID_COMMIT_CRASH" --json >/dev/null
+  assert_lifecycle "$ID_COMMIT_CRASH" committed
+  run_sandbox cleanup-begin "$ID_COMMIT_CRASH" >/dev/null
+  if FM_SANDBOX_TEST_MODE=1 FM_SANDBOX_TEST_FAILPOINT=after-cleanup-mark \
+      run_sandbox cleanup-commit "$ID_COMMIT_CRASH" --sandbox-id stable-crash-001 >/dev/null 2>&1; then
+    fail "cleanup crash failpoint unexpectedly succeeded"
+  fi
+  assert_lifecycle "$ID_COMMIT_CRASH" cleanup_finalizing
+  run_sandbox recover "$ID_COMMIT_CRASH" --json >/dev/null
+  assert_lifecycle "$ID_COMMIT_CRASH" cleaned
+
+  prepare_task "$ID_CLEAN_LOCAL_CRASH" "$NONCE_CLEAN_LOCAL_CRASH"
+  run_sandbox commit "$ID_CLEAN_LOCAL_CRASH" --sandbox-id stable-clean-local-001
+  run_sandbox cleanup-begin "$ID_CLEAN_LOCAL_CRASH" >/dev/null
+  if FM_SANDBOX_TEST_MODE=1 FM_SANDBOX_TEST_FAILPOINT=after-cleanup-local-mark \
+      run_sandbox cleanup-commit "$ID_CLEAN_LOCAL_CRASH" \
+        --sandbox-id stable-clean-local-001 >/dev/null 2>&1; then
+    fail "local cleanup crash failpoint unexpectedly succeeded"
+  fi
+  assert_lifecycle "$ID_CLEAN_LOCAL_CRASH" cleanup_releasing
+  run_sandbox recover "$ID_CLEAN_LOCAL_CRASH" --json >/dev/null
+  assert_lifecycle "$ID_CLEAN_LOCAL_CRASH" cleaned
+
+  prepare_task "$ID_CLEAN_RELEASE_CRASH" "$NONCE_CLEAN_RELEASE_CRASH"
+  run_sandbox commit "$ID_CLEAN_RELEASE_CRASH" --sandbox-id stable-clean-release-001
+  run_sandbox cleanup-begin "$ID_CLEAN_RELEASE_CRASH" >/dev/null
+  if FM_SANDBOX_TEST_MODE=1 FM_SANDBOX_TEST_FAILPOINT=after-cleanup-release \
+      run_sandbox cleanup-commit "$ID_CLEAN_RELEASE_CRASH" \
+        --sandbox-id stable-clean-release-001 >/dev/null 2>&1; then
+    fail "reservation release crash failpoint unexpectedly succeeded"
+  fi
+  assert_lifecycle "$ID_CLEAN_RELEASE_CRASH" cleanup_releasing
+  run_sandbox recover "$ID_CLEAN_RELEASE_CRASH" --json >/dev/null
+  assert_lifecycle "$ID_CLEAN_RELEASE_CRASH" cleaned
+
+  prepare_task "$ID_ROLLBACK_CRASH" "$NONCE_ROLLBACK_CRASH"
+  if FM_SANDBOX_TEST_MODE=1 FM_SANDBOX_TEST_FAILPOINT=after-rollback-mark \
+      run_sandbox rollback "$ID_ROLLBACK_CRASH" >/dev/null 2>&1; then
+    fail "rollback crash failpoint unexpectedly succeeded"
+  fi
+  assert_lifecycle "$ID_ROLLBACK_CRASH" rollback_pending
+  run_sandbox recover "$ID_ROLLBACK_CRASH" --json >/dev/null
+  assert_lifecycle "$ID_ROLLBACK_CRASH" rolled_back
+  pass "fm-sandbox: prepare, commit, rollback, and cleanup recover after bounded crash points"
+}
+
+test_atomic_capacity_and_path_custody() {
+  local p1 p2 rc1=0 rc2=0 success_id target link_root linked_base
+  prepare_task "$ID_CAP_A" "$NONCE_CAP_A" > "$TMP_ROOT/cap-a.out" 2>&1 &
+  p1=$!
+  prepare_task "$ID_CAP_B" "$NONCE_CAP_B" > "$TMP_ROOT/cap-b.out" 2>&1 &
+  p2=$!
+  wait "$p1" || rc1=$?
+  wait "$p2" || rc2=$?
+  if [ "$rc1" = 0 ] && [ "$rc2" != 0 ]; then
+    success_id=$ID_CAP_A
+  elif [ "$rc2" = 0 ] && [ "$rc1" != 0 ]; then
+    success_id=$ID_CAP_B
+  else
+    fail "atomic maxConcurrent=1 claim produced rc1=$rc1 rc2=$rc2"
+  fi
+  run_sandbox rollback "$success_id"
+
+  target="$TMP_ROOT/symlink-target"
+  link_root=$(task_root "$ID_LINK")
+  mkdir "$target"
+  ln -s "$target" "$link_root"
+  if prepare_task "$ID_LINK" "$NONCE_LINK" >/dev/null 2>&1; then
+    fail "prepare accepted a symlinked task root"
+  fi
+  assert_absent "$(owner_path "$ID_LINK")" "symlink refusal published an ownership journal"
+  assert_absent "$target/sandbox" "symlink refusal wrote through its target"
+  rm -f "$link_root"
+
+  linked_base="$TMP_ROOT/task-roots-link"
+  ln -s "$TASK_BASE" "$linked_base"
+  if FM_SANDBOX_TASK_ROOT_BASE="$linked_base" \
+      run_sandbox prepare "$ID_LINK" --host dev --name "fm-$ID_LINK" --nonce "$NONCE_LINK" \
+        --source "$SOURCE" --task-root "$linked_base/fm-$ID_LINK" >/dev/null 2>&1; then
+    fail "prepare accepted a symlinked task-root base"
+  fi
+  pass "fm-sandbox: host capacity is atomic and task-root custody rejects symlinks"
+}
+
+test_stage2_is_absent() {
+  local sandbox spawn teardown ignored
+  sandbox=$(cat "$SCRIPT")
   spawn=$(cat "$ROOT/bin/fm-spawn.sh")
   teardown=$(cat "$ROOT/bin/fm-teardown.sh")
-  sandbox=$(cat "$SCRIPT")
-  kit=$(cat "$KIT/spec.yaml")
-  assert_contains "$spawn" 'sandbox execution requires backend=herdr' "spawn does not pin Herdr as the only sandbox runtime"
-  assert_contains "$spawn" 'sandbox execution supports only verified harness=codex' "unsupported harnesses do not refuse explicitly"
-  # shellcheck disable=SC2016
-  assert_contains "$teardown" '"$FM_ROOT/bin/fm-sandbox.sh" cleanup "$ID"' "ordinary teardown does not own sandbox cleanup ordering"
-  assert_not_contains "$sandbox" 'docker run --privileged' "sandbox owner contains a privileged-container fallback"
-  assert_not_contains "$sandbox" '--volume /var/run/docker.sock' "sandbox owner mounts the host Docker socket"
-  assert_not_contains "$sandbox" 'DOCKER_HOST=' "sandbox owner redirects to an ambient host Docker daemon"
-  assert_not_contains "$sandbox" 'ssh ' "v1 introduced an SSH command-string boundary"
-  assert_contains "$kit" '"*.arcs.health"' "kit does not deny production domains"
-  assert_contains "$kit" '"*.home.arcs.internal"' "kit does not deny fleet-private domains"
-  assert_contains "$kit" 'scopey setup' "every supported sandbox worker does not install Scopey"
-  assert_contains "$kit" 'Scopey never authorizes stopping work' "Scopey is not explicitly advisory"
-  pass "fm-sandbox: runtime, harness, network, mount, Scopey, and remote-boundary contracts are explicit"
+  ignored=$(cat "$ROOT/.gitignore")
+  assert_not_contains "$spawn" '--sandbox-host' "Stage 1 is wired into worker spawn"
+  assert_not_contains "$teardown" 'fm-sandbox.sh' "Stage 1 is wired into task teardown"
+  assert_not_contains "$sandbox" 'FM_SANDBOX_OPENAI_API_KEY' "Stage 1 accepts provider credentials"
+  assert_not_contains "$sandbox" 'secret set' "Stage 1 injects sandbox secrets"
+  assert_not_contains "$sandbox" 'lab-proof)' "Stage 1 exposes the deferred real proof"
+  assert_not_contains "$sandbox" 'herdr ' "Stage 1 reaches Herdr or a default Herdr session"
+  assert_not_contains "$sandbox" "\"\$SBX\" create" "Stage 1 creates a live microVM"
+  assert_not_contains "$sandbox" "\"\$SBX\" run" "Stage 1 launches a worker"
+  assert_not_contains "$sandbox" "\"\$SBX\" rm" "Stage 1 removes an external sandbox"
+  assert_not_contains "$sandbox" 'docker run' "Stage 1 falls back to an ordinary container"
+  assert_not_contains "$sandbox" '--privileged' "Stage 1 falls back to a privileged container"
+  assert_not_contains "$sandbox" 'DOCKER_HOST' "Stage 1 accepts an ambient host Docker endpoint"
+  assert_not_contains "$sandbox" '/var/run/docker.sock' "Stage 1 references the host Docker socket"
+  assert_not_contains "$sandbox" '--mount' "Stage 1 mounts a host path"
+  assert_not_contains "$sandbox" '/.ssh' "Stage 1 references host SSH state"
+  assert_not_contains "$sandbox" '1Password' "Stage 1 references host 1Password state"
+  assert_absent "$ROOT/tests/fm-sandbox-herdr-e2e.test.sh" "Stage 1 retained the Herdr proof"
+  assert_absent "$ROOT/assets/sandbox-kits/firstmate-codex/spec.yaml" "Stage 1 retained an executable kit"
+  assert_contains "$ignored" 'config/sandbox-hosts.json' "host inventory is not gitignored"
+  assert_contains "$ignored" 'config/sandbox-workers-enabled' "future rollout gate is not gitignored"
+  pass "fm-sandbox: Stage 1 is inert and every worker, Herdr, credential, and live-sbx path is absent"
 }
 
-test_rollout_disabled_is_non_mutating
-test_doctor_and_role_facts
-test_prepare_run_sync_and_cleanup
-test_static_lifecycle_boundaries
+make_source
+test_inventory_doctor_and_policy_contract
+test_prepare_commit_and_cleanup_journal
+test_rollback_and_crash_recovery
+test_atomic_capacity_and_path_custody
+test_stage2_is_absent

@@ -92,65 +92,42 @@ The caller-facing label remains `fm-<id>`, but the actual cmux workspace title i
 Test cleanup must use the guarded path in [`docs/cmux-backend.md`](cmux-backend.md#current-operation-and-safety), never enumerate-and-close every workspace.
 The `config/backend` file is not inherited by secondmate homes.
 
-## Docker Sandboxes worker layer
+## Docker Sandboxes lifecycle substrate
 
-This feature is disabled in tracked code and does nothing during ordinary startup or spawn.
-It is an execution layer for one Codex process inside an explicitly selected Herdr task pane, not another value for `config/backend`.
-The stable design and ownership chain are in [architecture.md](architecture.md#optional-sandboxed-worker-execution), while `bin/fm-sandbox.sh --help` owns exact commands, metadata, policy checks, and cleanup mechanics.
+The tracked Stage 1 surface is inert and disabled in ordinary startup, spawn, supervision, recovery, teardown, and secondmate paths.
+It does not accept an enablement marker, launch a worker, invoke Herdr, call a mutating `sbx` command, install policy, transfer credentials, or provide a rollout path.
+The stable state-machine design is in [architecture.md](architecture.md#docker-sandboxes-lifecycle-substrate), while `bin/fm-sandbox.sh --help` owns exact commands, fields, transition preconditions, and exit behavior.
 
-The controlled rollout requires Docker Sandboxes 0.35.0 or newer on Ubuntu 24.04 or newer, working KVM access for the Firstmate user, `jq`, a signed-in `sbx` CLI, and a deny-all local policy initialized outside Firstmate with `sbx policy init deny-all`.
-Do not install `sbx`, change KVM membership, initialize policy, or sign in as a side effect of Firstmate startup.
-Kits are an experimental Docker Sandboxes surface, so a future sbx upgrade must re-run the doctor, kit validation, hermetic tests, and the named lab proof before rollout continues.
+An operator may copy [`docs/examples/sandbox-hosts.json`](examples/sandbox-hosts.json) to the active home's gitignored `config/sandbox-hosts.json` for offline inventory and journal tests.
+Leave `stage` at `1`, `launchEnabled` false, and every host disabled.
+The exact policy contract is deny-all with only the named public model-provider, Git-forge, and package-registry domains allowed, private networks denied, no host Docker socket, no host mounts, disposable committed-clone workspaces, ephemeral task-scoped secrets, no persistent auth, and no shared skills.
+Stage 1 validates these facts but does not install, query, or enforce host policy.
 
-Copy [`docs/examples/sandbox-hosts.json`](examples/sandbox-hosts.json) to the active home's gitignored `config/sandbox-hosts.json`, replace hostnames and bounded limits with verified facts, and leave every host disabled initially.
-The schema records `id`, `role`, `transport`, `hostname`, `enabled`, `priority`, `cpus`, `memory`, `maxConcurrent`, `profiles`, `authMode`, and `privateNetworkGrant` for every host.
-Only profile `codex-github-bun-v1`, auth mode `ephemeral-api-key`, and `privateNetworkGrant=false` are accepted in version 1.
-`priority` is an inspectable operator ordering fact and is never combined into an opaque scheduler score.
-Run `bin/fm-sandbox.sh inventory --json` for the full configured matrix and `bin/fm-sandbox.sh doctor --host <id> --json` for one host's current local facts.
+The host schema records `id`, `role`, `transport`, `hostname`, `enabled`, `priority`, `cpus`, `memory`, `maxConcurrent`, `profiles`, `authMode`, and `privateNetworkGrant`.
+`priority` is an inspectable ordering fact and is never folded into an opaque scheduler score.
+Roles preserve the future fleet posture as data: `dev` is primary, `agt` adds disposable capacity, `gpu` requires an explicit GPU design, `svc` requires bounded staging-aware limits, and `srv` remains external production.
+All roles refuse launch in Stage 1, and `ssh-fixed` remains a reserved fact rather than an implemented remote command channel.
 
-Host roles have these standing boundaries:
-
-| Role | Version 1 posture |
-| --- | --- |
-| `dev` | Primary high-capacity pool after an explicit local rollout and successful proof. |
-| `agt` | Additional disposable pool when that machine runs Firstmate locally and passes the same live checks. |
-| `gpu` | Refused because version 1 has no explicit GPU request, VRAM reservation, or non-squatting proof. |
-| `svc` | Eligible only as a deliberately enabled local host with small fixed limits that leave staging and observability capacity untouched. |
-| `srv` | Refused because external production is not an experimental autonomous-worker pool. |
-
-The `ssh-fixed` transport value reserves the remote boundary but always returns `transport-unsupported-v1`.
-Version 1 does not run SSH, install a remote daemon, share a writable queue, or construct a remote shell command.
-This makes a local `dev` rollout useful now while preserving the required accounting shape for a later authenticated fixed-command transport.
-
-After the host inventory is reviewed, enable only one proven host and create gitignored `config/sandbox-workers-enabled` containing exactly:
-
-```text
-v1
-```
-
-For a new sandbox, provide a disposable least-privilege provider key as `FM_SANDBOX_OPENAI_API_KEY` only in the controller process that invokes `fm-spawn.sh`.
-An optional disposable least-privilege `FM_SANDBOX_GITHUB_TOKEN` is installed the same way when the task must push or open a PR.
-The helper sends each value on stdin to `sbx secret set <sandbox> <service>`, records only presence, and scopes it to that sandbox until exact cleanup.
-Do not use a persistent shell export, tracked file, production `.env`, credential directory, host-wide secret, or kit content for either value.
-Codex subscription OAuth is refused in version 1 because Docker's current ahead-of-time OAuth command stores it globally rather than at task scope.
-Pi and pi-signed remain unsupported because the source video's subscription-auth persistence problem has no task-scoped handoff here.
-
-The explicit launch shape is:
+Use only the read-only discovery commands for capability inventory:
 
 ```sh
-FM_SANDBOX_OPENAI_API_KEY="$ephemeral_openai_key" \
-  bin/fm-spawn.sh <task-id> <project> \
-  --backend herdr --harness codex --sandbox-host <host-id>
+bin/fm-sandbox.sh inventory --json
+bin/fm-sandbox.sh doctor --host <id> --json
 ```
 
-Never paste the key literally into shell history; obtain it through the rollout's approved ephemeral secret broker and clear the controller variable immediately afterward.
-The spawn refuses before endpoint creation when the feature, host, Herdr backend, Codex harness, KVM, sbx version, daemon, or deny-all policy contract is unavailable.
-The microVM receives only a disposable no-local clone under `/tmp/fm-<task-id>/sandbox/workcopy`, with ignored files excluded and the task brief copied into `.firstmate/`.
-It never receives the primary project clone, Treehouse task worktree, host home, SSH state, browser state, 1Password state, persistent agent-auth directories, Firstmate private state, captain profiles, production `.env`, or host Docker socket.
+`doctor` may report local `sbx version` and KVM presence, but it does not start a daemon, initialize policy, authenticate, install software, connect to another host, or claim the requested policy is active.
+Every doctor result keeps `launchSupported` false and includes the applicable refusal reason.
 
-The controlled rollout order is dev doctor, portable hermetic tests, the opt-in named Herdr-lab fixture, one harmless local project, then one bounded real task with manual review before considering any AGT or svc host.
-Keep gpu and srv disabled until separately designed grants exist.
-The named proof command and current recorded results are in [runtime backend verification](verification/runtime-backends.md#docker-sandboxes-execution-layer).
+The remaining commands exercise only local journal and disposable-copy custody for maintainers.
+`prepare` validates one exact task and host, atomically reserves configured capacity, creates `/tmp/fm-<task>/sandbox/workcopy` or an explicitly supplied safe test root, and clones committed Git state with local object sharing disabled.
+`commit` records one caller-supplied stable sandbox id once, `rollback` is available only before that identity exists, `cleanup-begin` produces the exact ownership receipt required by a future controller, and `cleanup-commit` finalizes local state only after the caller returns that same identity.
+`recover` resumes only journaled local transient states and refuses ambiguous or missing ownership.
+
+Do not create `config/sandbox-workers-enabled`; it is reserved for the separately reviewed Stage 2 and has no effect in Stage 1.
+Do not pass sandbox options to `fm-spawn.sh`; none are accepted.
+Do not supply agent credentials, OAuth directories, persistent auth, host-global secrets, production environment files, or real repository work to this substrate.
+Stage 2 must separately implement and prove the Herdr, Scopey, authenticated remote-host, task-scoped credential, network-policy, private-Docker, host-sentinel, host-Docker-socket, work synchronization, and exact external cleanup contracts before any fleet rollout is considered.
+The evidence actually maintained for Stage 1 is in [runtime backend verification](verification/runtime-backends.md#docker-sandboxes-lifecycle-substrate).
 
 ## Away-mode supervisor backend (FM_SUPERVISOR_BACKEND / FM_SUPERVISOR_TARGET)
 

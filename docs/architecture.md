@@ -111,38 +111,30 @@ cmux is experimental, GUI-first, macOS-only, and can be selected explicitly or b
 cmux's container shape is one workspace per task with one surface, no per-home container split; workspace titles are scoped by the active home label plus a short hash of the resolved `FM_ROOT` path, and `--secondmate` spawns are refused, mirroring Orca.
 Codex App support is recorded in `docs/codex-app-backend.md`; it is not selectable as a runtime backend.
 
-## Optional sandboxed worker execution
+## Docker Sandboxes lifecycle substrate
 
-Docker Sandboxes is an opt-in execution layer inside one ordinary Herdr task path, never a runtime backend or scheduler.
-Herdr remains the sole owner of the visible pane, steering, capture, liveness, recovery, and endpoint teardown, while Treehouse still supplies the ordinary isolated task worktree.
-`bin/fm-sandbox.sh` creates a second disposable clone under the task temp root, mounts only that copy into one Docker Sandboxes microVM, runs Codex there, bridges bounded lifecycle events back to the ordinary task status files, and fast-forwards only clean committed sandbox work into the Treehouse task worktree.
-This preserves Firstmate's existing report, no-mistakes, merge-authority, landed-work, and teardown gates instead of introducing a second queue or delivery path.
+Stage 1 is an inert, journaled lifecycle substrate for a possible future Docker Sandboxes worker path.
+It is not a runtime backend, scheduler, worker launcher, Herdr integration, remote transport, policy installer, credential broker, or claim that a microVM boundary has been exercised.
+`fm-spawn.sh`, `fm-teardown.sh`, every harness adapter, Scopey, and every runtime backend remain unchanged by this stage.
 
-The tracked path is disabled unless the active home deliberately enables schema `v1` and supplies an explicit host inventory.
-Host choice is a visible fact set rather than a computed score: an operator sees the host id, role, transport, configured priority, CPU and memory limit, concurrency cap, live capability facts, and refusal reason, then passes one exact `--sandbox-host` to `fm-spawn.sh`.
-The first increment accepts only a local-transport `dev`, `agt`, or bounded `svc` host that passes the doctor; `ssh-fixed` is a reserved schema value that always refuses until a fixed-command authenticated remote protocol exists.
-It refuses `srv`, `gpu`, secondmates, private-network grants, raw launch commands, every harness except Codex, and every backend except Herdr.
-That explicit matrix covers claude, codex, opencode, pi, pi-signed, grok, and kimi across tmux, Herdr, Zellij, Orca, and cmux without silent fallback.
+`bin/fm-sandbox.sh` owns a read-only host inventory and doctor plus local custody of a committed-only disposable clone.
+The inventory exposes exact role, transport, priority, CPU, memory, concurrency, policy, authentication, and private-network facts instead of computing an opaque score.
+Every tracked example host is disabled, `launchSupported` is always false, unsupported roles and transports carry explicit refusal reasons, and no command creates, runs, enters, stops, or removes a Docker Sandbox.
 
-The sandbox boundary requires Docker Sandboxes 0.35.0 or newer, KVM, a reachable sandbox daemon, a deny-all policy baseline, fixed CPU and memory limits, and the pinned `firstmate-codex` mixin kit.
-The kit allows only the Codex provider, GitHub, Bun/npm, Docker Hub, and pinned Scopey-release endpoints needed by the single current task profile, while explicit deny rules cover the production domains and fleet-private names.
-Docker Sandboxes additionally blocks private, loopback, and link-local addresses and gives the microVM its own kernel and private Docker daemon.
-The launch uses neither ordinary containers, privileged containers, DinD, nor a host Docker-socket mount, and it disables Docker Sandboxes' shared read-write skills store.
+The local state machine binds one validated task id, exact host id, reservation, task root, work copy, source commit, policy id, resource limits, and random ownership nonce in `state/<id>.sandbox.json`.
+Its normal transitions are `preparing` to `prepared`, `commit_pending` to `committed`, and `cleanup_pending` to `cleanup_finalizing` to `cleanup_releasing` to `cleaned`.
+A pre-identity failure may instead pass through `rollback_pending` to `rolled_back`.
+The `commit` command accepts one caller-supplied stable sandbox id exactly once, but Stage 1 never obtains or validates that id against an external sandbox service.
 
-Agent credentials enter only through ephemeral controller environment values that `fm-sandbox.sh` passes on stdin to sandbox-scoped proxy secrets before unsetting the launch path.
-The values are not written to task state, argv, the work copy, a kit, or a sandbox environment variable.
-Docker's current Codex subscription OAuth is global-only, so the first increment refuses subscription authentication rather than copy or bake durable auth; an optional similarly ephemeral GitHub token enables forge work when its external grant is already least-privilege.
-Scopey 0.1.3 is checksum-pinned in the kit, installs only its Codex hook into the sandbox-local home, and remains advisory rather than becoming lifecycle authority.
+Host capacity is claimed under the existing private wake-lock primitive and counted from immutable per-task reservations, never from a PID, label, ambient session, inventory ordering, or path alone.
+Task-root and work-copy operations reject symlinks, unexpected ownership, and non-canonical paths before bounded removal.
+Failpoints exercise recovery after each journal-before-side-effect boundary, and `recover` resumes only known local transient states without inventing external state.
+`cleanup-begin` emits an exact task, host, stable-id, and nonce receipt; a future Stage 2 controller must prove its external destructive action before returning that same identity to `cleanup-commit`, which only finalizes local state and custody.
 
-Task meta records `execution=sandbox`, the exact host, policy profile, generated sandbox name, random nonce, ownership-journal path, network-log path, and task brief path alongside the ordinary Herdr endpoint fields.
-`state/<id>.sandbox.json` records the stable sbx id, exact host identity, disposable copy, source and synchronized commits, limits, credential-presence facts, lifecycle, and timestamps without secrets.
-`state/<id>.sandbox-network.json` holds the latest machine-readable sandbox-scoped policy log snapshot, while ordinary terminal output remains visible and bounded through the exact Herdr pane.
-Before destructive removal, `fm-sandbox.sh cleanup` requires exact agreement among that journal, ordinary task meta, one stable-id/name match in `sbx ls --json`, and `/etc/firstmate-owner` inside the microVM.
-`fm-teardown.sh` invokes that owner after ordinary landed-work checks and before returning the Treehouse worktree or closing the Herdr pane, and even its approved `--force` path cannot weaken sandbox ownership proof.
-
-Remote fleet execution is intentionally not simulated with an SSH command string, unauthenticated daemon, shared writable queue, host Docker socket, or ambient inventory inference.
-A later remote increment must preserve the same main-home metadata and pending-reply accounting while adding an authenticated fixed protocol that returns the exact host, stable sandbox id, work-copy identity, Herdr endpoint, status, logs, and cleanup receipt.
-Current operator setup, host roles, and rollout controls live in [configuration.md](configuration.md#docker-sandboxes-worker-layer), while [runtime backend verification](verification/runtime-backends.md#docker-sandboxes-execution-layer) records the hermetic and named-Herdr-lab evidence.
+The required future Stage 2 remains separately blocked behind Stage 1 review and rollout authorization.
+It must preserve Herdr as the only worker runtime, integrate Scopey as ordinary workers require, implement task-scoped credential refusal or handoff, authenticate the remote-host boundary, prove network and mount policy inside a real disposable microVM, and retain every existing Firstmate lifecycle owner.
+It may not silently fall back to tmux, ordinary containers, privileged containers, DinD, a host Docker socket, persistent subscription authentication, or host-global secrets.
+Current operator facts live in [configuration.md](configuration.md#docker-sandboxes-lifecycle-substrate), while [runtime backend verification](verification/runtime-backends.md#docker-sandboxes-lifecycle-substrate) records only the Stage 1 hermetic evidence actually observed.
 
 ## Worktrees, not branches in your checkout
 

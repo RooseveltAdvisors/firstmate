@@ -1,5 +1,36 @@
 {
   "version": 1,
+  "stage": 1,
+  "launchEnabled": false,
+  "policy": {
+    "id": "model-forge-packages-v1",
+    "mode": "deny-all",
+    "allowedDomains": [
+      "api.openai.com",
+      "github.com",
+      "api.github.com",
+      "registry.npmjs.org",
+      "registry-1.docker.io"
+    ],
+    "deniedDomains": [
+      "*.arcs.health",
+      "*.zeta.health",
+      "*.covenant.clinic",
+      "*.home.arcs.internal",
+      "*.internal",
+      "dev",
+      "srv",
+      "svc",
+      "gpu"
+    ],
+    "denyPrivateNetworks": true,
+    "hostDockerSocket": false,
+    "hostMounts": [],
+    "workspaceMode": "disposable-committed-clone",
+    "secretMode": "sandbox-scoped-ephemeral",
+    "persistentAuth": false,
+    "sharedSkills": false
+  },
   "hosts": [
     {
       "id": "dev",
@@ -11,8 +42,8 @@
       "cpus": 8,
       "memory": "16GiB",
       "maxConcurrent": 3,
-      "profiles": ["codex-github-bun-v1"],
-      "authMode": "ephemeral-api-key",
+      "profile": "model-forge-packages-v1",
+      "authMode": "ephemeral-only",
       "privateNetworkGrant": false
     },
     {
@@ -25,8 +56,8 @@
       "cpus": 4,
       "memory": "8GiB",
       "maxConcurrent": 1,
-      "profiles": ["codex-github-bun-v1"],
-      "authMode": "ephemeral-api-key",
+      "profile": "model-forge-packages-v1",
+      "authMode": "ephemeral-only",
       "privateNetworkGrant": false
     },
     {
@@ -39,8 +70,8 @@
       "cpus": 4,
       "memory": "8GiB",
       "maxConcurrent": 1,
-      "profiles": ["codex-github-bun-v1"],
-      "authMode": "ephemeral-api-key",
+      "profile": "model-forge-packages-v1",
+      "authMode": "ephemeral-only",
       "privateNetworkGrant": false
     },
     {
@@ -53,8 +84,8 @@
       "cpus": 2,
       "memory": "4GiB",
       "maxConcurrent": 1,
-      "profiles": ["codex-github-bun-v1"],
-      "authMode": "ephemeral-api-key",
+      "profile": "model-forge-packages-v1",
+      "authMode": "ephemeral-only",
       "privateNetworkGrant": false
     },
     {
@@ -67,8 +98,8 @@
       "cpus": 2,
       "memory": "4GiB",
       "maxConcurrent": 1,
-      "profiles": ["codex-github-bun-v1"],
-      "authMode": "ephemeral-api-key",
+      "profile": "model-forge-packages-v1",
+      "authMode": "ephemeral-only",
       "privateNetworkGrant": false
     }
   ]
