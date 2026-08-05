@@ -183,7 +183,7 @@ fm_herdr_lab_reclaim_lifecycle_lock() { # <session>
 }
 
 fm_herdr_lab_lock_session() { # <session>
-  local name=${1:-} state_dir lock claim depth lock_pid lock_start owner tmp tmp_name current_pid borrowed attempt=0
+  local name=${1:-} state_dir lock claim depth lock_pid lock_start owner tmp tmp_name current_pid borrowed attempt=0 wait_attempt=0 wait_max
   fm_herdr_lab_validate_name "$name" || return 1
   current_pid=${BASHPID:-$$}
   if [ "${FM_HERDR_LAB_LOCK_NAME:-}" = "$name" ]; then
@@ -226,6 +226,11 @@ fm_herdr_lab_lock_session() { # <session>
   }
   owner="fm-herdr-lab-lock:${name}:${lock_pid}:$RANDOM"
   claim="$lock.reclaim"
+  wait_max=${FM_HERDR_LAB_LOCK_WAIT_ATTEMPTS:-500}
+  [[ "$wait_max" =~ ^[0-9]+$ ]] || {
+    fm_herdr_lab_error "invalid lifecycle lock wait bound"
+    return 1
+  }
   while [ "$attempt" -lt 3 ]; do
     if [ -e "$claim" ] || [ -L "$claim" ]; then
       if fm_herdr_lab_reclaim_lifecycle_lock "$name"; then
@@ -267,7 +272,12 @@ fm_herdr_lab_lock_session() { # <session>
     fi
     rm -f "$tmp"
     if fm_herdr_lab_lifecycle_lock_live "$name"; then
-      fm_herdr_lab_error "lifecycle operation for '$name' is already in progress"
+      if [ "$wait_attempt" -lt "$wait_max" ]; then
+        sleep 0.01
+        wait_attempt=$((wait_attempt + 1))
+        continue
+      fi
+      fm_herdr_lab_error "timed out waiting for lifecycle operation on '$name'"
       return 1
     fi
     if fm_herdr_lab_reclaim_lifecycle_lock "$name"; then
@@ -1038,7 +1048,16 @@ fm_herdr_lab_provision_locked() { # <session>
       fm_herdr_lab_abort_prelaunch "$name" "$owner"
       return 1
     }
-    mode=resume
+    fm_herdr_lab_owned_raw "$name" false session delete "$name" --json >/dev/null 2>&1 || {
+      fm_herdr_lab_error "stopped generation for '$name' changed before guarded re-provision"
+      fm_herdr_lab_abort_prelaunch "$name" "$owner"
+      return 1
+    }
+    fm_herdr_lab_retire_stopped_generation "$name" || {
+      fm_herdr_lab_abort_prelaunch "$name" "$owner"
+      return 1
+    }
+    mode=restart
       ;;
     *)
       fm_herdr_lab_error "session '$name' is ambiguous; refusing to provision it"
@@ -1056,18 +1075,9 @@ fm_herdr_lab_provision_locked() { # <session>
       fm_herdr_lab_abort_prelaunch "$name" "$owner"
       return 1
     } ;;
-    resume) fm_herdr_lab_require_owned_session "$name" false || {
-      fm_herdr_lab_abort_prelaunch "$name" "$owner"
-      return 1
-    } ;;
   esac
-  if [ "$mode" = resume ]; then
-    FM_HERDR_LAB_SESSION_OWNER="$owner" \
-      herdr server --expected-generation "$FM_HERDR_LAB_IDENTITY_GENERATION" --session "$name" >/dev/null 2>&1 &
-  else
-    FM_HERDR_LAB_SESSION_OWNER="$owner" \
-      herdr server --session "$name" >/dev/null 2>&1 &
-  fi
+  FM_HERDR_LAB_SESSION_OWNER="$owner" \
+    herdr server --session "$name" >/dev/null 2>&1 &
   server_pid=$!
   attempt=0
   server_start=
@@ -1108,7 +1118,7 @@ fm_herdr_lab_provision_locked() { # <session>
           fm_herdr_lab_cancel_provision "$server_pid"
           return 1
         }
-        if [ "$mode" = restart ] || [ "$mode" = resume ]; then
+        if [ "$mode" = restart ]; then
           stop_receipt=$(fm_herdr_lab_stop_receipt_path "$name")
           rm -f "$stop_receipt" || {
             fm_herdr_lab_cancel_provision "$server_pid"
