@@ -51,6 +51,11 @@ fm_pr_poll_retirement_recover_one "$STATE" "$ID" "$SCRIPT_DIR/fm-pr-poll.sh" || 
   exit 1
 }
 
+# Neutralize any pre-fix poll before recording or arming this task. The
+# migration never executes legacy artifacts and holds watcher exclusion while
+# it quarantines or rebuilds them.
+"$SCRIPT_DIR/fm-pr-check-migrate.sh" --checks-safe "$ID" || exit 1
+
 # Refuse to arm a GitLab watch with no glab on PATH. The poll is silent on
 # every error by design, so a missing CLI would be indistinguishable from a
 # merge request that is never merged. Arming is the one point where that can be
@@ -60,10 +65,6 @@ if [ "$PROVIDER" = gitlab ] && ! command -v glab >/dev/null 2>&1; then
   exit 1
 fi
 
-# Neutralize any pre-fix poll before recording or arming this task. The
-# migration never executes legacy artifacts and holds watcher exclusion while
-# it quarantines or rebuilds them.
-"$SCRIPT_DIR/fm-pr-check-migrate.sh" --checks-safe || exit 1
 "$FM_ROOT/bin/fm-guard.sh" || true
 
 # A worker report and green status checks are wake evidence, not proof that the

@@ -6,7 +6,7 @@
 # registered custom checks remain armed, and every other task poll is
 # quarantined for private review. A current X-mode shim is preserved by exact
 # content, while the recognized older byte-static shim is refreshed in place.
-# Usage: fm-pr-check-migrate.sh [--checks-safe]
+# Usage: fm-pr-check-migrate.sh [--checks-safe [task-id]]
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -26,8 +26,12 @@ NONCANONICAL_PREFIX='!noncanonical'
 LEGACY_NONCANONICAL_PREFIX=_noncanonical
 
 ALLOW_INCOMPLETE_REPAIRS=0
+CHECKS_SAFE_ID=
 if [ "$#" -eq 1 ] && [ "$1" = --checks-safe ]; then
   ALLOW_INCOMPLETE_REPAIRS=1
+elif [ "$#" -eq 2 ] && [ "$1" = --checks-safe ]; then
+  ALLOW_INCOMPLETE_REPAIRS=1
+  CHECKS_SAFE_ID=$2
 elif [ "$#" -ne 0 ]; then
   echo "error: invalid PR check migration request" >&2
   exit 2
@@ -39,6 +43,11 @@ fi
 . "$SCRIPT_DIR/fm-x-lib.sh"
 # shellcheck source=bin/fm-check-lib.sh
 . "$SCRIPT_DIR/fm-check-lib.sh"
+
+[ -z "$CHECKS_SAFE_ID" ] || fm_pr_task_id_valid "$CHECKS_SAFE_ID" || {
+  echo "error: invalid PR check migration request" >&2
+  exit 2
+}
 
 umask 077
 if [ ! -e "$STATE" ] && [ ! -L "$STATE" ]; then
@@ -269,11 +278,23 @@ x_shim_locked_scan_needed() {
   return 0
 }
 
+checks_safe_target_complete() {
+  local check="$STATE/$CHECKS_SAFE_ID.check.sh"
+  [ -e "$check" ] || [ -L "$check" ] || return 0
+  fm_pr_poll_artifacts_valid "$STATE" "$CHECKS_SAFE_ID" "$TEMPLATE" || return 1
+  fm_pr_metadata_identity_parse "$STATE/$CHECKS_SAFE_ID.meta" || return 1
+  fm_pr_review_conversations_require_resolved \
+    "$SCRIPT_DIR" "$FM_PR_META_PROVIDER" "$FM_PR_META_HOST" "$FM_PR_META_PATH" "$FM_PR_META_NUMBER"
+}
+
 # Marker short-circuits apply only when generated artifact identities are current.
 # Otherwise watcher exclusion comes before every check scan and state mutation.
 if ! x_shim_locked_scan_needed; then
   migration_complete && exit 0
-  [ "$ALLOW_INCOMPLETE_REPAIRS" -eq 1 ] && scan_complete && exit 0
+  if [ "$ALLOW_INCOMPLETE_REPAIRS" -eq 1 ] && scan_complete; then
+    [ -z "$CHECKS_SAFE_ID" ] && exit 0
+    checks_safe_target_complete && exit 0
+  fi
 fi
 
 # shellcheck source=bin/fm-wake-lib.sh disable=SC1091

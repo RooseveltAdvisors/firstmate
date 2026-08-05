@@ -3055,7 +3055,9 @@ EOF
   [ -z "$out" ] || fail "GitLab poll emitted for a sidecar whose project was swapped"
 
   # Arming is where a missing CLI can still be reported, so it refuses there.
-  write_task_meta "$dir" task-b
+  rm -f "$state/task-a.check.sh" "$state/task-a.pr-poll" "$state/task-a.pr-poll-registration"
+  write_poll_meta "$state" task-b "$url"
+  seed_canonical_poll "$dir" task-b "$url"
   set +e
   out=$(FM_ROOT_OVERRIDE="$dir/root" FM_HOME="$dir/home" \
     FM_TEST_GUARD_LOG="$dir/guard.log" PATH="$noglab" \
@@ -3067,7 +3069,9 @@ EOF
     *"requires glab on PATH"*) ;;
     *) fail "arming a GitLab watch with glab absent did not report the missing CLI" ;;
   esac
-  [ ! -e "$state/task-b.check.sh" ] || fail "refused GitLab arming left a poll armed"
+  assert_poll_absent "$state" task-b
+  find "$state/.pr-check-quarantine" -name 'task-b.check.*' -type f | grep . >/dev/null \
+    || fail "missing glab left the existing GitLab readiness poll unneutralized"
 
   # The merge path still addresses GitHub only, so it refuses rather than
   # sending a merge request to the wrong forge.
