@@ -32,6 +32,7 @@ ID_MISSING="sbxmissing$$"
 ID_OVERLAP="sbxoverlap$$"
 ID_EQUAL="sbxequal$$"
 ID_SOURCE_GONE="sbxsourcegone$$"
+ID_SOURCE_REUSE="sbxsourcereuse$$"
 ID_IGNORED="sbxignored$$"
 
 NONCE_MAIN=11111111111111111111111111111111
@@ -51,6 +52,7 @@ NONCE_MISSING=14141414141414141414141414141414
 NONCE_OVERLAP=15151515151515151515151515151515
 NONCE_EQUAL=16161616161616161616161616161616
 NONCE_SOURCE_GONE=17171717171717171717171717171717
+NONCE_SOURCE_REUSE=19191919191919191919191919191919
 NONCE_IGNORED=18181818181818181818181818181818
 
 cleanup_test() {
@@ -59,7 +61,7 @@ cleanup_test() {
     "$ID_CLEAN_LOCAL_CRASH" "$ID_CLEAN_RELEASE_CRASH" "$ID_RESERVATION_CRASH" \
     "$ID_ROLLBACK_CRASH" "$ID_CAP_A" "$ID_CAP_B" "$ID_LINK" "$ID_RACE" \
     "$ID_PARTIAL" "$ID_MISSING" "$ID_OVERLAP" "$ID_EQUAL" "$ID_SOURCE_GONE" \
-    "$ID_IGNORED"; do
+    "$ID_SOURCE_REUSE" "$ID_IGNORED"; do
     rm -rf -- "$TASK_BASE/fm-$id"
   done
   fm_test_cleanup
@@ -410,6 +412,20 @@ EOF
   run_sandbox recover "$ID_SOURCE_GONE" --json >/dev/null
   mv "$source_backup" "$SOURCE"
   assert_lifecycle "$ID_SOURCE_GONE" rolled_back
+
+  prepare_task "$ID_SOURCE_REUSE" "$NONCE_SOURCE_REUSE"
+  mv "$SOURCE" "$(task_root "$ID_SOURCE_REUSE")/sandbox/source"
+  if run_sandbox rollback "$ID_SOURCE_REUSE" >/dev/null 2>&1; then
+    fail "cleanup accepted a source tree moved inside the sandbox boundary"
+  fi
+  assert_lifecycle "$ID_SOURCE_REUSE" rollback_pending
+  assert_present "$(task_root "$ID_SOURCE_REUSE")/sandbox/source" \
+    "destructive cleanup removed a source tree moved inside the sandbox"
+  assert_present "$(task_root "$ID_SOURCE_REUSE")/sandbox/workcopy" \
+    "destructive cleanup removed the disposable copy before rejecting overlap"
+  mv "$(task_root "$ID_SOURCE_REUSE")/sandbox/source" "$SOURCE"
+  run_sandbox recover "$ID_SOURCE_REUSE" --json >/dev/null
+  assert_lifecycle "$ID_SOURCE_REUSE" rolled_back
 
   if FM_SANDBOX_TEST_MODE=1 FM_SANDBOX_TEST_FAILPOINT=after-reservation \
       prepare_task "$ID_IGNORED" "$NONCE_IGNORED" >/dev/null 2>&1; then

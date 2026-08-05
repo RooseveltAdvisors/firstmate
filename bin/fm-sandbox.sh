@@ -392,6 +392,8 @@ journal_valid() {
     and (.sandbox_id == null or (.sandbox_id | type == "string" and test("^[a-zA-Z0-9_:-]+$")))
     and (.profile == "model-forge-packages-v1")
     and (.source_worktree | type == "string" and length > 0)
+    and (.source_git_common | type == "string" and length > 0)
+    and (.source_git_identity | type == "string" and test("^[0-9]+:[0-9]+$"))
     and (.source_commit | type == "string" and test("^[a-f0-9]{40,64}$"))
     and (.task_root | type == "string" and length > 0)
     and (.workcopy | type == "string" and length > 0)
@@ -514,6 +516,21 @@ resolve_source() {
   printf '%s\n' "$real"
 }
 
+resolve_git_common() {
+  local worktree=$1 common
+  common=$(git -C "$worktree" rev-parse --git-common-dir) \
+    || die "sandbox source git common directory cannot be resolved"
+  case "$common" in
+    /*) ;;
+    *) common="$worktree/$common" ;;
+  esac
+  cd "$common" && pwd -P
+}
+
+file_identity() {
+  stat -Lc '%d:%i' "$1" 2>/dev/null || stat -f '%d:%i' "$1"
+}
+
 paths_overlap() {
   local left=$1 right=$2
   [ "$left" = "$right" ] && return 0
@@ -565,17 +582,51 @@ recorded_paths_safe() {
     && [ "$workcopy" = "$root_real/sandbox/workcopy" ]
 }
 
+verify_destructive_boundary() {
+  local journal=$1 root sandbox workcopy source source_common source_identity marker marker_common marker_identity
+  recorded_paths_safe "$journal" || die "recorded sandbox workcopy boundary is unsafe"
+  root=$(jq -r .task_root "$journal")
+  sandbox="$root/sandbox"
+  workcopy=$(jq -r .workcopy "$journal")
+  source=$(jq -r .source_worktree "$journal")
+  source_common=$(jq -r .source_git_common "$journal")
+  source_identity=$(jq -r .source_git_identity "$journal")
+  [ -d "$sandbox" ] && [ ! -L "$sandbox" ] && [ -O "$sandbox" ] \
+    && [ "$(cd "$sandbox" && pwd -P)" = "$root/sandbox" ] \
+    || die "sandbox cleanup boundary is unsafe"
+  [ -d "$workcopy" ] && [ ! -L "$workcopy" ] && [ -O "$workcopy" ] \
+    || die "sandbox workcopy is missing or unsafe"
+  [ "$(cd "$workcopy" && pwd -P)" = "$root/sandbox/workcopy" ] \
+    || die "sandbox workcopy canonical boundary mismatch"
+  [ "$(git -C "$workcopy" rev-parse --show-toplevel 2>/dev/null || true)" = "$root/sandbox/workcopy" ] \
+    || die "sandbox workcopy is not an exact disposable Git root"
+  if [ -e "$source" ] || [ -L "$source" ]; then
+    [ -d "$source" ] && [ ! -L "$source" ] || die "sandbox source boundary is unsafe"
+    paths_overlap "$(cd "$source" && pwd -P)" "$sandbox" \
+      && die "sandbox source overlaps destructive boundary"
+  fi
+  while IFS= read -r -d '' marker; do
+    marker_common=$(resolve_git_common "$(dirname "$marker")") \
+      || die "sandbox nested Git identity cannot be resolved"
+    marker_identity=$(file_identity "$marker_common") \
+      || die "sandbox nested Git identity cannot be inspected"
+    [ "$marker_identity" != "$source_identity" ] \
+      || die "sandbox source overlaps destructive boundary"
+  done < <(find -P "$sandbox" -name .git \( -type d -o -type f \) -print0)
+}
+
 remove_local_copy() {
-  local journal=$1 root sandbox
+  local journal=$1 root sandbox workcopy
   recorded_paths_safe "$journal" || die "recorded sandbox workcopy boundary is unsafe"
   root=$(jq -r .task_root "$journal")
   sandbox="$root/sandbox"
   if [ ! -e "$sandbox" ] && [ ! -L "$sandbox" ]; then
     return 0
   fi
-  [ -d "$sandbox" ] && [ ! -L "$sandbox" ] && [ -O "$sandbox" ] || die "sandbox workcopy directory is unsafe"
-  [ "$(cd "$sandbox" && pwd -P)" = "$root/sandbox" ] || die "sandbox workcopy canonical boundary mismatch"
-  rm -rf -- "$sandbox"
+  verify_destructive_boundary "$journal"
+  workcopy=$(jq -r .workcopy "$journal")
+  rm -rf -- "$workcopy" || die "could not remove the owned sandbox workcopy"
+  rmdir -- "$sandbox" || die "sandbox directory contains unexpected entries after workcopy cleanup"
 }
 
 local_copy_absent() {
@@ -611,16 +662,20 @@ test_failpoint() {
 
 write_initial_journal() {
   local owner=$1 task=$2 host=$3 name=$4 nonce=$5 source=$6 commit=$7 root=$8 workcopy=$9
-  local cpus=${10} memory=${11} max=${12} reservation=${13} tmp now
+  local cpus=${10} memory=${11} max=${12} reservation=${13} source_common=${14} source_identity=${15} tmp now
   now=$(utc_now_iso)
   tmp=$(mktemp "${owner}.tmp.XXXXXX") || return 1
   if jq -n --arg schema "$JOURNAL_SCHEMA" --arg task "$task" --arg host "$host" \
       --arg name "$name" --arg nonce "$nonce" --arg source "$source" --arg commit "$commit" \
       --arg root "$root" --arg workcopy "$workcopy" --arg reservation "$reservation" \
+      --arg source_common "$source_common" \
+      --arg source_identity "$source_identity" \
       --arg memory "$memory" --arg now "$now" --argjson cpus "$cpus" --argjson max "$max" \
       '{schema:$schema,stage:1,task_id:$task,host_id:$host,sandbox_name:$name,
         sandbox_id:null,nonce:$nonce,profile:"model-forge-packages-v1",
-        source_worktree:$source,source_commit:$commit,task_root:$root,workcopy:$workcopy,
+        source_worktree:$source,source_git_common:$source_common,source_git_identity:$source_identity,
+        source_commit:$commit,
+        task_root:$root,workcopy:$workcopy,
         reservation:$reservation,limits:{cpus:$cpus,memory:$memory,maxConcurrent:$max},lifecycle:"preparing",
         created_at:$now,updated_at:$now}' > "$tmp"; then
     chmod 600 "$tmp"
@@ -633,7 +688,7 @@ write_initial_journal() {
 
 parse_prepare() {
   local task=$1 host='' name='' nonce='' source='' task_root='' host_data max cpus memory
-  local source_real root_real source_commit owner reservation sandbox workcopy lifecycle
+  local source_real source_common source_identity root_real source_commit owner reservation sandbox workcopy lifecycle
   shift
   ensure_state_root
   while [ "$#" -gt 0 ]; do
@@ -665,6 +720,8 @@ $host_data
 EOF
   )
   source_real=$(resolve_source "$source")
+  source_common=$(resolve_git_common "$source_real")
+  source_identity=$(file_identity "$source_common")
   root_real=$(ensure_task_root "$task" "$task_root" "$source_real")
   source_commit=$(git -C "$source_real" rev-parse HEAD)
   owner=$(journal_path "$task")
@@ -687,7 +744,8 @@ EOF
   fi
   [ ! -e "$sandbox" ] && [ ! -L "$sandbox" ] || die "sandbox task directory exists without an ownership journal"
   if ! write_initial_journal "$owner" "$task" "$host" "$name" "$nonce" "$source_real" \
-      "$source_commit" "$root_real" "$workcopy" "$cpus" "$memory" "$max" "$reservation"; then
+      "$source_commit" "$root_real" "$workcopy" "$cpus" "$memory" "$max" "$reservation" \
+      "$source_common" "$source_identity"; then
     die "could not publish sandbox preparing journal"
   fi
   test_failpoint after-journal
