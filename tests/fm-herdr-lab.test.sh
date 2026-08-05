@@ -65,8 +65,8 @@ case "$first $second" in
     else
       running=false
       [ "$lab_state" = running ] && running=true
-      jq -nc --arg default_socket "$default_socket" --arg socket "$socket" --arg name "$session" --argjson running "$running" \
-        '{sessions:[{default:true,name:"default",running:true,socket_path:$default_socket},{default:false,name:$name,running:$running,socket_path:$socket}]}'
+      jq -nc --arg default_socket "$default_socket" --arg socket "$socket" --arg session_dir "$socket_dir" --arg name "$session" --argjson running "$running" \
+        '{sessions:[{default:true,name:"default",running:true,socket_path:$default_socket},{default:false,name:$name,running:$running,socket_path:$socket,session_dir:$session_dir}]}'
     fi
     ;;
   "server ")
@@ -83,6 +83,7 @@ case "$first $second" in
     : > "$socket"
     printf '%s\n' running > "$state/$session"
     printf '%s\n' "$generation" > "$generation_file"
+    printf '%s\n' "$generation" > "$socket_dir/.server-generation"
     if [ "${FM_FAKE_HERDR_FOREIGN_PROVISION:-}" = 1 ]; then
       exit 0
     fi
@@ -327,10 +328,12 @@ test_changed_default_trips_after_teardown() {
 }
 
 test_stopped_owned_lab_can_reprovision() {
-  local name="fm-lab-reprovision-$$" old_generation new_generation
+  local name="fm-lab-reprovision-$$" pane old_generation new_generation
+  pane="$name:w1:p1"
   : > "$FAKE_LOG"
   run_with_fake fm_herdr_lab_provision "$name" || fail "initial provision failed"
   old_generation=$(cat "$FAKE_STATE/$name.generation")
+  printf '%s\n' "$pane" > "$FAKE_STATE/$name.pane"
   run_with_fake fm_herdr_lab_stop "$name" || fail "guarded stop failed"
   [ "$(cat "$FAKE_STATE/$name")" = stopped ] || fail "guarded stop did not stop the lab session"
   assert_present "$TRIPWIRES/$name.fleet-state.json" "stop removed the lab ownership tripwire"
@@ -338,13 +341,14 @@ test_stopped_owned_lab_can_reprovision() {
   new_generation=$(cat "$FAKE_STATE/$name.generation")
   [ "$(cat "$FAKE_STATE/$name")" = running ] || fail "re-provision did not restart the stopped lab session"
   [ "$new_generation" != "$old_generation" ] || fail "re-provision did not bind a fresh server generation"
-  grep -F "session delete $name --json --expected-generation $old_generation --session $name" "$FAKE_LOG" >/dev/null \
-    || fail "re-provision did not delete the exact stopped generation before restart"
+  [ "$(cat "$FAKE_STATE/$name.pane")" = "$pane" ] || fail "re-provision deleted the stopped session layout"
+  ! grep -F "session delete $name" "$FAKE_LOG" >/dev/null \
+    || fail "re-provision deleted the stopped session before restart"
   grep -F "server --session $name" "$FAKE_LOG" >/dev/null \
-    || fail "re-provision did not start a fresh named server"
+    || fail "re-provision did not restart the retained named session"
   assert_present "$TRIPWIRES/$name.fleet-state.json" "re-provision removed the lab ownership tripwire"
   run_with_fake fm_herdr_lab_teardown "$name" || fail "teardown after re-provision failed"
-  pass "fm-herdr-lab: an owned stopped lab re-provisions through its exact retired generation"
+  pass "fm-herdr-lab: an owned stopped lab re-provisions without deleting its persisted layout"
 }
 
 test_concurrent_run_waits_for_live_lifecycle_lock() {
@@ -414,7 +418,7 @@ test_stopped_session_refuses_foreign_restart_and_stop() {
 }
 
 test_stopped_receipt_rejects_precommit_generation_race() {
-  local name="fm-lab-stop-receipt-race-$$" saved status=0
+  local name="fm-lab-stop-receipt-race-$$" saved status=0 server_starts
   : > "$FAKE_LOG"
   run_with_fake fm_herdr_lab_provision "$name" || fail "stop-receipt race fixture provision failed"
   saved=$(declare -f fm_herdr_lab_write_stopped_session_identity)
@@ -435,11 +439,12 @@ test_stopped_receipt_rejects_precommit_generation_race() {
     "stop race discarded its durable generation receipt"
   [ "$(jq -r '.state' "$TRIPWIRES/$name.session-identity.json")" = stopped ] \
     || fail "stop race did not retain its stopped-generation identity"
+  server_starts=$(grep -c "^server --session $name$" "$FAKE_LOG" || true)
   status=0
   run_with_fake fm_herdr_lab_provision "$name" >/dev/null 2>&1 || status=$?
   expect_code 1 "$status" "re-provision must reject the raced stop generation"
-  grep -F "session delete $name --json --expected-generation" "$FAKE_LOG" >/dev/null \
-    || fail "stop-generation race did not reach the core-owned atomic generation check"
+  [ "$(grep -c "^server --session $name$" "$FAKE_LOG" || true)" = "$server_starts" ] \
+    || fail "stop-generation race reached a replacement server launch"
   rm -f "$TRIPWIRES/$name.fleet-state.json" "$TRIPWIRES/$name.session-identity.json" \
     "$TRIPWIRES/$name.stop-generation.json" "$FAKE_STATE/$name"
   rm -rf "$FAKE_STATE/sessions/$name"

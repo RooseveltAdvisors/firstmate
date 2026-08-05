@@ -430,6 +430,25 @@ fm_herdr_lab_running_generation() { # <session> [expected-generation]
   printf '%s\n' "$generation"
 }
 
+fm_herdr_lab_stopped_generation_matches() { # <session> <generation>
+  local name=$1 expected=$2 sessions session_dir marker recorded extra
+  fm_herdr_lab_validate_generation "$expected" || return 1
+  sessions=$(fm_herdr_lab_session_list "$name" 2>/dev/null) || return 1
+  session_dir=$(printf '%s' "$sessions" | jq -er --arg name "$name" '
+    [.sessions[]?
+      | select(.name == $name and .default == false and .running == false)
+      | select((.session_dir | type) == "string" and (.session_dir | startswith("/")))
+      | .session_dir]
+    | if length == 1 then .[0] else empty end
+  ' 2>/dev/null) || return 1
+  [ -d "$session_dir" ] && [ ! -L "$session_dir" ] || return 1
+  marker="$session_dir/.server-generation"
+  [ -f "$marker" ] && [ ! -L "$marker" ] || return 1
+  recorded=$(sed -n '1p' "$marker" 2>/dev/null) || return 1
+  extra=$(sed -n '2p' "$marker" 2>/dev/null) || return 1
+  [ -z "$extra" ] && [ "$recorded" = "$expected" ]
+}
+
 fm_herdr_lab_write_session_claim() { # <session> <server-pid> <server-start> <owner>
   local name=$1 server_pid=$2 server_start=$3 owner=$4 claim tmp
   claim=$(fm_herdr_lab_claim_path "$name")
@@ -1048,16 +1067,12 @@ fm_herdr_lab_provision_locked() { # <session>
       fm_herdr_lab_abort_prelaunch "$name" "$owner"
       return 1
     }
-    fm_herdr_lab_owned_raw "$name" false session delete "$name" --json >/dev/null 2>&1 || {
-      fm_herdr_lab_error "stopped generation for '$name' changed before guarded re-provision"
+    fm_herdr_lab_stopped_generation_matches "$name" "$FM_HERDR_LAB_IDENTITY_GENERATION" || {
+      fm_herdr_lab_error "stopped generation for '$name' changed before re-provision"
       fm_herdr_lab_abort_prelaunch "$name" "$owner"
       return 1
     }
-    fm_herdr_lab_retire_stopped_generation "$name" || {
-      fm_herdr_lab_abort_prelaunch "$name" "$owner"
-      return 1
-    }
-    mode=restart
+    mode=resume
       ;;
     *)
       fm_herdr_lab_error "session '$name' is ambiguous; refusing to provision it"
@@ -1072,6 +1087,10 @@ fm_herdr_lab_provision_locked() { # <session>
       return 1
     } ;;
     restart) fm_herdr_lab_require_retired_session "$name" || {
+      fm_herdr_lab_abort_prelaunch "$name" "$owner"
+      return 1
+    } ;;
+    resume) fm_herdr_lab_require_owned_session "$name" false || {
       fm_herdr_lab_abort_prelaunch "$name" "$owner"
       return 1
     } ;;
@@ -1118,7 +1137,7 @@ fm_herdr_lab_provision_locked() { # <session>
           fm_herdr_lab_cancel_provision "$server_pid"
           return 1
         }
-        if [ "$mode" = restart ]; then
+        if [ "$mode" = restart ] || [ "$mode" = resume ]; then
           stop_receipt=$(fm_herdr_lab_stop_receipt_path "$name")
           rm -f "$stop_receipt" || {
             fm_herdr_lab_cancel_provision "$server_pid"
