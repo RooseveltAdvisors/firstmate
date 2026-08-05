@@ -100,10 +100,14 @@ printf '%s\n' "$*" >> "$FM_TEST_GLAB_LOG"
     printf '%s\n' "${FM_TEST_GLAB_REVIEW_ERROR:-review query failed}" >&2
     exit 1
   fi
+  if [ -n "${FM_TEST_GLAB_REVIEW_RAW+x}" ]; then
+    printf '%s' "$FM_TEST_GLAB_REVIEW_RAW"
+    exit 0
+  fi
   if [ -n "${FM_TEST_GLAB_REVIEW_JSON+x}" ]; then
-    printf '%s\n' "$FM_TEST_GLAB_REVIEW_JSON"
+    printf 'HTTP/2 200 OK\nX-Page: 1\nX-Next-Page:\nX-Total-Pages: 1\n\n%s\n' "$FM_TEST_GLAB_REVIEW_JSON"
   else
-    printf '%s\n' '[]'
+    printf 'HTTP/2 200 OK\nX-Page: 1\nX-Next-Page:\nX-Total-Pages: 1\n\n[]\n'
   fi
   exit 0
 }
@@ -671,7 +675,7 @@ test_github_review_conversation_readiness_gate() {
   printf 'done: PR https://github.com/o/r/pull/7 checks green\n' > "$state/task-a.status"
 
   set +e
-  FM_TEST_GH_REVIEW_JSON='[{"data":{"repository":{"pullRequest":{"reviewThreads":{"totalCount":1,"nodes":[{"isResolved":false}],"pageInfo":{"hasNextPage":false,"endCursor":"cursor-1"}}}}}}]' \
+  FM_TEST_GH_REVIEW_JSON='[{"data":{"repository":{"pullRequest":{"reviewThreads":{"totalCount":1,"nodes":[{"id":"thread-1","isResolved":false}],"pageInfo":{"hasNextPage":false,"endCursor":"cursor-1"}}}}}}]' \
     run_check_entry "$dir" task-a https://github.com/o/r/pull/7 > "$dir/unresolved.out" 2> "$dir/unresolved.err"
   rc=$?
   set -e
@@ -681,14 +685,14 @@ test_github_review_conversation_readiness_gate() {
   assert_no_grep 'pr=' "$state/task-a.meta" "unresolved GitHub review thread reached PR metadata"
   assert_poll_absent "$state" task-a
 
-  FM_TEST_GH_REVIEW_JSON='[{"data":{"repository":{"pullRequest":{"reviewThreads":{"totalCount":1,"nodes":[{"isResolved":true}],"pageInfo":{"hasNextPage":false,"endCursor":"cursor-1"}}}}}}]' \
+  FM_TEST_GH_REVIEW_JSON='[{"data":{"repository":{"pullRequest":{"reviewThreads":{"totalCount":1,"nodes":[{"id":"thread-1","isResolved":true}],"pageInfo":{"hasNextPage":false,"endCursor":"cursor-1"}}}}}}]' \
     run_check_entry "$dir" task-a https://github.com/o/r/pull/7 > "$dir/resolved.out" 2> "$dir/resolved.err" \
     || fail "zero unresolved GitHub review threads refused readiness: $(cat "$dir/resolved.err")"
   assert_grep 'armed: state/task-a.check.sh' "$dir/resolved.out" \
     "resolved GitHub review threads did not enter monitoring"
 
   rm -f "$state/task-a.check.sh" "$state/task-a.pr-poll" "$state/task-a.pr-poll-registration"
-  pages='[{"data":{"repository":{"pullRequest":{"reviewThreads":{"totalCount":2,"nodes":[{"isResolved":true}],"pageInfo":{"hasNextPage":true,"endCursor":"cursor-1"}}}}}},{"data":{"repository":{"pullRequest":{"reviewThreads":{"totalCount":2,"nodes":[{"isResolved":false}],"pageInfo":{"hasNextPage":false,"endCursor":"cursor-2"}}}}}}]'
+  pages='[{"data":{"repository":{"pullRequest":{"reviewThreads":{"totalCount":2,"nodes":[{"id":"thread-1","isResolved":true}],"pageInfo":{"hasNextPage":true,"endCursor":"cursor-1"}}}}}},{"data":{"repository":{"pullRequest":{"reviewThreads":{"totalCount":2,"nodes":[{"id":"thread-2","isResolved":false}],"pageInfo":{"hasNextPage":false,"endCursor":"cursor-2"}}}}}}]'
   set +e
   FM_TEST_GH_REVIEW_JSON=$pages run_check_entry "$dir" task-a https://github.com/o/r/pull/7 \
     > "$dir/paginated.out" 2> "$dir/paginated.err"
@@ -701,13 +705,31 @@ test_github_review_conversation_readiness_gate() {
     "GitHub review query did not request the complete paginated set"
 
   set +e
-  FM_TEST_GH_REVIEW_JSON='[{"data":{"repository":{"pullRequest":{"reviewThreads":{"totalCount":1,"nodes":[{"isResolved":true}],"pageInfo":{"hasNextPage":true,"endCursor":"cursor-1"}}}}}}]' \
+  FM_TEST_GH_REVIEW_JSON='[{"data":{"repository":{"pullRequest":{"reviewThreads":{"totalCount":1,"nodes":[{"id":"thread-1","isResolved":true}],"pageInfo":{"hasNextPage":true,"endCursor":"cursor-1"}}}}}}]' \
     run_check_entry "$dir" task-a https://github.com/o/r/pull/7 > "$dir/ambiguous.out" 2> "$dir/ambiguous.err"
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "incomplete GitHub pagination was treated as a complete review set"
   assert_grep 'ambiguous GitHub review conversation pagination' "$dir/ambiguous.err" \
     "GitHub pagination ambiguity lacked an actionable diagnostic"
+
+  set +e
+  FM_TEST_GH_REVIEW_JSON='[{"data":{"repository":{"pullRequest":{"reviewThreads":{"totalCount":2,"nodes":[{"id":"thread-1","isResolved":true}],"pageInfo":{"hasNextPage":true,"endCursor":"cursor-1"}}}}}},{"data":{"repository":{"pullRequest":{"reviewThreads":{"totalCount":2,"nodes":[{"id":"thread-1","isResolved":true}],"pageInfo":{"hasNextPage":false,"endCursor":"cursor-2"}}}}}}]' \
+    run_check_entry "$dir" task-a https://github.com/o/r/pull/7 > "$dir/duplicate.out" 2> "$dir/duplicate.err"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "duplicate GitHub review thread data was accepted"
+  assert_grep 'thread was returned more than once' "$dir/duplicate.err" \
+    "duplicate GitHub review thread data lacked an actionable diagnostic"
+
+  set +e
+  FM_TEST_GH_REVIEW_JSON='[{"data":{"repository":{"pullRequest":{"reviewThreads":{"totalCount":2,"nodes":[{"id":"thread-1","isResolved":true}],"pageInfo":{"hasNextPage":true,"endCursor":"cursor-1"}}}}}},{"data":{"repository":{"pullRequest":{"reviewThreads":{"totalCount":2,"nodes":[{"id":"thread-2","isResolved":true}],"pageInfo":{"hasNextPage":false,"endCursor":"cursor-1"}}}}}}]' \
+    run_check_entry "$dir" task-a https://github.com/o/r/pull/7 > "$dir/cursor.out" 2> "$dir/cursor.err"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "non-advancing GitHub review cursor was accepted"
+  assert_grep 'cursor did not advance' "$dir/cursor.err" \
+    "non-advancing GitHub cursor lacked an actionable diagnostic"
 
   set +e
   FM_TEST_GH_REVIEW_FAIL=1 FM_TEST_GH_REVIEW_ERROR='permission denied for reviewThreads' \
@@ -722,7 +744,7 @@ test_github_review_conversation_readiness_gate() {
     "GitHub permission failure detail was discarded"
 
   set +e
-  FM_TEST_GH_REVIEW_JSON='[{"data":{"repository":{"pullRequest":{"reviewThreads":{"totalCount":1,"nodes":[{"isResolved":"pending"}],"pageInfo":{"hasNextPage":false,"endCursor":"cursor-1"}}}}}}]' \
+  FM_TEST_GH_REVIEW_JSON='[{"data":{"repository":{"pullRequest":{"reviewThreads":{"totalCount":1,"nodes":[{"id":"thread-1","isResolved":"pending"}],"pageInfo":{"hasNextPage":false,"endCursor":"cursor-1"}}}}}}]' \
     run_check_entry "$dir" task-a https://github.com/o/r/pull/7 > "$dir/malformed.out" 2> "$dir/malformed.err"
   rc=$?
   set -e
@@ -754,8 +776,26 @@ test_gitlab_review_conversation_readiness_gate() {
     || fail "zero unresolved GitLab discussions refused readiness: $(cat "$dir/resolved.err")"
   assert_grep 'armed: state/task-a.check.sh' "$dir/resolved.out" \
     "resolved GitLab discussions did not enter monitoring"
-  assert_grep 'api projects/group%2Fsubgroup%2Fproject/merge_requests/7/discussions?per_page=100 --hostname gitlab.example --paginate --output json' "$dir/glab.log" \
+  assert_grep 'api projects/group%2Fsubgroup%2Fproject/merge_requests/7/discussions?per_page=100 --hostname gitlab.example --paginate --include --output json' "$dir/glab.log" \
     "GitLab review query did not request the complete paginated discussion set"
+
+  set +e
+  FM_TEST_GLAB_REVIEW_RAW=$'HTTP/2 200 OK\nX-Page: 1\nX-Next-Page: 2\nX-Total-Pages: 2\n\n[]\nHTTP/2 200 OK\nX-Page: 2\nX-Next-Page:\nX-Total-Pages: 2\n\n[{"id":"discussion-late","individual_note":false,"notes":[{"resolvable":true,"resolved":false}]}]\n' \
+    run_check_entry "$dir" task-a "$url" > "$dir/later-page.out" 2> "$dir/later-page.err"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "unresolved GitLab discussion on a later page was missed"
+  assert_grep '1 unresolved review conversation' "$dir/later-page.err" \
+    "later-page GitLab refusal was not actionable"
+
+  set +e
+  FM_TEST_GLAB_REVIEW_RAW=$'HTTP/2 200 OK\nX-Page: 1\nX-Total-Pages: 1\n\n[]\n' \
+    run_check_entry "$dir" task-a "$url" > "$dir/ambiguous.out" 2> "$dir/ambiguous.err"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "GitLab pagination without next-page metadata was accepted"
+  assert_grep 'ambiguous GitLab review conversation pagination' "$dir/ambiguous.err" \
+    "GitLab pagination ambiguity lacked an actionable diagnostic"
 
   set +e
   FM_TEST_GLAB_REVIEW_FAIL=1 FM_TEST_GLAB_REVIEW_ERROR='403 insufficient_scope' \
@@ -1597,7 +1637,7 @@ test_ambiguous_failure_accepts_validated_replacement() {
   fm_pr_poll_artifacts_valid "$state" task-a "$POLL" \
     || fail "replacement registration did not publish a valid poll pair"
 
-  FM_HOME="$dir/home" PATH="$BASE_PATH" "$MIGRATE" > "$dir/migrate-retry.out" 2> "$dir/migrate-retry.err" \
+  FM_HOME="$dir/home" PATH="$dir/fakebin:$BASE_PATH" "$MIGRATE" > "$dir/migrate-retry.out" 2> "$dir/migrate-retry.err" \
     || fail "migration did not accept the validated replacement: $(cat "$dir/migrate-retry.err")"
   assert_valid_migration_marker "$state/.pr-check-migration-v1"
   [ ! -e "$pending" ] && [ ! -e "$failure" ] \
@@ -1867,7 +1907,7 @@ test_failed_outcomes_block_every_retry_until_repaired() {
     mkdir "$state/task-a.pr-poll"
 
     set +e
-    FM_HOME="$dir/home" PATH="$BASE_PATH" "$MIGRATE" > "$dir/migrate-1.out" 2> "$dir/migrate-1.err"
+    FM_HOME="$dir/home" PATH="$dir/fakebin:$BASE_PATH" "$MIGRATE" > "$dir/migrate-1.out" 2> "$dir/migrate-1.err"
     rc=$?
     set -e
     [ "$rc" -ne 0 ] || fail "$classification partial quarantine unexpectedly succeeded"
@@ -1883,7 +1923,7 @@ test_failed_outcomes_block_every_retry_until_repaired() {
     chmod 0600 "$state/.pr-check-migration-v1"
 
     set +e
-    FM_HOME="$dir/home" PATH="$BASE_PATH" "$MIGRATE" > "$dir/migrate-2.out" 2> "$dir/migrate-2.err"
+    FM_HOME="$dir/home" PATH="$dir/fakebin:$BASE_PATH" "$MIGRATE" > "$dir/migrate-2.out" 2> "$dir/migrate-2.err"
     rc=$?
     set -e
     [ "$rc" -ne 0 ] || fail "$classification unrepaired retry unexpectedly succeeded"
@@ -1896,7 +1936,7 @@ test_failed_outcomes_block_every_retry_until_repaired() {
     [ ! -e "$success" ] || fail "$classification unrepaired retry created a contradictory success obligation"
 
     rmdir "$state/task-a.pr-poll"
-    FM_HOME="$dir/home" PATH="$BASE_PATH" "$MIGRATE" > "$dir/migrate-3.out" 2> "$dir/migrate-3.err" \
+    FM_HOME="$dir/home" PATH="$dir/fakebin:$BASE_PATH" "$MIGRATE" > "$dir/migrate-3.out" 2> "$dir/migrate-3.err" \
       || fail "$classification migration did not recover after sidecar repair"
     assert_valid_migration_marker "$state/.pr-check-migration-v1"
     [ ! -e "$pending" ] && [ ! -L "$pending" ] \
@@ -1951,7 +1991,9 @@ test_canonical_publication_failure_recovers_only_on_retry() {
   [ -f "$failure" ] || fail "canonical publication fault did not persist a failure obligation"
   [ ! -e "$success" ] || fail "canonical publication fault persisted contradictory outcomes"
 
-  FM_HOME="$dir/home" PATH="$BASE_PATH" "$MIGRATE" > "$dir/migrate-2.out" 2> "$dir/migrate-2.err" \
+  FM_TEST_FINAL_PATH=/nonexistent FM_TEST_FINAL_ACTION=mode \
+    FM_TEST_REAL_MV="$REAL_MV" FM_TEST_REAL_STAT="$REAL_STAT" FM_TEST_REAL_CHMOD="$REAL_CHMOD" \
+    FM_HOME="$dir/home" PATH="$dir/fakebin:$BASE_PATH" "$MIGRATE" > "$dir/migrate-2.out" 2> "$dir/migrate-2.err" \
     || fail "canonical publication failure did not recover on a clean retry"
   [ "$(cat "$dir/migrate-2.out")" = 'PR_CHECK_MIGRATION: canonical polls rebuilt and armed; resume supervision for this home' ] \
     || fail "canonical publication retry did not report the armed outcome"
@@ -2117,7 +2159,7 @@ SH
     'window=fm-foo.diagnostic.bar' \
     'pr=https://github.com/o/r/pull/41'
   printf 'legacy delimiter bytes\n' > "$state/foo.diagnostic.bar.check.sh"
-  FM_HOME="$dir/home" "$MIGRATE" > "$dir/migrate.out" 2> "$dir/migrate.err" \
+  FM_HOME="$dir/home" PATH="$dir/fakebin:$BASE_PATH" "$MIGRATE" > "$dir/migrate.out" 2> "$dir/migrate.err" \
     || fail "migration could not decode an obligation for a delimiter-bearing task ID"
   fm_pr_poll_artifacts_valid "$state" foo.diagnostic.bar "$POLL" \
     || fail "delimiter-bearing task ID did not rebuild an authenticated poll"
@@ -2144,7 +2186,7 @@ test_nonexecuting_migration() {
   chmod 0700 "$state/x-watch.check.sh"
   x_before=$(state_snapshot "$state" | grep 'x-watch.check.sh')
 
-  FM_HOME="$dir/home" "$MIGRATE" > "$dir/migrate.out" 2> "$dir/migrate.err" \
+  FM_HOME="$dir/home" PATH="$dir/fakebin:$BASE_PATH" "$MIGRATE" > "$dir/migrate.out" 2> "$dir/migrate.err" \
     || fail "canonical legacy migration failed"
   [ "$(cat "$dir/migrate.out")" = 'PR_CHECK_MIGRATION: canonical polls rebuilt and armed; resume supervision for this home' ] \
     || fail "canonical migration stdout did not state that the rebuilt poll is armed"
@@ -2164,7 +2206,7 @@ test_nonexecuting_migration() {
   [ "$x_after" = "$x_before" ] || fail "migration changed the X-mode shim"
 
   snap_before=$(state_snapshot "$state")
-  FM_HOME="$dir/home" "$MIGRATE" > "$dir/migrate-2.out" 2> "$dir/migrate-2.err" \
+  FM_HOME="$dir/home" PATH="$dir/fakebin:$BASE_PATH" "$MIGRATE" > "$dir/migrate-2.out" 2> "$dir/migrate-2.err" \
     || fail "idempotent migration rerun failed"
   snap_after=$(state_snapshot "$state")
   [ "$snap_after" = "$snap_before" ] || fail "migration rerun changed state"
@@ -2173,7 +2215,7 @@ test_nonexecuting_migration() {
   FM_HOME="$dir/home" "$REGISTER" custom >/dev/null \
     || fail "could not register the later custom check"
   snap_before=$(state_snapshot "$state")
-  FM_HOME="$dir/home" "$MIGRATE" >/dev/null 2>/dev/null || fail "completed migration rerun failed"
+  FM_HOME="$dir/home" PATH="$dir/fakebin:$BASE_PATH" "$MIGRATE" >/dev/null 2>/dev/null || fail "completed migration rerun failed"
   snap_after=$(state_snapshot "$state")
   [ "$snap_after" = "$snap_before" ] || fail "completed migration changed a later custom check"
 
@@ -2190,7 +2232,7 @@ test_nonexecuting_migration() {
     'x_reply_max_chars=1900'
   printf 'legacy X-linked bytes\n' > "$state/task-x.check.sh"
   snap_before=$(cat "$state/task-x.meta")
-  FM_HOME="$dir/home" "$MIGRATE" > "$dir/migrate.out" 2> "$dir/migrate.err" \
+  FM_HOME="$dir/home" PATH="$dir/fakebin:$BASE_PATH" "$MIGRATE" > "$dir/migrate.out" 2> "$dir/migrate.err" \
     || fail "X-linked migration failed"
   [ "$(cat "$dir/migrate.out")" = 'PR_CHECK_MIGRATION: canonical polls rebuilt and armed; resume supervision for this home' ] \
     || fail "X-linked migration did not report an armed canonical poll"
@@ -2205,7 +2247,7 @@ test_nonexecuting_migration() {
     'pr=https://github.com/o/r/pull/10' \
     'window=injected-after-pr'
   printf 'legacy ambiguous bytes\n' > "$state/task-b.check.sh"
-  FM_HOME="$dir/home" "$MIGRATE" > "$dir/migrate.out" 2> "$dir/migrate.err" \
+  FM_HOME="$dir/home" PATH="$dir/fakebin:$BASE_PATH" "$MIGRATE" > "$dir/migrate.out" 2> "$dir/migrate.err" \
     || fail "ambiguous migration failed to quarantine"
   [ "$(cat "$dir/migrate.out")" = 'PR_CHECK_MIGRATION: quarantined polls remain unarmed; review state/.pr-check-migration.log before rearming' ] \
     || fail "ambiguous migration stdout did not state that quarantined polls remain unarmed"
@@ -2222,7 +2264,7 @@ test_nonexecuting_migration() {
   state="$dir/home/state"
   printf 'legacy invalid-id bytes\n' > "$state/bad id.check.sh"
   set +e
-  FM_HOME="$dir/home" "$MIGRATE" > "$dir/migrate.out" 2> "$dir/migrate.err"
+  FM_HOME="$dir/home" PATH="$dir/fakebin:$BASE_PATH" "$MIGRATE" > "$dir/migrate.out" 2> "$dir/migrate.err"
   rc=$?
   set -e
   [ "$rc" -eq 0 ] || fail "noncanonical artifact migration failed"
@@ -2233,6 +2275,26 @@ test_nonexecuting_migration() {
     "noncanonical artifact outcome diagnostic was missing"
   assert_valid_migration_marker "$state/.pr-check-migration-v1"
   pass "migration never executes legacy checks, preserves X mode, quarantines ambiguity, and is idempotent"
+}
+
+test_migration_rechecks_review_conversations() {
+  local dir state rc
+  dir=$(make_case migration-review-guard)
+  state="$dir/home/state"
+  write_poll_meta "$state" task-a https://github.com/o/r/pull/19
+  seed_canonical_poll "$dir" task-a https://github.com/o/r/pull/19
+  set +e
+  FM_TEST_GH_REVIEW_JSON='[{"data":{"repository":{"pullRequest":{"reviewThreads":{"totalCount":1,"nodes":[{"id":"thread-legacy","isResolved":false}],"pageInfo":{"hasNextPage":false,"endCursor":"cursor-legacy"}}}}}}]' \
+    FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$dir/root" PATH="$dir/fakebin:$BASE_PATH" \
+      "$MIGRATE" > "$dir/migrate.out" 2> "$dir/migrate.err"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "migration accepted an unresolved review conversation"
+  [ ! -e "$state/task-a.check.sh" ] || fail "migration rearmed a poll with an unresolved review conversation"
+  [ ! -e "$state/task-a.pr-poll" ] || fail "migration retained a sidecar for an unready PR"
+  assert_grep 'canonical poll migration is incomplete; poll remains unarmed' "$state/.pr-check-migration.log" \
+    "migration did not record the unresolved-review refusal"
+  pass "legacy poll migration rechecks review conversations before rearming"
 }
 
 test_historical_x_shim_transition_matrix() {
@@ -3493,6 +3555,7 @@ test_complete_single_link_validation
 test_canonical_publication_failure_recovers_only_on_retry
 test_obligation_namespace_compatibility
 test_nonexecuting_migration
+test_migration_rechecks_review_conversations
 test_historical_x_shim_transition_matrix
 test_direct_registration_refreshes_v1_x_shim
 test_bootstrap_migrates_before_other_mutations

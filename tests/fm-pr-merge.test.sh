@@ -336,7 +336,7 @@ test_new_review_thread_refuses_merge_after_readiness() {
 
   set +e
   FM_TEST_GH_REVIEW_COUNT_FILE=$count_file \
-  FM_TEST_GH_REVIEW_SECOND_JSON='[{"data":{"repository":{"pullRequest":{"reviewThreads":{"totalCount":1,"nodes":[{"isResolved":false}],"pageInfo":{"hasNextPage":false,"endCursor":"cursor-1"}}}}}}]' \
+  FM_TEST_GH_REVIEW_SECOND_JSON='[{"data":{"repository":{"pullRequest":{"reviewThreads":{"totalCount":1,"nodes":[{"id":"thread-1","isResolved":false}],"pageInfo":{"hasNextPage":false,"endCursor":"cursor-1"}}}}}}]' \
     run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/24 \
       > "$case_dir/stdout" 2> "$case_dir/stderr"
   rc=$?

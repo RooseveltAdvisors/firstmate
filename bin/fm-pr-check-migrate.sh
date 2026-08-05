@@ -228,9 +228,24 @@ scan_complete() {
   current_checks_authenticated
 }
 
+canonical_review_conversations_complete() {
+  local check id
+  for check in "$STATE"/*.check.sh; do
+    [ -e "$check" ] || [ -L "$check" ] || continue
+    [ "$(basename "$check")" = x-watch.check.sh ] && continue
+    id=$(basename "$check" .check.sh)
+    fm_pr_task_id_valid "$id" || continue
+    fm_pr_poll_artifacts_valid "$STATE" "$id" "$TEMPLATE" || continue
+    fm_pr_metadata_identity_parse "$STATE/$id.meta" || return 1
+    fm_pr_review_conversations_require_resolved \
+      "$SCRIPT_DIR" "$FM_PR_META_PROVIDER" "$FM_PR_META_HOST" "$FM_PR_META_PATH" "$FM_PR_META_NUMBER" || return 1
+  done
+}
+
 migration_complete() {
   local state_device obligation
   scan_complete || return 1
+  canonical_review_conversations_complete || return 1
   state_device=$(fm_pr_file_device "$STATE") || return 1
   if [ -e "$QUARANTINE" ] || [ -L "$QUARANTINE" ]; then
     for obligation in "$QUARANTINE"/*.diagnostic.pending-canonical \
@@ -380,9 +395,13 @@ migration_needed() {
     fi
     id=$(basename "$check" .check.sh)
     fm_custom_check_registered "$STATE" "$id" && continue
-    if ! fm_pr_poll_artifacts_valid "$STATE" "$id" "$TEMPLATE"; then
-      return 0
+    if fm_pr_poll_artifacts_valid "$STATE" "$id" "$TEMPLATE"; then
+      if metadata_pr_is_canonical "$STATE/$id.meta" \
+        && fm_pr_review_conversations_require_resolved "$SCRIPT_DIR" "$MIGRATION_PROVIDER" "$MIGRATION_HOST" "$MIGRATION_PATH" "$MIGRATION_NUMBER"; then
+        continue
+      fi
     fi
+    return 0
   done
   return 1
 }
@@ -799,6 +818,7 @@ canonical_repair_from_pending() {
   quarantine_artifact "$registration" "$id" registration || return 1
   [ ! -e "$data" ] && [ ! -L "$data" ] || return 1
   [ ! -e "$registration" ] && [ ! -L "$registration" ] || return 1
+  fm_pr_review_conversations_require_resolved "$SCRIPT_DIR" "$provider" "$host" "$path" "$number" || return 1
   fm_pr_poll_prepare "$STATE" "$id" "$provider" "$url" "$host" "$path" "$number" "$TEMPLATE" || return 1
   fm_pr_poll_publish_prepared || return 1
   canonical_terminal_success "$id"
@@ -1029,7 +1049,12 @@ if migration_needed; then
     fi
     id=$(basename "$check" .check.sh)
     fm_custom_check_registered "$STATE" "$id" && continue
-    fm_pr_poll_artifacts_valid "$STATE" "$id" "$TEMPLATE" && continue
+    if fm_pr_poll_artifacts_valid "$STATE" "$id" "$TEMPLATE"; then
+      if metadata_pr_is_canonical "$STATE/$id.meta" \
+        && fm_pr_review_conversations_require_resolved "$SCRIPT_DIR" "$MIGRATION_PROVIDER" "$MIGRATION_HOST" "$MIGRATION_PATH" "$MIGRATION_NUMBER"; then
+        continue
+      fi
+    fi
 
     if fm_pr_task_id_valid "$id"; then
       prefix=$id
@@ -1052,6 +1077,7 @@ if migration_needed; then
         if quarantine_artifact "$check" "$prefix" check \
           && quarantine_artifact "$data" "$prefix" data \
           && quarantine_artifact "$registration" "$prefix" registration \
+          && fm_pr_review_conversations_require_resolved "$SCRIPT_DIR" "$provider" "$host" "$path" "$number" \
           && fm_pr_poll_prepare "$STATE" "$id" "$provider" "$url" "$host" "$path" "$number" "$TEMPLATE" \
           && fm_pr_poll_publish_prepared \
           && complete_canonical_outcome "$id"; then

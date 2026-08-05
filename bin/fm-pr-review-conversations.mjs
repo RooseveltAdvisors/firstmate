@@ -75,7 +75,7 @@ query($owner: String!, $repo: String!, $number: Int!, $endCursor: String) {
     pullRequest(number: $number) {
       reviewThreads(first: 100, after: $endCursor) {
         totalCount
-        nodes { isResolved }
+        nodes { id isResolved }
         pageInfo { hasNextPage endCursor }
       }
     }
@@ -108,6 +108,8 @@ query($owner: String!, $repo: String!, $number: Int!, $endCursor: String) {
   let observedCount = 0;
   let unresolvedCount = 0;
   const cursors = new Set();
+  const threadIds = new Set();
+  let previousEndCursor = null;
   pages.forEach((page, pageIndex) => {
     if (!plainObject(page) || ("errors" in page && (!Array.isArray(page.errors) || page.errors.length > 0))) {
       fail("GitHub review conversation query returned API errors; verify PR access and GraphQL permissions");
@@ -132,15 +134,26 @@ query($owner: String!, $repo: String!, $number: Int!, $endCursor: String) {
       if (typeof endCursor !== "string" || endCursor.length === 0 || cursors.has(endCursor)) {
         fail("ambiguous GitHub review conversation pagination; the next-page cursor was invalid");
       }
-      cursors.add(endCursor);
     } else if (endCursor !== null && typeof endCursor !== "string") {
       fail("malformed GitHub review conversation response; endCursor had an unsupported value");
     }
+    if (typeof endCursor === "string") {
+      if (cursors.has(endCursor) || (previousEndCursor !== null && endCursor === previousEndCursor)) {
+        fail("ambiguous GitHub review conversation pagination; the cursor did not advance");
+      }
+      cursors.add(endCursor);
+      previousEndCursor = endCursor;
+    }
 
     threads.nodes.forEach((thread) => {
-      if (!plainObject(thread) || typeof thread.isResolved !== "boolean") {
-        fail("malformed GitHub review conversation response; isResolved was missing or unsupported");
+      if (!plainObject(thread) || typeof thread.id !== "string" || thread.id.length === 0
+        || typeof thread.isResolved !== "boolean") {
+        fail("malformed GitHub review conversation response; id or isResolved was missing or unsupported");
       }
+      if (threadIds.has(thread.id)) {
+        fail("ambiguous GitHub review conversation pagination; a thread was returned more than once");
+      }
+      threadIds.add(thread.id);
       observedCount += 1;
       if (!thread.isResolved) unresolvedCount += 1;
     });
@@ -151,18 +164,62 @@ query($owner: String!, $repo: String!, $number: Int!, $endCursor: String) {
   return unresolvedCount;
 }
 
+function gitlabPages(raw) {
+  const chunks = raw.trimStart().split(/\r?\n(?=HTTP\/)/);
+  if (chunks.length === 0 || chunks.some((chunk) => !chunk.trim())) {
+    fail("malformed GitLab review conversation response; paginated HTTP responses were incomplete");
+  }
+  const pages = chunks.map((chunk) => {
+    const separator = chunk.search(/\r?\n\r?\n/);
+    if (separator < 0) {
+      fail("ambiguous GitLab review conversation pagination; response headers were missing");
+    }
+    const headerText = chunk.slice(0, separator);
+    const body = chunk.slice(separator).replace(/^\r?\n\r?\n/, "").trim();
+    const status = headerText.match(/^HTTP\/\S+\s+(\d{3})/);
+    if (!status || !/^2\d\d$/.test(status[1])) {
+      fail("GitLab review conversation query returned an API or permission error; verify MR access");
+    }
+    const headers = new Map();
+    headerText.split(/\r?\n/).slice(1).forEach((line) => {
+      const match = line.match(/^([^:]+):\s*(.*)$/);
+      if (match) headers.set(match[1].toLowerCase(), match[2].trim());
+    });
+    const page = headers.get("x-page");
+    const nextPage = headers.get("x-next-page");
+    const totalPages = headers.get("x-total-pages");
+    if (!/^\d+$/.test(page || "") || !/^\d+$/.test(totalPages || "")
+      || (nextPage !== "" && !/^\d+$/.test(nextPage || ""))) {
+      fail("ambiguous GitLab review conversation pagination; pagination headers were missing or invalid");
+    }
+    const discussions = parseJson(body, "GitLab");
+    if (!Array.isArray(discussions)) {
+      fail("malformed GitLab review conversation response; expected one array per paginated response");
+    }
+    return { page: Number(page), nextPage: nextPage === "" ? null : Number(nextPage), totalPages: Number(totalPages), discussions };
+  });
+  const totalPages = pages[0].totalPages;
+  if (totalPages < 1 || pages.some((entry, index) => entry.totalPages !== totalPages
+    || entry.page !== index + 1 || entry.page > totalPages
+    || (index + 1 < pages.length && entry.nextPage !== entry.page + 1)
+    || (index + 1 === pages.length && entry.nextPage !== null))) {
+    fail("ambiguous GitLab review conversation pagination; page sequence was incomplete");
+  }
+  if (pages.length !== totalPages) {
+    fail("ambiguous GitLab review conversation pagination; not every page was returned");
+  }
+  return pages.flatMap((entry) => entry.discussions);
+}
+
 function gitlabUnresolved(host, projectPath, number) {
   const encodedProject = encodeURIComponent(projectPath);
   const endpoint = `projects/${encodedProject}/merge_requests/${number}/discussions?per_page=100`;
   const raw = commandOutput(
     "glab",
-    ["api", endpoint, "--hostname", host, "--paginate", "--output", "json"],
+    ["api", endpoint, "--hostname", host, "--paginate", "--include", "--output", "json"],
     "GitLab",
   );
-  const discussions = parseJson(raw, "GitLab");
-  if (!Array.isArray(discussions)) {
-    fail("malformed GitLab review conversation response; expected a paginated discussion array");
-  }
+  const discussions = gitlabPages(raw);
 
   let unresolvedCount = 0;
   const discussionIds = new Set();
