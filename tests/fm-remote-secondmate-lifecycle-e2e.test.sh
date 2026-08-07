@@ -900,6 +900,22 @@ assert_present "$PARENT/state/ios.meta" "unreachable readiness removed the paren
 assert_grep '- ios ' "$PARENT/data/secondmates.md" "unreachable readiness removed the registry route"
 pass "unreachable remote state remains unknown with no local respawn or failover"
 
+# Transport recovery must reconcile the same native Herdr endpoint in place.
+# A reconnect is not a relaunch: the remote workspace remains authoritative and
+# no local endpoint or replacement launch is introduced after the route becomes
+# reachable again.
+RECONNECTED=$(remote_env "$ROOT/bin/fm-fleet-snapshot.sh" --json)
+printf '%s' "$RECONNECTED" | jq -e '.secondmate_current.records | any(.id == "ios" and .remote == true and .host == "remote-mac" and .provenance.selected == "structured-home")' >/dev/null \
+  || fail "reconnected remote route did not recover its remote structured home"
+[ "$(remote_env "$ROOT/bin/fm-on.sh" ios fm-remote-secondmate-control.sh state ios)" = alive ] \
+  || fail "reconnected remote endpoint was not alive on its original host"
+launches_after_reconnect=$(grep -c '^tab create' "$HERDR_LOG" || true)
+[ "$launches_before" -eq "$launches_after_reconnect" ] \
+  || fail "reconnect created a replacement Herdr endpoint instead of reusing the remote one"
+assert_present "$PARENT/state/ios.meta" "reconnect removed the parent route metadata"
+assert_grep '- ios ' "$PARENT/data/secondmates.md" "reconnect removed the registry route"
+pass "remote disconnect and reconnect recover the same native Herdr endpoint without local fallback"
+
 # Retirement delegates its safety check to the remote home. An in-flight child
 # record refuses cleanup and preserves both machines' durable routes.
 # A sibling remote secondmate workspace shares fm-remote and must survive every

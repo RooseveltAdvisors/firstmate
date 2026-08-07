@@ -168,6 +168,17 @@ The transport never retries automatically.
 Semantic callers preserve the route or pending request and require same-host reconciliation rather than resending an operation that may already have happened.
 An unavailable remote home is projected as unknown and is never replaced by a local second mate.
 
+For an operator-level visual proof, attach to the same remote Herdr session with its native SSH client:
+
+```sh
+herdr --remote <ssh-alias> --session fm-remote
+```
+
+Disconnecting that client does not stop the host's `fm-remote` server or its secondmate workspace.
+Reconnect with the same command and confirm that the existing workspace and pane remain present rather than creating a local replacement.
+The primary's route remains `unknown` while SSH is unavailable, returns to the recorded remote endpoint after reconnection, and never fails over locally.
+This native attach is an observation path only; Firstmate's lifecycle and message operations remain owned by the configured remote route.
+
 ## Backlog handoff
 
 Move already-judged queued work with the normal command:
