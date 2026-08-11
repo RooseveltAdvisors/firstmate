@@ -49,6 +49,17 @@ fi
 exit 0
 SH
   chmod +x "$fakebin/timeout" "$fakebin/cursor-agent"
+  # Record endpoint creation so refusal tests can prove no runtime endpoint was
+  # made; the shared spawn tmux stub handles everything else.
+  mv "$fakebin/tmux" "$fakebin/tmux-shared"
+  cat > "$fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = new-window ] && [ -n "${FM_FAKE_ENDPOINT_LOG:-}" ]; then
+  printf '%s\n' "$*" >> "$FM_FAKE_ENDPOINT_LOG"
+fi
+exec "$(dirname "$0")/tmux-shared" "$@"
+SH
+  chmod +x "$fakebin/tmux"
   make_spawn_pi_probe "$fakebin" pi
   make_spawn_pi_probe "$fakebin" pi-signed
   printf '%s\n' "$fakebin"
@@ -94,15 +105,17 @@ ai_trailer_hooks_prefix() {  # <home> <id>
 }
 
 run_spawn() {
-  local home=$1 wt=$2 fakebin=$3 launchlog=$4
+  local home=$1 wt=$2 fakebin=$3 launchlog=$4 endpointlog
   shift 4
+  endpointlog="$(dirname "$launchlog")/endpoint.log"
   : > "$launchlog"
+  : > "$endpointlog"
   # CLAUDE_CONFIG_DIR is forwarded onto claude launches by fm-spawn, so pin it
   # explicitly (empty by default) instead of leaking the invoking shell's value,
   # which would make launch assertions depend on the developer's environment.
   # A test opts in to the set case via FM_TEST_CLAUDE_CONFIG_DIR.
   CLAUDE_CONFIG_DIR="${FM_TEST_CLAUDE_CONFIG_DIR:-}" \
-    FM_FAKE_LAUNCH_LOG="$launchlog" FM_FAKE_PANE_LOG="${FM_TEST_PANE_LOG:-}" \
+    FM_FAKE_LAUNCH_LOG="$launchlog" FM_FAKE_ENDPOINT_LOG="$endpointlog" FM_FAKE_PANE_LOG="${FM_TEST_PANE_LOG:-}" \
     FM_FAKE_PI_VERSION="${FM_TEST_PI_VERSION:-0.84.0}" \
     FM_FAKE_CURSOR_MODELS="${FM_TEST_CURSOR_MODELS:-}" \
     FM_FAKE_CURSOR_LIST_STATUS="${FM_TEST_CURSOR_LIST_STATUS:-0}" \
@@ -1165,6 +1178,23 @@ EOF
   pass "claude --skills composes a per-task overlay and launches with --add-dir"
 }
 
+test_claude_missing_skill_refuses_before_endpoint_or_metadata() {
+  local rec id out status
+  id=profile-claude-missing-skill-z21
+  rec=$(make_spawn_case profile-claude-missing-skill claude "$id")
+  read_case_record "$rec"
+  : > "$HOME_DIR/data/projects.md"
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --skills absent-skill)
+  status=$?
+  expect_code 1 "$status" "claude spawn with a missing skill should fail"
+  assert_contains "$out" "skill not found" "missing skill refusal did not explain resolution failure"
+  assert_absent "$HOME_DIR/state/$id.meta" "missing skill refusal published task metadata"
+  [ ! -s "$CASE_DIR/endpoint.log" ] || fail "missing skill refusal created a runtime endpoint"
+  [ ! -s "$LAUNCH_LOG" ] || fail "missing skill refusal sent text to a runtime endpoint"
+  pass "skill resolution failures refuse before endpoint and metadata publication"
+}
+
 test_non_claude_harness_ignores_config_dir() {
   local rec id out status launch
   id=profile-codex-nocfgdir-z19
@@ -1889,6 +1919,7 @@ test_claude_worker_launch_covers_task_channel_dirs
 test_claude_permission_mode_invalid_refuses_before_endpoint_or_metadata
 test_non_claude_harness_ignores_claude_permission_mode
 test_claude_skills_compose_add_dir_overlay
+test_claude_missing_skill_refuses_before_endpoint_or_metadata
 test_non_claude_harness_ignores_config_dir
 test_claude_task_launch_carries_control_channel_authority
 test_claude_secondmate_launch_omits_task_control_channel_authority

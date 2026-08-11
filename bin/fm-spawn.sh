@@ -3200,6 +3200,23 @@ BRIEF_REAL="$BRIEF_DIR_REAL/$(basename "$BRIEF")"
 # (docs/herdr-backend.md "Known gaps").
 PROJ_ABS_REAL=$(cd "$PROJ_ABS" 2>/dev/null && pwd -P) || PROJ_ABS_REAL="$PROJ_ABS"
 
+SKILL_ADD_DIR=
+if [ "$SKILLS_SET" -eq 1 ]; then
+  SKILL_SET_NAME="task-$ID"
+  SKILL_TARGET_HOME=$FM_HOME
+  if [ "$KIND" = secondmate ]; then
+    SKILL_SET_NAME=home
+    SKILL_TARGET_HOME=$PROJ_ABS
+  fi
+  SKILL_ADD_DIR=$("$SCRIPT_DIR/fm-skill-compose.sh" \
+    --target-home "$SKILL_TARGET_HOME" \
+    --set "$SKILL_SET_NAME" \
+    --map "$DATA/skill-map.md" \
+    --refresh-map \
+    --print-add-dir \
+    "${SKILLS[@]}") || exit 1
+fi
+
 real_path_or_raw() { # <path>
   local path=$1 real
   if real=$(cd "$path" 2>/dev/null && pwd -P); then
@@ -5056,20 +5073,7 @@ sq_ompcfg=$(shell_quote "${OMP_WORKER_CFG:-$FM_ROOT/.omp/fm-worker-overlay.yml}"
 sq_opinput=$(shell_quote "$FM_ROOT/bin/fm-operational-input.sh")
 sq_worktree=$(shell_quote "$WT")
 CLAUDESKILLADD=
-if [ "$SKILLS_SET" -eq 1 ]; then
-  SKILL_SET_NAME="task-$ID"
-  SKILL_TARGET_HOME=$FM_HOME
-  if [ "$KIND" = secondmate ]; then
-    SKILL_SET_NAME=home
-    SKILL_TARGET_HOME=$PROJ_ABS
-  fi
-  SKILL_ADD_DIR=$("$SCRIPT_DIR/fm-skill-compose.sh" \
-    --target-home "$SKILL_TARGET_HOME" \
-    --set "$SKILL_SET_NAME" \
-    --map "$DATA/skill-map.md" \
-    --refresh-map \
-    --print-add-dir \
-    "${SKILLS[@]}") || exit 1
+if [ -n "$SKILL_ADD_DIR" ]; then
   CLAUDESKILLADD="--add-dir $(shell_quote "$SKILL_ADD_DIR") "
 fi
 MODELFLAG=$(model_flag_for_harness "$HARNESS" "$MODEL")
