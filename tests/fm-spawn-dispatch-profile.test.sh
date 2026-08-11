@@ -1138,6 +1138,33 @@ test_claude_omits_config_dir_prefix_when_unset() {
   pass "claude omits the config-dir prefix when firstmate runs with the single-store default"
 }
 
+test_claude_skills_compose_add_dir_overlay() {
+  local rec id out status launch skill_dir composed
+  id=profile-claude-skills-z20
+  rec=$(make_spawn_case profile-claude-skills claude "$id")
+  read_case_record "$rec"
+  skill_dir="$HOME_DIR/projects/alpha/.claude/skills/extra-skill"
+  mkdir -p "$skill_dir"
+  printf '%s\n' '- alpha [no-mistakes] - skill fixture' > "$HOME_DIR/data/projects.md"
+  cat > "$skill_dir/SKILL.md" <<'EOF'
+---
+name: extra-skill
+description: extra skill fixture
+---
+EOF
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --skills extra-skill)
+  status=$?
+  expect_code 0 "$status" "claude spawn with composed skills should succeed"
+  launch=$(cat "$LAUNCH_LOG")
+  assert_contains "$launch" "claude --add-dir '$HOME_DIR/config/skill-compose/claude/task-$id' --dangerously-skip-permissions" \
+    "claude launch did not include the composed skill overlay through --add-dir"
+  composed="$HOME_DIR/config/skill-compose/claude/task-$id/.claude/skills/extra-skill"
+  [ -L "$composed" ] || fail "fm-spawn --skills did not compose the requested skill symlink"
+  [ -f "$composed/SKILL.md" ] || fail "composed spawn skill is not loadable through the overlay"
+  pass "claude --skills composes a per-task overlay and launches with --add-dir"
+}
+
 test_non_claude_harness_ignores_config_dir() {
   local rec id out status launch
   id=profile-codex-nocfgdir-z19
@@ -1861,6 +1888,7 @@ test_claude_permission_mode_auto_reaches_scout_launch
 test_claude_worker_launch_covers_task_channel_dirs
 test_claude_permission_mode_invalid_refuses_before_endpoint_or_metadata
 test_non_claude_harness_ignores_claude_permission_mode
+test_claude_skills_compose_add_dir_overlay
 test_non_claude_harness_ignores_config_dir
 test_claude_task_launch_carries_control_channel_authority
 test_claude_secondmate_launch_omits_task_control_channel_authority

@@ -142,6 +142,9 @@ A secondmate is idle by default and acts only on work routed by the main firstma
 It reconciles its own work under way after restart, then waits silently; an empty queue never authorizes a survey, audit, or self-directed improvement sweep.
 Do not reconstruct or supervise a secondmate's child tree from the main home.
 
+`docs/skill-system.md` owns cross-repo skill discovery and composition.
+Use `bin/fm-skill-map.sh` for the generated map and `bin/fm-skill-compose.sh` or `fm-spawn --skills` only for curated symlink subsets from one canonical skill copy.
+
 Route durable knowledge to its most specific owner:
 
 - Home-domain captain preferences and working style belong in `data/captain.md` after inspect-then-update.

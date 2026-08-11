@@ -77,6 +77,7 @@ Each effective `FM_HOME` contains private operational directories.
 
 - Project and secondmate registries.
 - Captain preferences and optional shared captain preferences.
+- The generated skill map (`data/skill-map.md`).
 - Learnings, backlog, briefs, and scout reports.
 - Explicitly installed content-addressed extension packages under `data/extensions/packages/`.
 
@@ -92,7 +93,7 @@ Each effective `FM_HOME` contains private operational directories.
 - Per-task steering-inbox records under `state/<id>.inbox/` (`bin/fm-task-inbox-lib.sh`).
 - Parent-owned secondmate pending-reply records under `state/pending-replies/` (`bin/fm-pending-reply-lib.sh`).
 
-`config/` holds local gitignored operating choices, including explicit extension bindings under `config/extensions.d/`.
+`config/` holds local gitignored operating choices, including explicit extension bindings under `config/extensions.d/` and generated per-home skill-composition overlays under `config/skill-compose/`.
 
 `projects/` holds local project clones.
 Firstmate reads these clones, but changes them only through the narrow guarded and concrete captain-approved exceptions in `AGENTS.md`.
@@ -337,6 +338,14 @@ The opt-out is inherited into secondmate homes: a primary that opts out also opt
 The primary-authoritative propagation contract, including removal of a mate's local opt-out when the primary has none, is owned by [`secondmate-provisioning`](../.agents/skills/secondmate-provisioning/SKILL.md).
 `config/supervision-host` is local to each home and not inherited, because each home's engine and model are its own choice.
 While the home runs the host, main's lease-checked commands also take the per-task lease lock, so a claim by the host's engine cannot race a mutation main already started (`bin/fm-lease-lib.sh`).
+
+## Skill map and composition (data/skill-map.md / config/skill-compose/)
+
+`data/skill-map.md` is a generated, private, flat registry of discoverable skills across Firstmate's own `.agents/skills/`, registered project clones, and the Claude user skill directory.
+`bin/fm-skill-map.sh` owns the map format and scans only `SKILL.md` frontmatter.
+Locked session start refreshes it cheaply; read-only session start skips it because it is mutable private state.
+`config/skill-compose/` holds generated per-home Claude composition overlays created by `bin/fm-skill-compose.sh` and `fm-spawn.sh --skills`.
+[`docs/skill-system.md`](skill-system.md) owns the operator workflow, the Claude `--add-dir` load point, and the one-canonical-copy symlink rule.
 
 ## Backlog backend (.tasks.toml / config/backlog-backend)
 
