@@ -2282,6 +2282,11 @@ case "$ARG3" in
   ;;
 esac
 
+if [ "$SKILLS_SET" -eq 1 ] && [ "$HARNESS" != claude ]; then
+  echo "error: --skills currently requires a Claude-backed spawn; harness '$HARNESS' has no verified composition load point" >&2
+  exit 1
+fi
+
 # muse, gemini, agy, and devin are verified as CREWMATE/SCOUT adapters only. A secondmate is
 # a firstmate instance, so it needs a primary supervision protocol.
 # gemini has none: docs/supervision-protocols/ carries no gemini wake protocol
@@ -2741,11 +2746,6 @@ case "$LAUNCH" in
   LAUNCH=${LAUNCH//__ROVOBIN__/$(shell_quote "$ROVO_BIN")}
   ;;
 esac
-
-if [ "$SKILLS_SET" -eq 1 ] && [ "$HARNESS" != claude ]; then
-  echo "error: --skills currently requires a Claude-backed spawn; harness '$HARNESS' has no verified composition load point" >&2
-  exit 1
-fi
 
 json_escape() {
   printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
