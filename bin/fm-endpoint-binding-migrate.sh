@@ -1102,7 +1102,11 @@ recover_existing_apply_stage() {
     [ "$merged_published" -eq 1 ] && release_merge_locks || true
     return 1
   }
-  remove_stage_directory "$stage" || {
+  write_completed_stage "$stage" || {
+    [ "$merged_published" -eq 1 ] && release_merge_locks || true
+    return 1
+  }
+  remove_completed_stage "$stage" || {
     [ "$merged_published" -eq 1 ] && release_merge_locks || true
     return 1
   }
@@ -1188,7 +1192,11 @@ recover_partial_apply_stage() {
     }
   fi
   require_recovery_session_lock || return 1
-  remove_stage_directory "$stage" || {
+  write_completed_stage "$stage" || {
+    RECOVERY_REQUIRED=1
+    return 1
+  }
+  remove_completed_stage "$stage" || {
     RECOVERY_REQUIRED=1
     return 1
   }
@@ -1645,7 +1653,8 @@ recover_undo_stage() {
     done
     release_undo_locks || return 1
     require_recovery_session_lock || return 1
-    remove_stage_directory "$stage" || return 1
+    write_completed_stage "$stage" || return 1
+    remove_completed_stage "$stage" || return 1
   done
   return "$rc"
 }
@@ -1710,6 +1719,12 @@ apply_migration() {
       continue
     fi
     if ! valid_task_id "$id"; then
+      if parse_endpoint_claim "$meta"; then
+        ENDPOINT_CLAIM_IDS+=("$id")
+        ENDPOINT_CLAIM_BACKENDS+=("$FM_ENDPOINT_CLAIM_BACKEND")
+        ENDPOINT_CLAIM_TARGETS+=("$FM_ENDPOINT_CLAIM_TARGET")
+        ENDPOINT_CLAIM_WORKTREES+=("$FM_ENDPOINT_CLAIM_WORKTREE")
+      fi
       record_outcome "task $(reason_one_line "$id"): skipped - invalid task id"
       SKIPPED_LEGACY=1
       continue
@@ -2114,10 +2129,19 @@ undo_migration() {
   done
   require_session_lock || { abort_undo; return $?; }
   cleanup_rc=0
-  rm -f -- "$SCAN_MARKER" || cleanup_rc=1
-  [ "$cleanup_rc" -eq 0 ] && rm -f -- "$MARKER" || cleanup_rc=1
+  if ! require_session_lock || ! rm -f -- "$SCAN_MARKER"; then
+    cleanup_rc=1
+  fi
+  if [ "$cleanup_rc" -eq 0 ] \
+    && { ! require_session_lock || ! rm -f -- "$MARKER"; }; then
+    cleanup_rc=1
+  fi
   if [ "$cleanup_rc" -eq 0 ]; then
     for id in "${UNDO_IDS[@]}"; do
+      require_session_lock || {
+        cleanup_rc=1
+        break
+      }
       remove_private_backup_files "$BACKUP_DIR/$id.before" "$BACKUP_DIR/$id.after" || {
         cleanup_rc=1
         break
@@ -2126,9 +2150,15 @@ undo_migration() {
   fi
   if [ "$cleanup_rc" -eq 0 ]; then
     private_directory "$BACKUP_DIR" || cleanup_rc=1
-    [ "$cleanup_rc" -ne 0 ] || rmdir -- "$BACKUP_DIR" 2>/dev/null || cleanup_rc=1
+    if [ "$cleanup_rc" -eq 0 ] \
+      && { ! require_session_lock || ! rmdir -- "$BACKUP_DIR" 2>/dev/null; }; then
+      cleanup_rc=1
+    fi
   fi
-  [ "$cleanup_rc" -eq 0 ] && rm -f -- "$RECORDS" || cleanup_rc=1
+  if [ "$cleanup_rc" -eq 0 ] \
+    && { ! require_session_lock || ! rm -f -- "$RECORDS"; }; then
+    cleanup_rc=1
+  fi
   if [ "$cleanup_rc" -ne 0 ]; then
     if restore_undo_recovery; then
       if remove_stage_directory "$cleanup_stage"; then

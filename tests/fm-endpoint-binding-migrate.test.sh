@@ -535,6 +535,50 @@ SH
   pass 'endpoint binding migration rejects independently parseable unresolved claims'
 }
 
+test_invalid_task_id_claim_is_ambiguous() {
+  local dir out report
+  dir=$(make_case invalid-id-herdr-claim)
+  cat > "$dir/fakebin/herdr" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}:${2:-}" in
+  status:--json)
+    printf '%s\n' '{"server":{"running":true}}'
+    ;;
+  pane:get)
+    printf '{"result":{"pane":{"pane_id":"%s","foreground_cwd":"%s"}}}\n' \
+      "${3:-}" "${FM_HERDR_LIVE_WORKTREE:?}"
+    ;;
+  agent:get)
+    printf '%s\n' '{"result":{"agent":{"agent_status":"idle"}}}'
+    ;;
+  *) exit 1 ;;
+esac
+SH
+  chmod +x "$dir/fakebin/herdr"
+  fm_write_meta "$dir/home/state/herdr-good.meta" \
+    'window=lab:w1:p2' 'backend=herdr' 'herdr_session=lab' \
+    'herdr_workspace_id=w1' 'herdr_tab_id=w1:t1' 'herdr_pane_id=w1:p2' \
+    "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  fm_write_meta "$dir/home/state/bad:id.meta" \
+    'window=lab:w1:p2' 'backend=herdr' 'herdr_session=lab' \
+    'herdr_workspace_id=w1' 'herdr_tab_id=w1:t1' 'herdr_pane_id=w1:p2' \
+    "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+
+  out=$(FM_HERDR_LIVE_WORKTREE="$dir/worktree" run_locked "$dir") \
+    || fail "invalid-ID Herdr claim migration failed: $out"
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/herdr-good.meta" \
+    || fail 'verified task sharing an invalid-ID endpoint claim was stamped'
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/bad:id.meta" \
+    || fail 'invalid-ID endpoint claim was stamped'
+  report=$(cat "$dir/home/state/.endpoint-binding-migration.log")
+  assert_contains "$report" \
+    'task herdr-good: skipped - ambiguous live endpoint identity is claimed by multiple task records' \
+    'invalid-ID endpoint claim was not treated as ambiguous'
+  assert_contains "$report" 'task bad:id: skipped - invalid task id' \
+    'invalid task ID was not reported'
+  pass 'endpoint binding migration inventories claims before task-ID refusal'
+}
+
 test_herdr_liveness_is_rechecked_without_server_ensure() {
   local dir out report
   dir=$(make_case herdr-dies-during-path-check)
@@ -1453,7 +1497,7 @@ test_shared_task_id_grammar_reports_colon_ids() {
     'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
     'kind=scout'
   fm_write_meta "$dir/home/state/colon:task.meta" \
-    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'window=firstmate:fm-colon-task' "worktree=$dir/worktree" "project=$dir/project" \
     'kind=scout'
   out=$(run_locked "$dir") || fail "task ID grammar migration failed: $out"
   assert_contains "$(cat "$dir/home/state/.endpoint-binding-migration.log")" \
@@ -2026,6 +2070,57 @@ SH
   pass 'incomplete undo recovery restores current snapshots before apply'
 }
 
+test_undo_recovery_cleanup_is_restartable() {
+  local dir out rc real_rm stage records backups activated
+  dir=$(make_case undo-recovery-cleanup)
+  real_rm=$(command -v rm)
+  records="$dir/home/state/.endpoint-binding-migration-records-v1"
+  backups="$dir/home/state/.endpoint-binding-migration-backups"
+  activated="$dir/undo-recovery-cleanup-crashed"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  run_locked "$dir" >/dev/null || fail 'migration setup for undo recovery cleanup failed'
+  stage="$dir/home/state/.endpoint-binding-undo-cleanup.cleanup-crash"
+  mkdir "$stage"
+  chmod 0700 "$stage"
+  cp "$records" "$stage/records"
+  cp "$backups/good.before" "$stage/good.before"
+  cp "$backups/good.after" "$stage/good.after"
+  cp "$dir/home/state/good.meta" "$stage/good.current"
+  cp "$backups/good.before" "$stage/good.undone"
+  cp "$stage/good.undone" "$dir/home/state/good.meta"
+  chmod 0600 "$stage"/*
+  cat > "$dir/fakebin/rm" <<'SH'
+#!/usr/bin/env bash
+"${FM_REAL_RM:?}" "$@" || exit $?
+for arg in "$@"; do
+  if [ "$PWD" = "${FM_RECOVERY_STAGE:?}" ] && [ "$arg" = ./good.after ] \
+    && [ ! -e "${FM_RECOVERY_CLEANUP_CRASHED:?}" ]; then
+    : > "$FM_RECOVERY_CLEANUP_CRASHED"
+    kill -KILL "${FM_MIGRATE_PID:?}"
+    exit 137
+  fi
+done
+SH
+  chmod +x "$dir/fakebin/rm"
+  set +e
+  out=$(FM_REAL_RM="$real_rm" FM_RECOVERY_STAGE="$stage" \
+    FM_RECOVERY_CLEANUP_CRASHED="$activated" run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "undo recovery cleanup crash unexpectedly succeeded: $out"
+  [ -f "$activated" ] || fail 'undo recovery cleanup crash fixture did not activate'
+  [ -f "$stage/completed" ] || fail 'undo recovery cleanup was not durably completed'
+  grep -qx 'endpoint_task_id=good' "$dir/home/state/good.meta" \
+    || fail 'undo recovery cleanup did not restore stamped metadata'
+  rm -f "$dir/fakebin/rm"
+  out=$(run_locked "$dir") || fail "undo recovery cleanup restart failed: $out"
+  assert_contains "$out" 'stamped 0' 'undo recovery cleanup restart changed recorded metadata'
+  [ ! -e "$stage" ] || fail 'undo recovery cleanup restart left stale staging'
+  pass 'endpoint binding undo recovery cleanup is restartable'
+}
+
 test_undo_signal_during_cleanup_restores_recovery_state() {
   local dir original stamped out rc real_mv real_rm
   dir=$(make_case undo-cleanup-signal)
@@ -2073,6 +2168,49 @@ SH
     || fail "cleanup interruption retry failed: $out"
   cmp -s "$original" "$dir/home/state/good.meta" || fail 'cleanup interruption retry did not undo metadata'
   pass 'endpoint binding undo remains transactional through cleanup interruption'
+}
+
+test_undo_cleanup_stops_when_session_authority_expires() {
+  local dir out rc real_rm activated records backups marker
+  dir=$(make_case undo-cleanup-session-expiry)
+  real_rm=$(command -v rm)
+  activated="$dir/undo-cleanup-session-expired"
+  records="$dir/home/state/.endpoint-binding-migration-records-v1"
+  backups="$dir/home/state/.endpoint-binding-migration-backups"
+  marker="$dir/home/state/.endpoint-binding-migration-v1"
+  cat > "$dir/fakebin/rm" <<'SH'
+#!/usr/bin/env bash
+for arg in "$@"; do
+  if [ -n "${FM_SCAN_MARKER:-}" ] && [ "$arg" = "$FM_SCAN_MARKER" ] \
+    && [ ! -e "${FM_UNDO_AUTHORITY_EXPIRED:?}" ]; then
+    "${FM_REAL_RM:?}" "$@" || exit $?
+    printf '999999\n' > "${FM_SESSION_LOCK:?}"
+    : > "$FM_UNDO_AUTHORITY_EXPIRED"
+    exit 0
+  fi
+done
+exec "${FM_REAL_RM:?}" "$@"
+SH
+  chmod +x "$dir/fakebin/rm"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  FM_REAL_RM="$real_rm" run_locked "$dir" >/dev/null \
+    || fail 'migration setup for undo cleanup authority test failed'
+  set +e
+  out=$(FM_REAL_RM="$real_rm" \
+    FM_SCAN_MARKER="$dir/home/state/.endpoint-binding-migration-scan-v1" \
+    FM_SESSION_LOCK="$dir/home/state/.lock" FM_UNDO_AUTHORITY_EXPIRED="$activated" \
+    run_locked "$dir" --undo)
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "undo continued after session authority expired: $out"
+  [ -f "$activated" ] || fail 'undo cleanup authority-expiry fixture did not activate'
+  [ -f "$marker" ] || fail 'expired undo cleanup removed the completion marker'
+  [ -f "$records" ] || fail 'expired undo cleanup removed the recovery journal'
+  [ -f "$backups/good.before" ] && [ -f "$backups/good.after" ] \
+    || fail 'expired undo cleanup removed recovery bytes'
+  pass 'endpoint binding undo cleanup revalidates session authority'
 }
 
 test_publication_failure_restores_evidence() {
@@ -2600,6 +2738,64 @@ test_partial_merged_journal_reruns_apply() {
   pass 'endpoint binding migration reruns after partial merged journal publication'
 }
 
+test_apply_recovery_cleanup_is_restartable() {
+  local dir out rc real_rm old_records stage records backups activated
+  dir=$(make_case apply-recovery-cleanup)
+  real_rm=$(command -v rm)
+  records="$dir/home/state/.endpoint-binding-migration-records-v1"
+  backups="$dir/home/state/.endpoint-binding-migration-backups"
+  activated="$dir/apply-recovery-cleanup-crashed"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  run_locked "$dir" >/dev/null || fail 'initial migration for recovery cleanup failed'
+  old_records=$(mktemp "$dir/old-records.XXXXXX")
+  cp "$records" "$old_records"
+  fm_write_meta "$dir/home/state/good2.meta" \
+    'window=firstmate:fm-good2' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  stage="$dir/home/state/.endpoint-binding-stage.cleanup-crash"
+  mkdir "$stage"
+  chmod 0700 "$stage"
+  cp "$old_records" "$stage/records.before"
+  printf '%s\n' $'good2\tgood2.before\tgood2.after' > "$stage/records"
+  cp "$dir/home/state/good2.meta" "$stage/good2.before"
+  cp "$dir/home/state/good2.meta" "$stage/good2.after"
+  printf 'endpoint_task_id=good2\n' >> "$stage/good2.after"
+  cp "$stage/good2.before" "$backups/good2.before"
+  cp "$stage/good2.after" "$backups/good2.after"
+  cp "$old_records" "$records"
+  printf '%s\n' $'good2\tgood2.before\tgood2.after' >> "$records"
+  cp "$stage/good2.after" "$dir/home/state/good2.meta"
+  chmod 0600 "$stage"/* "$backups/good2.before" "$backups/good2.after" "$records"
+  cat > "$dir/fakebin/rm" <<'SH'
+#!/usr/bin/env bash
+"${FM_REAL_RM:?}" "$@" || exit $?
+for arg in "$@"; do
+  if [ "$PWD" = "${FM_RECOVERY_STAGE:?}" ] && [ "$arg" = ./records ] \
+    && [ ! -e "${FM_RECOVERY_CLEANUP_CRASHED:?}" ]; then
+    : > "$FM_RECOVERY_CLEANUP_CRASHED"
+    kill -KILL "${FM_MIGRATE_PID:?}"
+    exit 137
+  fi
+done
+SH
+  chmod +x "$dir/fakebin/rm"
+  set +e
+  out=$(FM_REAL_RM="$real_rm" FM_RECOVERY_STAGE="$stage" \
+    FM_RECOVERY_CLEANUP_CRASHED="$activated" run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "apply recovery cleanup crash unexpectedly succeeded: $out"
+  [ -f "$activated" ] || fail 'apply recovery cleanup crash fixture did not activate'
+  [ -f "$stage/completed" ] || fail 'apply recovery cleanup was not durably completed'
+  rm -f "$dir/fakebin/rm"
+  out=$(run_locked "$dir") || fail "apply recovery cleanup restart failed: $out"
+  assert_contains "$out" 'stamped 1' 'apply recovery cleanup restart skipped the eligible task'
+  [ ! -e "$stage" ] || fail 'apply recovery cleanup restart left stale staging'
+  pass 'endpoint binding apply recovery cleanup is restartable'
+}
+
 test_existing_journal_pre_manifest_stage_is_discarded() {
   local dir out stage
   dir=$(make_case pre-manifest-merge)
@@ -2981,6 +3177,7 @@ test_live_legacy_herdr_endpoint_is_backfilled
 test_duplicate_herdr_worktree_is_ambiguous
 test_bound_herdr_endpoint_claim_is_ambiguous
 test_unverified_herdr_claim_is_ambiguous
+test_invalid_task_id_claim_is_ambiguous
 test_herdr_liveness_is_rechecked_without_server_ensure
 test_staged_binding_assembly_does_not_follow_symlinks
 test_unresolved_existing_bindings_remove_completion_marker
@@ -3024,7 +3221,9 @@ test_stamp_lock_is_held_through_publication_rollback
 test_undo_waits_for_metadata_lock
 test_undo_signal_restores_stamped_bytes
 test_crashed_undo_restores_current_snapshot_before_apply
+test_undo_recovery_cleanup_is_restartable
 test_undo_signal_during_cleanup_restores_recovery_state
+test_undo_cleanup_stops_when_session_authority_expires
 test_identity_verification_waits_for_metadata_lock
 test_report_write_failure_aborts_before_stamping
 test_publication_failure_restores_evidence
@@ -3038,6 +3237,7 @@ test_no_stamp_crash_restores_evidence_before_rerun
 test_partial_apply_recovery_tolerates_lifecycle_changes
 test_partial_published_journal_reruns_apply
 test_partial_merged_journal_reruns_apply
+test_apply_recovery_cleanup_is_restartable
 test_existing_journal_pre_manifest_stage_is_discarded
 test_apply_stage_symlink_is_not_followed
 test_orphaned_backups_are_recovered_on_restart
