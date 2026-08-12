@@ -75,7 +75,7 @@ private_directory() {
 directory_empty() {
   local path
   for path in "$1"/* "$1"/.[!.]* "$1"/..?*; do
-    [ -e "$path" ] || continue
+    [ -e "$path" ] || [ -L "$path" ] || continue
     return 1
   done
   return 0
@@ -190,6 +190,9 @@ MARKER_SNAPSHOT_READY=0
 RECOVERY_REQUIRED=0
 APPLY_ABORTED=0
 RECOVERY_NAMESPACE_PRESENT=0
+RECORDS_EXISTING=0
+RECORDS_BEFORE=
+declare -A RECORDED_IDS=()
 UNDO_IDS=()
 UNDO_METAS=()
 UNDO_BEFORE=()
@@ -339,34 +342,62 @@ restore_published_backups() {
   return "$rc"
 }
 
+restore_existing_records() {
+  local tmp
+  [ -n "$RECORDS_BEFORE" ] || return 1
+  private_file "$RECORDS_BEFORE" || return 1
+  tmp=$(mktemp "$STATE/.endpoint-binding-records-restore.XXXXXX") || return 1
+  if ! cp -p -- "$RECORDS_BEFORE" "$tmp" || ! chmod 0600 "$tmp" || ! mv -f -- "$tmp" "$RECORDS"; then
+    rm -f -- "$tmp"
+    return 1
+  fi
+}
+
+cleanup_incomplete_apply_stage() {
+  local stage=$1 path base id before after meta
+  local -a ids=()
+  private_directory "$stage" || return 1
+  for path in "$stage"/*; do
+    [ -e "$path" ] || [ -L "$path" ] || continue
+    base=${path##*/}
+    case "$base" in
+      report.*|records) continue ;;
+      *.before)
+        id=${base%.before}
+        valid_task_id "$id" || return 1
+        before=$path
+        after="$stage/$id.after"
+        private_file "$before" && private_file "$after" || return 1
+        meta="$STATE/$id.meta"
+        regular_file "$meta" && cmp -s -- "$meta" "$before" || return 1
+        ids+=("$id")
+        ;;
+      *.after) continue ;;
+      *) return 1 ;;
+    esac
+  done
+  for id in "${ids[@]}"; do
+    before="$stage/$id.before"
+    after="$stage/$id.after"
+    if [ -e "$BACKUP_DIR" ] || [ -L "$BACKUP_DIR" ]; then
+      private_directory "$BACKUP_DIR" || return 1
+      rm -f -- "$BACKUP_DIR/$id.before" "$BACKUP_DIR/$id.after" || return 1
+    fi
+  done
+  if [ -e "$BACKUP_DIR" ] || [ -L "$BACKUP_DIR" ]; then
+    directory_empty "$BACKUP_DIR" || return 1
+    rmdir -- "$BACKUP_DIR" || return 1
+  fi
+  rm -f -- "$stage"/* || return 1
+  rmdir -- "$stage"
+}
+
 recover_apply_stage() {
-  local stage id before_name after_name extra meta
+  local stage
   for stage in "$STATE"/.endpoint-binding-stage.*; do
     [ -d "$stage" ] || continue
     [ -e "$RECORDS" ] && continue
-    private_directory "$stage" || return 1
-    private_file "$stage/records" || return 1
-    while IFS=$'\t' read -r id before_name after_name extra || [ -n "${id:-}${before_name:-}${after_name:-}${extra:-}" ]; do
-      [ -n "${id:-}" ] && [ -z "${extra:-}" ] || return 1
-      valid_task_id "$id" || return 1
-      [ "$before_name" = "$id.before" ] && [ "$after_name" = "$id.after" ] || return 1
-      meta="$STATE/$id.meta"
-      regular_file "$meta" || return 1
-      private_file "$stage/$before_name" && private_file "$stage/$after_name" || return 1
-      cmp -s -- "$meta" "$stage/$before_name" || return 1
-      if [ -e "$BACKUP_DIR" ] || [ -L "$BACKUP_DIR" ]; then
-        private_directory "$BACKUP_DIR" || return 1
-      else
-        mkdir -- "$BACKUP_DIR" || return 1
-        chmod 0700 "$BACKUP_DIR" || return 1
-      fi
-      rm -f -- "$BACKUP_DIR/$before_name" "$BACKUP_DIR/$after_name" || return 1
-    done < "$stage/records"
-    if [ -d "$BACKUP_DIR" ]; then
-      rmdir -- "$BACKUP_DIR" 2>/dev/null || return 1
-    fi
-    rm -f -- "$stage"/* || return 1
-    rmdir -- "$stage" || return 1
+    cleanup_incomplete_apply_stage "$stage" || return 1
   done
 }
 
@@ -382,7 +413,17 @@ abort_apply() {
   fi
   restore_evidence || evidence_rc=1
   if [ "$rollback_rc" -eq 0 ] && [ "$evidence_rc" -eq 0 ]; then
-    if [ "$RECORDS_PUBLISHED" -eq 1 ]; then
+    if [ "$RECORDS_EXISTING" -eq 1 ]; then
+      if remove_published_backups; then
+        restore_existing_records || {
+          rc=1
+          RECOVERY_REQUIRED=1
+        }
+      else
+        rc=1
+        RECOVERY_REQUIRED=1
+      fi
+    elif [ "$RECORDS_PUBLISHED" -eq 1 ]; then
       if ! rm -f -- "$RECORDS"; then
         rc=1
         RECOVERY_REQUIRED=1
@@ -515,8 +556,10 @@ publish_recovery_records() {
 }
 
 validate_recovery_namespace() {
-  local id before_name after_name extra
+  local id before_name after_name extra meta path base
+  local -A expected=()
   RECOVERY_NAMESPACE_PRESENT=0
+  RECORDED_IDS=()
   if [ -e "$RECORDS" ] || [ -L "$RECORDS" ]; then
     RECOVERY_NAMESPACE_PRESENT=1
     private_file "$RECORDS" || return 1
@@ -526,7 +569,22 @@ validate_recovery_namespace() {
       valid_task_id "$id" || return 1
       [ "$before_name" = "$id.before" ] && [ "$after_name" = "$id.after" ] || return 1
       private_file "$BACKUP_DIR/$before_name" && private_file "$BACKUP_DIR/$after_name" || return 1
+      meta="$STATE/$id.meta"
+      acquire_meta_lock "$meta" || return 1
+      if ! regular_file "$meta" || { ! cmp -s -- "$meta" "$BACKUP_DIR/$before_name" && ! cmp -s -- "$meta" "$BACKUP_DIR/$after_name"; }; then
+        release_meta_lock || true
+        return 1
+      fi
+      release_meta_lock || return 1
+      RECORDED_IDS[$id]=1
+      expected[$before_name]=1
+      expected[$after_name]=1
     done < "$RECORDS"
+    for path in "$BACKUP_DIR"/* "$BACKUP_DIR"/.[!.]* "$BACKUP_DIR"/..?*; do
+      [ -e "$path" ] || [ -L "$path" ] || continue
+      base=${path##*/}
+      [ "${expected[$base]:-0}" -eq 1 ] || return 1
+    done
   elif [ -e "$BACKUP_DIR" ] || [ -L "$BACKUP_DIR" ]; then
     RECOVERY_NAMESPACE_PRESENT=1
     private_directory "$BACKUP_DIR" || return 1
@@ -680,6 +738,7 @@ apply_migration() {
   REPORT_TMP=$(mktemp "$STAGE_DIR/report.XXXXXX") || return 1
   chmod 0600 "$REPORT_TMP" || return 1
   prepare_evidence || return 1
+  validate_recovery_namespace || return 1
 
   shopt -s nullglob dotglob
   metas=("$STATE"/*.meta)
@@ -715,6 +774,11 @@ apply_migration() {
       else
         record_outcome "task $id: untouched - existing endpoint_task_id binding is ambiguous or mismatched"
       fi
+      continue
+    fi
+    if [ "${RECORDED_IDS[$id]:-0}" -eq 1 ]; then
+      record_outcome "task $id: skipped - existing recovery record has unexpected metadata state"
+      SKIPPED_LEGACY=1
       continue
     fi
     acquire_meta_lock "$meta" || return 1
@@ -803,9 +867,11 @@ apply_migration() {
     return 0
   fi
 
-  if [ -e "$RECORDS" ] || [ -L "$RECORDS" ]; then
-    echo "ENDPOINT_BINDING_MIGRATION: an existing stamp journal requires undo before new stamps; migration did not run" >&2
-    return 1
+  if [ "$RECOVERY_NAMESPACE_PRESENT" -eq 1 ]; then
+    RECORDS_EXISTING=1
+    RECORDS_BEFORE="$STAGE_DIR/records.before"
+    cp -p -- "$RECORDS" "$RECORDS_BEFORE" || return 1
+    chmod 0600 "$RECORDS_BEFORE" || return 1
   fi
   for i in "${!STAMP_IDS[@]}"; do
     [ "${STAMP_SELECTED[$i]:-0}" -eq 1 ] || continue
@@ -816,7 +882,7 @@ apply_migration() {
   done
   if [ -e "$BACKUP_DIR" ] || [ -L "$BACKUP_DIR" ]; then
     private_directory "$BACKUP_DIR" || return 1
-    directory_empty "$BACKUP_DIR" || return 1
+    [ "$RECORDS_EXISTING" -eq 1 ] || directory_empty "$BACKUP_DIR" || return 1
   else
     mkdir -- "$BACKUP_DIR" || return 1
     BACKUP_DIR_CREATED=1
@@ -827,12 +893,19 @@ apply_migration() {
   fi
   for i in "${!STAMP_IDS[@]}"; do
     [ "${STAMP_SELECTED[$i]:-0}" -eq 1 ] || continue
-    cp -p -- "${STAMP_BEFORE[$i]}" "${STAMP_BEFORE_FINAL[$i]}" || { remove_published_backups; return 1; }
-    cp -p -- "${STAMP_AFTER[$i]}" "${STAMP_AFTER_FINAL[$i]}" || { remove_published_backups; return 1; }
-    chmod 0600 "${STAMP_BEFORE_FINAL[$i]}" "${STAMP_AFTER_FINAL[$i]}" || { remove_published_backups; return 1; }
+    cp -p -- "${STAMP_BEFORE[$i]}" "${STAMP_BEFORE_FINAL[$i]}" || { abort_apply 1; return $?; }
+    cp -p -- "${STAMP_AFTER[$i]}" "${STAMP_AFTER_FINAL[$i]}" || { abort_apply 1; return $?; }
+    chmod 0600 "${STAMP_BEFORE_FINAL[$i]}" "${STAMP_AFTER_FINAL[$i]}" || { abort_apply 1; return $?; }
   done
 
   manifest_tmp=$(mktemp "$STATE/.endpoint-binding-records.XXXXXX") || { abort_apply 1; return $?; }
+  if [ "$RECORDS_EXISTING" -eq 1 ]; then
+    cp -p -- "$RECORDS" "$manifest_tmp" || {
+      rm -f -- "$manifest_tmp"
+      abort_apply 1
+      return $?
+    }
+  fi
   for i in "${!STAMP_IDS[@]}"; do
     [ "${STAMP_SELECTED[$i]:-0}" -eq 1 ] || continue
     printf '%s\t%s\t%s\n' "${STAMP_IDS[$i]}" "${STAMP_IDS[$i]}.before" "${STAMP_IDS[$i]}.after" >> "$manifest_tmp" || {
