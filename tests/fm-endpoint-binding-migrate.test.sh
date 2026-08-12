@@ -144,6 +144,24 @@ test_reverse_restores_prior_bytes() {
   pass 'endpoint binding migration undo restores the exact prior metadata'
 }
 
+test_shared_task_id_grammar_reports_colon_ids() {
+  local dir out
+  dir=$(make_case task-id-grammar)
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  fm_write_meta "$dir/home/state/colon:task.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  out=$(run_locked "$dir") || fail "task ID grammar migration failed: $out"
+  assert_contains "$(cat "$dir/home/state/.endpoint-binding-migration.log")" \
+    'task colon:task: skipped - invalid task id' \
+    'colon task ID was not reported as an invalid record'
+  assert_contains "$(cat "$dir/home/state/good.meta")" 'endpoint_task_id=good' \
+    'valid task was blocked by a colon task ID'
+  pass 'endpoint binding migration reports task IDs rejected by the shared lock grammar'
+}
+
 test_lock_is_required() {
   local dir rc
   dir=$(make_case unlocked)
@@ -434,6 +452,71 @@ SH
   pass 'endpoint binding migration rolls back published evidence on failure'
 }
 
+test_journal_cleanup_failure_retains_recovery_bytes() {
+  local dir original out rc real_mv real_rm
+  dir=$(make_case journal-cleanup-failure)
+  real_mv=$(command -v mv)
+  real_rm=$(command -v rm)
+  cat > "$dir/fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+if [ "${4:-}" = "${FM_FAIL_DEST:-}" ]; then exit 1; fi
+exec "${FM_REAL_MV:?}" "$@"
+SH
+  cat > "$dir/fakebin/rm" <<'SH'
+#!/usr/bin/env bash
+for arg in "$@"; do
+  [ "$arg" = "${FM_FAIL_RM:-}" ] && exit 1
+done
+exec "${FM_REAL_RM:?}" "$@"
+SH
+  chmod +x "$dir/fakebin/mv" "$dir/fakebin/rm"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  original=$(mktemp "$dir/original.XXXXXX")
+  cp "$dir/home/state/good.meta" "$original"
+  set +e
+  out=$(FM_REAL_MV="$real_mv" FM_REAL_RM="$real_rm" \
+    FM_FAIL_DEST="$dir/home/state/.endpoint-binding-migration-scan-v1" \
+    FM_FAIL_RM="$dir/home/state/.endpoint-binding-migration-records-v1" run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "journal cleanup failure unexpectedly succeeded: $out"
+  cmp -s "$original" "$dir/home/state/good.meta" || fail 'journal cleanup failure left stamped metadata'
+  [ -f "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
+    || fail 'journal cleanup failure discarded the recovery journal'
+  [ -f "$dir/home/state/.endpoint-binding-migration-backups/good.before" ] \
+    || fail 'journal cleanup failure discarded before recovery bytes'
+  [ -f "$dir/home/state/.endpoint-binding-migration-backups/good.after" ] \
+    || fail 'journal cleanup failure discarded after recovery bytes'
+  pass 'endpoint binding rollback retains recovery bytes when journal cleanup fails'
+}
+
+test_recovery_evidence_requires_private_modes() {
+  local dir out rc
+  dir=$(make_case recovery-modes)
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  run_locked "$dir" >/dev/null || fail 'migration setup for recovery mode test failed'
+  chmod 0644 "$dir/home/state/.endpoint-binding-migration-records-v1"
+  set +e
+  out=$(run_locked "$dir" --undo)
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "undo accepted a non-private journal: $out"
+  chmod 0600 "$dir/home/state/.endpoint-binding-migration-records-v1"
+  chmod 0755 "$dir/home/state/.endpoint-binding-migration-backups"
+  set +e
+  out=$(run_locked "$dir" --undo)
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "undo accepted a non-private backup directory: $out"
+  chmod 0700 "$dir/home/state/.endpoint-binding-migration-backups"
+  out=$(run_locked "$dir" --undo) || fail "undo failed after restoring private modes: $out"
+  pass 'endpoint binding migration requires private journal and backup evidence'
+}
+
 test_manifest_mode_failure_rolls_back_stamps() {
   local dir original out rc real_chmod
   dir=$(make_case manifest-mode-failure)
@@ -471,9 +554,14 @@ test_undo_cleanup_failure_retains_recovery_evidence() {
   cat > "$dir/fakebin/rm" <<'SH'
 #!/usr/bin/env bash
 for arg in "$@"; do
-  [ "$arg" = "${FM_FAIL_RM:-}" ] && exit 1
+  case "$arg" in
+    -f|--) ;;
+    *)
+      if [ "$arg" = "${FM_FAIL_RM:-}" ]; then exit 1; fi
+      "${FM_REAL_RM:?}" -f -- "$arg" || exit 1
+      ;;
+  esac
 done
-exec "${FM_REAL_RM:?}" "$@"
 SH
   chmod +x "$dir/fakebin/rm"
   fm_write_meta "$dir/home/state/good.meta" \
@@ -481,7 +569,7 @@ SH
     'kind=scout'
   FM_REAL_RM="$real_rm" run_locked "$dir" >/dev/null \
     || fail 'migration setup for cleanup failure test failed'
-  failed_backup="$dir/home/state/.endpoint-binding-migration-backups/good.before"
+  failed_backup="$dir/home/state/.endpoint-binding-migration-backups/good.after"
   set +e
   out=$(FM_REAL_RM="$real_rm" FM_FAIL_RM="$failed_backup" run_locked "$dir" --undo)
   rc=$?
@@ -547,6 +635,7 @@ SH
 
 test_evidence_bound_stamp_and_skip
 test_reverse_restores_prior_bytes
+test_shared_task_id_grammar_reports_colon_ids
 test_lock_is_required
 test_signal_rolls_back_staged_stamps
 test_final_stamp_waits_for_metadata_lock
@@ -555,6 +644,8 @@ test_undo_signal_restores_stamped_bytes
 test_identity_verification_waits_for_metadata_lock
 test_report_write_failure_aborts_before_stamping
 test_publication_failure_restores_evidence
+test_journal_cleanup_failure_retains_recovery_bytes
+test_recovery_evidence_requires_private_modes
 test_manifest_mode_failure_rolls_back_stamps
 test_undo_cleanup_failure_retains_recovery_evidence
 test_incomplete_rollback_retains_recovery_evidence

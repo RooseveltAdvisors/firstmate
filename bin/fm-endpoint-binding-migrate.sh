@@ -48,12 +48,28 @@ fm_session_lock_owned_by_self "$STATE" || {
 
 valid_task_id() {
   case "$1" in
-    ''|*[!A-Za-z0-9_:-]*) return 1 ;;
+    ''|*[!A-Za-z0-9._-]*) return 1 ;;
   esac
 }
 
-private_file() {
+file_mode() {
+  if [ "$(uname 2>/dev/null || true)" = Darwin ]; then
+    stat -f '%Lp' "$1"
+  else
+    stat -c '%a' "$1"
+  fi
+}
+
+regular_file() {
   [ -f "$1" ] && [ ! -L "$1" ]
+}
+
+private_file() {
+  regular_file "$1" && [ "$(file_mode "$1" 2>/dev/null)" = 600 ]
+}
+
+private_directory() {
+  [ -d "$1" ] && [ ! -L "$1" ] && [ "$(file_mode "$1" 2>/dev/null)" = 700 ]
 }
 
 write_marker() {
@@ -213,7 +229,7 @@ rollback_stamps() {
       rc=1
       continue
     fi
-    if ! private_file "$meta"; then
+    if ! regular_file "$meta"; then
       rc=1
       release_meta_lock || rc=1
       continue
@@ -242,12 +258,14 @@ rollback_stamps() {
 }
 
 remove_published_backups() {
-  local i
+  local i rc=0
   for i in "${!STAMP_IDS[@]}"; do
-    rm -f -- "${STAMP_BEFORE_FINAL[$i]}" "${STAMP_AFTER_FINAL[$i]}"
+    rm -f -- "${STAMP_BEFORE_FINAL[$i]}" "${STAMP_AFTER_FINAL[$i]}" || rc=1
   done
-  [ "$BACKUP_DIR_CREATED" -eq 1 ] || return 0
-  rmdir -- "$BACKUP_DIR" 2>/dev/null || true
+  if [ "$BACKUP_DIR_CREATED" -eq 1 ]; then
+    rmdir -- "$BACKUP_DIR" 2>/dev/null || rc=1
+  fi
+  return "$rc"
 }
 
 abort_apply() {
@@ -262,8 +280,16 @@ abort_apply() {
   fi
   restore_evidence || evidence_rc=1
   if [ "$rollback_rc" -eq 0 ] && [ "$evidence_rc" -eq 0 ]; then
-    [ "$RECORDS_PUBLISHED" -eq 0 ] || rm -f -- "$RECORDS" || rc=1
-    remove_published_backups || rc=1
+    if [ "$RECORDS_PUBLISHED" -eq 1 ]; then
+      if ! rm -f -- "$RECORDS"; then
+        rc=1
+        RECOVERY_REQUIRED=1
+      else
+        remove_published_backups || rc=1
+      fi
+    else
+      remove_published_backups || rc=1
+    fi
   else
     RECOVERY_REQUIRED=1
     if [ "$META_WRITE_STARTED" -eq 1 ] && [ "${#STAMP_IDS[@]}" -gt 0 ]; then
@@ -382,7 +408,7 @@ undo_rollback_changed() {
       rc=1
       continue
     fi
-    if ! private_file "$meta"; then
+    if ! regular_file "$meta"; then
       rc=1
       release_meta_lock || rc=1
       continue
@@ -519,6 +545,10 @@ apply_migration() {
   fi
 
   if [ -e "$RECORDS" ] || [ -L "$RECORDS" ]; then
+    private_file "$RECORDS" || {
+      echo "ENDPOINT_BINDING_MIGRATION: existing stamp journal is not a private regular file; migration did not run" >&2
+      return 1
+    }
     echo "ENDPOINT_BINDING_MIGRATION: an existing stamp journal requires undo before new stamps; migration did not run" >&2
     return 1
   fi
@@ -529,7 +559,7 @@ apply_migration() {
     fi
   done
   if [ -e "$BACKUP_DIR" ] || [ -L "$BACKUP_DIR" ]; then
-    [ -d "$BACKUP_DIR" ] && [ ! -L "$BACKUP_DIR" ] || return 1
+    private_directory "$BACKUP_DIR" || return 1
   else
     mkdir -- "$BACKUP_DIR" || return 1
     BACKUP_DIR_CREATED=1
@@ -547,7 +577,7 @@ apply_migration() {
   META_WRITE_STARTED=1
   for i in "${!STAMP_IDS[@]}"; do
     acquire_meta_lock "${STAMP_METAS[$i]}" || { abort_apply 1; return $?; }
-    if ! private_file "${STAMP_METAS[$i]}" || ! cmp -s -- "${STAMP_METAS[$i]}" "${STAMP_BEFORE[$i]}"; then
+    if ! regular_file "${STAMP_METAS[$i]}" || ! cmp -s -- "${STAMP_METAS[$i]}" "${STAMP_BEFORE[$i]}"; then
       release_meta_lock || true
       abort_apply 1
       return $?
@@ -595,17 +625,19 @@ apply_migration() {
 }
 
 undo_migration() {
-  local id before_name after_name meta before after tmp i extra
+  local id before_name after_name meta before after tmp i extra cleanup_stage cleanup_rc
   UNDO_IDS=()
   UNDO_METAS=()
   UNDO_BEFORE=()
   UNDO_AFTER=()
   UNDO_TOUCHED=()
   UNDO_CHANGED=0
-  private_file "$RECORDS" || {
+  if [ ! -e "$RECORDS" ] && [ ! -L "$RECORDS" ]; then
     echo "ENDPOINT_BINDING_MIGRATION: no recorded stamps to undo"
     return 0
-  }
+  fi
+  private_file "$RECORDS" || return 1
+  private_directory "$BACKUP_DIR" || return 1
   while IFS=$'\t' read -r id before_name after_name extra || [ -n "${id:-}${before_name:-}${after_name:-}${extra:-}" ]; do
     [ -n "${id:-}" ] && [ -z "${extra:-}" ] || return 1
     valid_task_id "$id" || return 1
@@ -613,7 +645,7 @@ undo_migration() {
     meta="$STATE/$id.meta"
     before="$BACKUP_DIR/$before_name"
     after="$BACKUP_DIR/$after_name"
-    private_file "$meta" && private_file "$before" && private_file "$after" || return 1
+    regular_file "$meta" && private_file "$before" && private_file "$after" || return 1
     cmp -s -- "$meta" "$after" || cmp -s -- "$meta" "$before" || {
       echo "ENDPOINT_BINDING_MIGRATION: undo refused for task $id; metadata changed after stamping" >&2
       return 1
@@ -627,7 +659,7 @@ undo_migration() {
   UNDO_ACTIVE=1
   for i in "${!UNDO_IDS[@]}"; do
     acquire_meta_lock "${UNDO_METAS[$i]}" || { abort_undo; return $?; }
-    if ! private_file "${UNDO_METAS[$i]}"; then
+    if ! regular_file "${UNDO_METAS[$i]}"; then
       release_meta_lock || true
       abort_undo
       return $?
@@ -658,7 +690,21 @@ undo_migration() {
     release_meta_lock || { abort_undo; return $?; }
   done
   UNDO_ACTIVE=0
-  local cleanup_rc=0
+  cleanup_stage=$(mktemp -d "$STATE/.endpoint-binding-undo-cleanup.XXXXXX") || return 1
+  if ! chmod 0700 "$cleanup_stage"; then
+    rmdir -- "$cleanup_stage" 2>/dev/null || true
+    return 1
+  fi
+  for id in "${UNDO_IDS[@]}"; do
+    if ! cp -p -- "$BACKUP_DIR/$id.before" "$cleanup_stage/$id.before" \
+      || ! cp -p -- "$BACKUP_DIR/$id.after" "$cleanup_stage/$id.after" \
+      || ! chmod 0600 "$cleanup_stage/$id.before" "$cleanup_stage/$id.after"; then
+      rm -f -- "$cleanup_stage/$id.before" "$cleanup_stage/$id.after"
+      rmdir -- "$cleanup_stage" 2>/dev/null || true
+      return 1
+    fi
+  done
+  cleanup_rc=0
   rm -f -- "$SCAN_MARKER" || cleanup_rc=1
   [ "$cleanup_rc" -eq 0 ] && rm -f -- "$MARKER" || cleanup_rc=1
   if [ "$cleanup_rc" -eq 0 ]; then
@@ -672,9 +718,24 @@ undo_migration() {
   [ "$cleanup_rc" -eq 0 ] && rmdir -- "$BACKUP_DIR" 2>/dev/null || cleanup_rc=1
   [ "$cleanup_rc" -eq 0 ] && rm -f -- "$RECORDS" || cleanup_rc=1
   if [ "$cleanup_rc" -ne 0 ]; then
+    [ -d "$BACKUP_DIR" ] || mkdir -- "$BACKUP_DIR"
+    chmod 0700 "$BACKUP_DIR" 2>/dev/null || true
+    for id in "${UNDO_IDS[@]}"; do
+      if [ ! -f "$BACKUP_DIR/$id.before" ]; then
+        cp -p -- "$cleanup_stage/$id.before" "$BACKUP_DIR/$id.before" || cleanup_rc=1
+      fi
+      if [ ! -f "$BACKUP_DIR/$id.after" ]; then
+        cp -p -- "$cleanup_stage/$id.after" "$BACKUP_DIR/$id.after" || cleanup_rc=1
+      fi
+      chmod 0600 "$BACKUP_DIR/$id.before" "$BACKUP_DIR/$id.after" 2>/dev/null || cleanup_rc=1
+    done
+    rm -f -- "$cleanup_stage"/*
+    rmdir -- "$cleanup_stage" 2>/dev/null || true
     echo "ENDPOINT_BINDING_MIGRATION: undo restored metadata but cleanup failed; migration evidence was retained" >&2
     return 1
   fi
+  rm -f -- "$cleanup_stage"/* || return 1
+  rmdir -- "$cleanup_stage" || return 1
   printf 'ENDPOINT_BINDING_MIGRATION: undid %s stamp(s)\n' "${#UNDO_IDS[@]}"
 }
 
