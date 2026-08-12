@@ -275,20 +275,51 @@ test_completed_journal_recovers_orphaned_merge_backups() {
   pass 'endpoint binding migration recovers orphaned merge backups'
 }
 
-test_completed_journal_refuses_changed_metadata() {
-  local dir out rc
-  dir=$(make_case completed-journal-changed)
+test_undo_preserves_lifecycle_appends() {
+  local dir out expected
+  dir=$(make_case completed-journal-append)
   fm_write_meta "$dir/home/state/good.meta" \
     'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
     'kind=scout'
-  run_locked "$dir" >/dev/null || fail 'initial migration for changed journal failed'
-  printf '%s\n' changed >> "$dir/home/state/good.meta"
-  set +e
-  out=$(run_locked "$dir")
-  rc=$?
-  set -e
-  [ "$rc" -ne 0 ] || fail "changed journal metadata was accepted: $out"
-  pass 'endpoint binding migration validates completed journal metadata bytes'
+  expected=$(mktemp "$dir/expected.XXXXXX")
+  cp "$dir/home/state/good.meta" "$expected"
+  run_locked "$dir" >/dev/null || fail 'initial migration for lifecycle append failed'
+  printf 'control_relaunch_tx=x-link-followup\n' >> "$dir/home/state/good.meta"
+  printf 'control_relaunch_tx=x-link-followup\n' >> "$expected"
+  out=$(run_locked "$dir") || fail "completed journal rejected a lifecycle append: $out"
+  out=$(run_locked "$dir" --undo) || fail "lifecycle append undo failed: $out"
+  cmp -s "$expected" "$dir/home/state/good.meta" \
+    || fail 'undo changed X-link metadata while removing its migration binding'
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
+    || fail 'undo retained the migration binding after an X-link append'
+  pass 'endpoint binding undo preserves lifecycle metadata appends'
+}
+
+test_undo_skips_deleted_and_changed_bindings() {
+  local dir out changed
+  dir=$(make_case completed-journal-retired)
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  run_locked "$dir" >/dev/null || fail 'initial migration for lifecycle retirement failed'
+  rm -f "$dir/home/state/good.meta"
+  fm_write_meta "$dir/home/state/good2.meta" \
+    'window=firstmate:fm-good2' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  out=$(run_locked "$dir") || fail "completed journal blocked a later legacy task: $out"
+  assert_contains "$out" 'stamped 1' 'later eligible task was not merged after teardown deletion'
+  sed 's/^endpoint_task_id=good2$/endpoint_task_id=other/' "$dir/home/state/good2.meta" > "$dir/changed"
+  mv "$dir/changed" "$dir/home/state/good2.meta"
+  chmod 0600 "$dir/home/state/good2.meta"
+  changed=$(mktemp "$dir/changed-before-undo.XXXXXX")
+  cp "$dir/home/state/good2.meta" "$changed"
+  out=$(run_locked "$dir" --undo) || fail "lifecycle retirement undo failed: $out"
+  [ ! -e "$dir/home/state/good.meta" ] || fail 'undo recreated teardown-deleted metadata'
+  cmp -s "$changed" "$dir/home/state/good2.meta" \
+    || fail 'undo removed a binding not added by the migration'
+  [ ! -e "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
+    || fail 'undo did not retire the tolerant journal'
+  pass 'endpoint binding undo skips deleted or changed bindings'
 }
 
 test_incomplete_apply_stage_is_cleaned_on_restart() {
@@ -407,8 +438,8 @@ test_undo_snapshot_copy_is_atomic() {
 #!/usr/bin/env bash
 dest=${!#}
 if [ "${FM_FAIL_COPY:-0}" -eq 1 ]; then
-  case "$dest" in
-    */.endpoint-binding-copy.*) : > "$dest"; exit 1 ;;
+  case "$(pwd):$dest" in
+    */state:*/.endpoint-binding-copy.*) : > "$dest"; exit 1 ;;
   esac
 fi
 exec "${FM_REAL_CP:?}" "$@"
@@ -631,6 +662,92 @@ test_final_stamp_waits_for_metadata_lock() {
   assert_contains "$(cat "$dir/home/state/good.meta")" 'endpoint_task_id=good' \
     'migration did not stamp after the shared metadata lock was released'
   pass 'endpoint binding migration serializes final metadata replacement'
+}
+
+test_migration_transaction_lock_serializes_no_stamp_runs() {
+  local dir first second
+  dir=$(make_case transaction-lock)
+  cat > "$dir/fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+destination=${!#}
+if [ "$destination" = "${FM_REPORT_DEST:?}" ]; then
+  if mkdir "${FM_FIRST_PUBLISH:?}" 2>/dev/null; then
+    : > "${FM_FIRST_STARTED:?}"
+    while [ ! -e "${FM_FIRST_RELEASE:?}" ]; do sleep 0.01; done
+  else
+    : > "${FM_SECOND_REACHED:?}"
+  fi
+fi
+exec "${FM_REAL_MV:?}" "$@"
+SH
+  chmod +x "$dir/fakebin/mv"
+  FM_REAL_MV="$(command -v mv)" FM_REPORT_DEST="$dir/home/state/.endpoint-binding-migration.log" \
+    FM_FIRST_PUBLISH="$dir/first-publish" FM_FIRST_STARTED="$dir/first-started" \
+    FM_FIRST_RELEASE="$dir/first-release" FM_SECOND_REACHED="$dir/second-reached" \
+    run_locked "$dir" > "$dir/first.out" 2> "$dir/first.err" &
+  first=$!
+  while [ ! -e "$dir/first-started" ]; do sleep 0.01; done
+  FM_REAL_MV="$(command -v mv)" FM_REPORT_DEST="$dir/home/state/.endpoint-binding-migration.log" \
+    FM_FIRST_PUBLISH="$dir/first-publish" FM_FIRST_STARTED="$dir/first-started" \
+    FM_FIRST_RELEASE="$dir/first-release" FM_SECOND_REACHED="$dir/second-reached" \
+    run_locked "$dir" > "$dir/second.out" 2> "$dir/second.err" &
+  second=$!
+  sleep 0.2
+  kill -0 "$second" 2>/dev/null || fail 'concurrent migration did not wait for the transaction'
+  [ ! -e "$dir/second-reached" ] || fail 'concurrent migration entered evidence publication'
+  : > "$dir/first-release"
+  wait "$first" || fail "first serialized migration failed: $(cat "$dir/first.err")"
+  wait "$second" || fail "second serialized migration failed: $(cat "$dir/second.err")"
+  pass 'endpoint binding migration serializes each home transaction'
+}
+
+test_stamp_lock_is_held_through_publication_rollback() {
+  local dir migration writer rc lock
+  dir=$(make_case stamp-commit-lock)
+  cat > "$dir/fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+destination=${!#}
+if [ -n "${FM_SCAN_DEST:-}" ] && [ "$destination" = "$FM_SCAN_DEST" ]; then
+  : > "${FM_PUBLICATION_STARTED:?}"
+  while [ ! -e "${FM_PUBLICATION_RELEASE:?}" ]; do sleep 0.01; done
+  exit 1
+fi
+exec "${FM_REAL_MV:?}" "$@"
+SH
+  chmod +x "$dir/fakebin/mv"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  FM_REAL_MV="$(command -v mv)" FM_SCAN_DEST="$dir/home/state/.endpoint-binding-migration-scan-v1" \
+    FM_PUBLICATION_STARTED="$dir/publication-started" FM_PUBLICATION_RELEASE="$dir/publication-release" \
+    run_locked "$dir" > "$dir/migration.out" 2> "$dir/migration.err" &
+  migration=$!
+  while [ ! -e "$dir/publication-started" ]; do sleep 0.01; done
+  lock="$dir/home/state/.meta-good.lock"
+  (
+    export FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" PATH="$dir/fakebin:$BASE_PATH"
+    . "$ROOT/bin/fm-wake-lib.sh"
+    fm_lock_acquire_wait "$lock"
+    printf 'control_relaunch_tx=concurrent\n' >> "$dir/home/state/good.meta"
+    fm_lock_release "$lock"
+  ) &
+  writer=$!
+  sleep 0.2
+  kill -0 "$writer" 2>/dev/null || fail 'lifecycle writer bypassed the migration metadata lock'
+  ! grep -q '^control_relaunch_tx=concurrent$' "$dir/home/state/good.meta" \
+    || fail 'lifecycle writer changed metadata before migration commit'
+  : > "$dir/publication-release"
+  set +e
+  wait "$migration"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail 'forced publication failure unexpectedly succeeded'
+  wait "$writer" || fail 'lifecycle writer failed after migration rollback'
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
+    || fail 'publication rollback retained the migration binding'
+  grep -qx 'control_relaunch_tx=concurrent' "$dir/home/state/good.meta" \
+    || fail 'publication rollback overwrote the later lifecycle update'
+  pass 'endpoint binding migration holds new metadata locks through commit'
 }
 
 test_identity_verification_waits_for_metadata_lock() {
@@ -1094,6 +1211,59 @@ SH
   pass 'crash recovery restores report and marker snapshots'
 }
 
+test_no_stamp_crash_restores_evidence_before_rerun() {
+  local dir out rc real_mv original_report original_scan original_marker
+  dir=$(make_case no-stamp-crash-evidence)
+  real_mv=$(command -v mv)
+  cat > "$dir/fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+destination=${!#}
+if [ -n "${FM_FAIL_DEST:-}" ] && [ "$destination" = "$FM_FAIL_DEST" ]; then
+  exit 1
+fi
+"${FM_REAL_MV:?}" "$@"
+rc=$?
+if [ "$rc" -eq 0 ] && [ -n "${FM_KILL_DEST:-}" ] && [ "$destination" = "$FM_KILL_DEST" ]; then
+  kill -KILL "$PPID"
+fi
+exit "$rc"
+SH
+  chmod +x "$dir/fakebin/mv"
+  printf 'old report\n' > "$dir/home/state/.endpoint-binding-migration.log"
+  printf 'old scan\n' > "$dir/home/state/.endpoint-binding-migration-scan-v1"
+  printf 'old marker\n' > "$dir/home/state/.endpoint-binding-migration-v1"
+  chmod 0600 "$dir/home/state/.endpoint-binding-migration.log" \
+    "$dir/home/state/.endpoint-binding-migration-scan-v1" \
+    "$dir/home/state/.endpoint-binding-migration-v1"
+  original_report=$(mktemp "$dir/report.XXXXXX")
+  original_scan=$(mktemp "$dir/scan.XXXXXX")
+  original_marker=$(mktemp "$dir/marker.XXXXXX")
+  cp "$dir/home/state/.endpoint-binding-migration.log" "$original_report"
+  cp "$dir/home/state/.endpoint-binding-migration-scan-v1" "$original_scan"
+  cp "$dir/home/state/.endpoint-binding-migration-v1" "$original_marker"
+  set +e
+  out=$(FM_REAL_MV="$real_mv" FM_KILL_DEST="$dir/home/state/.endpoint-binding-migration-scan-v1" \
+    run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "no-stamp evidence crash unexpectedly succeeded: $out"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  set +e
+  out=$(FM_REAL_MV="$real_mv" FM_FAIL_DEST="$dir/home/state/good.meta" run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "post-recovery stamp failure unexpectedly succeeded: $out"
+  cmp -s "$original_report" "$dir/home/state/.endpoint-binding-migration.log" \
+    || fail 'no-stamp crash recovery retained a partial report'
+  cmp -s "$original_scan" "$dir/home/state/.endpoint-binding-migration-scan-v1" \
+    || fail 'no-stamp crash recovery retained a partial scan marker'
+  cmp -s "$original_marker" "$dir/home/state/.endpoint-binding-migration-v1" \
+    || fail 'no-stamp crash recovery retained a partial completion marker'
+  pass 'no-stamp crash recovery restores evidence before rerun'
+}
+
 test_partial_published_journal_reruns_apply() {
   local dir out rc real_mv
   dir=$(make_case partial-published-journal)
@@ -1534,7 +1704,8 @@ test_hidden_metadata_is_reported
 test_completed_journal_is_idempotent
 test_completed_journal_merges_new_record
 test_completed_journal_recovers_orphaned_merge_backups
-test_completed_journal_refuses_changed_metadata
+test_undo_preserves_lifecycle_appends
+test_undo_skips_deleted_and_changed_bindings
 test_incomplete_apply_stage_is_cleaned_on_restart
 test_completed_journal_refuses_unexpected_record
 test_completed_journal_refuses_dangling_backup_entry
@@ -1548,6 +1719,8 @@ test_shared_task_id_grammar_reports_colon_ids
 test_lock_is_required
 test_signal_rolls_back_staged_stamps
 test_final_stamp_waits_for_metadata_lock
+test_migration_transaction_lock_serializes_no_stamp_runs
+test_stamp_lock_is_held_through_publication_rollback
 test_undo_waits_for_metadata_lock
 test_undo_signal_restores_stamped_bytes
 test_undo_signal_during_cleanup_restores_recovery_state
@@ -1559,6 +1732,7 @@ test_rollback_rejects_replaced_backup_directory_symlink
 test_recovery_journal_copy_is_atomic
 test_crash_after_manifest_preserves_undo_path
 test_crash_recovery_restores_evidence_snapshots
+test_no_stamp_crash_restores_evidence_before_rerun
 test_partial_published_journal_reruns_apply
 test_partial_merged_journal_reruns_apply
 test_existing_journal_pre_manifest_stage_is_discarded
