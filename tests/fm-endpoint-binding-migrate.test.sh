@@ -1384,11 +1384,66 @@ SH
 }
 
 test_restore_artifact_does_not_publish_swapped_build() {
-  local dir out rc real_mv original activated
+  local dir out rc real_cat real_mv original activated
   dir=$(make_case restore-build-swap)
+  real_cat=$(command -v cat)
   real_mv=$(command -v mv)
   activated="$dir/restore-build-swapped"
   cat > "$dir/fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+destination=${!#}
+"${FM_REAL_MV:?}" "$@" || exit $?
+if [ "${destination##*/}" = .endpoint-binding-migration-records-v1 ]; then
+  : > "${FM_JOURNAL_PUBLISHED:?}"
+fi
+SH
+  cat > "$dir/fakebin/cat" <<'SH'
+#!/usr/bin/env bash
+if [ "$#" -eq 0 ] && [ -e "${FM_JOURNAL_PUBLISHED:?}" ] \
+  && [ "$PWD" = "${FM_HOME:?}/state" ] \
+  && [ ! -e "${FM_RESTORE_SWAP_ACTIVATED:?}" ]; then
+  for build in ./.endpoint-binding-restore-build.*; do
+    [ -f "$build" ] || continue
+    rm -f -- "$build" || exit 1
+    printf 'unexpected prior bytes\n' > "$build" || exit 1
+    chmod 0600 "$build" || exit 1
+    : > "$FM_RESTORE_SWAP_ACTIVATED"
+    break
+  done
+fi
+exec "${FM_REAL_CAT:?}" "$@"
+SH
+  chmod +x "$dir/fakebin/cat" "$dir/fakebin/mv"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  original=$(mktemp "$dir/original.XXXXXX")
+  cp "$dir/home/state/good.meta" "$original"
+  set +e
+  out=$(FM_REAL_CAT="$real_cat" FM_REAL_MV="$real_mv" \
+    FM_JOURNAL_PUBLISHED="$dir/journal-published" \
+    FM_RESTORE_SWAP_ACTIVATED="$activated" run_locked "$dir")
+  rc=$?
+  set -e
+  [ -f "$activated" ] || fail 'restore-build swap fixture did not activate'
+  [ "$rc" -ne 0 ] || fail 'restore-build swap unexpectedly succeeded'
+  rm -f "$dir/fakebin/cat" "$dir/fakebin/mv"
+  out=$(run_locked "$dir") || fail "restore-build swap recovery failed: $out"
+  grep -qx 'endpoint_task_id=good' "$dir/home/state/good.meta" \
+    || fail 'restore-build source replacement blocked the verified stamp'
+  out=$(run_locked "$dir" --undo) || fail "restore-build swap undo failed: $out"
+  cmp -s "$original" "$dir/home/state/good.meta" \
+    || fail 'restore-build source replacement corrupted prior metadata bytes'
+  pass 'endpoint binding restore publication does not trust a swapped build path'
+}
+
+test_orphaned_metadata_restore_preserves_lifecycle_state() {
+  local mode dir out rc real_mv activated original expected
+  real_mv=$(command -v mv)
+  for mode in append delete; do
+    dir=$(make_case "orphan-restore-$mode")
+    activated="$dir/orphan-restore-activated"
+    cat > "$dir/fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 source=
 destination=
@@ -1396,43 +1451,54 @@ for argument in "$@"; do
   source=$destination
   destination=$argument
 done
-if [ "${source##*/}" != "$source" ] \
-  && [ "${source##*/}" != "${source##*/.endpoint-binding-restore-build.}" ] \
-  && [ "${destination##*/}" != "$destination" ] \
-  && [ "${destination##*/}" != "${destination##*/.endpoint-binding-restore.}" ] \
-  && [ ! -e "${FM_RESTORE_SWAP_ACTIVATED:?}" ]; then
-  rm -f -- "$source" || exit 1
-  printf '1\tgood.meta\nunexpected prior bytes\n' > "$source" || exit 1
-  chmod 0600 "$source" || exit 1
-  : > "$FM_RESTORE_SWAP_ACTIVATED"
+if [ "$PWD" = "${FM_HOME:?}/state" ] && [ "$destination" = ./good.meta ] \
+  && [ "${source##*/}" != "${source##*/.endpoint-binding-copy.}" ] \
+  && [ ! -e "${FM_ORPHAN_RESTORE_ACTIVATED:?}" ]; then
   "${FM_REAL_MV:?}" "$@" || exit $?
-  kill -KILL "${FM_MIGRATE_PID:?}"
+  : > "$FM_ORPHAN_RESTORE_ACTIVATED"
+  kill -KILL "${FM_MIGRATE_PID:?}" "$PPID"
+  exit 137
 fi
 exec "${FM_REAL_MV:?}" "$@"
 SH
-  chmod +x "$dir/fakebin/mv"
-  fm_write_meta "$dir/home/state/good.meta" \
-    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
-    'kind=scout'
-  original=$(mktemp "$dir/original.XXXXXX")
-  cp "$dir/home/state/good.meta" "$original"
-  set +e
-  out=$(FM_REAL_MV="$real_mv" FM_RESTORE_SWAP_ACTIVATED="$activated" run_locked "$dir")
-  rc=$?
-  set -e
-  rm -f "$dir/fakebin/mv"
-  if [ -e "$activated" ]; then
-    [ "$rc" -ne 0 ] || fail 'restore-build swap fixture did not interrupt publication'
-    out=$(run_locked "$dir") || fail "restore-build swap recovery failed: $out"
-  else
-    [ "$rc" -eq 0 ] || fail "descriptor-bound restore publication failed: $out"
-  fi
-  grep -qx 'endpoint_task_id=good' "$dir/home/state/good.meta" \
-    || fail 'restore-build source replacement blocked the verified stamp'
-  out=$(run_locked "$dir" --undo) || fail "restore-build swap undo failed: $out"
-  cmp -s "$original" "$dir/home/state/good.meta" \
-    || fail 'restore-build source replacement corrupted prior metadata bytes'
-  pass 'endpoint binding restore publication does not trust a swapped build path'
+    chmod +x "$dir/fakebin/mv"
+    fm_write_meta "$dir/home/state/good.meta" \
+      'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+      'kind=scout'
+    original=$(mktemp "$dir/original.XXXXXX")
+    cp "$dir/home/state/good.meta" "$original"
+    set +e
+    out=$(FM_REAL_MV="$real_mv" FM_ORPHAN_RESTORE_ACTIVATED="$activated" run_locked "$dir")
+    rc=$?
+    set -e
+    [ "$rc" -ne 0 ] || fail "orphan restore $mode fixture unexpectedly succeeded: $out"
+    [ -f "$activated" ] || fail "orphan restore $mode fixture did not activate"
+    [ -n "$(find "$dir/home/state" -name '.endpoint-binding-restore.*' -print -quit)" ] \
+      || fail "orphan restore $mode fixture left no recovery artifact"
+    if [ "$mode" = append ]; then
+      printf 'x_link=preserved\n' >> "$dir/home/state/good.meta"
+    else
+      rm -f "$dir/home/state/good.meta"
+    fi
+    rm -f "$dir/fakebin/mv"
+    out=$(run_locked "$dir") || fail "orphan restore $mode recovery failed: $out"
+    if [ "$mode" = append ]; then
+      grep -qx 'x_link=preserved' "$dir/home/state/good.meta" \
+        || fail 'orphan restore discarded lifecycle-appended metadata'
+      grep -qx 'endpoint_task_id=good' "$dir/home/state/good.meta" \
+        || fail 'orphan restore did not rerun the verified stamp'
+      expected=$(mktemp "$dir/expected.XXXXXX")
+      cp "$original" "$expected"
+      printf 'x_link=preserved\n' >> "$expected"
+      out=$(run_locked "$dir" --undo) || fail "orphan restore append undo failed: $out"
+      cmp -s "$expected" "$dir/home/state/good.meta" \
+        || fail 'orphan restore undo changed lifecycle-appended metadata'
+    else
+      [ ! -e "$dir/home/state/good.meta" ] \
+        || fail 'orphan restore recreated lifecycle-deleted metadata'
+    fi
+  done
+  pass 'endpoint binding orphan recovery preserves lifecycle metadata'
 }
 
 test_journal_publication_does_not_follow_destination_symlink() {
@@ -4321,6 +4387,7 @@ test_undo_recovery_rejects_symlink_destination
 test_private_atomic_publication_does_not_follow_destination_symlink
 test_atomic_publication_restores_destination_after_source_swap
 test_restore_artifact_does_not_publish_swapped_build
+test_orphaned_metadata_restore_preserves_lifecycle_state
 test_atomic_source_swap_crash_is_recovered
 test_partial_restore_artifact_is_not_published
 test_journal_publication_does_not_follow_destination_symlink

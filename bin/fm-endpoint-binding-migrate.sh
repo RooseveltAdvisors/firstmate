@@ -210,7 +210,7 @@ remove_orphaned_private_temporaries() (
       .endpoint-binding-restore-build.[A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9]) continue ;;
       *) return 1 ;;
     esac
-    recover_atomic_restore "$path" || return 1
+    recover_atomic_restore "$path" 1 || return 1
   done
   for path in ./.endpoint-binding-copy.* ./.endpoint-binding-restore-build.*; do
     [ -e "$path" ] || [ -L "$path" ] || continue
@@ -1022,8 +1022,33 @@ create_atomic_restore_artifact() {
   ATOMIC_RESTORE_BUILD=$build
 }
 
+recover_orphaned_metadata_restore() {
+  local destination=$1 build=$2 id expected= output= rc=0
+  id=${destination##*/}
+  id=${id%.meta}
+  valid_task_id "$id" || return 1
+  acquire_meta_lock "$destination" || return 1
+  if regular_file "$destination" && ! grep -q '^endpoint_task_id=' <&8; then
+    expected=$(make_state_temp '.endpoint-binding-orphan-after.XXXXXX') || rc=1
+    output=$(make_state_temp '.endpoint-binding-orphan-rollback.XXXXXX') || rc=1
+    if [ "$rc" -eq 0 ] \
+      && { ! copy_private_atomic "$build" "$expected" private private "$id" \
+        || ! surgical_remove_binding "$destination" "$id" "$build" "$expected" "$output"; }; then
+      rc=1
+    fi
+    if [ "$rc" -eq 0 ] && [ "$SURGICAL_UNDO_CHANGED" -eq 1 ]; then
+      require_recovery_session_lock || rc=1
+      [ "$rc" -ne 0 ] || replace_metadata_from_private "$output" "$destination" || rc=1
+    fi
+  fi
+  release_meta_lock || rc=1
+  [ -z "$expected" ] || rm -f -- "$expected" || rc=1
+  [ -z "$output" ] || rm -f -- "$output" || rc=1
+  return "$rc"
+}
+
 recover_atomic_restore() {
-  local artifact=$1 artifact_identity artifact_fd_identity ready present destination_name
+  local artifact=$1 orphan=${2:-0} artifact_identity artifact_fd_identity ready present destination_name
   local build_name build_identity extra build build_fd_identity destination tmp tmp_identity rc
   private_file "$artifact" || return 1
   artifact_identity=$(path_file_identity "$artifact" 2>/dev/null) || return 1
@@ -1052,6 +1077,17 @@ recover_atomic_restore() {
   build_fd_identity=$(file_descriptor_identity 8 2>/dev/null) || return 1
   [ "$build_fd_identity" = "$build_identity" ] || return 1
   destination="./$destination_name"
+  if [ "$orphan" -eq 1 ] && pinned_state_directory; then
+    case "$destination_name" in
+      *.meta)
+        recover_orphaned_metadata_restore "$destination" "$build" || return 1
+        [ "$(path_file_identity "$artifact" 2>/dev/null)" = "$artifact_fd_identity" ] || return 1
+        [ "$(path_file_identity "$build" 2>/dev/null)" = "$build_fd_identity" ] || return 1
+        rm -f -- "$artifact" "$build"
+        return $?
+        ;;
+    esac
+  fi
   case "$present" in
     0)
       [ "$(file_descriptor_size 8 2>/dev/null)" -eq 0 ] || return 1
