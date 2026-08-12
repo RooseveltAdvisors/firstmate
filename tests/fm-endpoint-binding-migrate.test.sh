@@ -455,10 +455,11 @@ test_stamp_adds_binding_as_separate_line_without_trailing_newline() {
 }
 
 test_hidden_metadata_is_reported() {
-  local dir out report hidden_name control_name
+  local dir out report hidden_name control_name c1_name
   dir=$(make_case hidden-meta)
   hidden_name=$'.forged\nline.meta'
   control_name=$'.control\t\e.meta'
+  c1_name=$'.c1-\200.meta'
   fm_write_meta "$dir/home/state/good.meta" \
     'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
     'kind=scout'
@@ -472,6 +473,9 @@ test_hidden_metadata_is_reported() {
     'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
     'kind=scout'
   fm_write_meta "$dir/home/state/$control_name" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  fm_write_meta "$dir/home/state/$c1_name" \
     'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
     'kind=scout'
   out=$(run_locked "$dir") || fail "hidden metadata migration failed: $out"
@@ -488,12 +492,19 @@ test_hidden_metadata_is_reported() {
   assert_contains "$report" \
     'record .control\x09\x1B.meta: skipped - hidden metadata record is out of scope' \
     'control-bearing hidden metadata was not encoded as printable data'
+  assert_contains "$report" \
+    'record .c1-\x80.meta: skipped - hidden metadata record is out of scope' \
+    'C1 control-bearing hidden metadata was not encoded as printable data'
+  [ -z "$(LC_ALL=C tr -d '\012\040-\176' < "$dir/home/state/.endpoint-binding-migration.log")" ] \
+    || fail 'migration report retained non-ASCII control bytes'
   ! grep -q '^endpoint_task_id=' "$dir/home/state/.legacy.meta" \
     || fail 'hidden metadata was stamped'
   ! grep -q '^endpoint_task_id=' "$dir/home/state/$hidden_name" \
     || fail 'newline-bearing hidden metadata was stamped'
   ! grep -q '^endpoint_task_id=' "$dir/home/state/$control_name" \
     || fail 'control-bearing hidden metadata was stamped'
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/$c1_name" \
+    || fail 'C1 control-bearing hidden metadata was stamped'
   pass 'endpoint binding migration reports hidden metadata records without stamping them'
 }
 
@@ -1128,6 +1139,46 @@ SH
   pass 'endpoint binding migration rolls back and reports a failed final live check'
 }
 
+test_final_metadata_change_reruns_scan() {
+  local dir out real_rm meta lock activated
+  dir=$(make_case final-metadata-change)
+  real_rm=$(command -v rm)
+  meta="$dir/home/state/good.meta"
+  lock="$dir/home/state/.meta-good.lock"
+  activated="$dir/final-metadata-change-activated"
+  cat > "$dir/fakebin/rm" <<'SH'
+#!/usr/bin/env bash
+trigger=0
+for target in "$@"; do
+  [ "$target" = "${FM_META_LOCK:?}" ] && trigger=1
+done
+"${FM_REAL_RM:?}" "$@"
+rc=$?
+if [ "$rc" -eq 0 ] && [ "$trigger" -eq 1 ] \
+  && [ ! -e "${FM_RACE_ACTIVATED:?}" ]; then
+  printf 'control_relaunch_tx=changed-after-staging\n' >> "${FM_META:?}"
+  : > "$FM_RACE_ACTIVATED"
+fi
+exit "$rc"
+SH
+  chmod +x "$dir/fakebin/rm"
+  fm_write_meta "$meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  out=$(FM_REAL_RM="$real_rm" FM_META_LOCK="$lock" FM_META="$meta" \
+    FM_RACE_ACTIVATED="$activated" run_locked "$dir") \
+    || fail "metadata-change rerun failed: $out"
+  [ -f "$activated" ] || fail 'final metadata change fixture did not activate'
+  grep -qx 'control_relaunch_tx=changed-after-staging' "$meta" \
+    || fail 'metadata-change rerun lost the lifecycle update'
+  grep -qx 'endpoint_task_id=good' "$meta" \
+    || fail 'metadata-change rerun did not reconsider and stamp the record'
+  assert_contains "$(cat "$dir/home/state/.endpoint-binding-migration.log")" \
+    'task good: stamped - exact live endpoint identity verified' \
+    'metadata-change rerun lost the per-record outcome'
+  pass 'endpoint binding migration reruns after final metadata changes'
+}
+
 test_reverse_restores_prior_bytes() {
   local dir original out
   dir=$(make_case undo)
@@ -1487,33 +1538,44 @@ test_identity_verification_waits_for_metadata_lock() {
 }
 
 test_report_write_failure_aborts_before_stamping() {
-  local dir original out rc real_chmod
+  local dir original out rc real_mv outside activated
   dir=$(make_case report-write-failure)
-  real_chmod=$(command -v chmod)
-  cat > "$dir/fakebin/chmod" <<'SH'
+  real_mv=$(command -v mv)
+  outside="$dir/outside-report"
+  activated="$dir/report-write-race-activated"
+  printf 'keep\n' > "$outside"
+  cat > "$dir/fakebin/mv" <<'SH'
 #!/usr/bin/env bash
-for arg in "$@"; do
-  case "$arg" in
-    */report.*)
-      rm -f -- "$arg"
-      mkdir -- "$arg"
-      exit 0
-      ;;
-  esac
-done
-exec "${FM_REAL_CHMOD:?}" "$@"
+destination=${!#}
+case "${destination##*/}" in
+  report.evidence.*) ;;
+  report.*)
+    case "$PWD" in
+      */.endpoint-binding-stage.*)
+        rm -f -- "$destination" || exit 1
+        ln -s "${FM_OUTSIDE:?}" "$destination" || exit 1
+        : > "${FM_RACE_ACTIVATED:?}"
+        exit 1
+        ;;
+    esac
+    ;;
+esac
+exec "${FM_REAL_MV:?}" "$@"
 SH
-  chmod +x "$dir/fakebin/chmod"
+  chmod +x "$dir/fakebin/mv"
   fm_write_meta "$dir/home/state/good.meta" \
     'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
     'kind=scout'
   original=$(mktemp "$dir/original.XXXXXX")
   cp "$dir/home/state/good.meta" "$original"
   set +e
-  out=$(FM_REAL_CHMOD="$real_chmod" run_locked "$dir")
+  out=$(FM_REAL_MV="$real_mv" FM_OUTSIDE="$outside" FM_RACE_ACTIVATED="$activated" \
+    run_locked "$dir")
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "report write failure unexpectedly succeeded: $out"
+  [ -f "$activated" ] || fail 'report write race fixture did not activate'
+  [ "$(cat "$outside")" = keep ] || fail 'report append wrote through a replaced temporary'
   cmp -s "$original" "$dir/home/state/good.meta" || fail 'report write failure left stamped metadata'
   [ ! -e "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
     || fail 'report write failure published a stamp journal'
@@ -1938,7 +2000,7 @@ SH
 }
 
 test_crash_after_manifest_preserves_undo_path() {
-  local dir out rc real_mv
+  local dir out rc real_mv stage
   dir=$(make_case crash-before-stamp)
   real_mv=$(command -v mv)
   cat > "$dir/fakebin/mv" <<'SH'
@@ -1968,10 +2030,14 @@ SH
     || fail 'manifest crash discarded the durable journal'
   [ -f "$dir/home/state/.endpoint-binding-migration-backups/good.before" ] \
     || fail 'manifest crash discarded before recovery bytes'
+  stage=$(find "$dir/home/state" -maxdepth 1 -type d \
+    -name '.endpoint-binding-stage.*' -print -quit)
+  [ -n "$stage" ] || fail 'manifest crash did not retain its apply recovery stage'
   rm -f "$dir/fakebin/mv"
   out=$(run_locked "$dir" --undo) || fail "manifest crash recovery undo failed: $out"
   [ ! -e "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
     || fail 'manifest crash recovery left the journal'
+  [ ! -e "$stage" ] || fail 'undo left stale partial-apply recovery evidence'
   pass 'endpoint binding migration publishes recovery state before stamping'
 }
 
@@ -2388,34 +2454,45 @@ test_recovery_evidence_requires_private_modes() {
   pass 'endpoint binding migration requires private journal and backup evidence'
 }
 
-test_manifest_mode_failure_rolls_back_stamps() {
-  local dir original out rc real_chmod
-  dir=$(make_case manifest-mode-failure)
-  real_chmod=$(command -v chmod)
-cat > "$dir/fakebin/chmod" <<'SH'
+test_manifest_assembly_rejects_replaced_temporary() {
+  local dir original out rc real_mv outside activated
+  dir=$(make_case manifest-temporary-race)
+  real_mv=$(command -v mv)
+  outside="$dir/outside-manifest"
+  activated="$dir/manifest-race-activated"
+  printf 'keep\n' > "$outside"
+  cat > "$dir/fakebin/mv" <<'SH'
 #!/usr/bin/env bash
-for arg in "$@"; do
-  case "$arg" in
-    */.endpoint-binding-records.*) exit 1 ;;
-  esac
-done
-exec "${FM_REAL_CHMOD:?}" "$@"
+destination=${!#}
+case "${destination##*/}" in
+  .endpoint-binding-records.*)
+    rm -f -- "$destination" || exit 1
+    ln -s "${FM_OUTSIDE:?}" "$destination" || exit 1
+    : > "${FM_RACE_ACTIVATED:?}"
+    exit 1
+    ;;
+esac
+exec "${FM_REAL_MV:?}" "$@"
 SH
-  chmod +x "$dir/fakebin/chmod"
+  chmod +x "$dir/fakebin/mv"
   fm_write_meta "$dir/home/state/good.meta" \
     'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
     'kind=scout'
   original=$(mktemp "$dir/original.XXXXXX")
   cp "$dir/home/state/good.meta" "$original"
   set +e
-  out=$(FM_REAL_CHMOD="$real_chmod" run_locked "$dir")
+  out=$(FM_REAL_MV="$real_mv" FM_OUTSIDE="$outside" FM_RACE_ACTIVATED="$activated" \
+    run_locked "$dir")
   rc=$?
   set -e
-  [ "$rc" -ne 0 ] || fail "manifest mode failure unexpectedly succeeded: $out"
-  cmp -s "$original" "$dir/home/state/good.meta" || fail 'manifest mode failure left stamped metadata'
+  [ "$rc" -ne 0 ] || fail "manifest temporary replacement unexpectedly succeeded: $out"
+  [ -f "$activated" ] || fail 'manifest temporary race fixture did not activate'
+  [ "$(cat "$outside")" = keep ] || fail 'manifest assembly wrote through a replaced temporary'
+  cmp -s "$original" "$dir/home/state/good.meta" \
+    || fail 'manifest temporary replacement left stamped metadata'
   [ ! -e "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
-    || fail 'manifest mode failure published a stamp journal'
-  pass 'endpoint binding migration rolls back when journal permissions cannot be secured'
+    || fail 'manifest temporary replacement published a stamp journal'
+  pass 'endpoint binding migration rejects replaced manifest temporaries'
 }
 
 test_undo_cleanup_failure_retains_recovery_evidence() {
@@ -2625,6 +2702,7 @@ test_undo_snapshot_copy_is_atomic
 test_undo_snapshot_rejects_replaced_stage_parent
 test_existing_records_snapshot_is_atomic
 test_final_live_recheck_refuses_dead_endpoint
+test_final_metadata_change_reruns_scan
 test_reverse_restores_prior_bytes
 test_shared_task_id_grammar_reports_colon_ids
 test_lock_is_required
@@ -2658,7 +2736,7 @@ test_orphaned_backups_are_recovered_on_restart
 test_no_stamp_validates_existing_recovery_namespace
 test_journal_cleanup_failure_retains_recovery_bytes
 test_recovery_evidence_requires_private_modes
-test_manifest_mode_failure_rolls_back_stamps
+test_manifest_assembly_rejects_replaced_temporary
 test_undo_cleanup_failure_retains_recovery_evidence
 test_undo_recovery_stage_is_retained_when_restore_fails
 test_undo_stage_cleanup_failure_retains_completion_state
