@@ -122,10 +122,51 @@ record_outcome() {
 }
 
 reason_one_line() {
-  local value=$1
-  value=${value//$'\n'/; }
-  value=${value//$'\r'/; }
-  printf '%s' "${value:-endpoint identity verification refused}"
+  local value=${1:-endpoint identity verification refused} byte character encoded=
+  [ -n "$value" ] || value='endpoint identity verification refused'
+  for byte in $(printf '%s' "$value" | LC_ALL=C od -An -v -t u1); do
+    if [ "$byte" -lt 32 ] || [ "$byte" -eq 127 ]; then
+      printf -v character '\\x%02X' "$byte"
+    else
+      printf -v character '%b' "\\$(printf '%03o' "$byte")"
+    fi
+    encoded=$encoded$character
+  done
+  printf '%s' "$encoded"
+}
+
+verify_live_task_worktree() {
+  local meta=$1 id=$2 backend=$3 target=$4 recorded live recorded_real live_real exact_target
+  [ "$backend" = tmux ] || {
+    record_outcome "task $id: skipped - backend '$backend' has no verified legacy task worktree identity"
+    return 1
+  }
+  recorded=$(fm_backend_meta_exact_value "$meta" worktree) || {
+    record_outcome "task $id: skipped - recorded task worktree identity is unreadable"
+    return 1
+  }
+  exact_target="=${target%%:*}:=${target#*:}"
+  fm_backend_source tmux || {
+    record_outcome "task $id: skipped - live endpoint worktree identity is unreadable"
+    return 1
+  }
+  live=$(fm_backend_tmux_current_path "$exact_target")
+  [ -n "$live" ] || {
+    record_outcome "task $id: skipped - live endpoint worktree identity is unreadable"
+    return 1
+  }
+  recorded_real=$(CDPATH='' cd -- "$recorded" 2>/dev/null && pwd -P) || {
+    record_outcome "task $id: skipped - recorded task worktree identity is unreadable"
+    return 1
+  }
+  live_real=$(CDPATH='' cd -- "$live" 2>/dev/null && pwd -P) || {
+    record_outcome "task $id: skipped - live endpoint worktree identity is unreadable"
+    return 1
+  }
+  [ "$live_real" = "$recorded_real" ] || {
+    record_outcome "task $id: skipped - task identity mismatch: live endpoint worktree does not match recorded worktree"
+    return 1
+  }
 }
 
 verify_legacy_endpoint() {
@@ -153,7 +194,8 @@ verify_legacy_endpoint() {
   state=$(fm_backend_agent_state "$backend" "$target" 2>/dev/null || printf 'unreadable')
   case "$state" in
     alive)
-      return 0
+      verify_live_task_worktree "$meta" "$id" "$backend" "$target"
+      return $?
       ;;
     dead)
       record_outcome "task $id: skipped - dead endpoint (no verified agent is running)"
@@ -409,7 +451,7 @@ revalidate_merge_records() {
 }
 
 rollback_stamps() {
-  local i tmp rc=0 meta lock_held
+  local i rc=0 meta lock_held
   lock_held=$APPLY_LOCKS_HELD
   for i in "${!STAMP_IDS[@]}"; do
     [ "${STAMP_SELECTED[$i]:-0}" -eq 1 ] || continue
@@ -432,15 +474,7 @@ rollback_stamps() {
       [ "$lock_held" -eq 1 ] || release_meta_lock || rc=1
       continue
     fi
-    tmp=$(mktemp "$STATE/.endpoint-binding-rollback.XXXXXX") || {
-      rc=1
-      [ "$lock_held" -eq 1 ] || release_meta_lock || rc=1
-      continue
-    }
-    if ! cp -p -- "${STAMP_BEFORE[$i]}" "$tmp" || ! mv -f -- "$tmp" "${STAMP_METAS[$i]}"; then
-      rm -f -- "$tmp"
-      rc=1
-    fi
+    copy_private_atomic "${STAMP_BEFORE[$i]}" "${STAMP_METAS[$i]}" regular || rc=1
     [ "$lock_held" -eq 1 ] || release_meta_lock || rc=1
   done
   return "$rc"
@@ -512,13 +546,65 @@ atomic_rename_nofollow() {
   esac
 }
 
+path_file_identity() {
+  case "$(uname 2>/dev/null || true)" in
+    Darwin) stat -f '%d:%i' "$1" ;;
+    *) stat -c '%d:%i' "$1" ;;
+  esac
+}
+
+file_descriptor_identity() {
+  case "$(uname 2>/dev/null || true)" in
+    Darwin) stat -L -f '%d:%i' "$1" ;;
+    *) stat -L -c '%d:%i' "$1" ;;
+  esac
+}
+
+copy_to_new_private_file() {
+  local source=$1 destination=$2 source_type=${3:-private}
+  local source_identity source_fd_identity destination_identity destination_fd_identity
+  [ ! -e "$destination" ] && [ ! -L "$destination" ] || return 1
+  if [ "$source_type" = regular ]; then
+    regular_file "$source" || return 1
+  else
+    private_file "$source" || return 1
+  fi
+  source_identity=$(path_file_identity "$source" 2>/dev/null) || return 1
+  destination_identity=$(
+    exec 8< "$source" || exit 1
+    [ -f /dev/fd/8 ] || exit 1
+    source_fd_identity=$(file_descriptor_identity /dev/fd/8 2>/dev/null) || exit 1
+    [ "$source_fd_identity" = "$source_identity" ] || exit 1
+    if [ "$source_type" = regular ]; then
+      regular_file "$source" || exit 1
+    else
+      private_file "$source" || exit 1
+    fi
+    [ "$(path_file_identity "$source" 2>/dev/null)" = "$source_fd_identity" ] || exit 1
+    set -C
+    exec 9> "$destination" || exit 1
+    [ -f /dev/fd/9 ] || exit 1
+    destination_fd_identity=$(file_descriptor_identity /dev/fd/9 2>/dev/null) || exit 1
+    regular_file "$destination" || exit 1
+    [ "$(path_file_identity "$destination" 2>/dev/null)" = "$destination_fd_identity" ] || exit 1
+    cat <&8 >&9 || exit 1
+    [ "$(path_file_identity "$source" 2>/dev/null)" = "$source_fd_identity" ] || exit 1
+    regular_file "$destination" || exit 1
+    [ "$(path_file_identity "$destination" 2>/dev/null)" = "$destination_fd_identity" ] || exit 1
+    printf '%s' "$destination_fd_identity"
+  ) || {
+    rm -f -- "$destination"
+    return 1
+  }
+  private_file "$destination" || return 1
+  [ "$(path_file_identity "$destination" 2>/dev/null)" = "$destination_identity" ]
+}
+
 copy_private_atomic() {
-  local source=$1 destination=$2 destination_type=${3:-private}
-  local source_dir source_name destination_dir destination_name
-  local source_real destination_real tmp rc source_parent source_base source_expected
-  local destination_parent destination_base destination_expected
+  local source=$1 destination=$2 destination_type=${3:-private} source_type=${4:-private}
+  local source_dir destination_dir destination_name source_real destination_real tmp rc
+  local source_parent source_base source_expected destination_parent destination_base destination_expected tmp_identity
   source_dir=${source%/*}
-  source_name=${source##*/}
   [ -L "$source_dir" ] && return 1
   source_parent=${source_dir%/*}
   source_base=${source_dir##*/}
@@ -551,21 +637,12 @@ copy_private_atomic() {
     fi
   fi
   tmp=$(mktemp "$STATE/.endpoint-binding-copy.XXXXXX") || return 1
-  if ! (
-    cd -P -- "$source_dir" || exit 1
-    [ "$(pwd -P)" = "$source_expected" ] || exit 1
-    if [ "$source_dir" = "$STATE" ]; then
-      [ -d . ] && [ ! -L . ] || exit 1
-    else
-      private_directory . || exit 1
-    fi
-    private_file "./$source_name" || exit 1
-    cp -pP -- "./$source_name" "$tmp" || exit 1
-    [ -f "$tmp" ] && [ ! -L "$tmp" ] || exit 1
-  ) || ! chmod 0600 "$tmp"; then
+  rm -f -- "$tmp" || return 1
+  if ! copy_to_new_private_file "$source" "$tmp" "$source_type"; then
     rm -f -- "$tmp"
     return 1
   fi
+  tmp_identity=$(path_file_identity "$tmp" 2>/dev/null) || { rm -f -- "$tmp"; return 1; }
   (
     cd -P -- "$destination_dir" || exit 1
     [ "$(pwd -P)" = "$destination_expected" ] || exit 1
@@ -581,12 +658,17 @@ copy_private_atomic() {
         private_file "./$destination_name" || exit 1
       fi
     fi
-    atomic_rename_nofollow "$tmp" "./$destination_name"
+    atomic_rename_nofollow "$tmp" "./$destination_name" || exit 1
+    [ "$(pwd -P)" = "$destination_expected" ] || exit 1
+    if [ "$destination_type" = regular ]; then
+      regular_file "./$destination_name" || exit 1
+    else
+      private_file "./$destination_name" || exit 1
+    fi
+    [ "$(path_file_identity "./$destination_name" 2>/dev/null)" = "$tmp_identity" ]
   )
   rc=$?
-  if [ "$rc" -ne 0 ]; then
-    rm -f -- "$tmp"
-  fi
+  [ "$rc" -eq 0 ] || rm -f -- "$tmp"
   return "$rc"
 }
 
@@ -661,6 +743,10 @@ cleanup_incomplete_apply_stage() {
         before="$stage/$id.before"
         [ -e "$before" ] || [ -L "$before" ] || continue
         continue
+        ;;
+      *.rollback)
+        id=${base%.rollback}
+        valid_task_id "$id" && private_file "$path" || return 1
         ;;
       *) return 1 ;;
     esac
@@ -921,17 +1007,18 @@ recover_apply_stage() {
 abort_apply() {
   local rc=${1:-1}
   local rollback_rc=0 evidence_rc=0 recovery_rc=0
+  RECOVERY_REQUIRED=1
   [ "$APPLY_ABORTED" -eq 0 ] || return "$rc"
   APPLY_ABORTED=1
   release_meta_lock || rc=1
   if [ "$APPLY_COMMITTED" -eq 1 ] \
     || { [ -n "$STAGE_DIR" ] && private_file "$STAGE_DIR/completed"; }; then
     APPLY_COMMITTED=1
+    RECOVERY_REQUIRED=0
     release_merge_locks || rc=1
     release_apply_locks || rc=1
     return "$rc"
   fi
-  RECOVERY_REQUIRED=1
   if [ "$META_WRITE_STARTED" -eq 1 ] && ! rollback_stamps; then
     rollback_rc=1
     rc=1
@@ -1163,7 +1250,7 @@ validate_recovery_namespace() {
 }
 
 undo_rollback_changed() {
-  local index tmp rc=0 meta before after lock_held
+  local index rc=0 meta before after lock_held
   lock_held=$UNDO_LOCKS_HELD
   for ((index=UNDO_CHANGED - 1; index >= 0; index--)); do
     [ "${UNDO_TOUCHED[$index]:-0}" -eq 1 ] || continue
@@ -1180,16 +1267,7 @@ undo_rollback_changed() {
       continue
     fi
     if cmp -s -- "$meta" "$before"; then
-      tmp=$(mktemp "$STATE/.endpoint-binding-undo-rollback.XXXXXX") || {
-        rc=1
-        [ "$lock_held" -eq 1 ] || release_meta_lock || rc=1
-        continue
-      }
-      if ! cp -p -- "$after" "$tmp" \
-        || ! mv -f -- "$tmp" "$meta"; then
-        rm -f -- "$tmp"
-        rc=1
-      fi
+      copy_private_atomic "$after" "$meta" regular || rc=1
     elif ! cmp -s -- "$meta" "$after"; then
       rc=1
     fi
@@ -1349,22 +1427,15 @@ recover_undo_stage() {
 trap handle_signal HUP INT TERM
 
 publish_report() {
-  local tmp
   if [ -e "$REPORT" ] || [ -L "$REPORT" ]; then
     [ -f "$REPORT" ] && [ ! -L "$REPORT" ] || return 1
   fi
-  tmp=$(mktemp "$STATE/.endpoint-binding-report.XXXXXX") || return 1
-  if ! cp -p -- "$REPORT_TMP" "$tmp" || ! chmod 0600 "$tmp" \
-    || ! copy_private_atomic "$tmp" "$REPORT" regular; then
-    rm -f -- "$tmp"
-    return 1
-  fi
-  rm -f -- "$tmp" || return 1
+  copy_private_atomic "$REPORT_TMP" "$REPORT" regular
 }
 
 apply_migration() {
   local meta id base binding_count binding validation before after before_final after_final last_byte
-  local i tmp manifest_tmp selected_count stage_records records_before_tmp
+  local i manifest_tmp selected_count stage_records
   local -a metas
   recover_apply_stage || return 1
   STAGE_DIR=$(mktemp -d "$STATE/.endpoint-binding-stage.XXXXXX") || return 1
@@ -1436,8 +1507,8 @@ apply_migration() {
 
     before="$STAGE_DIR/$id.before"
     after="$STAGE_DIR/$id.after"
-    cp -p -- "$meta" "$before" || { release_meta_lock || true; return 1; }
-    cp -p -- "$meta" "$after" || { release_meta_lock || true; return 1; }
+    copy_private_atomic "$meta" "$before" private regular || { release_meta_lock || true; return 1; }
+    copy_private_atomic "$meta" "$after" private regular || { release_meta_lock || true; return 1; }
     if [ -s "$after" ]; then
       last_byte=$(tail -c 1 "$after") || { release_meta_lock || true; return 1; }
       if [ -n "$last_byte" ]; then
@@ -1520,14 +1591,8 @@ apply_migration() {
 
   if [ "$RECOVERY_NAMESPACE_PRESENT" -eq 1 ]; then
     RECORDS_EXISTING=1
-    records_before_tmp=$(mktemp "$STAGE_DIR/records.before.XXXXXX") || return 1
-    if ! cp -p -- "$RECORDS" "$records_before_tmp" || ! chmod 0600 "$records_before_tmp"; then
-      rm -f -- "$records_before_tmp"
-      return 1
-    fi
     RECORDS_BEFORE="$STAGE_DIR/records.before"
-    if ! mv -f -- "$records_before_tmp" "$RECORDS_BEFORE"; then
-      rm -f -- "$records_before_tmp"
+    if ! copy_private_atomic "$RECORDS" "$RECORDS_BEFORE"; then
       RECORDS_BEFORE=
       return 1
     fi
@@ -1560,7 +1625,7 @@ apply_migration() {
 
   manifest_tmp=$(mktemp "$STATE/.endpoint-binding-records.XXXXXX") || { abort_apply 1; return $?; }
   if [ "$RECORDS_EXISTING" -eq 1 ]; then
-    cp -p -- "$RECORDS" "$manifest_tmp" || {
+    copy_private_atomic "$RECORDS" "$manifest_tmp" || {
       rm -f -- "$manifest_tmp"
       abort_apply 1
       return $?
@@ -1609,12 +1674,7 @@ apply_migration() {
       exec "$0"
       return 1
     fi
-    tmp=$(mktemp "$STATE/.endpoint-binding-meta.XXXXXX") || {
-      abort_apply 1
-      return $?
-    }
-    if ! cp -p -- "${STAMP_AFTER[$i]}" "$tmp" || ! mv -f -- "$tmp" "${STAMP_METAS[$i]}"; then
-      rm -f -- "$tmp"
+    if ! copy_private_atomic "${STAMP_AFTER[$i]}" "${STAMP_METAS[$i]}" regular; then
       abort_apply 1
       return $?
     fi
@@ -1635,15 +1695,9 @@ apply_migration() {
 }
 
 snapshot_regular_atomic() {
-  local source=$1 destination=$2 tmp
+  local source=$1 destination=$2
   regular_file "$source" || return 1
-  tmp=$(mktemp "$STATE/.endpoint-binding-snapshot.XXXXXX") || return 1
-  if ! cp -pP -- "$source" "$tmp" || ! regular_file "$tmp" || ! chmod 0600 "$tmp" \
-    || ! copy_private_atomic "$tmp" "$destination"; then
-    rm -f -- "$tmp"
-    return 1
-  fi
-  rm -f -- "$tmp" || true
+  copy_private_atomic "$source" "$destination" private regular
 }
 
 surgical_remove_binding() {
@@ -1659,7 +1713,7 @@ surgical_remove_binding() {
   [ "$current_size" -ge "$after_size" ] || return 0
   dd if="$meta" bs=1 count="$after_size" 2>/dev/null | cmp -s -- - "$after" || return 0
   tmp=$(mktemp "$STATE/.endpoint-binding-surgical-undo.XXXXXX") || return 1
-  if ! cp -pP -- "$before" "$tmp"; then
+  if ! copy_private_atomic "$before" "$tmp"; then
     rm -f -- "$tmp"
     return 1
   fi
@@ -1682,14 +1736,9 @@ surgical_remove_binding() {
 }
 
 replace_metadata_from_private() {
-  local source=$1 meta=$2 tmp
+  local source=$1 meta=$2
   private_file "$source" && regular_file "$meta" || return 1
-  tmp=$(mktemp "$STATE/.endpoint-binding-meta-replace.XXXXXX") || return 1
-  if ! copy_private_atomic "$source" "$tmp" || ! regular_file "$meta" \
-    || ! mv -f -- "$tmp" "$meta"; then
-    rm -f -- "$tmp"
-    return 1
-  fi
+  copy_private_atomic "$source" "$meta" regular
 }
 
 rollback_partial_binding() {
@@ -1705,7 +1754,7 @@ rollback_partial_binding() {
 }
 
 undo_migration() {
-  local id before_name after_name meta before after tmp i extra cleanup_stage cleanup_rc
+  local id before_name after_name meta before after i extra cleanup_stage cleanup_rc
   local current_snapshot undone_snapshot removed_count=0
   UNDO_IDS=()
   UNDO_METAS=()
@@ -1771,12 +1820,7 @@ undo_migration() {
     UNDO_RECOVERY_AFTER[i]=$current_snapshot
     UNDO_CHANGED=$((i + 1))
     UNDO_TOUCHED[i]=1
-    tmp=$(mktemp "$STATE/.endpoint-binding-undo.XXXXXX") || {
-      abort_undo
-      return $?
-    }
-    if ! cp -pP -- "$undone_snapshot" "$tmp" || ! mv -f -- "$tmp" "$meta"; then
-      rm -f -- "$tmp"
+    if ! copy_private_atomic "$undone_snapshot" "$meta" regular; then
       abort_undo
       return $?
     fi
