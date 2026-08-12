@@ -419,6 +419,54 @@ SH
   pass 'endpoint binding undo restores stamped bytes after interruption'
 }
 
+test_undo_signal_during_cleanup_restores_recovery_state() {
+  local dir original stamped out rc real_mv real_rm
+  dir=$(make_case undo-cleanup-signal)
+  real_rm=$(command -v rm)
+  cat > "$dir/fakebin/rm" <<'SH'
+#!/usr/bin/env bash
+"${FM_REAL_RM:?}" "$@"
+rc=$?
+if [ "$rc" -eq 0 ] && [ "${FM_UNDO_CLEANUP_SIGNAL:-0}" -eq 1 ] \
+  && [ ! -e "${FM_UNDO_CLEANUP_SIGNAL_SENT:?}" ]; then
+  for arg in "$@"; do
+    if [ "$arg" = "${FM_UNDO_CLEANUP_SIGNAL_PATH:-}" ]; then
+      : > "$FM_UNDO_CLEANUP_SIGNAL_SENT"
+      kill -TERM "$PPID"
+      break
+    fi
+  done
+fi
+exit "$rc"
+SH
+  chmod +x "$dir/fakebin/rm"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  original=$(mktemp "$dir/original.XXXXXX")
+  cp "$dir/home/state/good.meta" "$original"
+  FM_REAL_RM="$real_rm" run_locked "$dir" >/dev/null || fail 'migration setup for cleanup signal failed'
+  stamped=$(mktemp "$dir/stamped.XXXXXX")
+  cp "$dir/home/state/good.meta" "$stamped"
+  set +e
+  out=$(FM_REAL_RM="$real_rm" FM_UNDO_CLEANUP_SIGNAL=1 \
+    FM_UNDO_CLEANUP_SIGNAL_PATH="$dir/home/state/.endpoint-binding-migration-backups/good.after" \
+    FM_UNDO_CLEANUP_SIGNAL_SENT="$dir/undo-cleanup-signal-sent" run_locked "$dir" --undo)
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "cleanup interruption unexpectedly succeeded: $out"
+  cmp -s "$stamped" "$dir/home/state/good.meta" \
+    || fail "cleanup interruption left metadata partially undone: $(cat "$dir/home/state/good.meta")"
+  [ -f "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
+    || fail 'cleanup interruption discarded the journal'
+  [ -f "$dir/home/state/.endpoint-binding-migration-backups/good.after" ] \
+    || fail 'cleanup interruption discarded the after-bytes'
+  out=$(FM_REAL_RM="$real_rm" run_locked "$dir" --undo) \
+    || fail "cleanup interruption retry failed: $out"
+  cmp -s "$original" "$dir/home/state/good.meta" || fail 'cleanup interruption retry did not undo metadata'
+  pass 'endpoint binding undo remains transactional through cleanup interruption'
+}
+
 test_publication_failure_restores_evidence() {
   local dir original out rc real_mv
   dir=$(make_case publication-failure)
@@ -450,6 +498,58 @@ SH
   [ ! -e "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
     || fail 'publication failure left a stale stamp journal'
   pass 'endpoint binding migration rolls back published evidence on failure'
+}
+
+test_crash_after_manifest_preserves_undo_path() {
+  local dir out rc real_mv
+  dir=$(make_case crash-before-stamp)
+  real_mv=$(command -v mv)
+  cat > "$dir/fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+if [ "${4:-}" = "${FM_CRASH_DEST:-}" ]; then kill -KILL "$PPID"; fi
+exec "${FM_REAL_MV:?}" "$@"
+SH
+  chmod +x "$dir/fakebin/mv"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  set +e
+  out=$(FM_REAL_MV="$real_mv" FM_CRASH_DEST="$dir/home/state/.endpoint-binding-migration-records-v1" run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "manifest crash unexpectedly succeeded: $out"
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
+    || fail 'manifest crash left metadata stamped without an apply'
+  [ -f "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
+    || fail 'manifest crash discarded the durable journal'
+  [ -f "$dir/home/state/.endpoint-binding-migration-backups/good.before" ] \
+    || fail 'manifest crash discarded before recovery bytes'
+  out=$(FM_REAL_MV="$real_mv" run_locked "$dir" --undo) \
+    || fail "manifest crash recovery undo failed: $out"
+  [ ! -e "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
+    || fail 'manifest crash recovery left the journal'
+  pass 'endpoint binding migration publishes recovery state before stamping'
+}
+
+test_no_stamp_validates_existing_recovery_namespace() {
+  local dir out rc
+  dir=$(make_case no-stamp-recovery)
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' 'endpoint_task_id=good' \
+    "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  printf '%s\n' $'good\tgood.before\tgood.after' > \
+    "$dir/home/state/.endpoint-binding-migration-records-v1"
+  chmod 0644 "$dir/home/state/.endpoint-binding-migration-records-v1"
+  mkdir "$dir/home/state/.endpoint-binding-migration-backups"
+  chmod 0700 "$dir/home/state/.endpoint-binding-migration-backups"
+  set +e
+  out=$(run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "unsafe recovery namespace was accepted: $out"
+  [ ! -e "$dir/home/state/.endpoint-binding-migration-scan-v1" ] \
+    || fail 'unsafe recovery namespace published a scan marker'
+  pass 'endpoint binding migration validates recovery evidence on no-stamp scans'
 }
 
 test_journal_cleanup_failure_retains_recovery_bytes() {
@@ -641,9 +741,12 @@ test_signal_rolls_back_staged_stamps
 test_final_stamp_waits_for_metadata_lock
 test_undo_waits_for_metadata_lock
 test_undo_signal_restores_stamped_bytes
+test_undo_signal_during_cleanup_restores_recovery_state
 test_identity_verification_waits_for_metadata_lock
 test_report_write_failure_aborts_before_stamping
 test_publication_failure_restores_evidence
+test_crash_after_manifest_preserves_undo_path
+test_no_stamp_validates_existing_recovery_namespace
 test_journal_cleanup_failure_retains_recovery_bytes
 test_recovery_evidence_requires_private_modes
 test_manifest_mode_failure_rolls_back_stamps
