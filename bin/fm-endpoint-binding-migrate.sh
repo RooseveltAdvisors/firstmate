@@ -328,6 +328,7 @@ revalidate_merge_records() {
 rollback_stamps() {
   local i tmp rc=0 meta
   for i in "${!STAMP_IDS[@]}"; do
+    [ "${STAMP_SELECTED[$i]:-0}" -eq 1 ] || continue
     meta=${STAMP_METAS[$i]}
     if ! acquire_meta_lock "$meta"; then
       rc=1
@@ -520,7 +521,7 @@ cleanup_incomplete_apply_stage() {
     [ -e "$path" ] || [ -L "$path" ] || continue
     base=${path##*/}
     case "$base" in
-      report.*|records) continue ;;
+      report.*|records|evidence) continue ;;
       *.before)
         id=${base%.before}
         valid_task_id "$id" || return 1
@@ -583,6 +584,11 @@ recover_existing_apply_stage() {
       }
       ids+=("$id")
     done < "$stage/records"
+    restore_stage_evidence "$stage" || {
+      rm -f -- "$merged_tmp"
+      RECOVERY_REQUIRED=1
+      return 1
+    }
   elif cmp -s -- "$RECORDS" "$merged_tmp"; then
     merged_published=1
     private_directory "$BACKUP_DIR" || {
@@ -634,6 +640,11 @@ recover_existing_apply_stage() {
         return 1
       }
     done < "$stage/records"
+    restore_stage_evidence "$stage" || {
+      rm -f -- "$merged_tmp"
+      RECOVERY_REQUIRED=1
+      return 1
+    }
   else
     rm -f -- "$merged_tmp"
     return 1
@@ -715,6 +726,10 @@ recover_partial_apply_stage() {
       return 1
     }
   done < "$stage/records"
+  restore_stage_evidence "$stage" || {
+    RECOVERY_REQUIRED=1
+    return 1
+  }
   rm -f -- "$RECORDS" || {
     RECOVERY_REQUIRED=1
     return 1
@@ -852,6 +867,12 @@ prepare_evidence() {
   snapshot_evidence_file "$REPORT" report || return 1
   snapshot_evidence_file "$SCAN_MARKER" scan-marker || return 1
   snapshot_evidence_file "$MARKER" marker || return 1
+  {
+    printf 'report\t%s\n' "$REPORT_PRESENT"
+    printf 'scan-marker\t%s\n' "$SCAN_MARKER_PRESENT"
+    printf 'marker\t%s\n' "$MARKER_PRESENT"
+  } > "$STAGE_DIR/evidence" || return 1
+  chmod 0600 "$STAGE_DIR/evidence"
 }
 
 restore_evidence_file() {
@@ -865,6 +886,36 @@ restore_evidence_file() {
   elif [ -e "$destination" ] || [ -L "$destination" ]; then
     rm -f -- "$destination" || return 1
   fi
+}
+
+restore_stage_evidence() {
+  local stage=$1 label present extra destination count=0
+  local -A seen=()
+  [ -e "$stage/evidence" ] || [ -L "$stage/evidence" ] || return 0
+  private_file "$stage/evidence" || return 1
+  while IFS=$'\t' read -r label present extra || [ -n "${label:-}${present:-}${extra:-}" ]; do
+    [ -n "${label:-}" ] && [ -z "${extra:-}" ] || return 1
+    [ "${seen[$label]:-0}" -eq 0 ] || return 1
+    case "$label" in
+      report) destination=$REPORT ;;
+      scan-marker) destination=$SCAN_MARKER ;;
+      marker) destination=$MARKER ;;
+      *) return 1 ;;
+    esac
+    [ "$present" = 0 ] || [ "$present" = 1 ] || return 1
+    if [ "$present" = 1 ]; then
+      private_file "$stage/$label.before" || return 1
+      restore_evidence_file "$destination" "$stage/$label.before" 1 || return 1
+    else
+      restore_evidence_file "$destination" '' 0 || return 1
+    fi
+    seen[$label]=1
+    count=$((count + 1))
+  done < "$stage/evidence"
+  [ "$count" -eq 3 ] || return 1
+  [ "${seen[report]:-0}" -eq 1 ] &&
+    [ "${seen[scan-marker]:-0}" -eq 1 ] &&
+    [ "${seen[marker]:-0}" -eq 1 ]
 }
 
 restore_evidence() {
@@ -1099,7 +1150,7 @@ publish_report() {
 }
 
 apply_migration() {
-  local meta id base binding_count validation before after before_final after_final last_byte
+  local meta id base binding_count binding validation before after before_final after_final last_byte
   local i tmp manifest_tmp selected_count stage_records records_before_tmp
   local -a metas
   recover_apply_stage || return 1
@@ -1139,10 +1190,18 @@ apply_migration() {
     fi
     binding_count=$(grep -c '^endpoint_task_id=' "$meta" 2>/dev/null || true)
     if [ "$binding_count" -gt 0 ]; then
-      if [ "$binding_count" -eq 1 ] && [ "$(fm_meta_get "$meta" endpoint_task_id)" = "$id" ]; then
+      binding=$(fm_meta_get "$meta" endpoint_task_id)
+      if [ "$binding_count" -eq 1 ] && [ "$binding" = "$id" ]; then
         record_outcome "task $id: untouched - endpoint_task_id already present"
+      elif [ "$binding_count" -gt 1 ]; then
+        SKIPPED_LEGACY=1
+        record_outcome "task $id: skipped - existing endpoint_task_id binding is duplicated"
+      elif [ -z "$binding" ]; then
+        SKIPPED_LEGACY=1
+        record_outcome "task $id: skipped - existing endpoint_task_id binding is empty"
       else
-        record_outcome "task $id: untouched - existing endpoint_task_id binding is ambiguous or mismatched"
+        SKIPPED_LEGACY=1
+        record_outcome "task $id: skipped - existing endpoint_task_id binding mismatches task identity"
       fi
       continue
     fi
@@ -1237,6 +1296,8 @@ apply_migration() {
     write_marker "$SCAN_MARKER" fm-endpoint-binding-migration-scan-v1 || return 1
     if [ "$SKIPPED_LEGACY" -eq 0 ]; then
       write_marker "$MARKER" fm-endpoint-binding-migration-v1 || return 1
+    else
+      restore_evidence_file "$MARKER" '' 0 || return 1
     fi
     printf 'ENDPOINT_BINDING_MIGRATION: scanned %s record(s); stamped 0\n' "$OUTCOME_COUNT"
     cat "$REPORT"
@@ -1343,6 +1404,8 @@ apply_migration() {
   if ! write_marker "$SCAN_MARKER" fm-endpoint-binding-migration-scan-v1; then abort_apply 1; return $?; fi
   if [ "$SKIPPED_LEGACY" -eq 0 ]; then
     if ! write_marker "$MARKER" fm-endpoint-binding-migration-v1; then abort_apply 1; return $?; fi
+  else
+    if ! restore_evidence_file "$MARKER" '' 0; then abort_apply 1; return $?; fi
   fi
   release_merge_locks || return 1
   printf 'ENDPOINT_BINDING_MIGRATION: scanned %s record(s); stamped %s\n' "$OUTCOME_COUNT" "$selected_count"
