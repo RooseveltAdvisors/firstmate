@@ -179,6 +179,7 @@ SCAN_MARKER_SNAPSHOT_READY=0
 MARKER_SNAPSHOT_READY=0
 RECOVERY_REQUIRED=0
 APPLY_ABORTED=0
+RECOVERY_NAMESPACE_PRESENT=0
 UNDO_IDS=()
 UNDO_METAS=()
 UNDO_BEFORE=()
@@ -186,6 +187,14 @@ UNDO_AFTER=()
 UNDO_TOUCHED=()
 UNDO_CHANGED=0
 UNDO_ACTIVE=0
+UNDO_LOCK_IDS=()
+UNDO_LOCK_PATHS=()
+UNDO_LOCK_ACQUIRED=()
+UNDO_LOCKS_HELD=0
+UNDO_LOCKS_ACQUIRING=0
+UNDO_RECOVERY_AFTER=()
+UNDO_RECOVERY_BEFORE=()
+UNDO_RECOVERY_STAGE=
 
 cleanup() {
   local path
@@ -218,6 +227,41 @@ release_meta_lock() {
     CURRENT_META_LOCK=
     CURRENT_META_LOCK_HELD=0
   fi
+  return "$rc"
+}
+
+acquire_undo_locks() {
+  local id path i
+  UNDO_LOCK_IDS=($(printf '%s\n' "${UNDO_IDS[@]}" | sort -u))
+  UNDO_LOCK_PATHS=()
+  UNDO_LOCK_ACQUIRED=()
+  for id in "${UNDO_LOCK_IDS[@]}"; do
+    path=$(fm_meta_lock_path "$STATE/$id.meta") || return 1
+    UNDO_LOCK_PATHS+=("$path")
+    UNDO_LOCK_ACQUIRED+=(0)
+  done
+  UNDO_LOCKS_ACQUIRING=1
+  for i in "${!UNDO_LOCK_PATHS[@]}"; do
+    if ! fm_lock_acquire_wait "${UNDO_LOCK_PATHS[$i]}"; then
+      release_undo_locks
+      return 1
+    fi
+    UNDO_LOCK_ACQUIRED[$i]=1
+  done
+  UNDO_LOCKS_ACQUIRING=0
+  UNDO_LOCKS_HELD=1
+}
+
+release_undo_locks() {
+  local i rc=0
+  for ((i=${#UNDO_LOCK_PATHS[@]} - 1; i >= 0; i--)); do
+    if [ "${UNDO_LOCK_ACQUIRED[$i]:-0}" -eq 1 ]; then
+      fm_lock_release "${UNDO_LOCK_PATHS[$i]}" || rc=1
+      UNDO_LOCK_ACQUIRED[$i]=0
+    fi
+  done
+  UNDO_LOCKS_HELD=0
+  UNDO_LOCKS_ACQUIRING=0
   return "$rc"
 }
 
@@ -301,8 +345,12 @@ abort_apply() {
 
 handle_signal() {
   trap - HUP INT TERM
-  if [ "$MODE" = undo ] && [ "$UNDO_ACTIVE" -eq 1 ]; then
-    abort_undo || true
+  if [ "$MODE" = undo ]; then
+    if [ "$UNDO_ACTIVE" -eq 1 ]; then
+      abort_undo || true
+    else
+      release_undo_locks || true
+    fi
   else
     abort_apply 1 || true
   fi
@@ -399,35 +447,83 @@ publish_recovery_records() {
   RECORDS_PUBLISHED=1
 }
 
+validate_recovery_namespace() {
+  local id before_name after_name extra
+  RECOVERY_NAMESPACE_PRESENT=0
+  if [ -e "$RECORDS" ] || [ -L "$RECORDS" ]; then
+    RECOVERY_NAMESPACE_PRESENT=1
+    private_file "$RECORDS" || return 1
+    private_directory "$BACKUP_DIR" || return 1
+    while IFS=$'\t' read -r id before_name after_name extra || [ -n "${id:-}${before_name:-}${after_name:-}${extra:-}" ]; do
+      [ -n "${id:-}" ] && [ -z "${extra:-}" ] || return 1
+      valid_task_id "$id" || return 1
+      [ "$before_name" = "$id.before" ] && [ "$after_name" = "$id.after" ] || return 1
+      private_file "$BACKUP_DIR/$before_name" && private_file "$BACKUP_DIR/$after_name" || return 1
+    done < "$RECORDS"
+  elif [ -e "$BACKUP_DIR" ] || [ -L "$BACKUP_DIR" ]; then
+    RECOVERY_NAMESPACE_PRESENT=1
+    private_directory "$BACKUP_DIR" || return 1
+    return 1
+  fi
+}
+
 undo_rollback_changed() {
-  local index tmp rc=0 meta
+  local index tmp rc=0 meta before after lock_held
+  lock_held=$UNDO_LOCKS_HELD
   for ((index=UNDO_CHANGED - 1; index >= 0; index--)); do
     [ "${UNDO_TOUCHED[$index]:-0}" -eq 1 ] || continue
     meta=${UNDO_METAS[$index]}
-    if ! acquire_meta_lock "$meta"; then
+    before=${UNDO_RECOVERY_BEFORE[$index]:-${UNDO_BEFORE[$index]}}
+    after=${UNDO_RECOVERY_AFTER[$index]:-${UNDO_AFTER[$index]}}
+    if [ "$lock_held" -eq 0 ] && ! acquire_meta_lock "$meta"; then
       rc=1
       continue
     fi
     if ! regular_file "$meta"; then
       rc=1
-      release_meta_lock || rc=1
+      [ "$lock_held" -eq 1 ] || release_meta_lock || rc=1
       continue
     fi
-    if cmp -s -- "$meta" "${UNDO_BEFORE[$index]}"; then
+    if cmp -s -- "$meta" "$before"; then
       tmp=$(mktemp "$STATE/.endpoint-binding-undo-rollback.XXXXXX") || {
         rc=1
-        release_meta_lock || rc=1
+        [ "$lock_held" -eq 1 ] || release_meta_lock || rc=1
         continue
       }
-      if ! cp -p -- "${UNDO_AFTER[$index]}" "$tmp" \
+      if ! cp -p -- "$after" "$tmp" \
         || ! mv -f -- "$tmp" "$meta"; then
         rm -f -- "$tmp"
         rc=1
       fi
-    elif ! cmp -s -- "$meta" "${UNDO_AFTER[$index]}"; then
+    elif ! cmp -s -- "$meta" "$after"; then
       rc=1
     fi
-    release_meta_lock || rc=1
+    [ "$lock_held" -eq 1 ] || release_meta_lock || rc=1
+  done
+  return "$rc"
+}
+
+restore_undo_recovery() {
+  local i id rc=0
+  [ -n "$UNDO_RECOVERY_STAGE" ] || return 0
+  [ -d "$UNDO_RECOVERY_STAGE" ] || return 0
+  if [ ! -f "$RECORDS" ]; then
+    cp -p -- "$UNDO_RECOVERY_STAGE/records" "$RECORDS" || rc=1
+    chmod 0600 "$RECORDS" 2>/dev/null || rc=1
+  fi
+  if [ ! -d "$BACKUP_DIR" ]; then
+    mkdir -- "$BACKUP_DIR" || rc=1
+    chmod 0700 "$BACKUP_DIR" 2>/dev/null || rc=1
+  fi
+  for i in "${!UNDO_IDS[@]}"; do
+    id=${UNDO_IDS[$i]}
+    if [ ! -f "$BACKUP_DIR/$id.before" ]; then
+      cp -p -- "$UNDO_RECOVERY_STAGE/$id.before" "$BACKUP_DIR/$id.before" || rc=1
+    fi
+    if [ ! -f "$BACKUP_DIR/$id.after" ]; then
+      cp -p -- "$UNDO_RECOVERY_STAGE/$id.after" "$BACKUP_DIR/$id.after" || rc=1
+    fi
+    chmod 0600 "$BACKUP_DIR/$id.before" "$BACKUP_DIR/$id.after" 2>/dev/null || rc=1
   done
   return "$rc"
 }
@@ -435,7 +531,12 @@ undo_rollback_changed() {
 abort_undo() {
   local rc=1
   release_meta_lock || rc=1
+  if [ "$UNDO_LOCKS_HELD" -eq 0 ] && [ "$UNDO_LOCKS_ACQUIRING" -eq 1 ]; then
+    release_undo_locks || rc=1
+  fi
   undo_rollback_changed || rc=1
+  restore_undo_recovery || rc=1
+  release_undo_locks || rc=1
   return "$rc"
 }
 trap handle_signal HUP INT TERM
@@ -533,6 +634,11 @@ apply_migration() {
   done
 
   [ "$REPORT_WRITE_FAILED" -eq 0 ] || return 1
+  validate_recovery_namespace || return 1
+  [ "$RECOVERY_NAMESPACE_PRESENT" -eq 0 ] || {
+    echo "ENDPOINT_BINDING_MIGRATION: existing recovery evidence requires undo before migration; migration did not run" >&2
+    return 1
+  }
   if [ "${#STAMP_IDS[@]}" -eq 0 ]; then
     publish_report || return 1
     write_marker "$SCAN_MARKER" fm-endpoint-binding-migration-scan-v1 || return 1
@@ -545,10 +651,6 @@ apply_migration() {
   fi
 
   if [ -e "$RECORDS" ] || [ -L "$RECORDS" ]; then
-    private_file "$RECORDS" || {
-      echo "ENDPOINT_BINDING_MIGRATION: existing stamp journal is not a private regular file; migration did not run" >&2
-      return 1
-    }
     echo "ENDPOINT_BINDING_MIGRATION: an existing stamp journal requires undo before new stamps; migration did not run" >&2
     return 1
   fi
@@ -574,6 +676,26 @@ apply_migration() {
     chmod 0600 "${STAMP_BEFORE_FINAL[$i]}" "${STAMP_AFTER_FINAL[$i]}" || { remove_published_backups; return 1; }
   done
 
+  manifest_tmp=$(mktemp "$STATE/.endpoint-binding-records.XXXXXX") || { abort_apply 1; return $?; }
+  for i in "${!STAMP_IDS[@]}"; do
+    printf '%s\t%s\t%s\n' "${STAMP_IDS[$i]}" "${STAMP_IDS[$i]}.before" "${STAMP_IDS[$i]}.after" >> "$manifest_tmp" || {
+      rm -f -- "$manifest_tmp"
+      abort_apply 1
+      return $?
+    }
+  done
+  if ! chmod 0600 "$manifest_tmp"; then
+    rm -f -- "$manifest_tmp"
+    abort_apply 1
+    return $?
+  fi
+  if ! mv -f -- "$manifest_tmp" "$RECORDS"; then
+    rm -f -- "$manifest_tmp"
+    abort_apply 1
+    return $?
+  fi
+  RECORDS_PUBLISHED=1
+
   META_WRITE_STARTED=1
   for i in "${!STAMP_IDS[@]}"; do
     acquire_meta_lock "${STAMP_METAS[$i]}" || { abort_apply 1; return $?; }
@@ -596,25 +718,6 @@ apply_migration() {
     release_meta_lock || { abort_apply 1; return $?; }
   done
 
-  manifest_tmp=$(mktemp "$STATE/.endpoint-binding-records.XXXXXX") || { abort_apply 1; return $?; }
-  for i in "${!STAMP_IDS[@]}"; do
-    printf '%s\t%s\t%s\n' "${STAMP_IDS[$i]}" "${STAMP_IDS[$i]}.before" "${STAMP_IDS[$i]}.after" >> "$manifest_tmp" || {
-      rm -f -- "$manifest_tmp"
-      abort_apply 1
-      return $?
-    }
-  done
-  if ! chmod 0600 "$manifest_tmp"; then
-    rm -f -- "$manifest_tmp"
-    abort_apply 1
-    return $?
-  fi
-  if ! mv -f -- "$manifest_tmp" "$RECORDS"; then
-    rm -f -- "$manifest_tmp"
-    abort_apply 1
-    return $?
-  fi
-  RECORDS_PUBLISHED=1
   if ! publish_report; then abort_apply 1; return $?; fi
   if ! write_marker "$SCAN_MARKER" fm-endpoint-binding-migration-scan-v1; then abort_apply 1; return $?; fi
   if [ "$SKIPPED_LEGACY" -eq 0 ]; then
@@ -632,6 +735,9 @@ undo_migration() {
   UNDO_AFTER=()
   UNDO_TOUCHED=()
   UNDO_CHANGED=0
+  UNDO_RECOVERY_AFTER=()
+  UNDO_RECOVERY_BEFORE=()
+  UNDO_RECOVERY_STAGE=
   if [ ! -e "$RECORDS" ] && [ ! -L "$RECORDS" ]; then
     echo "ENDPOINT_BINDING_MIGRATION: no recorded stamps to undo"
     return 0
@@ -657,19 +763,16 @@ undo_migration() {
   done < "$RECORDS"
 
   UNDO_ACTIVE=1
+  acquire_undo_locks || { abort_undo; return $?; }
   for i in "${!UNDO_IDS[@]}"; do
-    acquire_meta_lock "${UNDO_METAS[$i]}" || { abort_undo; return $?; }
     if ! regular_file "${UNDO_METAS[$i]}"; then
-      release_meta_lock || true
       abort_undo
       return $?
     fi
     if cmp -s -- "${UNDO_METAS[$i]}" "${UNDO_BEFORE[$i]}"; then
-      release_meta_lock || { abort_undo; return $?; }
       continue
     fi
     if ! cmp -s -- "${UNDO_METAS[$i]}" "${UNDO_AFTER[$i]}"; then
-      release_meta_lock || true
       echo "ENDPOINT_BINDING_MIGRATION: undo refused for task ${UNDO_IDS[$i]}; metadata changed after stamping" >&2
       abort_undo
       return $?
@@ -677,32 +780,35 @@ undo_migration() {
     UNDO_CHANGED=$((i + 1))
     UNDO_TOUCHED[$i]=1
     tmp=$(mktemp "$STATE/.endpoint-binding-undo.XXXXXX") || {
-      release_meta_lock || true
       abort_undo
       return $?
     }
     if ! cp -p -- "${UNDO_BEFORE[$i]}" "$tmp" || ! mv -f -- "$tmp" "${UNDO_METAS[$i]}"; then
       rm -f -- "$tmp"
-      release_meta_lock || true
       abort_undo
       return $?
     fi
-    release_meta_lock || { abort_undo; return $?; }
   done
-  UNDO_ACTIVE=0
-  cleanup_stage=$(mktemp -d "$STATE/.endpoint-binding-undo-cleanup.XXXXXX") || return 1
+  cleanup_stage=$(mktemp -d "$STATE/.endpoint-binding-undo-cleanup.XXXXXX") || {
+    abort_undo
+    return 1
+  }
+  UNDO_RECOVERY_STAGE=$cleanup_stage
   if ! chmod 0700 "$cleanup_stage"; then
-    rmdir -- "$cleanup_stage" 2>/dev/null || true
+    abort_undo
     return 1
   fi
+  cp -p -- "$RECORDS" "$cleanup_stage/records" || { abort_undo; return 1; }
+  chmod 0600 "$cleanup_stage/records" || { abort_undo; return 1; }
   for id in "${UNDO_IDS[@]}"; do
     if ! cp -p -- "$BACKUP_DIR/$id.before" "$cleanup_stage/$id.before" \
       || ! cp -p -- "$BACKUP_DIR/$id.after" "$cleanup_stage/$id.after" \
       || ! chmod 0600 "$cleanup_stage/$id.before" "$cleanup_stage/$id.after"; then
-      rm -f -- "$cleanup_stage/$id.before" "$cleanup_stage/$id.after"
-      rmdir -- "$cleanup_stage" 2>/dev/null || true
+      abort_undo
       return 1
     fi
+    UNDO_RECOVERY_BEFORE+=("$cleanup_stage/$id.before")
+    UNDO_RECOVERY_AFTER+=("$cleanup_stage/$id.after")
   done
   cleanup_rc=0
   rm -f -- "$SCAN_MARKER" || cleanup_rc=1
@@ -718,22 +824,17 @@ undo_migration() {
   [ "$cleanup_rc" -eq 0 ] && rmdir -- "$BACKUP_DIR" 2>/dev/null || cleanup_rc=1
   [ "$cleanup_rc" -eq 0 ] && rm -f -- "$RECORDS" || cleanup_rc=1
   if [ "$cleanup_rc" -ne 0 ]; then
-    [ -d "$BACKUP_DIR" ] || mkdir -- "$BACKUP_DIR"
-    chmod 0700 "$BACKUP_DIR" 2>/dev/null || true
-    for id in "${UNDO_IDS[@]}"; do
-      if [ ! -f "$BACKUP_DIR/$id.before" ]; then
-        cp -p -- "$cleanup_stage/$id.before" "$BACKUP_DIR/$id.before" || cleanup_rc=1
-      fi
-      if [ ! -f "$BACKUP_DIR/$id.after" ]; then
-        cp -p -- "$cleanup_stage/$id.after" "$BACKUP_DIR/$id.after" || cleanup_rc=1
-      fi
-      chmod 0600 "$BACKUP_DIR/$id.before" "$BACKUP_DIR/$id.after" 2>/dev/null || cleanup_rc=1
-    done
-    rm -f -- "$cleanup_stage"/*
+    restore_undo_recovery || cleanup_rc=1
+    rm -f -- "$cleanup_stage"/* || true
     rmdir -- "$cleanup_stage" 2>/dev/null || true
+    UNDO_RECOVERY_STAGE=
+    release_undo_locks || true
     echo "ENDPOINT_BINDING_MIGRATION: undo restored metadata but cleanup failed; migration evidence was retained" >&2
     return 1
   fi
+  UNDO_ACTIVE=0
+  release_undo_locks || return 1
+  UNDO_RECOVERY_STAGE=
   rm -f -- "$cleanup_stage"/* || return 1
   rmdir -- "$cleanup_stage" || return 1
   printf 'ENDPOINT_BINDING_MIGRATION: undid %s stamp(s)\n' "${#UNDO_IDS[@]}"
