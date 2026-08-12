@@ -1029,6 +1029,50 @@ SH
   pass 'endpoint binding migration reruns after partial journal publication'
 }
 
+test_partial_merged_journal_reruns_apply() {
+  local dir out old_records stage
+  dir=$(make_case partial-merged-journal)
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  run_locked "$dir" >/dev/null || fail 'initial migration for partial merge failed'
+  old_records=$(mktemp "$dir/old-records.XXXXXX")
+  cp "$dir/home/state/.endpoint-binding-migration-records-v1" "$old_records"
+  fm_write_meta "$dir/home/state/good2.meta" \
+    'window=firstmate:fm-good2' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  stage="$dir/home/state/.endpoint-binding-stage.partial-merge"
+  mkdir "$stage"
+  chmod 0700 "$stage"
+  cp "$old_records" "$stage/records.before"
+  printf '%s\n' $'good2\tgood2.before\tgood2.after' > "$stage/records"
+  cp "$dir/home/state/good2.meta" "$stage/good2.before"
+  cp "$dir/home/state/good2.meta" "$stage/good2.after"
+  printf 'endpoint_task_id=good2\n' >> "$stage/good2.after"
+  chmod 0600 "$stage"/*
+  cp "$old_records" "$dir/home/state/.endpoint-binding-migration-records-v1"
+  printf '%s\n' $'good2\tgood2.before\tgood2.after' >> \
+    "$dir/home/state/.endpoint-binding-migration-records-v1"
+  cp "$stage/good2.before" \
+    "$dir/home/state/.endpoint-binding-migration-backups/good2.before"
+  cp "$stage/good2.after" \
+    "$dir/home/state/.endpoint-binding-migration-backups/good2.after"
+  chmod 0600 "$dir/home/state/.endpoint-binding-migration-backups/good2.before" \
+    "$dir/home/state/.endpoint-binding-migration-backups/good2.after"
+  out=$(run_locked "$dir") || fail "partial merged journal restart failed: $out"
+  assert_contains "$out" 'stamped 1' 'partial merged journal restart skipped the eligible record'
+  assert_contains "$(cat "$dir/home/state/good2.meta")" 'endpoint_task_id=good2' \
+    'partial merged journal restart did not rerun the stamp'
+  grep -q $'^good\t' "$dir/home/state/.endpoint-binding-migration-records-v1" \
+    || fail 'partial merged journal rollback did not preserve old provenance'
+  out=$(run_locked "$dir" --undo) || fail "partial merged journal undo failed: $out"
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
+    || fail 'partial merged journal undo did not restore old metadata'
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/good2.meta" \
+    || fail 'partial merged journal undo did not restore new metadata'
+  pass 'endpoint binding migration reruns after partial merged journal publication'
+}
+
 test_orphaned_backups_are_recovered_on_restart() {
   local dir out stage
   dir=$(make_case orphaned-backups)
@@ -1367,6 +1411,7 @@ test_rollback_rejects_replaced_backup_directory_symlink
 test_recovery_journal_copy_is_atomic
 test_crash_after_manifest_preserves_undo_path
 test_partial_published_journal_reruns_apply
+test_partial_merged_journal_reruns_apply
 test_orphaned_backups_are_recovered_on_restart
 test_no_stamp_validates_existing_recovery_namespace
 test_journal_cleanup_failure_retains_recovery_bytes
