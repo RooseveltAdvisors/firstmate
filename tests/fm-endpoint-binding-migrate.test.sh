@@ -390,6 +390,54 @@ SH
   pass 'endpoint binding migration backfills verified live legacy Herdr endpoints'
 }
 
+test_duplicate_herdr_endpoint_is_ambiguous() {
+  local dir out report
+  dir=$(make_case duplicate-herdr-endpoint)
+  cat > "$dir/fakebin/herdr" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}:${2:-}" in
+  status:--json)
+    printf '%s\n' '{"server":{"running":true}}'
+    ;;
+  pane:get)
+    printf '{"result":{"pane":{"pane_id":"%s","foreground_cwd":"%s"}}}\n' \
+      "${3:-}" "${FM_HERDR_LIVE_WORKTREE:?}"
+    ;;
+  agent:get)
+    printf '%s\n' '{"result":{"agent":{"agent_status":"idle"}}}'
+    ;;
+  *) exit 1 ;;
+esac
+SH
+  chmod +x "$dir/fakebin/herdr"
+  fm_write_meta "$dir/home/state/herdr-one.meta" \
+    'window=lab:w1:p2' 'backend=herdr' 'herdr_session=lab' \
+    'herdr_workspace_id=w1' 'herdr_tab_id=w1:t1' 'herdr_pane_id=w1:p2' \
+    "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  fm_write_meta "$dir/home/state/herdr-two.meta" \
+    'window=lab:w1:p2' 'backend=herdr' 'herdr_session=lab' \
+    'herdr_workspace_id=w1' 'herdr_tab_id=w1:t1' 'herdr_pane_id=w1:p2' \
+    "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  out=$(FM_HERDR_LIVE_WORKTREE="$dir/worktree" run_locked "$dir") \
+    || fail "duplicate Herdr endpoint migration failed: $out"
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/herdr-one.meta" \
+    || fail 'first duplicate Herdr endpoint record was stamped'
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/herdr-two.meta" \
+    || fail 'second duplicate Herdr endpoint record was stamped'
+  report=$(cat "$dir/home/state/.endpoint-binding-migration.log")
+  assert_contains "$report" \
+    'task herdr-one: skipped - ambiguous live endpoint identity is claimed by multiple legacy records' \
+    'first duplicate Herdr endpoint record was not reported as ambiguous'
+  assert_contains "$report" \
+    'task herdr-two: skipped - ambiguous live endpoint identity is claimed by multiple legacy records' \
+    'second duplicate Herdr endpoint record was not reported as ambiguous'
+  [ ! -e "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
+    || fail 'duplicate Herdr endpoint records published recovery provenance'
+  [ ! -e "$dir/home/state/.endpoint-binding-migration-v1" ] \
+    || fail 'duplicate Herdr endpoint records published completion evidence'
+  pass 'endpoint binding migration rejects duplicate Herdr endpoint identities'
+}
+
 test_herdr_liveness_is_rechecked_without_server_ensure() {
   local dir out report
   dir=$(make_case herdr-dies-during-path-check)
@@ -2750,6 +2798,7 @@ test_tmux_session_prefix_is_not_an_exact_endpoint
 test_tmux_name_reuse_requires_recorded_worktree
 test_tmux_liveness_is_rechecked_after_worktree_read
 test_live_legacy_herdr_endpoint_is_backfilled
+test_duplicate_herdr_endpoint_is_ambiguous
 test_herdr_liveness_is_rechecked_without_server_ensure
 test_staged_binding_assembly_does_not_follow_symlinks
 test_unresolved_existing_bindings_remove_completion_marker
