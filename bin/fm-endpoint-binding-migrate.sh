@@ -650,6 +650,13 @@ file_descriptor_identity() {
   esac
 }
 
+file_descriptor_mode() {
+  case "$(uname 2>/dev/null || true)" in
+    Darwin) stat -L -f '%Lp' "$1" ;;
+    *) stat -L -c '%a' "$1" ;;
+  esac
+}
+
 copy_to_new_private_file() {
   local source=$1 destination=$2 source_type=${3:-private} binding_id=${4:-}
   local append_line=${5:-} append_source=${6:-} append_source_type=${7:-private}
@@ -743,38 +750,56 @@ copy_to_new_private_file() {
   [ "$(path_file_identity "$destination" 2>/dev/null)" = "$destination_identity" ]
 }
 
-copy_private_atomic() {
+copy_private_atomic() (
   local source=$1 destination=$2 destination_type=${3:-private} source_type=${4:-private} binding_id=${5:-}
   local append_line=${6:-} append_source=${7:-} append_source_type=${8:-private}
   local append_skip=${9:-0} append_separator=${10:-0}
-  local source_dir destination_dir destination_name source_real destination_real tmp rc
+  local source_dir source_name destination_dir destination_name source_real destination_real tmp rc
   local source_parent source_base source_expected destination_parent destination_base destination_expected tmp_identity
-  local append_source_dir append_source_parent append_source_base append_source_expected append_source_real
+  local source_dir_identity source_fd_identity
+  local append_source_dir append_source_name append_source_parent append_source_base
+  local append_source_expected append_source_real append_dir_identity append_fd_identity
   source_dir=${source%/*}
+  source_name=${source##*/}
   [ -L "$source_dir" ] && return 1
   source_parent=${source_dir%/*}
   source_base=${source_dir##*/}
   source_expected=$(cd -P -- "$source_parent" && pwd -P)/$source_base || return 1
+  exec 3< "$source_dir" || return 1
+  [ -d /dev/fd/3 ] || return 1
+  source_dir_identity=$(path_file_identity "$source_dir" 2>/dev/null) || return 1
+  source_fd_identity=$(file_descriptor_identity /dev/fd/3 2>/dev/null) || return 1
+  [ "$source_dir_identity" = "$source_fd_identity" ] || return 1
+  [ ! -L "$source_dir" ] || return 1
   if [ "$source_dir" = "$STATE" ]; then
-    [ -d "$source_dir" ] && [ ! -L "$source_dir" ] || return 1
+    [ -d "$source_dir" ] || return 1
   else
-    private_directory "$source_dir" || return 1
+    [ "$(file_descriptor_mode /dev/fd/3 2>/dev/null)" = 700 ] || return 1
   fi
-  source_real=$(cd -P -- "$source_dir" && pwd -P) || return 1
+  source_real=$(cd -P -- /dev/fd/3 && pwd -P) || return 1
   [ "$source_real" = "$source_expected" ] || return 1
+  source="/dev/fd/3/$source_name"
   if [ -n "$append_source" ]; then
     append_source_dir=${append_source%/*}
+    append_source_name=${append_source##*/}
     [ -L "$append_source_dir" ] && return 1
     append_source_parent=${append_source_dir%/*}
     append_source_base=${append_source_dir##*/}
     append_source_expected=$(cd -P -- "$append_source_parent" && pwd -P)/$append_source_base || return 1
+    exec 4< "$append_source_dir" || return 1
+    [ -d /dev/fd/4 ] || return 1
+    append_dir_identity=$(path_file_identity "$append_source_dir" 2>/dev/null) || return 1
+    append_fd_identity=$(file_descriptor_identity /dev/fd/4 2>/dev/null) || return 1
+    [ "$append_dir_identity" = "$append_fd_identity" ] || return 1
+    [ ! -L "$append_source_dir" ] || return 1
     if [ "$append_source_dir" = "$STATE" ]; then
-      [ -d "$append_source_dir" ] && [ ! -L "$append_source_dir" ] || return 1
+      [ -d "$append_source_dir" ] || return 1
     else
-      private_directory "$append_source_dir" || return 1
+      [ "$(file_descriptor_mode /dev/fd/4 2>/dev/null)" = 700 ] || return 1
     fi
-    append_source_real=$(cd -P -- "$append_source_dir" && pwd -P) || return 1
+    append_source_real=$(cd -P -- /dev/fd/4 && pwd -P) || return 1
     [ "$append_source_real" = "$append_source_expected" ] || return 1
+    append_source="/dev/fd/4/$append_source_name"
   fi
   destination_dir=${destination%/*}
   destination_name=${destination##*/}
@@ -831,7 +856,7 @@ copy_private_atomic() {
   rc=$?
   [ "$rc" -eq 0 ] || rm -f -- "$tmp"
   return "$rc"
-}
+)
 
 append_private_line_atomic() {
   copy_private_atomic "$1" "$1" private private '' "$2"
@@ -852,11 +877,13 @@ initialize_private_file() {
 }
 
 write_completed_stage() {
-  local stage=$1 tmp rc=0
+  local stage=$1 control tmp rc=0
   private_directory "$stage" || return 1
+  control="$stage/.control"
+  private_directory "$control" || return 1
   tmp=$(mktemp "$STATE/.endpoint-binding-completed.XXXXXX") || return 1
   if ! private_file "$tmp" || ! append_private_line_atomic "$tmp" completed \
-    || ! copy_private_atomic "$tmp" "$stage/completed"; then
+    || ! copy_private_atomic "$tmp" "$control/completed"; then
     rc=1
   fi
   rm -f -- "$tmp" || true
@@ -874,23 +901,40 @@ restore_existing_records() {
 }
 
 remove_stage_directory() {
-  local stage=$1 stage_parent stage_base stage_expected path
+  local stage=$1 stage_parent stage_base stage_expected control_expected path
   [ -L "$stage" ] && return 1
   [ -d "$stage" ] || return 1
   stage_parent=${stage%/*}
   stage_base=${stage##*/}
   stage_expected=$(cd -P -- "$stage_parent" && pwd -P)/$stage_base || return 1
+  control_expected="$stage_expected/.control"
   (
     cd -P -- "$stage" || exit 1
     [ "$(pwd -P)" = "$stage_expected" ] || exit 1
     for path in ./* ./.??*; do
       [ -e "$path" ] || [ -L "$path" ] || continue
-      [ "${path##*/}" = completed ] && continue
+      [ "$path" = ./.control ] && continue
+      [ ! -d "$path" ] || exit 1
       rm -f -- "$path" || exit 1
     done
-    if [ -e ./completed ] || [ -L ./completed ]; then
-      private_file ./completed || exit 1
-      rm -f -- ./completed || exit 1
+    if [ -e ./.control ] || [ -L ./.control ]; then
+      [ ! -L ./.control ] && [ -d ./.control ] || exit 1
+      (
+        cd -P -- ./.control || exit 1
+        [ "$(pwd -P)" = "$control_expected" ] || exit 1
+        private_directory . || exit 1
+        for path in ./* ./.??*; do
+          [ -e "$path" ] || [ -L "$path" ] || continue
+          [ "${path##*/}" = completed ] && continue
+          [ ! -d "$path" ] || exit 1
+          rm -f -- "$path" || exit 1
+        done
+        if [ -e ./completed ] || [ -L ./completed ]; then
+          private_file ./completed || exit 1
+          rm -f -- ./completed || exit 1
+        fi
+      ) || exit 1
+      rmdir -- ./.control || exit 1
     fi
   ) || return 1
   [ -L "$stage" ] && return 1
@@ -905,7 +949,6 @@ cleanup_incomplete_apply_stage() {
     [ -e "$path" ] || [ -L "$path" ] || continue
     base=${path##*/}
     case "$base" in
-      report.*|records|evidence) continue ;;
       *.before)
         id=${base%.before}
         valid_task_id "$id" || return 1
@@ -950,20 +993,22 @@ cleanup_incomplete_apply_stage() {
 }
 
 recover_existing_apply_stage() {
-  local stage=$1 id before_name after_name extra merged_tmp merged_published=0
+  local stage=$1 id before_name after_name extra merged_tmp merged_published=0 control
   local -a ids=()
   private_directory "$stage" || return 1
+  control="$stage/.control"
+  private_directory "$control" || return 1
   nonempty_private_file "$RECORDS" || return 1
-  private_file "$stage/records" || return 1
-  private_file "$stage/records.before" || return 1
+  private_file "$control/records" || return 1
+  private_file "$control/records.before" || return 1
   merged_tmp=$(mktemp "$STATE/.endpoint-binding-merge-check.XXXXXX") || return 1
   if ! private_file "$merged_tmp" \
-    || ! copy_private_atomic "$stage/records.before" "$merged_tmp" \
-    || ! append_private_file_atomic "$merged_tmp" "$stage/records"; then
+    || ! copy_private_atomic "$control/records.before" "$merged_tmp" \
+    || ! append_private_file_atomic "$merged_tmp" "$control/records"; then
     rm -f -- "$merged_tmp"
     return 1
   fi
-  if cmp -s -- "$RECORDS" "$stage/records.before"; then
+  if cmp -s -- "$RECORDS" "$control/records.before"; then
     while IFS=$'\t' read -r id before_name after_name extra || [ -n "${id:-}${before_name:-}${after_name:-}${extra:-}" ]; do
       [ -n "${id:-}" ] && [ -z "${extra:-}" ] || {
         rm -f -- "$merged_tmp"
@@ -978,7 +1023,7 @@ recover_existing_apply_stage() {
         return 1
       }
       ids+=("$id")
-    done < "$stage/records"
+    done < "$control/records"
     require_recovery_session_lock || {
       rm -f -- "$merged_tmp"
       return 1
@@ -1008,7 +1053,7 @@ recover_existing_apply_stage() {
         return 1
       }
       recorded_id_add "$id"
-    done < "$stage/records.before"
+    done < "$control/records.before"
     while IFS=$'\t' read -r id before_name after_name extra || [ -n "${id:-}${before_name:-}${after_name:-}${extra:-}" ]; do
       [ -n "${id:-}" ] && [ -z "${extra:-}" ] || {
         rm -f -- "$merged_tmp"
@@ -1029,7 +1074,7 @@ recover_existing_apply_stage() {
       fi
       ids+=("$id")
       recorded_id_add "$id"
-    done < "$stage/records"
+    done < "$control/records"
     acquire_merge_locks 1 || {
       rm -f -- "$merged_tmp"
       return 1
@@ -1047,7 +1092,7 @@ recover_existing_apply_stage() {
         rm -f -- "$merged_tmp"
         return 1
       fi
-    done < "$stage/records"
+    done < "$control/records"
     require_recovery_session_lock || {
       release_merge_locks || true
       rm -f -- "$merged_tmp"
@@ -1069,7 +1114,7 @@ recover_existing_apply_stage() {
       rm -f -- "$merged_tmp"
       return 1
     }
-    copy_private_atomic "$stage/records.before" "$RECORDS" || {
+    copy_private_atomic "$control/records.before" "$RECORDS" || {
       release_merge_locks || true
       rm -f -- "$merged_tmp"
       return 1
@@ -1116,11 +1161,13 @@ recover_existing_apply_stage() {
 }
 
 cleanup_pre_manifest_apply_stage() {
-  local stage=$1
+  local stage=$1 control
   private_directory "$stage" || return 1
+  control="$stage/.control"
+  private_directory "$control" || return 1
   nonempty_private_file "$RECORDS" || return 1
-  private_file "$stage/records" || return 1
-  if cmp -s -- "$RECORDS" "$stage/records"; then
+  private_file "$control/records" || return 1
+  if cmp -s -- "$RECORDS" "$control/records"; then
     recover_partial_apply_stage "$stage"
   else
     require_recovery_session_lock || return 1
@@ -1131,12 +1178,14 @@ cleanup_pre_manifest_apply_stage() {
 }
 
 recover_partial_apply_stage() {
-  local stage=$1 id before_name after_name extra meta
+  local stage=$1 id before_name after_name extra meta control
   local -a ids=()
   private_directory "$stage" || return 1
+  control="$stage/.control"
+  private_directory "$control" || return 1
   nonempty_private_file "$RECORDS" || return 1
-  private_file "$stage/records" || return 1
-  cmp -s -- "$RECORDS" "$stage/records" || return 1
+  private_file "$control/records" || return 1
+  cmp -s -- "$RECORDS" "$control/records" || return 1
   while IFS=$'\t' read -r id before_name after_name extra || [ -n "${id:-}${before_name:-}${after_name:-}${extra:-}" ]; do
     [ -n "${id:-}" ] && [ -z "${extra:-}" ] || return 1
     valid_task_id "$id" || return 1
@@ -1158,7 +1207,7 @@ recover_partial_apply_stage() {
       RECOVERY_REQUIRED=1
       return 1
     }
-  done < "$stage/records"
+  done < "$control/records"
   require_recovery_session_lock || return 1
   restore_stage_evidence "$stage" || {
     RECOVERY_REQUIRED=1
@@ -1211,16 +1260,19 @@ recover_apply_stage() {
     [ -L "$stage" ] && return 1
     [ -d "$stage" ] || continue
     private_directory "$stage" || return 1
-    if [ -e "$stage/completed" ] || [ -L "$stage/completed" ]; then
-      private_file "$stage/completed" || return 1
+    if [ -e "$stage/.control" ] || [ -L "$stage/.control" ]; then
+      private_directory "$stage/.control" || return 1
+    fi
+    if [ -e "$stage/.control/completed" ] || [ -L "$stage/.control/completed" ]; then
+      private_file "$stage/.control/completed" || return 1
       require_recovery_session_lock || return 1
       remove_completed_stage "$stage" || return 1
       continue
     fi
     if [ -e "$RECORDS" ] || [ -L "$RECORDS" ]; then
-      if [ -e "$stage/records.before" ] || [ -L "$stage/records.before" ]; then
+      if [ -e "$stage/.control/records.before" ] || [ -L "$stage/.control/records.before" ]; then
         recover_existing_apply_stage "$stage" || return 1
-      elif [ -e "$stage/records" ] || [ -L "$stage/records" ]; then
+      elif [ -e "$stage/.control/records" ] || [ -L "$stage/.control/records" ]; then
         cleanup_pre_manifest_apply_stage "$stage" || return 1
       else
         require_recovery_session_lock || return 1
@@ -1242,7 +1294,7 @@ abort_apply() {
   APPLY_ABORTED=1
   release_meta_lock || rc=1
   if [ "$APPLY_COMMITTED" -eq 1 ] \
-    || { [ -n "$STAGE_DIR" ] && private_file "$STAGE_DIR/completed"; }; then
+    || { [ -n "$STAGE_DIR" ] && private_file "$STAGE_DIR/.control/completed"; }; then
     APPLY_COMMITTED=1
     RECOVERY_REQUIRED=0
     release_merge_locks || rc=1
@@ -1311,7 +1363,7 @@ snapshot_evidence_file() {
   local destination=$1 label=$2 snapshot
   if [ -e "$destination" ] || [ -L "$destination" ]; then
     [ -f "$destination" ] && [ ! -L "$destination" ] || return 1
-    snapshot="$STAGE_DIR/$label.before"
+    snapshot="$STAGE_DIR/.control/$label.before"
     snapshot_regular_atomic "$destination" "$snapshot" || return 1
     case "$label" in
       report) REPORT_BEFORE=$snapshot; REPORT_PRESENT=1; REPORT_SNAPSHOT_READY=1 ;;
@@ -1334,12 +1386,12 @@ prepare_evidence() {
   snapshot_evidence_file "$REPORT" report || return 1
   snapshot_evidence_file "$SCAN_MARKER" scan-marker || return 1
   snapshot_evidence_file "$MARKER" marker || return 1
-  evidence_tmp=$(mktemp "$STAGE_DIR/report.evidence.XXXXXX") || return 1
+  evidence_tmp=$(mktemp "$STAGE_DIR/.control/report.evidence.XXXXXX") || return 1
   if ! private_file "$evidence_tmp" \
     || ! append_private_line_atomic "$evidence_tmp" $'report\t'"$REPORT_PRESENT" \
     || ! append_private_line_atomic "$evidence_tmp" $'scan-marker\t'"$SCAN_MARKER_PRESENT" \
     || ! append_private_line_atomic "$evidence_tmp" $'marker\t'"$MARKER_PRESENT" \
-    || ! copy_private_atomic "$evidence_tmp" "$STAGE_DIR/evidence"; then
+    || ! copy_private_atomic "$evidence_tmp" "$STAGE_DIR/.control/evidence"; then
     rm -f -- "$evidence_tmp"
     return 1
   fi
@@ -1356,10 +1408,12 @@ restore_evidence_file() {
 }
 
 restore_stage_evidence() {
-  local stage=$1 label present extra destination count=0
+  local stage=$1 label present extra destination count=0 control
   local seen_report=0 seen_scan_marker=0 seen_marker=0
-  [ -e "$stage/evidence" ] || [ -L "$stage/evidence" ] || return 0
-  private_file "$stage/evidence" || return 1
+  control="$stage/.control"
+  [ -e "$control/evidence" ] || [ -L "$control/evidence" ] || return 0
+  private_directory "$control" || return 1
+  private_file "$control/evidence" || return 1
   while IFS=$'\t' read -r label present extra || [ -n "${label:-}${present:-}${extra:-}" ]; do
     [ -n "${label:-}" ] && [ -z "${extra:-}" ] || return 1
     case "$label" in
@@ -1382,13 +1436,13 @@ restore_stage_evidence() {
     esac
     [ "$present" = 0 ] || [ "$present" = 1 ] || return 1
     if [ "$present" = 1 ]; then
-      private_file "$stage/$label.before" || return 1
-      restore_evidence_file "$destination" "$stage/$label.before" 1 || return 1
+      private_file "$control/$label.before" || return 1
+      restore_evidence_file "$destination" "$control/$label.before" 1 || return 1
     else
       restore_evidence_file "$destination" '' 0 || return 1
     fi
     count=$((count + 1))
-  done < "$stage/evidence"
+  done < "$control/evidence"
   [ "$count" -eq 3 ] || return 1
   [ "$seen_report" -eq 1 ] && [ "$seen_scan_marker" -eq 1 ] && [ "$seen_marker" -eq 1 ]
 }
@@ -1508,11 +1562,12 @@ restore_undo_recovery() {
   [ -L "$UNDO_RECOVERY_STAGE" ] && return 1
   [ -d "$UNDO_RECOVERY_STAGE" ] || return 0
   private_directory "$UNDO_RECOVERY_STAGE" || return 1
-  private_file "$UNDO_RECOVERY_STAGE/records" || return 1
+  private_directory "$UNDO_RECOVERY_STAGE/.control" || return 1
+  private_file "$UNDO_RECOVERY_STAGE/.control/records" || return 1
   if [ -e "$RECORDS" ] || [ -L "$RECORDS" ]; then
     private_file "$RECORDS" || rc=1
   else
-    copy_private_atomic "$UNDO_RECOVERY_STAGE/records" "$RECORDS" || rc=1
+    copy_private_atomic "$UNDO_RECOVERY_STAGE/.control/records" "$RECORDS" || rc=1
   fi
   if [ -e "$BACKUP_DIR" ] || [ -L "$BACKUP_DIR" ]; then
     private_directory "$BACKUP_DIR" || rc=1
@@ -1553,7 +1608,7 @@ remove_completed_stage() {
 }
 
 recover_undo_stage() {
-  local stage id before_name after_name extra rc=0 i meta current undone
+  local stage id before_name after_name extra rc=0 i meta current undone control
   local -a ids=() before_names=() after_names=()
   if [ -e "$RECORDS" ] || [ -L "$RECORDS" ]; then
     nonempty_private_file "$RECORDS" || return 1
@@ -1562,19 +1617,23 @@ recover_undo_stage() {
     [ -L "$stage" ] && return 1
     [ -d "$stage" ] || continue
     private_directory "$stage" || return 1
-    if [ -e "$stage/completed" ] || [ -L "$stage/completed" ]; then
-      private_file "$stage/completed" || return 1
+    control="$stage/.control"
+    if [ -e "$control" ] || [ -L "$control" ]; then
+      private_directory "$control" || return 1
+    fi
+    if [ -e "$control/completed" ] || [ -L "$control/completed" ]; then
+      private_file "$control/completed" || return 1
       require_recovery_session_lock || return 1
       remove_completed_stage "$stage" || return 1
       continue
     fi
-    if [ ! -e "$stage/records" ] && [ ! -L "$stage/records" ]; then
+    if [ ! -e "$control/records" ] && [ ! -L "$control/records" ]; then
       validate_recovery_namespace || return 1
       require_recovery_session_lock || return 1
       remove_stage_directory "$stage" || return 1
       continue
     fi
-    nonempty_private_file "$stage/records" || return 1
+    nonempty_private_file "$control/records" || return 1
     ids=()
     before_names=()
     after_names=()
@@ -1586,14 +1645,14 @@ recover_undo_stage() {
       ids+=("$id")
       before_names+=("$before_name")
       after_names+=("$after_name")
-    done < "$stage/records"
+    done < "$control/records"
     require_recovery_session_lock || return 1
     if [ -e "$RECORDS" ] || [ -L "$RECORDS" ]; then
-      if ! private_file "$RECORDS" || ! cmp -s -- "$RECORDS" "$stage/records"; then
+      if ! private_file "$RECORDS" || ! cmp -s -- "$RECORDS" "$control/records"; then
         return 1
       fi
     else
-      copy_private_atomic "$stage/records" "$RECORDS" || rc=1
+      copy_private_atomic "$control/records" "$RECORDS" || rc=1
     fi
     if [ -e "$BACKUP_DIR" ] || [ -L "$BACKUP_DIR" ]; then
       private_directory "$BACKUP_DIR" || return 1
@@ -1638,6 +1697,10 @@ recover_undo_stage() {
           if cmp -s -- "$meta" "$current"; then
             :
           elif cmp -s -- "$meta" "$undone"; then
+            require_recovery_session_lock || {
+              release_undo_locks || true
+              return 1
+            }
             replace_metadata_from_private "$current" "$meta" || {
               release_undo_locks || true
               return 1
@@ -1691,7 +1754,9 @@ apply_migration() {
   recover_apply_stage || return 1
   STAGE_DIR=$(mktemp -d "$STATE/.endpoint-binding-stage.XXXXXX") || return 1
   private_directory "$STAGE_DIR" || return 1
-  REPORT_TMP=$(mktemp "$STAGE_DIR/report.XXXXXX") || return 1
+  mkdir -- "$STAGE_DIR/.control" || return 1
+  private_directory "$STAGE_DIR/.control" || return 1
+  REPORT_TMP=$(mktemp "$STAGE_DIR/.control/report.XXXXXX") || return 1
   private_file "$REPORT_TMP" || return 1
   prepare_evidence || return 1
   validate_recovery_namespace || return 1
@@ -1852,7 +1917,7 @@ apply_migration() {
     fi
     record_outcome "task ${STAMP_IDS[$i]}: stamped - exact live endpoint identity verified" || return 1
   done
-  stage_records="$STAGE_DIR/records"
+  stage_records="$STAGE_DIR/.control/records"
   initialize_private_file "$stage_records" || return 1
   for i in "${!STAMP_IDS[@]}"; do
     [ "${STAMP_SELECTED[$i]:-0}" -eq 1 ] || continue
@@ -1891,7 +1956,7 @@ apply_migration() {
 
   if [ "$RECOVERY_NAMESPACE_PRESENT" -eq 1 ]; then
     RECORDS_EXISTING=1
-    RECORDS_BEFORE="$STAGE_DIR/records.before"
+    RECORDS_BEFORE="$STAGE_DIR/.control/records.before"
     if ! copy_private_atomic "$RECORDS" "$RECORDS_BEFORE"; then
       RECORDS_BEFORE=
       return 1
@@ -2092,7 +2157,9 @@ undo_migration() {
     return 1
   }
   UNDO_RECOVERY_STAGE=$cleanup_stage
-  if ! private_directory "$cleanup_stage"; then
+  if ! private_directory "$cleanup_stage" \
+    || ! mkdir -- "$cleanup_stage/.control" \
+    || ! private_directory "$cleanup_stage/.control"; then
     abort_undo
     return 1
   fi
@@ -2103,7 +2170,7 @@ undo_migration() {
       return 1
     fi
   done
-  copy_private_atomic "$RECORDS" "$cleanup_stage/records" || { abort_undo; return 1; }
+  copy_private_atomic "$RECORDS" "$cleanup_stage/.control/records" || { abort_undo; return 1; }
   for i in "${!UNDO_IDS[@]}"; do
     meta=${UNDO_METAS[$i]}
     if [ ! -e "$meta" ] && [ ! -L "$meta" ]; then
