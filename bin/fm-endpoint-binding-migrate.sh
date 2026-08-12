@@ -247,6 +247,8 @@ STAMP_IDS=()
 STAMP_METAS=()
 STAMP_BEFORE=()
 STAMP_AFTER=()
+STAMP_BACKENDS=()
+STAMP_TARGETS=()
 STAMP_BEFORE_FINAL=()
 STAMP_AFTER_FINAL=()
 STAMP_SELECTED=()
@@ -1565,7 +1567,7 @@ restart_apply_scan() {
 
 apply_migration() {
   local meta id base binding_count binding validation before after before_final after_final
-  local i manifest_tmp selected_count stage_records
+  local backend target i j duplicate manifest_tmp selected_count stage_records
   local -a metas
   require_session_lock || return 1
   recover_apply_stage || return 1
@@ -1657,6 +1659,8 @@ apply_migration() {
       SKIPPED_LEGACY=1
       continue
     fi
+    backend=$FM_BACKEND_VALIDATED_BACKEND
+    target=$FM_BACKEND_VALIDATED_TARGET
     validation=$(fm_backend_validate_task_endpoint "$after" "$id" 2>&1) || {
       record_outcome "task $id: skipped - staged binding failed shared validation: $(reason_one_line "$validation")"
       if [ "$REPORT_WRITE_FAILED" -eq 1 ]; then
@@ -1673,15 +1677,35 @@ apply_migration() {
     STAMP_METAS+=("$meta")
     STAMP_BEFORE+=("$before")
     STAMP_AFTER+=("$after")
+    STAMP_BACKENDS+=("$backend")
+    STAMP_TARGETS+=("$target")
     STAMP_SELECTED+=(1)
     STAMP_BEFORE_FINAL+=("$before_final")
     STAMP_AFTER_FINAL+=("$after_final")
     release_meta_lock || return 1
   done
 
+  for i in "${!STAMP_IDS[@]}"; do
+    duplicate=0
+    for j in "${!STAMP_IDS[@]}"; do
+      [ "$i" = "$j" ] && continue
+      if [ "${STAMP_BACKENDS[$i]}" = "${STAMP_BACKENDS[$j]}" ] \
+        && [ "${STAMP_TARGETS[$i]}" = "${STAMP_TARGETS[$j]}" ]; then
+        duplicate=1
+        break
+      fi
+    done
+    if [ "$duplicate" -eq 1 ]; then
+      STAMP_SELECTED[i]=0
+      SKIPPED_LEGACY=1
+      record_outcome "task ${STAMP_IDS[$i]}: skipped - ambiguous live endpoint identity is claimed by multiple legacy records" || return 1
+    fi
+  done
+
   [ "$REPORT_WRITE_FAILED" -eq 0 ] || return 1
   acquire_apply_locks || return 1
   for i in "${!STAMP_IDS[@]}"; do
+    [ "${STAMP_SELECTED[$i]:-0}" -eq 1 ] || continue
     if ! regular_file "${STAMP_METAS[$i]}" || ! cmp -s -- "${STAMP_METAS[$i]}" "${STAMP_BEFORE[$i]}"; then
       restart_apply_scan
       return $?
