@@ -138,8 +138,33 @@ reason_one_line() {
   printf '%s' "$encoded"
 }
 
+record_endpoint_state_refusal() {
+  local id=$1 backend=$2 state=$3
+  case "$state" in
+    dead)
+      record_outcome "task $id: skipped - dead endpoint (no verified agent is running)"
+      ;;
+    missing)
+      record_outcome "task $id: skipped - dead endpoint (recorded target is missing)"
+      ;;
+    ambiguous)
+      record_outcome "task $id: skipped - ambiguous live endpoint identity"
+      ;;
+    unreadable)
+      record_outcome "task $id: skipped - endpoint identity is unreadable"
+      ;;
+    unverified)
+      record_outcome "task $id: skipped - backend '$backend' has no verified endpoint identity"
+      ;;
+    *)
+      record_outcome "task $id: skipped - endpoint identity returned unexpected state '$state'"
+      ;;
+  esac
+  return 1
+}
+
 verify_live_task_worktree() {
-  local meta=$1 id=$2 backend=$3 target=$4 recorded live recorded_real live_real exact_target
+  local meta=$1 id=$2 backend=$3 target=$4 recorded live recorded_real live_real exact_target state
   recorded=$(fm_backend_meta_exact_value "$meta" worktree) || {
     record_outcome "task $id: skipped - recorded task worktree identity is unreadable"
     return 1
@@ -159,6 +184,11 @@ verify_live_task_worktree() {
         return 1
       }
       live=$(fm_backend_herdr_current_path "$target")
+      state=$(fm_backend_agent_state "$backend" "$target" 2>/dev/null || printf 'unreadable')
+      [ "$state" = alive ] || {
+        record_endpoint_state_refusal "$id" "$backend" "$state"
+        return 1
+      }
       ;;
     *)
       record_outcome "task $id: skipped - backend '$backend' has no verified legacy task worktree identity"
@@ -206,31 +236,11 @@ verify_legacy_endpoint() {
   # inventory check prevents tmux's absent-target fallback from inspecting the
   # active window, and its ambiguous/unreadable states never license a stamp.
   state=$(fm_backend_agent_state "$backend" "$target" 2>/dev/null || printf 'unreadable')
-  case "$state" in
-    alive)
-      verify_live_task_worktree "$meta" "$id" "$backend" "$target"
-      return $?
-      ;;
-    dead)
-      record_outcome "task $id: skipped - dead endpoint (no verified agent is running)"
-      ;;
-    missing)
-      record_outcome "task $id: skipped - dead endpoint (recorded target is missing)"
-      ;;
-    ambiguous)
-      record_outcome "task $id: skipped - ambiguous live endpoint identity"
-      ;;
-    unreadable)
-      record_outcome "task $id: skipped - endpoint identity is unreadable"
-      ;;
-    unverified)
-      record_outcome "task $id: skipped - backend '$backend' has no verified endpoint identity"
-      ;;
-    *)
-      record_outcome "task $id: skipped - endpoint identity returned unexpected state '$state'"
-      ;;
-  esac
-  return 1
+  if [ "$state" = alive ]; then
+    verify_live_task_worktree "$meta" "$id" "$backend" "$target"
+    return $?
+  fi
+  record_endpoint_state_refusal "$id" "$backend" "$state"
 }
 
 STAGE_DIR=
@@ -1502,6 +1512,23 @@ apply_migration() {
       SKIPPED_LEGACY=1
       continue
     fi
+    acquire_meta_lock "$meta" || return 1
+    if ! regular_file "$meta"; then
+      SKIPPED_LEGACY=1
+      record_outcome "task $id: skipped - metadata record vanished before verification; endpoint identity is unverifiable"
+      release_meta_lock || return 1
+      continue
+    fi
+    if ! cat -- "$meta" >/dev/null 2>&1; then
+      SKIPPED_LEGACY=1
+      if regular_file "$meta"; then
+        record_outcome "task $id: skipped - metadata record is unreadable; endpoint identity is unverifiable"
+      else
+        record_outcome "task $id: skipped - metadata record vanished before verification; endpoint identity is unverifiable"
+      fi
+      release_meta_lock || return 1
+      continue
+    fi
     binding_count=$(grep -c '^endpoint_task_id=' "$meta" 2>/dev/null || true)
     if [ "$binding_count" -gt 0 ]; then
       binding=$(fm_meta_get "$meta" endpoint_task_id)
@@ -1517,14 +1544,15 @@ apply_migration() {
         SKIPPED_LEGACY=1
         record_outcome "task $id: skipped - existing endpoint_task_id binding mismatches task identity"
       fi
+      release_meta_lock || return 1
       continue
     fi
     if recorded_id_contains "$id"; then
       record_outcome "task $id: skipped - existing recovery record has unexpected metadata state"
       SKIPPED_LEGACY=1
+      release_meta_lock || return 1
       continue
     fi
-    acquire_meta_lock "$meta" || return 1
     before="$STAGE_DIR/$id.before"
     after="$STAGE_DIR/$id.after"
     copy_private_atomic "$meta" "$before" private regular || { release_meta_lock || true; return 1; }
