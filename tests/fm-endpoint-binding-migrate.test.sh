@@ -136,11 +136,17 @@ test_hidden_metadata_is_reported() {
   fm_write_meta "$dir/home/state/.legacy.meta" \
     'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
     'kind=scout'
+  fm_write_meta "$dir/home/state/.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
   out=$(run_locked "$dir") || fail "hidden metadata migration failed: $out"
   report=$(cat "$dir/home/state/.endpoint-binding-migration.log")
   assert_contains "$report" \
-    'task .legacy: skipped - hidden metadata record is out of scope' \
+    'record .legacy.meta: skipped - hidden metadata record is out of scope' \
     'hidden metadata was not reported'
+  assert_contains "$report" \
+    'record .meta: skipped - hidden metadata record is out of scope' \
+    'empty hidden metadata was not reported literally'
   ! grep -q '^endpoint_task_id=' "$dir/home/state/.legacy.meta" \
     || fail 'hidden metadata was stamped'
   pass 'endpoint binding migration reports hidden metadata records without stamping them'
@@ -216,8 +222,15 @@ test_incomplete_apply_stage_is_cleaned_on_restart() {
   chmod 0600 "$stage/good.before" "$stage/good.after"
   printf leftover > "$stage/report.partial"
   chmod 0600 "$stage/report.partial"
+  mkdir "$dir/home/state/.endpoint-binding-stage.partial"
+  chmod 0700 "$dir/home/state/.endpoint-binding-stage.partial"
+  cp "$dir/home/state/good.meta" \
+    "$dir/home/state/.endpoint-binding-stage.partial/partial.before"
+  chmod 0600 "$dir/home/state/.endpoint-binding-stage.partial/partial.before"
   out=$(run_locked "$dir") || fail "incomplete stage restart failed: $out"
   [ ! -e "$stage" ] || fail 'incomplete apply stage was not cleaned'
+  [ ! -e "$dir/home/state/.endpoint-binding-stage.partial" ] \
+    || fail 'partial apply stage was not cleaned'
   assert_contains "$out" 'stamped 1' 'restart did not resume after incomplete stage cleanup'
   pass 'endpoint binding migration cleans incomplete pre-manifest stages'
 }
@@ -253,6 +266,63 @@ test_completed_journal_refuses_dangling_backup_entry() {
   set -e
   [ "$rc" -ne 0 ] || fail "dangling backup entry was accepted: $out"
   pass 'endpoint binding migration refuses dangling recovery entries'
+}
+
+test_undo_recovery_rejects_symlink_destination() {
+  local dir out rc stage outside
+  dir=$(make_case undo-recovery-symlink)
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  run_locked "$dir" >/dev/null || fail 'initial migration for recovery symlink failed'
+  stage="$dir/home/state/.endpoint-binding-undo-cleanup.injected"
+  mkdir "$stage"
+  chmod 0700 "$stage"
+  cp "$dir/home/state/.endpoint-binding-migration-records-v1" "$stage/records"
+  cp "$dir/home/state/.endpoint-binding-migration-backups/good.before" "$stage/good.before"
+  cp "$dir/home/state/.endpoint-binding-migration-backups/good.after" "$stage/good.after"
+  chmod 0600 "$stage/records" "$stage/good.before" "$stage/good.after"
+  outside="$dir/outside-recovery-target"
+  rm -f "$dir/home/state/.endpoint-binding-migration-backups/good.before"
+  ln -s "$outside" "$dir/home/state/.endpoint-binding-migration-backups/good.before"
+  set +e
+  out=$(run_locked "$dir" --undo)
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "undo accepted a symlink recovery destination: $out"
+  [ ! -e "$outside" ] || fail 'undo followed a symlink recovery destination'
+  pass 'endpoint binding migration rejects symlink recovery destinations'
+}
+
+test_existing_records_snapshot_is_atomic() {
+  local dir out rc records_before
+  dir=$(make_case records-before-atomic)
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  run_locked "$dir" >/dev/null || fail 'initial migration for atomic records snapshot failed'
+  records_before=$(mktemp "$dir/records.XXXXXX")
+  cp "$dir/home/state/.endpoint-binding-migration-records-v1" "$records_before"
+  fm_write_meta "$dir/home/state/good2.meta" \
+    'window=firstmate:fm-good2' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  cat > "$dir/fakebin/cp" <<'SH'
+#!/usr/bin/env bash
+dest=${!#}
+case "$dest" in
+  */records.before.*) : > "$dest"; exit 1 ;;
+esac
+exec /bin/cp "$@"
+SH
+  chmod +x "$dir/fakebin/cp"
+  set +e
+  out=$(run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "failed records snapshot was accepted: $out"
+  cmp -s "$records_before" "$dir/home/state/.endpoint-binding-migration-records-v1" \
+    || fail 'failed records snapshot changed the authoritative journal'
+  pass 'endpoint binding migration stages existing journal snapshots atomically'
 }
 
 test_final_live_recheck_refuses_dead_endpoint() {
@@ -1057,6 +1127,8 @@ test_completed_journal_refuses_changed_metadata
 test_incomplete_apply_stage_is_cleaned_on_restart
 test_completed_journal_refuses_unexpected_record
 test_completed_journal_refuses_dangling_backup_entry
+test_undo_recovery_rejects_symlink_destination
+test_existing_records_snapshot_is_atomic
 test_final_live_recheck_refuses_dead_endpoint
 test_reverse_restores_prior_bytes
 test_shared_task_id_grammar_reports_colon_ids

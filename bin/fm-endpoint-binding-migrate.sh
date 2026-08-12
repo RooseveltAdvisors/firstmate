@@ -346,6 +346,9 @@ restore_existing_records() {
   local tmp
   [ -n "$RECORDS_BEFORE" ] || return 1
   private_file "$RECORDS_BEFORE" || return 1
+  if [ -e "$RECORDS" ] || [ -L "$RECORDS" ]; then
+    private_file "$RECORDS" || return 1
+  fi
   tmp=$(mktemp "$STATE/.endpoint-binding-records-restore.XXXXXX") || return 1
   if ! cp -p -- "$RECORDS_BEFORE" "$tmp" || ! chmod 0600 "$tmp" || ! mv -f -- "$tmp" "$RECORDS"; then
     rm -f -- "$tmp"
@@ -367,12 +370,20 @@ cleanup_incomplete_apply_stage() {
         valid_task_id "$id" || return 1
         before=$path
         after="$stage/$id.after"
+        [ -e "$after" ] || [ -L "$after" ] || continue
         private_file "$before" && private_file "$after" || return 1
         meta="$STATE/$id.meta"
         regular_file "$meta" && cmp -s -- "$meta" "$before" || return 1
         ids+=("$id")
         ;;
-      *.after) continue ;;
+      *.after)
+        [ -L "$path" ] && return 1
+        id=${base%.after}
+        valid_task_id "$id" || return 1
+        before="$stage/$id.before"
+        [ -e "$before" ] || [ -L "$before" ] || continue
+        continue
+        ;;
       *) return 1 ;;
     esac
   done
@@ -632,20 +643,29 @@ restore_undo_recovery() {
   local i id rc=0
   [ -n "$UNDO_RECOVERY_STAGE" ] || return 0
   [ -d "$UNDO_RECOVERY_STAGE" ] || return 0
-  if [ ! -f "$RECORDS" ]; then
+  private_file "$UNDO_RECOVERY_STAGE/records" || return 1
+  if [ -e "$RECORDS" ] || [ -L "$RECORDS" ]; then
+    private_file "$RECORDS" || rc=1
+  else
     cp -p -- "$UNDO_RECOVERY_STAGE/records" "$RECORDS" || rc=1
     chmod 0600 "$RECORDS" 2>/dev/null || rc=1
   fi
-  if [ ! -d "$BACKUP_DIR" ]; then
+  if [ -e "$BACKUP_DIR" ] || [ -L "$BACKUP_DIR" ]; then
+    private_directory "$BACKUP_DIR" || rc=1
+  else
     mkdir -- "$BACKUP_DIR" || rc=1
     chmod 0700 "$BACKUP_DIR" 2>/dev/null || rc=1
   fi
   for i in "${!UNDO_IDS[@]}"; do
     id=${UNDO_IDS[$i]}
-    if [ ! -f "$BACKUP_DIR/$id.before" ]; then
+    if [ -e "$BACKUP_DIR/$id.before" ] || [ -L "$BACKUP_DIR/$id.before" ]; then
+      private_file "$BACKUP_DIR/$id.before" || rc=1
+    else
       cp -p -- "$UNDO_RECOVERY_STAGE/$id.before" "$BACKUP_DIR/$id.before" || rc=1
     fi
-    if [ ! -f "$BACKUP_DIR/$id.after" ]; then
+    if [ -e "$BACKUP_DIR/$id.after" ] || [ -L "$BACKUP_DIR/$id.after" ]; then
+      private_file "$BACKUP_DIR/$id.after" || rc=1
+    else
       cp -p -- "$UNDO_RECOVERY_STAGE/$id.after" "$BACKUP_DIR/$id.after" || rc=1
     fi
     chmod 0600 "$BACKUP_DIR/$id.before" "$BACKUP_DIR/$id.after" 2>/dev/null || rc=1
@@ -684,7 +704,9 @@ recover_undo_stage() {
       continue
     fi
     private_file "$stage/records" || continue
-    if [ ! -e "$RECORDS" ]; then
+    if [ -e "$RECORDS" ] || [ -L "$RECORDS" ]; then
+      private_file "$RECORDS" || return 1
+    else
       cp -p -- "$stage/records" "$RECORDS" || rc=1
       chmod 0600 "$RECORDS" 2>/dev/null || rc=1
     fi
@@ -698,11 +720,15 @@ recover_undo_stage() {
       [ -n "${id:-}" ] && [ -z "${extra:-}" ] || return 1
       valid_task_id "$id" || return 1
       [ "$before_name" = "$id.before" ] && [ "$after_name" = "$id.after" ] || return 1
-      if [ ! -e "$BACKUP_DIR/$before_name" ]; then
+      if [ -e "$BACKUP_DIR/$before_name" ] || [ -L "$BACKUP_DIR/$before_name" ]; then
+        private_file "$BACKUP_DIR/$before_name" || rc=1
+      else
         private_file "$stage/$before_name" || rc=1
         cp -p -- "$stage/$before_name" "$BACKUP_DIR/$before_name" || rc=1
       fi
-      if [ ! -e "$BACKUP_DIR/$after_name" ]; then
+      if [ -e "$BACKUP_DIR/$after_name" ] || [ -L "$BACKUP_DIR/$after_name" ]; then
+        private_file "$BACKUP_DIR/$after_name" || rc=1
+      else
         private_file "$stage/$after_name" || rc=1
         cp -p -- "$stage/$after_name" "$BACKUP_DIR/$after_name" || rc=1
       fi
@@ -730,7 +756,7 @@ publish_report() {
 
 apply_migration() {
   local meta id base binding_count validation before after before_final after_final
-  local i tmp manifest_tmp selected_count stage_records
+  local i tmp manifest_tmp selected_count stage_records records_before_tmp
   local -a metas
   recover_apply_stage || return 1
   STAGE_DIR=$(mktemp -d "$STATE/.endpoint-binding-stage.XXXXXX") || return 1
@@ -747,7 +773,7 @@ apply_migration() {
     id=${base%.meta}
     case "$base" in
       .*)
-        record_outcome "task $(reason_one_line "$id"): skipped - hidden metadata record is out of scope"
+        record_outcome "record $base: skipped - hidden metadata record is out of scope"
         SKIPPED_LEGACY=1
         continue
         ;;
@@ -869,9 +895,17 @@ apply_migration() {
 
   if [ "$RECOVERY_NAMESPACE_PRESENT" -eq 1 ]; then
     RECORDS_EXISTING=1
+    records_before_tmp=$(mktemp "$STAGE_DIR/records.before.XXXXXX") || return 1
+    if ! cp -p -- "$RECORDS" "$records_before_tmp" || ! chmod 0600 "$records_before_tmp"; then
+      rm -f -- "$records_before_tmp"
+      return 1
+    fi
     RECORDS_BEFORE="$STAGE_DIR/records.before"
-    cp -p -- "$RECORDS" "$RECORDS_BEFORE" || return 1
-    chmod 0600 "$RECORDS_BEFORE" || return 1
+    if ! mv -f -- "$records_before_tmp" "$RECORDS_BEFORE"; then
+      rm -f -- "$records_before_tmp"
+      RECORDS_BEFORE=
+      return 1
+    fi
   fi
   for i in "${!STAMP_IDS[@]}"; do
     [ "${STAMP_SELECTED[$i]:-0}" -eq 1 ] || continue
