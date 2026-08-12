@@ -66,6 +66,7 @@ enter_pinned_state_directory() {
   pinned_state_directory || return 1
   case "$directory" in
     .|"$PINNED_STATE_PATH") relative= ;;
+    ./*) relative=${directory#./} ;;
     "$PINNED_STATE_PATH"/*) relative=${directory#"$PINNED_STATE_PATH"/} ;;
     *) return 1 ;;
   esac
@@ -98,6 +99,29 @@ return_to_pinned_state_directory() {
     attempts=$((attempts + 1))
   done
 }
+create_private_directory() (
+  local directory=$1 parent base
+  parent=${directory%/*}
+  base=${directory##*/}
+  case "$base" in ''|.|..) return 1 ;; esac
+  enter_pinned_state_directory "$parent" || return 1
+  [ ! -e "./$base" ] && [ ! -L "./$base" ] || return 1
+  mkdir -- "./$base" || return 1
+  private_directory "./$base"
+)
+remove_private_directory() (
+  local directory=$1 parent base identity
+  parent=${directory%/*}
+  base=${directory##*/}
+  case "$base" in ''|.|..) return 1 ;; esac
+  enter_pinned_state_directory "$parent" || return 1
+  [ -d "./$base" ] && [ ! -L "./$base" ] || return 1
+  identity=$(filesystem_identity "./$base" 2>/dev/null) || return 1
+  private_directory "./$base" || return 1
+  directory_empty "./$base" || return 1
+  [ "$(filesystem_identity "./$base" 2>/dev/null)" = "$identity" ] || return 1
+  rmdir -- "./$base"
+)
 make_private_temp_in() (
   local directory=$1 pattern=$2 expected tmp
   enter_pinned_state_directory "$directory" || return 1
@@ -165,11 +189,20 @@ remove_orphaned_private_temporaries() (
   else
     private_directory . || return 1
   fi
-  for path in ./.endpoint-binding-copy.* ./.endpoint-binding-restore.*; do
+  for path in ./.endpoint-binding-restore.*; do
     [ -e "$path" ] || [ -L "$path" ] || continue
     base=${path##*/}
     case "$base" in
-      .endpoint-binding-copy.[A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9]|.endpoint-binding-restore.[A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9]) ;;
+      .endpoint-binding-restore.[A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9]) ;;
+      *) return 1 ;;
+    esac
+    recover_atomic_restore "$path" || return 1
+  done
+  for path in ./.endpoint-binding-copy.*; do
+    [ -e "$path" ] || [ -L "$path" ] || continue
+    base=${path##*/}
+    case "$base" in
+      .endpoint-binding-copy.[A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9]) ;;
       *) return 1 ;;
     esac
     private_file "$path" || return 1
@@ -505,6 +538,15 @@ retain_apply_for_recovery() {
   return 1
 }
 
+retain_undo_for_recovery() {
+  RECOVERY_REQUIRED=1
+  APPLY_ABORTED=1
+  UNDO_ACTIVE=0
+  release_meta_lock || true
+  release_undo_locks || true
+  return 1
+}
+
 release_migration_lock() {
   if [ "$MIGRATION_LOCK_HELD" -eq 1 ]; then
     fm_lock_release "$MIGRATION_LOCK"
@@ -722,7 +764,7 @@ remove_published_backups() {
   if [ "$BACKUP_DIR_CREATED" -eq 1 ]; then
     if [ -e "$BACKUP_DIR" ] || [ -L "$BACKUP_DIR" ]; then
       private_directory "$BACKUP_DIR" || rc=1
-      [ "$rc" -ne 0 ] || rmdir -- "$BACKUP_DIR" 2>/dev/null || rc=1
+      [ "$rc" -ne 0 ] || remove_private_directory "$BACKUP_DIR" 2>/dev/null || rc=1
     else
       rc=1
     fi
@@ -730,36 +772,27 @@ remove_published_backups() {
   return "$rc"
 }
 
-remove_private_backup_files() {
-  local before=$1 after=$2 before_name after_name backup_real backup_parent backup_base backup_expected
+remove_private_backup_files() (
+  local before=$1 after=$2 before_name after_name
   before_name=${before##*/}
   after_name=${after##*/}
-  [ -L "$BACKUP_DIR" ] && return 1
-  backup_parent=${BACKUP_DIR%/*}
-  backup_base=${BACKUP_DIR##*/}
-  backup_expected=$(cd -P -- "$backup_parent" && pwd -P)/$backup_base || return 1
-  backup_real=$(cd -P -- "$BACKUP_DIR" && pwd -P) || return 1
-  [ "$backup_real" = "$backup_expected" ] || return 1
-  (
-    cd -P -- "$BACKUP_DIR" || exit 1
-    [ "$(pwd -P)" = "$backup_expected" ] || exit 1
-    private_directory . || exit 1
-    if [ -e "./$before_name" ] || [ -L "./$before_name" ]; then
-      private_file "./$before_name" || exit 1
-    fi
-    if [ -e "./$after_name" ] || [ -L "./$after_name" ]; then
-      private_file "./$after_name" || exit 1
-    fi
-    rm -f -- "./$before_name" "./$after_name"
-  )
-}
+  enter_pinned_state_directory "$BACKUP_DIR" || return 1
+  private_directory . || return 1
+  if [ -e "./$before_name" ] || [ -L "./$before_name" ]; then
+    private_file "./$before_name" || return 1
+  fi
+  if [ -e "./$after_name" ] || [ -L "./$after_name" ]; then
+    private_file "./$after_name" || return 1
+  fi
+  rm -f -- "./$before_name" "./$after_name"
+)
 
 restore_published_backups() {
   local i rc=0
   if [ -e "$BACKUP_DIR" ] || [ -L "$BACKUP_DIR" ]; then
     private_directory "$BACKUP_DIR" || return 1
   else
-    mkdir -- "$BACKUP_DIR" || return 1
+    create_private_directory "$BACKUP_DIR" || return 1
     BACKUP_DIR_CREATED=1
   fi
   private_directory "$BACKUP_DIR" || return 1
@@ -833,6 +866,7 @@ file_descriptor_size() {
 }
 
 COPY_CREATED_IDENTITY=
+ATOMIC_RESTORE_ARTIFACT=
 copy_to_new_private_file() {
   local destination=$1 binding_id=${2:-} append_line=${3:-} append_present=${4:-0}
   local append_skip=${5:-0} append_separator=${6:-0}
@@ -887,38 +921,86 @@ copy_to_new_private_file() {
   COPY_CREATED_IDENTITY=$destination_identity
 }
 
-restore_atomic_destination() {
-  local destination=$1 present=$2 tmp identity rc
-  if [ "$present" -eq 0 ]; then
-    if [ -L "$destination" ] || regular_file "$destination"; then
-      rm -f -- "$destination" || return 1
-    elif [ -e "$destination" ]; then
-      return 1
-    fi
-    return 0
-  fi
-  file_descriptor_regular 4 || return 1
-  tmp=$(mktemp './.endpoint-binding-restore.XXXXXX') || return 1
-  rm -f -- "$tmp" || return 1
-  exec 8<&4
-  if ! copy_to_new_private_file "$tmp"; then
-    rm -f -- "$tmp"
+create_atomic_restore_artifact() {
+  local destination_name=$1 present=$2 artifact identity fd_identity
+  ATOMIC_RESTORE_ARTIFACT=
+  case "$destination_name" in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac
+  [ "$present" -eq 0 ] || [ "$present" -eq 1 ] || return 1
+  [ "$present" -eq 0 ] || file_descriptor_regular 4 || return 1
+  artifact=$(mktemp './.endpoint-binding-restore.XXXXXX') || return 1
+  rm -f -- "$artifact" || return 1
+  identity=$(
+    set -C
+    exec 9> "$artifact" || exit 1
+    file_descriptor_regular 9 || exit 1
+    fd_identity=$(file_descriptor_identity 9 2>/dev/null) || exit 1
+    regular_file "$artifact" || exit 1
+    [ "$(path_file_identity "$artifact" 2>/dev/null)" = "$fd_identity" ] || exit 1
+    printf '%s\t%s\n' "$present" "$destination_name" >&9 || exit 1
+    [ "$present" -eq 0 ] || cat <&4 >&9 || exit 1
+    regular_file "$artifact" || exit 1
+    [ "$(path_file_identity "$artifact" 2>/dev/null)" = "$fd_identity" ] || exit 1
+    printf '%s' "$fd_identity"
+  ) || {
+    rm -f -- "$artifact"
     return 1
-  fi
-  identity=$COPY_CREATED_IDENTITY
-  [ -n "$identity" ] || { rm -f -- "$tmp"; return 1; }
-  [ "$(path_file_identity "$tmp" 2>/dev/null)" = "$identity" ] \
-    || { rm -f -- "$tmp"; return 1; }
-  atomic_rename_nofollow "$tmp" "$destination" || { rc=$?; rm -f -- "$tmp"; return "$rc"; }
-  regular_file "$destination" || return 1
-  [ "$(path_file_identity "$destination" 2>/dev/null)" = "$identity" ]
+  }
+  private_file "$artifact" || return 1
+  [ "$(path_file_identity "$artifact" 2>/dev/null)" = "$identity" ] || return 1
+  ATOMIC_RESTORE_ARTIFACT=$artifact
+}
+
+recover_atomic_restore() {
+  local artifact=$1 artifact_identity artifact_fd_identity present destination_name extra
+  local destination tmp tmp_identity rc
+  private_file "$artifact" || return 1
+  artifact_identity=$(path_file_identity "$artifact" 2>/dev/null) || return 1
+  exec 8< "$artifact" || return 1
+  file_descriptor_regular 8 || return 1
+  artifact_fd_identity=$(file_descriptor_identity 8 2>/dev/null) || return 1
+  [ "$artifact_fd_identity" = "$artifact_identity" ] || return 1
+  IFS=$'\t' read -r present destination_name extra <&8 || return 1
+  [ -z "${extra:-}" ] || return 1
+  case "$destination_name" in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac
+  destination="./$destination_name"
+  case "$present" in
+    0)
+      if [ -L "$destination" ] || regular_file "$destination"; then
+        rm -f -- "$destination" || return 1
+      elif [ -e "$destination" ]; then
+        return 1
+      fi
+      ;;
+    1)
+      tmp=$(mktemp './.endpoint-binding-copy.XXXXXX') || return 1
+      rm -f -- "$tmp" || return 1
+      if ! copy_to_new_private_file "$tmp"; then
+        rm -f -- "$tmp"
+        return 1
+      fi
+      tmp_identity=$COPY_CREATED_IDENTITY
+      [ -n "$tmp_identity" ] || { rm -f -- "$tmp"; return 1; }
+      [ "$(path_file_identity "$tmp" 2>/dev/null)" = "$tmp_identity" ] \
+        || { rm -f -- "$tmp"; return 1; }
+      if ! atomic_rename_nofollow "$tmp" "$destination"; then
+        rc=1
+        rm -f -- "$tmp"
+        return "$rc"
+      fi
+      regular_file "$destination" || return 1
+      [ "$(path_file_identity "$destination" 2>/dev/null)" = "$tmp_identity" ] || return 1
+      ;;
+    *) return 1 ;;
+  esac
+  [ "$(path_file_identity "$artifact" 2>/dev/null)" = "$artifact_fd_identity" ] || return 1
+  rm -f -- "$artifact"
 }
 
 copy_private_atomic() (
   local source=$1 destination=$2 destination_type=${3:-private} source_type=${4:-private} binding_id=${5:-}
   local append_line=${6:-} append_source=${7:-} append_source_type=${8:-private}
   local append_skip=${9:-0} append_separator=${10:-0}
-  local source_dir source_name destination_dir destination_name tmp rc
+  local source_dir source_name destination_dir destination_name tmp rc restore_artifact
   local destination_expected tmp_identity
   local source_identity source_fd_identity append_present=0 destination_present=0 destination_identity destination_fd_identity
   local append_source_dir append_source_name append_identity append_fd_identity
@@ -1027,17 +1109,26 @@ copy_private_atomic() (
   fi
   [ "$(path_file_identity "$tmp" 2>/dev/null)" = "$tmp_identity" ] \
     || { rm -f -- "$tmp"; return 1; }
-  atomic_rename_nofollow "$tmp" "./$destination_name" || { rc=$?; rm -f -- "$tmp"; return "$rc"; }
+  create_atomic_restore_artifact "$destination_name" "$destination_present" \
+    || { rm -f -- "$tmp"; return 1; }
+  restore_artifact=$ATOMIC_RESTORE_ARTIFACT
+  if ! atomic_rename_nofollow "$tmp" "./$destination_name"; then
+    rc=1
+    rm -f -- "$tmp"
+    recover_atomic_restore "$restore_artifact" || true
+    return "$rc"
+  fi
   [ "$(pwd -P)" = "$destination_expected" ] || return 1
   if [ "$(path_file_identity "./$destination_name" 2>/dev/null)" != "$tmp_identity" ]; then
-    restore_atomic_destination "./$destination_name" "$destination_present" || true
+    recover_atomic_restore "$restore_artifact" || true
     return 1
   fi
   if [ "$destination_type" = regular ]; then
-    regular_file "./$destination_name" || return 1
+    regular_file "./$destination_name" || { recover_atomic_restore "$restore_artifact" || true; return 1; }
   else
-    private_file "./$destination_name" || return 1
+    private_file "./$destination_name" || { recover_atomic_restore "$restore_artifact" || true; return 1; }
   fi
+  rm -f -- "$restore_artifact"
 )
 
 append_private_line_atomic() {
@@ -1082,46 +1173,46 @@ restore_existing_records() {
   copy_private_atomic "$RECORDS_BEFORE" "$RECORDS"
 }
 
-remove_stage_directory() {
-  local stage=$1 stage_parent stage_base stage_expected control_expected path
-  [ -L "$stage" ] && return 1
-  [ -d "$stage" ] || return 1
+remove_stage_directory() (
+  local stage=$1 stage_parent stage_base stage_identity control_identity path
   stage_parent=${stage%/*}
   stage_base=${stage##*/}
-  stage_expected=$(cd -P -- "$stage_parent" && pwd -P)/$stage_base || return 1
-  control_expected="$stage_expected/.control"
-  (
-    cd -P -- "$stage" || exit 1
-    [ "$(pwd -P)" = "$stage_expected" ] || exit 1
-    for path in ./* ./.??*; do
-      [ -e "$path" ] || [ -L "$path" ] || continue
-      [ "$path" = ./.control ] && continue
-      [ ! -d "$path" ] || exit 1
-      rm -f -- "$path" || exit 1
-    done
-    if [ -e ./.control ] || [ -L ./.control ]; then
-      [ ! -L ./.control ] && [ -d ./.control ] || exit 1
-      (
-        cd -P -- ./.control || exit 1
-        [ "$(pwd -P)" = "$control_expected" ] || exit 1
-        private_directory . || exit 1
-        for path in ./* ./.??*; do
-          [ -e "$path" ] || [ -L "$path" ] || continue
-          [ "${path##*/}" = completed ] && continue
-          [ ! -d "$path" ] || exit 1
-          rm -f -- "$path" || exit 1
-        done
-        if [ -e ./completed ] || [ -L ./completed ]; then
-          private_file ./completed || exit 1
-          rm -f -- ./completed || exit 1
-        fi
-      ) || exit 1
-      rmdir -- ./.control || exit 1
-    fi
-  ) || return 1
-  [ -L "$stage" ] && return 1
-  rmdir -- "$stage"
-}
+  enter_pinned_state_directory "$stage" || return 1
+  private_directory . || return 1
+  stage_identity=$(filesystem_identity . 2>/dev/null) || return 1
+  for path in ./* ./.??*; do
+    [ -e "$path" ] || [ -L "$path" ] || continue
+    [ "$path" = ./.control ] && continue
+    [ ! -d "$path" ] || return 1
+    rm -f -- "$path" || return 1
+  done
+  if [ -e ./.control ] || [ -L ./.control ]; then
+    [ ! -L ./.control ] && [ -d ./.control ] || return 1
+    control_identity=$(filesystem_identity ./.control 2>/dev/null) || return 1
+    (
+      cd -P -- ./.control || exit 1
+      [ "$(filesystem_identity . 2>/dev/null)" = "$control_identity" ] || exit 1
+      private_directory . || exit 1
+      for path in ./* ./.??*; do
+        [ -e "$path" ] || [ -L "$path" ] || continue
+        [ "${path##*/}" = completed ] && continue
+        [ ! -d "$path" ] || exit 1
+        rm -f -- "$path" || exit 1
+      done
+      if [ -e ./completed ] || [ -L ./completed ]; then
+        private_file ./completed || exit 1
+        rm -f -- ./completed || exit 1
+      fi
+    ) || return 1
+    [ "$(filesystem_identity ./.control 2>/dev/null)" = "$control_identity" ] || return 1
+    rmdir -- ./.control || return 1
+  fi
+  return_to_pinned_state_directory || return 1
+  enter_pinned_state_directory "$stage_parent" || return 1
+  [ -d "./$stage_base" ] && [ ! -L "./$stage_base" ] || return 1
+  [ "$(filesystem_identity "./$stage_base" 2>/dev/null)" = "$stage_identity" ] || return 1
+  rmdir -- "./$stage_base"
+)
 
 cleanup_incomplete_apply_stage() {
   local stage=$1 path base id before after
@@ -1168,7 +1259,7 @@ cleanup_incomplete_apply_stage() {
   if [ -e "$BACKUP_DIR" ] || [ -L "$BACKUP_DIR" ]; then
     require_recovery_session_lock || return 1
     directory_empty "$BACKUP_DIR" || return 1
-    rmdir -- "$BACKUP_DIR" || return 1
+    remove_private_directory "$BACKUP_DIR" || return 1
   fi
   require_recovery_session_lock || return 1
   remove_stage_directory "$stage"
@@ -1417,7 +1508,7 @@ recover_partial_apply_stage() {
       RECOVERY_REQUIRED=1
       return 1
     }
-    rmdir -- "$BACKUP_DIR" || {
+    remove_private_directory "$BACKUP_DIR" || {
       RECOVERY_REQUIRED=1
       return 1
     }
@@ -1472,6 +1563,10 @@ abort_apply() {
   local rc=${1:-1}
   local rollback_rc=0 evidence_rc=0 recovery_rc=0
   RECOVERY_REQUIRED=1
+  if ! fm_session_lock_owned_by_self "$STATE"; then
+    retain_apply_for_recovery || true
+    return "$rc"
+  fi
   [ "$APPLY_ABORTED" -eq 0 ] || return "$rc"
   APPLY_ABORTED=1
   release_meta_lock || rc=1
@@ -1533,7 +1628,13 @@ abort_apply() {
 
 handle_signal() {
   trap - HUP INT TERM
-  if [ "$UNDO_ACTIVE" -eq 1 ]; then
+  if ! fm_session_lock_owned_by_self "$STATE"; then
+    if [ "$UNDO_ACTIVE" -eq 1 ]; then
+      retain_undo_for_recovery || true
+    else
+      retain_apply_for_recovery || true
+    fi
+  elif [ "$UNDO_ACTIVE" -eq 1 ]; then
     abort_undo || true
   else
     abort_apply 1 || true
@@ -1759,7 +1860,7 @@ restore_undo_recovery() {
   if [ -e "$BACKUP_DIR" ] || [ -L "$BACKUP_DIR" ]; then
     private_directory "$BACKUP_DIR" || rc=1
   else
-    mkdir -- "$BACKUP_DIR" || rc=1
+    create_private_directory "$BACKUP_DIR" || rc=1
     private_directory "$BACKUP_DIR" || rc=1
   fi
   for i in "${!UNDO_IDS[@]}"; do
@@ -1780,6 +1881,10 @@ restore_undo_recovery() {
 
 abort_undo() {
   local rc=1
+  if ! fm_session_lock_owned_by_self "$STATE"; then
+    retain_undo_for_recovery || true
+    return "$rc"
+  fi
   release_meta_lock || rc=1
   if [ "$UNDO_LOCKS_HELD" -eq 0 ] && [ "$UNDO_LOCKS_ACQUIRING" -eq 1 ]; then
     release_undo_locks || rc=1
@@ -1874,7 +1979,7 @@ recover_undo_stage() {
     if [ -e "$BACKUP_DIR" ] || [ -L "$BACKUP_DIR" ]; then
       private_directory "$BACKUP_DIR" || return 1
     else
-      mkdir -- "$BACKUP_DIR" || return 1
+      create_private_directory "$BACKUP_DIR" || return 1
       private_directory "$BACKUP_DIR" || return 1
     fi
     for i in "${!ids[@]}"; do
@@ -1961,7 +2066,7 @@ apply_migration() {
   recover_apply_stage || return 1
   STAGE_DIR=$(make_state_temp_directory '.endpoint-binding-stage.XXXXXX') || return 1
   private_directory "$STAGE_DIR" || return 1
-  mkdir -- "$STAGE_DIR/.control" || return 1
+  create_private_directory "$STAGE_DIR/.control" || return 1
   private_directory "$STAGE_DIR/.control" || return 1
   STAGE_DIR="$PINNED_STATE_PATH/${STAGE_DIR#./}"
   REPORT_TMP=$(make_private_temp_in "$STAGE_DIR/.control" 'report.XXXXXX') || return 1
@@ -2153,7 +2258,7 @@ apply_migration() {
         return 1
       }
     fi
-    require_session_lock || return 1
+    require_session_lock || { retain_apply_for_recovery; return 1; }
     publish_report || return 1
     write_marker "$SCAN_MARKER" fm-endpoint-binding-migration-scan-v1 || return 1
     if [ "$SKIPPED_LEGACY" -eq 0 ]; then
@@ -2189,7 +2294,7 @@ apply_migration() {
     private_directory "$BACKUP_DIR" || return 1
     [ "$RECORDS_EXISTING" -eq 1 ] || directory_empty "$BACKUP_DIR" || return 1
   else
-    mkdir -- "$BACKUP_DIR" || return 1
+    create_private_directory "$BACKUP_DIR" || return 1
     BACKUP_DIR_CREATED=1
     if ! private_directory "$BACKUP_DIR"; then
       remove_published_backups
@@ -2251,14 +2356,14 @@ apply_migration() {
       restart_apply_scan 1
       return $?
     fi
-    require_session_lock || { abort_apply 1; return $?; }
+    require_session_lock || { retain_apply_for_recovery; return 1; }
     if ! copy_private_atomic "${STAMP_AFTER[$i]}" "${STAMP_METAS[$i]}" regular; then
       abort_apply 1
       return $?
     fi
   done
 
-  require_session_lock || { abort_apply 1; return $?; }
+  require_session_lock || { retain_apply_for_recovery; return 1; }
   if ! publish_report; then abort_apply 1; return $?; fi
   if ! write_marker "$SCAN_MARKER" fm-endpoint-binding-migration-scan-v1; then abort_apply 1; return $?; fi
   if [ "$SKIPPED_LEGACY" -eq 0 ]; then
@@ -2341,7 +2446,7 @@ rollback_partial_binding() {
 }
 
 undo_migration() {
-  local id before_name after_name meta before after i extra cleanup_stage cleanup_rc
+  local id before_name after_name meta before after i extra cleanup_stage cleanup_rc authority_lost=0
   local current_snapshot undone_snapshot removed_count=0
   UNDO_IDS=()
   UNDO_METAS=()
@@ -2380,7 +2485,7 @@ undo_migration() {
   }
   UNDO_RECOVERY_STAGE=$cleanup_stage
   if ! private_directory "$cleanup_stage" \
-    || ! mkdir -- "$cleanup_stage/.control" \
+    || ! create_private_directory "$cleanup_stage/.control" \
     || ! private_directory "$cleanup_stage/.control"; then
     abort_undo
     return 1
@@ -2411,25 +2516,33 @@ undo_migration() {
     UNDO_RECOVERY_AFTER[i]=$current_snapshot
     UNDO_CHANGED=$((i + 1))
     UNDO_TOUCHED[i]=1
-    require_session_lock || { abort_undo; return $?; }
+    require_session_lock || { retain_undo_for_recovery; return 1; }
     if ! copy_private_atomic "$undone_snapshot" "$meta" regular; then
       abort_undo
       return $?
     fi
     removed_count=$((removed_count + 1))
   done
-  require_session_lock || { abort_undo; return $?; }
+  require_session_lock || { retain_undo_for_recovery; return 1; }
   cleanup_rc=0
-  if ! require_session_lock || ! rm -f -- "$SCAN_MARKER"; then
+  if ! require_session_lock; then
+    authority_lost=1
+    cleanup_rc=1
+  elif ! rm -f -- "$SCAN_MARKER"; then
     cleanup_rc=1
   fi
-  if [ "$cleanup_rc" -eq 0 ] \
-    && { ! require_session_lock || ! rm -f -- "$MARKER"; }; then
-    cleanup_rc=1
+  if [ "$cleanup_rc" -eq 0 ]; then
+    if ! require_session_lock; then
+      authority_lost=1
+      cleanup_rc=1
+    elif ! rm -f -- "$MARKER"; then
+      cleanup_rc=1
+    fi
   fi
   if [ "$cleanup_rc" -eq 0 ]; then
     for id in "${UNDO_IDS[@]}"; do
       require_session_lock || {
+        authority_lost=1
         cleanup_rc=1
         break
       }
@@ -2441,14 +2554,27 @@ undo_migration() {
   fi
   if [ "$cleanup_rc" -eq 0 ]; then
     private_directory "$BACKUP_DIR" || cleanup_rc=1
-    if [ "$cleanup_rc" -eq 0 ] \
-      && { ! require_session_lock || ! rmdir -- "$BACKUP_DIR" 2>/dev/null; }; then
+    if [ "$cleanup_rc" -eq 0 ]; then
+      if ! require_session_lock; then
+        authority_lost=1
+        cleanup_rc=1
+      elif ! remove_private_directory "$BACKUP_DIR" 2>/dev/null; then
+        cleanup_rc=1
+      fi
+    fi
+  fi
+  if [ "$cleanup_rc" -eq 0 ]; then
+    if ! require_session_lock; then
+      authority_lost=1
+      cleanup_rc=1
+    elif ! rm -f -- "$RECORDS"; then
       cleanup_rc=1
     fi
   fi
-  if [ "$cleanup_rc" -eq 0 ] \
-    && { ! require_session_lock || ! rm -f -- "$RECORDS"; }; then
-    cleanup_rc=1
+  if [ "$authority_lost" -eq 1 ]; then
+    retain_undo_for_recovery || true
+    echo "ENDPOINT_BINDING_MIGRATION: session authority expired; undo recovery staging was retained" >&2
+    return 1
   fi
   if [ "$cleanup_rc" -ne 0 ]; then
     if restore_undo_recovery; then
