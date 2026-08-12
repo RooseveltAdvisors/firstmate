@@ -256,11 +256,11 @@ acquire_undo_locks() {
   done
   UNDO_LOCKS_ACQUIRING=1
   for i in "${!UNDO_LOCK_PATHS[@]}"; do
+    UNDO_LOCK_ACQUIRED[$i]=1
     if ! fm_lock_acquire_wait "${UNDO_LOCK_PATHS[$i]}"; then
       release_undo_locks
       return 1
     fi
-    UNDO_LOCK_ACQUIRED[$i]=1
   done
   UNDO_LOCKS_ACQUIRING=0
   UNDO_LOCKS_HELD=1
@@ -281,7 +281,7 @@ release_undo_locks() {
 
 acquire_merge_locks() {
   local id path i
-  [ "$RECORDS_EXISTING" -eq 1 ] || [ "$RECOVERY_NAMESPACE_PRESENT" -eq 1 ] || return 0
+  [ "$RECORDS_EXISTING" -eq 1 ] || [ "$RECOVERY_NAMESPACE_PRESENT" -eq 1 ] || [ "${1:-0}" -eq 1 ] || return 0
   MERGE_LOCK_IDS=($(printf '%s\n' "${!RECORDED_IDS[@]}" | sort -u))
   MERGE_LOCK_PATHS=()
   MERGE_LOCK_ACQUIRED=()
@@ -291,11 +291,11 @@ acquire_merge_locks() {
     MERGE_LOCK_ACQUIRED+=(0)
   done
   for i in "${!MERGE_LOCK_PATHS[@]}"; do
+    MERGE_LOCK_ACQUIRED[$i]=1
     if ! fm_lock_acquire_wait "${MERGE_LOCK_PATHS[$i]}"; then
       release_merge_locks
       return 1
     fi
-    MERGE_LOCK_ACQUIRED[$i]=1
   done
   MERGE_LOCKS_HELD=1
 }
@@ -314,7 +314,7 @@ release_merge_locks() {
 
 revalidate_merge_records() {
   local id meta before after
-  [ "$RECORDS_EXISTING" -eq 1 ] || [ "$RECOVERY_NAMESPACE_PRESENT" -eq 1 ] || return 0
+  [ "$RECORDS_EXISTING" -eq 1 ] || [ "$RECOVERY_NAMESPACE_PRESENT" -eq 1 ] || [ "${1:-0}" -eq 1 ] || return 0
   for id in "${MERGE_LOCK_IDS[@]}"; do
     meta="$STATE/$id.meta"
     before="$BACKUP_DIR/$id.before"
@@ -608,6 +608,21 @@ recover_existing_apply_stage() {
         rm -f -- "$merged_tmp"
         return 1
       }
+      RECORDED_IDS["$id"]=1
+    done < "$stage/records.before"
+    while IFS=$'\t' read -r id before_name after_name extra || [ -n "${id:-}${before_name:-}${after_name:-}${extra:-}" ]; do
+      [ -n "${id:-}" ] && [ -z "${extra:-}" ] || {
+        rm -f -- "$merged_tmp"
+        return 1
+      }
+      valid_task_id "$id" || {
+        rm -f -- "$merged_tmp"
+        return 1
+      }
+      [ "$before_name" = "$id.before" ] && [ "$after_name" = "$id.after" ] || {
+        rm -f -- "$merged_tmp"
+        return 1
+      }
       private_file "$BACKUP_DIR/$before_name" && private_file "$BACKUP_DIR/$after_name" || {
         rm -f -- "$merged_tmp"
         return 1
@@ -618,29 +633,35 @@ recover_existing_apply_stage() {
         return 1
       }
       ids+=("$id")
-      if ! acquire_meta_lock "$meta"; then
-        rm -f -- "$merged_tmp"
-        return 1
-      fi
+      RECORDED_IDS["$id"]=1
+    done < "$stage/records"
+    acquire_merge_locks 1 || {
+      rm -f -- "$merged_tmp"
+      return 1
+    }
+    revalidate_merge_records 1 || {
+      release_merge_locks || true
+      rm -f -- "$merged_tmp"
+      return 1
+    }
+    while IFS=$'\t' read -r id before_name after_name extra || [ -n "${id:-}${before_name:-}${after_name:-}${extra:-}" ]; do
+      meta="$STATE/$id.meta"
       if cmp -s -- "$meta" "$BACKUP_DIR/$before_name"; then
         :
       elif cmp -s -- "$meta" "$BACKUP_DIR/$after_name"; then
         if ! copy_private_atomic "$BACKUP_DIR/$before_name" "$meta"; then
-          release_meta_lock || true
+          release_merge_locks || true
           rm -f -- "$merged_tmp"
           return 1
         fi
       else
-        release_meta_lock || true
+        release_merge_locks || true
         rm -f -- "$merged_tmp"
         return 1
       fi
-      release_meta_lock || {
-        rm -f -- "$merged_tmp"
-        return 1
-      }
     done < "$stage/records"
     restore_stage_evidence "$stage" || {
+      release_merge_locks || true
       rm -f -- "$merged_tmp"
       RECOVERY_REQUIRED=1
       return 1
@@ -651,24 +672,36 @@ recover_existing_apply_stage() {
   fi
   if [ "$merged_published" -eq 1 ]; then
     copy_private_atomic "$stage/records.before" "$RECORDS" || {
+      release_merge_locks || true
       rm -f -- "$merged_tmp"
       return 1
     }
   fi
   if [ -e "$BACKUP_DIR" ] || [ -L "$BACKUP_DIR" ]; then
     private_directory "$BACKUP_DIR" || {
+      [ "$merged_published" -eq 1 ] && release_merge_locks || true
       rm -f -- "$merged_tmp"
       return 1
     }
     for id in "${ids[@]}"; do
       remove_private_backup_files "$BACKUP_DIR/$id.before" "$BACKUP_DIR/$id.after" || {
+        [ "$merged_published" -eq 1 ] && release_merge_locks || true
         rm -f -- "$merged_tmp"
         return 1
       }
     done
   fi
-  rm -f -- "$merged_tmp" || return 1
-  remove_stage_directory "$stage"
+  rm -f -- "$merged_tmp" || {
+    [ "$merged_published" -eq 1 ] && release_merge_locks || true
+    return 1
+  }
+  remove_stage_directory "$stage" || {
+    [ "$merged_published" -eq 1 ] && release_merge_locks || true
+    return 1
+  }
+  if [ "$merged_published" -eq 1 ]; then
+    release_merge_locks
+  fi
 }
 
 cleanup_pre_manifest_apply_stage() {
