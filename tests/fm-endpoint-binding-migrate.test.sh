@@ -88,6 +88,8 @@ test_evidence_bound_stamp_and_skip() {
   fm_write_meta "$dir/home/state/empty.meta" \
     'window=firstmate:fm-empty' 'endpoint_task_id=' \
     "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  ln -s good.meta "$dir/home/state/link.meta"
+  mkdir "$dir/home/state/directory.meta"
   cp "$dir/home/state/bound.meta" "$dir/bound.before"
   cp "$dir/home/state/empty.meta" "$dir/empty.before"
 
@@ -111,6 +113,12 @@ test_evidence_bound_stamp_and_skip() {
   assert_contains "$report" 'task missing: skipped - dead endpoint' 'dead endpoint skip was not reported'
   assert_contains "$report" 'task ambiguous: skipped - ambiguous live endpoint identity' 'ambiguous endpoint skip was not reported'
   assert_contains "$report" 'task mismatch: skipped - identity mismatch' 'identity mismatch was not reported'
+  assert_contains "$report" 'task link: skipped - metadata record is a symlink; endpoint identity is unverifiable' \
+    'symlink metadata was not reported'
+  assert_contains "$report" 'task directory: skipped - metadata record is not a regular file; endpoint identity is unverifiable' \
+    'non-regular metadata was not reported'
+  [ -L "$dir/home/state/link.meta" ] || fail 'symlink metadata was followed'
+  [ -d "$dir/home/state/directory.meta" ] || fail 'non-regular metadata was changed'
   assert_contains "$(cat "$dir/home/state/.endpoint-binding-migration-records-v1")" $'good\t' \
     'stamp journal did not record the exact task'
   [ ! -e "$dir/home/state/.endpoint-binding-migration-v1" ] \
@@ -152,6 +160,43 @@ test_lock_is_required() {
   pass 'endpoint binding migration refuses without the owning session lock'
 }
 
+test_signal_rolls_back_staged_stamps() {
+  local dir original out rc real_mv
+  dir=$(make_case signal)
+  real_mv=$(command -v mv)
+  cat > "$dir/fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+"${FM_REAL_MV:?}" "$@"
+rc=$?
+if [ "$rc" -eq 0 ] && [ "${4:-}" = "${FM_SIGNAL_META:?}" ] \
+  && [ ! -e "${FM_SIGNAL_SENT_FILE:?}" ]; then
+  : > "$FM_SIGNAL_SENT_FILE"
+  kill -TERM "$PPID"
+fi
+exit "$rc"
+SH
+  chmod +x "$dir/fakebin/mv"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  original=$(mktemp "$dir/original.XXXXXX")
+  cp "$dir/home/state/good.meta" "$original"
+  set +e
+  out=$(FM_REAL_MV="$real_mv" FM_SIGNAL_META="$dir/home/state/good.meta" \
+    FM_SIGNAL_SENT_FILE="$dir/signal-sent" run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "interrupted migration unexpectedly succeeded: $out"
+  cmp -s "$original" "$dir/home/state/good.meta" \
+    || fail 'interrupted migration did not restore prior metadata bytes'
+  [ ! -e "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
+    || fail 'interrupted migration left a stamp journal'
+  [ ! -d "$dir/home/state/.endpoint-binding-migration-backups" ] \
+    || fail 'interrupted migration left published backups'
+  pass 'endpoint binding migration rolls back stamps on interruption'
+}
+
 test_evidence_bound_stamp_and_skip
 test_reverse_restores_prior_bytes
 test_lock_is_required
+test_signal_rolls_back_staged_stamps

@@ -157,7 +157,6 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
-trap 'exit 1' HUP INT TERM
 
 rollback_stamps() {
   local i tmp
@@ -189,6 +188,13 @@ abort_apply() {
   return "$rc"
 }
 
+handle_signal() {
+  trap - HUP INT TERM
+  abort_apply 1 || true
+  exit 1
+}
+trap handle_signal HUP INT TERM
+
 publish_report() {
   local tmp
   if [ -e "$REPORT" ] || [ -L "$REPORT" ]; then
@@ -210,9 +216,19 @@ apply_migration() {
   chmod 0700 "$STAGE_DIR" || return 1
 
   for meta in "$STATE"/*.meta; do
-    [ -f "$meta" ] && [ ! -L "$meta" ] || continue
+    [ "$meta" = "$STATE/*.meta" ] && continue
     id=${meta##*/}
     id=${id%.meta}
+    if [ -L "$meta" ]; then
+      record_outcome "task $(reason_one_line "$id"): skipped - metadata record is a symlink; endpoint identity is unverifiable"
+      SKIPPED_LEGACY=1
+      continue
+    fi
+    if [ ! -f "$meta" ]; then
+      record_outcome "task $(reason_one_line "$id"): skipped - metadata record is not a regular file; endpoint identity is unverifiable"
+      SKIPPED_LEGACY=1
+      continue
+    fi
     if ! valid_task_id "$id"; then
       record_outcome "task $(reason_one_line "$id"): skipped - invalid task id"
       SKIPPED_LEGACY=1
