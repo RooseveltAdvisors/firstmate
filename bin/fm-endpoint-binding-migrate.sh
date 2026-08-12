@@ -231,6 +231,7 @@ release_migration_lock() {
 cleanup() {
   release_apply_locks || true
   release_merge_locks || true
+  release_undo_locks || true
   if [ "$RECOVERY_REQUIRED" -eq 0 ]; then
     [ -z "$REPORT_TMP" ] || rm -f -- "$REPORT_TMP"
     if [ -n "$STAGE_DIR" ] && [ ! -L "$STAGE_DIR" ] && [ -d "$STAGE_DIR" ]; then
@@ -648,7 +649,7 @@ cleanup_incomplete_apply_stage() {
 }
 
 recover_existing_apply_stage() {
-  local stage=$1 id before_name after_name extra merged_tmp meta merged_published=0
+  local stage=$1 id before_name after_name extra merged_tmp merged_published=0
   local -a ids=()
   private_directory "$stage" || return 1
   private_file "$RECORDS" || return 1
@@ -718,11 +719,6 @@ recover_existing_apply_stage() {
         rm -f -- "$merged_tmp"
         return 1
       }
-      meta="$STATE/$id.meta"
-      regular_file "$meta" || {
-        rm -f -- "$merged_tmp"
-        return 1
-      }
       ids+=("$id")
       RECORDED_IDS["$id"]=1
     done < "$stage/records"
@@ -736,16 +732,8 @@ recover_existing_apply_stage() {
       return 1
     }
     while IFS=$'\t' read -r id before_name after_name extra || [ -n "${id:-}${before_name:-}${after_name:-}${extra:-}" ]; do
-      meta="$STATE/$id.meta"
-      if cmp -s -- "$meta" "$BACKUP_DIR/$before_name"; then
-        :
-      elif cmp -s -- "$meta" "$BACKUP_DIR/$after_name"; then
-        if ! copy_private_atomic "$BACKUP_DIR/$before_name" "$meta"; then
-          release_merge_locks || true
-          rm -f -- "$merged_tmp"
-          return 1
-        fi
-      else
+      if ! rollback_partial_binding "$STATE/$id.meta" "$id" \
+        "$BACKUP_DIR/$before_name" "$BACKUP_DIR/$after_name" "$stage/$id.rollback"; then
         release_merge_locks || true
         rm -f -- "$merged_tmp"
         return 1
@@ -809,7 +797,7 @@ cleanup_pre_manifest_apply_stage() {
 }
 
 recover_partial_apply_stage() {
-  local stage=$1 id before_name after_name extra meta tmp
+  local stage=$1 id before_name after_name extra meta
   local -a ids=()
   private_directory "$stage" || return 1
   private_file "$RECORDS" || return 1
@@ -821,27 +809,13 @@ recover_partial_apply_stage() {
     [ "$before_name" = "$id.before" ] && [ "$after_name" = "$id.after" ] || return 1
     private_file "$stage/$before_name" && private_file "$stage/$after_name" || return 1
     meta="$STATE/$id.meta"
-    regular_file "$meta" || return 1
     ids+=("$id")
     if ! acquire_meta_lock "$meta"; then
       RECOVERY_REQUIRED=1
       return 1
     fi
-    if cmp -s -- "$meta" "$stage/$before_name"; then
-      :
-    elif cmp -s -- "$meta" "$stage/$after_name"; then
-      tmp=$(mktemp "$STATE/.endpoint-binding-partial-rollback.XXXXXX") || {
-        release_meta_lock || true
-        RECOVERY_REQUIRED=1
-        return 1
-      }
-      if ! cp -p -- "$stage/$before_name" "$tmp" || ! mv -f -- "$tmp" "$meta"; then
-        rm -f -- "$tmp"
-        release_meta_lock || true
-        RECOVERY_REQUIRED=1
-        return 1
-      fi
-    else
+    if ! rollback_partial_binding "$meta" "$id" "$stage/$before_name" \
+      "$stage/$after_name" "$stage/$id.rollback"; then
       release_meta_lock || true
       RECOVERY_REQUIRED=1
       return 1
@@ -1231,18 +1205,37 @@ remove_completed_stage() {
 }
 
 recover_undo_stage() {
-  local stage id before_name after_name extra rc=0
+  local stage id before_name after_name extra rc=0 i meta current undone
+  local -a ids=() before_names=() after_names=()
   for stage in "$STATE"/.endpoint-binding-undo-cleanup.*; do
     [ -L "$stage" ] && return 1
     [ -d "$stage" ] || continue
     private_directory "$stage" || return 1
-    if [ -f "$stage/completed" ]; then
+    if [ -e "$stage/completed" ] || [ -L "$stage/completed" ]; then
+      private_file "$stage/completed" || return 1
       remove_completed_stage "$stage" || return 1
       continue
     fi
-    private_file "$stage/records" || continue
+    if [ ! -e "$stage/records" ] && [ ! -L "$stage/records" ]; then
+      continue
+    fi
+    private_file "$stage/records" || return 1
+    ids=()
+    before_names=()
+    after_names=()
+    while IFS=$'\t' read -r id before_name after_name extra || [ -n "${id:-}${before_name:-}${after_name:-}${extra:-}" ]; do
+      [ -n "${id:-}" ] && [ -z "${extra:-}" ] || return 1
+      valid_task_id "$id" || return 1
+      [ "$before_name" = "$id.before" ] && [ "$after_name" = "$id.after" ] || return 1
+      private_file "$stage/$before_name" && private_file "$stage/$after_name" || return 1
+      ids+=("$id")
+      before_names+=("$before_name")
+      after_names+=("$after_name")
+    done < "$stage/records"
     if [ -e "$RECORDS" ] || [ -L "$RECORDS" ]; then
-      private_file "$RECORDS" || return 1
+      if ! private_file "$RECORDS" || ! cmp -s -- "$RECORDS" "$stage/records"; then
+        return 1
+      fi
     else
       copy_private_atomic "$stage/records" "$RECORDS" || rc=1
     fi
@@ -1252,24 +1245,57 @@ recover_undo_stage() {
       mkdir -- "$BACKUP_DIR" || return 1
       chmod 0700 "$BACKUP_DIR" 2>/dev/null || return 1
     fi
-    while IFS=$'\t' read -r id before_name after_name extra || [ -n "${id:-}${before_name:-}${after_name:-}${extra:-}" ]; do
-      [ -n "${id:-}" ] && [ -z "${extra:-}" ] || return 1
-      valid_task_id "$id" || return 1
-      [ "$before_name" = "$id.before" ] && [ "$after_name" = "$id.after" ] || return 1
+    for i in "${!ids[@]}"; do
+      id=${ids[$i]}
+      before_name=${before_names[$i]}
+      after_name=${after_names[$i]}
       if [ -e "$BACKUP_DIR/$before_name" ] || [ -L "$BACKUP_DIR/$before_name" ]; then
-        private_file "$BACKUP_DIR/$before_name" || rc=1
+        if ! private_file "$BACKUP_DIR/$before_name" \
+          || ! cmp -s -- "$BACKUP_DIR/$before_name" "$stage/$before_name"; then
+          rc=1
+        fi
       else
-        private_file "$stage/$before_name" || rc=1
         copy_private_atomic "$stage/$before_name" "$BACKUP_DIR/$before_name" || rc=1
       fi
       if [ -e "$BACKUP_DIR/$after_name" ] || [ -L "$BACKUP_DIR/$after_name" ]; then
-        private_file "$BACKUP_DIR/$after_name" || rc=1
+        if ! private_file "$BACKUP_DIR/$after_name" \
+          || ! cmp -s -- "$BACKUP_DIR/$after_name" "$stage/$after_name"; then
+          rc=1
+        fi
       else
-        private_file "$stage/$after_name" || rc=1
         copy_private_atomic "$stage/$after_name" "$BACKUP_DIR/$after_name" || rc=1
       fi
-    done < "$RECORDS"
+    done
     [ "$rc" -eq 0 ] || return 1
+    UNDO_IDS=("${ids[@]}")
+    acquire_undo_locks || return 1
+    for id in "${ids[@]}"; do
+      current="$stage/$id.current"
+      undone="$stage/$id.undone"
+      if [ -e "$current" ] || [ -L "$current" ]; then
+        if ! private_file "$current" || ! private_file "$undone"; then
+          release_undo_locks || true
+          return 1
+        fi
+        meta="$STATE/$id.meta"
+        if regular_file "$meta"; then
+          if cmp -s -- "$meta" "$current"; then
+            :
+          elif cmp -s -- "$meta" "$undone"; then
+            replace_metadata_from_private "$current" "$meta" || {
+              release_undo_locks || true
+              return 1
+            }
+          fi
+        fi
+      elif [ -e "$undone" ] || [ -L "$undone" ]; then
+        private_file "$undone" || {
+          release_undo_locks || true
+          return 1
+        }
+      fi
+    done
+    release_undo_locks || return 1
     remove_stage_directory "$stage" || return 1
   done
   return "$rc"
@@ -1595,6 +1621,29 @@ surgical_remove_binding() {
   SURGICAL_UNDO_CHANGED=1
 }
 
+replace_metadata_from_private() {
+  local source=$1 meta=$2 tmp
+  private_file "$source" && regular_file "$meta" || return 1
+  tmp=$(mktemp "$STATE/.endpoint-binding-meta-replace.XXXXXX") || return 1
+  if ! copy_private_atomic "$source" "$tmp" || ! regular_file "$meta" \
+    || ! mv -f -- "$tmp" "$meta"; then
+    rm -f -- "$tmp"
+    return 1
+  fi
+}
+
+rollback_partial_binding() {
+  local meta=$1 id=$2 before=$3 after=$4 output=$5
+  if [ ! -e "$meta" ] && [ ! -L "$meta" ]; then
+    return 0
+  fi
+  regular_file "$meta" || return 0
+  cmp -s -- "$meta" "$before" && return 0
+  surgical_remove_binding "$meta" "$id" "$before" "$after" "$output" || return 1
+  [ "$SURGICAL_UNDO_CHANGED" -eq 1 ] || return 0
+  replace_metadata_from_private "$output" "$meta"
+}
+
 undo_migration() {
   local id before_name after_name meta before after tmp i extra cleanup_stage cleanup_rc
   local current_snapshot undone_snapshot removed_count=0
@@ -1607,7 +1656,6 @@ undo_migration() {
   UNDO_RECOVERY_AFTER=()
   UNDO_RECOVERY_BEFORE=()
   UNDO_RECOVERY_STAGE=
-  recover_undo_stage || return 1
   if [ ! -e "$RECORDS" ] && [ ! -L "$RECORDS" ]; then
     echo "ENDPOINT_BINDING_MIGRATION: no recorded stamps to undo"
     return 0
@@ -1727,6 +1775,11 @@ if ! fm_lock_acquire_wait "$MIGRATION_LOCK"; then
   echo "ENDPOINT_BINDING_MIGRATION: migration transaction lock is unavailable" >&2
   exit 1
 fi
+
+recover_undo_stage || {
+  echo "ENDPOINT_BINDING_MIGRATION: incomplete undo recovery failed" >&2
+  exit 1
+}
 
 if [ "$MODE" = undo ]; then
   undo_migration

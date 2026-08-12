@@ -128,6 +128,40 @@ test_evidence_bound_stamp_and_skip() {
   pass 'endpoint binding migration stamps only exact live identities and reports every refusal'
 }
 
+test_duplicate_tmux_window_is_ambiguous() {
+  local dir out report
+  dir=$(make_case duplicate-tmux-window)
+  cat > "$dir/fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = list-windows ]; then
+  printf '%s\n' fm-good fm-good
+  exit 0
+fi
+if [ "${1:-}" = display-message ]; then
+  case "${5:-}" in
+    '#{pane_tty}') printf '/dev/null\n' ;;
+    '#{pane_current_command}') printf 'pi\n' ;;
+    *) printf 'pane\n' ;;
+  esac
+  exit 0
+fi
+exit 0
+SH
+  chmod +x "$dir/fakebin/tmux"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  out=$(run_locked "$dir") || fail "duplicate-window migration failed: $out"
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
+    || fail 'duplicate tmux window was stamped'
+  report=$(cat "$dir/home/state/.endpoint-binding-migration.log")
+  assert_contains "$report" 'task good: skipped - ambiguous live endpoint identity' \
+    'duplicate tmux window was not reported as ambiguous'
+  [ ! -e "$dir/home/state/.endpoint-binding-migration-v1" ] \
+    || fail 'duplicate tmux window retained completion evidence'
+  pass 'endpoint binding migration rejects duplicate tmux window identities'
+}
+
 test_unresolved_existing_bindings_remove_completion_marker() {
   local dir out report mismatch_before empty_before duplicate_before
   dir=$(make_case unresolved-bindings)
@@ -688,6 +722,28 @@ test_lock_is_required() {
   pass 'endpoint binding migration refuses without the owning session lock'
 }
 
+test_symlink_session_lock_is_refused() {
+  local dir out rc
+  dir=$(make_case symlink-session-lock)
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  set +e
+  out=$(
+    owner=$BASHPID
+    printf '%s\n' "$owner" > "$dir/lock-owner"
+    ln -s "$dir/lock-owner" "$dir/home/state/.lock"
+    FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_LOCK_PID="$owner" \
+      PATH="$dir/fakebin:$BASE_PATH" exec "$MIGRATE"
+  )
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "migration accepted a symlinked session lock: $out"
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
+    || fail 'symlink-authorized migration changed metadata'
+  pass 'endpoint binding migration rejects symlinked session locks'
+}
+
 test_signal_rolls_back_staged_stamps() {
   local dir original out rc real_mv
   dir=$(make_case signal)
@@ -1014,6 +1070,50 @@ SH
   pass 'endpoint binding undo restores stamped bytes after interruption'
 }
 
+test_crashed_undo_restores_current_snapshot_before_apply() {
+  local dir out rc real_mv stage
+  dir=$(make_case crashed-undo-recovery)
+  real_mv=$(command -v mv)
+  cat > "$dir/fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+destination=${!#}
+"${FM_REAL_MV:?}" "$@"
+rc=$?
+if [ "$rc" -eq 0 ] && [ -n "${FM_CRASH_DEST:-}" ] \
+  && [ "$destination" = "$FM_CRASH_DEST" ]; then
+  kill -KILL "$PPID"
+fi
+exit "$rc"
+SH
+  chmod +x "$dir/fakebin/mv"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  FM_REAL_MV="$real_mv" run_locked "$dir" >/dev/null \
+    || fail 'migration setup for crashed undo recovery failed'
+  set +e
+  out=$(FM_REAL_MV="$real_mv" FM_CRASH_DEST="$dir/home/state/good.meta" \
+    run_locked "$dir" --undo)
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "crashed undo unexpectedly succeeded: $out"
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
+    || fail 'crashed undo did not reach the partial metadata change'
+  stage=$(find "$dir/home/state" -maxdepth 1 -type d \
+    -name '.endpoint-binding-undo-cleanup.*' -print -quit)
+  [ -n "$stage" ] || fail 'crashed undo lost its recovery stage'
+  rm -f "$dir/fakebin/mv"
+  out=$(run_locked "$dir") || fail "apply could not recover crashed undo: $out"
+  assert_contains "$out" 'stamped 0' 'crashed undo recovery reapplied the recorded stamp'
+  grep -qx 'endpoint_task_id=good' "$dir/home/state/good.meta" \
+    || fail 'apply did not restore the pre-undo metadata snapshot'
+  [ ! -e "$stage" ] || fail 'apply did not retire the recovered undo stage'
+  out=$(run_locked "$dir" --undo) || fail "undo after crash recovery failed: $out"
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
+    || fail 'undo after crash recovery retained the binding'
+  pass 'incomplete undo recovery restores current snapshots before apply'
+}
+
 test_undo_signal_during_cleanup_restores_recovery_state() {
   local dir original stamped out rc real_mv real_rm
   dir=$(make_case undo-cleanup-signal)
@@ -1251,7 +1351,9 @@ test_crash_recovery_restores_evidence_snapshots() {
   real_mv=$(command -v mv)
   cat > "$dir/fakebin/mv" <<'SH'
 #!/usr/bin/env bash
-if [ -n "${FM_FAIL_DEST:-}" ] && [ "${4:-}" = "$FM_FAIL_DEST" ]; then
+destination=${!#}
+if [ -n "${FM_FAIL_DEST:-}" ] \
+  && [ "${destination##*/}" = "${FM_FAIL_DEST##*/}" ]; then
   if [ -e "${FM_FAIL_SENT:-}" ]; then
     exit 1
   fi
@@ -1362,6 +1464,53 @@ SH
   pass 'no-stamp crash recovery restores evidence before rerun'
 }
 
+test_partial_apply_recovery_tolerates_lifecycle_changes() {
+  local dir out stage backup expected
+  dir=$(make_case partial-lifecycle-recovery)
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  fm_write_meta "$dir/home/state/good2.meta" \
+    'window=firstmate:fm-good2' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  stage="$dir/home/state/.endpoint-binding-stage.partial-lifecycle"
+  backup="$dir/home/state/.endpoint-binding-migration-backups"
+  mkdir "$stage" "$backup"
+  chmod 0700 "$stage" "$backup"
+  cp "$dir/home/state/good.meta" "$stage/good.before"
+  cp "$dir/home/state/good.meta" "$stage/good.after"
+  printf 'endpoint_task_id=good\n' >> "$stage/good.after"
+  cp "$dir/home/state/good2.meta" "$stage/good2.before"
+  cp "$dir/home/state/good2.meta" "$stage/good2.after"
+  printf 'endpoint_task_id=good2\n' >> "$stage/good2.after"
+  printf '%s\n' $'good\tgood.before\tgood.after' $'good2\tgood2.before\tgood2.after' \
+    > "$stage/records"
+  cp "$stage/good.before" "$backup/good.before"
+  cp "$stage/good.after" "$backup/good.after"
+  cp "$stage/good2.before" "$backup/good2.before"
+  cp "$stage/good2.after" "$backup/good2.after"
+  cp "$stage/records" "$dir/home/state/.endpoint-binding-migration-records-v1"
+  chmod 0600 "$stage"/* "$backup"/* \
+    "$dir/home/state/.endpoint-binding-migration-records-v1"
+  cp "$stage/good.after" "$dir/home/state/good.meta"
+  printf 'control_relaunch_tx=x-link-followup\n' >> "$dir/home/state/good.meta"
+  expected=$(mktemp "$dir/expected.XXXXXX")
+  cp "$stage/good.before" "$expected"
+  printf 'control_relaunch_tx=x-link-followup\n' >> "$expected"
+  rm -f "$dir/home/state/good2.meta"
+
+  out=$(run_locked "$dir") || fail "partial lifecycle recovery failed: $out"
+  assert_contains "$out" 'stamped 1' 'partial lifecycle recovery did not rerun the full scan'
+  [ ! -e "$dir/home/state/good2.meta" ] \
+    || fail 'partial recovery recreated teardown-deleted metadata'
+  out=$(run_locked "$dir" --undo) || fail "partial lifecycle recovery undo failed: $out"
+  cmp -s "$expected" "$dir/home/state/good.meta" \
+    || fail 'partial recovery did not preserve lifecycle-appended metadata'
+  [ ! -e "$dir/home/state/good2.meta" ] \
+    || fail 'partial recovery undo recreated deleted metadata'
+  pass 'partial apply recovery reconciles lifecycle rewrites and deletions'
+}
+
 test_partial_published_journal_reruns_apply() {
   local dir out rc real_mv
   dir=$(make_case partial-published-journal)
@@ -1400,7 +1549,7 @@ SH
 }
 
 test_partial_merged_journal_reruns_apply() {
-  local dir out old_records stage
+  local dir out old_records stage expected
   dir=$(make_case partial-merged-journal)
   fm_write_meta "$dir/home/state/good.meta" \
     'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
@@ -1429,6 +1578,11 @@ test_partial_merged_journal_reruns_apply() {
     "$dir/home/state/.endpoint-binding-migration-backups/good2.after"
   chmod 0600 "$dir/home/state/.endpoint-binding-migration-backups/good2.before" \
     "$dir/home/state/.endpoint-binding-migration-backups/good2.after"
+  cp "$stage/good2.after" "$dir/home/state/good2.meta"
+  printf 'control_relaunch_tx=merged-followup\n' >> "$dir/home/state/good2.meta"
+  expected=$(mktemp "$dir/good2-expected.XXXXXX")
+  cp "$stage/good2.before" "$expected"
+  printf 'control_relaunch_tx=merged-followup\n' >> "$expected"
   out=$(run_locked "$dir") || fail "partial merged journal restart failed: $out"
   assert_contains "$out" 'stamped 1' 'partial merged journal restart skipped the eligible record'
   assert_contains "$(cat "$dir/home/state/good2.meta")" 'endpoint_task_id=good2' \
@@ -1438,8 +1592,8 @@ test_partial_merged_journal_reruns_apply() {
   out=$(run_locked "$dir" --undo) || fail "partial merged journal undo failed: $out"
   ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
     || fail 'partial merged journal undo did not restore old metadata'
-  ! grep -q '^endpoint_task_id=' "$dir/home/state/good2.meta" \
-    || fail 'partial merged journal undo did not restore new metadata'
+  cmp -s "$expected" "$dir/home/state/good2.meta" \
+    || fail 'partial merged journal undo did not preserve lifecycle metadata'
   pass 'endpoint binding migration reruns after partial merged journal publication'
 }
 
@@ -1796,6 +1950,7 @@ SH
 }
 
 test_evidence_bound_stamp_and_skip
+test_duplicate_tmux_window_is_ambiguous
 test_unresolved_existing_bindings_remove_completion_marker
 test_stamp_adds_binding_as_separate_line_without_trailing_newline
 test_hidden_metadata_is_reported
@@ -1818,12 +1973,14 @@ test_final_live_recheck_refuses_dead_endpoint
 test_reverse_restores_prior_bytes
 test_shared_task_id_grammar_reports_colon_ids
 test_lock_is_required
+test_symlink_session_lock_is_refused
 test_signal_rolls_back_staged_stamps
 test_final_stamp_waits_for_metadata_lock
 test_migration_transaction_lock_serializes_no_stamp_runs
 test_stamp_lock_is_held_through_publication_rollback
 test_undo_waits_for_metadata_lock
 test_undo_signal_restores_stamped_bytes
+test_crashed_undo_restores_current_snapshot_before_apply
 test_undo_signal_during_cleanup_restores_recovery_state
 test_identity_verification_waits_for_metadata_lock
 test_report_write_failure_aborts_before_stamping
@@ -1834,6 +1991,7 @@ test_recovery_journal_copy_is_atomic
 test_crash_after_manifest_preserves_undo_path
 test_crash_recovery_restores_evidence_snapshots
 test_no_stamp_crash_restores_evidence_before_rerun
+test_partial_apply_recovery_tolerates_lifecycle_changes
 test_partial_published_journal_reruns_apply
 test_partial_merged_journal_reruns_apply
 test_existing_journal_pre_manifest_stage_is_discarded

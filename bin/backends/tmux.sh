@@ -293,7 +293,7 @@ fm_backend_tmux_foreground_argv0s() {  # <target>
 # authoritative for the negative verdicts, since it is the only source that can
 # distinguish a truly idle pane from a rewritten process title.
 fm_backend_tmux_agent_state() {  # <target>
-  local target=$1 comm session window windows inventory_status
+  local target=$1 comm session window windows inventory_status window_matches
   local foreground argv0s name pid fg_seen=0 fg_shell=0 fg_other=0
   case "$target" in
     *:*:*|'':*|*:'') printf 'unreadable'; return 0 ;;
@@ -318,10 +318,21 @@ fm_backend_tmux_agent_state() {  # <target>
     esac
     return 0
   fi
-  if ! printf '%s\n' "$windows" | grep -Fqx "$window"; then
-    printf 'missing'
+  window_matches=$(printf '%s\n' "$windows" | awk -v expected="$window" '$0 == expected { count++ } END { print count + 0 }') || {
+    printf 'unreadable'
     return 0
-  fi
+  }
+  case "$window_matches" in
+    0)
+      printf 'missing'
+      return 0
+      ;;
+    1) ;;
+    *)
+      printf 'ambiguous'
+      return 0
+      ;;
+  esac
 
   foreground=$(fm_backend_tmux_foreground_comms "$target")
   while IFS= read -r name; do
