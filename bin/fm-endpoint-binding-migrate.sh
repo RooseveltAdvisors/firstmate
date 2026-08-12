@@ -40,6 +40,39 @@ umask 077
   echo "ENDPOINT_BINDING_MIGRATION: state directory is unavailable; migration did not run" >&2
   exit 1
 }
+filesystem_identity() {
+  case "$(uname 2>/dev/null || true)" in
+    Darwin) stat -f '%d:%i' "$1" ;;
+    *) stat -c '%d:%i' "$1" ;;
+  esac
+}
+PINNED_STATE_IDENTITY=$(filesystem_identity "$STATE" 2>/dev/null) || exit 1
+cd -P -- "$STATE" || exit 1
+[ "$(filesystem_identity . 2>/dev/null)" = "$PINNED_STATE_IDENTITY" ] || exit 1
+PINNED_STATE_PATH=$(pwd -P) || exit 1
+pinned_state_directory() {
+  [ "$(filesystem_identity . 2>/dev/null)" = "$PINNED_STATE_IDENTITY" ]
+}
+make_state_temp() {
+  pinned_state_directory || return 1
+  mktemp "./$1"
+}
+make_state_temp_directory() {
+  pinned_state_directory || return 1
+  mktemp -d "./$1"
+}
+make_private_temp_in() (
+  local directory=$1 pattern=$2 parent base expected tmp
+  [ -L "$directory" ] && return 1
+  parent=${directory%/*}
+  base=${directory##*/}
+  expected=$(cd -P -- "$parent" && pwd -P)/$base || return 1
+  cd -P -- "$directory" || return 1
+  [ "$(pwd -P)" = "$expected" ] || return 1
+  private_directory . || return 1
+  tmp=$(mktemp "./$pattern") || return 1
+  printf '%s/%s\n' "$expected" "${tmp#./}"
+)
 require_session_lock() {
   fm_session_lock_owned_by_self "$STATE" || {
     echo "ENDPOINT_BINDING_MIGRATION: session lock is not owned by this session; migration did not run" >&2
@@ -119,7 +152,7 @@ write_marker() {
   if [ -e "$destination" ] || [ -L "$destination" ]; then
     [ -f "$destination" ] && [ ! -L "$destination" ] || return 1
   fi
-  tmp=$(mktemp "$STATE/.endpoint-binding-marker.XXXXXX") || return 1
+  tmp=$(make_state_temp '.endpoint-binding-marker.XXXXXX') || return 1
   if ! private_file "$tmp" || ! append_private_line_atomic "$tmp" "$value" \
     || ! copy_private_atomic "$tmp" "$destination" regular; then
     rm -f -- "$tmp"
@@ -514,7 +547,7 @@ valid_stamp_evidence() {
   local id=$1 before=$2 after=$3 expected
   private_file "$before" && private_file "$after" || return 1
   ! grep -q '^endpoint_task_id=' "$before" || return 1
-  expected=$(mktemp "$STATE/.endpoint-binding-evidence-check.XXXXXX") || return 1
+  expected=$(make_state_temp '.endpoint-binding-evidence-check.XXXXXX') || return 1
   if ! copy_private_atomic "$before" "$expected" private private "$id"; then
     rm -f -- "$expected"
     return 1
@@ -637,10 +670,7 @@ atomic_rename_nofollow() {
 }
 
 path_file_identity() {
-  case "$(uname 2>/dev/null || true)" in
-    Darwin) stat -f '%d:%i' "$1" ;;
-    *) stat -c '%d:%i' "$1" ;;
-  esac
+  filesystem_identity "$1"
 }
 
 file_descriptor_identity() {
@@ -744,24 +774,55 @@ copy_to_new_private_file() {
   [ "$(path_file_identity "$destination" 2>/dev/null)" = "$destination_identity" ]
 }
 
+restore_atomic_destination() {
+  local destination=$1 present=$2 tmp identity rc
+  if [ "$present" -eq 0 ]; then
+    if [ -L "$destination" ] || regular_file "$destination"; then
+      rm -f -- "$destination" || return 1
+    elif [ -e "$destination" ]; then
+      return 1
+    fi
+    return 0
+  fi
+  file_descriptor_regular 4 || return 1
+  tmp=$(mktemp './.endpoint-binding-restore.XXXXXX') || return 1
+  rm -f -- "$tmp" || return 1
+  exec 8<&4
+  if ! copy_to_new_private_file "$tmp"; then
+    rm -f -- "$tmp"
+    return 1
+  fi
+  identity=$(path_file_identity "$tmp" 2>/dev/null) || { rm -f -- "$tmp"; return 1; }
+  atomic_rename_nofollow "$tmp" "$destination" || { rc=$?; rm -f -- "$tmp"; return "$rc"; }
+  regular_file "$destination" || return 1
+  [ "$(path_file_identity "$destination" 2>/dev/null)" = "$identity" ]
+}
+
 copy_private_atomic() (
   local source=$1 destination=$2 destination_type=${3:-private} source_type=${4:-private} binding_id=${5:-}
   local append_line=${6:-} append_source=${7:-} append_source_type=${8:-private}
   local append_skip=${9:-0} append_separator=${10:-0}
   local source_dir source_name destination_dir destination_name tmp rc
   local source_parent source_base source_expected destination_parent destination_base destination_expected tmp_identity
-  local source_identity source_fd_identity append_present=0
+  local source_identity source_fd_identity append_present=0 destination_present=0 destination_identity destination_fd_identity
   local append_source_dir append_source_name append_source_parent append_source_base
   local append_source_expected append_identity append_fd_identity
+  pinned_state_directory || return 1
   source_dir=${source%/*}
   source_name=${source##*/}
-  [ -L "$source_dir" ] && return 1
-  source_parent=${source_dir%/*}
-  source_base=${source_dir##*/}
-  source_expected=$(cd -P -- "$source_parent" && pwd -P)/$source_base || return 1
-  cd -P -- "$source_dir" || return 1
+  if [ "$source_dir" = . ]; then
+    source_expected=$PINNED_STATE_PATH
+    cd -P -- "$PINNED_STATE_PATH" || return 1
+    pinned_state_directory || return 1
+  else
+    [ -L "$source_dir" ] && return 1
+    source_parent=${source_dir%/*}
+    source_base=${source_dir##*/}
+    source_expected=$(cd -P -- "$source_parent" && pwd -P)/$source_base || return 1
+    cd -P -- "$source_dir" || return 1
+  fi
   [ "$(pwd -P)" = "$source_expected" ] || return 1
-  if [ "$source_dir" = "$STATE" ]; then
+  if [ "$source_dir" = "$STATE" ] || [ "$source_dir" = . ]; then
     [ -d . ] && [ ! -L . ] || return 1
   else
     private_directory . || return 1
@@ -788,13 +849,19 @@ copy_private_atomic() (
     append_present=1
     append_source_dir=${append_source%/*}
     append_source_name=${append_source##*/}
-    [ -L "$append_source_dir" ] && return 1
-    append_source_parent=${append_source_dir%/*}
-    append_source_base=${append_source_dir##*/}
-    append_source_expected=$(cd -P -- "$append_source_parent" && pwd -P)/$append_source_base || return 1
-    cd -P -- "$append_source_dir" || return 1
+    if [ "$append_source_dir" = . ]; then
+      append_source_expected=$PINNED_STATE_PATH
+      cd -P -- "$PINNED_STATE_PATH" || return 1
+      pinned_state_directory || return 1
+    else
+      [ -L "$append_source_dir" ] && return 1
+      append_source_parent=${append_source_dir%/*}
+      append_source_base=${append_source_dir##*/}
+      append_source_expected=$(cd -P -- "$append_source_parent" && pwd -P)/$append_source_base || return 1
+      cd -P -- "$append_source_dir" || return 1
+    fi
     [ "$(pwd -P)" = "$append_source_expected" ] || return 1
-    if [ "$append_source_dir" = "$STATE" ]; then
+    if [ "$append_source_dir" = "$STATE" ] || [ "$append_source_dir" = . ]; then
       [ -d . ] && [ ! -L . ] || return 1
     else
       private_directory . || return 1
@@ -815,13 +882,19 @@ copy_private_atomic() (
   fi
   destination_dir=${destination%/*}
   destination_name=${destination##*/}
-  [ -L "$destination_dir" ] && return 1
-  destination_parent=${destination_dir%/*}
-  destination_base=${destination_dir##*/}
-  destination_expected=$(cd -P -- "$destination_parent" && pwd -P)/$destination_base || return 1
-  cd -P -- "$destination_dir" || return 1
+  if [ "$destination_dir" = . ]; then
+    destination_expected=$PINNED_STATE_PATH
+    cd -P -- "$PINNED_STATE_PATH" || return 1
+    pinned_state_directory || return 1
+  else
+    [ -L "$destination_dir" ] && return 1
+    destination_parent=${destination_dir%/*}
+    destination_base=${destination_dir##*/}
+    destination_expected=$(cd -P -- "$destination_parent" && pwd -P)/$destination_base || return 1
+    cd -P -- "$destination_dir" || return 1
+  fi
   [ "$(pwd -P)" = "$destination_expected" ] || return 1
-  if [ "$destination_dir" = "$STATE" ]; then
+  if [ "$destination_dir" = "$STATE" ] || [ "$destination_dir" = . ]; then
     [ -d . ] && [ ! -L . ] || return 1
   else
     private_directory . || return 1
@@ -832,8 +905,14 @@ copy_private_atomic() (
     else
       private_file "./$destination_name" || return 1
     fi
+    destination_identity=$(path_file_identity "./$destination_name" 2>/dev/null) || return 1
+    exec 4< "./$destination_name" || return 1
+    file_descriptor_regular 4 || return 1
+    destination_fd_identity=$(file_descriptor_identity 4 2>/dev/null) || return 1
+    [ "$destination_fd_identity" = "$destination_identity" ] || return 1
+    destination_present=1
   fi
-  tmp=$(mktemp "$STATE/.endpoint-binding-copy.XXXXXX") || return 1
+  tmp=$(mktemp './.endpoint-binding-copy.XXXXXX') || return 1
   rm -f -- "$tmp" || return 1
   if ! copy_to_new_private_file "$tmp" "$binding_id" "$append_line" "$append_present" \
     "$append_skip" "$append_separator"; then
@@ -841,27 +920,36 @@ copy_private_atomic() (
     return 1
   fi
   tmp_identity=$(path_file_identity "$tmp" 2>/dev/null) || { rm -f -- "$tmp"; return 1; }
+  exec 5< "$tmp" || { rm -f -- "$tmp"; return 1; }
+  file_descriptor_regular 5 || { rm -f -- "$tmp"; return 1; }
+  [ "$(file_descriptor_identity 5 2>/dev/null)" = "$tmp_identity" ] \
+    || { rm -f -- "$tmp"; return 1; }
   [ "$(pwd -P)" = "$destination_expected" ] || { rm -f -- "$tmp"; return 1; }
-  if [ "$destination_dir" = "$STATE" ]; then
+  if [ "$destination_dir" = "$STATE" ] || [ "$destination_dir" = . ]; then
     [ -d . ] && [ ! -L . ] || { rm -f -- "$tmp"; return 1; }
   else
     private_directory . || { rm -f -- "$tmp"; return 1; }
   fi
-  if [ -e "./$destination_name" ] || [ -L "./$destination_name" ]; then
-    if [ "$destination_type" = regular ]; then
-      regular_file "./$destination_name" || { rm -f -- "$tmp"; return 1; }
-    else
-      private_file "./$destination_name" || { rm -f -- "$tmp"; return 1; }
-    fi
+  if [ "$destination_present" -eq 1 ]; then
+    [ "$(path_file_identity "./$destination_name" 2>/dev/null)" = "$destination_fd_identity" ] \
+      || { rm -f -- "$tmp"; return 1; }
+  elif [ -e "./$destination_name" ] || [ -L "./$destination_name" ]; then
+    rm -f -- "$tmp"
+    return 1
   fi
+  [ "$(path_file_identity "$tmp" 2>/dev/null)" = "$tmp_identity" ] \
+    || { rm -f -- "$tmp"; return 1; }
   atomic_rename_nofollow "$tmp" "./$destination_name" || { rc=$?; rm -f -- "$tmp"; return "$rc"; }
   [ "$(pwd -P)" = "$destination_expected" ] || return 1
+  if [ "$(path_file_identity "./$destination_name" 2>/dev/null)" != "$tmp_identity" ]; then
+    restore_atomic_destination "./$destination_name" "$destination_present" || true
+    return 1
+  fi
   if [ "$destination_type" = regular ]; then
     regular_file "./$destination_name" || return 1
   else
     private_file "./$destination_name" || return 1
   fi
-  [ "$(path_file_identity "./$destination_name" 2>/dev/null)" = "$tmp_identity" ]
 )
 
 append_private_line_atomic() {
@@ -874,7 +962,7 @@ append_private_file_atomic() {
 
 initialize_private_file() {
   local destination=$1 tmp
-  tmp=$(mktemp "$STATE/.endpoint-binding-empty.XXXXXX") || return 1
+  tmp=$(make_state_temp '.endpoint-binding-empty.XXXXXX') || return 1
   if ! private_file "$tmp" || ! copy_private_atomic "$tmp" "$destination"; then
     rm -f -- "$tmp"
     return 1
@@ -887,7 +975,7 @@ write_completed_stage() {
   private_directory "$stage" || return 1
   control="$stage/.control"
   private_directory "$control" || return 1
-  tmp=$(mktemp "$STATE/.endpoint-binding-completed.XXXXXX") || return 1
+  tmp=$(make_state_temp '.endpoint-binding-completed.XXXXXX') || return 1
   if ! private_file "$tmp" || ! append_private_line_atomic "$tmp" completed \
     || ! copy_private_atomic "$tmp" "$control/completed"; then
     rc=1
@@ -1007,7 +1095,7 @@ recover_existing_apply_stage() {
   nonempty_private_file "$RECORDS" || return 1
   private_file "$control/records" || return 1
   private_file "$control/records.before" || return 1
-  merged_tmp=$(mktemp "$STATE/.endpoint-binding-merge-check.XXXXXX") || return 1
+  merged_tmp=$(make_state_temp '.endpoint-binding-merge-check.XXXXXX') || return 1
   if ! private_file "$merged_tmp" \
     || ! copy_private_atomic "$control/records.before" "$merged_tmp" \
     || ! append_private_file_atomic "$merged_tmp" "$control/records"; then
@@ -1392,7 +1480,7 @@ prepare_evidence() {
   snapshot_evidence_file "$REPORT" report || return 1
   snapshot_evidence_file "$SCAN_MARKER" scan-marker || return 1
   snapshot_evidence_file "$MARKER" marker || return 1
-  evidence_tmp=$(mktemp "$STAGE_DIR/.control/report.evidence.XXXXXX") || return 1
+  evidence_tmp=$(make_private_temp_in "$STAGE_DIR/.control" 'report.evidence.XXXXXX') || return 1
   if ! private_file "$evidence_tmp" \
     || ! append_private_line_atomic "$evidence_tmp" $'report\t'"$REPORT_PRESENT" \
     || ! append_private_line_atomic "$evidence_tmp" $'scan-marker\t'"$SCAN_MARKER_PRESENT" \
@@ -1487,7 +1575,7 @@ publish_recovery_records() {
   if [ -e "$RECORDS" ] || [ -L "$RECORDS" ]; then
     return 1
   fi
-  manifest_tmp=$(mktemp "$STATE/.endpoint-binding-recovery-records.XXXXXX") || return 1
+  manifest_tmp=$(make_state_temp '.endpoint-binding-recovery-records.XXXXXX') || return 1
   private_file "$manifest_tmp" || { rm -f -- "$manifest_tmp"; return 1; }
   for i in "${!STAMP_IDS[@]}"; do
     [ "${STAMP_SELECTED[$i]:-1}" -eq 1 ] || continue
@@ -1613,6 +1701,36 @@ remove_completed_stage() {
   remove_stage_directory "$1"
 }
 
+recover_undo_metadata() {
+  local meta=$1 id=$2 current=$3 undone=$4 stage=$5 observed restored meta_size undone_size
+  if [ ! -e "$meta" ] && [ ! -L "$meta" ]; then
+    return 0
+  fi
+  regular_file "$meta" || return 1
+  observed="$stage/$id.observed"
+  restored="$stage/$id.restored"
+  copy_private_atomic "$meta" "$observed" || return 1
+  if cmp -s -- "$observed" "$current"; then
+    rm -f -- "$observed" "$restored"
+    return $?
+  fi
+  if cmp -s -- "$observed" "$undone"; then
+    require_recovery_session_lock || return 1
+    replace_metadata_from_private "$current" "$meta" || return 1
+    rm -f -- "$observed" "$restored"
+    return $?
+  fi
+  meta_size=$(wc -c < "$observed") || return 1
+  undone_size=$(wc -c < "$undone") || return 1
+  [ "$meta_size" -gt "$undone_size" ] || return 1
+  dd if="$observed" bs=1 count="$undone_size" 2>/dev/null | cmp -s -- - "$undone" || return 1
+  copy_private_atomic "$current" "$restored" || return 1
+  append_private_file_atomic "$restored" "$observed" private "$undone_size" || return 1
+  require_recovery_session_lock || return 1
+  replace_metadata_from_private "$restored" "$meta" || return 1
+  rm -f -- "$observed" "$restored"
+}
+
 recover_undo_stage() {
   local stage id before_name after_name extra rc=0 i meta current undone control
   local -a ids=() before_names=() after_names=()
@@ -1699,20 +1817,10 @@ recover_undo_stage() {
           return 1
         fi
         meta="$STATE/$id.meta"
-        if regular_file "$meta"; then
-          if cmp -s -- "$meta" "$current"; then
-            :
-          elif cmp -s -- "$meta" "$undone"; then
-            require_recovery_session_lock || {
-              release_undo_locks || true
-              return 1
-            }
-            replace_metadata_from_private "$current" "$meta" || {
-              release_undo_locks || true
-              return 1
-            }
-          fi
-        fi
+        recover_undo_metadata "$meta" "$id" "$current" "$undone" "$stage" || {
+          release_undo_locks || true
+          return 1
+        }
       elif [ -e "$undone" ] || [ -L "$undone" ]; then
         private_file "$undone" || {
           release_undo_locks || true
@@ -1749,7 +1857,7 @@ restart_apply_scan() {
   REPORT_TMP=
   release_migration_lock || return 1
   trap - EXIT HUP INT TERM
-  exec "$0"
+  exec "$SCRIPT_DIR/${0##*/}"
 }
 
 apply_migration() {
@@ -1758,11 +1866,12 @@ apply_migration() {
   local -a metas
   require_session_lock || return 1
   recover_apply_stage || return 1
-  STAGE_DIR=$(mktemp -d "$STATE/.endpoint-binding-stage.XXXXXX") || return 1
+  STAGE_DIR=$(make_state_temp_directory '.endpoint-binding-stage.XXXXXX') || return 1
   private_directory "$STAGE_DIR" || return 1
   mkdir -- "$STAGE_DIR/.control" || return 1
   private_directory "$STAGE_DIR/.control" || return 1
-  REPORT_TMP=$(mktemp "$STAGE_DIR/.control/report.XXXXXX") || return 1
+  STAGE_DIR="$PINNED_STATE_PATH/${STAGE_DIR#./}"
+  REPORT_TMP=$(make_private_temp_in "$STAGE_DIR/.control" 'report.XXXXXX') || return 1
   private_file "$REPORT_TMP" || return 1
   prepare_evidence || return 1
   validate_recovery_namespace || return 1
@@ -2001,7 +2110,7 @@ apply_migration() {
     copy_private_atomic "${STAMP_AFTER[$i]}" "${STAMP_AFTER_FINAL[$i]}" || { abort_apply 1; return $?; }
   done
 
-  manifest_tmp=$(mktemp "$STATE/.endpoint-binding-records.XXXXXX") || { abort_apply 1; return $?; }
+  manifest_tmp=$(make_state_temp '.endpoint-binding-records.XXXXXX') || { abort_apply 1; return $?; }
   private_file "$manifest_tmp" || { rm -f -- "$manifest_tmp"; abort_apply 1; return $?; }
   if [ "$RECORDS_EXISTING" -eq 1 ]; then
     copy_private_atomic "$RECORDS" "$manifest_tmp" || {
@@ -2075,7 +2184,7 @@ surgical_remove_binding() {
   local current_size after_size tmp current last_byte separator=0
   SURGICAL_UNDO_CHANGED=0
   regular_file "$meta" || return 0
-  current=$(mktemp "$STATE/.endpoint-binding-surgical-current.XXXXXX") || return 1
+  current=$(make_state_temp '.endpoint-binding-surgical-current.XXXXXX') || return 1
   if ! copy_private_atomic "$meta" "$current" private regular; then
     rm -f -- "$current"
     return 1
@@ -2089,7 +2198,7 @@ surgical_remove_binding() {
   [ "$current_size" -ge "$after_size" ] || { rm -f -- "$current"; return 0; }
   dd if="$current" bs=1 count="$after_size" 2>/dev/null | cmp -s -- - "$after" \
     || { rm -f -- "$current"; return 0; }
-  tmp=$(mktemp "$STATE/.endpoint-binding-surgical-undo.XXXXXX") \
+  tmp=$(make_state_temp '.endpoint-binding-surgical-undo.XXXXXX') \
     || { rm -f -- "$current"; return 1; }
   if ! copy_private_atomic "$before" "$tmp"; then
     rm -f -- "$tmp" "$current"
@@ -2165,7 +2274,7 @@ undo_migration() {
 
   UNDO_ACTIVE=1
   acquire_undo_locks || { abort_undo; return $?; }
-  cleanup_stage=$(mktemp -d "$STATE/.endpoint-binding-undo-cleanup.XXXXXX") || {
+  cleanup_stage=$(make_state_temp_directory '.endpoint-binding-undo-cleanup.XXXXXX') || {
     abort_undo
     return 1
   }
@@ -2176,6 +2285,8 @@ undo_migration() {
     abort_undo
     return 1
   fi
+  cleanup_stage="$PINNED_STATE_PATH/${cleanup_stage#./}"
+  UNDO_RECOVERY_STAGE=$cleanup_stage
   for id in "${UNDO_IDS[@]}"; do
     if ! copy_private_atomic "$BACKUP_DIR/$id.before" "$cleanup_stage/$id.before" \
       || ! copy_private_atomic "$BACKUP_DIR/$id.after" "$cleanup_stage/$id.after"; then

@@ -682,15 +682,17 @@ test_staged_binding_assembly_does_not_follow_symlinks() {
   printf 'keep' > "$outside"
   cat > "$dir/fakebin/cat" <<'SH'
 #!/usr/bin/env bash
-for before in "${FM_HOME:?}"/state/.endpoint-binding-stage.*/good.before; do
-  [ -f "$before" ] || continue
-  for temporary in "$FM_HOME"/state/.endpoint-binding-copy.*; do
-    [ -f "$temporary" ] || continue
-    rm -f -- "$temporary" || exit 1
-    ln -s "${FM_OUTSIDE:?}" "$temporary" || exit 1
-    : > "${FM_STAGED_RACE_ACTIVATED:?}"
-  done
-done
+case "$PWD" in
+  "${FM_HOME:?}"/state/.endpoint-binding-stage.*)
+    [ -f ./good.before ] || exec "${FM_REAL_CAT:?}" "$@"
+    for temporary in ./.endpoint-binding-copy.*; do
+      [ -f "$temporary" ] || continue
+      rm -f -- "$temporary" || exit 1
+      ln -s "${FM_OUTSIDE:?}" "$temporary" || exit 1
+      : > "${FM_STAGED_RACE_ACTIVATED:?}"
+    done
+    ;;
+esac
 exec "${FM_REAL_CAT:?}" "$@"
 SH
   chmod +x "$dir/fakebin/cat"
@@ -1215,6 +1217,47 @@ SH
   [ -z "$(find "$outside" -mindepth 1 -maxdepth 1 -print -quit)" ] \
     || fail 'recovery publication followed a destination symlink outside state'
   pass 'endpoint binding recovery atomically replaces final entries'
+}
+
+test_atomic_publication_restores_destination_after_source_swap() {
+  local dir out rc real_mv original activated
+  dir=$(make_case atomic-source-swap)
+  real_mv=$(command -v mv)
+  activated="$dir/source-swap-activated"
+  cat > "$dir/fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+source=
+destination=
+for argument in "$@"; do
+  source=$destination
+  destination=$argument
+done
+if [ "$PWD" = "${FM_HOME:?}/state" ] && [ "$destination" = ./good.meta ] \
+  && [ "${source##*/}" != "${source}" ] \
+  && [ "${source##*/}" != "${source##*/.endpoint-binding-copy.}" ] \
+  && [ ! -e "${FM_SOURCE_SWAP_ACTIVATED:?}" ]; then
+  rm -f -- "$source" || exit 1
+  printf 'unexpected replacement bytes\n' > "$source" || exit 1
+  chmod 0600 "$source" || exit 1
+  : > "$FM_SOURCE_SWAP_ACTIVATED"
+fi
+exec "${FM_REAL_MV:?}" "$@"
+SH
+  chmod +x "$dir/fakebin/mv"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  original=$(mktemp "$dir/original.XXXXXX")
+  cp "$dir/home/state/good.meta" "$original"
+  set +e
+  out=$(FM_REAL_MV="$real_mv" FM_SOURCE_SWAP_ACTIVATED="$activated" run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "source-swapped publication unexpectedly succeeded: $out"
+  [ -f "$activated" ] || fail 'source-swap publication fixture did not activate'
+  cmp -s "$original" "$dir/home/state/good.meta" \
+    || fail 'source-swapped publication did not preserve prior metadata bytes'
+  pass 'endpoint binding publication restores prior bytes after a source swap'
 }
 
 test_journal_publication_does_not_follow_destination_symlink() {
@@ -2161,6 +2204,7 @@ SH
   [ "$rc" -ne 0 ] || fail "crashed undo unexpectedly succeeded: $out"
   ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
     || fail 'crashed undo did not reach the partial metadata change'
+  printf 'control_x_link_tx=after-crash\n' >> "$dir/home/state/good.meta"
   stage=$(find "$dir/home/state" -maxdepth 1 -type d \
     -name '.endpoint-binding-undo-cleanup.*' -print -quit)
   [ -n "$stage" ] || fail 'crashed undo lost its recovery stage'
@@ -2169,10 +2213,14 @@ SH
   assert_contains "$out" 'stamped 0' 'crashed undo recovery reapplied the recorded stamp'
   grep -qx 'endpoint_task_id=good' "$dir/home/state/good.meta" \
     || fail 'apply did not restore the pre-undo metadata snapshot'
+  grep -qx 'control_x_link_tx=after-crash' "$dir/home/state/good.meta" \
+    || fail 'apply recovery discarded lifecycle metadata appended after the crash'
   [ ! -e "$stage" ] || fail 'apply did not retire the recovered undo stage'
   out=$(run_locked "$dir" --undo) || fail "undo after crash recovery failed: $out"
   ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
     || fail 'undo after crash recovery retained the binding'
+  grep -qx 'control_x_link_tx=after-crash' "$dir/home/state/good.meta" \
+    || fail 'undo after crash recovery discarded lifecycle metadata'
   pass 'incomplete undo recovery restores current snapshots before apply'
 }
 
@@ -3336,8 +3384,8 @@ test_atomic_copy_pins_validated_source_directory() {
   cat > "$dir/fakebin/mktemp" <<'SH'
 #!/usr/bin/env bash
 result=$("${FM_REAL_MKTEMP:?}" "$@") || exit $?
-if [ "${1:-}" = "${FM_STATE:?}/.endpoint-binding-copy.XXXXXX" ] \
-  && [ -d "$FM_STATE/.endpoint-binding-migration-backups" ] \
+if [ "${1:-}" = "./.endpoint-binding-copy.XXXXXX" ] \
+  && [ "$PWD" = "${FM_STATE:?}/.endpoint-binding-migration-backups" ] \
   && [ ! -e "$FM_STATE/.endpoint-binding-migration-backups/good.before" ] \
   && [ ! -e "${FM_SOURCE_SWAP_ACTIVATED:?}" ]; then
   stage=$(find "$FM_STATE" -maxdepth 1 -type d -name '.endpoint-binding-stage.*' -print -quit)
@@ -3380,6 +3428,51 @@ SH
   pass 'endpoint binding atomic copies pin validated source directories'
 }
 
+test_temporary_creation_stays_in_pinned_state_directory() {
+  local dir out rc real_mktemp real_mv outside held activated
+  dir=$(make_case temporary-state-parent-race)
+  real_mktemp=$(command -v mktemp)
+  real_mv=$(command -v mv)
+  outside="$dir/outside-state"
+  held="$dir/held-state"
+  activated="$dir/state-parent-race-activated"
+  mkdir "$outside"
+  printf 'keep\n' > "$outside/sentinel"
+  cat > "$dir/fakebin/mktemp" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}" in
+  */.endpoint-binding-copy.XXXXXX|./.endpoint-binding-copy.XXXXXX)
+    if [ ! -e "${FM_STATE_PARENT_RACE_ACTIVATED:?}" ]; then
+      "${FM_REAL_MV:?}" "${FM_STATE:?}" "${FM_HELD_STATE:?}" || exit 1
+      ln -s "${FM_OUTSIDE_STATE:?}" "$FM_STATE" || exit 1
+      : > "$FM_STATE_PARENT_RACE_ACTIVATED"
+      result=$("${FM_REAL_MKTEMP:?}" "$@") || exit $?
+      kill -KILL "${FM_MIGRATE_PID:?}"
+      printf '%s\n' "$result"
+      exit 0
+    fi
+    ;;
+esac
+exec "${FM_REAL_MKTEMP:?}" "$@"
+SH
+  chmod +x "$dir/fakebin/mktemp"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  set +e
+  out=$(FM_REAL_MKTEMP="$real_mktemp" FM_REAL_MV="$real_mv" \
+    FM_STATE="$dir/home/state" FM_HELD_STATE="$held" FM_OUTSIDE_STATE="$outside" \
+    FM_STATE_PARENT_RACE_ACTIVATED="$activated" run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "state-parent replacement unexpectedly succeeded: $out"
+  [ -f "$activated" ] || fail 'state-parent replacement fixture did not activate'
+  grep -qx keep "$outside/sentinel" || fail 'state-parent replacement changed outside data'
+  [ -z "$(find "$outside" -maxdepth 1 -name '.endpoint-binding-copy.*' -print -quit)" ] \
+    || fail 'temporary creation followed the replaced state path'
+  pass 'endpoint binding temporaries stay in the pinned state directory'
+}
+
 test_undo_recovery_rechecks_session_authority_before_metadata_restore() {
   local dir out rc real_cmp stage records backups
   dir=$(make_case undo-recovery-session-expiry)
@@ -3404,7 +3497,7 @@ test_undo_recovery_rechecks_session_authority_before_metadata_restore() {
 #!/usr/bin/env bash
 "${FM_REAL_CMP:?}" "$@"
 rc=$?
-if [ "$rc" -eq 0 ] && [ "${3:-}" = "${FM_META:?}" ] \
+if [ "$rc" -eq 0 ] && [ "${3:-}" = "${FM_OBSERVED:?}" ] \
   && [ "${4:-}" = "${FM_UNDONE:?}" ] \
   && [ ! -e "${FM_UNDO_RECOVERY_AUTHORITY_EXPIRED:?}" ]; then
   printf '999999\n' > "${FM_SESSION_LOCK:?}"
@@ -3414,7 +3507,7 @@ exit "$rc"
 SH
   chmod +x "$dir/fakebin/cmp"
   set +e
-  out=$(FM_REAL_CMP="$real_cmp" FM_META="$dir/home/state/good.meta" \
+  out=$(FM_REAL_CMP="$real_cmp" FM_OBSERVED="$stage/good.observed" \
     FM_UNDONE="$stage/good.undone" FM_SESSION_LOCK="$dir/home/state/.lock" \
     FM_UNDO_RECOVERY_AUTHORITY_EXPIRED="$dir/undo-recovery-authority-expired" \
     run_locked "$dir")
@@ -3437,6 +3530,7 @@ SH
 test_evidence_bound_stamp_and_skip
 test_stage_control_namespace_avoids_task_id_collisions
 test_atomic_copy_pins_validated_source_directory
+test_temporary_creation_stays_in_pinned_state_directory
 test_undo_recovery_rechecks_session_authority_before_metadata_restore
 test_shared_validator_refusal_reason_is_reported
 test_unreadable_metadata_is_reported
@@ -3471,6 +3565,7 @@ test_completed_journal_refuses_unexpected_record
 test_completed_journal_refuses_dangling_backup_entry
 test_undo_recovery_rejects_symlink_destination
 test_private_atomic_publication_does_not_follow_destination_symlink
+test_atomic_publication_restores_destination_after_source_swap
 test_journal_publication_does_not_follow_destination_symlink
 test_evidence_publication_does_not_follow_destination_symlinks
 test_migration_does_not_require_perl
