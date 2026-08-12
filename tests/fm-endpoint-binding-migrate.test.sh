@@ -29,6 +29,7 @@ SH
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = list-windows ]; then
+  [ -z "${FM_VERIFY_STARTED:-}" ] || : > "$FM_VERIFY_STARTED"
   printf '%s\n' fm-good fm-good2 fm-dead fm-ambiguous fm-bound fm-empty
   exit 0
 fi
@@ -234,6 +235,76 @@ test_final_stamp_waits_for_metadata_lock() {
   pass 'endpoint binding migration serializes final metadata replacement'
 }
 
+test_identity_verification_waits_for_metadata_lock() {
+  local dir lock ready release holder migration_pid rc verify_started
+  dir=$(make_case identity-lock)
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  lock="$dir/home/state/.meta-good.lock"
+  ready="$dir/lock-ready"
+  release="$dir/lock-release"
+  verify_started="$dir/verify-started"
+  (
+    export FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" PATH="$dir/fakebin:$BASE_PATH"
+    . "$ROOT/bin/fm-wake-lib.sh"
+    fm_lock_try_acquire "$lock" || exit 1
+    : > "$ready"
+    while [ ! -e "$release" ]; do sleep 0.01; done
+    fm_lock_release "$lock"
+  ) &
+  holder=$!
+  while [ ! -e "$ready" ]; do sleep 0.01; done
+  FM_VERIFY_STARTED="$verify_started" run_locked "$dir" > "$dir/stdout" 2> "$dir/stderr" &
+  migration_pid=$!
+  sleep 0.2
+  kill -0 "$migration_pid" 2>/dev/null || fail 'migration did not wait for the identity metadata lock'
+  [ ! -e "$verify_started" ] || fail 'identity verification ran before the metadata lock was released'
+  : > "$release"
+  wait "$holder" || fail 'identity metadata lock holder failed'
+  set +e
+  wait "$migration_pid"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "migration failed after identity lock release: $(cat "$dir/stderr")"
+  [ -e "$verify_started" ] || fail 'identity verification did not run after lock release'
+  pass 'endpoint identity verification and staging share the metadata lock'
+}
+
+test_report_write_failure_aborts_before_stamping() {
+  local dir original out rc real_chmod
+  dir=$(make_case report-write-failure)
+  real_chmod=$(command -v chmod)
+  cat > "$dir/fakebin/chmod" <<'SH'
+#!/usr/bin/env bash
+for arg in "$@"; do
+  case "$arg" in
+    */report.*)
+      rm -f -- "$arg"
+      mkdir -- "$arg"
+      exit 0
+      ;;
+  esac
+done
+exec "${FM_REAL_CHMOD:?}" "$@"
+SH
+  chmod +x "$dir/fakebin/chmod"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  original=$(mktemp "$dir/original.XXXXXX")
+  cp "$dir/home/state/good.meta" "$original"
+  set +e
+  out=$(FM_REAL_CHMOD="$real_chmod" run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "report write failure unexpectedly succeeded: $out"
+  cmp -s "$original" "$dir/home/state/good.meta" || fail 'report write failure left stamped metadata'
+  [ ! -e "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
+    || fail 'report write failure published a stamp journal'
+  pass 'endpoint binding migration aborts before stamping when outcome reporting fails'
+}
+
 test_undo_waits_for_metadata_lock() {
   local dir lock ready release holder migration_pid rc
   dir=$(make_case undo-metadata-lock)
@@ -363,6 +434,71 @@ SH
   pass 'endpoint binding migration rolls back published evidence on failure'
 }
 
+test_manifest_mode_failure_rolls_back_stamps() {
+  local dir original out rc real_chmod
+  dir=$(make_case manifest-mode-failure)
+  real_chmod=$(command -v chmod)
+  cat > "$dir/fakebin/chmod" <<'SH'
+#!/usr/bin/env bash
+for arg in "$@"; do
+  case "$arg" in
+    */.endpoint-binding-records.*) exit 1 ;;
+  esac
+done
+exec "${FM_REAL_CHMOD:?}" "$@"
+SH
+  chmod +x "$dir/fakebin/chmod"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  original=$(mktemp "$dir/original.XXXXXX")
+  cp "$dir/home/state/good.meta" "$original"
+  set +e
+  out=$(FM_REAL_CHMOD="$real_chmod" run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "manifest mode failure unexpectedly succeeded: $out"
+  cmp -s "$original" "$dir/home/state/good.meta" || fail 'manifest mode failure left stamped metadata'
+  [ ! -e "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
+    || fail 'manifest mode failure published a stamp journal'
+  pass 'endpoint binding migration rolls back when journal permissions cannot be secured'
+}
+
+test_undo_cleanup_failure_retains_recovery_evidence() {
+  local dir out rc real_rm failed_backup
+  dir=$(make_case undo-cleanup-failure)
+  real_rm=$(command -v rm)
+  cat > "$dir/fakebin/rm" <<'SH'
+#!/usr/bin/env bash
+for arg in "$@"; do
+  [ "$arg" = "${FM_FAIL_RM:-}" ] && exit 1
+done
+exec "${FM_REAL_RM:?}" "$@"
+SH
+  chmod +x "$dir/fakebin/rm"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  FM_REAL_RM="$real_rm" run_locked "$dir" >/dev/null \
+    || fail 'migration setup for cleanup failure test failed'
+  failed_backup="$dir/home/state/.endpoint-binding-migration-backups/good.before"
+  set +e
+  out=$(FM_REAL_RM="$real_rm" FM_FAIL_RM="$failed_backup" run_locked "$dir" --undo)
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "undo cleanup failure unexpectedly succeeded: $out"
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
+    || fail 'undo cleanup failure did not restore metadata'
+  [ -f "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
+    || fail 'undo cleanup failure discarded the journal'
+  [ -f "$failed_backup" ] || fail 'undo cleanup failure discarded recovery evidence'
+  out=$(FM_REAL_RM="$real_rm" run_locked "$dir" --undo) \
+    || fail "undo retry after cleanup failure failed: $out"
+  [ ! -e "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
+    || fail 'undo retry left the journal'
+  pass 'endpoint binding undo reports cleanup failures and retains recovery evidence'
+}
+
 test_incomplete_rollback_retains_recovery_evidence() {
   local dir original out rc real_mv stage
   dir=$(make_case rollback-failure)
@@ -416,5 +552,9 @@ test_signal_rolls_back_staged_stamps
 test_final_stamp_waits_for_metadata_lock
 test_undo_waits_for_metadata_lock
 test_undo_signal_restores_stamped_bytes
+test_identity_verification_waits_for_metadata_lock
+test_report_write_failure_aborts_before_stamping
 test_publication_failure_restores_evidence
+test_manifest_mode_failure_rolls_back_stamps
+test_undo_cleanup_failure_retains_recovery_evidence
 test_incomplete_rollback_retains_recovery_evidence

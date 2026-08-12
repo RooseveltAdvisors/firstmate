@@ -73,7 +73,10 @@ write_marker() {
 }
 
 record_outcome() {
-  printf '%s\n' "$1" >> "$REPORT_TMP"
+  if ! printf '%s\n' "$1" >> "$REPORT_TMP"; then
+    REPORT_WRITE_FAILED=1
+    return 1
+  fi
   OUTCOME_COUNT=$((OUTCOME_COUNT + 1))
 }
 
@@ -142,6 +145,7 @@ STAMP_AFTER=()
 STAMP_BEFORE_FINAL=()
 STAMP_AFTER_FINAL=()
 OUTCOME_COUNT=0
+REPORT_WRITE_FAILED=0
 SKIPPED_LEGACY=0
 META_WRITE_STARTED=0
 RECORDS_PUBLISHED=0
@@ -459,19 +463,30 @@ apply_migration() {
       fi
       continue
     fi
+    acquire_meta_lock "$meta" || return 1
     if ! verify_legacy_endpoint "$meta" "$id"; then
+      if [ "$REPORT_WRITE_FAILED" -eq 1 ]; then
+        release_meta_lock || true
+        return 1
+      fi
+      release_meta_lock || true
       SKIPPED_LEGACY=1
       continue
     fi
 
     before="$STAGE_DIR/$id.before"
     after="$STAGE_DIR/$id.after"
-    cp -p -- "$meta" "$before" || return 1
-    cp -p -- "$meta" "$after" || return 1
-    printf 'endpoint_task_id=%s\n' "$id" >> "$after" || return 1
-    chmod 0600 "$before" "$after" || return 1
+    cp -p -- "$meta" "$before" || { release_meta_lock || true; return 1; }
+    cp -p -- "$meta" "$after" || { release_meta_lock || true; return 1; }
+    printf 'endpoint_task_id=%s\n' "$id" >> "$after" || { release_meta_lock || true; return 1; }
+    chmod 0600 "$before" "$after" || { release_meta_lock || true; return 1; }
     validation=$(fm_backend_validate_task_endpoint "$after" "$id" 2>&1) || {
       record_outcome "task $id: skipped - staged binding failed shared validation: $(reason_one_line "$validation")"
+      if [ "$REPORT_WRITE_FAILED" -eq 1 ]; then
+        release_meta_lock || true
+        return 1
+      fi
+      release_meta_lock || true
       SKIPPED_LEGACY=1
       continue
     }
@@ -484,8 +499,14 @@ apply_migration() {
     STAMP_BEFORE_FINAL+=("$before_final")
     STAMP_AFTER_FINAL+=("$after_final")
     record_outcome "task $id: stamped - exact live endpoint identity verified"
+    if [ "$REPORT_WRITE_FAILED" -eq 1 ]; then
+      release_meta_lock || true
+      return 1
+    fi
+    release_meta_lock || return 1
   done
 
+  [ "$REPORT_WRITE_FAILED" -eq 0 ] || return 1
   if [ "${#STAMP_IDS[@]}" -eq 0 ]; then
     publish_report || return 1
     write_marker "$SCAN_MARKER" fm-endpoint-binding-migration-scan-v1 || return 1
@@ -553,7 +574,11 @@ apply_migration() {
       return $?
     }
   done
-  chmod 0600 "$manifest_tmp"
+  if ! chmod 0600 "$manifest_tmp"; then
+    rm -f -- "$manifest_tmp"
+    abort_apply 1
+    return $?
+  fi
   if ! mv -f -- "$manifest_tmp" "$RECORDS"; then
     rm -f -- "$manifest_tmp"
     abort_apply 1
@@ -633,11 +658,23 @@ undo_migration() {
     release_meta_lock || { abort_undo; return $?; }
   done
   UNDO_ACTIVE=0
-  rm -f -- "$SCAN_MARKER" "$MARKER" "$RECORDS"
-  for id in "${UNDO_IDS[@]}"; do
-    rm -f -- "$BACKUP_DIR/$id.before" "$BACKUP_DIR/$id.after"
-  done
-  rmdir -- "$BACKUP_DIR" 2>/dev/null || true
+  local cleanup_rc=0
+  rm -f -- "$SCAN_MARKER" || cleanup_rc=1
+  [ "$cleanup_rc" -eq 0 ] && rm -f -- "$MARKER" || cleanup_rc=1
+  if [ "$cleanup_rc" -eq 0 ]; then
+    for id in "${UNDO_IDS[@]}"; do
+      rm -f -- "$BACKUP_DIR/$id.before" "$BACKUP_DIR/$id.after" || {
+        cleanup_rc=1
+        break
+      }
+    done
+  fi
+  [ "$cleanup_rc" -eq 0 ] && rmdir -- "$BACKUP_DIR" 2>/dev/null || cleanup_rc=1
+  [ "$cleanup_rc" -eq 0 ] && rm -f -- "$RECORDS" || cleanup_rc=1
+  if [ "$cleanup_rc" -ne 0 ]; then
+    echo "ENDPOINT_BINDING_MIGRATION: undo restored metadata but cleanup failed; migration evidence was retained" >&2
+    return 1
+  fi
   printf 'ENDPOINT_BINDING_MIGRATION: undid %s stamp(s)\n' "${#UNDO_IDS[@]}"
 }
 
