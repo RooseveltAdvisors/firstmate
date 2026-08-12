@@ -297,7 +297,11 @@ write_marker() {
 }
 
 record_outcome() {
-  if ! append_private_line_atomic "$REPORT_TMP" "$1"; then
+  if [ "$REPORT_FD_OPEN" -ne 1 ] \
+    || ! file_descriptor_regular 9 \
+    || [ "$(file_descriptor_identity 9 2>/dev/null)" != "$REPORT_FD_IDENTITY" ] \
+    || [ "$(path_file_identity "$REPORT_TMP" 2>/dev/null)" != "$REPORT_FD_IDENTITY" ] \
+    || ! printf '%s\n' "$1" >&9; then
     REPORT_WRITE_FAILED=1
     return 1
   fi
@@ -486,6 +490,8 @@ verify_legacy_endpoint() {
 
 STAGE_DIR=
 REPORT_TMP=
+REPORT_FD_IDENTITY=
+REPORT_FD_OPEN=0
 STAMP_IDS=()
 STAMP_METAS=()
 STAMP_BEFORE=()
@@ -584,6 +590,10 @@ release_migration_lock() {
 }
 
 cleanup() {
+  if [ "$REPORT_FD_OPEN" -eq 1 ]; then
+    exec 9>&-
+    REPORT_FD_OPEN=0
+  fi
   release_apply_locks || true
   release_merge_locks || true
   release_undo_locks || true
@@ -2073,7 +2083,7 @@ remove_completed_stage() {
 }
 
 recover_undo_metadata() {
-  local meta=$1 id=$2 current=$3 undone=$4 stage=$5 observed restored meta_size undone_size
+  local meta=$1 id=$2 current=$3 undone=$4 stage=$5 observed restored meta_size current_size undone_size
   if [ ! -e "$meta" ] && [ ! -L "$meta" ]; then
     return 0
   fi
@@ -2092,6 +2102,12 @@ recover_undo_metadata() {
     return $?
   fi
   meta_size=$(wc -c < "$observed") || return 1
+  current_size=$(wc -c < "$current") || return 1
+  if [ "$meta_size" -gt "$current_size" ] \
+    && dd if="$observed" bs=1 count="$current_size" 2>/dev/null | cmp -s -- - "$current"; then
+    rm -f -- "$observed" "$restored"
+    return $?
+  fi
   undone_size=$(wc -c < "$undone") || return 1
   [ "$meta_size" -gt "$undone_size" ] || return 1
   dd if="$observed" bs=1 count="$undone_size" 2>/dev/null | cmp -s -- - "$undone" || return 1
@@ -2209,6 +2225,13 @@ recover_undo_stage() {
 trap handle_signal HUP INT TERM
 
 publish_report() {
+  if [ "$REPORT_FD_OPEN" -ne 1 ] \
+    || [ "$(file_descriptor_identity 9 2>/dev/null)" != "$REPORT_FD_IDENTITY" ] \
+    || [ "$(path_file_identity "$REPORT_TMP" 2>/dev/null)" != "$REPORT_FD_IDENTITY" ]; then
+    return 1
+  fi
+  exec 9>&-
+  REPORT_FD_OPEN=0
   if [ -e "$REPORT" ] || [ -L "$REPORT" ]; then
     [ -f "$REPORT" ] && [ ! -L "$REPORT" ] || return 1
   fi
@@ -2226,6 +2249,10 @@ restart_apply_scan() {
   remove_stage_directory "$STAGE_DIR" || return 1
   STAGE_DIR=
   REPORT_TMP=
+  if [ "$REPORT_FD_OPEN" -eq 1 ]; then
+    exec 9>&-
+    REPORT_FD_OPEN=0
+  fi
   release_migration_lock || return 1
   trap - EXIT HUP INT TERM
   exec "$SCRIPT_DIR/${0##*/}"
@@ -2244,6 +2271,11 @@ apply_migration() {
   STAGE_DIR="$PINNED_STATE_PATH/${STAGE_DIR#./}"
   REPORT_TMP=$(make_private_temp_in "$STAGE_DIR/.control" 'report.XXXXXX') || return 1
   private_file "$REPORT_TMP" || return 1
+  exec 9>> "$REPORT_TMP" || return 1
+  REPORT_FD_OPEN=1
+  REPORT_FD_IDENTITY=$(file_descriptor_identity 9 2>/dev/null) || return 1
+  file_descriptor_regular 9 || return 1
+  [ "$(path_file_identity "$REPORT_TMP" 2>/dev/null)" = "$REPORT_FD_IDENTITY" ] || return 1
   prepare_evidence || return 1
   validate_recovery_namespace || return 1
 

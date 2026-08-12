@@ -2382,39 +2382,33 @@ test_identity_verification_waits_for_metadata_lock() {
 }
 
 test_report_write_failure_aborts_before_stamping() {
-  local dir original out rc real_mv outside activated
+  local dir original out rc outside activated
   dir=$(make_case report-write-failure)
-  real_mv=$(command -v mv)
   outside="$dir/outside-report"
   activated="$dir/report-write-race-activated"
   printf 'keep\n' > "$outside"
-  cat > "$dir/fakebin/mv" <<'SH'
+  mv "$dir/fakebin/tmux" "$dir/fakebin/tmux.real"
+  cat > "$dir/fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
-destination=${!#}
-case "${destination##*/}" in
-  report.evidence.*) ;;
-  report.*)
-    case "$PWD" in
-      */.endpoint-binding-stage.*)
-        rm -f -- "$destination" || exit 1
-        ln -s "${FM_OUTSIDE:?}" "$destination" || exit 1
-        : > "${FM_RACE_ACTIVATED:?}"
-        exit 1
-        ;;
-    esac
-    ;;
-esac
-exec "${FM_REAL_MV:?}" "$@"
+if [ ! -e "${FM_RACE_ACTIVATED:?}" ]; then
+  for report in "${FM_HOME:?}"/state/.endpoint-binding-stage.*/.control/report.*; do
+    [ -f "$report" ] || continue
+    rm -f -- "$report" || exit 1
+    ln -s "${FM_OUTSIDE:?}" "$report" || exit 1
+    : > "$FM_RACE_ACTIVATED"
+    break
+  done
+fi
+exec "$0.real" "$@"
 SH
-  chmod +x "$dir/fakebin/mv"
+  chmod +x "$dir/fakebin/tmux"
   fm_write_meta "$dir/home/state/good.meta" \
     'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
     'kind=scout'
   original=$(mktemp "$dir/original.XXXXXX")
   cp "$dir/home/state/good.meta" "$original"
   set +e
-  out=$(FM_REAL_MV="$real_mv" FM_OUTSIDE="$outside" FM_RACE_ACTIVATED="$activated" \
-    run_locked "$dir")
+  out=$(FM_OUTSIDE="$outside" FM_RACE_ACTIVATED="$activated" run_locked "$dir")
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "report write failure unexpectedly succeeded: $out"
@@ -2572,6 +2566,54 @@ SH
   grep -qx 'control_x_link_tx=after-crash' "$dir/home/state/good.meta" \
     || fail 'undo after crash recovery discarded lifecycle metadata'
   pass 'incomplete undo recovery restores current snapshots before apply'
+}
+
+test_crashed_undo_before_write_preserves_stamped_prefix() {
+  local dir out rc real_mv activated stage binding_count
+  dir=$(make_case crashed-undo-before-write)
+  real_mv=$(command -v mv)
+  activated="$dir/crashed-before-write"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  run_locked "$dir" >/dev/null || fail 'migration setup for pre-write undo crash failed'
+  cat > "$dir/fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+destination=${!#}
+if [ "$PWD" = "${FM_HOME:?}/state" ] && [ "$destination" = ./good.meta ] \
+  && [ ! -e "${FM_UNDO_CRASHED:?}" ]; then
+  : > "$FM_UNDO_CRASHED"
+  kill -KILL "${FM_MIGRATE_PID:?}"
+  exit 137
+fi
+exec "${FM_REAL_MV:?}" "$@"
+SH
+  chmod +x "$dir/fakebin/mv"
+  set +e
+  out=$(FM_REAL_MV="$real_mv" FM_UNDO_CRASHED="$activated" run_locked "$dir" --undo)
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "pre-write undo crash unexpectedly succeeded: $out"
+  [ -f "$activated" ] || fail 'pre-write undo crash fixture did not activate'
+  grep -qx 'endpoint_task_id=good' "$dir/home/state/good.meta" \
+    || fail 'pre-write undo crash changed the stamped metadata'
+  printf 'control_x_link_tx=after-crash\n' >> "$dir/home/state/good.meta"
+  stage=$(find "$dir/home/state" -maxdepth 1 -type d \
+    -name '.endpoint-binding-undo-cleanup.*' -print -quit)
+  [ -n "$stage" ] || fail 'pre-write undo crash lost its recovery stage'
+  rm -f "$dir/fakebin/mv"
+  out=$(run_locked "$dir") || fail "pre-write undo recovery failed: $out"
+  binding_count=$(grep -c '^endpoint_task_id=good$' "$dir/home/state/good.meta")
+  [ "$binding_count" -eq 1 ] || fail 'pre-write undo recovery duplicated the migration binding'
+  grep -qx 'control_x_link_tx=after-crash' "$dir/home/state/good.meta" \
+    || fail 'pre-write undo recovery discarded lifecycle metadata'
+  [ ! -e "$stage" ] || fail 'pre-write undo recovery retained stale staging'
+  out=$(run_locked "$dir" --undo) || fail "undo after pre-write recovery failed: $out"
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
+    || fail 'undo after pre-write recovery retained the migration binding'
+  grep -qx 'control_x_link_tx=after-crash' "$dir/home/state/good.meta" \
+    || fail 'undo after pre-write recovery discarded lifecycle metadata'
+  pass 'incomplete undo recovery preserves stamped prefixes without duplication'
 }
 
 test_undo_recovery_cleanup_is_restartable() {
@@ -4474,6 +4516,7 @@ test_stamp_lock_is_held_through_publication_rollback
 test_undo_waits_for_metadata_lock
 test_undo_signal_restores_stamped_bytes
 test_crashed_undo_restores_current_snapshot_before_apply
+test_crashed_undo_before_write_preserves_stamped_prefix
 test_undo_recovery_cleanup_is_restartable
 test_undo_signal_during_cleanup_restores_recovery_state
 test_undo_cleanup_stops_when_session_authority_expires
