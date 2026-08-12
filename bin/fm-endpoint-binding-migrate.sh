@@ -604,6 +604,83 @@ recover_existing_apply_stage() {
   rmdir -- "$stage"
 }
 
+recover_partial_apply_stage() {
+  local stage=$1 id before_name after_name extra meta tmp
+  local -a ids=()
+  private_directory "$stage" || return 1
+  private_file "$RECORDS" || return 1
+  private_file "$stage/records" || return 1
+  cmp -s -- "$RECORDS" "$stage/records" || return 1
+  while IFS=$'\t' read -r id before_name after_name extra || [ -n "${id:-}${before_name:-}${after_name:-}${extra:-}" ]; do
+    [ -n "${id:-}" ] && [ -z "${extra:-}" ] || return 1
+    valid_task_id "$id" || return 1
+    [ "$before_name" = "$id.before" ] && [ "$after_name" = "$id.after" ] || return 1
+    private_file "$stage/$before_name" && private_file "$stage/$after_name" || return 1
+    meta="$STATE/$id.meta"
+    regular_file "$meta" || return 1
+    ids+=("$id")
+    if ! acquire_meta_lock "$meta"; then
+      RECOVERY_REQUIRED=1
+      return 1
+    fi
+    if cmp -s -- "$meta" "$stage/$before_name"; then
+      :
+    elif cmp -s -- "$meta" "$stage/$after_name"; then
+      tmp=$(mktemp "$STATE/.endpoint-binding-partial-rollback.XXXXXX") || {
+        release_meta_lock || true
+        RECOVERY_REQUIRED=1
+        return 1
+      }
+      if ! cp -p -- "$stage/$before_name" "$tmp" || ! mv -f -- "$tmp" "$meta"; then
+        rm -f -- "$tmp"
+        release_meta_lock || true
+        RECOVERY_REQUIRED=1
+        return 1
+      fi
+    else
+      release_meta_lock || true
+      RECOVERY_REQUIRED=1
+      return 1
+    fi
+    release_meta_lock || {
+      RECOVERY_REQUIRED=1
+      return 1
+    }
+  done < "$stage/records"
+  rm -f -- "$RECORDS" || {
+    RECOVERY_REQUIRED=1
+    return 1
+  }
+  if [ -e "$BACKUP_DIR" ] || [ -L "$BACKUP_DIR" ]; then
+    private_directory "$BACKUP_DIR" || {
+      RECOVERY_REQUIRED=1
+      return 1
+    }
+    for id in "${ids[@]}"; do
+      remove_private_backup_files "$BACKUP_DIR/$id.before" "$BACKUP_DIR/$id.after" || {
+        RECOVERY_REQUIRED=1
+        return 1
+      }
+    done
+    directory_empty "$BACKUP_DIR" || {
+      RECOVERY_REQUIRED=1
+      return 1
+    }
+    rmdir -- "$BACKUP_DIR" || {
+      RECOVERY_REQUIRED=1
+      return 1
+    }
+  fi
+  rm -f -- "$stage"/* || {
+    RECOVERY_REQUIRED=1
+    return 1
+  }
+  rmdir -- "$stage" || {
+    RECOVERY_REQUIRED=1
+    return 1
+  }
+}
+
 recover_apply_stage() {
   local stage
   for stage in "$STATE"/.endpoint-binding-stage.*; do
@@ -612,6 +689,8 @@ recover_apply_stage() {
     if [ -e "$RECORDS" ] || [ -L "$RECORDS" ]; then
       if [ -e "$stage/records.before" ] || [ -L "$stage/records.before" ]; then
         recover_existing_apply_stage "$stage" || return 1
+      elif [ -e "$stage/records" ] || [ -L "$stage/records" ]; then
+        recover_partial_apply_stage "$stage" || return 1
       fi
       continue
     fi

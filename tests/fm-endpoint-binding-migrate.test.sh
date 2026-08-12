@@ -992,6 +992,43 @@ SH
   pass 'endpoint binding migration publishes recovery state before stamping'
 }
 
+test_partial_published_journal_reruns_apply() {
+  local dir out rc real_mv
+  dir=$(make_case partial-published-journal)
+  real_mv=$(command -v mv)
+  cat > "$dir/fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+"${FM_REAL_MV:?}" "$@"
+rc=$?
+if [ "$rc" -eq 0 ] && [ "${4:-}" = "${FM_CRASH_DEST:-}" ]; then
+  kill -KILL "$PPID"
+fi
+exit "$rc"
+SH
+  chmod +x "$dir/fakebin/mv"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  set +e
+  out=$(FM_REAL_MV="$real_mv" FM_CRASH_DEST="$dir/home/state/.endpoint-binding-migration-records-v1" run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "partial journal publication unexpectedly succeeded: $out"
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
+    || fail 'partial journal publication stamped metadata before restart'
+  [ -f "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
+    || fail 'partial journal publication lost the journal'
+  rm -f "$dir/fakebin/mv"
+  out=$(run_locked "$dir") || fail "partial journal restart failed: $out"
+  assert_contains "$out" 'stamped 1' 'partial journal restart skipped the eligible record'
+  assert_contains "$(cat "$dir/home/state/good.meta")" 'endpoint_task_id=good' \
+    'partial journal restart did not restore the stamp path'
+  out=$(run_locked "$dir" --undo) || fail "partial journal undo failed: $out"
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
+    || fail 'partial journal restart was not reversible'
+  pass 'endpoint binding migration reruns after partial journal publication'
+}
+
 test_orphaned_backups_are_recovered_on_restart() {
   local dir out stage
   dir=$(make_case orphaned-backups)
@@ -1329,6 +1366,7 @@ test_backup_cleanup_failure_retains_staged_recovery
 test_rollback_rejects_replaced_backup_directory_symlink
 test_recovery_journal_copy_is_atomic
 test_crash_after_manifest_preserves_undo_path
+test_partial_published_journal_reruns_apply
 test_orphaned_backups_are_recovered_on_restart
 test_no_stamp_validates_existing_recovery_namespace
 test_journal_cleanup_failure_retains_recovery_bytes
