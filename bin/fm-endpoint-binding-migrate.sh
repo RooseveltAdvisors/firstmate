@@ -72,6 +72,11 @@ private_file() {
   regular_file "$1" && [ "$(file_mode "$1" 2>/dev/null)" = 600 ]
 }
 
+nonempty_private_file() {
+  private_file "$1" || return 1
+  [ -s "$1" ]
+}
+
 private_directory() {
   [ -d "$1" ] && [ ! -L "$1" ] && [ "$(file_mode "$1" 2>/dev/null)" = 700 ]
 }
@@ -229,6 +234,34 @@ canonical_meta_worktree() {
   CDPATH='' cd -- "$recorded" 2>/dev/null && pwd -P
 }
 
+parse_endpoint_claim() {
+  local meta=$1 backend_count backend target worktree
+  FM_ENDPOINT_CLAIM_BACKEND=
+  FM_ENDPOINT_CLAIM_TARGET=
+  FM_ENDPOINT_CLAIM_WORKTREE=
+  backend_count=$(grep -c '^backend=' "$meta" 2>/dev/null || true)
+  case "$backend_count" in
+    0) backend=tmux ;;
+    1) backend=$(fm_backend_meta_exact_value "$meta" backend) || return 1 ;;
+    *) return 1 ;;
+  esac
+  case "$backend" in
+    tmux|herdr) ;;
+    *) return 1 ;;
+  esac
+  target=$(fm_backend_meta_exact_value "$meta" window) || return 1
+  case "$target" in
+    *:*)
+      [ -n "${target%%:*}" ] && [ -n "${target#*:}" ] || return 1
+      ;;
+    *) return 1 ;;
+  esac
+  worktree=$(canonical_meta_worktree "$meta") || worktree=
+  FM_ENDPOINT_CLAIM_BACKEND=$backend
+  FM_ENDPOINT_CLAIM_TARGET=$target
+  FM_ENDPOINT_CLAIM_WORKTREE=$worktree
+}
+
 verify_legacy_endpoint() {
   local meta=$1 id=$2 backend target state validation
   if validation=$(fm_backend_validate_task_endpoint "$meta" "$id" 2>&1); then
@@ -266,9 +299,10 @@ STAMP_AFTER=()
 STAMP_BACKENDS=()
 STAMP_TARGETS=()
 STAMP_WORKTREES=()
-BOUND_CLAIM_BACKENDS=()
-BOUND_CLAIM_TARGETS=()
-BOUND_CLAIM_WORKTREES=()
+ENDPOINT_CLAIM_IDS=()
+ENDPOINT_CLAIM_BACKENDS=()
+ENDPOINT_CLAIM_TARGETS=()
+ENDPOINT_CLAIM_WORKTREES=()
 STAMP_BEFORE_FINAL=()
 STAMP_AFTER_FINAL=()
 STAMP_SELECTED=()
@@ -320,6 +354,13 @@ APPLY_LOCK_ACQUIRED=()
 APPLY_LOCKS_HELD=0
 MIGRATION_LOCK_HELD=0
 SURGICAL_UNDO_CHANGED=0
+
+require_recovery_session_lock() {
+  if ! require_session_lock; then
+    RECOVERY_REQUIRED=1
+    return 1
+  fi
+}
 
 release_migration_lock() {
   if [ "$MIGRATION_LOCK_HELD" -eq 1 ]; then
@@ -889,18 +930,22 @@ cleanup_incomplete_apply_stage() {
       *) return 1 ;;
     esac
   done
+  require_recovery_session_lock || return 1
   restore_stage_evidence "$stage" || return 1
   for id in "${ids[@]}"; do
     before="$stage/$id.before"
     after="$stage/$id.after"
     if [ -e "$BACKUP_DIR" ] || [ -L "$BACKUP_DIR" ]; then
+      require_recovery_session_lock || return 1
       remove_private_backup_files "$BACKUP_DIR/$id.before" "$BACKUP_DIR/$id.after" || return 1
     fi
   done
   if [ -e "$BACKUP_DIR" ] || [ -L "$BACKUP_DIR" ]; then
+    require_recovery_session_lock || return 1
     directory_empty "$BACKUP_DIR" || return 1
     rmdir -- "$BACKUP_DIR" || return 1
   fi
+  require_recovery_session_lock || return 1
   remove_stage_directory "$stage"
 }
 
@@ -908,7 +953,7 @@ recover_existing_apply_stage() {
   local stage=$1 id before_name after_name extra merged_tmp merged_published=0
   local -a ids=()
   private_directory "$stage" || return 1
-  private_file "$RECORDS" || return 1
+  nonempty_private_file "$RECORDS" || return 1
   private_file "$stage/records" || return 1
   private_file "$stage/records.before" || return 1
   merged_tmp=$(mktemp "$STATE/.endpoint-binding-merge-check.XXXXXX") || return 1
@@ -934,6 +979,10 @@ recover_existing_apply_stage() {
       }
       ids+=("$id")
     done < "$stage/records"
+    require_recovery_session_lock || {
+      rm -f -- "$merged_tmp"
+      return 1
+    }
     restore_stage_evidence "$stage" || {
       rm -f -- "$merged_tmp"
       RECOVERY_REQUIRED=1
@@ -991,13 +1040,19 @@ recover_existing_apply_stage() {
       return 1
     }
     while IFS=$'\t' read -r id before_name after_name extra || [ -n "${id:-}${before_name:-}${after_name:-}${extra:-}" ]; do
-      if ! rollback_partial_binding "$STATE/$id.meta" "$id" \
-        "$BACKUP_DIR/$before_name" "$BACKUP_DIR/$after_name" "$stage/$id.rollback"; then
+      if ! require_recovery_session_lock \
+        || ! rollback_partial_binding "$STATE/$id.meta" "$id" \
+          "$BACKUP_DIR/$before_name" "$BACKUP_DIR/$after_name" "$stage/$id.rollback"; then
         release_merge_locks || true
         rm -f -- "$merged_tmp"
         return 1
       fi
     done < "$stage/records"
+    require_recovery_session_lock || {
+      release_merge_locks || true
+      rm -f -- "$merged_tmp"
+      return 1
+    }
     restore_stage_evidence "$stage" || {
       release_merge_locks || true
       rm -f -- "$merged_tmp"
@@ -1009,6 +1064,11 @@ recover_existing_apply_stage() {
     return 1
   fi
   if [ "$merged_published" -eq 1 ]; then
+    require_recovery_session_lock || {
+      release_merge_locks || true
+      rm -f -- "$merged_tmp"
+      return 1
+    }
     copy_private_atomic "$stage/records.before" "$RECORDS" || {
       release_merge_locks || true
       rm -f -- "$merged_tmp"
@@ -1022,6 +1082,11 @@ recover_existing_apply_stage() {
       return 1
     }
     for id in "${ids[@]}"; do
+      require_recovery_session_lock || {
+        [ "$merged_published" -eq 1 ] && release_merge_locks || true
+        rm -f -- "$merged_tmp"
+        return 1
+      }
       remove_private_backup_files "$BACKUP_DIR/$id.before" "$BACKUP_DIR/$id.after" || {
         [ "$merged_published" -eq 1 ] && release_merge_locks || true
         rm -f -- "$merged_tmp"
@@ -1030,6 +1095,10 @@ recover_existing_apply_stage() {
     done
   fi
   rm -f -- "$merged_tmp" || {
+    [ "$merged_published" -eq 1 ] && release_merge_locks || true
+    return 1
+  }
+  require_recovery_session_lock || {
     [ "$merged_published" -eq 1 ] && release_merge_locks || true
     return 1
   }
@@ -1045,12 +1114,14 @@ recover_existing_apply_stage() {
 cleanup_pre_manifest_apply_stage() {
   local stage=$1
   private_directory "$stage" || return 1
-  private_file "$RECORDS" || return 1
+  nonempty_private_file "$RECORDS" || return 1
   private_file "$stage/records" || return 1
   if cmp -s -- "$RECORDS" "$stage/records"; then
     recover_partial_apply_stage "$stage"
   else
+    require_recovery_session_lock || return 1
     restore_stage_evidence "$stage" || return 1
+    require_recovery_session_lock || return 1
     remove_stage_directory "$stage"
   fi
 }
@@ -1059,7 +1130,7 @@ recover_partial_apply_stage() {
   local stage=$1 id before_name after_name extra meta
   local -a ids=()
   private_directory "$stage" || return 1
-  private_file "$RECORDS" || return 1
+  nonempty_private_file "$RECORDS" || return 1
   private_file "$stage/records" || return 1
   cmp -s -- "$RECORDS" "$stage/records" || return 1
   while IFS=$'\t' read -r id before_name after_name extra || [ -n "${id:-}${before_name:-}${after_name:-}${extra:-}" ]; do
@@ -1084,10 +1155,12 @@ recover_partial_apply_stage() {
       return 1
     }
   done < "$stage/records"
+  require_recovery_session_lock || return 1
   restore_stage_evidence "$stage" || {
     RECOVERY_REQUIRED=1
     return 1
   }
+  require_recovery_session_lock || return 1
   rm -f -- "$RECORDS" || {
     RECOVERY_REQUIRED=1
     return 1
@@ -1098,11 +1171,13 @@ recover_partial_apply_stage() {
       return 1
     }
     for id in "${ids[@]}"; do
+      require_recovery_session_lock || return 1
       remove_private_backup_files "$BACKUP_DIR/$id.before" "$BACKUP_DIR/$id.after" || {
         RECOVERY_REQUIRED=1
         return 1
       }
     done
+    require_recovery_session_lock || return 1
     directory_empty "$BACKUP_DIR" || {
       RECOVERY_REQUIRED=1
       return 1
@@ -1112,6 +1187,7 @@ recover_partial_apply_stage() {
       return 1
     }
   fi
+  require_recovery_session_lock || return 1
   remove_stage_directory "$stage" || {
     RECOVERY_REQUIRED=1
     return 1
@@ -1120,12 +1196,16 @@ recover_partial_apply_stage() {
 
 recover_apply_stage() {
   local stage
+  if [ -e "$RECORDS" ] || [ -L "$RECORDS" ]; then
+    nonempty_private_file "$RECORDS" || return 1
+  fi
   for stage in "$STATE"/.endpoint-binding-stage.*; do
     [ -L "$stage" ] && return 1
     [ -d "$stage" ] || continue
     private_directory "$stage" || return 1
     if [ -e "$stage/completed" ] || [ -L "$stage/completed" ]; then
       private_file "$stage/completed" || return 1
+      require_recovery_session_lock || return 1
       remove_completed_stage "$stage" || return 1
       continue
     fi
@@ -1135,7 +1215,9 @@ recover_apply_stage() {
       elif [ -e "$stage/records" ] || [ -L "$stage/records" ]; then
         cleanup_pre_manifest_apply_stage "$stage" || return 1
       else
+        require_recovery_session_lock || return 1
         restore_stage_evidence "$stage" || return 1
+        require_recovery_session_lock || return 1
         remove_stage_directory "$stage" || return 1
       fi
       continue
@@ -1363,7 +1445,7 @@ validate_recovery_namespace() {
   RECORDED_IDS=()
   if [ -e "$RECORDS" ] || [ -L "$RECORDS" ]; then
     RECOVERY_NAMESPACE_PRESENT=1
-    private_file "$RECORDS" || return 1
+    nonempty_private_file "$RECORDS" || return 1
     private_directory "$BACKUP_DIR" || return 1
     while IFS=$'\t' read -r id before_name after_name extra || [ -n "${id:-}${before_name:-}${after_name:-}${extra:-}" ]; do
       [ -n "${id:-}" ] && [ -z "${extra:-}" ] || return 1
@@ -1465,21 +1547,26 @@ remove_completed_stage() {
 recover_undo_stage() {
   local stage id before_name after_name extra rc=0 i meta current undone
   local -a ids=() before_names=() after_names=()
+  if [ -e "$RECORDS" ] || [ -L "$RECORDS" ]; then
+    nonempty_private_file "$RECORDS" || return 1
+  fi
   for stage in "$STATE"/.endpoint-binding-undo-cleanup.*; do
     [ -L "$stage" ] && return 1
     [ -d "$stage" ] || continue
     private_directory "$stage" || return 1
     if [ -e "$stage/completed" ] || [ -L "$stage/completed" ]; then
       private_file "$stage/completed" || return 1
+      require_recovery_session_lock || return 1
       remove_completed_stage "$stage" || return 1
       continue
     fi
     if [ ! -e "$stage/records" ] && [ ! -L "$stage/records" ]; then
       validate_recovery_namespace || return 1
+      require_recovery_session_lock || return 1
       remove_stage_directory "$stage" || return 1
       continue
     fi
-    private_file "$stage/records" || return 1
+    nonempty_private_file "$stage/records" || return 1
     ids=()
     before_names=()
     after_names=()
@@ -1492,6 +1579,7 @@ recover_undo_stage() {
       before_names+=("$before_name")
       after_names+=("$after_name")
     done < "$stage/records"
+    require_recovery_session_lock || return 1
     if [ -e "$RECORDS" ] || [ -L "$RECORDS" ]; then
       if ! private_file "$RECORDS" || ! cmp -s -- "$RECORDS" "$stage/records"; then
         return 1
@@ -1556,6 +1644,7 @@ recover_undo_stage() {
       fi
     done
     release_undo_locks || return 1
+    require_recovery_session_lock || return 1
     remove_stage_directory "$stage" || return 1
   done
   return "$rc"
@@ -1587,7 +1676,7 @@ restart_apply_scan() {
 
 apply_migration() {
   local meta id base binding_count binding validation before after before_final after_final
-  local backend target worktree bound_worktree i j duplicate manifest_tmp selected_count stage_records
+  local backend target worktree i j duplicate manifest_tmp selected_count stage_records
   local -a metas
   require_session_lock || return 1
   recover_apply_stage || return 1
@@ -1642,16 +1731,16 @@ apply_migration() {
       release_meta_lock || return 1
       continue
     fi
+    if parse_endpoint_claim "$meta"; then
+      ENDPOINT_CLAIM_IDS+=("$id")
+      ENDPOINT_CLAIM_BACKENDS+=("$FM_ENDPOINT_CLAIM_BACKEND")
+      ENDPOINT_CLAIM_TARGETS+=("$FM_ENDPOINT_CLAIM_TARGET")
+      ENDPOINT_CLAIM_WORKTREES+=("$FM_ENDPOINT_CLAIM_WORKTREE")
+    fi
     binding_count=$(grep -c '^endpoint_task_id=' "$meta" 2>/dev/null || true)
     if [ "$binding_count" -gt 0 ]; then
       binding=$(fm_meta_get "$meta" endpoint_task_id)
       if [ "$binding_count" -eq 1 ] && [ "$binding" = "$id" ]; then
-        if fm_backend_validate_task_endpoint "$meta" "$id" >/dev/null 2>&1; then
-          bound_worktree=$(canonical_meta_worktree "$meta") || bound_worktree=
-          BOUND_CLAIM_BACKENDS+=("$FM_BACKEND_VALIDATED_BACKEND")
-          BOUND_CLAIM_TARGETS+=("$FM_BACKEND_VALIDATED_TARGET")
-          BOUND_CLAIM_WORKTREES+=("$bound_worktree")
-        fi
         record_outcome "task $id: untouched - endpoint_task_id already present"
       elif [ "$binding_count" -gt 1 ]; then
         SKIPPED_LEGACY=1
@@ -1715,25 +1804,16 @@ apply_migration() {
 
   for i in "${!STAMP_IDS[@]}"; do
     duplicate=0
-    for j in "${!STAMP_IDS[@]}"; do
-      [ "$i" = "$j" ] && continue
+    for j in "${!ENDPOINT_CLAIM_IDS[@]}"; do
+      [ "${STAMP_IDS[$i]}" = "${ENDPOINT_CLAIM_IDS[$j]}" ] && continue
       if endpoint_claims_conflict \
         "${STAMP_BACKENDS[$i]}" "${STAMP_TARGETS[$i]}" "${STAMP_WORKTREES[$i]}" \
-        "${STAMP_BACKENDS[$j]}" "${STAMP_TARGETS[$j]}" "${STAMP_WORKTREES[$j]}"; then
+        "${ENDPOINT_CLAIM_BACKENDS[$j]}" "${ENDPOINT_CLAIM_TARGETS[$j]}" \
+        "${ENDPOINT_CLAIM_WORKTREES[$j]}"; then
         duplicate=1
         break
       fi
     done
-    if [ "$duplicate" -eq 0 ]; then
-      for j in "${!BOUND_CLAIM_BACKENDS[@]}"; do
-        if endpoint_claims_conflict \
-          "${STAMP_BACKENDS[$i]}" "${STAMP_TARGETS[$i]}" "${STAMP_WORKTREES[$i]}" \
-          "${BOUND_CLAIM_BACKENDS[$j]}" "${BOUND_CLAIM_TARGETS[$j]}" "${BOUND_CLAIM_WORKTREES[$j]}"; then
-          duplicate=1
-          break
-        fi
-      done
-    fi
     if [ "$duplicate" -eq 1 ]; then
       STAMP_SELECTED[i]=0
       SKIPPED_LEGACY=1
@@ -1974,7 +2054,7 @@ undo_migration() {
     echo "ENDPOINT_BINDING_MIGRATION: no recorded stamps to undo"
     return 0
   fi
-  private_file "$RECORDS" || return 1
+  nonempty_private_file "$RECORDS" || return 1
   private_directory "$BACKUP_DIR" || return 1
   while IFS=$'\t' read -r id before_name after_name extra || [ -n "${id:-}${before_name:-}${after_name:-}${extra:-}" ]; do
     [ -n "${id:-}" ] && [ -z "${extra:-}" ] || return 1

@@ -488,6 +488,53 @@ SH
   pass 'endpoint binding migration rejects endpoints already bound to another task'
 }
 
+test_unverified_herdr_claim_is_ambiguous() {
+  local dir out report
+  dir=$(make_case unverified-herdr-claim)
+  cat > "$dir/fakebin/herdr" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}:${2:-}" in
+  status:--json)
+    printf '%s\n' '{"server":{"running":true}}'
+    ;;
+  pane:get)
+    printf '{"result":{"pane":{"pane_id":"%s","foreground_cwd":"%s"}}}\n' \
+      "${3:-}" "${FM_HERDR_LIVE_WORKTREE:?}"
+    ;;
+  agent:get)
+    printf '%s\n' '{"result":{"agent":{"agent_status":"idle"}}}'
+    ;;
+  *) exit 1 ;;
+esac
+SH
+  chmod +x "$dir/fakebin/herdr"
+  fm_write_meta "$dir/home/state/herdr-good.meta" \
+    'window=lab:w1:p2' 'backend=herdr' 'herdr_session=lab' \
+    'herdr_workspace_id=w1' 'herdr_tab_id=w1:t1' 'herdr_pane_id=w1:p2' \
+    "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  fm_write_meta "$dir/home/state/herdr-unverified.meta" \
+    'window=lab:w1:p2' 'backend=herdr' 'herdr_session=lab' \
+    'herdr_workspace_id=w1' 'herdr_tab_id=w1:t1' 'herdr_pane_id=w1:p2' \
+    "worktree=$dir/worktree" 'kind=scout'
+
+  out=$(FM_HERDR_LIVE_WORKTREE="$dir/worktree" run_locked "$dir") \
+    || fail "unverified Herdr claim migration failed: $out"
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/herdr-good.meta" \
+    || fail 'verified task sharing an unverified Herdr claim was stamped'
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/herdr-unverified.meta" \
+    || fail 'unverified Herdr claim was stamped'
+  report=$(cat "$dir/home/state/.endpoint-binding-migration.log")
+  assert_contains "$report" \
+    'task herdr-good: skipped - ambiguous live endpoint identity is claimed by multiple task records' \
+    'unverified Herdr endpoint claim was not treated as ambiguous'
+  assert_contains "$report" \
+    'task herdr-unverified: skipped - shared endpoint validation refused: REFUSED: task herdr-unverified has a missing, empty, or ambiguous project identity; preserving task state.' \
+    'unverified Herdr endpoint claim did not retain its refusal reason'
+  [ ! -e "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
+    || fail 'unverified duplicate Herdr claim published recovery provenance'
+  pass 'endpoint binding migration rejects independently parseable unresolved claims'
+}
+
 test_herdr_liveness_is_rechecked_without_server_ensure() {
   local dir out report
   dir=$(make_case herdr-dies-during-path-check)
@@ -691,6 +738,38 @@ test_completed_journal_is_idempotent() {
   assert_contains "$(cat "$dir/home/state/good.meta")" 'endpoint_task_id=good' \
     'completed journal rerun changed the binding'
   pass 'endpoint binding migration treats a validated completed journal as idempotent'
+}
+
+test_empty_recovery_journal_is_refused() {
+  local dir out rc records backups
+  dir=$(make_case empty-recovery-journal)
+  records="$dir/home/state/.endpoint-binding-migration-records-v1"
+  backups="$dir/home/state/.endpoint-binding-migration-backups"
+  mkdir "$backups"
+  chmod 0700 "$backups"
+  : > "$records"
+  chmod 0600 "$records"
+
+  set +e
+  out=$(run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "empty recovery journal was accepted by apply: $out"
+  [ -f "$records" ] && [ ! -s "$records" ] \
+    || fail 'apply changed an empty recovery journal'
+  [ -d "$backups" ] || fail 'apply removed empty-journal recovery evidence'
+  [ ! -e "$dir/home/state/.endpoint-binding-migration-scan-v1" ] \
+    || fail 'empty recovery journal published scan evidence'
+
+  set +e
+  out=$(run_locked "$dir" --undo)
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "empty recovery journal was accepted by undo: $out"
+  [ -f "$records" ] && [ ! -s "$records" ] \
+    || fail 'undo changed an empty recovery journal'
+  [ -d "$backups" ] || fail 'undo removed empty-journal recovery evidence'
+  pass 'endpoint binding migration rejects empty recovery journals'
 }
 
 test_completed_journal_merges_new_record() {
@@ -1507,6 +1586,57 @@ SH
   ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
     || fail 'expired session authority changed metadata after a lock wait'
   pass 'endpoint binding migration revalidates session ownership after lock waits'
+}
+
+test_recovery_stops_when_session_lock_expires() {
+  local dir out rc real_mv stage backups records activated
+  dir=$(make_case recovery-session-expiry)
+  real_mv=$(command -v mv)
+  stage="$dir/home/state/.endpoint-binding-stage.expired-session"
+  backups="$dir/home/state/.endpoint-binding-migration-backups"
+  records="$dir/home/state/.endpoint-binding-migration-records-v1"
+  activated="$dir/recovery-session-expired"
+  cat > "$dir/fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+destination=${!#}
+"${FM_REAL_MV:?}" "$@" || exit $?
+if [ "$PWD" = "${FM_RECOVERY_STATE:?}" ] \
+  && [ "${destination##*/}" = good.meta ] \
+  && [ ! -e "${FM_RECOVERY_EXPIRED:?}" ]; then
+  printf '999999\n' > "$FM_RECOVERY_STATE/.lock"
+  : > "$FM_RECOVERY_EXPIRED"
+fi
+SH
+  chmod +x "$dir/fakebin/mv"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  mkdir "$stage" "$backups"
+  chmod 0700 "$stage" "$backups"
+  cp "$dir/home/state/good.meta" "$stage/good.before"
+  cp "$dir/home/state/good.meta" "$stage/good.after"
+  printf 'endpoint_task_id=good\n' >> "$stage/good.after"
+  printf '%s\n' $'good\tgood.before\tgood.after' > "$stage/records"
+  cp "$stage/good.before" "$backups/good.before"
+  cp "$stage/good.after" "$backups/good.after"
+  cp "$stage/records" "$records"
+  cp "$stage/good.after" "$dir/home/state/good.meta"
+  chmod 0600 "$stage"/* "$backups"/* "$records"
+
+  set +e
+  out=$(FM_REAL_MV="$real_mv" FM_RECOVERY_STATE="$dir/home/state" \
+    FM_RECOVERY_EXPIRED="$activated" run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "recovery continued after session expiry: $out"
+  [ -f "$activated" ] || fail 'recovery session-expiry fixture did not activate'
+  [ -f "$records" ] || fail 'expired recovery removed the authoritative journal'
+  [ -f "$backups/good.before" ] && [ -f "$backups/good.after" ] \
+    || fail 'expired recovery removed authoritative backup bytes'
+  [ -d "$stage" ] || fail 'expired recovery removed its retryable stage'
+  [ -f "$stage/good.rollback" ] \
+    || fail 'recovery expiry did not occur after metadata reconciliation'
+  pass 'endpoint binding recovery revalidates session authority before commit'
 }
 
 test_signal_rolls_back_staged_stamps() {
@@ -2850,12 +2980,14 @@ test_tmux_liveness_is_rechecked_after_worktree_read
 test_live_legacy_herdr_endpoint_is_backfilled
 test_duplicate_herdr_worktree_is_ambiguous
 test_bound_herdr_endpoint_claim_is_ambiguous
+test_unverified_herdr_claim_is_ambiguous
 test_herdr_liveness_is_rechecked_without_server_ensure
 test_staged_binding_assembly_does_not_follow_symlinks
 test_unresolved_existing_bindings_remove_completion_marker
 test_stamp_adds_binding_as_separate_line_without_trailing_newline
 test_hidden_metadata_is_reported
 test_completed_journal_is_idempotent
+test_empty_recovery_journal_is_refused
 test_completed_journal_merges_new_record
 test_completed_journal_recovers_orphaned_merge_backups
 test_merge_abort_restores_manifest_before_backup_cleanup
@@ -2884,6 +3016,7 @@ test_lock_is_required
 test_symlink_session_lock_is_refused
 test_session_lock_symlink_swap_is_refused
 test_expired_session_lock_after_wait_is_refused
+test_recovery_stops_when_session_lock_expires
 test_signal_rolls_back_staged_stamps
 test_final_stamp_waits_for_metadata_lock
 test_migration_transaction_lock_serializes_no_stamp_runs
