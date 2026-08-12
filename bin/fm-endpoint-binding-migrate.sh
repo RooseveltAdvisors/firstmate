@@ -328,36 +328,57 @@ remove_published_backups() {
 
 restore_published_backups() {
   local i rc=0
-  if [ ! -d "$BACKUP_DIR" ]; then
+  if [ -e "$BACKUP_DIR" ] || [ -L "$BACKUP_DIR" ]; then
+    private_directory "$BACKUP_DIR" || return 1
+  else
     mkdir -- "$BACKUP_DIR" || return 1
     BACKUP_DIR_CREATED=1
   fi
-  chmod 0700 "$BACKUP_DIR" || return 1
+  private_directory "$BACKUP_DIR" || return 1
   for i in "${!STAMP_IDS[@]}"; do
     [ "${STAMP_SELECTED[$i]:-1}" -eq 1 ] || continue
-    cp -p -- "${STAMP_BEFORE[$i]}" "${STAMP_BEFORE_FINAL[$i]}" || rc=1
-    cp -p -- "${STAMP_AFTER[$i]}" "${STAMP_AFTER_FINAL[$i]}" || rc=1
-    chmod 0600 "${STAMP_BEFORE_FINAL[$i]}" "${STAMP_AFTER_FINAL[$i]}" 2>/dev/null || rc=1
+    copy_private_atomic "${STAMP_BEFORE[$i]}" "${STAMP_BEFORE_FINAL[$i]}" || rc=1
+    copy_private_atomic "${STAMP_AFTER[$i]}" "${STAMP_AFTER_FINAL[$i]}" || rc=1
   done
   return "$rc"
 }
 
-restore_existing_records() {
-  local tmp
-  [ -n "$RECORDS_BEFORE" ] || return 1
-  private_file "$RECORDS_BEFORE" || return 1
-  if [ -e "$RECORDS" ] || [ -L "$RECORDS" ]; then
-    private_file "$RECORDS" || return 1
+copy_private_atomic() {
+  local source=$1 destination=$2 destination_dir tmp
+  private_file "$source" || return 1
+  destination_dir=${destination%/*}
+  private_directory "$destination_dir" || return 1
+  if [ -e "$destination" ] || [ -L "$destination" ]; then
+    private_file "$destination" || return 1
   fi
-  tmp=$(mktemp "$STATE/.endpoint-binding-records-restore.XXXXXX") || return 1
-  if ! cp -p -- "$RECORDS_BEFORE" "$tmp" || ! chmod 0600 "$tmp" || ! mv -f -- "$tmp" "$RECORDS"; then
+  tmp=$(mktemp "$STATE/.endpoint-binding-copy.XXXXXX") || return 1
+  if ! cp -p -- "$source" "$tmp" || ! chmod 0600 "$tmp"; then
+    rm -f -- "$tmp"
+    return 1
+  fi
+  private_directory "$destination_dir" || {
+    rm -f -- "$tmp"
+    return 1
+  }
+  if [ -e "$destination" ] || [ -L "$destination" ]; then
+    private_file "$destination" || {
+      rm -f -- "$tmp"
+      return 1
+    }
+  fi
+  if ! mv -f -- "$tmp" "$destination"; then
     rm -f -- "$tmp"
     return 1
   fi
 }
 
+restore_existing_records() {
+  [ -n "$RECORDS_BEFORE" ] || return 1
+  copy_private_atomic "$RECORDS_BEFORE" "$RECORDS"
+}
+
 cleanup_incomplete_apply_stage() {
-  local stage=$1 path base id before after meta
+  local stage=$1 path base id before after
   local -a ids=()
   private_directory "$stage" || return 1
   for path in "$stage"/*; do
@@ -372,8 +393,6 @@ cleanup_incomplete_apply_stage() {
         after="$stage/$id.after"
         [ -e "$after" ] || [ -L "$after" ] || continue
         private_file "$before" && private_file "$after" || return 1
-        meta="$STATE/$id.meta"
-        regular_file "$meta" && cmp -s -- "$meta" "$before" || return 1
         ids+=("$id")
         ;;
       *.after)
@@ -647,8 +666,7 @@ restore_undo_recovery() {
   if [ -e "$RECORDS" ] || [ -L "$RECORDS" ]; then
     private_file "$RECORDS" || rc=1
   else
-    cp -p -- "$UNDO_RECOVERY_STAGE/records" "$RECORDS" || rc=1
-    chmod 0600 "$RECORDS" 2>/dev/null || rc=1
+    copy_private_atomic "$UNDO_RECOVERY_STAGE/records" "$RECORDS" || rc=1
   fi
   if [ -e "$BACKUP_DIR" ] || [ -L "$BACKUP_DIR" ]; then
     private_directory "$BACKUP_DIR" || rc=1
@@ -661,14 +679,13 @@ restore_undo_recovery() {
     if [ -e "$BACKUP_DIR/$id.before" ] || [ -L "$BACKUP_DIR/$id.before" ]; then
       private_file "$BACKUP_DIR/$id.before" || rc=1
     else
-      cp -p -- "$UNDO_RECOVERY_STAGE/$id.before" "$BACKUP_DIR/$id.before" || rc=1
+      copy_private_atomic "$UNDO_RECOVERY_STAGE/$id.before" "$BACKUP_DIR/$id.before" || rc=1
     fi
     if [ -e "$BACKUP_DIR/$id.after" ] || [ -L "$BACKUP_DIR/$id.after" ]; then
       private_file "$BACKUP_DIR/$id.after" || rc=1
     else
-      cp -p -- "$UNDO_RECOVERY_STAGE/$id.after" "$BACKUP_DIR/$id.after" || rc=1
+      copy_private_atomic "$UNDO_RECOVERY_STAGE/$id.after" "$BACKUP_DIR/$id.after" || rc=1
     fi
-    chmod 0600 "$BACKUP_DIR/$id.before" "$BACKUP_DIR/$id.after" 2>/dev/null || rc=1
   done
   return "$rc"
 }
@@ -707,8 +724,7 @@ recover_undo_stage() {
     if [ -e "$RECORDS" ] || [ -L "$RECORDS" ]; then
       private_file "$RECORDS" || return 1
     else
-      cp -p -- "$stage/records" "$RECORDS" || rc=1
-      chmod 0600 "$RECORDS" 2>/dev/null || rc=1
+      copy_private_atomic "$stage/records" "$RECORDS" || rc=1
     fi
     if [ -e "$BACKUP_DIR" ] || [ -L "$BACKUP_DIR" ]; then
       private_directory "$BACKUP_DIR" || return 1
@@ -724,15 +740,14 @@ recover_undo_stage() {
         private_file "$BACKUP_DIR/$before_name" || rc=1
       else
         private_file "$stage/$before_name" || rc=1
-        cp -p -- "$stage/$before_name" "$BACKUP_DIR/$before_name" || rc=1
+        copy_private_atomic "$stage/$before_name" "$BACKUP_DIR/$before_name" || rc=1
       fi
       if [ -e "$BACKUP_DIR/$after_name" ] || [ -L "$BACKUP_DIR/$after_name" ]; then
         private_file "$BACKUP_DIR/$after_name" || rc=1
       else
         private_file "$stage/$after_name" || rc=1
-        cp -p -- "$stage/$after_name" "$BACKUP_DIR/$after_name" || rc=1
+        copy_private_atomic "$stage/$after_name" "$BACKUP_DIR/$after_name" || rc=1
       fi
-      chmod 0600 "$BACKUP_DIR/$before_name" "$BACKUP_DIR/$after_name" 2>/dev/null || rc=1
     done < "$RECORDS"
     [ "$rc" -eq 0 ] || return 1
     rm -f -- "$stage"/* || return 1
@@ -755,7 +770,7 @@ publish_report() {
 }
 
 apply_migration() {
-  local meta id base binding_count validation before after before_final after_final
+  local meta id base binding_count validation before after before_final after_final last_byte
   local i tmp manifest_tmp selected_count stage_records records_before_tmp
   local -a metas
   recover_apply_stage || return 1
@@ -822,6 +837,12 @@ apply_migration() {
     after="$STAGE_DIR/$id.after"
     cp -p -- "$meta" "$before" || { release_meta_lock || true; return 1; }
     cp -p -- "$meta" "$after" || { release_meta_lock || true; return 1; }
+    if [ -s "$after" ]; then
+      last_byte=$(tail -c 1 "$after") || { release_meta_lock || true; return 1; }
+      if [ -n "$last_byte" ]; then
+        printf '\n' >> "$after" || { release_meta_lock || true; return 1; }
+      fi
+    fi
     printf 'endpoint_task_id=%s\n' "$id" >> "$after" || { release_meta_lock || true; return 1; }
     chmod 0600 "$before" "$after" || { release_meta_lock || true; return 1; }
     validation=$(fm_backend_validate_task_endpoint "$after" "$id" 2>&1) || {

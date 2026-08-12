@@ -127,6 +127,19 @@ test_evidence_bound_stamp_and_skip() {
   pass 'endpoint binding migration stamps only exact live identities and reports every refusal'
 }
 
+test_stamp_adds_binding_as_separate_line_without_trailing_newline() {
+  local dir out
+  dir=$(make_case no-trailing-newline)
+  printf 'window=firstmate:fm-good\nworktree=%s\nproject=%s\nkind=scout' \
+    "$dir/worktree" "$dir/project" > "$dir/home/state/good.meta"
+  out=$(run_locked "$dir") || fail "no-newline migration failed: $out"
+  grep -qx 'endpoint_task_id=good' "$dir/home/state/good.meta" \
+    || fail 'binding was not emitted as a distinct metadata line'
+  ! grep -q 'kind=scoutendpoint_task_id=' "$dir/home/state/good.meta" \
+    || fail 'binding was appended to the final metadata line'
+  pass 'endpoint binding migration separates bindings from unterminated metadata'
+}
+
 test_hidden_metadata_is_reported() {
   local dir out report
   dir=$(make_case hidden-meta)
@@ -222,6 +235,7 @@ test_incomplete_apply_stage_is_cleaned_on_restart() {
   chmod 0600 "$stage/good.before" "$stage/good.after"
   printf leftover > "$stage/report.partial"
   chmod 0600 "$stage/report.partial"
+  printf stale >> "$dir/home/state/good.meta"
   mkdir "$dir/home/state/.endpoint-binding-stage.partial"
   chmod 0700 "$dir/home/state/.endpoint-binding-stage.partial"
   cp "$dir/home/state/good.meta" \
@@ -775,6 +789,80 @@ SH
   pass 'endpoint binding rollback retains staged recovery when backup cleanup fails'
 }
 
+test_rollback_rejects_replaced_backup_directory_symlink() {
+  local dir out rc real_mv
+  dir=$(make_case rollback-backup-symlink)
+  real_mv=$(command -v mv)
+  cat > "$dir/fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+if [ "${4:-}" = "${FM_FAIL_DEST:-}" ]; then
+  "${FM_REAL_RM:?}" -rf -- "$FM_BACKUP_DIR"
+  mkdir -- "$FM_OUTSIDE"
+  ln -s "$FM_OUTSIDE" "$FM_BACKUP_DIR"
+  exit 1
+fi
+exec "${FM_REAL_MV:?}" "$@"
+SH
+  chmod +x "$dir/fakebin/mv"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  set +e
+  out=$(FM_REAL_MV="$real_mv" FM_REAL_RM="$(command -v rm)" \
+    FM_FAIL_DEST="$dir/home/state/.endpoint-binding-migration-scan-v1" \
+    FM_BACKUP_DIR="$dir/home/state/.endpoint-binding-migration-backups" \
+    FM_OUTSIDE="$dir/outside-recovery" run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "rollback accepted a replaced backup symlink: $out"
+  [ -L "$dir/home/state/.endpoint-binding-migration-backups" ] \
+    || fail 'rollback test did not replace the backup directory'
+  [ ! -e "$dir/outside-recovery/good.before" ] \
+    || fail 'rollback followed a replaced backup directory symlink'
+  [ ! -e "$dir/outside-recovery/good.after" ] \
+    || fail 'rollback followed a replaced backup directory symlink'
+  pass 'endpoint binding rollback fails closed on a replaced backup symlink'
+}
+
+test_recovery_journal_copy_is_atomic() {
+  local dir out rc real_cp stage
+  dir=$(make_case recovery-journal-copy)
+  real_cp=$(command -v cp)
+  cat > "$dir/fakebin/cp" <<'SH'
+#!/usr/bin/env bash
+dest=${!#}
+case "$dest" in
+  */.endpoint-binding-copy.*) : > "$dest"; exit 1 ;;
+esac
+exec "${FM_REAL_CP:?}" "$@"
+SH
+  chmod +x "$dir/fakebin/cp"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  FM_REAL_CP="$real_cp" run_locked "$dir" >/dev/null \
+    || fail 'migration setup for atomic recovery copy failed'
+  stage="$dir/home/state/.endpoint-binding-undo-cleanup.injected"
+  mkdir "$stage"
+  chmod 0700 "$stage"
+  cp "$dir/home/state/.endpoint-binding-migration-records-v1" "$stage/records"
+  cp "$dir/home/state/.endpoint-binding-migration-backups/good.before" "$stage/good.before"
+  cp "$dir/home/state/.endpoint-binding-migration-backups/good.after" "$stage/good.after"
+  chmod 0600 "$stage/records" "$stage/good.before" "$stage/good.after"
+  rm -f "$dir/home/state/.endpoint-binding-migration-records-v1"
+  rm -f "$dir/home/state/.endpoint-binding-migration-backups/good.before" \
+    "$dir/home/state/.endpoint-binding-migration-backups/good.after"
+  rmdir "$dir/home/state/.endpoint-binding-migration-backups"
+  set +e
+  out=$(FM_REAL_CP="$real_cp" run_locked "$dir" --undo)
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "partial recovery journal copy unexpectedly succeeded: $out"
+  [ ! -e "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
+    || fail 'partial recovery copy published a truncated journal'
+  pass 'endpoint binding recovery stages journal copies atomically'
+}
+
 test_crash_after_manifest_preserves_undo_path() {
   local dir out rc real_mv
   dir=$(make_case crash-before-stamp)
@@ -1120,6 +1208,7 @@ SH
 }
 
 test_evidence_bound_stamp_and_skip
+test_stamp_adds_binding_as_separate_line_without_trailing_newline
 test_hidden_metadata_is_reported
 test_completed_journal_is_idempotent
 test_completed_journal_merges_new_record
@@ -1142,6 +1231,8 @@ test_identity_verification_waits_for_metadata_lock
 test_report_write_failure_aborts_before_stamping
 test_publication_failure_restores_evidence
 test_backup_cleanup_failure_retains_staged_recovery
+test_rollback_rejects_replaced_backup_directory_symlink
+test_recovery_journal_copy_is_atomic
 test_crash_after_manifest_preserves_undo_path
 test_orphaned_backups_are_recovered_on_restart
 test_no_stamp_validates_existing_recovery_namespace
