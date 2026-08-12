@@ -217,6 +217,69 @@ test_tmux_name_reuse_requires_recorded_worktree() {
   pass 'endpoint binding migration binds tmux endpoints to recorded worktrees'
 }
 
+test_live_legacy_herdr_endpoint_is_backfilled() {
+  local dir out report
+  dir=$(make_case legacy-herdr)
+  cat > "$dir/fakebin/herdr" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}:${2:-}" in
+  status:--json)
+    printf '%s\n' '{"server":{"running":true}}'
+    ;;
+  pane:get)
+    printf '{"result":{"pane":{"pane_id":"%s","foreground_cwd":"%s"}}}\n' \
+      "${3:-}" "${FM_HERDR_LIVE_WORKTREE:?}"
+    ;;
+  agent:get)
+    printf '%s\n' '{"result":{"agent":{"agent_status":"idle"}}}'
+    ;;
+  *) exit 1 ;;
+esac
+SH
+  chmod +x "$dir/fakebin/herdr"
+  fm_write_meta "$dir/home/state/herdr-good.meta" \
+    'window=lab:w1:p2' 'backend=herdr' 'herdr_session=lab' \
+    'herdr_workspace_id=w1' 'herdr_tab_id=w1:t1' 'herdr_pane_id=w1:p2' \
+    "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  out=$(FM_HERDR_LIVE_WORKTREE="$dir/worktree" run_locked "$dir") \
+    || fail "legacy Herdr migration failed: $out"
+  grep -qx 'endpoint_task_id=herdr-good' "$dir/home/state/herdr-good.meta" \
+    || fail 'verified live legacy Herdr endpoint was not stamped'
+  report=$(cat "$dir/home/state/.endpoint-binding-migration.log")
+  assert_contains "$report" \
+    'task herdr-good: stamped - exact live endpoint identity verified' \
+    'verified live legacy Herdr stamp was not reported'
+  pass 'endpoint binding migration backfills verified live legacy Herdr endpoints'
+}
+
+test_staged_binding_assembly_does_not_follow_symlinks() {
+  local dir out real_tail outside
+  dir=$(make_case staged-after-symlink)
+  real_tail=$(command -v tail)
+  outside="$dir/outside"
+  printf 'keep' > "$outside"
+  cat > "$dir/fakebin/tail" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}:${3:-}" in
+  -c:*/.endpoint-binding-stage.*/good.after)
+    rm -f -- "$3" || exit 1
+    ln -s "${FM_OUTSIDE:?}" "$3" || exit 1
+    ;;
+esac
+exec "${FM_REAL_TAIL:?}" "$@"
+SH
+  chmod +x "$dir/fakebin/tail"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  out=$(FM_REAL_TAIL="$real_tail" FM_OUTSIDE="$outside" run_locked "$dir") \
+    || fail "descriptor-bound binding assembly failed: $out"
+  [ "$(cat "$outside")" = keep ] || fail 'staged binding assembly wrote through a symlink'
+  grep -qx 'endpoint_task_id=good' "$dir/home/state/good.meta" \
+    || fail 'descriptor-bound staged binding was not published'
+  pass 'endpoint binding migration assembles staged bindings without path reopen writes'
+}
+
 test_unresolved_existing_bindings_remove_completion_marker() {
   local dir out report mismatch_before empty_before duplicate_before
   dir=$(make_case unresolved-bindings)
@@ -1054,6 +1117,51 @@ SH
   ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
     || fail 'symlink-swapped session lock authorized metadata changes'
   pass 'endpoint binding migration binds lock reads to ordinary files'
+}
+
+test_expired_session_lock_after_wait_is_refused() {
+  local dir lock ready release waiting holder migration rc real_sleep
+  dir=$(make_case expired-session-lock)
+  real_sleep=$(command -v sleep)
+  cat > "$dir/fakebin/sleep" <<'SH'
+#!/usr/bin/env bash
+[ -z "${FM_MIGRATION_WAITING:-}" ] || : > "$FM_MIGRATION_WAITING"
+exec "${FM_REAL_SLEEP:?}" "$@"
+SH
+  chmod +x "$dir/fakebin/sleep"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  lock="$dir/home/state/.meta-good.lock"
+  ready="$dir/lock-ready"
+  release="$dir/lock-release"
+  waiting="$dir/migration-waiting"
+  (
+    export FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" PATH="$dir/fakebin:$BASE_PATH"
+    . "$ROOT/bin/fm-wake-lib.sh"
+    fm_lock_try_acquire "$lock" || exit 1
+    : > "$ready"
+    while [ ! -e "$release" ]; do "$real_sleep" 0.01; done
+    fm_lock_release "$lock"
+  ) &
+  holder=$!
+  while [ ! -e "$ready" ]; do "$real_sleep" 0.01; done
+  FM_REAL_SLEEP="$real_sleep" FM_MIGRATION_WAITING="$waiting" \
+    run_locked "$dir" > "$dir/stdout" 2> "$dir/stderr" &
+  migration=$!
+  while [ ! -e "$waiting" ]; do "$real_sleep" 0.01; done
+  kill -0 "$migration" 2>/dev/null || fail 'migration did not wait for the metadata lock'
+  printf '999999\n' > "$dir/home/state/.lock"
+  : > "$release"
+  wait "$holder" || fail 'metadata lock holder failed'
+  set +e
+  wait "$migration"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail 'migration retained authority after its session lock expired'
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
+    || fail 'expired session authority changed metadata after a lock wait'
+  pass 'endpoint binding migration revalidates session ownership after lock waits'
 }
 
 test_signal_rolls_back_staged_stamps() {
@@ -2364,6 +2472,8 @@ test_evidence_bound_stamp_and_skip
 test_duplicate_tmux_window_is_ambiguous
 test_tmux_session_prefix_is_not_an_exact_endpoint
 test_tmux_name_reuse_requires_recorded_worktree
+test_live_legacy_herdr_endpoint_is_backfilled
+test_staged_binding_assembly_does_not_follow_symlinks
 test_unresolved_existing_bindings_remove_completion_marker
 test_stamp_adds_binding_as_separate_line_without_trailing_newline
 test_hidden_metadata_is_reported
@@ -2394,6 +2504,7 @@ test_shared_task_id_grammar_reports_colon_ids
 test_lock_is_required
 test_symlink_session_lock_is_refused
 test_session_lock_symlink_swap_is_refused
+test_expired_session_lock_after_wait_is_refused
 test_signal_rolls_back_staged_stamps
 test_final_stamp_waits_for_metadata_lock
 test_migration_transaction_lock_serializes_no_stamp_runs
