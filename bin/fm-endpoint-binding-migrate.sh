@@ -61,14 +61,47 @@ make_state_temp_directory() {
   pinned_state_directory || return 1
   mktemp -d "./$1"
 }
+enter_pinned_state_directory() {
+  local directory=$1 relative component before after traversed='' expected
+  pinned_state_directory || return 1
+  case "$directory" in
+    .|"$PINNED_STATE_PATH") relative= ;;
+    "$PINNED_STATE_PATH"/*) relative=${directory#"$PINNED_STATE_PATH"/} ;;
+    *) return 1 ;;
+  esac
+  while [ -n "$relative" ]; do
+    case "$relative" in
+      */*) component=${relative%%/*}; relative=${relative#*/} ;;
+      *) component=$relative; relative= ;;
+    esac
+    case "$component" in ''|.|..) return 1 ;; esac
+    [ -d "./$component" ] && [ ! -L "./$component" ] || return 1
+    before=$(filesystem_identity "./$component" 2>/dev/null) || return 1
+    [ -d "./$component" ] && [ ! -L "./$component" ] || return 1
+    cd -P -- "./$component" || return 1
+    after=$(filesystem_identity . 2>/dev/null) || return 1
+    [ "$after" = "$before" ] || return 1
+    traversed=${traversed:+$traversed/}$component
+    expected=$PINNED_STATE_PATH/$traversed
+    [ "$(pwd -P)" = "$expected" ] || return 1
+  done
+}
+
+return_to_pinned_state_directory() {
+  local previous current attempts=0
+  while ! pinned_state_directory; do
+    [ "$attempts" -lt 64 ] || return 1
+    previous=$(filesystem_identity . 2>/dev/null) || return 1
+    cd -P -- .. || return 1
+    current=$(filesystem_identity . 2>/dev/null) || return 1
+    [ "$current" != "$previous" ] || return 1
+    attempts=$((attempts + 1))
+  done
+}
 make_private_temp_in() (
-  local directory=$1 pattern=$2 parent base expected tmp
-  [ -L "$directory" ] && return 1
-  parent=${directory%/*}
-  base=${directory##*/}
-  expected=$(cd -P -- "$parent" && pwd -P)/$base || return 1
-  cd -P -- "$directory" || return 1
-  [ "$(pwd -P)" = "$expected" ] || return 1
+  local directory=$1 pattern=$2 expected tmp
+  enter_pinned_state_directory "$directory" || return 1
+  expected=$(pwd -P) || return 1
   private_directory . || return 1
   tmp=$(mktemp "./$pattern") || return 1
   printf '%s/%s\n' "$expected" "${tmp#./}"
@@ -122,6 +155,59 @@ directory_empty() {
   done
   return 0
 }
+
+remove_orphaned_private_temporaries() (
+  local directory=$1 path base
+  [ -e "$directory" ] || [ -L "$directory" ] || return 0
+  enter_pinned_state_directory "$directory" || return 1
+  if [ "$(pwd -P)" = "$PINNED_STATE_PATH" ]; then
+    pinned_state_directory || return 1
+  else
+    private_directory . || return 1
+  fi
+  for path in ./.endpoint-binding-copy.* ./.endpoint-binding-restore.*; do
+    [ -e "$path" ] || [ -L "$path" ] || continue
+    base=${path##*/}
+    case "$base" in
+      .endpoint-binding-copy.[A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9]|.endpoint-binding-restore.[A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9]) ;;
+      *) return 1 ;;
+    esac
+    private_file "$path" || return 1
+    rm -f -- "$path" || return 1
+  done
+)
+
+cleanup_orphaned_atomic_temporaries() {
+  local directory
+  require_recovery_session_lock || return 1
+  remove_orphaned_private_temporaries "$STATE" || return 1
+  if [ -e "$BACKUP_DIR" ] || [ -L "$BACKUP_DIR" ]; then
+    remove_orphaned_private_temporaries "$BACKUP_DIR" || return 1
+    if [ ! -e "$RECORDS" ] && [ ! -L "$RECORDS" ] && directory_empty "$BACKUP_DIR"; then
+      require_recovery_session_lock || return 1
+      remove_empty_recovery_directory "$BACKUP_DIR" || return 1
+    fi
+  fi
+  for directory in "$STATE"/.endpoint-binding-stage.* "$STATE"/.endpoint-binding-undo-cleanup.*; do
+    [ -e "$directory" ] || [ -L "$directory" ] || continue
+    remove_orphaned_private_temporaries "$directory" || return 1
+    if [ -e "$directory/.control" ] || [ -L "$directory/.control" ]; then
+      remove_orphaned_private_temporaries "$directory/.control" || return 1
+    fi
+  done
+}
+
+remove_empty_recovery_directory() (
+  local directory=$1 base identity
+  base=${directory##*/}
+  enter_pinned_state_directory "$PINNED_STATE_PATH" || return 1
+  [ -d "./$base" ] && [ ! -L "./$base" ] || return 1
+  identity=$(filesystem_identity "./$base" 2>/dev/null) || return 1
+  private_directory "./$base" || return 1
+  directory_empty "./$base" || return 1
+  [ "$(filesystem_identity "./$base" 2>/dev/null)" = "$identity" ] || return 1
+  rmdir -- "./$base"
+)
 
 list_contains() {
   local needle=$1 value
@@ -261,9 +347,25 @@ verify_live_task_worktree() {
   FM_ENDPOINT_VERIFIED_WORKTREE=$recorded_real
 }
 
+conservative_meta_value() {
+  local meta=$1 key=$2
+  awk -v prefix="$key=" '
+    index($0, prefix) == 1 {
+      value = substr($0, length(prefix) + 1)
+      if (value == "" || (count > 0 && value != first)) bad = 1
+      if (count == 0) first = value
+      count++
+    }
+    END {
+      if (bad || count == 0) exit 1
+      print first
+    }
+  ' "$meta"
+}
+
 canonical_meta_worktree() {
   local recorded
-  recorded=$(fm_backend_meta_exact_value "$1" worktree) || return 1
+  recorded=$(conservative_meta_value "$1" worktree) || return 1
   CDPATH='' cd -- "$recorded" 2>/dev/null && pwd -P
 }
 
@@ -275,14 +377,13 @@ parse_endpoint_claim() {
   backend_count=$(grep -c '^backend=' "$meta" 2>/dev/null || true)
   case "$backend_count" in
     0) backend=tmux ;;
-    1) backend=$(fm_backend_meta_exact_value "$meta" backend) || return 1 ;;
-    *) return 1 ;;
+    *) backend=$(conservative_meta_value "$meta" backend) || return 1 ;;
   esac
   case "$backend" in
     tmux|herdr) ;;
     *) return 1 ;;
   esac
-  target=$(fm_backend_meta_exact_value "$meta" window) || return 1
+  target=$(conservative_meta_value "$meta" window) || return 1
   case "$target" in
     *:*)
       [ -n "${target%%:*}" ] && [ -n "${target#*:}" ] || return 1
@@ -393,6 +494,15 @@ require_recovery_session_lock() {
     RECOVERY_REQUIRED=1
     return 1
   fi
+}
+
+retain_apply_for_recovery() {
+  RECOVERY_REQUIRED=1
+  APPLY_ABORTED=1
+  release_meta_lock || true
+  release_merge_locks || true
+  release_apply_locks || true
+  return 1
 }
 
 release_migration_lock() {
@@ -722,10 +832,12 @@ file_descriptor_size() {
   esac
 }
 
+COPY_CREATED_IDENTITY=
 copy_to_new_private_file() {
   local destination=$1 binding_id=${2:-} append_line=${3:-} append_present=${4:-0}
   local append_skip=${5:-0} append_separator=${6:-0}
   local destination_identity destination_fd_identity last_byte
+  COPY_CREATED_IDENTITY=
   [ ! -e "$destination" ] && [ ! -L "$destination" ] || return 1
   case "$append_present:$append_skip:$append_separator" in
     *[!0-9:]*|:*|*::*|*:) return 1 ;;
@@ -771,7 +883,8 @@ copy_to_new_private_file() {
     return 1
   }
   private_file "$destination" || return 1
-  [ "$(path_file_identity "$destination" 2>/dev/null)" = "$destination_identity" ]
+  [ "$(path_file_identity "$destination" 2>/dev/null)" = "$destination_identity" ] || return 1
+  COPY_CREATED_IDENTITY=$destination_identity
 }
 
 restore_atomic_destination() {
@@ -792,7 +905,10 @@ restore_atomic_destination() {
     rm -f -- "$tmp"
     return 1
   fi
-  identity=$(path_file_identity "$tmp" 2>/dev/null) || { rm -f -- "$tmp"; return 1; }
+  identity=$COPY_CREATED_IDENTITY
+  [ -n "$identity" ] || { rm -f -- "$tmp"; return 1; }
+  [ "$(path_file_identity "$tmp" 2>/dev/null)" = "$identity" ] \
+    || { rm -f -- "$tmp"; return 1; }
   atomic_rename_nofollow "$tmp" "$destination" || { rc=$?; rm -f -- "$tmp"; return "$rc"; }
   regular_file "$destination" || return 1
   [ "$(path_file_identity "$destination" 2>/dev/null)" = "$identity" ]
@@ -803,25 +919,13 @@ copy_private_atomic() (
   local append_line=${6:-} append_source=${7:-} append_source_type=${8:-private}
   local append_skip=${9:-0} append_separator=${10:-0}
   local source_dir source_name destination_dir destination_name tmp rc
-  local source_parent source_base source_expected destination_parent destination_base destination_expected tmp_identity
+  local destination_expected tmp_identity
   local source_identity source_fd_identity append_present=0 destination_present=0 destination_identity destination_fd_identity
-  local append_source_dir append_source_name append_source_parent append_source_base
-  local append_source_expected append_identity append_fd_identity
+  local append_source_dir append_source_name append_identity append_fd_identity
   pinned_state_directory || return 1
   source_dir=${source%/*}
   source_name=${source##*/}
-  if [ "$source_dir" = . ]; then
-    source_expected=$PINNED_STATE_PATH
-    cd -P -- "$PINNED_STATE_PATH" || return 1
-    pinned_state_directory || return 1
-  else
-    [ -L "$source_dir" ] && return 1
-    source_parent=${source_dir%/*}
-    source_base=${source_dir##*/}
-    source_expected=$(cd -P -- "$source_parent" && pwd -P)/$source_base || return 1
-    cd -P -- "$source_dir" || return 1
-  fi
-  [ "$(pwd -P)" = "$source_expected" ] || return 1
+  enter_pinned_state_directory "$source_dir" || return 1
   if [ "$source_dir" = "$STATE" ] || [ "$source_dir" = . ]; then
     [ -d . ] && [ ! -L . ] || return 1
   else
@@ -845,22 +949,12 @@ copy_private_atomic() (
     file_descriptor_regular 7 || return 1
     [ "$(file_descriptor_identity 7 2>/dev/null)" = "$source_identity" ] || return 1
   fi
+  return_to_pinned_state_directory || return 1
   if [ -n "$append_source" ]; then
     append_present=1
     append_source_dir=${append_source%/*}
     append_source_name=${append_source##*/}
-    if [ "$append_source_dir" = . ]; then
-      append_source_expected=$PINNED_STATE_PATH
-      cd -P -- "$PINNED_STATE_PATH" || return 1
-      pinned_state_directory || return 1
-    else
-      [ -L "$append_source_dir" ] && return 1
-      append_source_parent=${append_source_dir%/*}
-      append_source_base=${append_source_dir##*/}
-      append_source_expected=$(cd -P -- "$append_source_parent" && pwd -P)/$append_source_base || return 1
-      cd -P -- "$append_source_dir" || return 1
-    fi
-    [ "$(pwd -P)" = "$append_source_expected" ] || return 1
+    enter_pinned_state_directory "$append_source_dir" || return 1
     if [ "$append_source_dir" = "$STATE" ] || [ "$append_source_dir" = . ]; then
       [ -d . ] && [ ! -L . ] || return 1
     else
@@ -879,21 +973,12 @@ copy_private_atomic() (
     [ "$append_fd_identity" = "$append_identity" ] || return 1
     [ "$append_source_type" = regular ] || [ "$(file_descriptor_mode 6 2>/dev/null)" = 600 ] || return 1
     [ "$(path_file_identity "$append_source" 2>/dev/null)" = "$append_fd_identity" ] || return 1
+    return_to_pinned_state_directory || return 1
   fi
   destination_dir=${destination%/*}
   destination_name=${destination##*/}
-  if [ "$destination_dir" = . ]; then
-    destination_expected=$PINNED_STATE_PATH
-    cd -P -- "$PINNED_STATE_PATH" || return 1
-    pinned_state_directory || return 1
-  else
-    [ -L "$destination_dir" ] && return 1
-    destination_parent=${destination_dir%/*}
-    destination_base=${destination_dir##*/}
-    destination_expected=$(cd -P -- "$destination_parent" && pwd -P)/$destination_base || return 1
-    cd -P -- "$destination_dir" || return 1
-  fi
-  [ "$(pwd -P)" = "$destination_expected" ] || return 1
+  enter_pinned_state_directory "$destination_dir" || return 1
+  destination_expected=$(pwd -P) || return 1
   if [ "$destination_dir" = "$STATE" ] || [ "$destination_dir" = . ]; then
     [ -d . ] && [ ! -L . ] || return 1
   else
@@ -919,7 +1004,10 @@ copy_private_atomic() (
     rm -f -- "$tmp"
     return 1
   fi
-  tmp_identity=$(path_file_identity "$tmp" 2>/dev/null) || { rm -f -- "$tmp"; return 1; }
+  tmp_identity=$COPY_CREATED_IDENTITY
+  [ -n "$tmp_identity" ] || { rm -f -- "$tmp"; return 1; }
+  [ "$(path_file_identity "$tmp" 2>/dev/null)" = "$tmp_identity" ] \
+    || { rm -f -- "$tmp"; return 1; }
   exec 5< "$tmp" || { rm -f -- "$tmp"; return 1; }
   file_descriptor_regular 5 || { rm -f -- "$tmp"; return 1; }
   [ "$(file_descriptor_identity 5 2>/dev/null)" = "$tmp_identity" ] \
@@ -1585,6 +1673,11 @@ publish_recovery_records() {
       return 1
     }
   done
+  require_session_lock || {
+    rm -f -- "$manifest_tmp"
+    retain_apply_for_recovery
+    return 1
+  }
   RECORDS_PUBLISHED=1
   if ! copy_private_atomic "$manifest_tmp" "$RECORDS"; then
     RECORDS_PUBLISHED=0
@@ -2091,6 +2184,7 @@ apply_migration() {
       return 1
     fi
   done
+  require_session_lock || { retain_apply_for_recovery; return 1; }
   if [ -e "$BACKUP_DIR" ] || [ -L "$BACKUP_DIR" ]; then
     private_directory "$BACKUP_DIR" || return 1
     [ "$RECORDS_EXISTING" -eq 1 ] || directory_empty "$BACKUP_DIR" || return 1
@@ -2102,7 +2196,8 @@ apply_migration() {
       return 1
     fi
   fi
-  acquire_merge_locks || { abort_apply 1; return $?; }
+  acquire_merge_locks || { retain_apply_for_recovery; return 1; }
+  require_session_lock || { retain_apply_for_recovery; return 1; }
   revalidate_merge_records || { abort_apply 1; return $?; }
   for i in "${!STAMP_IDS[@]}"; do
     [ "${STAMP_SELECTED[$i]:-0}" -eq 1 ] || continue
@@ -2128,6 +2223,11 @@ apply_migration() {
       return $?
     }
   done
+  require_session_lock || {
+    rm -f -- "$manifest_tmp"
+    retain_apply_for_recovery
+    return 1
+  }
   RECORDS_PUBLISHED=1
   if ! copy_private_atomic "$manifest_tmp" "$RECORDS"; then
     rm -f -- "$manifest_tmp"
@@ -2388,6 +2488,10 @@ if ! fm_lock_acquire_wait "$MIGRATION_LOCK"; then
   exit 1
 fi
 require_session_lock || exit 1
+cleanup_orphaned_atomic_temporaries || {
+  echo "ENDPOINT_BINDING_MIGRATION: orphaned atomic temporary recovery failed" >&2
+  exit 1
+}
 
 recover_undo_stage || {
   echo "ENDPOINT_BINDING_MIGRATION: incomplete undo recovery failed" >&2

@@ -579,6 +579,47 @@ SH
   pass 'endpoint binding migration inventories claims before task-ID refusal'
 }
 
+test_duplicate_identical_claim_fields_are_ambiguous() {
+  local dir out report
+  dir=$(make_case duplicate-identical-claim-fields)
+  cat > "$dir/fakebin/herdr" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}:${2:-}" in
+  status:--json) printf '%s\n' '{"server":{"running":true}}' ;;
+  pane:get)
+    printf '{"result":{"pane":{"pane_id":"%s","foreground_cwd":"%s"}}}\n' \
+      "${3:-}" "${FM_HERDR_LIVE_WORKTREE:?}"
+    ;;
+  agent:get) printf '%s\n' '{"result":{"agent":{"agent_status":"idle"}}}' ;;
+  *) exit 1 ;;
+esac
+SH
+  chmod +x "$dir/fakebin/herdr"
+  fm_write_meta "$dir/home/state/herdr-good.meta" \
+    'window=lab:w1:p2' 'backend=herdr' 'herdr_session=lab' \
+    'herdr_workspace_id=w1' 'herdr_tab_id=w1:t1' 'herdr_pane_id=w1:p2' \
+    "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  fm_write_meta "$dir/home/state/herdr-duplicate.meta" \
+    'window=lab:w1:p2' 'window=lab:w1:p2' 'backend=herdr' 'backend=herdr' \
+    'herdr_session=lab' 'herdr_workspace_id=w1' 'herdr_tab_id=w1:t1' \
+    'herdr_pane_id=w1:p2' "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+
+  out=$(FM_HERDR_LIVE_WORKTREE="$dir/worktree" run_locked "$dir") \
+    || fail "duplicate identical claim migration failed: $out"
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/herdr-good.meta" \
+    || fail 'verified task sharing duplicate claim fields was stamped'
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/herdr-duplicate.meta" \
+    || fail 'malformed duplicate-field record was stamped'
+  report=$(cat "$dir/home/state/.endpoint-binding-migration.log")
+  assert_contains "$report" \
+    'task herdr-good: skipped - ambiguous live endpoint identity is claimed by multiple task records' \
+    'duplicate identical fields were omitted from endpoint ambiguity detection'
+  assert_contains "$report" \
+    'task herdr-duplicate: skipped - shared endpoint validation refused:' \
+    'duplicate identical fields did not retain their validation refusal'
+  pass 'endpoint binding migration inventories conservative duplicate-field claims'
+}
+
 test_hidden_herdr_claim_is_ambiguous() {
   local dir out report
   dir=$(make_case hidden-herdr-claim)
@@ -2991,6 +3032,28 @@ test_apply_stage_symlink_is_not_followed() {
   pass 'endpoint binding migration rejects symlinked apply stages without traversal'
 }
 
+test_orphaned_atomic_backup_temporary_is_recovered() {
+  local dir out backup
+  dir=$(make_case orphaned-atomic-backup-temp)
+  backup="$dir/home/state/.endpoint-binding-migration-backups"
+  mkdir "$backup"
+  chmod 0700 "$backup"
+  printf 'partial private copy\n' > "$backup/.endpoint-binding-copy.A1b2C3"
+  chmod 0600 "$backup/.endpoint-binding-copy.A1b2C3"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+
+  out=$(run_locked "$dir") || fail "orphaned atomic temporary recovery failed: $out"
+  assert_contains "$out" 'stamped 1' \
+    'orphaned atomic temporary prevented migration restart'
+  [ ! -e "$backup/.endpoint-binding-copy.A1b2C3" ] \
+    || fail 'orphaned private atomic temporary survived recovery'
+  grep -qx 'endpoint_task_id=good' "$dir/home/state/good.meta" \
+    || fail 'restart after orphaned atomic temporary did not stamp metadata'
+  pass 'endpoint binding migration retires validated orphaned atomic temporaries'
+}
+
 test_orphaned_backups_are_recovered_on_restart() {
   local dir out stage
   dir=$(make_case orphaned-backups)
@@ -3544,6 +3607,7 @@ test_duplicate_herdr_worktree_is_ambiguous
 test_bound_herdr_endpoint_claim_is_ambiguous
 test_unverified_herdr_claim_is_ambiguous
 test_invalid_task_id_claim_is_ambiguous
+test_duplicate_identical_claim_fields_are_ambiguous
 test_hidden_herdr_claim_is_ambiguous
 test_herdr_liveness_is_rechecked_without_server_ensure
 test_staged_binding_assembly_does_not_follow_symlinks
@@ -3609,6 +3673,7 @@ test_partial_merged_journal_reruns_apply
 test_apply_recovery_cleanup_is_restartable
 test_existing_journal_pre_manifest_stage_is_discarded
 test_apply_stage_symlink_is_not_followed
+test_orphaned_atomic_backup_temporary_is_recovered
 test_orphaned_backups_are_recovered_on_restart
 test_no_stamp_validates_existing_recovery_namespace
 test_journal_cleanup_failure_retains_recovery_bytes
