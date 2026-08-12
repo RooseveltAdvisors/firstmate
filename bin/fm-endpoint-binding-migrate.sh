@@ -214,17 +214,13 @@ MERGE_LOCK_ACQUIRED=()
 MERGE_LOCKS_HELD=0
 
 cleanup() {
-  local path
   release_merge_locks || true
   [ "$RECOVERY_REQUIRED" -eq 1 ] && return 0
   [ -z "$REPORT_TMP" ] || rm -f -- "$REPORT_TMP"
-  if [ -n "$STAGE_DIR" ] && [ -d "$STAGE_DIR" ]; then
-    for path in "$STAGE_DIR"/*; do
-      [ -e "$path" ] || continue
-      rm -f -- "$path"
-    done
-    rmdir -- "$STAGE_DIR" 2>/dev/null || true
-  fi
+  [ -n "$STAGE_DIR" ] || return 0
+  [ -L "$STAGE_DIR" ] && return 0
+  [ -d "$STAGE_DIR" ] || return 0
+  remove_stage_directory "$STAGE_DIR" || true
 }
 trap cleanup EXIT
 
@@ -497,6 +493,25 @@ restore_existing_records() {
   copy_private_atomic "$RECORDS_BEFORE" "$RECORDS"
 }
 
+remove_stage_directory() {
+  local stage=$1 stage_parent stage_base stage_expected path
+  [ -L "$stage" ] && return 1
+  [ -d "$stage" ] || return 1
+  stage_parent=${stage%/*}
+  stage_base=${stage##*/}
+  stage_expected=$(cd -P -- "$stage_parent" && pwd -P)/$stage_base || return 1
+  (
+    cd -P -- "$stage" || exit 1
+    [ "$(pwd -P)" = "$stage_expected" ] || exit 1
+    for path in ./* ./.??*; do
+      [ -e "$path" ] || [ -L "$path" ] || continue
+      rm -f -- "$path" || exit 1
+    done
+  ) || return 1
+  [ -L "$stage" ] && return 1
+  rmdir -- "$stage"
+}
+
 cleanup_incomplete_apply_stage() {
   local stage=$1 path base id before after
   local -a ids=()
@@ -537,8 +552,7 @@ cleanup_incomplete_apply_stage() {
     directory_empty "$BACKUP_DIR" || return 1
     rmdir -- "$BACKUP_DIR" || return 1
   fi
-  rm -f -- "$stage"/* || return 1
-  rmdir -- "$stage"
+  remove_stage_directory "$stage"
 }
 
 recover_existing_apply_stage() {
@@ -643,8 +657,19 @@ recover_existing_apply_stage() {
     done
   fi
   rm -f -- "$merged_tmp" || return 1
-  rm -f -- "$stage"/* || return 1
-  rmdir -- "$stage"
+  remove_stage_directory "$stage"
+}
+
+cleanup_pre_manifest_apply_stage() {
+  local stage=$1
+  private_directory "$stage" || return 1
+  private_file "$RECORDS" || return 1
+  private_file "$stage/records" || return 1
+  if cmp -s -- "$RECORDS" "$stage/records"; then
+    recover_partial_apply_stage "$stage"
+  else
+    remove_stage_directory "$stage"
+  fi
 }
 
 recover_partial_apply_stage() {
@@ -714,11 +739,7 @@ recover_partial_apply_stage() {
       return 1
     }
   fi
-  rm -f -- "$stage"/* || {
-    RECOVERY_REQUIRED=1
-    return 1
-  }
-  rmdir -- "$stage" || {
+  remove_stage_directory "$stage" || {
     RECOVERY_REQUIRED=1
     return 1
   }
@@ -733,7 +754,7 @@ recover_apply_stage() {
       if [ -e "$stage/records.before" ] || [ -L "$stage/records.before" ]; then
         recover_existing_apply_stage "$stage" || return 1
       elif [ -e "$stage/records" ] || [ -L "$stage/records" ]; then
-        recover_partial_apply_stage "$stage" || return 1
+        cleanup_pre_manifest_apply_stage "$stage" || return 1
       fi
       continue
     fi
@@ -1016,16 +1037,7 @@ abort_undo() {
 }
 
 remove_completed_stage() {
-  local stage path
-  stage=$1
-  [ -L "$stage" ] && return 1
-  private_directory "$stage" || return 1
-  for path in "$stage"/*; do
-    [ "$path" = "$stage/completed" ] && continue
-    rm -f -- "$path" || return 1
-  done
-  rm -f -- "$stage/completed" || return 1
-  rmdir -- "$stage"
+  remove_stage_directory "$1"
 }
 
 recover_undo_stage() {
@@ -1068,8 +1080,7 @@ recover_undo_stage() {
       fi
     done < "$RECORDS"
     [ "$rc" -eq 0 ] || return 1
-    rm -f -- "$stage"/* || return 1
-    rmdir -- "$stage" || return 1
+    remove_stage_directory "$stage" || return 1
   done
   return "$rc"
 }
@@ -1438,7 +1449,7 @@ undo_migration() {
   [ "$cleanup_rc" -eq 0 ] && rm -f -- "$RECORDS" || cleanup_rc=1
   if [ "$cleanup_rc" -ne 0 ]; then
     if restore_undo_recovery; then
-      if rm -f -- "$cleanup_stage"/* && rmdir -- "$cleanup_stage"; then
+      if remove_stage_directory "$cleanup_stage"; then
         UNDO_RECOVERY_STAGE=
       else
         release_undo_locks || true

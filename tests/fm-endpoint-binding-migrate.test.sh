@@ -1073,6 +1073,47 @@ test_partial_merged_journal_reruns_apply() {
   pass 'endpoint binding migration reruns after partial merged journal publication'
 }
 
+test_existing_journal_pre_manifest_stage_is_discarded() {
+  local dir out stage
+  dir=$(make_case pre-manifest-merge)
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  run_locked "$dir" >/dev/null || fail 'initial migration for pre-manifest stage failed'
+  fm_write_meta "$dir/home/state/good2.meta" \
+    'window=firstmate:fm-good2' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  stage="$dir/home/state/.endpoint-binding-stage.pre-manifest"
+  mkdir "$stage"
+  chmod 0700 "$stage"
+  printf '%s\n' $'good2\tgood2.before\tgood2.after' > "$stage/records"
+  chmod 0600 "$stage/records"
+  out=$(run_locked "$dir") || fail "pre-manifest stage restart failed: $out"
+  assert_contains "$out" 'stamped 1' 'pre-manifest stage restart skipped the eligible record'
+  assert_contains "$(cat "$dir/home/state/good2.meta")" 'endpoint_task_id=good2' \
+    'pre-manifest stage restart did not rerun the stamp'
+  [ ! -e "$stage" ] || fail 'pre-manifest stage was not discarded'
+  pass 'endpoint binding migration discards an interrupted existing-journal pre-manifest stage'
+}
+
+test_apply_stage_symlink_is_not_followed() {
+  local dir out rc outside stage
+  dir=$(make_case symlinked-apply-stage)
+  outside="$dir/outside-stage"
+  stage="$dir/home/state/.endpoint-binding-stage.injected"
+  mkdir "$outside"
+  printf 'keep\n' > "$outside/sentinel"
+  ln -s "$outside" "$stage"
+  set +e
+  out=$(run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "symlinked apply stage unexpectedly succeeded: $out"
+  [ -L "$stage" ] || fail 'symlinked apply stage was removed'
+  grep -qx 'keep' "$outside/sentinel" || fail 'symlinked apply stage touched outside data'
+  pass 'endpoint binding migration rejects symlinked apply stages without traversal'
+}
+
 test_orphaned_backups_are_recovered_on_restart() {
   local dir out stage
   dir=$(make_case orphaned-backups)
@@ -1304,11 +1345,15 @@ test_undo_stage_cleanup_failure_retains_completion_state() {
   local dir out rc real_rm stage
   dir=$(make_case undo-stage-cleanup)
   real_rm=$(command -v rm)
-  cat > "$dir/fakebin/rm" <<'SH'
+cat > "$dir/fakebin/rm" <<'SH'
 #!/usr/bin/env bash
 for arg in "$@"; do
   case "$arg" in
-    */.endpoint-binding-undo-cleanup.*/*) exit 1 ;;
+    ./completed)
+      case "$(pwd)" in
+        */.endpoint-binding-undo-cleanup.*) exit 1 ;;
+      esac
+      ;;
   esac
 done
 exec "${FM_REAL_RM:?}" "$@"
@@ -1412,6 +1457,8 @@ test_recovery_journal_copy_is_atomic
 test_crash_after_manifest_preserves_undo_path
 test_partial_published_journal_reruns_apply
 test_partial_merged_journal_reruns_apply
+test_existing_journal_pre_manifest_stage_is_discarded
+test_apply_stage_symlink_is_not_followed
 test_orphaned_backups_are_recovered_on_restart
 test_no_stamp_validates_existing_recovery_namespace
 test_journal_cleanup_failure_retains_recovery_bytes
