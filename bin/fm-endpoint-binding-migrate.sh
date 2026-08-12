@@ -281,7 +281,7 @@ release_undo_locks() {
 
 acquire_merge_locks() {
   local id path i
-  [ "$RECORDS_EXISTING" -eq 1 ] || return 0
+  [ "$RECORDS_EXISTING" -eq 1 ] || [ "$RECOVERY_NAMESPACE_PRESENT" -eq 1 ] || return 0
   MERGE_LOCK_IDS=($(printf '%s\n' "${!RECORDED_IDS[@]}" | sort -u))
   MERGE_LOCK_PATHS=()
   MERGE_LOCK_ACQUIRED=()
@@ -314,7 +314,7 @@ release_merge_locks() {
 
 revalidate_merge_records() {
   local id meta before after
-  [ "$RECORDS_EXISTING" -eq 1 ] || return 0
+  [ "$RECORDS_EXISTING" -eq 1 ] || [ "$RECOVERY_NAMESPACE_PRESENT" -eq 1 ] || return 0
   for id in "${MERGE_LOCK_IDS[@]}"; do
     meta="$STATE/$id.meta"
     before="$BACKUP_DIR/$id.before"
@@ -463,7 +463,7 @@ copy_private_atomic() {
       private_directory . || exit 1
     fi
     private_file "./$source_name" || exit 1
-    cp -p -- "./$source_name" "$tmp" || exit 1
+    cp -pP -- "./$source_name" "$tmp" || exit 1
     [ -f "$tmp" ] && [ ! -L "$tmp" ] || exit 1
   ) || ! chmod 0600 "$tmp"; then
     rm -f -- "$tmp"
@@ -1292,6 +1292,13 @@ apply_migration() {
   [ "$REPORT_WRITE_FAILED" -eq 0 ] || return 1
   validate_recovery_namespace || return 1
   if [ "$selected_count" -eq 0 ]; then
+    if [ "$RECOVERY_NAMESPACE_PRESENT" -eq 1 ]; then
+      acquire_merge_locks || return 1
+      revalidate_merge_records || {
+        release_merge_locks || true
+        return 1
+      }
+    fi
     publish_report || return 1
     write_marker "$SCAN_MARKER" fm-endpoint-binding-migration-scan-v1 || return 1
     if [ "$SKIPPED_LEGACY" -eq 0 ]; then
@@ -1299,6 +1306,7 @@ apply_migration() {
     else
       restore_evidence_file "$MARKER" '' 0 || return 1
     fi
+    release_merge_locks || return 1
     printf 'ENDPOINT_BINDING_MIGRATION: scanned %s record(s); stamped 0\n' "$OUTCOME_COUNT"
     cat "$REPORT"
     return 0
