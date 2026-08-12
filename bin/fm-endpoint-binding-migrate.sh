@@ -249,6 +249,8 @@ STAMP_BEFORE=()
 STAMP_AFTER=()
 STAMP_BACKENDS=()
 STAMP_TARGETS=()
+BOUND_CLAIM_BACKENDS=()
+BOUND_CLAIM_TARGETS=()
 STAMP_BEFORE_FINAL=()
 STAMP_AFTER_FINAL=()
 STAMP_SELECTED=()
@@ -1626,6 +1628,10 @@ apply_migration() {
     if [ "$binding_count" -gt 0 ]; then
       binding=$(fm_meta_get "$meta" endpoint_task_id)
       if [ "$binding_count" -eq 1 ] && [ "$binding" = "$id" ]; then
+        if fm_backend_validate_task_endpoint "$meta" "$id" >/dev/null 2>&1; then
+          BOUND_CLAIM_BACKENDS+=("$FM_BACKEND_VALIDATED_BACKEND")
+          BOUND_CLAIM_TARGETS+=("$FM_BACKEND_VALIDATED_TARGET")
+        fi
         record_outcome "task $id: untouched - endpoint_task_id already present"
       elif [ "$binding_count" -gt 1 ]; then
         SKIPPED_LEGACY=1
@@ -1695,10 +1701,19 @@ apply_migration() {
         break
       fi
     done
+    if [ "$duplicate" -eq 0 ]; then
+      for j in "${!BOUND_CLAIM_BACKENDS[@]}"; do
+        if [ "${STAMP_BACKENDS[$i]}" = "${BOUND_CLAIM_BACKENDS[$j]}" ] \
+          && [ "${STAMP_TARGETS[$i]}" = "${BOUND_CLAIM_TARGETS[$j]}" ]; then
+          duplicate=1
+          break
+        fi
+      done
+    fi
     if [ "$duplicate" -eq 1 ]; then
       STAMP_SELECTED[i]=0
       SKIPPED_LEGACY=1
-      record_outcome "task ${STAMP_IDS[$i]}: skipped - ambiguous live endpoint identity is claimed by multiple legacy records" || return 1
+      record_outcome "task ${STAMP_IDS[$i]}: skipped - ambiguous live endpoint identity is claimed by multiple task records" || return 1
     fi
   done
 
