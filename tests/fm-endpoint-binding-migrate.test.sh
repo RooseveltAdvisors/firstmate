@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Regression tests for the locked, evidence-bound legacy endpoint binding
 # migration and its reversible stamped-record journal.
+# shellcheck disable=SC2030,SC2031
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -58,7 +59,7 @@ run_locked() {
   shift
   (
     local owner=$BASHPID
-    for name in ${!FM_@}; do export "$name"; done
+    for name in ${!FM_@}; do export "${name?}"; done
     export FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_LOCK_PID="$owner"
     export PATH="$dir/fakebin:$BASE_PATH"
     printf '%s\n' "$owner" > "$dir/home/state/.lock"
@@ -309,6 +310,56 @@ test_completed_journal_recovers_orphaned_merge_backups() {
   pass 'endpoint binding migration recovers orphaned merge backups'
 }
 
+test_merge_abort_restores_manifest_before_backup_cleanup() {
+  local dir out rc real_cp real_mv
+  dir=$(make_case merge-abort-order)
+  real_cp=$(command -v cp)
+  real_mv=$(command -v mv)
+  cat > "$dir/fakebin/cp" <<'SH'
+#!/usr/bin/env bash
+if [ "${FM_FAIL_RECORDS_RESTORE:-0}" -eq 1 ]; then
+  case "$PWD" in
+    */.endpoint-binding-stage.*)
+      for arg in "$@"; do
+        [ "$arg" = ./records.before ] && exit 1
+      done
+      ;;
+  esac
+fi
+exec "${FM_REAL_CP:?}" "$@"
+SH
+  cat > "$dir/fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+destination=${!#}
+[ -n "${FM_FAIL_DEST:-}" ] && [ "$destination" = "$FM_FAIL_DEST" ] && exit 1
+exec "${FM_REAL_MV:?}" "$@"
+SH
+  chmod +x "$dir/fakebin/cp" "$dir/fakebin/mv"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  FM_REAL_CP="$real_cp" FM_REAL_MV="$real_mv" run_locked "$dir" >/dev/null \
+    || fail 'initial migration for merge abort order failed'
+  fm_write_meta "$dir/home/state/good2.meta" \
+    'window=firstmate:fm-good2' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  set +e
+  out=$(FM_REAL_CP="$real_cp" FM_REAL_MV="$real_mv" FM_FAIL_RECORDS_RESTORE=1 \
+    FM_FAIL_DEST="$dir/home/state/.endpoint-binding-migration-scan-v1" run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "merge rollback failure unexpectedly succeeded: $out"
+  grep -q $'^good2\t' "$dir/home/state/.endpoint-binding-migration-records-v1" \
+    || fail 'failed prior-manifest restore did not retain the merged journal'
+  [ -f "$dir/home/state/.endpoint-binding-migration-backups/good2.before" ] \
+    && [ -f "$dir/home/state/.endpoint-binding-migration-backups/good2.after" ] \
+    || fail 'failed prior-manifest restore removed merged recovery bytes'
+  out=$(FM_REAL_CP="$real_cp" FM_REAL_MV="$real_mv" run_locked "$dir") \
+    || fail "merge rollback recovery failed: $out"
+  assert_contains "$out" 'stamped 1' 'merge rollback recovery did not rerun the new stamp'
+  pass 'endpoint binding merge rollback restores provenance before cleanup'
+}
+
 test_undo_preserves_lifecycle_appends() {
   local dir out expected
   dir=$(make_case completed-journal-append)
@@ -497,6 +548,34 @@ test_undo_recovery_rejects_symlink_destination() {
   pass 'endpoint binding migration rejects symlink recovery destinations'
 }
 
+test_private_atomic_publication_does_not_follow_destination_symlink() {
+  local dir out real_mv outside backup
+  dir=$(make_case atomic-destination-symlink)
+  real_mv=$(command -v mv)
+  outside="$dir/outside-atomic-destination"
+  backup="$dir/home/state/.endpoint-binding-migration-backups"
+  mkdir "$outside"
+  cat > "$dir/fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+destination=${!#}
+if [ "$PWD" = "${FM_BACKUP_DIR:?}" ] && [ "$destination" = ./good.before ]; then
+  ln -s "${FM_OUTSIDE:?}" "$destination" || exit 1
+fi
+exec "${FM_REAL_MV:?}" "$@"
+SH
+  chmod +x "$dir/fakebin/mv"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  out=$(FM_REAL_MV="$real_mv" FM_BACKUP_DIR="$backup" FM_OUTSIDE="$outside" \
+    run_locked "$dir") || fail "atomic recovery publication failed: $out"
+  [ -f "$backup/good.before" ] && [ ! -L "$backup/good.before" ] \
+    || fail 'recovery publication retained a destination symlink'
+  [ -z "$(find "$outside" -mindepth 1 -maxdepth 1 -print -quit)" ] \
+    || fail 'recovery publication followed a destination symlink outside state'
+  pass 'endpoint binding recovery atomically replaces final entries'
+}
+
 test_undo_recovery_rejects_symlink_stage() {
   local dir out rc outside stage
   dir=$(make_case undo-symlink-stage)
@@ -526,8 +605,11 @@ test_undo_snapshot_copy_is_atomic() {
 #!/usr/bin/env bash
 dest=${!#}
 if [ "${FM_FAIL_COPY:-0}" -eq 1 ]; then
-  case "$(pwd):$dest" in
-    */state:*/.endpoint-binding-copy.*) : > "$dest"; exit 1 ;;
+  case "$(pwd):${1:-}:${2:-}:${3:-}:$dest" in
+    */.endpoint-binding-migration-backups:-pP:--:./good.after:*/.endpoint-binding-copy.*)
+      : > "$dest"
+      exit 1
+      ;;
   esac
 fi
 exec "${FM_REAL_CP:?}" "$@"
@@ -550,7 +632,12 @@ SH
   stage=$(find "$dir/home/state" -maxdepth 1 -type d -name '.endpoint-binding-undo-cleanup.*' -print -quit)
   [ -n "$stage" ] || fail 'partial undo snapshot copy lost recovery staging'
   [ ! -e "$stage/records" ] || fail 'partial undo snapshot became recoverable evidence'
-  pass 'endpoint binding undo stages snapshots atomically'
+  out=$(FM_REAL_CP="$real_cp" run_locked "$dir" --undo) \
+    || fail "partial undo snapshot retry failed: $out"
+  [ ! -e "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
+    || fail 'partial undo snapshot blocked a later undo'
+  [ ! -e "$stage" ] || fail 'partial pre-mutation undo stage was not discarded'
+  pass 'endpoint binding undo publishes readiness after complete snapshots'
 }
 
 test_undo_snapshot_rejects_replaced_stage_parent() {
@@ -742,6 +829,40 @@ test_symlink_session_lock_is_refused() {
   ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
     || fail 'symlink-authorized migration changed metadata'
   pass 'endpoint binding migration rejects symlinked session locks'
+}
+
+test_session_lock_symlink_swap_is_refused() {
+  local dir out rc real_cat
+  dir=$(make_case session-lock-symlink-swap)
+  real_cat=$(command -v cat)
+  cat > "$dir/fakebin/cat" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = "${FM_LOCK_PATH:-}" ]; then
+  rm -f -- "$1" || exit 1
+  ln -s "${FM_LOCK_OWNER:?}" "$1" || exit 1
+fi
+exec "${FM_REAL_CAT:?}" "$@"
+SH
+  chmod +x "$dir/fakebin/cat"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  set +e
+  out=$(
+    owner=$BASHPID
+    printf '%s\n' "$owner" > "$dir/lock-owner"
+    printf '999999\n' > "$dir/home/state/.lock"
+    FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_LOCK_PID="$owner" \
+      FM_REAL_CAT="$real_cat" FM_LOCK_PATH="$dir/home/state/.lock" \
+      FM_LOCK_OWNER="$dir/lock-owner" PATH="$dir/fakebin:$BASE_PATH" exec "$MIGRATE"
+  )
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "migration accepted a swapped session-lock symlink: $out"
+  [ ! -L "$dir/home/state/.lock" ] || fail 'session-lock ownership followed a swapped symlink'
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
+    || fail 'symlink-swapped session lock authorized metadata changes'
+  pass 'endpoint binding migration binds lock reads to ordinary files'
 }
 
 test_signal_rolls_back_staged_stamps() {
@@ -1432,7 +1553,7 @@ SH
   printf 'old report\n' > "$dir/home/state/.endpoint-binding-migration.log"
   printf 'old scan\n' > "$dir/home/state/.endpoint-binding-migration-scan-v1"
   printf 'old marker\n' > "$dir/home/state/.endpoint-binding-migration-v1"
-  chmod 0600 "$dir/home/state/.endpoint-binding-migration.log" \
+  chmod 0644 "$dir/home/state/.endpoint-binding-migration.log" \
     "$dir/home/state/.endpoint-binding-migration-scan-v1" \
     "$dir/home/state/.endpoint-binding-migration-v1"
   original_report=$(mktemp "$dir/report.XXXXXX")
@@ -1461,7 +1582,7 @@ SH
     || fail 'no-stamp crash recovery retained a partial scan marker'
   cmp -s "$original_marker" "$dir/home/state/.endpoint-binding-migration-v1" \
     || fail 'no-stamp crash recovery retained a partial completion marker'
-  pass 'no-stamp crash recovery restores evidence before rerun'
+  pass 'no-stamp crash recovery privatizes and restores evidence before rerun'
 }
 
 test_partial_apply_recovery_tolerates_lifecycle_changes() {
@@ -1957,6 +2078,7 @@ test_hidden_metadata_is_reported
 test_completed_journal_is_idempotent
 test_completed_journal_merges_new_record
 test_completed_journal_recovers_orphaned_merge_backups
+test_merge_abort_restores_manifest_before_backup_cleanup
 test_undo_preserves_lifecycle_appends
 test_undo_skips_relaunch_owned_matching_binding
 test_undo_skips_deleted_and_changed_bindings
@@ -1965,6 +2087,7 @@ test_completed_apply_stage_survives_cleanup_failure
 test_completed_journal_refuses_unexpected_record
 test_completed_journal_refuses_dangling_backup_entry
 test_undo_recovery_rejects_symlink_destination
+test_private_atomic_publication_does_not_follow_destination_symlink
 test_undo_recovery_rejects_symlink_stage
 test_undo_snapshot_copy_is_atomic
 test_undo_snapshot_rejects_replaced_stage_parent
@@ -1974,6 +2097,7 @@ test_reverse_restores_prior_bytes
 test_shared_task_id_grammar_reports_colon_ids
 test_lock_is_required
 test_symlink_session_lock_is_refused
+test_session_lock_symlink_swap_is_refused
 test_signal_rolls_back_staged_stamps
 test_final_stamp_waits_for_metadata_lock
 test_migration_transaction_lock_serializes_no_stamp_runs
