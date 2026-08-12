@@ -160,6 +160,101 @@ test_completed_journal_is_idempotent() {
   pass 'endpoint binding migration treats a validated completed journal as idempotent'
 }
 
+test_completed_journal_merges_new_record() {
+  local dir out good_before good2_before
+  dir=$(make_case completed-journal-merge)
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  good_before=$(mktemp "$dir/good.XXXXXX")
+  cp "$dir/home/state/good.meta" "$good_before"
+  run_locked "$dir" >/dev/null || fail 'initial migration for journal merge failed'
+  fm_write_meta "$dir/home/state/good2.meta" \
+    'window=firstmate:fm-good2' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  good2_before=$(mktemp "$dir/good2.XXXXXX")
+  cp "$dir/home/state/good2.meta" "$good2_before"
+  out=$(run_locked "$dir") || fail "journal merge failed: $out"
+  assert_contains "$out" 'stamped 1' 'journal merge did not stamp the new record'
+  assert_contains "$(cat "$dir/home/state/.endpoint-binding-migration-records-v1")" $'good\t' \
+    'journal merge discarded the original record'
+  assert_contains "$(cat "$dir/home/state/.endpoint-binding-migration-records-v1")" $'good2\t' \
+    'journal merge did not record the new record'
+  out=$(run_locked "$dir" --undo) || fail "journal merge undo failed: $out"
+  cmp -s "$good_before" "$dir/home/state/good.meta" || fail 'journal merge changed the original metadata'
+  cmp -s "$good2_before" "$dir/home/state/good2.meta" || fail 'journal merge undo did not restore the new metadata'
+  pass 'endpoint binding migration merges new records into an existing journal'
+}
+
+test_completed_journal_refuses_changed_metadata() {
+  local dir out rc
+  dir=$(make_case completed-journal-changed)
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  run_locked "$dir" >/dev/null || fail 'initial migration for changed journal failed'
+  printf '%s\n' changed >> "$dir/home/state/good.meta"
+  set +e
+  out=$(run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "changed journal metadata was accepted: $out"
+  pass 'endpoint binding migration validates completed journal metadata bytes'
+}
+
+test_incomplete_apply_stage_is_cleaned_on_restart() {
+  local dir out stage
+  dir=$(make_case incomplete-stage)
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  stage="$dir/home/state/.endpoint-binding-stage.crash"
+  mkdir "$stage"
+  chmod 0700 "$stage"
+  cp "$dir/home/state/good.meta" "$stage/good.before"
+  cp "$dir/home/state/good.meta" "$stage/good.after"
+  chmod 0600 "$stage/good.before" "$stage/good.after"
+  printf leftover > "$stage/report.partial"
+  chmod 0600 "$stage/report.partial"
+  out=$(run_locked "$dir") || fail "incomplete stage restart failed: $out"
+  [ ! -e "$stage" ] || fail 'incomplete apply stage was not cleaned'
+  assert_contains "$out" 'stamped 1' 'restart did not resume after incomplete stage cleanup'
+  pass 'endpoint binding migration cleans incomplete pre-manifest stages'
+}
+
+test_completed_journal_refuses_unexpected_record() {
+  local dir out rc
+  dir=$(make_case completed-journal-unexpected)
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  run_locked "$dir" >/dev/null || fail 'initial migration for unexpected journal failed'
+  printf '%s\n' $'unexpected\tunexpected.before\tunexpected.after' >> \
+    "$dir/home/state/.endpoint-binding-migration-records-v1"
+  set +e
+  out=$(run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "unexpected journal record was accepted: $out"
+  pass 'endpoint binding migration refuses unexpected journal records'
+}
+
+test_completed_journal_refuses_dangling_backup_entry() {
+  local dir out rc
+  dir=$(make_case dangling-backup-entry)
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  run_locked "$dir" >/dev/null || fail 'initial migration for dangling backup failed'
+  ln -s missing "$dir/home/state/.endpoint-binding-migration-backups/dangling"
+  set +e
+  out=$(run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "dangling backup entry was accepted: $out"
+  pass 'endpoint binding migration refuses dangling recovery entries'
+}
+
 test_final_live_recheck_refuses_dead_endpoint() {
   local dir out rc
   dir=$(make_case final-live-recheck)
@@ -957,6 +1052,11 @@ SH
 test_evidence_bound_stamp_and_skip
 test_hidden_metadata_is_reported
 test_completed_journal_is_idempotent
+test_completed_journal_merges_new_record
+test_completed_journal_refuses_changed_metadata
+test_incomplete_apply_stage_is_cleaned_on_restart
+test_completed_journal_refuses_unexpected_record
+test_completed_journal_refuses_dangling_backup_entry
 test_final_live_recheck_refuses_dead_endpoint
 test_reverse_restores_prior_bytes
 test_shared_task_id_grammar_reports_colon_ids
