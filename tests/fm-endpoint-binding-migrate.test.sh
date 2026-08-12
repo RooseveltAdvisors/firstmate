@@ -117,7 +117,9 @@ test_evidence_bound_stamp_and_skip() {
   assert_contains "$report" 'task good: stamped - exact live endpoint identity verified' 'stamp was not reported'
   assert_contains "$report" 'task missing: skipped - dead endpoint' 'dead endpoint skip was not reported'
   assert_contains "$report" 'task ambiguous: skipped - ambiguous live endpoint identity' 'ambiguous endpoint skip was not reported'
-  assert_contains "$report" 'task mismatch: skipped - identity mismatch' 'identity mismatch was not reported'
+  assert_contains "$report" \
+    "task mismatch: skipped - shared endpoint validation refused: REFUSED: tmux endpoint 'firstmate:fm-other' is malformed or does not belong to task mismatch; preserving task state." \
+    'task identity mismatch validator refusal was not reported'
   assert_contains "$report" 'task link: skipped - metadata record is a symlink; endpoint identity is unverifiable' \
     'symlink metadata was not reported'
   assert_contains "$report" 'task directory: skipped - metadata record is not a regular file; endpoint identity is unverifiable' \
@@ -129,6 +131,28 @@ test_evidence_bound_stamp_and_skip() {
   [ ! -e "$dir/home/state/.endpoint-binding-migration-v1" ] \
     || fail 'completion marker hid unresolved legacy records'
   pass 'endpoint binding migration stamps only exact live identities and reports every refusal'
+}
+
+test_shared_validator_refusal_reason_is_reported() {
+  local dir out report
+  dir=$(make_case validator-refusals)
+  fm_write_meta "$dir/home/state/missing-project.meta" \
+    'window=firstmate:fm-missing-project' "worktree=$dir/worktree" 'kind=scout'
+  fm_write_meta "$dir/home/state/unknown-backend.meta" \
+    'window=firstmate:fm-unknown-backend' 'backend=bogus' \
+    "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+
+  out=$(run_locked "$dir") || fail "validator-refusal migration failed: $out"
+  report=$(cat "$dir/home/state/.endpoint-binding-migration.log")
+  assert_contains "$report" \
+    'task missing-project: skipped - shared endpoint validation refused: REFUSED: task missing-project has a missing, empty, or ambiguous project identity; preserving task state.' \
+    'missing project identity did not preserve the shared validator refusal'
+  assert_contains "$report" \
+    'task unknown-backend: skipped - shared endpoint validation refused: REFUSED: task unknown-backend has a missing, ambiguous, or unknown backend identity; preserving task state.' \
+    'unknown backend identity did not preserve the shared validator refusal'
+  assert_not_contains "$report" 'shared endpoint validation failed' \
+    'specific validator refusals collapsed into a generic identity mismatch'
+  pass 'endpoint binding migration preserves shared validator refusal reasons'
 }
 
 test_unreadable_metadata_is_reported() {
@@ -280,6 +304,55 @@ test_tmux_name_reuse_requires_recorded_worktree() {
     'task good: skipped - task identity mismatch: live endpoint worktree does not match recorded worktree' \
     'reused tmux name did not report the task worktree mismatch'
   pass 'endpoint binding migration binds tmux endpoints to recorded worktrees'
+}
+
+test_tmux_liveness_is_rechecked_after_worktree_read() {
+  local dir out report
+  dir=$(make_case tmux-dies-during-path-check)
+  cat > "$dir/fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = list-windows ]; then
+  printf '%s\n' fm-good
+  exit 0
+fi
+if [ "${1:-}" = display-message ]; then
+  case "${5:-}" in
+    '#{pane_tty}') printf '/dev/null\n' ;;
+    '#{pane_current_command}')
+      if [ -e "${FM_TMUX_PATH_READ:?}" ]; then
+        : > "${FM_TMUX_RECHECKED:?}"
+        printf 'bash\n'
+      else
+        printf 'pi\n'
+      fi
+      ;;
+    '#{pane_current_path}')
+      : > "${FM_TMUX_PATH_READ:?}"
+      printf '%s\n' "${FM_HOME%/home}/worktree"
+      ;;
+    *) printf 'pane\n' ;;
+  esac
+  exit 0
+fi
+exit 1
+SH
+  chmod +x "$dir/fakebin/tmux"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+
+  out=$(FM_TMUX_PATH_READ="$dir/tmux-path-read" \
+    FM_TMUX_RECHECKED="$dir/tmux-liveness-rechecked" run_locked "$dir") \
+    || fail "tmux liveness-change migration failed: $out"
+  [ -f "$dir/tmux-path-read" ] || fail 'tmux worktree identity fixture did not activate'
+  [ -f "$dir/tmux-liveness-rechecked" ] || fail 'tmux liveness recheck fixture did not activate'
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
+    || fail 'tmux endpoint that died after its worktree read was stamped'
+  report=$(cat "$dir/home/state/.endpoint-binding-migration.log")
+  assert_contains "$report" \
+    'task good: skipped - dead endpoint (no verified agent is running)' \
+    'tmux endpoint liveness change was not reported'
+  pass 'endpoint binding migration rechecks tmux liveness after worktree identity'
 }
 
 test_live_legacy_herdr_endpoint_is_backfilled() {
@@ -2669,11 +2742,13 @@ SH
 }
 
 test_evidence_bound_stamp_and_skip
+test_shared_validator_refusal_reason_is_reported
 test_unreadable_metadata_is_reported
 test_vanished_metadata_is_reported
 test_duplicate_tmux_window_is_ambiguous
 test_tmux_session_prefix_is_not_an_exact_endpoint
 test_tmux_name_reuse_requires_recorded_worktree
+test_tmux_liveness_is_rechecked_after_worktree_read
 test_live_legacy_herdr_endpoint_is_backfilled
 test_herdr_liveness_is_rechecked_without_server_ensure
 test_staged_binding_assembly_does_not_follow_symlinks
