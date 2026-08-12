@@ -194,15 +194,17 @@ remove_orphaned_private_temporaries() (
     base=${path##*/}
     case "$base" in
       .endpoint-binding-restore.[A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9]) ;;
+      .endpoint-binding-restore-build.[A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9]) continue ;;
       *) return 1 ;;
     esac
     recover_atomic_restore "$path" || return 1
   done
-  for path in ./.endpoint-binding-copy.*; do
+  for path in ./.endpoint-binding-copy.* ./.endpoint-binding-restore-build.*; do
     [ -e "$path" ] || [ -L "$path" ] || continue
     base=${path##*/}
     case "$base" in
       .endpoint-binding-copy.[A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9]) ;;
+      .endpoint-binding-restore-build.[A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9]) ;;
       *) return 1 ;;
     esac
     private_file "$path" || return 1
@@ -239,6 +241,7 @@ remove_empty_recovery_directory() (
   private_directory "./$base" || return 1
   directory_empty "./$base" || return 1
   [ "$(filesystem_identity "./$base" 2>/dev/null)" = "$identity" ] || return 1
+  fm_session_lock_owned_by_self "$STATE" || return 1
   rmdir -- "./$base"
 )
 
@@ -380,53 +383,62 @@ verify_live_task_worktree() {
   FM_ENDPOINT_VERIFIED_WORKTREE=$recorded_real
 }
 
-conservative_meta_value() {
+meta_distinct_values() {
   local meta=$1 key=$2
   awk -v prefix="$key=" '
     index($0, prefix) == 1 {
       value = substr($0, length(prefix) + 1)
-      if (value == "" || (count > 0 && value != first)) bad = 1
-      if (count == 0) first = value
-      count++
-    }
-    END {
-      if (bad || count == 0) exit 1
-      print first
+      if (value != "" && !seen[value]++) print value
     }
   ' "$meta"
 }
 
-canonical_meta_worktree() {
-  local recorded
-  recorded=$(conservative_meta_value "$1" worktree) || return 1
-  CDPATH='' cd -- "$recorded" 2>/dev/null && pwd -P
+endpoint_claim_add() {
+  local id=$1 backend=$2 target=$3 worktree=$4 i
+  for i in "${!ENDPOINT_CLAIM_IDS[@]}"; do
+    [ "${ENDPOINT_CLAIM_IDS[$i]}" = "$id" ] \
+      && [ "${ENDPOINT_CLAIM_BACKENDS[$i]}" = "$backend" ] \
+      && [ "${ENDPOINT_CLAIM_TARGETS[$i]}" = "$target" ] \
+      && [ "${ENDPOINT_CLAIM_WORKTREES[$i]}" = "$worktree" ] \
+      && return 0
+  done
+  ENDPOINT_CLAIM_IDS+=("$id")
+  ENDPOINT_CLAIM_BACKENDS+=("$backend")
+  ENDPOINT_CLAIM_TARGETS+=("$target")
+  ENDPOINT_CLAIM_WORKTREES+=("$worktree")
 }
 
-parse_endpoint_claim() {
-  local meta=$1 backend_count backend target worktree
-  FM_ENDPOINT_CLAIM_BACKEND=
-  FM_ENDPOINT_CLAIM_TARGET=
-  FM_ENDPOINT_CLAIM_WORKTREE=
-  backend_count=$(grep -c '^backend=' "$meta" 2>/dev/null || true)
-  case "$backend_count" in
-    0) backend=tmux ;;
-    *) backend=$(conservative_meta_value "$meta" backend) || return 1 ;;
-  esac
-  case "$backend" in
-    tmux|herdr) ;;
-    *) return 1 ;;
-  esac
-  target=$(conservative_meta_value "$meta" window) || return 1
-  case "$target" in
-    *:*)
-      [ -n "${target%%:*}" ] && [ -n "${target#*:}" ] || return 1
-      ;;
-    *) return 1 ;;
-  esac
-  worktree=$(canonical_meta_worktree "$meta") || worktree=
-  FM_ENDPOINT_CLAIM_BACKEND=$backend
-  FM_ENDPOINT_CLAIM_TARGET=$target
-  FM_ENDPOINT_CLAIM_WORKTREE=$worktree
+inventory_endpoint_claims() {
+  local meta=$1 id=$2 backend target recorded worktree
+  local -a backends=() targets=() worktrees=()
+  while IFS= read -r backend; do
+    case "$backend" in
+      tmux|herdr) list_contains "$backend" "${backends[@]}" || backends+=("$backend") ;;
+    esac
+  done < <(meta_distinct_values "$meta" backend)
+  if ! grep -q '^backend=' "$meta" 2>/dev/null; then
+    backends=(tmux)
+  fi
+  while IFS= read -r target; do
+    case "$target" in
+      *:*)
+        [ -n "${target%%:*}" ] && [ -n "${target#*:}" ] \
+          && targets+=("$target")
+        ;;
+    esac
+  done < <(meta_distinct_values "$meta" window)
+  while IFS= read -r recorded; do
+    worktree=$(CDPATH='' cd -- "$recorded" 2>/dev/null && pwd -P) || continue
+    list_contains "$worktree" "${worktrees[@]}" || worktrees+=("$worktree")
+  done < <(meta_distinct_values "$meta" worktree)
+  [ "${#worktrees[@]}" -gt 0 ] || worktrees=('')
+  for backend in "${backends[@]}"; do
+    for target in "${targets[@]}"; do
+      for worktree in "${worktrees[@]}"; do
+        endpoint_claim_add "$id" "$backend" "$target" "$worktree"
+      done
+    done
+  done
 }
 
 verify_legacy_endpoint() {
@@ -521,10 +533,12 @@ APPLY_LOCK_ACQUIRED=()
 APPLY_LOCKS_HELD=0
 MIGRATION_LOCK_HELD=0
 SURGICAL_UNDO_CHANGED=0
+RECOVERY_AUTHORITY_LOST=0
 
 require_recovery_session_lock() {
   if ! require_session_lock; then
     RECOVERY_REQUIRED=1
+    RECOVERY_AUTHORITY_LOST=1
     return 1
   fi
 }
@@ -729,6 +743,7 @@ rollback_stamps() {
     meta=${STAMP_METAS[$i]}
     if [ "$lock_held" -eq 0 ] && ! acquire_meta_lock "$meta"; then
       rc=1
+      require_recovery_session_lock || break
       continue
     fi
     if ! regular_file "$meta"; then
@@ -745,7 +760,12 @@ rollback_stamps() {
       [ "$lock_held" -eq 1 ] || release_meta_lock || rc=1
       continue
     fi
-    copy_private_atomic "${STAMP_BEFORE[$i]}" "${STAMP_METAS[$i]}" regular || rc=1
+    if ! require_recovery_session_lock; then
+      rc=1
+      [ "$lock_held" -eq 1 ] || release_meta_lock || rc=1
+      break
+    fi
+    copy_private_atomic_recovery "${STAMP_BEFORE[$i]}" "${STAMP_METAS[$i]}" regular || rc=1
     [ "$lock_held" -eq 1 ] || release_meta_lock || rc=1
   done
   return "$rc"
@@ -759,11 +779,13 @@ remove_published_backups() {
   fi
   for i in "${!STAMP_IDS[@]}"; do
     [ "${STAMP_SELECTED[$i]:-1}" -eq 1 ] || continue
+    require_recovery_session_lock || return 1
     remove_private_backup_files "${STAMP_BEFORE_FINAL[$i]}" "${STAMP_AFTER_FINAL[$i]}" || rc=1
   done
   if [ "$BACKUP_DIR_CREATED" -eq 1 ]; then
     if [ -e "$BACKUP_DIR" ] || [ -L "$BACKUP_DIR" ]; then
       private_directory "$BACKUP_DIR" || rc=1
+      [ "$rc" -ne 0 ] || require_recovery_session_lock || rc=1
       [ "$rc" -ne 0 ] || remove_private_directory "$BACKUP_DIR" 2>/dev/null || rc=1
     else
       rc=1
@@ -784,11 +806,13 @@ remove_private_backup_files() (
   if [ -e "./$after_name" ] || [ -L "./$after_name" ]; then
     private_file "./$after_name" || return 1
   fi
+  fm_session_lock_owned_by_self "$STATE" || return 1
   rm -f -- "./$before_name" "./$after_name"
 )
 
 restore_published_backups() {
   local i rc=0
+  require_recovery_session_lock || return 1
   if [ -e "$BACKUP_DIR" ] || [ -L "$BACKUP_DIR" ]; then
     private_directory "$BACKUP_DIR" || return 1
   else
@@ -798,8 +822,10 @@ restore_published_backups() {
   private_directory "$BACKUP_DIR" || return 1
   for i in "${!STAMP_IDS[@]}"; do
     [ "${STAMP_SELECTED[$i]:-1}" -eq 1 ] || continue
-    copy_private_atomic "${STAMP_BEFORE[$i]}" "${STAMP_BEFORE_FINAL[$i]}" || rc=1
-    copy_private_atomic "${STAMP_AFTER[$i]}" "${STAMP_AFTER_FINAL[$i]}" || rc=1
+    require_recovery_session_lock || return 1
+    copy_private_atomic_recovery "${STAMP_BEFORE[$i]}" "${STAMP_BEFORE_FINAL[$i]}" || rc=1
+    require_recovery_session_lock || return 1
+    copy_private_atomic_recovery "${STAMP_AFTER[$i]}" "${STAMP_AFTER_FINAL[$i]}" || rc=1
   done
   return "$rc"
 }
@@ -922,27 +948,43 @@ copy_to_new_private_file() {
 }
 
 create_atomic_restore_artifact() {
-  local destination_name=$1 present=$2 artifact identity fd_identity
+  local destination_name=$1 present=$2 artifact build identity fd_identity suffix attempts=0
   ATOMIC_RESTORE_ARTIFACT=
   case "$destination_name" in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac
   [ "$present" -eq 0 ] || [ "$present" -eq 1 ] || return 1
   [ "$present" -eq 0 ] || file_descriptor_regular 4 || return 1
-  artifact=$(mktemp './.endpoint-binding-restore.XXXXXX') || return 1
-  rm -f -- "$artifact" || return 1
+  while :; do
+    build=$(mktemp './.endpoint-binding-restore-build.XXXXXX') || return 1
+    suffix=${build##*.}
+    artifact="./.endpoint-binding-restore.$suffix"
+    if [ ! -e "$artifact" ] && [ ! -L "$artifact" ]; then
+      break
+    fi
+    rm -f -- "$build" || return 1
+    attempts=$((attempts + 1))
+    [ "$attempts" -lt 64 ] || return 1
+  done
+  rm -f -- "$build" || return 1
   identity=$(
     set -C
-    exec 9> "$artifact" || exit 1
+    exec 9> "$build" || exit 1
     file_descriptor_regular 9 || exit 1
     fd_identity=$(file_descriptor_identity 9 2>/dev/null) || exit 1
-    regular_file "$artifact" || exit 1
-    [ "$(path_file_identity "$artifact" 2>/dev/null)" = "$fd_identity" ] || exit 1
+    regular_file "$build" || exit 1
+    [ "$(path_file_identity "$build" 2>/dev/null)" = "$fd_identity" ] || exit 1
     printf '%s\t%s\n' "$present" "$destination_name" >&9 || exit 1
     [ "$present" -eq 0 ] || cat <&4 >&9 || exit 1
-    regular_file "$artifact" || exit 1
-    [ "$(path_file_identity "$artifact" 2>/dev/null)" = "$fd_identity" ] || exit 1
+    regular_file "$build" || exit 1
+    [ "$(path_file_identity "$build" 2>/dev/null)" = "$fd_identity" ] || exit 1
     printf '%s' "$fd_identity"
   ) || {
-    rm -f -- "$artifact"
+    rm -f -- "$build"
+    return 1
+  }
+  private_file "$build" || return 1
+  [ "$(path_file_identity "$build" 2>/dev/null)" = "$identity" ] || return 1
+  atomic_rename_nofollow "$build" "$artifact" || {
+    rm -f -- "$build"
     return 1
   }
   private_file "$artifact" || return 1
@@ -1000,6 +1042,7 @@ copy_private_atomic() (
   local source=$1 destination=$2 destination_type=${3:-private} source_type=${4:-private} binding_id=${5:-}
   local append_line=${6:-} append_source=${7:-} append_source_type=${8:-private}
   local append_skip=${9:-0} append_separator=${10:-0}
+  local recovery_authority=${FM_COPY_REQUIRE_RECOVERY_AUTHORITY:-0}
   local source_dir source_name destination_dir destination_name tmp rc restore_artifact
   local destination_expected tmp_identity
   local source_identity source_fd_identity append_present=0 destination_present=0 destination_identity destination_fd_identity
@@ -1112,6 +1155,10 @@ copy_private_atomic() (
   create_atomic_restore_artifact "$destination_name" "$destination_present" \
     || { rm -f -- "$tmp"; return 1; }
   restore_artifact=$ATOMIC_RESTORE_ARTIFACT
+  if [ "$recovery_authority" -eq 1 ] \
+    && ! fm_session_lock_owned_by_self "$STATE"; then
+    return 1
+  fi
   if ! atomic_rename_nofollow "$tmp" "./$destination_name"; then
     rc=1
     rm -f -- "$tmp"
@@ -1130,6 +1177,10 @@ copy_private_atomic() (
   fi
   rm -f -- "$restore_artifact"
 )
+
+copy_private_atomic_recovery() {
+  FM_COPY_REQUIRE_RECOVERY_AUTHORITY=1 copy_private_atomic "$@"
+}
 
 append_private_line_atomic() {
   copy_private_atomic "$1" "$1" private private '' "$2"
@@ -1170,7 +1221,8 @@ complete_apply_stage() {
 
 restore_existing_records() {
   [ -n "$RECORDS_BEFORE" ] || return 1
-  copy_private_atomic "$RECORDS_BEFORE" "$RECORDS"
+  require_recovery_session_lock || return 1
+  copy_private_atomic_recovery "$RECORDS_BEFORE" "$RECORDS"
 }
 
 remove_stage_directory() (
@@ -1582,7 +1634,15 @@ abort_apply() {
     rollback_rc=1
     rc=1
   fi
+  if [ "$RECOVERY_AUTHORITY_LOST" -eq 1 ] || ! fm_session_lock_owned_by_self "$STATE"; then
+    retain_apply_for_recovery || true
+    return "$rc"
+  fi
   restore_evidence || evidence_rc=1
+  if [ "$RECOVERY_AUTHORITY_LOST" -eq 1 ] || ! fm_session_lock_owned_by_self "$STATE"; then
+    retain_apply_for_recovery || true
+    return "$rc"
+  fi
   if [ "$rollback_rc" -eq 0 ] && [ "$evidence_rc" -eq 0 ]; then
     if [ "$RECORDS_EXISTING" -eq 1 ]; then
       if restore_existing_records; then
@@ -1595,7 +1655,7 @@ abort_apply() {
         recovery_rc=1
       fi
     elif [ "$RECORDS_PUBLISHED" -eq 1 ]; then
-      if ! rm -f -- "$RECORDS"; then
+      if ! require_recovery_session_lock || ! rm -f -- "$RECORDS"; then
         rc=1
         recovery_rc=1
       else
@@ -1617,6 +1677,10 @@ abort_apply() {
     if [ "$META_WRITE_STARTED" -eq 1 ] && [ "${#STAMP_IDS[@]}" -gt 0 ]; then
       publish_recovery_records || rc=1
     fi
+  fi
+  if [ "$RECOVERY_AUTHORITY_LOST" -eq 1 ] || ! fm_session_lock_owned_by_self "$STATE"; then
+    retain_apply_for_recovery || true
+    return "$rc"
   fi
   if [ "$rollback_rc" -eq 0 ] && [ "$evidence_rc" -eq 0 ] && [ "$recovery_rc" -eq 0 ]; then
     RECOVERY_REQUIRED=0
@@ -1684,8 +1748,10 @@ prepare_evidence() {
 restore_evidence_file() {
   local destination=$1 snapshot=$2 present=$3
   if [ "$present" -eq 1 ]; then
-    copy_private_atomic "$snapshot" "$destination" regular || return 1
+    require_recovery_session_lock || return 1
+    copy_private_atomic_recovery "$snapshot" "$destination" regular || return 1
   elif [ -e "$destination" ] || [ -L "$destination" ]; then
+    require_recovery_session_lock || return 1
     rm -f -- "$destination" || return 1
   fi
 }
@@ -1738,6 +1804,7 @@ restore_evidence() {
     else
       restore_evidence_file "$REPORT" '' 0 || rc=1
     fi
+    [ "$RECOVERY_AUTHORITY_LOST" -eq 0 ] || return 1
   fi
   if [ "$SCAN_MARKER_SNAPSHOT_READY" -eq 1 ]; then
     if [ "$SCAN_MARKER_PRESENT" -eq 1 ]; then
@@ -1745,6 +1812,7 @@ restore_evidence() {
     else
       restore_evidence_file "$SCAN_MARKER" '' 0 || rc=1
     fi
+    [ "$RECOVERY_AUTHORITY_LOST" -eq 0 ] || return 1
   fi
   if [ "$MARKER_SNAPSHOT_READY" -eq 1 ]; then
     if [ "$MARKER_PRESENT" -eq 1 ]; then
@@ -1827,6 +1895,7 @@ undo_rollback_changed() {
     after=${UNDO_RECOVERY_AFTER[$index]:-${UNDO_AFTER[$index]}}
     if [ "$lock_held" -eq 0 ] && ! acquire_meta_lock "$meta"; then
       rc=1
+      require_recovery_session_lock || break
       continue
     fi
     if ! regular_file "$meta"; then
@@ -1835,7 +1904,12 @@ undo_rollback_changed() {
       continue
     fi
     if cmp -s -- "$meta" "$before"; then
-      copy_private_atomic "$after" "$meta" regular || rc=1
+      if ! require_recovery_session_lock; then
+        rc=1
+        [ "$lock_held" -eq 1 ] || release_meta_lock || rc=1
+        break
+      fi
+      copy_private_atomic_recovery "$after" "$meta" regular || rc=1
     elif ! cmp -s -- "$meta" "$after"; then
       rc=1
     fi
@@ -1855,11 +1929,13 @@ restore_undo_recovery() {
   if [ -e "$RECORDS" ] || [ -L "$RECORDS" ]; then
     private_file "$RECORDS" || rc=1
   else
-    copy_private_atomic "$UNDO_RECOVERY_STAGE/.control/records" "$RECORDS" || rc=1
+    require_recovery_session_lock || return 1
+    copy_private_atomic_recovery "$UNDO_RECOVERY_STAGE/.control/records" "$RECORDS" || rc=1
   fi
   if [ -e "$BACKUP_DIR" ] || [ -L "$BACKUP_DIR" ]; then
     private_directory "$BACKUP_DIR" || rc=1
   else
+    require_recovery_session_lock || return 1
     create_private_directory "$BACKUP_DIR" || rc=1
     private_directory "$BACKUP_DIR" || rc=1
   fi
@@ -1868,12 +1944,14 @@ restore_undo_recovery() {
     if [ -e "$BACKUP_DIR/$id.before" ] || [ -L "$BACKUP_DIR/$id.before" ]; then
       private_file "$BACKUP_DIR/$id.before" || rc=1
     else
-      copy_private_atomic "$UNDO_RECOVERY_STAGE/$id.before" "$BACKUP_DIR/$id.before" || rc=1
+      require_recovery_session_lock || return 1
+      copy_private_atomic_recovery "$UNDO_RECOVERY_STAGE/$id.before" "$BACKUP_DIR/$id.before" || rc=1
     fi
     if [ -e "$BACKUP_DIR/$id.after" ] || [ -L "$BACKUP_DIR/$id.after" ]; then
       private_file "$BACKUP_DIR/$id.after" || rc=1
     else
-      copy_private_atomic "$UNDO_RECOVERY_STAGE/$id.after" "$BACKUP_DIR/$id.after" || rc=1
+      require_recovery_session_lock || return 1
+      copy_private_atomic_recovery "$UNDO_RECOVERY_STAGE/$id.after" "$BACKUP_DIR/$id.after" || rc=1
     fi
   done
   return "$rc"
@@ -1890,7 +1968,15 @@ abort_undo() {
     release_undo_locks || rc=1
   fi
   undo_rollback_changed || rc=1
+  if [ "$RECOVERY_AUTHORITY_LOST" -eq 1 ] || ! fm_session_lock_owned_by_self "$STATE"; then
+    retain_undo_for_recovery || true
+    return "$rc"
+  fi
   restore_undo_recovery || rc=1
+  if [ "$RECOVERY_AUTHORITY_LOST" -eq 1 ] || ! fm_session_lock_owned_by_self "$STATE"; then
+    retain_undo_for_recovery || true
+    return "$rc"
+  fi
   release_undo_locks || rc=1
   return "$rc"
 }
@@ -2081,12 +2167,8 @@ apply_migration() {
     id=${base%.meta}
     case "$base" in
       .*)
-        if regular_file "$meta" && cat -- "$meta" >/dev/null 2>&1 \
-          && parse_endpoint_claim "$meta"; then
-          ENDPOINT_CLAIM_IDS+=("$id")
-          ENDPOINT_CLAIM_BACKENDS+=("$FM_ENDPOINT_CLAIM_BACKEND")
-          ENDPOINT_CLAIM_TARGETS+=("$FM_ENDPOINT_CLAIM_TARGET")
-          ENDPOINT_CLAIM_WORKTREES+=("$FM_ENDPOINT_CLAIM_WORKTREE")
+        if regular_file "$meta" && cat -- "$meta" >/dev/null 2>&1; then
+          inventory_endpoint_claims "$meta" "$id"
         fi
         record_outcome "record $(reason_one_line "$base"): skipped - hidden metadata record is out of scope"
         SKIPPED_LEGACY=1
@@ -2104,12 +2186,7 @@ apply_migration() {
       continue
     fi
     if ! valid_task_id "$id"; then
-      if parse_endpoint_claim "$meta"; then
-        ENDPOINT_CLAIM_IDS+=("$id")
-        ENDPOINT_CLAIM_BACKENDS+=("$FM_ENDPOINT_CLAIM_BACKEND")
-        ENDPOINT_CLAIM_TARGETS+=("$FM_ENDPOINT_CLAIM_TARGET")
-        ENDPOINT_CLAIM_WORKTREES+=("$FM_ENDPOINT_CLAIM_WORKTREE")
-      fi
+      inventory_endpoint_claims "$meta" "$id"
       record_outcome "task $(reason_one_line "$id"): skipped - invalid task id"
       SKIPPED_LEGACY=1
       continue
@@ -2131,12 +2208,7 @@ apply_migration() {
       release_meta_lock || return 1
       continue
     fi
-    if parse_endpoint_claim "$meta"; then
-      ENDPOINT_CLAIM_IDS+=("$id")
-      ENDPOINT_CLAIM_BACKENDS+=("$FM_ENDPOINT_CLAIM_BACKEND")
-      ENDPOINT_CLAIM_TARGETS+=("$FM_ENDPOINT_CLAIM_TARGET")
-      ENDPOINT_CLAIM_WORKTREES+=("$FM_ENDPOINT_CLAIM_WORKTREE")
-    fi
+    inventory_endpoint_claims "$meta" "$id"
     binding_count=$(grep -c '^endpoint_task_id=' "$meta" 2>/dev/null || true)
     if [ "$binding_count" -gt 0 ]; then
       binding=$(fm_meta_get "$meta" endpoint_task_id)
@@ -2430,7 +2502,7 @@ surgical_remove_binding() {
 replace_metadata_from_private() {
   local source=$1 meta=$2
   private_file "$source" && regular_file "$meta" || return 1
-  copy_private_atomic "$source" "$meta" regular
+  copy_private_atomic_recovery "$source" "$meta" regular
 }
 
 rollback_partial_binding() {
@@ -2442,6 +2514,7 @@ rollback_partial_binding() {
   cmp -s -- "$meta" "$before" && return 0
   surgical_remove_binding "$meta" "$id" "$before" "$after" "$output" || return 1
   [ "$SURGICAL_UNDO_CHANGED" -eq 1 ] || return 0
+  require_recovery_session_lock || return 1
   replace_metadata_from_private "$output" "$meta"
 }
 
