@@ -190,6 +190,7 @@ SCAN_MARKER_SNAPSHOT_READY=0
 MARKER_SNAPSHOT_READY=0
 RECOVERY_REQUIRED=0
 APPLY_ABORTED=0
+APPLY_COMMITTED=0
 RECOVERY_NAMESPACE_PRESENT=0
 RECORDS_EXISTING=0
 RECORDS_BEFORE=
@@ -556,6 +557,23 @@ copy_private_atomic() {
   return "$rc"
 }
 
+write_completed_stage() {
+  local stage=$1 tmp rc=0
+  private_directory "$stage" || return 1
+  tmp=$(mktemp "$STATE/.endpoint-binding-completed.XXXXXX") || return 1
+  if ! printf 'completed\n' > "$tmp" || ! chmod 0600 "$tmp" \
+    || ! copy_private_atomic "$tmp" "$stage/completed"; then
+    rc=1
+  fi
+  rm -f -- "$tmp" || true
+  return "$rc"
+}
+
+complete_apply_stage() {
+  write_completed_stage "$STAGE_DIR" || return 1
+  APPLY_COMMITTED=1
+}
+
 restore_existing_records() {
   [ -n "$RECORDS_BEFORE" ] || return 1
   copy_private_atomic "$RECORDS_BEFORE" "$RECORDS"
@@ -573,8 +591,13 @@ remove_stage_directory() {
     [ "$(pwd -P)" = "$stage_expected" ] || exit 1
     for path in ./* ./.??*; do
       [ -e "$path" ] || [ -L "$path" ] || continue
+      [ "${path##*/}" = completed ] && continue
       rm -f -- "$path" || exit 1
     done
+    if [ -e ./completed ] || [ -L ./completed ]; then
+      private_file ./completed || exit 1
+      rm -f -- ./completed || exit 1
+    fi
   ) || return 1
   [ -L "$stage" ] && return 1
   rmdir -- "$stage"
@@ -867,6 +890,12 @@ recover_apply_stage() {
   for stage in "$STATE"/.endpoint-binding-stage.*; do
     [ -L "$stage" ] && return 1
     [ -d "$stage" ] || continue
+    private_directory "$stage" || return 1
+    if [ -e "$stage/completed" ] || [ -L "$stage/completed" ]; then
+      private_file "$stage/completed" || return 1
+      remove_completed_stage "$stage" || return 1
+      continue
+    fi
     if [ -e "$RECORDS" ] || [ -L "$RECORDS" ]; then
       if [ -e "$stage/records.before" ] || [ -L "$stage/records.before" ]; then
         recover_existing_apply_stage "$stage" || return 1
@@ -888,6 +917,13 @@ abort_apply() {
   [ "$APPLY_ABORTED" -eq 0 ] || return "$rc"
   APPLY_ABORTED=1
   release_meta_lock || rc=1
+  if [ "$APPLY_COMMITTED" -eq 1 ] \
+    || { [ -n "$STAGE_DIR" ] && private_file "$STAGE_DIR/completed"; }; then
+    APPLY_COMMITTED=1
+    release_merge_locks || rc=1
+    release_apply_locks || rc=1
+    return "$rc"
+  fi
   if [ "$META_WRITE_STARTED" -eq 1 ] && ! rollback_stamps; then
     rollback_rc=1
     rc=1
@@ -1400,6 +1436,7 @@ apply_migration() {
     else
       restore_evidence_file "$MARKER" '' 0 || return 1
     fi
+    complete_apply_stage || return 1
     release_merge_locks || return 1
     release_apply_locks || return 1
     printf 'ENDPOINT_BINDING_MIGRATION: scanned %s record(s); stamped 0\n' "$OUTCOME_COUNT"
@@ -1504,6 +1541,7 @@ apply_migration() {
   else
     if ! restore_evidence_file "$MARKER" '' 0; then abort_apply 1; return $?; fi
   fi
+  if ! complete_apply_stage; then abort_apply 1; return $?; fi
   release_merge_locks || return 1
   release_apply_locks || return 1
   printf 'ENDPOINT_BINDING_MIGRATION: scanned %s record(s); stamped %s\n' "$OUTCOME_COUNT" "$selected_count"
@@ -1515,15 +1553,16 @@ snapshot_regular_atomic() {
   regular_file "$source" || return 1
   tmp=$(mktemp "$STATE/.endpoint-binding-snapshot.XXXXXX") || return 1
   if ! cp -pP -- "$source" "$tmp" || ! regular_file "$tmp" || ! chmod 0600 "$tmp" \
-    || ! mv -f -- "$tmp" "$destination"; then
+    || ! copy_private_atomic "$tmp" "$destination"; then
     rm -f -- "$tmp"
     return 1
   fi
+  rm -f -- "$tmp" || true
 }
 
 surgical_remove_binding() {
-  local meta=$1 id=$2 before=$3 after=$4 output=$5 binding binding_count line_number
-  local current_size after_size prefix_matches=0 tmp last_byte
+  local meta=$1 id=$2 before=$3 after=$4 output=$5 binding binding_count
+  local current_size after_size tmp last_byte
   SURGICAL_UNDO_CHANGED=0
   regular_file "$meta" || return 0
   binding="endpoint_task_id=$id"
@@ -1531,42 +1570,28 @@ surgical_remove_binding() {
   [ "$binding_count" -eq 1 ] || return 0
   current_size=$(wc -c < "$meta") || return 1
   after_size=$(wc -c < "$after") || return 1
-  if [ "$current_size" -ge "$after_size" ]; then
-    if dd if="$meta" bs=1 count="$after_size" 2>/dev/null | cmp -s -- - "$after"; then
-      prefix_matches=1
-    fi
-  fi
+  [ "$current_size" -ge "$after_size" ] || return 0
+  dd if="$meta" bs=1 count="$after_size" 2>/dev/null | cmp -s -- - "$after" || return 0
   tmp=$(mktemp "$STATE/.endpoint-binding-surgical-undo.XXXXXX") || return 1
-  if [ "$prefix_matches" -eq 1 ]; then
-    if ! cp -pP -- "$before" "$tmp"; then
-      rm -f -- "$tmp"
-      return 1
-    fi
-    if [ "$current_size" -gt "$after_size" ]; then
-      if [ -s "$before" ]; then
-        last_byte=$(tail -c 1 "$before") || { rm -f -- "$tmp"; return 1; }
-        [ -z "$last_byte" ] || printf '\n' >> "$tmp" || { rm -f -- "$tmp"; return 1; }
-      fi
-      if ! dd if="$meta" bs=1 skip="$after_size" 2>/dev/null >> "$tmp"; then
-        rm -f -- "$tmp"
-        return 1
-      fi
-    fi
-  else
-    line_number=$(awk -v expected="$binding" '$0 == expected { print NR; exit }' "$meta") || {
-      rm -f -- "$tmp"
-      return 1
-    }
-    if ! head -n "$((line_number - 1))" "$meta" > "$tmp" \
-      || ! tail -n "+$((line_number + 1))" "$meta" >> "$tmp"; then
-      rm -f -- "$tmp"
-      return 1
-    fi
-  fi
-  if ! chmod 0600 "$tmp" || ! mv -f -- "$tmp" "$output"; then
+  if ! cp -pP -- "$before" "$tmp"; then
     rm -f -- "$tmp"
     return 1
   fi
+  if [ "$current_size" -gt "$after_size" ]; then
+    if [ -s "$before" ]; then
+      last_byte=$(tail -c 1 "$before") || { rm -f -- "$tmp"; return 1; }
+      [ -z "$last_byte" ] || printf '\n' >> "$tmp" || { rm -f -- "$tmp"; return 1; }
+    fi
+    if ! dd if="$meta" bs=1 skip="$after_size" 2>/dev/null >> "$tmp"; then
+      rm -f -- "$tmp"
+      return 1
+    fi
+  fi
+  if ! chmod 0600 "$tmp" || ! copy_private_atomic "$tmp" "$output"; then
+    rm -f -- "$tmp"
+    return 1
+  fi
+  rm -f -- "$tmp" || true
   SURGICAL_UNDO_CHANGED=1
 }
 
@@ -1683,7 +1708,7 @@ undo_migration() {
     echo "ENDPOINT_BINDING_MIGRATION: undo changed metadata but cleanup failed; migration evidence was retained" >&2
     return 1
   fi
-  if ! printf 'completed\n' > "$cleanup_stage/completed" || ! chmod 0600 "$cleanup_stage/completed"; then
+  if ! write_completed_stage "$cleanup_stage"; then
     abort_undo
     return 1
   fi
