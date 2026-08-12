@@ -295,6 +295,28 @@ test_undo_preserves_lifecycle_appends() {
   pass 'endpoint binding undo preserves lifecycle metadata appends'
 }
 
+test_undo_skips_relaunch_owned_matching_binding() {
+  local dir out relaunched
+  dir=$(make_case relaunch-owned-binding)
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  run_locked "$dir" >/dev/null || fail 'initial migration for relaunch ownership failed'
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' 'endpoint_task_id=good' \
+    "worktree=$dir/worktree" "project=$dir/project" 'kind=scout' \
+    'control_relaunch_tx=relaunch-owned'
+  chmod 0600 "$dir/home/state/good.meta"
+  relaunched=$(mktemp "$dir/relaunched.XXXXXX")
+  cp "$dir/home/state/good.meta" "$relaunched"
+  out=$(run_locked "$dir" --undo) || fail "relaunch-owned binding undo failed: $out"
+  cmp -s "$relaunched" "$dir/home/state/good.meta" \
+    || fail 'undo removed the lifecycle-owned relaunch binding'
+  [ ! -e "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
+    || fail 'undo did not retire the relaunch-owned journal'
+  pass 'endpoint binding undo skips relaunch-owned matching bindings'
+}
+
 test_undo_skips_deleted_and_changed_bindings() {
   local dir out changed
   dir=$(make_case completed-journal-retired)
@@ -348,6 +370,38 @@ test_incomplete_apply_stage_is_cleaned_on_restart() {
     || fail 'partial apply stage was not cleaned'
   assert_contains "$out" 'stamped 1' 'restart did not resume after incomplete stage cleanup'
   pass 'endpoint binding migration cleans incomplete pre-manifest stages'
+}
+
+test_completed_apply_stage_survives_cleanup_failure() {
+  local dir out real_rm stage
+  dir=$(make_case completed-apply-stage)
+  real_rm=$(command -v rm)
+  cat > "$dir/fakebin/rm" <<'SH'
+#!/usr/bin/env bash
+for arg in "$@"; do
+  case "$(pwd):$arg" in
+    */state/.endpoint-binding-stage.*:./completed) exit 1 ;;
+  esac
+done
+exec "${FM_REAL_RM:?}" "$@"
+SH
+  chmod +x "$dir/fakebin/rm"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  FM_REAL_RM="$real_rm" run_locked "$dir" >/dev/null \
+    || fail 'migration failed when completed-stage cleanup was deferred'
+  stage=$(find "$dir/home/state" -maxdepth 1 -type d -name '.endpoint-binding-stage.*' -print -quit)
+  [ -n "$stage" ] || fail 'deferred cleanup lost the completed apply stage'
+  [ -f "$stage/completed" ] || fail 'deferred cleanup lost durable completion state'
+  printf 'control_relaunch_tx=authorized-rewrite\n' >> "$dir/home/state/good.meta"
+  rm -f "$dir/fakebin/rm"
+  out=$(run_locked "$dir") || fail "completed-stage restart failed: $out"
+  assert_contains "$out" 'stamped 0' 'completed-stage restart reapplied a committed stamp'
+  grep -qx 'control_relaunch_tx=authorized-rewrite' "$dir/home/state/good.meta" \
+    || fail 'completed-stage restart changed later lifecycle metadata'
+  [ ! -e "$stage" ] || fail 'completed apply stage was not retired on restart'
+  pass 'endpoint binding migration durably marks completed apply stages'
 }
 
 test_completed_journal_refuses_unexpected_record() {
@@ -463,6 +517,50 @@ SH
   [ -n "$stage" ] || fail 'partial undo snapshot copy lost recovery staging'
   [ ! -e "$stage/records" ] || fail 'partial undo snapshot became recoverable evidence'
   pass 'endpoint binding undo stages snapshots atomically'
+}
+
+test_undo_snapshot_rejects_replaced_stage_parent() {
+  local dir out rc real_cp real_mv outside
+  dir=$(make_case undo-snapshot-parent-symlink)
+  real_cp=$(command -v cp)
+  real_mv=$(command -v mv)
+  outside="$dir/outside-snapshot-stage"
+  mkdir "$outside"
+  printf 'keep\n' > "$outside/sentinel"
+  cat > "$dir/fakebin/cp" <<'SH'
+#!/usr/bin/env bash
+dest=${!#}
+case "$dest" in
+  */.endpoint-binding-snapshot.*)
+    if [ ! -e "${FM_SWAP_SENT:?}" ]; then
+      stage=$(find "${FM_STATE:?}" -maxdepth 1 -type d -name '.endpoint-binding-undo-cleanup.*' -print -quit)
+      [ -n "$stage" ] || exit 1
+      "${FM_REAL_MV:?}" "$stage" "$stage.held" || exit 1
+      ln -s "${FM_OUTSIDE:?}" "$stage" || exit 1
+      : > "$FM_SWAP_SENT"
+    fi
+    ;;
+esac
+exec "${FM_REAL_CP:?}" "$@"
+SH
+  chmod +x "$dir/fakebin/cp"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  FM_REAL_CP="$real_cp" run_locked "$dir" >/dev/null \
+    || fail 'migration setup for undo snapshot parent replacement failed'
+  set +e
+  out=$(FM_REAL_CP="$real_cp" FM_REAL_MV="$real_mv" \
+    FM_STATE="$dir/home/state" FM_OUTSIDE="$outside" FM_SWAP_SENT="$dir/stage-swapped" \
+    run_locked "$dir" --undo)
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "undo accepted a replaced snapshot stage parent: $out"
+  grep -qx 'keep' "$outside/sentinel" || fail 'undo changed the outside snapshot sentinel'
+  [ ! -e "$outside/good.current" ] || fail 'undo published a current snapshot through a stage symlink'
+  [ -f "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
+    || fail 'undo discarded authoritative evidence after stage replacement'
+  pass 'endpoint binding undo rejects replaced snapshot stage parents'
 }
 
 test_existing_records_snapshot_is_atomic() {
@@ -1705,13 +1803,16 @@ test_completed_journal_is_idempotent
 test_completed_journal_merges_new_record
 test_completed_journal_recovers_orphaned_merge_backups
 test_undo_preserves_lifecycle_appends
+test_undo_skips_relaunch_owned_matching_binding
 test_undo_skips_deleted_and_changed_bindings
 test_incomplete_apply_stage_is_cleaned_on_restart
+test_completed_apply_stage_survives_cleanup_failure
 test_completed_journal_refuses_unexpected_record
 test_completed_journal_refuses_dangling_backup_entry
 test_undo_recovery_rejects_symlink_destination
 test_undo_recovery_rejects_symlink_stage
 test_undo_snapshot_copy_is_atomic
+test_undo_snapshot_rejects_replaced_stage_parent
 test_existing_records_snapshot_is_atomic
 test_final_live_recheck_refuses_dead_endpoint
 test_reverse_restores_prior_bytes
