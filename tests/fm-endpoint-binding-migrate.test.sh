@@ -58,6 +58,7 @@ run_locked() {
   shift
   (
     local owner=$BASHPID
+    for name in ${!FM_@}; do export "$name"; done
     export FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_LOCK_PID="$owner"
     export PATH="$dir/fakebin:$BASE_PATH"
     printf '%s\n' "$owner" > "$dir/home/state/.lock"
@@ -205,6 +206,37 @@ test_completed_journal_merges_new_record() {
   pass 'endpoint binding migration merges new records into an existing journal'
 }
 
+test_completed_journal_recovers_orphaned_merge_backups() {
+  local dir out stage good2_before
+  dir=$(make_case completed-journal-crash)
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  run_locked "$dir" >/dev/null || fail 'initial migration for merge crash failed'
+  fm_write_meta "$dir/home/state/good2.meta" \
+    'window=firstmate:fm-good2' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  good2_before=$(mktemp "$dir/good2.XXXXXX")
+  cp "$dir/home/state/good2.meta" "$good2_before"
+  stage="$dir/home/state/.endpoint-binding-stage.injected"
+  mkdir "$stage"
+  chmod 0700 "$stage"
+  cp "$dir/home/state/.endpoint-binding-migration-records-v1" "$stage/records.before"
+  printf '%s\n' $'good2\tgood2.before\tgood2.after' > "$stage/records"
+  cp "$good2_before" "$stage/good2.before"
+  cp "$dir/home/state/good2.meta" "$stage/good2.after"
+  cp "$good2_before" "$dir/home/state/.endpoint-binding-migration-backups/good2.before"
+  chmod 0600 "$stage"/* \
+    "$dir/home/state/.endpoint-binding-migration-backups/good2.before"
+  [ -f "$dir/home/state/.endpoint-binding-migration-backups/good2.before" ] \
+    || fail 'merge crash did not leave the simulated orphaned backup'
+  out=$(run_locked "$dir") || fail "merge restart failed: $out"
+  assert_contains "$out" 'stamped 1' 'merge restart did not stamp the new record'
+  assert_contains "$(cat "$dir/home/state/.endpoint-binding-migration-records-v1")" $'good2\t' \
+    'merge restart did not publish the new provenance'
+  pass 'endpoint binding migration recovers orphaned merge backups'
+}
+
 test_completed_journal_refuses_changed_metadata() {
   local dir out rc
   dir=$(make_case completed-journal-changed)
@@ -306,6 +338,62 @@ test_undo_recovery_rejects_symlink_destination() {
   [ "$rc" -ne 0 ] || fail "undo accepted a symlink recovery destination: $out"
   [ ! -e "$outside" ] || fail 'undo followed a symlink recovery destination'
   pass 'endpoint binding migration rejects symlink recovery destinations'
+}
+
+test_undo_recovery_rejects_symlink_stage() {
+  local dir out rc outside stage
+  dir=$(make_case undo-symlink-stage)
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  run_locked "$dir" >/dev/null || fail 'initial migration for symlink stage failed'
+  outside="$dir/outside-undo-stage"
+  mkdir "$outside"
+  printf keep > "$outside/keep"
+  stage="$dir/home/state/.endpoint-binding-undo-cleanup.symlink"
+  ln -s "$outside" "$stage"
+  set +e
+  out=$(run_locked "$dir" --undo)
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "undo accepted a symlinked cleanup stage: $out"
+  [ -f "$outside/keep" ] || fail 'undo traversed the symlinked cleanup stage'
+  pass 'endpoint binding undo rejects symlinked cleanup stages'
+}
+
+test_undo_snapshot_copy_is_atomic() {
+  local dir out rc real_cp stage
+  dir=$(make_case undo-snapshot-copy)
+  real_cp=$(command -v cp)
+  cat > "$dir/fakebin/cp" <<'SH'
+#!/usr/bin/env bash
+dest=${!#}
+if [ "${FM_FAIL_COPY:-0}" -eq 1 ]; then
+  case "$dest" in
+    */.endpoint-binding-copy.*) : > "$dest"; exit 1 ;;
+  esac
+fi
+exec "${FM_REAL_CP:?}" "$@"
+SH
+  chmod +x "$dir/fakebin/cp"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  FM_REAL_CP="$real_cp" run_locked "$dir" >/dev/null \
+    || fail 'migration setup for undo snapshot copy failed'
+  set +e
+  out=$(FM_REAL_CP="$real_cp" FM_FAIL_COPY=1 run_locked "$dir" --undo)
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "partial undo snapshot copy unexpectedly succeeded: $out"
+  [ -f "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
+    || fail 'partial undo snapshot copy lost the authoritative journal'
+  [ -f "$dir/home/state/.endpoint-binding-migration-backups/good.before" ] \
+    || fail 'partial undo snapshot copy lost the before evidence'
+  stage=$(find "$dir/home/state" -maxdepth 1 -type d -name '.endpoint-binding-undo-cleanup.*' -print -quit)
+  [ -n "$stage" ] || fail 'partial undo snapshot copy lost recovery staging'
+  [ ! -e "$stage/records" ] || fail 'partial undo snapshot became recoverable evidence'
+  pass 'endpoint binding undo stages snapshots atomically'
 }
 
 test_existing_records_snapshot_is_atomic() {
@@ -681,10 +769,11 @@ test_undo_signal_during_cleanup_restores_recovery_state() {
 #!/usr/bin/env bash
 "${FM_REAL_RM:?}" "$@"
 rc=$?
-if [ "$rc" -eq 0 ] && [ "${FM_UNDO_CLEANUP_SIGNAL:-0}" -eq 1 ] \
-  && [ ! -e "${FM_UNDO_CLEANUP_SIGNAL_SENT:?}" ]; then
-  for arg in "$@"; do
-    if [ "$arg" = "${FM_UNDO_CLEANUP_SIGNAL_PATH:-}" ]; then
+  if [ "$rc" -eq 0 ] && [ "${FM_UNDO_CLEANUP_SIGNAL:-0}" -eq 1 ] \
+    && [ ! -e "${FM_UNDO_CLEANUP_SIGNAL_SENT:?}" ]; then
+    for arg in "$@"; do
+      if [ "$arg" = "${FM_UNDO_CLEANUP_SIGNAL_PATH:-}" ] \
+        || [ "${arg##*/}" = "${FM_UNDO_CLEANUP_SIGNAL_PATH##*/}" ]; then
       : > "$FM_UNDO_CLEANUP_SIGNAL_SENT"
       kill -TERM "$PPID"
       break
@@ -766,8 +855,10 @@ exec "${FM_REAL_MV:?}" "$@"
 SH
   cat > "$dir/fakebin/rm" <<'SH'
 #!/usr/bin/env bash
+fail_target=${FM_FAIL_RM:-}
+fail_target=${fail_target##*/}
 for arg in "$@"; do
-  [ "$arg" = "${FM_FAIL_RM:-}" ] && exit 1
+  [ "$arg" = "${FM_FAIL_RM:-}" ] || [ "${arg##*/}" = "$fail_target" ] && exit 1
 done
 exec "${FM_REAL_RM:?}" "$@"
 SH
@@ -831,9 +922,11 @@ test_recovery_journal_copy_is_atomic() {
   cat > "$dir/fakebin/cp" <<'SH'
 #!/usr/bin/env bash
 dest=${!#}
-case "$dest" in
-  */.endpoint-binding-copy.*) : > "$dest"; exit 1 ;;
-esac
+if [ "${FM_FAIL_COPY:-0}" -eq 1 ]; then
+  case "$dest" in
+    */.endpoint-binding-copy.*) : > "$dest"; exit 1 ;;
+  esac
+fi
 exec "${FM_REAL_CP:?}" "$@"
 SH
   chmod +x "$dir/fakebin/cp"
@@ -854,7 +947,7 @@ SH
     "$dir/home/state/.endpoint-binding-migration-backups/good.after"
   rmdir "$dir/home/state/.endpoint-binding-migration-backups"
   set +e
-  out=$(FM_REAL_CP="$real_cp" run_locked "$dir" --undo)
+  out=$(FM_REAL_CP="$real_cp" FM_FAIL_COPY=1 run_locked "$dir" --undo)
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "partial recovery journal copy unexpectedly succeeded: $out"
@@ -870,7 +963,7 @@ test_crash_after_manifest_preserves_undo_path() {
 cat > "$dir/fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 for arg in "$@"; do
-  [ "$arg" = "${FM_CRASH_DEST:?}" ] || continue
+  [ "$arg" = "${FM_CRASH_DEST:-}" ] || continue
   "${FM_REAL_MV:?}" "$@"
   kill -KILL "$PPID"
   exit 137
@@ -900,33 +993,25 @@ SH
 }
 
 test_orphaned_backups_are_recovered_on_restart() {
-  local dir out rc real_cp
+  local dir out stage
   dir=$(make_case orphaned-backups)
-  real_cp=$(command -v cp)
-  cat > "$dir/fakebin/cp" <<'SH'
-#!/usr/bin/env bash
-for arg in "$@"; do
-  [ "$arg" = "${FM_CRASH_DEST:?}" ] || continue
-  "${FM_REAL_CP:?}" "$@"
-  kill -KILL "$PPID"
-  exit 137
-done
-exec "${FM_REAL_CP:?}" "$@"
-SH
-  chmod +x "$dir/fakebin/cp"
   fm_write_meta "$dir/home/state/good.meta" \
     'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
     'kind=scout'
-  set +e
-  out=$(FM_REAL_CP="$real_cp" FM_CRASH_DEST="$dir/home/state/.endpoint-binding-migration-backups/good.after" run_locked "$dir")
-  rc=$?
-  set -e
-  [ "$rc" -ne 0 ] || fail "orphaned backup crash unexpectedly succeeded: $out"
+  stage="$dir/home/state/.endpoint-binding-stage.injected"
+  mkdir "$stage"
+  chmod 0700 "$stage"
+  printf '%s\n' $'good\tgood.before\tgood.after' > "$stage/records"
+  cp "$dir/home/state/good.meta" "$stage/good.before"
+  cp "$dir/home/state/good.meta" "$stage/good.after"
+  mkdir "$dir/home/state/.endpoint-binding-migration-backups"
+  chmod 0700 "$dir/home/state/.endpoint-binding-migration-backups"
+  cp "$stage/good.before" "$dir/home/state/.endpoint-binding-migration-backups/good.before"
+  cp "$stage/good.after" "$dir/home/state/.endpoint-binding-migration-backups/good.after"
+  chmod 0600 "$stage"/* \
+    "$dir/home/state/.endpoint-binding-migration-backups"/*
   [ -f "$dir/home/state/.endpoint-binding-migration-backups/good.after" ] \
     || fail 'orphaned backup crash did not leave the interrupted backup'
-  ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
-    || fail 'orphaned backup crash stamped metadata before the journal'
-  rm -f "$dir/fakebin/cp"
   out=$(run_locked "$dir") || fail "restart did not recover orphaned backups: $out"
   assert_contains "$out" 'stamped 1' 'restart did not resume migration after orphan cleanup'
   pass 'endpoint binding migration recovers orphaned backups on restart'
@@ -965,8 +1050,10 @@ exec "${FM_REAL_MV:?}" "$@"
 SH
   cat > "$dir/fakebin/rm" <<'SH'
 #!/usr/bin/env bash
+fail_target=${FM_FAIL_RM:-}
+fail_target=${fail_target##*/}
 for arg in "$@"; do
-  [ "$arg" = "${FM_FAIL_RM:-}" ] && exit 1
+  [ "$arg" = "${FM_FAIL_RM:-}" ] || [ "${arg##*/}" = "$fail_target" ] && exit 1
 done
 exec "${FM_REAL_RM:?}" "$@"
 SH
@@ -1022,7 +1109,7 @@ test_manifest_mode_failure_rolls_back_stamps() {
   local dir original out rc real_chmod
   dir=$(make_case manifest-mode-failure)
   real_chmod=$(command -v chmod)
-  cat > "$dir/fakebin/chmod" <<'SH'
+cat > "$dir/fakebin/chmod" <<'SH'
 #!/usr/bin/env bash
 for arg in "$@"; do
   case "$arg" in
@@ -1059,6 +1146,7 @@ for arg in "$@"; do
     -f|--) ;;
     *)
       if [ "$arg" = "${FM_FAIL_RM:-}" ]; then exit 1; fi
+      if [ "${arg##*/}" = "${FM_FAIL_RM##*/}" ]; then exit 1; fi
       "${FM_REAL_RM:?}" -f -- "$arg" || exit 1
       ;;
   esac
@@ -1095,15 +1183,19 @@ test_undo_recovery_stage_is_retained_when_restore_fails() {
   real_cp=$(command -v cp)
   cat > "$dir/fakebin/cp" <<'SH'
 #!/usr/bin/env bash
-for arg in "$@"; do
-  [ "$arg" = "${FM_FAIL_CP_DEST:-}" ] && exit 1
-done
+if [ "${FM_FAIL_CP_AFTER:-0}" -eq 1 ]; then
+  case "$(pwd):${1:-}:${2:-}:${3:-}" in
+    */.endpoint-binding-undo-cleanup.*:*-p*:--:./good.after) exit 1 ;;
+  esac
+fi
 exec "${FM_REAL_CP:?}" "$@"
 SH
   cat > "$dir/fakebin/rm" <<'SH'
 #!/usr/bin/env bash
+fail_target=${FM_FAIL_RM:-}
+fail_target=${fail_target##*/}
 for arg in "$@"; do
-  [ "$arg" = "${FM_FAIL_RM:-}" ] && exit 1
+  [ "$arg" = "${FM_FAIL_RM:-}" ] || [ "${arg##*/}" = "$fail_target" ] && exit 1
 done
   exec "${FM_REAL_RM:?}" "$@"
 SH
@@ -1116,7 +1208,7 @@ SH
   set +e
   out=$(FM_REAL_RM="$real_rm" FM_REAL_CP="$real_cp" \
     FM_FAIL_RM="$dir/home/state/.endpoint-binding-migration-records-v1" \
-    FM_FAIL_CP_DEST="$dir/home/state/.endpoint-binding-migration-backups/good.after" \
+    FM_FAIL_CP_AFTER=1 \
     run_locked "$dir" --undo)
   rc=$?
   set -e
@@ -1212,11 +1304,14 @@ test_stamp_adds_binding_as_separate_line_without_trailing_newline
 test_hidden_metadata_is_reported
 test_completed_journal_is_idempotent
 test_completed_journal_merges_new_record
+test_completed_journal_recovers_orphaned_merge_backups
 test_completed_journal_refuses_changed_metadata
 test_incomplete_apply_stage_is_cleaned_on_restart
 test_completed_journal_refuses_unexpected_record
 test_completed_journal_refuses_dangling_backup_entry
 test_undo_recovery_rejects_symlink_destination
+test_undo_recovery_rejects_symlink_stage
+test_undo_snapshot_copy_is_atomic
 test_existing_records_snapshot_is_atomic
 test_final_live_recheck_refuses_dead_endpoint
 test_reverse_restores_prior_bytes

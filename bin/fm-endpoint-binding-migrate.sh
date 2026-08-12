@@ -208,9 +208,14 @@ UNDO_LOCKS_ACQUIRING=0
 UNDO_RECOVERY_AFTER=()
 UNDO_RECOVERY_BEFORE=()
 UNDO_RECOVERY_STAGE=
+MERGE_LOCK_IDS=()
+MERGE_LOCK_PATHS=()
+MERGE_LOCK_ACQUIRED=()
+MERGE_LOCKS_HELD=0
 
 cleanup() {
   local path
+  release_merge_locks || true
   [ "$RECOVERY_REQUIRED" -eq 1 ] && return 0
   [ -z "$REPORT_TMP" ] || rm -f -- "$REPORT_TMP"
   if [ -n "$STAGE_DIR" ] && [ -d "$STAGE_DIR" ]; then
@@ -278,6 +283,52 @@ release_undo_locks() {
   return "$rc"
 }
 
+acquire_merge_locks() {
+  local id path i
+  [ "$RECORDS_EXISTING" -eq 1 ] || return 0
+  MERGE_LOCK_IDS=($(printf '%s\n' "${!RECORDED_IDS[@]}" | sort -u))
+  MERGE_LOCK_PATHS=()
+  MERGE_LOCK_ACQUIRED=()
+  for id in "${MERGE_LOCK_IDS[@]}"; do
+    path=$(fm_meta_lock_path "$STATE/$id.meta") || return 1
+    MERGE_LOCK_PATHS+=("$path")
+    MERGE_LOCK_ACQUIRED+=(0)
+  done
+  for i in "${!MERGE_LOCK_PATHS[@]}"; do
+    if ! fm_lock_acquire_wait "${MERGE_LOCK_PATHS[$i]}"; then
+      release_merge_locks
+      return 1
+    fi
+    MERGE_LOCK_ACQUIRED[$i]=1
+  done
+  MERGE_LOCKS_HELD=1
+}
+
+release_merge_locks() {
+  local i rc=0
+  for ((i=${#MERGE_LOCK_PATHS[@]} - 1; i >= 0; i--)); do
+    if [ "${MERGE_LOCK_ACQUIRED[$i]:-0}" -eq 1 ]; then
+      fm_lock_release "${MERGE_LOCK_PATHS[$i]}" || rc=1
+      MERGE_LOCK_ACQUIRED[$i]=0
+    fi
+  done
+  MERGE_LOCKS_HELD=0
+  return "$rc"
+}
+
+revalidate_merge_records() {
+  local id meta before after
+  [ "$RECORDS_EXISTING" -eq 1 ] || return 0
+  for id in "${MERGE_LOCK_IDS[@]}"; do
+    meta="$STATE/$id.meta"
+    before="$BACKUP_DIR/$id.before"
+    after="$BACKUP_DIR/$id.after"
+    private_file "$before" && private_file "$after" || return 1
+    regular_file "$meta" || return 1
+    cmp -s -- "$meta" "$before" || cmp -s -- "$meta" "$after" || return 1
+  done
+}
+
 rollback_stamps() {
   local i tmp rc=0 meta
   for i in "${!STAMP_IDS[@]}"; do
@@ -318,12 +369,41 @@ remove_published_backups() {
   local i rc=0
   for i in "${!STAMP_IDS[@]}"; do
     [ "${STAMP_SELECTED[$i]:-1}" -eq 1 ] || continue
-    rm -f -- "${STAMP_BEFORE_FINAL[$i]}" "${STAMP_AFTER_FINAL[$i]}" || rc=1
+    remove_private_backup_files "${STAMP_BEFORE_FINAL[$i]}" "${STAMP_AFTER_FINAL[$i]}" || rc=1
   done
   if [ "$BACKUP_DIR_CREATED" -eq 1 ]; then
-    rmdir -- "$BACKUP_DIR" 2>/dev/null || rc=1
+    if [ -e "$BACKUP_DIR" ] || [ -L "$BACKUP_DIR" ]; then
+      private_directory "$BACKUP_DIR" || rc=1
+      [ "$rc" -ne 0 ] || rmdir -- "$BACKUP_DIR" 2>/dev/null || rc=1
+    else
+      rc=1
+    fi
   fi
   return "$rc"
+}
+
+remove_private_backup_files() {
+  local before=$1 after=$2 before_name after_name backup_real backup_parent backup_base backup_expected
+  before_name=${before##*/}
+  after_name=${after##*/}
+  [ -L "$BACKUP_DIR" ] && return 1
+  backup_parent=${BACKUP_DIR%/*}
+  backup_base=${BACKUP_DIR##*/}
+  backup_expected=$(cd -P -- "$backup_parent" && pwd -P)/$backup_base || return 1
+  backup_real=$(cd -P -- "$BACKUP_DIR" && pwd -P) || return 1
+  [ "$backup_real" = "$backup_expected" ] || return 1
+  (
+    cd -P -- "$BACKUP_DIR" || exit 1
+    [ "$(pwd -P)" = "$backup_expected" ] || exit 1
+    private_directory . || exit 1
+    if [ -e "./$before_name" ] || [ -L "./$before_name" ]; then
+      private_file "./$before_name" || exit 1
+    fi
+    if [ -e "./$after_name" ] || [ -L "./$after_name" ]; then
+      private_file "./$after_name" || exit 1
+    fi
+    rm -f -- "./$before_name" "./$after_name"
+  )
 }
 
 restore_published_backups() {
@@ -344,32 +424,72 @@ restore_published_backups() {
 }
 
 copy_private_atomic() {
-  local source=$1 destination=$2 destination_dir tmp
-  private_file "$source" || return 1
+  local source=$1 destination=$2 source_dir source_name destination_dir destination_name
+  local source_real destination_real tmp rc source_parent source_base source_expected
+  local destination_parent destination_base destination_expected
+  source_dir=${source%/*}
+  source_name=${source##*/}
+  [ -L "$source_dir" ] && return 1
+  source_parent=${source_dir%/*}
+  source_base=${source_dir##*/}
+  source_expected=$(cd -P -- "$source_parent" && pwd -P)/$source_base || return 1
+  if [ "$source_dir" = "$STATE" ]; then
+    [ -d "$source_dir" ] && [ ! -L "$source_dir" ] || return 1
+  else
+    private_directory "$source_dir" || return 1
+  fi
+  source_real=$(cd -P -- "$source_dir" && pwd -P) || return 1
+  [ "$source_real" = "$source_expected" ] || return 1
   destination_dir=${destination%/*}
-  private_directory "$destination_dir" || return 1
+  destination_name=${destination##*/}
+  [ -L "$destination_dir" ] && return 1
+  destination_parent=${destination_dir%/*}
+  destination_base=${destination_dir##*/}
+  destination_expected=$(cd -P -- "$destination_parent" && pwd -P)/$destination_base || return 1
+  if [ "$destination_dir" = "$STATE" ]; then
+    [ -d "$destination_dir" ] && [ ! -L "$destination_dir" ] || return 1
+  else
+    private_directory "$destination_dir" || return 1
+  fi
+  destination_real=$(cd -P -- "$destination_dir" && pwd -P) || return 1
+  [ "$destination_real" = "$destination_expected" ] || return 1
   if [ -e "$destination" ] || [ -L "$destination" ]; then
     private_file "$destination" || return 1
   fi
   tmp=$(mktemp "$STATE/.endpoint-binding-copy.XXXXXX") || return 1
-  if ! cp -p -- "$source" "$tmp" || ! chmod 0600 "$tmp"; then
+  if ! (
+    cd -P -- "$source_dir" || exit 1
+    [ "$(pwd -P)" = "$source_expected" ] || exit 1
+    if [ "$source_dir" = "$STATE" ]; then
+      [ -d . ] && [ ! -L . ] || exit 1
+    else
+      private_directory . || exit 1
+    fi
+    private_file "./$source_name" || exit 1
+    cp -p -- "./$source_name" "$tmp" || exit 1
+    [ -f "$tmp" ] && [ ! -L "$tmp" ] || exit 1
+  ) || ! chmod 0600 "$tmp"; then
     rm -f -- "$tmp"
     return 1
   fi
-  private_directory "$destination_dir" || {
+  (
+    cd -P -- "$destination_dir" || exit 1
+    [ "$(pwd -P)" = "$destination_expected" ] || exit 1
+    if [ "$destination_dir" = "$STATE" ]; then
+      [ -d . ] && [ ! -L . ] || exit 1
+    else
+      private_directory . || exit 1
+    fi
+    if [ -e "./$destination_name" ] || [ -L "./$destination_name" ]; then
+      private_file "./$destination_name" || exit 1
+    fi
+    mv -f -- "$tmp" "./$destination_name"
+  )
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
     rm -f -- "$tmp"
-    return 1
-  }
-  if [ -e "$destination" ] || [ -L "$destination" ]; then
-    private_file "$destination" || {
-      rm -f -- "$tmp"
-      return 1
-    }
   fi
-  if ! mv -f -- "$tmp" "$destination"; then
-    rm -f -- "$tmp"
-    return 1
-  fi
+  return "$rc"
 }
 
 restore_existing_records() {
@@ -410,8 +530,7 @@ cleanup_incomplete_apply_stage() {
     before="$stage/$id.before"
     after="$stage/$id.after"
     if [ -e "$BACKUP_DIR" ] || [ -L "$BACKUP_DIR" ]; then
-      private_directory "$BACKUP_DIR" || return 1
-      rm -f -- "$BACKUP_DIR/$id.before" "$BACKUP_DIR/$id.after" || return 1
+      remove_private_backup_files "$BACKUP_DIR/$id.before" "$BACKUP_DIR/$id.after" || return 1
     fi
   done
   if [ -e "$BACKUP_DIR" ] || [ -L "$BACKUP_DIR" ]; then
@@ -422,11 +541,80 @@ cleanup_incomplete_apply_stage() {
   rmdir -- "$stage"
 }
 
+recover_existing_apply_stage() {
+  local stage=$1 id before_name after_name extra merged_tmp
+  private_directory "$stage" || return 1
+  private_file "$stage/records" || return 1
+  private_file "$stage/records.before" || return 1
+  merged_tmp=$(mktemp "$STATE/.endpoint-binding-merge-check.XXXXXX") || return 1
+  if ! cat "$stage/records.before" "$stage/records" > "$merged_tmp" || ! chmod 0600 "$merged_tmp"; then
+    rm -f -- "$merged_tmp"
+    return 1
+  fi
+  if cmp -s -- "$RECORDS" "$stage/records.before"; then
+    while IFS=$'\t' read -r id before_name after_name extra || [ -n "${id:-}${before_name:-}${after_name:-}${extra:-}" ]; do
+      [ -n "${id:-}" ] && [ -z "${extra:-}" ] || {
+        rm -f -- "$merged_tmp"
+        return 1
+      }
+      valid_task_id "$id" || {
+        rm -f -- "$merged_tmp"
+        return 1
+      }
+      [ "$before_name" = "$id.before" ] && [ "$after_name" = "$id.after" ] || {
+        rm -f -- "$merged_tmp"
+        return 1
+      }
+      if [ -e "$BACKUP_DIR" ] || [ -L "$BACKUP_DIR" ]; then
+        remove_private_backup_files "$BACKUP_DIR/$before_name" "$BACKUP_DIR/$after_name" || {
+          rm -f -- "$merged_tmp"
+          return 1
+        }
+      fi
+    done < "$stage/records"
+  elif cmp -s -- "$RECORDS" "$merged_tmp"; then
+    private_directory "$BACKUP_DIR" || {
+      rm -f -- "$merged_tmp"
+      return 1
+    }
+    while IFS=$'\t' read -r id before_name after_name extra || [ -n "${id:-}${before_name:-}${after_name:-}${extra:-}" ]; do
+      [ -n "${id:-}" ] && [ -z "${extra:-}" ] || {
+        rm -f -- "$merged_tmp"
+        return 1
+      }
+      valid_task_id "$id" || {
+        rm -f -- "$merged_tmp"
+        return 1
+      }
+      [ "$before_name" = "$id.before" ] && [ "$after_name" = "$id.after" ] || {
+        rm -f -- "$merged_tmp"
+        return 1
+      }
+      private_file "$BACKUP_DIR/$before_name" && private_file "$BACKUP_DIR/$after_name" || {
+        rm -f -- "$merged_tmp"
+        return 1
+      }
+    done < "$stage/records"
+  else
+    rm -f -- "$merged_tmp"
+    return 1
+  fi
+  rm -f -- "$merged_tmp" || return 1
+  rm -f -- "$stage"/* || return 1
+  rmdir -- "$stage"
+}
+
 recover_apply_stage() {
   local stage
   for stage in "$STATE"/.endpoint-binding-stage.*; do
+    [ -L "$stage" ] && return 1
     [ -d "$stage" ] || continue
-    [ -e "$RECORDS" ] && continue
+    if [ -e "$RECORDS" ] || [ -L "$RECORDS" ]; then
+      if [ -e "$stage/records.before" ] || [ -L "$stage/records.before" ]; then
+        recover_existing_apply_stage "$stage" || return 1
+      fi
+      continue
+    fi
     cleanup_incomplete_apply_stage "$stage" || return 1
   done
 }
@@ -477,6 +665,7 @@ abort_apply() {
       publish_recovery_records || rc=1
     fi
   fi
+  release_merge_locks || rc=1
   return "$rc"
 }
 
@@ -661,7 +850,9 @@ undo_rollback_changed() {
 restore_undo_recovery() {
   local i id rc=0
   [ -n "$UNDO_RECOVERY_STAGE" ] || return 0
+  [ -L "$UNDO_RECOVERY_STAGE" ] && return 1
   [ -d "$UNDO_RECOVERY_STAGE" ] || return 0
+  private_directory "$UNDO_RECOVERY_STAGE" || return 1
   private_file "$UNDO_RECOVERY_STAGE/records" || return 1
   if [ -e "$RECORDS" ] || [ -L "$RECORDS" ]; then
     private_file "$RECORDS" || rc=1
@@ -704,18 +895,23 @@ abort_undo() {
 
 remove_completed_stage() {
   local stage path
-  for path in "$1"/*; do
-    [ "$path" = "$1/completed" ] && continue
+  stage=$1
+  [ -L "$stage" ] && return 1
+  private_directory "$stage" || return 1
+  for path in "$stage"/*; do
+    [ "$path" = "$stage/completed" ] && continue
     rm -f -- "$path" || return 1
   done
-  rm -f -- "$1/completed" || return 1
-  rmdir -- "$1"
+  rm -f -- "$stage/completed" || return 1
+  rmdir -- "$stage"
 }
 
 recover_undo_stage() {
   local stage id before_name after_name extra rc=0
   for stage in "$STATE"/.endpoint-binding-undo-cleanup.*; do
+    [ -L "$stage" ] && return 1
     [ -d "$stage" ] || continue
+    private_directory "$stage" || return 1
     if [ -f "$stage/completed" ]; then
       remove_completed_stage "$stage" || return 1
       continue
@@ -946,11 +1142,12 @@ apply_migration() {
       return 1
     fi
   fi
+  acquire_merge_locks || { abort_apply 1; return $?; }
+  revalidate_merge_records || { abort_apply 1; return $?; }
   for i in "${!STAMP_IDS[@]}"; do
     [ "${STAMP_SELECTED[$i]:-0}" -eq 1 ] || continue
-    cp -p -- "${STAMP_BEFORE[$i]}" "${STAMP_BEFORE_FINAL[$i]}" || { abort_apply 1; return $?; }
-    cp -p -- "${STAMP_AFTER[$i]}" "${STAMP_AFTER_FINAL[$i]}" || { abort_apply 1; return $?; }
-    chmod 0600 "${STAMP_BEFORE_FINAL[$i]}" "${STAMP_AFTER_FINAL[$i]}" || { abort_apply 1; return $?; }
+    copy_private_atomic "${STAMP_BEFORE[$i]}" "${STAMP_BEFORE_FINAL[$i]}" || { abort_apply 1; return $?; }
+    copy_private_atomic "${STAMP_AFTER[$i]}" "${STAMP_AFTER_FINAL[$i]}" || { abort_apply 1; return $?; }
   done
 
   manifest_tmp=$(mktemp "$STATE/.endpoint-binding-records.XXXXXX") || { abort_apply 1; return $?; }
@@ -1014,6 +1211,7 @@ apply_migration() {
   if [ "$SKIPPED_LEGACY" -eq 0 ]; then
     if ! write_marker "$MARKER" fm-endpoint-binding-migration-v1; then abort_apply 1; return $?; fi
   fi
+  release_merge_locks || return 1
   printf 'ENDPOINT_BINDING_MIGRATION: scanned %s record(s); stamped %s\n' "$OUTCOME_COUNT" "$selected_count"
   cat "$REPORT"
 }
@@ -1090,12 +1288,10 @@ undo_migration() {
     abort_undo
     return 1
   fi
-  cp -p -- "$RECORDS" "$cleanup_stage/records" || { abort_undo; return 1; }
-  chmod 0600 "$cleanup_stage/records" || { abort_undo; return 1; }
+  copy_private_atomic "$RECORDS" "$cleanup_stage/records" || { abort_undo; return 1; }
   for id in "${UNDO_IDS[@]}"; do
-    if ! cp -p -- "$BACKUP_DIR/$id.before" "$cleanup_stage/$id.before" \
-      || ! cp -p -- "$BACKUP_DIR/$id.after" "$cleanup_stage/$id.after" \
-      || ! chmod 0600 "$cleanup_stage/$id.before" "$cleanup_stage/$id.after"; then
+    if ! copy_private_atomic "$BACKUP_DIR/$id.before" "$cleanup_stage/$id.before" \
+      || ! copy_private_atomic "$BACKUP_DIR/$id.after" "$cleanup_stage/$id.after"; then
       abort_undo
       return 1
     fi
@@ -1107,13 +1303,16 @@ undo_migration() {
   [ "$cleanup_rc" -eq 0 ] && rm -f -- "$MARKER" || cleanup_rc=1
   if [ "$cleanup_rc" -eq 0 ]; then
     for id in "${UNDO_IDS[@]}"; do
-      rm -f -- "$BACKUP_DIR/$id.before" "$BACKUP_DIR/$id.after" || {
+      remove_private_backup_files "$BACKUP_DIR/$id.before" "$BACKUP_DIR/$id.after" || {
         cleanup_rc=1
         break
       }
     done
   fi
-  [ "$cleanup_rc" -eq 0 ] && rmdir -- "$BACKUP_DIR" 2>/dev/null || cleanup_rc=1
+  if [ "$cleanup_rc" -eq 0 ]; then
+    private_directory "$BACKUP_DIR" || cleanup_rc=1
+    [ "$cleanup_rc" -ne 0 ] || rmdir -- "$BACKUP_DIR" 2>/dev/null || cleanup_rc=1
+  fi
   [ "$cleanup_rc" -eq 0 ] && rm -f -- "$RECORDS" || cleanup_rc=1
   if [ "$cleanup_rc" -ne 0 ]; then
     if restore_undo_recovery; then
