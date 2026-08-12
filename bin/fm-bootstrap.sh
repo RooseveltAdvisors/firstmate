@@ -1391,7 +1391,9 @@ if [ "${FM_BOOTSTRAP_DETECT_ONLY:-0}" != 1 ] && local_phase; then
     fi
   fi
   if fm_session_lock_owned_by_self "$STATE"; then
-    "$SCRIPT_DIR/fm-endpoint-binding-migrate.sh" || true
+    if ! "$SCRIPT_DIR/fm-endpoint-binding-migrate.sh"; then
+      echo 'ENDPOINT_BINDING_MIGRATION: endpoint binding migration failed; inspect recovery evidence before retrying' >&2
+    fi
   fi
   startup_memory_budget_setup
   if backlog_record_reconcile; then

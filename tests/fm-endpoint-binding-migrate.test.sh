@@ -128,6 +128,44 @@ test_evidence_bound_stamp_and_skip() {
   pass 'endpoint binding migration stamps only exact live identities and reports every refusal'
 }
 
+test_unresolved_existing_bindings_remove_completion_marker() {
+  local dir out report mismatch_before empty_before duplicate_before
+  dir=$(make_case unresolved-bindings)
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  run_locked "$dir" >/dev/null || fail 'migration setup for unresolved binding test failed'
+  fm_write_meta "$dir/home/state/mismatch.meta" \
+    'window=firstmate:fm-mismatch' 'endpoint_task_id=other' \
+    "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  fm_write_meta "$dir/home/state/empty.meta" \
+    'window=firstmate:fm-empty' 'endpoint_task_id=' \
+    "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  fm_write_meta "$dir/home/state/duplicate.meta" \
+    'window=firstmate:fm-good' 'endpoint_task_id=duplicate' 'endpoint_task_id=other' \
+    "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  mismatch_before=$(mktemp "$dir/mismatch.XXXXXX")
+  empty_before=$(mktemp "$dir/empty.XXXXXX")
+  duplicate_before=$(mktemp "$dir/duplicate.XXXXXX")
+  cp "$dir/home/state/mismatch.meta" "$mismatch_before"
+  cp "$dir/home/state/empty.meta" "$empty_before"
+  cp "$dir/home/state/duplicate.meta" "$duplicate_before"
+  out=$(run_locked "$dir") || fail "unresolved binding scan failed: $out"
+  [ ! -e "$dir/home/state/.endpoint-binding-migration-v1" ] \
+    || fail 'unresolved bindings retained the completion marker'
+  report=$(cat "$dir/home/state/.endpoint-binding-migration.log")
+  assert_contains "$report" 'task mismatch: skipped - existing endpoint_task_id binding mismatches task identity' \
+    'mismatched binding reason was not reported'
+  assert_contains "$report" 'task empty: skipped - existing endpoint_task_id binding is empty' \
+    'empty binding reason was not reported'
+  assert_contains "$report" 'task duplicate: skipped - existing endpoint_task_id binding is duplicated' \
+    'duplicate binding reason was not reported'
+  cmp -s "$mismatch_before" "$dir/home/state/mismatch.meta" || fail 'mismatched binding changed'
+  cmp -s "$empty_before" "$dir/home/state/empty.meta" || fail 'empty binding changed'
+  cmp -s "$duplicate_before" "$dir/home/state/duplicate.meta" || fail 'duplicate binding changed'
+  pass 'unresolved existing bindings remove stale completion evidence'
+}
+
 test_stamp_adds_binding_as_separate_line_without_trailing_newline() {
   local dir out
   dir=$(make_case no-trailing-newline)
@@ -992,6 +1030,70 @@ SH
   pass 'endpoint binding migration publishes recovery state before stamping'
 }
 
+test_crash_recovery_restores_evidence_snapshots() {
+  local dir out rc real_mv original_meta original_report original_scan original_marker
+  dir=$(make_case crash-evidence)
+  real_mv=$(command -v mv)
+  cat > "$dir/fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+if [ -n "${FM_FAIL_DEST:-}" ] && [ "${4:-}" = "$FM_FAIL_DEST" ]; then
+  if [ -e "${FM_FAIL_SENT:-}" ]; then
+    exit 1
+  fi
+  : > "$FM_FAIL_SENT"
+fi
+"${FM_REAL_MV:?}" "$@"
+rc=$?
+if [ "$rc" -eq 0 ] && [ "${4:-}" = "${FM_KILL_DEST:-}" ] \
+  && [ ! -e "${FM_KILL_SENT:?}" ]; then
+  : > "$FM_KILL_SENT"
+  kill -KILL "$PPID"
+fi
+exit "$rc"
+SH
+  chmod +x "$dir/fakebin/mv"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  printf 'old report\n' > "$dir/home/state/.endpoint-binding-migration.log"
+  printf 'old scan\n' > "$dir/home/state/.endpoint-binding-migration-scan-v1"
+  printf 'old marker\n' > "$dir/home/state/.endpoint-binding-migration-v1"
+  chmod 0600 "$dir/home/state/.endpoint-binding-migration.log" \
+    "$dir/home/state/.endpoint-binding-migration-scan-v1" \
+    "$dir/home/state/.endpoint-binding-migration-v1"
+  original_meta=$(mktemp "$dir/meta.XXXXXX")
+  original_report=$(mktemp "$dir/report.XXXXXX")
+  original_scan=$(mktemp "$dir/scan.XXXXXX")
+  original_marker=$(mktemp "$dir/marker.XXXXXX")
+  cp "$dir/home/state/good.meta" "$original_meta"
+  cp "$dir/home/state/.endpoint-binding-migration.log" "$original_report"
+  cp "$dir/home/state/.endpoint-binding-migration-scan-v1" "$original_scan"
+  cp "$dir/home/state/.endpoint-binding-migration-v1" "$original_marker"
+  set +e
+  out=$(FM_REAL_MV="$real_mv" \
+    FM_KILL_DEST="$dir/home/state/.endpoint-binding-migration-scan-v1" \
+    FM_KILL_SENT="$dir/crash-sent" run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "evidence crash unexpectedly succeeded: $out"
+  set +e
+  out=$(FM_REAL_MV="$real_mv" FM_FAIL_DEST="$dir/home/state/good.meta" \
+    FM_FAIL_SENT="$dir/fail-sent" run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "post-recovery failure unexpectedly succeeded: $out"
+  cmp -s "$original_meta" "$dir/home/state/good.meta" || fail 'crash recovery left metadata changed'
+  cmp -s "$original_report" "$dir/home/state/.endpoint-binding-migration.log" \
+    || fail 'crash recovery left a stale report'
+  cmp -s "$original_scan" "$dir/home/state/.endpoint-binding-migration-scan-v1" \
+    || fail 'crash recovery left a stale scan marker'
+  cmp -s "$original_marker" "$dir/home/state/.endpoint-binding-migration-v1" \
+    || fail 'crash recovery left a stale completion marker'
+  [ ! -e "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
+    || fail 'crash recovery left a stale journal'
+  pass 'crash recovery restores report and marker snapshots'
+}
+
 test_partial_published_journal_reruns_apply() {
   local dir out rc real_mv
   dir=$(make_case partial-published-journal)
@@ -1426,6 +1528,7 @@ SH
 }
 
 test_evidence_bound_stamp_and_skip
+test_unresolved_existing_bindings_remove_completion_marker
 test_stamp_adds_binding_as_separate_line_without_trailing_newline
 test_hidden_metadata_is_reported
 test_completed_journal_is_idempotent
@@ -1455,6 +1558,7 @@ test_backup_cleanup_failure_retains_staged_recovery
 test_rollback_rejects_replaced_backup_directory_symlink
 test_recovery_journal_copy_is_atomic
 test_crash_after_manifest_preserves_undo_path
+test_crash_recovery_restores_evidence_snapshots
 test_partial_published_journal_reruns_apply
 test_partial_merged_journal_reruns_apply
 test_existing_journal_pre_manifest_stage_is_discarded
