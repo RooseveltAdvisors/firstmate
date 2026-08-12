@@ -40,10 +40,13 @@ umask 077
   echo "ENDPOINT_BINDING_MIGRATION: state directory is unavailable; migration did not run" >&2
   exit 1
 }
-fm_session_lock_owned_by_self "$STATE" || {
-  echo "ENDPOINT_BINDING_MIGRATION: session lock is not owned by this session; migration did not run" >&2
-  exit 1
+require_session_lock() {
+  fm_session_lock_owned_by_self "$STATE" || {
+    echo "ENDPOINT_BINDING_MIGRATION: session lock is not owned by this session; migration did not run" >&2
+    return 1
+  }
 }
+require_session_lock || exit 1
 # shellcheck source=bin/fm-wake-lib.sh disable=SC1091
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 
@@ -137,20 +140,31 @@ reason_one_line() {
 
 verify_live_task_worktree() {
   local meta=$1 id=$2 backend=$3 target=$4 recorded live recorded_real live_real exact_target
-  [ "$backend" = tmux ] || {
-    record_outcome "task $id: skipped - backend '$backend' has no verified legacy task worktree identity"
-    return 1
-  }
   recorded=$(fm_backend_meta_exact_value "$meta" worktree) || {
     record_outcome "task $id: skipped - recorded task worktree identity is unreadable"
     return 1
   }
-  exact_target="=${target%%:*}:=${target#*:}"
-  fm_backend_source tmux || {
-    record_outcome "task $id: skipped - live endpoint worktree identity is unreadable"
-    return 1
-  }
-  live=$(fm_backend_tmux_current_path "$exact_target")
+  case "$backend" in
+    tmux)
+      exact_target="=${target%%:*}:=${target#*:}"
+      fm_backend_source tmux || {
+        record_outcome "task $id: skipped - live endpoint worktree identity is unreadable"
+        return 1
+      }
+      live=$(fm_backend_tmux_current_path "$exact_target")
+      ;;
+    herdr)
+      fm_backend_source herdr || {
+        record_outcome "task $id: skipped - live endpoint worktree identity is unreadable"
+        return 1
+      }
+      live=$(fm_backend_herdr_current_path "$target")
+      ;;
+    *)
+      record_outcome "task $id: skipped - backend '$backend' has no verified legacy task worktree identity"
+      return 1
+      ;;
+  esac
   [ -n "$live" ] || {
     record_outcome "task $id: skipped - live endpoint worktree identity is unreadable"
     return 1
@@ -306,6 +320,12 @@ acquire_meta_lock() {
     CURRENT_META_LOCK_HELD=0
     return 1
   fi
+  if ! require_session_lock; then
+    fm_lock_release "$CURRENT_META_LOCK" || true
+    CURRENT_META_LOCK=
+    CURRENT_META_LOCK_HELD=0
+    return 1
+  fi
 }
 
 release_meta_lock() {
@@ -332,7 +352,7 @@ acquire_undo_locks() {
   UNDO_LOCKS_ACQUIRING=1
   for i in "${!UNDO_LOCK_PATHS[@]}"; do
     UNDO_LOCK_ACQUIRED[i]=1
-    if ! fm_lock_acquire_wait "${UNDO_LOCK_PATHS[$i]}"; then
+    if ! fm_lock_acquire_wait "${UNDO_LOCK_PATHS[$i]}" || ! require_session_lock; then
       release_undo_locks
       return 1
     fi
@@ -367,7 +387,7 @@ acquire_apply_locks() {
   done
   for i in "${!APPLY_LOCK_PATHS[@]}"; do
     APPLY_LOCK_ACQUIRED[i]=1
-    if ! fm_lock_acquire_wait "${APPLY_LOCK_PATHS[$i]}"; then
+    if ! fm_lock_acquire_wait "${APPLY_LOCK_PATHS[$i]}" || ! require_session_lock; then
       release_apply_locks
       return 1
     fi
@@ -401,7 +421,7 @@ acquire_merge_locks() {
   done
   for i in "${!MERGE_LOCK_PATHS[@]}"; do
     MERGE_LOCK_ACQUIRED[i]=1
-    if ! fm_lock_acquire_wait "${MERGE_LOCK_PATHS[$i]}"; then
+    if ! fm_lock_acquire_wait "${MERGE_LOCK_PATHS[$i]}" || ! require_session_lock; then
       release_merge_locks
       return 1
     fi
@@ -420,19 +440,14 @@ release_merge_locks() {
 }
 
 valid_stamp_evidence() {
-  local id=$1 before=$2 after=$3 expected last_byte
+  local id=$1 before=$2 after=$3 expected
   private_file "$before" && private_file "$after" || return 1
   ! grep -q '^endpoint_task_id=' "$before" || return 1
   expected=$(mktemp "$STATE/.endpoint-binding-evidence-check.XXXXXX") || return 1
-  if ! copy_private_atomic "$before" "$expected"; then
+  if ! copy_private_atomic "$before" "$expected" private private "$id"; then
     rm -f -- "$expected"
     return 1
   fi
-  if [ -s "$expected" ]; then
-    last_byte=$(tail -c 1 "$expected") || { rm -f -- "$expected"; return 1; }
-    [ -z "$last_byte" ] || printf '\n' >> "$expected" || { rm -f -- "$expected"; return 1; }
-  fi
-  printf 'endpoint_task_id=%s\n' "$id" >> "$expected" || { rm -f -- "$expected"; return 1; }
   if ! cmp -s -- "$expected" "$after"; then
     rm -f -- "$expected"
     return 1
@@ -561,8 +576,9 @@ file_descriptor_identity() {
 }
 
 copy_to_new_private_file() {
-  local source=$1 destination=$2 source_type=${3:-private}
-  local source_identity source_fd_identity destination_identity destination_fd_identity
+  local source=$1 destination=$2 source_type=${3:-private} binding_id=${4:-}
+  local source_identity source_fd_identity binding_fd_identity destination_identity destination_fd_identity
+  local last_byte
   [ ! -e "$destination" ] && [ ! -L "$destination" ] || return 1
   if [ "$source_type" = regular ]; then
     regular_file "$source" || return 1
@@ -575,6 +591,12 @@ copy_to_new_private_file() {
     [ -f /dev/fd/8 ] || exit 1
     source_fd_identity=$(file_descriptor_identity /dev/fd/8 2>/dev/null) || exit 1
     [ "$source_fd_identity" = "$source_identity" ] || exit 1
+    if [ -n "$binding_id" ]; then
+      exec 7< "$source" || exit 1
+      [ -f /dev/fd/7 ] || exit 1
+      binding_fd_identity=$(file_descriptor_identity /dev/fd/7 2>/dev/null) || exit 1
+      [ "$binding_fd_identity" = "$source_identity" ] || exit 1
+    fi
     if [ "$source_type" = regular ]; then
       regular_file "$source" || exit 1
     else
@@ -588,6 +610,13 @@ copy_to_new_private_file() {
     regular_file "$destination" || exit 1
     [ "$(path_file_identity "$destination" 2>/dev/null)" = "$destination_fd_identity" ] || exit 1
     cat <&8 >&9 || exit 1
+    if [ -n "$binding_id" ]; then
+      if [ -s /dev/fd/7 ]; then
+        last_byte=$(tail -c 1 <&7) || exit 1
+        [ -z "$last_byte" ] || printf '\n' >&9 || exit 1
+      fi
+      printf 'endpoint_task_id=%s\n' "$binding_id" >&9 || exit 1
+    fi
     [ "$(path_file_identity "$source" 2>/dev/null)" = "$source_fd_identity" ] || exit 1
     regular_file "$destination" || exit 1
     [ "$(path_file_identity "$destination" 2>/dev/null)" = "$destination_fd_identity" ] || exit 1
@@ -601,7 +630,7 @@ copy_to_new_private_file() {
 }
 
 copy_private_atomic() {
-  local source=$1 destination=$2 destination_type=${3:-private} source_type=${4:-private}
+  local source=$1 destination=$2 destination_type=${3:-private} source_type=${4:-private} binding_id=${5:-}
   local source_dir destination_dir destination_name source_real destination_real tmp rc
   local source_parent source_base source_expected destination_parent destination_base destination_expected tmp_identity
   source_dir=${source%/*}
@@ -638,7 +667,7 @@ copy_private_atomic() {
   fi
   tmp=$(mktemp "$STATE/.endpoint-binding-copy.XXXXXX") || return 1
   rm -f -- "$tmp" || return 1
-  if ! copy_to_new_private_file "$source" "$tmp" "$source_type"; then
+  if ! copy_to_new_private_file "$source" "$tmp" "$source_type" "$binding_id"; then
     rm -f -- "$tmp"
     return 1
   fi
@@ -1434,9 +1463,10 @@ publish_report() {
 }
 
 apply_migration() {
-  local meta id base binding_count binding validation before after before_final after_final last_byte
+  local meta id base binding_count binding validation before after before_final after_final
   local i manifest_tmp selected_count stage_records
   local -a metas
+  require_session_lock || return 1
   recover_apply_stage || return 1
   STAGE_DIR=$(mktemp -d "$STATE/.endpoint-binding-stage.XXXXXX") || return 1
   chmod 0700 "$STAGE_DIR" || return 1
@@ -1495,7 +1525,11 @@ apply_migration() {
       continue
     fi
     acquire_meta_lock "$meta" || return 1
-    if ! verify_legacy_endpoint "$meta" "$id"; then
+    before="$STAGE_DIR/$id.before"
+    after="$STAGE_DIR/$id.after"
+    copy_private_atomic "$meta" "$before" private regular || { release_meta_lock || true; return 1; }
+    copy_private_atomic "$meta" "$after" private regular "$id" || { release_meta_lock || true; return 1; }
+    if ! verify_legacy_endpoint "$after" "$id"; then
       if [ "$REPORT_WRITE_FAILED" -eq 1 ]; then
         release_meta_lock || true
         return 1
@@ -1504,19 +1538,6 @@ apply_migration() {
       SKIPPED_LEGACY=1
       continue
     fi
-
-    before="$STAGE_DIR/$id.before"
-    after="$STAGE_DIR/$id.after"
-    copy_private_atomic "$meta" "$before" private regular || { release_meta_lock || true; return 1; }
-    copy_private_atomic "$meta" "$after" private regular || { release_meta_lock || true; return 1; }
-    if [ -s "$after" ]; then
-      last_byte=$(tail -c 1 "$after") || { release_meta_lock || true; return 1; }
-      if [ -n "$last_byte" ]; then
-        printf '\n' >> "$after" || { release_meta_lock || true; return 1; }
-      fi
-    fi
-    printf 'endpoint_task_id=%s\n' "$id" >> "$after" || { release_meta_lock || true; return 1; }
-    chmod 0600 "$before" "$after" || { release_meta_lock || true; return 1; }
     validation=$(fm_backend_validate_task_endpoint "$after" "$id" 2>&1) || {
       record_outcome "task $id: skipped - staged binding failed shared validation: $(reason_one_line "$validation")"
       if [ "$REPORT_WRITE_FAILED" -eq 1 ]; then
@@ -1545,7 +1566,7 @@ apply_migration() {
     if ! regular_file "${STAMP_METAS[$i]}" || ! cmp -s -- "${STAMP_METAS[$i]}" "${STAMP_BEFORE[$i]}"; then
       return 1
     fi
-    if ! verify_legacy_endpoint "${STAMP_METAS[$i]}" "${STAMP_IDS[$i]}"; then
+    if ! verify_legacy_endpoint "${STAMP_AFTER[$i]}" "${STAMP_IDS[$i]}"; then
       [ "$REPORT_WRITE_FAILED" -eq 0 ] || return 1
       STAMP_SELECTED[i]=0
       SKIPPED_LEGACY=1
@@ -1574,6 +1595,7 @@ apply_migration() {
         return 1
       }
     fi
+    require_session_lock || return 1
     publish_report || return 1
     write_marker "$SCAN_MARKER" fm-endpoint-binding-migration-scan-v1 || return 1
     if [ "$SKIPPED_LEGACY" -eq 0 ]; then
@@ -1659,7 +1681,7 @@ apply_migration() {
       abort_apply 1
       return $?
     fi
-    if ! verify_legacy_endpoint "${STAMP_METAS[$i]}" "${STAMP_IDS[$i]}"; then
+    if ! verify_legacy_endpoint "${STAMP_AFTER[$i]}" "${STAMP_IDS[$i]}"; then
       if [ "$REPORT_WRITE_FAILED" -eq 1 ]; then
         abort_apply 1
         return $?
@@ -1674,12 +1696,14 @@ apply_migration() {
       exec "$0"
       return 1
     fi
+    require_session_lock || { abort_apply 1; return $?; }
     if ! copy_private_atomic "${STAMP_AFTER[$i]}" "${STAMP_METAS[$i]}" regular; then
       abort_apply 1
       return $?
     fi
   done
 
+  require_session_lock || { abort_apply 1; return $?; }
   if ! publish_report; then abort_apply 1; return $?; fi
   if ! write_marker "$SCAN_MARKER" fm-endpoint-binding-migration-scan-v1; then abort_apply 1; return $?; fi
   if [ "$SKIPPED_LEGACY" -eq 0 ]; then
@@ -1820,12 +1844,14 @@ undo_migration() {
     UNDO_RECOVERY_AFTER[i]=$current_snapshot
     UNDO_CHANGED=$((i + 1))
     UNDO_TOUCHED[i]=1
+    require_session_lock || { abort_undo; return $?; }
     if ! copy_private_atomic "$undone_snapshot" "$meta" regular; then
       abort_undo
       return $?
     fi
     removed_count=$((removed_count + 1))
   done
+  require_session_lock || { abort_undo; return $?; }
   cleanup_rc=0
   rm -f -- "$SCAN_MARKER" || cleanup_rc=1
   [ "$cleanup_rc" -eq 0 ] && rm -f -- "$MARKER" || cleanup_rc=1
@@ -1879,6 +1905,7 @@ if ! fm_lock_acquire_wait "$MIGRATION_LOCK"; then
   echo "ENDPOINT_BINDING_MIGRATION: migration transaction lock is unavailable" >&2
   exit 1
 fi
+require_session_lock || exit 1
 
 recover_undo_stage || {
   echo "ENDPOINT_BINDING_MIGRATION: incomplete undo recovery failed" >&2
@@ -1886,6 +1913,7 @@ recover_undo_stage || {
 }
 
 if [ "$MODE" = undo ]; then
+  require_session_lock || exit 1
   undo_migration
 else
   apply_rc=0
