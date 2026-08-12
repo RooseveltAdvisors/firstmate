@@ -29,7 +29,7 @@ SH
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = list-windows ]; then
-  printf '%s\n' fm-good fm-dead fm-ambiguous fm-bound fm-empty
+  printf '%s\n' fm-good fm-good2 fm-dead fm-ambiguous fm-bound fm-empty
   exit 0
 fi
 if [ "${1:-}" = display-message ]; then
@@ -37,7 +37,7 @@ if [ "${1:-}" = display-message ]; then
     '#{pane_tty}') printf '/dev/null\n' ;;
     '#{pane_current_command}')
       case "${4:-}" in
-        *fm-good) printf 'pi\n' ;;
+        *fm-good|*fm-good2) printf 'pi\n' ;;
         *fm-ambiguous) printf 'mystery\n' ;;
         *) printf 'bash\n' ;;
       esac
@@ -234,6 +234,102 @@ test_final_stamp_waits_for_metadata_lock() {
   pass 'endpoint binding migration serializes final metadata replacement'
 }
 
+test_undo_waits_for_metadata_lock() {
+  local dir lock ready release holder migration_pid rc
+  dir=$(make_case undo-metadata-lock)
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  run_locked "$dir" >/dev/null || fail 'migration setup for undo lock test failed'
+  lock="$dir/home/state/.meta-good.lock"
+  ready="$dir/lock-ready"
+  release="$dir/lock-release"
+  (
+    export FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" PATH="$dir/fakebin:$BASE_PATH"
+    # shellcheck source=/dev/null
+    . "$ROOT/bin/fm-wake-lib.sh"
+    fm_lock_try_acquire "$lock" || exit 1
+    : > "$ready"
+    while [ ! -e "$release" ]; do sleep 0.01; done
+    fm_lock_release "$lock"
+  ) &
+  holder=$!
+  while [ ! -e "$ready" ]; do sleep 0.01; done
+  run_locked "$dir" --undo > "$dir/stdout" 2> "$dir/stderr" &
+  migration_pid=$!
+  sleep 0.2
+  kill -0 "$migration_pid" 2>/dev/null || fail 'undo did not wait for the shared metadata lock'
+  assert_contains "$(cat "$dir/home/state/good.meta")" 'endpoint_task_id=good' \
+    'undo changed metadata while the shared metadata lock was held'
+  : > "$release"
+  wait "$holder" || fail 'undo metadata lock holder failed'
+  set +e
+  wait "$migration_pid"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "undo failed after metadata lock release: $(cat "$dir/stderr")"
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
+    || fail 'undo did not restore metadata after the shared lock was released'
+  [ ! -e "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
+    || fail 'undo left the journal after the lock was released'
+  pass 'endpoint binding undo serializes metadata replacement'
+}
+
+test_undo_signal_restores_stamped_bytes() {
+  local dir original_good original_good2 stamped_good stamped_good2 out rc real_mv
+  dir=$(make_case undo-signal)
+  real_mv=$(command -v mv)
+  cat > "$dir/fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+"${FM_REAL_MV:?}" "$@"
+rc=$?
+if [ "$rc" -eq 0 ] && [ -n "${FM_UNDO_SIGNAL_META:-}" ] \
+  && [ "${4:-}" = "$FM_UNDO_SIGNAL_META" ] \
+  && [ "${FM_UNDO_SIGNAL:-0}" -eq 1 ] && [ ! -e "${FM_UNDO_SIGNAL_SENT:?}" ]; then
+  : > "$FM_UNDO_SIGNAL_SENT"
+  kill -TERM "$PPID"
+fi
+exit "$rc"
+SH
+  chmod +x "$dir/fakebin/mv"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  fm_write_meta "$dir/home/state/good2.meta" \
+    'window=firstmate:fm-good2' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  original_good=$(mktemp "$dir/original-good.XXXXXX")
+  original_good2=$(mktemp "$dir/original-good2.XXXXXX")
+  cp "$dir/home/state/good.meta" "$original_good"
+  cp "$dir/home/state/good2.meta" "$original_good2"
+  FM_REAL_MV="$real_mv" run_locked "$dir" >/dev/null \
+    || fail 'migration setup for undo signal test failed'
+  stamped_good=$(mktemp "$dir/stamped-good.XXXXXX")
+  stamped_good2=$(mktemp "$dir/stamped-good2.XXXXXX")
+  cp "$dir/home/state/good.meta" "$stamped_good"
+  cp "$dir/home/state/good2.meta" "$stamped_good2"
+  set +e
+  out=$(FM_REAL_MV="$real_mv" FM_UNDO_SIGNAL=1 \
+    FM_UNDO_SIGNAL_META="$dir/home/state/good2.meta" \
+    FM_UNDO_SIGNAL_SENT="$dir/undo-signal-sent" run_locked "$dir" --undo)
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "interrupted undo unexpectedly succeeded: $out"
+  cmp -s "$stamped_good" "$dir/home/state/good.meta" \
+    || fail 'interrupted undo left the first metadata record partially undone'
+  cmp -s "$stamped_good2" "$dir/home/state/good2.meta" \
+    || fail 'interrupted undo left the signaled metadata record partially undone'
+  [ -f "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
+    || fail 'interrupted undo discarded the journal'
+  [ -d "$dir/home/state/.endpoint-binding-migration-backups" ] \
+    || fail 'interrupted undo discarded before/after evidence'
+  out=$(FM_REAL_MV="$real_mv" run_locked "$dir" --undo) \
+    || fail "retry after interrupted undo failed: $out"
+  cmp -s "$original_good" "$dir/home/state/good.meta" || fail 'retry did not restore first metadata bytes'
+  cmp -s "$original_good2" "$dir/home/state/good2.meta" || fail 'retry did not restore second metadata bytes'
+  pass 'endpoint binding undo restores stamped bytes after interruption'
+}
+
 test_publication_failure_restores_evidence() {
   local dir original out rc real_mv
   dir=$(make_case publication-failure)
@@ -318,5 +414,7 @@ test_reverse_restores_prior_bytes
 test_lock_is_required
 test_signal_rolls_back_staged_stamps
 test_final_stamp_waits_for_metadata_lock
+test_undo_waits_for_metadata_lock
+test_undo_signal_restores_stamped_bytes
 test_publication_failure_restores_evidence
 test_incomplete_rollback_retains_recovery_evidence

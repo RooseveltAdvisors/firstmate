@@ -159,6 +159,13 @@ SCAN_MARKER_SNAPSHOT_READY=0
 MARKER_SNAPSHOT_READY=0
 RECOVERY_REQUIRED=0
 APPLY_ABORTED=0
+UNDO_IDS=()
+UNDO_METAS=()
+UNDO_BEFORE=()
+UNDO_AFTER=()
+UNDO_TOUCHED=()
+UNDO_CHANGED=0
+UNDO_ACTIVE=0
 
 cleanup() {
   local path
@@ -264,7 +271,11 @@ abort_apply() {
 
 handle_signal() {
   trap - HUP INT TERM
-  abort_apply 1 || true
+  if [ "$MODE" = undo ] && [ "$UNDO_ACTIVE" -eq 1 ]; then
+    abort_undo || true
+  else
+    abort_apply 1 || true
+  fi
   exit 1
 }
 
@@ -356,6 +367,46 @@ publish_recovery_records() {
     return 1
   fi
   RECORDS_PUBLISHED=1
+}
+
+undo_rollback_changed() {
+  local index tmp rc=0 meta
+  for ((index=UNDO_CHANGED - 1; index >= 0; index--)); do
+    [ "${UNDO_TOUCHED[$index]:-0}" -eq 1 ] || continue
+    meta=${UNDO_METAS[$index]}
+    if ! acquire_meta_lock "$meta"; then
+      rc=1
+      continue
+    fi
+    if ! private_file "$meta"; then
+      rc=1
+      release_meta_lock || rc=1
+      continue
+    fi
+    if cmp -s -- "$meta" "${UNDO_BEFORE[$index]}"; then
+      tmp=$(mktemp "$STATE/.endpoint-binding-undo-rollback.XXXXXX") || {
+        rc=1
+        release_meta_lock || rc=1
+        continue
+      }
+      if ! cp -p -- "${UNDO_AFTER[$index]}" "$tmp" \
+        || ! mv -f -- "$tmp" "$meta"; then
+        rm -f -- "$tmp"
+        rc=1
+      fi
+    elif ! cmp -s -- "$meta" "${UNDO_AFTER[$index]}"; then
+      rc=1
+    fi
+    release_meta_lock || rc=1
+  done
+  return "$rc"
+}
+
+abort_undo() {
+  local rc=1
+  release_meta_lock || rc=1
+  undo_rollback_changed || rc=1
+  return "$rc"
 }
 trap handle_signal HUP INT TERM
 
@@ -519,8 +570,13 @@ apply_migration() {
 }
 
 undo_migration() {
-  local id before_name after_name meta before after tmp i changed=0 extra
-  local -a undo_ids=() undo_metas=() undo_before=() undo_after=()
+  local id before_name after_name meta before after tmp i extra
+  UNDO_IDS=()
+  UNDO_METAS=()
+  UNDO_BEFORE=()
+  UNDO_AFTER=()
+  UNDO_TOUCHED=()
+  UNDO_CHANGED=0
   private_file "$RECORDS" || {
     echo "ENDPOINT_BINDING_MIGRATION: no recorded stamps to undo"
     return 0
@@ -533,38 +589,56 @@ undo_migration() {
     before="$BACKUP_DIR/$before_name"
     after="$BACKUP_DIR/$after_name"
     private_file "$meta" && private_file "$before" && private_file "$after" || return 1
-    cmp -s -- "$meta" "$after" || {
+    cmp -s -- "$meta" "$after" || cmp -s -- "$meta" "$before" || {
       echo "ENDPOINT_BINDING_MIGRATION: undo refused for task $id; metadata changed after stamping" >&2
       return 1
     }
-    undo_ids+=("$id")
-    undo_metas+=("$meta")
-    undo_before+=("$before")
-    undo_after+=("$after")
+    UNDO_IDS+=("$id")
+    UNDO_METAS+=("$meta")
+    UNDO_BEFORE+=("$before")
+    UNDO_AFTER+=("$after")
   done < "$RECORDS"
 
-  for i in "${!undo_ids[@]}"; do
-    tmp=$(mktemp "$STATE/.endpoint-binding-undo.XXXXXX") || return 1
-    if ! cp -p -- "${undo_before[$i]}" "$tmp" || ! mv -f -- "$tmp" "${undo_metas[$i]}"; then
-      rm -f -- "$tmp"
-      for ((changed--; changed >= 0; changed--)); do
-        tmp=$(mktemp "$STATE/.endpoint-binding-undo-rollback.XXXXXX") || return 1
-        if ! cp -p -- "${undo_after[$changed]}" "$tmp" \
-          || ! mv -f -- "$tmp" "${undo_metas[$changed]}"; then
-          rm -f -- "$tmp"
-          return 1
-        fi
-      done
-      return 1
+  UNDO_ACTIVE=1
+  for i in "${!UNDO_IDS[@]}"; do
+    acquire_meta_lock "${UNDO_METAS[$i]}" || { abort_undo; return $?; }
+    if ! private_file "${UNDO_METAS[$i]}"; then
+      release_meta_lock || true
+      abort_undo
+      return $?
     fi
-    changed=$((changed + 1))
+    if cmp -s -- "${UNDO_METAS[$i]}" "${UNDO_BEFORE[$i]}"; then
+      release_meta_lock || { abort_undo; return $?; }
+      continue
+    fi
+    if ! cmp -s -- "${UNDO_METAS[$i]}" "${UNDO_AFTER[$i]}"; then
+      release_meta_lock || true
+      echo "ENDPOINT_BINDING_MIGRATION: undo refused for task ${UNDO_IDS[$i]}; metadata changed after stamping" >&2
+      abort_undo
+      return $?
+    fi
+    UNDO_CHANGED=$((i + 1))
+    UNDO_TOUCHED[$i]=1
+    tmp=$(mktemp "$STATE/.endpoint-binding-undo.XXXXXX") || {
+      release_meta_lock || true
+      abort_undo
+      return $?
+    }
+    if ! cp -p -- "${UNDO_BEFORE[$i]}" "$tmp" || ! mv -f -- "$tmp" "${UNDO_METAS[$i]}"; then
+      rm -f -- "$tmp"
+      release_meta_lock || true
+      abort_undo
+      return $?
+    fi
+    release_meta_lock || { abort_undo; return $?; }
   done
+  UNDO_ACTIVE=0
   rm -f -- "$SCAN_MARKER" "$MARKER" "$RECORDS"
-  for id in "${undo_ids[@]}"; do
+  for id in "${UNDO_IDS[@]}"; do
     rm -f -- "$BACKUP_DIR/$id.before" "$BACKUP_DIR/$id.after"
   done
   rmdir -- "$BACKUP_DIR" 2>/dev/null || true
-  printf 'ENDPOINT_BINDING_MIGRATION: undid %s stamp(s)\n' "${#undo_ids[@]}"
+  printf 'ENDPOINT_BINDING_MIGRATION: undid %s stamp(s)\n' "${#UNDO_IDS[@]}"
 }
 
 if [ "$MODE" = undo ]; then
