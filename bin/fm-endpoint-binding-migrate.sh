@@ -14,6 +14,7 @@ SCAN_MARKER="$STATE/.endpoint-binding-migration-scan-v1"
 MARKER="$STATE/.endpoint-binding-migration-v1"
 RECORDS="$STATE/.endpoint-binding-migration-records-v1"
 BACKUP_DIR="$STATE/.endpoint-binding-migration-backups"
+MIGRATION_LOCK="$STATE/.endpoint-binding-migration.lock"
 MODE=apply
 
 case "${1:-}" in
@@ -212,15 +213,30 @@ MERGE_LOCK_IDS=()
 MERGE_LOCK_PATHS=()
 MERGE_LOCK_ACQUIRED=()
 MERGE_LOCKS_HELD=0
+APPLY_LOCK_IDS=()
+APPLY_LOCK_PATHS=()
+APPLY_LOCK_ACQUIRED=()
+APPLY_LOCKS_HELD=0
+MIGRATION_LOCK_HELD=0
+SURGICAL_UNDO_CHANGED=0
+
+release_migration_lock() {
+  if [ "$MIGRATION_LOCK_HELD" -eq 1 ]; then
+    fm_lock_release "$MIGRATION_LOCK"
+    MIGRATION_LOCK_HELD=0
+  fi
+}
 
 cleanup() {
+  release_apply_locks || true
   release_merge_locks || true
-  [ "$RECOVERY_REQUIRED" -eq 1 ] && return 0
-  [ -z "$REPORT_TMP" ] || rm -f -- "$REPORT_TMP"
-  [ -n "$STAGE_DIR" ] || return 0
-  [ -L "$STAGE_DIR" ] && return 0
-  [ -d "$STAGE_DIR" ] || return 0
-  remove_stage_directory "$STAGE_DIR" || true
+  if [ "$RECOVERY_REQUIRED" -eq 0 ]; then
+    [ -z "$REPORT_TMP" ] || rm -f -- "$REPORT_TMP"
+    if [ -n "$STAGE_DIR" ] && [ ! -L "$STAGE_DIR" ] && [ -d "$STAGE_DIR" ]; then
+      remove_stage_directory "$STAGE_DIR" || true
+    fi
+  fi
+  release_migration_lock || true
 }
 trap cleanup EXIT
 
@@ -279,6 +295,38 @@ release_undo_locks() {
   return "$rc"
 }
 
+acquire_apply_locks() {
+  local id path i
+  APPLY_LOCK_IDS=($(printf '%s\n' "${STAMP_IDS[@]}" | sort -u))
+  APPLY_LOCK_PATHS=()
+  APPLY_LOCK_ACQUIRED=()
+  for id in "${APPLY_LOCK_IDS[@]}"; do
+    path=$(fm_meta_lock_path "$STATE/$id.meta") || return 1
+    APPLY_LOCK_PATHS+=("$path")
+    APPLY_LOCK_ACQUIRED+=(0)
+  done
+  for i in "${!APPLY_LOCK_PATHS[@]}"; do
+    APPLY_LOCK_ACQUIRED[$i]=1
+    if ! fm_lock_acquire_wait "${APPLY_LOCK_PATHS[$i]}"; then
+      release_apply_locks
+      return 1
+    fi
+  done
+  APPLY_LOCKS_HELD=1
+}
+
+release_apply_locks() {
+  local i rc=0
+  for ((i=${#APPLY_LOCK_PATHS[@]} - 1; i >= 0; i--)); do
+    if [ "${APPLY_LOCK_ACQUIRED[$i]:-0}" -eq 1 ]; then
+      fm_lock_release "${APPLY_LOCK_PATHS[$i]}" || rc=1
+      APPLY_LOCK_ACQUIRED[$i]=0
+    fi
+  done
+  APPLY_LOCKS_HELD=0
+  return "$rc"
+}
+
 acquire_merge_locks() {
   local id path i
   [ "$RECORDS_EXISTING" -eq 1 ] || [ "$RECOVERY_NAMESPACE_PRESENT" -eq 1 ] || [ "${1:-0}" -eq 1 ] || return 0
@@ -312,52 +360,71 @@ release_merge_locks() {
   return "$rc"
 }
 
+valid_stamp_evidence() {
+  local id=$1 before=$2 after=$3 expected last_byte
+  private_file "$before" && private_file "$after" || return 1
+  ! grep -q '^endpoint_task_id=' "$before" || return 1
+  expected=$(mktemp "$STATE/.endpoint-binding-evidence-check.XXXXXX") || return 1
+  if ! copy_private_atomic "$before" "$expected"; then
+    rm -f -- "$expected"
+    return 1
+  fi
+  if [ -s "$expected" ]; then
+    last_byte=$(tail -c 1 "$expected") || { rm -f -- "$expected"; return 1; }
+    [ -z "$last_byte" ] || printf '\n' >> "$expected" || { rm -f -- "$expected"; return 1; }
+  fi
+  printf 'endpoint_task_id=%s\n' "$id" >> "$expected" || { rm -f -- "$expected"; return 1; }
+  if ! cmp -s -- "$expected" "$after"; then
+    rm -f -- "$expected"
+    return 1
+  fi
+  rm -f -- "$expected"
+}
+
 revalidate_merge_records() {
-  local id meta before after
+  local id before after
   [ "$RECORDS_EXISTING" -eq 1 ] || [ "$RECOVERY_NAMESPACE_PRESENT" -eq 1 ] || [ "${1:-0}" -eq 1 ] || return 0
   for id in "${MERGE_LOCK_IDS[@]}"; do
-    meta="$STATE/$id.meta"
     before="$BACKUP_DIR/$id.before"
     after="$BACKUP_DIR/$id.after"
-    private_file "$before" && private_file "$after" || return 1
-    regular_file "$meta" || return 1
-    cmp -s -- "$meta" "$before" || cmp -s -- "$meta" "$after" || return 1
+    valid_stamp_evidence "$id" "$before" "$after" || return 1
   done
 }
 
 rollback_stamps() {
-  local i tmp rc=0 meta
+  local i tmp rc=0 meta lock_held
+  lock_held=$APPLY_LOCKS_HELD
   for i in "${!STAMP_IDS[@]}"; do
     [ "${STAMP_SELECTED[$i]:-0}" -eq 1 ] || continue
     meta=${STAMP_METAS[$i]}
-    if ! acquire_meta_lock "$meta"; then
+    if [ "$lock_held" -eq 0 ] && ! acquire_meta_lock "$meta"; then
       rc=1
       continue
     fi
     if ! regular_file "$meta"; then
       rc=1
-      release_meta_lock || rc=1
+      [ "$lock_held" -eq 1 ] || release_meta_lock || rc=1
       continue
     fi
     if cmp -s -- "$meta" "${STAMP_BEFORE[$i]}"; then
-      release_meta_lock || rc=1
+      [ "$lock_held" -eq 1 ] || release_meta_lock || rc=1
       continue
     fi
     if ! cmp -s -- "$meta" "${STAMP_AFTER[$i]}"; then
       rc=1
-      release_meta_lock || rc=1
+      [ "$lock_held" -eq 1 ] || release_meta_lock || rc=1
       continue
     fi
     tmp=$(mktemp "$STATE/.endpoint-binding-rollback.XXXXXX") || {
       rc=1
-      release_meta_lock || rc=1
+      [ "$lock_held" -eq 1 ] || release_meta_lock || rc=1
       continue
     }
     if ! cp -p -- "${STAMP_BEFORE[$i]}" "$tmp" || ! mv -f -- "$tmp" "${STAMP_METAS[$i]}"; then
       rm -f -- "$tmp"
       rc=1
     fi
-    release_meta_lock || rc=1
+    [ "$lock_held" -eq 1 ] || release_meta_lock || rc=1
   done
   return "$rc"
 }
@@ -542,6 +609,7 @@ cleanup_incomplete_apply_stage() {
       *) return 1 ;;
     esac
   done
+  restore_stage_evidence "$stage" || return 1
   for id in "${ids[@]}"; do
     before="$stage/$id.before"
     after="$stage/$id.after"
@@ -712,6 +780,7 @@ cleanup_pre_manifest_apply_stage() {
   if cmp -s -- "$RECORDS" "$stage/records"; then
     recover_partial_apply_stage "$stage"
   else
+    restore_stage_evidence "$stage" || return 1
     remove_stage_directory "$stage"
   fi
 }
@@ -803,6 +872,9 @@ recover_apply_stage() {
         recover_existing_apply_stage "$stage" || return 1
       elif [ -e "$stage/records" ] || [ -L "$stage/records" ]; then
         cleanup_pre_manifest_apply_stage "$stage" || return 1
+      else
+        restore_stage_evidence "$stage" || return 1
+        remove_stage_directory "$stage" || return 1
       fi
       continue
     fi
@@ -857,6 +929,7 @@ abort_apply() {
     fi
   fi
   release_merge_locks || rc=1
+  release_apply_locks || rc=1
   return "$rc"
 }
 
@@ -897,15 +970,19 @@ snapshot_evidence_file() {
 }
 
 prepare_evidence() {
+  local evidence_tmp
   snapshot_evidence_file "$REPORT" report || return 1
   snapshot_evidence_file "$SCAN_MARKER" scan-marker || return 1
   snapshot_evidence_file "$MARKER" marker || return 1
-  {
+  evidence_tmp=$(mktemp "$STAGE_DIR/report.evidence.XXXXXX") || return 1
+  if ! {
     printf 'report\t%s\n' "$REPORT_PRESENT"
     printf 'scan-marker\t%s\n' "$SCAN_MARKER_PRESENT"
     printf 'marker\t%s\n' "$MARKER_PRESENT"
-  } > "$STAGE_DIR/evidence" || return 1
-  chmod 0600 "$STAGE_DIR/evidence"
+  } > "$evidence_tmp" || ! chmod 0600 "$evidence_tmp" || ! mv -f -- "$evidence_tmp" "$STAGE_DIR/evidence"; then
+    rm -f -- "$evidence_tmp"
+    return 1
+  fi
 }
 
 restore_evidence_file() {
@@ -1002,7 +1079,7 @@ publish_recovery_records() {
 }
 
 validate_recovery_namespace() {
-  local id before_name after_name extra meta path base
+  local id before_name after_name extra path base
   local -A expected=()
   RECOVERY_NAMESPACE_PRESENT=0
   RECORDED_IDS=()
@@ -1014,14 +1091,7 @@ validate_recovery_namespace() {
       [ -n "${id:-}" ] && [ -z "${extra:-}" ] || return 1
       valid_task_id "$id" || return 1
       [ "$before_name" = "$id.before" ] && [ "$after_name" = "$id.after" ] || return 1
-      private_file "$BACKUP_DIR/$before_name" && private_file "$BACKUP_DIR/$after_name" || return 1
-      meta="$STATE/$id.meta"
-      acquire_meta_lock "$meta" || return 1
-      if ! regular_file "$meta" || { ! cmp -s -- "$meta" "$BACKUP_DIR/$before_name" && ! cmp -s -- "$meta" "$BACKUP_DIR/$after_name"; }; then
-        release_meta_lock || true
-        return 1
-      fi
-      release_meta_lock || return 1
+      valid_stamp_evidence "$id" "$BACKUP_DIR/$before_name" "$BACKUP_DIR/$after_name" || return 1
       RECORDED_IDS[$id]=1
       expected[$before_name]=1
       expected[$after_name]=1
@@ -1289,27 +1359,18 @@ apply_migration() {
   done
 
   [ "$REPORT_WRITE_FAILED" -eq 0 ] || return 1
+  acquire_apply_locks || return 1
   for i in "${!STAMP_IDS[@]}"; do
-    acquire_meta_lock "${STAMP_METAS[$i]}" || return 1
     if ! regular_file "${STAMP_METAS[$i]}" || ! cmp -s -- "${STAMP_METAS[$i]}" "${STAMP_BEFORE[$i]}"; then
-      release_meta_lock || true
       return 1
     fi
     if ! verify_legacy_endpoint "${STAMP_METAS[$i]}" "${STAMP_IDS[$i]}"; then
-      if [ "$REPORT_WRITE_FAILED" -eq 1 ]; then
-        release_meta_lock || true
-        return 1
-      fi
+      [ "$REPORT_WRITE_FAILED" -eq 0 ] || return 1
       STAMP_SELECTED[$i]=0
       SKIPPED_LEGACY=1
-      release_meta_lock || true
       continue
     fi
-    record_outcome "task ${STAMP_IDS[$i]}: stamped - exact live endpoint identity verified" || {
-      release_meta_lock || true
-      return 1
-    }
-    release_meta_lock || return 1
+    record_outcome "task ${STAMP_IDS[$i]}: stamped - exact live endpoint identity verified" || return 1
   done
   stage_records="$STAGE_DIR/records"
   : > "$stage_records" || return 1
@@ -1340,6 +1401,7 @@ apply_migration() {
       restore_evidence_file "$MARKER" '' 0 || return 1
     fi
     release_merge_locks || return 1
+    release_apply_locks || return 1
     printf 'ENDPOINT_BINDING_MIGRATION: scanned %s record(s); stamped 0\n' "$OUTCOME_COUNT"
     cat "$REPORT"
     return 0
@@ -1416,29 +1478,23 @@ apply_migration() {
   META_WRITE_STARTED=1
   for i in "${!STAMP_IDS[@]}"; do
     [ "${STAMP_SELECTED[$i]:-0}" -eq 1 ] || continue
-    acquire_meta_lock "${STAMP_METAS[$i]}" || { abort_apply 1; return $?; }
     if ! regular_file "${STAMP_METAS[$i]}" || ! cmp -s -- "${STAMP_METAS[$i]}" "${STAMP_BEFORE[$i]}"; then
-      release_meta_lock || true
       abort_apply 1
       return $?
     fi
     if ! verify_legacy_endpoint "${STAMP_METAS[$i]}" "${STAMP_IDS[$i]}"; then
-      release_meta_lock || true
       abort_apply 1
       return $?
     fi
     tmp=$(mktemp "$STATE/.endpoint-binding-meta.XXXXXX") || {
-      release_meta_lock || true
       abort_apply 1
       return $?
     }
     if ! cp -p -- "${STAMP_AFTER[$i]}" "$tmp" || ! mv -f -- "$tmp" "${STAMP_METAS[$i]}"; then
       rm -f -- "$tmp"
-      release_meta_lock || true
       abort_apply 1
       return $?
     fi
-    release_meta_lock || { abort_apply 1; return $?; }
   done
 
   if ! publish_report; then abort_apply 1; return $?; fi
@@ -1449,12 +1505,74 @@ apply_migration() {
     if ! restore_evidence_file "$MARKER" '' 0; then abort_apply 1; return $?; fi
   fi
   release_merge_locks || return 1
+  release_apply_locks || return 1
   printf 'ENDPOINT_BINDING_MIGRATION: scanned %s record(s); stamped %s\n' "$OUTCOME_COUNT" "$selected_count"
   cat "$REPORT"
 }
 
+snapshot_regular_atomic() {
+  local source=$1 destination=$2 tmp
+  regular_file "$source" || return 1
+  tmp=$(mktemp "$STATE/.endpoint-binding-snapshot.XXXXXX") || return 1
+  if ! cp -pP -- "$source" "$tmp" || ! regular_file "$tmp" || ! chmod 0600 "$tmp" \
+    || ! mv -f -- "$tmp" "$destination"; then
+    rm -f -- "$tmp"
+    return 1
+  fi
+}
+
+surgical_remove_binding() {
+  local meta=$1 id=$2 before=$3 after=$4 output=$5 binding binding_count line_number
+  local current_size after_size prefix_matches=0 tmp last_byte
+  SURGICAL_UNDO_CHANGED=0
+  regular_file "$meta" || return 0
+  binding="endpoint_task_id=$id"
+  binding_count=$(awk -v expected="$binding" '$0 == expected { count++ } END { print count + 0 }' "$meta") || return 1
+  [ "$binding_count" -eq 1 ] || return 0
+  current_size=$(wc -c < "$meta") || return 1
+  after_size=$(wc -c < "$after") || return 1
+  if [ "$current_size" -ge "$after_size" ]; then
+    if dd if="$meta" bs=1 count="$after_size" 2>/dev/null | cmp -s -- - "$after"; then
+      prefix_matches=1
+    fi
+  fi
+  tmp=$(mktemp "$STATE/.endpoint-binding-surgical-undo.XXXXXX") || return 1
+  if [ "$prefix_matches" -eq 1 ]; then
+    if ! cp -pP -- "$before" "$tmp"; then
+      rm -f -- "$tmp"
+      return 1
+    fi
+    if [ "$current_size" -gt "$after_size" ]; then
+      if [ -s "$before" ]; then
+        last_byte=$(tail -c 1 "$before") || { rm -f -- "$tmp"; return 1; }
+        [ -z "$last_byte" ] || printf '\n' >> "$tmp" || { rm -f -- "$tmp"; return 1; }
+      fi
+      if ! dd if="$meta" bs=1 skip="$after_size" 2>/dev/null >> "$tmp"; then
+        rm -f -- "$tmp"
+        return 1
+      fi
+    fi
+  else
+    line_number=$(awk -v expected="$binding" '$0 == expected { print NR; exit }' "$meta") || {
+      rm -f -- "$tmp"
+      return 1
+    }
+    if ! head -n "$((line_number - 1))" "$meta" > "$tmp" \
+      || ! tail -n "+$((line_number + 1))" "$meta" >> "$tmp"; then
+      rm -f -- "$tmp"
+      return 1
+    fi
+  fi
+  if ! chmod 0600 "$tmp" || ! mv -f -- "$tmp" "$output"; then
+    rm -f -- "$tmp"
+    return 1
+  fi
+  SURGICAL_UNDO_CHANGED=1
+}
+
 undo_migration() {
   local id before_name after_name meta before after tmp i extra cleanup_stage cleanup_rc
+  local current_snapshot undone_snapshot removed_count=0
   UNDO_IDS=()
   UNDO_METAS=()
   UNDO_BEFORE=()
@@ -1478,11 +1596,7 @@ undo_migration() {
     meta="$STATE/$id.meta"
     before="$BACKUP_DIR/$before_name"
     after="$BACKUP_DIR/$after_name"
-    regular_file "$meta" && private_file "$before" && private_file "$after" || return 1
-    cmp -s -- "$meta" "$after" || cmp -s -- "$meta" "$before" || {
-      echo "ENDPOINT_BINDING_MIGRATION: undo refused for task $id; metadata changed after stamping" >&2
-      return 1
-    }
+    valid_stamp_evidence "$id" "$before" "$after" || return 1
     UNDO_IDS+=("$id")
     UNDO_METAS+=("$meta")
     UNDO_BEFORE+=("$before")
@@ -1491,31 +1605,6 @@ undo_migration() {
 
   UNDO_ACTIVE=1
   acquire_undo_locks || { abort_undo; return $?; }
-  for i in "${!UNDO_IDS[@]}"; do
-    if ! regular_file "${UNDO_METAS[$i]}"; then
-      abort_undo
-      return $?
-    fi
-    if cmp -s -- "${UNDO_METAS[$i]}" "${UNDO_BEFORE[$i]}"; then
-      continue
-    fi
-    if ! cmp -s -- "${UNDO_METAS[$i]}" "${UNDO_AFTER[$i]}"; then
-      echo "ENDPOINT_BINDING_MIGRATION: undo refused for task ${UNDO_IDS[$i]}; metadata changed after stamping" >&2
-      abort_undo
-      return $?
-    fi
-    UNDO_CHANGED=$((i + 1))
-    UNDO_TOUCHED[$i]=1
-    tmp=$(mktemp "$STATE/.endpoint-binding-undo.XXXXXX") || {
-      abort_undo
-      return $?
-    }
-    if ! cp -p -- "${UNDO_BEFORE[$i]}" "$tmp" || ! mv -f -- "$tmp" "${UNDO_METAS[$i]}"; then
-      rm -f -- "$tmp"
-      abort_undo
-      return $?
-    fi
-  done
   cleanup_stage=$(mktemp -d "$STATE/.endpoint-binding-undo-cleanup.XXXXXX") || {
     abort_undo
     return 1
@@ -1532,8 +1621,33 @@ undo_migration() {
       abort_undo
       return 1
     fi
-    UNDO_RECOVERY_BEFORE+=("$cleanup_stage/$id.before")
-    UNDO_RECOVERY_AFTER+=("$cleanup_stage/$id.after")
+  done
+  for i in "${!UNDO_IDS[@]}"; do
+    meta=${UNDO_METAS[$i]}
+    if [ ! -e "$meta" ] && [ ! -L "$meta" ]; then
+      continue
+    fi
+    regular_file "$meta" || continue
+    undone_snapshot="$cleanup_stage/${UNDO_IDS[$i]}.undone"
+    surgical_remove_binding "$meta" "${UNDO_IDS[$i]}" "${UNDO_BEFORE[$i]}" \
+      "${UNDO_AFTER[$i]}" "$undone_snapshot" || { abort_undo; return $?; }
+    [ "$SURGICAL_UNDO_CHANGED" -eq 1 ] || continue
+    current_snapshot="$cleanup_stage/${UNDO_IDS[$i]}.current"
+    snapshot_regular_atomic "$meta" "$current_snapshot" || { abort_undo; return $?; }
+    UNDO_RECOVERY_BEFORE[$i]=$undone_snapshot
+    UNDO_RECOVERY_AFTER[$i]=$current_snapshot
+    UNDO_CHANGED=$((i + 1))
+    UNDO_TOUCHED[$i]=1
+    tmp=$(mktemp "$STATE/.endpoint-binding-undo.XXXXXX") || {
+      abort_undo
+      return $?
+    }
+    if ! cp -pP -- "$undone_snapshot" "$tmp" || ! mv -f -- "$tmp" "$meta"; then
+      rm -f -- "$tmp"
+      abort_undo
+      return $?
+    fi
+    removed_count=$((removed_count + 1))
   done
   cleanup_rc=0
   rm -f -- "$SCAN_MARKER" || cleanup_rc=1
@@ -1566,7 +1680,7 @@ undo_migration() {
       return 1
     fi
     release_undo_locks || true
-    echo "ENDPOINT_BINDING_MIGRATION: undo restored metadata but cleanup failed; migration evidence was retained" >&2
+    echo "ENDPOINT_BINDING_MIGRATION: undo changed metadata but cleanup failed; migration evidence was retained" >&2
     return 1
   fi
   if ! printf 'completed\n' > "$cleanup_stage/completed" || ! chmod 0600 "$cleanup_stage/completed"; then
@@ -1580,8 +1694,14 @@ undo_migration() {
     echo "ENDPOINT_BINDING_MIGRATION: undo completed but recovery staging cleanup failed" >&2
     return 1
   fi
-  printf 'ENDPOINT_BINDING_MIGRATION: undid %s stamp(s)\n' "${#UNDO_IDS[@]}"
+  printf 'ENDPOINT_BINDING_MIGRATION: undid %s stamp(s)\n' "$removed_count"
 }
+
+MIGRATION_LOCK_HELD=1
+if ! fm_lock_acquire_wait "$MIGRATION_LOCK"; then
+  echo "ENDPOINT_BINDING_MIGRATION: migration transaction lock is unavailable" >&2
+  exit 1
+fi
 
 if [ "$MODE" = undo ]; then
   undo_migration
