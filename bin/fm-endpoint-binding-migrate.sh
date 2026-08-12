@@ -94,6 +94,13 @@ list_contains() {
   return 1
 }
 
+endpoint_claims_conflict() {
+  local backend=$1 target=$2 worktree=$3 other_backend=$4 other_target=$5 other_worktree=$6
+  [ "$backend" = "$other_backend" ] || return 1
+  [ "$target" = "$other_target" ] && return 0
+  [ "$backend" = herdr ] && [ -n "$worktree" ] && [ "$worktree" = "$other_worktree" ]
+}
+
 recorded_id_add() {
   list_contains "$1" "${RECORDED_IDS[@]}" || RECORDED_IDS+=("$1")
 }
@@ -163,8 +170,10 @@ record_endpoint_state_refusal() {
   return 1
 }
 
+FM_ENDPOINT_VERIFIED_WORKTREE=
 verify_live_task_worktree() {
   local meta=$1 id=$2 backend=$3 target=$4 recorded live recorded_real live_real exact_target state
+  FM_ENDPOINT_VERIFIED_WORKTREE=
   recorded=$(fm_backend_meta_exact_value "$meta" worktree) || {
     record_outcome "task $id: skipped - recorded task worktree identity is unreadable"
     return 1
@@ -211,6 +220,13 @@ verify_live_task_worktree() {
     record_outcome "task $id: skipped - task identity mismatch: live endpoint worktree does not match recorded worktree"
     return 1
   }
+  FM_ENDPOINT_VERIFIED_WORKTREE=$recorded_real
+}
+
+canonical_meta_worktree() {
+  local recorded
+  recorded=$(fm_backend_meta_exact_value "$1" worktree) || return 1
+  CDPATH='' cd -- "$recorded" 2>/dev/null && pwd -P
 }
 
 verify_legacy_endpoint() {
@@ -249,8 +265,10 @@ STAMP_BEFORE=()
 STAMP_AFTER=()
 STAMP_BACKENDS=()
 STAMP_TARGETS=()
+STAMP_WORKTREES=()
 BOUND_CLAIM_BACKENDS=()
 BOUND_CLAIM_TARGETS=()
+BOUND_CLAIM_WORKTREES=()
 STAMP_BEFORE_FINAL=()
 STAMP_AFTER_FINAL=()
 STAMP_SELECTED=()
@@ -1569,7 +1587,7 @@ restart_apply_scan() {
 
 apply_migration() {
   local meta id base binding_count binding validation before after before_final after_final
-  local backend target i j duplicate manifest_tmp selected_count stage_records
+  local backend target worktree bound_worktree i j duplicate manifest_tmp selected_count stage_records
   local -a metas
   require_session_lock || return 1
   recover_apply_stage || return 1
@@ -1629,8 +1647,10 @@ apply_migration() {
       binding=$(fm_meta_get "$meta" endpoint_task_id)
       if [ "$binding_count" -eq 1 ] && [ "$binding" = "$id" ]; then
         if fm_backend_validate_task_endpoint "$meta" "$id" >/dev/null 2>&1; then
+          bound_worktree=$(canonical_meta_worktree "$meta") || bound_worktree=
           BOUND_CLAIM_BACKENDS+=("$FM_BACKEND_VALIDATED_BACKEND")
           BOUND_CLAIM_TARGETS+=("$FM_BACKEND_VALIDATED_TARGET")
+          BOUND_CLAIM_WORKTREES+=("$bound_worktree")
         fi
         record_outcome "task $id: untouched - endpoint_task_id already present"
       elif [ "$binding_count" -gt 1 ]; then
@@ -1667,6 +1687,7 @@ apply_migration() {
     fi
     backend=$FM_BACKEND_VALIDATED_BACKEND
     target=$FM_BACKEND_VALIDATED_TARGET
+    worktree=$FM_ENDPOINT_VERIFIED_WORKTREE
     validation=$(fm_backend_validate_task_endpoint "$after" "$id" 2>&1) || {
       record_outcome "task $id: skipped - staged binding failed shared validation: $(reason_one_line "$validation")"
       if [ "$REPORT_WRITE_FAILED" -eq 1 ]; then
@@ -1685,6 +1706,7 @@ apply_migration() {
     STAMP_AFTER+=("$after")
     STAMP_BACKENDS+=("$backend")
     STAMP_TARGETS+=("$target")
+    STAMP_WORKTREES+=("$worktree")
     STAMP_SELECTED+=(1)
     STAMP_BEFORE_FINAL+=("$before_final")
     STAMP_AFTER_FINAL+=("$after_final")
@@ -1695,16 +1717,18 @@ apply_migration() {
     duplicate=0
     for j in "${!STAMP_IDS[@]}"; do
       [ "$i" = "$j" ] && continue
-      if [ "${STAMP_BACKENDS[$i]}" = "${STAMP_BACKENDS[$j]}" ] \
-        && [ "${STAMP_TARGETS[$i]}" = "${STAMP_TARGETS[$j]}" ]; then
+      if endpoint_claims_conflict \
+        "${STAMP_BACKENDS[$i]}" "${STAMP_TARGETS[$i]}" "${STAMP_WORKTREES[$i]}" \
+        "${STAMP_BACKENDS[$j]}" "${STAMP_TARGETS[$j]}" "${STAMP_WORKTREES[$j]}"; then
         duplicate=1
         break
       fi
     done
     if [ "$duplicate" -eq 0 ]; then
       for j in "${!BOUND_CLAIM_BACKENDS[@]}"; do
-        if [ "${STAMP_BACKENDS[$i]}" = "${BOUND_CLAIM_BACKENDS[$j]}" ] \
-          && [ "${STAMP_TARGETS[$i]}" = "${BOUND_CLAIM_TARGETS[$j]}" ]; then
+        if endpoint_claims_conflict \
+          "${STAMP_BACKENDS[$i]}" "${STAMP_TARGETS[$i]}" "${STAMP_WORKTREES[$i]}" \
+          "${BOUND_CLAIM_BACKENDS[$j]}" "${BOUND_CLAIM_TARGETS[$j]}" "${BOUND_CLAIM_WORKTREES[$j]}"; then
           duplicate=1
           break
         fi
