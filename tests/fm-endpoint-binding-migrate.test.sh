@@ -579,6 +579,53 @@ SH
   pass 'endpoint binding migration inventories claims before task-ID refusal'
 }
 
+test_hidden_herdr_claim_is_ambiguous() {
+  local dir out report
+  dir=$(make_case hidden-herdr-claim)
+  cat > "$dir/fakebin/herdr" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}:${2:-}" in
+  status:--json)
+    printf '%s\n' '{"server":{"running":true}}'
+    ;;
+  pane:get)
+    printf '{"result":{"pane":{"pane_id":"%s","foreground_cwd":"%s"}}}\n' \
+      "${3:-}" "${FM_HERDR_LIVE_WORKTREE:?}"
+    ;;
+  agent:get)
+    printf '%s\n' '{"result":{"agent":{"agent_status":"idle"}}}'
+    ;;
+  *) exit 1 ;;
+esac
+SH
+  chmod +x "$dir/fakebin/herdr"
+  fm_write_meta "$dir/home/state/herdr-good.meta" \
+    'window=lab:w1:p2' 'backend=herdr' 'herdr_session=lab' \
+    'herdr_workspace_id=w1' 'herdr_tab_id=w1:t1' 'herdr_pane_id=w1:p2' \
+    "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  fm_write_meta "$dir/home/state/.herdr-hidden.meta" \
+    'window=lab:w1:p2' 'backend=herdr' 'herdr_session=lab' \
+    'herdr_workspace_id=w1' 'herdr_tab_id=w1:t1' 'herdr_pane_id=w1:p2' \
+    "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+
+  out=$(FM_HERDR_LIVE_WORKTREE="$dir/worktree" run_locked "$dir") \
+    || fail "hidden Herdr claim migration failed: $out"
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/herdr-good.meta" \
+    || fail 'verified task sharing a hidden Herdr claim was stamped'
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/.herdr-hidden.meta" \
+    || fail 'hidden Herdr claim was stamped'
+  report=$(cat "$dir/home/state/.endpoint-binding-migration.log")
+  assert_contains "$report" \
+    'task herdr-good: skipped - ambiguous live endpoint identity is claimed by multiple task records' \
+    'hidden Herdr endpoint claim was not treated as ambiguous'
+  assert_contains "$report" \
+    'record .herdr-hidden.meta: skipped - hidden metadata record is out of scope' \
+    'hidden Herdr endpoint claim was not reported out of scope'
+  [ ! -e "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
+    || fail 'hidden duplicate Herdr claim published recovery provenance'
+  pass 'endpoint binding migration inventories hidden endpoint claims before skipping them'
+}
+
 test_herdr_liveness_is_rechecked_without_server_ensure() {
   local dir out report
   dir=$(make_case herdr-dies-during-path-check)
@@ -1585,6 +1632,65 @@ SH
   ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
     || fail 'symlink-swapped session lock authorized metadata changes'
   pass 'endpoint binding migration binds lock reads to ordinary files'
+}
+
+test_darwin_descriptor_bound_migration_is_supported() {
+  local dir out real_stat real_mv
+  dir=$(make_case darwin-descriptors)
+  real_stat=$(command -v stat)
+  real_mv=$(command -v mv)
+  cat > "$dir/fakebin/uname" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' Darwin
+SH
+  cat > "$dir/fakebin/stat" <<'SH'
+#!/usr/bin/env bash
+[ "${1:-}" = -f ] || exit 97
+format=${2:-}
+if [ "$#" -eq 2 ]; then
+  target=/proc/self/fd/0
+  : > "${FM_DARWIN_FSTAT_USED:?}"
+else
+  target=${3:-}
+  case "$target" in /dev/fd/*) exit 96 ;; esac
+fi
+case "$format" in
+  %d:%i) exec "${FM_REAL_STAT:?}" -L -c '%d:%i' "$target" ;;
+  %Lp) exec "${FM_REAL_STAT:?}" -L -c '%a' "$target" ;;
+  %z) exec "${FM_REAL_STAT:?}" -L -c '%s' "$target" ;;
+  %m) exec "${FM_REAL_STAT:?}" -L -c '%Y' "$target" ;;
+  %HT)
+    case "$("${FM_REAL_STAT:?}" -L -c '%F' "$target")" in
+      regular*file) printf '%s\n' 'Regular File' ;;
+      *) printf '%s\n' 'Other' ;;
+    esac
+    ;;
+  *) exit 95 ;;
+esac
+SH
+  cat > "$dir/fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = -fh ]; then
+  shift
+  [ "${1:-}" = -- ] && shift
+  : > "${FM_DARWIN_RENAME_USED:?}"
+  exec "${FM_REAL_MV:?}" -fT -- "$@"
+fi
+exec "${FM_REAL_MV:?}" "$@"
+SH
+  chmod +x "$dir/fakebin/uname" "$dir/fakebin/stat" "$dir/fakebin/mv"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  out=$(FM_REAL_STAT="$real_stat" FM_REAL_MV="$real_mv" \
+    FM_DARWIN_FSTAT_USED="$dir/darwin-fstat-used" \
+    FM_DARWIN_RENAME_USED="$dir/darwin-rename-used" run_locked "$dir") \
+    || fail "Darwin descriptor migration failed: $out"
+  [ -f "$dir/darwin-fstat-used" ] || fail 'Darwin descriptor fstat fixture did not activate'
+  [ -f "$dir/darwin-rename-used" ] || fail 'Darwin atomic rename fixture did not activate'
+  grep -qx 'endpoint_task_id=good' "$dir/home/state/good.meta" \
+    || fail 'Darwin-compatible source pinning did not stamp verified metadata'
+  pass 'endpoint binding migration uses Darwin-compatible descriptor reads and source pinning'
 }
 
 test_expired_session_lock_after_wait_is_refused() {
@@ -3344,6 +3450,7 @@ test_duplicate_herdr_worktree_is_ambiguous
 test_bound_herdr_endpoint_claim_is_ambiguous
 test_unverified_herdr_claim_is_ambiguous
 test_invalid_task_id_claim_is_ambiguous
+test_hidden_herdr_claim_is_ambiguous
 test_herdr_liveness_is_rechecked_without_server_ensure
 test_staged_binding_assembly_does_not_follow_symlinks
 test_unresolved_existing_bindings_remove_completion_marker
@@ -3378,6 +3485,7 @@ test_shared_task_id_grammar_reports_colon_ids
 test_lock_is_required
 test_symlink_session_lock_is_refused
 test_session_lock_symlink_swap_is_refused
+test_darwin_descriptor_bound_migration_is_supported
 test_expired_session_lock_after_wait_is_refused
 test_recovery_stops_when_session_lock_expires
 test_signal_rolls_back_staged_stamps

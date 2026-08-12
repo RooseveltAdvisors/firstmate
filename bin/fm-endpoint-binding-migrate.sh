@@ -644,100 +644,94 @@ path_file_identity() {
 }
 
 file_descriptor_identity() {
+  local fd=$1
+  case "$fd" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
   case "$(uname 2>/dev/null || true)" in
-    Darwin) stat -L -f '%d:%i' "$1" ;;
-    *) stat -L -c '%d:%i' "$1" ;;
+    Darwin) stat -f '%d:%i' <&"$fd" ;;
+    *) stat -L -c '%d:%i' "/dev/fd/$fd" ;;
   esac
 }
 
 file_descriptor_mode() {
+  local fd=$1
+  case "$fd" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
   case "$(uname 2>/dev/null || true)" in
-    Darwin) stat -L -f '%Lp' "$1" ;;
-    *) stat -L -c '%a' "$1" ;;
+    Darwin) stat -f '%Lp' <&"$fd" ;;
+    *) stat -L -c '%a' "/dev/fd/$fd" ;;
+  esac
+}
+
+file_descriptor_regular() {
+  local fd=$1
+  case "$fd" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  case "$(uname 2>/dev/null || true)" in
+    Darwin) [ "$(stat -f '%HT' <&"$fd" 2>/dev/null)" = 'Regular File' ] ;;
+    *)
+      case "$(stat -L -c '%F' "/dev/fd/$fd" 2>/dev/null)" in
+        regular*file) return 0 ;;
+        *) return 1 ;;
+      esac
+      ;;
+  esac
+}
+
+file_descriptor_size() {
+  local fd=$1
+  case "$fd" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  case "$(uname 2>/dev/null || true)" in
+    Darwin) stat -f '%z' <&"$fd" ;;
+    *) stat -L -c '%s' "/dev/fd/$fd" ;;
   esac
 }
 
 copy_to_new_private_file() {
-  local source=$1 destination=$2 source_type=${3:-private} binding_id=${4:-}
-  local append_line=${5:-} append_source=${6:-} append_source_type=${7:-private}
-  local append_skip=${8:-0} append_separator=${9:-0}
-  local source_identity source_fd_identity binding_fd_identity destination_identity destination_fd_identity
-  local append_identity append_fd_identity last_byte
+  local destination=$1 binding_id=${2:-} append_line=${3:-} append_present=${4:-0}
+  local append_skip=${5:-0} append_separator=${6:-0}
+  local destination_identity destination_fd_identity last_byte
   [ ! -e "$destination" ] && [ ! -L "$destination" ] || return 1
-  if [ "$source_type" = regular ]; then
-    regular_file "$source" || return 1
-  else
-    private_file "$source" || return 1
-  fi
-  case "$append_skip:$append_separator" in
-    *[!0-9:]*|:*) return 1 ;;
+  case "$append_present:$append_skip:$append_separator" in
+    *[!0-9:]*|:*|*::*|*:) return 1 ;;
   esac
-  if [ -n "$append_source" ]; then
-    if [ "$append_source_type" = regular ]; then
-      regular_file "$append_source" || return 1
-    else
-      private_file "$append_source" || return 1
-    fi
-    append_identity=$(path_file_identity "$append_source" 2>/dev/null) || return 1
+  file_descriptor_regular 8 || return 1
+  if [ -n "$binding_id" ]; then
+    file_descriptor_regular 7 || return 1
   fi
-  source_identity=$(path_file_identity "$source" 2>/dev/null) || return 1
+  if [ "$append_present" -eq 1 ]; then
+    file_descriptor_regular 6 || return 1
+  elif [ "$append_present" -ne 0 ]; then
+    return 1
+  fi
   destination_identity=$(
-    exec 8< "$source" || exit 1
-    [ -f /dev/fd/8 ] || exit 1
-    source_fd_identity=$(file_descriptor_identity /dev/fd/8 2>/dev/null) || exit 1
-    [ "$source_fd_identity" = "$source_identity" ] || exit 1
-    if [ -n "$binding_id" ]; then
-      exec 7< "$source" || exit 1
-      [ -f /dev/fd/7 ] || exit 1
-      binding_fd_identity=$(file_descriptor_identity /dev/fd/7 2>/dev/null) || exit 1
-      [ "$binding_fd_identity" = "$source_identity" ] || exit 1
-    fi
-    if [ -n "$append_source" ]; then
-      exec 6< "$append_source" || exit 1
-      [ -f /dev/fd/6 ] || exit 1
-      append_fd_identity=$(file_descriptor_identity /dev/fd/6 2>/dev/null) || exit 1
-      [ "$append_fd_identity" = "$append_identity" ] || exit 1
-    fi
-    if [ "$source_type" = regular ]; then
-      regular_file "$source" || exit 1
-    else
-      private_file "$source" || exit 1
-    fi
-    [ "$(path_file_identity "$source" 2>/dev/null)" = "$source_fd_identity" ] || exit 1
-    if [ -n "$append_source" ]; then
-      if [ "$append_source_type" = regular ]; then
-        regular_file "$append_source" || exit 1
-      else
-        private_file "$append_source" || exit 1
-      fi
-      [ "$(path_file_identity "$append_source" 2>/dev/null)" = "$append_fd_identity" ] || exit 1
-    fi
     set -C
     exec 9> "$destination" || exit 1
-    [ -f /dev/fd/9 ] || exit 1
-    destination_fd_identity=$(file_descriptor_identity /dev/fd/9 2>/dev/null) || exit 1
+    file_descriptor_regular 9 || exit 1
+    destination_fd_identity=$(file_descriptor_identity 9 2>/dev/null) || exit 1
     regular_file "$destination" || exit 1
     [ "$(path_file_identity "$destination" 2>/dev/null)" = "$destination_fd_identity" ] || exit 1
     cat <&8 >&9 || exit 1
     if [ -n "$binding_id" ]; then
-      if [ -s /dev/fd/7 ]; then
+      if [ "$(file_descriptor_size 7 2>/dev/null)" -gt 0 ]; then
         last_byte=$(tail -c 1 <&7) || exit 1
         [ -z "$last_byte" ] || printf '\n' >&9 || exit 1
       fi
       printf 'endpoint_task_id=%s\n' "$binding_id" >&9 || exit 1
     fi
     [ -z "$append_line" ] || printf '%s\n' "$append_line" >&9 || exit 1
-    if [ -n "$append_source" ]; then
+    if [ "$append_present" -eq 1 ]; then
       [ "$append_separator" -eq 0 ] || printf '\n' >&9 || exit 1
       if [ "$append_skip" -eq 0 ]; then
         cat <&6 >&9 || exit 1
       else
         dd bs=1 skip="$append_skip" <&6 >&9 2>/dev/null || exit 1
       fi
-    fi
-    [ "$(path_file_identity "$source" 2>/dev/null)" = "$source_fd_identity" ] || exit 1
-    if [ -n "$append_source" ]; then
-      [ "$(path_file_identity "$append_source" 2>/dev/null)" = "$append_fd_identity" ] || exit 1
     fi
     regular_file "$destination" || exit 1
     [ "$(path_file_identity "$destination" 2>/dev/null)" = "$destination_fd_identity" ] || exit 1
@@ -754,52 +748,70 @@ copy_private_atomic() (
   local source=$1 destination=$2 destination_type=${3:-private} source_type=${4:-private} binding_id=${5:-}
   local append_line=${6:-} append_source=${7:-} append_source_type=${8:-private}
   local append_skip=${9:-0} append_separator=${10:-0}
-  local source_dir source_name destination_dir destination_name source_real destination_real tmp rc
+  local source_dir source_name destination_dir destination_name tmp rc
   local source_parent source_base source_expected destination_parent destination_base destination_expected tmp_identity
-  local source_dir_identity source_fd_identity
+  local source_identity source_fd_identity append_present=0
   local append_source_dir append_source_name append_source_parent append_source_base
-  local append_source_expected append_source_real append_dir_identity append_fd_identity
+  local append_source_expected append_identity append_fd_identity
   source_dir=${source%/*}
   source_name=${source##*/}
   [ -L "$source_dir" ] && return 1
   source_parent=${source_dir%/*}
   source_base=${source_dir##*/}
   source_expected=$(cd -P -- "$source_parent" && pwd -P)/$source_base || return 1
-  exec 3< "$source_dir" || return 1
-  [ -d /dev/fd/3 ] || return 1
-  source_dir_identity=$(path_file_identity "$source_dir" 2>/dev/null) || return 1
-  source_fd_identity=$(file_descriptor_identity /dev/fd/3 2>/dev/null) || return 1
-  [ "$source_dir_identity" = "$source_fd_identity" ] || return 1
-  [ ! -L "$source_dir" ] || return 1
+  cd -P -- "$source_dir" || return 1
+  [ "$(pwd -P)" = "$source_expected" ] || return 1
   if [ "$source_dir" = "$STATE" ]; then
-    [ -d "$source_dir" ] || return 1
+    [ -d . ] && [ ! -L . ] || return 1
   else
-    [ "$(file_descriptor_mode /dev/fd/3 2>/dev/null)" = 700 ] || return 1
+    private_directory . || return 1
   fi
-  source_real=$(cd -P -- /dev/fd/3 && pwd -P) || return 1
-  [ "$source_real" = "$source_expected" ] || return 1
-  source="/dev/fd/3/$source_name"
+  source="./$source_name"
+  if [ "$source_type" = regular ]; then
+    regular_file "$source" || return 1
+  else
+    private_file "$source" || return 1
+  fi
+  source_identity=$(path_file_identity "$source" 2>/dev/null) || return 1
+  exec 8< "$source" || return 1
+  file_descriptor_regular 8 || return 1
+  source_fd_identity=$(file_descriptor_identity 8 2>/dev/null) || return 1
+  [ "$source_fd_identity" = "$source_identity" ] || return 1
+  [ "$source_type" = regular ] || [ "$(file_descriptor_mode 8 2>/dev/null)" = 600 ] || return 1
+  [ "$(path_file_identity "$source" 2>/dev/null)" = "$source_fd_identity" ] || return 1
+  if [ -n "$binding_id" ]; then
+    exec 7< "$source" || return 1
+    file_descriptor_regular 7 || return 1
+    [ "$(file_descriptor_identity 7 2>/dev/null)" = "$source_identity" ] || return 1
+  fi
   if [ -n "$append_source" ]; then
+    append_present=1
     append_source_dir=${append_source%/*}
     append_source_name=${append_source##*/}
     [ -L "$append_source_dir" ] && return 1
     append_source_parent=${append_source_dir%/*}
     append_source_base=${append_source_dir##*/}
     append_source_expected=$(cd -P -- "$append_source_parent" && pwd -P)/$append_source_base || return 1
-    exec 4< "$append_source_dir" || return 1
-    [ -d /dev/fd/4 ] || return 1
-    append_dir_identity=$(path_file_identity "$append_source_dir" 2>/dev/null) || return 1
-    append_fd_identity=$(file_descriptor_identity /dev/fd/4 2>/dev/null) || return 1
-    [ "$append_dir_identity" = "$append_fd_identity" ] || return 1
-    [ ! -L "$append_source_dir" ] || return 1
+    cd -P -- "$append_source_dir" || return 1
+    [ "$(pwd -P)" = "$append_source_expected" ] || return 1
     if [ "$append_source_dir" = "$STATE" ]; then
-      [ -d "$append_source_dir" ] || return 1
+      [ -d . ] && [ ! -L . ] || return 1
     else
-      [ "$(file_descriptor_mode /dev/fd/4 2>/dev/null)" = 700 ] || return 1
+      private_directory . || return 1
     fi
-    append_source_real=$(cd -P -- /dev/fd/4 && pwd -P) || return 1
-    [ "$append_source_real" = "$append_source_expected" ] || return 1
-    append_source="/dev/fd/4/$append_source_name"
+    append_source="./$append_source_name"
+    if [ "$append_source_type" = regular ]; then
+      regular_file "$append_source" || return 1
+    else
+      private_file "$append_source" || return 1
+    fi
+    append_identity=$(path_file_identity "$append_source" 2>/dev/null) || return 1
+    exec 6< "$append_source" || return 1
+    file_descriptor_regular 6 || return 1
+    append_fd_identity=$(file_descriptor_identity 6 2>/dev/null) || return 1
+    [ "$append_fd_identity" = "$append_identity" ] || return 1
+    [ "$append_source_type" = regular ] || [ "$(file_descriptor_mode 6 2>/dev/null)" = 600 ] || return 1
+    [ "$(path_file_identity "$append_source" 2>/dev/null)" = "$append_fd_identity" ] || return 1
   fi
   destination_dir=${destination%/*}
   destination_name=${destination##*/}
@@ -807,55 +819,49 @@ copy_private_atomic() (
   destination_parent=${destination_dir%/*}
   destination_base=${destination_dir##*/}
   destination_expected=$(cd -P -- "$destination_parent" && pwd -P)/$destination_base || return 1
+  cd -P -- "$destination_dir" || return 1
+  [ "$(pwd -P)" = "$destination_expected" ] || return 1
   if [ "$destination_dir" = "$STATE" ]; then
-    [ -d "$destination_dir" ] && [ ! -L "$destination_dir" ] || return 1
+    [ -d . ] && [ ! -L . ] || return 1
   else
-    private_directory "$destination_dir" || return 1
+    private_directory . || return 1
   fi
-  destination_real=$(cd -P -- "$destination_dir" && pwd -P) || return 1
-  [ "$destination_real" = "$destination_expected" ] || return 1
-  if [ -e "$destination" ] || [ -L "$destination" ]; then
+  if [ -e "./$destination_name" ] || [ -L "./$destination_name" ]; then
     if [ "$destination_type" = regular ]; then
-      regular_file "$destination" || return 1
+      regular_file "./$destination_name" || return 1
     else
-      private_file "$destination" || return 1
+      private_file "./$destination_name" || return 1
     fi
   fi
   tmp=$(mktemp "$STATE/.endpoint-binding-copy.XXXXXX") || return 1
   rm -f -- "$tmp" || return 1
-  if ! copy_to_new_private_file "$source" "$tmp" "$source_type" "$binding_id" \
-    "$append_line" "$append_source" "$append_source_type" "$append_skip" "$append_separator"; then
+  if ! copy_to_new_private_file "$tmp" "$binding_id" "$append_line" "$append_present" \
+    "$append_skip" "$append_separator"; then
     rm -f -- "$tmp"
     return 1
   fi
   tmp_identity=$(path_file_identity "$tmp" 2>/dev/null) || { rm -f -- "$tmp"; return 1; }
-  (
-    cd -P -- "$destination_dir" || exit 1
-    [ "$(pwd -P)" = "$destination_expected" ] || exit 1
-    if [ "$destination_dir" = "$STATE" ]; then
-      [ -d . ] && [ ! -L . ] || exit 1
-    else
-      private_directory . || exit 1
-    fi
-    if [ -e "./$destination_name" ] || [ -L "./$destination_name" ]; then
-      if [ "$destination_type" = regular ]; then
-        regular_file "./$destination_name" || exit 1
-      else
-        private_file "./$destination_name" || exit 1
-      fi
-    fi
-    atomic_rename_nofollow "$tmp" "./$destination_name" || exit 1
-    [ "$(pwd -P)" = "$destination_expected" ] || exit 1
+  [ "$(pwd -P)" = "$destination_expected" ] || { rm -f -- "$tmp"; return 1; }
+  if [ "$destination_dir" = "$STATE" ]; then
+    [ -d . ] && [ ! -L . ] || { rm -f -- "$tmp"; return 1; }
+  else
+    private_directory . || { rm -f -- "$tmp"; return 1; }
+  fi
+  if [ -e "./$destination_name" ] || [ -L "./$destination_name" ]; then
     if [ "$destination_type" = regular ]; then
-      regular_file "./$destination_name" || exit 1
+      regular_file "./$destination_name" || { rm -f -- "$tmp"; return 1; }
     else
-      private_file "./$destination_name" || exit 1
+      private_file "./$destination_name" || { rm -f -- "$tmp"; return 1; }
     fi
-    [ "$(path_file_identity "./$destination_name" 2>/dev/null)" = "$tmp_identity" ]
-  )
-  rc=$?
-  [ "$rc" -eq 0 ] || rm -f -- "$tmp"
-  return "$rc"
+  fi
+  atomic_rename_nofollow "$tmp" "./$destination_name" || { rc=$?; rm -f -- "$tmp"; return "$rc"; }
+  [ "$(pwd -P)" = "$destination_expected" ] || return 1
+  if [ "$destination_type" = regular ]; then
+    regular_file "./$destination_name" || return 1
+  else
+    private_file "./$destination_name" || return 1
+  fi
+  [ "$(path_file_identity "./$destination_name" 2>/dev/null)" = "$tmp_identity" ]
 )
 
 append_private_line_atomic() {
@@ -1768,6 +1774,13 @@ apply_migration() {
     id=${base%.meta}
     case "$base" in
       .*)
+        if regular_file "$meta" && cat -- "$meta" >/dev/null 2>&1 \
+          && parse_endpoint_claim "$meta"; then
+          ENDPOINT_CLAIM_IDS+=("$id")
+          ENDPOINT_CLAIM_BACKENDS+=("$FM_ENDPOINT_CLAIM_BACKEND")
+          ENDPOINT_CLAIM_TARGETS+=("$FM_ENDPOINT_CLAIM_TARGET")
+          ENDPOINT_CLAIM_WORKTREES+=("$FM_ENDPOINT_CLAIM_WORKTREE")
+        fi
         record_outcome "record $(reason_one_line "$base"): skipped - hidden metadata record is out of scope"
         SKIPPED_LEGACY=1
         continue
