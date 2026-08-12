@@ -184,11 +184,6 @@ verify_live_task_worktree() {
         return 1
       }
       live=$(fm_backend_herdr_current_path "$target")
-      state=$(fm_backend_agent_state "$backend" "$target" 2>/dev/null || printf 'unreadable')
-      [ "$state" = alive ] || {
-        record_endpoint_state_refusal "$id" "$backend" "$state"
-        return 1
-      }
       ;;
     *)
       record_outcome "task $id: skipped - backend '$backend' has no verified legacy task worktree identity"
@@ -197,6 +192,11 @@ verify_live_task_worktree() {
   esac
   [ -n "$live" ] || {
     record_outcome "task $id: skipped - live endpoint worktree identity is unreadable"
+    return 1
+  }
+  state=$(fm_backend_agent_state "$backend" "$target" 2>/dev/null || printf 'unreadable')
+  [ "$state" = alive ] || {
+    record_endpoint_state_refusal "$id" "$backend" "$state"
     return 1
   }
   recorded_real=$(CDPATH='' cd -- "$recorded" 2>/dev/null && pwd -P) || {
@@ -214,9 +214,14 @@ verify_live_task_worktree() {
 }
 
 verify_legacy_endpoint() {
-  local meta=$1 id=$2 backend target state
-  if ! fm_backend_validate_task_endpoint "$meta" "$id" >/dev/null 2>&1; then
-    record_outcome "task $id: skipped - identity mismatch: shared endpoint validation failed"
+  local meta=$1 id=$2 backend target state validation
+  if validation=$(fm_backend_validate_task_endpoint "$meta" "$id" 2>&1); then
+    if ! fm_backend_validate_task_endpoint "$meta" "$id" >/dev/null 2>&1; then
+      record_outcome "task $id: skipped - shared endpoint metadata changed during validation"
+      return 1
+    fi
+  else
+    record_outcome "task $id: skipped - shared endpoint validation refused: $(reason_one_line "$validation")"
     return 1
   fi
   backend=$FM_BACKEND_VALIDATED_BACKEND
