@@ -43,6 +43,8 @@ fm_session_lock_owned_by_self "$STATE" || {
   echo "ENDPOINT_BINDING_MIGRATION: session lock is not owned by this session; migration did not run" >&2
   exit 1
 }
+# shellcheck source=bin/fm-wake-lib.sh disable=SC1091
+. "$SCRIPT_DIR/fm-wake-lib.sh"
 
 valid_task_id() {
   case "$1" in
@@ -144,9 +146,23 @@ SKIPPED_LEGACY=0
 META_WRITE_STARTED=0
 RECORDS_PUBLISHED=0
 BACKUP_DIR_CREATED=0
+CURRENT_META_LOCK=
+CURRENT_META_LOCK_HELD=0
+REPORT_BEFORE=
+SCAN_MARKER_BEFORE=
+MARKER_BEFORE=
+REPORT_PRESENT=0
+SCAN_MARKER_PRESENT=0
+MARKER_PRESENT=0
+REPORT_SNAPSHOT_READY=0
+SCAN_MARKER_SNAPSHOT_READY=0
+MARKER_SNAPSHOT_READY=0
+RECOVERY_REQUIRED=0
+APPLY_ABORTED=0
 
 cleanup() {
   local path
+  [ "$RECOVERY_REQUIRED" -eq 1 ] && return 0
   [ -z "$REPORT_TMP" ] || rm -f -- "$REPORT_TMP"
   if [ -n "$STAGE_DIR" ] && [ -d "$STAGE_DIR" ]; then
     for path in "$STAGE_DIR"/*; do
@@ -158,15 +174,60 @@ cleanup() {
 }
 trap cleanup EXIT
 
+acquire_meta_lock() {
+  CURRENT_META_LOCK=$(fm_meta_lock_path "$1") || return 1
+  CURRENT_META_LOCK_HELD=1
+  if ! fm_lock_acquire_wait "$CURRENT_META_LOCK"; then
+    CURRENT_META_LOCK=
+    CURRENT_META_LOCK_HELD=0
+    return 1
+  fi
+}
+
+release_meta_lock() {
+  local rc=0
+  if [ "$CURRENT_META_LOCK_HELD" -eq 1 ]; then
+    fm_lock_release "$CURRENT_META_LOCK" || rc=1
+    CURRENT_META_LOCK=
+    CURRENT_META_LOCK_HELD=0
+  fi
+  return "$rc"
+}
+
 rollback_stamps() {
-  local i tmp
+  local i tmp rc=0 meta
   for i in "${!STAMP_IDS[@]}"; do
-    tmp=$(mktemp "$STATE/.endpoint-binding-rollback.XXXXXX") || return 1
+    meta=${STAMP_METAS[$i]}
+    if ! acquire_meta_lock "$meta"; then
+      rc=1
+      continue
+    fi
+    if ! private_file "$meta"; then
+      rc=1
+      release_meta_lock || rc=1
+      continue
+    fi
+    if cmp -s -- "$meta" "${STAMP_BEFORE[$i]}"; then
+      release_meta_lock || rc=1
+      continue
+    fi
+    if ! cmp -s -- "$meta" "${STAMP_AFTER[$i]}"; then
+      rc=1
+      release_meta_lock || rc=1
+      continue
+    fi
+    tmp=$(mktemp "$STATE/.endpoint-binding-rollback.XXXXXX") || {
+      rc=1
+      release_meta_lock || rc=1
+      continue
+    }
     if ! cp -p -- "${STAMP_BEFORE[$i]}" "$tmp" || ! mv -f -- "$tmp" "${STAMP_METAS[$i]}"; then
       rm -f -- "$tmp"
-      return 1
+      rc=1
     fi
+    release_meta_lock || rc=1
   done
+  return "$rc"
 }
 
 remove_published_backups() {
@@ -180,11 +241,24 @@ remove_published_backups() {
 
 abort_apply() {
   local rc=${1:-1}
-  if [ "$META_WRITE_STARTED" -eq 1 ]; then
-    rollback_stamps || rc=1
+  local rollback_rc=0 evidence_rc=0
+  [ "$APPLY_ABORTED" -eq 0 ] || return "$rc"
+  APPLY_ABORTED=1
+  release_meta_lock || rc=1
+  if [ "$META_WRITE_STARTED" -eq 1 ] && ! rollback_stamps; then
+    rollback_rc=1
+    rc=1
   fi
-  [ "$RECORDS_PUBLISHED" -eq 0 ] || rm -f -- "$RECORDS"
-  remove_published_backups
+  restore_evidence || evidence_rc=1
+  if [ "$rollback_rc" -eq 0 ] && [ "$evidence_rc" -eq 0 ]; then
+    [ "$RECORDS_PUBLISHED" -eq 0 ] || rm -f -- "$RECORDS" || rc=1
+    remove_published_backups || rc=1
+  else
+    RECOVERY_REQUIRED=1
+    if [ "$META_WRITE_STARTED" -eq 1 ] && [ "${#STAMP_IDS[@]}" -gt 0 ]; then
+      publish_recovery_records || rc=1
+    fi
+  fi
   return "$rc"
 }
 
@@ -192,6 +266,96 @@ handle_signal() {
   trap - HUP INT TERM
   abort_apply 1 || true
   exit 1
+}
+
+snapshot_evidence_file() {
+  local destination=$1 label=$2 snapshot
+  if [ -e "$destination" ] || [ -L "$destination" ]; then
+    [ -f "$destination" ] && [ ! -L "$destination" ] || return 1
+    snapshot="$STAGE_DIR/$label.before"
+    cp -p -- "$destination" "$snapshot" || return 1
+    case "$label" in
+      report) REPORT_BEFORE=$snapshot; REPORT_PRESENT=1; REPORT_SNAPSHOT_READY=1 ;;
+      scan-marker) SCAN_MARKER_BEFORE=$snapshot; SCAN_MARKER_PRESENT=1; SCAN_MARKER_SNAPSHOT_READY=1 ;;
+      marker) MARKER_BEFORE=$snapshot; MARKER_PRESENT=1; MARKER_SNAPSHOT_READY=1 ;;
+      *) return 1 ;;
+    esac
+  else
+    case "$label" in
+      report) REPORT_BEFORE=; REPORT_PRESENT=0; REPORT_SNAPSHOT_READY=1 ;;
+      scan-marker) SCAN_MARKER_BEFORE=; SCAN_MARKER_PRESENT=0; SCAN_MARKER_SNAPSHOT_READY=1 ;;
+      marker) MARKER_BEFORE=; MARKER_PRESENT=0; MARKER_SNAPSHOT_READY=1 ;;
+      *) return 1 ;;
+    esac
+  fi
+}
+
+prepare_evidence() {
+  snapshot_evidence_file "$REPORT" report || return 1
+  snapshot_evidence_file "$SCAN_MARKER" scan-marker || return 1
+  snapshot_evidence_file "$MARKER" marker || return 1
+}
+
+restore_evidence_file() {
+  local destination=$1 snapshot=$2 present=$3 tmp
+  if [ "$present" -eq 1 ]; then
+    tmp=$(mktemp "$STATE/.endpoint-binding-evidence-restore.XXXXXX") || return 1
+    if ! cp -p -- "$snapshot" "$tmp" || ! mv -f -- "$tmp" "$destination"; then
+      rm -f -- "$tmp"
+      return 1
+    fi
+  elif [ -e "$destination" ] || [ -L "$destination" ]; then
+    rm -f -- "$destination" || return 1
+  fi
+}
+
+restore_evidence() {
+  local rc=0
+  if [ "$REPORT_SNAPSHOT_READY" -eq 1 ]; then
+    if [ "$REPORT_PRESENT" -eq 1 ]; then
+      restore_evidence_file "$REPORT" "$REPORT_BEFORE" 1 || rc=1
+    else
+      restore_evidence_file "$REPORT" '' 0 || rc=1
+    fi
+  fi
+  if [ "$SCAN_MARKER_SNAPSHOT_READY" -eq 1 ]; then
+    if [ "$SCAN_MARKER_PRESENT" -eq 1 ]; then
+      restore_evidence_file "$SCAN_MARKER" "$SCAN_MARKER_BEFORE" 1 || rc=1
+    else
+      restore_evidence_file "$SCAN_MARKER" '' 0 || rc=1
+    fi
+  fi
+  if [ "$MARKER_SNAPSHOT_READY" -eq 1 ]; then
+    if [ "$MARKER_PRESENT" -eq 1 ]; then
+      restore_evidence_file "$MARKER" "$MARKER_BEFORE" 1 || rc=1
+    else
+      restore_evidence_file "$MARKER" '' 0 || rc=1
+    fi
+  fi
+  return "$rc"
+}
+
+publish_recovery_records() {
+  local manifest_tmp i
+  if [ "$RECORDS_PUBLISHED" -eq 1 ] && private_file "$RECORDS"; then
+    return 0
+  fi
+  if [ -e "$RECORDS" ] || [ -L "$RECORDS" ]; then
+    return 1
+  fi
+  manifest_tmp=$(mktemp "$STATE/.endpoint-binding-recovery-records.XXXXXX") || return 1
+  for i in "${!STAMP_IDS[@]}"; do
+    printf '%s\t%s\t%s\n' "${STAMP_IDS[$i]}" "${STAMP_IDS[$i]}.before" "${STAMP_IDS[$i]}.after" >> "$manifest_tmp" || {
+      rm -f -- "$manifest_tmp"
+      return 1
+    }
+  done
+  chmod 0600 "$manifest_tmp" || { rm -f -- "$manifest_tmp"; return 1; }
+  if ! mv -f -- "$manifest_tmp" "$RECORDS"; then
+    rm -f -- "$manifest_tmp"
+    return 1
+  fi
+  RECORDS_PUBLISHED=1
 }
 trap handle_signal HUP INT TERM
 
@@ -210,10 +374,11 @@ publish_report() {
 apply_migration() {
   local meta id binding_count validation before after before_final after_final
   local i tmp manifest_tmp
-  REPORT_TMP=$(mktemp "$STATE/.endpoint-binding-report.XXXXXX") || return 1
-  chmod 0600 "$REPORT_TMP" || return 1
   STAGE_DIR=$(mktemp -d "$STATE/.endpoint-binding-stage.XXXXXX") || return 1
   chmod 0700 "$STAGE_DIR" || return 1
+  REPORT_TMP=$(mktemp "$STAGE_DIR/report.XXXXXX") || return 1
+  chmod 0600 "$REPORT_TMP" || return 1
+  prepare_evidence || return 1
 
   for meta in "$STATE"/*.meta; do
     [ "$meta" = "$STATE/*.meta" ] && continue
@@ -307,28 +472,26 @@ apply_migration() {
     chmod 0600 "${STAMP_BEFORE_FINAL[$i]}" "${STAMP_AFTER_FINAL[$i]}" || { remove_published_backups; return 1; }
   done
 
-  for i in "${!STAMP_IDS[@]}"; do
-    [ -f "${STAMP_METAS[$i]}" ] && [ ! -L "${STAMP_METAS[$i]}" ] || {
-      abort_apply 1
-      return $?
-    }
-    cmp -s -- "${STAMP_METAS[$i]}" "${STAMP_BEFORE[$i]}" || {
-      abort_apply 1
-      return $?
-    }
-  done
   META_WRITE_STARTED=1
   for i in "${!STAMP_IDS[@]}"; do
-    [ -f "${STAMP_METAS[$i]}" ] && [ ! -L "${STAMP_METAS[$i]}" ] || {
-      abort_apply 1
-      return $?
-    }
-    tmp=$(mktemp "$STATE/.endpoint-binding-meta.XXXXXX") || { abort_apply 1; return $?; }
-    if ! cp -p -- "${STAMP_AFTER[$i]}" "$tmp" || ! mv -f -- "$tmp" "${STAMP_METAS[$i]}"; then
-      rm -f -- "$tmp"
+    acquire_meta_lock "${STAMP_METAS[$i]}" || { abort_apply 1; return $?; }
+    if ! private_file "${STAMP_METAS[$i]}" || ! cmp -s -- "${STAMP_METAS[$i]}" "${STAMP_BEFORE[$i]}"; then
+      release_meta_lock || true
       abort_apply 1
       return $?
     fi
+    tmp=$(mktemp "$STATE/.endpoint-binding-meta.XXXXXX") || {
+      release_meta_lock || true
+      abort_apply 1
+      return $?
+    }
+    if ! cp -p -- "${STAMP_AFTER[$i]}" "$tmp" || ! mv -f -- "$tmp" "${STAMP_METAS[$i]}"; then
+      rm -f -- "$tmp"
+      release_meta_lock || true
+      abort_apply 1
+      return $?
+    fi
+    release_meta_lock || { abort_apply 1; return $?; }
   done
 
   manifest_tmp=$(mktemp "$STATE/.endpoint-binding-records.XXXXXX") || { abort_apply 1; return $?; }
@@ -407,5 +570,12 @@ undo_migration() {
 if [ "$MODE" = undo ]; then
   undo_migration
 else
-  apply_migration
+  apply_rc=0
+  apply_migration || apply_rc=$?
+  if [ "$apply_rc" -ne 0 ]; then
+    if [ "$APPLY_ABORTED" -eq 0 ]; then
+      abort_apply "$apply_rc" || apply_rc=$?
+    fi
+    exit "$apply_rc"
+  fi
 fi
