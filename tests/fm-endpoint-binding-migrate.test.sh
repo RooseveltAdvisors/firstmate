@@ -375,7 +375,8 @@ SH
   cat > "$dir/fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 destination=${!#}
-[ -n "${FM_FAIL_DEST:-}" ] && [ "$destination" = "$FM_FAIL_DEST" ] && exit 1
+[ -n "${FM_FAIL_DEST:-}" ] \
+  && [ "${destination##*/}" = "${FM_FAIL_DEST##*/}" ] && exit 1
 exec "${FM_REAL_MV:?}" "$@"
 SH
   chmod +x "$dir/fakebin/cp" "$dir/fakebin/mv"
@@ -593,16 +594,18 @@ test_undo_recovery_rejects_symlink_destination() {
 }
 
 test_private_atomic_publication_does_not_follow_destination_symlink() {
-  local dir out real_mv outside backup
+  local dir out real_mv outside backup activated
   dir=$(make_case atomic-destination-symlink)
   real_mv=$(command -v mv)
   outside="$dir/outside-atomic-destination"
   backup="$dir/home/state/.endpoint-binding-migration-backups"
+  activated="$dir/recovery-race-activated"
   mkdir "$outside"
   cat > "$dir/fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 destination=${!#}
 if [ "$PWD" = "${FM_BACKUP_DIR:?}" ] && [ "$destination" = ./good.before ]; then
+  : > "${FM_RACE_ACTIVATED:?}"
   ln -s "${FM_OUTSIDE:?}" "$destination" || exit 1
 fi
 exec "${FM_REAL_MV:?}" "$@"
@@ -612,7 +615,9 @@ SH
     'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
     'kind=scout'
   out=$(FM_REAL_MV="$real_mv" FM_BACKUP_DIR="$backup" FM_OUTSIDE="$outside" \
-    run_locked "$dir") || fail "atomic recovery publication failed: $out"
+    FM_RACE_ACTIVATED="$activated" run_locked "$dir") \
+    || fail "atomic recovery publication failed: $out"
+  [ -f "$activated" ] || fail 'recovery publication race fixture did not activate'
   [ -f "$backup/good.before" ] && [ ! -L "$backup/good.before" ] \
     || fail 'recovery publication retained a destination symlink'
   [ -z "$(find "$outside" -mindepth 1 -maxdepth 1 -print -quit)" ] \
@@ -621,16 +626,19 @@ SH
 }
 
 test_journal_publication_does_not_follow_destination_symlink() {
-  local dir out real_mv outside records
+  local dir out real_mv outside records activated
   dir=$(make_case journal-destination-symlink)
   real_mv=$(command -v mv)
   outside="$dir/outside-journal-destination"
   records="$dir/home/state/.endpoint-binding-migration-records-v1"
+  activated="$dir/journal-race-activated"
   mkdir "$outside"
   cat > "$dir/fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 destination=${!#}
-if [ "$destination" = "${FM_RECORDS:?}" ]; then
+if [ "$PWD" = "${FM_RECORDS%/*}" ] \
+  && [ "${destination##*/}" = "${FM_RECORDS##*/}" ]; then
+  : > "${FM_RACE_ACTIVATED:?}"
   ln -s "${FM_OUTSIDE:?}" "$destination" || exit 1
 fi
 exec "${FM_REAL_MV:?}" "$@"
@@ -640,12 +648,67 @@ SH
     'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
     'kind=scout'
   out=$(FM_REAL_MV="$real_mv" FM_RECORDS="$records" FM_OUTSIDE="$outside" \
-    run_locked "$dir") || fail "journal publication failed: $out"
+    FM_RACE_ACTIVATED="$activated" run_locked "$dir") \
+    || fail "journal publication failed: $out"
+  [ -f "$activated" ] || fail 'journal publication race fixture did not activate'
   [ -f "$records" ] && [ ! -L "$records" ] \
     || fail 'journal publication retained a destination symlink'
   [ -z "$(find "$outside" -mindepth 1 -maxdepth 1 -print -quit)" ] \
     || fail 'journal publication followed a destination symlink outside state'
   pass 'endpoint binding journal publication uses a no-follow destination'
+}
+
+test_evidence_publication_does_not_follow_destination_symlinks() {
+  local dir out real_mv report scan
+  dir=$(make_case evidence-destination-symlinks)
+  real_mv=$(command -v mv)
+  report="$dir/home/state/.endpoint-binding-migration.log"
+  scan="$dir/home/state/.endpoint-binding-migration-scan-v1"
+  mkdir "$dir/outside-report" "$dir/outside-scan"
+  cat > "$dir/fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+destination=${!#}
+case "${destination##*/}" in
+  .endpoint-binding-migration.log)
+    : > "${FM_REPORT_RACE_ACTIVATED:?}"
+    ln -s "${FM_OUTSIDE_REPORT:?}" "$destination" || exit 1
+    ;;
+  .endpoint-binding-migration-scan-v1)
+    : > "${FM_SCAN_RACE_ACTIVATED:?}"
+    ln -s "${FM_OUTSIDE_SCAN:?}" "$destination" || exit 1
+    ;;
+esac
+exec "${FM_REAL_MV:?}" "$@"
+SH
+  chmod +x "$dir/fakebin/mv"
+  out=$(FM_REAL_MV="$real_mv" FM_OUTSIDE_REPORT="$dir/outside-report" \
+    FM_OUTSIDE_SCAN="$dir/outside-scan" FM_REPORT_RACE_ACTIVATED="$dir/report-race" \
+    FM_SCAN_RACE_ACTIVATED="$dir/scan-race" run_locked "$dir") \
+    || fail "evidence publication failed: $out"
+  [ -f "$dir/report-race" ] && [ -f "$dir/scan-race" ] \
+    || fail 'evidence publication race fixtures did not activate'
+  [ -f "$report" ] && [ ! -L "$report" ] \
+    || fail 'report publication retained a destination symlink'
+  [ -f "$scan" ] && [ ! -L "$scan" ] \
+    || fail 'marker publication retained a destination symlink'
+  [ -z "$(find "$dir/outside-report" "$dir/outside-scan" -mindepth 1 -print -quit)" ] \
+    || fail 'evidence publication followed a destination symlink outside state'
+  pass 'endpoint binding evidence publication uses no-follow destinations'
+}
+
+test_migration_does_not_require_perl() {
+  local dir out
+  dir=$(make_case no-perl)
+  printf '#!/usr/bin/env bash\nexit 99\n' > "$dir/fakebin/perl"
+  chmod +x "$dir/fakebin/perl"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  out=$(run_locked "$dir") || fail "migration required Perl: $out"
+  grep -qx 'endpoint_task_id=good' "$dir/home/state/good.meta" \
+    || fail 'migration without Perl did not stamp the verified endpoint'
+  run_locked "$dir" --undo >/dev/null || fail 'migration without Perl could not undo'
+  pass 'endpoint binding migration uses portable atomic publication'
 }
 
 test_undo_recovery_rejects_symlink_stage() {
@@ -1026,7 +1089,7 @@ test_migration_transaction_lock_serializes_no_stamp_runs() {
   cat > "$dir/fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 destination=${!#}
-if [ "$destination" = "${FM_REPORT_DEST:?}" ]; then
+if [ "${destination##*/}" = "${FM_REPORT_DEST##*/}" ]; then
   if mkdir "${FM_FIRST_PUBLISH:?}" 2>/dev/null; then
     : > "${FM_FIRST_STARTED:?}"
     while [ ! -e "${FM_FIRST_RELEASE:?}" ]; do sleep 0.01; done
@@ -1063,7 +1126,8 @@ test_stamp_lock_is_held_through_publication_rollback() {
   cat > "$dir/fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 destination=${!#}
-if [ -n "${FM_SCAN_DEST:-}" ] && [ "$destination" = "$FM_SCAN_DEST" ]; then
+if [ -n "${FM_SCAN_DEST:-}" ] \
+  && [ "${destination##*/}" = "${FM_SCAN_DEST##*/}" ]; then
   : > "${FM_PUBLICATION_STARTED:?}"
   while [ ! -e "${FM_PUBLICATION_RELEASE:?}" ]; do sleep 0.01; done
   exit 1
@@ -1366,28 +1430,50 @@ SH
 }
 
 test_publication_failure_restores_evidence() {
-  local dir original out rc real_mv
+  local dir original original_report out rc real_mv outside
   dir=$(make_case publication-failure)
   real_mv=$(command -v mv)
+  outside="$dir/outside-evidence-restore"
+  mkdir "$outside"
   cat > "$dir/fakebin/mv" <<'SH'
 #!/usr/bin/env bash
-if [ -n "${FM_FAIL_DEST:-}" ] && [ "${4:-}" = "$FM_FAIL_DEST" ]; then exit 1; fi
+destination=${!#}
+if [ -n "${FM_FAIL_DEST:-}" ] \
+  && [ "${destination##*/}" = "${FM_FAIL_DEST##*/}" ]; then
+  : > "${FM_PUBLICATION_FAILED:?}"
+  exit 1
+fi
+if [ -n "${FM_RESTORE_DEST:-}" ] && [ -e "${FM_PUBLICATION_FAILED:?}" ] \
+  && [ "$PWD" = "${FM_RESTORE_DEST%/*}" ] \
+  && [ "${destination##*/}" = "${FM_RESTORE_DEST##*/}" ] \
+  && [ ! -e "${FM_RESTORE_RACE_ACTIVATED:?}" ]; then
+  rm -f -- "$destination" || exit 1
+  ln -s "${FM_OUTSIDE:?}" "$destination" || exit 1
+  : > "$FM_RESTORE_RACE_ACTIVATED"
+fi
 exec "${FM_REAL_MV:?}" "$@"
 SH
   chmod +x "$dir/fakebin/mv"
   fm_write_meta "$dir/home/state/good.meta" \
     'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
     'kind=scout'
+  printf 'old report\n' > "$dir/home/state/.endpoint-binding-migration.log"
+  chmod 0600 "$dir/home/state/.endpoint-binding-migration.log"
   original=$(mktemp "$dir/original.XXXXXX")
+  original_report=$(mktemp "$dir/original-report.XXXXXX")
   cp "$dir/home/state/good.meta" "$original"
+  cp "$dir/home/state/.endpoint-binding-migration.log" "$original_report"
   set +e
   out=$(FM_REAL_MV="$real_mv" FM_FAIL_DEST="$dir/home/state/.endpoint-binding-migration-scan-v1" \
+    FM_RESTORE_DEST="$dir/home/state/.endpoint-binding-migration.log" \
+    FM_PUBLICATION_FAILED="$dir/evidence-publication-failed" \
+    FM_RESTORE_RACE_ACTIVATED="$dir/evidence-restore-race-activated" FM_OUTSIDE="$outside" \
     run_locked "$dir")
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "publication failure unexpectedly succeeded: $out"
   cmp -s "$original" "$dir/home/state/good.meta" || fail 'publication failure left stamped metadata'
-  [ ! -e "$dir/home/state/.endpoint-binding-migration.log" ] \
+  cmp -s "$original_report" "$dir/home/state/.endpoint-binding-migration.log" \
     || fail 'publication failure left a stale report'
   [ ! -e "$dir/home/state/.endpoint-binding-migration-scan-v1" ] \
     || fail 'publication failure left a stale scan marker'
@@ -1395,7 +1481,63 @@ SH
     || fail 'publication failure left a stale completion marker'
   [ ! -e "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
     || fail 'publication failure left a stale stamp journal'
+  [ -f "$dir/evidence-restore-race-activated" ] \
+    || fail 'evidence restoration race fixture did not activate'
+  [ -z "$(find "$outside" -mindepth 1 -maxdepth 1 -print -quit)" ] \
+    || fail 'evidence restoration followed a destination symlink outside state'
   pass 'endpoint binding migration rolls back published evidence on failure'
+}
+
+test_abort_interruption_retains_recovery_stage() {
+  local dir out rc real_mv real_rm stage
+  dir=$(make_case abort-interruption)
+  real_mv=$(command -v mv)
+  real_rm=$(command -v rm)
+  cat > "$dir/fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+destination=${!#}
+if [ "${destination##*/}" = "${FM_FAIL_DEST##*/}" ] \
+  && [ ! -e "${FM_FAIL_SENT:?}" ]; then
+  : > "$FM_FAIL_SENT"
+  exit 1
+fi
+exec "${FM_REAL_MV:?}" "$@"
+SH
+  cat > "$dir/fakebin/rm" <<'SH'
+#!/usr/bin/env bash
+for arg in "$@"; do
+  if [ "${arg##*/}" = good.before ] && [ "${FM_ABORT_SIGNAL:-0}" -eq 1 ] \
+    && [ ! -e "${FM_ABORT_SIGNAL_SENT:?}" ]; then
+    : > "$FM_ABORT_SIGNAL_SENT"
+    kill -TERM "${FM_MIGRATE_PID:?}"
+    exit 143
+  fi
+done
+exec "${FM_REAL_RM:?}" "$@"
+SH
+  chmod +x "$dir/fakebin/mv" "$dir/fakebin/rm"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  set +e
+  out=$(FM_REAL_MV="$real_mv" FM_REAL_RM="$real_rm" \
+    FM_FAIL_DEST="$dir/home/state/.endpoint-binding-migration-scan-v1" \
+    FM_FAIL_SENT="$dir/publication-failed" FM_ABORT_SIGNAL=1 \
+    FM_ABORT_SIGNAL_SENT="$dir/abort-signal-sent" run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "abort interruption unexpectedly succeeded: $out"
+  [ -f "$dir/abort-signal-sent" ] || fail 'abort interruption fixture did not activate'
+  stage=$(find "$dir/home/state" -maxdepth 1 -type d \
+    -name '.endpoint-binding-stage.*' -print -quit)
+  [ -n "$stage" ] || fail 'abort interruption discarded recovery staging'
+  [ -f "$stage/good.before" ] && [ -f "$stage/good.after" ] \
+    || fail 'abort interruption discarded staged recovery bytes'
+  rm -f "$dir/fakebin/mv" "$dir/fakebin/rm"
+  out=$(run_locked "$dir") || fail "abort interruption recovery failed: $out"
+  assert_contains "$out" 'stamped 1' 'abort interruption recovery did not rerun migration'
+  [ ! -e "$stage" ] || fail 'abort interruption recovery left stale staging'
+  pass 'endpoint binding abort retains recovery staging until cleanup commits'
 }
 
 test_backup_cleanup_failure_retains_staged_recovery() {
@@ -1405,7 +1547,8 @@ test_backup_cleanup_failure_retains_staged_recovery() {
   real_rm=$(command -v rm)
   cat > "$dir/fakebin/mv" <<'SH'
 #!/usr/bin/env bash
-if [ "${4:-}" = "${FM_FAIL_DEST:-}" ]; then exit 1; fi
+destination=${!#}
+if [ "${destination##*/}" = "${FM_FAIL_DEST##*/}" ]; then exit 1; fi
 exec "${FM_REAL_MV:?}" "$@"
 SH
   cat > "$dir/fakebin/rm" <<'SH'
@@ -1441,7 +1584,8 @@ test_rollback_rejects_replaced_backup_directory_symlink() {
   real_mv=$(command -v mv)
   cat > "$dir/fakebin/mv" <<'SH'
 #!/usr/bin/env bash
-if [ "${4:-}" = "${FM_FAIL_DEST:-}" ]; then
+destination=${!#}
+if [ "${destination##*/}" = "${FM_FAIL_DEST##*/}" ]; then
   "${FM_REAL_RM:?}" -rf -- "$FM_BACKUP_DIR"
   mkdir -- "$FM_OUTSIDE"
   ln -s "$FM_OUTSIDE" "$FM_BACKUP_DIR"
@@ -1512,25 +1656,27 @@ SH
 }
 
 test_crash_after_manifest_preserves_undo_path() {
-  local dir out rc real_perl
+  local dir out rc real_mv
   dir=$(make_case crash-before-stamp)
-  real_perl=$(command -v perl)
-cat > "$dir/fakebin/perl" <<'SH'
+  real_mv=$(command -v mv)
+  cat > "$dir/fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 destination=${!#}
-"${FM_REAL_PERL:?}" "$@"
+"${FM_REAL_MV:?}" "$@"
 rc=$?
-if [ "$rc" -eq 0 ] && [ "$destination" = "${FM_CRASH_DEST:-}" ]; then
+if [ "$rc" -eq 0 ] \
+  && [ "${destination##*/}" = "${FM_CRASH_DEST##*/}" ]; then
   kill -KILL "${FM_MIGRATE_PID:?}"
 fi
 exit "$rc"
 SH
-  chmod +x "$dir/fakebin/perl"
+  chmod +x "$dir/fakebin/mv"
   fm_write_meta "$dir/home/state/good.meta" \
     'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
     'kind=scout'
   set +e
-  out=$(FM_REAL_PERL="$real_perl" FM_CRASH_DEST=./.endpoint-binding-migration-records-v1 run_locked "$dir")
+  out=$(FM_REAL_MV="$real_mv" \
+    FM_CRASH_DEST="$dir/home/state/.endpoint-binding-migration-records-v1" run_locked "$dir")
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "manifest crash unexpectedly succeeded: $out"
@@ -1540,8 +1686,8 @@ SH
     || fail 'manifest crash discarded the durable journal'
   [ -f "$dir/home/state/.endpoint-binding-migration-backups/good.before" ] \
     || fail 'manifest crash discarded before recovery bytes'
-  out=$(FM_REAL_PERL="$real_perl" run_locked "$dir" --undo) \
-    || fail "manifest crash recovery undo failed: $out"
+  rm -f "$dir/fakebin/mv"
+  out=$(run_locked "$dir" --undo) || fail "manifest crash recovery undo failed: $out"
   [ ! -e "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
     || fail 'manifest crash recovery left the journal'
   pass 'endpoint binding migration publishes recovery state before stamping'
@@ -1563,10 +1709,11 @@ if [ -n "${FM_FAIL_DEST:-}" ] \
 fi
 "${FM_REAL_MV:?}" "$@"
 rc=$?
-if [ "$rc" -eq 0 ] && [ "${4:-}" = "${FM_KILL_DEST:-}" ] \
+if [ "$rc" -eq 0 ] \
+  && [ "${destination##*/}" = "${FM_KILL_DEST##*/}" ] \
   && [ ! -e "${FM_KILL_SENT:?}" ]; then
   : > "$FM_KILL_SENT"
-  kill -KILL "$PPID"
+  kill -KILL "${FM_MIGRATE_PID:?}"
 fi
 exit "$rc"
 SH
@@ -1620,13 +1767,15 @@ test_no_stamp_crash_restores_evidence_before_rerun() {
   cat > "$dir/fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 destination=${!#}
-if [ -n "${FM_FAIL_DEST:-}" ] && [ "$destination" = "$FM_FAIL_DEST" ]; then
+if [ -n "${FM_FAIL_DEST:-}" ] \
+  && [ "${destination##*/}" = "${FM_FAIL_DEST##*/}" ]; then
   exit 1
 fi
 "${FM_REAL_MV:?}" "$@"
 rc=$?
-if [ "$rc" -eq 0 ] && [ -n "${FM_KILL_DEST:-}" ] && [ "$destination" = "$FM_KILL_DEST" ]; then
-  kill -KILL "$PPID"
+if [ "$rc" -eq 0 ] && [ -n "${FM_KILL_DEST:-}" ] \
+  && [ "${destination##*/}" = "${FM_KILL_DEST##*/}" ]; then
+  kill -KILL "${FM_MIGRATE_PID:?}"
 fi
 exit "$rc"
 SH
@@ -1714,25 +1863,27 @@ test_partial_apply_recovery_tolerates_lifecycle_changes() {
 }
 
 test_partial_published_journal_reruns_apply() {
-  local dir out rc real_perl
+  local dir out rc real_mv
   dir=$(make_case partial-published-journal)
-  real_perl=$(command -v perl)
-  cat > "$dir/fakebin/perl" <<'SH'
+  real_mv=$(command -v mv)
+  cat > "$dir/fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 destination=${!#}
-"${FM_REAL_PERL:?}" "$@"
+"${FM_REAL_MV:?}" "$@"
 rc=$?
-if [ "$rc" -eq 0 ] && [ "$destination" = "${FM_CRASH_DEST:-}" ]; then
+if [ "$rc" -eq 0 ] \
+  && [ "${destination##*/}" = "${FM_CRASH_DEST##*/}" ]; then
   kill -KILL "${FM_MIGRATE_PID:?}"
 fi
 exit "$rc"
 SH
-  chmod +x "$dir/fakebin/perl"
+  chmod +x "$dir/fakebin/mv"
   fm_write_meta "$dir/home/state/good.meta" \
     'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
     'kind=scout'
   set +e
-  out=$(FM_REAL_PERL="$real_perl" FM_CRASH_DEST=./.endpoint-binding-migration-records-v1 run_locked "$dir")
+  out=$(FM_REAL_MV="$real_mv" \
+    FM_CRASH_DEST="$dir/home/state/.endpoint-binding-migration-records-v1" run_locked "$dir")
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "partial journal publication unexpectedly succeeded: $out"
@@ -1740,7 +1891,7 @@ SH
     || fail 'partial journal publication stamped metadata before restart'
   [ -f "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
     || fail 'partial journal publication lost the journal'
-  rm -f "$dir/fakebin/perl"
+  rm -f "$dir/fakebin/mv"
   out=$(run_locked "$dir") || fail "partial journal restart failed: $out"
   assert_contains "$out" 'stamped 1' 'partial journal restart skipped the eligible record'
   assert_contains "$(cat "$dir/home/state/good.meta")" 'endpoint_task_id=good' \
@@ -1894,7 +2045,8 @@ test_journal_cleanup_failure_retains_recovery_bytes() {
   real_rm=$(command -v rm)
   cat > "$dir/fakebin/mv" <<'SH'
 #!/usr/bin/env bash
-if [ "${4:-}" = "${FM_FAIL_DEST:-}" ]; then exit 1; fi
+destination=${!#}
+if [ "${destination##*/}" = "${FM_FAIL_DEST##*/}" ]; then exit 1; fi
 exec "${FM_REAL_MV:?}" "$@"
 SH
   cat > "$dir/fakebin/rm" <<'SH'
@@ -2112,7 +2264,9 @@ test_incomplete_rollback_retains_recovery_evidence() {
   real_mv=$(command -v mv)
   cat > "$dir/fakebin/mv" <<'SH'
 #!/usr/bin/env bash
-if [ -n "${FM_FAIL_DEST:-}" ] && [ "${4:-}" = "$FM_FAIL_DEST" ]; then exit 1; fi
+destination=${!#}
+if [ -n "${FM_FAIL_DEST:-}" ] \
+  && [ "${destination##*/}" = "${FM_FAIL_DEST##*/}" ]; then exit 1; fi
 if [ "${4:-}" = "${FM_META_DEST:?}" ] && [ "${FM_FAIL_ROLLBACK:-0}" -eq 1 ] \
   && [ -e "${FM_META_MOVED:?}" ]; then
   exit 1
@@ -2172,6 +2326,8 @@ test_completed_journal_refuses_dangling_backup_entry
 test_undo_recovery_rejects_symlink_destination
 test_private_atomic_publication_does_not_follow_destination_symlink
 test_journal_publication_does_not_follow_destination_symlink
+test_evidence_publication_does_not_follow_destination_symlinks
+test_migration_does_not_require_perl
 test_undo_recovery_rejects_symlink_stage
 test_undo_snapshot_copy_is_atomic
 test_undo_snapshot_rejects_replaced_stage_parent
@@ -2193,6 +2349,7 @@ test_undo_signal_during_cleanup_restores_recovery_state
 test_identity_verification_waits_for_metadata_lock
 test_report_write_failure_aborts_before_stamping
 test_publication_failure_restores_evidence
+test_abort_interruption_retains_recovery_stage
 test_backup_cleanup_failure_retains_staged_recovery
 test_rollback_rejects_replaced_backup_directory_symlink
 test_recovery_journal_copy_is_atomic

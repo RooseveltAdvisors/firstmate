@@ -105,14 +105,12 @@ write_marker() {
     [ -f "$destination" ] && [ ! -L "$destination" ] || return 1
   fi
   tmp=$(mktemp "$STATE/.endpoint-binding-marker.XXXXXX") || return 1
-  if ! printf '%s\n' "$value" > "$tmp" || ! chmod 0600 "$tmp"; then
+  if ! printf '%s\n' "$value" > "$tmp" || ! chmod 0600 "$tmp" \
+    || ! copy_private_atomic "$tmp" "$destination" regular; then
     rm -f -- "$tmp"
     return 1
   fi
-  if ! mv -f -- "$tmp" "$destination"; then
-    rm -f -- "$tmp"
-    return 1
-  fi
+  rm -f -- "$tmp" || return 1
 }
 
 record_outcome() {
@@ -506,8 +504,17 @@ restore_published_backups() {
   return "$rc"
 }
 
+atomic_rename_nofollow() {
+  case "$(uname 2>/dev/null || true)" in
+    Darwin) mv -fh -- "$1" "$2" ;;
+    Linux) mv -fT -- "$1" "$2" ;;
+    *) return 1 ;;
+  esac
+}
+
 copy_private_atomic() {
-  local source=$1 destination=$2 source_dir source_name destination_dir destination_name
+  local source=$1 destination=$2 destination_type=${3:-private}
+  local source_dir source_name destination_dir destination_name
   local source_real destination_real tmp rc source_parent source_base source_expected
   local destination_parent destination_base destination_expected
   source_dir=${source%/*}
@@ -537,7 +544,11 @@ copy_private_atomic() {
   destination_real=$(cd -P -- "$destination_dir" && pwd -P) || return 1
   [ "$destination_real" = "$destination_expected" ] || return 1
   if [ -e "$destination" ] || [ -L "$destination" ]; then
-    private_file "$destination" || return 1
+    if [ "$destination_type" = regular ]; then
+      regular_file "$destination" || return 1
+    else
+      private_file "$destination" || return 1
+    fi
   fi
   tmp=$(mktemp "$STATE/.endpoint-binding-copy.XXXXXX") || return 1
   if ! (
@@ -564,9 +575,13 @@ copy_private_atomic() {
       private_directory . || exit 1
     fi
     if [ -e "./$destination_name" ] || [ -L "./$destination_name" ]; then
-      private_file "./$destination_name" || exit 1
+      if [ "$destination_type" = regular ]; then
+        regular_file "./$destination_name" || exit 1
+      else
+        private_file "./$destination_name" || exit 1
+      fi
     fi
-    perl -e 'rename($ARGV[0], $ARGV[1]) or exit 1' "$tmp" "./$destination_name"
+    atomic_rename_nofollow "$tmp" "./$destination_name"
   )
   rc=$?
   if [ "$rc" -ne 0 ]; then
@@ -905,7 +920,7 @@ recover_apply_stage() {
 
 abort_apply() {
   local rc=${1:-1}
-  local rollback_rc=0 evidence_rc=0
+  local rollback_rc=0 evidence_rc=0 recovery_rc=0
   [ "$APPLY_ABORTED" -eq 0 ] || return "$rc"
   APPLY_ABORTED=1
   release_meta_lock || rc=1
@@ -916,6 +931,7 @@ abort_apply() {
     release_apply_locks || rc=1
     return "$rc"
   fi
+  RECOVERY_REQUIRED=1
   if [ "$META_WRITE_STARTED" -eq 1 ] && ! rollback_stamps; then
     rollback_rc=1
     rc=1
@@ -926,20 +942,20 @@ abort_apply() {
       if restore_existing_records; then
         if ! remove_published_backups; then
           rc=1
-          RECOVERY_REQUIRED=1
+          recovery_rc=1
         fi
       else
         rc=1
-        RECOVERY_REQUIRED=1
+        recovery_rc=1
       fi
     elif [ "$RECORDS_PUBLISHED" -eq 1 ]; then
       if ! rm -f -- "$RECORDS"; then
         rc=1
-        RECOVERY_REQUIRED=1
+        recovery_rc=1
       else
         if ! remove_published_backups; then
           rc=1
-          RECOVERY_REQUIRED=1
+          recovery_rc=1
           restore_published_backups || rc=1
           publish_recovery_records || rc=1
         fi
@@ -947,14 +963,17 @@ abort_apply() {
     else
       if ! remove_published_backups; then
         rc=1
-        RECOVERY_REQUIRED=1
+        recovery_rc=1
       fi
     fi
   else
-    RECOVERY_REQUIRED=1
+    recovery_rc=1
     if [ "$META_WRITE_STARTED" -eq 1 ] && [ "${#STAMP_IDS[@]}" -gt 0 ]; then
       publish_recovery_records || rc=1
     fi
+  fi
+  if [ "$rollback_rc" -eq 0 ] && [ "$evidence_rc" -eq 0 ] && [ "$recovery_rc" -eq 0 ]; then
+    RECOVERY_REQUIRED=0
   fi
   release_merge_locks || rc=1
   release_apply_locks || rc=1
@@ -1007,20 +1026,18 @@ prepare_evidence() {
     printf 'report\t%s\n' "$REPORT_PRESENT"
     printf 'scan-marker\t%s\n' "$SCAN_MARKER_PRESENT"
     printf 'marker\t%s\n' "$MARKER_PRESENT"
-  } > "$evidence_tmp" || ! chmod 0600 "$evidence_tmp" || ! mv -f -- "$evidence_tmp" "$STAGE_DIR/evidence"; then
+  } > "$evidence_tmp" || ! chmod 0600 "$evidence_tmp" \
+    || ! copy_private_atomic "$evidence_tmp" "$STAGE_DIR/evidence"; then
     rm -f -- "$evidence_tmp"
     return 1
   fi
+  rm -f -- "$evidence_tmp" || return 1
 }
 
 restore_evidence_file() {
-  local destination=$1 snapshot=$2 present=$3 tmp
+  local destination=$1 snapshot=$2 present=$3
   if [ "$present" -eq 1 ]; then
-    tmp=$(mktemp "$STATE/.endpoint-binding-evidence-restore.XXXXXX") || return 1
-    if ! cp -p -- "$snapshot" "$tmp" || ! mv -f -- "$tmp" "$destination"; then
-      rm -f -- "$tmp"
-      return 1
-    fi
+    copy_private_atomic "$snapshot" "$destination" regular || return 1
   elif [ -e "$destination" ] || [ -L "$destination" ]; then
     rm -f -- "$destination" || return 1
   fi
@@ -1337,10 +1354,12 @@ publish_report() {
     [ -f "$REPORT" ] && [ ! -L "$REPORT" ] || return 1
   fi
   tmp=$(mktemp "$STATE/.endpoint-binding-report.XXXXXX") || return 1
-  if ! cp -p -- "$REPORT_TMP" "$tmp" || ! chmod 0600 "$tmp" || ! mv -f -- "$tmp" "$REPORT"; then
+  if ! cp -p -- "$REPORT_TMP" "$tmp" || ! chmod 0600 "$tmp" \
+    || ! copy_private_atomic "$tmp" "$REPORT" regular; then
     rm -f -- "$tmp"
     return 1
   fi
+  rm -f -- "$tmp" || return 1
 }
 
 apply_migration() {
