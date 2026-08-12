@@ -213,7 +213,6 @@ UNDO_RECOVERY_STAGE=
 MERGE_LOCK_IDS=()
 MERGE_LOCK_PATHS=()
 MERGE_LOCK_ACQUIRED=()
-MERGE_LOCKS_HELD=0
 APPLY_LOCK_IDS=()
 APPLY_LOCK_PATHS=()
 APPLY_LOCK_ACQUIRED=()
@@ -264,6 +263,7 @@ release_meta_lock() {
 
 acquire_undo_locks() {
   local id path i
+  # shellcheck disable=SC2207
   UNDO_LOCK_IDS=($(printf '%s\n' "${UNDO_IDS[@]}" | sort -u))
   UNDO_LOCK_PATHS=()
   UNDO_LOCK_ACQUIRED=()
@@ -274,7 +274,7 @@ acquire_undo_locks() {
   done
   UNDO_LOCKS_ACQUIRING=1
   for i in "${!UNDO_LOCK_PATHS[@]}"; do
-    UNDO_LOCK_ACQUIRED[$i]=1
+    UNDO_LOCK_ACQUIRED[i]=1
     if ! fm_lock_acquire_wait "${UNDO_LOCK_PATHS[$i]}"; then
       release_undo_locks
       return 1
@@ -289,7 +289,7 @@ release_undo_locks() {
   for ((i=${#UNDO_LOCK_PATHS[@]} - 1; i >= 0; i--)); do
     if [ "${UNDO_LOCK_ACQUIRED[$i]:-0}" -eq 1 ]; then
       fm_lock_release "${UNDO_LOCK_PATHS[$i]}" || rc=1
-      UNDO_LOCK_ACQUIRED[$i]=0
+      UNDO_LOCK_ACQUIRED[i]=0
     fi
   done
   UNDO_LOCKS_HELD=0
@@ -299,6 +299,7 @@ release_undo_locks() {
 
 acquire_apply_locks() {
   local id path i
+  # shellcheck disable=SC2207
   APPLY_LOCK_IDS=($(printf '%s\n' "${STAMP_IDS[@]}" | sort -u))
   APPLY_LOCK_PATHS=()
   APPLY_LOCK_ACQUIRED=()
@@ -308,7 +309,7 @@ acquire_apply_locks() {
     APPLY_LOCK_ACQUIRED+=(0)
   done
   for i in "${!APPLY_LOCK_PATHS[@]}"; do
-    APPLY_LOCK_ACQUIRED[$i]=1
+    APPLY_LOCK_ACQUIRED[i]=1
     if ! fm_lock_acquire_wait "${APPLY_LOCK_PATHS[$i]}"; then
       release_apply_locks
       return 1
@@ -322,7 +323,7 @@ release_apply_locks() {
   for ((i=${#APPLY_LOCK_PATHS[@]} - 1; i >= 0; i--)); do
     if [ "${APPLY_LOCK_ACQUIRED[$i]:-0}" -eq 1 ]; then
       fm_lock_release "${APPLY_LOCK_PATHS[$i]}" || rc=1
-      APPLY_LOCK_ACQUIRED[$i]=0
+      APPLY_LOCK_ACQUIRED[i]=0
     fi
   done
   APPLY_LOCKS_HELD=0
@@ -332,6 +333,7 @@ release_apply_locks() {
 acquire_merge_locks() {
   local id path i
   [ "$RECORDS_EXISTING" -eq 1 ] || [ "$RECOVERY_NAMESPACE_PRESENT" -eq 1 ] || [ "${1:-0}" -eq 1 ] || return 0
+  # shellcheck disable=SC2207
   MERGE_LOCK_IDS=($(printf '%s\n' "${!RECORDED_IDS[@]}" | sort -u))
   MERGE_LOCK_PATHS=()
   MERGE_LOCK_ACQUIRED=()
@@ -341,13 +343,12 @@ acquire_merge_locks() {
     MERGE_LOCK_ACQUIRED+=(0)
   done
   for i in "${!MERGE_LOCK_PATHS[@]}"; do
-    MERGE_LOCK_ACQUIRED[$i]=1
+    MERGE_LOCK_ACQUIRED[i]=1
     if ! fm_lock_acquire_wait "${MERGE_LOCK_PATHS[$i]}"; then
       release_merge_locks
       return 1
     fi
   done
-  MERGE_LOCKS_HELD=1
 }
 
 release_merge_locks() {
@@ -355,10 +356,9 @@ release_merge_locks() {
   for ((i=${#MERGE_LOCK_PATHS[@]} - 1; i >= 0; i--)); do
     if [ "${MERGE_LOCK_ACQUIRED[$i]:-0}" -eq 1 ]; then
       fm_lock_release "${MERGE_LOCK_PATHS[$i]}" || rc=1
-      MERGE_LOCK_ACQUIRED[$i]=0
+      MERGE_LOCK_ACQUIRED[i]=0
     fi
   done
-  MERGE_LOCKS_HELD=0
   return "$rc"
 }
 
@@ -549,7 +549,7 @@ copy_private_atomic() {
     if [ -e "./$destination_name" ] || [ -L "./$destination_name" ]; then
       private_file "./$destination_name" || exit 1
     fi
-    mv -f -- "$tmp" "./$destination_name"
+    perl -e 'rename($ARGV[0], $ARGV[1]) or exit 1' "$tmp" "./$destination_name"
   )
   rc=$?
   if [ "$rc" -ne 0 ]; then
@@ -715,10 +715,11 @@ recover_existing_apply_stage() {
         rm -f -- "$merged_tmp"
         return 1
       }
-      private_file "$BACKUP_DIR/$before_name" && private_file "$BACKUP_DIR/$after_name" || {
+      if ! private_file "$BACKUP_DIR/$before_name" \
+        || ! private_file "$BACKUP_DIR/$after_name"; then
         rm -f -- "$merged_tmp"
         return 1
-      }
+      fi
       ids+=("$id")
       RECORDED_IDS["$id"]=1
     done < "$stage/records"
@@ -905,11 +906,11 @@ abort_apply() {
   restore_evidence || evidence_rc=1
   if [ "$rollback_rc" -eq 0 ] && [ "$evidence_rc" -eq 0 ]; then
     if [ "$RECORDS_EXISTING" -eq 1 ]; then
-      if remove_published_backups; then
-        restore_existing_records || {
+      if restore_existing_records; then
+        if ! remove_published_backups; then
           rc=1
           RECOVERY_REQUIRED=1
-        }
+        fi
       else
         rc=1
         RECOVERY_REQUIRED=1
@@ -962,7 +963,7 @@ snapshot_evidence_file() {
   if [ -e "$destination" ] || [ -L "$destination" ]; then
     [ -f "$destination" ] && [ ! -L "$destination" ] || return 1
     snapshot="$STAGE_DIR/$label.before"
-    cp -p -- "$destination" "$snapshot" || return 1
+    snapshot_regular_atomic "$destination" "$snapshot" || return 1
     case "$label" in
       report) REPORT_BEFORE=$snapshot; REPORT_PRESENT=1; REPORT_SNAPSHOT_READY=1 ;;
       scan-marker) SCAN_MARKER_BEFORE=$snapshot; SCAN_MARKER_PRESENT=1; SCAN_MARKER_SNAPSHOT_READY=1 ;;
@@ -1217,6 +1218,8 @@ recover_undo_stage() {
       continue
     fi
     if [ ! -e "$stage/records" ] && [ ! -L "$stage/records" ]; then
+      validate_recovery_namespace || return 1
+      remove_stage_directory "$stage" || return 1
       continue
     fi
     private_file "$stage/records" || return 1
@@ -1428,7 +1431,7 @@ apply_migration() {
     fi
     if ! verify_legacy_endpoint "${STAMP_METAS[$i]}" "${STAMP_IDS[$i]}"; then
       [ "$REPORT_WRITE_FAILED" -eq 0 ] || return 1
-      STAMP_SELECTED[$i]=0
+      STAMP_SELECTED[i]=0
       SKIPPED_LEGACY=1
       continue
     fi
@@ -1687,7 +1690,6 @@ undo_migration() {
     abort_undo
     return 1
   fi
-  copy_private_atomic "$RECORDS" "$cleanup_stage/records" || { abort_undo; return 1; }
   for id in "${UNDO_IDS[@]}"; do
     if ! copy_private_atomic "$BACKUP_DIR/$id.before" "$cleanup_stage/$id.before" \
       || ! copy_private_atomic "$BACKUP_DIR/$id.after" "$cleanup_stage/$id.after"; then
@@ -1695,6 +1697,7 @@ undo_migration() {
       return 1
     fi
   done
+  copy_private_atomic "$RECORDS" "$cleanup_stage/records" || { abort_undo; return 1; }
   for i in "${!UNDO_IDS[@]}"; do
     meta=${UNDO_METAS[$i]}
     if [ ! -e "$meta" ] && [ ! -L "$meta" ]; then
@@ -1707,10 +1710,10 @@ undo_migration() {
     [ "$SURGICAL_UNDO_CHANGED" -eq 1 ] || continue
     current_snapshot="$cleanup_stage/${UNDO_IDS[$i]}.current"
     snapshot_regular_atomic "$meta" "$current_snapshot" || { abort_undo; return $?; }
-    UNDO_RECOVERY_BEFORE[$i]=$undone_snapshot
-    UNDO_RECOVERY_AFTER[$i]=$current_snapshot
+    UNDO_RECOVERY_BEFORE[i]=$undone_snapshot
+    UNDO_RECOVERY_AFTER[i]=$current_snapshot
     UNDO_CHANGED=$((i + 1))
-    UNDO_TOUCHED[$i]=1
+    UNDO_TOUCHED[i]=1
     tmp=$(mktemp "$STATE/.endpoint-binding-undo.XXXXXX") || {
       abort_undo
       return $?

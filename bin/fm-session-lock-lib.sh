@@ -162,8 +162,15 @@ fm_harness_pid_alive() {
 # ancestry that cannot be resolved all fail closed.
 fm_session_lock_owned_by_self() {
   local lock=$1/.lock lock_pid pids pid
-  [ -f "$lock" ] && [ ! -L "$lock" ] || return 1
-  lock_pid=$(cat "$lock" 2>/dev/null || true)
+  lock_pid=$(perl -MFcntl=:DEFAULT -e '
+    sysopen(my $file, $ARGV[0], O_RDONLY | O_NOFOLLOW) or exit 1;
+    my @stat = stat $file or exit 1;
+    exit 1 unless -f _;
+    local $/;
+    my $value = <$file>;
+    exit 1 unless defined $value;
+    print $value;
+  ' "$lock" 2>/dev/null) || return 1
   case "$lock_pid" in
     ''|*[!0-9]*) return 1 ;;
   esac
