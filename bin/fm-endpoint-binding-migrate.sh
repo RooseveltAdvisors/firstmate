@@ -108,7 +108,7 @@ write_marker() {
     [ -f "$destination" ] && [ ! -L "$destination" ] || return 1
   fi
   tmp=$(mktemp "$STATE/.endpoint-binding-marker.XXXXXX") || return 1
-  if ! printf '%s\n' "$value" > "$tmp" || ! chmod 0600 "$tmp" \
+  if ! private_file "$tmp" || ! append_private_line_atomic "$tmp" "$value" \
     || ! copy_private_atomic "$tmp" "$destination" regular; then
     rm -f -- "$tmp"
     return 1
@@ -117,7 +117,7 @@ write_marker() {
 }
 
 record_outcome() {
-  if ! printf '%s\n' "$1" >> "$REPORT_TMP"; then
+  if ! append_private_line_atomic "$REPORT_TMP" "$1"; then
     REPORT_WRITE_FAILED=1
     return 1
   fi
@@ -128,7 +128,7 @@ reason_one_line() {
   local value=${1:-endpoint identity verification refused} byte character encoded=
   [ -n "$value" ] || value='endpoint identity verification refused'
   for byte in $(printf '%s' "$value" | LC_ALL=C od -An -v -t u1); do
-    if [ "$byte" -lt 32 ] || [ "$byte" -eq 127 ]; then
+    if [ "$byte" -lt 32 ] || [ "$byte" -ge 127 ]; then
       printf -v character '\\x%02X' "$byte"
     else
       printf -v character '%b' "\\$(printf '%03o' "$byte")"
@@ -214,18 +214,11 @@ verify_live_task_worktree() {
 }
 
 verify_legacy_endpoint() {
-  local meta=$1 id=$2 validation_file backend target state reason
-  validation_file=$(mktemp "$STATE/.endpoint-binding-verify.XXXXXX") || {
-    record_outcome "task $id: skipped - endpoint identity verification could not start"
-    return 1
-  }
-  if ! fm_backend_validate_task_endpoint "$meta" "$id" >"$validation_file" 2>&1; then
-    reason=$(reason_one_line "$(cat "$validation_file")")
-    rm -f -- "$validation_file"
-    record_outcome "task $id: skipped - identity mismatch: $reason"
+  local meta=$1 id=$2 backend target state
+  if ! fm_backend_validate_task_endpoint "$meta" "$id" >/dev/null 2>&1; then
+    record_outcome "task $id: skipped - identity mismatch: shared endpoint validation failed"
     return 1
   fi
-  rm -f -- "$validation_file"
   backend=$FM_BACKEND_VALIDATED_BACKEND
   target=$FM_BACKEND_VALIDATED_TARGET
   if [ -z "$backend" ] || [ -z "$target" ]; then
@@ -507,6 +500,10 @@ rollback_stamps() {
 
 remove_published_backups() {
   local i rc=0
+  if [ ! -e "$BACKUP_DIR" ] && [ ! -L "$BACKUP_DIR" ]; then
+    [ "$BACKUP_DIR_CREATED" -eq 0 ]
+    return $?
+  fi
   for i in "${!STAMP_IDS[@]}"; do
     [ "${STAMP_SELECTED[$i]:-1}" -eq 1 ] || continue
     remove_private_backup_files "${STAMP_BEFORE_FINAL[$i]}" "${STAMP_AFTER_FINAL[$i]}" || rc=1
@@ -587,13 +584,26 @@ file_descriptor_identity() {
 
 copy_to_new_private_file() {
   local source=$1 destination=$2 source_type=${3:-private} binding_id=${4:-}
+  local append_line=${5:-} append_source=${6:-} append_source_type=${7:-private}
+  local append_skip=${8:-0} append_separator=${9:-0}
   local source_identity source_fd_identity binding_fd_identity destination_identity destination_fd_identity
-  local last_byte
+  local append_identity append_fd_identity last_byte
   [ ! -e "$destination" ] && [ ! -L "$destination" ] || return 1
   if [ "$source_type" = regular ]; then
     regular_file "$source" || return 1
   else
     private_file "$source" || return 1
+  fi
+  case "$append_skip:$append_separator" in
+    *[!0-9:]*|:*) return 1 ;;
+  esac
+  if [ -n "$append_source" ]; then
+    if [ "$append_source_type" = regular ]; then
+      regular_file "$append_source" || return 1
+    else
+      private_file "$append_source" || return 1
+    fi
+    append_identity=$(path_file_identity "$append_source" 2>/dev/null) || return 1
   fi
   source_identity=$(path_file_identity "$source" 2>/dev/null) || return 1
   destination_identity=$(
@@ -607,12 +617,26 @@ copy_to_new_private_file() {
       binding_fd_identity=$(file_descriptor_identity /dev/fd/7 2>/dev/null) || exit 1
       [ "$binding_fd_identity" = "$source_identity" ] || exit 1
     fi
+    if [ -n "$append_source" ]; then
+      exec 6< "$append_source" || exit 1
+      [ -f /dev/fd/6 ] || exit 1
+      append_fd_identity=$(file_descriptor_identity /dev/fd/6 2>/dev/null) || exit 1
+      [ "$append_fd_identity" = "$append_identity" ] || exit 1
+    fi
     if [ "$source_type" = regular ]; then
       regular_file "$source" || exit 1
     else
       private_file "$source" || exit 1
     fi
     [ "$(path_file_identity "$source" 2>/dev/null)" = "$source_fd_identity" ] || exit 1
+    if [ -n "$append_source" ]; then
+      if [ "$append_source_type" = regular ]; then
+        regular_file "$append_source" || exit 1
+      else
+        private_file "$append_source" || exit 1
+      fi
+      [ "$(path_file_identity "$append_source" 2>/dev/null)" = "$append_fd_identity" ] || exit 1
+    fi
     set -C
     exec 9> "$destination" || exit 1
     [ -f /dev/fd/9 ] || exit 1
@@ -627,7 +651,19 @@ copy_to_new_private_file() {
       fi
       printf 'endpoint_task_id=%s\n' "$binding_id" >&9 || exit 1
     fi
+    [ -z "$append_line" ] || printf '%s\n' "$append_line" >&9 || exit 1
+    if [ -n "$append_source" ]; then
+      [ "$append_separator" -eq 0 ] || printf '\n' >&9 || exit 1
+      if [ "$append_skip" -eq 0 ]; then
+        cat <&6 >&9 || exit 1
+      else
+        dd bs=1 skip="$append_skip" <&6 >&9 2>/dev/null || exit 1
+      fi
+    fi
     [ "$(path_file_identity "$source" 2>/dev/null)" = "$source_fd_identity" ] || exit 1
+    if [ -n "$append_source" ]; then
+      [ "$(path_file_identity "$append_source" 2>/dev/null)" = "$append_fd_identity" ] || exit 1
+    fi
     regular_file "$destination" || exit 1
     [ "$(path_file_identity "$destination" 2>/dev/null)" = "$destination_fd_identity" ] || exit 1
     printf '%s' "$destination_fd_identity"
@@ -641,8 +677,11 @@ copy_to_new_private_file() {
 
 copy_private_atomic() {
   local source=$1 destination=$2 destination_type=${3:-private} source_type=${4:-private} binding_id=${5:-}
+  local append_line=${6:-} append_source=${7:-} append_source_type=${8:-private}
+  local append_skip=${9:-0} append_separator=${10:-0}
   local source_dir destination_dir destination_name source_real destination_real tmp rc
   local source_parent source_base source_expected destination_parent destination_base destination_expected tmp_identity
+  local append_source_dir append_source_parent append_source_base append_source_expected append_source_real
   source_dir=${source%/*}
   [ -L "$source_dir" ] && return 1
   source_parent=${source_dir%/*}
@@ -655,6 +694,20 @@ copy_private_atomic() {
   fi
   source_real=$(cd -P -- "$source_dir" && pwd -P) || return 1
   [ "$source_real" = "$source_expected" ] || return 1
+  if [ -n "$append_source" ]; then
+    append_source_dir=${append_source%/*}
+    [ -L "$append_source_dir" ] && return 1
+    append_source_parent=${append_source_dir%/*}
+    append_source_base=${append_source_dir##*/}
+    append_source_expected=$(cd -P -- "$append_source_parent" && pwd -P)/$append_source_base || return 1
+    if [ "$append_source_dir" = "$STATE" ]; then
+      [ -d "$append_source_dir" ] && [ ! -L "$append_source_dir" ] || return 1
+    else
+      private_directory "$append_source_dir" || return 1
+    fi
+    append_source_real=$(cd -P -- "$append_source_dir" && pwd -P) || return 1
+    [ "$append_source_real" = "$append_source_expected" ] || return 1
+  fi
   destination_dir=${destination%/*}
   destination_name=${destination##*/}
   [ -L "$destination_dir" ] && return 1
@@ -677,7 +730,8 @@ copy_private_atomic() {
   fi
   tmp=$(mktemp "$STATE/.endpoint-binding-copy.XXXXXX") || return 1
   rm -f -- "$tmp" || return 1
-  if ! copy_to_new_private_file "$source" "$tmp" "$source_type" "$binding_id"; then
+  if ! copy_to_new_private_file "$source" "$tmp" "$source_type" "$binding_id" \
+    "$append_line" "$append_source" "$append_source_type" "$append_skip" "$append_separator"; then
     rm -f -- "$tmp"
     return 1
   fi
@@ -711,11 +765,29 @@ copy_private_atomic() {
   return "$rc"
 }
 
+append_private_line_atomic() {
+  copy_private_atomic "$1" "$1" private private '' "$2"
+}
+
+append_private_file_atomic() {
+  copy_private_atomic "$1" "$1" private private '' '' "$2" "${3:-private}" "${4:-0}" "${5:-0}"
+}
+
+initialize_private_file() {
+  local destination=$1 tmp
+  tmp=$(mktemp "$STATE/.endpoint-binding-empty.XXXXXX") || return 1
+  if ! private_file "$tmp" || ! copy_private_atomic "$tmp" "$destination"; then
+    rm -f -- "$tmp"
+    return 1
+  fi
+  rm -f -- "$tmp" || return 1
+}
+
 write_completed_stage() {
   local stage=$1 tmp rc=0
   private_directory "$stage" || return 1
   tmp=$(mktemp "$STATE/.endpoint-binding-completed.XXXXXX") || return 1
-  if ! printf 'completed\n' > "$tmp" || ! chmod 0600 "$tmp" \
+  if ! private_file "$tmp" || ! append_private_line_atomic "$tmp" completed \
     || ! copy_private_atomic "$tmp" "$stage/completed"; then
     rc=1
   fi
@@ -813,7 +885,9 @@ recover_existing_apply_stage() {
   private_file "$stage/records" || return 1
   private_file "$stage/records.before" || return 1
   merged_tmp=$(mktemp "$STATE/.endpoint-binding-merge-check.XXXXXX") || return 1
-  if ! cat "$stage/records.before" "$stage/records" > "$merged_tmp" || ! chmod 0600 "$merged_tmp"; then
+  if ! private_file "$merged_tmp" \
+    || ! copy_private_atomic "$stage/records.before" "$merged_tmp" \
+    || ! append_private_file_atomic "$merged_tmp" "$stage/records"; then
     rm -f -- "$merged_tmp"
     return 1
   fi
@@ -1108,12 +1182,8 @@ abort_apply() {
 
 handle_signal() {
   trap - HUP INT TERM
-  if [ "$MODE" = undo ]; then
-    if [ "$UNDO_ACTIVE" -eq 1 ]; then
-      abort_undo || true
-    else
-      release_undo_locks || true
-    fi
+  if [ "$UNDO_ACTIVE" -eq 1 ]; then
+    abort_undo || true
   else
     abort_apply 1 || true
   fi
@@ -1148,11 +1218,10 @@ prepare_evidence() {
   snapshot_evidence_file "$SCAN_MARKER" scan-marker || return 1
   snapshot_evidence_file "$MARKER" marker || return 1
   evidence_tmp=$(mktemp "$STAGE_DIR/report.evidence.XXXXXX") || return 1
-  if ! {
-    printf 'report\t%s\n' "$REPORT_PRESENT"
-    printf 'scan-marker\t%s\n' "$SCAN_MARKER_PRESENT"
-    printf 'marker\t%s\n' "$MARKER_PRESENT"
-  } > "$evidence_tmp" || ! chmod 0600 "$evidence_tmp" \
+  if ! private_file "$evidence_tmp" \
+    || ! append_private_line_atomic "$evidence_tmp" $'report\t'"$REPORT_PRESENT" \
+    || ! append_private_line_atomic "$evidence_tmp" $'scan-marker\t'"$SCAN_MARKER_PRESENT" \
+    || ! append_private_line_atomic "$evidence_tmp" $'marker\t'"$MARKER_PRESENT" \
     || ! copy_private_atomic "$evidence_tmp" "$STAGE_DIR/evidence"; then
     rm -f -- "$evidence_tmp"
     return 1
@@ -1242,14 +1311,15 @@ publish_recovery_records() {
     return 1
   fi
   manifest_tmp=$(mktemp "$STATE/.endpoint-binding-recovery-records.XXXXXX") || return 1
+  private_file "$manifest_tmp" || { rm -f -- "$manifest_tmp"; return 1; }
   for i in "${!STAMP_IDS[@]}"; do
     [ "${STAMP_SELECTED[$i]:-1}" -eq 1 ] || continue
-    printf '%s\t%s\t%s\n' "${STAMP_IDS[$i]}" "${STAMP_IDS[$i]}.before" "${STAMP_IDS[$i]}.after" >> "$manifest_tmp" || {
+    append_private_line_atomic "$manifest_tmp" \
+      "${STAMP_IDS[$i]}"$'\t'"${STAMP_IDS[$i]}.before"$'\t'"${STAMP_IDS[$i]}.after" || {
       rm -f -- "$manifest_tmp"
       return 1
     }
   done
-  chmod 0600 "$manifest_tmp" || { rm -f -- "$manifest_tmp"; return 1; }
   RECORDS_PUBLISHED=1
   if ! copy_private_atomic "$manifest_tmp" "$RECORDS"; then
     RECORDS_PUBLISHED=0
@@ -1331,7 +1401,7 @@ restore_undo_recovery() {
     private_directory "$BACKUP_DIR" || rc=1
   else
     mkdir -- "$BACKUP_DIR" || rc=1
-    chmod 0700 "$BACKUP_DIR" 2>/dev/null || rc=1
+    private_directory "$BACKUP_DIR" || rc=1
   fi
   for i in "${!UNDO_IDS[@]}"; do
     id=${UNDO_IDS[$i]}
@@ -1406,7 +1476,7 @@ recover_undo_stage() {
       private_directory "$BACKUP_DIR" || return 1
     else
       mkdir -- "$BACKUP_DIR" || return 1
-      chmod 0700 "$BACKUP_DIR" 2>/dev/null || return 1
+      private_directory "$BACKUP_DIR" || return 1
     fi
     for i in "${!ids[@]}"; do
       id=${ids[$i]}
@@ -1472,6 +1542,22 @@ publish_report() {
   copy_private_atomic "$REPORT_TMP" "$REPORT" regular
 }
 
+restart_apply_scan() {
+  if [ "${1:-0}" -eq 1 ]; then
+    abort_apply 1 || true
+    [ "$RECOVERY_REQUIRED" -eq 0 ] || return 1
+  else
+    release_merge_locks || return 1
+    release_apply_locks || return 1
+  fi
+  remove_stage_directory "$STAGE_DIR" || return 1
+  STAGE_DIR=
+  REPORT_TMP=
+  release_migration_lock || return 1
+  trap - EXIT HUP INT TERM
+  exec "$0"
+}
+
 apply_migration() {
   local meta id base binding_count binding validation before after before_final after_final
   local i manifest_tmp selected_count stage_records
@@ -1479,9 +1565,9 @@ apply_migration() {
   require_session_lock || return 1
   recover_apply_stage || return 1
   STAGE_DIR=$(mktemp -d "$STATE/.endpoint-binding-stage.XXXXXX") || return 1
-  chmod 0700 "$STAGE_DIR" || return 1
+  private_directory "$STAGE_DIR" || return 1
   REPORT_TMP=$(mktemp "$STAGE_DIR/report.XXXXXX") || return 1
-  chmod 0600 "$REPORT_TMP" || return 1
+  private_file "$REPORT_TMP" || return 1
   prepare_evidence || return 1
   validate_recovery_namespace || return 1
 
@@ -1592,7 +1678,8 @@ apply_migration() {
   acquire_apply_locks || return 1
   for i in "${!STAMP_IDS[@]}"; do
     if ! regular_file "${STAMP_METAS[$i]}" || ! cmp -s -- "${STAMP_METAS[$i]}" "${STAMP_BEFORE[$i]}"; then
-      return 1
+      restart_apply_scan
+      return $?
     fi
     if ! verify_legacy_endpoint "${STAMP_AFTER[$i]}" "${STAMP_IDS[$i]}"; then
       [ "$REPORT_WRITE_FAILED" -eq 0 ] || return 1
@@ -1603,12 +1690,12 @@ apply_migration() {
     record_outcome "task ${STAMP_IDS[$i]}: stamped - exact live endpoint identity verified" || return 1
   done
   stage_records="$STAGE_DIR/records"
-  : > "$stage_records" || return 1
+  initialize_private_file "$stage_records" || return 1
   for i in "${!STAMP_IDS[@]}"; do
     [ "${STAMP_SELECTED[$i]:-0}" -eq 1 ] || continue
-    printf '%s\t%s\t%s\n' "${STAMP_IDS[$i]}" "${STAMP_IDS[$i]}.before" "${STAMP_IDS[$i]}.after" >> "$stage_records" || return 1
+    append_private_line_atomic "$stage_records" \
+      "${STAMP_IDS[$i]}"$'\t'"${STAMP_IDS[$i]}.before"$'\t'"${STAMP_IDS[$i]}.after" || return 1
   done
-  chmod 0600 "$stage_records" || return 1
   selected_count=0
   for i in "${!STAMP_IDS[@]}"; do
     [ "${STAMP_SELECTED[$i]:-0}" -eq 1 ] && selected_count=$((selected_count + 1))
@@ -1660,7 +1747,7 @@ apply_migration() {
   else
     mkdir -- "$BACKUP_DIR" || return 1
     BACKUP_DIR_CREATED=1
-    if ! chmod 0700 "$BACKUP_DIR"; then
+    if ! private_directory "$BACKUP_DIR"; then
       remove_published_backups
       return 1
     fi
@@ -1674,6 +1761,7 @@ apply_migration() {
   done
 
   manifest_tmp=$(mktemp "$STATE/.endpoint-binding-records.XXXXXX") || { abort_apply 1; return $?; }
+  private_file "$manifest_tmp" || { rm -f -- "$manifest_tmp"; abort_apply 1; return $?; }
   if [ "$RECORDS_EXISTING" -eq 1 ]; then
     copy_private_atomic "$RECORDS" "$manifest_tmp" || {
       rm -f -- "$manifest_tmp"
@@ -1683,17 +1771,13 @@ apply_migration() {
   fi
   for i in "${!STAMP_IDS[@]}"; do
     [ "${STAMP_SELECTED[$i]:-0}" -eq 1 ] || continue
-    printf '%s\t%s\t%s\n' "${STAMP_IDS[$i]}" "${STAMP_IDS[$i]}.before" "${STAMP_IDS[$i]}.after" >> "$manifest_tmp" || {
+    append_private_line_atomic "$manifest_tmp" \
+      "${STAMP_IDS[$i]}"$'\t'"${STAMP_IDS[$i]}.before"$'\t'"${STAMP_IDS[$i]}.after" || {
       rm -f -- "$manifest_tmp"
       abort_apply 1
       return $?
     }
   done
-  if ! chmod 0600 "$manifest_tmp"; then
-    rm -f -- "$manifest_tmp"
-    abort_apply 1
-    return $?
-  fi
   RECORDS_PUBLISHED=1
   if ! copy_private_atomic "$manifest_tmp" "$RECORDS"; then
     rm -f -- "$manifest_tmp"
@@ -1714,15 +1798,8 @@ apply_migration() {
         abort_apply 1
         return $?
       fi
-      abort_apply 1 || true
-      [ "$RECOVERY_REQUIRED" -eq 0 ] || return 1
-      remove_stage_directory "$STAGE_DIR" || return 1
-      STAGE_DIR=
-      REPORT_TMP=
-      release_migration_lock
-      trap - EXIT HUP INT TERM
-      exec "$0"
-      return 1
+      restart_apply_scan 1
+      return $?
     fi
     require_session_lock || { abort_apply 1; return $?; }
     if ! copy_private_atomic "${STAMP_AFTER[$i]}" "${STAMP_METAS[$i]}" regular; then
@@ -1754,36 +1831,44 @@ snapshot_regular_atomic() {
 
 surgical_remove_binding() {
   local meta=$1 id=$2 before=$3 after=$4 output=$5 binding binding_count
-  local current_size after_size tmp last_byte
+  local current_size after_size tmp current last_byte separator=0
   SURGICAL_UNDO_CHANGED=0
   regular_file "$meta" || return 0
+  current=$(mktemp "$STATE/.endpoint-binding-surgical-current.XXXXXX") || return 1
+  if ! copy_private_atomic "$meta" "$current" private regular; then
+    rm -f -- "$current"
+    return 1
+  fi
   binding="endpoint_task_id=$id"
-  binding_count=$(awk -v expected="$binding" '$0 == expected { count++ } END { print count + 0 }' "$meta") || return 1
-  [ "$binding_count" -eq 1 ] || return 0
-  current_size=$(wc -c < "$meta") || return 1
-  after_size=$(wc -c < "$after") || return 1
-  [ "$current_size" -ge "$after_size" ] || return 0
-  dd if="$meta" bs=1 count="$after_size" 2>/dev/null | cmp -s -- - "$after" || return 0
-  tmp=$(mktemp "$STATE/.endpoint-binding-surgical-undo.XXXXXX") || return 1
+  binding_count=$(awk -v expected="$binding" '$0 == expected { count++ } END { print count + 0 }' "$current") \
+    || { rm -f -- "$current"; return 1; }
+  [ "$binding_count" -eq 1 ] || { rm -f -- "$current"; return 0; }
+  current_size=$(wc -c < "$current") || { rm -f -- "$current"; return 1; }
+  after_size=$(wc -c < "$after") || { rm -f -- "$current"; return 1; }
+  [ "$current_size" -ge "$after_size" ] || { rm -f -- "$current"; return 0; }
+  dd if="$current" bs=1 count="$after_size" 2>/dev/null | cmp -s -- - "$after" \
+    || { rm -f -- "$current"; return 0; }
+  tmp=$(mktemp "$STATE/.endpoint-binding-surgical-undo.XXXXXX") \
+    || { rm -f -- "$current"; return 1; }
   if ! copy_private_atomic "$before" "$tmp"; then
-    rm -f -- "$tmp"
+    rm -f -- "$tmp" "$current"
     return 1
   fi
   if [ "$current_size" -gt "$after_size" ]; then
     if [ -s "$before" ]; then
-      last_byte=$(tail -c 1 "$before") || { rm -f -- "$tmp"; return 1; }
-      [ -z "$last_byte" ] || printf '\n' >> "$tmp" || { rm -f -- "$tmp"; return 1; }
+      last_byte=$(tail -c 1 "$before") || { rm -f -- "$tmp" "$current"; return 1; }
+      [ -z "$last_byte" ] || separator=1
     fi
-    if ! dd if="$meta" bs=1 skip="$after_size" 2>/dev/null >> "$tmp"; then
-      rm -f -- "$tmp"
+    if ! append_private_file_atomic "$tmp" "$current" private "$after_size" "$separator"; then
+      rm -f -- "$tmp" "$current"
       return 1
     fi
   fi
-  if ! chmod 0600 "$tmp" || ! copy_private_atomic "$tmp" "$output"; then
-    rm -f -- "$tmp"
+  if ! copy_private_atomic "$tmp" "$output"; then
+    rm -f -- "$tmp" "$current"
     return 1
   fi
-  rm -f -- "$tmp" || true
+  rm -f -- "$tmp" "$current" || true
   SURGICAL_UNDO_CHANGED=1
 }
 
@@ -1844,7 +1929,7 @@ undo_migration() {
     return 1
   }
   UNDO_RECOVERY_STAGE=$cleanup_stage
-  if ! chmod 0700 "$cleanup_stage"; then
+  if ! private_directory "$cleanup_stage"; then
     abort_undo
     return 1
   fi
@@ -1937,6 +2022,10 @@ require_session_lock || exit 1
 
 recover_undo_stage || {
   echo "ENDPOINT_BINDING_MIGRATION: incomplete undo recovery failed" >&2
+  exit 1
+}
+recover_apply_stage || {
+  echo "ENDPOINT_BINDING_MIGRATION: incomplete apply recovery failed" >&2
   exit 1
 }
 
