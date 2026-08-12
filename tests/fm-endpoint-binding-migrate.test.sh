@@ -131,6 +131,71 @@ test_evidence_bound_stamp_and_skip() {
   pass 'endpoint binding migration stamps only exact live identities and reports every refusal'
 }
 
+test_unreadable_metadata_is_reported() {
+  local dir out report real_cat activated meta
+  dir=$(make_case unreadable-meta)
+  real_cat=$(command -v cat)
+  activated="$dir/unreadable-activated"
+  meta="$dir/home/state/unreadable.meta"
+  cat > "$dir/fakebin/cat" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = -- ] && [ "${2:-}" = "${FM_UNREADABLE_META:?}" ]; then
+  : > "${FM_UNREADABLE_ACTIVATED:?}"
+  exit 1
+fi
+exec "${FM_REAL_CAT:?}" "$@"
+SH
+  chmod +x "$dir/fakebin/cat"
+  fm_write_meta "$meta" \
+    'window=firstmate:fm-unreadable' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  out=$(FM_REAL_CAT="$real_cat" FM_UNREADABLE_META="$meta" \
+    FM_UNREADABLE_ACTIVATED="$activated" run_locked "$dir") \
+    || fail "unreadable metadata scan failed: $out"
+  [ -f "$activated" ] || fail 'unreadable metadata fixture did not activate'
+  ! grep -q '^endpoint_task_id=' "$meta" || fail 'unreadable metadata was stamped'
+  report=$(cat "$dir/home/state/.endpoint-binding-migration.log")
+  assert_contains "$report" \
+    'task unreadable: skipped - metadata record is unreadable; endpoint identity is unverifiable' \
+    'unreadable metadata did not receive a per-record reason'
+  [ ! -e "$dir/home/state/.endpoint-binding-migration-v1" ] \
+    || fail 'unreadable metadata retained completion evidence'
+  pass 'endpoint binding migration reports unreadable metadata without aborting the scan'
+}
+
+test_vanished_metadata_is_reported() {
+  local dir out report real_cat activated meta
+  dir=$(make_case vanished-meta)
+  real_cat=$(command -v cat)
+  activated="$dir/vanished-activated"
+  meta="$dir/home/state/vanished.meta"
+  cat > "$dir/fakebin/cat" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = -- ] && [ "${2:-}" = "${FM_VANISHED_META:?}" ]; then
+  rm -f -- "$2"
+  : > "${FM_VANISHED_ACTIVATED:?}"
+  exit 1
+fi
+exec "${FM_REAL_CAT:?}" "$@"
+SH
+  chmod +x "$dir/fakebin/cat"
+  fm_write_meta "$meta" \
+    'window=firstmate:fm-vanished' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  out=$(FM_REAL_CAT="$real_cat" FM_VANISHED_META="$meta" \
+    FM_VANISHED_ACTIVATED="$activated" run_locked "$dir") \
+    || fail "vanished metadata scan failed: $out"
+  [ -f "$activated" ] || fail 'vanished metadata fixture did not activate'
+  [ ! -e "$meta" ] || fail 'vanished metadata was recreated'
+  report=$(cat "$dir/home/state/.endpoint-binding-migration.log")
+  assert_contains "$report" \
+    'task vanished: skipped - metadata record vanished before verification; endpoint identity is unverifiable' \
+    'vanished metadata did not receive a per-record reason'
+  [ ! -e "$dir/home/state/.endpoint-binding-migration-v1" ] \
+    || fail 'vanished metadata retained completion evidence'
+  pass 'endpoint binding migration reports metadata that vanishes before verification'
+}
+
 test_duplicate_tmux_window_is_ambiguous() {
   local dir out report
   dir=$(make_case duplicate-tmux-window)
@@ -252,32 +317,90 @@ SH
   pass 'endpoint binding migration backfills verified live legacy Herdr endpoints'
 }
 
-test_staged_binding_assembly_does_not_follow_symlinks() {
-  local dir out real_tail outside
-  dir=$(make_case staged-after-symlink)
-  real_tail=$(command -v tail)
-  outside="$dir/outside"
-  printf 'keep' > "$outside"
-  cat > "$dir/fakebin/tail" <<'SH'
+test_herdr_liveness_is_rechecked_without_server_ensure() {
+  local dir out report
+  dir=$(make_case herdr-dies-during-path-check)
+  cat > "$dir/fakebin/herdr" <<'SH'
 #!/usr/bin/env bash
-case "${1:-}:${3:-}" in
-  -c:*/.endpoint-binding-stage.*/good.after)
-    rm -f -- "$3" || exit 1
-    ln -s "${FM_OUTSIDE:?}" "$3" || exit 1
+case "${1:-}:${2:-}" in
+  status:--json)
+    : > "${FM_HERDR_ENSURE_CALLED:?}"
+    printf '%s\n' '{"server":{"running":true}}'
     ;;
+  pane:get)
+    printf '{"result":{"pane":{"pane_id":"%s","foreground_cwd":"%s"}}}\n' \
+      "${3:-}" "${FM_HERDR_LIVE_WORKTREE:?}"
+    ;;
+  agent:get)
+    count=$(cat "${FM_HERDR_AGENT_COUNT:?}" 2>/dev/null || printf '0')
+    count=$((count + 1))
+    printf '%s\n' "$count" > "$FM_HERDR_AGENT_COUNT"
+    if [ "$count" -lt 4 ]; then
+      printf '%s\n' '{"result":{"agent":{"agent_status":"idle"}}}'
+    else
+      printf '%s\n' '{"error":{"code":"agent_not_found"}}'
+    fi
+    ;;
+  *) exit 1 ;;
 esac
-exec "${FM_REAL_TAIL:?}" "$@"
 SH
-  chmod +x "$dir/fakebin/tail"
+  chmod +x "$dir/fakebin/herdr"
+  fm_write_meta "$dir/home/state/herdr-dead.meta" \
+    'window=lab:w1:p2' 'backend=herdr' 'herdr_session=lab' \
+    'herdr_workspace_id=w1' 'herdr_tab_id=w1:t1' 'herdr_pane_id=w1:p2' \
+    "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  out=$(FM_HERDR_LIVE_WORKTREE="$dir/worktree" \
+    FM_HERDR_AGENT_COUNT="$dir/herdr-agent-count" \
+    FM_HERDR_ENSURE_CALLED="$dir/herdr-ensure-called" run_locked "$dir") \
+    || fail "Herdr liveness-change migration failed: $out"
+  [ ! -e "$dir/herdr-ensure-called" ] \
+    || fail 'Herdr worktree identity check attempted to ensure or restart the server'
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/herdr-dead.meta" \
+    || fail 'Herdr endpoint that became non-live was stamped'
+  report=$(cat "$dir/home/state/.endpoint-binding-migration.log")
+  assert_contains "$report" \
+    'task herdr-dead: skipped - dead endpoint (no verified agent is running)' \
+    'Herdr endpoint liveness change was not reported'
+  pass 'endpoint binding migration rechecks Herdr liveness without starting its server'
+}
+
+test_staged_binding_assembly_does_not_follow_symlinks() {
+  local dir out rc real_cat outside activated
+  dir=$(make_case staged-after-symlink)
+  real_cat=$(command -v cat)
+  outside="$dir/outside"
+  activated="$dir/staged-after-race-activated"
+  printf 'keep' > "$outside"
+  cat > "$dir/fakebin/cat" <<'SH'
+#!/usr/bin/env bash
+for before in "${FM_HOME:?}"/state/.endpoint-binding-stage.*/good.before; do
+  [ -f "$before" ] || continue
+  for temporary in "$FM_HOME"/state/.endpoint-binding-copy.*; do
+    [ -f "$temporary" ] || continue
+    rm -f -- "$temporary" || exit 1
+    ln -s "${FM_OUTSIDE:?}" "$temporary" || exit 1
+    : > "${FM_STAGED_RACE_ACTIVATED:?}"
+  done
+done
+exec "${FM_REAL_CAT:?}" "$@"
+SH
+  chmod +x "$dir/fakebin/cat"
   fm_write_meta "$dir/home/state/good.meta" \
     'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
     'kind=scout'
-  out=$(FM_REAL_TAIL="$real_tail" FM_OUTSIDE="$outside" run_locked "$dir") \
-    || fail "descriptor-bound binding assembly failed: $out"
+  set +e
+  out=$(FM_REAL_CAT="$real_cat" FM_OUTSIDE="$outside" \
+    FM_STAGED_RACE_ACTIVATED="$activated" run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "hostile staged binding replacement unexpectedly succeeded: $out"
+  [ -f "$activated" ] || fail 'staged binding replacement fixture did not activate'
   [ "$(cat "$outside")" = keep ] || fail 'staged binding assembly wrote through a symlink'
-  grep -qx 'endpoint_task_id=good' "$dir/home/state/good.meta" \
-    || fail 'descriptor-bound staged binding was not published'
-  pass 'endpoint binding migration assembles staged bindings without path reopen writes'
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
+    || fail 'failed staged binding assembly changed task metadata'
+  [ ! -e "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
+    || fail 'failed staged binding assembly published a recovery journal'
+  pass 'endpoint binding migration rejects staged binding path replacement without outside writes'
 }
 
 test_unresolved_existing_bindings_remove_completion_marker() {
@@ -2469,10 +2592,13 @@ SH
 }
 
 test_evidence_bound_stamp_and_skip
+test_unreadable_metadata_is_reported
+test_vanished_metadata_is_reported
 test_duplicate_tmux_window_is_ambiguous
 test_tmux_session_prefix_is_not_an_exact_endpoint
 test_tmux_name_reuse_requires_recorded_worktree
 test_live_legacy_herdr_endpoint_is_backfilled
+test_herdr_liveness_is_rechecked_without_server_ensure
 test_staged_binding_assembly_does_not_follow_symlinks
 test_unresolved_existing_bindings_remove_completion_marker
 test_stamp_adds_binding_as_separate_line_without_trailing_newline
