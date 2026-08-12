@@ -3590,6 +3590,203 @@ SH
   pass 'endpoint binding undo recovery rechecks session authority before metadata writes'
 }
 
+test_atomic_source_swap_crash_is_recovered() {
+  local dir out rc real_mv original activated stage
+  dir=$(make_case atomic-source-swap-crash)
+  real_mv=$(command -v mv)
+  activated="$dir/source-swap-crash-activated"
+  cat > "$dir/fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+source=
+destination=
+for argument in "$@"; do
+  source=$destination
+  destination=$argument
+done
+if [ "$PWD" = "${FM_HOME:?}/state" ] && [ "$destination" = ./good.meta ] \
+  && [ "${source##*/}" != "${source}" ] \
+  && [ "${source##*/}" != "${source##*/.endpoint-binding-copy.}" ] \
+  && [ ! -e "${FM_SOURCE_SWAP_ACTIVATED:?}" ]; then
+  rm -f -- "$source" || exit 1
+  printf 'unexpected replacement bytes\n' > "$source" || exit 1
+  chmod 0600 "$source" || exit 1
+  : > "$FM_SOURCE_SWAP_ACTIVATED"
+  "${FM_REAL_MV:?}" "$@" || exit $?
+  kill -KILL "${FM_MIGRATE_PID:?}"
+fi
+exec "${FM_REAL_MV:?}" "$@"
+SH
+  chmod +x "$dir/fakebin/mv"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  original=$(mktemp "$dir/original.XXXXXX")
+  cp "$dir/home/state/good.meta" "$original"
+  set +e
+  out=$(FM_REAL_MV="$real_mv" FM_SOURCE_SWAP_ACTIVATED="$activated" run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "source-swap crash unexpectedly succeeded: $out"
+  [ -f "$activated" ] || fail 'source-swap crash fixture did not activate'
+  stage=$(find "$dir/home/state" -maxdepth 1 -type d -name '.endpoint-binding-stage.*' -print -quit)
+  [ -n "$stage" ] || fail 'source-swap crash discarded transaction staging'
+  rm -f "$dir/fakebin/mv"
+  out=$(run_locked "$dir") || fail "source-swap crash recovery failed: $out"
+  grep -qx 'endpoint_task_id=good' "$dir/home/state/good.meta" \
+    || fail 'source-swap crash recovery did not rerun the exact stamp'
+  [ -z "$(find "$dir/home/state" -name '.endpoint-binding-restore.*' -print -quit)" ] \
+    || fail 'source-swap crash recovery retained a restore artifact'
+  out=$(run_locked "$dir" --undo) || fail "source-swap crash undo failed: $out"
+  cmp -s "$original" "$dir/home/state/good.meta" \
+    || fail 'source-swap crash recovery lost the exact prior metadata'
+  pass 'endpoint binding source-swap crashes retain recoverable prior bytes'
+}
+
+test_apply_authority_loss_retains_recovery() {
+  local dir out rc real_mv stage original
+  dir=$(make_case apply-authority-loss)
+  real_mv=$(command -v mv)
+  cp "$dir/fakebin/tmux" "$dir/tmux.original"
+  cat > "$dir/fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+destination=${!#}
+"${FM_REAL_MV:?}" "$@" || exit $?
+if [ "${destination##*/}" = .endpoint-binding-migration-records-v1 ]; then
+  : > "${FM_JOURNAL_PUBLISHED:?}"
+fi
+SH
+  cat > "$dir/fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = list-windows ]; then
+  printf '%s\n' fm-good
+  if [ -e "${FM_JOURNAL_PUBLISHED:?}" ] && [ ! -e "${FM_AUTHORITY_EXPIRED:?}" ]; then
+    printf '999999\n' > "${FM_SESSION_LOCK:?}"
+    : > "$FM_AUTHORITY_EXPIRED"
+  fi
+  exit 0
+fi
+if [ "${1:-}" = display-message ]; then
+  case "${5:-}" in
+    '#{pane_tty}') printf '/dev/null\n' ;;
+    '#{pane_current_command}') printf 'pi\n' ;;
+    '#{pane_current_path}') printf '%s/worktree\n' "${FM_HOME%/home}" ;;
+    *) printf 'pane\n' ;;
+  esac
+  exit 0
+fi
+exit 0
+SH
+  chmod +x "$dir/fakebin/mv" "$dir/fakebin/tmux"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  original=$(mktemp "$dir/original.XXXXXX")
+  cp "$dir/home/state/good.meta" "$original"
+  set +e
+  out=$(FM_REAL_MV="$real_mv" FM_JOURNAL_PUBLISHED="$dir/journal-published" \
+    FM_AUTHORITY_EXPIRED="$dir/authority-expired" \
+    FM_SESSION_LOCK="$dir/home/state/.lock" run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "apply authority loss unexpectedly succeeded: $out"
+  [ -f "$dir/authority-expired" ] || fail 'apply authority-loss fixture did not activate'
+  cmp -s "$original" "$dir/home/state/good.meta" \
+    || fail 'expired apply authority changed task metadata'
+  [ -f "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
+    || fail 'expired apply authority removed the recovery journal'
+  [ -f "$dir/home/state/.endpoint-binding-migration-backups/good.before" ] \
+    || fail 'expired apply authority removed recovery bytes'
+  stage=$(find "$dir/home/state" -maxdepth 1 -type d -name '.endpoint-binding-stage.*' -print -quit)
+  [ -n "$stage" ] || fail 'expired apply authority removed recovery staging'
+  rm -f "$dir/fakebin/mv"
+  mv "$dir/tmux.original" "$dir/fakebin/tmux"
+  out=$(run_locked "$dir") || fail "apply authority-loss recovery failed: $out"
+  grep -qx 'endpoint_task_id=good' "$dir/home/state/good.meta" \
+    || fail 'new session did not recover and rerun the retained apply'
+  pass 'endpoint binding apply retains recovery after session authority loss'
+}
+
+test_undo_authority_loss_retains_partial_stage() {
+  local dir out rc real_mv stage
+  dir=$(make_case undo-authority-loss)
+  real_mv=$(command -v mv)
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  run_locked "$dir" >/dev/null || fail 'migration setup for undo authority loss failed'
+  cat > "$dir/fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+destination=${!#}
+"${FM_REAL_MV:?}" "$@" || exit $?
+if [ "$PWD" = "${FM_HOME:?}/state" ] && [ "$destination" = ./good.meta ] \
+  && [ ! -e "${FM_AUTHORITY_EXPIRED:?}" ]; then
+  printf '999999\n' > "${FM_SESSION_LOCK:?}"
+  : > "$FM_AUTHORITY_EXPIRED"
+fi
+SH
+  chmod +x "$dir/fakebin/mv"
+  set +e
+  out=$(FM_REAL_MV="$real_mv" FM_AUTHORITY_EXPIRED="$dir/undo-authority-expired" \
+    FM_SESSION_LOCK="$dir/home/state/.lock" run_locked "$dir" --undo)
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "undo authority loss unexpectedly succeeded: $out"
+  [ -f "$dir/undo-authority-expired" ] || fail 'undo authority-loss fixture did not activate'
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
+    || fail 'expired undo authority rolled metadata back under stale authority'
+  [ -f "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
+    || fail 'expired undo authority removed the recovery journal'
+  stage=$(find "$dir/home/state" -maxdepth 1 -type d -name '.endpoint-binding-undo-cleanup.*' -print -quit)
+  [ -n "$stage" ] || fail 'expired undo authority removed recovery staging'
+  rm -f "$dir/fakebin/mv"
+  out=$(run_locked "$dir" --undo) || fail "undo authority-loss recovery failed: $out"
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
+    || fail 'new session did not recover and complete the retained undo'
+  [ ! -e "$stage" ] || fail 'undo authority-loss recovery retained stale staging'
+  pass 'endpoint binding undo retains partial state after authority loss'
+}
+
+test_backup_creation_uses_pinned_state() {
+  local dir out rc real_mkdir real_mv outside held activated
+  dir=$(make_case pinned-backup-create)
+  real_mkdir=$(command -v mkdir)
+  real_mv=$(command -v mv)
+  outside="$dir/outside-state"
+  held="$dir/held-state"
+  activated="$dir/backup-parent-race-activated"
+  mkdir "$outside"
+  cat > "$dir/fakebin/mkdir" <<'SH'
+#!/usr/bin/env bash
+destination=${!#}
+if [ "${destination##*/}" = .endpoint-binding-migration-backups ] \
+  && [ ! -e "${FM_BACKUP_RACE_ACTIVATED:?}" ]; then
+  "${FM_REAL_MV:?}" "${FM_STATE:?}" "${FM_HELD_STATE:?}" || exit 1
+  ln -s "${FM_OUTSIDE_STATE:?}" "$FM_STATE" || exit 1
+  : > "$FM_BACKUP_RACE_ACTIVATED"
+  "${FM_REAL_MKDIR:?}" "$@" || exit $?
+  kill -KILL "${FM_MIGRATE_PID:?}"
+fi
+exec "${FM_REAL_MKDIR:?}" "$@"
+SH
+  chmod +x "$dir/fakebin/mkdir"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  set +e
+  out=$(FM_REAL_MKDIR="$real_mkdir" FM_REAL_MV="$real_mv" FM_STATE="$dir/home/state" \
+    FM_HELD_STATE="$held" FM_OUTSIDE_STATE="$outside" \
+    FM_BACKUP_RACE_ACTIVATED="$activated" run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "backup parent replacement unexpectedly succeeded: $out"
+  [ -f "$activated" ] || fail 'backup parent replacement fixture did not activate'
+  [ ! -e "$outside/.endpoint-binding-migration-backups" ] \
+    || fail 'backup creation followed the replaced state path'
+  [ -d "$held/.endpoint-binding-migration-backups" ] \
+    || fail 'backup creation escaped the pinned original state directory'
+  pass 'endpoint binding backup creation stays within pinned state'
+}
+
 test_evidence_bound_stamp_and_skip
 test_stage_control_namespace_avoids_task_id_collisions
 test_atomic_copy_pins_validated_source_directory
@@ -3630,6 +3827,7 @@ test_completed_journal_refuses_dangling_backup_entry
 test_undo_recovery_rejects_symlink_destination
 test_private_atomic_publication_does_not_follow_destination_symlink
 test_atomic_publication_restores_destination_after_source_swap
+test_atomic_source_swap_crash_is_recovered
 test_journal_publication_does_not_follow_destination_symlink
 test_evidence_publication_does_not_follow_destination_symlinks
 test_migration_does_not_require_perl
@@ -3646,6 +3844,7 @@ test_symlink_session_lock_is_refused
 test_session_lock_symlink_swap_is_refused
 test_darwin_descriptor_bound_migration_is_supported
 test_expired_session_lock_after_wait_is_refused
+test_apply_authority_loss_retains_recovery
 test_recovery_stops_when_session_lock_expires
 test_signal_rolls_back_staged_stamps
 test_final_stamp_waits_for_metadata_lock
@@ -3657,6 +3856,7 @@ test_crashed_undo_restores_current_snapshot_before_apply
 test_undo_recovery_cleanup_is_restartable
 test_undo_signal_during_cleanup_restores_recovery_state
 test_undo_cleanup_stops_when_session_authority_expires
+test_undo_authority_loss_retains_partial_stage
 test_identity_verification_waits_for_metadata_lock
 test_report_write_failure_aborts_before_stamping
 test_publication_failure_restores_evidence
@@ -3674,6 +3874,7 @@ test_apply_recovery_cleanup_is_restartable
 test_existing_journal_pre_manifest_stage_is_discarded
 test_apply_stage_symlink_is_not_followed
 test_orphaned_atomic_backup_temporary_is_recovered
+test_backup_creation_uses_pinned_state
 test_orphaned_backups_are_recovered_on_restart
 test_no_stamp_validates_existing_recovery_namespace
 test_journal_cleanup_failure_retains_recovery_bytes
