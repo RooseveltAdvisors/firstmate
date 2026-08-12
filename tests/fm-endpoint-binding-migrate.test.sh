@@ -155,6 +155,47 @@ test_shared_validator_refusal_reason_is_reported() {
   pass 'endpoint binding migration preserves shared validator refusal reasons'
 }
 
+test_unknown_backend_claim_is_ambiguous() {
+  local dir out report
+  dir=$(make_case unknown-backend-claim)
+  cat > "$dir/fakebin/herdr" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}:${2:-}" in
+  status:--json) printf '%s\n' '{"server":{"running":true}}' ;;
+  pane:get)
+    printf '{"result":{"pane":{"pane_id":"%s","foreground_cwd":"%s"}}}\n' \
+      "${3:-}" "${FM_HERDR_LIVE_WORKTREE:?}"
+    ;;
+  agent:get) printf '%s\n' '{"result":{"agent":{"agent_status":"idle"}}}' ;;
+  *) exit 1 ;;
+esac
+SH
+  chmod +x "$dir/fakebin/herdr"
+  fm_write_meta "$dir/home/state/herdr-good.meta" \
+    'window=lab:w1:p2' 'backend=herdr' 'herdr_session=lab' \
+    'herdr_workspace_id=w1' 'herdr_tab_id=w1:t1' 'herdr_pane_id=w1:p2' \
+    "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  fm_write_meta "$dir/home/state/herdr-unknown.meta" \
+    'window=lab:w1:p2' 'backend=bogus' 'herdr_session=lab' \
+    'herdr_workspace_id=w1' 'herdr_tab_id=w1:t1' 'herdr_pane_id=w1:p2' \
+    "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+
+  out=$(FM_HERDR_LIVE_WORKTREE="$dir/worktree" run_locked "$dir") \
+    || fail "unknown-backend claim migration failed: $out"
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/herdr-good.meta" \
+    || fail 'verified task sharing an unknown-backend endpoint claim was stamped'
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/herdr-unknown.meta" \
+    || fail 'unknown-backend endpoint claim was stamped'
+  report=$(cat "$dir/home/state/.endpoint-binding-migration.log")
+  assert_contains "$report" \
+    'task herdr-good: skipped - ambiguous live endpoint identity is claimed by multiple task records' \
+    'unknown backend omitted an independently parseable Herdr endpoint claim'
+  assert_contains "$report" \
+    'task herdr-unknown: skipped - shared endpoint validation refused:' \
+    'unknown backend did not retain its validation refusal'
+  pass 'endpoint binding migration inventories unknown-backend endpoint claims'
+}
+
 test_unreadable_metadata_is_reported() {
   local dir out report real_cat activated meta
   dir=$(make_case unreadable-meta)
@@ -163,7 +204,7 @@ test_unreadable_metadata_is_reported() {
   meta="$dir/home/state/unreadable.meta"
   cat > "$dir/fakebin/cat" <<'SH'
 #!/usr/bin/env bash
-if [ "${1:-}" = -- ] && [ "${2:-}" = "${FM_UNREADABLE_META:?}" ]; then
+if [ "${1:-}" = -- ] && [ "${2##*/}" = "${FM_UNREADABLE_META##*/}" ]; then
   : > "${FM_UNREADABLE_ACTIVATED:?}"
   exit 1
 fi
@@ -195,7 +236,7 @@ test_vanished_metadata_is_reported() {
   meta="$dir/home/state/vanished.meta"
   cat > "$dir/fakebin/cat" <<'SH'
 #!/usr/bin/env bash
-if [ "${1:-}" = -- ] && [ "${2:-}" = "${FM_VANISHED_META:?}" ]; then
+if [ "${1:-}" = -- ] && [ "${2##*/}" = "${FM_VANISHED_META##*/}" ]; then
   rm -f -- "$2"
   : > "${FM_VANISHED_ACTIVATED:?}"
   exit 1
@@ -1342,6 +1383,58 @@ SH
   pass 'endpoint binding publication restores prior bytes after a source swap'
 }
 
+test_restore_artifact_does_not_publish_swapped_build() {
+  local dir out rc real_mv original activated
+  dir=$(make_case restore-build-swap)
+  real_mv=$(command -v mv)
+  activated="$dir/restore-build-swapped"
+  cat > "$dir/fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+source=
+destination=
+for argument in "$@"; do
+  source=$destination
+  destination=$argument
+done
+if [ "${source##*/}" != "$source" ] \
+  && [ "${source##*/}" != "${source##*/.endpoint-binding-restore-build.}" ] \
+  && [ "${destination##*/}" != "$destination" ] \
+  && [ "${destination##*/}" != "${destination##*/.endpoint-binding-restore.}" ] \
+  && [ ! -e "${FM_RESTORE_SWAP_ACTIVATED:?}" ]; then
+  rm -f -- "$source" || exit 1
+  printf '1\tgood.meta\nunexpected prior bytes\n' > "$source" || exit 1
+  chmod 0600 "$source" || exit 1
+  : > "$FM_RESTORE_SWAP_ACTIVATED"
+  "${FM_REAL_MV:?}" "$@" || exit $?
+  kill -KILL "${FM_MIGRATE_PID:?}"
+fi
+exec "${FM_REAL_MV:?}" "$@"
+SH
+  chmod +x "$dir/fakebin/mv"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  original=$(mktemp "$dir/original.XXXXXX")
+  cp "$dir/home/state/good.meta" "$original"
+  set +e
+  out=$(FM_REAL_MV="$real_mv" FM_RESTORE_SWAP_ACTIVATED="$activated" run_locked "$dir")
+  rc=$?
+  set -e
+  rm -f "$dir/fakebin/mv"
+  if [ -e "$activated" ]; then
+    [ "$rc" -ne 0 ] || fail 'restore-build swap fixture did not interrupt publication'
+    out=$(run_locked "$dir") || fail "restore-build swap recovery failed: $out"
+  else
+    [ "$rc" -eq 0 ] || fail "descriptor-bound restore publication failed: $out"
+  fi
+  grep -qx 'endpoint_task_id=good' "$dir/home/state/good.meta" \
+    || fail 'restore-build source replacement blocked the verified stamp'
+  out=$(run_locked "$dir" --undo) || fail "restore-build swap undo failed: $out"
+  cmp -s "$original" "$dir/home/state/good.meta" \
+    || fail 'restore-build source replacement corrupted prior metadata bytes'
+  pass 'endpoint binding restore publication does not trust a swapped build path'
+}
+
 test_journal_publication_does_not_follow_destination_symlink() {
   local dir out real_mv outside records activated
   dir=$(make_case journal-destination-symlink)
@@ -1616,7 +1709,7 @@ test_final_metadata_change_reruns_scan() {
 #!/usr/bin/env bash
 trigger=0
 for target in "$@"; do
-  [ "$target" = "${FM_META_LOCK:?}" ] && trigger=1
+  [ "${target##*/}" = "${FM_META_LOCK##*/}" ] && trigger=1
 done
 "${FM_REAL_RM:?}" "$@"
 rc=$?
@@ -2471,7 +2564,8 @@ test_undo_cleanup_stops_when_session_authority_expires() {
   cat > "$dir/fakebin/rm" <<'SH'
 #!/usr/bin/env bash
 for arg in "$@"; do
-  if [ -n "${FM_SCAN_MARKER:-}" ] && [ "$arg" = "$FM_SCAN_MARKER" ] \
+  if [ -n "${FM_SCAN_MARKER:-}" ] \
+    && [ "${arg##*/}" = "${FM_SCAN_MARKER##*/}" ] \
     && [ ! -e "${FM_UNDO_AUTHORITY_EXPIRED:?}" ]; then
     "${FM_REAL_RM:?}" "$@" || exit $?
     printf '999999\n' > "${FM_SESSION_LOCK:?}"
@@ -3477,6 +3571,45 @@ SH
   pass 'endpoint binding migration retains an undo path after incomplete rollback'
 }
 
+test_staged_after_provenance_is_rechecked_before_stamp() {
+  local dir out rc real_mktemp original activated
+  dir=$(make_case staged-after-provenance)
+  real_mktemp=$(command -v mktemp)
+  activated="$dir/staged-after-tampered"
+  cat > "$dir/fakebin/mktemp" <<'SH'
+#!/usr/bin/env bash
+result=$("${FM_REAL_MKTEMP:?}" "$@") || exit $?
+if [ "${1:-}" = './.endpoint-binding-copy.XXXXXX' ] \
+  && [ "$PWD" = "${FM_BACKUP_DIR:?}" ] \
+  && [ ! -e "${FM_STAGE_TAMPERED:?}" ]; then
+  stage=$(find "${FM_STATE:?}" -maxdepth 1 -type d -name '.endpoint-binding-stage.*' -print -quit)
+  [ -n "$stage" ] || exit 1
+  printf 'unexpected_staged_change=1\n' >> "$stage/good.after" || exit 1
+  : > "$FM_STAGE_TAMPERED"
+fi
+printf '%s\n' "$result"
+SH
+  chmod +x "$dir/fakebin/mktemp"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  original=$(mktemp "$dir/original.XXXXXX")
+  cp "$dir/home/state/good.meta" "$original"
+  set +e
+  out=$(FM_REAL_MKTEMP="$real_mktemp" FM_STATE="$dir/home/state" \
+    FM_BACKUP_DIR="$dir/home/state/.endpoint-binding-migration-backups" \
+    FM_STAGE_TAMPERED="$activated" run_locked "$dir")
+  rc=$?
+  set -e
+  [ -f "$activated" ] || fail 'staged-after provenance fixture did not activate'
+  [ "$rc" -ne 0 ] || fail "tampered staged after-bytes were accepted: $out"
+  cmp -s "$original" "$dir/home/state/good.meta" \
+    || fail 'tampered staged after-bytes changed task metadata'
+  ! grep -q '^unexpected_staged_change=' "$dir/home/state/good.meta" \
+    || fail 'unrecorded staged changes were stamped'
+  pass 'endpoint binding migration revalidates staged provenance before stamping'
+}
+
 test_stage_control_namespace_avoids_task_id_collisions() {
   local dir out rc real_mv original_meta original_report
   dir=$(make_case stage-control-collision)
@@ -3655,8 +3788,8 @@ test_undo_recovery_rechecks_session_authority_before_metadata_restore() {
 #!/usr/bin/env bash
 "${FM_REAL_CMP:?}" "$@"
 rc=$?
-if [ "$rc" -eq 0 ] && [ "${3:-}" = "${FM_OBSERVED:?}" ] \
-  && [ "${4:-}" = "${FM_UNDONE:?}" ] \
+if [ "$rc" -eq 0 ] && [ "${3##*/}" = good.observed ] \
+  && [ "${4##*/}" = good.undone ] \
   && [ ! -e "${FM_UNDO_RECOVERY_AUTHORITY_EXPIRED:?}" ]; then
   printf '999999\n' > "${FM_SESSION_LOCK:?}"
   : > "$FM_UNDO_RECOVERY_AUTHORITY_EXPIRED"
@@ -4059,6 +4192,50 @@ SH
   pass 'endpoint binding undo retains partial state after authority loss'
 }
 
+test_state_replacement_does_not_redirect_lock_or_scan() {
+  local dir out rc real_ln real_mv outside held activated
+  dir=$(make_case pinned-lock-and-scan)
+  real_ln=$(command -v ln)
+  real_mv=$(command -v mv)
+  outside="$dir/outside-state"
+  held="$dir/held-state"
+  activated="$dir/state-replaced"
+  mkdir "$outside"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  fm_write_meta "$outside/outside.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  cat > "$dir/fakebin/ln" <<'SH'
+#!/usr/bin/env bash
+destination=${!#}
+if [ "${destination##*/}" = .endpoint-binding-migration.lock ] \
+  && [ ! -e "${FM_STATE_REPLACED:?}" ]; then
+  "${FM_REAL_MV:?}" "${FM_STATE_PATH:?}" "${FM_HELD_STATE:?}" || exit 1
+  "${FM_REAL_LN:?}" -s "${FM_OUTSIDE_STATE:?}" "$FM_STATE_PATH" || exit 1
+  cp "$FM_HELD_STATE/.lock" "$FM_OUTSIDE_STATE/.lock" || exit 1
+  : > "$FM_STATE_REPLACED"
+fi
+exec "${FM_REAL_LN:?}" "$@"
+SH
+  chmod +x "$dir/fakebin/ln"
+  set +e
+  out=$(FM_REAL_LN="$real_ln" FM_REAL_MV="$real_mv" \
+    FM_STATE_PATH="$dir/home/state" FM_HELD_STATE="$held" FM_OUTSIDE_STATE="$outside" \
+    FM_STATE_REPLACED="$activated" run_locked "$dir")
+  rc=$?
+  set -e
+  [ -f "$activated" ] || fail 'state replacement fixture did not activate'
+  ! grep -q '^endpoint_task_id=' "$outside/outside.meta" \
+    || fail 'migration scan followed a replaced state directory'
+  [ ! -e "$outside/.endpoint-binding-migration.log" ] \
+    || fail 'migration evidence was written through a replaced state directory'
+  [ "$rc" -ne 0 ] || grep -qx 'endpoint_task_id=good' "$held/good.meta" \
+    || fail "migration neither failed closed nor scanned the pinned state: $out"
+  pass 'endpoint binding lock and scan stay within the pinned state directory'
+}
+
 test_backup_creation_uses_pinned_state() {
   local dir out rc real_mkdir real_mv outside held activated
   dir=$(make_case pinned-backup-create)
@@ -4102,10 +4279,12 @@ SH
 
 test_evidence_bound_stamp_and_skip
 test_stage_control_namespace_avoids_task_id_collisions
+test_staged_after_provenance_is_rechecked_before_stamp
 test_atomic_copy_pins_validated_source_directory
 test_temporary_creation_stays_in_pinned_state_directory
 test_undo_recovery_rechecks_session_authority_before_metadata_restore
 test_shared_validator_refusal_reason_is_reported
+test_unknown_backend_claim_is_ambiguous
 test_unreadable_metadata_is_reported
 test_vanished_metadata_is_reported
 test_duplicate_tmux_window_is_ambiguous
@@ -4141,6 +4320,7 @@ test_completed_journal_refuses_dangling_backup_entry
 test_undo_recovery_rejects_symlink_destination
 test_private_atomic_publication_does_not_follow_destination_symlink
 test_atomic_publication_restores_destination_after_source_swap
+test_restore_artifact_does_not_publish_swapped_build
 test_atomic_source_swap_crash_is_recovered
 test_partial_restore_artifact_is_not_published
 test_journal_publication_does_not_follow_destination_symlink
@@ -4192,6 +4372,7 @@ test_apply_recovery_cleanup_is_restartable
 test_existing_journal_pre_manifest_stage_is_discarded
 test_apply_stage_symlink_is_not_followed
 test_orphaned_atomic_backup_temporary_is_recovered
+test_state_replacement_does_not_redirect_lock_or_scan
 test_backup_creation_uses_pinned_state
 test_orphaned_backups_are_recovered_on_restart
 test_no_stamp_validates_existing_recovery_namespace

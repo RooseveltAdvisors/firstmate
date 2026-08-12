@@ -50,6 +50,14 @@ PINNED_STATE_IDENTITY=$(filesystem_identity "$STATE" 2>/dev/null) || exit 1
 cd -P -- "$STATE" || exit 1
 [ "$(filesystem_identity . 2>/dev/null)" = "$PINNED_STATE_IDENTITY" ] || exit 1
 PINNED_STATE_PATH=$(pwd -P) || exit 1
+STATE=.
+FM_STATE_OVERRIDE=.
+REPORT="$STATE/.endpoint-binding-migration.log"
+SCAN_MARKER="$STATE/.endpoint-binding-migration-scan-v1"
+MARKER="$STATE/.endpoint-binding-migration-v1"
+RECORDS="$STATE/.endpoint-binding-migration-records-v1"
+BACKUP_DIR="$STATE/.endpoint-binding-migration-backups"
+MIGRATION_LOCK="$STATE/.endpoint-binding-migration.lock"
 pinned_state_directory() {
   [ "$(filesystem_identity . 2>/dev/null)" = "$PINNED_STATE_IDENTITY" ]
 }
@@ -130,8 +138,13 @@ make_private_temp_in() (
   tmp=$(mktemp "./$pattern") || return 1
   printf '%s/%s\n' "$expected" "${tmp#./}"
 )
+session_lock_owned_by_self() (
+  return_to_pinned_state_directory || return 1
+  pinned_state_directory || return 1
+  fm_session_lock_owned_by_self .
+)
 require_session_lock() {
-  fm_session_lock_owned_by_self "$STATE" || {
+  session_lock_owned_by_self || {
     echo "ENDPOINT_BINDING_MIGRATION: session lock is not owned by this session; migration did not run" >&2
     return 1
   }
@@ -418,6 +431,8 @@ inventory_endpoint_claims() {
   done < <(meta_distinct_values "$meta" backend)
   if ! grep -q '^backend=' "$meta" 2>/dev/null; then
     backends=(tmux)
+  elif [ "${#backends[@]}" -eq 0 ]; then
+    backends=(tmux herdr)
   fi
   while IFS= read -r target; do
     case "$target" in
@@ -806,7 +821,7 @@ remove_private_backup_files() (
   if [ -e "./$after_name" ] || [ -L "./$after_name" ]; then
     private_file "./$after_name" || return 1
   fi
-  fm_session_lock_owned_by_self "$STATE" || return 1
+  session_lock_owned_by_self || return 1
   rm -f -- "./$before_name" "./$after_name"
 )
 
@@ -893,6 +908,7 @@ file_descriptor_size() {
 
 COPY_CREATED_IDENTITY=
 ATOMIC_RESTORE_ARTIFACT=
+ATOMIC_RESTORE_BUILD=
 copy_to_new_private_file() {
   local destination=$1 binding_id=${2:-} append_line=${3:-} append_present=${4:-0}
   local append_skip=${5:-0} append_separator=${6:-0}
@@ -949,7 +965,9 @@ copy_to_new_private_file() {
 
 create_atomic_restore_artifact() {
   local destination_name=$1 present=$2 artifact build identity fd_identity suffix attempts=0
+  local artifact_identity artifact_fd_identity
   ATOMIC_RESTORE_ARTIFACT=
+  ATOMIC_RESTORE_BUILD=
   case "$destination_name" in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac
   [ "$present" -eq 0 ] || [ "$present" -eq 1 ] || return 1
   [ "$present" -eq 0 ] || file_descriptor_regular 4 || return 1
@@ -972,7 +990,6 @@ create_atomic_restore_artifact() {
     fd_identity=$(file_descriptor_identity 9 2>/dev/null) || exit 1
     regular_file "$build" || exit 1
     [ "$(path_file_identity "$build" 2>/dev/null)" = "$fd_identity" ] || exit 1
-    printf '%s\t%s\n' "$present" "$destination_name" >&9 || exit 1
     [ "$present" -eq 0 ] || cat <&4 >&9 || exit 1
     regular_file "$build" || exit 1
     [ "$(path_file_identity "$build" 2>/dev/null)" = "$fd_identity" ] || exit 1
@@ -983,30 +1000,61 @@ create_atomic_restore_artifact() {
   }
   private_file "$build" || return 1
   [ "$(path_file_identity "$build" 2>/dev/null)" = "$identity" ] || return 1
-  atomic_rename_nofollow "$build" "$artifact" || {
-    rm -f -- "$build"
+  artifact_identity=$(
+    set -C
+    exec 9> "$artifact" || exit 1
+    file_descriptor_regular 9 || exit 1
+    artifact_fd_identity=$(file_descriptor_identity 9 2>/dev/null) || exit 1
+    regular_file "$artifact" || exit 1
+    [ "$(path_file_identity "$artifact" 2>/dev/null)" = "$artifact_fd_identity" ] || exit 1
+    printf 'ready\t%s\t%s\t%s\t%s\n' "$present" "$destination_name" \
+      "${build#./}" "$identity" >&9 || exit 1
+    regular_file "$artifact" || exit 1
+    [ "$(path_file_identity "$artifact" 2>/dev/null)" = "$artifact_fd_identity" ] || exit 1
+    printf '%s' "$artifact_fd_identity"
+  ) || {
+    rm -f -- "$artifact" "$build"
     return 1
   }
   private_file "$artifact" || return 1
-  [ "$(path_file_identity "$artifact" 2>/dev/null)" = "$identity" ] || return 1
+  [ "$(path_file_identity "$artifact" 2>/dev/null)" = "$artifact_identity" ] || return 1
   ATOMIC_RESTORE_ARTIFACT=$artifact
+  ATOMIC_RESTORE_BUILD=$build
 }
 
 recover_atomic_restore() {
-  local artifact=$1 artifact_identity artifact_fd_identity present destination_name extra
-  local destination tmp tmp_identity rc
+  local artifact=$1 artifact_identity artifact_fd_identity ready present destination_name
+  local build_name build_identity extra build build_fd_identity destination tmp tmp_identity rc
   private_file "$artifact" || return 1
   artifact_identity=$(path_file_identity "$artifact" 2>/dev/null) || return 1
   exec 8< "$artifact" || return 1
   file_descriptor_regular 8 || return 1
   artifact_fd_identity=$(file_descriptor_identity 8 2>/dev/null) || return 1
   [ "$artifact_fd_identity" = "$artifact_identity" ] || return 1
-  IFS=$'\t' read -r present destination_name extra <&8 || return 1
-  [ -z "${extra:-}" ] || return 1
+  if ! IFS=$'\t' read -r ready present destination_name build_name build_identity extra <&8; then
+    build="./.endpoint-binding-restore-build.${artifact##*.}"
+    private_file "$build" || return 1
+    [ "$(path_file_identity "$artifact" 2>/dev/null)" = "$artifact_fd_identity" ] || return 1
+    rm -f -- "$artifact" "$build"
+    return $?
+  fi
+  [ "$ready" = ready ] && [ -z "${extra:-}" ] || return 1
   case "$destination_name" in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac
+  case "$build_name" in .endpoint-binding-restore-build.[A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9]) ;; *) return 1 ;; esac
+  [ "$build_name" = ".endpoint-binding-restore-build.${artifact##*.}" ] || return 1
+  case "$build_identity" in *:*) ;; *) return 1 ;; esac
+  build="./$build_name"
+  private_file "$build" || return 1
+  [ "$(path_file_identity "$build" 2>/dev/null)" = "$build_identity" ] || return 1
+  exec 8<&-
+  exec 8< "$build" || return 1
+  file_descriptor_regular 8 || return 1
+  build_fd_identity=$(file_descriptor_identity 8 2>/dev/null) || return 1
+  [ "$build_fd_identity" = "$build_identity" ] || return 1
   destination="./$destination_name"
   case "$present" in
     0)
+      [ "$(file_descriptor_size 8 2>/dev/null)" -eq 0 ] || return 1
       if [ -L "$destination" ] || regular_file "$destination"; then
         rm -f -- "$destination" || return 1
       elif [ -e "$destination" ]; then
@@ -1035,7 +1083,8 @@ recover_atomic_restore() {
     *) return 1 ;;
   esac
   [ "$(path_file_identity "$artifact" 2>/dev/null)" = "$artifact_fd_identity" ] || return 1
-  rm -f -- "$artifact"
+  [ "$(path_file_identity "$build" 2>/dev/null)" = "$build_fd_identity" ] || return 1
+  rm -f -- "$artifact" "$build"
 }
 
 copy_private_atomic() (
@@ -1043,7 +1092,7 @@ copy_private_atomic() (
   local append_line=${6:-} append_source=${7:-} append_source_type=${8:-private}
   local append_skip=${9:-0} append_separator=${10:-0}
   local recovery_authority=${FM_COPY_REQUIRE_RECOVERY_AUTHORITY:-0}
-  local source_dir source_name destination_dir destination_name tmp rc restore_artifact
+  local source_dir source_name destination_dir destination_name tmp rc restore_artifact restore_build
   local destination_expected tmp_identity
   local source_identity source_fd_identity append_present=0 destination_present=0 destination_identity destination_fd_identity
   local append_source_dir append_source_name append_identity append_fd_identity
@@ -1155,8 +1204,9 @@ copy_private_atomic() (
   create_atomic_restore_artifact "$destination_name" "$destination_present" \
     || { rm -f -- "$tmp"; return 1; }
   restore_artifact=$ATOMIC_RESTORE_ARTIFACT
+  restore_build=$ATOMIC_RESTORE_BUILD
   if [ "$recovery_authority" -eq 1 ] \
-    && ! fm_session_lock_owned_by_self "$STATE"; then
+    && ! session_lock_owned_by_self; then
     return 1
   fi
   if ! atomic_rename_nofollow "$tmp" "./$destination_name"; then
@@ -1175,7 +1225,8 @@ copy_private_atomic() (
   else
     private_file "./$destination_name" || { recover_atomic_restore "$restore_artifact" || true; return 1; }
   fi
-  rm -f -- "$restore_artifact"
+  rm -f -- "$restore_artifact" || return 1
+  rm -f -- "$restore_build" || true
 )
 
 copy_private_atomic_recovery() {
@@ -1439,7 +1490,7 @@ recover_existing_apply_stage() {
       rm -f -- "$merged_tmp"
       return 1
     }
-    copy_private_atomic "$control/records.before" "$RECORDS" || {
+    copy_private_atomic_recovery "$control/records.before" "$RECORDS" || {
       release_merge_locks || true
       rm -f -- "$merged_tmp"
       return 1
@@ -1848,7 +1899,7 @@ publish_recovery_records() {
     return 1
   }
   RECORDS_PUBLISHED=1
-  if ! copy_private_atomic "$manifest_tmp" "$RECORDS"; then
+  if ! copy_private_atomic_recovery "$manifest_tmp" "$RECORDS"; then
     RECORDS_PUBLISHED=0
     rm -f -- "$manifest_tmp"
     return 1
@@ -2060,7 +2111,7 @@ recover_undo_stage() {
         return 1
       fi
     else
-      copy_private_atomic "$control/records" "$RECORDS" || rc=1
+      copy_private_atomic_recovery "$control/records" "$RECORDS" || rc=1
     fi
     if [ -e "$BACKUP_DIR" ] || [ -L "$BACKUP_DIR" ]; then
       private_directory "$BACKUP_DIR" || return 1
@@ -2078,7 +2129,7 @@ recover_undo_stage() {
           rc=1
         fi
       else
-        copy_private_atomic "$stage/$before_name" "$BACKUP_DIR/$before_name" || rc=1
+        copy_private_atomic_recovery "$stage/$before_name" "$BACKUP_DIR/$before_name" || rc=1
       fi
       if [ -e "$BACKUP_DIR/$after_name" ] || [ -L "$BACKUP_DIR/$after_name" ]; then
         if ! private_file "$BACKUP_DIR/$after_name" \
@@ -2086,7 +2137,7 @@ recover_undo_stage() {
           rc=1
         fi
       else
-        copy_private_atomic "$stage/$after_name" "$BACKUP_DIR/$after_name" || rc=1
+        copy_private_atomic_recovery "$stage/$after_name" "$BACKUP_DIR/$after_name" || rc=1
       fi
     done
     [ "$rc" -eq 0 ] || return 1
@@ -2378,6 +2429,8 @@ apply_migration() {
   revalidate_merge_records || { abort_apply 1; return $?; }
   for i in "${!STAMP_IDS[@]}"; do
     [ "${STAMP_SELECTED[$i]:-0}" -eq 1 ] || continue
+    valid_stamp_evidence "${STAMP_IDS[$i]}" "${STAMP_BEFORE[$i]}" "${STAMP_AFTER[$i]}" \
+      || { abort_apply 1; return $?; }
     copy_private_atomic "${STAMP_BEFORE[$i]}" "${STAMP_BEFORE_FINAL[$i]}" || { abort_apply 1; return $?; }
     copy_private_atomic "${STAMP_AFTER[$i]}" "${STAMP_AFTER_FINAL[$i]}" || { abort_apply 1; return $?; }
   done
@@ -2426,6 +2479,12 @@ apply_migration() {
         return $?
       fi
       restart_apply_scan 1
+      return $?
+    fi
+    if ! valid_stamp_evidence "${STAMP_IDS[$i]}" "${STAMP_BEFORE[$i]}" "${STAMP_AFTER[$i]}" \
+      || ! cmp -s -- "${STAMP_BEFORE[$i]}" "${STAMP_BEFORE_FINAL[$i]}" \
+      || ! cmp -s -- "${STAMP_AFTER[$i]}" "${STAMP_AFTER_FINAL[$i]}"; then
+      abort_apply 1
       return $?
     fi
     require_session_lock || { retain_apply_for_recovery; return 1; }
