@@ -620,6 +620,47 @@ SH
   pass 'endpoint binding migration inventories conservative duplicate-field claims'
 }
 
+test_conflicting_duplicate_claim_fields_are_ambiguous() {
+  local dir out report
+  dir=$(make_case conflicting-duplicate-claim-fields)
+  cat > "$dir/fakebin/herdr" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}:${2:-}" in
+  status:--json) printf '%s\n' '{"server":{"running":true}}' ;;
+  pane:get)
+    printf '{"result":{"pane":{"pane_id":"%s","foreground_cwd":"%s"}}}\n' \
+      "${3:-}" "${FM_HERDR_LIVE_WORKTREE:?}"
+    ;;
+  agent:get) printf '%s\n' '{"result":{"agent":{"agent_status":"idle"}}}' ;;
+  *) exit 1 ;;
+esac
+SH
+  chmod +x "$dir/fakebin/herdr"
+  fm_write_meta "$dir/home/state/herdr-good.meta" \
+    'window=lab:w1:p2' 'backend=herdr' 'herdr_session=lab' \
+    'herdr_workspace_id=w1' 'herdr_tab_id=w1:t1' 'herdr_pane_id=w1:p2' \
+    "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  fm_write_meta "$dir/home/state/herdr-conflict.meta" \
+    'window=lab:w1:p2' 'window=lab:w1:p3' 'backend=herdr' \
+    'herdr_session=lab' 'herdr_workspace_id=w1' 'herdr_tab_id=w1:t1' \
+    'herdr_pane_id=w1:p3' "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+
+  out=$(FM_HERDR_LIVE_WORKTREE="$dir/worktree" run_locked "$dir") \
+    || fail "conflicting duplicate claim migration failed: $out"
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/herdr-good.meta" \
+    || fail 'verified task sharing one conflicting duplicate endpoint was stamped'
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/herdr-conflict.meta" \
+    || fail 'malformed conflicting duplicate-field record was stamped'
+  report=$(cat "$dir/home/state/.endpoint-binding-migration.log")
+  assert_contains "$report" \
+    'task herdr-good: skipped - ambiguous live endpoint identity is claimed by multiple task records' \
+    'conflicting duplicate endpoint fields were omitted from ambiguity detection'
+  assert_contains "$report" \
+    'task herdr-conflict: skipped - shared endpoint validation refused:' \
+    'conflicting duplicate endpoint fields did not retain their validation refusal'
+  pass 'endpoint binding migration inventories every conflicting endpoint claim'
+}
+
 test_hidden_herdr_claim_is_ambiguous() {
   local dir out report
   dir=$(make_case hidden-herdr-claim)
@@ -1871,6 +1912,60 @@ SH
   [ -f "$stage/good.rollback" ] \
     || fail 'recovery expiry did not occur after metadata reconciliation'
   pass 'endpoint binding recovery revalidates session authority before commit'
+}
+
+test_partial_recovery_rechecks_authority_before_metadata_replace() {
+  local dir out rc real_mv stage backups records activated
+  dir=$(make_case partial-recovery-authority)
+  real_mv=$(command -v mv)
+  stage="$dir/home/state/.endpoint-binding-stage.partial-authority"
+  backups="$dir/home/state/.endpoint-binding-migration-backups"
+  records="$dir/home/state/.endpoint-binding-migration-records-v1"
+  activated="$dir/partial-recovery-authority-expired"
+  cat > "$dir/fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+destination=${!#}
+"${FM_REAL_MV:?}" "$@" || exit $?
+if [ "$PWD" = "${FM_RECOVERY_STAGE:?}" ] \
+  && [ "${destination##*/}" = good.rollback ] \
+  && [ ! -e "${FM_RECOVERY_EXPIRED:?}" ]; then
+  printf '999999\n' > "${FM_SESSION_LOCK:?}"
+  : > "$FM_RECOVERY_EXPIRED"
+fi
+SH
+  chmod +x "$dir/fakebin/mv"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  mkdir "$stage" "$stage/.control" "$backups"
+  chmod 0700 "$stage" "$stage/.control" "$backups"
+  cp "$dir/home/state/good.meta" "$stage/good.before"
+  cp "$dir/home/state/good.meta" "$stage/good.after"
+  printf 'endpoint_task_id=good\n' >> "$stage/good.after"
+  printf '%s\n' $'good\tgood.before\tgood.after' > "$stage/.control/records"
+  cp "$stage/good.before" "$backups/good.before"
+  cp "$stage/good.after" "$backups/good.after"
+  cp "$stage/.control/records" "$records"
+  cp "$stage/good.after" "$dir/home/state/good.meta"
+  chmod 0600 "$stage"/* "$stage/.control"/* "$backups"/* "$records"
+
+  set +e
+  out=$(FM_REAL_MV="$real_mv" FM_RECOVERY_STAGE="$stage" \
+    FM_RECOVERY_EXPIRED="$activated" FM_SESSION_LOCK="$dir/home/state/.lock" \
+    run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "partial recovery retained expired authority: $out"
+  [ -f "$activated" ] || fail 'partial recovery authority fixture did not activate'
+  grep -qx 'endpoint_task_id=good' "$dir/home/state/good.meta" \
+    || fail 'partial recovery replaced metadata after session authority expired'
+  [ -d "$stage" ] && [ -f "$records" ] \
+    || fail 'partial recovery did not retain durable state after authority loss'
+  rm -f "$dir/fakebin/mv"
+  out=$(run_locked "$dir") || fail "partial recovery authority retry failed: $out"
+  grep -qx 'endpoint_task_id=good' "$dir/home/state/good.meta" \
+    || fail 'authorized partial recovery retry did not rerun the exact stamp'
+  pass 'endpoint binding partial recovery rechecks authority before metadata replacement'
 }
 
 test_signal_rolls_back_staged_stamps() {
@@ -3642,6 +3737,224 @@ SH
   pass 'endpoint binding source-swap crashes retain recoverable prior bytes'
 }
 
+test_partial_restore_artifact_is_not_published() {
+  local dir out rc real_cat real_mv real_ps original count activated stage
+  dir=$(make_case partial-restore-artifact)
+  real_cat=$(command -v cat)
+  real_mv=$(command -v mv)
+  real_ps=$(command -v ps)
+  count="$dir/restore-cat-count"
+  activated="$dir/partial-restore-activated"
+  cat > "$dir/fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+destination=${!#}
+"${FM_REAL_MV:?}" "$@" || exit $?
+if [ "${destination##*/}" = .endpoint-binding-migration-records-v1 ]; then
+  : > "${FM_JOURNAL_PUBLISHED:?}"
+fi
+SH
+  cat > "$dir/fakebin/cat" <<'SH'
+#!/usr/bin/env bash
+if [ "$#" -eq 0 ] && [ -e "${FM_JOURNAL_PUBLISHED:?}" ]; then
+  count=$("${FM_REAL_CAT:?}" "${FM_RESTORE_CAT_COUNT:?}" 2>/dev/null || printf '0')
+  count=$((count + 1))
+  printf '%s\n' "$count" > "$FM_RESTORE_CAT_COUNT"
+  if [ "$count" -eq 2 ]; then
+    dd bs=1 count=1 2>/dev/null
+    : > "${FM_PARTIAL_RESTORE_ACTIVATED:?}"
+    parent=$PPID
+    grand=$("${FM_REAL_PS:?}" -o ppid= -p "$parent" | tr -d ' ')
+    kill -KILL "${FM_MIGRATE_PID:?}" "$parent" "$grand" 2>/dev/null || true
+    exit 137
+  fi
+fi
+exec "${FM_REAL_CAT:?}" "$@"
+SH
+  chmod +x "$dir/fakebin/cat" "$dir/fakebin/mv"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  original=$(mktemp "$dir/original.XXXXXX")
+  cp "$dir/home/state/good.meta" "$original"
+  set +e
+  out=$(FM_REAL_CAT="$real_cat" FM_REAL_MV="$real_mv" FM_REAL_PS="$real_ps" \
+    FM_RESTORE_CAT_COUNT="$count" FM_PARTIAL_RESTORE_ACTIVATED="$activated" \
+    FM_JOURNAL_PUBLISHED="$dir/journal-published" run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "partial restore artifact crash unexpectedly succeeded: $out"
+  [ -f "$activated" ] || fail 'partial restore artifact fixture did not activate'
+  stage=$(find "$dir/home/state" -maxdepth 1 -type d -name '.endpoint-binding-stage.*' -print -quit)
+  [ -n "$stage" ] || fail 'partial restore artifact crash discarded transaction staging'
+  rm -f "$dir/fakebin/cat" "$dir/fakebin/mv"
+  out=$(run_locked "$dir") || fail "partial restore artifact recovery failed: $out"
+  grep -qx 'endpoint_task_id=good' "$dir/home/state/good.meta" \
+    || fail 'partial restore artifact recovery did not rerun the exact stamp'
+  [ -z "$(find "$dir/home/state" -name '.endpoint-binding-restore-build.*' -print -quit)" ] \
+    || fail 'partial restore artifact recovery retained an incomplete build'
+  out=$(run_locked "$dir" --undo) || fail "partial restore artifact undo failed: $out"
+  cmp -s "$original" "$dir/home/state/good.meta" \
+    || fail 'partial restore artifact recovery corrupted prior metadata bytes'
+  pass 'endpoint binding publishes restore artifacts only after complete snapshots'
+}
+
+test_abort_apply_stops_rollback_after_authority_loss() {
+  local dir out rc real_mv original original2 first stage
+  dir=$(make_case abort-apply-authority-loss)
+  real_mv=$(command -v mv)
+  cat > "$dir/fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+destination=${!#}
+if [ "${destination##*/}" = .endpoint-binding-migration.log ] \
+  && [ ! -e "${FM_ABORT_STARTED:?}" ]; then
+  : > "$FM_ABORT_STARTED"
+  exit 1
+fi
+"${FM_REAL_MV:?}" "$@" || exit $?
+if [ -e "${FM_ABORT_STARTED:?}" ] && [ ! -e "${FM_ABORT_AUTHORITY_EXPIRED:?}" ]; then
+  case "${destination##*/}" in
+    good.meta|good2.meta)
+      printf '%s\n' "${destination##*/}" > "${FM_FIRST_ROLLBACK:?}"
+      printf '999999\n' > "${FM_SESSION_LOCK:?}"
+      : > "$FM_ABORT_AUTHORITY_EXPIRED"
+      ;;
+  esac
+fi
+SH
+  chmod +x "$dir/fakebin/mv"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  fm_write_meta "$dir/home/state/good2.meta" \
+    'window=firstmate:fm-good2' "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  original=$(mktemp "$dir/good-original.XXXXXX")
+  original2=$(mktemp "$dir/good2-original.XXXXXX")
+  cp "$dir/home/state/good.meta" "$original"
+  cp "$dir/home/state/good2.meta" "$original2"
+  set +e
+  out=$(FM_REAL_MV="$real_mv" FM_ABORT_STARTED="$dir/abort-started" \
+    FM_ABORT_AUTHORITY_EXPIRED="$dir/abort-authority-expired" \
+    FM_FIRST_ROLLBACK="$dir/first-rollback" \
+    FM_SESSION_LOCK="$dir/home/state/.lock" run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "authority-expired apply abort unexpectedly succeeded: $out"
+  [ -f "$dir/abort-authority-expired" ] || fail 'apply abort authority fixture did not activate'
+  first=$(cat "$dir/first-rollback")
+  case "$first" in
+    good.meta)
+      cmp -s "$original" "$dir/home/state/good.meta" \
+        || fail 'apply abort did not complete its authorized first rollback'
+      grep -qx 'endpoint_task_id=good2' "$dir/home/state/good2.meta" \
+        || fail 'apply abort continued rolling back metadata after authority expired'
+      ;;
+    good2.meta)
+      cmp -s "$original2" "$dir/home/state/good2.meta" \
+        || fail 'apply abort did not complete its authorized first rollback'
+      grep -qx 'endpoint_task_id=good' "$dir/home/state/good.meta" \
+        || fail 'apply abort continued rolling back metadata after authority expired'
+      ;;
+    *) fail 'apply abort did not identify its first rollback mutation' ;;
+  esac
+  [ -f "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
+    || fail 'apply abort removed recovery journal after authority expired'
+  stage=$(find "$dir/home/state" -maxdepth 1 -type d -name '.endpoint-binding-stage.*' -print -quit)
+  [ -n "$stage" ] || fail 'apply abort discarded recovery staging after authority expired'
+  rm -f "$dir/fakebin/mv"
+  out=$(run_locked "$dir") || fail "apply abort authority recovery failed: $out"
+  grep -qx 'endpoint_task_id=good' "$dir/home/state/good.meta" \
+    || fail 'apply abort recovery did not rerun the first exact stamp'
+  grep -qx 'endpoint_task_id=good2' "$dir/home/state/good2.meta" \
+    || fail 'apply abort recovery did not retain the second exact stamp'
+  pass 'endpoint binding apply abort stops rollback when authority expires'
+}
+
+test_abort_undo_stops_rollback_after_authority_loss() {
+  local dir out rc real_mv stage fail_meta rollback_meta remaining_meta fail_id rollback_id
+  local -a ordered
+  dir=$(make_case abort-undo-authority-loss)
+  real_mv=$(command -v mv)
+  cat > "$dir/fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = list-windows ]; then
+  printf '%s\n' fm-good fm-good2 fm-good3
+  exit 0
+fi
+if [ "${1:-}" = display-message ]; then
+  case "${5:-}" in
+    '#{pane_tty}') printf '/dev/null\n' ;;
+    '#{pane_current_command}') printf 'pi\n' ;;
+    '#{pane_current_path}') printf '%s/worktree\n' "${FM_HOME%/home}" ;;
+    *) printf 'pane\n' ;;
+  esac
+  exit 0
+fi
+exit 0
+SH
+  chmod +x "$dir/fakebin/tmux"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  fm_write_meta "$dir/home/state/good2.meta" \
+    'window=firstmate:fm-good2' "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  fm_write_meta "$dir/home/state/good3.meta" \
+    'window=firstmate:fm-good3' "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  run_locked "$dir" >/dev/null || fail 'migration setup for undo abort authority failed'
+  ordered=("$dir/home/state"/*.meta)
+  remaining_meta=${ordered[0]}
+  rollback_meta=${ordered[${#ordered[@]} - 2]}
+  fail_meta=${ordered[${#ordered[@]} - 1]}
+  rollback_id=${rollback_meta##*/}; rollback_id=${rollback_id%.meta}
+  fail_id=${fail_meta##*/}; fail_id=${fail_id%.meta}
+  cat > "$dir/fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+destination=${!#}
+if [ "${destination##*/}" = "${FM_UNDO_FAIL_META:?}" ] \
+  && [ ! -e "${FM_UNDO_ABORT_STARTED:?}" ]; then
+  : > "$FM_UNDO_ABORT_STARTED"
+  exit 1
+fi
+"${FM_REAL_MV:?}" "$@" || exit $?
+if [ -e "${FM_UNDO_ABORT_STARTED:?}" ] \
+  && [ "${destination##*/}" != "$FM_UNDO_FAIL_META" ] \
+  && [ ! -e "${FM_UNDO_ABORT_AUTHORITY_EXPIRED:?}" ]; then
+  case "${destination##*/}" in
+    *.meta)
+      printf '999999\n' > "${FM_SESSION_LOCK:?}"
+      : > "$FM_UNDO_ABORT_AUTHORITY_EXPIRED"
+      ;;
+  esac
+fi
+SH
+  chmod +x "$dir/fakebin/mv"
+  set +e
+  out=$(FM_REAL_MV="$real_mv" FM_UNDO_ABORT_STARTED="$dir/undo-abort-started" \
+    FM_UNDO_ABORT_AUTHORITY_EXPIRED="$dir/undo-abort-authority-expired" \
+    FM_UNDO_FAIL_META="${fail_meta##*/}" FM_SESSION_LOCK="$dir/home/state/.lock" \
+    run_locked "$dir" --undo)
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "authority-expired undo abort unexpectedly succeeded: $out"
+  [ -f "$dir/undo-abort-authority-expired" ] || fail 'undo abort authority fixture did not activate'
+  ! grep -q '^endpoint_task_id=' "$remaining_meta" \
+    || fail 'undo abort continued rolling metadata back after authority expired'
+  grep -qx "endpoint_task_id=$rollback_id" "$rollback_meta" \
+    || fail 'undo abort did not complete its authorized first rollback'
+  grep -qx "endpoint_task_id=$fail_id" "$fail_meta" \
+    || fail 'undo abort did not preserve the failed metadata replacement'
+  [ -f "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
+    || fail 'undo abort removed recovery journal after authority expired'
+  stage=$(find "$dir/home/state" -maxdepth 1 -type d -name '.endpoint-binding-undo-cleanup.*' -print -quit)
+  [ -n "$stage" ] || fail 'undo abort discarded recovery staging after authority expired'
+  rm -f "$dir/fakebin/mv"
+  out=$(run_locked "$dir" --undo) || fail "undo abort authority recovery failed: $out"
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
+    || fail 'undo abort recovery did not complete the first surgical undo'
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/good2.meta" \
+    || fail 'undo abort recovery did not complete the second surgical undo'
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/good3.meta" \
+    || fail 'undo abort recovery did not complete the third surgical undo'
+  pass 'endpoint binding undo abort stops rollback when authority expires'
+}
+
 test_apply_authority_loss_retains_recovery() {
   local dir out rc real_mv stage original
   dir=$(make_case apply-authority-loss)
@@ -3805,6 +4118,7 @@ test_bound_herdr_endpoint_claim_is_ambiguous
 test_unverified_herdr_claim_is_ambiguous
 test_invalid_task_id_claim_is_ambiguous
 test_duplicate_identical_claim_fields_are_ambiguous
+test_conflicting_duplicate_claim_fields_are_ambiguous
 test_hidden_herdr_claim_is_ambiguous
 test_herdr_liveness_is_rechecked_without_server_ensure
 test_staged_binding_assembly_does_not_follow_symlinks
@@ -3828,6 +4142,7 @@ test_undo_recovery_rejects_symlink_destination
 test_private_atomic_publication_does_not_follow_destination_symlink
 test_atomic_publication_restores_destination_after_source_swap
 test_atomic_source_swap_crash_is_recovered
+test_partial_restore_artifact_is_not_published
 test_journal_publication_does_not_follow_destination_symlink
 test_evidence_publication_does_not_follow_destination_symlinks
 test_migration_does_not_require_perl
@@ -3846,6 +4161,9 @@ test_darwin_descriptor_bound_migration_is_supported
 test_expired_session_lock_after_wait_is_refused
 test_apply_authority_loss_retains_recovery
 test_recovery_stops_when_session_lock_expires
+test_partial_recovery_rechecks_authority_before_metadata_replace
+test_abort_apply_stops_rollback_after_authority_loss
+test_abort_undo_stops_rollback_after_authority_loss
 test_signal_rolls_back_staged_stamps
 test_final_stamp_waits_for_metadata_lock
 test_migration_transaction_lock_serializes_no_stamp_runs
