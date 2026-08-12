@@ -1764,6 +1764,61 @@ SH
   pass 'endpoint binding migration rolls back and reports a failed final live check'
 }
 
+test_final_evidence_checks_precede_live_recheck() {
+  local dir out rc real_cmp activated
+  dir=$(make_case final-evidence-live-recheck)
+  real_cmp=$(command -v cmp)
+  activated="$dir/final-evidence-live-recheck-activated"
+  cat > "$dir/fakebin/cmp" <<'SH'
+#!/usr/bin/env bash
+case "${3:-}:${4:-}" in
+  */.endpoint-binding-stage.*/good.after:*/.endpoint-binding-migration-backups/good.after)
+    : > "${FM_ENDPOINT_DEAD:?}"
+    ;;
+esac
+exec "${FM_REAL_CMP:?}" "$@"
+SH
+  cat > "$dir/fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = list-windows ]; then
+  if [ -e "${FM_ENDPOINT_DEAD:?}" ]; then
+    printf '%s\n' fm-good2 fm-dead fm-ambiguous fm-bound fm-empty
+  else
+    printf '%s\n' fm-good fm-good2 fm-dead fm-ambiguous fm-bound fm-empty
+  fi
+  exit 0
+fi
+if [ "${1:-}" = display-message ]; then
+  case "${5:-}" in
+    '#{pane_tty}') printf '/dev/null\n' ;;
+    '#{pane_current_command}') printf 'pi\n' ;;
+    '#{pane_current_path}') printf '%s/worktree\n' "${FM_HOME%/home}" ;;
+    *) printf 'pane\n' ;;
+  esac
+  exit 0
+fi
+exit 0
+SH
+  chmod +x "$dir/fakebin/cmp" "$dir/fakebin/tmux"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  set +e
+  out=$(FM_REAL_CMP="$real_cmp" FM_ENDPOINT_DEAD="$activated" run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "late endpoint death rerun failed: $out"
+  [ -f "$activated" ] || fail 'late endpoint death fixture did not activate'
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
+    || fail 'endpoint that died during evidence checks was stamped'
+  [ ! -e "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
+    || fail 'late endpoint death left a journal'
+  assert_contains "$(cat "$dir/home/state/.endpoint-binding-migration.log")" \
+    'task good: skipped - dead endpoint (recorded target is missing)' \
+    'late endpoint death lost its per-record refusal reason'
+  pass 'endpoint binding migration checks final liveness immediately before stamping'
+}
+
 test_final_metadata_change_reruns_scan() {
   local dir out real_rm meta lock activated
   dir=$(make_case final-metadata-change)
@@ -4398,6 +4453,7 @@ test_undo_snapshot_copy_is_atomic
 test_undo_snapshot_rejects_replaced_stage_parent
 test_existing_records_snapshot_is_atomic
 test_final_live_recheck_refuses_dead_endpoint
+test_final_evidence_checks_precede_live_recheck
 test_final_metadata_change_reruns_scan
 test_reverse_restores_prior_bytes
 test_shared_task_id_grammar_reports_colon_ids

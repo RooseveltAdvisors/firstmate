@@ -2509,6 +2509,13 @@ apply_migration() {
       abort_apply 1
       return $?
     fi
+    if ! valid_stamp_evidence "${STAMP_IDS[$i]}" "${STAMP_BEFORE[$i]}" "${STAMP_AFTER[$i]}" \
+      || ! cmp -s -- "${STAMP_BEFORE[$i]}" "${STAMP_BEFORE_FINAL[$i]}" \
+      || ! cmp -s -- "${STAMP_AFTER[$i]}" "${STAMP_AFTER_FINAL[$i]}"; then
+      abort_apply 1
+      return $?
+    fi
+    require_session_lock || { retain_apply_for_recovery; return 1; }
     if ! verify_legacy_endpoint "${STAMP_AFTER[$i]}" "${STAMP_IDS[$i]}"; then
       if [ "$REPORT_WRITE_FAILED" -eq 1 ]; then
         abort_apply 1
@@ -2517,13 +2524,6 @@ apply_migration() {
       restart_apply_scan 1
       return $?
     fi
-    if ! valid_stamp_evidence "${STAMP_IDS[$i]}" "${STAMP_BEFORE[$i]}" "${STAMP_AFTER[$i]}" \
-      || ! cmp -s -- "${STAMP_BEFORE[$i]}" "${STAMP_BEFORE_FINAL[$i]}" \
-      || ! cmp -s -- "${STAMP_AFTER[$i]}" "${STAMP_AFTER_FINAL[$i]}"; then
-      abort_apply 1
-      return $?
-    fi
-    require_session_lock || { retain_apply_for_recovery; return 1; }
     if ! copy_private_atomic "${STAMP_AFTER[$i]}" "${STAMP_METAS[$i]}" regular; then
       abort_apply 1
       return $?
