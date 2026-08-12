@@ -196,7 +196,127 @@ SH
   pass 'endpoint binding migration rolls back stamps on interruption'
 }
 
+test_final_stamp_waits_for_metadata_lock() {
+  local dir lock ready release holder migration_pid rc
+  dir=$(make_case metadata-lock)
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  lock="$dir/home/state/.meta-good.lock"
+  ready="$dir/lock-ready"
+  release="$dir/lock-release"
+  (
+    export FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" PATH="$dir/fakebin:$BASE_PATH"
+    # shellcheck source=/dev/null
+    . "$ROOT/bin/fm-wake-lib.sh"
+    fm_lock_try_acquire "$lock" || exit 1
+    : > "$ready"
+    while [ ! -e "$release" ]; do sleep 0.01; done
+    fm_lock_release "$lock"
+  ) &
+  holder=$!
+  while [ ! -e "$ready" ]; do sleep 0.01; done
+  run_locked "$dir" > "$dir/stdout" 2> "$dir/stderr" &
+  migration_pid=$!
+  sleep 0.2
+  kill -0 "$migration_pid" 2>/dev/null || fail 'migration did not wait for the shared metadata lock'
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
+    || fail 'migration wrote metadata while the shared metadata lock was held'
+  : > "$release"
+  wait "$holder" || fail 'metadata lock holder failed'
+  set +e
+  wait "$migration_pid"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "migration failed after metadata lock release: $(cat "$dir/stderr")"
+  assert_contains "$(cat "$dir/home/state/good.meta")" 'endpoint_task_id=good' \
+    'migration did not stamp after the shared metadata lock was released'
+  pass 'endpoint binding migration serializes final metadata replacement'
+}
+
+test_publication_failure_restores_evidence() {
+  local dir original out rc real_mv
+  dir=$(make_case publication-failure)
+  real_mv=$(command -v mv)
+  cat > "$dir/fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+if [ -n "${FM_FAIL_DEST:-}" ] && [ "${4:-}" = "$FM_FAIL_DEST" ]; then exit 1; fi
+exec "${FM_REAL_MV:?}" "$@"
+SH
+  chmod +x "$dir/fakebin/mv"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  original=$(mktemp "$dir/original.XXXXXX")
+  cp "$dir/home/state/good.meta" "$original"
+  set +e
+  out=$(FM_REAL_MV="$real_mv" FM_FAIL_DEST="$dir/home/state/.endpoint-binding-migration-scan-v1" \
+    run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "publication failure unexpectedly succeeded: $out"
+  cmp -s "$original" "$dir/home/state/good.meta" || fail 'publication failure left stamped metadata'
+  [ ! -e "$dir/home/state/.endpoint-binding-migration.log" ] \
+    || fail 'publication failure left a stale report'
+  [ ! -e "$dir/home/state/.endpoint-binding-migration-scan-v1" ] \
+    || fail 'publication failure left a stale scan marker'
+  [ ! -e "$dir/home/state/.endpoint-binding-migration-v1" ] \
+    || fail 'publication failure left a stale completion marker'
+  [ ! -e "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
+    || fail 'publication failure left a stale stamp journal'
+  pass 'endpoint binding migration rolls back published evidence on failure'
+}
+
+test_incomplete_rollback_retains_recovery_evidence() {
+  local dir original out rc real_mv stage
+  dir=$(make_case rollback-failure)
+  real_mv=$(command -v mv)
+  cat > "$dir/fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+if [ -n "${FM_FAIL_DEST:-}" ] && [ "${4:-}" = "$FM_FAIL_DEST" ]; then exit 1; fi
+if [ "${4:-}" = "${FM_META_DEST:?}" ] && [ "${FM_FAIL_ROLLBACK:-0}" -eq 1 ] \
+  && [ -e "${FM_META_MOVED:?}" ]; then
+  exit 1
+fi
+"${FM_REAL_MV:?}" "$@"
+rc=$?
+if [ "$rc" -eq 0 ] && [ "${4:-}" = "$FM_META_DEST" ]; then : > "$FM_META_MOVED"; fi
+exit "$rc"
+SH
+  chmod +x "$dir/fakebin/mv"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  original=$(mktemp "$dir/original.XXXXXX")
+  cp "$dir/home/state/good.meta" "$original"
+  set +e
+  out=$(FM_REAL_MV="$real_mv" FM_FAIL_DEST="$dir/home/state/.endpoint-binding-migration-scan-v1" \
+    FM_FAIL_ROLLBACK=1 FM_META_DEST="$dir/home/state/good.meta" \
+    FM_META_MOVED="$dir/meta-moved" run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "rollback failure unexpectedly succeeded: $out"
+  assert_contains "$(cat "$dir/home/state/good.meta")" 'endpoint_task_id=good' \
+    'rollback failure unexpectedly discarded the stamped metadata'
+  [ -f "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
+    || fail 'rollback failure discarded the recovery journal'
+  [ -d "$dir/home/state/.endpoint-binding-migration-backups" ] \
+    || fail 'rollback failure discarded recovery backups'
+  stage=$(find "$dir/home/state" -maxdepth 1 -type d -name '.endpoint-binding-stage.*' -print -quit)
+  [ -n "$stage" ] || fail 'rollback failure discarded staged recovery evidence'
+  out=$(FM_REAL_MV="$real_mv" FM_META_DEST="$dir/home/state/good.meta" \
+    FM_META_MOVED="$dir/meta-moved" run_locked "$dir" --undo) \
+    || fail "recovery journal undo failed: $out"
+  cmp -s "$original" "$dir/home/state/good.meta" || fail 'recovery undo did not restore prior metadata'
+  [ ! -e "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
+    || fail 'recovery undo left the journal'
+  pass 'endpoint binding migration retains an undo path after incomplete rollback'
+}
+
 test_evidence_bound_stamp_and_skip
 test_reverse_restores_prior_bytes
 test_lock_is_required
 test_signal_rolls_back_staged_stamps
+test_final_stamp_waits_for_metadata_lock
+test_publication_failure_restores_evidence
+test_incomplete_rollback_retains_recovery_evidence
