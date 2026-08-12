@@ -160,6 +160,7 @@ STAMP_BEFORE=()
 STAMP_AFTER=()
 STAMP_BEFORE_FINAL=()
 STAMP_AFTER_FINAL=()
+STAMP_SELECTED=()
 OUTCOME_COUNT=0
 REPORT_WRITE_FAILED=0
 SKIPPED_LEGACY=0
@@ -304,11 +305,28 @@ rollback_stamps() {
 remove_published_backups() {
   local i rc=0
   for i in "${!STAMP_IDS[@]}"; do
+    [ "${STAMP_SELECTED[$i]:-1}" -eq 1 ] || continue
     rm -f -- "${STAMP_BEFORE_FINAL[$i]}" "${STAMP_AFTER_FINAL[$i]}" || rc=1
   done
   if [ "$BACKUP_DIR_CREATED" -eq 1 ]; then
     rmdir -- "$BACKUP_DIR" 2>/dev/null || rc=1
   fi
+  return "$rc"
+}
+
+restore_published_backups() {
+  local i rc=0
+  if [ ! -d "$BACKUP_DIR" ]; then
+    mkdir -- "$BACKUP_DIR" || return 1
+    BACKUP_DIR_CREATED=1
+  fi
+  chmod 0700 "$BACKUP_DIR" || return 1
+  for i in "${!STAMP_IDS[@]}"; do
+    [ "${STAMP_SELECTED[$i]:-1}" -eq 1 ] || continue
+    cp -p -- "${STAMP_BEFORE[$i]}" "${STAMP_BEFORE_FINAL[$i]}" || rc=1
+    cp -p -- "${STAMP_AFTER[$i]}" "${STAMP_AFTER_FINAL[$i]}" || rc=1
+    chmod 0600 "${STAMP_BEFORE_FINAL[$i]}" "${STAMP_AFTER_FINAL[$i]}" 2>/dev/null || rc=1
+  done
   return "$rc"
 }
 
@@ -329,10 +347,18 @@ abort_apply() {
         rc=1
         RECOVERY_REQUIRED=1
       else
-        remove_published_backups || rc=1
+        if ! remove_published_backups; then
+          rc=1
+          RECOVERY_REQUIRED=1
+          restore_published_backups || rc=1
+          publish_recovery_records || rc=1
+        fi
       fi
     else
-      remove_published_backups || rc=1
+      if ! remove_published_backups; then
+        rc=1
+        RECOVERY_REQUIRED=1
+      fi
     fi
   else
     RECOVERY_REQUIRED=1
@@ -434,6 +460,7 @@ publish_recovery_records() {
   fi
   manifest_tmp=$(mktemp "$STATE/.endpoint-binding-recovery-records.XXXXXX") || return 1
   for i in "${!STAMP_IDS[@]}"; do
+    [ "${STAMP_SELECTED[$i]:-1}" -eq 1 ] || continue
     printf '%s\t%s\t%s\n' "${STAMP_IDS[$i]}" "${STAMP_IDS[$i]}.before" "${STAMP_IDS[$i]}.after" >> "$manifest_tmp" || {
       rm -f -- "$manifest_tmp"
       return 1
@@ -539,6 +566,42 @@ abort_undo() {
   release_undo_locks || rc=1
   return "$rc"
 }
+
+recover_undo_stage() {
+  local stage id before_name after_name extra rc=0
+  for stage in "$STATE"/.endpoint-binding-undo-cleanup.*; do
+    [ -d "$stage" ] || continue
+    private_file "$stage/records" || continue
+    if [ ! -e "$RECORDS" ]; then
+      cp -p -- "$stage/records" "$RECORDS" || rc=1
+      chmod 0600 "$RECORDS" 2>/dev/null || rc=1
+    fi
+    if [ -e "$BACKUP_DIR" ] || [ -L "$BACKUP_DIR" ]; then
+      private_directory "$BACKUP_DIR" || return 1
+    else
+      mkdir -- "$BACKUP_DIR" || return 1
+      chmod 0700 "$BACKUP_DIR" 2>/dev/null || return 1
+    fi
+    while IFS=$'\t' read -r id before_name after_name extra || [ -n "${id:-}${before_name:-}${after_name:-}${extra:-}" ]; do
+      [ -n "${id:-}" ] && [ -z "${extra:-}" ] || return 1
+      valid_task_id "$id" || return 1
+      [ "$before_name" = "$id.before" ] && [ "$after_name" = "$id.after" ] || return 1
+      if [ ! -e "$BACKUP_DIR/$before_name" ]; then
+        private_file "$stage/$before_name" || rc=1
+        cp -p -- "$stage/$before_name" "$BACKUP_DIR/$before_name" || rc=1
+      fi
+      if [ ! -e "$BACKUP_DIR/$after_name" ]; then
+        private_file "$stage/$after_name" || rc=1
+        cp -p -- "$stage/$after_name" "$BACKUP_DIR/$after_name" || rc=1
+      fi
+      chmod 0600 "$BACKUP_DIR/$before_name" "$BACKUP_DIR/$after_name" 2>/dev/null || rc=1
+    done < "$RECORDS"
+    [ "$rc" -eq 0 ] || return 1
+    rm -f -- "$stage"/* || return 1
+    rmdir -- "$stage" || return 1
+  done
+  return "$rc"
+}
 trap handle_signal HUP INT TERM
 
 publish_report() {
@@ -554,18 +617,27 @@ publish_report() {
 }
 
 apply_migration() {
-  local meta id binding_count validation before after before_final after_final
-  local i tmp manifest_tmp
+  local meta id base binding_count validation before after before_final after_final
+  local i tmp manifest_tmp selected_count
+  local -a metas
   STAGE_DIR=$(mktemp -d "$STATE/.endpoint-binding-stage.XXXXXX") || return 1
   chmod 0700 "$STAGE_DIR" || return 1
   REPORT_TMP=$(mktemp "$STAGE_DIR/report.XXXXXX") || return 1
   chmod 0600 "$REPORT_TMP" || return 1
   prepare_evidence || return 1
 
-  for meta in "$STATE"/*.meta; do
-    [ "$meta" = "$STATE/*.meta" ] && continue
-    id=${meta##*/}
-    id=${id%.meta}
+  shopt -s nullglob dotglob
+  metas=("$STATE"/*.meta)
+  for meta in "${metas[@]}"; do
+    base=${meta##*/}
+    id=${base%.meta}
+    case "$base" in
+      .*)
+        record_outcome "task $(reason_one_line "$id"): skipped - hidden metadata record is out of scope"
+        SKIPPED_LEGACY=1
+        continue
+        ;;
+    esac
     if [ -L "$meta" ]; then
       record_outcome "task $(reason_one_line "$id"): skipped - metadata record is a symlink; endpoint identity is unverifiable"
       SKIPPED_LEGACY=1
@@ -623,23 +695,42 @@ apply_migration() {
     STAMP_METAS+=("$meta")
     STAMP_BEFORE+=("$before")
     STAMP_AFTER+=("$after")
+    STAMP_SELECTED+=(1)
     STAMP_BEFORE_FINAL+=("$before_final")
     STAMP_AFTER_FINAL+=("$after_final")
-    record_outcome "task $id: stamped - exact live endpoint identity verified"
-    if [ "$REPORT_WRITE_FAILED" -eq 1 ]; then
-      release_meta_lock || true
-      return 1
-    fi
     release_meta_lock || return 1
   done
 
   [ "$REPORT_WRITE_FAILED" -eq 0 ] || return 1
+  for i in "${!STAMP_IDS[@]}"; do
+    acquire_meta_lock "${STAMP_METAS[$i]}" || return 1
+    if ! regular_file "${STAMP_METAS[$i]}" || ! cmp -s -- "${STAMP_METAS[$i]}" "${STAMP_BEFORE[$i]}"; then
+      release_meta_lock || true
+      return 1
+    fi
+    if ! verify_legacy_endpoint "${STAMP_METAS[$i]}" "${STAMP_IDS[$i]}"; then
+      if [ "$REPORT_WRITE_FAILED" -eq 1 ]; then
+        release_meta_lock || true
+        return 1
+      fi
+      STAMP_SELECTED[$i]=0
+      SKIPPED_LEGACY=1
+      release_meta_lock || true
+      continue
+    fi
+    record_outcome "task ${STAMP_IDS[$i]}: stamped - exact live endpoint identity verified" || {
+      release_meta_lock || true
+      return 1
+    }
+    release_meta_lock || return 1
+  done
+  selected_count=0
+  for i in "${!STAMP_IDS[@]}"; do
+    [ "${STAMP_SELECTED[$i]:-0}" -eq 1 ] && selected_count=$((selected_count + 1))
+  done
+  [ "$REPORT_WRITE_FAILED" -eq 0 ] || return 1
   validate_recovery_namespace || return 1
-  [ "$RECOVERY_NAMESPACE_PRESENT" -eq 0 ] || {
-    echo "ENDPOINT_BINDING_MIGRATION: existing recovery evidence requires undo before migration; migration did not run" >&2
-    return 1
-  }
-  if [ "${#STAMP_IDS[@]}" -eq 0 ]; then
+  if [ "$selected_count" -eq 0 ]; then
     publish_report || return 1
     write_marker "$SCAN_MARKER" fm-endpoint-binding-migration-scan-v1 || return 1
     if [ "$SKIPPED_LEGACY" -eq 0 ]; then
@@ -655,6 +746,7 @@ apply_migration() {
     return 1
   fi
   for i in "${!STAMP_IDS[@]}"; do
+    [ "${STAMP_SELECTED[$i]:-0}" -eq 1 ] || continue
     if [ -e "${STAMP_BEFORE_FINAL[$i]}" ] || [ -L "${STAMP_BEFORE_FINAL[$i]}" ] \
       || [ -e "${STAMP_AFTER_FINAL[$i]}" ] || [ -L "${STAMP_AFTER_FINAL[$i]}" ]; then
       return 1
@@ -671,6 +763,7 @@ apply_migration() {
     fi
   fi
   for i in "${!STAMP_IDS[@]}"; do
+    [ "${STAMP_SELECTED[$i]:-0}" -eq 1 ] || continue
     cp -p -- "${STAMP_BEFORE[$i]}" "${STAMP_BEFORE_FINAL[$i]}" || { remove_published_backups; return 1; }
     cp -p -- "${STAMP_AFTER[$i]}" "${STAMP_AFTER_FINAL[$i]}" || { remove_published_backups; return 1; }
     chmod 0600 "${STAMP_BEFORE_FINAL[$i]}" "${STAMP_AFTER_FINAL[$i]}" || { remove_published_backups; return 1; }
@@ -678,6 +771,7 @@ apply_migration() {
 
   manifest_tmp=$(mktemp "$STATE/.endpoint-binding-records.XXXXXX") || { abort_apply 1; return $?; }
   for i in "${!STAMP_IDS[@]}"; do
+    [ "${STAMP_SELECTED[$i]:-0}" -eq 1 ] || continue
     printf '%s\t%s\t%s\n' "${STAMP_IDS[$i]}" "${STAMP_IDS[$i]}.before" "${STAMP_IDS[$i]}.after" >> "$manifest_tmp" || {
       rm -f -- "$manifest_tmp"
       abort_apply 1
@@ -698,8 +792,14 @@ apply_migration() {
 
   META_WRITE_STARTED=1
   for i in "${!STAMP_IDS[@]}"; do
+    [ "${STAMP_SELECTED[$i]:-0}" -eq 1 ] || continue
     acquire_meta_lock "${STAMP_METAS[$i]}" || { abort_apply 1; return $?; }
     if ! regular_file "${STAMP_METAS[$i]}" || ! cmp -s -- "${STAMP_METAS[$i]}" "${STAMP_BEFORE[$i]}"; then
+      release_meta_lock || true
+      abort_apply 1
+      return $?
+    fi
+    if ! verify_legacy_endpoint "${STAMP_METAS[$i]}" "${STAMP_IDS[$i]}"; then
       release_meta_lock || true
       abort_apply 1
       return $?
@@ -723,7 +823,7 @@ apply_migration() {
   if [ "$SKIPPED_LEGACY" -eq 0 ]; then
     if ! write_marker "$MARKER" fm-endpoint-binding-migration-v1; then abort_apply 1; return $?; fi
   fi
-  printf 'ENDPOINT_BINDING_MIGRATION: scanned %s record(s); stamped %s\n' "$OUTCOME_COUNT" "${#STAMP_IDS[@]}"
+  printf 'ENDPOINT_BINDING_MIGRATION: scanned %s record(s); stamped %s\n' "$OUTCOME_COUNT" "$selected_count"
   cat "$REPORT"
 }
 
@@ -738,6 +838,7 @@ undo_migration() {
   UNDO_RECOVERY_AFTER=()
   UNDO_RECOVERY_BEFORE=()
   UNDO_RECOVERY_STAGE=
+  recover_undo_stage || return 1
   if [ ! -e "$RECORDS" ] && [ ! -L "$RECORDS" ]; then
     echo "ENDPOINT_BINDING_MIGRATION: no recorded stamps to undo"
     return 0
@@ -824,19 +925,28 @@ undo_migration() {
   [ "$cleanup_rc" -eq 0 ] && rmdir -- "$BACKUP_DIR" 2>/dev/null || cleanup_rc=1
   [ "$cleanup_rc" -eq 0 ] && rm -f -- "$RECORDS" || cleanup_rc=1
   if [ "$cleanup_rc" -ne 0 ]; then
-    restore_undo_recovery || cleanup_rc=1
-    rm -f -- "$cleanup_stage"/* || true
-    rmdir -- "$cleanup_stage" 2>/dev/null || true
-    UNDO_RECOVERY_STAGE=
+    if restore_undo_recovery; then
+      if rm -f -- "$cleanup_stage"/* && rmdir -- "$cleanup_stage"; then
+        UNDO_RECOVERY_STAGE=
+      else
+        release_undo_locks || true
+        echo "ENDPOINT_BINDING_MIGRATION: undo cleanup failed; recovery staging was retained" >&2
+        return 1
+      fi
+    else
+      release_undo_locks || true
+      echo "ENDPOINT_BINDING_MIGRATION: undo cleanup failed; recovery staging was retained" >&2
+      return 1
+    fi
     release_undo_locks || true
     echo "ENDPOINT_BINDING_MIGRATION: undo restored metadata but cleanup failed; migration evidence was retained" >&2
     return 1
   fi
+  rm -f -- "$cleanup_stage"/* || { abort_undo; return 1; }
+  rmdir -- "$cleanup_stage" || { abort_undo; return 1; }
+  UNDO_RECOVERY_STAGE=
   UNDO_ACTIVE=0
   release_undo_locks || return 1
-  UNDO_RECOVERY_STAGE=
-  rm -f -- "$cleanup_stage"/* || return 1
-  rmdir -- "$cleanup_stage" || return 1
   printf 'ENDPOINT_BINDING_MIGRATION: undid %s stamp(s)\n' "${#UNDO_IDS[@]}"
 }
 

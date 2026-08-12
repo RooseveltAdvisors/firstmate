@@ -127,6 +127,81 @@ test_evidence_bound_stamp_and_skip() {
   pass 'endpoint binding migration stamps only exact live identities and reports every refusal'
 }
 
+test_hidden_metadata_is_reported() {
+  local dir out report
+  dir=$(make_case hidden-meta)
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  fm_write_meta "$dir/home/state/.legacy.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  out=$(run_locked "$dir") || fail "hidden metadata migration failed: $out"
+  report=$(cat "$dir/home/state/.endpoint-binding-migration.log")
+  assert_contains "$report" \
+    'task .legacy: skipped - hidden metadata record is out of scope' \
+    'hidden metadata was not reported'
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/.legacy.meta" \
+    || fail 'hidden metadata was stamped'
+  pass 'endpoint binding migration reports hidden metadata records without stamping them'
+}
+
+test_completed_journal_is_idempotent() {
+  local dir out
+  dir=$(make_case completed-journal)
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  run_locked "$dir" >/dev/null || fail 'migration setup for completed journal test failed'
+  out=$(run_locked "$dir") || fail "completed journal rerun failed: $out"
+  assert_contains "$out" 'stamped 0' 'completed journal rerun stamped a record'
+  assert_contains "$(cat "$dir/home/state/good.meta")" 'endpoint_task_id=good' \
+    'completed journal rerun changed the binding'
+  pass 'endpoint binding migration treats a validated completed journal as idempotent'
+}
+
+test_final_live_recheck_refuses_dead_endpoint() {
+  local dir out rc
+  dir=$(make_case final-live-recheck)
+  cat > "$dir/fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = list-windows ]; then
+  count=$(cat "${FM_LIST_COUNT:?}" 2>/dev/null || printf '0')
+  count=$((count + 1))
+  printf '%s\n' "$count" > "$FM_LIST_COUNT"
+  if [ "$count" -ge 3 ]; then
+    printf '%s\n' fm-good2 fm-dead fm-ambiguous fm-bound fm-empty
+  else
+    printf '%s\n' fm-good fm-good2 fm-dead fm-ambiguous fm-bound fm-empty
+  fi
+  exit 0
+fi
+if [ "${1:-}" = display-message ]; then
+  case "${5:-}" in
+    '#{pane_tty}') printf '/dev/null\n' ;;
+    '#{pane_current_command}') printf 'pi\n' ;;
+    *) printf 'pane\n' ;;
+  esac
+  exit 0
+fi
+exit 0
+SH
+  chmod +x "$dir/fakebin/tmux"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  set +e
+  out=$(FM_LIST_COUNT="$dir/list-count" run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "dead final endpoint unexpectedly migrated: $out"
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
+    || fail 'dead final endpoint was stamped'
+  [ ! -e "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
+    || fail 'dead final endpoint left a journal'
+  pass 'endpoint binding migration rechecks live identity immediately before replacement'
+}
+
 test_reverse_restores_prior_bytes() {
   local dir original out
   dir=$(make_case undo)
@@ -500,13 +575,55 @@ SH
   pass 'endpoint binding migration rolls back published evidence on failure'
 }
 
+test_backup_cleanup_failure_retains_staged_recovery() {
+  local dir out rc real_mv real_rm stage
+  dir=$(make_case backup-cleanup-failure)
+  real_mv=$(command -v mv)
+  real_rm=$(command -v rm)
+  cat > "$dir/fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+if [ "${4:-}" = "${FM_FAIL_DEST:-}" ]; then exit 1; fi
+exec "${FM_REAL_MV:?}" "$@"
+SH
+  cat > "$dir/fakebin/rm" <<'SH'
+#!/usr/bin/env bash
+for arg in "$@"; do
+  [ "$arg" = "${FM_FAIL_RM:-}" ] && exit 1
+done
+exec "${FM_REAL_RM:?}" "$@"
+SH
+  chmod +x "$dir/fakebin/mv" "$dir/fakebin/rm"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  set +e
+  out=$(FM_REAL_MV="$real_mv" FM_REAL_RM="$real_rm" \
+    FM_FAIL_DEST="$dir/home/state/.endpoint-binding-migration-scan-v1" \
+    FM_FAIL_RM="$dir/home/state/.endpoint-binding-migration-backups/good.after" run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "backup cleanup failure unexpectedly succeeded: $out"
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
+    || fail 'backup cleanup failure left stamped metadata'
+  stage=$(find "$dir/home/state" -maxdepth 1 -type d -name '.endpoint-binding-stage.*' -print -quit)
+  [ -n "$stage" ] || fail 'backup cleanup failure discarded staged recovery evidence'
+  pass 'endpoint binding rollback retains staged recovery when backup cleanup fails'
+}
+
 test_crash_after_manifest_preserves_undo_path() {
   local dir out rc real_mv
   dir=$(make_case crash-before-stamp)
   real_mv=$(command -v mv)
-  cat > "$dir/fakebin/mv" <<'SH'
+cat > "$dir/fakebin/mv" <<'SH'
 #!/usr/bin/env bash
-if [ "${4:-}" = "${FM_CRASH_DEST:-}" ]; then kill -KILL "$PPID"; fi
+for arg in "$@"; do
+  case "$arg" in
+    */good.meta)
+      kill -KILL "$PPID"
+      exit 137
+      ;;
+  esac
+done
 exec "${FM_REAL_MV:?}" "$@"
 SH
   chmod +x "$dir/fakebin/mv"
@@ -514,7 +631,7 @@ SH
     'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
     'kind=scout'
   set +e
-  out=$(FM_REAL_MV="$real_mv" FM_CRASH_DEST="$dir/home/state/.endpoint-binding-migration-records-v1" run_locked "$dir")
+  out=$(FM_REAL_MV="$real_mv" run_locked "$dir")
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "manifest crash unexpectedly succeeded: $out"
@@ -687,6 +804,45 @@ SH
   pass 'endpoint binding undo reports cleanup failures and retains recovery evidence'
 }
 
+test_undo_recovery_stage_is_retained_when_restore_fails() {
+  local dir out rc real_rm real_cp stage
+  dir=$(make_case undo-stage-failure)
+  real_rm=$(command -v rm)
+  real_cp=$(command -v cp)
+  cat > "$dir/fakebin/cp" <<'SH'
+#!/usr/bin/env bash
+for arg in "$@"; do
+  [ "$arg" = "${FM_FAIL_CP_DEST:-}" ] && exit 1
+done
+exec "${FM_REAL_CP:?}" "$@"
+SH
+  cat > "$dir/fakebin/rm" <<'SH'
+#!/usr/bin/env bash
+for arg in "$@"; do
+  [ "$arg" = "${FM_FAIL_RM:-}" ] && exit 1
+done
+  exec "${FM_REAL_RM:?}" "$@"
+SH
+  chmod +x "$dir/fakebin/cp" "$dir/fakebin/rm"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  FM_REAL_RM="$real_rm" FM_REAL_CP="$real_cp" run_locked "$dir" >/dev/null \
+    || fail 'migration setup for undo stage failure test failed'
+  set +e
+  out=$(FM_REAL_RM="$real_rm" FM_REAL_CP="$real_cp" \
+    FM_FAIL_RM="$dir/home/state/.endpoint-binding-migration-records-v1" \
+    FM_FAIL_CP_DEST="$dir/home/state/.endpoint-binding-migration-backups/good.after" \
+    run_locked "$dir" --undo)
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "undo stage failure unexpectedly succeeded: $out"
+  stage=$(find "$dir/home/state" -maxdepth 1 -type d -name '.endpoint-binding-undo-cleanup.*' -print -quit)
+  [ -n "$stage" ] || fail 'undo stage failure discarded recovery staging'
+  [ -f "$stage/records" ] || fail 'undo stage failure discarded staged journal'
+  pass 'endpoint binding undo retains recovery staging when restoration fails'
+}
+
 test_incomplete_rollback_retains_recovery_evidence() {
   local dir original out rc real_mv stage
   dir=$(make_case rollback-failure)
@@ -734,6 +890,9 @@ SH
 }
 
 test_evidence_bound_stamp_and_skip
+test_hidden_metadata_is_reported
+test_completed_journal_is_idempotent
+test_final_live_recheck_refuses_dead_endpoint
 test_reverse_restores_prior_bytes
 test_shared_task_id_grammar_reports_colon_ids
 test_lock_is_required
@@ -745,10 +904,12 @@ test_undo_signal_during_cleanup_restores_recovery_state
 test_identity_verification_waits_for_metadata_lock
 test_report_write_failure_aborts_before_stamping
 test_publication_failure_restores_evidence
+test_backup_cleanup_failure_retains_staged_recovery
 test_crash_after_manifest_preserves_undo_path
 test_no_stamp_validates_existing_recovery_namespace
 test_journal_cleanup_failure_retains_recovery_bytes
 test_recovery_evidence_requires_private_modes
 test_manifest_mode_failure_rolls_back_stamps
 test_undo_cleanup_failure_retains_recovery_evidence
+test_undo_recovery_stage_is_retained_when_restore_fails
 test_incomplete_rollback_retains_recovery_evidence
