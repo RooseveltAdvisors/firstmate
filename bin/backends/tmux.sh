@@ -302,7 +302,7 @@ fm_backend_tmux_agent_state() {  # <target>
   esac
   session=${target%%:*}
   window=${target#*:}
-  if windows=$(LC_ALL=C tmux list-windows -t "$session" -F '#{window_name}' 2>&1); then
+  if windows=$(LC_ALL=C tmux list-windows -t "=$session" -F '#{window_name}' 2>&1); then
     inventory_status=0
   else
     inventory_status=$?
@@ -334,6 +334,7 @@ fm_backend_tmux_agent_state() {  # <target>
       ;;
   esac
 
+  target="=$session:=$window"
   foreground=$(fm_backend_tmux_foreground_comms "$target")
   while IFS= read -r name; do
     [ -n "$name" ] || continue

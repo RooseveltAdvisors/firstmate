@@ -82,6 +82,23 @@ directory_empty() {
   return 0
 }
 
+list_contains() {
+  local needle=$1 value
+  shift
+  for value in "$@"; do
+    [ "$value" = "$needle" ] && return 0
+  done
+  return 1
+}
+
+recorded_id_add() {
+  list_contains "$1" "${RECORDED_IDS[@]}" || RECORDED_IDS+=("$1")
+}
+
+recorded_id_contains() {
+  list_contains "$1" "${RECORDED_IDS[@]}"
+}
+
 write_marker() {
   local destination=$1 value=$2 tmp
   if [ -e "$destination" ] || [ -L "$destination" ]; then
@@ -194,7 +211,7 @@ APPLY_COMMITTED=0
 RECOVERY_NAMESPACE_PRESENT=0
 RECORDS_EXISTING=0
 RECORDS_BEFORE=
-declare -A RECORDED_IDS=()
+RECORDED_IDS=()
 UNDO_IDS=()
 UNDO_METAS=()
 UNDO_BEFORE=()
@@ -334,7 +351,7 @@ acquire_merge_locks() {
   local id path i
   [ "$RECORDS_EXISTING" -eq 1 ] || [ "$RECOVERY_NAMESPACE_PRESENT" -eq 1 ] || [ "${1:-0}" -eq 1 ] || return 0
   # shellcheck disable=SC2207
-  MERGE_LOCK_IDS=($(printf '%s\n' "${!RECORDED_IDS[@]}" | sort -u))
+  MERGE_LOCK_IDS=($(printf '%s\n' "${RECORDED_IDS[@]}" | sort -u))
   MERGE_LOCK_PATHS=()
   MERGE_LOCK_ACQUIRED=()
   for id in "${MERGE_LOCK_IDS[@]}"; do
@@ -700,7 +717,7 @@ recover_existing_apply_stage() {
         rm -f -- "$merged_tmp"
         return 1
       }
-      RECORDED_IDS["$id"]=1
+      recorded_id_add "$id"
     done < "$stage/records.before"
     while IFS=$'\t' read -r id before_name after_name extra || [ -n "${id:-}${before_name:-}${after_name:-}${extra:-}" ]; do
       [ -n "${id:-}" ] && [ -z "${extra:-}" ] || {
@@ -721,7 +738,7 @@ recover_existing_apply_stage() {
         return 1
       fi
       ids+=("$id")
-      RECORDED_IDS["$id"]=1
+      recorded_id_add "$id"
     done < "$stage/records"
     acquire_merge_locks 1 || {
       rm -f -- "$merged_tmp"
@@ -1011,16 +1028,27 @@ restore_evidence_file() {
 
 restore_stage_evidence() {
   local stage=$1 label present extra destination count=0
-  local -A seen=()
+  local seen_report=0 seen_scan_marker=0 seen_marker=0
   [ -e "$stage/evidence" ] || [ -L "$stage/evidence" ] || return 0
   private_file "$stage/evidence" || return 1
   while IFS=$'\t' read -r label present extra || [ -n "${label:-}${present:-}${extra:-}" ]; do
     [ -n "${label:-}" ] && [ -z "${extra:-}" ] || return 1
-    [ "${seen[$label]:-0}" -eq 0 ] || return 1
     case "$label" in
-      report) destination=$REPORT ;;
-      scan-marker) destination=$SCAN_MARKER ;;
-      marker) destination=$MARKER ;;
+      report)
+        [ "$seen_report" -eq 0 ] || return 1
+        seen_report=1
+        destination=$REPORT
+        ;;
+      scan-marker)
+        [ "$seen_scan_marker" -eq 0 ] || return 1
+        seen_scan_marker=1
+        destination=$SCAN_MARKER
+        ;;
+      marker)
+        [ "$seen_marker" -eq 0 ] || return 1
+        seen_marker=1
+        destination=$MARKER
+        ;;
       *) return 1 ;;
     esac
     [ "$present" = 0 ] || [ "$present" = 1 ] || return 1
@@ -1030,13 +1058,10 @@ restore_stage_evidence() {
     else
       restore_evidence_file "$destination" '' 0 || return 1
     fi
-    seen[$label]=1
     count=$((count + 1))
   done < "$stage/evidence"
   [ "$count" -eq 3 ] || return 1
-  [ "${seen[report]:-0}" -eq 1 ] &&
-    [ "${seen[scan-marker]:-0}" -eq 1 ] &&
-    [ "${seen[marker]:-0}" -eq 1 ]
+  [ "$seen_report" -eq 1 ] && [ "$seen_scan_marker" -eq 1 ] && [ "$seen_marker" -eq 1 ]
 }
 
 restore_evidence() {
@@ -1082,16 +1107,18 @@ publish_recovery_records() {
     }
   done
   chmod 0600 "$manifest_tmp" || { rm -f -- "$manifest_tmp"; return 1; }
-  if ! mv -f -- "$manifest_tmp" "$RECORDS"; then
+  RECORDS_PUBLISHED=1
+  if ! copy_private_atomic "$manifest_tmp" "$RECORDS"; then
+    RECORDS_PUBLISHED=0
     rm -f -- "$manifest_tmp"
     return 1
   fi
-  RECORDS_PUBLISHED=1
+  rm -f -- "$manifest_tmp" || true
 }
 
 validate_recovery_namespace() {
   local id before_name after_name extra path base
-  local -A expected=()
+  local -a expected=()
   RECOVERY_NAMESPACE_PRESENT=0
   RECORDED_IDS=()
   if [ -e "$RECORDS" ] || [ -L "$RECORDS" ]; then
@@ -1103,14 +1130,13 @@ validate_recovery_namespace() {
       valid_task_id "$id" || return 1
       [ "$before_name" = "$id.before" ] && [ "$after_name" = "$id.after" ] || return 1
       valid_stamp_evidence "$id" "$BACKUP_DIR/$before_name" "$BACKUP_DIR/$after_name" || return 1
-      RECORDED_IDS[$id]=1
-      expected[$before_name]=1
-      expected[$after_name]=1
+      recorded_id_add "$id"
+      expected+=("$before_name" "$after_name")
     done < "$RECORDS"
     for path in "$BACKUP_DIR"/* "$BACKUP_DIR"/.[!.]* "$BACKUP_DIR"/..?*; do
       [ -e "$path" ] || [ -L "$path" ] || continue
       base=${path##*/}
-      [ "${expected[$base]:-0}" -eq 1 ] || return 1
+      list_contains "$base" "${expected[@]}" || return 1
     done
   elif [ -e "$BACKUP_DIR" ] || [ -L "$BACKUP_DIR" ]; then
     RECOVERY_NAMESPACE_PRESENT=1
@@ -1336,7 +1362,7 @@ apply_migration() {
     id=${base%.meta}
     case "$base" in
       .*)
-        record_outcome "record $base: skipped - hidden metadata record is out of scope"
+        record_outcome "record $(reason_one_line "$base"): skipped - hidden metadata record is out of scope"
         SKIPPED_LEGACY=1
         continue
         ;;
@@ -1373,7 +1399,7 @@ apply_migration() {
       fi
       continue
     fi
-    if [ "${RECORDED_IDS[$id]:-0}" -eq 1 ]; then
+    if recorded_id_contains "$id"; then
       record_outcome "task $id: skipped - existing recovery record has unexpected metadata state"
       SKIPPED_LEGACY=1
       continue
@@ -1535,11 +1561,12 @@ apply_migration() {
     return $?
   fi
   RECORDS_PUBLISHED=1
-  if ! mv -f -- "$manifest_tmp" "$RECORDS"; then
+  if ! copy_private_atomic "$manifest_tmp" "$RECORDS"; then
     rm -f -- "$manifest_tmp"
     abort_apply 1
     return $?
   fi
+  rm -f -- "$manifest_tmp" || true
 
   META_WRITE_STARTED=1
   for i in "${!STAMP_IDS[@]}"; do
@@ -1549,8 +1576,19 @@ apply_migration() {
       return $?
     fi
     if ! verify_legacy_endpoint "${STAMP_METAS[$i]}" "${STAMP_IDS[$i]}"; then
-      abort_apply 1
-      return $?
+      if [ "$REPORT_WRITE_FAILED" -eq 1 ]; then
+        abort_apply 1
+        return $?
+      fi
+      abort_apply 1 || true
+      [ "$RECOVERY_REQUIRED" -eq 0 ] || return 1
+      remove_stage_directory "$STAGE_DIR" || return 1
+      STAGE_DIR=
+      REPORT_TMP=
+      release_migration_lock
+      trap - EXIT HUP INT TERM
+      exec "$0"
+      return 1
     fi
     tmp=$(mktemp "$STATE/.endpoint-binding-meta.XXXXXX") || {
       abort_apply 1

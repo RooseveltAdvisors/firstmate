@@ -162,15 +162,30 @@ fm_harness_pid_alive() {
 # ancestry that cannot be resolved all fail closed.
 fm_session_lock_owned_by_self() {
   local lock=$1/.lock lock_pid pids pid
-  lock_pid=$(perl -MFcntl=:DEFAULT -e '
-    sysopen(my $file, $ARGV[0], O_RDONLY | O_NOFOLLOW) or exit 1;
-    my @stat = stat $file or exit 1;
-    exit 1 unless -f _;
-    local $/;
-    my $value = <$file>;
-    exit 1 unless defined $value;
-    print $value;
-  ' "$lock" 2>/dev/null) || return 1
+  lock_pid=$(
+    lock_file=$lock
+    lock_value=
+    lock_extra=
+    case "$(uname -s 2>/dev/null)" in
+      Darwin) lock_stat_args=(-L -f '%d:%i') ;;
+      *) lock_stat_args=(-L -c '%d:%i') ;;
+    esac
+    [ -f "$lock_file" ] && [ ! -L "$lock_file" ] || exit 1
+    path_identity=$(stat "${lock_stat_args[@]}" "$lock_file" 2>/dev/null) || exit 1
+    exec 9< "$lock_file" || exit 1
+    [ -f /dev/fd/9 ] || exit 1
+    fd_identity=$(stat "${lock_stat_args[@]}" /dev/fd/9 2>/dev/null) || exit 1
+    [ "$fd_identity" = "$path_identity" ] || exit 1
+    if ! IFS= read -r lock_value <&9; then
+      [ -n "$lock_value" ] || exit 1
+    fi
+    if IFS= read -r lock_extra <&9 || [ -n "$lock_extra" ]; then
+      exit 1
+    fi
+    [ -f "$lock_file" ] && [ ! -L "$lock_file" ] || exit 1
+    [ "$(stat "${lock_stat_args[@]}" "$lock_file" 2>/dev/null)" = "$fd_identity" ] || exit 1
+    printf '%s' "$lock_value"
+  ) || return 1
   case "$lock_pid" in
     ''|*[!0-9]*) return 1 ;;
   esac

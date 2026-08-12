@@ -61,6 +61,7 @@ run_locked() {
     local owner=$BASHPID
     for name in ${!FM_@}; do export "${name?}"; done
     export FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_LOCK_PID="$owner"
+    export FM_MIGRATE_PID="$owner"
     export PATH="$dir/fakebin:$BASE_PATH"
     printf '%s\n' "$owner" > "$dir/home/state/.lock"
     exec "$MIGRATE" "$@"
@@ -163,6 +164,40 @@ SH
   pass 'endpoint binding migration rejects duplicate tmux window identities'
 }
 
+test_tmux_session_prefix_is_not_an_exact_endpoint() {
+  local dir out report
+  dir=$(make_case tmux-session-prefix)
+  cat > "$dir/fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = list-windows ]; then
+  case "${3:-}" in
+    first) printf '%s\n' fm-good; exit 0 ;;
+    '=first') printf '%s\n' "can't find session: first" >&2; exit 1 ;;
+  esac
+fi
+if [ "${1:-}" = display-message ]; then
+  case "${5:-}" in
+    '#{pane_tty}') printf '/dev/null\n' ;;
+    '#{pane_current_command}') printf 'pi\n' ;;
+    *) printf 'pane\n' ;;
+  esac
+  exit 0
+fi
+exit 1
+SH
+  chmod +x "$dir/fakebin/tmux"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=first:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  out=$(run_locked "$dir") || fail "tmux prefix migration failed: $out"
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
+    || fail 'tmux session prefix was accepted as an exact endpoint'
+  report=$(cat "$dir/home/state/.endpoint-binding-migration.log")
+  assert_contains "$report" 'task good: skipped - dead endpoint (recorded target is missing)' \
+    'tmux session prefix refusal was not reported'
+  pass 'endpoint binding migration requires exact tmux session targets'
+}
+
 test_unresolved_existing_bindings_remove_completion_marker() {
   local dir out report mismatch_before empty_before duplicate_before
   dir=$(make_case unresolved-bindings)
@@ -215,8 +250,9 @@ test_stamp_adds_binding_as_separate_line_without_trailing_newline() {
 }
 
 test_hidden_metadata_is_reported() {
-  local dir out report
+  local dir out report hidden_name
   dir=$(make_case hidden-meta)
+  hidden_name=$'.forged\nline.meta'
   fm_write_meta "$dir/home/state/good.meta" \
     'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
     'kind=scout'
@@ -224,6 +260,9 @@ test_hidden_metadata_is_reported() {
     'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
     'kind=scout'
   fm_write_meta "$dir/home/state/.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  fm_write_meta "$dir/home/state/$hidden_name" \
     'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
     'kind=scout'
   out=$(run_locked "$dir") || fail "hidden metadata migration failed: $out"
@@ -234,8 +273,13 @@ test_hidden_metadata_is_reported() {
   assert_contains "$report" \
     'record .meta: skipped - hidden metadata record is out of scope' \
     'empty hidden metadata was not reported literally'
+  assert_contains "$report" \
+    'record .forged; line.meta: skipped - hidden metadata record is out of scope' \
+    'newline-bearing hidden metadata was not reported on one stable line'
   ! grep -q '^endpoint_task_id=' "$dir/home/state/.legacy.meta" \
     || fail 'hidden metadata was stamped'
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/$hidden_name" \
+    || fail 'newline-bearing hidden metadata was stamped'
   pass 'endpoint binding migration reports hidden metadata records without stamping them'
 }
 
@@ -576,6 +620,34 @@ SH
   pass 'endpoint binding recovery atomically replaces final entries'
 }
 
+test_journal_publication_does_not_follow_destination_symlink() {
+  local dir out real_mv outside records
+  dir=$(make_case journal-destination-symlink)
+  real_mv=$(command -v mv)
+  outside="$dir/outside-journal-destination"
+  records="$dir/home/state/.endpoint-binding-migration-records-v1"
+  mkdir "$outside"
+  cat > "$dir/fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+destination=${!#}
+if [ "$destination" = "${FM_RECORDS:?}" ]; then
+  ln -s "${FM_OUTSIDE:?}" "$destination" || exit 1
+fi
+exec "${FM_REAL_MV:?}" "$@"
+SH
+  chmod +x "$dir/fakebin/mv"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  out=$(FM_REAL_MV="$real_mv" FM_RECORDS="$records" FM_OUTSIDE="$outside" \
+    run_locked "$dir") || fail "journal publication failed: $out"
+  [ -f "$records" ] && [ ! -L "$records" ] \
+    || fail 'journal publication retained a destination symlink'
+  [ -z "$(find "$outside" -mindepth 1 -maxdepth 1 -print -quit)" ] \
+    || fail 'journal publication followed a destination symlink outside state'
+  pass 'endpoint binding journal publication uses a no-follow destination'
+}
+
 test_undo_recovery_rejects_symlink_stage() {
   local dir out rc outside stage
   dir=$(make_case undo-symlink-stage)
@@ -749,12 +821,15 @@ SH
   out=$(FM_LIST_COUNT="$dir/list-count" run_locked "$dir")
   rc=$?
   set -e
-  [ "$rc" -ne 0 ] || fail "dead final endpoint unexpectedly migrated: $out"
+  [ "$rc" -eq 0 ] || fail "dead final endpoint rerun failed: $out"
   ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
     || fail 'dead final endpoint was stamped'
   [ ! -e "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
     || fail 'dead final endpoint left a journal'
-  pass 'endpoint binding migration rechecks live identity immediately before replacement'
+  assert_contains "$(cat "$dir/home/state/.endpoint-binding-migration.log")" \
+    'task good: skipped - dead endpoint (recorded target is missing)' \
+    'dead final endpoint lost its per-record refusal reason'
+  pass 'endpoint binding migration rolls back and reports a failed final live check'
 }
 
 test_reverse_restores_prior_bytes() {
@@ -832,18 +907,23 @@ test_symlink_session_lock_is_refused() {
 }
 
 test_session_lock_symlink_swap_is_refused() {
-  local dir out rc real_cat
+  local dir out rc real_stat
   dir=$(make_case session-lock-symlink-swap)
-  real_cat=$(command -v cat)
-  cat > "$dir/fakebin/cat" <<'SH'
+  real_stat=$(command -v stat)
+  cat > "$dir/fakebin/stat" <<'SH'
 #!/usr/bin/env bash
-if [ "${1:-}" = "${FM_LOCK_PATH:-}" ]; then
-  rm -f -- "$1" || exit 1
-  ln -s "${FM_LOCK_OWNER:?}" "$1" || exit 1
+path=${!#}
+if [ "$path" = /dev/fd/9 ] && [ ! -e "${FM_SWAP_SENT:?}" ]; then
+  out=$("${FM_REAL_STAT:?}" "$@") || exit 1
+  rm -f -- "${FM_LOCK_PATH:?}" || exit 1
+  ln -s "${FM_LOCK_OWNER:?}" "$FM_LOCK_PATH" || exit 1
+  : > "$FM_SWAP_SENT"
+  printf '%s\n' "$out"
+  exit 0
 fi
-exec "${FM_REAL_CAT:?}" "$@"
+exec "${FM_REAL_STAT:?}" "$@"
 SH
-  chmod +x "$dir/fakebin/cat"
+  chmod +x "$dir/fakebin/stat"
   fm_write_meta "$dir/home/state/good.meta" \
     'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
     'kind=scout'
@@ -851,15 +931,16 @@ SH
   out=$(
     owner=$BASHPID
     printf '%s\n' "$owner" > "$dir/lock-owner"
-    printf '999999\n' > "$dir/home/state/.lock"
+    printf '%s\n' "$owner" > "$dir/home/state/.lock"
     FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_LOCK_PID="$owner" \
-      FM_REAL_CAT="$real_cat" FM_LOCK_PATH="$dir/home/state/.lock" \
-      FM_LOCK_OWNER="$dir/lock-owner" PATH="$dir/fakebin:$BASE_PATH" exec "$MIGRATE"
+      FM_REAL_STAT="$real_stat" FM_LOCK_PATH="$dir/home/state/.lock" \
+      FM_LOCK_OWNER="$dir/lock-owner" FM_SWAP_SENT="$dir/lock-swapped" \
+      PATH="$dir/fakebin:$BASE_PATH" exec "$MIGRATE"
   )
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "migration accepted a swapped session-lock symlink: $out"
-  [ ! -L "$dir/home/state/.lock" ] || fail 'session-lock ownership followed a swapped symlink'
+  [ -L "$dir/home/state/.lock" ] || fail 'session-lock race fixture did not swap the lock path'
   ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
     || fail 'symlink-swapped session lock authorized metadata changes'
   pass 'endpoint binding migration binds lock reads to ordinary files'
@@ -1431,25 +1512,25 @@ SH
 }
 
 test_crash_after_manifest_preserves_undo_path() {
-  local dir out rc real_mv
+  local dir out rc real_perl
   dir=$(make_case crash-before-stamp)
-  real_mv=$(command -v mv)
-cat > "$dir/fakebin/mv" <<'SH'
+  real_perl=$(command -v perl)
+cat > "$dir/fakebin/perl" <<'SH'
 #!/usr/bin/env bash
-for arg in "$@"; do
-  [ "$arg" = "${FM_CRASH_DEST:-}" ] || continue
-  "${FM_REAL_MV:?}" "$@"
-  kill -KILL "$PPID"
-  exit 137
-done
-exec "${FM_REAL_MV:?}" "$@"
+destination=${!#}
+"${FM_REAL_PERL:?}" "$@"
+rc=$?
+if [ "$rc" -eq 0 ] && [ "$destination" = "${FM_CRASH_DEST:-}" ]; then
+  kill -KILL "${FM_MIGRATE_PID:?}"
+fi
+exit "$rc"
 SH
-  chmod +x "$dir/fakebin/mv"
+  chmod +x "$dir/fakebin/perl"
   fm_write_meta "$dir/home/state/good.meta" \
     'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
     'kind=scout'
   set +e
-  out=$(FM_REAL_MV="$real_mv" FM_CRASH_DEST="$dir/home/state/.endpoint-binding-migration-records-v1" run_locked "$dir")
+  out=$(FM_REAL_PERL="$real_perl" FM_CRASH_DEST=./.endpoint-binding-migration-records-v1 run_locked "$dir")
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "manifest crash unexpectedly succeeded: $out"
@@ -1459,7 +1540,7 @@ SH
     || fail 'manifest crash discarded the durable journal'
   [ -f "$dir/home/state/.endpoint-binding-migration-backups/good.before" ] \
     || fail 'manifest crash discarded before recovery bytes'
-  out=$(FM_REAL_MV="$real_mv" run_locked "$dir" --undo) \
+  out=$(FM_REAL_PERL="$real_perl" run_locked "$dir" --undo) \
     || fail "manifest crash recovery undo failed: $out"
   [ ! -e "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
     || fail 'manifest crash recovery left the journal'
@@ -1633,24 +1714,25 @@ test_partial_apply_recovery_tolerates_lifecycle_changes() {
 }
 
 test_partial_published_journal_reruns_apply() {
-  local dir out rc real_mv
+  local dir out rc real_perl
   dir=$(make_case partial-published-journal)
-  real_mv=$(command -v mv)
-  cat > "$dir/fakebin/mv" <<'SH'
+  real_perl=$(command -v perl)
+  cat > "$dir/fakebin/perl" <<'SH'
 #!/usr/bin/env bash
-"${FM_REAL_MV:?}" "$@"
+destination=${!#}
+"${FM_REAL_PERL:?}" "$@"
 rc=$?
-if [ "$rc" -eq 0 ] && [ "${4:-}" = "${FM_CRASH_DEST:-}" ]; then
-  kill -KILL "$PPID"
+if [ "$rc" -eq 0 ] && [ "$destination" = "${FM_CRASH_DEST:-}" ]; then
+  kill -KILL "${FM_MIGRATE_PID:?}"
 fi
 exit "$rc"
 SH
-  chmod +x "$dir/fakebin/mv"
+  chmod +x "$dir/fakebin/perl"
   fm_write_meta "$dir/home/state/good.meta" \
     'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
     'kind=scout'
   set +e
-  out=$(FM_REAL_MV="$real_mv" FM_CRASH_DEST="$dir/home/state/.endpoint-binding-migration-records-v1" run_locked "$dir")
+  out=$(FM_REAL_PERL="$real_perl" FM_CRASH_DEST=./.endpoint-binding-migration-records-v1 run_locked "$dir")
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "partial journal publication unexpectedly succeeded: $out"
@@ -1658,7 +1740,7 @@ SH
     || fail 'partial journal publication stamped metadata before restart'
   [ -f "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
     || fail 'partial journal publication lost the journal'
-  rm -f "$dir/fakebin/mv"
+  rm -f "$dir/fakebin/perl"
   out=$(run_locked "$dir") || fail "partial journal restart failed: $out"
   assert_contains "$out" 'stamped 1' 'partial journal restart skipped the eligible record'
   assert_contains "$(cat "$dir/home/state/good.meta")" 'endpoint_task_id=good' \
@@ -2072,6 +2154,7 @@ SH
 
 test_evidence_bound_stamp_and_skip
 test_duplicate_tmux_window_is_ambiguous
+test_tmux_session_prefix_is_not_an_exact_endpoint
 test_unresolved_existing_bindings_remove_completion_marker
 test_stamp_adds_binding_as_separate_line_without_trailing_newline
 test_hidden_metadata_is_reported
@@ -2088,6 +2171,7 @@ test_completed_journal_refuses_unexpected_record
 test_completed_journal_refuses_dangling_backup_entry
 test_undo_recovery_rejects_symlink_destination
 test_private_atomic_publication_does_not_follow_destination_symlink
+test_journal_publication_does_not_follow_destination_symlink
 test_undo_recovery_rejects_symlink_stage
 test_undo_snapshot_copy_is_atomic
 test_undo_snapshot_rejects_replaced_stage_parent
