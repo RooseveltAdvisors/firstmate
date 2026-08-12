@@ -542,8 +542,10 @@ cleanup_incomplete_apply_stage() {
 }
 
 recover_existing_apply_stage() {
-  local stage=$1 id before_name after_name extra merged_tmp
+  local stage=$1 id before_name after_name extra merged_tmp meta merged_published=0
+  local -a ids=()
   private_directory "$stage" || return 1
+  private_file "$RECORDS" || return 1
   private_file "$stage/records" || return 1
   private_file "$stage/records.before" || return 1
   merged_tmp=$(mktemp "$STATE/.endpoint-binding-merge-check.XXXXXX") || return 1
@@ -565,14 +567,10 @@ recover_existing_apply_stage() {
         rm -f -- "$merged_tmp"
         return 1
       }
-      if [ -e "$BACKUP_DIR" ] || [ -L "$BACKUP_DIR" ]; then
-        remove_private_backup_files "$BACKUP_DIR/$before_name" "$BACKUP_DIR/$after_name" || {
-          rm -f -- "$merged_tmp"
-          return 1
-        }
-      fi
+      ids+=("$id")
     done < "$stage/records"
   elif cmp -s -- "$RECORDS" "$merged_tmp"; then
+    merged_published=1
     private_directory "$BACKUP_DIR" || {
       rm -f -- "$merged_tmp"
       return 1
@@ -594,10 +592,55 @@ recover_existing_apply_stage() {
         rm -f -- "$merged_tmp"
         return 1
       }
+      meta="$STATE/$id.meta"
+      regular_file "$meta" || {
+        rm -f -- "$merged_tmp"
+        return 1
+      }
+      ids+=("$id")
+      if ! acquire_meta_lock "$meta"; then
+        rm -f -- "$merged_tmp"
+        return 1
+      fi
+      if cmp -s -- "$meta" "$BACKUP_DIR/$before_name"; then
+        :
+      elif cmp -s -- "$meta" "$BACKUP_DIR/$after_name"; then
+        if ! copy_private_atomic "$BACKUP_DIR/$before_name" "$meta"; then
+          release_meta_lock || true
+          rm -f -- "$merged_tmp"
+          return 1
+        fi
+      else
+        release_meta_lock || true
+        rm -f -- "$merged_tmp"
+        return 1
+      fi
+      release_meta_lock || {
+        rm -f -- "$merged_tmp"
+        return 1
+      }
     done < "$stage/records"
   else
     rm -f -- "$merged_tmp"
     return 1
+  fi
+  if [ "$merged_published" -eq 1 ]; then
+    copy_private_atomic "$stage/records.before" "$RECORDS" || {
+      rm -f -- "$merged_tmp"
+      return 1
+    }
+  fi
+  if [ -e "$BACKUP_DIR" ] || [ -L "$BACKUP_DIR" ]; then
+    private_directory "$BACKUP_DIR" || {
+      rm -f -- "$merged_tmp"
+      return 1
+    }
+    for id in "${ids[@]}"; do
+      remove_private_backup_files "$BACKUP_DIR/$id.before" "$BACKUP_DIR/$id.after" || {
+        rm -f -- "$merged_tmp"
+        return 1
+      }
+    done
   fi
   rm -f -- "$merged_tmp" || return 1
   rm -f -- "$stage"/* || return 1
