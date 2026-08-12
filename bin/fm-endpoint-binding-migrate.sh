@@ -72,6 +72,15 @@ private_directory() {
   [ -d "$1" ] && [ ! -L "$1" ] && [ "$(file_mode "$1" 2>/dev/null)" = 700 ]
 }
 
+directory_empty() {
+  local path
+  for path in "$1"/* "$1"/.[!.]* "$1"/..?*; do
+    [ -e "$path" ] || continue
+    return 1
+  done
+  return 0
+}
+
 write_marker() {
   local destination=$1 value=$2 tmp
   if [ -e "$destination" ] || [ -L "$destination" ]; then
@@ -330,6 +339,37 @@ restore_published_backups() {
   return "$rc"
 }
 
+recover_apply_stage() {
+  local stage id before_name after_name extra meta
+  for stage in "$STATE"/.endpoint-binding-stage.*; do
+    [ -d "$stage" ] || continue
+    [ -e "$RECORDS" ] && continue
+    private_directory "$stage" || return 1
+    private_file "$stage/records" || return 1
+    while IFS=$'\t' read -r id before_name after_name extra || [ -n "${id:-}${before_name:-}${after_name:-}${extra:-}" ]; do
+      [ -n "${id:-}" ] && [ -z "${extra:-}" ] || return 1
+      valid_task_id "$id" || return 1
+      [ "$before_name" = "$id.before" ] && [ "$after_name" = "$id.after" ] || return 1
+      meta="$STATE/$id.meta"
+      regular_file "$meta" || return 1
+      private_file "$stage/$before_name" && private_file "$stage/$after_name" || return 1
+      cmp -s -- "$meta" "$stage/$before_name" || return 1
+      if [ -e "$BACKUP_DIR" ] || [ -L "$BACKUP_DIR" ]; then
+        private_directory "$BACKUP_DIR" || return 1
+      else
+        mkdir -- "$BACKUP_DIR" || return 1
+        chmod 0700 "$BACKUP_DIR" || return 1
+      fi
+      rm -f -- "$BACKUP_DIR/$before_name" "$BACKUP_DIR/$after_name" || return 1
+    done < "$stage/records"
+    if [ -d "$BACKUP_DIR" ]; then
+      rmdir -- "$BACKUP_DIR" 2>/dev/null || return 1
+    fi
+    rm -f -- "$stage"/* || return 1
+    rmdir -- "$stage" || return 1
+  done
+}
+
 abort_apply() {
   local rc=${1:-1}
   local rollback_rc=0 evidence_rc=0
@@ -567,10 +607,24 @@ abort_undo() {
   return "$rc"
 }
 
+remove_completed_stage() {
+  local stage path
+  for path in "$1"/*; do
+    [ "$path" = "$1/completed" ] && continue
+    rm -f -- "$path" || return 1
+  done
+  rm -f -- "$1/completed" || return 1
+  rmdir -- "$1"
+}
+
 recover_undo_stage() {
   local stage id before_name after_name extra rc=0
   for stage in "$STATE"/.endpoint-binding-undo-cleanup.*; do
     [ -d "$stage" ] || continue
+    if [ -f "$stage/completed" ]; then
+      remove_completed_stage "$stage" || return 1
+      continue
+    fi
     private_file "$stage/records" || continue
     if [ ! -e "$RECORDS" ]; then
       cp -p -- "$stage/records" "$RECORDS" || rc=1
@@ -618,8 +672,9 @@ publish_report() {
 
 apply_migration() {
   local meta id base binding_count validation before after before_final after_final
-  local i tmp manifest_tmp selected_count
+  local i tmp manifest_tmp selected_count stage_records
   local -a metas
+  recover_apply_stage || return 1
   STAGE_DIR=$(mktemp -d "$STATE/.endpoint-binding-stage.XXXXXX") || return 1
   chmod 0700 "$STAGE_DIR" || return 1
   REPORT_TMP=$(mktemp "$STAGE_DIR/report.XXXXXX") || return 1
@@ -724,6 +779,13 @@ apply_migration() {
     }
     release_meta_lock || return 1
   done
+  stage_records="$STAGE_DIR/records"
+  : > "$stage_records" || return 1
+  for i in "${!STAMP_IDS[@]}"; do
+    [ "${STAMP_SELECTED[$i]:-0}" -eq 1 ] || continue
+    printf '%s\t%s\t%s\n' "${STAMP_IDS[$i]}" "${STAMP_IDS[$i]}.before" "${STAMP_IDS[$i]}.after" >> "$stage_records" || return 1
+  done
+  chmod 0600 "$stage_records" || return 1
   selected_count=0
   for i in "${!STAMP_IDS[@]}"; do
     [ "${STAMP_SELECTED[$i]:-0}" -eq 1 ] && selected_count=$((selected_count + 1))
@@ -754,6 +816,7 @@ apply_migration() {
   done
   if [ -e "$BACKUP_DIR" ] || [ -L "$BACKUP_DIR" ]; then
     private_directory "$BACKUP_DIR" || return 1
+    directory_empty "$BACKUP_DIR" || return 1
   else
     mkdir -- "$BACKUP_DIR" || return 1
     BACKUP_DIR_CREATED=1
@@ -783,12 +846,12 @@ apply_migration() {
     abort_apply 1
     return $?
   fi
+  RECORDS_PUBLISHED=1
   if ! mv -f -- "$manifest_tmp" "$RECORDS"; then
     rm -f -- "$manifest_tmp"
     abort_apply 1
     return $?
   fi
-  RECORDS_PUBLISHED=1
 
   META_WRITE_STARTED=1
   for i in "${!STAMP_IDS[@]}"; do
@@ -942,11 +1005,17 @@ undo_migration() {
     echo "ENDPOINT_BINDING_MIGRATION: undo restored metadata but cleanup failed; migration evidence was retained" >&2
     return 1
   fi
-  rm -f -- "$cleanup_stage"/* || { abort_undo; return 1; }
-  rmdir -- "$cleanup_stage" || { abort_undo; return 1; }
-  UNDO_RECOVERY_STAGE=
+  if ! printf 'completed\n' > "$cleanup_stage/completed" || ! chmod 0600 "$cleanup_stage/completed"; then
+    abort_undo
+    return 1
+  fi
   UNDO_ACTIVE=0
+  UNDO_RECOVERY_STAGE=
   release_undo_locks || return 1
+  if ! remove_completed_stage "$cleanup_stage"; then
+    echo "ENDPOINT_BINDING_MIGRATION: undo completed but recovery staging cleanup failed" >&2
+    return 1
+  fi
   printf 'ENDPOINT_BINDING_MIGRATION: undid %s stamp(s)\n' "${#UNDO_IDS[@]}"
 }
 
