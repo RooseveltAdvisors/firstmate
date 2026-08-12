@@ -390,9 +390,9 @@ SH
   pass 'endpoint binding migration backfills verified live legacy Herdr endpoints'
 }
 
-test_duplicate_herdr_endpoint_is_ambiguous() {
+test_duplicate_herdr_worktree_is_ambiguous() {
   local dir out report
-  dir=$(make_case duplicate-herdr-endpoint)
+  dir=$(make_case duplicate-herdr-worktree)
   cat > "$dir/fakebin/herdr" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}:${2:-}" in
@@ -415,27 +415,27 @@ SH
     'herdr_workspace_id=w1' 'herdr_tab_id=w1:t1' 'herdr_pane_id=w1:p2' \
     "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
   fm_write_meta "$dir/home/state/herdr-two.meta" \
-    'window=lab:w1:p2' 'backend=herdr' 'herdr_session=lab' \
-    'herdr_workspace_id=w1' 'herdr_tab_id=w1:t1' 'herdr_pane_id=w1:p2' \
+    'window=lab:w1:p3' 'backend=herdr' 'herdr_session=lab' \
+    'herdr_workspace_id=w1' 'herdr_tab_id=w1:t1' 'herdr_pane_id=w1:p3' \
     "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
   out=$(FM_HERDR_LIVE_WORKTREE="$dir/worktree" run_locked "$dir") \
-    || fail "duplicate Herdr endpoint migration failed: $out"
+    || fail "duplicate Herdr worktree migration failed: $out"
   ! grep -q '^endpoint_task_id=' "$dir/home/state/herdr-one.meta" \
-    || fail 'first duplicate Herdr endpoint record was stamped'
+    || fail 'first duplicate Herdr worktree record was stamped'
   ! grep -q '^endpoint_task_id=' "$dir/home/state/herdr-two.meta" \
-    || fail 'second duplicate Herdr endpoint record was stamped'
+    || fail 'second duplicate Herdr worktree record was stamped'
   report=$(cat "$dir/home/state/.endpoint-binding-migration.log")
   assert_contains "$report" \
     'task herdr-one: skipped - ambiguous live endpoint identity is claimed by multiple task records' \
-    'first duplicate Herdr endpoint record was not reported as ambiguous'
+    'first duplicate Herdr worktree record was not reported as ambiguous'
   assert_contains "$report" \
     'task herdr-two: skipped - ambiguous live endpoint identity is claimed by multiple task records' \
-    'second duplicate Herdr endpoint record was not reported as ambiguous'
+    'second duplicate Herdr worktree record was not reported as ambiguous'
   [ ! -e "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
-    || fail 'duplicate Herdr endpoint records published recovery provenance'
+    || fail 'duplicate Herdr worktree records published recovery provenance'
   [ ! -e "$dir/home/state/.endpoint-binding-migration-v1" ] \
-    || fail 'duplicate Herdr endpoint records published completion evidence'
-  pass 'endpoint binding migration rejects duplicate Herdr endpoint identities'
+    || fail 'duplicate Herdr worktree records published completion evidence'
+  pass 'endpoint binding migration rejects duplicate Herdr worktree identities'
 }
 
 test_bound_herdr_endpoint_claim_is_ambiguous() {
@@ -464,8 +464,8 @@ SH
     'endpoint_task_id=herdr-owner' \
     "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
   fm_write_meta "$dir/home/state/herdr-legacy.meta" \
-    'window=lab:w1:p2' 'backend=herdr' 'herdr_session=lab' \
-    'herdr_workspace_id=w1' 'herdr_tab_id=w1:t1' 'herdr_pane_id=w1:p2' \
+    'window=lab:w1:p3' 'backend=herdr' 'herdr_session=lab' \
+    'herdr_workspace_id=w1' 'herdr_tab_id=w1:t1' 'herdr_pane_id=w1:p3' \
     "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
   bound_before=$(mktemp "$dir/herdr-owner.XXXXXX")
   cp "$dir/home/state/herdr-owner.meta" "$bound_before"
@@ -473,13 +473,13 @@ SH
   out=$(FM_HERDR_LIVE_WORKTREE="$dir/worktree" run_locked "$dir") \
     || fail "bound Herdr endpoint migration failed: $out"
   ! grep -q '^endpoint_task_id=' "$dir/home/state/herdr-legacy.meta" \
-    || fail 'legacy record sharing an already-bound Herdr endpoint was stamped'
+    || fail 'legacy record sharing an already-bound Herdr worktree was stamped'
   cmp -s "$bound_before" "$dir/home/state/herdr-owner.meta" \
     || fail 'already-bound Herdr endpoint metadata changed'
   report=$(cat "$dir/home/state/.endpoint-binding-migration.log")
   assert_contains "$report" \
     'task herdr-legacy: skipped - ambiguous live endpoint identity is claimed by multiple task records' \
-    'already-bound Herdr endpoint claim was not treated as ambiguous'
+    'already-bound Herdr worktree claim was not treated as ambiguous'
   assert_contains "$report" \
     'task herdr-owner: untouched - endpoint_task_id already present' \
     'already-bound Herdr endpoint was not reported untouched'
@@ -2848,7 +2848,7 @@ test_tmux_session_prefix_is_not_an_exact_endpoint
 test_tmux_name_reuse_requires_recorded_worktree
 test_tmux_liveness_is_rechecked_after_worktree_read
 test_live_legacy_herdr_endpoint_is_backfilled
-test_duplicate_herdr_endpoint_is_ambiguous
+test_duplicate_herdr_worktree_is_ambiguous
 test_bound_herdr_endpoint_claim_is_ambiguous
 test_herdr_liveness_is_rechecked_without_server_ensure
 test_staged_binding_assembly_does_not_follow_symlinks
