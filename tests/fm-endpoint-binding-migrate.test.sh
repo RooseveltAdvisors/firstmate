@@ -617,12 +617,10 @@ test_crash_after_manifest_preserves_undo_path() {
 cat > "$dir/fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 for arg in "$@"; do
-  case "$arg" in
-    */good.meta)
-      kill -KILL "$PPID"
-      exit 137
-      ;;
-  esac
+  [ "$arg" = "${FM_CRASH_DEST:?}" ] || continue
+  "${FM_REAL_MV:?}" "$@"
+  kill -KILL "$PPID"
+  exit 137
 done
 exec "${FM_REAL_MV:?}" "$@"
 SH
@@ -631,7 +629,7 @@ SH
     'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
     'kind=scout'
   set +e
-  out=$(FM_REAL_MV="$real_mv" run_locked "$dir")
+  out=$(FM_REAL_MV="$real_mv" FM_CRASH_DEST="$dir/home/state/.endpoint-binding-migration-records-v1" run_locked "$dir")
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "manifest crash unexpectedly succeeded: $out"
@@ -646,6 +644,39 @@ SH
   [ ! -e "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
     || fail 'manifest crash recovery left the journal'
   pass 'endpoint binding migration publishes recovery state before stamping'
+}
+
+test_orphaned_backups_are_recovered_on_restart() {
+  local dir out rc real_cp
+  dir=$(make_case orphaned-backups)
+  real_cp=$(command -v cp)
+  cat > "$dir/fakebin/cp" <<'SH'
+#!/usr/bin/env bash
+for arg in "$@"; do
+  [ "$arg" = "${FM_CRASH_DEST:?}" ] || continue
+  "${FM_REAL_CP:?}" "$@"
+  kill -KILL "$PPID"
+  exit 137
+done
+exec "${FM_REAL_CP:?}" "$@"
+SH
+  chmod +x "$dir/fakebin/cp"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  set +e
+  out=$(FM_REAL_CP="$real_cp" FM_CRASH_DEST="$dir/home/state/.endpoint-binding-migration-backups/good.after" run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "orphaned backup crash unexpectedly succeeded: $out"
+  [ -f "$dir/home/state/.endpoint-binding-migration-backups/good.after" ] \
+    || fail 'orphaned backup crash did not leave the interrupted backup'
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
+    || fail 'orphaned backup crash stamped metadata before the journal'
+  rm -f "$dir/fakebin/cp"
+  out=$(run_locked "$dir") || fail "restart did not recover orphaned backups: $out"
+  assert_contains "$out" 'stamped 1' 'restart did not resume migration after orphan cleanup'
+  pass 'endpoint binding migration recovers orphaned backups on restart'
 }
 
 test_no_stamp_validates_existing_recovery_namespace() {
@@ -843,6 +874,40 @@ SH
   pass 'endpoint binding undo retains recovery staging when restoration fails'
 }
 
+test_undo_stage_cleanup_failure_retains_completion_state() {
+  local dir out rc real_rm stage
+  dir=$(make_case undo-stage-cleanup)
+  real_rm=$(command -v rm)
+  cat > "$dir/fakebin/rm" <<'SH'
+#!/usr/bin/env bash
+for arg in "$@"; do
+  case "$arg" in
+    */.endpoint-binding-undo-cleanup.*/*) exit 1 ;;
+  esac
+done
+exec "${FM_REAL_RM:?}" "$@"
+SH
+  chmod +x "$dir/fakebin/rm"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  FM_REAL_RM="$real_rm" run_locked "$dir" >/dev/null \
+    || fail 'migration setup for stage cleanup test failed'
+  set +e
+  out=$(FM_REAL_RM="$real_rm" run_locked "$dir" --undo)
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "undo stage cleanup failure unexpectedly succeeded: $out"
+  stage=$(find "$dir/home/state" -maxdepth 1 -type d -name '.endpoint-binding-undo-cleanup.*' -print -quit)
+  [ -n "$stage" ] || fail 'undo stage cleanup failure discarded staging'
+  [ -f "$stage/completed" ] || fail 'undo stage cleanup failure lost completion state'
+  rm -f "$dir/fakebin/rm"
+  out=$(FM_REAL_RM="$real_rm" run_locked "$dir" --undo) \
+    || fail "undo retry after stage cleanup failure failed: $out"
+  [ ! -e "$stage" ] || fail 'undo retry did not clean completed staging'
+  pass 'endpoint binding undo retains completion state when stage cleanup fails'
+}
+
 test_incomplete_rollback_retains_recovery_evidence() {
   local dir original out rc real_mv stage
   dir=$(make_case rollback-failure)
@@ -906,10 +971,12 @@ test_report_write_failure_aborts_before_stamping
 test_publication_failure_restores_evidence
 test_backup_cleanup_failure_retains_staged_recovery
 test_crash_after_manifest_preserves_undo_path
+test_orphaned_backups_are_recovered_on_restart
 test_no_stamp_validates_existing_recovery_namespace
 test_journal_cleanup_failure_retains_recovery_bytes
 test_recovery_evidence_requires_private_modes
 test_manifest_mode_failure_rolls_back_stamps
 test_undo_cleanup_failure_retains_recovery_evidence
 test_undo_recovery_stage_is_retained_when_restore_fails
+test_undo_stage_cleanup_failure_retains_completion_state
 test_incomplete_rollback_retains_recovery_evidence
