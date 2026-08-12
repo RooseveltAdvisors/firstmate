@@ -855,14 +855,14 @@ test_completed_journal_recovers_orphaned_merge_backups() {
   good2_before=$(mktemp "$dir/good2.XXXXXX")
   cp "$dir/home/state/good2.meta" "$good2_before"
   stage="$dir/home/state/.endpoint-binding-stage.injected"
-  mkdir "$stage"
-  chmod 0700 "$stage"
-  cp "$dir/home/state/.endpoint-binding-migration-records-v1" "$stage/records.before"
-  printf '%s\n' $'good2\tgood2.before\tgood2.after' > "$stage/records"
+  mkdir "$stage" "$stage/.control"
+  chmod 0700 "$stage" "$stage/.control"
+  cp "$dir/home/state/.endpoint-binding-migration-records-v1" "$stage/.control/records.before"
+  printf '%s\n' $'good2\tgood2.before\tgood2.after' > "$stage/.control/records"
   cp "$good2_before" "$stage/good2.before"
   cp "$dir/home/state/good2.meta" "$stage/good2.after"
   cp "$good2_before" "$dir/home/state/.endpoint-binding-migration-backups/good2.before"
-  chmod 0600 "$stage"/* \
+  chmod 0600 "$stage"/* "$stage/.control"/* \
     "$dir/home/state/.endpoint-binding-migration-backups/good2.before"
   [ -f "$dir/home/state/.endpoint-binding-migration-backups/good2.before" ] \
     || fail 'merge crash did not leave the simulated orphaned backup'
@@ -1009,13 +1009,13 @@ test_incomplete_apply_stage_is_cleaned_on_restart() {
     'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
     'kind=scout'
   stage="$dir/home/state/.endpoint-binding-stage.crash"
-  mkdir "$stage"
-  chmod 0700 "$stage"
+  mkdir "$stage" "$stage/.control"
+  chmod 0700 "$stage" "$stage/.control"
   cp "$dir/home/state/good.meta" "$stage/good.before"
   cp "$dir/home/state/good.meta" "$stage/good.after"
   chmod 0600 "$stage/good.before" "$stage/good.after"
-  printf leftover > "$stage/report.partial"
-  chmod 0600 "$stage/report.partial"
+  printf leftover > "$stage/.control/report.partial"
+  chmod 0600 "$stage/.control/report.partial"
   printf stale >> "$dir/home/state/good.meta"
   mkdir "$dir/home/state/.endpoint-binding-stage.partial"
   chmod 0700 "$dir/home/state/.endpoint-binding-stage.partial"
@@ -1034,13 +1034,13 @@ test_partial_recovery_rollback_artifact_is_restart_cleanable() {
   local dir out stage
   dir=$(make_case rollback-artifact-restart)
   stage="$dir/home/state/.endpoint-binding-stage.rollback"
-  mkdir "$stage"
-  chmod 0700 "$stage"
-  printf '%s\n' $'good\tgood.before\tgood.after' > "$stage/records"
+  mkdir "$stage" "$stage/.control"
+  chmod 0700 "$stage" "$stage/.control"
+  printf '%s\n' $'good\tgood.before\tgood.after' > "$stage/.control/records"
   printf 'before\n' > "$stage/good.before"
   printf 'before\nendpoint_task_id=good\n' > "$stage/good.after"
   printf 'before\n' > "$stage/good.rollback"
-  chmod 0600 "$stage/records" "$stage/good.before" "$stage/good.after" "$stage/good.rollback"
+  chmod 0600 "$stage/.control/records" "$stage/good.before" "$stage/good.after" "$stage/good.rollback"
   out=$(run_locked "$dir") || fail "rollback-artifact restart failed: $out"
   [ ! -e "$stage" ] || fail 'validated rollback artifact stranded apply recovery'
   assert_contains "$out" 'stamped 0' 'rollback-artifact recovery did not rerun the scan'
@@ -1068,7 +1068,7 @@ SH
     || fail 'migration failed when completed-stage cleanup was deferred'
   stage=$(find "$dir/home/state" -maxdepth 1 -type d -name '.endpoint-binding-stage.*' -print -quit)
   [ -n "$stage" ] || fail 'deferred cleanup lost the completed apply stage'
-  [ -f "$stage/completed" ] || fail 'deferred cleanup lost durable completion state'
+  [ -f "$stage/.control/completed" ] || fail 'deferred cleanup lost durable completion state'
   printf 'control_relaunch_tx=authorized-rewrite\n' >> "$dir/home/state/good.meta"
   rm -f "$dir/fakebin/rm"
   out=$(run_locked "$dir") || fail "completed-stage restart failed: $out"
@@ -1120,12 +1120,12 @@ test_undo_recovery_rejects_symlink_destination() {
     'kind=scout'
   run_locked "$dir" >/dev/null || fail 'initial migration for recovery symlink failed'
   stage="$dir/home/state/.endpoint-binding-undo-cleanup.injected"
-  mkdir "$stage"
-  chmod 0700 "$stage"
-  cp "$dir/home/state/.endpoint-binding-migration-records-v1" "$stage/records"
+  mkdir "$stage" "$stage/.control"
+  chmod 0700 "$stage" "$stage/.control"
+  cp "$dir/home/state/.endpoint-binding-migration-records-v1" "$stage/.control/records"
   cp "$dir/home/state/.endpoint-binding-migration-backups/good.before" "$stage/good.before"
   cp "$dir/home/state/.endpoint-binding-migration-backups/good.after" "$stage/good.after"
-  chmod 0600 "$stage/records" "$stage/good.before" "$stage/good.after"
+  chmod 0600 "$stage/.control/records" "$stage/good.before" "$stage/good.after"
   outside="$dir/outside-recovery-target"
   rm -f "$dir/home/state/.endpoint-binding-migration-backups/good.before"
   ln -s "$outside" "$dir/home/state/.endpoint-binding-migration-backups/good.before"
@@ -1309,7 +1309,7 @@ SH
     || fail 'partial undo snapshot copy lost the before evidence'
   stage=$(find "$dir/home/state" -maxdepth 1 -type d -name '.endpoint-binding-undo-cleanup.*' -print -quit)
   [ -n "$stage" ] || fail 'partial undo snapshot copy lost recovery staging'
-  [ ! -e "$stage/records" ] || fail 'partial undo snapshot became recoverable evidence'
+  [ ! -e "$stage/.control/records" ] || fail 'partial undo snapshot became recoverable evidence'
   out=$(FM_REAL_MV="$real_mv" run_locked "$dir" --undo) \
     || fail "partial undo snapshot retry failed: $out"
   [ ! -e "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
@@ -1655,17 +1655,17 @@ SH
   fm_write_meta "$dir/home/state/good.meta" \
     'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
     'kind=scout'
-  mkdir "$stage" "$backups"
-  chmod 0700 "$stage" "$backups"
+  mkdir "$stage" "$stage/.control" "$backups"
+  chmod 0700 "$stage" "$stage/.control" "$backups"
   cp "$dir/home/state/good.meta" "$stage/good.before"
   cp "$dir/home/state/good.meta" "$stage/good.after"
   printf 'endpoint_task_id=good\n' >> "$stage/good.after"
-  printf '%s\n' $'good\tgood.before\tgood.after' > "$stage/records"
+  printf '%s\n' $'good\tgood.before\tgood.after' > "$stage/.control/records"
   cp "$stage/good.before" "$backups/good.before"
   cp "$stage/good.after" "$backups/good.after"
-  cp "$stage/records" "$records"
+  cp "$stage/.control/records" "$records"
   cp "$stage/good.after" "$dir/home/state/good.meta"
-  chmod 0600 "$stage"/* "$backups"/* "$records"
+  chmod 0600 "$stage"/* "$stage/.control"/* "$backups"/* "$records"
 
   set +e
   out=$(FM_REAL_MV="$real_mv" FM_RECOVERY_STATE="$dir/home/state" \
@@ -2082,15 +2082,15 @@ test_undo_recovery_cleanup_is_restartable() {
     'kind=scout'
   run_locked "$dir" >/dev/null || fail 'migration setup for undo recovery cleanup failed'
   stage="$dir/home/state/.endpoint-binding-undo-cleanup.cleanup-crash"
-  mkdir "$stage"
-  chmod 0700 "$stage"
-  cp "$records" "$stage/records"
+  mkdir "$stage" "$stage/.control"
+  chmod 0700 "$stage" "$stage/.control"
+  cp "$records" "$stage/.control/records"
   cp "$backups/good.before" "$stage/good.before"
   cp "$backups/good.after" "$stage/good.after"
   cp "$dir/home/state/good.meta" "$stage/good.current"
   cp "$backups/good.before" "$stage/good.undone"
   cp "$stage/good.undone" "$dir/home/state/good.meta"
-  chmod 0600 "$stage"/*
+  chmod 0600 "$stage"/* "$stage/.control"/*
   cat > "$dir/fakebin/rm" <<'SH'
 #!/usr/bin/env bash
 "${FM_REAL_RM:?}" "$@" || exit $?
@@ -2111,7 +2111,7 @@ SH
   set -e
   [ "$rc" -ne 0 ] || fail "undo recovery cleanup crash unexpectedly succeeded: $out"
   [ -f "$activated" ] || fail 'undo recovery cleanup crash fixture did not activate'
-  [ -f "$stage/completed" ] || fail 'undo recovery cleanup was not durably completed'
+  [ -f "$stage/.control/completed" ] || fail 'undo recovery cleanup was not durably completed'
   grep -qx 'endpoint_task_id=good' "$dir/home/state/good.meta" \
     || fail 'undo recovery cleanup did not restore stamped metadata'
   rm -f "$dir/fakebin/rm"
@@ -2418,12 +2418,12 @@ SH
   FM_REAL_MV="$real_mv" run_locked "$dir" >/dev/null \
     || fail 'migration setup for atomic recovery copy failed'
   stage="$dir/home/state/.endpoint-binding-undo-cleanup.injected"
-  mkdir "$stage"
-  chmod 0700 "$stage"
-  cp "$dir/home/state/.endpoint-binding-migration-records-v1" "$stage/records"
+  mkdir "$stage" "$stage/.control"
+  chmod 0700 "$stage" "$stage/.control"
+  cp "$dir/home/state/.endpoint-binding-migration-records-v1" "$stage/.control/records"
   cp "$dir/home/state/.endpoint-binding-migration-backups/good.before" "$stage/good.before"
   cp "$dir/home/state/.endpoint-binding-migration-backups/good.after" "$stage/good.after"
-  chmod 0600 "$stage/records" "$stage/good.before" "$stage/good.after"
+  chmod 0600 "$stage/.control/records" "$stage/good.before" "$stage/good.after"
   rm -f "$dir/home/state/.endpoint-binding-migration-records-v1"
   rm -f "$dir/home/state/.endpoint-binding-migration-backups/good.before" \
     "$dir/home/state/.endpoint-binding-migration-backups/good.after"
@@ -2613,8 +2613,8 @@ test_partial_apply_recovery_tolerates_lifecycle_changes() {
     'kind=scout'
   stage="$dir/home/state/.endpoint-binding-stage.partial-lifecycle"
   backup="$dir/home/state/.endpoint-binding-migration-backups"
-  mkdir "$stage" "$backup"
-  chmod 0700 "$stage" "$backup"
+  mkdir "$stage" "$stage/.control" "$backup"
+  chmod 0700 "$stage" "$stage/.control" "$backup"
   cp "$dir/home/state/good.meta" "$stage/good.before"
   cp "$dir/home/state/good.meta" "$stage/good.after"
   printf 'endpoint_task_id=good\n' >> "$stage/good.after"
@@ -2622,13 +2622,13 @@ test_partial_apply_recovery_tolerates_lifecycle_changes() {
   cp "$dir/home/state/good2.meta" "$stage/good2.after"
   printf 'endpoint_task_id=good2\n' >> "$stage/good2.after"
   printf '%s\n' $'good\tgood.before\tgood.after' $'good2\tgood2.before\tgood2.after' \
-    > "$stage/records"
+    > "$stage/.control/records"
   cp "$stage/good.before" "$backup/good.before"
   cp "$stage/good.after" "$backup/good.after"
   cp "$stage/good2.before" "$backup/good2.before"
   cp "$stage/good2.after" "$backup/good2.after"
-  cp "$stage/records" "$dir/home/state/.endpoint-binding-migration-records-v1"
-  chmod 0600 "$stage"/* "$backup"/* \
+  cp "$stage/.control/records" "$dir/home/state/.endpoint-binding-migration-records-v1"
+  chmod 0600 "$stage"/* "$stage/.control"/* "$backup"/* \
     "$dir/home/state/.endpoint-binding-migration-records-v1"
   cp "$stage/good.after" "$dir/home/state/good.meta"
   printf 'control_relaunch_tx=x-link-followup\n' >> "$dir/home/state/good.meta"
@@ -2702,14 +2702,14 @@ test_partial_merged_journal_reruns_apply() {
     'window=firstmate:fm-good2' "worktree=$dir/worktree" "project=$dir/project" \
     'kind=scout'
   stage="$dir/home/state/.endpoint-binding-stage.partial-merge"
-  mkdir "$stage"
-  chmod 0700 "$stage"
-  cp "$old_records" "$stage/records.before"
-  printf '%s\n' $'good2\tgood2.before\tgood2.after' > "$stage/records"
+  mkdir "$stage" "$stage/.control"
+  chmod 0700 "$stage" "$stage/.control"
+  cp "$old_records" "$stage/.control/records.before"
+  printf '%s\n' $'good2\tgood2.before\tgood2.after' > "$stage/.control/records"
   cp "$dir/home/state/good2.meta" "$stage/good2.before"
   cp "$dir/home/state/good2.meta" "$stage/good2.after"
   printf 'endpoint_task_id=good2\n' >> "$stage/good2.after"
-  chmod 0600 "$stage"/*
+  chmod 0600 "$stage"/* "$stage/.control"/*
   cp "$old_records" "$dir/home/state/.endpoint-binding-migration-records-v1"
   printf '%s\n' $'good2\tgood2.before\tgood2.after' >> \
     "$dir/home/state/.endpoint-binding-migration-records-v1"
@@ -2755,10 +2755,10 @@ test_apply_recovery_cleanup_is_restartable() {
     'window=firstmate:fm-good2' "worktree=$dir/worktree" "project=$dir/project" \
     'kind=scout'
   stage="$dir/home/state/.endpoint-binding-stage.cleanup-crash"
-  mkdir "$stage"
-  chmod 0700 "$stage"
-  cp "$old_records" "$stage/records.before"
-  printf '%s\n' $'good2\tgood2.before\tgood2.after' > "$stage/records"
+  mkdir "$stage" "$stage/.control"
+  chmod 0700 "$stage" "$stage/.control"
+  cp "$old_records" "$stage/.control/records.before"
+  printf '%s\n' $'good2\tgood2.before\tgood2.after' > "$stage/.control/records"
   cp "$dir/home/state/good2.meta" "$stage/good2.before"
   cp "$dir/home/state/good2.meta" "$stage/good2.after"
   printf 'endpoint_task_id=good2\n' >> "$stage/good2.after"
@@ -2767,7 +2767,7 @@ test_apply_recovery_cleanup_is_restartable() {
   cp "$old_records" "$records"
   printf '%s\n' $'good2\tgood2.before\tgood2.after' >> "$records"
   cp "$stage/good2.after" "$dir/home/state/good2.meta"
-  chmod 0600 "$stage"/* "$backups/good2.before" "$backups/good2.after" "$records"
+  chmod 0600 "$stage"/* "$stage/.control"/* "$backups/good2.before" "$backups/good2.after" "$records"
   cat > "$dir/fakebin/rm" <<'SH'
 #!/usr/bin/env bash
 "${FM_REAL_RM:?}" "$@" || exit $?
@@ -2782,13 +2782,13 @@ done
 SH
   chmod +x "$dir/fakebin/rm"
   set +e
-  out=$(FM_REAL_RM="$real_rm" FM_RECOVERY_STAGE="$stage" \
+  out=$(FM_REAL_RM="$real_rm" FM_RECOVERY_STAGE="$stage/.control" \
     FM_RECOVERY_CLEANUP_CRASHED="$activated" run_locked "$dir")
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "apply recovery cleanup crash unexpectedly succeeded: $out"
   [ -f "$activated" ] || fail 'apply recovery cleanup crash fixture did not activate'
-  [ -f "$stage/completed" ] || fail 'apply recovery cleanup was not durably completed'
+  [ -f "$stage/.control/completed" ] || fail 'apply recovery cleanup was not durably completed'
   rm -f "$dir/fakebin/rm"
   out=$(run_locked "$dir") || fail "apply recovery cleanup restart failed: $out"
   assert_contains "$out" 'stamped 1' 'apply recovery cleanup restart skipped the eligible task'
@@ -2807,10 +2807,10 @@ test_existing_journal_pre_manifest_stage_is_discarded() {
     'window=firstmate:fm-good2' "worktree=$dir/worktree" "project=$dir/project" \
     'kind=scout'
   stage="$dir/home/state/.endpoint-binding-stage.pre-manifest"
-  mkdir "$stage"
-  chmod 0700 "$stage"
-  printf '%s\n' $'good2\tgood2.before\tgood2.after' > "$stage/records"
-  chmod 0600 "$stage/records"
+  mkdir "$stage" "$stage/.control"
+  chmod 0700 "$stage" "$stage/.control"
+  printf '%s\n' $'good2\tgood2.before\tgood2.after' > "$stage/.control/records"
+  chmod 0600 "$stage/.control/records"
   out=$(run_locked "$dir") || fail "pre-manifest stage restart failed: $out"
   assert_contains "$out" 'stamped 1' 'pre-manifest stage restart skipped the eligible record'
   assert_contains "$(cat "$dir/home/state/good2.meta")" 'endpoint_task_id=good2' \
@@ -2844,16 +2844,16 @@ test_orphaned_backups_are_recovered_on_restart() {
     'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
     'kind=scout'
   stage="$dir/home/state/.endpoint-binding-stage.injected"
-  mkdir "$stage"
-  chmod 0700 "$stage"
-  printf '%s\n' $'good\tgood.before\tgood.after' > "$stage/records"
+  mkdir "$stage" "$stage/.control"
+  chmod 0700 "$stage" "$stage/.control"
+  printf '%s\n' $'good\tgood.before\tgood.after' > "$stage/.control/records"
   cp "$dir/home/state/good.meta" "$stage/good.before"
   cp "$dir/home/state/good.meta" "$stage/good.after"
   mkdir "$dir/home/state/.endpoint-binding-migration-backups"
   chmod 0700 "$dir/home/state/.endpoint-binding-migration-backups"
   cp "$stage/good.before" "$dir/home/state/.endpoint-binding-migration-backups/good.before"
   cp "$stage/good.after" "$dir/home/state/.endpoint-binding-migration-backups/good.after"
-  chmod 0600 "$stage"/* \
+  chmod 0600 "$stage"/* "$stage/.control"/* \
     "$dir/home/state/.endpoint-binding-migration-backups"/*
   [ -f "$dir/home/state/.endpoint-binding-migration-backups/good.after" ] \
     || fail 'orphaned backup crash did not leave the interrupted backup'
@@ -3073,7 +3073,7 @@ SH
   [ "$rc" -ne 0 ] || fail "undo stage failure unexpectedly succeeded: $out"
   stage=$(find "$dir/home/state" -maxdepth 1 -type d -name '.endpoint-binding-undo-cleanup.*' -print -quit)
   [ -n "$stage" ] || fail 'undo stage failure discarded recovery staging'
-  [ -f "$stage/records" ] || fail 'undo stage failure discarded staged journal'
+  [ -f "$stage/.control/records" ] || fail 'undo stage failure discarded staged journal'
   pass 'endpoint binding undo retains recovery staging when restoration fails'
 }
 
@@ -3107,7 +3107,7 @@ SH
   [ "$rc" -ne 0 ] || fail "undo stage cleanup failure unexpectedly succeeded: $out"
   stage=$(find "$dir/home/state" -maxdepth 1 -type d -name '.endpoint-binding-undo-cleanup.*' -print -quit)
   [ -n "$stage" ] || fail 'undo stage cleanup failure discarded staging'
-  [ -f "$stage/completed" ] || fail 'undo stage cleanup failure lost completion state'
+  [ -f "$stage/.control/completed" ] || fail 'undo stage cleanup failure lost completion state'
   rm -f "$dir/fakebin/rm"
   out=$(FM_REAL_RM="$real_rm" run_locked "$dir" --undo) \
     || fail "undo retry after stage cleanup failure failed: $out"
@@ -3165,7 +3165,173 @@ SH
   pass 'endpoint binding migration retains an undo path after incomplete rollback'
 }
 
+test_stage_control_namespace_avoids_task_id_collisions() {
+  local dir out rc real_mv original_meta original_report
+  dir=$(make_case stage-control-collision)
+  real_mv=$(command -v mv)
+  cat > "$dir/fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = list-windows ]; then
+  printf '%s\n' fm-report
+  exit 0
+fi
+if [ "${1:-}" = display-message ]; then
+  case "${5:-}" in
+    '#{pane_tty}') printf '/dev/null\n' ;;
+    '#{pane_current_command}') printf 'pi\n' ;;
+    '#{pane_current_path}') printf '%s/worktree\n' "${FM_HOME%/home}" ;;
+    *) printf 'pane\n' ;;
+  esac
+  exit 0
+fi
+exit 0
+SH
+  cat > "$dir/fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+destination=${!#}
+if [ "${destination##*/}" = .endpoint-binding-migration-scan-v1 ]; then
+  exit 1
+fi
+exec "${FM_REAL_MV:?}" "$@"
+SH
+  chmod +x "$dir/fakebin/tmux" "$dir/fakebin/mv"
+  fm_write_meta "$dir/home/state/report.meta" \
+    'window=firstmate:fm-report' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  printf 'prior migration report\n' > "$dir/home/state/.endpoint-binding-migration.log"
+  chmod 0600 "$dir/home/state/.endpoint-binding-migration.log"
+  original_meta=$(mktemp "$dir/report-meta.XXXXXX")
+  original_report=$(mktemp "$dir/report-log.XXXXXX")
+  cp "$dir/home/state/report.meta" "$original_meta"
+  cp "$dir/home/state/.endpoint-binding-migration.log" "$original_report"
+  set +e
+  out=$(FM_REAL_MV="$real_mv" run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "control-collision publication failure unexpectedly succeeded: $out"
+  cmp -s "$original_meta" "$dir/home/state/report.meta" \
+    || fail 'task named report lost its prior metadata during rollback'
+  cmp -s "$original_report" "$dir/home/state/.endpoint-binding-migration.log" \
+    || fail 'task named report overwrote migration report rollback evidence'
+  pass 'endpoint binding stages control evidence outside task artifact names'
+}
+
+test_atomic_copy_pins_validated_source_directory() {
+  local dir out rc real_mktemp real_mv original backup outside
+  dir=$(make_case source-parent-race)
+  real_mktemp=$(command -v mktemp)
+  real_mv=$(command -v mv)
+  outside="$dir/outside-stage"
+  backup="$dir/home/state/.endpoint-binding-migration-backups/good.before"
+  mkdir "$outside"
+  printf 'outside before bytes\n' > "$outside/good.before"
+  printf 'outside after bytes\n' > "$outside/good.after"
+  chmod 0600 "$outside/good.before" "$outside/good.after"
+  cat > "$dir/fakebin/mktemp" <<'SH'
+#!/usr/bin/env bash
+result=$("${FM_REAL_MKTEMP:?}" "$@") || exit $?
+if [ "${1:-}" = "${FM_STATE:?}/.endpoint-binding-copy.XXXXXX" ] \
+  && [ -d "$FM_STATE/.endpoint-binding-migration-backups" ] \
+  && [ ! -e "$FM_STATE/.endpoint-binding-migration-backups/good.before" ] \
+  && [ ! -e "${FM_SOURCE_SWAP_ACTIVATED:?}" ]; then
+  stage=$(find "$FM_STATE" -maxdepth 1 -type d -name '.endpoint-binding-stage.*' -print -quit)
+  if [ -n "$stage" ] && [ -f "$stage/good.before" ]; then
+    "${FM_REAL_MV:?}" "$stage" "$stage.held" || exit 1
+    ln -s "${FM_OUTSIDE_SOURCE:?}" "$stage" || exit 1
+    : > "$FM_SOURCE_SWAP_ACTIVATED"
+  fi
+fi
+printf '%s\n' "$result"
+SH
+  cat > "$dir/fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+destination=${!#}
+"${FM_REAL_MV:?}" "$@" || exit $?
+if [ "$PWD" = "${FM_BACKUP_DIR:?}" ] \
+  && [ "${destination##*/}" = good.before ] \
+  && [ -e "${FM_SOURCE_SWAP_ACTIVATED:?}" ]; then
+  kill -KILL "${FM_MIGRATE_PID:?}"
+fi
+SH
+  chmod +x "$dir/fakebin/mktemp" "$dir/fakebin/mv"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  original=$(mktemp "$dir/original.XXXXXX")
+  cp "$dir/home/state/good.meta" "$original"
+  set +e
+  out=$(FM_REAL_MKTEMP="$real_mktemp" FM_REAL_MV="$real_mv" \
+    FM_STATE="$dir/home/state" FM_OUTSIDE_SOURCE="$outside" \
+    FM_BACKUP_DIR="$dir/home/state/.endpoint-binding-migration-backups" \
+    FM_SOURCE_SWAP_ACTIVATED="$dir/source-swapped" run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "source-parent replacement unexpectedly succeeded: $out"
+  [ -f "$dir/source-swapped" ] || fail 'source-parent replacement fixture did not activate'
+  [ -f "$backup" ] || fail 'source-parent crash did not publish recovery bytes'
+  cmp -s "$original" "$backup" \
+    || fail 'atomic recovery copy read bytes through a replaced source parent'
+  pass 'endpoint binding atomic copies pin validated source directories'
+}
+
+test_undo_recovery_rechecks_session_authority_before_metadata_restore() {
+  local dir out rc real_cmp stage records backups
+  dir=$(make_case undo-recovery-session-expiry)
+  real_cmp=$(command -v cmp)
+  records="$dir/home/state/.endpoint-binding-migration-records-v1"
+  backups="$dir/home/state/.endpoint-binding-migration-backups"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  run_locked "$dir" >/dev/null || fail 'migration setup for undo recovery authority failed'
+  stage="$dir/home/state/.endpoint-binding-undo-cleanup.authority"
+  mkdir "$stage" "$stage/.control"
+  chmod 0700 "$stage" "$stage/.control"
+  cp "$records" "$stage/.control/records"
+  cp "$backups/good.before" "$stage/good.before"
+  cp "$backups/good.after" "$stage/good.after"
+  cp "$dir/home/state/good.meta" "$stage/good.current"
+  cp "$backups/good.before" "$stage/good.undone"
+  cp "$stage/good.undone" "$dir/home/state/good.meta"
+  chmod 0600 "$stage/.control/records" "$stage"/good.*
+  cat > "$dir/fakebin/cmp" <<'SH'
+#!/usr/bin/env bash
+"${FM_REAL_CMP:?}" "$@"
+rc=$?
+if [ "$rc" -eq 0 ] && [ "${3:-}" = "${FM_META:?}" ] \
+  && [ "${4:-}" = "${FM_UNDONE:?}" ] \
+  && [ ! -e "${FM_UNDO_RECOVERY_AUTHORITY_EXPIRED:?}" ]; then
+  printf '999999\n' > "${FM_SESSION_LOCK:?}"
+  : > "$FM_UNDO_RECOVERY_AUTHORITY_EXPIRED"
+fi
+exit "$rc"
+SH
+  chmod +x "$dir/fakebin/cmp"
+  set +e
+  out=$(FM_REAL_CMP="$real_cmp" FM_META="$dir/home/state/good.meta" \
+    FM_UNDONE="$stage/good.undone" FM_SESSION_LOCK="$dir/home/state/.lock" \
+    FM_UNDO_RECOVERY_AUTHORITY_EXPIRED="$dir/undo-recovery-authority-expired" \
+    run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "undo recovery continued after session authority expired: $out"
+  [ -f "$dir/undo-recovery-authority-expired" ] \
+    || fail 'undo recovery authority-expiry fixture did not activate'
+  cmp -s "$stage/good.undone" "$dir/home/state/good.meta" \
+    || fail 'expired undo recovery restored metadata under stale authority'
+  [ -d "$stage" ] || fail 'expired undo recovery discarded its durable stage'
+  rm -f "$dir/fakebin/cmp"
+  out=$(run_locked "$dir") || fail "undo recovery authority retry failed: $out"
+  grep -qx 'endpoint_task_id=good' "$dir/home/state/good.meta" \
+    || fail 'authorized undo recovery retry did not restore stamped metadata'
+  [ ! -e "$stage" ] || fail 'authorized undo recovery retry retained stale staging'
+  pass 'endpoint binding undo recovery rechecks session authority before metadata writes'
+}
+
 test_evidence_bound_stamp_and_skip
+test_stage_control_namespace_avoids_task_id_collisions
+test_atomic_copy_pins_validated_source_directory
+test_undo_recovery_rechecks_session_authority_before_metadata_restore
 test_shared_validator_refusal_reason_is_reported
 test_unreadable_metadata_is_reported
 test_vanished_metadata_is_reported
