@@ -598,7 +598,6 @@ cleanup() {
   release_merge_locks || true
   release_undo_locks || true
   if [ "$RECOVERY_REQUIRED" -eq 0 ]; then
-    [ -z "$REPORT_TMP" ] || rm -f -- "$REPORT_TMP"
     if [ -n "$STAGE_DIR" ] && [ ! -L "$STAGE_DIR" ] && [ -d "$STAGE_DIR" ]; then
       remove_stage_directory "$STAGE_DIR" || true
     fi
@@ -1033,7 +1032,7 @@ create_atomic_restore_artifact() {
 }
 
 recover_orphaned_metadata_restore() {
-  local destination=$1 build=$2 id expected= output= rc=0
+  local destination=$1 build=$2 id expected='' output='' rc=0
   id=${destination##*/}
   id=${id%.meta}
   valid_task_id "$id" || return 1

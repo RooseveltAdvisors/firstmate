@@ -2432,6 +2432,48 @@ SH
   pass 'endpoint binding migration aborts before stamping when outcome reporting fails'
 }
 
+test_cleanup_does_not_follow_replaced_stage_symlink() {
+  local dir out rc outside activated moved outside_report
+  dir=$(make_case cleanup-replaced-stage)
+  outside="$dir/outside-cleanup"
+  activated="$dir/cleanup-race-activated"
+  moved="$dir/home/state/.endpoint-binding-stage-held"
+  mkdir -p "$outside/.control"
+  mv "$dir/fakebin/tmux" "$dir/fakebin/tmux.real"
+  cat > "$dir/fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+if [ ! -e "${FM_RACE_ACTIVATED:?}" ]; then
+  for stage in "${FM_HOME:?}"/state/.endpoint-binding-stage.*; do
+    [ -d "$stage" ] && [ ! -L "$stage" ] || continue
+    report=$(find "$stage/.control" -maxdepth 1 -type f -name 'report.*' -print -quit)
+    [ -n "$report" ] || continue
+    printf 'keep\n' > "${FM_OUTSIDE:?}/.control/${report##*/}" || exit 1
+    mv -- "$stage" "${FM_MOVED_STAGE:?}" || exit 1
+    ln -s "$FM_OUTSIDE" "$stage" || exit 1
+    : > "$FM_RACE_ACTIVATED"
+    break
+  done
+fi
+exec "$0.real" "$@"
+SH
+  chmod +x "$dir/fakebin/tmux"
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
+    'kind=scout'
+  set +e
+  out=$(FM_OUTSIDE="$outside" FM_MOVED_STAGE="$moved" \
+    FM_RACE_ACTIVATED="$activated" run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "replaced stage cleanup unexpectedly succeeded: $out"
+  [ -f "$activated" ] || fail 'replaced stage cleanup fixture did not activate'
+  outside_report=$(find "$outside/.control" -maxdepth 1 -type f -name 'report.*' -print -quit)
+  [ -n "$outside_report" ] && [ "$(cat "$outside_report")" = keep ] \
+    || fail 'cleanup followed a replaced stage symlink to the report temporary'
+  [ -d "$moved" ] || fail 'replaced stage cleanup removed the pinned stage contents'
+  pass 'endpoint binding cleanup rejects replaced stage symlinks'
+}
+
 test_undo_waits_for_metadata_lock() {
   local dir lock ready release holder migration_pid rc
   dir=$(make_case undo-metadata-lock)
@@ -4535,6 +4577,7 @@ test_undo_cleanup_stops_when_session_authority_expires
 test_undo_authority_loss_retains_partial_stage
 test_identity_verification_waits_for_metadata_lock
 test_report_write_failure_aborts_before_stamping
+test_cleanup_does_not_follow_replaced_stage_symlink
 test_publication_failure_restores_evidence
 test_abort_interruption_retains_recovery_stage
 test_backup_cleanup_failure_retains_staged_recovery
