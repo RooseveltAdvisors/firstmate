@@ -1765,18 +1765,27 @@ SH
 }
 
 test_final_evidence_checks_precede_live_recheck() {
-  local dir out rc real_cmp activated
+  local dir out rc real_cat real_mv activated journal_published
   dir=$(make_case final-evidence-live-recheck)
-  real_cmp=$(command -v cmp)
+  real_cat=$(command -v cat)
+  real_mv=$(command -v mv)
   activated="$dir/final-evidence-live-recheck-activated"
-  cat > "$dir/fakebin/cmp" <<'SH'
+  journal_published="$dir/final-evidence-journal-published"
+  cat > "$dir/fakebin/cat" <<'SH'
 #!/usr/bin/env bash
-case "${3:-}:${4:-}" in
-  */.endpoint-binding-stage.*/good.after:*/.endpoint-binding-migration-backups/good.after)
-    : > "${FM_ENDPOINT_DEAD:?}"
-    ;;
-esac
-exec "${FM_REAL_CMP:?}" "$@"
+if [ "$#" -eq 0 ] && [ -e "${FM_JOURNAL_PUBLISHED:?}" ] \
+  && [ ! -e "${FM_ENDPOINT_DEAD:?}" ]; then
+  : > "$FM_ENDPOINT_DEAD"
+fi
+exec "${FM_REAL_CAT:?}" "$@"
+SH
+  cat > "$dir/fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+destination=${!#}
+"${FM_REAL_MV:?}" "$@" || exit $?
+if [ "${destination##*/}" = .endpoint-binding-migration-records-v1 ]; then
+  : > "${FM_JOURNAL_PUBLISHED:?}"
+fi
 SH
   cat > "$dir/fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
@@ -1799,24 +1808,27 @@ if [ "${1:-}" = display-message ]; then
 fi
 exit 0
 SH
-  chmod +x "$dir/fakebin/cmp" "$dir/fakebin/tmux"
+  chmod +x "$dir/fakebin/cat" "$dir/fakebin/mv" "$dir/fakebin/tmux"
   fm_write_meta "$dir/home/state/good.meta" \
     'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" \
     'kind=scout'
   set +e
-  out=$(FM_REAL_CMP="$real_cmp" FM_ENDPOINT_DEAD="$activated" run_locked "$dir")
+  out=$(FM_REAL_CAT="$real_cat" FM_REAL_MV="$real_mv" \
+    FM_JOURNAL_PUBLISHED="$journal_published" FM_ENDPOINT_DEAD="$activated" \
+    run_locked "$dir")
   rc=$?
   set -e
   [ "$rc" -eq 0 ] || fail "late endpoint death rerun failed: $out"
+  [ -f "$journal_published" ] || fail 'publication preparation fixture did not activate'
   [ -f "$activated" ] || fail 'late endpoint death fixture did not activate'
   ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
-    || fail 'endpoint that died during evidence checks was stamped'
+    || fail 'endpoint that died during publication preparation was stamped'
   [ ! -e "$dir/home/state/.endpoint-binding-migration-records-v1" ] \
     || fail 'late endpoint death left a journal'
   assert_contains "$(cat "$dir/home/state/.endpoint-binding-migration.log")" \
     'task good: skipped - dead endpoint (recorded target is missing)' \
     'late endpoint death lost its per-record refusal reason'
-  pass 'endpoint binding migration checks final liveness immediately before stamping'
+  pass 'endpoint binding migration checks liveness after publication preparation'
 }
 
 test_final_metadata_change_reruns_scan() {
