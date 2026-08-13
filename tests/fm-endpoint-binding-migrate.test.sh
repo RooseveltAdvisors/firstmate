@@ -26,16 +26,30 @@ SH
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 if [ "$1" = list-windows ]; then
-  printf '%s\n' fm-good fm-dead fm-bound
+  if [ "${FM_FAKE_MODE:-}" = refusals ]; then
+    printf '%s\n' fm-ambiguous fm-ambiguous fm-unreadable fm-mismatch
+  else
+    printf '%s\n' fm-good fm-dead fm-bound
+  fi
   exit 0
 fi
-if [ "$1" = display-message ]; then
-  case "$5" in
+  if [ "$1" = display-message ]; then
+    case "$5" in
     '#{pane_tty}') printf '/dev/null\n' ;;
     '#{pane_current_command}')
-      [ "$4" = '=firstmate:=fm-good' ] && printf 'pi\n' || printf 'bash\n'
+      case "$4" in
+        '=firstmate:=fm-unreadable') printf '\n' ;;
+        '=firstmate:=fm-good'|'=firstmate:=fm-mismatch'|'=firstmate:=fm-ambiguous') printf 'pi\n' ;;
+        *) printf 'bash\n' ;;
+      esac
       ;;
-    '#{pane_current_path}') printf '%s\n' "$FM_LIVE_WORKTREE" ;;
+    '#{pane_current_path}')
+      case "$4" in
+        '=firstmate:=fm-unreadable') exit 0 ;;
+        '=firstmate:=fm-mismatch') printf '%s\n' "$FM_WRONG_WORKTREE" ;;
+        *) printf '%s\n' "$FM_LIVE_WORKTREE" ;;
+      esac
+      ;;
     *) printf 'pane\n' ;;
   esac
   exit 0
@@ -52,7 +66,7 @@ run_locked() {
   (
     local owner=$BASHPID
     export FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_LOCK_PID="$owner" FM_MIGRATE_PID="$owner"
-    export PATH="$dir/fakebin:$BASE_PATH" FM_LIVE_WORKTREE="$dir/worktree"
+    export PATH="$dir/fakebin:$BASE_PATH" FM_LIVE_WORKTREE="$dir/worktree" FM_WRONG_WORKTREE="$dir/project"
     printf '%s\n' "$owner" > "$dir/home/state/.lock"
     exec "$MIGRATE" "$@"
   )
@@ -116,5 +130,39 @@ SH
   pass 'rerunning after interruption converges without migration state'
 }
 
+test_refusal_reasons_are_per_record() {
+  local dir out
+  dir=$(make_case refusals)
+  fm_write_meta "$dir/home/state/ambiguous.meta" \
+    'window=firstmate:fm-ambiguous' "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  fm_write_meta "$dir/home/state/unreadable.meta" \
+    'window=firstmate:fm-unreadable' "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  fm_write_meta "$dir/home/state/unverified.meta" \
+    'window=zellij:2' 'backend=zellij' 'zellij_session=zellij' 'zellij_tab_id=1' \
+    'zellij_pane_id=2' "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  fm_write_meta "$dir/home/state/mismatch.meta" \
+    'window=firstmate:fm-mismatch' "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+
+  out=$(FM_FAKE_MODE=refusals run_locked "$dir") || fail "refusal scan failed: $out"
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/ambiguous.meta" \
+    || fail 'ambiguous endpoint was stamped'
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/unreadable.meta" \
+    || fail 'unreadable endpoint was stamped'
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/unverified.meta" \
+    || fail 'unverified endpoint was stamped'
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/mismatch.meta" \
+    || fail 'mismatched endpoint was stamped'
+  assert_contains "$out" 'task ambiguous: skipped - ambiguous live endpoint identity' \
+    'ambiguous endpoint reason was not reported'
+  assert_contains "$out" 'task unreadable: skipped - endpoint identity is unreadable' \
+    'unreadable endpoint reason was not reported'
+  assert_contains "$out" "task unverified: skipped - backend 'zellij' has no verified endpoint identity" \
+    'unverified endpoint reason was not reported'
+  assert_contains "$out" 'task mismatch: skipped - task identity mismatch: live endpoint worktree does not match recorded worktree' \
+    'mismatched endpoint reason was not reported'
+  pass 'endpoint binding scan reports per-record refusal reasons without stamping'
+}
+
 test_evidence_bound_scan
 test_rerun_converges_after_interruption
+test_refusal_reasons_are_per_record
