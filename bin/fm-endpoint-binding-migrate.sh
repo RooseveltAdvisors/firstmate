@@ -1138,6 +1138,7 @@ copy_private_atomic() (
   local append_line=${6:-} append_source=${7:-} append_source_type=${8:-private}
   local append_skip=${9:-0} append_separator=${10:-0}
   local recovery_authority=${FM_COPY_REQUIRE_RECOVERY_AUTHORITY:-0}
+  local final_verify_meta=${FM_COPY_FINAL_VERIFY_META:-} final_verify_id=${FM_COPY_FINAL_VERIFY_ID:-}
   local source_dir source_name destination_dir destination_name tmp rc restore_artifact restore_build
   local destination_expected tmp_identity
   local source_identity source_fd_identity append_present=0 destination_present=0 destination_identity destination_fd_identity
@@ -1251,6 +1252,14 @@ copy_private_atomic() (
     || { rm -f -- "$tmp"; return 1; }
   restore_artifact=$ATOMIC_RESTORE_ARTIFACT
   restore_build=$ATOMIC_RESTORE_BUILD
+  if [ -n "$final_verify_meta" ] || [ -n "$final_verify_id" ]; then
+    if [ -z "$final_verify_meta" ] || [ -z "$final_verify_id" ] \
+      || ! verify_legacy_endpoint "$final_verify_meta" "$final_verify_id"; then
+      if [ "$REPORT_WRITE_FAILED" -eq 1 ]; then rc=3; else rc=2; fi
+      rm -f -- "$tmp" "$restore_artifact" "$restore_build" || return 1
+      return "$rc"
+    fi
+  fi
   if [ "$recovery_authority" -eq 1 ] \
     && ! session_lock_owned_by_self; then
     return 1
@@ -2260,7 +2269,7 @@ restart_apply_scan() {
 
 apply_migration() {
   local meta id base binding_count binding validation before after before_final after_final
-  local backend target worktree i j duplicate manifest_tmp selected_count stage_records
+  local backend target worktree i j duplicate manifest_tmp selected_count stage_records stamp_rc
   local -a metas
   require_session_lock || return 1
   recover_apply_stage || return 1
@@ -2548,15 +2557,18 @@ apply_migration() {
       return $?
     fi
     require_session_lock || { retain_apply_for_recovery; return 1; }
-    if ! verify_legacy_endpoint "${STAMP_AFTER[$i]}" "${STAMP_IDS[$i]}"; then
-      if [ "$REPORT_WRITE_FAILED" -eq 1 ]; then
-        abort_apply 1
-        return $?
-      fi
+    FM_COPY_REQUIRE_RECOVERY_AUTHORITY=1 \
+      FM_COPY_FINAL_VERIFY_META=${STAMP_AFTER[$i]} \
+      FM_COPY_FINAL_VERIFY_ID=${STAMP_IDS[$i]} \
+      copy_private_atomic "${STAMP_AFTER[$i]}" "${STAMP_METAS[$i]}" regular
+    stamp_rc=$?
+    if [ "$stamp_rc" -eq 2 ]; then
       restart_apply_scan 1
       return $?
-    fi
-    if ! copy_private_atomic "${STAMP_AFTER[$i]}" "${STAMP_METAS[$i]}" regular; then
+    elif [ "$stamp_rc" -eq 3 ]; then
+      abort_apply 1
+      return $?
+    elif [ "$stamp_rc" -ne 0 ]; then
       abort_apply 1
       return $?
     fi
