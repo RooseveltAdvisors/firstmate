@@ -132,8 +132,7 @@
 #          consumes respawned ids. Worker output is captured separately and
 #          replayed in spawn order; failure to create that private capture
 #          directory selects the sequential fallback.
-#          Endpoint-binding migration is also locked and evidence-bound: it stamps
-#          only exact live legacy endpoints and records reversible before/after bytes.
+#          Endpoint-binding migration is a repeatable scan; rerun it after interruption.
 #          A relaunch that the liveness sweep performs during an `only` run is
 #          always reported, because a digest composed before that run already
 #          printed the superseded endpoint record.
@@ -1392,7 +1391,7 @@ if [ "${FM_BOOTSTRAP_DETECT_ONLY:-0}" != 1 ] && local_phase; then
   fi
   if fm_session_lock_owned_by_self "$STATE"; then
     if ! "$SCRIPT_DIR/fm-endpoint-binding-migrate.sh"; then
-      echo 'ENDPOINT_BINDING_MIGRATION: endpoint binding migration failed; inspect recovery evidence before retrying' >&2
+      echo 'ENDPOINT_BINDING_MIGRATION: scan incomplete; rerun migration' >&2
     fi
   fi
   startup_memory_budget_setup

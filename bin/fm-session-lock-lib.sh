@@ -171,8 +171,8 @@ fm_session_lock_owned_by_self() {
       Darwin)
         path_identity=$(stat -f '%d:%i' "$lock_file" 2>/dev/null) || exit 1
         exec 9< "$lock_file" || exit 1
-        [ "$(stat -f '%HT' <&9 2>/dev/null)" = 'Regular File' ] || exit 1
-        fd_identity=$(stat -f '%d:%i' <&9 2>/dev/null) || exit 1
+        [ "$(stat -f '%HT' /dev/fd/9 2>/dev/null)" = 'Regular File' ] || exit 1
+        fd_identity=$(stat -f '%d:%i' /dev/fd/9 2>/dev/null) || exit 1
         ;;
       *)
         path_identity=$(stat -L -c '%d:%i' "$lock_file" 2>/dev/null) || exit 1
