@@ -127,6 +127,10 @@ verify_live_task_worktree() {
 
 verify_legacy_endpoint() {
   local meta=$1 id=$2 backend target state validation
+  backend=$(fm_backend_of_meta "$meta")
+  if [ "$backend" = herdr ] && ! verify_legacy_herdr_label "$meta" "$id"; then
+    return 1
+  fi
   if validation=$(fm_backend_validate_task_endpoint "$meta" "$id" 2>&1); then
     if ! fm_backend_validate_task_endpoint "$meta" "$id" >/dev/null 2>&1; then
       record_outcome "task $id: skipped - shared endpoint metadata changed during validation"
@@ -148,6 +152,37 @@ verify_legacy_endpoint() {
     return 1
   }
   verify_live_task_worktree "$meta" "$id" "$backend" "$target"
+}
+
+verify_legacy_herdr_label() {
+  local meta=$1 id=$2 target session live_target live_label live_count=0 recorded_target
+  target=$(fm_backend_meta_exact_value "$meta" window) || {
+    record_outcome "task $id: skipped - shared endpoint validation refused: REFUSED: legacy Herdr endpoint metadata lacks an exact live task label; preserving task state."
+    return 1
+  }
+  session=${target%%:*}
+  fm_backend_source herdr || {
+    record_outcome "task $id: skipped - shared endpoint validation refused: REFUSED: legacy Herdr endpoint metadata lacks an exact live task label; preserving task state."
+    return 1
+  }
+  while IFS=$'\t' read -r live_target live_label; do
+    [ "$live_label" = "fm-$id" ] || continue
+    live_count=$((live_count + 1))
+    target=$live_target
+  done < <(fm_backend_herdr_list_live "$session")
+  if [ "$live_count" -eq 0 ]; then
+    record_outcome "task $id: skipped - shared endpoint validation refused: REFUSED: legacy Herdr endpoint metadata lacks an exact live task label; preserving task state."
+    return 1
+  fi
+  if [ "$live_count" -ne 1 ]; then
+    record_outcome "task $id: skipped - shared endpoint validation refused: REFUSED: legacy Herdr endpoint has an ambiguous live fm-$id label; preserving task state."
+    return 1
+  fi
+  recorded_target=$(fm_backend_meta_exact_value "$meta" window) || return 1
+  if [ "$target" != "$recorded_target" ]; then
+    record_outcome "task $id: skipped - shared endpoint validation refused: REFUSED: live fm-$id label resolves to a different Herdr endpoint; preserving task state."
+    return 1
+  fi
 }
 
 endpoint_claim_conflicts() {
@@ -184,9 +219,8 @@ candidate_for() {
 }
 
 publish_candidate() {
-  local meta=$1 id=$2 snapshot=$3 candidate=$4 binding_count binding
+  local meta=$1 id=$2 candidate=$3 binding_count binding
   regular_file "$meta" || return 1
-  cmp -s -- "$meta" "$snapshot" || return 2
   binding_count=$(grep -c '^endpoint_task_id=' "$meta" 2>/dev/null || true)
   [ "$binding_count" -eq 0 ] || return 2
   mv -f -- "$candidate" "$meta" || return 1
@@ -198,14 +232,12 @@ publish_candidate() {
 
 OUTCOME_COUNT=0
 STAMP_COUNT=0
-snapshot=
 candidate=
 cleanup() {
-  rm -f -- "$snapshot" "$candidate" 2>/dev/null || true
+  rm -f -- "$candidate" 2>/dev/null || true
 }
 clear_temp() {
-  rm -f -- "$snapshot" "$candidate" 2>/dev/null || true
-  snapshot=
+  rm -f -- "$candidate" 2>/dev/null || true
   candidate=
 }
 trap cleanup EXIT
@@ -214,6 +246,10 @@ trap 'exit 143' HUP INT TERM
 require_session_lock || exit 1
 
 shopt -s nullglob
+for stale in "$STATE"/.fm-endpoint-binding-candidate.*; do
+  [ -e "$stale" ] || [ -L "$stale" ] || continue
+  rm -f -- "$stale" || exit 1
+done
 for meta in "$STATE"/*.meta; do
   base=$(basename "$meta")
   id=$(basename "$meta" .meta)
@@ -252,16 +288,7 @@ for meta in "$STATE"/*.meta; do
     fm_lock_release "$meta_lock" || exit 1
     continue
   fi
-  snapshot=$(mktemp "$STATE/.fm-endpoint-binding-snapshot.XXXXXX") || {
-    fm_lock_release "$meta_lock" || true
-    exit 1
-  }
   candidate=$(mktemp "$STATE/.fm-endpoint-binding-candidate.XXXXXX") || {
-    rm -f -- "$snapshot"
-    fm_lock_release "$meta_lock" || true
-    exit 1
-  }
-  cp -- "$meta" "$snapshot" || {
     fm_lock_release "$meta_lock" || true
     exit 1
   }
@@ -290,7 +317,7 @@ for meta in "$STATE"/*.meta; do
     fm_lock_release "$meta_lock" || exit 1
     continue
   fi
-  publish_candidate "$meta" "$id" "$snapshot" "$candidate"
+  publish_candidate "$meta" "$id" "$candidate"
   publish_rc=$?
   if [ "$publish_rc" -eq 2 ]; then
     record_outcome "task $id: skipped - metadata changed during scan; rerun migration"
