@@ -2532,7 +2532,7 @@ fm_backend_herdr_target_ready() {  # <target>
 # process's cwd instead, which is what changes when `treehouse get` enters its
 # worktree subshell - confirmed live against a real treehouse acquisition.
 fm_backend_herdr_current_path() {  # <target>
-  fm_backend_herdr_parse_target "$1" || return 0
+  fm_backend_herdr_target_ready "$1" || return 0
   fm_backend_herdr_cli "$FM_BACKEND_HERDR_SESSION" pane get "$FM_BACKEND_HERDR_PANE" 2>/dev/null \
     | jq -r '.result.pane.foreground_cwd // empty' 2>/dev/null
 }
