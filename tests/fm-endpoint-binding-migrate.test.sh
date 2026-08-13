@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -u
 
+# shellcheck source=tests/lib.sh
 . "$(dirname "$0")/lib.sh"
 
 MIGRATE="$ROOT/bin/fm-endpoint-binding-migrate.sh"

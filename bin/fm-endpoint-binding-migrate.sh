@@ -24,8 +24,11 @@ if [ "$#" -ne 0 ]; then
   exit 2
 fi
 
+# shellcheck source=bin/fm-session-lock-lib.sh
 . "$SCRIPT_DIR/fm-session-lock-lib.sh"
+# shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
+# shellcheck source=bin/fm-backend.sh
 . "$SCRIPT_DIR/fm-backend.sh"
 
 [ -d "$STATE" ] && [ ! -L "$STATE" ] || {
@@ -251,7 +254,6 @@ for stale in "$STATE"/.fm-endpoint-binding-candidate.*; do
   rm -f -- "$stale" || exit 1
 done
 for meta in "$STATE"/*.meta; do
-  base=$(basename "$meta")
   id=$(basename "$meta" .meta)
   if [ -L "$meta" ]; then
     record_outcome "task $(reason_one_line "$id"): skipped - metadata record is a symlink; endpoint identity is unverifiable"

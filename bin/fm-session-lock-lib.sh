@@ -167,20 +167,17 @@ fm_session_lock_owned_by_self() {
     lock_value=
     lock_extra=
     [ -f "$lock_file" ] && [ ! -L "$lock_file" ] || exit 1
-    case "$(uname -s 2>/dev/null)" in
-      Darwin)
-        path_identity=$(stat -f '%d:%i' "$lock_file" 2>/dev/null) || exit 1
-        exec 9< "$lock_file" || exit 1
-        [ "$(stat -f '%HT' /dev/fd/9 2>/dev/null)" = 'Regular File' ] || exit 1
-        fd_identity=$(stat -f '%d:%i' /dev/fd/9 2>/dev/null) || exit 1
-        ;;
-      *)
-        path_identity=$(stat -L -c '%d:%i' "$lock_file" 2>/dev/null) || exit 1
-        exec 9< "$lock_file" || exit 1
-        [ -f /dev/fd/9 ] || exit 1
-        fd_identity=$(stat -L -c '%d:%i' /dev/fd/9 2>/dev/null) || exit 1
-        ;;
-    esac
+    if [ "$(uname -s 2>/dev/null)" = Darwin ]; then
+      path_identity=$(stat -f '%d:%i' "$lock_file" 2>/dev/null) || exit 1
+      exec 9< "$lock_file" || exit 1
+      [ "$(stat -f '%HT' /dev/fd/9 2>/dev/null)" = 'Regular File' ] || exit 1
+      fd_identity=$(stat -f '%d:%i' /dev/fd/9 2>/dev/null) || exit 1
+    else
+      path_identity=$(stat -L -c '%d:%i' "$lock_file" 2>/dev/null) || exit 1
+      exec 9< "$lock_file" || exit 1
+      [ -f /dev/fd/9 ] || exit 1
+      fd_identity=$(stat -L -c '%d:%i' /dev/fd/9 2>/dev/null) || exit 1
+    fi
     [ "$fd_identity" = "$path_identity" ] || exit 1
     if ! IFS= read -r lock_value <&9; then
       [ -n "$lock_value" ] || exit 1
@@ -189,10 +186,11 @@ fm_session_lock_owned_by_self() {
       exit 1
     fi
     [ -f "$lock_file" ] && [ ! -L "$lock_file" ] || exit 1
-    case "$(uname -s 2>/dev/null)" in
-      Darwin) final_identity=$(stat -f '%d:%i' "$lock_file" 2>/dev/null) || exit 1 ;;
-      *) final_identity=$(stat -L -c '%d:%i' "$lock_file" 2>/dev/null) || exit 1 ;;
-    esac
+    if [ "$(uname -s 2>/dev/null)" = Darwin ]; then
+      final_identity=$(stat -f '%d:%i' "$lock_file" 2>/dev/null) || exit 1
+    else
+      final_identity=$(stat -L -c '%d:%i' "$lock_file" 2>/dev/null) || exit 1
+    fi
     [ "$final_identity" = "$fd_identity" ] || exit 1
     printf '%s' "$lock_value"
   ) || return 1
