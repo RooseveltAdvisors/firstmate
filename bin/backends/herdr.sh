@@ -1447,8 +1447,9 @@ fm_backend_herdr_projection_order_best_effort() {  # <session> <created-workspac
 # has-session || tmux new-session -d`. Verified: a bare socket CLI call does
 # NOT auto-start the server, so this must run before any workspace/tab/pane
 # call. The server outlives its launcher and passes its startup environment to
-# every later pane, so remove home and harness identity inherited from whichever
-# agent happened to start it. Bounded poll for the server to report running.
+# every later pane, so remove home, harness identity, and supervision selection
+# inherited from whichever agent happened to start it. Bounded poll for the
+# server to report running.
 fm_backend_herdr_server_ensure() {  # <session>
   local session=$1 running out i
   running=$(fm_backend_herdr_cli "$session" status --json 2>/dev/null | jq -r '.server.running // false' 2>/dev/null)
