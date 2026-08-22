@@ -1,0 +1,15 @@
+FM_HOME=/tmp/wrong-home
+FM_ROOT_OVERRIDE=/tmp/wrong-root
+FM_STATE_OVERRIDE=/tmp/wrong-state
+FM_DATA_OVERRIDE=/tmp/wrong-data
+FM_PROJECTS_OVERRIDE=/tmp/wrong-projects
+FM_CONFIG_OVERRIDE=/tmp/wrong-config
+CURSOR_AGENT=1
+CURSOR_INVOKED_AS=cursor-agent
+CLAUDECODE=1
+PI_CODING_AGENT=true
+FM_PI_HARNESS=pi-signed
+GROK_AGENT=1
+FM_SUPERVISION_MODEL=autoarm
+FM_HERDR_SENTINEL=kept
+HERDR_SESSION=fm-lab-base-replay-1647979-14687

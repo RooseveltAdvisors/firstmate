@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -u
+output=$1
+{
+  for name in FM_HOME FM_ROOT_OVERRIDE FM_STATE_OVERRIDE FM_DATA_OVERRIDE FM_PROJECTS_OVERRIDE FM_CONFIG_OVERRIDE CURSOR_AGENT CURSOR_INVOKED_AS CLAUDECODE PI_CODING_AGENT FM_PI_HARNESS GROK_AGENT FM_SUPERVISION_MODEL FM_HERDR_SENTINEL HERDR_SESSION; do
+    value=${!name-<unset>}
+    printf '%s=%s\n' "$name" "$value"
+  done
+} > "$output"
