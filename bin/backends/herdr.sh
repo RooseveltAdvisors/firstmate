@@ -1442,6 +1442,29 @@ fm_backend_herdr_projection_order_best_effort() {  # <session> <created-workspac
   return 0
 }
 
+# fm_backend_herdr_server_start: start the herdr server for <session> with a
+# process-local environment. The long-lived server must not inherit Firstmate
+# home/override paths or harness identity from the process that happened to
+# launch supervision, and color suppression from a non-TTY hook must not make
+# every later pane monotone. Keep the explicit HERDR_SESSION and trailing
+# --session routing supplied by fm_backend_herdr_cli.
+fm_backend_herdr_server_start() {  # <session>
+  local session=$1 inherited_term=${TERM:-}
+  (
+    unset NO_COLOR FORCE_COLOR FM_HOME FM_ROOT_OVERRIDE FM_STATE_OVERRIDE \
+      FM_DATA_OVERRIDE FM_PROJECTS_OVERRIDE FM_CONFIG_OVERRIDE CURSOR_AGENT \
+      CURSOR_INVOKED_AS CLAUDECODE PI_CODING_AGENT FM_PI_HARNESS GROK_AGENT \
+      FM_SUPERVISION_MODEL
+    if [ -z "$inherited_term" ] || [ "$inherited_term" = dumb ]; then
+      TERM=xterm-256color
+    else
+      TERM=$inherited_term
+    fi
+    export TERM
+    fm_backend_herdr_cli "$session" server
+  )
+}
+
 # fm_backend_herdr_server_ensure: start the herdr server for <session>
 # headless (no TUI client) if not already running, mirroring tmux's `tmux
 # has-session || tmux new-session -d`. Verified: a bare socket CLI call does
@@ -1451,7 +1474,7 @@ fm_backend_herdr_server_ensure() {  # <session>
   local session=$1 running out i
   running=$(fm_backend_herdr_cli "$session" status --json 2>/dev/null | jq -r '.server.running // false' 2>/dev/null)
   [ "$running" = "true" ] && return 0
-  ( fm_backend_herdr_cli "$session" server >/dev/null 2>&1 & ) || return 1
+  ( fm_backend_herdr_server_start "$session" >/dev/null 2>&1 & ) || return 1
   for i in $(seq 1 20); do
     running=$(fm_backend_herdr_cli "$session" status --json 2>/dev/null | jq -r '.server.running // false' 2>/dev/null)
     [ "$running" = "true" ] && return 0

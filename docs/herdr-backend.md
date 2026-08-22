@@ -205,6 +205,8 @@ Workspace and tab ids support verification and cleanup but are not inferred from
 The adapter starts and polls a named server before workspace, tab, pane, or agent calls.
 Every Herdr invocation goes through `fm_backend_herdr_cli`, which sets the environment and passes an explicit trailing `--session <name>`.
 An environment variable alone is not reliable when another Herdr server is running.
+When Firstmate starts a server, it removes Firstmate and harness identity plus color-suppression variables from the server environment, normalizes an empty or `dumb` `TERM` to `xterm-256color`, and preserves a real `TERM` value.
+The server retains explicit `HERDR_SESSION` and `--session` routing while unrelated environment variables remain available.
 
 Literal text and Enter are separate operations on `fm-send.sh`'s typed plane; ordinary local text steers instead use the durable steering inbox and send only its best-effort constant doorbell through this adapter.
 Spawn-time fixed commands may use Herdr's atomic run primitive.

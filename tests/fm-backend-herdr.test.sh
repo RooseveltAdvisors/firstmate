@@ -47,6 +47,16 @@ next=$(( $(cat "$COUNT_FILE" 2>/dev/null || echo 0) + 1 ))
   for a in "$@"; do printf '\x1f%s' "$a"; done
   printf '\n'
 } >> "$LOG"
+if [ "${1:-}" = server ]; then
+  [ -z "${FM_HERDR_ENV_LOG:-}" ] || env > "$FM_HERDR_ENV_LOG"
+  [ -z "${FM_HERDR_SERVER_STARTED:-}" ] || : > "$FM_HERDR_SERVER_STARTED"
+fi
+if [ "${1:-}" = status ] && [ "${2:-}" = --json ] &&
+  [ -n "${FM_HERDR_SERVER_STARTED:-}" ] &&
+  [ -e "$FM_HERDR_SERVER_STARTED" ]; then
+  printf '{"server":{"running":true}}\n'
+  exit 0
+fi
 if [ "${1:-}" = status ] && [ "${2:-}" = --json ] && [ "${FM_HERDR_SCRIPT_STATUS:-0}" != 1 ]; then
   printf '{"client":{"version":"0.7.1","protocol":14},"server":{"running":true}}\n'
   exit 0
@@ -287,6 +297,66 @@ test_cli_helper_sets_env_and_appends_trailing_session_flag() {
   assert_contains "$(cat "$log")" $'\x1f''workspace'$'\x1f''list'$'\x1f''--session'$'\x1f''fmtest' \
     "fm_backend_herdr_cli did not append a trailing --session <name> flag (the fix for the env-var-alone routing bug)"
   pass "fm_backend_herdr_cli: sets HERDR_SESSION AND appends a trailing --session flag on every call"
+}
+
+test_server_start_sanitizes_inherited_environment() {
+  local dir log resp envlog started fb out status server_env
+  dir="$TMP_ROOT/server-env-dumb"; mkdir -p "$dir/responses"
+  log="$dir/log"; resp="$dir/responses"; envlog="$dir/env"; started="$dir/started"; : > "$log"
+  printf '{"server":{"running":false}}\n' > "$resp/1.out"
+  fb=$(make_herdr_fakebin "$dir")
+  out=$(PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
+    FM_HERDR_SCRIPT_STATUS=1 FM_HERDR_ENV_LOG="$envlog" \
+    FM_HERDR_SERVER_STARTED="$started" TERM=dumb \
+    bash -c '
+      . "$0/bin/backends/herdr.sh"
+      export NO_COLOR=1 FORCE_COLOR=0 FM_HOME=home FM_ROOT_OVERRIDE=root
+      export FM_STATE_OVERRIDE=state FM_DATA_OVERRIDE=data FM_PROJECTS_OVERRIDE=projects
+      export FM_CONFIG_OVERRIDE=config CURSOR_AGENT=cursor CURSOR_INVOKED_AS=cursor-agent
+      export CLAUDECODE=claude PI_CODING_AGENT=pi FM_PI_HARNESS=pi
+      export GROK_AGENT=grok FM_SUPERVISION_MODEL=model UNRELATED_SENTINEL=keep-me
+      fm_backend_herdr_server_ensure fmtest
+    ' "$ROOT" 2>&1)
+  status=$?
+  expect_code 0 "$status" "server_ensure should start with a sanitized environment"$'\n'"$out"
+  server_env=$(cat "$envlog")
+  assert_not_contains "$server_env" "NO_COLOR=" "server environment retained NO_COLOR"
+  assert_not_contains "$server_env" "FORCE_COLOR=" "server environment retained FORCE_COLOR"
+  assert_not_contains "$server_env" "FM_HOME=" "server environment retained FM_HOME"
+  assert_not_contains "$server_env" "FM_ROOT_OVERRIDE=" "server environment retained FM_ROOT_OVERRIDE"
+  assert_not_contains "$server_env" "FM_STATE_OVERRIDE=" "server environment retained FM_STATE_OVERRIDE"
+  assert_not_contains "$server_env" "FM_DATA_OVERRIDE=" "server environment retained FM_DATA_OVERRIDE"
+  assert_not_contains "$server_env" "FM_PROJECTS_OVERRIDE=" "server environment retained FM_PROJECTS_OVERRIDE"
+  assert_not_contains "$server_env" "FM_CONFIG_OVERRIDE=" "server environment retained FM_CONFIG_OVERRIDE"
+  assert_not_contains "$server_env" "CURSOR_AGENT=" "server environment retained CURSOR_AGENT"
+  assert_not_contains "$server_env" "CURSOR_INVOKED_AS=" "server environment retained CURSOR_INVOKED_AS"
+  assert_not_contains "$server_env" "CLAUDECODE=" "server environment retained CLAUDECODE"
+  assert_not_contains "$server_env" "PI_CODING_AGENT=" "server environment retained PI_CODING_AGENT"
+  assert_not_contains "$server_env" "FM_PI_HARNESS=" "server environment retained FM_PI_HARNESS"
+  assert_not_contains "$server_env" "GROK_AGENT=" "server environment retained GROK_AGENT"
+  assert_not_contains "$server_env" "FM_SUPERVISION_MODEL=" "server environment retained FM_SUPERVISION_MODEL"
+  assert_contains "$server_env" "TERM=xterm-256color" "TERM=dumb was not normalized for the server"
+  assert_contains "$server_env" "UNRELATED_SENTINEL=keep-me" "unrelated environment was not preserved"
+  assert_contains "$(cat "$log")" "HERDR_SESSION=fmtest"$'\x1f''server'$'\x1f''--session'$'\x1f''fmtest' \
+    "server start lost explicit Herdr session routing"
+  pass "fm_backend_herdr_server_ensure: strips color and identity variables, normalizes dumb TERM, and preserves unrelated environment"
+}
+
+test_server_start_preserves_real_term() {
+  local dir log resp envlog started fb out status server_env
+  dir="$TMP_ROOT/server-env-real-term"; mkdir -p "$dir/responses"
+  log="$dir/log"; resp="$dir/responses"; envlog="$dir/env"; started="$dir/started"; : > "$log"
+  printf '{"server":{"running":false}}\n' > "$resp/1.out"
+  fb=$(make_herdr_fakebin "$dir")
+  out=$(PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
+    FM_HERDR_SCRIPT_STATUS=1 FM_HERDR_ENV_LOG="$envlog" \
+    FM_HERDR_SERVER_STARTED="$started" TERM=screen-256color \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_server_ensure fmtest' "$ROOT" 2>&1)
+  status=$?
+  expect_code 0 "$status" "server_ensure should preserve a real TERM"$'\n'"$out"
+  server_env=$(cat "$envlog")
+  assert_contains "$server_env" "TERM=screen-256color" "server start downgraded a real TERM"
+  pass "fm_backend_herdr_server_ensure: preserves a real TERM value"
 }
 
 # --- launcher_identity: the exact workspace a worker must be placed in -------
@@ -4432,6 +4502,8 @@ test_workspace_label_secondmate_marker_trims_whitespace
 test_workspace_label_empty_marker_falls_back_to_primary
 test_workspace_label_different_secondmates_get_different_labels
 test_cli_helper_sets_env_and_appends_trailing_session_flag
+test_server_start_sanitizes_inherited_environment
+test_server_start_preserves_real_term
 test_launcher_identity_absent_without_a_herdr_pane
 test_launcher_identity_absent_when_herdr_env_alone_is_set
 test_launcher_identity_resolves_the_exact_pane_tab_and_workspace
