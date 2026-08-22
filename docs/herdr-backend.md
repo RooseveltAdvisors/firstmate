@@ -205,6 +205,7 @@ Workspace and tab ids support verification and cleanup but are not inferred from
 The adapter starts and polls a named server before workspace, tab, pane, or agent calls.
 Every Herdr invocation goes through `fm_backend_herdr_cli`, which sets the environment and passes an explicit trailing `--session <name>`.
 An environment variable alone is not reliable when another Herdr server is running.
+Before launching a new long-lived server, the adapter removes inherited Firstmate home overrides and harness identity markers. Otherwise the server would pass the launcher's home and harness identity to every later pane, including panes for another home or harness.
 
 Literal text and Enter are separate operations for ordinary steers.
 Spawn-time fixed commands may use Herdr's atomic run primitive.
