@@ -1,0 +1,7 @@
+ok - Pi extension injects only assigned Bead state, enforces an unclaimed bead, and re-injects after compaction
+ok - Pi extension allows completed work and dependency-blocked beads to settle without false enforcement
+ok - Pi extension warns on a foreign claim and a persisted stale claim
+ok - Pi extension stays silent and makes no fleet-wide Beads query without an assignment
+ok - graph-of-loops wrapper creates a watch-loop finding, adds a blocked dependency, and updates it
+ok - graph-of-loops wrapper leaves converging loops without Beads mutation
+ok - fleet view surfaces stalled loop Beads from bd blocked
