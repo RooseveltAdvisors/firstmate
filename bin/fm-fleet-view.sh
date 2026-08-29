@@ -4,9 +4,12 @@
 # This command intentionally does not parse fleet state itself.
 # It shells out to fm-fleet-snapshot.sh --json and renders that stable
 # structured contract for humans.
+# It also renders the current read-only `bd blocked --json` result so
+# graph-of-loops findings projected with the `watch-loop` label stay visible.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 usage() {
   cat <<'EOF'
@@ -27,8 +30,24 @@ esac
 command -v jq >/dev/null 2>&1 || { echo "fm-fleet-view: jq not found" >&2; exit 1; }
 
 SNAPSHOT=$("$SCRIPT_DIR/fm-fleet-snapshot.sh" --json) || exit $?
+BEADS_BLOCKED_JSON='[]'
+BEADS_STATUS=unavailable
+BEADS_ERROR='bd blocked --json could not be read'
+if command -v bd >/dev/null 2>&1; then
+  candidate=$(cd "$FM_ROOT" && bd blocked --json 2>/dev/null) || candidate=
+  if printf '%s\n' "$candidate" | jq -e 'type == "array"' >/dev/null 2>&1; then
+    BEADS_BLOCKED_JSON=$candidate
+    BEADS_STATUS=available
+    BEADS_ERROR=
+  fi
+else
+  BEADS_ERROR='bd CLI is not installed'
+fi
 
-printf '%s\n' "$SNAPSHOT" | jq -r '
+printf '%s\n' "$SNAPSHOT" | jq -r \
+  --arg beads_status "$BEADS_STATUS" \
+  --arg beads_error "$BEADS_ERROR" \
+  --argjson beads_blocked "$BEADS_BLOCKED_JSON" '
   def dash($v): if $v == null or $v == "" then "-" else $v end;
   def endpoint_exists($t):
     if $t.endpoint.exists == null then "unknown"
@@ -58,6 +77,8 @@ printf '%s\n' "$SNAPSHOT" | jq -r '
     else "\($r.blocked_by) - \($r.blocked_reason)" end;
   def backlog_row($r):
     "| \($r.id // "-") | \(dash($r.title // $r.raw)) | \(dash($r.repo)) | \(dash($r.kind)) | \(blocker($r)) | \(dash($r.pr_url // $r.report_path // $r.local_note)) |";
+  def bead_row($b):
+    "| \($b.id // "-") | \(dash($b.title)) | \(dash(($b.labels // []) | join(", "))) | \(dash(($b.blocked_by // []) | join(", "))) |";
 
   "# Fleet View",
   "",
@@ -71,6 +92,17 @@ printf '%s\n' "$SNAPSHOT" | jq -r '
     "| ID | Current | Kind | Repo/Project | Backend | Endpoint | Artifact | Path | Watch / return channel |",
     "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     (.tasks[] | task_row(.))
+   end),
+  "",
+  "## Blocked Beads",
+  (if $beads_status != "available" then
+    "Unavailable: \($beads_error)."
+   elif ($beads_blocked | length) == 0 then
+    "No blocked Beads found."
+   else
+    "| ID | Title | Labels | Blocked By |",
+    "| --- | --- | --- | --- |",
+    ($beads_blocked[] | bead_row(.))
    end),
   "",
   "## Queued",
