@@ -49,7 +49,7 @@ test_extension_enforces_assignment_and_reinjects_state() {
   out=$(PLUGIN="$repo/.pi/extensions/beads-enforcement.ts" \
     FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" FM_STATE_OVERRIDE="$home/state" \
     FM_BEAD_ID=fm-work BD_FIXTURE="$fixture" BEADS_ACTOR='Firstmate Tests' PATH="$fakebin:$PATH" \
-    node --input-type=module 2>&1 <<'EOF'
+    node --experimental-strip-types --input-type=module 2>&1 <<'EOF'
 import { pathToFileURL } from "node:url";
 
 const handlers = new Map();
@@ -110,7 +110,7 @@ test_extension_allows_work_and_dependency_blocked_beads() {
   out=$(PLUGIN="$repo/.pi/extensions/beads-enforcement.ts" \
     FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" FM_STATE_OVERRIDE="$home/state" \
     BD_FIXTURE="$fixture" BEADS_ACTOR='Firstmate Tests' PATH="$fakebin:$PATH" \
-    node --input-type=module 2>&1 <<'EOF'
+    node --experimental-strip-types --input-type=module 2>&1 <<'EOF'
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 const handlers = new Map();
@@ -138,7 +138,7 @@ EOF
   out=$(PLUGIN="$repo/.pi/extensions/beads-enforcement.ts" \
     FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" FM_STATE_OVERRIDE="$home/state" \
     BD_FIXTURE="$fixture" BEADS_ACTOR='Firstmate Tests' PATH="$fakebin:$PATH" \
-    node --input-type=module 2>&1 <<'EOF'
+    node --experimental-strip-types --input-type=module 2>&1 <<'EOF'
 import { pathToFileURL } from "node:url";
 const handlers = new Map();
 let followUps = 0;
@@ -175,7 +175,7 @@ test_extension_warns_on_foreign_and_stale_claims() {
   out=$(PLUGIN="$repo/.pi/extensions/beads-enforcement.ts" \
     FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" FM_STATE_OVERRIDE="$home/state" \
     FM_BEADS_STALE_MS=1 BD_FIXTURE="$fixture" BEADS_ACTOR='Firstmate Tests' PATH="$fakebin:$PATH" \
-    node --input-type=module 2>&1 <<'EOF'
+    node --experimental-strip-types --input-type=module 2>&1 <<'EOF'
 import { pathToFileURL } from "node:url";
 const handlers = new Map();
 const pi = {
@@ -210,7 +210,7 @@ test_extension_stays_silent_without_assignment() {
   out=$(PLUGIN="$repo/.pi/extensions/beads-enforcement.ts" \
     FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" FM_STATE_OVERRIDE="$home/state" \
     BD_FIXTURE="$fixture" BEADS_ACTOR='Firstmate Tests' PATH="$fakebin:$PATH" \
-    node --input-type=module 2>&1 <<'EOF'
+    node --experimental-strip-types --input-type=module 2>&1 <<'EOF'
 import { pathToFileURL } from "node:url";
 const handlers = new Map();
 let sent = false;
@@ -287,7 +287,7 @@ test_loop_wrapper_projects_and_updates_findings() {
   mkdir -p "$home/state"
   fakebin=$(fm_fakebin "$TMP_ROOT/loop-fakebin")
   log="$home/state/bd.log"
-  write_loop_fake_bd "$fakebin" "$home/state" "$log"
+  write_loop_fake_bd "$fakebin"
   pass1="$home/pass-one.sh"
   pass2="$home/pass-two.sh"
   printf '#!/usr/bin/env bash\nprintf '\''{"loops":[{"id":"loop-alpha","name":"Alpha","status":"stalled","finding":"queue stopped"},{"id":"loop-beta","status":"converging"}]}\\n'\''\n' > "$pass1"
@@ -313,7 +313,7 @@ test_loop_wrapper_leaves_healthy_report_alone() {
   local home="$TMP_ROOT/loop-healthy-home" fakebin pass out
   mkdir -p "$home/state"
   fakebin=$(fm_fakebin "$TMP_ROOT/loop-healthy-fakebin")
-  write_loop_fake_bd "$fakebin" "$home/state" "$home/state/bd.log"
+  write_loop_fake_bd "$fakebin"
   pass="$home/pass.sh"
   printf '#!/usr/bin/env bash\nprintf '\''{"loops":[{"id":"loop-good","status":"converging"}]}\\n'\''\n' > "$pass"
   chmod +x "$pass"
