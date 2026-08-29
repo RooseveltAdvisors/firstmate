@@ -35,10 +35,12 @@ BEADS_STATUS=unavailable
 BEADS_ERROR='bd blocked --json could not be read'
 if command -v bd >/dev/null 2>&1; then
   candidate=$(cd "$FM_ROOT" && bd blocked --json 2>/dev/null) || candidate=
-  if printf '%s\n' "$candidate" | jq -e 'type == "array"' >/dev/null 2>&1; then
+  if [ -n "$candidate" ] && printf '%s\n' "$candidate" | jq -e 'type == "array"' >/dev/null 2>&1; then
     BEADS_BLOCKED_JSON=$candidate
     BEADS_STATUS=available
     BEADS_ERROR=
+  elif [ -n "$candidate" ]; then
+    BEADS_ERROR='bd blocked --json returned unexpected output (not a JSON array)'
   fi
 else
   BEADS_ERROR='bd CLI is not installed'

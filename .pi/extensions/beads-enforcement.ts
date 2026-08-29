@@ -301,6 +301,20 @@ export default function (pi: ExtensionAPI) {
     if (environmentAssignment) {
       await verifyAssignment(environmentAssignment);
       injectAssignedContext();
+    } else if (assignmentWarnings.length > 0) {
+      try {
+        pi.sendMessage(
+          {
+            customType: "beads-enforcement",
+            content: `Beads enforcement warning:\n\n${assignmentWarnings.join("\n")}`,
+            display: false,
+            details: { schema: "pi-beads-enforcement.v1", source: "session_start" },
+          },
+          { deliverAs: "nextTurn" },
+        );
+      } catch (error) {
+        logError("could not inject Beads warning context", error);
+      }
     }
   });
 
@@ -344,6 +358,8 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("agent_settled", async () => {
     if (enforcementFollowUpActive || !assignedBeadId) return;
+    const previousWork = work;
+    work = resetWorkCounters();
     const id = assignedBeadId;
     const bead = await showBead(id);
     if (!bead) return;
@@ -355,10 +371,9 @@ export default function (pi: ExtensionAPI) {
     const status = String(bead.status || "");
     if (status === "open" && !blocked) {
       warnings.push(`You have an assigned bead ${id} that was never claimed. Claim it with \`bd update ${id} --claim\` or explain why it cannot proceed.`);
-    } else if (status === "in_progress" && !work.filesEdited && !work.commandsRan && !blocked) {
+    } else if (status === "in_progress" && !previousWork.filesEdited && !previousWork.commandsRan && !blocked) {
       warnings.push(`Your bead ${id} is in_progress but no work was performed. Either make progress, mark it blocked with \`bd update ${id} --add-label blocked\`, or close it.`);
     }
-    work = resetWorkCounters();
     if (warnings.length === 0) return;
 
     enforcementFollowUpActive = true;

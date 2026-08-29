@@ -132,7 +132,7 @@ if [ "$unhealthy_count" -gt 0 ]; then
     exit 1
   }
   name=$(printf '%s\n' "$loop" | jq -r '.name // .title // .id // .loop_id // .key')
-  finding=$(printf '%s\n' "$loop" | jq -c 'if .finding != null then .finding elif .summary != null then .summary elif .reason != null then .reason elif .details != null then .details else . end')
+  finding=$(printf '%s\n' "$loop" | jq -c 'if .finding != null then .finding elif .summary != null then .summary elif .reason != null then .reason elif .details != null then .details else "No finding details provided." end')
   title="Loop health: $name ($status)"
   description=$(printf 'Graph-of-loops pass found a %s loop.\n\nLoop: %s\nFinding: %s\n' "$status" "$canonical_id" "$finding")
   metadata=$(jq -cn --arg loop_id "$loop_id" --arg loop_name "$loop_name" --arg loop_key "$loop_key" --arg loop_status "$status" \
@@ -215,7 +215,8 @@ while IFS= read -r finding_bead; do
   if [ "$still_unhealthy" -eq 0 ]; then
     bd_run close "$finding_bead_id" >/dev/null 2>&1 || true
     reconciled=$((reconciled + 1))
-    printf 'watch-loop: recovered %s -> close %s\n' "$finding_bead_id" "$finding_bead_id"
+    canonical_id="${finding_loop_id:-${finding_loop_name:-${finding_loop_key}}}"
+    printf 'watch-loop: recovered %s -> close %s\n' "$canonical_id" "$finding_bead_id"
   fi
 done < <(printf '%s\n' "$watch_loops" | jq -c '.[] | select((.metadata.watch_loop_role // "") == "finding")')
 
