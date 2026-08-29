@@ -49,7 +49,7 @@ Launching a supported harness inside it instantiates your first mate - and makes
 - **Optional secondmates** - opt in to persistent second mates that run from isolated firstmate homes with their own `FM_HOME`, state, projects, and session lock, either locally or as a whole home on an SSH-reachable host, with guarded updates and recovery that never turns an unavailable remote route into a local replacement.
 - **Event-driven, zero-token supervision** - a bash watcher sleeps on the fleet and wakes the first mate only when something needs you; verified primary harnesses also get a turn-end backstop that blocks or follows up on a blind stop when work is under way and supervision is not live.
 - **Optional Relay** - opt in with one local `.env` pairing token so firstmate can answer your public mentions on X and Discord alike, act on normal reversible mention requests through the same lifecycle as chat requests, acknowledge spawned work, and post up to three public-safe completion follow-ups within seven days for genuine milestones and the final outcome without changing non-Relay behavior; a final reply promised in a thread becomes durable state that is reconciled from disk, so a restart or a compacted conversation cannot lose it; dry-run preview records would-be replies and dismissals locally before go-live.
-- **Beads-native Pi discipline** - the tracked Pi extension loads the current `bd ready --json` and `bd blocked --json` landscape into agent context, verifies assigned beads, records work activity, and follows up when a bead is abandoned or stale.
+- **Beads-native Pi discipline** - the tracked Pi extension scopes `bd show <id>` context to an assigned bead, verifies its claim, records work activity, and follows up when a bead is abandoned or stale.
 - **Graph-of-loops health** - `bin/fm-evolve-loop.sh` projects stalled and drifting loop findings into `watch-loop` Beads, which the normal fleet view renders from `bd blocked --json`.
 - **Strict project boundary** - the first mate is read-only over your projects except for the narrow guarded and captain-approved operations authorized by [hard rule 1](AGENTS.md#1-identity-and-prime-directives), including fleet sync's guarded safe branch pruning; crewmates make every other project change behind the configured merge authority.
 - **Restart-proof** - all state lives on disk and in the active session backend (tmux by hard default, herdr or cmux when selected or auto-detected, zellij/orca when explicitly selected); kill the session anytime and the next one reconciles, including confirmed-dead secondmate agents, and carries on.
@@ -168,7 +168,8 @@ Optional secondmates extend this to persistent local or whole-home remote second
 ## Beads and loop health
 
 Pi loads `.pi/extensions/beads-enforcement.ts` automatically in a trusted firstmate checkout.
-The extension refreshes ready and blocked Beads at session start and after compaction, and it checks a launch brief for an assigned bead ID.
+The extension checks a launch brief for an assigned bead ID and injects only that bead's `bd show <id> --json` state at session start, before the agent starts, and after compaction.
+It stays silent when no bead is assigned; fleet-wide `bd ready --json` and `bd blocked --json` views belong to the firstmate orchestrator and status surfaces, not worker context.
 For a worker launched with an explicit bead, set `FM_BEAD_ID` or point `FM_BRIEF_PATH` at the brief when the launch prompt itself does not carry the assignment.
 The extension persists per-bead activity in the private `state/.pi-beads-activity.json` file and warns when an in-progress claim has had no tool call for more than two hours.
 

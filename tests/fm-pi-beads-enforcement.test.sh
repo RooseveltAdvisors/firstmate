@@ -17,11 +17,9 @@ write_fake_bd() {
 set -u
 fixture=${BD_FIXTURE:?}
 case "${1:-}" in
-  ready)
-    cat "$fixture/ready.json"
-    ;;
-  blocked)
-    cat "$fixture/blocked.json"
+  ready|blocked)
+    printf 'unexpected fleet-wide bd call: %s\n' "$*" >&2
+    exit 2
     ;;
   show)
     [ -f "$fixture/show-$2.json" ] || exit 1
@@ -50,7 +48,7 @@ test_extension_enforces_assignment_and_reinjects_state() {
   write_fake_bd "$fakebin" "$fixture"
   out=$(PLUGIN="$repo/.pi/extensions/beads-enforcement.ts" \
     FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" FM_STATE_OVERRIDE="$home/state" \
-    BD_FIXTURE="$fixture" BEADS_ACTOR='Firstmate Tests' PATH="$fakebin:$PATH" \
+    FM_BEAD_ID=fm-work BD_FIXTURE="$fixture" BEADS_ACTOR='Firstmate Tests' PATH="$fakebin:$PATH" \
     node --input-type=module 2>&1 <<'EOF'
 import { pathToFileURL } from "node:url";
 
@@ -72,25 +70,29 @@ const pi = {
 const mod = await import(pathToFileURL(process.env.PLUGIN).href);
 mod.default(pi);
 await handlers.get("session_start")({ type: "session_start", reason: "startup" }, {});
+if (!compactMessage.includes("BEADS ASSIGNED BEAD") || compactMessage.includes("fm-blocked")) {
+  throw new Error("session_start did not inject only the assigned Bead state");
+}
 const before = await handlers.get("before_agent_start")({
   type: "before_agent_start",
   prompt: "Assigned bead: fm-work",
   systemPrompt: "BASE SYSTEM",
 }, {});
-if (!before.systemPrompt.includes('"fm-ready"')) throw new Error("ready queue was not injected");
-if (!before.systemPrompt.includes('"fm-blocked"')) throw new Error("blocked queue was not injected");
+if (before.systemPrompt.includes("fm-ready") || before.systemPrompt.includes("fm-blocked")) {
+  throw new Error("unrelated fleet Beads leaked into assigned context");
+}
 if (!before.systemPrompt.includes('"fm-work"')) throw new Error("assigned bead was not verified");
 await handlers.get("agent_settled")({ type: "agent_settled" }, {});
 if (!followUp.includes("assigned bead fm-work that was never claimed")) {
   throw new Error(`missing claim follow-up: ${followUp}`);
 }
 await handlers.get("session_compact")({ type: "session_compact" }, {});
-if (!compactMessage.includes("BEADS TASK LANDSCAPE")) throw new Error("compaction did not re-inject Beads state");
-if (!compactMessage.includes('"fm-blocked"')) throw new Error("compaction lost blocked state");
+if (!compactMessage.includes("BEADS ASSIGNED BEAD")) throw new Error("compaction did not re-inject assigned Bead state");
+if (compactMessage.includes("fm-blocked")) throw new Error("compaction injected unrelated fleet state");
 EOF
   )
   [ -z "$out" ] || fail "extension assignment test printed output: $out"
-  pass "Pi extension injects ready/blocked state, enforces an unclaimed bead, and re-injects after compaction"
+  pass "Pi extension injects only assigned Bead state, enforces an unclaimed bead, and re-injects after compaction"
 }
 
 test_extension_allows_work_and_dependency_blocked_beads() {
@@ -195,6 +197,39 @@ EOF
   )
   [ -z "$out" ] || fail "foreign/stale claim test printed output: $out"
   pass "Pi extension warns on a foreign claim and a persisted stale claim"
+}
+
+test_extension_stays_silent_without_assignment() {
+  local repo="$TMP_ROOT/pi-unassigned-repo" home="$TMP_ROOT/pi-unassigned-home" fixture="$TMP_ROOT/pi-unassigned-fixture" fakebin out
+  mkdir -p "$repo/.pi/extensions" "$home/state" "$fixture"
+  cp "$EXTENSION" "$repo/.pi/extensions/beads-enforcement.ts"
+  printf '{"type":"module"}\n' > "$repo/package.json"
+  git -C "$repo" init -q
+  fakebin=$(fm_fakebin "$TMP_ROOT/pi-unassigned-fakebin")
+  write_fake_bd "$fakebin" "$fixture"
+  out=$(PLUGIN="$repo/.pi/extensions/beads-enforcement.ts" \
+    FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" FM_STATE_OVERRIDE="$home/state" \
+    BD_FIXTURE="$fixture" BEADS_ACTOR='Firstmate Tests' PATH="$fakebin:$PATH" \
+    node --input-type=module 2>&1 <<'EOF'
+import { pathToFileURL } from "node:url";
+const handlers = new Map();
+let sent = false;
+const pi = {
+  on(name, handler) { handlers.set(name, handler); },
+  sendMessage() { sent = true; },
+  async sendUserMessage() { sent = true; },
+};
+const mod = await import(pathToFileURL(process.env.PLUGIN).href);
+mod.default(pi);
+await handlers.get("session_start")({ type: "session_start", reason: "startup" }, {});
+const before = await handlers.get("before_agent_start")({ type: "before_agent_start", prompt: "Review the repository", systemPrompt: "BASE" }, {});
+if (before !== undefined) throw new Error("unassigned session received Beads context");
+await handlers.get("session_compact")({ type: "session_compact" }, {});
+if (sent) throw new Error("unassigned session received a Beads message");
+EOF
+  )
+  [ -z "$out" ] || fail "unassigned extension test printed output: $out"
+  pass "Pi extension stays silent and makes no fleet-wide Beads query without an assignment"
 }
 
 write_loop_fake_bd() {
@@ -313,6 +348,7 @@ SH
 test_extension_enforces_assignment_and_reinjects_state
 test_extension_allows_work_and_dependency_blocked_beads
 test_extension_warns_on_foreign_and_stale_claims
+test_extension_stays_silent_without_assignment
 test_loop_wrapper_projects_and_updates_findings
 test_loop_wrapper_leaves_healthy_report_alone
 test_fleet_view_surfaces_blocked_beads

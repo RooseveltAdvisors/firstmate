@@ -43,19 +43,6 @@ type CommandResult = {
   stderr: string;
 };
 
-type BeadsSnapshot = {
-  ready: unknown;
-  blocked: unknown;
-  error?: string;
-  capturedAt: string;
-};
-
-const EMPTY_SNAPSHOT: BeadsSnapshot = {
-  ready: [],
-  blocked: [],
-  capturedAt: "",
-};
-
 let activities = loadActivities();
 
 function logError(message: string, error?: unknown): void {
@@ -196,42 +183,20 @@ function claimedByAnother(bead: Bead): string | undefined {
   return assignee;
 }
 
-function formatContext(snapshot: BeadsSnapshot, bead: Bead | undefined, warnings: string[]): string {
-  const ready = JSON.stringify(snapshot.ready, null, 2);
-  const blocked = JSON.stringify(snapshot.blocked, null, 2);
+function formatContext(id: string, bead: Bead | undefined, warnings: string[]): string {
   const assigned = bead
-    ? `Assigned bead state:\n${JSON.stringify(bead, null, 2)}`
-    : "Assigned bead state: none";
-  const error = snapshot.error ? `\nSnapshot error: ${snapshot.error}` : "";
+    ? JSON.stringify(bead, null, 2)
+    : `bd show ${id} --json returned no bead.`;
   const warningText = warnings.length > 0 ? `\nWarnings:\n- ${warnings.join("\n- ")}` : "";
   let content = [
-    "BEADS TASK LANDSCAPE (captured by Pi Beads enforcement)",
-    `Captured at: ${snapshot.capturedAt || nowIso()}`,
-    "Ready work:",
-    ready,
-    "Blocked work:",
-    blocked,
+    `BEADS ASSIGNED BEAD (bd show ${id} --json)`,
     assigned,
-    `${error}${warningText}`,
+    warningText,
   ].join("\n\n");
   if (Buffer.byteLength(content, "utf8") > maxContextBytes) {
     content = `${Buffer.from(content, "utf8").slice(0, maxContextBytes).toString("utf8")}\n[Beads context truncated at ${maxContextBytes} bytes.]`;
   }
   return content;
-}
-
-async function captureSnapshot(): Promise<BeadsSnapshot> {
-  const ready = await runBdJson(["ready", "--json"], "bd ready --json");
-  const blocked = await runBdJson(["blocked", "--json"], "bd blocked --json");
-  const errors: string[] = [];
-  if (ready === undefined) errors.push("bd ready --json unavailable");
-  if (blocked === undefined) errors.push("bd blocked --json unavailable");
-  return {
-    ready: ready ?? [],
-    blocked: blocked ?? [],
-    error: errors.length > 0 ? errors.join("; ") : undefined,
-    capturedAt: nowIso(),
-  };
 }
 
 async function showBead(id: string): Promise<Bead | undefined> {
@@ -277,8 +242,6 @@ export default function (pi: ExtensionAPI) {
     return;
   }
 
-  let snapshotPromise: Promise<BeadsSnapshot> | undefined;
-  let snapshot: BeadsSnapshot = EMPTY_SNAPSHOT;
   let assignedBeadId: string | undefined;
   let assignedBead: Bead | undefined;
   let assignmentWarnings: string[] = [];
@@ -304,6 +267,23 @@ export default function (pi: ExtensionAPI) {
     if (stale) assignmentWarnings.push(stale);
   };
 
+  const injectAssignedContext = (): void => {
+    if (!assignedBeadId) return;
+    try {
+      pi.sendMessage(
+        {
+          customType: "beads-enforcement",
+          content: formatContext(assignedBeadId, assignedBead, assignmentWarnings),
+          display: false,
+          details: { schema: "pi-beads-enforcement.v1", beadId: assignedBeadId, source: "session_start" },
+        },
+        { deliverAs: "nextTurn" },
+      );
+    } catch (error) {
+      logError(`could not inject scoped Beads state for ${assignedBeadId} at session start`, error);
+    }
+  };
+
   const findEnvironmentAssignment = (): string | undefined => {
     const brief = readBriefFromEnvironment();
     if (!brief) return undefined;
@@ -317,16 +297,14 @@ export default function (pi: ExtensionAPI) {
   };
 
   pi.on("session_start", async () => {
-    snapshotPromise = captureSnapshot();
-    snapshot = await snapshotPromise;
     const environmentAssignment = findEnvironmentAssignment();
-    if (environmentAssignment) await verifyAssignment(environmentAssignment);
+    if (environmentAssignment) {
+      await verifyAssignment(environmentAssignment);
+      injectAssignedContext();
+    }
   });
 
   pi.on("before_agent_start", async (event) => {
-    if (snapshotPromise) await snapshotPromise;
-    snapshot = await captureSnapshot();
-
     const prompt = String(event.prompt || "");
     const promptAssignment = assignedIdIn(prompt);
     if (promptAssignment && promptAssignment !== assignedBeadId) {
@@ -334,7 +312,8 @@ export default function (pi: ExtensionAPI) {
       await verifyAssignment(promptAssignment);
     } else if (assignedBeadId && promptAssignment === assignedBeadId) await verifyAssignment(assignedBeadId);
 
-    const context = formatContext(snapshot, assignedBead, assignmentWarnings);
+    if (!assignedBeadId) return undefined;
+    const context = formatContext(assignedBeadId, assignedBead, assignmentWarnings);
     return { systemPrompt: `${event.systemPrompt}\n\n${context}` };
   });
 
@@ -348,15 +327,15 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("session_compact", async () => {
-    snapshot = await captureSnapshot();
-    if (assignedBeadId) await verifyAssignment(assignedBeadId);
-    const content = formatContext(snapshot, assignedBead, assignmentWarnings);
+    if (!assignedBeadId) return;
+    await verifyAssignment(assignedBeadId);
+    const content = formatContext(assignedBeadId, assignedBead, assignmentWarnings);
     try {
       pi.sendMessage({
         customType: "beads-enforcement",
         content,
         display: false,
-        details: { schema: "pi-beads-enforcement.v1", capturedAt: snapshot.capturedAt },
+        details: { schema: "pi-beads-enforcement.v1", beadId: assignedBeadId },
       });
     } catch (error) {
       logError("could not re-inject Beads state after compaction", error);
