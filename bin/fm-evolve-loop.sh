@@ -126,20 +126,27 @@ while IFS= read -r loop; do
     *) continue ;;
   esac
 
-  loop_id=$(printf '%s\n' "$loop" | jq -r '.id // .loop_id // .key // .name // ""')
-  [ -n "$loop_id" ] || {
+  loop_id=$(printf '%s\n' "$loop" | jq -r '.id // ""')
+  loop_name=$(printf '%s\n' "$loop" | jq -r '.name // ""')
+  loop_key=$(printf '%s\n' "$loop" | jq -r '.key // ""')
+  canonical_id="${loop_id:-${loop_name:-${loop_key}}}"
+  [ -n "$canonical_id" ] || {
     echo "fm-evolve-loop: unhealthy loop has no id, loop_id, key, or name" >&2
     exit 1
   }
   name=$(printf '%s\n' "$loop" | jq -r '.name // .title // .id // .loop_id // .key')
   finding=$(printf '%s\n' "$loop" | jq -c 'if .finding != null then .finding elif .summary != null then .summary elif .reason != null then .reason elif .details != null then .details else . end')
   title="Loop health: $name ($status)"
-  description=$(printf 'Graph-of-loops pass found a %s loop.\n\nLoop: %s\nFinding: %s\n' "$status" "$loop_id" "$finding")
-  metadata=$(jq -cn --arg loop_id "$loop_id" --arg loop_status "$status" \
+  description=$(printf 'Graph-of-loops pass found a %s loop.\n\nLoop: %s\nFinding: %s\n' "$status" "$canonical_id" "$finding")
+  metadata=$(jq -cn --arg loop_id "$loop_id" --arg loop_name "$loop_name" --arg loop_key "$loop_key" --arg loop_status "$status" \
     --arg observed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    '{loop_id:$loop_id,loop_status:$loop_status,watch_loop_role:"finding",observed_at:$observed_at}')
-  bead_id=$(printf '%s\n' "$watch_loops" | jq -r --arg loop_id "$loop_id" '
-    .[] | select((.metadata.loop_id // "") == $loop_id) | .id
+    '{loop_id:$loop_id,loop_name:$loop_name,loop_key:$loop_key,loop_status:$loop_status,watch_loop_role:"finding",observed_at:$observed_at}')
+  bead_id=$(printf '%s\n' "$watch_loops" | jq -r --arg id "$loop_id" --arg name "$loop_name" --arg key "$loop_key" '
+    .[] | select(
+      ((.metadata.loop_id // "") != "" and (.metadata.loop_id // "") == $id) or
+      ((.metadata.loop_name // "") != "" and (.metadata.loop_name // "") == $name) or
+      ((.metadata.loop_key // "") != "" and (.metadata.loop_key // "") == $key)
+    ) | .id
   ' | head -n 1)
 
   if [ -z "$bead_id" ]; then
@@ -159,10 +166,12 @@ while IFS= read -r loop; do
     fi
     bd_run update "$bead_id" --title "$title" --description "$description" \
       --add-label watch-loop --set-metadata "loop_id=$loop_id" \
+      --set-metadata "loop_name=$loop_name" \
+      --set-metadata "loop_key=$loop_key" \
       --set-metadata "loop_status=$status" \
       --set-metadata "watch_loop_role=finding" \
       --set-metadata "observed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >/dev/null || {
-      echo "fm-evolve-loop: could not update bead $bead_id for loop $loop_id" >&2
+      echo "fm-evolve-loop: could not update bead $bead_id for loop $canonical_id" >&2
       exit 1
     }
   fi

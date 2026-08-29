@@ -188,7 +188,7 @@ const before = await handlers.get("before_agent_start")({ type: "before_agent_st
 if (!before.systemPrompt.includes("already claimed by another agent: Other Agent")) {
   throw new Error(`foreign claim warning missing: ${before.systemPrompt}`);
 }
-if (!before.systemPrompt.includes("more than 2 hours without a tool call")) {
+if (!before.systemPrompt.includes("without a tool call (last tool call:")) {
   throw new Error(`stale claim warning missing: ${before.systemPrompt}`);
 }
 EOF
@@ -198,7 +198,7 @@ EOF
 }
 
 write_loop_fake_bd() {
-  local fakebin=$1 log=$3
+  local fakebin=$1
   cat > "$fakebin/bd" <<'SH'
 #!/usr/bin/env bash
 set -u
