@@ -88,36 +88,33 @@ bd_run() {
 }
 
 unhealthy_count=$(jq '[.loops[] | select((.status // "" | ascii_downcase) == "stalled" or (.status // "" | ascii_downcase) == "drifting")] | length' "$TMP_REPORT")
-if [ "$unhealthy_count" -eq 0 ]; then
-  printf 'fm-evolve-loop: no stalled or drifting loops; healthy loops required no action\n'
-  exit 0
-fi
 
 watch_loops=$(bd_run list --label watch-loop --all --limit 0 --json 2>/dev/null) || {
   echo "fm-evolve-loop: could not list existing watch-loop beads" >&2
   exit 1
 }
 
-sentinel=$(printf '%s\n' "$watch_loops" | jq -r '
-  .[] | select((.metadata.watch_loop_role // "") == "review-sentinel") | .id
-' | head -n 1)
-if [ -z "$sentinel" ]; then
-  sentinel=$(bd_run create --silent \
-    --title "Loop health findings require review" \
-    --description "Open review sentinel for stalled or drifting graph-of-loops findings." \
-    --labels watch-loop \
-    --metadata '{"watch_loop_role":"review-sentinel"}') || {
-    echo "fm-evolve-loop: could not create the watch-loop review sentinel" >&2
-    exit 1
-  }
-  watch_loops=$(bd_run list --label watch-loop --all --limit 0 --json 2>/dev/null) || {
-    echo "fm-evolve-loop: could not refresh existing watch-loop beads" >&2
-    exit 1
-  }
-fi
-
 projected=0
-while IFS= read -r loop; do
+if [ "$unhealthy_count" -gt 0 ]; then
+  sentinel=$(printf '%s\n' "$watch_loops" | jq -r '
+    .[] | select((.metadata.watch_loop_role // "") == "review-sentinel") | .id
+  ' | head -n 1)
+  if [ -z "$sentinel" ]; then
+    sentinel=$(bd_run create --silent \
+      --title "Loop health findings require review" \
+      --description "Open review sentinel for stalled or drifting graph-of-loops findings." \
+      --labels watch-loop \
+      --metadata '{"watch_loop_role":"review-sentinel"}') || {
+      echo "fm-evolve-loop: could not create the watch-loop review sentinel" >&2
+      exit 1
+    }
+    watch_loops=$(bd_run list --label watch-loop --all --limit 0 --json 2>/dev/null) || {
+      echo "fm-evolve-loop: could not refresh existing watch-loop beads" >&2
+      exit 1
+    }
+  fi
+
+  while IFS= read -r loop; do
   [ -n "$loop" ] || continue
   status=$(printf '%s\n' "$loop" | jq -r '.status // ""' | tr '[:upper:]' '[:lower:]')
   case "$status" in
@@ -152,7 +149,7 @@ while IFS= read -r loop; do
   if [ -z "$bead_id" ]; then
     bead_id=$(bd_run create --silent --title "$title" --description "$description" \
       --labels watch-loop --metadata "$metadata") || {
-      echo "fm-evolve-loop: could not create a bead for loop $loop_id" >&2
+      echo "fm-evolve-loop: could not create a bead for loop $canonical_id" >&2
       exit 1
     }
   else
@@ -160,7 +157,7 @@ while IFS= read -r loop; do
       '.[] | select(.id == $bead_id) | .status // ""')
     if [ "$existing_status" = closed ]; then
       bd_run reopen "$bead_id" >/dev/null || {
-        echo "fm-evolve-loop: could not reopen bead $bead_id for loop $loop_id" >&2
+        echo "fm-evolve-loop: could not reopen bead $bead_id for loop $canonical_id" >&2
         exit 1
       }
     fi
@@ -189,10 +186,37 @@ while IFS= read -r loop; do
   fi
   projected=$((projected + 1))
   watch_loops=$(bd_run list --label watch-loop --all --limit 0 --json 2>/dev/null) || {
-    echo "fm-evolve-loop: could not refresh watch-loop beads after loop $loop_id" >&2
+    echo "fm-evolve-loop: could not refresh watch-loop beads after loop $canonical_id" >&2
     exit 1
   }
-  printf 'watch-loop: %s -> %s (%s)\n' "$loop_id" "$bead_id" "$status"
+  printf 'watch-loop: %s -> %s (%s)\n' "$canonical_id" "$bead_id" "$status"
 done < <(jq -c '.loops[]' "$TMP_REPORT")
+fi
 
-printf 'fm-evolve-loop: projected %s unhealthy loop(s); healthy loops required no action\n' "$projected"
+# Reconcile recovered loops: close any open watch-loop finding beads whose loop
+# is now healthy (converging or absent) so a captain sees only current findings.
+reconciled=0
+while IFS= read -r finding_bead; do
+  [ -n "$finding_bead" ] || continue
+  finding_loop_id=$(printf '%s\n' "$finding_bead" | jq -r '.metadata.loop_id // ""')
+  finding_loop_name=$(printf '%s\n' "$finding_bead" | jq -r '.metadata.loop_name // ""')
+  finding_loop_key=$(printf '%s\n' "$finding_bead" | jq -r '.metadata.loop_key // ""')
+  finding_bead_id=$(printf '%s\n' "$finding_bead" | jq -r '.id // ""')
+  finding_status=$(printf '%s\n' "$finding_bead" | jq -r '.status // ""')
+  [ "$finding_status" = "closed" ] && continue
+
+  still_unhealthy=$(jq --arg id "$finding_loop_id" --arg name "$finding_loop_name" --arg key "$finding_loop_key" '
+    [.loops[] | select(
+      ((.id // "") == $id and $id != "") or
+      ((.name // "") == $name and $name != "") or
+      ((.key // "") == $key and $key != "")
+    ) | select((.status // "" | ascii_downcase) == "stalled" or (.status // "" | ascii_downcase) == "drifting")] | length
+  ' "$TMP_REPORT")
+  if [ "$still_unhealthy" -eq 0 ]; then
+    bd_run close "$finding_bead_id" >/dev/null 2>&1 || true
+    reconciled=$((reconciled + 1))
+    printf 'watch-loop: recovered %s -> close %s\n' "$finding_bead_id" "$finding_bead_id"
+  fi
+done < <(printf '%s\n' "$watch_loops" | jq -c '.[] | select((.metadata.watch_loop_role // "") == "finding")')
+
+printf 'fm-evolve-loop: projected %s unhealthy loop(s), reconciled %s recovered finding(s); healthy loops required no action\n' "$projected" "$reconciled"

@@ -272,6 +272,11 @@ function resetWorkCounters(): { commandsRan: boolean; filesEdited: boolean } {
 }
 
 export default function (pi: ExtensionAPI) {
+  const consent = process.env.FM_BEADS_ENFORCEMENT;
+  if (consent === "0" || consent === "false" || consent === "no") {
+    return;
+  }
+
   let snapshotPromise: Promise<BeadsSnapshot> | undefined;
   let snapshot: BeadsSnapshot = EMPTY_SNAPSHOT;
   let assignedBeadId: string | undefined;
@@ -327,8 +332,7 @@ export default function (pi: ExtensionAPI) {
     if (promptAssignment && promptAssignment !== assignedBeadId) {
       work = resetWorkCounters();
       await verifyAssignment(promptAssignment);
-    }
-    if (assignedBeadId && promptAssignment === assignedBeadId) await verifyAssignment(assignedBeadId);
+    } else if (assignedBeadId && promptAssignment === assignedBeadId) await verifyAssignment(assignedBeadId);
 
     const context = formatContext(snapshot, assignedBead, assignmentWarnings);
     return { systemPrompt: `${event.systemPrompt}\n\n${context}` };
