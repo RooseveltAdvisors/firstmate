@@ -1,0 +1,50 @@
+=== ARTIFACT 1: Scoped context injection (only assigned bead, no fleet-wide leakage) ===
+=== SESSION START CONTEXT (first 600 chars) ===
+BEADS ASSIGNED BEAD (bd show fm-work --json)
+
+{
+  "id": "fm-work",
+  "title": "Implement Beads enforcement",
+  "status": "open",
+  "labels": [],
+  "dependency_count": 0
+}
+
+
+PASS: Only assigned bead (fm-work) present, no fleet-wide leakage
+
+=== BEFORE_AGENT_START SYSTEM PROMPT (first 500 chars) ===
+BASE SYSTEM PROMPT
+
+BEADS ASSIGNED BEAD (bd show fm-work --json)
+
+{
+  "id": "fm-work",
+  "title": "Implement Beads enforcement",
+  "status": "open",
+  "labels": [],
+  "dependency_count": 0
+}
+
+
+PASS: System prompt contains only assigned bead, not fleet-wide
+
+=== AGENT_SETTLED FOLLOW-UP ===
+Beads enforcement follow-up:
+
+You have an assigned bead fm-work that was never claimed. Claim it with `bd update fm-work --claim` or explain why it cannot proceed.
+PASS: Unclaimed bead enforcement triggered correctly
+
+=== COMPACTION RE-INJECTION (first 300 chars) ===
+BEADS ASSIGNED BEAD (bd show fm-work --json)
+
+{
+  "id": "fm-work",
+  "title": "Implement Beads enforcement",
+  "status": "open",
+  "labels": [],
+  "dependency_count": 0
+}
+
+
+PASS: Compaction re-injects only assigned bead state

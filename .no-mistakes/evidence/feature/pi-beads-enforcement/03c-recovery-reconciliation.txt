@@ -1,0 +1,25 @@
+
+=== ARTIFACT 3c: Evolve loop - recovery reconciliation (healthy loops close findings) ===
+watch-loop: recovered loop-alpha -> close fm-loop-alpha
+fm-evolve-loop: projected 0 unhealthy loop(s), reconciled 1 recovered finding(s); healthy loops required no action
+
+=== BD LOG (final) ===
+list --label watch-loop --all --limit 0 --json
+create --silent --title Loop health findings require review --description Open review sentinel for stalled or drifting graph-of-loops findings. --labels watch-loop --metadata {"watch_loop_role":"review-sentinel"}
+list --label watch-loop --all --limit 0 --json
+create --silent --title Loop health: Alpha (stalled) --description Graph-of-loops pass found a stalled loop.
+
+Loop: loop-alpha
+Finding: "queue stopped" --labels watch-loop --metadata {"loop_id":"loop-alpha","loop_name":"Alpha","loop_key":"","loop_status":"stalled","watch_loop_role":"finding","observed_at":"2026-08-29T21:16:41Z"}
+dep list fm-loop-alpha --json
+dep fm-sentinel --blocks fm-loop-alpha
+list --label watch-loop --all --limit 0 --json
+list --label watch-loop --all --limit 0 --json
+update fm-loop-alpha --title Loop health: Alpha (drifting) --description Graph-of-loops pass found a drifting loop.
+
+Loop: loop-alpha
+Finding: "state diverged" --add-label watch-loop --set-metadata loop_id=loop-alpha --set-metadata loop_name=Alpha --set-metadata loop_key= --set-metadata loop_status=drifting --set-metadata watch_loop_role=finding --set-metadata observed_at=2026-08-29T21:16:41Z
+dep list fm-loop-alpha --json
+list --label watch-loop --all --limit 0 --json
+list --label watch-loop --all --limit 0 --json
+close fm-loop-alpha

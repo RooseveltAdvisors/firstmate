@@ -1,0 +1,27 @@
+=== ARTIFACT 2: Stale & foreign claim warnings + activity persistence ===
+=== SYSTEM PROMPT WARNINGS ===
+BASE
+
+BEADS ASSIGNED BEAD (bd show fm-claim --json)
+
+{
+  "id": "fm-claim",
+  "status": "in_progress",
+  "assignee": "Other Agent",
+  "dependency_count": 0,
+  "labels": []
+}
+
+
+Warnings:
+- Assigned bead fm-claim is already claimed by another agent: Other Agent.
+- Bead fm-claim has been in_progress for more than 0 minute(s) without a tool call (last tool call: 2020-01-01T00:00:00.000Z).
+PASS: Foreign claim warning present
+PASS: Stale claim warning present
+
+=== PERSISTED ACTIVITY ===
+{
+  "lastActivityAt": "2026-08-29T21:16:16.044Z",
+  "lastToolCallAt": "2026-08-29T21:16:16.044Z"
+}
+PASS: Activity persisted with updated timestamp

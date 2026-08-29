@@ -1,0 +1,12 @@
+=== ARTIFACT 5: No-work detection and blocker-aware enforcement ===
+--- Test A: in_progress bead with no work performed ---
+FOLLOW-UP: Beads enforcement follow-up:
+
+Your bead fm-work is in_progress but no work was performed. Either make progress, mark it blocked with `bd update fm-work --add-label blocked`, or close it.
+PASS: No-work warning triggered for in_progress bead without work
+
+--- Test B: in_progress bead with work performed ---
+PASS: No false no-work warning when work was actually performed
+
+--- Test C: blocked in_progress bead with no work ---
+PASS: Blocked bead correctly suppressed no-work warning

@@ -1,0 +1,44 @@
+=== ARTIFACT 4: Fleet view surfaces blocked beads ===
+# Fleet View
+
+Schema: fm-fleet-snapshot.v1
+Home: /tmp/beads-evidence4.cyxj0C
+
+## Under Way
+No live task metadata found.
+
+## Blocked Beads
+| ID | Title | Labels | Blocked By |
+| --- | --- | --- | --- |
+| fm-loop-alpha | Loop health: Alpha | watch-loop | fm-sentinel |
+| fm-loop-beta | Loop health: Beta | watch-loop | fm-sentinel |
+
+## Queued
+No queued backlog records found.
+
+## Done
+No done backlog records found.
+
+## Secondmates
+For kind=secondmate, bearings selects validated structured state from that registered home; parent events and bounded terminal evidence are fallback-only supplements and never current-state authority.
+
+=== ARTIFACT 4b: Fleet view - unexpected bd output shape ===
+# Fleet View
+
+Schema: fm-fleet-snapshot.v1
+Home: /tmp/beads-evidence4.cyxj0C
+
+## Under Way
+No live task metadata found.
+
+## Blocked Beads
+Unavailable: bd blocked --json returned unexpected output (not a JSON array).
+
+## Queued
+No queued backlog records found.
+
+## Done
+No done backlog records found.
+
+## Secondmates
+For kind=secondmate, bearings selects validated structured state from that registered home; parent events and bounded terminal evidence are fallback-only supplements and never current-state authority.
