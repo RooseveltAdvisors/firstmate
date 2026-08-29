@@ -215,7 +215,7 @@ function formatContext(snapshot: BeadsSnapshot, bead: Bead | undefined, warnings
     `${error}${warningText}`,
   ].join("\n\n");
   if (Buffer.byteLength(content, "utf8") > maxContextBytes) {
-    content = `${content.slice(0, maxContextBytes)}\n[Beads context truncated at ${maxContextBytes} bytes.]`;
+    content = `${Buffer.from(content, "utf8").slice(0, maxContextBytes).toString("utf8")}\n[Beads context truncated at ${maxContextBytes} bytes.]`;
   }
   return content;
 }
@@ -262,7 +262,9 @@ function staleWarning(id: string, bead: Bead): string | undefined {
   if (!activity?.lastToolCallAt) return undefined;
   const lastToolCall = Date.parse(activity.lastToolCallAt);
   if (!Number.isFinite(lastToolCall) || Date.now() - lastToolCall <= staleAfterMs) return undefined;
-  return `Bead ${id} has been in_progress for more than 2 hours without a tool call (last tool call: ${activity.lastToolCallAt}).`;
+  const staleMinutes = staleAfterMs / (60 * 1000);
+  const durationText = staleMinutes >= 60 ? `more than ${Math.round(staleMinutes / 60)} hour(s)` : `more than ${Math.round(staleMinutes)} minute(s)`;
+  return `Bead ${id} has been in_progress for ${durationText} without a tool call (last tool call: ${activity.lastToolCallAt}).`;
 }
 
 function resetWorkCounters(): { commandsRan: boolean; filesEdited: boolean } {
@@ -270,6 +272,11 @@ function resetWorkCounters(): { commandsRan: boolean; filesEdited: boolean } {
 }
 
 export default function (pi: ExtensionAPI) {
+  const consent = process.env.FM_BEADS_ENFORCEMENT;
+  if (consent === "0" || consent === "false" || consent === "no") {
+    return;
+  }
+
   let snapshotPromise: Promise<BeadsSnapshot> | undefined;
   let snapshot: BeadsSnapshot = EMPTY_SNAPSHOT;
   let assignedBeadId: string | undefined;
@@ -325,8 +332,7 @@ export default function (pi: ExtensionAPI) {
     if (promptAssignment && promptAssignment !== assignedBeadId) {
       work = resetWorkCounters();
       await verifyAssignment(promptAssignment);
-    }
-    if (assignedBeadId && promptAssignment === assignedBeadId) await verifyAssignment(assignedBeadId);
+    } else if (assignedBeadId && promptAssignment === assignedBeadId) await verifyAssignment(assignedBeadId);
 
     const context = formatContext(snapshot, assignedBead, assignmentWarnings);
     return { systemPrompt: `${event.systemPrompt}\n\n${context}` };
