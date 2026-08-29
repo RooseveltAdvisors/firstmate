@@ -3,7 +3,7 @@
 #
 # The evolve pass is the graph evaluator and owns its report schema.
 # This wrapper consumes a JSON report whose top-level `loops` array contains
-# loop records with `id` or `name`, `status`, and an optional finding or summary.
+# loop records with `id`, `name`, or `key`, `status`, and an optional finding, summary, reason, or details.
 # Statuses `stalled` and `drifting` create or update one `watch-loop` bead.
 # Status `converging` is healthy and creates no bead.
 # Each unhealthy bead depends on one open `watch-loop` review sentinel so the
