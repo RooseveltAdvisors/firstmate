@@ -1,0 +1,2 @@
+fm-evolve-loop: evolve pass is not executable: /home/jon/.no-mistakes/worktrees/46339c0817e0/01M179X0M3XG1BWXZ2C08Z56KN/bin/fm-evolve-pass.sh
+EXIT: 1
