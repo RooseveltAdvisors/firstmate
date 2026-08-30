@@ -1,0 +1,3 @@
+ok - fm_backend_herdr_cli: sets HERDR_SESSION AND appends a trailing --session flag on every call
+ok - fm_backend_herdr_server_ensure: strips color and identity variables, normalizes dumb TERM, and preserves unrelated environment
+ok - fm_backend_herdr_server_ensure: preserves a real TERM value
