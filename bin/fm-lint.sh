@@ -186,16 +186,36 @@ fm_lint_run_backend_purity() {
         }
         if (segment == previous) break
       }
-      command_word=segment
-      quote=substr(command_word, 1, 1)
-      if (quote == "\"" || quote == sprintf("%c", 39)) {
-        command_word=substr(command_word, 2)
-        ending=index(command_word, quote)
-        if (!ending) return 0
-        command_word=substr(command_word, 1, ending - 1)
-      } else {
-        sub(/[[:space:]].*$/, "", command_word)
+      command_word=""
+      quote=""
+      for (position=1; position <= length(segment); position++) {
+        character=substr(segment, position, 1)
+        if (quote == "") {
+          if (character ~ /[[:space:]]/) break
+          if (character == "\"" || character == sprintf("%c", 39)) {
+            quote=character
+            continue
+          }
+          if (character == "\\") {
+            position++
+            if (position > length(segment)) return 0
+            character=substr(segment, position, 1)
+          }
+          command_word=command_word character
+          continue
+        }
+        if (character == quote) {
+          quote=""
+          continue
+        }
+        if (quote == "\"" && character == "\\") {
+          position++
+          if (position > length(segment)) return 0
+          character=substr(segment, position, 1)
+        }
+        command_word=command_word character
       }
+      if (quote != "") return 0
       return command_word ~ /(^|\/)bd$/
     }
     /^[[:space:]]*#/ { next }
