@@ -186,7 +186,17 @@ fm_lint_run_backend_purity() {
         }
         if (segment == previous) break
       }
-      return segment ~ /^([^[:space:]]*\/)?bd([[:space:]]|$)/
+      command_word=segment
+      quote=substr(command_word, 1, 1)
+      if (quote == "\"" || quote == sprintf("%c", 39)) {
+        command_word=substr(command_word, 2)
+        ending=index(command_word, quote)
+        if (!ending) return 0
+        command_word=substr(command_word, 1, ending - 1)
+      } else {
+        sub(/[[:space:]].*$/, "", command_word)
+      }
+      return command_word ~ /(^|\/)bd$/
     }
     /^[[:space:]]*#/ { next }
     {
