@@ -172,7 +172,7 @@ fm_backlog_data_relative() {  # <data-dir>
 }
 
 fm_backlog_markdown_file() {  # <data-dir>
-  local data root config configured= candidate
+  local data root config configured='' candidate
   data=$(fm_backlog_data_absolute "$1") || return 1
   root=$(fm_backlog_root "$data") || return 1
   config="$root/.tasks.toml"
