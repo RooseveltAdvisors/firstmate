@@ -209,8 +209,16 @@ fm_backlog_row_probe() {  # <data-dir> <id>
     FM_BACKLOG_ROW_ERROR=$FM_BACKLOG_TRANSITION_ERROR
     return 1
   fi
+  # --file is a markdown-backend flag; non-markdown backends (e.g. beads)
+  # reject it, so omit it unless the configured backend expects a file.
+  local file_flag=()
+  if grep -Eq '^[[:space:]]*backend[[:space:]]*=[[:space:]]*"?(markdown|manual)"?' \
+      "${data}/../.tasks.toml" 2>/dev/null \
+      || [ ! -f "${data}/../.tasks.toml" ]; then
+    file_flag=(--file "$file")
+  fi
   out=$(cd "$(fm_backlog_root "$data")" 2>/dev/null && tasks-axi show "$id" \
-      --file "$file" 2>&1)
+      "${file_flag[@]}" 2>&1)
   command_status=$?
   if [ "$command_status" -ne 0 ]; then
     if printf '%s\n' "$out" | grep -q '^code: NOT_FOUND$'; then
@@ -246,8 +254,16 @@ fm_backlog_mutate() {  # <data-dir> <verb> <id> [flag...]
   FM_BACKLOG_TRANSITION_ERROR=
   file=$(fm_backlog_file "$data") || return 1
   fm_backlog_record_present "$file" "backlog file" "$authorized_data" || return 1
+  # --file is a markdown-backend flag; non-markdown backends (e.g. beads)
+  # reject it, so omit it unless the configured backend expects a file.
+  local file_flag=()
+  if grep -Eq '^[[:space:]]*backend[[:space:]]*=[[:space:]]*"?(markdown|manual)"?' \
+      "${data}/../.tasks.toml" 2>/dev/null \
+      || [ ! -f "${data}/../.tasks.toml" ]; then
+    file_flag=(--file "$file")
+  fi
   out=$(cd "$(fm_backlog_root "$data")" 2>/dev/null && tasks-axi "$verb" "$id" \
-      --file "$file" "$@" 2>&1)
+      "${file_flag[@]}" "$@" 2>&1)
   command_status=$?
   [ "$command_status" -ne 0 ] || return 0
   FM_BACKLOG_TRANSITION_ERROR=$(printf '%s\n' "$out" | sed -n '1p')
