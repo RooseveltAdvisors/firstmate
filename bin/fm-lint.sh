@@ -129,13 +129,32 @@ fm_lint_run_backend_purity() {
   local findings
   [ "$EXPLICIT_PATHS" -eq 0 ] || return 0
   findings=$(LC_ALL=C awk '
+    function invokes_bd(segment) {
+      sub(/^[[:space:]]+/, "", segment)
+      while (1) {
+        previous=segment
+        sub(/^(if|then|elif|while|until)[[:space:]]+/, "", segment)
+        sub(/^![[:space:]]+/, "", segment)
+        sub(/^(command|exec)[[:space:]]+/, "", segment)
+        sub(/^[[:alpha:]_][[:alnum:]_]*=[^[:space:]]+[[:space:]]+/, "", segment)
+        if (segment ~ /^env[[:space:]]+/) {
+          sub(/^env[[:space:]]+/, "", segment)
+          while (segment ~ /^-[^[:space:]]+[[:space:]]+/) {
+            sub(/^-[^[:space:]]+[[:space:]]+/, "", segment)
+          }
+        }
+        if (segment == previous) break
+      }
+      return segment ~ /^bd([[:space:]]|$)/
+    }
     /^[[:space:]]*#/ { next }
     {
-      line=$0
-      sub(/^[[:space:]]+/, "", line)
-      if (line ~ /^(if[[:space:]]+|then[[:space:]]+|elif[[:space:]]+|while[[:space:]]+|until[[:space:]]+|![[:space:]]+|command[[:space:]]+|exec[[:space:]]+)*bd[[:space:]]/ ||
-          line ~ /[();|&][[:space:]]*(command[[:space:]]+|exec[[:space:]]+)?bd[[:space:]]/) {
-        print FILENAME ":" FNR ": direct Beads CLI invocation bypasses tasks-axi"
+      count=split($0, segments, /[();|&]+/)
+      for (i=1; i<=count; i++) {
+        if (invokes_bd(segments[i])) {
+          print FILENAME ":" FNR ": direct Beads CLI invocation bypasses tasks-axi"
+          break
+        }
       }
     }
   ' bin/*.sh bin/backends/*.sh)

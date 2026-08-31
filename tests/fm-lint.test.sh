@@ -724,7 +724,7 @@ SH
 }
 
 test_rejects_direct_beads_cli_invocations() {
-  local tmp fakebin log lint_copy out rc=0
+  local tmp fakebin log lint_copy invocation out rc
   tmp=$(fm_test_tmproot fm-lint-backend-purity)
   fakebin=$(fm_fakebin "$tmp")
   log="$tmp/shellcheck.log"
@@ -734,10 +734,6 @@ test_rejects_direct_beads_cli_invocations() {
   cat > "$tmp/repo/bin/fm-lint-workflows.sh" <<'SH'
 #!/usr/bin/env bash
 exit 0
-SH
-  cat > "$tmp/repo/bin/direct-beads.sh" <<'SH'
-#!/usr/bin/env bash
-bd update fm-example --status in_progress
 SH
   cat > "$tmp/repo/bin/backends/noop.sh" <<'SH'
 #!/usr/bin/env bash
@@ -750,10 +746,19 @@ SH
   chmod +x "$lint_copy" "$tmp/repo/bin/fm-lint-workflows.sh"
   fm_lint_stub_shellcheck "$fakebin" "$log"
 
-  out=$(cd "$tmp/repo" && CI=true PATH="$fakebin:$PATH" "$lint_copy" 2>&1) || rc=$?
-  [ "$rc" -ne 0 ] || fail "lint accepted a direct Beads CLI invocation"
-  assert_contains "$out" "direct Beads CLI invocation bypasses tasks-axi" \
-    "lint did not identify the backend-boundary violation"
+  for invocation in \
+    'bd update fm-example --status in_progress' \
+    'BD_ACTOR=firstmate bd update fm-example --status closed' \
+    'env bd close fm-example' \
+    'env -i BD_ACTOR=firstmate bd close fm-example'
+  do
+    printf '#!/usr/bin/env bash\n%s\n' "$invocation" > "$tmp/repo/bin/direct-beads.sh"
+    rc=0
+    out=$(cd "$tmp/repo" && CI=true PATH="$fakebin:$PATH" "$lint_copy" 2>&1) || rc=$?
+    [ "$rc" -ne 0 ] || fail "lint accepted a direct Beads CLI invocation: $invocation"
+    assert_contains "$out" "direct Beads CLI invocation bypasses tasks-axi" \
+      "lint did not identify the backend-boundary violation: $invocation"
+  done
   pass "fm-lint.sh rejects direct Beads CLI invocations in firstmate core"
 }
 
