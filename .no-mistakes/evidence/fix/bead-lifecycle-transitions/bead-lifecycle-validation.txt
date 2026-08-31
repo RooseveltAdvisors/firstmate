@@ -1,0 +1,8 @@
+ok - a home with no backlog remains exempt from lifecycle transitions
+ok - configured Beads dispatch and completion transition structurally with evidence
+ok - refused teardown leaves the configured bead in progress
+ok - a manual-backlog home dispatches and completes without a hard failure
+ok - a secondmate home keeps its own books paired through dispatch and completion
+ok - dispatching a persistent secondmate needs no backlog item
+ok - fm-lint.sh rejects direct Beads CLI invocations in firstmate core
+ok - fm-lint.sh enforces backend purity for explicit core paths
