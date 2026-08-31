@@ -139,8 +139,28 @@ fm_lint_run_backend_purity() {
         sub(/^[[:alpha:]_][[:alnum:]_]*=[^[:space:]]+[[:space:]]+/, "", segment)
         if (segment ~ /^env[[:space:]]+/) {
           sub(/^env[[:space:]]+/, "", segment)
-          while (segment ~ /^-[^[:space:]]+[[:space:]]+/) {
-            sub(/^-[^[:space:]]+[[:space:]]+/, "", segment)
+          while (1) {
+            if (segment ~ /^--[[:space:]]+/) {
+              sub(/^--[[:space:]]+/, "", segment)
+              break
+            }
+            if (segment ~ /^(-u|--unset|-C|--chdir|-S|--split-string|--argv0)[[:space:]]+[^[:space:]]+[[:space:]]+/) {
+              sub(/^(-u|--unset|-C|--chdir|-S|--split-string|--argv0)[[:space:]]+[^[:space:]]+[[:space:]]+/, "", segment)
+              continue
+            }
+            if (segment ~ /^--(unset|chdir|split-string|argv0)=[^[:space:]]+[[:space:]]+/) {
+              sub(/^--(unset|chdir|split-string|argv0)=[^[:space:]]+[[:space:]]+/, "", segment)
+              continue
+            }
+            if (segment ~ /^(-i|--ignore-environment|-0|--null|-v|--debug)[[:space:]]+/) {
+              sub(/^(-i|--ignore-environment|-0|--null|-v|--debug)[[:space:]]+/, "", segment)
+              continue
+            }
+            if (segment ~ /^[[:alpha:]_][[:alnum:]_]*=[^[:space:]]+[[:space:]]+/) {
+              sub(/^[[:alpha:]_][[:alnum:]_]*=[^[:space:]]+[[:space:]]+/, "", segment)
+              continue
+            }
+            break
           }
         }
         if (segment == previous) break
