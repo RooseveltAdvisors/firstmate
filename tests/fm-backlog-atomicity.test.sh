@@ -26,10 +26,6 @@ set -u
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-# An exported TASKS_AXI_BACKEND would outrank each case's .tasks.toml fixture
-# in fm_tasks_axi_backend, so the backend cases must start from a clean slate.
-unset TASKS_AXI_BACKEND || :
-
 SPAWN="$ROOT/bin/fm-spawn.sh"
 TEARDOWN="$ROOT/bin/fm-teardown.sh"
 BOOTSTRAP="$ROOT/bin/fm-bootstrap.sh"
@@ -57,17 +53,7 @@ make_home() {  # <name> [task-id...]
     > "$home/data/backlog.md"
   for id in "$@"; do
     mkdir -p "$home/data/$id"
-    cat > "$home/data/$id/brief.md" <<EOF
-# Task
-## Captain's intent
-Exercise backlog dispatch for $id.
-
-## Firstmate spec
-Verify the atomic backlog transition.
-
-# Definition of done
-Delivery contract: mode=no-mistakes
-EOF
+    printf 'Delivery contract: mode=no-mistakes\nbrief for %s\n' "$id" > "$home/data/$id/brief.md"
   done
 
   cat > "$fakebin/tmux" <<'SH'
@@ -100,6 +86,73 @@ start_item() {  # <case-dir> <id>
 row_state() {  # <case-dir> <id>
   tasks-axi show "$2" --file "$(backlog_of "$1")" 2>/dev/null |
     sed -n 's/^  state: *//p' | head -1
+}
+
+# Configure this fixture home for the tasks-axi Beads backend and install a
+# stateful bd stand-in. The lifecycle still runs through the real tasks-axi
+# executable, so these cases prove Firstmate addresses the configured adapter
+# instead of its legacy markdown file.
+configure_beads_backend() {  # <case-dir> <id>
+  local case_dir=$1 id=$2 home fake_bd
+  home=$(home_of "$case_dir")
+  fake_bd="$case_dir/fakebin/bd"
+  mkdir -p "$home/.beads"
+  rm -f "$(backlog_of "$case_dir")"
+  printf '%s\n' open > "$case_dir/bead-state"
+  printf '%s\n' "item for $id" > "$case_dir/bead-title"
+  cat > "$home/.tasks.toml" <<EOF
+backend = "beads"
+
+[beads]
+path = "$home/.beads"
+binary = "$fake_bd"
+prefix = "fm"
+EOF
+  cat > "$fake_bd" <<SH
+#!/usr/bin/env bash
+set -eu
+printf '%s\n' "\$*" >> "$case_dir/bd.log"
+case "\${1:-}" in
+  show|list)
+    printf '[{"id":"%s","title":"%s","description":"","status":"%s","issue_type":"task","priority":2}]\n' \
+      "\$2" "\$(cat "$case_dir/bead-title")" "\$(cat "$case_dir/bead-state")"
+    ;;
+  dep)
+    printf '[]\n'
+    ;;
+  update)
+    shift 2
+    while [ "\$#" -gt 0 ]; do
+      case "\$1" in
+        --status) printf '%s\n' "\$2" > "$case_dir/bead-state"; shift 2 ;;
+        --title) printf '%s\n' "\$2" > "$case_dir/bead-title"; shift 2 ;;
+        --description) shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    printf '[]\n'
+    ;;
+  close)
+    printf '%s\n' closed > "$case_dir/bead-state"
+    shift 2
+    while [ "\$#" -gt 0 ]; do
+      case "\$1" in
+        --reason) printf '%s\n' "\$2" > "$case_dir/close-reason"; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    printf '[]\n'
+    ;;
+  comments)
+    printf '[]\n'
+    ;;
+  *)
+    printf 'unsupported fake bd call: %s\n' "\$*" >&2
+    exit 2
+    ;;
+esac
+SH
+  chmod +x "$fake_bd"
 }
 
 configure_env_backend_tasks_axi() {  # <case-dir>
@@ -140,53 +193,6 @@ case "\${1:-}" in
     ;;
 esac
 exec "$real" "\$@"
-SH
-  chmod +x "$case_dir/fakebin/tasks-axi"
-}
-
-record_tasks_axi_calls() {  # <case-dir>
-  local case_dir=$1 real
-  real=$(command -v tasks-axi)
-  cat > "$case_dir/fakebin/tasks-axi" <<SH
-#!/usr/bin/env bash
-printf '%s\n' "\$*" >> "$case_dir/tasks-axi-calls"
-exec "$real" "\$@"
-SH
-  chmod +x "$case_dir/fakebin/tasks-axi"
-}
-
-make_beads_tasks_axi_stub() {  # <case-dir> <id>
-  local case_dir=$1 id=$2
-  cat > "$case_dir/fakebin/tasks-axi" <<SH
-#!/usr/bin/env bash
-printf '%s\n' "\$*" >> "$case_dir/tasks-axi-calls"
-case "\${1:-}" in
-  --version)
-    printf '%s\n' '0.2.5'
-    ;;
-  update)
-    [ "\${2:-}" = --help ] || exit 1
-    printf '%s\n' '--archive-body'
-    ;;
-  mv)
-    [ "\${2:-}" = --help ] || exit 1
-    printf '%s\n' 'usage: tasks-axi mv [<id>...]'
-    ;;
-  show)
-    [ "\${2:-}" = "$id" ] || exit 1
-    if [ "\${3:-}" = --file ]; then
-      printf '%s\n' 'error: beads show failed' >&2
-      printf '%s\n' 'code: UNKNOWN' >&2
-      exit 1
-    fi
-    printf '%s\n' 'task:'
-    printf '  id: %s\n' "$id"
-    printf '%s\n' '  state: in_flight' '  held: no' '  blocked: no'
-    ;;
-  *)
-    exit 1
-    ;;
-esac
 SH
   chmod +x "$case_dir/fakebin/tasks-axi"
 }
@@ -453,36 +459,13 @@ test_dispatch_moves_the_item_in_flight_in_the_same_run() {
   id=atomic-dispatch-b1
   case_dir=$(make_home dispatch-ok "$id")
   add_item "$case_dir" "$id"
-  cp "$ROOT/.tasks.toml" "$(home_of "$case_dir")/.tasks.toml"
-  record_tasks_axi_calls "$case_dir"
 
   out=$(run_ship_spawn "$case_dir" "$id") || fail "spawn failed: $out"
   assert_contains "$out" "spawned $id" "spawn did not report success"
   assert_present "$(home_of "$case_dir")/state/$id.meta" "spawn published no record"
-  assert_grep "show $id --file $(backlog_of "$case_dir")" \
-    "$case_dir/tasks-axi-calls" \
-    "markdown dispatch did not pass the backlog file to show"
   [ "$(row_state "$case_dir" "$id")" = in_flight ] \
     || fail "spawn reported success with its backlog item still $(row_state "$case_dir" "$id")"
   pass "dispatch publishes the record and moves the backlog item In flight in one run"
-}
-
-test_dispatch_omits_the_file_for_a_beads_show() {
-  local case_dir home id out
-  id=atomic-dispatch-beads-b1
-  case_dir=$(make_home dispatch-beads "$id")
-  home=$(home_of "$case_dir")
-  printf '%s\n' 'backend = "beads"' '[beads]' 'path = ".beads"' \
-    'prefix = "atomic"' > "$home/.tasks.toml"
-  make_beads_tasks_axi_stub "$case_dir" "$id"
-
-  out=$(run_ship_spawn "$case_dir" "$id") || fail "Beads spawn failed: $out"
-  assert_contains "$out" "spawned $id" "Beads spawn did not report success"
-  assert_grep "show $id" "$case_dir/tasks-axi-calls" \
-    "Beads dispatch did not probe the backlog row"
-  assert_no_grep "show $id --file" "$case_dir/tasks-axi-calls" \
-    "Beads dispatch passed the markdown file to show"
-  pass "dispatch omits the markdown file when probing a Beads backlog"
 }
 
 test_dispatch_refuses_a_pending_authoritative_close() {
@@ -2268,91 +2251,47 @@ EOF
   pass "a home with no backlog remains exempt from lifecycle transitions"
 }
 
-test_configured_markdown_path_receives_lifecycle_transitions() {
-  local case_dir home id out
-  id=atomic-configured-markdown-b15
-  case_dir=$(make_home configured-markdown "$id")
-  home=$(home_of "$case_dir")
-  mkdir -p "$home/records"
-  mv "$home/data/backlog.md" "$home/records/tasks.md"
-  cat > "$home/.tasks.toml" <<'EOF'
-backend = "markdown"
-
-[markdown]
-path = "records/tasks.md"
-EOF
-  tasks-axi add "$id" "item for $id" --kind ship --file "$home/records/tasks.md" >/dev/null
-
-  out=$(run_ship_spawn "$case_dir" "$id") \
-    || fail "configured-markdown spawn failed: $out"
-  [ "$(tasks-axi show "$id" --file "$home/records/tasks.md" | sed -n 's/^  state: *//p' | head -1)" = in_flight ] \
-    || fail "spawn skipped the configured markdown backlog"
-  pass "configured markdown paths receive lifecycle transitions"
-}
-
-test_configured_markdown_path_preserves_hash_characters() {
-  local case_dir home id out
-  id=atomic-configured-markdown-hash-b15
-  case_dir=$(make_home configured-markdown-hash "$id")
-  home=$(home_of "$case_dir")
-  mkdir -p "$home/records"
-  mv "$home/data/backlog.md" "$home/records/tasks#1.md"
-  cat > "$home/.tasks.toml" <<'EOF'
-backend = "markdown"
-
-[markdown]
-path = "records/tasks#1.md"
-EOF
-  tasks-axi add "$id" "item for $id" --kind ship --file "$home/records/tasks#1.md" >/dev/null
-
-  out=$(run_ship_spawn "$case_dir" "$id") \
-    || fail "hash-path configured-markdown spawn failed: $out"
-  [ "$(tasks-axi show "$id" --file "$home/records/tasks#1.md" | sed -n 's/^  state: *//p' | head -1)" = in_flight ] \
-    || fail "spawn skipped the configured markdown backlog containing #"
-  pass "configured markdown paths preserve hash characters"
-}
-
-test_dispatch_and_completion_are_structural() {
+test_beads_backend_dispatch_and_completion_are_structural() {
   local case_dir home id meta out pr
-  id=fm-structural-b15
+  id=fm-beads-structural-b15
   pr=https://github.com/example/firstmate/pull/15
-  case_dir=$(make_home structural "$id")
+  case_dir=$(make_home beads-structural "$id")
   home=$(home_of "$case_dir")
-  add_item "$case_dir" "$id"
+  configure_beads_backend "$case_dir" "$id"
 
   out=$(run_ship_spawn "$case_dir" "$id") \
-    || fail "structural spawn failed: $out"
-  [ "$(row_state "$case_dir" "$id")" = in_flight ] \
-    || fail "spawn left the backlog item outside In flight"
+    || fail "Beads-backend spawn failed: $out"
+  [ "$(cat "$case_dir/bead-state")" = in_progress ] \
+    || fail "spawn left the configured bead at $(cat "$case_dir/bead-state")"
 
   # Recovery may claim an already-live row repeatedly; the transition remains
-  # idempotent and does not reopen or duplicate the item.
+  # idempotent and does not reopen or duplicate the bead.
   run_bootstrap "$case_dir" >/dev/null \
-    || fail "first idempotent reconciliation failed"
+    || fail "first idempotent Beads reconciliation failed"
   run_bootstrap "$case_dir" >/dev/null \
-    || fail "second idempotent reconciliation failed"
-  [ "$(row_state "$case_dir" "$id")" = in_flight ] \
-    || fail "repeated claims changed the live backlog state"
+    || fail "second idempotent Beads reconciliation failed"
+  [ "$(cat "$case_dir/bead-state")" = in_progress ] \
+    || fail "repeated claims changed the live bead state"
 
   meta="$home/state/$id.meta"
   printf 'pr=%s\n' "$pr" >> "$meta"
   out=$(run_teardown "$case_dir" "$id") \
-    || fail "structural teardown failed: $out"
-  [ "$(row_state "$case_dir" "$id")" = "done" ] \
-    || fail "teardown left the backlog item outside Done"
-  assert_grep "$pr" "$(backlog_of "$case_dir")" \
-    "teardown closed the item without its recorded PR evidence"
-  pass "dispatch and completion transition structurally with evidence"
+    || fail "Beads-backend teardown failed: $out"
+  [ "$(cat "$case_dir/bead-state")" = closed ] \
+    || fail "teardown left the configured bead at $(cat "$case_dir/bead-state")"
+  [ "$(cat "$case_dir/close-reason")" = "$pr" ] \
+    || fail "teardown closed the bead without its recorded PR evidence"
+  pass "configured Beads dispatch and completion transition structurally with evidence"
 }
 
-test_refused_teardown_leaves_the_item_live() {
+test_beads_backend_refused_teardown_leaves_the_item_live() {
   local case_dir home id out rc=0
-  id=fm-structural-refusal-b15
-  case_dir=$(make_home structural-refusal "$id")
+  id=fm-beads-refusal-b15
+  case_dir=$(make_home beads-refusal "$id")
   home=$(home_of "$case_dir")
-  add_item "$case_dir" "$id"
+  configure_beads_backend "$case_dir" "$id"
   out=$(run_ship_spawn "$case_dir" "$id") \
-    || fail "refusal setup spawn failed: $out"
+    || fail "Beads-backend refusal setup spawn failed: $out"
 
   printf '%s\n' unlanded > "$case_dir/wt/unlanded.txt"
   git -C "$case_dir/wt" add unlanded.txt
@@ -2360,12 +2299,14 @@ test_refused_teardown_leaves_the_item_live() {
     commit -q -m "unlanded fixture work"
   out=$(run_teardown "$case_dir" "$id") || rc=$?
 
-  [ "$rc" -ne 0 ] || fail "teardown accepted unlanded work"
-  [ "$(row_state "$case_dir" "$id")" = in_flight ] \
-    || fail "refused teardown changed the live backlog state"
+  [ "$rc" -ne 0 ] || fail "teardown accepted unlanded Beads-backed work"
+  [ "$(cat "$case_dir/bead-state")" = in_progress ] \
+    || fail "refused teardown changed the bead to $(cat "$case_dir/bead-state")"
+  assert_absent "$case_dir/close-reason" \
+    "refused teardown sent a close reason to the Beads adapter"
   assert_present "$home/state/$id.meta" \
     "refused teardown removed the live task record"
-  pass "refused teardown leaves the backlog item in flight"
+  pass "refused teardown leaves the configured bead in progress"
 }
 
 test_environment_selected_adapter_is_not_forced_to_markdown() {
@@ -2447,7 +2388,6 @@ test_a_persistent_secondmate_is_never_a_backlog_item() {
 }
 
 test_dispatch_moves_the_item_in_flight_in_the_same_run
-test_dispatch_omits_the_file_for_a_beads_show
 test_dispatch_refuses_a_pending_authoritative_close
 test_dispatch_refuses_a_held_row_before_creating_resources
 test_dispatch_refuses_a_blocked_row_before_creating_resources
@@ -2522,10 +2462,8 @@ test_no_backlog_teardown_refuses_a_symlinked_task_record_at_entry
 test_teardown_rechecks_record_parent_after_lock_acquisition
 test_teardown_refuses_a_symlinked_state_directory_at_entry
 test_home_without_a_backlog_dispatches_and_completes
-test_configured_markdown_path_receives_lifecycle_transitions
-test_configured_markdown_path_preserves_hash_characters
-test_dispatch_and_completion_are_structural
-test_refused_teardown_leaves_the_item_live
+test_beads_backend_dispatch_and_completion_are_structural
+test_beads_backend_refused_teardown_leaves_the_item_live
 test_environment_selected_adapter_is_not_forced_to_markdown
 test_manual_backend_home_dispatches_and_completes_without_touching_the_backlog
 test_a_secondmate_home_keeps_its_own_books
