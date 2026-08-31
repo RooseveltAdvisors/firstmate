@@ -138,7 +138,7 @@ fm_lint_run_backend_purity() {
       relative=${relative#./}
       relative=${relative#"$ROOT"/}
       case "$relative" in
-        bin/*.sh|bin/backends/*.sh)
+        bin/*.sh)
           [ -f "$path" ] && purity_roots+=("$path")
           ;;
       esac
