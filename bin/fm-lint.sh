@@ -122,6 +122,29 @@ fm_lint_run_workflows() {
   "$SELF_DIR/fm-lint-workflows.sh"
 }
 
+# Backend adapters belong behind tasks-axi. Keep direct Beads CLI invocations
+# out of firstmate's core scripts so every configured backend follows the same
+# lifecycle path.
+fm_lint_run_backend_purity() {
+  local findings
+  [ "$EXPLICIT_PATHS" -eq 0 ] || return 0
+  findings=$(LC_ALL=C awk '
+    /^[[:space:]]*#/ { next }
+    {
+      line=$0
+      sub(/^[[:space:]]+/, "", line)
+      if (line ~ /^(if[[:space:]]+|then[[:space:]]+|elif[[:space:]]+|while[[:space:]]+|until[[:space:]]+|![[:space:]]+|command[[:space:]]+|exec[[:space:]]+)*bd[[:space:]]/ ||
+          line ~ /[();|&][[:space:]]*(command[[:space:]]+|exec[[:space:]]+)?bd[[:space:]]/) {
+        print FILENAME ":" FNR ": direct Beads CLI invocation bypasses tasks-axi"
+      }
+    }
+  ' bin/*.sh bin/backends/*.sh)
+  [ -z "$findings" ] || {
+    printf '%s\n' "$findings" >&2
+    return 1
+  }
+}
+
 JOBS=${FM_LINT_JOBS:-2}
 TELEMETRY=${FM_LINT_TELEMETRY:-}
 FAST=0
@@ -280,6 +303,7 @@ fi
 if [ "$CHANGED_MODE" -eq 1 ] && [ "$ROOT_COUNT" -eq 0 ]; then
   printf 'fm-lint.sh: no changed lint targets\n'
   overall_rc=0
+  fm_lint_run_backend_purity || overall_rc=$?
   fm_lint_run_workflows || overall_rc=$?
   exit "$overall_rc"
 fi
@@ -580,6 +604,12 @@ EOF
     printf 'fm-lint.sh: could not write telemetry to %s.\n' "$TELEMETRY" >&2
     [ "$overall_rc" -ne 0 ] || overall_rc=2
   fi
+fi
+
+purity_rc=0
+fm_lint_run_backend_purity || purity_rc=$?
+if [ "$overall_rc" -eq 0 ] && [ "$purity_rc" -ne 0 ]; then
+  overall_rc=$purity_rc
 fi
 
 if [ "$overall_rc" -eq 0 ]; then
