@@ -2251,6 +2251,28 @@ EOF
   pass "a home with no backlog remains exempt from lifecycle transitions"
 }
 
+test_configured_markdown_path_receives_lifecycle_transitions() {
+  local case_dir home id out
+  id=atomic-configured-markdown-b15
+  case_dir=$(make_home configured-markdown "$id")
+  home=$(home_of "$case_dir")
+  mkdir -p "$home/records"
+  mv "$home/data/backlog.md" "$home/records/tasks.md"
+  cat > "$home/.tasks.toml" <<'EOF'
+backend = "markdown"
+
+[markdown]
+path = "records/tasks.md"
+EOF
+  tasks-axi add "$id" "item for $id" --kind ship --file "$home/records/tasks.md" >/dev/null
+
+  out=$(run_ship_spawn "$case_dir" "$id") \
+    || fail "configured-markdown spawn failed: $out"
+  [ "$(tasks-axi show "$id" --file "$home/records/tasks.md" | sed -n 's/^  state: *//p' | head -1)" = in_flight ] \
+    || fail "spawn skipped the configured markdown backlog"
+  pass "configured markdown paths receive lifecycle transitions"
+}
+
 test_beads_backend_dispatch_and_completion_are_structural() {
   local case_dir home id meta out pr
   id=fm-beads-structural-b15
@@ -2462,6 +2484,7 @@ test_no_backlog_teardown_refuses_a_symlinked_task_record_at_entry
 test_teardown_rechecks_record_parent_after_lock_acquisition
 test_teardown_refuses_a_symlinked_state_directory_at_entry
 test_home_without_a_backlog_dispatches_and_completes
+test_configured_markdown_path_receives_lifecycle_transitions
 test_beads_backend_dispatch_and_completion_are_structural
 test_beads_backend_refused_teardown_leaves_the_item_live
 test_environment_selected_adapter_is_not_forced_to_markdown

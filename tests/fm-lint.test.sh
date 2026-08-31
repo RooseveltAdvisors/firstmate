@@ -752,7 +752,8 @@ SH
     'env bd close fm-example' \
     'env -i BD_ACTOR=firstmate bd close fm-example' \
     'env -u BD_ACTOR bd close fm-example' \
-    'env -- bd close fm-example'
+    'env -- bd close fm-example' \
+    '/usr/local/bin/bd close fm-example'
   do
     printf '#!/usr/bin/env bash\n%s\n' "$invocation" > "$tmp/repo/bin/direct-beads.sh"
     rc=0
