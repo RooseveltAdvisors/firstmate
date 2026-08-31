@@ -172,17 +172,22 @@ fm_backlog_markdown_file() {  # <data-dir>
       BEGIN { table = "root" }
       {
         line = $0
-        sub(/[[:space:]]*#.*/, "", line)
-        if (line ~ /^[[:space:]]*\[[^]]+\][[:space:]]*$/) {
+        if (line ~ /^[[:space:]]*\[[^]]+\][[:space:]]*(#.*)?$/) {
           table = line
+          sub(/[[:space:]]*#.*/, "", table)
           gsub(/[[:space:]\[\]]/, "", table)
           next
         }
         if (table == "markdown" && line ~ /^[[:space:]]*path[[:space:]]*=/) {
           sub(/^[^=]*=[[:space:]]*/, "", line)
           quote = substr(line, 1, 1)
-          if ((quote == "\"" || quote == sprintf("%c", 39)) && substr(line, length(line), 1) == quote) {
-            print substr(line, 2, length(line) - 2)
+          if (quote == "\"" || quote == sprintf("%c", 39)) {
+            rest = substr(line, 2)
+            ending = index(rest, quote)
+            tail = substr(rest, ending + 1)
+            if (ending > 1 && tail ~ /^[[:space:]]*(#.*)?$/) {
+              print substr(rest, 1, ending - 1)
+            }
           }
           exit
         }
