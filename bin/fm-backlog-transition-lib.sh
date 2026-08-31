@@ -172,13 +172,15 @@ fm_backlog_data_relative() {  # <data-dir>
 }
 
 fm_backlog_source_present() {  # <data-dir> <authorized-data-dir>
-  local data=$1 authorized_data=$2 root file tasks_config
+  local data=$1 authorized_data=$2 root file tasks_config backend
   root=$(fm_backlog_root "$data") || return 1
   tasks_config="$root/.tasks.toml"
   if [ -e "$tasks_config" ] || [ -L "$tasks_config" ]; then
     fm_backlog_record_present "$tasks_config" "tasks-axi config" "$root"
     return $?
   fi
+  backend=$(fm_backlog_selected_backend "$root") || return 1
+  [ "$backend" = markdown ] || return 0
   file=$(fm_backlog_file "$data") || return 1
   fm_backlog_record_present "$file" "backlog file" "$authorized_data"
 }
@@ -187,11 +189,13 @@ fm_backlog_source_present() {  # <data-dir> <authorized-data-dir>
 # would replace the Beads workspace path too, so it is only a legacy fallback
 # when no project config exists.
 fm_backlog_tasks_axi() {  # <data-dir> <verb> [arg...]
-  local data root file
+  local data root file backend
   data=$(fm_backlog_data_absolute "$1") || return 1
   shift
   root=$(fm_backlog_root "$data") || return 1
-  if [ -e "$root/.tasks.toml" ] || [ -L "$root/.tasks.toml" ]; then
+  backend=$(fm_backlog_selected_backend "$root") || return 1
+  if [ -e "$root/.tasks.toml" ] || [ -L "$root/.tasks.toml" ] \
+     || [ "$backend" != markdown ]; then
     (cd "$root" 2>/dev/null && tasks-axi "$@")
     return $?
   fi

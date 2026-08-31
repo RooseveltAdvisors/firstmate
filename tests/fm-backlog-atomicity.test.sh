@@ -169,6 +169,27 @@ SH
   chmod +x "$fake_bd"
 }
 
+configure_env_backend_tasks_axi() {  # <case-dir>
+  local case_dir=$1
+  rm -f "$(backlog_of "$case_dir")"
+  cat > "$case_dir/fakebin/tasks-axi" <<SH
+#!/usr/bin/env bash
+case "\${1:-}" in
+  --version) printf '0.2.5\n' ;;
+  update) printf '%s\n' '--archive-body' ;;
+  mv) printf '%s\n' '[<id>...]' ;;
+  show)
+    printf 'task:\n  state: queued\n  held: no\n  blocked: no\n'
+    ;;
+  start)
+    printf '%s\n' "\$*" > "$case_dir/env-backend-start"
+    ;;
+  *) exit 2 ;;
+esac
+SH
+  chmod +x "$case_dir/fakebin/tasks-axi"
+}
+
 # Shadow tasks-axi with a wrapper that fails one verb and delegates every other
 # verb to the real binary, so a test can drive a genuine mid-transition failure
 # without faking the reads around it.
@@ -2372,6 +2393,19 @@ test_beads_backend_refused_teardown_leaves_the_item_live() {
   pass "refused teardown leaves the configured bead in progress"
 }
 
+test_environment_selected_adapter_is_not_forced_to_markdown() {
+  local case_dir id out
+  id=fm-env-adapter-b15
+  case_dir=$(make_home env-adapter "$id")
+  configure_env_backend_tasks_axi "$case_dir"
+
+  out=$(TASKS_AXI_BACKEND=beads run_ship_spawn "$case_dir" "$id") \
+    || fail "environment-selected adapter spawn failed: $out"
+  [ "$(cat "$case_dir/env-backend-start")" = "start $id" ] \
+    || fail "environment-selected adapter received legacy markdown arguments"
+  pass "environment-selected adapters bypass the legacy markdown file override"
+}
+
 test_manual_backend_home_dispatches_and_completes_without_touching_the_backlog() {
   local case_dir id data data_resolved out
   id=atomic-manual-b12
@@ -2515,6 +2549,7 @@ test_teardown_refuses_a_symlinked_state_directory_at_entry
 test_home_without_a_backlog_dispatches_and_completes
 test_beads_backend_dispatch_and_completion_are_structural
 test_beads_backend_refused_teardown_leaves_the_item_live
+test_environment_selected_adapter_is_not_forced_to_markdown
 test_manual_backend_home_dispatches_and_completes_without_touching_the_backlog
 test_a_secondmate_home_keeps_its_own_books
 test_a_persistent_secondmate_is_never_a_backlog_item
