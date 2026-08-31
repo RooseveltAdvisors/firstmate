@@ -127,19 +127,23 @@ fm_lint_run_workflows() {
 # out of firstmate's core scripts so every configured backend follows the same
 # lifecycle path.
 fm_lint_run_backend_purity() {
-  local findings path relative
+  local findings path canonical
   local -a purity_roots
   purity_roots=()
   if [ "$EXPLICIT_PATHS" -eq 0 ]; then
     purity_roots=(bin/*.sh bin/backends/*.sh)
   else
     for path in "${ROOTS[@]}"; do
-      relative=$path
-      relative=${relative#./}
-      relative=${relative#"$ROOT"/}
-      case "$relative" in
-        bin/*.sh)
-          [ -f "$path" ] && purity_roots+=("$path")
+      [ -f "$path" ] || continue
+      # shellcheck disable=SC2016 # Perl, not the shell, expands $ARGV.
+      canonical=$("$PERL_BIN" -MCwd=realpath -e '
+        my $resolved = realpath($ARGV[0]);
+        exit 1 unless defined $resolved;
+        print $resolved;
+      ' "$path" 2>/dev/null) || continue
+      case "$canonical" in
+        "$ROOT"/bin/*.sh)
+          purity_roots+=("$canonical")
           ;;
       esac
     done

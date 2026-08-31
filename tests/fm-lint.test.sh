@@ -765,7 +765,7 @@ SH
 }
 
 test_rejects_direct_beads_cli_in_explicit_core_path() {
-  local tmp fakebin log lint_copy target out rc
+  local tmp fakebin log lint_copy target spelling out rc
   tmp=$(fm_test_tmproot fm-lint-explicit-backend-purity)
   fakebin=$(fm_fakebin "$tmp")
   log="$tmp/shellcheck.log"
@@ -777,11 +777,13 @@ test_rejects_direct_beads_cli_in_explicit_core_path() {
   chmod +x "$lint_copy"
   fm_lint_stub_shellcheck "$fakebin" "$log"
 
-  rc=0
-  out=$(cd "$tmp/repo" && PATH="$fakebin:$PATH" "$lint_copy" bin/direct-beads.sh 2>&1) || rc=$?
-  [ "$rc" -ne 0 ] || fail "explicit core path bypassed backend-purity lint"
-  assert_contains "$out" "direct Beads CLI invocation bypasses tasks-axi" \
-    "explicit core path did not report the backend-boundary violation"
+  for spelling in bin/direct-beads.sh bin/../bin/direct-beads.sh; do
+    rc=0
+    out=$(cd "$tmp/repo" && PATH="$fakebin:$PATH" "$lint_copy" "$spelling" 2>&1) || rc=$?
+    [ "$rc" -ne 0 ] || fail "explicit core path bypassed backend-purity lint: $spelling"
+    assert_contains "$out" "direct Beads CLI invocation bypasses tasks-axi" \
+      "explicit core path did not report the backend-boundary violation: $spelling"
+  done
   pass "fm-lint.sh enforces backend purity for explicit core paths"
 }
 
