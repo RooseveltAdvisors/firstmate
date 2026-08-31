@@ -22,8 +22,8 @@
 #
 # SCOPE. fm_backlog_transition_applies is the single gate. It excludes
 # secondmates (persistent agents are never backlog items, AGENTS.md section 10),
-# homes whose configured backlog backend is manual and homes that keep neither
-# a `.tasks.toml` nor the legacy backlog file. Those return-1 exemptions are never errors; an
+# homes whose configured backlog backend is manual and markdown homes that keep
+# no backlog file. Those return-1 exemptions are never errors; an
 # unresolvable configured data directory or incompatible tasks-axi instead
 # returns 2 so callers refuse before mutation.
 #
@@ -199,8 +199,45 @@ fm_backlog_tasks_axi() {  # <data-dir> <verb> [arg...]
   (cd "$root" 2>/dev/null && tasks-axi "$@" --file "$file")
 }
 
+# Resolve only the top-level adapter selector needed for the absent-markdown
+# exemption. Malformed or unsupported values stay non-markdown here so the
+# tasks-axi owner can reject them with its authoritative parser.
+fm_backlog_selected_backend() {  # <tasks-root>
+  local root=$1 config backend
+  if [ -n "${TASKS_AXI_BACKEND:-}" ]; then
+    printf '%s\n' "$TASKS_AXI_BACKEND"
+    return 0
+  fi
+  config="$root/.tasks.toml"
+  if [ ! -e "$config" ] && [ ! -L "$config" ]; then
+    printf 'markdown\n'
+    return 0
+  fi
+  backend=$(awk '
+    BEGIN { root = 1 }
+    /^[[:space:]]*\[/ { root = 0 }
+    root && /^[[:space:]]*backend[[:space:]]*=/ {
+      value = $0
+      sub(/^[^=]*=[[:space:]]*/, "", value)
+      quote = substr(value, 1, 1)
+      if (quote == "\"" || quote == sprintf("%c", 39)) {
+        rest = substr(value, 2)
+        ending = index(rest, quote)
+        tail = substr(rest, ending + 1)
+        if (ending > 1 && tail ~ /^[[:space:]]*(#.*)?$/) {
+          print substr(rest, 1, ending - 1)
+          exit
+        }
+      }
+      print "invalid"
+      exit
+    }
+  ' "$config") || return 1
+  printf '%s\n' "${backend:-markdown}"
+}
+
 fm_backlog_transition_applies() {  # <config-dir> <data-dir> <kind>
-  local config=$1 data authorized_data=$2 kind=$3 file root
+  local config=$1 data authorized_data=$2 kind=$3 file root backend
   FM_BACKLOG_TRANSITION_SKIP=
   if [ "$kind" = secondmate ]; then
     FM_BACKLOG_TRANSITION_SKIP="secondmates are not backlog items"
@@ -216,10 +253,12 @@ fm_backlog_transition_applies() {  # <config-dir> <data-dir> <kind>
   fi
   file=$(fm_backlog_file "$data")
   root=$(fm_backlog_root "$data") || return 2
-  if [ ! -e "$root/.tasks.toml" ] && [ ! -L "$root/.tasks.toml" ] \
-     && [ ! -e "$file" ] && [ ! -L "$file" ]; then
-    FM_BACKLOG_TRANSITION_SKIP="this home keeps no tasks-axi config or backlog at $file"
-    return 1
+  if [ ! -e "$file" ] && [ ! -L "$file" ]; then
+    backend=$(fm_backlog_selected_backend "$root") || return 2
+    if [ "$backend" = markdown ]; then
+      FM_BACKLOG_TRANSITION_SKIP="this home keeps no markdown backlog at $file"
+      return 1
+    fi
   fi
   if ! fm_backlog_source_present "$data" "$authorized_data"; then
     return 2
