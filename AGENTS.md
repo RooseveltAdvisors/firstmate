@@ -492,7 +492,7 @@ Mention cost as a courtesy when unusually much work is running, but never block 
 
 ## 10. Backlog contract
 
-`data/backlog.md` is the durable queue.
+The configured `tasks-axi` backend is the durable queue; the tracked default is `data/backlog.md`.
 It tracks work items only, never agents; persistent secondmates never appear as backlog items.
 Work routed to a secondmate is recorded in that secondmate home's own backlog, not the main backlog.
 A decision is simply a task held for the captain: `tasks-axi hold <id> --reason "<reason>" --kind captain`, with `--until <date>` when the captain defers it.
