@@ -723,6 +723,40 @@ SH
   pass "fm-lint.sh catches a real lint defect the old no-op gate passed"
 }
 
+test_rejects_direct_beads_cli_invocations() {
+  local tmp fakebin log lint_copy out rc=0
+  tmp=$(fm_test_tmproot fm-lint-backend-purity)
+  fakebin=$(fm_fakebin "$tmp")
+  log="$tmp/shellcheck.log"
+  mkdir -p "$tmp/repo/bin/backends" "$tmp/repo/tests"
+  lint_copy="$tmp/repo/bin/fm-lint.sh"
+  cp "$LINT" "$lint_copy"
+  cat > "$tmp/repo/bin/fm-lint-workflows.sh" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+  cat > "$tmp/repo/bin/direct-beads.sh" <<'SH'
+#!/usr/bin/env bash
+bd update fm-example --status in_progress
+SH
+  cat > "$tmp/repo/bin/backends/noop.sh" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+  cat > "$tmp/repo/tests/noop.test.sh" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+  chmod +x "$lint_copy" "$tmp/repo/bin/fm-lint-workflows.sh"
+  fm_lint_stub_shellcheck "$fakebin" "$log"
+
+  out=$(cd "$tmp/repo" && CI=true PATH="$fakebin:$PATH" "$lint_copy" 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "lint accepted a direct Beads CLI invocation"
+  assert_contains "$out" "direct Beads CLI invocation bypasses tasks-axi" \
+    "lint did not identify the backend-boundary violation"
+  pass "fm-lint.sh rejects direct Beads CLI invocations in firstmate core"
+}
+
 test_ignores_ambient_shellcheck_opts() {
   if ! pinned_ready; then
     pass "SKIP (ShellCheck $REQUIRED not resolved): ambient options regression check"
@@ -1010,6 +1044,7 @@ test_installer_rejects_unsupported_platform
 test_missing_shellcheck_fails_closed
 test_rejects_wrong_shellcheck_version
 test_catches_a_real_lint_defect
+test_rejects_direct_beads_cli_invocations
 test_ignores_ambient_shellcheck_opts
 test_clean_fixture_passes
 test_jobs_are_deterministic_and_complete
