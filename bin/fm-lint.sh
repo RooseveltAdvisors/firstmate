@@ -26,6 +26,7 @@
 #     prints a "no changed lint targets" note, then still validates workflows.
 # Explicit paths always bypass this file-set selection and lint exactly the
 # given paths, matching the same config, without the workflow YAML check.
+# Explicit core bin/ scripts still receive the backend-purity check.
 #
 # Canonical lint defaults to two bounded workers over two stable logical shards.
 # Each shard writes separate diagnostics, and the parent replays those outputs in
@@ -126,8 +127,24 @@ fm_lint_run_workflows() {
 # out of firstmate's core scripts so every configured backend follows the same
 # lifecycle path.
 fm_lint_run_backend_purity() {
-  local findings
-  [ "$EXPLICIT_PATHS" -eq 0 ] || return 0
+  local findings path relative
+  local -a purity_roots
+  purity_roots=()
+  if [ "$EXPLICIT_PATHS" -eq 0 ]; then
+    purity_roots=(bin/*.sh bin/backends/*.sh)
+  else
+    for path in "${ROOTS[@]}"; do
+      relative=$path
+      relative=${relative#./}
+      relative=${relative#"$ROOT"/}
+      case "$relative" in
+        bin/*.sh|bin/backends/*.sh)
+          [ -f "$path" ] && purity_roots+=("$path")
+          ;;
+      esac
+    done
+  fi
+  [ "${#purity_roots[@]}" -gt 0 ] || return 0
   findings=$(LC_ALL=C awk '
     function invokes_bd(segment) {
       sub(/^[[:space:]]+/, "", segment)
@@ -177,7 +194,7 @@ fm_lint_run_backend_purity() {
         }
       }
     }
-  ' bin/*.sh bin/backends/*.sh)
+  ' "${purity_roots[@]}")
   [ -z "$findings" ] || {
     printf '%s\n' "$findings" >&2
     return 1
