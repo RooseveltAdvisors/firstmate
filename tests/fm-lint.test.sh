@@ -750,7 +750,9 @@ SH
     'bd update fm-example --status in_progress' \
     'BD_ACTOR=firstmate bd update fm-example --status closed' \
     'env bd close fm-example' \
-    'env -i BD_ACTOR=firstmate bd close fm-example'
+    'env -i BD_ACTOR=firstmate bd close fm-example' \
+    'env -u BD_ACTOR bd close fm-example' \
+    'env -- bd close fm-example'
   do
     printf '#!/usr/bin/env bash\n%s\n' "$invocation" > "$tmp/repo/bin/direct-beads.sh"
     rc=0

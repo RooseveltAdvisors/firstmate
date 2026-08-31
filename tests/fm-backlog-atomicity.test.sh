@@ -2211,6 +2211,12 @@ test_home_without_a_backlog_dispatches_and_completes() {
   id=atomic-no-backlog-b12
   case_dir=$(make_home no-backlog "$id")
   rm -f "$(backlog_of "$case_dir")"
+  cat > "$(home_of "$case_dir")/.tasks.toml" <<'EOF'
+backend = "markdown"
+
+[markdown]
+path = "data/backlog.md"
+EOF
   make_tasks_axi_incompatible "$case_dir"
 
   out=$(run_ship_spawn "$case_dir" "$id") || fail "no-backlog spawn failed: $out"
