@@ -764,6 +764,27 @@ SH
   pass "fm-lint.sh rejects direct Beads CLI invocations in firstmate core"
 }
 
+test_rejects_direct_beads_cli_in_explicit_core_path() {
+  local tmp fakebin log lint_copy target out rc
+  tmp=$(fm_test_tmproot fm-lint-explicit-backend-purity)
+  fakebin=$(fm_fakebin "$tmp")
+  log="$tmp/shellcheck.log"
+  mkdir -p "$tmp/repo/bin/backends"
+  lint_copy="$tmp/repo/bin/fm-lint.sh"
+  target="$tmp/repo/bin/direct-beads.sh"
+  cp "$LINT" "$lint_copy"
+  printf '#!/usr/bin/env bash\nbd close fm-example\n' > "$target"
+  chmod +x "$lint_copy"
+  fm_lint_stub_shellcheck "$fakebin" "$log"
+
+  rc=0
+  out=$(cd "$tmp/repo" && PATH="$fakebin:$PATH" "$lint_copy" bin/direct-beads.sh 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "explicit core path bypassed backend-purity lint"
+  assert_contains "$out" "direct Beads CLI invocation bypasses tasks-axi" \
+    "explicit core path did not report the backend-boundary violation"
+  pass "fm-lint.sh enforces backend purity for explicit core paths"
+}
+
 test_ignores_ambient_shellcheck_opts() {
   if ! pinned_ready; then
     pass "SKIP (ShellCheck $REQUIRED not resolved): ambient options regression check"
@@ -1052,6 +1073,7 @@ test_missing_shellcheck_fails_closed
 test_rejects_wrong_shellcheck_version
 test_catches_a_real_lint_defect
 test_rejects_direct_beads_cli_invocations
+test_rejects_direct_beads_cli_in_explicit_core_path
 test_ignores_ambient_shellcheck_opts
 test_clean_fixture_passes
 test_jobs_are_deterministic_and_complete
