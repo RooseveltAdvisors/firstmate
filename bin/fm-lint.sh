@@ -186,7 +186,7 @@ fm_lint_run_backend_purity() {
         }
         if (segment == previous) break
       }
-      return segment ~ /^bd([[:space:]]|$)/
+      return segment ~ /^([^[:space:]]*\/)?bd([[:space:]]|$)/
     }
     /^[[:space:]]*#/ { next }
     {
