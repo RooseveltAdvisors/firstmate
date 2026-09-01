@@ -21,15 +21,15 @@
 # secondmates (persistent agents are never backlog items, AGENTS.md section 10),
 # homes whose configured backlog backend is manual and markdown homes that keep
 # no backlog file. Those return-1 exemptions are never errors; an
-# unresolvable configured data directory or incompatible tasks-axi instead
-# returns 2 so callers refuse before mutation.
+# unresolvable data directory, unsupported backend, or incompatible tasks-axi
+# instead returns 2 so callers refuse before mutation.
 #
 # ADDRESSING. Every call runs from the configured data directory's parent so
-# that home's `.tasks.toml` selects and addresses the backend. A legacy home
-# without that config still receives `--file <data>/backlog.md`, preserving
-# relocated markdown backlogs without overriding a configured non-markdown
-# adapter. The parent is the addressing root rather than FM_HOME, so a home
-# whose data directory is relocated keeps its backlog and archive together.
+# that home's `.tasks.toml` selects and addresses its markdown backlog. A legacy
+# home without that config still receives `--file <data>/backlog.md`, preserving
+# relocated markdown backlogs. The parent is the addressing root rather than
+# FM_HOME, so a home whose data directory is relocated keeps its backlog and
+# archive together.
 #
 # CRASH RECOVERY. Only teardown needs a durable record: it removes the meta and
 # with it the completion links, so a process killed between the two halves would
@@ -37,8 +37,9 @@
 # `state/<id>.backlog-close` first, and removes it once the close lands.
 # The writer and replay share one complete-record validator, and teardown stages
 # that record before destructive cleanup, so it never publishes or acts on a close
-# replay would reject. The validator pins the data path to this home's configured
-# root before any recovery mutation, then re-runs exactly that close.
+# replay would reject. The validator pins the data path and effective markdown
+# source to this home's configured root before any recovery mutation, then
+# re-runs exactly that close.
 # `tasks-axi done` on an already-closed task backfills links
 # without moving the close date, so replay is idempotent. Spawn needs no marker:
 # it publishes the meta first, so a crash
@@ -52,9 +53,12 @@ FM_BACKLOG_TRANSITION_ERROR=
 FM_BACKLOG_ROW_RESULT=
 FM_BACKLOG_ROW_STATE=
 FM_BACKLOG_ROW_ERROR=
+FM_BACKLOG_SELECTED_BACKEND=
+FM_BACKLOG_MARKDOWN_FILE=
 # Set by fm_backlog_close_marker_replay: closed | closed_incomplete | stale | noop.
 # shellcheck disable=SC2034 # Output global, read by the sourcing caller.
 FM_BACKLOG_CLOSE_REPLAY_RESULT=
+FM_BACKLOG_CLOSE_VALIDATED_SOURCE=
 
 # Emit each byte of a value as a decimal number, locale-independently.
 # Deliberately perl rather than od: the spawn and teardown lifecycle runs under a
@@ -161,12 +165,15 @@ fm_backlog_data_relative() {  # <data-dir>
 
 fm_backlog_markdown_file() {  # <data-dir>
   local data root config configured='' candidate
+  FM_BACKLOG_MARKDOWN_FILE=
   data=$(fm_backlog_data_absolute "$1") || return 1
   root=$(fm_backlog_root "$data") || return 1
   config="$root/.tasks.toml"
+  fm_backlog_require_markdown_backend "$root" || return $?
   if [ ! -e "$config" ] && [ ! -L "$config" ]; then
-    fm_backlog_file "$data"
-    return $?
+    FM_BACKLOG_MARKDOWN_FILE=$(fm_backlog_file "$data") || return $?
+    printf '%s\n' "$FM_BACKLOG_MARKDOWN_FILE"
+    return 0
   fi
   configured=$(awk '
       BEGIN { table = "root" }
@@ -195,44 +202,49 @@ fm_backlog_markdown_file() {  # <data-dir>
     ' "$config") || return 1
   if [ -n "$configured" ]; then
     case "$configured" in
-      /*) printf '%s\n' "$configured" ;;
-      *) printf '%s/%s\n' "$root" "$configured" ;;
+      /*) FM_BACKLOG_MARKDOWN_FILE=$configured ;;
+      *) FM_BACKLOG_MARKDOWN_FILE=$root/$configured ;;
     esac
+    printf '%s\n' "$FM_BACKLOG_MARKDOWN_FILE"
     return 0
   fi
   for candidate in "$root/backlog.md" "$root/data/backlog.md"; do
     if [ -e "$candidate" ] || [ -L "$candidate" ]; then
+      FM_BACKLOG_MARKDOWN_FILE=$candidate
       printf '%s\n' "$candidate"
       return 0
     fi
   done
-  printf '%s/backlog.md\n' "$root"
+  FM_BACKLOG_MARKDOWN_FILE=$root/backlog.md
+  printf '%s\n' "$FM_BACKLOG_MARKDOWN_FILE"
 }
 
 fm_backlog_source_present() {  # <data-dir> <authorized-data-dir>
-  local data=$1 authorized_data=$2 root file tasks_config backend
+  local data=$1 authorized_data=$2 root file tasks_config
   root=$(fm_backlog_root "$data") || return 1
   tasks_config="$root/.tasks.toml"
+  fm_backlog_require_markdown_backend "$root" || return $?
+  fm_backlog_markdown_file "$data" >/dev/null || return 1
+  file=$FM_BACKLOG_MARKDOWN_FILE
   if [ -e "$tasks_config" ] || [ -L "$tasks_config" ]; then
-    fm_backlog_record_present "$tasks_config" "tasks-axi config" "$root" || return 1
+    fm_backlog_record_present "$file" "backlog file" "$root"
+  else
+    fm_backlog_record_present "$file" "backlog file" "$authorized_data"
   fi
-  backend=$(fm_backlog_selected_backend "$root") || return 1
-  [ "$backend" = markdown ] || return 0
-  file=$(fm_backlog_markdown_file "$data") || return 1
-  fm_backlog_record_present "$file" "backlog file" "$root"
 }
 
-# Run tasks-axi from the owning home's configuration root. Supplying --file
-# would replace the Beads workspace path too, so it is only a legacy fallback
-# when no project config exists.
+# Run tasks-axi from the owning home's configuration root. A legacy home without
+# project config receives an explicit markdown file so relocated data stays
+# addressable.
 fm_backlog_tasks_axi() {  # <data-dir> <verb> [arg...]
-  local data root file backend
+  local data root file config
   data=$(fm_backlog_data_absolute "$1") || return 1
   shift
   root=$(fm_backlog_root "$data") || return 1
-  backend=$(fm_backlog_selected_backend "$root") || return 1
-  if [ -e "$root/.tasks.toml" ] || [ -L "$root/.tasks.toml" ] \
-     || [ "$backend" != markdown ]; then
+  fm_backlog_require_markdown_backend "$root" || return $?
+  config="$root/.tasks.toml"
+  if [ -e "$config" ] || [ -L "$config" ]; then
+    fm_backlog_record_present "$config" "tasks-axi config" "$root" || return 1
     (cd "$root" 2>/dev/null && tasks-axi "$@")
     return $?
   fi
@@ -240,17 +252,21 @@ fm_backlog_tasks_axi() {  # <data-dir> <verb> [arg...]
   (cd "$root" 2>/dev/null && tasks-axi "$@" --file "$file")
 }
 
-# Resolve only the top-level adapter selector needed for the absent-markdown
-# exemption. Malformed or unsupported values stay non-markdown here so the
-# tasks-axi owner can reject them with its authoritative parser.
+# Resolve the backend only to enforce the markdown-only lifecycle boundary.
 fm_backlog_selected_backend() {  # <tasks-root>
   local root=$1 config backend
+  FM_BACKLOG_SELECTED_BACKEND=
+  config="$root/.tasks.toml"
+  if [ -e "$config" ] || [ -L "$config" ]; then
+    fm_backlog_record_present "$config" "tasks-axi config" "$root" || return 1
+  fi
   if [ -n "${TASKS_AXI_BACKEND:-}" ]; then
+    FM_BACKLOG_SELECTED_BACKEND=$TASKS_AXI_BACKEND
     printf '%s\n' "$TASKS_AXI_BACKEND"
     return 0
   fi
-  config="$root/.tasks.toml"
   if [ ! -e "$config" ] && [ ! -L "$config" ]; then
+    FM_BACKLOG_SELECTED_BACKEND=markdown
     printf 'markdown\n'
     return 0
   fi
@@ -274,11 +290,22 @@ fm_backlog_selected_backend() {  # <tasks-root>
       exit
     }
   ' "$config") || return 1
-  printf '%s\n' "${backend:-markdown}"
+  FM_BACKLOG_SELECTED_BACKEND=${backend:-markdown}
+  printf '%s\n' "$FM_BACKLOG_SELECTED_BACKEND"
+}
+
+fm_backlog_require_markdown_backend() {  # <tasks-root>
+  local backend
+  fm_backlog_selected_backend "$1" >/dev/null || return $?
+  backend=$FM_BACKLOG_SELECTED_BACKEND
+  if [ "$backend" != markdown ]; then
+    FM_BACKLOG_TRANSITION_ERROR="automatic backlog transitions support only the markdown tasks-axi backend"
+    return 2
+  fi
 }
 
 fm_backlog_transition_applies() {  # <config-dir> <data-dir> <kind>
-  local config=$1 data authorized_data=$2 kind=$3 file root backend
+  local config=$1 data authorized_data=$2 kind=$3 file
   FM_BACKLOG_TRANSITION_SKIP=
   if [ "$kind" = secondmate ]; then
     FM_BACKLOG_TRANSITION_SKIP="secondmates are not backlog items"
@@ -292,14 +319,11 @@ fm_backlog_transition_applies() {  # <config-dir> <data-dir> <kind>
     FM_BACKLOG_TRANSITION_ERROR="data directory cannot be resolved: $2"
     return 2
   fi
-  root=$(fm_backlog_root "$data") || return 2
-  backend=$(fm_backlog_selected_backend "$root") || return 2
-  if [ "$backend" = markdown ]; then
-    file=$(fm_backlog_markdown_file "$data") || return 2
-    if [ ! -e "$file" ] && [ ! -L "$file" ]; then
-      FM_BACKLOG_TRANSITION_SKIP="this home keeps no markdown backlog at $file"
-      return 1
-    fi
+  fm_backlog_markdown_file "$data" >/dev/null || return 2
+  file=$FM_BACKLOG_MARKDOWN_FILE
+  if [ ! -e "$file" ] && [ ! -L "$file" ]; then
+    FM_BACKLOG_TRANSITION_SKIP="this home keeps no markdown backlog at $file"
+    return 1
   fi
   if ! fm_backlog_source_present "$data" "$authorized_data"; then
     return 2
@@ -433,13 +457,23 @@ fm_backlog_record_parent_authorized() {
   else
     path_resolved=$expected_path
   fi
-  case "$path_resolved" in
-    "$root_resolved"/*) ;;
-    *)
-      FM_BACKLOG_TRANSITION_ERROR="$label resolves outside its authorized directory at $path"
-      return 1
-      ;;
-  esac
+  if [ "$root_resolved" = / ]; then
+    case "$path_resolved" in
+      /*) ;;
+      *)
+        FM_BACKLOG_TRANSITION_ERROR="$label resolves outside its authorized directory at $path"
+        return 1
+        ;;
+    esac
+  else
+    case "$path_resolved" in
+      "$root_resolved"/*) ;;
+      *)
+        FM_BACKLOG_TRANSITION_ERROR="$label resolves outside its authorized directory at $path"
+        return 1
+        ;;
+    esac
+  fi
   if [ "$final_matches" != 1 ]; then
     FM_BACKLOG_TRANSITION_ERROR="$label resolves through a different final path at $path"
     return 1
@@ -584,14 +618,17 @@ fm_backlog_close_marker_path() {  # <state-dir> <id>
 
 fm_backlog_close_marker_validate() {  # <marker-path> <authorized-data-dir> <expected-id> <state-dir>
   local marker=$1 authorized_data data_resolved expected_id=$3 state=$4
-  local id='' data='' marker_spawn_gen='' cleanup_incomplete=0 line raw_bytes arg_value
+  local id='' data='' marker_source='' marker_spawn_gen='' cleanup_incomplete=0
+  local source_resolved='' current_source='' current_source_resolved=''
+  local root config line raw_bytes arg_value
   local url_tail url_authority url_path url_host url_port host_rest host_label host_valid
   local percent_tail percent_valid
-  local id_count=0 data_count=0 spawn_gen_count=0 cleanup_incomplete_count=0
+  local id_count=0 data_count=0 source_count=0 spawn_gen_count=0 cleanup_incomplete_count=0
   local args=()
   FM_BACKLOG_CLOSE_VALIDATED_ID=
   FM_BACKLOG_CLOSE_VALIDATED_DATA=
   FM_BACKLOG_CLOSE_VALIDATED_SPAWN_GEN=
+  FM_BACKLOG_CLOSE_VALIDATED_SOURCE=
   FM_BACKLOG_CLOSE_VALIDATED_CLEANUP_INCOMPLETE=0
   FM_BACKLOG_CLOSE_VALIDATED_ARGS=()
   fm_backlog_record_present "$marker" "pending-close record" "$state" || return 1
@@ -607,6 +644,7 @@ fm_backlog_close_marker_validate() {  # <marker-path> <authorized-data-dir> <exp
     case "$line" in
       id=*) id=${line#id=}; id_count=$((id_count + 1)) ;;
       data=*) data=${line#data=}; data_count=$((data_count + 1)) ;;
+      source=*) marker_source=${line#source=}; source_count=$((source_count + 1)) ;;
       spawn_gen=*) marker_spawn_gen=${line#spawn_gen=}; spawn_gen_count=$((spawn_gen_count + 1)) ;;
       cleanup_incomplete=*) cleanup_incomplete=${line#cleanup_incomplete=}; cleanup_incomplete_count=$((cleanup_incomplete_count + 1)) ;;
       arg=*) args+=("${line#arg=}") ;;
@@ -632,6 +670,10 @@ fm_backlog_close_marker_validate() {  # <marker-path> <authorized-data-dir> <exp
       ;;
   esac
   if [ "$cleanup_incomplete_count" -gt 1 ]; then
+    FM_BACKLOG_TRANSITION_ERROR="unreadable pending-close record $marker"
+    return 1
+  fi
+  if [ "$source_count" -gt 1 ]; then
     FM_BACKLOG_TRANSITION_ERROR="unreadable pending-close record $marker"
     return 1
   fi
@@ -663,6 +705,40 @@ fm_backlog_close_marker_validate() {  # <marker-path> <authorized-data-dir> <exp
   if [ "$data_resolved" != "$authorized_data" ]; then
     FM_BACKLOG_TRANSITION_ERROR="foreign data directory in pending-close record $marker"
     return 1
+  fi
+  root=$(fm_backlog_root "$data_resolved") || {
+    FM_BACKLOG_TRANSITION_ERROR="backlog root in pending-close record cannot be resolved: $data_resolved"
+    return 1
+  }
+  fm_backlog_markdown_file "$data_resolved" >/dev/null || return 1
+  current_source=$FM_BACKLOG_MARKDOWN_FILE
+  if [ "$source_count" -eq 0 ]; then
+    config="$root/.tasks.toml"
+    if [ -e "$config" ] || [ -L "$config" ]; then
+      FM_BACKLOG_TRANSITION_ERROR="pending-close record has no pinned backlog source: $marker"
+      return 1
+    fi
+  else
+    case "$marker_source" in
+      /*) ;;
+      *)
+        FM_BACKLOG_TRANSITION_ERROR="invalid backlog source in pending-close record $marker"
+        return 1
+        ;;
+    esac
+    fm_backlog_record_present "$marker_source" "pending-close backlog source" "$root" || return 1
+    source_resolved=$(fm_backlog_canonical_existing "$marker_source") || {
+      FM_BACKLOG_TRANSITION_ERROR="pending-close backlog source cannot be resolved: $marker_source"
+      return 1
+    }
+    current_source_resolved=$(fm_backlog_canonical_existing "$current_source") || {
+      FM_BACKLOG_TRANSITION_ERROR="current backlog source cannot be resolved while replaying $marker"
+      return 1
+    }
+    if [ "$source_resolved" != "$current_source_resolved" ]; then
+      FM_BACKLOG_TRANSITION_ERROR="pending-close backlog source changed from $source_resolved to $current_source_resolved"
+      return 1
+    fi
   fi
   case "${#args[@]}" in
     0) ;;
@@ -736,15 +812,25 @@ fm_backlog_close_marker_validate() {  # <marker-path> <authorized-data-dir> <exp
   FM_BACKLOG_CLOSE_VALIDATED_ID=$id
   FM_BACKLOG_CLOSE_VALIDATED_DATA=$data_resolved
   FM_BACKLOG_CLOSE_VALIDATED_SPAWN_GEN=$marker_spawn_gen
+  FM_BACKLOG_CLOSE_VALIDATED_SOURCE=$source_resolved
   FM_BACKLOG_CLOSE_VALIDATED_CLEANUP_INCOMPLETE=$cleanup_incomplete
   FM_BACKLOG_CLOSE_VALIDATED_ARGS=("${args[@]+"${args[@]}"}")
 }
 
 fm_backlog_close_marker_stage() {  # <temporary-path> <id> <data-dir> <spawn-gen> <state-dir> <cleanup-incomplete: 0|1> [flag...]
   local tmp=$1 id=$2 data spawn_gen=$4 state=$5 cleanup_incomplete=$6 arg previous_arg=''
+  local root source
   local serialized_args=()
   data=$(fm_backlog_data_absolute "$3") || {
     FM_BACKLOG_TRANSITION_ERROR="data directory cannot be resolved: $3"
+    return 1
+  }
+  root=$(fm_backlog_root "$data") || return 1
+  fm_backlog_markdown_file "$data" >/dev/null || return 1
+  source=$FM_BACKLOG_MARKDOWN_FILE
+  fm_backlog_record_present "$source" "backlog file" "$root" || return 1
+  source=$(fm_backlog_canonical_existing "$source") || {
+    FM_BACKLOG_TRANSITION_ERROR="backlog file cannot be resolved at $source"
     return 1
   }
   fm_backlog_record_parent_authorized "$tmp" "pending-close staging path" "$state" || return 1
@@ -768,6 +854,7 @@ fm_backlog_close_marker_stage() {  # <temporary-path> <id> <data-dir> <spawn-gen
   {
     printf 'id=%s\n' "$id"
     printf 'data=%s\n' "$data"
+    printf 'source=%s\n' "$source"
     printf 'spawn_gen=%s\n' "$spawn_gen"
     printf 'cleanup_incomplete=%s\n' "$cleanup_incomplete"
     for arg in "${serialized_args[@]+"${serialized_args[@]}"}"; do
