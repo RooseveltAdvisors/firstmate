@@ -2,7 +2,8 @@
 # Tear down a finished task: return the treehouse worktree, release the Orca
 # worktree, or retire a secondmate home; kill the recorded runtime endpoint,
 # clear volatile state, and CLOSE this home's backlog item for ship and scout
-# tasks before reporting success (a secondmate teardown closes none, since
+# tasks only after verifying their landing receipt and before reporting success
+# (a secondmate teardown closes none, since
 # secondmates are not backlog items), then refresh/prune the project's clone for
 # PR-based ship tasks.
 # Removing state/<id>.meta and closing the backlog item are one step, not two:
@@ -14,28 +15,25 @@
 # the next session start enough to finish it; a landed close removes that record.
 # A close that fails is fatal and loud, preserves its pending-close record, and
 # is retried by the next session start. The transition is skipped on a
-# config/backlog-backend=manual home and in a home that keeps no
-# data/backlog.md; those cases print the manual follow-up. An automatic-backend
-# home with a backlog but no compatible tasks-axi refuses before cleanup.
+# config/backlog-backend=manual home and in a markdown home that keeps no
+# backlog file; those cases print the manual follow-up. A configured
+# non-markdown adapter remains active without data/backlog.md. An
+# automatic-backend home with no compatible tasks-axi refuses before cleanup.
 # None of this loosens the landed-work gates below: the transition runs only on
 # the paths that already proceed to remove the record.
-# REFUSES if the worktree holds work that has not LANDED, because cleanup
-# hard-resets/removes the worktree and kills its processes. Work has landed when it is
-# reachable from any remote-tracking branch (a fork counts as a remote, so
-# upstream-contribution PRs pushed to a fork satisfy this in any mode), OR - for a
-# normal ship task whose commits are not so reachable - when its PR is merged and
-# GitHub reports a PR head that contains the current local work, or its content is
-# already present in the up-to-date default branch. This recognizes the common
-# squash-merge-then-delete-branch flow, where the branch's own commits live nowhere
-# on a remote yet the change is fully in main.
+# REFUSES if a normal ship task has no verified landing receipt, because cleanup
+# hard-resets/removes the worktree, kills its processes, and closes its claimed
+# backlog item. A pushed branch is transport, not landing. A PR-mode ship must
+# have a canonical merged PR whose head contains the current local work. A
+# local-only ship must have the same content in its local default branch.
 # The PR itself is resolved from the task's recorded pr= when present, or - when
 # no pr= was ever recorded (e.g. a yolo-authorized merge on a repo with no PR CI,
 # where the usual "checks green" fm-pr-check.sh trigger never fires) - by looking
 # up a merged PR whose head branch matches the worktree's branch, fetching its head
 # via refs/pull/<n>/head when the branch itself was deleted. So a missing pr= never
 # by itself causes a false refusal of landed work.
-# A gh lookup error falls back to the content check; if that is also inconclusive,
-# teardown refuses rather than risk discarding unlanded work.
+# A lookup or containment error is inconclusive, so teardown refuses rather than
+# risk discarding unlanded work or closing a claim on a bare done report.
 # Uncommitted changes are never landed.
 # local-only projects additionally accept work merged into the local default
 # branch (firstmate performs that merge after configured approval) as a fallback
@@ -1083,7 +1081,7 @@ EOF
 # PR from the recorded pr= URL first, then from the branch name, and asks GitHub
 # for both the PR state and head. Returns non-zero when the PR is not merged, the
 # current work is not contained in the PR head, no PR is found, or any gh error
-# occurs - the caller then falls back to the content check.
+# occurs; the caller refuses because none of those states proves landing.
 pr_is_merged() {
   local branch=$1 target view state remainder head resolved_url current landed=0
   if [ -n "$PR_URL" ]; then
@@ -1119,24 +1117,13 @@ pr_is_merged() {
   return 0
 }
 
-# Is the branch's content already present in the up-to-date default branch? Fetches
-# first, then 3-way merges the default branch with HEAD: when HEAD introduces nothing
-# the default branch does not already contain (e.g. its change landed via squash) the
-# merged tree equals the default branch's tree. This isolates branch-only changes, so
-# unrelated commits the default branch gained past the merge-base do not count as
-# "added". Returns non-zero when inconclusive (no default ref, or a merge conflict),
-# so the caller refuses rather than guesses.
-content_in_default() {
+# Local-only delivery lands in the local default branch under the separately
+# approved merge path. A remote-tracking ref cannot prove that local merge.
+content_in_local_default() {
   local name ref default_tree merged_tree
   name=$(default_branch) || return 1
-  if git -C "$WT" remote get-url origin >/dev/null 2>&1; then
-    git -C "$WT" fetch --quiet origin "+refs/heads/$name:refs/remotes/origin/$name" >/dev/null 2>&1 || return 1
-    ref="refs/remotes/origin/$name"
-  elif git -C "$WT" rev-parse --quiet --verify "refs/heads/$name" >/dev/null 2>&1; then
-    ref="refs/heads/$name"
-  else
-    return 1
-  fi
+  ref="refs/heads/$name"
+  git -C "$WT" rev-parse --quiet --verify "$ref" >/dev/null 2>&1 || return 1
   default_tree=$(git -C "$WT" rev-parse --quiet --verify "$ref^{tree}" 2>/dev/null) || return 1
   [ -n "$default_tree" ] || return 1
   merged_tree=$(git -C "$WT" merge-tree --write-tree "$ref" HEAD 2>/dev/null) || return 1
@@ -1144,15 +1131,20 @@ content_in_default() {
   [ "$merged_tree" = "$default_tree" ]
 }
 
-# Has the worktree's committed work actually LANDED, though its commits are not
-# reachable from any remote-tracking branch? True when a merged PR proves the
-# current local work is contained in the PR head, OR the content is already in the
-# default branch (fallback, which also covers the no-PR and gh-error paths). False
-# only for genuinely unlanded work.
+# Has the worktree's committed work actually landed with the receipt its task
+# mode requires? Remote delivery needs a canonical merged PR URL. Local-only
+# delivery needs content already present in the local default branch.
 work_is_landed() {
   local branch=$1
-  pr_is_merged "$branch" && return 0
-  content_in_default
+  if [ "$MODE" = local-only ]; then
+    content_in_local_default
+    return $?
+  fi
+  if [ -n "$PR_URL" ]; then
+    fm_pr_url_parse "$PR_URL" || return 1
+  fi
+  pr_is_merged "$branch" || return 1
+  fm_pr_url_parse "$PR_URL"
 }
 
 # The completion links this teardown already holds locally. A scout's
@@ -1170,8 +1162,11 @@ backlog_done_args() {
     *)
       if [ "$MODE" = local-only ]; then
         BACKLOG_DONE_ARGS=(--note "local main")
-      elif [ -n "$PR_URL" ]; then
+      elif [ -n "$PR_URL" ] && fm_pr_url_parse "$PR_URL"; then
         BACKLOG_DONE_ARGS=(--pr "$PR_URL")
+      else
+        FM_BACKLOG_TRANSITION_ERROR="ship task $ID has no canonical landing PR URL"
+        return 1
       fi
       ;;
   esac
@@ -1192,6 +1187,8 @@ backlog_refresh_reminder() {
   fi
   if [ "$BACKLOG_CLOSED" = 1 ]; then
     printf '%s\n' "Backlog: $ID is closed in $backlog_display. Run tasks-axi ready for dependency-cleared candidates, check date gates, and dispatch only work whose blockers are gone and date is due."
+  elif [ "${BACKLOG_DISCARDED_WITHOUT_CLOSE:-0}" = 1 ]; then
+    printf '%s\n' "Backlog: $ID was explicitly discarded and remains unclosed because no landing receipt exists. Resolve its claimed item explicitly; do not close it as landed."
   else
     printf '%s\n' "Backlog: $ID just finished ($BACKLOG_SKIP_REASON). Update $backlog_display - move $ID to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due."
   fi
@@ -1413,11 +1410,14 @@ teardown_treehouse_return() {
 
 validate_worktree_teardown_safety() {
   local dirty_raw dirty unpushed_raw unpushed DEFAULT unmerged_raw unmerged branch
-  [ -d "$WT" ] || return 0
   [ "$FORCE" != "--force" ] || return 0
   case "$KIND" in
     secondmate|scout) return 0 ;;
   esac
+  if [ ! -d "$WT" ]; then
+    echo "REFUSED: ship task $ID has no inspectable worktree at ${WT:-<missing>}; no landing receipt can be proven." >&2
+    return 1
+  fi
 
   if ! dirty_raw=$(git -C "$WT" status --porcelain 2>/dev/null); then
     if worktree_safety_blocked_by_lock "uncommitted changes"; then
@@ -1439,7 +1439,7 @@ validate_worktree_teardown_safety() {
   fi
   unpushed=$(printf '%s\n' "$unpushed_raw" | head -5)
 
-  if [ -n "$unpushed" ] && [ "$MODE" = local-only ]; then
+  if [ "$MODE" = local-only ]; then
     DEFAULT=$(default_branch) || { echo "REFUSED: cannot determine default branch for $PROJ; expected origin/HEAD, main, or master." >&2; return 1; }
     if ! unmerged_raw=$(git -C "$WT" log --oneline HEAD --not "$DEFAULT" -- 2>/dev/null); then
       if worktree_safety_blocked_by_lock "commits not on $DEFAULT"; then
@@ -1451,10 +1451,10 @@ validate_worktree_teardown_safety() {
     fi
     unmerged=$(printf '%s\n' "$unmerged_raw" | head -5)
     if [ -n "$dirty" ] || [ -n "$unmerged" ]; then
-      echo "REFUSED: local-only worktree $WT has work not yet merged into $DEFAULT and not on any remote." >&2
+      echo "REFUSED: local-only worktree $WT has work not yet landed in local $DEFAULT." >&2
       [ -n "$dirty" ] && echo "uncommitted changes present" >&2
       [ -n "$unmerged" ] && printf 'commits not yet on %s:\n%s\n' "$DEFAULT" "$unmerged" >&2
-      echo "Merge the branch into local $DEFAULT first (bin/fm-merge-local.sh after the captain approves), or push to a fork/remote, or get the captain's explicit OK to discard, then --force." >&2
+      echo "Merge the branch into local $DEFAULT first (bin/fm-merge-local.sh after the captain approves), or get the captain's explicit OK to discard, then --force." >&2
       return 1
     fi
   elif [ -n "$dirty" ]; then
@@ -1462,18 +1462,22 @@ validate_worktree_teardown_safety() {
     echo "uncommitted changes present" >&2
     echo "Commit them (or get the captain's explicit OK to discard, then --force)." >&2
     return 1
-  elif [ -n "$unpushed" ]; then
-    branch=${TEARDOWN_WORKTREE_BRANCH_FOR_SAFETY:-}
-    if [ -z "$branch" ]; then
-      branch=$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
-      TEARDOWN_WORKTREE_BRANCH_FOR_SAFETY=$branch
+  fi
+  branch=${TEARDOWN_WORKTREE_BRANCH_FOR_SAFETY:-}
+  if [ -z "$branch" ]; then
+    branch=$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
+    TEARDOWN_WORKTREE_BRANCH_FOR_SAFETY=$branch
+  fi
+  if ! work_is_landed "$branch"; then
+    if [ "$MODE" = local-only ]; then
+      echo "REFUSED: local-only worktree $WT has no proven landing in its local default branch." >&2
+      echo "Merge it through the approved local-only path, or get the captain's explicit OK to discard, then --force." >&2
+    else
+      echo "REFUSED: worktree $WT has no canonical merged PR receipt containing its current work." >&2
+      [ -z "$unpushed" ] || printf 'unpushed commits:\n%s\n' "$unpushed" >&2
+      echo "Land its PR, or get the captain's explicit OK to discard, then --force." >&2
     fi
-    if ! work_is_landed "$branch"; then
-      echo "REFUSED: worktree $WT has work not on any remote and not landed." >&2
-      printf 'unpushed commits:\n%s\n' "$unpushed" >&2
-      echo "Push the branch, land its PR, or get the captain's explicit OK to discard, then --force." >&2
-      return 1
-    fi
+    return 1
   fi
 }
 
@@ -2664,7 +2668,7 @@ if [ "$BACKEND" = orca ] && [ "$KIND" != scout ] && [ "$KIND" != secondmate ] &&
   ORCA_PATH_MATCH_VERIFIED=1
 fi
 
-if [ -d "$WT" ] && [ "$FORCE" != "--force" ]; then
+if [ "$FORCE" != "--force" ]; then
   if validate_worktree_teardown_safety; then
     :
   else
@@ -2696,7 +2700,8 @@ fi
 
 BACKLOG_CLOSED=0
 BACKLOG_SKIP_REASON=
-if [ "$TEARDOWN_BACKLOG_APPLIES" = 1 ]; then
+BACKLOG_DISCARDED_WITHOUT_CLOSE=0
+if [ "$TEARDOWN_BACKLOG_APPLIES" = 1 ] && [ "$FORCE" != "--force" ]; then
   backlog_done_args || {
     echo "error: the pending backlog close for $ID is not replayable; refusing destructive teardown" >&2
     exit 1
@@ -2706,6 +2711,9 @@ if [ "$TEARDOWN_BACKLOG_APPLIES" = 1 ]; then
   fm_backlog_close_marker_write "$STATE" "$ID" "$DATA" "$META_SPAWN_GEN" \
     "${BACKLOG_DONE_ARGS[@]+"${BACKLOG_DONE_ARGS[@]}"}" \
     || { echo "error: the pending backlog close for $ID could not be recorded ($FM_BACKLOG_TRANSITION_ERROR); retaining every durable task record" >&2; exit 1; }
+elif [ "$TEARDOWN_BACKLOG_APPLIES" = 1 ]; then
+  BACKLOG_DISCARDED_WITHOUT_CLOSE=1
+  BACKLOG_SKIP_REASON="forced discard has no landing receipt"
 else
   if [ "$CLEANUP_RECOVERY" = orca ]; then
     BACKLOG_SKIP_REASON="Orca cleanup recovery is not a launched backlog worker"

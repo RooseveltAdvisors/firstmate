@@ -99,6 +99,17 @@ fm_tasks_axi_mv_has_multi_id() {
   printf '%s\n' "$output" | grep -F -- '[<id>...]' >/dev/null
 }
 
+# Beads dispatch needs the adapter's atomic actor claim, not the generic
+# queued -> in-flight transition. Keep this feature probe separate from the
+# global compatibility floor so markdown-only homes do not require a
+# backend-specific coordination verb.
+fm_tasks_axi_claim_available() {
+  local output
+  command -v tasks-axi >/dev/null 2>&1 || return 1
+  output=$(tasks-axi claim --help 2>&1) || return 1
+  printf '%s\n' "$output" | grep -F -- 'tasks-axi claim <id>' >/dev/null
+}
+
 fm_backlog_backend_value() {
   local config_dir=$1 backend_file value
   backend_file="$config_dir/backlog-backend"

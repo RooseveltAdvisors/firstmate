@@ -2,37 +2,34 @@
 # Tests for bin/fm-teardown.sh's landed-work safety and stale-lock recovery.
 #
 # The check refuses to tear down a worktree whose work has not LANDED, because
-# treehouse return hard-resets the worktree. "Landed" means reachable from a remote
-# OR - for a normal ship task whose commits are not so reachable - its PR is merged
-# and GitHub reports a PR head that contains the current local work, or its content
-# is already in the up-to-date default branch.
+# treehouse return hard-resets the worktree and teardown closes the claimed item.
+# A PR-mode ship needs a canonical merged PR URL whose head contains the current
+# local work. A local-only ship needs the same content in its local default branch.
+# A pushed branch is transport, not a landing receipt.
 #
-# Covers three fixes:
-#   - local-only fork-remote: a fork IS a remote, so fork-pushed upstream-
-#     contribution PRs are teardown-eligible (the pre-fix code false-refused them).
+# Covers three safety contracts:
+#   - remote reachability alone never proves a PR merge or a local-only merge.
 #   - squash-merge-then-delete-branch: the branch's own commits live nowhere on a
 #     remote after a squash merge deletes the head branch, yet the change is fully in
-#     main. Reachability alone false-refused this common GitHub flow; the check now
-#     recognizes a merged PR head containing the local work (or the content already
-#     in main) as landed.
+#     main. The check recognizes a canonical merged PR whose head contains the work.
 #   - teardown-lock-race: a killed crew process can leave a transient worktree
 #     git index.lock that blocks teardown. The return path retries on the lock
 #     error signature (even if the lock self-clears mid-check), then only removes a
 #     provably stale lock before re-running safety checks.
 #
 # Matrix:
-#   (a) local-only + HEAD on a fork remote-tracking branch     -> ALLOW  (fork fix)
+#   (a) local-only + HEAD on a fork remote-tracking branch     -> REFUSE (no local land)
 #   (b) local-only + truly unpushed work (no remote, not main) -> REFUSE (safety)
 #   (c) local-only + merged into local main, no remote         -> ALLOW  (no regression)
-#   (d) no-mistakes + HEAD on origin remote-tracking branch    -> ALLOW  (no regression)
+#   (d) no-mistakes + HEAD on origin remote-tracking branch    -> REFUSE (no merged PR)
 #   (e) no-mistakes + unpushed, no PR, content not in default  -> REFUSE (safety)
 #   (f) local-only + truly unpushed + --force                  -> ALLOW  (escape hatch)
 #   (g) no-mistakes + squash-merged PR, exact PR head          -> ALLOW  (squash fix)
-#   (h) no-mistakes + no PR but content already in default     -> ALLOW  (content fallback)
+#   (h) no-mistakes + no PR but content already in default     -> REFUSE (URL required)
 #   (i) no-mistakes + dirty worktree, even when work landed     -> REFUSE (dirty wins)
 #   (j) no-mistakes + gh lookup errors + content not in default -> REFUSE (fail-safe)
 #   (k) no-mistakes + merged PR but HEAD moved afterward        -> REFUSE (stale PR)
-#   (l) no-mistakes + stale origin/main but fetched content     -> ALLOW  (fresh fetch)
+#   (l) local-only + content only on remote main                -> REFUSE (local proof required)
 #   (m) no-mistakes + local HEAD ancestor of merged PR head     -> ALLOW  (lagging local)
 #   (n) no-mistakes + replayed unpushed patch in merged PR head -> ALLOW  (replayed local)
 #   (o) fm-pr-check rerun after HEAD moved                      -> no stale pr_head
@@ -260,6 +257,16 @@ echo "error: pull request not found" >&2
 exit 1
 SH
   chmod +x "$case_dir/fakebin/gh-axi" "$case_dir/fakebin/gh"
+}
+
+# Give a PR-mode fixture the receipt required for a successful teardown.
+# Call this only after the fixture has made its final worktree commit.
+prove_current_head_merged_pr() {
+  local case_dir=$1 head
+  head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  grep -q '^pr=' "$case_dir/state/task-x1.meta" 2>/dev/null \
+    || append_pr_meta_url "$case_dir"
+  add_gh_pr_merged_for_head "$case_dir" "$head"
 }
 
 append_pr_meta_for_current_head() {
@@ -563,7 +570,7 @@ make_path_without_lsof() {  # <case-dir>
   printf '%s\n' "$path_dir"
 }
 
-test_local_only_fork_remote_allows() {
+test_local_only_fork_remote_refuses_without_local_land() {
   local case_dir rc
   case_dir=$(make_case fork-allow)
   write_meta "$case_dir" local-only ship
@@ -575,21 +582,20 @@ test_local_only_fork_remote_allows() {
   rc=$?
   set -e
 
-  expect_code 0 "$rc" "fork-allow: teardown should succeed when HEAD is on a fork remote"
-  ! grep -q REFUSED "$case_dir/stderr" || fail "fork-allow: teardown printed a REFUSED line"
-  jq -e --arg id task-x1 '
-    .schema == "fm-secondmate-home-summary.v1"
-    and all(.endpoints[]; .id != $id)
-  ' "$case_dir/state/home-summary.json" >/dev/null \
-    || fail "successful task teardown did not publish the task's removal from the home summary ledger"
-  pass "local-only worktree with HEAD on a fork remote is torn down and the home summary is refreshed"
+  expect_code 1 "$rc" "fork-only: teardown should refuse without a local-main landing"
+  assert_grep 'REFUSED:' "$case_dir/stderr" \
+    "fork-only: teardown did not explain that remote reachability is not local land"
+  assert_present "$case_dir/state/task-x1.meta" \
+    "fork-only: refusal removed the durable task record"
+  [ -d "$case_dir/wt" ] || fail "fork-only: refusal removed the worktree"
+  pass "a fork-pushed local-only branch is not mistaken for proven local land"
 }
 
 test_teardown_closes_the_backlog_item_itself() {
   local case_dir out
   case_dir=$(make_case tasks-axi-close)
   write_meta "$case_dir" no-mistakes ship
-  printf '%s\n' 'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
+  prove_current_head_merged_pr "$case_dir"
   seed_backlog_in_flight "$case_dir"
 
   out=$(run_teardown "$case_dir") || fail "teardown failed with a real backlog"
@@ -612,7 +618,7 @@ test_teardown_manual_backend_leaves_the_backlog_to_the_operator() {
   local case_dir out backlog_path
   case_dir=$(make_case tasks-axi-manual-optout)
   write_meta "$case_dir" no-mistakes ship
-  printf '%s\n' 'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
+  prove_current_head_merged_pr "$case_dir"
   printf '%s\n' manual > "$case_dir/config/backlog-backend"
   seed_backlog_in_flight "$case_dir"
 
@@ -664,7 +670,7 @@ test_local_only_merged_to_local_main_allows() {
   pass "local-only worktree with work merged into local main is torn down (no regression)"
 }
 
-test_no_mistakes_origin_remote_allows() {
+test_no_mistakes_origin_remote_refuses_without_merged_pr() {
   local case_dir rc
   case_dir=$(make_case nm-origin)
   write_meta "$case_dir" no-mistakes ship
@@ -678,11 +684,13 @@ test_no_mistakes_origin_remote_allows() {
   rc=$?
   set -e
 
-  expect_code 0 "$rc" "nm-origin: teardown should succeed when HEAD is on origin"
-  ! grep -q REFUSED "$case_dir/stderr" || fail "nm-origin: teardown printed a REFUSED line"
-  grep -F 'blockers are gone and date is due' "$case_dir/stdout" >/dev/null \
-    || fail "nm-origin: teardown manual prompt did not preserve date-gate check"
-  pass "no-mistakes worktree with HEAD on origin is torn down (no regression)"
+  expect_code 1 "$rc" "nm-origin: teardown should refuse a pushed but unmerged branch"
+  assert_grep 'no canonical merged PR receipt' "$case_dir/stderr" \
+    "nm-origin: refusal did not require a merged PR receipt"
+  assert_present "$case_dir/state/task-x1.meta" \
+    "nm-origin: refusal removed the durable task record"
+  [ -d "$case_dir/wt" ] || fail "nm-origin: refusal removed the worktree"
+  pass "a pushed PR-mode branch is not mistaken for a merged landing"
 }
 
 test_no_mistakes_truly_unpushed_refuses() {
@@ -881,13 +889,12 @@ test_pr_check_records_remote_head_when_local_lags() {
   pass "fm-pr-check records the remote PR head when the local worktree lags"
 }
 
-test_content_in_default_fallback_allows() {
+test_remote_default_content_without_pr_refuses() {
   local case_dir rc
   case_dir=$(make_case content-landed)
   write_meta "$case_dir" no-mistakes ship
-  # No pr= recorded and the default gh-axi mock reports no PR, so the merged-PR path
-  # cannot fire and the content check must carry it. The branch adds feature.txt, and
-  # the same net change has independently landed on origin/main via a squash commit.
+  # The net content landed on origin/main, but there is no canonical PR URL.
+  # PR-mode teardown must not convert content similarity into a landing receipt.
   wt_commit_file "$case_dir" feature.txt hello "add feature"
   land_on_origin_main "$case_dir" feature.txt hello
 
@@ -896,15 +903,16 @@ test_content_in_default_fallback_allows() {
   rc=$?
   set -e
 
-  expect_code 0 "$rc" "content-landed: teardown should succeed when content is already in the default branch"
-  ! grep -q REFUSED "$case_dir/stderr" || fail "content-landed: teardown printed a REFUSED line"
-  pass "worktree whose content already landed in the default branch is torn down (content fallback)"
+  expect_code 1 "$rc" "content-landed: teardown should refuse without a merged PR URL"
+  assert_grep 'no canonical merged PR receipt' "$case_dir/stderr" \
+    "content-landed: refusal did not require the PR landing receipt"
+  pass "remote default-branch content does not replace a PR-mode landing URL"
 }
 
-test_content_fallback_refreshes_stale_origin_ref() {
+test_local_only_remote_default_does_not_prove_local_land() {
   local case_dir rc
   case_dir=$(make_case content-stale-ref)
-  write_meta "$case_dir" no-mistakes ship
+  write_meta "$case_dir" local-only ship
   wt_commit_file "$case_dir" feature.txt hello "add feature"
   git -C "$case_dir/project" config --unset-all remote.origin.fetch
   git -C "$case_dir/project" config --add remote.origin.fetch '+refs/heads/not-main:refs/remotes/origin/not-main'
@@ -915,9 +923,10 @@ test_content_fallback_refreshes_stale_origin_ref() {
   rc=$?
   set -e
 
-  expect_code 0 "$rc" "content-stale-ref: teardown should use the freshly fetched default branch"
-  ! grep -q REFUSED "$case_dir/stderr" || fail "content-stale-ref: teardown printed a REFUSED line"
-  pass "content fallback refreshes origin default before comparing trees"
+  expect_code 1 "$rc" "content-stale-ref: teardown should require the local default branch"
+  assert_grep 'REFUSED:' "$case_dir/stderr" \
+    "content-stale-ref: refusal did not preserve the local-only landing gate"
+  pass "content present only on remote main does not prove a local-only landing"
 }
 
 test_dirty_worktree_refuses() {
@@ -972,6 +981,7 @@ test_stale_index_lock_cleared_and_teardown_succeeds() {
   wt_commit "$case_dir" "shippable work"
   git -C "$case_dir/wt" push -q origin fm/task-x1
   git -C "$case_dir/project" fetch -q origin
+  prove_current_head_merged_pr "$case_dir"
 
   add_lock_aware_treehouse "$case_dir"
   add_lsof_no_holder "$case_dir"
@@ -1001,6 +1011,7 @@ test_live_index_lock_is_never_removed_and_teardown_refuses() {
   wt_commit "$case_dir" "shippable work"
   git -C "$case_dir/wt" push -q origin fm/task-x1
   git -C "$case_dir/project" fetch -q origin
+  prove_current_head_merged_pr "$case_dir"
 
   add_lock_aware_treehouse "$case_dir"
   add_lsof_live_holder "$case_dir"
@@ -1033,6 +1044,7 @@ test_lsof_error_never_clears_index_lock() {
   wt_commit "$case_dir" "shippable work"
   git -C "$case_dir/wt" push -q origin fm/task-x1
   git -C "$case_dir/project" fetch -q origin
+  prove_current_head_merged_pr "$case_dir"
 
   add_lock_aware_treehouse "$case_dir"
   add_lsof_error "$case_dir"
@@ -1064,6 +1076,7 @@ test_stale_index_lock_cleanup_rechecks_dirty_worktree() {
   wt_commit_file "$case_dir" feature.txt landed "landed work"
   git -C "$case_dir/wt" push -q origin fm/task-x1
   git -C "$case_dir/project" fetch -q origin
+  prove_current_head_merged_pr "$case_dir"
   printf '%s\n' dirty > "$case_dir/wt/feature.txt"
 
   add_lock_aware_treehouse "$case_dir"
@@ -1101,6 +1114,7 @@ test_non_linked_index_lock_path_is_checked_from_worktree() {
   wt_commit "$case_dir" "shippable normal clone work"
   git -C "$case_dir/wt" push -q origin fm/task-x1
   git -C "$case_dir/wt" fetch -q origin
+  prove_current_head_merged_pr "$case_dir"
 
   add_lock_aware_treehouse "$case_dir"
   add_lsof_no_holder "$case_dir"
@@ -1130,6 +1144,7 @@ test_index_lock_mtime_read_failure_refuses() {
   wt_commit "$case_dir" "shippable work"
   git -C "$case_dir/wt" push -q origin fm/task-x1
   git -C "$case_dir/project" fetch -q origin
+  prove_current_head_merged_pr "$case_dir"
 
   add_lock_aware_treehouse "$case_dir"
   add_lsof_no_holder "$case_dir"
@@ -1164,6 +1179,7 @@ test_transient_index_lock_clears_after_first_attempt_and_retry_succeeds() {
   wt_commit "$case_dir" "shippable work"
   git -C "$case_dir/wt" push -q origin fm/task-x1
   git -C "$case_dir/project" fetch -q origin
+  prove_current_head_merged_pr "$case_dir"
 
   add_transient_lock_treehouse "$case_dir"
   add_lsof_no_holder "$case_dir"
@@ -1204,6 +1220,7 @@ test_persistent_index_lock_exhausts_retries_and_refuses_loudly() {
   wt_commit "$case_dir" "shippable work"
   git -C "$case_dir/wt" push -q origin fm/task-x1
   git -C "$case_dir/project" fetch -q origin
+  prove_current_head_merged_pr "$case_dir"
 
   add_persistent_lock_treehouse "$case_dir"
   # Fresh lock with a live holder: never provably stale, never force-removed.
@@ -1242,6 +1259,7 @@ test_empty_retry_wait_uses_default_without_aborting() {
   wt_commit "$case_dir" "shippable work"
   git -C "$case_dir/wt" push -q origin fm/task-x1
   git -C "$case_dir/project" fetch -q origin
+  prove_current_head_merged_pr "$case_dir"
 
   add_transient_lock_treehouse "$case_dir"
   add_lsof_no_holder "$case_dir"
@@ -1278,6 +1296,7 @@ test_fractional_legacy_retry_wait_refuses_without_arithmetic_error() {
   wt_commit "$case_dir" "shippable work"
   git -C "$case_dir/wt" push -q origin fm/task-x1
   git -C "$case_dir/project" fetch -q origin
+  prove_current_head_merged_pr "$case_dir"
 
   add_persistent_lock_treehouse "$case_dir"
   add_lsof_live_holder "$case_dir"
@@ -2060,6 +2079,7 @@ land_shippable_commit() {
   wt_commit "$case_dir" "shippable work"
   git -C "$case_dir/wt" push -q origin fm/task-x1
   git -C "$case_dir/project" fetch -q origin
+  prove_current_head_merged_pr "$case_dir"
 }
 
 test_parked_own_run_is_aborted_before_teardown() {
@@ -2605,12 +2625,12 @@ EOF
   pass "the run abort and the leaked-process reap both complete before the destructive worktree return"
 }
 
-test_local_only_fork_remote_allows
+test_local_only_fork_remote_refuses_without_local_land
 test_teardown_closes_the_backlog_item_itself
 test_teardown_manual_backend_leaves_the_backlog_to_the_operator
 test_local_only_truly_unpushed_refuses
 test_local_only_merged_to_local_main_allows
-test_no_mistakes_origin_remote_allows
+test_no_mistakes_origin_remote_refuses_without_merged_pr
 test_no_mistakes_truly_unpushed_refuses
 test_local_only_force_overrides_unpushed
 test_teardown_missing_busy_sidecar_completes
@@ -2632,8 +2652,8 @@ test_squash_merged_pr_allows_replayed_unpushed_patch
 test_merged_pr_with_later_local_commit_refuses
 test_pr_check_does_not_refresh_stale_pr_head
 test_pr_check_records_remote_head_when_local_lags
-test_content_in_default_fallback_allows
-test_content_fallback_refreshes_stale_origin_ref
+test_remote_default_content_without_pr_refuses
+test_local_only_remote_default_does_not_prove_local_land
 test_dirty_worktree_refuses
 test_gh_error_and_content_absent_refuses
 test_stale_index_lock_cleared_and_teardown_succeeds

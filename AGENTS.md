@@ -305,7 +305,7 @@ Write the task-specific brief under section 11 before spawning.
 
 Spawn only through `bin/fm-spawn.sh` after the profile and backend checks in section 4.
 The spawn must resolve a genuine isolated task worktree distinct from the primary checkout; a failed isolation assertion stops the task.
-When the configured tasks-axi backlog gate applies, the spawn itself moves the work item to In flight and refuses rather than dispatching work this home has no item for, so recording the dispatch is never a separate step to remember; a manual-backend home retains the hand-editing contract in `docs/configuration.md`.
+When the configured tasks-axi backlog gate applies, the spawn itself claims the work item and refuses rather than dispatching work this home has no item for; Beads additionally requires its native ready result unless the current task carries the captain's explicit `--captain-override-not-ready`, and that override never bypasses exclusive claim.
 After spawning, confirm the worker is processing the brief and handle any trust dialog through `harness-adapters`.
 A persistent secondmate is recorded in the secondmate registry and runtime state, never as a backlog work item.
 
@@ -492,13 +492,15 @@ Mention cost as a courtesy when unusually much work is running, but never block 
 
 ## 10. Backlog contract
 
-`data/backlog.md` is the durable queue.
+The configured tasks-axi adapter is the durable queue; the tracked default uses `data/backlog.md`, but a Markdown In-flight heading or free-form status claim is never proof of Beads ownership.
 It tracks work items only, never agents; persistent secondmates never appear as backlog items.
 Work routed to a secondmate is recorded in that secondmate home's own backlog, not the main backlog.
 A decision is simply a task held for the captain: `tasks-axi hold <id> --reason "<reason>" --kind captain`, with `--until <date>` when the captain defers it.
 When a main-side thread such as a pending captain decision or relay reminder is worth durable tracking, file it as its own work item and hold it the same way.
 Captain calls discovered by investigations or visual reviews follow `captain-hold-lifecycle`, which owns their completion gate and recorded-answer rules.
-When the automatic transition gate applies, dispatch and completion move the item themselves - `bin/fm-spawn.sh` and `bin/fm-teardown.sh` own those transitions and refuse rather than report success without them - so what remains yours is filing the item before dispatch, recording decisions, and keeping notes current; `docs/configuration.md` owns gate applicability and the manual-backend exception.
+Actionable chat intake is create-and-claim: file the item in the configured adapter and dispatch it through `bin/fm-spawn.sh`, whose final commit performs the claim rather than trusting Markdown in-flight text.
+When the automatic transition gate applies, `bin/fm-spawn.sh` owns claim and `bin/fm-teardown.sh` owns evidence-bearing close; normal ship teardown requires a verified merged PR URL or proven local-only landing, while an explicit forced discard leaves the item unclosed for separate disposition.
+What remains yours is filing before dispatch, recording decisions, and keeping notes current; `docs/configuration.md` owns gate applicability and the manual-backend exception.
 Re-evaluate queued work after every teardown and heartbeat, dispatching items only when dependencies and time gates have cleared.
 
 `.tasks.toml`, `docs/configuration.md`, and current `tasks-axi --help` own the backlog schema, compatibility, retention, and routine command syntax.

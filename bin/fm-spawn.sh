@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Spawn a direct report: a crewmate in a treehouse or Orca worktree, or a
 # secondmate in its isolated firstmate home.
-# Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
-#        fm-spawn.sh <task-id> <project-dir> --scout [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
+# Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--captain-override-not-ready]
+#        fm-spawn.sh <task-id> <project-dir> --scout [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--captain-override-not-ready]
 #        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] --secondmate
 #   --mode and --yolo are this task's delivery contract, REQUIRED for every ship
 #   spawn and refused on --scout and --secondmate spawns. Firstmate resolves both
@@ -55,6 +55,9 @@
 #   codex-app is not a known backend yet; docs/codex-app-backend.md owns that
 #   blocked backend contract. Default tmux spawns do not write backend= to meta;
 #   absent backend= means tmux. cmux does not support --secondmate spawns yet.
+#   --captain-override-not-ready carries one current, task-specific captain
+#   instruction past the Beads ready gate. It is single-task only, is never
+#   persisted as standing permission, and cannot bypass the exclusive claim.
 #   A backend spawn refusal (missing dependency, version gate, unauthenticated
 #   socket, or unsupported secondmate mode) is terminal for that selected backend;
 #   callers must surface it instead of silently retrying another backend.
@@ -185,15 +188,15 @@
 # resolver because `cursor` is not the CLI name. A cursor SECONDMATE instead runs
 # the tracked project-scope .cursor/hooks.json in its own home, whose stop-hook
 # park owns that home's supervision (docs/supervision-protocols/cursor.md).
-# Publishing the record and moving this home's backlog item to In flight are one
+# Publishing the record and claiming this home's backlog item are one
 # step, not two: bin/fm-backlog-transition-lib.sh owns that invariant, and this
 # script performs the transition under the task's own meta lock before it reports
 # success. A ship or scout dispatch therefore REFUSES up front, before any
 # endpoint, worktree, or record exists, unless the home's backlog has an
-# unheld, unblocked Queued or In flight item for the id; a transition that fails
+# ready Beads item, or an eligible markdown item, for the id. A claim that fails
 # after publication removes the record it just wrote rather than leaving a
-# worker the backlog does not own. A relaunch re-reads the row instead of
-# re-running the transition, so an eligible In-flight item is left untouched.
+# worker the backlog does not own. Beads claims are exclusive and a relaunch
+# reclaims the existing actor-owned item through the same adapter boundary.
 # The transition is
 # skipped entirely for --secondmate spawns (persistent agents are not work
 # items), on a config/backlog-backend=manual home, and in a home that keeps no
@@ -318,6 +321,7 @@ BACKEND_ARG=
 MODE=
 YOLO=
 TRACEPARENT_ARG=
+CAPTAIN_OVERRIDE_NOT_READY=0
 HARNESS_SET=0
 MODEL_SET=0
 EFFORT_SET=0
@@ -364,6 +368,7 @@ for a in "$@"; do
     --yolo=*) YOLO=${a#--yolo=}; YOLO_SET=1 ;;
     --traceparent) want_value=traceparent ;;
     --traceparent=*) TRACEPARENT_ARG=${a#--traceparent=}; TRACEPARENT_SET=1 ;;
+    --captain-override-not-ready) CAPTAIN_OVERRIDE_NOT_READY=1 ;;
     *) POS+=("$a") ;;
   esac
 done
@@ -387,6 +392,10 @@ if [ "$TRACEPARENT_SET" -eq 1 ]; then
     echo "error: --traceparent is not a valid W3C traceparent" >&2
     exit 1
   }
+fi
+if [ "$CAPTAIN_OVERRIDE_NOT_READY" -eq 1 ] && [ "$KIND" = secondmate ]; then
+  echo "error: --captain-override-not-ready applies only to backlog-backed ship or scout work" >&2
+  exit 1
 fi
 case "$EFFORT" in
   ''|low|medium|high|xhigh|max) ;;
@@ -934,6 +943,10 @@ if [ "$RELAUNCH" -eq 1 ] && [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart"
   exit 1
 fi
 if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in */*) false ;; *) true ;; esac; then
+  if [ "$CAPTAIN_OVERRIDE_NOT_READY" -eq 1 ]; then
+    echo "error: --captain-override-not-ready is task-specific and cannot be shared across a batch; dispatch that task explicitly" >&2
+    exit 1
+  fi
   if [ "$KIND" != secondmate ] && [ -z "$HARNESS_ARG" ] && [ -f "$CONFIG/crew-dispatch.json" ]; then
     echo "error: config/crew-dispatch.json is active - pass an explicit harness resolved from the dispatch rules (the consultation backstop, so the rules are never silently skipped)." >&2
     exit 1
@@ -2021,8 +2034,10 @@ herdr_projection_existing_meta_allows_flat() {  # <meta>
 # a live pane. The authoritative mutation still runs under the meta lock below.
 BACKLOG_TRANSITION=0
 BACKLOG_ROW_STATE=
+BACKLOG_SELECTED_BACKEND=
 if fm_backlog_transition_applies "$CONFIG" "$DATA" "$KIND"; then
   BACKLOG_TRANSITION=1
+  BACKLOG_SELECTED_BACKEND=$FM_BACKLOG_SELECTED_BACKEND
   if fm_backlog_row_probe "$DATA" "$ID"; then
     BACKLOG_ROW_STATE=$FM_BACKLOG_ROW_STATE
   elif [ "$FM_BACKLOG_ROW_RESULT" = not_found ]; then
@@ -2032,7 +2047,32 @@ if fm_backlog_transition_applies "$CONFIG" "$DATA" "$KIND"; then
     echo "error: task $ID's backlog item could not be read before dispatch ($FM_BACKLOG_ROW_ERROR)" >&2
     exit 1
   fi
-  if ! fm_backlog_row_dispatchable "$BACKLOG_ROW_STATE"; then
+  if [ "$BACKLOG_SELECTED_BACKEND" = beads ]; then
+    case "$BACKLOG_ROW_STATE" in
+      done\ *)
+        echo "error: Beads item $ID is closed and cannot be claimed; refusing before creating its endpoint or local copy" >&2
+        exit 1
+        ;;
+    esac
+    if [ "$CAPTAIN_OVERRIDE_NOT_READY" -ne 1 ]; then
+      if [ "$RELAUNCH" -eq 1 ] && [ "$BACKLOG_ROW_STATE" = "in_flight no no" ]; then
+        :
+      elif fm_backlog_ready_probe "$DATA" "$ID"; then
+        :
+      elif [ "$FM_BACKLOG_READY_RESULT" = not_ready ]; then
+        echo "error: Beads item $ID is not ready; refusing before creating its endpoint or local copy. A current task-specific captain instruction must be passed explicitly as --captain-override-not-ready" >&2
+        exit 1
+      else
+        echo "error: Beads readiness for $ID could not be read before dispatch ($FM_BACKLOG_READY_ERROR)" >&2
+        exit 1
+      fi
+    else
+      echo "notice: applying the current task-specific captain override to Beads readiness for $ID; exclusive claim still applies" >&2
+    fi
+  elif [ "$CAPTAIN_OVERRIDE_NOT_READY" -eq 1 ]; then
+    echo "error: --captain-override-not-ready applies only to a configured Beads item" >&2
+    exit 1
+  elif ! fm_backlog_row_dispatchable "$BACKLOG_ROW_STATE"; then
     echo "error: this home's backlog item $ID is not dispatchable in state $BACKLOG_ROW_STATE; refusing before creating its endpoint or local copy" >&2
     exit 1
   fi
@@ -2040,6 +2080,10 @@ else
   BACKLOG_GATE_STATUS=$?
   if [ "$BACKLOG_GATE_STATUS" -eq 2 ]; then
     echo "error: task $ID cannot be dispatched because its backlog data directory is inaccessible: $DATA ($FM_BACKLOG_TRANSITION_ERROR)" >&2
+    exit 1
+  fi
+  if [ "$CAPTAIN_OVERRIDE_NOT_READY" -eq 1 ]; then
+    echo "error: --captain-override-not-ready requires an active configured Beads backlog" >&2
     exit 1
   fi
 fi
@@ -2919,7 +2963,8 @@ fi
 # point below so every earlier launch-delivery failure remains unwindable.
 spawn_commit_backlog_transition() {
   [ "$BACKLOG_TRANSITION" = 1 ] || return 0
-  fm_backlog_atomic_transition dispatch "$STATE/$ID.meta" "$DATA" "$ID" "$STATE"
+  fm_backlog_atomic_transition dispatch "$STATE/$ID.meta" "$DATA" "$ID" "$STATE" \
+    "$CAPTAIN_OVERRIDE_NOT_READY" "$RELAUNCH"
 }
 
 if [ "$RELAUNCH" -eq 1 ]; then
@@ -3124,12 +3169,12 @@ fi
 if [ "$SPAWN_BACKLOG_COMMIT_STATUS" -ne 0 ]; then
   if [ "$RELAUNCH" -eq 0 ]; then
     if spawn_fresh_commit_rollback; then
-      echo "error: task $ID's backlog item could not be moved to In flight ($FM_BACKLOG_TRANSITION_ERROR); its record was removed so no worker is left that the backlog does not own - close out endpoint $T and local copy $WT by hand, then re-run the spawn" >&2
+      echo "error: task $ID's backlog item could not be claimed ($FM_BACKLOG_TRANSITION_ERROR); its record was removed so no worker is left that the backlog does not own - close out endpoint $T and local copy $WT by hand, then re-run the spawn" >&2
     else
-      echo "error: task $ID's backlog item could not be moved to In flight ($FM_BACKLOG_TRANSITION_ERROR), and failed-dispatch cleanup is incomplete; the provisional record may remain at $STATE/$ID.meta - close out endpoint $T and local copy $WT by hand, then remove the record and busy state before retrying" >&2
+      echo "error: task $ID's backlog item could not be claimed ($FM_BACKLOG_TRANSITION_ERROR), and failed-dispatch cleanup is incomplete; the provisional record may remain at $STATE/$ID.meta - close out endpoint $T and local copy $WT by hand, then remove the record and busy state before retrying" >&2
     fi
   else
-    echo "error: task $ID was republished but its backlog item could not be moved to In flight ($FM_BACKLOG_TRANSITION_ERROR); fix the backlog and re-run the relaunch" >&2
+    echo "error: task $ID was republished but its backlog item could not be reclaimed ($FM_BACKLOG_TRANSITION_ERROR); fix the backlog and re-run the relaunch" >&2
   fi
 fi
 trap - HUP INT TERM

@@ -1279,10 +1279,19 @@ backlog_record_reconcile() {
       elif [ "$FM_BACKLOG_ROW_RESULT" != not_found ]; then
         echo "BACKLOG_RECONCILE: $id: worker record exists but its backlog item could not be read: $FM_BACKLOG_ROW_ERROR"
       fi
-      # Heal only the unambiguous case: a queued row for a record this home
-      # already owns. A held row is the captain's to move, and a closed row is a
-      # contradiction this sweep must not resolve by resurrecting the item.
-      if [ "$row" = "queued no no" ]; then
+      # Heal only an unheld, unblocked row for a record this home already owns.
+      # Beads must use the same native ready + exclusive-claim path as a relaunch;
+      # a markdown row keeps its legacy idempotent state transition. A held row
+      # is the captain's to move, and a closed row is a contradiction this sweep
+      # must not resolve by resurrecting the item.
+      if [ "$FM_BACKLOG_SELECTED_BACKEND" = beads ] \
+         && { [ "$row" = "queued no no" ] || [ "$row" = "in_flight no no" ]; }; then
+        if fm_backlog_atomic_transition dispatch "$meta" "$DATA" "$id" "$STATE" 0 1; then
+          echo "BOOTSTRAP_INFO: claimed $id to match the worker this home already owns"
+        else
+          echo "BACKLOG_RECONCILE: $id: worker record exists but its Beads item could not be claimed: $FM_BACKLOG_TRANSITION_ERROR"
+        fi
+      elif [ "$row" = "queued no no" ]; then
         if fm_backlog_start "$DATA" "$id"; then
           echo "BOOTSTRAP_INFO: marked $id in flight to match the worker this home already owns"
         else

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Behavior tests for the backlog<->record pairing invariant:
-# `state/<id>.meta` exists <=> this home's backlog row for that id is In flight.
+# `state/<id>.meta` exists <=> this home's backend item is claimed in flight.
 #
 # bin/fm-backlog-transition-lib.sh states the contract; the three scripts that
 # own a task's physical record enforce it. These tests drive those real scripts
@@ -86,6 +86,102 @@ start_item() {  # <case-dir> <id>
 row_state() {  # <case-dir> <id>
   tasks-axi show "$2" --file "$(backlog_of "$1")" 2>/dev/null |
     sed -n 's/^  state: *//p' | head -1
+}
+
+# A deterministic tasks-axi adapter double with native Beads semantics. It
+# exposes backend readiness separately from projected state and makes claim an
+# actor-exclusive compare-and-set, which lets the public spawn script exercise
+# the real coordination boundary without invoking bd from Firstmate.
+configure_beads_backend() {  # <case-dir> <id> <queued|in_flight|done> <ready: 0|1>
+  local case_dir=$1 id=$2 status=$3 ready=$4 home
+  home=$(home_of "$case_dir")
+  rm -f "$(backlog_of "$case_dir")"
+  mkdir -p "$home/.beads"
+  cat > "$home/.tasks.toml" <<EOF
+backend = "beads"
+
+[beads]
+path = "$home/.beads"
+binary = "bd"
+prefix = "atomic"
+EOF
+  printf '%s\n' "$id" > "$case_dir/beads-id"
+  printf '%s\n' "$status" > "$case_dir/beads-status"
+  printf '%s\n' "$ready" > "$case_dir/beads-ready"
+  : > "$case_dir/beads-owner"
+  : > "$case_dir/beads-log"
+  cat > "$case_dir/fakebin/tasks-axi" <<'SH'
+#!/usr/bin/env bash
+case_dir=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd -P)
+id=$(cat "$case_dir/beads-id")
+status=$(cat "$case_dir/beads-status")
+ready=$(cat "$case_dir/beads-ready")
+case "${1:-}" in
+  --version) printf '0.2.5\n' ;;
+  update)
+    [ "${2:-}" = --help ] || exit 2
+    printf '%s\n' '--archive-body'
+    ;;
+  mv)
+    [ "${2:-}" = --help ] || exit 2
+    printf '%s\n' '[<id>...]'
+    ;;
+  claim)
+    if [ "${2:-}" = --help ]; then
+      printf 'usage: tasks-axi claim <id> [--json]\n'
+      exit 0
+    fi
+    [ "${2:-}" = "$id" ] || { printf 'code: NOT_FOUND\n' >&2; exit 1; }
+    actor=${TASKS_AXI_TEST_ACTOR:-firstmate}
+    owner=$(cat "$case_dir/beads-owner")
+    if [ "$status" = done ]; then
+      printf 'error: task is closed\n' >&2
+      exit 1
+    fi
+    if [ -n "$owner" ] && [ "$owner" != "$actor" ]; then
+      printf 'claim-refused:%s:%s\n' "$actor" "$owner" >> "$case_dir/beads-log"
+      printf 'error: task already claimed by %s\n' "$owner" >&2
+      exit 1
+    fi
+    printf '%s\n' "$actor" > "$case_dir/beads-owner"
+    printf 'in_flight\n' > "$case_dir/beads-status"
+    printf 'claim:%s\n' "$actor" >> "$case_dir/beads-log"
+    printf 'confirm: claim %s -> in flight\n' "$id"
+    ;;
+  show)
+    [ "${2:-}" = "$id" ] || { printf 'code: NOT_FOUND\n' >&2; exit 1; }
+    blocked=no
+    if [ "$status" = queued ] && [ "$ready" != 1 ]; then blocked=yes; fi
+    printf 'task:\n  state: %s\n  held: no\n  blocked: %s\n' "$status" "$blocked"
+    ;;
+  ready)
+    count=0
+    [ ! -f "$case_dir/beads-ready-count" ] || count=$(cat "$case_dir/beads-ready-count")
+    count=$((count + 1))
+    printf '%s\n' "$count" > "$case_dir/beads-ready-count"
+    if [ "$status" = queued ] && [ "$ready" = 1 ]; then
+      printf 'count: 1\nready[1]{id,state,kind,repo,title}:\n  %s,queued,ship,firstmate,item\n' "$id"
+      if [ -f "$case_dir/beads-race-on-second-ready" ] && [ "$count" -eq 2 ]; then
+        printf 'rival\n' > "$case_dir/beads-owner"
+        printf 'in_flight\n' > "$case_dir/beads-status"
+      fi
+    else
+      printf 'count: 0\nready: "0 unblocked queued tasks"\n'
+    fi
+    if [ -f "$case_dir/beads-decoy-public-ready" ]; then
+      printf 'ready_public_followups[1]{id,state,kind,repo,title}:\n  %s,queued,public_followup,-,delivery\n' "$id"
+    fi
+    ;;
+  done)
+    [ "${2:-}" = "$id" ] || { printf 'code: NOT_FOUND\n' >&2; exit 1; }
+    printf 'done:%s\n' "$*" >> "$case_dir/beads-log"
+    printf 'done\n' > "$case_dir/beads-status"
+    printf 'confirm: done %s\n' "$id"
+    ;;
+  *) exit 2 ;;
+esac
+SH
+  chmod +x "$case_dir/fakebin/tasks-axi"
 }
 
 # Shadow tasks-axi with a wrapper that fails one verb and delegates every other
@@ -321,8 +417,8 @@ write_task_meta() {  # <case-dir> <id> <kind> <mode> [extra-line...]
   fm_write_meta "$(home_of "$case_dir")/state/$id.meta" \
     "window=firstmate:fm-$id" \
     "endpoint_task_id=$id" \
-    "worktree=$case_dir/absent-worktree" \
-    "project=$case_dir/absent-project" \
+    "worktree=$case_dir/wt" \
+    "project=$case_dir/project" \
     "harness=claude" \
     "kind=$kind" \
     "mode=$mode" \
@@ -340,14 +436,14 @@ run_spawn() {  # <case-dir> <args...>
     "$SPAWN" "$@" 2>&1
 }
 
-run_ship_spawn() {  # <case-dir> <id>
+run_ship_spawn() {  # <case-dir> <id> [extra-arg...]
   local case_dir=$1 id=$2
-  run_spawn "$case_dir" "$id" "$case_dir/project" --mode no-mistakes --yolo off
+  shift 2
+  run_spawn "$case_dir" "$id" "$case_dir/project" --mode no-mistakes --yolo off "$@"
 }
 
-# Teardown against a recorded worktree that no longer exists: the landed-work and
-# worktree-return steps are then no-ops, which keeps these cases about the
-# backlog transition rather than re-testing tests/fm-teardown.test.sh's matrix.
+# Teardown uses the fixture's real worktree. Local-only records begin at the
+# local default tree, providing a genuine landing proof without faking it.
 run_teardown() {  # <case-dir> <id> [args...]
   local case_dir=$1
   shift
@@ -484,6 +580,102 @@ SH
   [ "$(row_state "$case_dir" "$id")" = queued ] \
     || fail "blocked-row refusal changed the backlog state"
   pass "dispatch refuses dependency-blocked rows before creating resources"
+}
+
+test_beads_spawn_refuses_not_ready_before_creating_resources() {
+  local case_dir home id out rc=0
+  id=atomic-beads-blocked-b16
+  case_dir=$(make_home beads-blocked "$id")
+  home=$(home_of "$case_dir")
+  configure_beads_backend "$case_dir" "$id" queued 0
+  : > "$case_dir/beads-decoy-public-ready"
+  cat > "$case_dir/fakebin/tmux" <<SH
+#!/usr/bin/env bash
+case "\$*" in
+  *new-window*) : > "$case_dir/task-endpoint-created" ;;
+  *"#{pane_current_path}"*) printf '%s\n' "\${FM_FAKE_PANE_PATH:-}"; exit 0 ;;
+esac
+case "\${1:-}" in display-message) printf 'firstmate\n'; exit 0 ;; esac
+exit 0
+SH
+  cat > "$case_dir/fakebin/treehouse" <<SH
+#!/usr/bin/env bash
+: > "$case_dir/local-copy-requested"
+exit 0
+SH
+  chmod +x "$case_dir/fakebin/tmux" "$case_dir/fakebin/treehouse"
+
+  out=$(TASKS_AXI_TEST_ACTOR=alpha run_ship_spawn "$case_dir" "$id") || rc=$?
+  [ "$rc" -ne 0 ] || fail "spawn accepted a non-ready Beads item"
+  assert_contains "$out" "Beads item $id is not ready" \
+    "Beads refusal did not name the authoritative readiness gate"
+  assert_absent "$home/state/$id.meta" \
+    "non-ready Beads refusal published a task record"
+  assert_absent "$case_dir/task-endpoint-created" \
+    "non-ready Beads refusal created an endpoint"
+  assert_absent "$case_dir/local-copy-requested" \
+    "non-ready Beads refusal requested a local copy"
+  [ ! -s "$case_dir/beads-log" ] \
+    || fail "non-ready Beads refusal attempted a claim"
+  pass "Beads dispatch refuses blocked work before creating resources or trusting another ready list"
+}
+
+test_beads_spawn_claims_a_ready_item() {
+  local case_dir home id out
+  id=atomic-beads-claim-b16
+  case_dir=$(make_home beads-claim "$id")
+  home=$(home_of "$case_dir")
+  configure_beads_backend "$case_dir" "$id" queued 1
+
+  out=$(TASKS_AXI_TEST_ACTOR=alpha run_ship_spawn "$case_dir" "$id") \
+    || fail "ready Beads spawn failed: $out"
+  assert_contains "$out" "spawned $id" "ready Beads spawn did not report success"
+  [ "$(cat "$case_dir/beads-status")" = in_flight ] \
+    || fail "ready Beads item was not moved in flight"
+  [ "$(cat "$case_dir/beads-owner")" = alpha ] \
+    || fail "ready Beads item was not assigned to the claiming actor"
+  assert_grep 'claim:alpha' "$case_dir/beads-log" \
+    "spawn bypassed the exclusive claim command"
+  assert_present "$home/state/$id.meta" \
+    "successful Beads claim published no task record"
+  pass "Beads dispatch atomically claims ready work"
+}
+
+test_beads_spawn_loses_an_exclusive_claim_race() {
+  local case_dir home id out rc=0
+  id=atomic-beads-claim-race-b16
+  case_dir=$(make_home beads-claim-race "$id")
+  home=$(home_of "$case_dir")
+  configure_beads_backend "$case_dir" "$id" queued 1
+  : > "$case_dir/beads-race-on-second-ready"
+
+  out=$(TASKS_AXI_TEST_ACTOR=alpha run_ship_spawn "$case_dir" "$id") || rc=$?
+  [ "$rc" -ne 0 ] || fail "spawn reported success after losing the Beads claim race"
+  assert_grep 'claim-refused:alpha:rival' "$case_dir/beads-log" \
+    "the final spawn commit did not exercise exclusive claim rejection"
+  [ "$(cat "$case_dir/beads-owner")" = rival ] \
+    || fail "losing spawn replaced the rival Beads owner"
+  assert_absent "$home/state/$id.meta" \
+    "losing spawn retained a task record for work it does not own"
+  pass "Beads claim is exclusive under a dispatch race"
+}
+
+test_beads_captain_override_bypasses_only_readiness() {
+  local case_dir id out
+  id=atomic-beads-override-b16
+  case_dir=$(make_home beads-override "$id")
+  configure_beads_backend "$case_dir" "$id" queued 0
+
+  out=$(TASKS_AXI_TEST_ACTOR=alpha run_ship_spawn "$case_dir" "$id" \
+      --captain-override-not-ready) \
+    || fail "explicit captain override did not reach the Beads claim: $out"
+  assert_contains "$out" "current task-specific captain override" \
+    "override use was not surfaced"
+  assert_grep 'claim:alpha' "$case_dir/beads-log" \
+    "override bypassed the exclusive claim instead of only readiness"
+  [ "$(cat "$case_dir/beads-owner")" = alpha ] \
+    || fail "override did not preserve exclusive ownership"
+  pass "a current task-specific captain override bypasses only readiness"
 }
 
 test_dispatch_refuses_a_held_in_flight_row_before_relaunch() {
@@ -813,7 +1005,7 @@ test_dispatch_leaves_no_record_when_the_transition_fails() {
 
   out=$(run_ship_spawn "$case_dir" "$id") || rc=$?
   [ "$rc" -ne 0 ] || fail "spawn reported success though the backlog transition failed"
-  assert_contains "$out" "could not be moved to In flight" \
+  assert_contains "$out" "could not be claimed" \
     "spawn failed without explaining the backlog transition failure"
   assert_absent "$(home_of "$case_dir")/state/$id.meta" \
     "a failed backlog transition left an orphaned record behind"
@@ -998,6 +1190,78 @@ test_completion_closes_a_scout_with_its_report() {
   assert_grep "data/$id/report.md" "$(backlog_of "$case_dir")" \
     "a closed scout item did not record its report"
   pass "completion closes a scout item against its report"
+}
+
+test_beads_teardown_refuses_a_pushed_branch_without_a_landing_url() {
+  local case_dir home id meta out rc=0
+  id=atomic-beads-no-landing-url-b16
+  case_dir=$(make_home beads-no-landing-url)
+  home=$(home_of "$case_dir")
+  configure_beads_backend "$case_dir" "$id" in_flight 0
+  printf 'alpha\n' > "$case_dir/beads-owner"
+  write_task_meta "$case_dir" "$id" ship no-mistakes \
+    "spawn_gen=spawn-no-landing-url"
+  meta="$home/state/$id.meta"
+  printf 'pushed but unmerged\n' > "$case_dir/wt/pushed.txt"
+  git -C "$case_dir/wt" add pushed.txt
+  git -C "$case_dir/wt" -c user.name=fmtest -c user.email=fmtest@example.invalid \
+    commit -q -m "pushed branch without landing"
+  git -C "$case_dir/wt" push -q origin HEAD:refs/heads/fm-no-landing-url
+  cat > "$case_dir/fakebin/treehouse" <<SH
+#!/usr/bin/env bash
+: > "$case_dir/local-copy-resource-action"
+exit 0
+SH
+  chmod +x "$case_dir/fakebin/treehouse"
+
+  out=$(run_teardown "$case_dir" "$id") || rc=$?
+  [ "$rc" -ne 0 ] || fail "teardown closed a merely pushed Beads claim"
+  assert_contains "$out" "no canonical merged PR receipt" \
+    "teardown did not require a landing URL"
+  assert_present "$meta" "landing-refused teardown removed the task record"
+  assert_absent "$home/state/$id.backlog-close" \
+    "landing-refused teardown published a bare close marker"
+  [ "$(cat "$case_dir/beads-status")" = in_flight ] \
+    || fail "landing-refused teardown closed the Beads item"
+  if grep -q '^done:' "$case_dir/beads-log"; then
+    fail "landing-refused teardown called tasks-axi done without a receipt"
+  fi
+  assert_absent "$case_dir/local-copy-resource-action" \
+    "landing-refused teardown touched the local copy"
+  pass "Beads teardown refuses close without a merged landing URL"
+}
+
+test_beads_teardown_closes_with_the_verified_merged_pr_url() {
+  local case_dir home id meta head pr out
+  id=atomic-beads-merged-url-b16
+  pr=https://github.com/example/firstmate/pull/42
+  case_dir=$(make_home beads-merged-url)
+  home=$(home_of "$case_dir")
+  configure_beads_backend "$case_dir" "$id" in_flight 0
+  printf 'alpha\n' > "$case_dir/beads-owner"
+  write_task_meta "$case_dir" "$id" ship no-mistakes \
+    "spawn_gen=spawn-merged-url" "pr=$pr"
+  meta="$home/state/$id.meta"
+  head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  cat > "$case_dir/fakebin/gh" <<SH
+#!/usr/bin/env bash
+case "\$*" in
+  *"pr view"*) printf 'MERGED\t%s\t%s\n' "$head" "$pr"; exit 0 ;;
+esac
+exit 1
+SH
+  chmod +x "$case_dir/fakebin/gh"
+
+  out=$(run_teardown "$case_dir" "$id") \
+    || fail "merged-URL Beads teardown failed: $out"
+  [ "$(cat "$case_dir/beads-status")" = "done" ] \
+    || fail "merged-URL teardown left the Beads item open"
+  assert_grep "done:done $id --pr $pr" "$case_dir/beads-log" \
+    "Beads close did not carry the verified landing URL"
+  assert_absent "$meta" "merged-URL teardown retained the task record"
+  assert_absent "$home/state/$id.backlog-close" \
+    "merged-URL teardown retained its close receipt"
+  pass "Beads teardown closes only with its verified merged PR URL"
 }
 
 test_completion_refuses_a_legacy_record_without_an_incarnation() {
@@ -1217,6 +1481,7 @@ test_interrupted_destructive_cleanup_leaves_a_recoverable_close() {
   home=$(home_of "$case_dir")
   add_item "$case_dir" "$id"
   out=$(run_ship_spawn "$case_dir" "$id") || fail "spawn failed: $out"
+  sed -i 's/^mode=no-mistakes$/mode=local-only/' "$home/state/$id.meta"
   marker="$home/state/$id.backlog-close"
   interrupt_teardown_during_treehouse_return "$case_dir"
 
@@ -1365,6 +1630,41 @@ test_recovery_marks_an_owned_record_in_flight() {
   [ "$(row_state "$case_dir" "$id")" = in_flight ] \
     || fail "session start left an owned record's item at $(row_state "$case_dir" "$id"): $out"
   pass "session start marks an item In flight when this home already owns a worker for it"
+}
+
+test_recovery_claims_an_owned_beads_item() {
+  local case_dir id out
+  id=atomic-beads-heal-b8
+  case_dir=$(make_home beads-heal)
+  configure_beads_backend "$case_dir" "$id" queued 1
+  write_task_meta "$case_dir" "$id" ship no-mistakes
+
+  out=$(TASKS_AXI_TEST_ACTOR=alpha run_bootstrap "$case_dir")
+  [ "$(cat "$case_dir/beads-status")" = in_flight ] \
+    || fail "session start left the owned Beads item queued: $out"
+  [ "$(cat "$case_dir/beads-owner")" = alpha ] \
+    || fail "session start did not establish Beads ownership"
+  assert_grep 'claim:alpha' "$case_dir/beads-log" \
+    "session start used projected state instead of the exclusive claim"
+  pass "session start exclusively claims a Beads item for its existing worker"
+}
+
+test_recovery_does_not_adopt_another_beads_actor_claim() {
+  local case_dir id out
+  id=atomic-beads-rival-heal-b8
+  case_dir=$(make_home beads-rival-heal)
+  configure_beads_backend "$case_dir" "$id" in_flight 0
+  printf 'rival\n' > "$case_dir/beads-owner"
+  write_task_meta "$case_dir" "$id" ship no-mistakes
+
+  out=$(TASKS_AXI_TEST_ACTOR=alpha run_bootstrap "$case_dir")
+  assert_contains "$out" "could not be claimed" \
+    "session start treated projected In-flight state as ownership"
+  [ "$(cat "$case_dir/beads-owner")" = rival ] \
+    || fail "session start replaced another Beads actor"
+  assert_grep 'claim-refused:alpha:rival' "$case_dir/beads-log" \
+    "session start never tested the exclusive actor boundary"
+  pass "session start does not treat Beads in-flight projection as actor ownership"
 }
 
 test_recovery_rejects_an_internal_worker_record_symlink() {
@@ -1789,6 +2089,25 @@ test_recovery_rejects_invalid_close_arguments() {
   pass "recovery rejects close-marker arguments outside its protocol"
 }
 
+test_recovery_rejects_a_bare_close_without_a_receipt() {
+  local case_dir id marker out
+  id=atomic-marker-bare-close-b12
+  case_dir=$(make_home marker-bare-close)
+  add_item "$case_dir" "$id"
+  start_item "$case_dir" "$id"
+  marker="$(home_of "$case_dir")/state/$id.backlog-close"
+  printf 'id=%s\ndata=%s\nspawn_gen=spawn-bare-close\n' \
+    "$id" "$(home_of "$case_dir")/data" > "$marker"
+
+  out=$(run_bootstrap "$case_dir")
+  assert_contains "$out" "has no landing receipt" \
+    "recovery did not explain why the bare close has no authority"
+  assert_present "$marker" "recovery consumed a bare close marker"
+  [ "$(row_state "$case_dir" "$id")" = in_flight ] \
+    || fail "bare close marker changed the backlog row: $out"
+  pass "recovery refuses a bare done claim without a landing receipt"
+}
+
 test_recovery_rejects_a_symlinked_close_marker() {
   local case_dir id marker payload out rc=0
   id=atomic-marker-symlink-b12
@@ -2145,8 +2464,11 @@ test_home_without_a_backlog_dispatches_and_completes() {
   case_dir=$(make_home no-backlog "$id")
   rm -f "$(backlog_of "$case_dir")"
   make_tasks_axi_incompatible "$case_dir"
+  sed -i 's/mode=no-mistakes/mode=local-only/' \
+    "$(home_of "$case_dir")/data/$id/brief.md"
 
-  out=$(run_ship_spawn "$case_dir" "$id") || fail "no-backlog spawn failed: $out"
+  out=$(run_spawn "$case_dir" "$id" "$case_dir/project" \
+      --mode local-only --yolo off) || fail "no-backlog spawn failed: $out"
   assert_present "$(home_of "$case_dir")/state/$id.meta" \
     "no-backlog spawn did not publish its task record"
   out=$(run_teardown "$case_dir" "$id") || fail "no-backlog teardown failed: $out"
@@ -2166,9 +2488,11 @@ test_manual_backend_home_dispatches_and_completes_without_touching_the_backlog()
   mv "$(home_of "$case_dir")/data" "$data"
   data_resolved=$(cd "$data" && pwd -P)
   make_tasks_axi_incompatible "$case_dir"
+  sed -i 's/mode=no-mistakes/mode=local-only/' "$data/$id/brief.md"
   # Deliberately no backlog item: on a manual home the operator owns the file,
   # so neither half of the lifecycle may hard-fail over its contents.
-  out=$(FM_DATA_OVERRIDE="$data" run_ship_spawn "$case_dir" "$id") \
+  out=$(FM_DATA_OVERRIDE="$data" run_spawn "$case_dir" "$id" "$case_dir/project" \
+      --mode local-only --yolo off) \
     || fail "manual-backend spawn failed: $out"
   assert_contains "$out" "spawned $id" "manual-backend spawn did not report success"
 
@@ -2226,6 +2550,10 @@ test_dispatch_moves_the_item_in_flight_in_the_same_run
 test_dispatch_refuses_a_pending_authoritative_close
 test_dispatch_refuses_a_held_row_before_creating_resources
 test_dispatch_refuses_a_blocked_row_before_creating_resources
+test_beads_spawn_refuses_not_ready_before_creating_resources
+test_beads_spawn_claims_a_ready_item
+test_beads_spawn_loses_an_exclusive_claim_race
+test_beads_captain_override_bypasses_only_readiness
 test_dispatch_refuses_a_held_in_flight_row_before_relaunch
 test_dispatch_reads_the_row_from_the_backlog_root
 test_recovery_uses_the_parent_of_a_trailing_slash_data_record
@@ -2250,6 +2578,8 @@ test_dispatch_does_not_resurrect_a_row_closed_after_preflight
 test_dispatch_fails_when_its_row_vanishes_after_preflight
 test_completion_closes_a_local_only_ship_before_reporting_success
 test_completion_closes_a_scout_with_its_report
+test_beads_teardown_refuses_a_pushed_branch_without_a_landing_url
+test_beads_teardown_closes_with_the_verified_merged_pr_url
 test_completion_refuses_a_legacy_record_without_an_incarnation
 test_completion_refuses_ambiguous_incarnation_metadata
 test_completion_records_a_relative_report_for_relocated_data
@@ -2265,6 +2595,8 @@ test_recovery_retries_when_a_close_marker_cannot_be_removed
 test_recovery_reports_an_owned_row_read_failure
 test_orca_cleanup_recovery_never_transitions_the_backlog
 test_recovery_marks_an_owned_record_in_flight
+test_recovery_claims_an_owned_beads_item
+test_recovery_does_not_adopt_another_beads_actor_claim
 test_recovery_rejects_an_internal_worker_record_symlink
 test_recovery_ignores_a_symlinked_worker_record
 test_recovery_replays_a_close_an_interrupted_cleanup_left_open
@@ -2283,6 +2615,7 @@ test_recovery_rejects_raw_control_bytes
 test_recovery_rejects_malformed_pr_urls
 test_failed_close_replay_is_not_started_as_live_work
 test_recovery_rejects_invalid_close_arguments
+test_recovery_rejects_a_bare_close_without_a_receipt
 test_recovery_rejects_a_symlinked_close_marker
 test_recovery_drops_a_close_for_a_newer_meta_incarnation
 test_recovery_rejects_a_legacy_close_without_an_incarnation
