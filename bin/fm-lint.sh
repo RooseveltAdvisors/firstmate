@@ -192,6 +192,14 @@ fm_lint_run_backend_purity() {
         character=substr(segment, position, 1)
         if (quote == "") {
           if (character ~ /[[:space:]]/) break
+          if (character == "$" && position < length(segment)) {
+            next_character=substr(segment, position + 1, 1)
+            if (next_character == "\"" || next_character == sprintf("%c", 39)) {
+              position++
+              quote=next_character
+              continue
+            }
+          }
           if (character == "\"" || character == sprintf("%c", 39)) {
             quote=character
             continue
