@@ -1474,12 +1474,19 @@ fm_backend_herdr_projection_order_best_effort() {  # <session> <created-workspac
 # headless (no TUI client) if not already running, mirroring tmux's `tmux
 # has-session || tmux new-session -d`. Verified: a bare socket CLI call does
 # NOT auto-start the server, so this must run before any workspace/tab/pane
-# call. Bounded poll for the server to report running.
+# call. The server outlives its launcher and passes its startup environment to
+# every later pane, so remove home, harness identity, and supervision selection
+# inherited from whichever agent happened to start it. Bounded poll for the
+# server to report running.
 fm_backend_herdr_server_ensure() {  # <session>
   local session=$1 running out i
   running=$(fm_backend_herdr_cli "$session" status --json 2>/dev/null | jq -r '.server.running // false' 2>/dev/null)
   [ "$running" = "true" ] && return 0
-  ( fm_backend_herdr_cli "$session" server >/dev/null 2>&1 & ) || return 1
+  (
+    unset FM_HOME FM_ROOT_OVERRIDE FM_STATE_OVERRIDE FM_DATA_OVERRIDE FM_PROJECTS_OVERRIDE FM_CONFIG_OVERRIDE \
+      CURSOR_AGENT CURSOR_INVOKED_AS CLAUDECODE PI_CODING_AGENT FM_PI_HARNESS GROK_AGENT FM_SUPERVISION_MODEL
+    fm_backend_herdr_cli "$session" server >/dev/null 2>&1 &
+  ) || return 1
   for i in $(seq 1 20); do
     running=$(fm_backend_herdr_cli "$session" status --json 2>/dev/null | jq -r '.server.running // false' 2>/dev/null)
     [ "$running" = "true" ] && return 0
@@ -1992,11 +1999,12 @@ fm_backend_herdr_task_label() {  # <short-title> <task-id>
 #
 # A same-labeled tab already existing no longer means an automatic refusal:
 # herdr persists and restores its whole session layout (workspaces/tabs/
-# panes) across a server restart, including a reboot, and a restored fm-<id>
-# task tab comes back a HUSK - a dead pane, or (today, and unconditionally
-# once a future `resume_agents_on_restore = false` config ships) a plain
-# agent-less shell sitting in the saved cwd, never the crewmate that used to
-# be there. Before this fix, every fleet respawn after such a restart needed
+# panes) across a server restart, including a reboot, and a restored task tab
+# comes back a HUSK - a dead pane, or (today, and unconditionally once a future
+# `resume_agents_on_restore = false` config ships) a plain agent-less shell
+# sitting in the saved cwd, never the crewmate that used to be there, regardless
+# of whether it uses the legacy fm-<id> label or a human-readable label. Before
+# this fix, every fleet respawn after such a restart needed
 # the operator to manually close each husk pane first before firstmate could
 # spawn into it again. fm_backend_herdr_tab_is_husk classifies the existing
 # tab's pane conservatively (dead or no-agent only; anything live or
@@ -3194,7 +3202,7 @@ fm_backend_herdr_list_live() {  # <session>
   done < <(printf '%s' "$tabs" | jq -r '
     .result.tabs[]?
     | select((.label | type) == "string")
-    | select(.label | startswith("fm-"))
+    | select(.label | test("^fm-[A-Za-z0-9._-]+$"))
     | "\(.tab_id)\t\(.label)"
   ' 2>/dev/null)
 }

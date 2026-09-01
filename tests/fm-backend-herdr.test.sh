@@ -63,6 +63,38 @@ SH
   printf '%s\n' "$fb"
 }
 
+# make_herdr_server_env_fakebin: a stateful server stub that records only the
+# long-lived server launch environment, then reports the server as running.
+make_herdr_server_env_fakebin() {  # <dir> -> echoes fakebin dir
+  local dir=$1 fb="$1/fakebin"
+  mkdir -p "$fb"
+  cat > "$fb/herdr" <<'SH'
+#!/usr/bin/env bash
+set -u
+case "${1:-}" in
+  status)
+    if [ -e "$FM_HERDR_SERVER_MARKER" ]; then
+      printf '{"server":{"running":true}}\n'
+    else
+      printf '{"server":{"running":false}}\n'
+    fi
+    ;;
+  server)
+    {
+      for name in FM_HOME FM_ROOT_OVERRIDE FM_STATE_OVERRIDE FM_DATA_OVERRIDE FM_PROJECTS_OVERRIDE FM_CONFIG_OVERRIDE CURSOR_AGENT CURSOR_INVOKED_AS CLAUDECODE PI_CODING_AGENT FM_PI_HARNESS GROK_AGENT FM_SUPERVISION_MODEL FM_HERDR_SENTINEL HERDR_SESSION; do
+        eval 'value=${'"$name"'-<unset>}'
+        printf '%s=%s\n' "$name" "$value"
+      done
+      printf 'args=%s\n' "$*"
+    } > "$FM_HERDR_SERVER_ENV_LOG"
+    : > "$FM_HERDR_SERVER_MARKER"
+    ;;
+esac
+SH
+  chmod +x "$fb/herdr"
+  printf '%s\n' "$fb"
+}
+
 # make_herdr_statefake: a STATEFUL `herdr` stub that models the parts of herdr's
 # real container behavior the workspace-leak fix (and the default-tab-prune
 # safety fix) depend on, so a full spawn->teardown cycle can be replayed
@@ -524,6 +556,27 @@ test_container_ensure_starts_server_and_workspace() {
   pass "fm_backend_herdr_container_ensure: version-gates, starts the server, ensures the firstmate workspace, echoes session:workspace_id + the seeded default tab id"
 }
 
+test_server_ensure_scrubs_home_and_harness_identity() {
+  local dir log marker fb output name
+  dir="$TMP_ROOT/server-env"; mkdir -p "$dir"; log="$dir/env"; marker="$dir/running"
+  fb=$(make_herdr_server_env_fakebin "$dir")
+  PATH="$fb:$PATH" FM_HERDR_SERVER_ENV_LOG="$log" FM_HERDR_SERVER_MARKER="$marker" FM_HERDR_SENTINEL=kept \
+    FM_HOME=/tmp/wrong-home FM_ROOT_OVERRIDE=/tmp/wrong-root FM_STATE_OVERRIDE=/tmp/wrong-state \
+    FM_DATA_OVERRIDE=/tmp/wrong-data FM_PROJECTS_OVERRIDE=/tmp/wrong-projects FM_CONFIG_OVERRIDE=/tmp/wrong-config \
+    CURSOR_AGENT=1 CURSOR_INVOKED_AS=cursor-agent CLAUDECODE=1 PI_CODING_AGENT=true FM_PI_HARNESS=pi-signed GROK_AGENT=1 FM_SUPERVISION_MODEL=autoarm \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_server_ensure fmtest' "$ROOT"
+  expect_code 0 $? "server_ensure should start under a polluted launcher environment"
+  output=$(cat "$log")
+  for name in FM_HOME FM_ROOT_OVERRIDE FM_STATE_OVERRIDE FM_DATA_OVERRIDE FM_PROJECTS_OVERRIDE FM_CONFIG_OVERRIDE \
+    CURSOR_AGENT CURSOR_INVOKED_AS CLAUDECODE PI_CODING_AGENT FM_PI_HARNESS GROK_AGENT FM_SUPERVISION_MODEL; do
+    assert_contains "$output" "$name=<unset>" "server_ensure leaked $name into the long-lived Herdr server"
+  done
+  assert_contains "$output" "FM_HERDR_SENTINEL=kept" "server_ensure removed an unrelated environment variable"
+  assert_contains "$output" "HERDR_SESSION=fmtest" "server_ensure lost explicit Herdr session routing"
+  assert_contains "$output" "args=server --session fmtest" "server_ensure lost the trailing Herdr session flag"
+  pass "fm_backend_herdr_server_ensure: scrubs home and harness identity without disturbing unrelated environment or session routing"
+}
+
 test_container_ensure_reuses_existing_workspace() {
   local dir log resp fb out
   dir="$TMP_ROOT/container-reuse"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
@@ -551,7 +604,7 @@ test_create_task_refuses_duplicate_label() {
   pass "fm_backend_herdr_create_task: refuses a duplicate tab label (herdr's own tab create has no uniqueness check)"
 }
 
-# --- historical label duplicate guard ---------------------------------------
+# --- task label duplicate guard ----------------------------------------------
 
 test_create_task_refuses_exact_task_labels_when_live() {
   local dir case_dir log resp fb out status kind duplicate_label current_label
@@ -622,12 +675,12 @@ test_create_task_ignores_unrelated_human_label_with_same_id() {
     "an unrelated human label was treated as a husk and closed"
   assert_not_contains "$(cat "$log")" $'\x1f''pane' \
     "an unrelated human label was inspected as a duplicate"
-  pass "fm_backend_herdr_create_task: ignores an unrelated human label sharing the task id"
+  pass "fm_backend_herdr_create_task: ignores an unrelated human label with the same task id"
 }
 
-test_create_task_refuses_when_historical_husk_remains() {
+test_create_task_refuses_when_legacy_husk_remains() {
   local dir log resp fb out status current_label
-  dir="$TMP_ROOT/dup-historical-remains"; log="$dir/log"; resp="$dir/responses"
+  dir="$TMP_ROOT/dup-legacy-remains"; log="$dir/log"; resp="$dir/responses"
   current_label='NeoMD I/F/A instant (fm-css)'
   mkdir -p "$resp"; : > "$log"
   printf '%s\n' '{"result":{"tabs":[{"tab_id":"w1:t2","label":"fm-fm-css","workspace_id":"w1"}]}}' > "$resp/1.out"
@@ -641,10 +694,10 @@ test_create_task_refuses_when_historical_husk_remains() {
     bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_create_task fmtest:w1 "$1" /tmp/proj "" fm-css' \
     "$ROOT" "$current_label" 2>&1 )
   status=$?
-  [ "$status" -ne 0 ] || fail "a historical task-label husk left after replacement must refuse success"
+  [ "$status" -ne 0 ] || fail "a legacy task-label husk left after replacement must refuse success"
   assert_contains "$out" "failed to remove preexisting herdr tab" \
-    "a remaining historical task-label husk was not reported"
-  pass "fm_backend_herdr_create_task: verifies historical task-label husks are gone after replacement"
+    "a remaining legacy task-label husk was not reported"
+  pass "fm_backend_herdr_create_task: verifies legacy task-label husks are gone after replacement"
 }
 
 # --- restored-layout husk close-and-replace (herdr session.json restore) -----
@@ -2932,8 +2985,8 @@ test_list_live_ignores_unowned_human_readable_task_labels() {
   local dir log resp fb out
   dir="$TMP_ROOT/list-live-human-label"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
   printf '{"result":{"workspaces":[{"workspace_id":"w1","label":"firstmate"}]}}\n' > "$resp/1.out"
-  printf '{"result":{"tabs":[{"tab_id":"w1:t1","label":"NeoMD I/F/A instant (fm-css)","workspace_id":"w1"},{"tab_id":"w1:t2","label":"Meeting (draft)","workspace_id":"w1"},{"tab_id":"w1:t3","label":"fm-legacy","workspace_id":"w1"}]}}\n' > "$resp/2.out"
-  printf '{"result":{"panes":[{"pane_id":"w1:p1","tab_id":"w1:t1"},{"pane_id":"w1:p2","tab_id":"w1:t2"},{"pane_id":"w1:p3","tab_id":"w1:t3"}]}}\n' > "$resp/3.out"
+  printf '{"result":{"tabs":[{"tab_id":"w1:t1","label":"NeoMD I/F/A instant (fm-css)","workspace_id":"w1"},{"tab_id":"w1:t2","label":"Meeting (draft)","workspace_id":"w1"},{"tab_id":"w1:t3","label":"fm-legacy","workspace_id":"w1"},{"tab_id":"w1:t4","label":"fm-followup (draft)","workspace_id":"w1"}]}}\n' > "$resp/2.out"
+  printf '{"result":{"panes":[{"pane_id":"w1:p1","tab_id":"w1:t1"},{"pane_id":"w1:p2","tab_id":"w1:t2"},{"pane_id":"w1:p3","tab_id":"w1:t3"},{"pane_id":"w1:p4","tab_id":"w1:t4"}]}}\n' > "$resp/3.out"
   fb=$(make_herdr_fakebin "$dir")
   out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
     bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_list_live fmtest' "$ROOT" )
@@ -4568,6 +4621,7 @@ test_workspace_ensure_refuses_an_ambiguous_label_with_no_launcher
 test_workspace_ensure_other_home_ignores_the_launcher_identity
 test_container_ensure_refuses_an_ambiguous_home_label
 test_container_ensure_starts_server_and_workspace
+test_server_ensure_scrubs_home_and_harness_identity
 test_container_ensure_reuses_existing_workspace
 test_container_ensure_creates_with_no_focus_flag
 test_container_ensure_uses_secondmate_home_label
@@ -4580,7 +4634,7 @@ test_create_task_refuses_duplicate_label
 test_create_task_refuses_exact_task_labels_when_live
 test_create_task_replaces_legacy_task_label_husk
 test_create_task_ignores_unrelated_human_label_with_same_id
-test_create_task_refuses_when_historical_husk_remains
+test_create_task_refuses_when_legacy_husk_remains
 test_create_task_refuses_duplicate_label_when_agent_live
 test_create_task_refuses_when_any_duplicate_label_is_live
 test_create_task_closes_and_replaces_dead_pane_husk
