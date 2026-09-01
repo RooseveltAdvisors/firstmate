@@ -52,6 +52,7 @@ FM_BACKLOG_TRANSITION_SKIP=
 FM_BACKLOG_TRANSITION_ERROR=
 FM_BACKLOG_ROW_RESULT=
 FM_BACKLOG_ROW_STATE=
+FM_BACKLOG_ROW_TITLE=
 FM_BACKLOG_ROW_ERROR=
 # Set by fm_backlog_close_marker_replay: closed | closed_incomplete | stale | noop.
 # shellcheck disable=SC2034 # Output global, read by the sourcing caller.
@@ -200,6 +201,7 @@ fm_backlog_row_probe() {  # <data-dir> <id>
   fi
   FM_BACKLOG_ROW_RESULT=error
   FM_BACKLOG_ROW_STATE=
+  FM_BACKLOG_ROW_TITLE=
   FM_BACKLOG_ROW_ERROR=
   file=$(fm_backlog_file "$data") || {
     FM_BACKLOG_ROW_ERROR=$FM_BACKLOG_TRANSITION_ERROR
@@ -223,6 +225,7 @@ fm_backlog_row_probe() {  # <data-dir> <id>
     return "$command_status"
   fi
   state=$(printf '%s\n' "$out" | sed -n 's/^  state: *//p' | head -1)
+  FM_BACKLOG_ROW_TITLE=$(printf '%s\n' "$out" | sed -n 's/^  title: *//p' | head -1)
   held=$(printf '%s\n' "$out" | sed -n 's/^  held: *//p' | head -1)
   blocked=$(printf '%s\n' "$out" | sed -n 's/^  blocked: *//p' | head -1)
   if [ -z "$state" ]; then
