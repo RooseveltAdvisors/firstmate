@@ -102,73 +102,6 @@ row_state() {  # <case-dir> <id>
     sed -n 's/^  state: *//p' | head -1
 }
 
-# Configure this fixture home for the tasks-axi Beads backend and install a
-# stateful bd stand-in. The lifecycle still runs through the real tasks-axi
-# executable, so these cases prove Firstmate addresses the configured adapter
-# instead of its legacy markdown file.
-configure_beads_backend() {  # <case-dir> <id>
-  local case_dir=$1 id=$2 home fake_bd
-  home=$(home_of "$case_dir")
-  fake_bd="$case_dir/fakebin/bd"
-  mkdir -p "$home/.beads"
-  rm -f "$(backlog_of "$case_dir")"
-  printf '%s\n' open > "$case_dir/bead-state"
-  printf '%s\n' "item for $id" > "$case_dir/bead-title"
-  cat > "$home/.tasks.toml" <<EOF
-backend = "beads"
-
-[beads]
-path = "$home/.beads"
-binary = "$fake_bd"
-prefix = "fm"
-EOF
-  cat > "$fake_bd" <<SH
-#!/usr/bin/env bash
-set -eu
-printf '%s\n' "\$*" >> "$case_dir/bd.log"
-case "\${1:-}" in
-  show|list)
-    printf '[{"id":"%s","title":"%s","description":"","status":"%s","issue_type":"task","priority":2}]\n' \
-      "\$2" "\$(cat "$case_dir/bead-title")" "\$(cat "$case_dir/bead-state")"
-    ;;
-  dep)
-    printf '[]\n'
-    ;;
-  update)
-    shift 2
-    while [ "\$#" -gt 0 ]; do
-      case "\$1" in
-        --status) printf '%s\n' "\$2" > "$case_dir/bead-state"; shift 2 ;;
-        --title) printf '%s\n' "\$2" > "$case_dir/bead-title"; shift 2 ;;
-        --description) shift 2 ;;
-        *) shift ;;
-      esac
-    done
-    printf '[]\n'
-    ;;
-  close)
-    printf '%s\n' closed > "$case_dir/bead-state"
-    shift 2
-    while [ "\$#" -gt 0 ]; do
-      case "\$1" in
-        --reason) printf '%s\n' "\$2" > "$case_dir/close-reason"; shift 2 ;;
-        *) shift ;;
-      esac
-    done
-    printf '[]\n'
-    ;;
-  comments)
-    printf '[]\n'
-    ;;
-  *)
-    printf 'unsupported fake bd call: %s\n' "\$*" >&2
-    exit 2
-    ;;
-esac
-SH
-  chmod +x "$fake_bd"
-}
-
 configure_env_backend_tasks_axi() {  # <case-dir>
   local case_dir=$1
   rm -f "$(backlog_of "$case_dir")"
@@ -2379,47 +2312,47 @@ EOF
   pass "configured markdown paths preserve hash characters"
 }
 
-test_beads_backend_dispatch_and_completion_are_structural() {
+test_dispatch_and_completion_are_structural() {
   local case_dir home id meta out pr
-  id=fm-beads-structural-b15
+  id=fm-structural-b15
   pr=https://github.com/example/firstmate/pull/15
-  case_dir=$(make_home beads-structural "$id")
+  case_dir=$(make_home structural "$id")
   home=$(home_of "$case_dir")
-  configure_beads_backend "$case_dir" "$id"
+  add_item "$case_dir" "$id"
 
   out=$(run_ship_spawn "$case_dir" "$id") \
-    || fail "Beads-backend spawn failed: $out"
-  [ "$(cat "$case_dir/bead-state")" = in_progress ] \
-    || fail "spawn left the configured bead at $(cat "$case_dir/bead-state")"
+    || fail "structural spawn failed: $out"
+  [ "$(row_state "$case_dir" "$id")" = in_flight ] \
+    || fail "spawn left the backlog item outside In flight"
 
   # Recovery may claim an already-live row repeatedly; the transition remains
-  # idempotent and does not reopen or duplicate the bead.
+  # idempotent and does not reopen or duplicate the item.
   run_bootstrap "$case_dir" >/dev/null \
-    || fail "first idempotent Beads reconciliation failed"
+    || fail "first idempotent reconciliation failed"
   run_bootstrap "$case_dir" >/dev/null \
-    || fail "second idempotent Beads reconciliation failed"
-  [ "$(cat "$case_dir/bead-state")" = in_progress ] \
-    || fail "repeated claims changed the live bead state"
+    || fail "second idempotent reconciliation failed"
+  [ "$(row_state "$case_dir" "$id")" = in_flight ] \
+    || fail "repeated claims changed the live backlog state"
 
   meta="$home/state/$id.meta"
   printf 'pr=%s\n' "$pr" >> "$meta"
   out=$(run_teardown "$case_dir" "$id") \
-    || fail "Beads-backend teardown failed: $out"
-  [ "$(cat "$case_dir/bead-state")" = closed ] \
-    || fail "teardown left the configured bead at $(cat "$case_dir/bead-state")"
-  [ "$(cat "$case_dir/close-reason")" = "$pr" ] \
-    || fail "teardown closed the bead without its recorded PR evidence"
-  pass "configured Beads dispatch and completion transition structurally with evidence"
+    || fail "structural teardown failed: $out"
+  [ "$(row_state "$case_dir" "$id")" = "done" ] \
+    || fail "teardown left the backlog item outside Done"
+  assert_grep "$pr" "$(backlog_of "$case_dir")" \
+    "teardown closed the item without its recorded PR evidence"
+  pass "dispatch and completion transition structurally with evidence"
 }
 
-test_beads_backend_refused_teardown_leaves_the_item_live() {
+test_refused_teardown_leaves_the_item_live() {
   local case_dir home id out rc=0
-  id=fm-beads-refusal-b15
-  case_dir=$(make_home beads-refusal "$id")
+  id=fm-structural-refusal-b15
+  case_dir=$(make_home structural-refusal "$id")
   home=$(home_of "$case_dir")
-  configure_beads_backend "$case_dir" "$id"
+  add_item "$case_dir" "$id"
   out=$(run_ship_spawn "$case_dir" "$id") \
-    || fail "Beads-backend refusal setup spawn failed: $out"
+    || fail "refusal setup spawn failed: $out"
 
   printf '%s\n' unlanded > "$case_dir/wt/unlanded.txt"
   git -C "$case_dir/wt" add unlanded.txt
@@ -2427,14 +2360,12 @@ test_beads_backend_refused_teardown_leaves_the_item_live() {
     commit -q -m "unlanded fixture work"
   out=$(run_teardown "$case_dir" "$id") || rc=$?
 
-  [ "$rc" -ne 0 ] || fail "teardown accepted unlanded Beads-backed work"
-  [ "$(cat "$case_dir/bead-state")" = in_progress ] \
-    || fail "refused teardown changed the bead to $(cat "$case_dir/bead-state")"
-  assert_absent "$case_dir/close-reason" \
-    "refused teardown sent a close reason to the Beads adapter"
+  [ "$rc" -ne 0 ] || fail "teardown accepted unlanded work"
+  [ "$(row_state "$case_dir" "$id")" = in_flight ] \
+    || fail "refused teardown changed the live backlog state"
   assert_present "$home/state/$id.meta" \
     "refused teardown removed the live task record"
-  pass "refused teardown leaves the configured bead in progress"
+  pass "refused teardown leaves the backlog item in flight"
 }
 
 test_environment_selected_adapter_is_not_forced_to_markdown() {
@@ -2593,8 +2524,8 @@ test_teardown_refuses_a_symlinked_state_directory_at_entry
 test_home_without_a_backlog_dispatches_and_completes
 test_configured_markdown_path_receives_lifecycle_transitions
 test_configured_markdown_path_preserves_hash_characters
-test_beads_backend_dispatch_and_completion_are_structural
-test_beads_backend_refused_teardown_leaves_the_item_live
+test_dispatch_and_completion_are_structural
+test_refused_teardown_leaves_the_item_live
 test_environment_selected_adapter_is_not_forced_to_markdown
 test_manual_backend_home_dispatches_and_completes_without_touching_the_backlog
 test_a_secondmate_home_keeps_its_own_books
