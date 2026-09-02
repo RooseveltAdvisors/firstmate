@@ -1,0 +1,18 @@
+== fm-control-relaunch.test.sh (post-fix worktree): relaunch-related results ==
+ok - fm-spawn --relaunch: symlinked records refuse before inspection
+ok - fm-spawn --relaunch: keeps its early meta lock continuous
+ok - fm-spawn --relaunch: pending closes refuse before replacement begins
+ok - fm-spawn --relaunch: every identity axis comes from the record, and a contradicting flag refuses
+ok - fm-spawn --relaunch: an unrecorded task is refused
+ok - fm-spawn --relaunch: the recorded herdr_task_label survives republication verbatim
+ok - fm-spawn --relaunch: refuses to start a replacement outside the copy holding the work
+ok - relaunch re-reads the backlog item instead of blindly re-running the transition
+ok - relaunch heals an item that drifted out of In flight while the task stayed live
+
+== fm-backlog-row-probe.test.sh (post-fix worktree) ==
+ok - fm_backlog_row_probe: a found row reports its title
+ok - fm_backlog_row_probe: an unresolvable data directory clears the prior probe's outputs
+
+== fm-backlog-row-probe against PRE-FIX fm-backlog-transition-lib.sh (c2b7246~1) ==
+ok - fm_backlog_row_probe: a found row reports its title
+not ok - an unresolvable data directory left a stale title: 'Paint the fence'

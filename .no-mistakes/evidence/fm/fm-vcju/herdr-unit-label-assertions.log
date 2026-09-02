@@ -1,0 +1,27 @@
+ok - fm_backend_herdr_workspace_label: a primary home (no marker) resolves to 'firstmate'
+ok - fm_backend_herdr_workspace_label: a secondmate home (.fm-secondmate-home) resolves to '2ndmate-<id>'
+ok - fm_backend_herdr_workspace_label: trims whitespace around the marker's secondmate id
+ok - fm_backend_herdr_workspace_label: an empty marker file falls back to the primary label 'firstmate'
+ok - fm_backend_herdr_workspace_label: two different secondmate homes get two different, non-colliding labels
+ok - fm_backend_herdr_launcher_identity: resolves the launcher's exact workspace even when a same-labeled workspace sorts first
+ok - fm_backend_herdr_workspace_ensure: places a worker in the launcher's exact workspace, not the first same-labeled one
+ok - fm_backend_herdr_workspace_ensure: refuses to guess between two same-labeled home workspaces
+ok - fm_backend_herdr_container_ensure: creates the workspace under the SECONDMATE home's own label, not 'firstmate'
+ok - fm_backend_herdr_create_task: the label-collision startup-workspace scenario (2026-07-02 incident) leaves the captain's live tab untouched
+ok - fm_backend_herdr_create_task: refuses a duplicate tab label (herdr's own tab create has no uniqueness check)
+ok - fm_backend_herdr_create_task: refuses live current and legacy task labels
+ok - fm_backend_herdr_create_task: replaces only a proven legacy task-label husk
+ok - fm_backend_herdr_create_task: ignores an unrelated human label with the same task id
+ok - fm_backend_herdr_create_task: verifies legacy task-label husks are gone after replacement
+ok - fm_backend_herdr_create_task: a same-labeled tab with a live (even idle) registered agent still refuses exactly as before
+ok - fm_backend_herdr_create_task: scans every same-labeled tab and refuses if any duplicate is live
+ok - fm_backend_herdr_create_task: closes and replaces a same-labeled tab whose pane is dead (pane_not_found)
+ok - fm_backend_herdr_create_task: closes and replaces a same-labeled tab whose pane is alive but hosts no registered agent (a restored plain shell)
+ok - fm_backend_herdr_create_task: closes every confirmed same-labeled husk only after creating the replacement
+ok - herdr presentation create: concurrent same-label tabs are never prune targets
+ok - herdr presentation labels: └ concise-task · p:<full-token> for primary and secondmate children
+ok - herdr presentation ordering: the launcher's exact parent workspace id disambiguates a duplicated home label without moving anything
+ok - herdr presentation reclaim: exact agent-free husk survives duplicate parent labels while its sibling stays untouched
+ok - fm_backend_herdr_workspace_find: matches only THIS home's own label among several coexisting workspaces
+ok - fm_backend_herdr_task_label: formats a human-readable title with the task id
+ok - fm_backend_herdr_list_live: discovers legacy and human-readable task labels

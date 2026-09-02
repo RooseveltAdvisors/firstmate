@@ -1,0 +1,2 @@
+ok - real herdr E2E: a --secondmate spawn by the PRIMARY lands in the SECONDMATE's own labeled workspace, distinct from the primary's
+ok - real herdr E2E: new workers use human-readable labels with their exact task ids and existing labels are not rewritten
