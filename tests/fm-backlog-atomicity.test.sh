@@ -88,6 +88,27 @@ row_state() {  # <case-dir> <id>
     sed -n 's/^  state: *//p' | head -1
 }
 
+configure_env_backend_tasks_axi() {  # <case-dir>
+  local case_dir=$1
+  rm -f "$(backlog_of "$case_dir")"
+  cat > "$case_dir/fakebin/tasks-axi" <<SH
+#!/usr/bin/env bash
+case "\${1:-}" in
+  --version) printf '0.2.5\n' ;;
+  update) printf '%s\n' '--archive-body' ;;
+  mv) printf '%s\n' '[<id>...]' ;;
+  show)
+    printf 'task:\n  state: queued\n  held: no\n  blocked: no\n'
+    ;;
+  start)
+    printf '%s\n' "\$*" > "$case_dir/env-backend-start"
+    ;;
+  *) exit 2 ;;
+esac
+SH
+  chmod +x "$case_dir/fakebin/tasks-axi"
+}
+
 # Shadow tasks-axi with a wrapper that fails one verb and delegates every other
 # verb to the real binary, so a test can drive a genuine mid-transition failure
 # without faking the reads around it.
@@ -2144,6 +2165,12 @@ test_home_without_a_backlog_dispatches_and_completes() {
   id=atomic-no-backlog-b12
   case_dir=$(make_home no-backlog "$id")
   rm -f "$(backlog_of "$case_dir")"
+  cat > "$(home_of "$case_dir")/.tasks.toml" <<'EOF'
+backend = "markdown"
+
+[markdown]
+path = "data/backlog.md"
+EOF
   make_tasks_axi_incompatible "$case_dir"
 
   out=$(run_ship_spawn "$case_dir" "$id") || fail "no-backlog spawn failed: $out"
@@ -2155,6 +2182,119 @@ test_home_without_a_backlog_dispatches_and_completes() {
   assert_absent "$(home_of "$case_dir")/state/$id.backlog-close" \
     "no-backlog teardown recorded a close marker"
   pass "a home with no backlog remains exempt from lifecycle transitions"
+}
+
+test_configured_markdown_path_receives_lifecycle_transitions() {
+  local case_dir home id out
+  id=atomic-configured-markdown-b15
+  case_dir=$(make_home configured-markdown "$id")
+  home=$(home_of "$case_dir")
+  mkdir -p "$home/records"
+  mv "$home/data/backlog.md" "$home/records/tasks.md"
+  cat > "$home/.tasks.toml" <<'EOF'
+backend = "markdown"
+
+[markdown]
+path = "records/tasks.md"
+EOF
+  tasks-axi add "$id" "item for $id" --kind ship --file "$home/records/tasks.md" >/dev/null
+
+  out=$(run_ship_spawn "$case_dir" "$id") \
+    || fail "configured-markdown spawn failed: $out"
+  [ "$(tasks-axi show "$id" --file "$home/records/tasks.md" | sed -n 's/^  state: *//p' | head -1)" = in_flight ] \
+    || fail "spawn skipped the configured markdown backlog"
+  pass "configured markdown paths receive lifecycle transitions"
+}
+
+test_configured_markdown_path_preserves_hash_characters() {
+  local case_dir home id out
+  id=atomic-configured-markdown-hash-b15
+  case_dir=$(make_home configured-markdown-hash "$id")
+  home=$(home_of "$case_dir")
+  mkdir -p "$home/records"
+  mv "$home/data/backlog.md" "$home/records/tasks#1.md"
+  cat > "$home/.tasks.toml" <<'EOF'
+backend = "markdown"
+
+[markdown]
+path = "records/tasks#1.md"
+EOF
+  tasks-axi add "$id" "item for $id" --kind ship --file "$home/records/tasks#1.md" >/dev/null
+
+  out=$(run_ship_spawn "$case_dir" "$id") \
+    || fail "hash-path configured-markdown spawn failed: $out"
+  [ "$(tasks-axi show "$id" --file "$home/records/tasks#1.md" | sed -n 's/^  state: *//p' | head -1)" = in_flight ] \
+    || fail "spawn skipped the configured markdown backlog containing #"
+  pass "configured markdown paths preserve hash characters"
+}
+
+test_dispatch_and_completion_are_structural() {
+  local case_dir home id meta out pr
+  id=fm-structural-b15
+  pr=https://github.com/example/firstmate/pull/15
+  case_dir=$(make_home structural "$id")
+  home=$(home_of "$case_dir")
+  add_item "$case_dir" "$id"
+
+  out=$(run_ship_spawn "$case_dir" "$id") \
+    || fail "structural spawn failed: $out"
+  [ "$(row_state "$case_dir" "$id")" = in_flight ] \
+    || fail "spawn left the backlog item outside In flight"
+
+  # Recovery may claim an already-live row repeatedly; the transition remains
+  # idempotent and does not reopen or duplicate the item.
+  run_bootstrap "$case_dir" >/dev/null \
+    || fail "first idempotent reconciliation failed"
+  run_bootstrap "$case_dir" >/dev/null \
+    || fail "second idempotent reconciliation failed"
+  [ "$(row_state "$case_dir" "$id")" = in_flight ] \
+    || fail "repeated claims changed the live backlog state"
+
+  meta="$home/state/$id.meta"
+  printf 'pr=%s\n' "$pr" >> "$meta"
+  out=$(run_teardown "$case_dir" "$id") \
+    || fail "structural teardown failed: $out"
+  [ "$(row_state "$case_dir" "$id")" = "done" ] \
+    || fail "teardown left the backlog item outside Done"
+  assert_grep "$pr" "$(backlog_of "$case_dir")" \
+    "teardown closed the item without its recorded PR evidence"
+  pass "dispatch and completion transition structurally with evidence"
+}
+
+test_refused_teardown_leaves_the_item_live() {
+  local case_dir home id out rc=0
+  id=fm-structural-refusal-b15
+  case_dir=$(make_home structural-refusal "$id")
+  home=$(home_of "$case_dir")
+  add_item "$case_dir" "$id"
+  out=$(run_ship_spawn "$case_dir" "$id") \
+    || fail "refusal setup spawn failed: $out"
+
+  printf '%s\n' unlanded > "$case_dir/wt/unlanded.txt"
+  git -C "$case_dir/wt" add unlanded.txt
+  git -C "$case_dir/wt" -c user.name=fmtest -c user.email=fmtest@example.invalid \
+    commit -q -m "unlanded fixture work"
+  out=$(run_teardown "$case_dir" "$id") || rc=$?
+
+  [ "$rc" -ne 0 ] || fail "teardown accepted unlanded work"
+  [ "$(row_state "$case_dir" "$id")" = in_flight ] \
+    || fail "refused teardown changed the live backlog state"
+  assert_present "$home/state/$id.meta" \
+    "refused teardown removed the live task record"
+  pass "refused teardown leaves the backlog item in flight"
+}
+
+test_environment_selected_adapter_is_not_forced_to_markdown() {
+  local case_dir id out
+  id=fm-env-adapter-b15
+  case_dir=$(make_home env-adapter "$id")
+  configure_env_backend_tasks_axi "$case_dir"
+
+  out=$(TASKS_AXI_BACKEND=beads run_ship_spawn "$case_dir" "$id") \
+    || fail "environment-selected adapter spawn failed: $out"
+  [ "$(cat "$case_dir/env-backend-start")" = "start $id" ] \
+    || fail "environment-selected adapter received legacy markdown arguments"
+  pass "environment-selected adapters bypass the legacy markdown file override"
 }
 
 test_manual_backend_home_dispatches_and_completes_without_touching_the_backlog() {
@@ -2297,6 +2437,11 @@ test_no_backlog_teardown_refuses_a_symlinked_task_record_at_entry
 test_teardown_rechecks_record_parent_after_lock_acquisition
 test_teardown_refuses_a_symlinked_state_directory_at_entry
 test_home_without_a_backlog_dispatches_and_completes
+test_configured_markdown_path_receives_lifecycle_transitions
+test_configured_markdown_path_preserves_hash_characters
+test_dispatch_and_completion_are_structural
+test_refused_teardown_leaves_the_item_live
+test_environment_selected_adapter_is_not_forced_to_markdown
 test_manual_backend_home_dispatches_and_completes_without_touching_the_backlog
 test_a_secondmate_home_keeps_its_own_books
 test_a_persistent_secondmate_is_never_a_backlog_item
