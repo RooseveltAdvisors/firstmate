@@ -310,9 +310,134 @@ fm_backlog_start() {  # <data-dir> <id>
   fm_backlog_mutate "$1" start "$2"
 }
 
+# THE close-kind contract, stated once and enforced on every close path.
+# A task is marked done for exactly one structured completion fact this home can
+# point at, never free prose - free prose is what let a bare "Closed" stand in
+# for a result nobody could check.
+#
+#   landed      --pr <https url>             the change landed behind a PR
+#   landed      --note "local main"          the change landed on local main
+#   report      --report <path>              a scout deliverable (scouts only)
+#   superseded  --note "superseded by <id>"  another task carries the work now
+#   cancelled   --note "cancelled: <word>"   the captain called it off
+#
+# Mode selects which kinds may appear and how the local-land note is spelled.
+# `live` is the full set with the raw note, and is what a close actually runs.
+# `staged` is the landing-or-report subset a completed worker can produce, with
+# the note percent-encoded as a pending-close record stores it: teardown closes
+# only with a landing or a scout report, and the replay decodes any staged
+# --note straight back to the local-land note, so a staged record must never
+# carry a superseded or cancelled note that decode would silently rewrite.
+fm_backlog_close_args_valid() {  # <live|staged> <arg>...
+  local mode=$1 note_spelling arg_value superseded_id cancelled_word
+  local url_tail url_authority url_path url_host url_port host_rest host_label host_valid
+  local percent_tail percent_valid
+  shift
+  case "$mode" in
+    live) note_spelling='local main' ;;
+    staged) note_spelling='local%20main' ;;
+    *) return 1 ;;
+  esac
+  case "$#" in
+    0) return 0 ;;
+    2) ;;
+    *) return 1 ;;
+  esac
+  case "$1" in
+    --note)
+      arg_value=$2
+      [ "$arg_value" != "$note_spelling" ] || return 0
+      [ "$mode" = live ] || return 1
+      case "$arg_value" in
+        'superseded by '*)
+          superseded_id=${arg_value#'superseded by '}
+          case "$superseded_id" in
+            ''|.*|*[!A-Za-z0-9._-]*) return 1 ;;
+            *) return 0 ;;
+          esac
+          ;;
+        'cancelled: '*)
+          cancelled_word=${arg_value#'cancelled: '}
+          [ "${#cancelled_word}" -le 512 ] || return 1
+          [ -n "${cancelled_word// /}" ] || return 1
+          case "$cancelled_word" in
+            *[[:cntrl:]]*) return 1 ;;
+            *) return 0 ;;
+          esac
+          ;;
+      esac
+      return 1
+      ;;
+    --pr)
+      arg_value=$2
+      [ "${#arg_value}" -le 2048 ] \
+        && case "$arg_value" in https://*) true ;; *) false ;; esac \
+        && case "$arg_value" in
+          *[[:space:]]*|*[!A-Za-z0-9:/?\&=._#%+~@-]*) false ;;
+          *) true ;;
+        esac \
+        && {
+          url_tail=${arg_value#https://}
+          url_authority=${url_tail%%/*}
+          url_path=${url_tail#*/}
+          url_host=$url_authority
+          url_port=
+          case "$url_authority" in
+            *:*) url_host=${url_authority%%:*}; url_port=${url_authority#*:} ;;
+          esac
+          [ "$url_path" != "$url_tail" ] \
+            && case "$url_host" in
+              ''|[-.]*|*[-.]|*..*|*[!A-Za-z0-9.-]*) false ;;
+              *[A-Za-z0-9]*) true ;;
+              *) false ;;
+            esac \
+            && {
+              host_rest=$url_host
+              host_valid=1
+              while :; do
+                host_label=${host_rest%%.*}
+                case "$host_label" in ''|-*|*-) host_valid=0; break ;; esac
+                [ "$host_rest" = "$host_label" ] && break
+                host_rest=${host_rest#*.}
+              done
+              [ "$host_valid" = 1 ]
+            } \
+            && case "$url_authority" in
+              *:*) case "$url_port" in ''|*[!0-9]*|??????*) false ;; *) true ;; esac ;;
+              *) true ;;
+            esac \
+            && case "$url_path" in *[A-Za-z0-9]*) true ;; *) false ;; esac \
+            && {
+              percent_tail=$url_path
+              percent_valid=1
+              while case "$percent_tail" in *%*) true ;; *) false ;; esac; do
+                percent_tail=${percent_tail#*%}
+                case "$percent_tail" in
+                  [0-9A-Fa-f][0-9A-Fa-f]*) percent_tail=${percent_tail#??} ;;
+                  *) percent_valid=0; break ;;
+                esac
+              done
+              [ "$percent_valid" = 1 ]
+            }
+        }
+      ;;
+    --report)
+      arg_value=$2
+      [ "${#arg_value}" -le 4096 ] \
+        && [ -n "${arg_value// /}" ] \
+        && case "$arg_value" in .|..|-*|/*|../*|*/../*|*/..) false ;; *) true ;; esac
+      ;;
+    *) return 1 ;;
+  esac
+}
+
 fm_backlog_done() {  # <data-dir> <id> [flag...]
   local data=$1 id=$2
   shift 2
+  if ! fm_backlog_close_args_valid live "$@"; then
+    FM_BACKLOG_TRANSITION_ERROR="refusing to close $id: a close records one done-class reason - --pr <url>, --note 'local main', --report <path>, --note 'superseded by <id>', or --note 'cancelled: <captain word>'"
+    return 1
+  fi
   fm_backlog_mutate "$data" "done" "$id" "$@"
 }
 
@@ -603,9 +728,7 @@ fm_backlog_close_marker_path() {  # <state-dir> <id>
 
 fm_backlog_close_marker_validate() {  # <marker-path> <authorized-data-dir> <expected-id> <state-dir>
   local marker=$1 authorized_data data_resolved expected_id=$3 state=$4
-  local id='' data='' marker_spawn_gen='' cleanup_incomplete=0 mode=close line raw_bytes arg_value
-  local url_tail url_authority url_path url_host url_port host_rest host_label host_valid
-  local percent_tail percent_valid
+  local id='' data='' marker_spawn_gen='' cleanup_incomplete=0 mode=close line raw_bytes
   local id_count=0 data_count=0 spawn_gen_count=0 cleanup_incomplete_count=0 mode_count=0
   local args=()
   FM_BACKLOG_CLOSE_VALIDATED_ID=
@@ -696,75 +819,8 @@ fm_backlog_close_marker_validate() {  # <marker-path> <authorized-data-dir> <exp
     FM_BACKLOG_TRANSITION_ERROR="foreign data directory in pending-close record $marker"
     return 1
   fi
-  case "${#args[@]}" in
-    0) ;;
-    2)
-      case "${args[0]}" in
-        --note) [ "${args[1]}" = "local%20main" ] ;;
-        --pr)
-          arg_value=${args[1]}
-          [ "${#arg_value}" -le 2048 ] \
-            && case "$arg_value" in https://*) true ;; *) false ;; esac \
-            && case "$arg_value" in
-              *[[:space:]]*|*[!A-Za-z0-9:/?\&=._#%+~@-]*) false ;;
-              *) true ;;
-            esac \
-            && {
-              url_tail=${arg_value#https://}
-              url_authority=${url_tail%%/*}
-              url_path=${url_tail#*/}
-              url_host=$url_authority
-              url_port=
-              case "$url_authority" in
-                *:*) url_host=${url_authority%%:*}; url_port=${url_authority#*:} ;;
-              esac
-              [ "$url_path" != "$url_tail" ] \
-                && case "$url_host" in
-                  ''|[-.]*|*[-.]|*..*|*[!A-Za-z0-9.-]*) false ;;
-                  *[A-Za-z0-9]*) true ;;
-                  *) false ;;
-                esac \
-                && {
-                  host_rest=$url_host
-                  host_valid=1
-                  while :; do
-                    host_label=${host_rest%%.*}
-                    case "$host_label" in ''|-*|*-) host_valid=0; break ;; esac
-                    [ "$host_rest" = "$host_label" ] && break
-                    host_rest=${host_rest#*.}
-                  done
-                  [ "$host_valid" = 1 ]
-                } \
-                && case "$url_authority" in
-                  *:*) case "$url_port" in ''|*[!0-9]*|??????*) false ;; *) true ;; esac ;;
-                  *) true ;;
-                esac \
-                && case "$url_path" in *[A-Za-z0-9]*) true ;; *) false ;; esac \
-                && {
-                  percent_tail=$url_path
-                  percent_valid=1
-                  while case "$percent_tail" in *%*) true ;; *) false ;; esac; do
-                    percent_tail=${percent_tail#*%}
-                    case "$percent_tail" in
-                      [0-9A-Fa-f][0-9A-Fa-f]*) percent_tail=${percent_tail#??} ;;
-                      *) percent_valid=0; break ;;
-                    esac
-                  done
-                  [ "$percent_valid" = 1 ]
-                }
-            }
-          ;;
-        --report)
-          arg_value=${args[1]}
-          [ "${#arg_value}" -le 4096 ] \
-            && [ -n "${arg_value// /}" ] \
-            && case "$arg_value" in .|..|-*|/*|../*|*/../*|*/..) false ;; *) true ;; esac
-          ;;
-        *) false ;;
-      esac || { FM_BACKLOG_TRANSITION_ERROR="invalid pending-close arguments in $marker"; return 1; }
-      ;;
-    *) FM_BACKLOG_TRANSITION_ERROR="invalid pending-close arguments in $marker"; return 1 ;;
-  esac
+  fm_backlog_close_args_valid staged "${args[@]+"${args[@]}"}" \
+    || { FM_BACKLOG_TRANSITION_ERROR="invalid pending-close arguments in $marker"; return 1; }
   FM_BACKLOG_CLOSE_VALIDATED_ID=$id
   FM_BACKLOG_CLOSE_VALIDATED_DATA=$data_resolved
   FM_BACKLOG_CLOSE_VALIDATED_SPAWN_GEN=$marker_spawn_gen

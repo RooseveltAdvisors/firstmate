@@ -2364,6 +2364,87 @@ test_recovery_finishes_a_close_for_the_same_meta_incarnation
 test_recovery_preserves_a_close_for_ambiguous_incarnation_metadata
 test_recovery_preserves_both_records_when_meta_removal_fails
 test_recovery_preserves_a_close_beside_symlinked_metadata
+# --- close kinds ------------------------------------------------------------
+
+# A close records one structured completion fact, never free prose. Driven
+# through the library's own close entry point against a real backlog, so the
+# assertion is the resulting ROW STATE, not the wording of the refusal.
+close_with() {  # <case-dir> <id> <arg>...
+  local case_dir=$1 id=$2
+  shift 2
+  ( set -u
+    # shellcheck source=bin/fm-tasks-axi-lib.sh
+    . "$ROOT/bin/fm-tasks-axi-lib.sh"
+    # shellcheck source=bin/fm-backlog-transition-lib.sh
+    . "$ROOT/bin/fm-backlog-transition-lib.sh"
+    fm_backlog_done "$(home_of "$case_dir")/data" "$id" "$@" && exit 0
+    printf '%s\n' "$FM_BACKLOG_TRANSITION_ERROR" >&2
+    exit 1 )
+}
+
+test_a_close_accepts_every_done_class_reason() {
+  local case_dir id
+  case_dir=$(make_home close-kinds-accepted)
+  for id in landed-pr-c1 landed-local-c2 scout-report-c3 superseded-c4 cancelled-c5; do
+    add_item "$case_dir" "$id"
+    start_item "$case_dir" "$id"
+  done
+
+  close_with "$case_dir" landed-pr-c1 --pr https://github.com/o/r/pull/42 \
+    || fail "a landing URL was refused as a close reason"
+  close_with "$case_dir" landed-local-c2 --note 'local main' \
+    || fail "a local land was refused as a close reason"
+  close_with "$case_dir" scout-report-c3 --report data/scout-report-c3/report.md \
+    || fail "a scout report was refused as a close reason"
+  close_with "$case_dir" superseded-c4 --note 'superseded by landed-pr-c1' \
+    || fail "a superseded reason naming a task was refused"
+  close_with "$case_dir" cancelled-c5 --note 'cancelled: the captain called it off' \
+    || fail "a cancelled reason carrying the captain word was refused"
+
+  for id in landed-pr-c1 landed-local-c2 scout-report-c3 superseded-c4 cancelled-c5; do
+    [ "$(row_state "$case_dir" "$id")" = "done" ] \
+      || fail "a done-class close left $id in state $(row_state "$case_dir" "$id")"
+  done
+  pass "a close accepts every done-class reason and marks the row done"
+}
+
+test_a_close_refuses_a_reason_outside_the_done_class() {
+  local case_dir id out rc
+  case_dir=$(make_home close-kinds-refused)
+  add_item "$case_dir" refused-close-c6
+  start_item "$case_dir" refused-close-c6
+
+  # A bare "Closed", an empty word, a superseded note naming nothing, and a
+  # cancelled note carrying no captain word are each junk being recorded as the
+  # reason a task is done.
+  for out in 'Closed' 'done' '' 'superseded by ' 'cancelled: ' 'local main and more'; do
+    rc=0
+    close_with "$case_dir" refused-close-c6 --note "$out" >/dev/null 2>&1 || rc=$?
+    [ "$rc" -ne 0 ] || fail "a close reason outside the done class was accepted: '$out'"
+    [ "$(row_state "$case_dir" refused-close-c6)" = in_flight ] \
+      || fail "a refused close reason still changed the row: '$out'"
+  done
+
+  # An unrelated tasks-axi flag is not a close reason either.
+  rc=0
+  close_with "$case_dir" refused-close-c6 --keep 5 >/dev/null 2>&1 || rc=$?
+  [ "$rc" -ne 0 ] || fail "a non-reason flag was accepted as a close reason"
+
+  # The refusal names what a caller may use instead.
+  out=$(close_with "$case_dir" refused-close-c6 --note 'Closed' 2>&1) && \
+    fail "a bare Closed was accepted as a close reason"
+  assert_contains "$out" "done-class reason" "the refusal did not name the rule"
+  assert_contains "$out" "superseded by" "the refusal did not name the accepted reasons"
+
+  [ "$(row_state "$case_dir" refused-close-c6)" = in_flight ] \
+    || fail "a refused close reason left the row closed"
+  id=refused-close-c6
+  close_with "$case_dir" "$id" --note 'local main' || fail "the row could not be closed afterwards"
+  [ "$(row_state "$case_dir" "$id")" = "done" ] \
+    || fail "a done-class close after a refusal did not land"
+  pass "a close refuses a reason outside the done class and leaves the row untouched"
+}
+
 # --- dependency edges -------------------------------------------------------
 
 # The dispatch gate firstmate reads is `tasks-axi ready`, and a task-to-task
@@ -2456,3 +2537,5 @@ test_a_secondmate_home_keeps_its_own_books
 test_a_persistent_secondmate_is_never_a_backlog_item
 test_a_blocked_task_leaves_the_ready_set
 test_a_dependency_edge_requires_an_existing_blocker
+test_a_close_accepts_every_done_class_reason
+test_a_close_refuses_a_reason_outside_the_done_class
