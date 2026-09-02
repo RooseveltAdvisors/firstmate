@@ -13,6 +13,9 @@
 # The default (no explicit-path) path also runs bin/fm-lint-workflows.sh so a
 # malformed GitHub workflow, including a self-broken ci.yml, fails locally
 # before merge instead of only failing to run as CI.
+# Every run also enforces one interface boundary over the shell roots it lints:
+# firstmate reaches its backlog through tasks-axi and never through the beads
+# CLI directly (see fm_lint_interface_purity).
 #
 # With no explicit paths, the file set depends on context:
 #   - In CI (GITHUB_ACTIONS=true or CI=true), on the main branch, or when no
@@ -120,6 +123,30 @@ fm_lint_usage() {
 fm_lint_run_workflows() {
   [ "$EXPLICIT_PATHS" -eq 0 ] || return 0
   "$SELF_DIR/fm-lint-workflows.sh"
+}
+
+# Firstmate reaches its backlog only through tasks-axi, never through the beads
+# CLI that tasks-axi wraps. tasks-axi owns the backend gate, the per-home
+# addressing root, and the compatibility verdict, so a direct `bd` call silently
+# bypasses all three and mutates the wrong home or an unsupported schema.
+# This is a source check over the same shell roots this run lints, so it applies
+# to the canonical set, a changed-file set, and explicit paths alike.
+# Full-line comments are exempt so prose may still name the tool; grep -H is
+# load-bearing for that, because a single-root run otherwise drops the filename
+# prefix the comment filter anchors on. The scan reads
+# command position lexically rather than parsing shell, so a `bd` inside a
+# string literal on a code line is reported like any other command position;
+# rewrite such a line rather than suppressing the check.
+fm_lint_interface_purity() {  # <root>...
+  local hits
+  [ "$#" -gt 0 ] || return 0
+  hits=$(grep -HnE '(^|[;&|(`!{])[[:space:]]*bd([^A-Za-z0-9_.=/-]|$)' "$@" 2>/dev/null \
+    | grep -vE '^[^:]*:[0-9]+:[[:space:]]*#') || return 0
+  [ -n "$hits" ] || return 0
+  printf 'fm-lint.sh: firstmate scripts must reach the backlog through tasks-axi, never the beads CLI directly.\n' >&2
+  printf 'fm-lint.sh: replace each call below with the matching tasks-axi command.\n' >&2
+  printf '%s\n' "$hits" >&2
+  return 1
 }
 
 JOBS=${FM_LINT_JOBS:-2}
@@ -253,6 +280,12 @@ if [ "$LIST_FILES" -eq 1 ]; then
   exit 0
 fi
 
+# Runs before ShellCheck resolution so an interface violation is reported even
+# on a host without the pinned ShellCheck. Its verdict is folded into the final
+# exit status rather than exiting here, so one run still reports every finding.
+PURITY_RC=0
+fm_lint_interface_purity ${ROOTS[@]+"${ROOTS[@]}"} || PURITY_RC=$?
+
 if ! command -v shellcheck >/dev/null 2>&1; then
   printf 'fm-lint.sh: ShellCheck not found; install ShellCheck %s with bin/fm-install-shellcheck.sh <destination-directory> and put that directory on PATH.\n' \
     "$REQUIRED_SHELLCHECK" >&2
@@ -279,7 +312,7 @@ fi
 
 if [ "$CHANGED_MODE" -eq 1 ] && [ "$ROOT_COUNT" -eq 0 ]; then
   printf 'fm-lint.sh: no changed lint targets\n'
-  overall_rc=0
+  overall_rc=$PURITY_RC
   fm_lint_run_workflows || overall_rc=$?
   exit "$overall_rc"
 fi
@@ -587,5 +620,6 @@ if [ "$overall_rc" -eq 0 ]; then
 else
   fm_lint_run_workflows || true
 fi
+[ "$PURITY_RC" -eq 0 ] || overall_rc=$PURITY_RC
 
 exit "$overall_rc"

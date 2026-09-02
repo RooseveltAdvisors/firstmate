@@ -151,6 +151,63 @@ pinned_ready() {
   [ "$(shellcheck --version | awk '/^version:/ {print $2; exit}')" = "$REQUIRED" ]
 }
 
+# --- tasks-axi interface boundary -------------------------------------------
+# fm-lint.sh enforces that firstmate scripts reach the backlog only through
+# tasks-axi, never through the beads CLI tasks-axi wraps. The offending token is
+# assembled with printf instead of written literally, so this test file stays
+# clean under the very check it exercises.
+fm_lint_write_purity_fixture() {  # <path> <call|prose>
+  local path=$1 mode=$2 tool
+  tool=$(printf 'b%s' d)
+  {
+    printf '#!/usr/bin/env bash\n'
+    case "$mode" in
+      call)
+        # The command substitution and parameter expansion below are FIXTURE
+        # TEXT written verbatim into the generated script, not expansions in
+        # this test, and that substitution is one command position under test.
+        # shellcheck disable=SC2016
+        printf 'out=$(%s ready --json)\nprintf "%%s\\n" "$out"\n' "$tool"
+        ;;
+      prose)
+        printf '# %s ready is named in prose only\ntasks-axi ready --file backlog.md\n' "$tool"
+        ;;
+      *) return 1 ;;
+    esac
+  } > "$path"
+}
+
+test_interface_purity_rejects_a_direct_beads_call() {
+  local tmp out rc=0
+  tmp=$(fm_test_tmproot fm-lint-purity-call)
+  fm_lint_write_purity_fixture "$tmp/offender.sh" call
+  out=$("$LINT" "$tmp/offender.sh" 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "a direct beads call passed the interface boundary"$'\n'"$out"
+  assert_contains "$out" "never the beads CLI directly" \
+    "the interface-boundary failure did not name the rule"
+  assert_contains "$out" "offender.sh" \
+    "the interface-boundary failure did not name the offending file"
+  pass "fm-lint.sh refuses a direct beads call in a linted shell root"
+}
+
+test_interface_purity_allows_prose_and_tasks_axi() {
+  local tmp out rc=0
+  if ! pinned_ready; then
+    pass "SKIP (ShellCheck $REQUIRED not resolved): interface-boundary prose check"
+    return 0
+  fi
+  tmp=$(fm_test_tmproot fm-lint-purity-prose)
+  fm_lint_write_purity_fixture "$tmp/clean.sh" prose
+  # A SINGLE explicit root is the case that regressed: grep drops the filename
+  # prefix for one file, and the comment filter anchors on that prefix, so a
+  # comment naming the tool was reported as a call.
+  out=$("$LINT" "$tmp/clean.sh" 2>&1) || rc=$?
+  [ "$rc" -eq 0 ] || fail "a tasks-axi-only script failed the interface boundary"$'\n'"$out"
+  assert_not_contains "$out" "never the beads CLI directly" \
+    "prose naming the beads CLI was reported as a call"
+  pass "fm-lint.sh accepts tasks-axi calls and prose naming the beads CLI"
+}
+
 test_help_reports_the_complete_interface() {
   local help
   help=$("$LINT" --help) || fail "fm-lint.sh --help failed"
@@ -1021,3 +1078,5 @@ test_main_branch_forces_full_lint
 test_explicit_path_bypasses_changed_logic
 test_zero_changed_files_exits_clean
 test_list_files_respects_changed_mode
+test_interface_purity_rejects_a_direct_beads_call
+test_interface_purity_allows_prose_and_tasks_axi
