@@ -1321,10 +1321,23 @@ tasks_config_setup() {
     echo "TASKS_CONFIG: could not create $FM_HOME/.tasks.toml from $example"
     return 0
   }
-  if ! cp "$example" "$tmp" 2>/dev/null \
-    || ! mv "$tmp" "$FM_HOME/.tasks.toml" 2>/dev/null; then
+  if ! cp "$example" "$tmp" 2>/dev/null; then
     rm -f "$tmp" 2>/dev/null
     echo "TASKS_CONFIG: could not create $FM_HOME/.tasks.toml from $example"
+    return 0
+  fi
+  # Publish with a hard link, not a rename: link creation fails atomically
+  # when the target already exists, so a .tasks.toml created by an overlapping
+  # bootstrap or by the user after the existence check above is never
+  # clobbered by the tracked defaults. The temp file sits beside the target,
+  # so the link stays on one filesystem.
+  if ln "$tmp" "$FM_HOME/.tasks.toml" 2>/dev/null; then
+    rm -f "$tmp" 2>/dev/null
+  else
+    rm -f "$tmp" 2>/dev/null
+    if [ ! -e "$FM_HOME/.tasks.toml" ] && [ ! -L "$FM_HOME/.tasks.toml" ]; then
+      echo "TASKS_CONFIG: could not create $FM_HOME/.tasks.toml from $example"
+    fi
   fi
 }
 

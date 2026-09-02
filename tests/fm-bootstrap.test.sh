@@ -925,6 +925,41 @@ test_tasks_config_leaves_an_existing_home_copy_untouched() {
   pass "bootstrap leaves a customized .tasks.toml byte-for-byte untouched"
 }
 
+# A .tasks.toml that appears in the gap between the existence check and the
+# create (an overlapping bootstrap, or the user) wins the race: the publish
+# step must fail atomically rather than rename over it, stay silent, and leave
+# the winner byte-for-byte untouched. The fake mktemp lands the competing copy
+# at the exact moment the temp file is requested, so the race is deterministic.
+test_tasks_config_never_clobbers_a_concurrent_home_copy() {
+  local case_dir fixture root home fakebin out real_mktemp
+  case_dir="$TMP_ROOT/tasks-config-race"
+  fixture=$(make_routine_bootstrap_fixture "$case_dir")
+  root=${fixture%%|*}
+  fixture=${fixture#*|}
+  home=${fixture%%|*}
+  fakebin=${fixture#*|}
+
+  real_mktemp=$(command -v mktemp) || fail "mktemp is required for the race case"
+  cat > "$fakebin/mktemp" <<SH
+#!/usr/bin/env bash
+case "\$*" in
+  *.tasks.toml.*)
+    printf '%s\n' 'done_keep = 99' > "\$FM_HOME/.tasks.toml"
+    ;;
+esac
+exec '$real_mktemp' "\$@"
+SH
+  chmod +x "$fakebin/mktemp"
+
+  out=$(run_bootstrap_home "$fakebin" "$home" "$root")
+  printf '%s\n' 'done_keep = 99' > "$case_dir/winner-tasks.toml"
+  cmp -s "$home/.tasks.toml" "$case_dir/winner-tasks.toml" \
+    || fail "bootstrap renamed the tracked defaults over a concurrently created .tasks.toml"
+  assert_not_contains "$out" "TASKS_CONFIG" \
+    "losing the create race is not a failure and must stay silent"
+  pass "bootstrap never clobbers a .tasks.toml created during its own setup"
+}
+
 # A home that cannot be given its .tasks.toml must say so: falling back to
 # tasks-axi's built-in defaults silently is exactly the degrade this guards.
 test_tasks_config_failure_is_actionable() {
@@ -1247,6 +1282,7 @@ test_routine_bootstrap_confirmations_are_silent
 test_routine_bootstrap_contract_runs_under_system_bash
 test_tasks_config_materializes_from_the_tracked_example
 test_tasks_config_leaves_an_existing_home_copy_untouched
+test_tasks_config_never_clobbers_a_concurrent_home_copy
 test_tasks_config_failure_is_actionable
 test_network_phase_partitions_the_run
 test_network_sweeps_recheck_lock_ownership
