@@ -9,6 +9,7 @@
 #                 "MISSING_MANUAL: <tool> (instructions: <url>)", "NEEDS_GH_AUTH",
 #                 "BACKEND_INVALID: <name> (known: <names>)",
 #                 "STARTUP_MEMORY_BUDGET: invalid config/startup-memory-budget - <reason>",
+#                 "TASKS_CONFIG: <why this home has no .tasks.toml>",
 #                 "CREW_DISPATCH: invalid config/crew-dispatch.json - <reason>",
 #                 "FLEET_SYNC: <repo>: skipped|recovered|STUCK: <detail>",
 #                 "HOME_SUMMARY: <ledger never published|not republished since
@@ -64,6 +65,12 @@
 #          quota-axi is required for the agent-owned dispatch-profile array
 #          procedure in AGENTS.md section 4 and
 #          .agents/skills/quota-array-dispatch/SKILL.md.
+#          The locked mutable path copies the tracked .tasks.toml.example into
+#          this home as .tasks.toml when the home has none, so a home that never
+#          customized its backlog config still addresses data/backlog.md instead
+#          of falling back to tasks-axi's built-in defaults. An existing
+#          .tasks.toml is this home's own choice and is never read or rewritten;
+#          only a failed create prints TASKS_CONFIG.
 #          On a primary home, the locked mutable path materializes the visible
 #          default config/startup-memory-budget=7500 when absent. It never
 #          guesses at malformed or unsafe existing files, and secondmate homes
@@ -1294,6 +1301,25 @@ backlog_record_reconcile() {
   done
 }
 
+tasks_config_setup() {
+  # .tasks.toml is per-home local material, so every home materializes its own
+  # from the example that ships beside these scripts in the tracked code root.
+  # An existing file is this home's own customization and stays byte-for-byte
+  # untouched; only a failed create is reported, because a home with no
+  # .tasks.toml silently loses data/backlog.md addressing, its archive path, and
+  # done_keep (see bin/fm-backlog-transition-lib.sh).
+  if [ -e "$FM_HOME/.tasks.toml" ] || [ -L "$FM_HOME/.tasks.toml" ]; then
+    return 0
+  fi
+  local example="$SCRIPT_DIR/../.tasks.toml.example"
+  if [ ! -f "$example" ] || [ -L "$example" ]; then
+    echo "TASKS_CONFIG: this home has no .tasks.toml and $example is missing or not a regular file"
+    return 0
+  fi
+  cp "$example" "$FM_HOME/.tasks.toml" 2>/dev/null \
+    || echo "TASKS_CONFIG: could not create $FM_HOME/.tasks.toml from $example"
+}
+
 startup_memory_budget_setup() {
   # Primary bootstrap owns default publication. A secondmate is deliberately
   # passive here because its setting must converge from the primary through the
@@ -1326,6 +1352,7 @@ fi
 # sessions never touch state, and the deferred network pass never repeats it:
 # the local pass that ran first already closed that window.
 if [ "${FM_BOOTSTRAP_DETECT_ONLY:-0}" != 1 ] && local_phase; then
+  tasks_config_setup
   BOOTSTRAP_BACKLOG_GATE_KIND=secondmate
   if [ -e "$STATE" ] || [ -L "$STATE" ]; then
     if ! fm_backlog_directory_present "$STATE" "state directory"; then

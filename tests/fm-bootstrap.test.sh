@@ -873,6 +873,81 @@ test_routine_bootstrap_confirmations_are_silent() {
   pass "bootstrap keeps routine tasks-axi, harness, dispatch, and already-live liveness confirmations silent"
 }
 
+run_bootstrap_home() {
+  local fakebin=$1 home=$2 root=$3
+  PATH="$fakebin:$BASE_PATH" FM_BACKEND=tmux FM_HOME="$home" FM_ROOT_OVERRIDE="$root" \
+    FM_FAKE_TREEHOUSE_LEASE_HELP=1 \
+    bash "$ROOT/bin/fm-bootstrap.sh"
+}
+
+# .tasks.toml is per-home local material rather than tracked shared material, so
+# a home that has none must be given the tracked template - otherwise tasks-axi
+# silently falls back to its own defaults and stops addressing data/backlog.md,
+# the archive, and done_keep.
+test_tasks_config_materializes_from_the_tracked_example() {
+  local case_dir fixture root home fakebin out
+  case_dir="$TMP_ROOT/tasks-config-absent"
+  fixture=$(make_routine_bootstrap_fixture "$case_dir")
+  root=${fixture%%|*}
+  fixture=${fixture#*|}
+  home=${fixture%%|*}
+  fakebin=${fixture#*|}
+
+  [ ! -e "$home/.tasks.toml" ] || fail "fixture home already had a .tasks.toml"
+  out=$(run_bootstrap_home "$fakebin" "$home" "$root")
+  [ -z "$out" ] || fail "materializing .tasks.toml should stay silent, got: $out"
+  cmp -s "$home/.tasks.toml" "$ROOT/.tasks.toml.example" \
+    || fail "bootstrap did not materialize .tasks.toml from the tracked example"
+  grep -q 'path = "data/backlog.md"' "$home/.tasks.toml" \
+    || fail "materialized .tasks.toml does not address data/backlog.md"
+  grep -q 'done_keep = 10' "$home/.tasks.toml" \
+    || fail "materialized .tasks.toml lost done_keep"
+  pass "bootstrap materializes .tasks.toml from the tracked example"
+}
+
+# A home that customized its own backlog config owns it outright; the copy-if-absent
+# path must never read, repair, or rewrite it.
+test_tasks_config_leaves_an_existing_home_copy_untouched() {
+  local case_dir fixture root home fakebin before
+  case_dir="$TMP_ROOT/tasks-config-existing"
+  fixture=$(make_routine_bootstrap_fixture "$case_dir")
+  root=${fixture%%|*}
+  fixture=${fixture#*|}
+  home=${fixture%%|*}
+  fakebin=${fixture#*|}
+
+  printf '%s\n' 'backend = "markdown"' '' '[markdown]' 'path = "data/other.md"' 'done_keep = 3' \
+    > "$home/.tasks.toml"
+  before=$(cat "$home/.tasks.toml")
+  run_bootstrap_home "$fakebin" "$home" "$root" >/dev/null
+  [ "$(cat "$home/.tasks.toml")" = "$before" ] \
+    || fail "bootstrap rewrote a customized .tasks.toml"
+  pass "bootstrap leaves a customized .tasks.toml byte-for-byte untouched"
+}
+
+# A home that cannot be given its .tasks.toml must say so: falling back to
+# tasks-axi's built-in defaults silently is exactly the degrade this guards.
+test_tasks_config_failure_is_actionable() {
+  local case_dir fixture root home fakebin out
+  if [ "$(id -u)" -eq 0 ]; then
+    pass "unwritable-home .tasks.toml case skipped as root"
+    return
+  fi
+  case_dir="$TMP_ROOT/tasks-config-unwritable"
+  fixture=$(make_routine_bootstrap_fixture "$case_dir")
+  root=${fixture%%|*}
+  fixture=${fixture#*|}
+  home=${fixture%%|*}
+  fakebin=${fixture#*|}
+
+  chmod a-w "$home"
+  out=$(run_bootstrap_home "$fakebin" "$home" "$root")
+  chmod u+w "$home"
+  assert_contains "$out" "TASKS_CONFIG: could not create $home/.tasks.toml" \
+    "an unwritable home degraded to tasks-axi defaults without an actionable line"
+  pass "bootstrap reports an actionable line when it cannot create .tasks.toml"
+}
+
 test_routine_bootstrap_contract_runs_under_system_bash() {
   local out
   [ -x /bin/bash ] || { pass "bootstrap routine contract skipped without /bin/bash"; return; }
@@ -1170,6 +1245,9 @@ test_fleet_sync_timeout_empty_override_uses_default
 test_fleet_sync_timeout_is_computed_before_launch
 test_routine_bootstrap_confirmations_are_silent
 test_routine_bootstrap_contract_runs_under_system_bash
+test_tasks_config_materializes_from_the_tracked_example
+test_tasks_config_leaves_an_existing_home_copy_untouched
+test_tasks_config_failure_is_actionable
 test_network_phase_partitions_the_run
 test_network_sweeps_recheck_lock_ownership
 test_network_phases_record_per_step_elapsed_times
