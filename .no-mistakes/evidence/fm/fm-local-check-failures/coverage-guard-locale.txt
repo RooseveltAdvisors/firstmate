@@ -1,0 +1,12 @@
+=== collation check: en_US.utf8 sorts differently from C ===
+a-w.t a.t (C)
+a.t a-w.t (en_US.utf8)
+
+=== BASE (d22318e): --check-coverage under LC_ALL=en_US.utf8 ===
+comm: file 2 is not in sorted order
+comm: input is not in sorted order
+exit=1
+
+=== TARGET (6de4740): --check-coverage under LC_ALL=en_US.utf8 ===
+FM_TEST_COVERAGE ok total=176 parallel=24 serial=140 serial_shards=5 serial_unhinted=0 herdr=12
+exit=0

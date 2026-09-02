@@ -1,0 +1,2 @@
+=== TARGET: default_branch still resolves a real default branch ===
+main

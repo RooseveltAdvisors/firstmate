@@ -1,0 +1,11 @@
+ok - unknown extension conformance section selectors fail before setup
+error[binding-failed]: error: process-event state root is not a private directory
+error[binding-failed]: error: process-event state root is not a private directory
+not ok - local bind returned no binding retirement identity
+error[mode-unsafe]: package root mode is unsafe: 775
+error: process-event state root is not a private directory
+error: process-event state root is not a private directory
+error[binding-failed]: error: process-event state root is not a private directory
+tests/fm-extension-binding.test.sh: line 402: 1391375 Killed                  FM_EXTENSION_BINDING_SECTION_CHILD=1 FM_EXTENSION_BINDING_SEGMENT="$section" bash "$0"
+ok - the section coordinator propagates ordered failures and bounded cleanup
+not ok - an isolated extension conformance section failed

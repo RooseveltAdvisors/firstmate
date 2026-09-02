@@ -1,0 +1,4 @@
+error: process-event state root is not a private directory
+not ok - an unconfigured home reports no sources (missing: 'no sources registered')
+--- output ---
+

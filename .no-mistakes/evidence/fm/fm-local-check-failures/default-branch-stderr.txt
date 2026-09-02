@@ -1,0 +1,9 @@
+=== BASE: default_branch on a non-git directory (stderr shown) ===
+fatal: not a git repository (or any of the parent directories): .git
+fatal: not a git repository (or any of the parent directories): .git
+exit=0
+
+=== TARGET: default_branch on a non-git directory (stderr shown) ===
+exit=0
+
+=== TARGET: default_branch still resolves a real default branch ===

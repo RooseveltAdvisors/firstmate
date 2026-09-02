@@ -1,0 +1,17 @@
+=== TARGET (6de4740): procevent on a umask-002 state root ===
+before: 775
+no sources registered
+list exit=0
+after first run: 755
+repeat list exit=0
+after repeat: 755
+
+=== TARGET: fail-closed when the root cannot be tightened (chmod fails) ===
+error: process-event state root is not a private directory
+untightenable exit=1
+mode after refusal: 775
+
+=== BASE (d22318e): same group-writable root ===
+before: 775
+error: process-event state root is not a private directory
+list exit=1
