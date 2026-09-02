@@ -916,8 +916,13 @@ exit 1
 SH
   chmod +x "$fakebin/gh"
 
+  # A home whose root is not a git checkout is an ordinary fixture shape, and the
+  # default-branch probe runs on every bootstrap, so git's own complaint must not
+  # leak past it and bury the diagnostics this case is reading.
   all_out=$(PATH="$fakebin:$BASE_PATH" BASH_ENV="$bash_env" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
-    FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
+    FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh" 2>"$case_dir/all.err")
+  assert_not_contains "$(cat "$case_dir/all.err")" "not a git repository" \
+    "bootstrap leaked git's own diagnostic for a non-git root"
   assert_contains "$all_out" "MISSING: node (install:" "the unsplit run lost its local diagnostic"
   assert_contains "$all_out" "NEEDS_GH_AUTH" "the unsplit run lost its network diagnostic"
 
