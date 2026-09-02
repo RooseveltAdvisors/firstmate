@@ -1,0 +1,51 @@
+=== Demo 1: configured markdown path (records/tasks.md) receives lifecycle transitions ===
+$ cat home/.tasks.toml
+backend = "markdown"
+
+[markdown]
+path = "records/tasks.md"
+
+$ tasks-axi add demo-1 "demo item" --kind ship --file home/records/tasks.md
+ok: added demo-1 (ship) -> Queued
+
+--- backlog BEFORE ---
+# Backlog
+
+## In flight
+
+## Queued
+- [ ] demo-1 - demo item (kind: ship) (since 2026-09-02)
+
+## Done
+gate: applies
+$ fm_backlog_mutate start demo-1   (what bin/fm-spawn.sh runs at dispatch)
+start: ok
+probe after start: state=in_flight no no
+$ fm_backlog_done demo-1 --pr https://github.com/example/firstmate/pull/15   (teardown close with PR evidence)
+done: ok
+probe after done: state=done no no
+
+--- backlog AFTER (item closed, PR evidence recorded) ---
+# Backlog
+
+## In flight
+## Queued
+## Done
+- [x] demo-1 - demo item https://github.com/example/firstmate/pull/15 (kind: ship) (merged 2026-09-02)
+
+=== Demo 2: quoted path containing # is honored (records/tasks#1.md) ===
+ok: added demo-2 (ship) -> Queued
+gate: applies (hash path resolved, not truncated at #)
+start: ok
+probe: state=in_flight no no (item moved In flight inside tasks#1.md)
+
+=== Demo 3: environment-selected adapter (TASKS_AXI_BACKEND=beads) bypasses the markdown exemption ===
+(home has no backlog.md anywhere)
+gate: applies - beads adapter is not forced into the absent-markdown exemption
+
+=== Demo 4: fm-lint rejects a direct bd invocation through its public CLI ===
+$ printf "bd close fm-example" > bin/direct-beads.sh && CI=true bin/fm-lint.sh
+bin/direct-beads.sh:2: direct Beads CLI invocation bypasses tasks-axi
+exit code: 1 (non-zero = refused)
+
+ALL DEMOS PASSED
