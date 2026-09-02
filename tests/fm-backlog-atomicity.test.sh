@@ -25,6 +25,8 @@ set -u
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=bin/fm-timeout-lib.sh
+. "$(dirname "${BASH_SOURCE[0]}")/../bin/fm-timeout-lib.sh"
 
 # An exported TASKS_AXI_BACKEND would outrank each case's .tasks.toml fixture
 # in fm_tasks_axi_backend, so the backend cases must start from a clean slate.
@@ -2377,7 +2379,7 @@ close_with() {  # <case-dir> <id> <arg>...
     . "$ROOT/bin/fm-tasks-axi-lib.sh"
     # shellcheck source=bin/fm-backlog-transition-lib.sh
     . "$ROOT/bin/fm-backlog-transition-lib.sh"
-    fm_backlog_done "$(home_of "$case_dir")/data" "$id" "$@" && exit 0
+    fm_backlog_done "$(home_of "$case_dir")/data" "$id" "$(home_of "$case_dir")/state" "$@" && exit 0
     printf '%s\n' "$FM_BACKLOG_TRANSITION_ERROR" >&2
     exit 1 )
 }
@@ -2445,6 +2447,87 @@ test_a_close_refuses_a_reason_outside_the_done_class() {
   pass "a close refuses a reason outside the done class and leaves the row untouched"
 }
 
+# A project-shaped row - a repo plus a ship or scout kind - cannot be marked
+# done when no worker record proves a worker ever existed for it. The one way
+# past it is the captain's own word, which the close itself records.
+add_project_item() {  # <case-dir> <id> <kind>
+  tasks-axi add "$2" "project item for $2" --kind "$3" --repo firstmate \
+    --file "$(backlog_of "$1")" >/dev/null
+}
+
+test_project_work_is_not_closed_without_a_worker_record() {
+  local case_dir out rc=0 marker
+  case_dir=$(make_home close-worker-record)
+  add_project_item "$case_dir" unworked-ship-c7 ship
+  start_item "$case_dir" unworked-ship-c7
+  add_project_item "$case_dir" unworked-scout-c8 scout
+  start_item "$case_dir" unworked-scout-c8
+  add_project_item "$case_dir" worked-ship-c9 ship
+  start_item "$case_dir" worked-ship-c9
+  add_item "$case_dir" plain-ship-c10
+  start_item "$case_dir" plain-ship-c10
+
+  out=$(close_with "$case_dir" unworked-ship-c7 --note 'local main' 2>&1) && \
+    fail "project work with no worker record was marked done"
+  assert_contains "$out" "no worker record" "the refusal did not name the missing worker record"
+  [ "$(row_state "$case_dir" unworked-ship-c7)" = in_flight ] \
+    || fail "a refused project close still changed the row"
+
+  rc=0
+  close_with "$case_dir" unworked-scout-c8 --report data/unworked-scout-c8/report.md >/dev/null 2>&1 || rc=$?
+  [ "$rc" -ne 0 ] || fail "an unworked scout was closed against a report no worker wrote"
+
+  # A row that is not project-shaped is untouched by this gate.
+  close_with "$case_dir" plain-ship-c10 --note 'local main' \
+    || fail "a row with no repo was caught by the project worker-record gate"
+  [ "$(row_state "$case_dir" plain-ship-c10)" = "done" ] \
+    || fail "a non-project close did not land"
+
+  # The live task record is a worker record.
+  : > "$(home_of "$case_dir")/state/worked-ship-c9.meta"
+  close_with "$case_dir" worked-ship-c9 --note 'local main' \
+    || fail "project work with a live task record was refused"
+  [ "$(row_state "$case_dir" worked-ship-c9)" = "done" ] \
+    || fail "a worked project close did not land"
+
+  # So is the pending-close record teardown stages as it removes that record.
+  marker="$(home_of "$case_dir")/state/unworked-scout-c8.backlog-close"
+  : > "$marker"
+  close_with "$case_dir" unworked-scout-c8 --report data/unworked-scout-c8/report.md \
+    || fail "a close staged behind a pending-close record was refused"
+  [ "$(row_state "$case_dir" unworked-scout-c8)" = "done" ] \
+    || fail "a close behind a pending-close record did not land"
+  pass "project work is not marked done without a worker record"
+}
+
+test_the_captain_word_is_the_one_override_and_is_recorded() {
+  local case_dir out
+  case_dir=$(make_home close-captain-word)
+  add_project_item "$case_dir" captain-stood-down-c11 ship
+  start_item "$case_dir" captain-stood-down-c11
+
+  # An empty or blank captain word is not captain authority, so it overrides
+  # nothing - the override cannot be spent silently.
+  for out in '' '   '; do
+    close_with "$case_dir" captain-stood-down-c11 --note "cancelled: $out" >/dev/null 2>&1 \
+      && fail "a blank captain word was accepted as an override"
+    [ "$(row_state "$case_dir" captain-stood-down-c11)" = in_flight ] \
+      || fail "a blank captain word still closed the row"
+  done
+
+  close_with "$case_dir" captain-stood-down-c11 \
+    --note 'cancelled: the captain stood this down before anyone picked it up' \
+    || fail "the captain word did not override the missing worker record"
+  [ "$(row_state "$case_dir" captain-stood-down-c11)" = "done" ] \
+    || fail "the captain-word override did not close the row"
+
+  # Recorded, not merely accepted: the captain's own words are on the closed row.
+  out=$(tasks-axi show captain-stood-down-c11 --file "$(backlog_of "$case_dir")" 2>&1)
+  assert_contains "$out" "the captain stood this down before anyone picked it up" \
+    "the captain word that authorized the close was not recorded on the task"
+  pass "the captain word is the one override and is recorded on the closed task"
+}
+
 # --- dependency edges -------------------------------------------------------
 
 # The dispatch gate firstmate reads is `tasks-axi ready`, and a task-to-task
@@ -2453,6 +2536,21 @@ test_a_close_refuses_a_reason_outside_the_done_class() {
 # task leaves `ready` while its blocker stays, and `unblock` restores it.
 # Firstmate does not create these edges yet; the edge call sites are a separate
 # slice. Pinning the contract now is what makes that slice safe to add.
+# `tasks-axi block` is known to hang, suspected to be a `bd send-metrics` child
+# holding stdout open. Fixing that is out of scope here, but a hang must not
+# wedge the lane: bound every call and turn an expired bound into a clear
+# failure naming the suspected cause.
+BLOCK_EDGE_TIMEOUT=${FM_TEST_BLOCK_EDGE_TIMEOUT:-30}
+bounded_axi() {  # <case-dir> <verb> <arg>...
+  local case_dir=$1 verb rc=0
+  shift
+  verb=$1
+  fm_run_timed "$BLOCK_EDGE_TIMEOUT" tasks-axi "$@" --file "$(backlog_of "$case_dir")" \
+    >/dev/null 2>&1 || rc=$?
+  [ "$rc" -ne 124 ] || fail "tasks-axi $verb did not finish within ${BLOCK_EDGE_TIMEOUT}s; suspected hang from a bd send-metrics child holding stdout open"
+  return "$rc"
+}
+
 block_edge_of() {  # <case-dir> <id>
   tasks-axi show "$2" --file "$(backlog_of "$1")" 2>/dev/null |
     sed -n 's/^  blocked_by: *//p' | head -1
@@ -2474,7 +2572,7 @@ test_a_blocked_task_leaves_the_ready_set() {
   assert_contains "$before" "blocker-item" "the blocker was not dispatchable before the edge"
   assert_contains "$before" "dependent-item" "the dependent was not dispatchable before the edge"
 
-  tasks-axi block dependent-item --by blocker-item --file "$(backlog_of "$case_dir")" >/dev/null \
+  bounded_axi "$case_dir" block dependent-item --by blocker-item \
     || fail "tasks-axi block did not record the dependency edge"
 
   [ "$(block_edge_of "$case_dir" dependent-item)" = blocker-item ] \
@@ -2485,12 +2583,12 @@ test_a_blocked_task_leaves_the_ready_set() {
   assert_contains "$after" "blocker-item" "blocking a dependent also removed its blocker"
 
   # Idempotent: repeating the edge is not an error and changes nothing.
-  tasks-axi block dependent-item --by blocker-item --file "$(backlog_of "$case_dir")" >/dev/null \
+  bounded_axi "$case_dir" block dependent-item --by blocker-item \
     || fail "repeating an existing dependency edge failed"
   [ "$(ready_ids "$case_dir")" = "$after" ] \
     || fail "repeating an existing dependency edge changed the ready set"
 
-  tasks-axi unblock dependent-item --by blocker-item --file "$(backlog_of "$case_dir")" >/dev/null \
+  bounded_axi "$case_dir" unblock dependent-item --by blocker-item \
     || fail "tasks-axi unblock did not clear the dependency edge"
   cleared=$(ready_ids "$case_dir")
   assert_contains "$cleared" "dependent-item" "clearing the dependency did not restore the dependent"
@@ -2499,12 +2597,12 @@ test_a_blocked_task_leaves_the_ready_set() {
 }
 
 test_a_dependency_edge_requires_an_existing_blocker() {
-  local case_dir out rc=0
+  local case_dir rc=0
   case_dir="$TMP_ROOT/block-missing"
   make_home block-missing >/dev/null
   add_item "$case_dir" lonely-item
-  out=$(tasks-axi block lonely-item --by no-such-blocker --file "$(backlog_of "$case_dir")" 2>&1) || rc=$?
-  [ "$rc" -ne 0 ] || fail "a dependency on a nonexistent blocker was accepted"$'\n'"$out"
+  bounded_axi "$case_dir" block lonely-item --by no-such-blocker || rc=$?
+  [ "$rc" -ne 0 ] || fail "a dependency on a nonexistent blocker was accepted"
   assert_contains "$(ready_ids "$case_dir")" "lonely-item" \
     "a refused dependency still removed the task from the ready set"
   pass "a dependency edge on a nonexistent blocker is refused and changes nothing"
@@ -2539,3 +2637,5 @@ test_a_blocked_task_leaves_the_ready_set
 test_a_dependency_edge_requires_an_existing_blocker
 test_a_close_accepts_every_done_class_reason
 test_a_close_refuses_a_reason_outside_the_done_class
+test_project_work_is_not_closed_without_a_worker_record
+test_the_captain_word_is_the_one_override_and_is_recorded

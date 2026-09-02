@@ -66,6 +66,11 @@ FM_BACKLOG_ROW_ERROR=
 # the row is not held.
 # shellcheck disable=SC2034 # Output global, read by the sourcing caller.
 FM_BACKLOG_ROW_HOLD_KIND=
+# Reported beside FM_BACKLOG_ROW_STATE by fm_backlog_row_probe.
+# shellcheck disable=SC2034 # Output globals, read by the sourcing caller.
+FM_BACKLOG_ROW_REPO=
+# shellcheck disable=SC2034 # Output globals, read by the sourcing caller.
+FM_BACKLOG_ROW_KIND=
 # Set by fm_backlog_close_marker_replay: closed | closed_incomplete | retained |
 # retained_incomplete | answered | stale | noop.
 # shellcheck disable=SC2034 # Output global, read by the sourcing caller.
@@ -233,6 +238,8 @@ fm_backlog_row_list() {  # <resolved-data-dir> [flag...]
 
 fm_backlog_row_probe() {  # <data-dir> <id>
   local data authorized_data=$1 file id=$2 out state held blocked hold_kind command_status
+  FM_BACKLOG_ROW_REPO=
+  FM_BACKLOG_ROW_KIND=
   if ! data=$(fm_backlog_data_absolute "$1"); then
     FM_BACKLOG_ROW_RESULT=error
     FM_BACKLOG_ROW_STATE=
@@ -271,6 +278,16 @@ fm_backlog_row_probe() {  # <data-dir> <id>
   held=$(printf '%s\n' "$out" | sed -n 's/^  held: *//p' | head -1)
   blocked=$(printf '%s\n' "$out" | sed -n 's/^  blocked: *//p' | head -1)
   hold_kind=$(printf '%s\n' "$out" | sed -n 's/^  hold_kind: *//p' | head -1)
+  # Reported beside the row state, never folded into it: callers pattern-match
+  # FM_BACKLOG_ROW_STATE exactly, so its shape must not change. tasks-axi renders
+  # an absent string field as a QUOTED placeholder ("-"), so strip the quoting
+  # before any caller compares the value.
+  FM_BACKLOG_ROW_REPO=$(printf '%s\n' "$out" | sed -n 's/^  repo: *//p' | head -1)
+  FM_BACKLOG_ROW_KIND=$(printf '%s\n' "$out" | sed -n 's/^  kind: *//p' | head -1)
+  FM_BACKLOG_ROW_REPO=${FM_BACKLOG_ROW_REPO#\"}
+  FM_BACKLOG_ROW_REPO=${FM_BACKLOG_ROW_REPO%\"}
+  FM_BACKLOG_ROW_KIND=${FM_BACKLOG_ROW_KIND#\"}
+  FM_BACKLOG_ROW_KIND=${FM_BACKLOG_ROW_KIND%\"}
   if [ -z "$state" ]; then
     FM_BACKLOG_ROW_ERROR="tasks-axi show $id returned no state"
     return 1
@@ -308,6 +325,37 @@ fm_backlog_mutate() {  # <data-dir> <verb> <id> [flag...]
 
 fm_backlog_start() {  # <data-dir> <id>
   fm_backlog_mutate "$1" start "$2"
+}
+
+# THE captain-authority mechanism, stated once and used everywhere captain
+# authority appears on a close path. Captain authority is the captain's own
+# words: non-empty, bounded, and free of control bytes. There is exactly one
+# spelling of it, and it is never silent - the word is carried by the close that
+# needs it, so tasks-axi records it on the closed task by construction. A close
+# path that wants captain authority asks fm_backlog_close_captain_word for it
+# rather than inventing a second override flag nothing would record.
+fm_backlog_captain_word_valid() {  # <word>
+  local word=$1
+  [ "${#word}" -le 512 ] || return 1
+  [ -n "${word// /}" ] || return 1
+  case "$word" in
+    *[[:cntrl:]]*) return 1 ;;
+  esac
+}
+
+# Print the captain word this close carries, or return 1 when it carries none.
+# The `cancelled` kind IS the captain-word close: its note is the captain's own
+# words, so authority and its record are the same act.
+fm_backlog_close_captain_word() {  # <arg>...
+  local word
+  [ "$#" -eq 2 ] || return 1
+  [ "$1" = --note ] || return 1
+  case "$2" in
+    'cancelled: '*) word=${2#'cancelled: '} ;;
+    *) return 1 ;;
+  esac
+  fm_backlog_captain_word_valid "$word" || return 1
+  printf '%s\n' "$word"
 }
 
 # THE close-kind contract, stated once and enforced on every close path.
@@ -358,12 +406,8 @@ fm_backlog_close_args_valid() {  # <live|staged> <arg>...
           ;;
         'cancelled: '*)
           cancelled_word=${arg_value#'cancelled: '}
-          [ "${#cancelled_word}" -le 512 ] || return 1
-          [ -n "${cancelled_word// /}" ] || return 1
-          case "$cancelled_word" in
-            *[[:cntrl:]]*) return 1 ;;
-            *) return 0 ;;
-          esac
+          fm_backlog_captain_word_valid "$cancelled_word" || return 1
+          return 0
           ;;
       esac
       return 1
@@ -431,13 +475,44 @@ fm_backlog_close_args_valid() {  # <live|staged> <arg>...
   esac
 }
 
-fm_backlog_done() {  # <data-dir> <id> [flag...]
-  local data=$1 id=$2
-  shift 2
+# Project work cannot be marked done when nothing ever worked it. A row is
+# PROJECT-SHAPED when it carries a repo AND a ship or scout kind, and such a row
+# closes only while a worker record still proves a worker existed for it: the
+# live task record, or the pending-close record teardown stages in the same act
+# that removes that task record. Both ordinary paths satisfy this - teardown
+# stages its pending-close record before destructive cleanup, and the crash
+# replay runs with that record still present - so this refuses exactly the case
+# it is for: a close invented for project work no worker ever touched.
+#
+# The one way past it is the captain's own word, which the close records
+# (fm_backlog_close_captain_word). An unreadable row is left to the close itself
+# to fail on, so a transient backlog read failure is never reported as this.
+fm_backlog_close_worker_record_required() {  # <data-dir> <id> <state-dir> <arg>...
+  local data=$1 id=$2 state=$3 meta marker
+  shift 3
+  fm_backlog_row_probe "$data" "$id" >/dev/null 2>&1 || return 0
+  [ -n "$FM_BACKLOG_ROW_REPO" ] && [ "$FM_BACKLOG_ROW_REPO" != - ] || return 0
+  case "$FM_BACKLOG_ROW_KIND" in
+    ship|scout) ;;
+    *) return 0 ;;
+  esac
+  meta="$state/$id.meta"
+  [ ! -e "$meta" ] && [ ! -L "$meta" ] || return 0
+  marker=$(fm_backlog_close_marker_path "$state" "$id") || return 1
+  [ ! -e "$marker" ] && [ ! -L "$marker" ] || return 0
+  fm_backlog_close_captain_word "$@" >/dev/null && return 0
+  FM_BACKLOG_TRANSITION_ERROR="refusing to close $id: it is project work in $FM_BACKLOG_ROW_REPO with no worker record, so nothing ever worked it; close it with --note 'cancelled: <captain word>' to record the captain's own decision"
+  return 1
+}
+
+fm_backlog_done() {  # <data-dir> <id> <state-dir> [flag...]
+  local data=$1 id=$2 state=$3
+  shift 3
   if ! fm_backlog_close_args_valid live "$@"; then
     FM_BACKLOG_TRANSITION_ERROR="refusing to close $id: a close records one done-class reason - --pr <url>, --note 'local main', --report <path>, --note 'superseded by <id>', or --note 'cancelled: <captain word>'"
     return 1
   fi
+  fm_backlog_close_worker_record_required "$data" "$id" "$state" "$@" || return 1
   fm_backlog_mutate "$data" "done" "$id" "$@"
 }
 
@@ -694,7 +769,7 @@ fm_backlog_close_transition() {
   local meta=$1 marker=$2 data=$3 id=$4 state=$5
   shift 5
   [ -z "$meta" ] || fm_backlog_record_remove "$meta" "task record" "$state" || return 1
-  fm_backlog_done "$data" "$id" "$@" || return 1
+  fm_backlog_done "$data" "$id" "$state" "$@" || return 1
   fm_backlog_record_remove "$marker" "pending-close record" "$state"
 }
 
