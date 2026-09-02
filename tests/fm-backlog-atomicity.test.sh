@@ -2387,7 +2387,7 @@ close_with() {  # <case-dir> <id> <arg>...
 test_a_close_accepts_every_done_class_reason() {
   local case_dir id
   case_dir=$(make_home close-kinds-accepted)
-  for id in landed-pr-c1 landed-local-c2 scout-report-c3 superseded-c4 cancelled-c5; do
+  for id in landed-pr-c1 landed-local-c2 scout-report-c3 superseded-c4 cancelled-c5 answered-c6; do
     add_item "$case_dir" "$id"
     start_item "$case_dir" "$id"
   done
@@ -2402,8 +2402,10 @@ test_a_close_accepts_every_done_class_reason() {
     || fail "a superseded reason naming a task was refused"
   close_with "$case_dir" cancelled-c5 --note 'cancelled: the captain called it off' \
     || fail "a cancelled reason carrying the captain word was refused"
+  close_with "$case_dir" answered-c6 --note 'answered: the captain said ship it' \
+    || fail "an answered reason carrying the captain word was refused"
 
-  for id in landed-pr-c1 landed-local-c2 scout-report-c3 superseded-c4 cancelled-c5; do
+  for id in landed-pr-c1 landed-local-c2 scout-report-c3 superseded-c4 cancelled-c5 answered-c6; do
     [ "$(row_state "$case_dir" "$id")" = "done" ] \
       || fail "a done-class close left $id in state $(row_state "$case_dir" "$id")"
   done
@@ -2498,6 +2500,30 @@ test_project_work_is_not_closed_without_a_worker_record() {
   [ "$(row_state "$case_dir" unworked-scout-c8)" = "done" ] \
     || fail "a close behind a pending-close record did not land"
   pass "project work is not marked done without a worker record"
+}
+
+test_an_answered_close_is_the_same_captain_authority() {
+  local case_dir out
+  case_dir=$(make_home close-answered)
+  add_project_item "$case_dir" answered-hold-c12 ship
+  start_item "$case_dir" answered-hold-c12
+
+  # A blank answer is not authority, so it overrides nothing.
+  close_with "$case_dir" answered-hold-c12 --note 'answered: ' >/dev/null 2>&1 \
+    && fail "a blank answered note was accepted as captain authority"
+  [ "$(row_state "$case_dir" answered-hold-c12)" = in_flight ] \
+    || fail "a blank answered note still closed the row"
+
+  # Answering a hold closes real project work with no worker record, on the
+  # captain's own word, through the same one mechanism `cancelled` uses.
+  close_with "$case_dir" answered-hold-c12 --note 'answered: the captain said ship it' \
+    || fail "an answered close did not clear the worker-record gate"
+  [ "$(row_state "$case_dir" answered-hold-c12)" = "done" ] \
+    || fail "an answered close did not close the row"
+  out=$(tasks-axi show answered-hold-c12 --file "$(backlog_of "$case_dir")" 2>&1)
+  assert_contains "$out" "the captain said ship it" \
+    "the captain answer that authorized the close was not recorded on the task"
+  pass "an answered close carries the same captain authority and is recorded"
 }
 
 test_the_captain_word_is_the_one_override_and_is_recorded() {
@@ -2639,3 +2665,4 @@ test_a_close_accepts_every_done_class_reason
 test_a_close_refuses_a_reason_outside_the_done_class
 test_project_work_is_not_closed_without_a_worker_record
 test_the_captain_word_is_the_one_override_and_is_recorded
+test_an_answered_close_is_the_same_captain_authority

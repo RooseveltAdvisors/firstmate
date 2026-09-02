@@ -133,14 +133,17 @@ fm_lint_run_workflows() {
 # to the canonical set, a changed-file set, and explicit paths alike.
 # Full-line comments are exempt so prose may still name the tool; grep -H is
 # load-bearing for that, because a single-root run otherwise drops the filename
-# prefix the comment filter anchors on. The scan reads
-# command position lexically rather than parsing shell, so a `bd` inside a
-# string literal on a code line is reported like any other command position;
-# rewrite such a line rather than suppressing the check.
+# prefix the comment filter anchors on.
+# Command position is recognized lexically, not by parsing shell: the start of a
+# line, after a separator (`;` `&` `|` `(` backtick `!` `{`), and after a shell
+# keyword or wrapper that is followed by a command (if/while/until/then/do/elif/
+# else/sudo/env/command/time/xargs). A `bd` inside a string literal on a code
+# line is reported like any other command position; rewrite such a line rather
+# than suppressing the check.
 fm_lint_interface_purity() {  # <root>...
   local hits
   [ "$#" -gt 0 ] || return 0
-  hits=$(grep -HnE '(^|[;&|(`!{])[[:space:]]*bd([^A-Za-z0-9_.=/-]|$)' "$@" 2>/dev/null \
+  hits=$(grep -HnE '(^|[;&|(`!{]|(^|[[:space:]])(if|while|until|then|do|elif|else|sudo|env|command|time|xargs)[[:space:]])[[:space:]]*bd([^A-Za-z0-9_.=/-]|$)' "$@" 2>/dev/null \
     | grep -vE '^[^:]*:[0-9]+:[[:space:]]*#') || return 0
   [ -n "$hits" ] || return 0
   printf 'fm-lint.sh: firstmate scripts must reach the backlog through tasks-axi, never the beads CLI directly.\n' >&2

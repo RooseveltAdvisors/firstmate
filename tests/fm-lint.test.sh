@@ -156,7 +156,7 @@ pinned_ready() {
 # tasks-axi, never through the beads CLI tasks-axi wraps. The offending token is
 # assembled with printf instead of written literally, so this test file stays
 # clean under the very check it exercises.
-fm_lint_write_purity_fixture() {  # <path> <call|prose>
+fm_lint_write_purity_fixture() {  # <path> <call|prose|keywords>
   local path=$1 mode=$2 tool
   tool=$(printf 'b%s' d)
   {
@@ -170,7 +170,20 @@ fm_lint_write_purity_fixture() {  # <path> <call|prose>
         printf 'out=$(%s ready --json)\nprintf "%%s\\n" "$out"\n' "$tool"
         ;;
       prose)
-        printf '# %s ready is named in prose only\ntasks-axi ready --file backlog.md\n' "$tool"
+        # The backtick is in the separator class, so this comment DOES reach the
+        # purity regex and is only excluded by the comment filter. That is what
+        # makes this fixture load-bearing: without grep -H a single-root run
+        # loses the filename prefix the filter anchors on and reports it as a
+        # call. A comment whose tool name follows plain text never reaches the
+        # regex at all and would pass with or without -H, proving nothing.
+        # The backticks are FIXTURE TEXT written into the generated script, and
+        # the backtick is exactly what makes this comment reach the purity regex.
+        # shellcheck disable=SC2016
+        printf '# prose: run `%s ready` to list\ntasks-axi ready --file backlog.md\n' "$tool"
+        ;;
+      keywords)
+        printf 'if %s ready --json; then :; fi\nsudo %s ready\ncommand %s list\nxargs %s show\n' \
+          "$tool" "$tool" "$tool" "$tool"
         ;;
       *) return 1 ;;
     esac
@@ -188,6 +201,20 @@ test_interface_purity_rejects_a_direct_beads_call() {
   assert_contains "$out" "offender.sh" \
     "the interface-boundary failure did not name the offending file"
   pass "fm-lint.sh refuses a direct beads call in a linted shell root"
+}
+
+test_interface_purity_catches_keyword_command_positions() {
+  local tmp out rc=0
+  tmp=$(fm_test_tmproot fm-lint-purity-keywords)
+  fm_lint_write_purity_fixture "$tmp/wrapped.sh" keywords
+  out=$("$LINT" "$tmp/wrapped.sh" 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "beads calls after a shell keyword or wrapper passed the boundary"$'\n'"$out"
+  assert_contains "$out" "never the beads CLI directly" \
+    "the interface-boundary failure did not name the rule"
+  # Every wrapped position must be reported, not just the first.
+  [ "$(printf '%s\n' "$out" | grep -c 'wrapped.sh:')" -eq 4 ] \
+    || fail "not every wrapped command position was reported"$'\n'"$out"
+  pass "fm-lint.sh catches beads calls after a shell keyword or wrapper"
 }
 
 test_interface_purity_allows_prose_and_tasks_axi() {
@@ -1080,3 +1107,4 @@ test_zero_changed_files_exits_clean
 test_list_files_respects_changed_mode
 test_interface_purity_rejects_a_direct_beads_call
 test_interface_purity_allows_prose_and_tasks_axi
+test_interface_purity_catches_keyword_command_positions

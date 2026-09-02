@@ -344,14 +344,16 @@ fm_backlog_captain_word_valid() {  # <word>
 }
 
 # Print the captain word this close carries, or return 1 when it carries none.
-# The `cancelled` kind IS the captain-word close: its note is the captain's own
-# words, so authority and its record are the same act.
+# The `cancelled` and `answered` kinds ARE the captain-word closes: the note is
+# the captain's own words, so authority and its record are the same act. Both
+# read through this one function, so there is a single captain-authority path.
 fm_backlog_close_captain_word() {  # <arg>...
   local word
   [ "$#" -eq 2 ] || return 1
   [ "$1" = --note ] || return 1
   case "$2" in
     'cancelled: '*) word=${2#'cancelled: '} ;;
+    'answered: '*) word=${2#'answered: '} ;;
     *) return 1 ;;
   esac
   fm_backlog_captain_word_valid "$word" || return 1
@@ -368,6 +370,12 @@ fm_backlog_close_captain_word() {  # <arg>...
 #   report      --report <path>              a scout deliverable (scouts only)
 #   superseded  --note "superseded by <id>"  another task carries the work now
 #   cancelled   --note "cancelled: <word>"   the captain called it off
+#   answered    --note "answered: <word>"    answering a captain hold closed it
+#
+# `answered` exists because closing an answered captain hold is a real close of a
+# real task that none of the other kinds describe truthfully: it did not land,
+# it is not a report, nothing superseded it, and it was not cancelled - calling
+# it cancelled would put a false label in a durable record.
 #
 # Mode selects which kinds may appear and how the local-land note is spelled.
 # `live` is the full set with the raw note, and is what a close actually runs.
@@ -377,7 +385,7 @@ fm_backlog_close_captain_word() {  # <arg>...
 # --note straight back to the local-land note, so a staged record must never
 # carry a superseded or cancelled note that decode would silently rewrite.
 fm_backlog_close_args_valid() {  # <live|staged> <arg>...
-  local mode=$1 note_spelling arg_value superseded_id cancelled_word
+  local mode=$1 note_spelling arg_value superseded_id
   local url_tail url_authority url_path url_host url_port host_rest host_label host_valid
   local percent_tail percent_valid
   shift
@@ -404,9 +412,8 @@ fm_backlog_close_args_valid() {  # <live|staged> <arg>...
             *) return 0 ;;
           esac
           ;;
-        'cancelled: '*)
-          cancelled_word=${arg_value#'cancelled: '}
-          fm_backlog_captain_word_valid "$cancelled_word" || return 1
+        'cancelled: '*|'answered: '*)
+          fm_backlog_close_captain_word --note "$arg_value" >/dev/null || return 1
           return 0
           ;;
       esac
@@ -501,7 +508,7 @@ fm_backlog_close_worker_record_required() {  # <data-dir> <id> <state-dir> <arg>
   marker=$(fm_backlog_close_marker_path "$state" "$id") || return 1
   [ ! -e "$marker" ] && [ ! -L "$marker" ] || return 0
   fm_backlog_close_captain_word "$@" >/dev/null && return 0
-  FM_BACKLOG_TRANSITION_ERROR="refusing to close $id: it is project work in $FM_BACKLOG_ROW_REPO with no worker record, so nothing ever worked it; close it with --note 'cancelled: <captain word>' to record the captain's own decision"
+  FM_BACKLOG_TRANSITION_ERROR="refusing to close $id: it is project work in $FM_BACKLOG_ROW_REPO with no worker record, so nothing ever worked it; close it with --note 'cancelled: <captain word>' or --note 'answered: <captain word>' to record the captain's own decision"
   return 1
 }
 
@@ -509,7 +516,7 @@ fm_backlog_done() {  # <data-dir> <id> <state-dir> [flag...]
   local data=$1 id=$2 state=$3
   shift 3
   if ! fm_backlog_close_args_valid live "$@"; then
-    FM_BACKLOG_TRANSITION_ERROR="refusing to close $id: a close records one done-class reason - --pr <url>, --note 'local main', --report <path>, --note 'superseded by <id>', or --note 'cancelled: <captain word>'"
+    FM_BACKLOG_TRANSITION_ERROR="refusing to close $id: a close records one done-class reason - --pr <url>, --note 'local main', --report <path>, --note 'superseded by <id>', --note 'cancelled: <captain word>', or --note 'answered: <captain word>'"
     return 1
   fi
   fm_backlog_close_worker_record_required "$data" "$id" "$state" "$@" || return 1
