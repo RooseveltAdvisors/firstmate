@@ -895,21 +895,10 @@ test_network_phase_partitions_the_run() {
   # Break the two diagnostics that stand for the two halves: a local tool floor
   # and the network GitHub-auth probe.
   # node ships in a system BASE_PATH dir on many hosts, so dropping the stub is
-  # not enough to make it missing - mask it with the same command() override the
-  # jq case uses, to keep the assertion host-independent.
+  # not enough to make it missing; mask it too, to keep the assertion
+  # host-independent.
   rm -f "$fakebin/node"
-  bash_env="$case_dir/no-node.bash"
-  cat > "$bash_env" <<'SH'
-command() {
-  if [ "${1:-}" = -v ] && [ "${2:-}" = node ]; then
-    return 1
-  fi
-  builtin command "$@"
-}
-node() {
-  return 127
-}
-SH
+  bash_env=$(fm_fake_missing_tool "$case_dir" node)
   cat > "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 exit 1
