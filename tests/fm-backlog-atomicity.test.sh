@@ -2364,6 +2364,71 @@ test_recovery_finishes_a_close_for_the_same_meta_incarnation
 test_recovery_preserves_a_close_for_ambiguous_incarnation_metadata
 test_recovery_preserves_both_records_when_meta_removal_fails
 test_recovery_preserves_a_close_beside_symlinked_metadata
+# --- dependency edges -------------------------------------------------------
+
+# The dispatch gate firstmate reads is `tasks-axi ready`, and a task-to-task
+# dependency is what keeps a dependent out of it. This pins the tasks-axi
+# contract firstmate relies on for that: `block` records the edge, the blocked
+# task leaves `ready` while its blocker stays, and `unblock` restores it.
+# Firstmate does not create these edges yet; the edge call sites are a separate
+# slice. Pinning the contract now is what makes that slice safe to add.
+block_edge_of() {  # <case-dir> <id>
+  tasks-axi show "$2" --file "$(backlog_of "$1")" 2>/dev/null |
+    sed -n 's/^  blocked_by: *//p' | head -1
+}
+
+ready_ids() {  # <case-dir>
+  tasks-axi ready --file "$(backlog_of "$1")" 2>/dev/null |
+    sed -n 's/^  \([A-Za-z0-9._-]*\),.*/\1/p'
+}
+
+test_a_blocked_task_leaves_the_ready_set() {
+  local case_dir before after cleared
+  case_dir="$TMP_ROOT/block-edge"
+  make_home block-edge >/dev/null
+  add_item "$case_dir" blocker-item
+  add_item "$case_dir" dependent-item
+
+  before=$(ready_ids "$case_dir")
+  assert_contains "$before" "blocker-item" "the blocker was not dispatchable before the edge"
+  assert_contains "$before" "dependent-item" "the dependent was not dispatchable before the edge"
+
+  tasks-axi block dependent-item --by blocker-item --file "$(backlog_of "$case_dir")" >/dev/null \
+    || fail "tasks-axi block did not record the dependency edge"
+
+  [ "$(block_edge_of "$case_dir" dependent-item)" = blocker-item ] \
+    || fail "the recorded dependency edge does not name the blocker"$'\n'"blocked_by: $(block_edge_of "$case_dir" dependent-item)"
+
+  after=$(ready_ids "$case_dir")
+  assert_not_contains "$after" "dependent-item" "a blocked task was still offered as dispatchable"
+  assert_contains "$after" "blocker-item" "blocking a dependent also removed its blocker"
+
+  # Idempotent: repeating the edge is not an error and changes nothing.
+  tasks-axi block dependent-item --by blocker-item --file "$(backlog_of "$case_dir")" >/dev/null \
+    || fail "repeating an existing dependency edge failed"
+  [ "$(ready_ids "$case_dir")" = "$after" ] \
+    || fail "repeating an existing dependency edge changed the ready set"
+
+  tasks-axi unblock dependent-item --by blocker-item --file "$(backlog_of "$case_dir")" >/dev/null \
+    || fail "tasks-axi unblock did not clear the dependency edge"
+  cleared=$(ready_ids "$case_dir")
+  assert_contains "$cleared" "dependent-item" "clearing the dependency did not restore the dependent"
+  assert_contains "$cleared" "blocker-item" "clearing the dependency lost the blocker"
+  pass "a task-to-task dependency edge removes the dependent from the ready set until it clears"
+}
+
+test_a_dependency_edge_requires_an_existing_blocker() {
+  local case_dir out rc=0
+  case_dir="$TMP_ROOT/block-missing"
+  make_home block-missing >/dev/null
+  add_item "$case_dir" lonely-item
+  out=$(tasks-axi block lonely-item --by no-such-blocker --file "$(backlog_of "$case_dir")" 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "a dependency on a nonexistent blocker was accepted"$'\n'"$out"
+  assert_contains "$(ready_ids "$case_dir")" "lonely-item" \
+    "a refused dependency still removed the task from the ready set"
+  pass "a dependency edge on a nonexistent blocker is refused and changes nothing"
+}
+
 test_recovery_rejects_a_marker_for_another_task_identity
 test_recovery_rejects_a_foreign_data_directory
 test_recovery_rejects_an_unterminated_unknown_field
@@ -2389,3 +2454,5 @@ test_home_without_a_backlog_dispatches_and_completes
 test_manual_backend_home_dispatches_and_completes_without_touching_the_backlog
 test_a_secondmate_home_keeps_its_own_books
 test_a_persistent_secondmate_is_never_a_backlog_item
+test_a_blocked_task_leaves_the_ready_set
+test_a_dependency_edge_requires_an_existing_blocker
