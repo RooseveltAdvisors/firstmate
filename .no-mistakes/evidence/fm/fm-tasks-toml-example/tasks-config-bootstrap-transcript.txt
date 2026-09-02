@@ -1,0 +1,28 @@
+### CASE 1: fresh home with no .tasks.toml
+$ ls -a $HOME | grep tasks  ->  (no .tasks.toml before bootstrap)
+$ bin/fm-bootstrap.sh output: '<silent>'
+$ cat $HOME/.tasks.toml   (materialized by bootstrap)
+backend = "markdown"
+
+[markdown]
+path = "data/backlog.md"
+archive = "data/done-archive.md"
+done_keep = 10
+$ cmp $HOME/.tasks.toml .tasks.toml.example  ->  IDENTICAL
+$ git status --porcelain -- .tasks.toml .tasks.toml.example  ->  '' (empty: example tracked, .tasks.toml not tracked)
+$ git check-ignore -v .tasks.toml  ->  .gitignore:14:.tasks.toml	.tasks.toml
+
+### CASE 2: home with its own customized .tasks.toml
+$ cat $HOME/.tasks.toml   (the home's own customization)
+backend = "markdown"
+
+[markdown]
+path = "data/other.md"
+done_keep = 3
+$ bin/fm-bootstrap.sh output: '<silent>'
+$ cmp before/after  ->  byte-for-byte UNCHANGED
+
+### CASE 3: create fails (unwritable home) -> actionable diagnostic, no partial file
+$ bin/fm-bootstrap.sh output:
+    TASKS_CONFIG: could not create /tmp/tasks-demo.tteFOD/case3/home/.tasks.toml from /home/jon/.no-mistakes/worktrees/2f32188048b1/01M1HK05VJ27S90EDAVJ7JY8RD/bin/../.tasks.toml.example
+$ ls -a $HOME | grep tasks  ->  (nothing: no partial .tasks.toml left behind)
