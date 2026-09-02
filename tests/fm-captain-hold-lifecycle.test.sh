@@ -20,7 +20,7 @@ command -v tasks-axi >/dev/null 2>&1 || { echo "skip: tasks-axi not found"; exit
 make_home() {  # <name>
   local home="$TMP_ROOT/$1" fakebin
   mkdir -p "$home/data" "$home/state" "$home/config" "$home/projects"
-  cp "$ROOT/.tasks.toml" "$home/.tasks.toml"
+  cp "$ROOT/.tasks.toml.example" "$home/.tasks.toml"
   cat > "$home/data/backlog.md" <<'EOF'
 ## In flight
 
@@ -580,7 +580,7 @@ test_secondmate_hold_stays_in_authoritative_home() {
   parent=$(make_home main-routing)
   mate="$TMP_ROOT/sample-mate-home"
   mkdir -p "$mate/data" "$mate/state" "$mate/config" "$mate/projects" "$mate/bin"
-  cp "$ROOT/.tasks.toml" "$mate/.tasks.toml"
+  cp "$ROOT/.tasks.toml.example" "$mate/.tasks.toml"
   printf '# Synthetic secondmate home\n' > "$mate/AGENTS.md"
   printf 'sample-mate\n' > "$mate/.fm-secondmate-home"
   cat > "$mate/data/backlog.md" <<'EOF'

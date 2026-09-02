@@ -1310,7 +1310,13 @@ families_for_changed_path() {
     docs/fm-test-isolation-proof.json)
       printf '%s\n' pure-contract-unit
       ;;
-    .github/*|.tasks.toml|AGENTS.md|CLAUDE.md|CONTRIBUTING.md|\
+    .tasks.toml.example)
+      # Bootstrap copies this template into a home that has none, so its bytes
+      # are the backlog config a fresh home actually runs on.
+      printf '%s\n' pure-contract-unit
+      printf '%s\n' session-bootstrap
+      ;;
+    .github/*|AGENTS.md|CLAUDE.md|CONTRIBUTING.md|\
     docs/configuration.md|docs/supervision-protocols/*)
       printf '%s\n' pure-contract-unit
       ;;
