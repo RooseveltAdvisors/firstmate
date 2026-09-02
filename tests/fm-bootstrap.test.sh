@@ -908,7 +908,7 @@ test_tasks_config_materializes_from_the_tracked_example() {
 # A home that customized its own backlog config owns it outright; the copy-if-absent
 # path must never read, repair, or rewrite it.
 test_tasks_config_leaves_an_existing_home_copy_untouched() {
-  local case_dir fixture root home fakebin before
+  local case_dir fixture root home fakebin
   case_dir="$TMP_ROOT/tasks-config-existing"
   fixture=$(make_routine_bootstrap_fixture "$case_dir")
   root=${fixture%%|*}
@@ -918,9 +918,9 @@ test_tasks_config_leaves_an_existing_home_copy_untouched() {
 
   printf '%s\n' 'backend = "markdown"' '' '[markdown]' 'path = "data/other.md"' 'done_keep = 3' \
     > "$home/.tasks.toml"
-  before=$(cat "$home/.tasks.toml")
+  cp "$home/.tasks.toml" "$case_dir/saved-tasks.toml"
   run_bootstrap_home "$fakebin" "$home" "$root" >/dev/null
-  [ "$(cat "$home/.tasks.toml")" = "$before" ] \
+  cmp -s "$home/.tasks.toml" "$case_dir/saved-tasks.toml" \
     || fail "bootstrap rewrote a customized .tasks.toml"
   pass "bootstrap leaves a customized .tasks.toml byte-for-byte untouched"
 }

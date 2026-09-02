@@ -1316,8 +1316,11 @@ tasks_config_setup() {
     echo "TASKS_CONFIG: this home has no .tasks.toml and $example is missing or not a regular file"
     return 0
   fi
-  cp "$example" "$FM_HOME/.tasks.toml" 2>/dev/null \
-    || echo "TASKS_CONFIG: could not create $FM_HOME/.tasks.toml from $example"
+  local tmp
+  tmp=$(mktemp "$FM_HOME/.tasks.toml.XXXXXX" 2>/dev/null) \
+    && cp "$example" "$tmp" 2>/dev/null \
+    && mv "$tmp" "$FM_HOME/.tasks.toml" 2>/dev/null \
+    || { rm -f "$tmp" 2>/dev/null; echo "TASKS_CONFIG: could not create $FM_HOME/.tasks.toml from $example"; }
 }
 
 startup_memory_budget_setup() {
