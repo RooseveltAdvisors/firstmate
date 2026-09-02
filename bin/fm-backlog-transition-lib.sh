@@ -221,8 +221,8 @@ fm_backlog_markdown_file() {  # <data-dir>
   printf '%s/backlog.md\n' "$root"
 }
 
-fm_backlog_source_present() {  # <data-dir> <authorized-data-dir>
-  local data=$1 authorized_data=$2 root file tasks_config backend
+fm_backlog_source_present() {  # <data-dir>
+  local data=$1 root file tasks_config backend
   root=$(fm_backlog_root "$data") || return 1
   tasks_config="$root/.tasks.toml"
   if [ -e "$tasks_config" ] || [ -L "$tasks_config" ]; then
@@ -290,7 +290,7 @@ fm_backlog_selected_backend() {  # <tasks-root>
 }
 
 fm_backlog_transition_applies() {  # <config-dir> <data-dir> <kind>
-  local config=$1 data authorized_data=$2 kind=$3 file root backend
+  local config=$1 data kind=$3 file root backend
   FM_BACKLOG_TRANSITION_SKIP=
   if [ "$kind" = secondmate ]; then
     FM_BACKLOG_TRANSITION_SKIP="secondmates are not backlog items"
@@ -313,7 +313,7 @@ fm_backlog_transition_applies() {  # <config-dir> <data-dir> <kind>
       return 1
     fi
   fi
-  if ! fm_backlog_source_present "$data" "$authorized_data"; then
+  if ! fm_backlog_source_present "$data"; then
     return 2
   fi
   if ! fm_tasks_axi_compatible; then
@@ -351,7 +351,7 @@ fm_backlog_row_list() {  # <resolved-data-dir> [flag...]
 }
 
 fm_backlog_row_probe() {  # <data-dir> <id>
-  local data authorized_data=$1 id=$2 out state held blocked hold_kind command_status
+  local data id=$2 out state held blocked hold_kind command_status
   if ! data=$(fm_backlog_data_absolute "$1"); then
     FM_BACKLOG_ROW_RESULT=error
     FM_BACKLOG_ROW_STATE=
@@ -362,7 +362,7 @@ fm_backlog_row_probe() {  # <data-dir> <id>
   FM_BACKLOG_ROW_STATE=
   FM_BACKLOG_ROW_HOLD_KIND=
   FM_BACKLOG_ROW_ERROR=
-  if ! fm_backlog_source_present "$data" "$authorized_data"; then
+  if ! fm_backlog_source_present "$data"; then
     FM_BACKLOG_ROW_ERROR=$FM_BACKLOG_TRANSITION_ERROR
     return 1
   fi
@@ -402,14 +402,14 @@ fm_backlog_row_probe() {  # <data-dir> <id>
 # Run one tasks-axi mutation against <home>'s backlog, capturing its first
 # output line in FM_BACKLOG_TRANSITION_ERROR on failure.
 fm_backlog_mutate() {  # <data-dir> <verb> <id> [flag...]
-  local data authorized_data=$1 verb=$2 id=$3 out command_status
+  local data verb=$2 id=$3 out command_status
   if ! data=$(fm_backlog_data_absolute "$1"); then
     FM_BACKLOG_TRANSITION_ERROR="data directory cannot be resolved: $1"
     return 1
   fi
   shift 3
   FM_BACKLOG_TRANSITION_ERROR=
-  fm_backlog_source_present "$data" "$authorized_data" || return 1
+  fm_backlog_source_present "$data" || return 1
   out=$(fm_backlog_tasks_axi "$data" "$verb" "$id" "$@" 2>&1)
   command_status=$?
   [ "$command_status" -ne 0 ] || return 0
