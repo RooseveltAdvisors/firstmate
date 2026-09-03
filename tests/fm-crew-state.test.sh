@@ -1703,6 +1703,37 @@ EOF
   pass "an older unresolvable LIVE row is never reported as the newer terminal failure"
 }
 
+# A runs-list status word the coarse mapping cannot render is not evidence: its
+# liveness is unknown, so the row could be a live run, and answering from any
+# other row would risk reporting live work as terminal. An unmappable row
+# therefore suppresses exactly as an unresolvable head does, leaving the crew
+# its pane and status-log fallback rather than a sticky unknown that both masks
+# the terminal row's verdict and blocks that fallback.
+test_coarse_unmappable_status_word_suppresses_instead_of_answering() {
+  reset_fakes
+  local d short; d=$(new_case coarse-unmappable-word)
+  make_repo_on_branch "$d/wt" fm/feat-unmapped
+  short=$(git -C "$d/wt" rev-parse --short=8 HEAD)
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-unmapped.meta" "window=fm:fm-feat-unmapped" "worktree=$d/wt" "kind=ship" "harness=claude"
+  FM_FAKE_AXI_STATUS="$(run_running fm/other-crew)"
+  FM_FAKE_RUNS_LIST="$(cat <<EOF
+  completed  fm/feat-unmapped ${short}  2026-09-03 13:55
+  awaiting_approval fm/feat-unmapped ${short}  2026-09-03 13:50
+EOF
+)"
+  FM_FAKE_BUSY=1
+  local gen; gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" feat-unmapped)
+  "$ROOT/bin/fm-busy-event.sh" apply "$d/state" feat-unmapped busy --gen "$gen" \
+    --source claude-hook --event user-prompt-submit
+  local out; out=$(run_crew_state "$d" feat-unmapped)
+  assert_not_contains "$out" "state: unknown" "an unmappable status word must never be rendered as a state"
+  assert_not_contains "$out" "source: run-step" "a row of unknown liveness must not bind a run"
+  assert_contains "$out" "state: working" "the busy crew still reads working through the pane fallback"
+  assert_contains "$out" "source: pane" "an unmappable word falls to the pane, not a sticky unknown"
+  pass "an unmappable runs-list status word suppresses instead of answering"
+}
+
 # Negative control: the exemption is gated on pipeline_owned specifically - any
 # other branch_sync state keeps the strict head rule.
 test_non_pipeline_owned_unresolvable_head_not_attributed() {
@@ -1825,6 +1856,7 @@ test_coarse_live_ci_row_with_stale_green_log_is_not_done
 test_coarse_fixing_row_does_not_satisfy_stale_checks_green_log
 test_coarse_newer_unresolvable_terminal_row_suppresses_older_completed
 test_coarse_older_unresolvable_live_row_never_reports_failed
+test_coarse_unmappable_status_word_suppresses_instead_of_answering
 test_non_pipeline_owned_unresolvable_head_not_attributed
 test_pipeline_owned_terminal_run_not_exempt
 test_missing_run_head_falls_back_to_current_state

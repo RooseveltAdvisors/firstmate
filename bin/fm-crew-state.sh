@@ -377,19 +377,28 @@ nm_ci_checks_state() {
 # is exact) - but branch + coarse status is exactly what this predicate needs:
 # is a run for THIS branch active right now. EVERY same-branch row is scanned
 # before anything is answered, because no single row can be known to be the
-# best match until the whole window has been read. ONE preference order scores
-# every row: a non-terminal row outranks a terminal one, and among rows of the
-# same class the more recent wins (rows arrive newest-first, so the first row
-# recorded in a class is that class's most recent). A row whose head this
-# worktree cannot resolve is UNKNOWN attribution, so it may only ever SUPPRESS
-# an answer, never supply one; a head-verified non-terminal row is never
-# suppressed, because nothing unknown can make live work not-live. The verdict
-# is therefore: the head-verified non-terminal row if there is one; else the
-# head-verified terminal row, but only when no unresolvable row outranks it;
-# else empty (which includes a branch with no matching row within
+# best match until the whole window has been read. Every row's status word is
+# classified by nm_coarse_run_state, the sole owner of this vocabulary: LIVE if
+# that mapping renders it working, TERMINAL if it renders done or failed, and
+# otherwise UNMAPPABLE - a word this crew cannot read, whose liveness is
+# therefore unknown. ONE preference order scores the classified rows: a live
+# row outranks a terminal one, and among rows of the same class the more recent
+# wins (rows arrive newest-first, so the first row recorded in a class is that
+# class's most recent). Two kinds of row are NOT evidence and may only ever
+# SUPPRESS an answer, never supply one: a row whose head this worktree cannot
+# resolve (unknown attribution), and a row carrying an unmappable status word
+# (unknown liveness - it could be a live run, and reporting live work as
+# terminal is the defect this ordering exists to prevent). A head-verified live
+# row is never suppressed, because nothing unknown can make live work not-live.
+# The verdict is therefore: the head-verified live row if there is one; else the
+# head-verified terminal row, but only when nothing unknown outranks it; else
+# empty (which includes a branch with no matching row within
 # FM_CREW_STATE_RUNS_LIMIT rows).
 nm_runs_status_for_branch() {  # <branch>
   local branch=$1 out row st rest br sha newest_live="" newest_terminal="" suppress=0
+  # Shadow the globals nm_coarse_run_state writes, so classifying rows here
+  # cannot disturb the crew state the coarse run-step arm sets from it later.
+  local RUN_STATE="" RUN_DETAIL=""
   out=$(nm_run runs --limit "$FM_CREW_STATE_RUNS_LIMIT")
   [ -n "$out" ] || return 0
   while IFS= read -r row; do
@@ -403,22 +412,25 @@ nm_runs_status_for_branch() {  # <branch>
     rest=$(trim "$rest")
     sha=${rest%% *}
     [ "$br" = "$branch" ] || continue
-    # Same code-identity rule as axi status. A head-verified non-terminal row
-    # wins outright, so the rest of the window cannot change the verdict.
+    nm_coarse_run_state "$st"
+    # Same code-identity rule as axi status. A head-verified live row wins
+    # outright, so the rest of the window cannot change the verdict; a
+    # head-verified unmappable word answers for nothing and only suppresses.
     if nm_coarse_head_matches_worktree "$sha"; then
-      case "$st" in
-        completed|failed|cancelled) [ -n "$newest_terminal" ] || newest_terminal=$st ;;
-        *)                          newest_live=$st; break ;;
+      case "$RUN_STATE" in
+        working)     newest_live=$st; break ;;
+        done|failed) [ -n "$newest_terminal" ] || newest_terminal=$st ;;
+        *)           suppress=1 ;;
       esac
     elif ! fm_nm_head_resolvable "$WT" "$sha"; then
       # Unknown attribution: this row can only outrank the best terminal
-      # candidate, never answer for it. Alive outranks terminal regardless of
-      # age; an unknown terminal row outranks only a terminal candidate not yet
-      # recorded, which newest-first ordering makes exactly "the unknown row is
-      # the newer of the two".
-      case "$st" in
-        completed|failed|cancelled) [ -n "$newest_terminal" ] || suppress=1 ;;
-        *)                          suppress=1 ;;
+      # candidate, never answer for it. Anything that is not a known terminal
+      # word outranks terminal regardless of age; an unknown terminal row
+      # outranks only a terminal candidate not yet recorded, which newest-first
+      # ordering makes exactly "the unknown row is the newer of the two".
+      case "$RUN_STATE" in
+        done|failed) [ -n "$newest_terminal" ] || suppress=1 ;;
+        *)           suppress=1 ;;
       esac
     fi
     # A resolvable head that does not match is a PROVEN mismatch (historical or
@@ -450,6 +462,26 @@ nm_run_head_matches_worktree() {
 # nm_run_head_matches_worktree (equal, or local is ancestor of run tip).
 nm_coarse_head_matches_worktree() {  # <short-sha>
   fm_nm_head_matches_worktree "$WT" "$1"
+}
+
+# Sole owner of the runs-list status vocabulary: maps one coarse status word to
+# the crew state and detail it renders as. Both the row scan in
+# nm_runs_status_for_branch, which classifies a row by what this renders for it,
+# and the coarse run-step arm below read that word set from here, so there is no
+# second copy of it to drift.
+nm_coarse_run_state() {  # <status-word>; sets RUN_STATE and RUN_DETAIL
+  case "$1" in
+    running|fixing) RUN_STATE=working; RUN_DETAIL="validating (background run)" ;;
+    ci)             RUN_STATE=working; RUN_DETAIL="ci running" ;;
+    completed)      RUN_STATE="done";  RUN_DETAIL="run completed" ;;
+    failed)         RUN_STATE=failed;  RUN_DETAIL="run failed" ;;
+    cancelled)      RUN_STATE=failed;  RUN_DETAIL="run cancelled" ;;
+    # Unreachable from the coarse run-step arm by construction: a word this case
+    # cannot render is classified unmappable by the scan, which suppresses
+    # rather than answering with it. Kept as a defensive default so any future
+    # caller reaching here cannot read a stale state instead.
+    *)              RUN_STATE=unknown; RUN_DETAIL="runs list status: $1" ;;
+  esac
 }
 
 HAVE_RUN=0
@@ -506,16 +538,10 @@ if [ "$HAVE_RUN" = 1 ]; then
     # surfaced by each supervisor's span classification (fm-classify-lib.sh's
     # status_span_first_actionable) regardless of this coarse-vs-full
     # distinction, so a real gate is never silently missed.
-    # Live status words mirror the full-status mapping below, so a run in its
-    # fix or CI phase reads as working rather than as an unrecognized word.
-    case "$COARSE_STATUS" in
-      running|fixing) RUN_STATE=working; RUN_DETAIL="validating (background run)" ;;
-      ci)             RUN_STATE=working; RUN_DETAIL="ci running" ;;
-      completed)      RUN_STATE="done";  RUN_DETAIL="run completed" ;;
-      failed)         RUN_STATE=failed;  RUN_DETAIL="run failed" ;;
-      cancelled)      RUN_STATE=failed;  RUN_DETAIL="run cancelled" ;;
-      *)              RUN_STATE=unknown; RUN_DETAIL="runs list status: $COARSE_STATUS" ;;
-    esac
+    # nm_coarse_run_state owns this word set; its live words mirror the
+    # full-status mapping below, so a run in its fix or CI phase reads as
+    # working rather than as an unrecognized word.
+    nm_coarse_run_state "$COARSE_STATUS"
   else
     status=$(strip_quotes "$(nm_field status)")
     RUN_STATUS=$status
