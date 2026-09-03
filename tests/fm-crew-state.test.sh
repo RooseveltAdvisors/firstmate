@@ -1599,6 +1599,32 @@ EOF
   pass "a live fixing row reads working rather than unknown"
 }
 
+# A crew appends "done: PR <url> checks green" at the CI-ready return point and
+# stops, while the run keeps monitoring in the background and can re-enter
+# fixing later. The coarse arm cannot read the run status field (it belongs to
+# another branch), so the runs-list status word must carry the invariant: a
+# live fix round never satisfies the stale checks-green log line.
+test_coarse_fixing_row_does_not_satisfy_stale_checks_green_log() {
+  reset_fakes
+  local d short; d=$(new_case coarse-fixing-stale-green)
+  make_repo_on_branch "$d/wt" fm/feat-fixgreen
+  short=$(git -C "$d/wt" rev-parse --short=8 HEAD)
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-fixgreen.meta" "window=fm:fm-feat-fixgreen" "worktree=$d/wt" "kind=ship" "harness=claude"
+  printf 'done: PR https://github.com/o/r/pull/7 checks green\n' > "$d/state/feat-fixgreen.status"
+  FM_FAKE_AXI_STATUS="$(run_running fm/other-crew)"
+  FM_FAKE_RUNS_LIST="$(cat <<EOF
+  failed     fm/feat-fixgreen ${short}  2026-09-03 13:55
+  fixing     fm/feat-fixgreen ${short}  2026-09-03 13:50
+EOF
+)"
+  local out; out=$(run_crew_state "$d" feat-fixgreen)
+  assert_not_contains "$out" "state: done" "a live fix round must not be reported done by a stale checks-green log"
+  assert_not_contains "$out" "state: failed" "a live fix round must not be reported as the newer failed run"
+  assert_contains "$out" "state: working" "a live fix round reads working"
+  pass "a coarse fixing row does not satisfy a stale checks-green log line"
+}
+
 # The same stop, with the older row ALIVE: a live pipeline-owned run's lane head
 # is routinely not a git object in the task worktree (rebase and fix commits
 # never pushed back), so an unresolvable ACTIVE row is genuine unknown
@@ -1747,6 +1773,7 @@ test_coarse_live_run_beats_terminal_run_at_exact_head
 test_coarse_older_unresolvable_row_keeps_newer_terminal_match
 test_coarse_full_scan_finds_live_row_below_terminal_rows
 test_coarse_live_fixing_row_reads_working_not_unknown
+test_coarse_fixing_row_does_not_satisfy_stale_checks_green_log
 test_coarse_older_unresolvable_live_row_never_reports_failed
 test_non_pipeline_owned_unresolvable_head_not_attributed
 test_pipeline_owned_terminal_run_not_exempt

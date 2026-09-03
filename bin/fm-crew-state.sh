@@ -418,6 +418,9 @@ nm_runs_status_for_branch() {  # <branch>
     fi
     # A resolvable head that does not match is a PROVEN mismatch (historical or
     # diverged); it is skipped and cannot mask anything.
+    # A head-verified live row wins unconditionally, so once one is recorded no
+    # later row can change the verdict and the rest of the window is dead work.
+    [ -n "$newest_live" ] && break
   done <<< "$out"
   if [ -n "$newest_live" ]; then
     printf '%s' "$newest_live"
@@ -573,18 +576,24 @@ if [ "$HAVE_RUN" = 1 ]; then
 
   if [ "$RUN_STATE" = working ] && log_reports_ci_ready; then
     if [ "$RUN_SOURCE" = coarse ]; then
-      emit "done" status-log "$(status_line_note "$LOG_LINE")${SEP}run still monitoring PR"
-    fi
-    [ -n "$CI_STEP_STATUS" ] || CI_STEP_STATUS=$(nm_effective_ci_step_status)
-    if [ "$RUN_STATUS" = fixing ]; then
-      CI_LOG_STATE=not-ready
-    elif [ "$CI_STEP_STATUS" = running ] && [ -z "$CI_LOG_STATE" ]; then
-      CI_LOG_STATE=$(nm_ci_checks_state)
-    elif [ "$CI_STEP_STATUS" = fixing ]; then
-      CI_LOG_STATE=not-ready
-    fi
-    if [ "$CI_LOG_STATE" != not-ready ]; then
-      emit "done" status-log "$(status_line_note "$LOG_LINE")${SEP}run still monitoring PR"
+      # The coarse arm cannot read RUN_STATUS (RUN_OUT belongs to another
+      # branch), so the runs-list status word carries the same invariant the
+      # full path enforces below: a live fix round never satisfies checks-green,
+      # because the log line was written before the run re-entered fixing.
+      [ "$COARSE_STATUS" = fixing ] || \
+        emit "done" status-log "$(status_line_note "$LOG_LINE")${SEP}run still monitoring PR"
+    else
+      [ -n "$CI_STEP_STATUS" ] || CI_STEP_STATUS=$(nm_effective_ci_step_status)
+      if [ "$RUN_STATUS" = fixing ]; then
+        CI_LOG_STATE=not-ready
+      elif [ "$CI_STEP_STATUS" = running ] && [ -z "$CI_LOG_STATE" ]; then
+        CI_LOG_STATE=$(nm_ci_checks_state)
+      elif [ "$CI_STEP_STATUS" = fixing ]; then
+        CI_LOG_STATE=not-ready
+      fi
+      if [ "$CI_LOG_STATE" != not-ready ]; then
+        emit "done" status-log "$(status_line_note "$LOG_LINE")${SEP}run still monitoring PR"
+      fi
     fi
   fi
 
