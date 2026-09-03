@@ -204,6 +204,31 @@ Valid cleanup removed only the exact task-bound target and left the control wind
 The metadata-only validation covers tmux, Herdr, Zellij, Orca, and cmux before backend dispatch.
 Claude, Codex, OpenCode, Pi, pi-signed, Grok, Kimi, Cursor, and Muse share that backend cleanup boundary; their harness-specific hook files, tokens, transcript bindings, and session-log sidecars are cleaned only after it, so no harness needs a separate endpoint parser.
 
+## Claude workspace trust
+
+Verified 2026-09-03 on Claude Code 2.1.259.
+Claude gates a folder it has never seen behind an interactive workspace-trust dialog, and the CLI documents the only bypass as non-interactive mode, which a crewmate pane is not.
+
+```sh
+claude --version
+claude --help | grep -A 5 'workspace trust dialog'
+```
+
+```
+2.1.259 (Claude Code)
+                                        pipes). Note: The workspace trust dialog
+                                        is skipped when Claude is run in
+                                        non-interactive mode (via -p, or when
+                                        stdout is not a TTY, e.g. piped or
+                                        redirected output). Only use this in
+                                        directories you trust. Settings files
+```
+
+`--dangerously-skip-permissions` is a permission control and is absent from that bypass, so an interactive worker in a fresh worktree still reaches the dialog.
+Firstmate cannot answer it either, because its key plane carries only Enter, Escape, and C-c with no arrow navigation.
+`bin/fm-spawn.sh` therefore pre-registers the task worktree through `bin/fm-claude-trust.sh` before launch, and `tests/fm-claude-trust.test.sh` pins both halves of that contract: a fresh worktree is trusted, and an out-of-scope path is refused.
+The composer-classification record below observes the same gate from the other side, where an untrusted worktree left Claude, Grok, and Muse unverified because the guard reads a first-launch trust dialog as an unreadable composer.
+
 ## Composer classification matrix
 
 The shared composer classifier (`bin/fm-composer-lib.sh`, `fm_composer_classify_screen`) owns every composer shape fleet-wide; each backend contributes only a capture and a capability descriptor.

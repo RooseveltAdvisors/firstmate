@@ -16,6 +16,13 @@ Inspect after spawn within the tool's readiness window.
 Select only its documented trust choice from the active Firstmate home, binding `FM_HOME` unless already correct, then inspect again under the router-owned completion postcondition.
 No observed dialog proves only that launch.
 
+Each supported harness handles its folder-trust gate differently, and the tool reference owns the detail.
+Claude gates a fresh worktree and cannot be answered by key, so the spawn pre-registers the path in Claude's own store.
+Cursor suppresses its dialog with launch-time `--trust`, and Muse suppresses its own with `--yolo`.
+Pi and Grok dodge their gates instead of granting trust, by loading Firstmate's turn-end wiring from outside the worktree.
+Codex shows a directory-trust dialog on the first run for a repository root.
+A Claude secondmate is deliberately not pre-registered, because its home is a persistent checkout rather than an isolated task worktree and the scope test refuses it by design.
+
 Use the tool's exact skill form, or natural language only when no separate command is verified or the form remains uncertain.
 A successful send or key return is not proof of submission; require the tool-specific postcondition.
 Popup, queued-input, and readiness handling belongs to `../../../bin/fm-composer-lib.sh` and the selected backend.
