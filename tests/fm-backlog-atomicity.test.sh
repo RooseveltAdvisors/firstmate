@@ -26,6 +26,10 @@ set -u
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
+# An exported TASKS_AXI_BACKEND would outrank each case's .tasks.toml fixture
+# in fm_tasks_axi_backend, so the backend cases must start from a clean slate.
+unset TASKS_AXI_BACKEND || :
+
 SPAWN="$ROOT/bin/fm-spawn.sh"
 TEARDOWN="$ROOT/bin/fm-teardown.sh"
 BOOTSTRAP="$ROOT/bin/fm-bootstrap.sh"
