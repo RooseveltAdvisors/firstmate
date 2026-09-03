@@ -439,6 +439,52 @@ test_unsafe_secondmate_home_skipped_before_git_update() {
   pass "T11 unsafe secondmate home is not fast-forwarded"
 }
 
+# --- T12: a live home's .tasks.toml survives the advance that untracks it ---
+# The primary home's FM_HOME IS the checkout, so its .tasks.toml is a tracked
+# file until the per-home rename lands. bootstrap's tasks_config_setup runs once
+# at session start and leaves an existing file alone, so if the fast-forward that
+# renames .tasks.toml -> .tasks.toml.example deletes it, the home spends the rest
+# of the session with no backlog addressing, archive path, or done_keep, and says
+# nothing about it. The update must carry the file across the advance.
+test_tasks_config_survives_the_untracking_advance() {
+  local w out before
+  w=$(new_world t12)
+  mkdir -p "$w/main/state"
+  touch "$w/main/state/.last-watcher-beat"
+
+  # Pre-rename world: .tasks.toml is tracked and the home is running on it.
+  # The home's operational dirs are gitignored exactly as in the real repo, so
+  # the running home is a clean tree and the advance is eligible.
+  printf 'state/\ndata/\nconfig/\nprojects/\n' > "$w/seed/.gitignore"
+  printf 'backend = "markdown"\n\n[markdown]\npath = "data/backlog.md"\ndone_keep = 10\n' \
+    > "$w/seed/.tasks.toml"
+  git -C "$w/seed" add -A
+  git -C "$w/seed" commit -qm seed-tasks-toml
+  git -C "$w/seed" push -q origin main
+  git -C "$w/main" pull -q --ff-only origin main
+  before=$(cat "$w/main/.tasks.toml")
+
+  # The advance under test: the file becomes a tracked example plus a gitignore.
+  git -C "$w/seed" mv .tasks.toml .tasks.toml.example
+  printf '.tasks.toml\n' >> "$w/seed/.gitignore"
+  git -C "$w/seed" add -A
+  git -C "$w/seed" commit -qm untrack-tasks-toml
+  git -C "$w/seed" push -q origin main
+
+  # FM_HOME defaults to the checkout for a primary home, which is the shape that
+  # loses the file; the other tests deliberately split home from root.
+  out=$(PATH="$w/fakebin:$PATH" FM_FAKE_DIR="$w/fake" \
+    FM_SSH_BIN="${FM_TEST_SSH_BIN:-ssh}" \
+    FM_ROOT_OVERRIDE="$w/main" FM_HOME="$w/main" "$UPDATE" 2>/dev/null)
+
+  assert_contains "$out" "firstmate: updated" "the firstmate repo did advance"
+  [ -f "$w/main/.tasks.toml" ] \
+    || fail "the update removed the home's live .tasks.toml"
+  [ "$(cat "$w/main/.tasks.toml")" = "$before" ] \
+    || fail "the update did not preserve .tasks.toml byte-for-byte"
+  pass "T12 an existing .tasks.toml survives the advance that untracks it"
+}
+
 test_updates_main_and_secondmate
 test_reread_gate_is_instruction_only
 test_bin_only_advance_never_restarts
@@ -452,5 +498,6 @@ test_registry_backstop_dedup_and_self_exclusion
 test_firstmate_wrong_branch_skipped
 test_firstmate_detached_head_skipped
 test_unsafe_secondmate_home_skipped_before_git_update
+test_tasks_config_survives_the_untracking_advance
 
 echo "# all fm-update tests passed"

@@ -67,10 +67,45 @@ fi
 
 # --- main firstmate repo ---------------------------------------------------
 
+# The home's .tasks.toml is per-home local material: bootstrap materializes it
+# once at session start and leaves an existing one byte-for-byte untouched
+# (bin/fm-bootstrap.sh tasks_config_setup). When FM_HOME is the checkout itself,
+# which is the default for a primary home, a fast-forward that renames or removes
+# a still-tracked .tasks.toml deletes the live file mid-session, and nothing
+# re-seeds it until the next session start - the home silently loses its backlog
+# addressing, archive path, and done_keep. Carry the file across the advance so
+# that contract survives the update, and say so loudly when it cannot be carried
+# rather than leaving the home unaddressed in silence.
+tasks_config_snapshot=""
+if [ -f "$FM_HOME/.tasks.toml" ] && [ ! -L "$FM_HOME/.tasks.toml" ]; then
+  tasks_config_snapshot=$(umask 077; mktemp "${TMPDIR:-/tmp}/fm-update-tasks-toml.XXXXXX") \
+    || tasks_config_snapshot=""
+  if [ -n "$tasks_config_snapshot" ] \
+    && ! cp "$FM_HOME/.tasks.toml" "$tasks_config_snapshot" 2>/dev/null; then
+    rm -f "$tasks_config_snapshot" 2>/dev/null
+    tasks_config_snapshot=""
+  fi
+  [ -n "$tasks_config_snapshot" ] \
+    || echo "TASKS_CONFIG: could not stage $FM_HOME/.tasks.toml before the update; it may not survive"
+fi
+
 reread_firstmate="no"
 ff_target "$FM_ROOT" "firstmate" origin no no
 if [ "$FF_STATUS" = "updated" ] && [ -n "$FF_INSTR" ]; then
   reread_firstmate="yes"
+fi
+
+# Restore only when the advance actually disturbed the file, so an untouched
+# home stays silent and a repeat run is a no-op.
+if [ -n "$tasks_config_snapshot" ]; then
+  if ! cmp -s "$tasks_config_snapshot" "$FM_HOME/.tasks.toml" 2>/dev/null; then
+    if cp "$tasks_config_snapshot" "$FM_HOME/.tasks.toml" 2>/dev/null; then
+      echo "TASKS_CONFIG: restored $FM_HOME/.tasks.toml, which the update would have removed"
+    else
+      echo "TASKS_CONFIG: the update removed $FM_HOME/.tasks.toml and it could not be restored"
+    fi
+  fi
+  rm -f "$tasks_config_snapshot" 2>/dev/null
 fi
 
 # --- secondmates -----------------------------------------------------------
