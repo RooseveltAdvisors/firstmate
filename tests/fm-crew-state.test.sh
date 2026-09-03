@@ -1489,6 +1489,38 @@ EOF
   pass "coarse scan stops on an unresolvable active row instead of binding an older one"
 }
 
+# Two same-branch rows can BOTH satisfy the head rule for one worktree: a
+# terminal run left at the exact worktree head, and a live run whose pipeline
+# fix commits advanced its tip past that head. Taking the terminal one reports
+# live unlanded work as failed, which a supervision turn can act on by cleaning
+# it up, so a non-terminal match always outranks a terminal one.
+test_coarse_live_run_beats_terminal_run_at_exact_head() {
+  reset_fakes
+  local d base advanced; d=$(new_case coarse-live-beats-terminal)
+  make_repo_on_branch "$d/wt" fm/feat-live
+  # A descendant commit the worktree HEAD is an ancestor of - the live run's
+  # tip after its own pipeline fix commits, which never came back here.
+  git -C "$d/wt" commit -q --allow-empty -m advance
+  advanced=$(git -C "$d/wt" rev-parse --short=8 HEAD)
+  git -C "$d/wt" reset -q --hard HEAD~1
+  base=$(git -C "$d/wt" rev-parse --short=8 HEAD)
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-live.meta" "window=fm:fm-feat-live" "worktree=$d/wt" "kind=ship" "harness=claude"
+  FM_FAKE_AXI_STATUS="$(run_running fm/other-crew)"
+  # Newest-first: the later-started run that already failed sits at the exact
+  # worktree head, above the still-running one that advanced past it.
+  FM_FAKE_RUNS_LIST="$(cat <<EOF
+  failed     fm/feat-live ${base}  2026-09-03 13:55
+  running    fm/feat-live ${advanced}  2026-09-03 13:50
+EOF
+)"
+  local out; out=$(run_crew_state "$d" feat-live)
+  assert_not_contains "$out" "state: failed" "a live run must not be reported as the terminal run at the same head"
+  assert_contains "$out" "state: working" "the live run at the advanced head wins"
+  assert_contains "$out" "source: run-step" "the live run is run-step sourced"
+  pass "a live run beats a terminal run left at the exact worktree head"
+}
+
 # Negative control: the exemption is gated on pipeline_owned specifically - any
 # other branch_sync state keeps the strict head rule.
 test_non_pipeline_owned_unresolvable_head_not_attributed() {
@@ -1603,6 +1635,7 @@ test_local_advanced_past_run_head_invalidates
 test_pipeline_owned_active_run_beats_superseded_failed_row
 test_failed_run_with_no_later_run_still_surfaces
 test_coarse_unresolvable_active_row_never_falls_to_older_row
+test_coarse_live_run_beats_terminal_run_at_exact_head
 test_non_pipeline_owned_unresolvable_head_not_attributed
 test_pipeline_owned_terminal_run_not_exempt
 test_missing_run_head_falls_back_to_current_state

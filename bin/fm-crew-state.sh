@@ -373,11 +373,12 @@ nm_ci_checks_state() {
 # "<status> <branch> <short-sha> <date> [<pr-url>]" separated by runs of
 # spaces (verified: no quoting, so splitting on the first two whitespace runs
 # is exact) - but branch + coarse status is exactly what this predicate needs:
-# is a run for THIS branch active right now. Echoes the first (most recent)
-# matching row's status word (running/completed/cancelled/failed), or empty
-# when the branch has no run within FM_CREW_STATE_RUNS_LIMIT rows.
+# is a run for THIS branch active right now. Echoes the most recent
+# NON-TERMINAL matching row's status word, else the most recent terminal one
+# (running/completed/cancelled/failed), or empty when the branch has no run
+# within FM_CREW_STATE_RUNS_LIMIT rows.
 nm_runs_status_for_branch() {  # <branch>
-  local branch=$1 out row st rest br sha
+  local branch=$1 out row st rest br sha newest_terminal=""
   out=$(nm_run runs --limit "$FM_CREW_STATE_RUNS_LIMIT")
   [ -n "$out" ] || return 0
   while IFS= read -r row; do
@@ -400,10 +401,21 @@ nm_runs_status_for_branch() {  # <branch>
         fm_nm_head_resolvable "$WT" "$sha" || return 0
         continue
       fi
-      printf '%s' "$st"
-      return 0
+      # Several rows can match one worktree: a TERMINAL run left at the exact
+      # head and a LIVE run whose pipeline commits advanced past it both
+      # satisfy the head rule. The live run is the current truth, so take the
+      # first (most recent) non-terminal match and keep only the most recent
+      # terminal one as the answer for a branch with no live run at all.
+      case "$st" in
+        completed|failed|cancelled)
+          [ -n "$newest_terminal" ] || newest_terminal=$st ;;
+        *)
+          printf '%s' "$st"
+          return 0 ;;
+      esac
     fi
   done <<< "$out"
+  printf '%s' "$newest_terminal"
   return 0
 }
 
