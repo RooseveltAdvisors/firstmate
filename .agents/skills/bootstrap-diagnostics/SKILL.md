@@ -34,7 +34,7 @@ When any diagnostic needs captain attention, report the plain consequence and re
   This is the only sanctioned firstmate-initiated git write to the primary, and it is a non-destructive branch switch that strands nothing.
 - `STARTUP_MEMORY_BUDGET: invalid config/startup-memory-budget - <reason>` - the visible startup-memory budget is not a safe one-line positive decimal file; do not infer the default or propagate it.
   Correct the local primary file, then rerun session start so the normal convergence path can deliver the validated value to secondmate homes.
-- `TASKS_CONFIG: <what happened to a home's .tasks.toml>` - this is the single handling contract for the token wherever it is printed: session-start bootstrap, and `bin/fm-update.sh` / `bin/fm-ff-lib.sh` when a fast-forward would have destroyed a home's per-home backlog config.
+- `TASKS_CONFIG: <what happened to a home's .tasks.toml>` - this is the single handling contract for the token wherever it is printed: session-start bootstrap, and every caller of the one fast-forward implementation in `bin/fm-ff-lib.sh` when an advance would have destroyed a home's per-home backlog config - `bin/fm-update.sh`, `bin/fm-spawn.sh` before a secondmate launch, and remote secondmate sync.
   A home with no `.tasks.toml` makes `tasks-axi` fall back to its built-in defaults and stop addressing `data/backlog.md`, its archive, and `done_keep`.
   - `restored <path>, which the update removed` - the file was carried across the advance and the home is still addressed. This is a fact, not a fault: report it if the captain is watching the update, and take no other action.
   - anything else (`could not create ...`, `... could not be restored`) - that home is unaddressed now.
