@@ -18,12 +18,19 @@
 #
 # The fast-forward mechanics live in bin/fm-ff-lib.sh (base_mode "origin" here);
 # the same library drives local and remote parent-targeted secondmate sync, so
-# there is one ff implementation, not several.
+# there is one ff implementation, not several. That library also carries each
+# advanced home's .tasks.toml across its own advance, so the primary home and
+# every secondmate home this script advances keep the same guarantee.
 #
 # It does NOT re-read AGENTS.md or nudge secondmates itself - those are LLM /
 # tmux actions the skill performs. The script's job is the safe git mechanics
 # plus a parseable summary telling the caller what to do next:
 #   - one status line per target (updated/already current/skipped)
+#   - zero or more "TASKS_CONFIG: <what happened to a home's .tasks.toml>" lines,
+#     emitted by bin/fm-ff-lib.sh when an advance removed a home's per-home
+#     backlog config. A restore is a fact, not a fault; a removal that could not
+#     be restored leaves that home unaddressed. A home that kept its file is
+#     silent. .agents/skills/bootstrap-diagnostics/SKILL.md owns how to handle it.
 #   - reread-firstmate: yes|no    (did the running firstmate's instructions change)
 #   - restart-secondmates: fm-<id>...|none (advanced live secondmates whose
 #     AGENTS.md or .agents/skills/ changed AND whose recorded runtime can prove a
@@ -67,45 +74,10 @@ fi
 
 # --- main firstmate repo ---------------------------------------------------
 
-# The home's .tasks.toml is per-home local material: bootstrap materializes it
-# once at session start and leaves an existing one byte-for-byte untouched
-# (bin/fm-bootstrap.sh tasks_config_setup). When FM_HOME is the checkout itself,
-# which is the default for a primary home, a fast-forward that renames or removes
-# a still-tracked .tasks.toml deletes the live file mid-session, and nothing
-# re-seeds it until the next session start - the home silently loses its backlog
-# addressing, archive path, and done_keep. Carry the file across the advance so
-# that contract survives the update, and say so loudly when it cannot be carried
-# rather than leaving the home unaddressed in silence.
-tasks_config_snapshot=""
-if [ -f "$FM_HOME/.tasks.toml" ] && [ ! -L "$FM_HOME/.tasks.toml" ]; then
-  tasks_config_snapshot=$(umask 077; mktemp "${TMPDIR:-/tmp}/fm-update-tasks-toml.XXXXXX") \
-    || tasks_config_snapshot=""
-  if [ -n "$tasks_config_snapshot" ] \
-    && ! cp "$FM_HOME/.tasks.toml" "$tasks_config_snapshot" 2>/dev/null; then
-    rm -f "$tasks_config_snapshot" 2>/dev/null
-    tasks_config_snapshot=""
-  fi
-  [ -n "$tasks_config_snapshot" ] \
-    || echo "TASKS_CONFIG: could not stage $FM_HOME/.tasks.toml before the update; it may not survive"
-fi
-
 reread_firstmate="no"
 ff_target "$FM_ROOT" "firstmate" origin no no
 if [ "$FF_STATUS" = "updated" ] && [ -n "$FF_INSTR" ]; then
   reread_firstmate="yes"
-fi
-
-# Restore only when the advance actually disturbed the file, so an untouched
-# home stays silent and a repeat run is a no-op.
-if [ -n "$tasks_config_snapshot" ]; then
-  if ! cmp -s "$tasks_config_snapshot" "$FM_HOME/.tasks.toml" 2>/dev/null; then
-    if cp "$tasks_config_snapshot" "$FM_HOME/.tasks.toml" 2>/dev/null; then
-      echo "TASKS_CONFIG: restored $FM_HOME/.tasks.toml, which the update would have removed"
-    else
-      echo "TASKS_CONFIG: the update removed $FM_HOME/.tasks.toml and it could not be restored"
-    fi
-  fi
-  rm -f "$tasks_config_snapshot" 2>/dev/null
 fi
 
 # --- secondmates -----------------------------------------------------------

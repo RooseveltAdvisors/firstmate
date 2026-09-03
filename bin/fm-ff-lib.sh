@@ -269,6 +269,58 @@ dirty_status() {
   fi
 }
 
+# A home's .tasks.toml is per-home local material: bootstrap materializes it once
+# at session start and leaves an existing one byte-for-byte untouched
+# (bin/fm-bootstrap.sh tasks_config_setup). Every home this library advances IS a
+# checkout - the primary home, a treehouse secondmate worktree, a standalone
+# clone, a remote persistent home - so an advance that renames or removes a
+# still-tracked .tasks.toml deletes the live file mid-session, and nothing
+# re-seeds it until that home's next session start: it silently loses its backlog
+# addressing, archive path, and done_keep. Carry the file across the advance here,
+# at the single ff implementation, so every home the fleet advances keeps the same
+# guarantee rather than only the one the caller happened to think of.
+#
+# Put the file back only when the advance actually REMOVED it. A writer other than
+# the fast-forward that touches .tasks.toml inside this window owns the file, and
+# putting the snapshot back over it would be the very data loss this carry exists
+# to prevent. Every TASKS_CONFIG line below therefore reports an outcome that
+# already happened: a home that kept its file stays silent, and a home that lost
+# one says so loudly rather than being left unaddressed in silence.
+TASKS_CONFIG_SNAPSHOT=""
+TASKS_CONFIG_CARRIED=no
+tasks_config_stage() {  # <dir>
+  local dir=$1 tmp=""
+  TASKS_CONFIG_SNAPSHOT=""
+  TASKS_CONFIG_CARRIED=no
+  [ -f "$dir/.tasks.toml" ] && [ ! -L "$dir/.tasks.toml" ] || return 0
+  TASKS_CONFIG_CARRIED=yes
+  tmp=$(umask 077; mktemp "${TMPDIR:-/tmp}/fm-tasks-toml.XXXXXX") || tmp=""
+  if [ -n "$tmp" ] && ! cp "$dir/.tasks.toml" "$tmp" 2>/dev/null; then
+    rm -f "$tmp" 2>/dev/null
+    tmp=""
+  fi
+  TASKS_CONFIG_SNAPSHOT=$tmp
+}
+
+# A stage that could not be taken is reported here too, and only here: it costs the
+# home nothing unless the advance also removed the file, and reporting it before
+# the advance would announce a loss that has not happened.
+tasks_config_restore() {  # <dir>
+  local dir=$1
+  if [ "$TASKS_CONFIG_CARRIED" = yes ] \
+    && [ ! -e "$dir/.tasks.toml" ] && [ ! -L "$dir/.tasks.toml" ]; then
+    if [ -n "$TASKS_CONFIG_SNAPSHOT" ] \
+      && cp "$TASKS_CONFIG_SNAPSHOT" "$dir/.tasks.toml" 2>/dev/null; then
+      echo "TASKS_CONFIG: restored $dir/.tasks.toml, which the update removed"
+    else
+      echo "TASKS_CONFIG: the update removed $dir/.tasks.toml and it could not be restored"
+    fi
+  fi
+  [ -z "$TASKS_CONFIG_SNAPSHOT" ] || rm -f "$TASKS_CONFIG_SNAPSHOT" 2>/dev/null
+  TASKS_CONFIG_SNAPSHOT=""
+  TASKS_CONFIG_CARRIED=no
+}
+
 # List this home's LIVE secondmate direct reports from state/<id>.meta records.
 # The meta file is the liveness signal; data/secondmates.md is only the fallback
 # for durable fields such as home= when an older/incomplete meta lacks them.
@@ -381,10 +433,13 @@ ff_target() {
 
   instr=$(changed_instr "$dir" "$base")
   before=$(git -C "$dir" rev-parse --short HEAD)
+  tasks_config_stage "$dir"
   if ! out=$(git -C "$dir" merge --ff-only "$base" 2>&1); then
+    tasks_config_restore "$dir"
     echo "$label: skipped: fast-forward failed: $(first_line "$out")"
     return 0
   fi
+  tasks_config_restore "$dir"
   after=$(git -C "$dir" rev-parse --short HEAD)
   FF_STATUS="updated"
   FF_INSTR="$instr"

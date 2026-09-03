@@ -494,6 +494,7 @@ secondmate_sync() {
       secondmate\ *': skipped:'*) echo "SECONDMATE_SYNC: $line" ;;
       BOOTSTRAP_INFO:\ *) echo "$line" ;;
       NUDGE_SECONDMATES:\ *) echo "$line" ;;
+      TASKS_CONFIG:\ *) echo "$line" ;;
     esac
   done < "$tmp"
   rm -f "$tmp"

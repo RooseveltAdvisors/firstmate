@@ -34,8 +34,11 @@ When any diagnostic needs captain attention, report the plain consequence and re
   This is the only sanctioned firstmate-initiated git write to the primary, and it is a non-destructive branch switch that strands nothing.
 - `STARTUP_MEMORY_BUDGET: invalid config/startup-memory-budget - <reason>` - the visible startup-memory budget is not a safe one-line positive decimal file; do not infer the default or propagate it.
   Correct the local primary file, then rerun session start so the normal convergence path can deliver the validated value to secondmate homes.
-- `TASKS_CONFIG: <why this home has no .tasks.toml>` - bootstrap could not give this home a `.tasks.toml`, so `tasks-axi` falls back to its built-in defaults and stops addressing `data/backlog.md`, its archive, and `done_keep`.
-  Treat routine backlog work as unsafe until it is fixed: restore the tracked `.tasks.toml.example` in the code root or make the home writable, then rerun session start.
+- `TASKS_CONFIG: <what happened to a home's .tasks.toml>` - this is the single handling contract for the token wherever it is printed: session-start bootstrap, and `bin/fm-update.sh` / `bin/fm-ff-lib.sh` when a fast-forward would have destroyed a home's per-home backlog config.
+  A home with no `.tasks.toml` makes `tasks-axi` fall back to its built-in defaults and stop addressing `data/backlog.md`, its archive, and `done_keep`.
+  - `restored <path>, which the update removed` - the file was carried across the advance and the home is still addressed. This is a fact, not a fault: report it if the captain is watching the update, and take no other action.
+  - anything else (`could not create ...`, `... could not be restored`) - that home is unaddressed now.
+    Treat routine backlog work there as unsafe until it is fixed: restore the tracked `.tasks.toml.example` in the code root or make the home writable, then rerun session start for that home so `tasks_config_setup` can re-seed it.
 - `CREW_DISPATCH: invalid config/crew-dispatch.json - <reason>` - the optional dispatch profile file exists but failed low-cost bootstrap validation; stop profile-based dispatch, report the actionable error, and require correction of the malformed schema, unverified harness name, or invalid harness/effort pair rather than falling back around it or selecting a bad profile.
 - `FLEET_SYNC: <repo>: skipped: <reason>` - a benign one-off skip (offline, no origin, local-only); bootstrap continued, investigate only if it blocks work.
   A skip can also report the bounded fleet-refresh timeout (`FM_FLEET_SYNC_BOOTSTRAP_TIMEOUT`, or a fleet-size-aware default with a 20 second floor); a timeout never blocks startup.

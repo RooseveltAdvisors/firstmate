@@ -439,6 +439,31 @@ test_unsafe_secondmate_home_skipped_before_git_update() {
   pass "T11 unsafe secondmate home is not fast-forwarded"
 }
 
+# Seed the pre-rename world: .tasks.toml is a TRACKED file and the home is
+# running on it, with the operational dirs gitignored exactly as in the real
+# repo so a running home is a clean tree and the advance is eligible.
+seed_tracked_tasks_config() {  # <world> <path-value>
+  local w=$1 path_value=$2
+  printf 'state/\ndata/\nconfig/\nprojects/\n' > "$w/seed/.gitignore"
+  printf 'backend = "markdown"\n\n[markdown]\npath = "%s"\ndone_keep = 10\n' \
+    "$path_value" > "$w/seed/.tasks.toml"
+  git -C "$w/seed" add -A
+  git -C "$w/seed" commit -qm seed-tasks-toml
+  git -C "$w/seed" push -q origin main
+  git -C "$w/main" pull -q --ff-only origin main
+}
+
+# The advance under test: the tracked file becomes a tracked example plus a
+# gitignore entry, which is exactly what deletes a live home's copy.
+untrack_tasks_config() {  # <world>
+  local w=$1
+  git -C "$w/seed" mv .tasks.toml .tasks.toml.example
+  printf '.tasks.toml\n' >> "$w/seed/.gitignore"
+  git -C "$w/seed" add -A
+  git -C "$w/seed" commit -qm untrack-tasks-toml
+  git -C "$w/seed" push -q origin main
+}
+
 # --- T12: a live home's .tasks.toml survives the advance that untracks it ---
 # The primary home's FM_HOME IS the checkout, so its .tasks.toml is a tracked
 # file until the per-home rename lands. bootstrap's tasks_config_setup runs once
@@ -452,24 +477,9 @@ test_tasks_config_survives_the_untracking_advance() {
   mkdir -p "$w/main/state"
   touch "$w/main/state/.last-watcher-beat"
 
-  # Pre-rename world: .tasks.toml is tracked and the home is running on it.
-  # The home's operational dirs are gitignored exactly as in the real repo, so
-  # the running home is a clean tree and the advance is eligible.
-  printf 'state/\ndata/\nconfig/\nprojects/\n' > "$w/seed/.gitignore"
-  printf 'backend = "markdown"\n\n[markdown]\npath = "data/backlog.md"\ndone_keep = 10\n' \
-    > "$w/seed/.tasks.toml"
-  git -C "$w/seed" add -A
-  git -C "$w/seed" commit -qm seed-tasks-toml
-  git -C "$w/seed" push -q origin main
-  git -C "$w/main" pull -q --ff-only origin main
+  seed_tracked_tasks_config "$w" data/backlog.md
   before=$(cat "$w/main/.tasks.toml")
-
-  # The advance under test: the file becomes a tracked example plus a gitignore.
-  git -C "$w/seed" mv .tasks.toml .tasks.toml.example
-  printf '.tasks.toml\n' >> "$w/seed/.gitignore"
-  git -C "$w/seed" add -A
-  git -C "$w/seed" commit -qm untrack-tasks-toml
-  git -C "$w/seed" push -q origin main
+  untrack_tasks_config "$w"
 
   # FM_HOME defaults to the checkout for a primary home, which is the shape that
   # loses the file; the other tests deliberately split home from root.
@@ -482,7 +492,70 @@ test_tasks_config_survives_the_untracking_advance() {
     || fail "the update removed the home's live .tasks.toml"
   [ "$(cat "$w/main/.tasks.toml")" = "$before" ] \
     || fail "the update did not preserve .tasks.toml byte-for-byte"
+  assert_contains "$out" "TASKS_CONFIG: restored $w/main/.tasks.toml, which the update removed" \
+    "the update reports the restore it actually made"
   pass "T12 an existing .tasks.toml survives the advance that untracks it"
+}
+
+# --- T13: a SECONDMATE home keeps its .tasks.toml across the same advance ----
+# The same update advances every registered secondmate home, and a treehouse home
+# is a checkout too, so it holds the still-tracked .tasks.toml and loses it to the
+# identical rename. That mate's bootstrap already ran, so nothing re-seeds it for
+# the rest of its session. The guarantee belongs to every home the update
+# advances, not only the one the primary happens to be running from.
+test_tasks_config_survives_on_a_secondmate_home() {
+  local w out before
+  w=$(new_world t13)
+  seed_tracked_tasks_config "$w" data/backlog.md
+  add_sm "$w" a1
+  before=$(cat "$w/a1/.tasks.toml")
+  untrack_tasks_config "$w"
+
+  out=$(run_update "$w")
+
+  assert_contains "$out" "secondmate a1: updated" "the secondmate home did advance"
+  [ -f "$w/a1/.tasks.toml" ] \
+    || fail "the update removed the secondmate home's live .tasks.toml"
+  [ "$(cat "$w/a1/.tasks.toml")" = "$before" ] \
+    || fail "the update did not preserve the secondmate home's .tasks.toml byte-for-byte"
+  pass "T13 a secondmate home's .tasks.toml survives the advance that untracks it"
+}
+
+# --- T14: the carry restores a REMOVED file, it never reverts a live writer ---
+# The carry exists to stop data loss, so it must not cause any. A writer other
+# than the fast-forward that owns .tasks.toml inside the advance window keeps its
+# write, and the run must not claim a removal that did not happen. The post-merge
+# hook fires after the ff-only merge, which is exactly that window.
+test_tasks_config_restore_never_reverts_a_live_writer() {
+  local w out
+  w=$(new_world t14)
+  mkdir -p "$w/main/state"
+  touch "$w/main/state/.last-watcher-beat"
+
+  seed_tracked_tasks_config "$w" data/backlog.md
+  untrack_tasks_config "$w"
+
+  cat > "$w/main/.git/hooks/post-merge" <<'SH'
+#!/usr/bin/env bash
+printf 'backend = "markdown"
+
+[markdown]
+path = "data/live-writer.md"
+' > .tasks.toml
+SH
+  chmod +x "$w/main/.git/hooks/post-merge"
+
+  out=$(PATH="$w/fakebin:$PATH" FM_FAKE_DIR="$w/fake" \
+    FM_SSH_BIN="${FM_TEST_SSH_BIN:-ssh}" \
+    FM_ROOT_OVERRIDE="$w/main" FM_HOME="$w/main" "$UPDATE" 2>/dev/null)
+
+  assert_contains "$out" "firstmate: updated" "the firstmate repo did advance"
+  assert_contains "$(cat "$w/main/.tasks.toml")" "data/live-writer.md" \
+    "the update reverted a .tasks.toml write it did not make"
+  case "$out" in
+    *TASKS_CONFIG:*) fail "the update reported a TASKS_CONFIG action that never happened: $out" ;;
+  esac
+  pass "T14 a live .tasks.toml writer is never reverted and no removal is claimed"
 }
 
 test_updates_main_and_secondmate
@@ -499,5 +572,7 @@ test_firstmate_wrong_branch_skipped
 test_firstmate_detached_head_skipped
 test_unsafe_secondmate_home_skipped_before_git_update
 test_tasks_config_survives_the_untracking_advance
+test_tasks_config_survives_on_a_secondmate_home
+test_tasks_config_restore_never_reverts_a_live_writer
 
 echo "# all fm-update tests passed"
