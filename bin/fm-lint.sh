@@ -23,10 +23,14 @@
 #     only the canonical-set files changed since that merge-base, including
 #     uncommitted local edits, via plain local `git diff` (no network, no
 #     `gh`). A branch with zero matching changed files skips ShellCheck and
-#     prints a "no changed lint targets" note, then still validates workflows.
+#     prints a "no changed lint targets" note, then still runs the
+#     backend-purity check and validates workflows.
 # Explicit paths always bypass this file-set selection and lint exactly the
 # given paths, matching the same config, without the workflow YAML check.
 # Explicit core bin/ scripts still receive the backend-purity check.
+# The backend-purity check rejects direct Beads CLI invocations in core bin/
+# scripts so every configured backlog backend follows the same tasks-axi
+# lifecycle path.
 #
 # Canonical lint defaults to two bounded workers over two stable logical shards.
 # Each shard writes separate diagnostics, and the parent replays those outputs in
@@ -48,9 +52,9 @@
 set -u
 
 REQUIRED_SHELLCHECK=0.11.0
-SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 SELF="$SELF_DIR/fm-lint.sh"
-ROOT="$(cd "$SELF_DIR/.." && pwd)"
+ROOT="$(cd "$SELF_DIR/.." && pwd -P)"
 cd "$ROOT" || exit 1
 
 FM_LINT_WORKER_SHELLCHECK_PID=
@@ -150,6 +154,20 @@ fm_lint_run_backend_purity() {
   fi
   [ "${#purity_roots[@]}" -gt 0 ] || return 0
   findings=$(LC_ALL=C awk '
+    function hex_value(character) {
+      return index("0123456789abcdef", tolower(character)) - 1
+    }
+    function ansi_number(digits, base,    i, value) {
+      value=0
+      for (i=1; i <= length(digits); i++) value=value * base + hex_value(substr(digits, i, 1))
+      return value
+    }
+    # Non-printable and non-ASCII bytes can never spell the bd command, so a
+    # placeholder keeps them from colliding into it.
+    function ansi_character(value) {
+      if (value < 32 || value > 126) return "?"
+      return sprintf("%c", value)
+    }
     function invokes_bd(segment) {
       sub(/^[[:space:]]+/, "", segment)
       while (1) {
@@ -188,6 +206,7 @@ fm_lint_run_backend_purity() {
       }
       command_word=""
       quote=""
+      ansi=0
       for (position=1; position <= length(segment); position++) {
         character=substr(segment, position, 1)
         if (quote == "") {
@@ -197,11 +216,13 @@ fm_lint_run_backend_purity() {
             if (next_character == "\"" || next_character == sprintf("%c", 39)) {
               position++
               quote=next_character
+              ansi=(next_character == sprintf("%c", 39)) ? 1 : 0
               continue
             }
           }
           if (character == "\"" || character == sprintf("%c", 39)) {
             quote=character
+            ansi=0
             continue
           }
           if (character == "\\") {
@@ -214,12 +235,69 @@ fm_lint_run_backend_purity() {
         }
         if (character == quote) {
           quote=""
+          ansi=0
           continue
         }
-        if (quote == "\"" && character == "\\") {
+        if (character == "\\" && (quote == "\"" || ansi)) {
           position++
           if (position > length(segment)) return 0
-          character=substr(segment, position, 1)
+          escape=substr(segment, position, 1)
+          if (ansi) {
+            # ANSI-C quoting decodes escapes, so an encoded spelling of the
+            # command still runs bd and must be decoded here to be caught.
+            value=-1
+            if (escape == "x" || escape == "u" || escape == "U") {
+              max_digits=2
+              if (escape == "u") max_digits=4
+              if (escape == "U") max_digits=8
+              digits=""
+              while (length(digits) < max_digits && position < length(segment)) {
+                digit=substr(segment, position + 1, 1)
+                if (digit !~ /[0-9A-Fa-f]/) break
+                digits=digits digit
+                position++
+              }
+              if (digits == "") {
+                # An escape prefix with no digits yields the prefix character.
+                command_word=command_word escape
+                continue
+              }
+              value=ansi_number(digits, 16)
+            } else if (escape ~ /[0-7]/) {
+              digits=escape
+              while (length(digits) < 3 && position < length(segment)) {
+                digit=substr(segment, position + 1, 1)
+                if (digit !~ /[0-7]/) break
+                digits=digits digit
+                position++
+              }
+              value=ansi_number(digits, 8)
+            }
+            if (value >= 0) {
+              if (value == 0) {
+                # NUL truncates the bash word.
+                quote=""
+                break
+              }
+              command_word=command_word ansi_character(value)
+              continue
+            }
+            if (escape == "c") {
+              # Control characters can never spell the bd command.
+              if (position < length(segment)) position++
+              command_word=command_word "?"
+              continue
+            }
+            if (escape ~ /^[abeEfnrtv]$/) {
+              command_word=command_word "?"
+              continue
+            }
+            # Remaining ANSI-C escapes keep their character, and bash drops
+            # the backslash before any other character.
+            command_word=command_word escape
+            continue
+          }
+          character=escape
         }
         command_word=command_word character
       }
