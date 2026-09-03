@@ -80,32 +80,40 @@ mkdir -p "$UNIT/data"
 make_hanging_tasks_axi "$UNIT_FAKEBIN"
 printf '# Backlog\n' > "$UNIT/data/backlog.md"
 
+# Three items, so "every skipped item is still named" is actually exercised
+# rather than inferred from a single skip.
 PROBE_OUT="$UNIT/probe.out"
 PATH="$UNIT_FAKEBIN:$BASE_PATH" FM_BACKLOG_ROW_TIMEOUT_SECS="$BOUND_SECS" \
   bash -c '
     set -u
     . "$1/bin/fm-tasks-axi-lib.sh"
     . "$1/bin/fm-backlog-transition-lib.sh"
-    start=$(date +%s)
-    fm_backlog_row_probe "$2" wedged-one && printf "unexpected-success\n"
-    printf "first_error=%s\n" "$FM_BACKLOG_ROW_ERROR"
-    printf "first_elapsed=%s\n" "$(( $(date +%s) - start ))"
-    start=$(date +%s)
-    fm_backlog_row_probe "$2" wedged-two && printf "unexpected-success\n"
-    printf "second_error=%s\n" "$FM_BACKLOG_ROW_ERROR"
-    printf "second_elapsed=%s\n" "$(( $(date +%s) - start ))"
+    for id in wedged-one wedged-two wedged-three; do
+      start=$(date +%s)
+      fm_backlog_row_probe "$2" "$id" && printf "unexpected-success\n"
+      printf "elapsed:%s=%s\n" "$id" "$(( $(date +%s) - start ))"
+      printf "error:%s=%s\n" "$id" "$FM_BACKLOG_ROW_ERROR"
+    done
   ' _ "$ROOT" "$UNIT/data" > "$PROBE_OUT" 2>&1
+
+probe_elapsed() {  # <id>
+  sed -n "s/^elapsed:$1=//p" "$PROBE_OUT"
+}
+
+probe_error() {  # <id>
+  sed -n "s/^error:$1=//p" "$PROBE_OUT"
+}
 
 grep -q '^unexpected-success$' "$PROBE_OUT" \
   && fail "a hanging tasks-axi show must not report a successful row read: $(cat "$PROBE_OUT")"
 
-FIRST_ELAPSED=$(sed -n 's/^first_elapsed=//p' "$PROBE_OUT")
+FIRST_ELAPSED=$(probe_elapsed wedged-one)
 [ -n "$FIRST_ELAPSED" ] || fail "probe produced no timing: $(cat "$PROBE_OUT")"
 [ "$FIRST_ELAPSED" -lt "$BOUND_CEILING" ] \
   || fail "bounded row read took ${FIRST_ELAPSED}s, over the ${BOUND_CEILING}s ceiling: $(cat "$PROBE_OUT")"
 pass "a hanging tasks-axi show returns within the per-item bound instead of running unbounded"
 
-FIRST_ERROR=$(sed -n 's/^first_error=//p' "$PROBE_OUT")
+FIRST_ERROR=$(probe_error wedged-one)
 case "$FIRST_ERROR" in
   *wedged-one*bound*) ;;
   *) fail "the timed-out read must name the item and its bound, got: $FIRST_ERROR" ;;
@@ -118,15 +126,17 @@ pass "a timed-out row read reports one error naming the item that timed out"
 # passes whether or not the latch works, and fm_backlog_row_show runs inside a
 # command substitution whose writes die with the subshell - the exact way this
 # latch can silently become inert.
-SECOND_ERROR=$(sed -n 's/^second_error=//p' "$PROBE_OUT")
-SECOND_ELAPSED=$(sed -n 's/^second_elapsed=//p' "$PROBE_OUT")
-case "$SECOND_ERROR" in
-  *wedged-two*skipped*) ;;
-  *) fail "every skipped item must still be named as skipped, got: $SECOND_ERROR" ;;
-esac
-[ "$SECOND_ELAPSED" -lt "$BOUND_SECS" ] \
-  || fail "the latch is inert: the second read paid ${SECOND_ELAPSED}s against a known-wedged backend"
-pass "after the first bound hit the sweep continues and names each remaining item without paying the bound again"
+for SKIPPED in wedged-two wedged-three; do
+  SKIPPED_ERROR=$(probe_error "$SKIPPED")
+  SKIPPED_ELAPSED=$(probe_elapsed "$SKIPPED")
+  case "$SKIPPED_ERROR" in
+    *"$SKIPPED"*skipped*) ;;
+    *) fail "every skipped item must still be named as skipped, $SKIPPED got: $SKIPPED_ERROR" ;;
+  esac
+  [ -n "$SKIPPED_ELAPSED" ] && [ "$SKIPPED_ELAPSED" -lt "$BOUND_SECS" ] \
+    || fail "the latch is inert: $SKIPPED paid ${SKIPPED_ELAPSED}s against a known-wedged backend"
+done
+pass "after the first bound hit the sweep continues and names every remaining item without paying the bound again"
 
 # --- half two: the digest still completes end to end ------------------------
 
