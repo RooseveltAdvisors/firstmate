@@ -290,6 +290,17 @@ dirty_status() {
 # one says so loudly rather than being left unaddressed in silence.
 TASKS_CONFIG_SNAPSHOT=""
 TASKS_CONFIG_CARRIED=no
+# A .tasks.toml that this home customized while it was still TRACKED reads as an
+# ordinary modification, so the dirty guard below stops the advance before the
+# carry is ever reached - and it stays stopped, because the target commit deletes
+# that tracked path, so the modification never clears on its own. Naming it is all
+# this can honestly do: setting a modified tracked file aside to advance anyway
+# would break the fast-forward-only, never-stash contract on the exact home with
+# real customization to lose.
+tasks_config_modified_tracked() {  # <dir>
+  git -C "$1" status --porcelain -- .tasks.toml 2>/dev/null | grep -q '^ *M'
+}
+
 tasks_config_stage() {  # <dir>
   local dir=$1 tmp=""
   TASKS_CONFIG_SNAPSHOT=""
@@ -426,7 +437,11 @@ ff_target() {
   fi
 
   if [ -n "$(dirty_status "$dir" "$ignore_seed_marker")" ]; then
-    echo "$label: skipped: dirty working tree"
+    if tasks_config_modified_tracked "$dir"; then
+      echo "$label: skipped: dirty working tree: .tasks.toml is modified and still tracked here, and this update untracks it; copy it aside, run git -C $dir checkout -- .tasks.toml, update, then put your copy back"
+    else
+      echo "$label: skipped: dirty working tree"
+    fi
     return 0
   fi
 
