@@ -1,0 +1,6 @@
+--version
+update --help
+mv --help
+show atomic-dispatch-b1 --file /tmp/fm-backlog-atomicity.4BpkuL/dispatch-ok/home/data/backlog.md
+show atomic-dispatch-b1 --file /tmp/fm-backlog-atomicity.4BpkuL/dispatch-ok/home/data/backlog.md
+start atomic-dispatch-b1 --file /tmp/fm-backlog-atomicity.4BpkuL/dispatch-ok/home/data/backlog.md

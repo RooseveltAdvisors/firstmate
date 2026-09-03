@@ -1,0 +1,2 @@
+ok - dispatch publishes the record and moves the backlog item In flight in one run
+ok - dispatch omits the markdown file when probing a Beads backlog

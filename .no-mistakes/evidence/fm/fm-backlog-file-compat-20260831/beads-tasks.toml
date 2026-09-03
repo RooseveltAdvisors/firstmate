@@ -1,0 +1,4 @@
+backend = "beads"
+[beads]
+path = ".beads"
+prefix = "atomic"

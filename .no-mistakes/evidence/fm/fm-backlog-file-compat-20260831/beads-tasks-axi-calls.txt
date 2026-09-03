@@ -1,0 +1,5 @@
+--version
+update --help
+mv --help
+show atomic-dispatch-beads-b1
+show atomic-dispatch-beads-b1

@@ -1,0 +1,10 @@
+$ fm_tasks_axi_backend with empty root, empty HOME (default)
+markdown
+$ fm_tasks_axi_backend with project .tasks.toml backend = "beads"
+beads
+$ TASKS_AXI_BACKEND=markdown overrides project beads toml
+markdown
+$ home config ~/.tasks-axi/config.toml used when project toml has no backend key
+beads
+$ project toml beats home config
+markdown

@@ -1,0 +1,2 @@
+not ok - Beads spawn failed: error: task atomic-dispatch-beads-b1's backlog item could not be read before dispatch (error: beads show failed)
+exit=1
