@@ -122,16 +122,14 @@ PROJ_COMMON=$(common_dir_of "$PROJ_REAL") || true
 [ -n "$PROJ_COMMON" ] || refuse "project '$PROJ_REAL' is not inside a git repository"
 [ "$WT_COMMON" = "$PROJ_COMMON" ] || refuse "'$WT_REAL' is not a worktree of project '$PROJ_REAL'"
 
-# Every refusal above is decided by git and the filesystem alone, so the scope
-# boundary stays fail-closed with or without node. Only the store write needs an
-# interpreter, and a box without one must not lose every claude spawn to a
-# missing dependency, so this degrades the way the other node callers in bin/ do:
-# say plainly that the trust was not registered and that the worker may meet the
-# dialog, then let the spawn proceed.
-if ! command -v node >/dev/null 2>&1; then
-  echo "warning: node is not available, so Claude workspace trust was not pre-registered for '$WT_REAL'; the worker may stall on the workspace-trust dialog" >&2
-  exit 0
-fi
+# The store write needs node, and a missing interpreter refuses like every other
+# failure here. Degrading instead would launch a worker straight into the dialog
+# this registration exists to remove, which is the one outcome the whole control
+# is for; the other node callers in bin/ step aside because what they protect is
+# optional, and this is not. A node-less home never reaches a spawn anyway, since
+# bin/fm-bootstrap.sh lists node in COMMON_TOOLS and reports it at setup, which is
+# where a missing tool belongs rather than as a stalled pane later.
+command -v node >/dev/null 2>&1 || refuse "node is required to record workspace trust and was not found on PATH"
 
 STORE="$CONFIG_DIR_REAL/.claude.json"
 # A dotfile manager or a synced folder legitimately symlinks this store, so the

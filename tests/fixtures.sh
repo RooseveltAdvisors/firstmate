@@ -278,12 +278,17 @@ fm_test_run_spawn() {
   # A claude spawn pre-registers workspace trust in the launching user's own
   # store (bin/fm-claude-trust.sh), so every spawn here runs against a throwaway
   # HOME; without it the suite would write the developer's real ~/.claude.json.
-  # HOME rather than CLAUDE_CONFIG_DIR deliberately: the spawn forwards a SET
-  # CLAUDE_CONFIG_DIR onto the claude launch, so pinning it here would change the
-  # launch command every launch-shape assertion in the suite reads.
+  # CLAUDE_CONFIG_DIR must be pinned too, and pinned EMPTY: the script resolves
+  # the store as ${CLAUDE_CONFIG_DIR:-${HOME:-}}, so a value inherited from the
+  # developer's shell would beat the throwaway HOME and the sandbox would not
+  # hold, while an empty value falls through to it. Empty rather than a path
+  # because bin/fm-spawn.sh prefixes the launch only when the value is non-empty,
+  # so every launch-shape assertion in the suite keeps reading the same command.
+  # A test that needs the set case opts in through FM_TEST_CLAUDE_CONFIG_DIR.
   local spawn_home=$home/user-home
   mkdir -p "$spawn_home"
   FM_ROOT_OVERRIDE='' FM_HOME="$home" HOME="$spawn_home" \
+    CLAUDE_CONFIG_DIR="${FM_TEST_CLAUDE_CONFIG_DIR:-}" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
     FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
     FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$pane" TMUX="${TMUX:-fake,1,0}" \

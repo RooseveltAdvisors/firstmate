@@ -300,22 +300,22 @@ test_symlinked_store_to_an_owned_target_is_accepted() {
   pass "fm-claude-trust.sh: follows a store symlink to this user's own file and leaves the link intact"
 }
 
-# Registering trust is what keeps a worker off the dialog, but a box with no
-# node must not lose every claude spawn to the missing interpreter, so this
-# degrades with a warning and a zero exit instead of refusing.
-test_missing_node_warns_and_lets_the_spawn_proceed() {
+# Registering trust is what keeps a worker off the dialog, so a missing node
+# refuses rather than degrades: proceeding would launch the worker straight into
+# the dialog this control exists to remove.
+test_missing_node_is_refused() {
   local rec out bindir
   rec=$(make_case no-node)
   read_case "$rec"
   bindir=$(node_free_path "$CASE_DIR")
   out=$(PATH="$bindir" run_trust "$CONFIG" "$WT" "$PROJ")
-  expect_code 0 $? "a missing node must not fail the spawn: $out"
-  assert_contains "$out" "node is not available" "the warning did not name the missing interpreter"
-  assert_contains "$out" "workspace-trust dialog" "the warning did not say the worker may meet the dialog"
+  expect_code 1 $? "a missing node must refuse rather than let the spawn proceed: $out"
+  assert_contains "$out" "node" "the refusal did not name the missing interpreter"
+  assert_not_trusted "$CONFIG/.claude.json" "$WT" "a worktree was trusted without an interpreter to write the store"
   case "$out" in
     *"trusted:"*) fail "a registration was claimed although none could be written: $out" ;;
   esac
-  pass "fm-claude-trust.sh: a missing node warns and lets the spawn proceed"
+  pass "fm-claude-trust.sh: a missing node is refused rather than degraded"
 }
 
 # Degrading on a missing interpreter must not soften the scope boundary, which
@@ -359,7 +359,7 @@ test_claude_spawn_pretrusts_its_worktree_and_reaches_the_brief() {
   fm_test_spawn_home "$home" claude
   fm_git_worktree "$proj" "$wt" wt-spawn
   fm_test_spawn_brief "$home" trustspawn
-  out=$(CLAUDE_CONFIG_DIR="$config" FM_FAKE_LAUNCH_LOG="$launch_log" \
+  out=$(FM_TEST_CLAUDE_CONFIG_DIR="$config" FM_FAKE_LAUNCH_LOG="$launch_log" \
     fm_test_run_spawn "$home" "$wt" "$fakebin" trustspawn "$proj" claude \
     --mode no-mistakes --yolo off)
   expect_code 0 $? "the claude spawn must succeed: $out"
@@ -392,6 +392,6 @@ test_unrelated_store_content_is_preserved
 test_symlinked_store_to_a_foreign_owned_target_is_refused
 test_symlinked_store_to_an_owned_target_is_accepted
 test_corrupt_store_fails_closed
-test_missing_node_warns_and_lets_the_spawn_proceed
+test_missing_node_is_refused
 test_scope_refusal_stays_fail_closed_without_node
 test_claude_spawn_pretrusts_its_worktree_and_reaches_the_brief
