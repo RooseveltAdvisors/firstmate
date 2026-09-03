@@ -55,6 +55,15 @@ make_home() {  # <name> [task-id...]
   printf '%s\n' claude > "$home/config/crew-harness"
   printf '%s\n' '# Backlog' '' '## In flight' '' '## Queued' '' '## Done' \
     > "$home/data/backlog.md"
+  # Pin the adapter per case: without it fm_tasks_axi_backend would fall through
+  # to the developer's ambient tasks-axi config and silently exercise a
+  # different transition path.
+  cat > "$home/.tasks.toml" <<'EOF'
+backend = "markdown"
+
+[markdown]
+path = "data/backlog.md"
+EOF
   for id in "$@"; do
     mkdir -p "$home/data/$id"
     cat > "$home/data/$id/brief.md" <<EOF
@@ -2274,6 +2283,7 @@ test_spawn_refuses_a_special_file_tasks_config() {
   case_dir=$(make_home special-config "$id")
   home=$(home_of "$case_dir")
   add_item "$case_dir" "$id"
+  rm -f "$home/.tasks.toml"
   mkfifo "$home/.tasks.toml"
 
   out=$(FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" \
@@ -2303,6 +2313,7 @@ backend = "markdown"
 [markdown]
 path = "records/tasks.md"
 EOF
+  rm -f "$home/.tasks.toml"
   ln -s "$case_dir/outside/tasks.toml" "$home/.tasks.toml"
 
   out=$(run_ship_spawn "$case_dir" "$id") || rc=$?
@@ -2314,6 +2325,26 @@ EOF
   pass "spawn refuses an unsafe tasks-axi config before any exemption is derived from it"
 }
 
+
+test_spawn_refuses_a_data_directory_symlinked_outside_the_home() {
+  local case_dir home id out rc=0
+  id=atomic-external-data-b15
+  case_dir=$(make_home external-data "$id")
+  home=$(home_of "$case_dir")
+  add_item "$case_dir" "$id"
+  mkdir -p "$case_dir/outside"
+  mv "$home/data/backlog.md" "$home/data/$id" "$case_dir/outside/"
+  rmdir "$home/data"
+  ln -s "$case_dir/outside" "$home/data"
+
+  out=$(run_ship_spawn "$case_dir" "$id") || rc=$?
+  [ "$rc" -ne 0 ] || fail "spawn accepted a data directory resolving outside the home"
+  assert_contains "$out" "backlog file authorized directory resolves outside this home" \
+    "spawn did not identify the data directory escaping the home"
+  assert_absent "$home/state/$id.meta" \
+    "spawn published a task record through a data directory outside the home"
+  pass "spawn refuses a data directory symlinked outside the home"
+}
 
 
 test_dispatch_and_completion_are_structural() {
@@ -2528,6 +2559,7 @@ test_teardown_refuses_a_symlinked_state_directory_at_entry
 test_home_without_a_backlog_dispatches_and_completes
 test_spawn_refuses_a_special_file_tasks_config
 test_spawn_refuses_an_unsafe_tasks_config_before_exempting_a_missing_backlog
+test_spawn_refuses_a_data_directory_symlinked_outside_the_home
 test_dispatch_and_completion_are_structural
 test_refused_teardown_leaves_the_item_live
 test_environment_selected_adapter_is_not_forced_to_markdown

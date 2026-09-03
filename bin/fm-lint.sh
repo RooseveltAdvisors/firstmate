@@ -172,7 +172,7 @@ fm_lint_run_backend_purity() {
       sub(/^[[:space:]]+/, "", segment)
       while (1) {
         previous=segment
-        sub(/^(if|then|elif|while|until)[[:space:]]+/, "", segment)
+        sub(/^(if|then|elif|else|while|until|do)[[:space:]]+/, "", segment)
         sub(/^![[:space:]]+/, "", segment)
         sub(/^(command|exec)[[:space:]]+/, "", segment)
         sub(/^[[:alpha:]_][[:alnum:]_]*=[^[:space:]]+[[:space:]]+/, "", segment)
@@ -332,14 +332,14 @@ fm_lint_run_backend_purity() {
           current=current character
           continue
         }
-        if (character ~ /[();|&]/) {
+        if (character ~ /[();|&{}]/) {
           segments[++count]=current
           current=""
           continue
         }
         current=current character
       }
-      if (quote != "") return split(line, segments, /[();|&]+/)
+      if (quote != "") return split(line, segments, /[();|&{}]+/)
       segments[++count]=current
       return count
     }

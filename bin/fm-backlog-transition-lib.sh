@@ -175,6 +175,27 @@ fm_backlog_data_relative() {  # <data-dir>
 }
 
 
+# The parent an authorized data directory was named from, kept in the caller's
+# own path shape. fm_backlog_record_parent_authorized only applies its FM_HOME
+# containment guard to a root that still spells out `$FM_HOME`, so a root
+# already resolved through `pwd -P` would skip that guard whenever the data
+# directory is a symlink.
+fm_backlog_authorized_root() {  # <authorized-data-dir>
+  local data=$1 parent
+  while [ "$data" != / ] && [ "${data%/}" != "$data" ]; do
+    data=${data%/}
+  done
+  case "$data" in
+    /) parent=/ ;;
+    */*)
+      parent=${data%/*}
+      [ -n "$parent" ] || parent=/
+      ;;
+    *) parent=. ;;
+  esac
+  printf '%s\n' "$parent"
+}
+
 # Any adapter selection, markdown path, or exemption derived from a home's
 # `.tasks.toml` is only as safe as that file, so validate it before reading it.
 fm_backlog_config_present() {  # <root> <authorized-root>
@@ -188,11 +209,11 @@ fm_backlog_config_present() {  # <root> <authorized-root>
 fm_backlog_source_present() {  # <data-dir> <authorized-data-dir>
   local data=$1 authorized_data=$2 root authorized_root file
   root=$(fm_backlog_root "$data") || return 1
-  authorized_root=$(fm_backlog_root "$authorized_data") || return 1
+  authorized_root=$(fm_backlog_authorized_root "$authorized_data")
   fm_backlog_config_present "$root" "$authorized_root" || return 1
   [ "$(fm_tasks_axi_backend "$root")" = markdown ] || return 0
   file=$(fm_backlog_file "$data") || return 1
-  fm_backlog_record_present "$file" "backlog file" "$authorized_root"
+  fm_backlog_record_present "$file" "backlog file" "$authorized_data"
 }
 
 # Run tasks-axi from the owning home's configuration root. This is the single
@@ -231,7 +252,7 @@ fm_backlog_transition_applies() {  # <config-dir> <data-dir> <kind>
     return 2
   fi
   root=$(fm_backlog_root "$data") || return 2
-  authorized_root=$(fm_backlog_root "$authorized_data") || return 2
+  authorized_root=$(fm_backlog_authorized_root "$authorized_data")
   fm_backlog_config_present "$root" "$authorized_root" || return 2
   if [ "$(fm_tasks_axi_backend "$root")" = markdown ]; then
     file=$(fm_backlog_file "$data") || return 2

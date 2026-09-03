@@ -746,6 +746,8 @@ SH
   chmod +x "$lint_copy" "$tmp/repo/bin/fm-lint-workflows.sh"
   fm_lint_stub_shellcheck "$fakebin" "$log"
 
+  # shellcheck disable=SC2016 # Literal fixture text: the lint matcher must see
+  # the unexpanded shell spelling, not this test shell's expansion of it.
   for invocation in \
     'bd update fm-example --status in_progress' \
     'BD_ACTOR=firstmate bd update fm-example --status closed' \
@@ -763,7 +765,12 @@ SH
     "\$'\\x62\\x64' close fm-example" \
     "\$'\\142\\144' close fm-example" \
     "b\$'\\x64' close fm-example" \
-    "' \"\$file\") && bd close fm-example"
+    "' \"\$file\") && bd close fm-example" \
+    'foo || { bd close fm-example; }' \
+    '{ bd close fm-example; }' \
+    'while read -r x; do bd close "$x"; done' \
+    'for x in a; do bd close "$x"; done' \
+    'if foo; then :; else bd close fm-example; fi'
   do
     printf '#!/usr/bin/env bash\n%s\n' "$invocation" > "$tmp/repo/bin/direct-beads.sh"
     rc=0
