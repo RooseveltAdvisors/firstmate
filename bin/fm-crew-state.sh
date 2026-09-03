@@ -375,8 +375,10 @@ nm_ci_checks_state() {
 # is exact) - but branch + coarse status is exactly what this predicate needs:
 # is a run for THIS branch active right now. Echoes the most recent
 # NON-TERMINAL matching row's status word, else the most recent terminal one
-# (running/completed/cancelled/failed), or empty when the branch has no run
-# within FM_CREW_STATE_RUNS_LIMIT rows.
+# (running/completed/cancelled/failed), or empty when the branch has no
+# matching row within FM_CREW_STATE_RUNS_LIMIT rows. A same-branch row at an
+# unresolvable head stops the scan, but never discards an already
+# head-verified newer match.
 nm_runs_status_for_branch() {  # <branch>
   local branch=$1 out row st rest br sha newest_terminal=""
   out=$(nm_run runs --limit "$FM_CREW_STATE_RUNS_LIMIT")
@@ -396,9 +398,13 @@ nm_runs_status_for_branch() {  # <branch>
       # short-sha does not match this worktree (rewritten or advanced tip).
       if ! nm_coarse_head_matches_worktree "$sha"; then
         # An UNRESOLVABLE head is unknown attribution, not a proven
-        # mismatch. Stop instead of surfacing an older, superseded row;
-        # the caller's pane/log fallback can answer without misattribution.
-        fm_nm_head_resolvable "$WT" "$sha" || return 0
+        # mismatch. Stop instead of surfacing an older, superseded row; with
+        # nothing matched yet the caller's pane/log fallback answers without
+        # misattribution, and an already head-verified NEWER row still stands.
+        if ! fm_nm_head_resolvable "$WT" "$sha"; then
+          printf '%s' "$newest_terminal"
+          return 0
+        fi
         continue
       fi
       # Several rows can match one worktree: a TERMINAL run left at the exact

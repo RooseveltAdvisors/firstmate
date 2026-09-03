@@ -1521,6 +1521,33 @@ EOF
   pass "a live run beats a terminal run left at the exact worktree head"
 }
 
+# The unresolvable-head stop must not un-answer a row already verified as this
+# worktree's. A terminal run at the exact head sits ABOVE an older row whose
+# pipeline lane head never reached this worktree, so the scan reaches the stop
+# holding a proven answer; an older unknown row cannot supersede it.
+test_coarse_older_unresolvable_row_keeps_newer_terminal_match() {
+  reset_fakes
+  local d short; d=$(new_case coarse-older-unresolvable)
+  make_repo_on_branch "$d/wt" fm/feat-keep
+  short=$(git -C "$d/wt" rev-parse --short=8 HEAD)
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-keep.meta" "window=fm:fm-feat-keep" "worktree=$d/wt" "kind=ship" "harness=claude"
+  FM_FAKE_AXI_STATUS="$(run_running fm/other-crew)"
+  FM_FAKE_RUNS_LIST="$(cat <<EOF
+  failed     fm/feat-keep ${short}  2026-09-03 13:55
+  running    fm/feat-keep f0f0f0f0  2026-09-03 13:50
+EOF
+)"
+  FM_FAKE_BUSY=1
+  local gen; gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" feat-keep)
+  "$ROOT/bin/fm-busy-event.sh" apply "$d/state" feat-keep busy --gen "$gen" \
+    --source claude-hook --event user-prompt-submit
+  local out; out=$(run_crew_state "$d" feat-keep)
+  assert_contains "$out" "state: failed" "the head-verified newer terminal row must still answer"
+  assert_contains "$out" "source: run-step" "the verified row binds as run-step"
+  pass "an older unresolvable row does not discard a newer head-verified match"
+}
+
 # Negative control: the exemption is gated on pipeline_owned specifically - any
 # other branch_sync state keeps the strict head rule.
 test_non_pipeline_owned_unresolvable_head_not_attributed() {
@@ -1636,6 +1663,7 @@ test_pipeline_owned_active_run_beats_superseded_failed_row
 test_failed_run_with_no_later_run_still_surfaces
 test_coarse_unresolvable_active_row_never_falls_to_older_row
 test_coarse_live_run_beats_terminal_run_at_exact_head
+test_coarse_older_unresolvable_row_keeps_newer_terminal_match
 test_non_pipeline_owned_unresolvable_head_not_attributed
 test_pipeline_owned_terminal_run_not_exempt
 test_missing_run_head_falls_back_to_current_state
