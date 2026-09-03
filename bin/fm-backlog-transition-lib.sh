@@ -272,7 +272,7 @@ fm_backlog_transition_applies() {  # <config-dir> <data-dir> <kind>
     return 2
   fi
   if ! fm_tasks_axi_compatible; then
-    FM_BACKLOG_TRANSITION_ERROR="automatic backlog transitions require tasks-axi $FM_TASKS_AXI_MIN or newer with the required update and mv features"
+    FM_BACKLOG_TRANSITION_ERROR="automatic backlog transitions require tasks-axi ${FM_TASKS_AXI_MIN:-(unknown minimum)} or newer with the required update and mv features"
     return 2
   fi
   return 0
