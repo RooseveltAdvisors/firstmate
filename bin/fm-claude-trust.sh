@@ -32,8 +32,18 @@
 # root is configurable (--root, TREEHOUSE_ROOT, config, and a relative
 # in-project pool), so a prefix check would refuse legitimate roots, accept
 # whatever a mutable env var names, and add exactly the policy surface this
-# registration must not grow. One structural test covers both worktree
-# providers because Orca's task worktree is a linked git worktree too.
+# registration must not grow. The structural test is verified for treehouse
+# worktrees, which are linked git worktrees. Orca's worktree shape is UNVERIFIED:
+# docs/orca-backend.md calls it an "independent worktree", which does not
+# establish a shared git common dir, and orca is macOS-only and was not installed
+# where this was written. If Orca clones instead of linking, its git dir equals
+# its common dir, so this refuses it as a primary checkout and an orca claude
+# spawn fails loudly here rather than wedging on the dialog later. fm-spawn.sh's
+# own validate_spawn_worktree would not catch that case first: it compares the
+# worktree root against the primary and never compares common dirs, so an
+# independent clone passes it. Close this on a box that has Orca through the live
+# opt-in guard family (FM_*_LIVE_E2E=1) and record the result in
+# docs/verification/runtime-backends.md, rather than assuming the shape here.
 #
 # Only the launching user's own store is written: the projects entry for the
 # worktree path in ${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json, which must be a
@@ -226,15 +236,13 @@ const attempt = () => {
   const unique = `${process.pid}.${crypto.randomBytes(8).toString("hex")}`;
   const tmp = path.join(path.dirname(store), `.claude.json.fm-trust.${unique}`);
   fs.writeFileSync(tmp, `${JSON.stringify(root)}\n`, { mode: 0o600, flag: "wx" });
-  if (fingerprint(readStore()) !== before) {
-    fs.rmSync(tmp, { force: true });
-    return "moved";
-  }
+  let renamed = false;
   try {
+    if (fingerprint(readStore()) !== before) return "moved";
     fs.renameSync(tmp, store);
-  } catch (err) {
-    fs.rmSync(tmp, { force: true });
-    throw err;
+    renamed = true;
+  } finally {
+    if (!renamed) fs.rmSync(tmp, { force: true });
   }
   const back = JSON.parse(fs.readFileSync(store, "utf8"));
   return back.projects?.[worktree]?.hasTrustDialogAccepted === true ? "recorded" : "dropped";
