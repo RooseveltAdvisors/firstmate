@@ -205,8 +205,9 @@
 # The transition is
 # skipped entirely for --secondmate spawns (persistent agents are not work
 # items), on a config/backlog-backend=manual home, and in a markdown home that
-# keeps no configured backlog file. A non-markdown tasks-axi configuration is
-# unsupported by this lifecycle and refuses before creating lifecycle state.
+# keeps no configured backlog file. A configured non-markdown adapter remains
+# active without a markdown file; any active automatic backend without
+# compatible tasks-axi refuses before creating lifecycle state.
 # On success prints: spawned <id> harness=<name> kind=<ship|scout|secondmate> [mode=<mode> yolo=<on|off>] window=<backend-target> worktree=<path>
 # A ship task records the explicit mode/yolo it was passed; a secondmate spawn records
 # mode=secondmate, yolo=off, home=, and projects=; a scout records neither, and both the
