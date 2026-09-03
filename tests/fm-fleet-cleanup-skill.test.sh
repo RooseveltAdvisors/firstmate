@@ -24,41 +24,51 @@ awk '
 # Flatten the frontmatter into normalized `path=value` pairs before asserting, so
 # nesting is actually proven. Independent greps for `metadata:` and `internal: true`
 # both pass on a file whose metadata.internal is false, and pinning indentation
-# fails a semantically identical reflow. POSIX awk only (CI runs mawk), which also
-# avoids a YAML dependency that neither CI nor tests/lib.sh already carries.
+# fails a semantically identical reflow. An indent keyed stack is what keeps a
+# deeper `metadata.extra.internal` from collapsing onto `metadata.internal`.
+# POSIX awk only (CI runs mawk), avoiding a YAML dependency neither CI nor
+# tests/lib.sh already carries.
 MODEL="$TMP_ROOT/frontmatter.model"
 awk '
-  function trim(v) { sub(/^[[:space:]]+/, "", v); sub(/[[:space:]]+$/, "", v); return v }
+  function trim(v) {
+    sub(/^[[:space:]]+/, "", v); sub(/[[:space:]]+$/, "", v)
+    if (v ~ /^".*"$/ || v ~ /^'"'"'.*'"'"'$/) v = substr(v, 2, length(v) - 2)
+    return v
+  }
+  function path(k,   i, p) { p = ""; for (i = 1; i <= depth; i++) p = p stack_key[i] "."; return p k }
   {
     if ($0 ~ /^[[:space:]]*$/ || $0 ~ /^[[:space:]]*#/) next
-    pos = match($0, /[^[:space:]]/)
-    if (pos == 0) next
+    pos = match($0, /[^[:space:]]/); if (pos == 0) next
     indent = pos - 1
-    ci = index($0, ":")
-    if (ci == 0) next
+    # Inside a block scalar the body is prose, never child keys. Record the first
+    # body line as the value so an empty block scalar is distinguishable.
+    if (in_scalar) {
+      if (indent > scalar_indent) {
+        if (!scalar_emitted) { print scalar_path "=" trim($0); scalar_emitted = 1 }
+        next
+      }
+      in_scalar = 0
+    }
+    ci = index($0, ":"); if (ci == 0) next
     key = trim(substr($0, pos, ci - pos))
     val = trim(substr($0, ci + 1))
-    if (indent > 0) {
-      if (parent != "") print parent "." key "=" val
+    while (depth > 0 && stack_indent[depth] >= indent) depth--
+    full = path(key)
+    if (val ~ /^[>|]/) {
+      in_scalar = 1; scalar_indent = indent; scalar_path = full; scalar_emitted = 0
       next
     }
-    # A block scalar (>- or |) is prose: its indented lines are not child keys.
-    if (val ~ /^[>|]/) { parent = ""; next }
-    # A key with no value opens a block mapping.
-    if (val == "") { parent = key; next }
-    # A one-line flow mapping is the same contract written differently.
+    if (val == "") { depth++; stack_indent[depth] = indent; stack_key[depth] = key; next }
     if (val ~ /^\{.*\}$/) {
       inner = substr(val, 2, length(val) - 2)
       n = split(inner, pairs, ",")
       for (i = 1; i <= n; i++) {
         pc = index(pairs[i], ":")
-        if (pc > 0) print key "." trim(substr(pairs[i], 1, pc - 1)) "=" trim(substr(pairs[i], pc + 1))
+        if (pc > 0) print full "." trim(substr(pairs[i], 1, pc - 1)) "=" trim(substr(pairs[i], pc + 1))
       }
-      parent = ""
       next
     }
-    print key "=" val
-    parent = ""
+    print full "=" val
   }
 ' "$FRONTMATTER" > "$MODEL"
 
@@ -68,8 +78,10 @@ grep -qx 'user-invocable=false' "$MODEL" \
   || fail "fleet-cleanup skill must declare itself agent-only"
 grep -qx 'metadata.internal=true' "$MODEL" \
   || fail "fleet-cleanup skill must set metadata.internal=true so installers do not surface it"
-grep -q '^description' "$FRONTMATTER" \
-  || fail "fleet-cleanup skill frontmatter must carry a description"
+# Require description TEXT, not just the key: a bare `description:` leaves the
+# loader with no trigger at all, which is the contract this guards.
+grep -q '^description=..*' "$MODEL" \
+  || fail "fleet-cleanup skill frontmatter must carry a non-empty description"
 
 # A skill nothing loads is dead weight, so the declared trigger must be registered.
 # This is deliberately a text match: AGENTS.md is prose and nothing in bin/ consumes
