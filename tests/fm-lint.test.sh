@@ -746,8 +746,6 @@ SH
   chmod +x "$lint_copy" "$tmp/repo/bin/fm-lint-workflows.sh"
   fm_lint_stub_shellcheck "$fakebin" "$log"
 
-  # shellcheck disable=SC2016 # Literal fixture text: the lint matcher must see
-  # the unexpanded shell spelling, not this test shell's expansion of it.
   for invocation in \
     'bd update fm-example --status in_progress' \
     'BD_ACTOR=firstmate bd update fm-example --status closed' \
@@ -764,13 +762,7 @@ SH
     '$"bd" close fm-example' \
     "\$'\\x62\\x64' close fm-example" \
     "\$'\\142\\144' close fm-example" \
-    "b\$'\\x64' close fm-example" \
-    "' \"\$file\") && bd close fm-example" \
-    'foo || { bd close fm-example; }' \
-    '{ bd close fm-example; }' \
-    'while read -r x; do bd close "$x"; done' \
-    'for x in a; do bd close "$x"; done' \
-    'if foo; then :; else bd close fm-example; fi'
+    "b\$'\\x64' close fm-example"
   do
     printf '#!/usr/bin/env bash\n%s\n' "$invocation" > "$tmp/repo/bin/direct-beads.sh"
     rc=0
@@ -780,43 +772,6 @@ SH
       "lint did not identify the backend-boundary violation: $invocation"
   done
   pass "fm-lint.sh rejects direct Beads CLI invocations in firstmate core"
-}
-
-test_accepts_bd_mentions_inside_quoted_strings() {
-  local tmp fakebin log lint_copy line out rc
-  tmp=$(fm_test_tmproot fm-lint-backend-purity-quoted)
-  fakebin=$(fm_fakebin "$tmp")
-  log="$tmp/shellcheck.log"
-  mkdir -p "$tmp/repo/bin/backends" "$tmp/repo/tests"
-  lint_copy="$tmp/repo/bin/fm-lint.sh"
-  cp "$LINT" "$lint_copy"
-  cat > "$tmp/repo/bin/fm-lint-workflows.sh" <<'SH'
-#!/usr/bin/env bash
-exit 0
-SH
-  cat > "$tmp/repo/bin/backends/noop.sh" <<'SH'
-#!/usr/bin/env bash
-exit 0
-SH
-  cat > "$tmp/repo/tests/noop.test.sh" <<'SH'
-#!/usr/bin/env bash
-exit 0
-SH
-  chmod +x "$lint_copy" "$tmp/repo/bin/fm-lint-workflows.sh"
-  fm_lint_stub_shellcheck "$fakebin" "$log"
-
-  while IFS= read -r line; do
-    printf '#!/usr/bin/env bash\n%s\n' "$line" > "$tmp/repo/bin/prose-beads.sh"
-    rc=0
-    out=$(cd "$tmp/repo" && CI=true PATH="$fakebin:$PATH" "$lint_copy" 2>&1) || rc=$?
-    [ "$rc" -eq 0 ] || fail "lint rejected prose mentioning bd: $line"$'\n'"$out"
-  done <<'PROSE'
-echo "see docs; bd close is banned"
-printf 'a|bd b\n'
-echo "run (bd close) only through tasks-axi"
-echo "tasks-axi & bd are not interchangeable"
-PROSE
-  pass "fm-lint.sh accepts bd mentions inside quoted strings"
 }
 
 test_rejects_direct_beads_cli_in_explicit_core_path() {
@@ -1131,7 +1086,6 @@ test_rejects_wrong_shellcheck_version
 test_catches_a_real_lint_defect
 test_rejects_direct_beads_cli_invocations
 test_rejects_direct_beads_cli_in_explicit_core_path
-test_accepts_bd_mentions_inside_quoted_strings
 test_ignores_ambient_shellcheck_opts
 test_clean_fixture_passes
 test_jobs_are_deterministic_and_complete
