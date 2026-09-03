@@ -112,14 +112,20 @@ case "$FIRST_ERROR" in
 esac
 pass "a timed-out row read reports one error naming the item that timed out"
 
+# The latch is what keeps a home carrying a large fleet from paying N bounds and
+# losing the digest anyway, so assert it strictly: a latched read must be
+# FASTER than one bound, not merely under the ceiling. A ceiling-only assertion
+# passes whether or not the latch works, and fm_backlog_row_show runs inside a
+# command substitution whose writes die with the subshell - the exact way this
+# latch can silently become inert.
 SECOND_ERROR=$(sed -n 's/^second_error=//p' "$PROBE_OUT")
 SECOND_ELAPSED=$(sed -n 's/^second_elapsed=//p' "$PROBE_OUT")
 case "$SECOND_ERROR" in
-  *wedged-two*) ;;
-  *) fail "every skipped item must still be named, got: $SECOND_ERROR" ;;
+  *wedged-two*skipped*) ;;
+  *) fail "every skipped item must still be named as skipped, got: $SECOND_ERROR" ;;
 esac
-[ "$SECOND_ELAPSED" -lt "$BOUND_CEILING" ] \
-  || fail "the latched sweep still paid ${SECOND_ELAPSED}s for a known-wedged backend"
+[ "$SECOND_ELAPSED" -lt "$BOUND_SECS" ] \
+  || fail "the latch is inert: the second read paid ${SECOND_ELAPSED}s against a known-wedged backend"
 pass "after the first bound hit the sweep continues and names each remaining item without paying the bound again"
 
 # --- half two: the digest still completes end to end ------------------------

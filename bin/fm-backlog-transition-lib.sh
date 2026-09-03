@@ -81,7 +81,9 @@ FM_BACKLOG_CLOSE_REPLAY_RESULT=
 # shellcheck source=bin/fm-timeout-lib.sh disable=SC1091
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fm-timeout-lib.sh"
 
-# Latched by fm_backlog_row_show when a row read hits its bound.
+# Latched when a row read hits its bound. fm_backlog_row_show runs inside a
+# command substitution, so the subshell can READ this latch but cannot set it;
+# the callers that capture its status own the write.
 FM_BACKLOG_ROW_SHOW_WEDGED=0
 
 # Emit each byte of a value as a decimal number, locale-independently.
@@ -312,11 +314,17 @@ fm_tasks_axi() {
 # FM_SESSION_START_TIMEOUT and truncates the digest before the wake queue,
 # supervision instructions, fleet state and context sections ever print. The
 # bound turns that into a loud partial reconcile: the caller reports the item it
-# could not read and moves to the next one. The first bound hit also latches
-# FM_BACKLOG_ROW_SHOW_WEDGED, so a sweep over many items pays one bound rather
-# than one per item and still names every item it skipped; the latch is
-# deliberately process-wide because these scripts are short-lived and a backend
-# that wedged once will wedge again within the same run.
+# could not read and moves to the next one.
+#
+# A per-item bound alone is not enough on a home carrying a large fleet, because
+# N wedged items still cost N bounds and the digest is truncated anyway. So the
+# first bound hit latches FM_BACKLOG_ROW_SHOW_WEDGED and every later read in the
+# same sweep returns immediately, still naming its own item so nothing is
+# silently skipped. This function only READS that latch: it runs inside a
+# command substitution, and a write here would die with the subshell, so the
+# callers that capture its status set it. The latch is deliberately
+# process-wide because these scripts are short-lived and a backend that wedged
+# once will wedge again within the same run.
 fm_backlog_row_show() {  # <resolved-data-dir> <id> [flag...]
   local data=$1 id=$2 file root backend status secs=${FM_BACKLOG_ROW_TIMEOUT_SECS:-10}
   shift 2
@@ -337,7 +345,6 @@ fm_backlog_row_show() {  # <resolved-data-dir> <id> [flag...]
     _ "$root" "$id" "$@" 2>&1
   status=$?
   if [ "$status" -eq 124 ]; then
-    FM_BACKLOG_ROW_SHOW_WEDGED=1
     printf 'tasks-axi show %s exceeded its %ss backlog read bound\n' "$id" "$secs"
   fi
   return "$status"
@@ -388,6 +395,7 @@ fm_backlog_row_probe() {  # <data-dir> <id>
   fi
   out=$(fm_backlog_row_show "$data" "$id")
   command_status=$?
+  [ "$command_status" -ne 124 ] || FM_BACKLOG_ROW_SHOW_WEDGED=1
   if [ "$command_status" -ne 0 ]; then
     if printf '%s\n' "$out" | grep -q '^code: NOT_FOUND$'; then
       FM_BACKLOG_ROW_RESULT=not_found
@@ -515,6 +523,7 @@ fm_backlog_retain() {  # <data-dir> <id> [flag...]
   if [ -n "$deliverable" ]; then
     out=$(fm_backlog_row_show "$data" "$id" --full)
     command_status=$?
+    [ "$command_status" -ne 124 ] || FM_BACKLOG_ROW_SHOW_WEDGED=1
     if [ "$command_status" -ne 0 ]; then
       FM_BACKLOG_TRANSITION_ERROR=$(printf '%s\n' "$out" | sed -n '1p')
       [ -n "$FM_BACKLOG_TRANSITION_ERROR" ] \
