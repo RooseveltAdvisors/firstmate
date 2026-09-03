@@ -2818,6 +2818,41 @@ test_retirement_authority_on_ordinary_task_refuses() {
   pass "retirement authority offered for an ordinary task refuses as a mis-selected target"
 }
 
+# A task id may legitimately begin with a dash (fm-spawn accepts one), so the
+# target collector must keep reading such an id as the target it is. Only a
+# long-option spelling is an option, otherwise a real task could never be
+# cleaned up and its worktree and treehouse lease would leak.
+test_leading_dash_task_id_is_torn_down_as_a_target() {
+  local case_dir rc
+  case_dir=$(make_case dash-id)
+  fm_write_meta "$case_dir/state/-foo.meta" \
+    "window=firstmate:fm--foo" \
+    "endpoint_task_id=-foo" \
+    "worktree=$case_dir/wt" \
+    "project=$case_dir/project" \
+    "kind=ship" \
+    "mode=local-only" \
+    "spawn_gen=teardown-test-dash-id"
+  wt_commit "$case_dir" "fix the thing"
+  add_fork_with_pushed_branch "$case_dir"
+
+  set +e
+  FM_ROOT_OVERRIDE="$ROOT" \
+  FM_STATE_OVERRIDE="$case_dir/state" \
+  FM_DATA_OVERRIDE="$case_dir/data" \
+  FM_CONFIG_OVERRIDE="$case_dir/config" \
+  PATH="$case_dir/fakebin:${FM_TEARDOWN_TEST_PATH:-$PATH}" \
+    "$TEARDOWN" -foo > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "dash-id: a leading-dash task id must tear down: $(tail -6 "$case_dir/stderr")"
+  ! grep -q 'unknown teardown option' "$case_dir/stderr" \
+    || fail "dash-id: the task id was read as an option: $(tail -6 "$case_dir/stderr")"
+  assert_absent "$case_dir/state/-foo.meta" "dash-id: teardown left the task record behind"
+  pass "a leading-dash task id is torn down as a target, not refused as an option"
+}
+
 test_multi_target_teardown_refuses_and_names_the_secondmates() {
   local case_dir rc
   case_dir=$(make_case batch-refusal)
@@ -2857,6 +2892,7 @@ test_ordinary_ship_teardown_needs_no_retirement_authority
 test_ordinary_scout_teardown_needs_no_retirement_authority
 test_retirement_authority_on_ordinary_task_refuses
 test_multi_target_teardown_refuses_and_names_the_secondmates
+test_leading_dash_task_id_is_torn_down_as_a_target
 test_teardown_closes_the_backlog_item_itself
 test_teardown_manual_backend_leaves_the_backlog_to_the_operator
 test_local_only_truly_unpushed_refuses

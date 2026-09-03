@@ -230,7 +230,9 @@ while [ "$#" -gt 0 ]; do
       RETIRE_AUTH=${1#*=}
       RETIRE_AUTH_GIVEN=1
       ;;
-    -*)
+    # Only a long option is an option: a task id may legitimately start with a
+    # dash, and reading one as an option would strand its worktree forever.
+    --*)
       echo "error: unknown teardown option $1" >&2
       exit 2
       ;;
