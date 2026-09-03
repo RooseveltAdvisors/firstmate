@@ -123,22 +123,33 @@ test_cdpath_cannot_defeat_the_primary_checkout_refusal() {
   pass "fm-claude-trust.sh: an exported CDPATH cannot defeat the scope refusal"
 }
 
-# The primary-checkout refusal reads the worktree's git dir, so a git dir this
-# user cannot resolve must refuse rather than satisfy the comparison by being
-# empty. Made unresolvable by removing traversal on the linked worktree's own
-# git dir, which is a real directory distinct from the shared common dir.
-test_unresolvable_git_dir_is_refused() {
-  local rec out gitdir
-  rec=$(make_case unresolvable-gitdir)
+# There is deliberately no case for an unresolvable git directory. The guard at
+# that line is defence in depth and cannot be reached from outside the script:
+# `real_dir`'s `cd` needs search permission on the git dir and git's own reads
+# need the same permission on the same directory, so any mode that makes the
+# resolution empty makes git fail first and the earlier "not inside a git
+# repository" refusal fires instead. A case built with `chmod 000` passes
+# identically with the guard deleted, which reports safety that is not there.
+
+# Git exports GIT_DIR into every hook environment, so an inherited pair is
+# ordinary. With GIT_DIR naming a linked worktree's git dir and GIT_WORK_TREE
+# naming the primary checkout, git reports a toplevel that matches the argument
+# and a git dir that differs from the common dir, so the primary checkout once
+# satisfied the refusal on the caller's environment rather than on disk.
+test_git_env_overrides_cannot_defeat_the_primary_checkout_refusal() {
+  local rec out
+  rec=$(make_case gitenv)
   read_case "$rec"
-  gitdir=$(git -C "$WT" rev-parse --absolute-git-dir)
-  chmod 000 "$gitdir"
-  out=$(run_trust "$CONFIG" "$WT" "$PROJ")
+  GIT_DIR=$(git -C "$WT" rev-parse --absolute-git-dir)
+  GIT_WORK_TREE=$PROJ
+  export GIT_DIR GIT_WORK_TREE
+  out=$(run_trust "$CONFIG" "$PROJ" "$PROJ")
   set -- $?
-  chmod 755 "$gitdir"
-  expect_code 1 "$1" "a worktree whose git dir cannot be resolved must be refused: $out"
-  assert_not_trusted "$CONFIG/.claude.json" "$WT" "a worktree with an unresolvable git dir was trusted"
-  pass "fm-claude-trust.sh: refuses a worktree whose git dir cannot be resolved"
+  unset GIT_DIR GIT_WORK_TREE
+  expect_code 1 "$1" "inherited git environment overrides must not let the primary checkout through: $out"
+  assert_contains "$out" "primary checkout" "the refusal did not name the primary checkout"
+  assert_not_trusted "$CONFIG/.claude.json" "$PROJ" "inherited git environment overrides let the primary checkout be trusted"
+  pass "fm-claude-trust.sh: inherited git environment overrides cannot defeat the scope refusal"
 }
 
 test_home_directory_is_refused_even_when_it_is_a_worktree() {
@@ -238,18 +249,44 @@ JSON
   pass "fm-claude-trust.sh: preserves unrelated store content"
 }
 
-test_symlinked_store_is_refused() {
-  local rec out foreign
-  rec=$(make_case symlink-store)
+test_symlinked_store_to_a_foreign_owned_target_is_refused() {
+  local rec out
+  rec=$(make_case symlink-foreign)
   read_case "$rec"
-  foreign="$CASE_DIR/foreign-store.json"
-  printf '%s\n' '{"projects":{}}' > "$foreign"
-  ln -s "$foreign" "$CONFIG/.claude.json"
+  # Root owns /etc/passwd as a regular file on both Linux and macOS, so it
+  # stands in for a store resolving outside this user's ownership. Running as
+  # root would own it and make the refusal vacuous.
+  if [ "$(id -u)" = 0 ]; then
+    pass "fm-claude-trust.sh: refuses a store symlinked to another user's file (skipped as root)"
+    return 0
+  fi
+  ln -s /etc/passwd "$CONFIG/.claude.json"
   out=$(run_trust "$CONFIG" "$WT" "$PROJ")
-  expect_code 1 $? "a symlinked store must be refused: $out"
-  assert_contains "$out" "symlink" "the refusal did not name the symlink"
-  assert_not_trusted "$foreign" "$WT" "a symlinked store was followed and written"
-  pass "fm-claude-trust.sh: refuses to follow a symlinked store"
+  expect_code 1 $? "a store resolving to another user's file must be refused: $out"
+  assert_contains "$out" "not owned by this user" "the refusal did not name the ownership failure"
+  assert_contains "$out" "/etc/passwd" "the refusal named the link rather than the resolved target it judged"
+  pass "fm-claude-trust.sh: refuses a store symlinked to another user's file"
+}
+
+test_symlinked_store_to_an_owned_target_is_accepted() {
+  local rec out target
+  rec=$(make_case symlink-owned)
+  read_case "$rec"
+  # The dotfile-manager and synced-folder layout: the store is a symlink whose
+  # target this user owns, so it must be followed rather than refused, and the
+  # link must survive so the layout keeps working.
+  target="$CASE_DIR/dotfiles/.claude.json"
+  mkdir -p "$CASE_DIR/dotfiles"
+  printf '%s\n' '{"numStartups":3,"projects":{}}' > "$target"
+  ln -s "$target" "$CONFIG/.claude.json"
+  out=$(run_trust "$CONFIG" "$WT" "$PROJ")
+  expect_code 0 $? "a store symlinked to this user's own file must be accepted: $out"
+  assert_trusted "$target" "$WT" "the trust did not land in the symlink's target"
+  [ -L "$CONFIG/.claude.json" ] || fail "the store symlink was replaced by a regular file instead of followed"
+  assert_store_value "$target" 3 "an unrelated key in the target was lost" numStartups
+  [ -z "$(find "$CASE_DIR/dotfiles" -maxdepth 1 -name '.claude.json.fm-trust.*' -print -quit)" ] \
+    || fail "a temporary store file was left beside the resolved target"
+  pass "fm-claude-trust.sh: follows a store symlink to this user's own file and leaves the link intact"
 }
 
 test_corrupt_store_fails_closed() {
@@ -302,7 +339,7 @@ test_fresh_worktree_is_trusted
 test_registration_is_idempotent
 test_primary_checkout_is_refused
 test_cdpath_cannot_defeat_the_primary_checkout_refusal
-test_unresolvable_git_dir_is_refused
+test_git_env_overrides_cannot_defeat_the_primary_checkout_refusal
 test_home_directory_is_refused_even_when_it_is_a_worktree
 test_config_directory_is_refused
 test_non_git_directory_is_refused
@@ -310,6 +347,7 @@ test_missing_directory_is_refused
 test_foreign_project_worktree_is_refused
 test_worktree_subdirectory_is_refused
 test_unrelated_store_content_is_preserved
-test_symlinked_store_is_refused
+test_symlinked_store_to_a_foreign_owned_target_is_refused
+test_symlinked_store_to_an_owned_target_is_accepted
 test_corrupt_store_fails_closed
 test_claude_spawn_pretrusts_its_worktree_and_reaches_the_brief

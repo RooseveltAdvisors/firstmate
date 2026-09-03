@@ -42,12 +42,21 @@
 # worker reads, because fm-spawn.sh forwards its own resolved CLAUDE_CONFIG_DIR
 # onto the claude launch and an unset value is the single-store default.
 set -u
-# CDPATH would redirect any relative `cd` operand - notably the `.git` that
+# Path resolution here must answer from the filesystem, never from the caller's
+# environment, because the refusals below are the safety property. CDPATH would
+# redirect any relative `cd` operand - notably the `.git` that
 # `git rev-parse --git-common-dir` returns for a primary checkout - into an
-# unrelated directory, which silently defeats the scope refusals below. Unset
-# once here so every subshell in this script inherits a resolution that only
-# ever means what it says.
-unset CDPATH
+# unrelated directory. The git overrides do the same to git's own answers: an
+# inherited GIT_DIR with GIT_WORK_TREE makes a primary checkout report a linked
+# worktree's git dir, so the primary-checkout refusal would pass. Git exports
+# GIT_DIR into every hook environment, so an inherited value is ordinary rather
+# than hostile. Clear the whole class once here so every subshell inherits it
+# and a later added git call cannot silently reintroduce the hole.
+unset CDPATH \
+  GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_INDEX_FILE \
+  GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_CEILING_DIRECTORIES GIT_NAMESPACE \
+  GIT_DISCOVERY_ACROSS_FILESYSTEM GIT_CONFIG GIT_CONFIG_GLOBAL \
+  GIT_CONFIG_SYSTEM GIT_CONFIG_NOSYSTEM GIT_CONFIG_COUNT
 
 [ "$#" -eq 2 ] || { echo "usage: fm-claude-trust.sh <worktree> <project>" >&2; exit 2; }
 WT_ARG=$1
@@ -56,6 +65,11 @@ PROJ_ARG=$2
 refuse() { echo "error: refusing to pre-register Claude trust: $1" >&2; exit 1; }
 
 real_dir() { (cd -P -- "$1" 2>/dev/null && pwd -P); }
+
+# The fully resolved path of an existing file, or empty. Resolution runs in node
+# because it must follow a symlink chain to its final target, and node is
+# already this script's JSON writer.
+real_file() { node -e 'process.stdout.write(require("node:fs").realpathSync(process.argv[1]))' "$1" 2>/dev/null; }
 
 # The resolved common dir of a git worktree, or empty. --git-common-dir can be
 # relative, so it is resolved from inside the worktree rather than joined here.
@@ -109,8 +123,18 @@ PROJ_COMMON=$(common_dir_of "$PROJ_REAL") || true
 [ "$WT_COMMON" = "$PROJ_COMMON" ] || refuse "'$WT_REAL' is not a worktree of project '$PROJ_REAL'"
 
 STORE="$CONFIG_DIR_REAL/.claude.json"
-if [ -e "$STORE" ] || [ -L "$STORE" ]; then
-  [ ! -L "$STORE" ] || refuse "'$STORE' is a symlink; refusing to follow it into another user's store"
+# A dotfile manager or a synced folder legitimately symlinks this store, so the
+# link is followed to its final target and every check below judges that target.
+# Ownership is the property that matters: another user's file is refused however
+# it is reached. Writing to the resolved path is what keeps the link itself in
+# place, since staging beside the link and renaming would replace it with a
+# regular file and break that layout.
+if [ -L "$STORE" ]; then
+  STORE_REAL=$(real_file "$STORE") || true
+  [ -n "$STORE_REAL" ] || refuse "'$STORE' is a symlink whose target cannot be resolved"
+  STORE=$STORE_REAL
+fi
+if [ -e "$STORE" ]; then
   [ -f "$STORE" ] || refuse "'$STORE' is not a regular file"
   [ -O "$STORE" ] || refuse "'$STORE' is not owned by this user"
   [ -w "$STORE" ] || refuse "'$STORE' is not writable"
