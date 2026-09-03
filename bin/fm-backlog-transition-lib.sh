@@ -75,6 +75,15 @@ FM_BACKLOG_ROW_HOLD_KIND=
 # shellcheck disable=SC2034 # Output global, read by the sourcing caller.
 FM_BACKLOG_CLOSE_REPLAY_RESULT=
 
+# Bounded execution is fm-timeout-lib.sh's alone; source it rather than
+# re-deriving a deadline here. It is stateless, so the memoisation reason this
+# library does not source fm-tasks-axi-lib.sh does not apply.
+# shellcheck source=bin/fm-timeout-lib.sh disable=SC1091
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fm-timeout-lib.sh"
+
+# Latched by fm_backlog_row_show when a row read hits its bound.
+FM_BACKLOG_ROW_SHOW_WEDGED=0
+
 # Emit each byte of a value as a decimal number, locale-independently.
 # Deliberately perl rather than od: the spawn and teardown lifecycle runs under a
 # curated PATH (tests/fm-teardown.test.sh make_path_without_lsof pins that set)
@@ -296,17 +305,42 @@ fm_tasks_axi() {
 # with `--file` only for the markdown backend. Addressing or backend-resolution
 # errors return before tasks-axi runs; otherwise its exit status is preserved.
 # Extra flags (such as --full) are passed through.
+#
+# Every read is bounded, because a wedged backend read here is what blinds a
+# whole session start: bin/fm-bootstrap.sh's reconcile and close-replay sweeps
+# call this once per item, and one unbounded read consumes the entire
+# FM_SESSION_START_TIMEOUT and truncates the digest before the wake queue,
+# supervision instructions, fleet state and context sections ever print. The
+# bound turns that into a loud partial reconcile: the caller reports the item it
+# could not read and moves to the next one. The first bound hit also latches
+# FM_BACKLOG_ROW_SHOW_WEDGED, so a sweep over many items pays one bound rather
+# than one per item and still names every item it skipped; the latch is
+# deliberately process-wide because these scripts are short-lived and a backend
+# that wedged once will wedge again within the same run.
 fm_backlog_row_show() {  # <resolved-data-dir> <id> [flag...]
-  local data=$1 id=$2 file root backend
+  local data=$1 id=$2 file root backend status secs=${FM_BACKLOG_ROW_TIMEOUT_SECS:-10}
   shift 2
+  # A non-positive or non-numeric bound is not a bound (fm-timeout-lib.sh).
+  case "$secs" in ''|*[!0-9]*|0) secs=10 ;; esac
   file=$(fm_backlog_file "$data") || return 1
   root=$(fm_backlog_root "$data") || return 1
   backend=$(fm_tasks_axi_backend "$root") || return 2
-  if [ "$backend" = markdown ]; then
-    (cd "$root" 2>/dev/null && fm_tasks_axi show "$id" "$@" --file "$file" 2>&1)
-  else
-    (cd "$root" 2>/dev/null && fm_tasks_axi show "$id" "$@" 2>&1)
+  if [ "$FM_BACKLOG_ROW_SHOW_WEDGED" = 1 ]; then
+    printf 'tasks-axi show %s skipped: the backlog backend already exceeded its %ss read bound\n' "$id" "$secs"
+    return 124
   fi
+  if [ "$backend" = markdown ]; then
+    set -- "$@" --file "$file"
+  fi
+  # shellcheck disable=SC2016  # Expansion is deliberately deferred to the child shell.
+  fm_run_timed "$secs" bash -c 'cd "$1" 2>/dev/null || exit 1; shift; exec tasks-axi show "$@"' \
+    _ "$root" "$id" "$@" 2>&1
+  status=$?
+  if [ "$status" -eq 124 ]; then
+    FM_BACKLOG_ROW_SHOW_WEDGED=1
+    printf 'tasks-axi show %s exceeded its %ss backlog read bound\n' "$id" "$secs"
+  fi
+  return "$status"
 }
 
 fm_backlog_row_list() {  # <resolved-data-dir> [flag...]
