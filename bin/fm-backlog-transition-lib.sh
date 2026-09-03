@@ -196,8 +196,8 @@ fm_backlog_authorized_root() {  # <authorized-data-dir>
   printf '%s\n' "$parent"
 }
 
-# Any adapter selection, markdown path, or exemption derived from a home's
-# `.tasks.toml` is only as safe as that file, so validate it before reading it.
+# Any adapter selection or exemption derived from a home's `.tasks.toml` is only
+# as safe as that file, so validate it before reading it.
 fm_backlog_config_present() {  # <root> <authorized-root>
   local root=$1 authorized_root=$2 tasks_config="$1/.tasks.toml"
   if [ -e "$tasks_config" ] || [ -L "$tasks_config" ]; then
