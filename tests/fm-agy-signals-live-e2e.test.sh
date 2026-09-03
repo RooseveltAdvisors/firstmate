@@ -30,9 +30,21 @@ SOCKET="fm-agy-signals-$$"
 SESSION=agy-signals
 TARGET="$SESSION:agy"
 VERSION=
+STORE="$HOME/.gemini/antigravity-cli/settings.json"
+STORE_BACKUP=
+REGISTRY="$HOME/.gemini/antigravity-cli/fm-turn-end.d"
+TOKEN=
+HOOK_INSTALLED=
 
+# Every mutation of the operator's REAL agy home is unwound here rather than on
+# the success path, because a failed assertion exits through this trap: an
+# orphan task token left in the registry makes every later `remove` refuse, and
+# a deleted worktree left in trustedWorkspaces is invisible until it misroutes.
 cleanup() {
   [ -n "$REAL_TMUX" ] && "$REAL_TMUX" -L "$SOCKET" kill-server >/dev/null 2>&1 || true
+  [ -z "$TOKEN" ] || rm -f -- "$REGISTRY/$TOKEN"
+  [ -z "$HOOK_INSTALLED" ] || "$ROOT/bin/fm-agy-turnend-hook.sh" remove >/dev/null 2>&1 || true
+  [ -f "$STORE_BACKUP" ] && cp "$STORE_BACKUP" "$STORE"
   [ -z "$LAB" ] || rm -rf -- "$LAB"
 }
 trap cleanup EXIT
@@ -60,10 +72,9 @@ git -C "$PROJ" worktree add -q -b wt-agy-signals "$WT"
 # credentialed home; only the worktree under test is added and it is removed
 # again below. A separate HOME would land on an unauthenticated agy and every
 # assertion would degrade into a login prompt.
-STORE="$HOME/.gemini/antigravity-cli/settings.json"
 [ -f "$STORE" ] || fail "no agy settings store at $STORE; sign in to agy before running this guard"
+cp "$STORE" "$LAB/settings.json.bak"
 STORE_BACKUP="$LAB/settings.json.bak"
-cp "$STORE" "$STORE_BACKUP"
 restore_store() { cp "$STORE_BACKUP" "$STORE"; }
 
 capture() { "$REAL_TMUX" -L "$SOCKET" capture-pane -t "$TARGET" -p; }
@@ -104,12 +115,12 @@ pass "registering the worktree suppresses the dialog and reaches the idle status
 # 3. The two status bars still separate accepting from not-accepting, and the
 # turn-end hook still fires with fullyIdle. Both are checked on one real turn.
 "$ROOT/bin/fm-agy-turnend-hook.sh" install >/dev/null || fail "the turn-end hook could not be installed"
-REGISTRY="$HOME/.gemini/antigravity-cli/fm-turn-end.d"
+HOOK_INSTALLED=1
 MARKER="$LAB/task.turn-ended"
 TOKEN=$(basename "$(mktemp "$REGISTRY/fm.XXXXXXXXXXXX")")
 printf '%s\n' "$MARKER" > "$REGISTRY/$TOKEN"
 printf 'token=%s\n' "$TOKEN" > "$WT/.fm-agy-turnend"
-retire_token() { rm -f "$REGISTRY/$TOKEN"; }
+retire_token() { rm -f "$REGISTRY/$TOKEN"; TOKEN=; }
 
 # Restart so the pane loads the hook that was just installed.
 "$REAL_TMUX" -L "$SOCKET" kill-session -t "$SESSION" >/dev/null 2>&1 || true
@@ -133,6 +144,7 @@ pass "the Stop hook signals a finished turn through the task token"
 
 retire_token
 "$ROOT/bin/fm-agy-turnend-hook.sh" remove >/dev/null || fail "the turn-end hook could not be removed"
+HOOK_INSTALLED=
 restore_store
 grep -Fq "$WT" "$STORE" && fail "the guard left its worktree in the operator's trusted workspaces"
 pass "the guard leaves the operator's store and hooks exactly as it found them"

@@ -588,7 +588,52 @@ test_spawn_refuses_a_secondmate_on_agy() {
   out=$(fm_test_run_spawn "$home" "$case_dir/pane" "$(fm_fakebin "$case_dir/fake")" \
     --secondmate smtest "$home" agy 2>&1 || true)
   assert_contains "$out" "cannot run a secondmate" "a secondmate spawn on agy was not refused"
+  # The documented two-positional form omits the firstmate home, so agy has to be
+  # recognised as a harness name there too; unrecognised it binds as a home path
+  # and the run dies pointing at a directory that was never named. The home here
+  # is pinned to another harness so the refusal can only come from the positional
+  # agy, not from a configured default that happens to be agy already.
+  local other_home
+  other_home="$case_dir/other-home"
+  fm_test_spawn_home "$other_home" claude
+  out=$(fm_test_run_spawn "$other_home" "$case_dir/pane" "$(fm_fakebin "$case_dir/fake")" \
+    --secondmate smtest agy 2>&1 || true)
+  assert_contains "$out" "cannot run a secondmate" \
+    "the home-less secondmate form did not reach the agy adapter refusal"
   pass "fm-spawn.sh: refuses a secondmate launch on agy"
+}
+
+# agy's marker is tested BEFORE claude's, so an ANTIGRAVITY_CONVERSATION_ID that
+# survives in the environment a non-agy worker is launched from would make that
+# worker report itself as agy and misroute every crew and secondmate decision
+# derived from it. The launch boundary is where the foreign marker is dropped.
+test_a_non_agy_launch_clears_the_inherited_agy_marker() {
+  local case_dir home proj wt fakebin launch_log out launch prefix verdict
+  case_dir="$TMP_ROOT/marker-clear"
+  home="$case_dir/home"
+  proj="$case_dir/project"
+  wt="$case_dir/wt"
+  launch_log="$case_dir/launch.log"
+  fakebin=$(make_spawn_fakebin "$case_dir/fake" claude)
+  fm_test_spawn_home "$home" claude
+  fm_git_worktree "$proj" "$wt" wt-marker-clear
+  fm_test_spawn_brief "$home" markerclear
+  out=$(FM_FAKE_LAUNCH_LOG="$launch_log" \
+    fm_test_run_spawn "$home" "$wt" "$fakebin" markerclear "$proj" claude \
+    --mode no-mistakes --yolo off)
+  expect_code 0 $? "the claude spawn must succeed: $out"
+  assert_present "$launch_log" "the claude spawn sent no launch command"
+  launch=$(head -1 "$launch_log")
+  prefix=${launch%%claude *}
+  [ "$prefix" != "$launch" ] || fail "the launch command did not invoke claude: $launch"
+  # Run the launch command's own environment prefix over the detector: the
+  # launched worker must self-identify as claude even when the pane it is
+  # created from still carries an agy conversation id.
+  verdict=$(ANTIGRAVITY_CONVERSATION_ID=abc123 CLAUDECODE=1 \
+    eval "$prefix \"$ROOT/bin/fm-harness.sh\"")
+  [ "$verdict" = claude ] \
+    || fail "a claude worker launched under an inherited agy marker detected as '$verdict'"
+  pass "fm-spawn.sh: a non-agy launch drops an inherited agy marker"
 }
 
 # The spawn half: a real fm-spawn of an agy worker must pre-register the
@@ -695,5 +740,6 @@ test_detection_prefers_the_agy_marker_over_an_inherited_claudecode
 test_control_tables_carry_agys_verified_mechanics
 test_delivery_guard_reads_agys_status_bar
 test_spawn_refuses_a_secondmate_on_agy
+test_a_non_agy_launch_clears_the_inherited_agy_marker
 test_agy_spawn_pretrusts_its_worktree_and_reaches_the_brief
 test_refused_spawn_leaves_no_task_state
