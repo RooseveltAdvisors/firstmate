@@ -1309,6 +1309,22 @@ launch_template() {
     # Its turn-end signal is a globally configured Stop hook plus a guarded
     # per-task worktree token, so no launch placeholder belongs here.
     kimi) printf '%s' '__KIMIBIN__ __MODELFLAG__--auto' ;;
+    # agy (Antigravity CLI). -i takes the prompt as its own VALUE and starts an
+    # interactive session with it, which is the shape a supervised crewmate pane
+    # needs; -p would run one non-interactive turn and exit. Flag order matters:
+    # agy's flags are Go-style and -i/-p consume the NEXT argument, so the prompt
+    # must be the last token and every other flag must precede it, or agy takes
+    # the following flag as its prompt and reports that it ignored the real one.
+    # --dangerously-skip-permissions covers TOOL permissions only; the separate
+    # WORKSPACE-trust dialog is removed before launch by bin/fm-agy-trust.sh, and
+    # without that the pane parks on a dialog that renders no status text at all.
+    # agy's turn-end signal does NOT ride the launch command - it is a Stop hook
+    # installed alongside the trust registration (global hook + per-task pointer),
+    # so the template is the same for ship and scout. The foreign primary markers
+    # are cleared because agy does not clear an inherited CLAUDECODE, which would
+    # otherwise outrank agy's own marker in a process that only reads the
+    # environment.
+    agy) printf '%s' 'env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS agy --dangerously-skip-permissions __MODELFLAG____EFFORTFLAG__-i "$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
     # muse (Muse Code): a positional prompt starts the supervised interactive
     # session. --yolo is the single flag that makes a crewmate pane viable: muse
     # ships approval prompts AND a filesystem/network sandbox ON by default
@@ -1379,6 +1395,17 @@ esac
 # secondmate whose supervision cycle could never be armed.
 if [ "$KIND" = secondmate ] && [ "$HARNESS" = muse ]; then
   echo "error: muse is a verified crewmate/scout adapter only and cannot run a secondmate; it has no primary supervision protocol. Select a harness verified for secondmates." >&2
+  exit 1
+fi
+# agy is verified as a CREWMATE/SCOUT adapter only, for the same structural
+# reason: a secondmate is a firstmate instance and needs the emitted primary
+# supervision protocol plus a verified way to keep a watcher cycle alive.
+# bin/fm-supervision-instructions.sh has no agy protocol, and agy's worker
+# mechanics being verified says nothing about either. Refusing here keeps that
+# gap loud instead of standing up a secondmate whose supervision could never be
+# armed.
+if [ "$KIND" = secondmate ] && [ "$HARNESS" = agy ]; then
+  echo "error: agy is a verified crewmate/scout adapter only and cannot run a secondmate; it has no primary supervision protocol. Select a harness verified for secondmates." >&2
   exit 1
 fi
 
@@ -1516,7 +1543,7 @@ model_flag_for_harness() {
   local harness=$1 model=$2
   [ -n "$model" ] && [ "$model" != default ] || return 0
   case "$harness" in
-    claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|muse)
+    claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|muse|agy)
       printf -- '--model %s ' "$(shell_quote "$model")"
       ;;
   esac
@@ -1567,6 +1594,18 @@ effort_flag_for_harness() {
       case "$effort" in
         low|medium|high|xhigh) printf -- '--reasoning-effort %s ' "$(shell_quote "$effort")" ;;
         max) printf -- '--reasoning-effort %s ' "$(shell_quote ultra)" ;;
+      esac
+      ;;
+    agy)
+      # agy validates --effort itself and names its accepted set in the refusal:
+      # `invalid --effort "bogus" (valid: low, medium, high)`. Firstmate's shared
+      # axis also carries xhigh and max, so those are omitted rather than passed
+      # as a value agy would reject at launch; the requested axis stays in task
+      # metadata. agy additionally encodes an effort tier in several model ids
+      # (gemini-3.8-flash-high and friends), so --model and --effort can both be
+      # present and agy resolves the pair.
+      case "$effort" in
+        low|medium|high) printf -- '--effort %s ' "$(shell_quote "$effort")" ;;
       esac
       ;;
     # opencode's interactive `opencode --prompt` launch has a verified --model
@@ -2548,6 +2587,24 @@ if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ]; then
   freshen_spawn_worktree_base "$WT" || exit 1
 fi
 
+# agy gates a folder it has never seen behind an interactive workspace-trust
+# dialog that --dangerously-skip-permissions does NOT cover, so every fresh task
+# worktree would park on it. Register the trust and install the turn-end hook
+# HERE: the worktree is final for both a fresh spawn and a relaunch, and no busy
+# generation has been armed yet, so a refusal aborts the spawn without stranding
+# a busy record that nothing could later clear. Both refuse loudly rather than
+# degrade, because degrading launches exactly the wedged worker they prevent.
+if [ "$HARNESS" = agy ]; then
+  "$FM_ROOT/bin/fm-agy-trust.sh" "$WT" "$PROJ_ABS" || {
+    echo "error: refusing agy spawn because workspace trust could not be pre-registered for '$WT'" >&2
+    exit 1
+  }
+  "$FM_ROOT/bin/fm-agy-turnend-hook.sh" install || {
+    echo "error: refusing agy spawn because the global turn-end hook could not be installed safely" >&2
+    exit 1
+  }
+fi
+
 # Per-task temp root: /tmp/fm-<id>/ with Go's build temp nested at gotmp/. Go won't
 # create GOTMPDIR, so mkdir before it is used; fm-teardown removes the whole root.
 # Nested (not a bare /tmp/fm-<id>/gotmp) so other per-task temp can live alongside
@@ -2855,6 +2912,23 @@ EOF
       printf 'token=%s\n' "${auth_file##*/}" > "$WT/.fm-kimi-turnend"
       exclude_path '.fm-kimi-turnend'
       ;;
+    agy*)
+      # agy's Stop hook is global, but it is inert unless a workspace in the
+      # payload contains this task's token pointer and the token resolves through
+      # Firstmate's private registry. The installer owns the key-preserving
+      # hooks.json edit and the always-zero, silent hook script; the hook itself
+      # fires only on fullyIdle, so a turn that merely backgrounded a command
+      # does not report the worker done.
+      AGY_AUTH_DIR="$HOME/.gemini/antigravity-cli/fm-turn-end.d"
+      old_umask=$(umask)
+      umask 077
+      auth_file=$(mktemp "$AGY_AUTH_DIR/fm.XXXXXXXXXXXX")
+      umask "$old_umask"
+      printf '%s\n' "$TURNEND" > "$auth_file"
+      printf '%s\n' "${auth_file##*/}" > "$STATE/$ID.agy-turnend-token"
+      printf 'token=%s\n' "${auth_file##*/}" > "$WT/.fm-agy-turnend"
+      exclude_path '.fm-agy-turnend'
+      ;;
   esac
 fi
 
@@ -3046,7 +3120,7 @@ case "$HARNESS" in
 esac
 LAUNCH=${LAUNCH//__WORKTREE__/$sq_worktree}
 case "$HARNESS" in
-  claude|codex|opencode|pi|pi-signed|grok|kimi|muse)
+  claude|codex|opencode|pi|pi-signed|grok|kimi|muse|agy)
     LAUNCH="env -u CURSOR_AGENT -u CURSOR_INVOKED_AS $LAUNCH"
     ;;
 esac

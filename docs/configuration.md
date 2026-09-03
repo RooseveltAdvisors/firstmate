@@ -296,7 +296,7 @@ The full cmux home label also includes a short hash of the resolved `FM_ROOT` pa
 
 ## Harness support
 
-claude, codex, opencode, pi, pi-signed, grok, kimi, and cursor are empirically verified for crewmate and secondmate launches; [README requirements](../README.md#requirements) own the set supported for the primary session.
+claude, codex, opencode, pi, pi-signed, grok, kimi, and cursor are empirically verified for crewmate and secondmate launches; muse and agy are verified for crewmate and scout launches only and `fm-spawn` refuses a secondmate on either, because neither has a primary supervision protocol; [README requirements](../README.md#requirements) own the set supported for the primary session.
 A cursor secondmate or primary runs the tracked project-scope `.cursor/hooks.json` in its own home and must be launched with `--trust`, or no project hook loads; [`docs/supervision-protocols/cursor.md`](supervision-protocols/cursor.md) owns its supervision protocol.
 Cursor typed-submit confirmation is verified on tmux and Herdr only.
 On Zellij, cmux, and Orca a typed-plane Cursor send (a harness-native invocation or an explicit backend target; ordinary text steers ride the durable inbox and exit 0 at enqueue) lands, but `fm-send` reports delivery unconfirmed and exits non-zero because their shared submit core does not consult the busy footer; [runtime backend verification](verification/runtime-backends.md#cursor-agent-cli) owns the evidence and transcript-state boundary.
@@ -333,6 +333,12 @@ For Kimi crews, `fm-spawn.sh` runs `fm-kimi-turnend-hook.sh install`, drops a pe
 Kimi continues to use the captain's normal Kimi home, including the existing config, skills, and memory; Firstmate does not create an isolated Kimi home.
 The Kimi installer requires an existing regular non-symlink `~/.kimi-code/config.toml`, `python3` with `tomllib`, and `jq`; it validates but never serializes the captain's TOML and refuses before writing when the config is missing, malformed, or surprising or when either tool requirement is unavailable.
 Its `remove` action excises only the marker-delimited Firstmate region and removes Firstmate's hook files.
+For agy crews, `fm-spawn.sh` first runs `fm-agy-trust.sh` to register the task worktree in `trustedWorkspaces` in `~/.gemini/antigravity-cli/settings.json`, because `--dangerously-skip-permissions` covers tool permissions only and a worktree agy has never seen otherwise parks on a workspace-trust dialog that renders no status-bar text.
+It then runs `fm-agy-turnend-hook.sh install`, drops a per-task `.fm-agy-turnend` pointer in the worktree, and records the matching private registry token for teardown.
+Both refuse rather than degrade, and both run before any busy generation is armed, so a refusal aborts the spawn without stranding task state.
+The trust registration accepts only a linked git worktree of the named project and refuses a primary checkout, a foreign project's worktree, a worktree subdirectory, a plain directory, the home directory, and the settings directory; it also refuses a store it does not own or one that changed underneath it rather than overwriting agy's own write.
+agy continues to use the captain's normal agy home, including the existing credential and settings; Firstmate does not create an isolated agy home.
+The agy hook installer requires `node`, owns exactly one `firstmate-turn-end` key in `~/.gemini/config/hooks.json`, preserves every other named hook, and refuses `remove` while any task token is still registered.
 For Pi and pi-signed secondmate launches, `fm-spawn.sh` starts the selected executable with `-e` pointed at the secondmate home's own tracked `.pi/extensions/fm-primary-pi-watch.ts` and `.pi/extensions/fm-primary-turnend-guard.ts`, both already present from the secondmate home's git worktree.
 
 ## Crew dispatch profiles (config/crew-dispatch.json)
