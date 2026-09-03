@@ -2268,6 +2268,28 @@ EOF
   pass "a home with no backlog remains exempt from lifecycle transitions"
 }
 
+test_spawn_refuses_a_special_file_tasks_config() {
+  local case_dir home id out rc=0
+  id=atomic-special-config-b15
+  case_dir=$(make_home special-config "$id")
+  home=$(home_of "$case_dir")
+  add_item "$case_dir" "$id"
+  mkfifo "$home/.tasks.toml"
+
+  out=$(FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" \
+    FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$case_dir/wt" TMUX="fake,1,0" \
+    CLAUDE_CONFIG_DIR='' \
+    PATH="$case_dir/fakebin:$PATH" \
+    timeout 60 "$SPAWN" "$id" "$case_dir/project" --mode no-mistakes --yolo off 2>&1) || rc=$?
+  [ "$rc" -ne 124 ] || fail "spawn hung reading a special-file tasks-axi config"
+  [ "$rc" -ne 0 ] || fail "spawn accepted a special-file tasks-axi config"
+  assert_contains "$out" "tasks-axi config is not a regular file" \
+    "spawn did not identify the unsafe tasks-axi config"
+  assert_absent "$home/state/$id.meta" \
+    "spawn published a task record through an unsafe tasks-axi config"
+  pass "spawn refuses a special-file tasks-axi config instead of blocking on it"
+}
+
 test_configured_markdown_path_receives_lifecycle_transitions() {
   local case_dir home id out
   id=atomic-configured-markdown-b15
@@ -2522,6 +2544,7 @@ test_no_backlog_teardown_refuses_a_symlinked_task_record_at_entry
 test_teardown_rechecks_record_parent_after_lock_acquisition
 test_teardown_refuses_a_symlinked_state_directory_at_entry
 test_home_without_a_backlog_dispatches_and_completes
+test_spawn_refuses_a_special_file_tasks_config
 test_configured_markdown_path_receives_lifecycle_transitions
 test_configured_markdown_path_preserves_hash_characters
 test_dispatch_and_completion_are_structural

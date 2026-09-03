@@ -179,7 +179,7 @@ fm_backlog_markdown_file() {  # <data-dir>
   data=$(fm_backlog_data_absolute "$1") || return 1
   root=$(fm_backlog_root "$data") || return 1
   config="$root/.tasks.toml"
-  if [ ! -e "$config" ] && [ ! -L "$config" ]; then
+  if [ ! -f "$config" ]; then
     fm_backlog_file "$data"
     return $?
   fi
@@ -225,15 +225,16 @@ fm_backlog_markdown_file() {  # <data-dir>
 }
 
 fm_backlog_source_present() {  # <data-dir> <authorized-data-dir>
-  local data=$1 authorized_data=$2 root file tasks_config
+  local data=$1 authorized_data=$2 root authorized_root file tasks_config
   root=$(fm_backlog_root "$data") || return 1
+  authorized_root=$(fm_backlog_root "$authorized_data") || return 1
   tasks_config="$root/.tasks.toml"
   if [ -e "$tasks_config" ] || [ -L "$tasks_config" ]; then
-    fm_backlog_record_present "$tasks_config" "tasks-axi config" "$root" || return 1
+    fm_backlog_record_present "$tasks_config" "tasks-axi config" "$authorized_root" || return 1
   fi
   [ "$(fm_tasks_axi_backend "$root")" = markdown ] || return 0
   file=$(fm_backlog_markdown_file "$data") || return 1
-  fm_backlog_record_present "$file" "backlog file" "$root"
+  fm_backlog_record_present "$file" "backlog file" "$authorized_root"
 }
 
 # Run tasks-axi from the owning home's configuration root. This is the single
@@ -464,7 +465,7 @@ fm_backlog_canonical_existing() {
 
 fm_backlog_record_parent_authorized() {
   local path=$1 label=$2 root=$3 parent base parent_resolved expected_path
-  local path_resolved root_resolved home_resolved final_matches=1
+  local path_resolved root_resolved root_prefix home_resolved final_matches=1
   parent=${path%/*}
   [ "$parent" != "$path" ] || parent=.
   base=${path##*/}
@@ -507,8 +508,9 @@ fm_backlog_record_parent_authorized() {
   else
     path_resolved=$expected_path
   fi
+  root_prefix=${root_resolved%/}/
   case "$path_resolved" in
-    "$root_resolved"/*) ;;
+    "$root_prefix"*) ;;
     *)
       FM_BACKLOG_TRANSITION_ERROR="$label resolves outside its authorized directory at $path"
       return 1
