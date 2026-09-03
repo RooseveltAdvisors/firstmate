@@ -1625,6 +1625,30 @@ EOF
   pass "a coarse fixing row does not satisfy a stale checks-green log line"
 }
 
+# The false-green direction of the same rule. The NEWEST row ended badly at a
+# head this worktree cannot resolve, so it outranks the older head-verified
+# `completed` row beneath it and must suppress the answer. Reporting done here
+# is not cosmetic: bin/fm-inactive-reconcile.sh records a durable terminal
+# outcome and wakes the supervisor on a done verdict.
+test_coarse_newer_unresolvable_terminal_row_suppresses_older_completed() {
+  reset_fakes
+  local d short; d=$(new_case coarse-unresolvable-false-green)
+  make_repo_on_branch "$d/wt" fm/feat-falsegreen
+  short=$(git -C "$d/wt" rev-parse --short=8 HEAD)
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-falsegreen.meta" "window=fm:fm-feat-falsegreen" "worktree=$d/wt" "kind=ship" "harness=claude"
+  FM_FAKE_AXI_STATUS="$(run_running fm/other-crew)"
+  FM_FAKE_RUNS_LIST="$(cat <<EOF
+  cancelled  fm/feat-falsegreen f0f0f0f0  2026-09-03 14:10
+  completed  fm/feat-falsegreen ${short}  2026-09-03 13:40
+EOF
+)"
+  local out; out=$(run_crew_state "$d" feat-falsegreen)
+  assert_not_contains "$out" "state: done" "an older completed row must not answer for a newer unresolvable terminal row"
+  assert_not_contains "$out" "source: run-step" "the suppressed scan must not bind a run-step verdict"
+  pass "a newer unresolvable terminal row suppresses an older completed row"
+}
+
 # The same stop, with the older row ALIVE: a live pipeline-owned run's lane head
 # is routinely not a git object in the task worktree (rebase and fix commits
 # never pushed back), so an unresolvable ACTIVE row is genuine unknown
@@ -1774,6 +1798,7 @@ test_coarse_older_unresolvable_row_keeps_newer_terminal_match
 test_coarse_full_scan_finds_live_row_below_terminal_rows
 test_coarse_live_fixing_row_reads_working_not_unknown
 test_coarse_fixing_row_does_not_satisfy_stale_checks_green_log
+test_coarse_newer_unresolvable_terminal_row_suppresses_older_completed
 test_coarse_older_unresolvable_live_row_never_reports_failed
 test_non_pipeline_owned_unresolvable_head_not_attributed
 test_pipeline_owned_terminal_run_not_exempt

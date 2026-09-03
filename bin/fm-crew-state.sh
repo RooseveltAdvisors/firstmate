@@ -375,15 +375,19 @@ nm_ci_checks_state() {
 # is exact) - but branch + coarse status is exactly what this predicate needs:
 # is a run for THIS branch active right now. EVERY same-branch row is scanned
 # before anything is answered, because no single row can be known to be the
-# best match until the whole window has been read. The verdict is then: the
-# most recent head-verified NON-TERMINAL row wins; else empty when any
-# unresolvable-head row was itself non-terminal, since a live pipeline-owned
-# run routinely has a lane head this worktree cannot resolve and that is
-# unknown attribution rather than a terminal outcome; else the most recent
-# head-verified terminal row; else empty when the branch has no matching row
-# within FM_CREW_STATE_RUNS_LIMIT rows.
+# best match until the whole window has been read. ONE preference order scores
+# every row: a non-terminal row outranks a terminal one, and among rows of the
+# same class the more recent wins (rows arrive newest-first, so the first row
+# recorded in a class is that class's most recent). A row whose head this
+# worktree cannot resolve is UNKNOWN attribution, so it may only ever SUPPRESS
+# an answer, never supply one; a head-verified non-terminal row is never
+# suppressed, because nothing unknown can make live work not-live. The verdict
+# is therefore: the head-verified non-terminal row if there is one; else the
+# head-verified terminal row, but only when no unresolvable row outranks it;
+# else empty (which includes a branch with no matching row within
+# FM_CREW_STATE_RUNS_LIMIT rows).
 nm_runs_status_for_branch() {  # <branch>
-  local branch=$1 out row st rest br sha newest_live="" newest_terminal="" unknown_live=0
+  local branch=$1 out row st rest br sha newest_live="" newest_terminal="" suppress=0
   out=$(nm_run runs --limit "$FM_CREW_STATE_RUNS_LIMIT")
   [ -n "$out" ] || return 0
   while IFS= read -r row; do
@@ -397,34 +401,30 @@ nm_runs_status_for_branch() {  # <branch>
     rest=$(trim "$rest")
     sha=${rest%% *}
     [ "$br" = "$branch" ] || continue
-    # Same code-identity rule as axi status. Rows are newest-first, so the
-    # first row recorded in each class is that class's most recent one.
+    # Same code-identity rule as axi status. A head-verified non-terminal row
+    # wins outright, so the rest of the window cannot change the verdict.
     if nm_coarse_head_matches_worktree "$sha"; then
       case "$st" in
         completed|failed|cancelled) [ -n "$newest_terminal" ] || newest_terminal=$st ;;
-        *)                          [ -n "$newest_live" ] || newest_live=$st ;;
+        *)                          newest_live=$st; break ;;
       esac
     elif ! fm_nm_head_resolvable "$WT" "$sha"; then
-      # An UNRESOLVABLE head is unknown attribution, not a proven mismatch. It
-      # only has to suppress a terminal answer when the unknown row is itself
-      # ALIVE: that is the routine shape of a live pipeline-owned run whose
-      # lane head never reached this worktree, and calling it terminal is the
-      # exact defect this selection order exists to prevent. A terminal
-      # unknown row hides no live work, so it leaves a verified match standing.
+      # Unknown attribution: this row can only outrank the best terminal
+      # candidate, never answer for it. Alive outranks terminal regardless of
+      # age; an unknown terminal row outranks only a terminal candidate not yet
+      # recorded, which newest-first ordering makes exactly "the unknown row is
+      # the newer of the two".
       case "$st" in
-        completed|failed|cancelled) ;;
-        *) unknown_live=1 ;;
+        completed|failed|cancelled) [ -n "$newest_terminal" ] || suppress=1 ;;
+        *)                          suppress=1 ;;
       esac
     fi
     # A resolvable head that does not match is a PROVEN mismatch (historical or
     # diverged); it is skipped and cannot mask anything.
-    # A head-verified live row wins unconditionally, so once one is recorded no
-    # later row can change the verdict and the rest of the window is dead work.
-    [ -n "$newest_live" ] && break
   done <<< "$out"
   if [ -n "$newest_live" ]; then
     printf '%s' "$newest_live"
-  elif [ "$unknown_live" = 0 ]; then
+  elif [ "$suppress" = 0 ]; then
     printf '%s' "$newest_terminal"
   fi
   return 0
