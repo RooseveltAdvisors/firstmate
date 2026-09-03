@@ -373,15 +373,17 @@ nm_ci_checks_state() {
 # "<status> <branch> <short-sha> <date> [<pr-url>]" separated by runs of
 # spaces (verified: no quoting, so splitting on the first two whitespace runs
 # is exact) - but branch + coarse status is exactly what this predicate needs:
-# is a run for THIS branch active right now. Echoes the most recent
-# NON-TERMINAL matching row's status word, else the most recent terminal one
-# (running/completed/cancelled/failed), or empty when the branch has no
-# matching row within FM_CREW_STATE_RUNS_LIMIT rows. A same-branch row at an
-# unresolvable head stops the scan: an ACTIVE one answers empty, because a
-# live pipeline-owned run routinely has a lane head this worktree cannot
-# resolve, while a terminal one leaves a head-verified newer match standing.
+# is a run for THIS branch active right now. EVERY same-branch row is scanned
+# before anything is answered, because no single row can be known to be the
+# best match until the whole window has been read. The verdict is then: the
+# most recent head-verified NON-TERMINAL row wins; else empty when any
+# unresolvable-head row was itself non-terminal, since a live pipeline-owned
+# run routinely has a lane head this worktree cannot resolve and that is
+# unknown attribution rather than a terminal outcome; else the most recent
+# head-verified terminal row; else empty when the branch has no matching row
+# within FM_CREW_STATE_RUNS_LIMIT rows.
 nm_runs_status_for_branch() {  # <branch>
-  local branch=$1 out row st rest br sha newest_terminal=""
+  local branch=$1 out row st rest br sha newest_live="" newest_terminal="" unknown_live=0
   out=$(nm_run runs --limit "$FM_CREW_STATE_RUNS_LIMIT")
   [ -n "$out" ] || return 0
   while IFS= read -r row; do
@@ -394,39 +396,34 @@ nm_runs_status_for_branch() {  # <branch>
     rest=${rest#* }
     rest=$(trim "$rest")
     sha=${rest%% *}
-    if [ "$br" = "$branch" ]; then
-      # Same code-identity rule as axi status: skip a same-branch row whose
-      # short-sha does not match this worktree (rewritten or advanced tip).
-      if ! nm_coarse_head_matches_worktree "$sha"; then
-        # An UNRESOLVABLE head is unknown attribution, not a proven
-        # mismatch, so stop instead of surfacing an older, superseded row. An
-        # ACTIVE row at an unresolvable head is the routine shape of a live
-        # pipeline-owned run whose lane head never reached this worktree, so
-        # it must not be answered with a terminal verdict; only a terminal
-        # unknown row leaves an already head-verified newer match standing.
-        if ! fm_nm_head_resolvable "$WT" "$sha"; then
-          case "$st" in
-            completed|failed|cancelled) printf '%s' "$newest_terminal" ;;
-          esac
-          return 0
-        fi
-        continue
-      fi
-      # Several rows can match one worktree: a TERMINAL run left at the exact
-      # head and a LIVE run whose pipeline commits advanced past it both
-      # satisfy the head rule. The live run is the current truth, so take the
-      # first (most recent) non-terminal match and keep only the most recent
-      # terminal one as the answer for a branch with no live run at all.
+    [ "$br" = "$branch" ] || continue
+    # Same code-identity rule as axi status. Rows are newest-first, so the
+    # first row recorded in each class is that class's most recent one.
+    if nm_coarse_head_matches_worktree "$sha"; then
       case "$st" in
-        completed|failed|cancelled)
-          [ -n "$newest_terminal" ] || newest_terminal=$st ;;
-        *)
-          printf '%s' "$st"
-          return 0 ;;
+        completed|failed|cancelled) [ -n "$newest_terminal" ] || newest_terminal=$st ;;
+        *)                          [ -n "$newest_live" ] || newest_live=$st ;;
+      esac
+    elif ! fm_nm_head_resolvable "$WT" "$sha"; then
+      # An UNRESOLVABLE head is unknown attribution, not a proven mismatch. It
+      # only has to suppress a terminal answer when the unknown row is itself
+      # ALIVE: that is the routine shape of a live pipeline-owned run whose
+      # lane head never reached this worktree, and calling it terminal is the
+      # exact defect this selection order exists to prevent. A terminal
+      # unknown row hides no live work, so it leaves a verified match standing.
+      case "$st" in
+        completed|failed|cancelled) ;;
+        *) unknown_live=1 ;;
       esac
     fi
+    # A resolvable head that does not match is a PROVEN mismatch (historical or
+    # diverged); it is skipped and cannot mask anything.
   done <<< "$out"
-  printf '%s' "$newest_terminal"
+  if [ -n "$newest_live" ]; then
+    printf '%s' "$newest_live"
+  elif [ "$unknown_live" = 0 ]; then
+    printf '%s' "$newest_terminal"
+  fi
   return 0
 }
 
@@ -504,12 +501,15 @@ if [ "$HAVE_RUN" = 1 ]; then
     # surfaced by each supervisor's span classification (fm-classify-lib.sh's
     # status_span_first_actionable) regardless of this coarse-vs-full
     # distinction, so a real gate is never silently missed.
+    # Live status words mirror the full-status mapping below, so a run in its
+    # fix or CI phase reads as working rather than as an unrecognized word.
     case "$COARSE_STATUS" in
-      running)   RUN_STATE=working; RUN_DETAIL="validating (background run)" ;;
-      completed) RUN_STATE="done";  RUN_DETAIL="run completed" ;;
-      failed)    RUN_STATE=failed;  RUN_DETAIL="run failed" ;;
-      cancelled) RUN_STATE=failed;  RUN_DETAIL="run cancelled" ;;
-      *)         RUN_STATE=unknown; RUN_DETAIL="runs list status: $COARSE_STATUS" ;;
+      running|fixing) RUN_STATE=working; RUN_DETAIL="validating (background run)" ;;
+      ci)             RUN_STATE=working; RUN_DETAIL="ci running" ;;
+      completed)      RUN_STATE="done";  RUN_DETAIL="run completed" ;;
+      failed)         RUN_STATE=failed;  RUN_DETAIL="run failed" ;;
+      cancelled)      RUN_STATE=failed;  RUN_DETAIL="run cancelled" ;;
+      *)              RUN_STATE=unknown; RUN_DETAIL="runs list status: $COARSE_STATUS" ;;
     esac
   else
     status=$(strip_quotes "$(nm_field status)")

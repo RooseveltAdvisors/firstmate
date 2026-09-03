@@ -1548,6 +1548,57 @@ EOF
   pass "an older terminal unresolvable row does not discard a newer head-verified match"
 }
 
+# The shape that defeated a per-row decision: the scan must read the WHOLE
+# window before answering. A newer terminal row at the exact worktree head and
+# a terminal row at an unresolvable head sit above an OLDER live row whose head
+# is a verified descendant of this worktree. Answering at either earlier row
+# reports live work as failed.
+test_coarse_full_scan_finds_live_row_below_terminal_rows() {
+  reset_fakes
+  local d base advanced; d=$(new_case coarse-full-scan)
+  make_repo_on_branch "$d/wt" fm/feat-scan
+  git -C "$d/wt" commit -q --allow-empty -m advance
+  advanced=$(git -C "$d/wt" rev-parse --short=8 HEAD)
+  git -C "$d/wt" reset -q --hard HEAD~1
+  base=$(git -C "$d/wt" rev-parse --short=8 HEAD)
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-scan.meta" "window=fm:fm-feat-scan" "worktree=$d/wt" "kind=ship" "harness=claude"
+  FM_FAKE_AXI_STATUS="$(run_running fm/other-crew)"
+  FM_FAKE_RUNS_LIST="$(cat <<EOF
+  failed     fm/feat-scan ${base}  2026-09-03 13:55
+  cancelled  fm/feat-scan f0f0f0f0  2026-09-03 13:50
+  running    fm/feat-scan ${advanced}  2026-09-03 13:40
+EOF
+)"
+  local out; out=$(run_crew_state "$d" feat-scan)
+  assert_not_contains "$out" "state: failed" "an unread live row below two terminal rows must not report failed"
+  assert_contains "$out" "state: working" "the full scan reaches the live row and it wins"
+  assert_contains "$out" "source: run-step" "the live row binds as run-step"
+  pass "the scan reads every row before answering, so a live row below terminal rows still wins"
+}
+
+# The coarse mapping must recognize every live run status word the full-status
+# mapping does, or a preferred live row renders as an unrecognized word.
+test_coarse_live_fixing_row_reads_working_not_unknown() {
+  reset_fakes
+  local d short; d=$(new_case coarse-live-fixing)
+  make_repo_on_branch "$d/wt" fm/feat-fixing
+  short=$(git -C "$d/wt" rev-parse --short=8 HEAD)
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-fixing.meta" "window=fm:fm-feat-fixing" "worktree=$d/wt" "kind=ship" "harness=claude"
+  FM_FAKE_AXI_STATUS="$(run_running fm/other-crew)"
+  FM_FAKE_RUNS_LIST="$(cat <<EOF
+  failed     fm/feat-fixing ${short}  2026-09-03 13:55
+  fixing     fm/feat-fixing ${short}  2026-09-03 13:50
+EOF
+)"
+  local out; out=$(run_crew_state "$d" feat-fixing)
+  assert_not_contains "$out" "state: unknown" "a live fixing row must not render as an unknown status word"
+  assert_not_contains "$out" "state: failed" "a live fixing row must not be reported as the newer failed run"
+  assert_contains "$out" "state: working" "a run in its fix phase reads as working"
+  pass "a live fixing row reads working rather than unknown"
+}
+
 # The same stop, with the older row ALIVE: a live pipeline-owned run's lane head
 # is routinely not a git object in the task worktree (rebase and fix commits
 # never pushed back), so an unresolvable ACTIVE row is genuine unknown
@@ -1694,6 +1745,8 @@ test_failed_run_with_no_later_run_still_surfaces
 test_coarse_unresolvable_active_row_never_falls_to_older_row
 test_coarse_live_run_beats_terminal_run_at_exact_head
 test_coarse_older_unresolvable_row_keeps_newer_terminal_match
+test_coarse_full_scan_finds_live_row_below_terminal_rows
+test_coarse_live_fixing_row_reads_working_not_unknown
 test_coarse_older_unresolvable_live_row_never_reports_failed
 test_non_pipeline_owned_unresolvable_head_not_attributed
 test_pipeline_owned_terminal_run_not_exempt
