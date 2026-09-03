@@ -342,6 +342,68 @@ EOF
   pass "T3f a remote host's TASKS_CONFIG diagnostic reaches the operator"
 }
 
+# --- T3g: a failed remote update reports the REASON, not the diagnostic ------
+# The host writes its TASKS_CONFIG line and its failure reason to one stream, and
+# the diagnostic is written first. Reporting the first captured line therefore
+# hands the captain a success fact as the cause of a skip and drops the reason
+# that would let them fix it. Both signals matter and neither may be lost.
+test_remote_update_failure_reports_the_real_reason() {
+  local w out err fake_ssh
+  w=$(new_world t3g)
+  fake_ssh="$w/fakebin/fake-ssh"
+  cat > "$fake_ssh" <<'SH'
+#!/usr/bin/env bash
+set -u
+cat > /dev/null
+while [ "$#" -gt 0 ]; do
+  case "$1" in -o) shift 2 ;; --) shift; break ;; *) exit 90 ;; esac
+done
+shift 2
+argv_b64=$4
+decode() { printf '%s' "$1" | base64 --decode 2>/dev/null || printf '%s' "$1" | base64 -D; }
+rargs=()
+while IFS= read -r -d '' a; do rargs+=("$a"); done < <(decode "$argv_b64")
+case "${rargs[1]:-}" in
+  update)
+    # The remote code root advanced and carried its own config, then the home's
+    # sync refused. Both land on the host's stderr, diagnostic first.
+    printf 'TASKS_CONFIG: restored /srv/fm/.tasks.toml, which the update removed\n'
+    printf 'remote secondmate home sync skipped: dirty working tree\n'
+    exit 1
+    ;;
+  state) printf 'alive\n' ;;
+  *) exit 91 ;;
+esac
+SH
+  chmod +x "$fake_ssh"
+  cat > "$w/home/state/sm1.meta" <<EOF
+window=remote:sm1
+endpoint_task_id=sm1
+worktree=/srv/sm1
+project=/srv/sm1
+harness=claude
+kind=secondmate
+home=/srv/sm1
+remote_host=remote-mac
+remote_backend=herdr
+EOF
+  printf -- '- sm1 - remote domain (host: remote-mac; root: /srv/fm; home: /srv/sm1; scope: things; projects: p; added 2026-09-03)\n' \
+    > "$w/home/data/secondmates.md"
+
+  out=$(PATH="$w/fakebin:$PATH" FM_FAKE_DIR="$w/fake" \
+    FM_SSH_BIN="$fake_ssh" FM_TEST_SSH_BIN="$fake_ssh" \
+    FM_ROOT_OVERRIDE="$w/main" FM_HOME="$w/home" "$UPDATE" 2>"$w/err")
+  err=$(cat "$w/err")
+
+  assert_contains "$err" "remote secondmate sm1: skipped on remote-mac: remote secondmate home sync skipped: dirty working tree" \
+    "the skip reported something other than the real failure reason"
+  assert_not_contains "$err" "skipped on remote-mac: TASKS_CONFIG" \
+    "a config diagnostic was presented as the cause of the skip"
+  assert_contains "$out" "TASKS_CONFIG: restored /srv/fm/.tasks.toml, which the update removed" \
+    "the host's diagnostic never reached the operator on the failure path"
+  pass "T3g a failed remote update reports its real reason and still surfaces TASKS_CONFIG"
+}
+
 # --- T4: dirty secondmate is skipped, its edit preserved -------------------
 test_dirty_secondmate_skipped() {
   local w out
@@ -620,6 +682,7 @@ test_unprovable_runtime_gets_fallback_nudge
 test_dead_secondmate_gets_no_action
 test_legacy_remote_advance_is_nudged
 test_remote_tasks_config_diagnostic_is_surfaced
+test_remote_update_failure_reports_the_real_reason
 test_dirty_secondmate_skipped
 test_diverged_secondmate_skipped
 test_idempotent_already_current

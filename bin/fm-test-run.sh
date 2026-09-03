@@ -1299,9 +1299,9 @@ families_for_changed_path() {
     bin/fm-ff-lib.sh)
       # The one fast-forward implementation. Its own behavior - the ancestry and
       # dirty guards, and the per-home .tasks.toml carry - is covered by
-      # tests/fm-update.test.sh and tests/fm-fleet-sync.test.sh in
-      # session-bootstrap and tests/fm-secondmate-sync.test.sh in secondmate, so a
-      # change here that selected only the contract family would run none of it.
+      # tests/fm-update.test.sh in session-bootstrap and
+      # tests/fm-secondmate-sync.test.sh in secondmate, so a change here that
+      # selected only the contract family would run none of it.
       printf '%s\n' pure-contract-unit
       printf '%s\n' session-bootstrap
       printf '%s\n' secondmate

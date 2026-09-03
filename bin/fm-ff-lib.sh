@@ -257,7 +257,9 @@ remote_sync_failure_reason() { # <exit-status> <output>
     printf '%s\n' "the Firstmate copy on that host is too old to sync to this primary's commit; run /updatefirstmate"
     return 0
   fi
-  first_line "$2"
+  # The capture can carry a TASKS_CONFIG diagnostic ahead of the reason, and the
+  # reason is what this returns; the callers report the diagnostic themselves.
+  first_line "$(tasks_config_strip_report_lines "$2")"
 }
 
 dirty_status() {

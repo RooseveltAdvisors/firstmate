@@ -610,6 +610,7 @@ secondmate_sync() {
       if printf '%s\n' "$sync_out" | grep -q '^synced: '; then nudge_needed=1; fi
     else
       sync_rc=$?
+      tasks_config_report_lines "$sync_out"
       echo "SECONDMATE_SYNC: secondmate $id: skipped: remote tracked-file sync failed on $remote_host: $(remote_sync_failure_reason "$sync_rc" "$sync_out")"
       converged=0
     fi

@@ -194,7 +194,13 @@ if [ -f "$SECONDMATES_MD" ]; then
           *) echo "remote secondmate $id: skipped on $SECONDMATE_REGISTRY_HOST: malformed update result" >&2 ;;
         esac
       else
-        echo "remote secondmate $id: skipped on $SECONDMATE_REGISTRY_HOST: ${remote_out%%$'\n'*}" >&2
+        # The host writes its TASKS_CONFIG diagnostic and its failure reason to
+        # one stream, so the first captured line is not reliably the reason.
+        # Both signals matter: report the diagnostic, and skip past it to the
+        # reason the operator actually needs.
+        tasks_config_report_lines "$remote_out"
+        remote_reason=$(tasks_config_strip_report_lines "$remote_out")
+        echo "remote secondmate $id: skipped on $SECONDMATE_REGISTRY_HOST: ${remote_reason%%$'\n'*}" >&2
       fi
     else
       process_secondmate "$id" "$home" "" origin yes
