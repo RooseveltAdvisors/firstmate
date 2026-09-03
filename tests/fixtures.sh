@@ -281,7 +281,7 @@ fm_test_run_spawn() {
   # HOME rather than CLAUDE_CONFIG_DIR deliberately: the spawn forwards a SET
   # CLAUDE_CONFIG_DIR onto the claude launch, so pinning it here would change the
   # launch command every launch-shape assertion in the suite reads.
-  local spawn_home=${FM_TEST_SPAWN_USER_HOME:-$home/user-home}
+  local spawn_home=$home/user-home
   mkdir -p "$spawn_home"
   FM_ROOT_OVERRIDE='' FM_HOME="$home" HOME="$spawn_home" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \

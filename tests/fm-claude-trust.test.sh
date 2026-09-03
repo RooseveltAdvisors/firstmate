@@ -52,6 +52,21 @@ assert_not_trusted() {  # <store> <path> <msg>
   return 0
 }
 
+# The store is the vendor's own persisted JSON, so preservation is asserted
+# against the parsed value at a key path rather than the serialized bytes.
+store_value() {  # <store> <key...> -> the JSON value at that key path
+  local store=$1
+  shift
+  node -e 'const j=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));let v=j;for(const k of process.argv.slice(2)){v=(v===undefined||v===null)?undefined:v[k];}console.log(JSON.stringify(v));' "$store" "$@"
+}
+
+assert_store_value() {  # <store> <expected-json> <msg> <key...>
+  local store=$1 expected=$2 msg=$3 actual
+  shift 3
+  actual=$(store_value "$store" "$@")
+  [ "$actual" = "$expected" ] || fail "$msg (expected $expected, got $actual)"
+}
+
 test_fresh_worktree_is_trusted() {
   local rec out
   rec=$(make_case fresh)
@@ -198,9 +213,9 @@ test_unrelated_store_content_is_preserved() {
 JSON
   run_trust "$CONFIG" "$WT" "$PROJ" >/dev/null || fail "registration failed against an existing store"
   assert_trusted "$store" "$WT" "the worktree was not recorded in an existing store"
-  assert_grep '"hasCompletedOnboarding": true' "$store" "an unrelated top-level key was lost"
-  assert_grep '"numStartups": 7' "$store" "an unrelated top-level value was changed"
-  assert_grep '"allowedTools"' "$store" "another project's settings were lost"
+  assert_store_value "$store" true "an unrelated top-level key was lost" hasCompletedOnboarding
+  assert_store_value "$store" 7 "an unrelated top-level value was changed" numStartups
+  assert_store_value "$store" '["Bash"]' "another project's settings were lost" projects /other/path allowedTools
   assert_not_trusted "$store" "/other/path" "another project's trust decision was flipped"
   pass "fm-claude-trust.sh: preserves unrelated store content"
 }
