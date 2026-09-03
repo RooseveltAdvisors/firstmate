@@ -2347,6 +2347,28 @@ test_spawn_refuses_a_data_directory_symlinked_outside_the_home() {
 }
 
 
+test_configured_adapter_refuses_a_data_directory_outside_the_home() {
+  local case_dir home id out rc=0
+  id=atomic-external-data-beads-b15
+  case_dir=$(make_home external-data-beads "$id")
+  home=$(home_of "$case_dir")
+  add_item "$case_dir" "$id"
+  mkdir -p "$case_dir/outside"
+  mv "$home/data/backlog.md" "$home/data/$id" "$case_dir/outside/"
+  rmdir "$home/data"
+  ln -s "$case_dir/outside" "$home/data"
+
+  out=$(TASKS_AXI_BACKEND=beads run_ship_spawn "$case_dir" "$id") || rc=$?
+  [ "$rc" -ne 0 ] \
+    || fail "a configured adapter accepted a data directory resolving outside the home"
+  assert_contains "$out" "backlog file authorized directory resolves outside this home" \
+    "a configured adapter did not identify the data directory escaping the home"
+  assert_absent "$home/state/$id.meta" \
+    "a configured adapter published a task record outside the home"
+  pass "a configured adapter refuses a data directory outside the home"
+}
+
+
 test_dispatch_and_completion_are_structural() {
   local case_dir home id meta out pr
   id=fm-structural-b15
@@ -2560,6 +2582,7 @@ test_home_without_a_backlog_dispatches_and_completes
 test_spawn_refuses_a_special_file_tasks_config
 test_spawn_refuses_an_unsafe_tasks_config_before_exempting_a_missing_backlog
 test_spawn_refuses_a_data_directory_symlinked_outside_the_home
+test_configured_adapter_refuses_a_data_directory_outside_the_home
 test_dispatch_and_completion_are_structural
 test_refused_teardown_leaves_the_item_live
 test_environment_selected_adapter_is_not_forced_to_markdown

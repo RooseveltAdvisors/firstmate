@@ -206,14 +206,21 @@ fm_backlog_config_present() {  # <root> <authorized-root>
   return 0
 }
 
+# Every home is bound to its own data directory, whichever adapter it configures,
+# so the boundary is authorized first and unconditionally. Only the markdown
+# backlog's regular-file requirement is adapter-specific: another adapter keeps
+# its rows in its own workspace and need not carry <data>/backlog.md at all.
 fm_backlog_source_present() {  # <data-dir> <authorized-data-dir>
   local data=$1 authorized_data=$2 root authorized_root file
   root=$(fm_backlog_root "$data") || return 1
   authorized_root=$(fm_backlog_authorized_root "$authorized_data")
   fm_backlog_config_present "$root" "$authorized_root" || return 1
-  [ "$(fm_tasks_axi_backend "$root")" = markdown ] || return 0
   file=$(fm_backlog_file "$data") || return 1
-  fm_backlog_record_present "$file" "backlog file" "$authorized_data"
+  if [ "$(fm_tasks_axi_backend "$root")" = markdown ]; then
+    fm_backlog_record_present "$file" "backlog file" "$authorized_data"
+    return $?
+  fi
+  fm_backlog_record_parent_authorized "$file" "backlog file" "$authorized_data"
 }
 
 # Run tasks-axi from the owning home's configuration root. This is the single
