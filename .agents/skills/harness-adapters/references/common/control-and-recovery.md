@@ -20,8 +20,7 @@ Each supported harness handles its folder-trust gate differently, and the tool r
 Claude gates a fresh worktree and cannot be answered by key, so the spawn pre-registers the path in Claude's own store.
 Cursor suppresses its dialog with launch-time `--trust`, and Muse suppresses its own with `--yolo`.
 Grok dodges its gate instead of granting trust, because its project picker appears only outside a project and the spawn starts in the isolated git root.
-Pi gates on exactly the fresh-worktree case, because a project trust dialog can appear on its first run in any not-yet-trusted directory including a clean worktree, so a firstmate answers it with Enter and verifies the instructions begin processing.
-Keeping Pi's turn-end wiring in `state/` rather than the worktree avoids worsening that gate rather than removing it, and the decision persists per path in `~/.pi/agent/trust.json`.
+Pi gates the fresh-worktree case too, but unlike Claude its dialog is answered with Enter, and `references/harness/pi.md` owns that recipe and where the decision persists.
 Codex shows a directory-trust dialog on the first run for a repository root.
 A Claude secondmate is deliberately not pre-registered, because `../../../bin/fm-spawn.sh` runs its per-harness pre-launch setup only for non-secondmate kinds, so the registration is never invoked for one.
 That kind guard is the whole exclusion, because a treehouse-leased secondmate home is itself a linked worktree that the scope test would accept, and only a plain-clone home would be refused as a primary checkout.

@@ -193,6 +193,15 @@
 # resolver because `cursor` is not the CLI name. A cursor SECONDMATE instead runs
 # the tracked project-scope .cursor/hooks.json in its own home, whose stop-hook
 # park owns that home's supervision (docs/supervision-protocols/cursor.md).
+# claude is the one harness whose pre-launch setup can REFUSE the spawn: before
+# any state is armed, and before its worktree .claude/settings.local.json hooks
+# are written, a non-secondmate claude launch pre-registers the task worktree in
+# the launching user's own Claude trust store through bin/fm-claude-trust.sh,
+# because Claude's interactive workspace-trust dialog gates a fresh worktree and
+# firstmate cannot answer it. That helper's header owns the structural scope test
+# and every refusal; a failed registration stops this spawn rather than launching
+# a worker that would wedge on the dialog. A --secondmate launch never runs it,
+# so a claude secondmate home keeps its own one-time trust decision.
 # Publishing the record and moving this home's backlog item to In flight are one
 # step, not two: bin/fm-backlog-transition-lib.sh owns that invariant, and this
 # script performs the transition under the task's own meta lock before it reports
