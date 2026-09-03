@@ -39,7 +39,9 @@ A scout carves out of the landed-work test but not out of a gate: it proceeds on
 ## Backlog ids: minted and legacy
 
 Two id spaces are in play, and only one of them can be re-filed.
-Beads mints short prefixed ids such as `fm-0hw`, while older records carry descriptive slugs such as `crew-state-live-run-precedence`; a descriptive slug has no beads issue behind it, and `bd show` on one answers `no issue found matching`.
+Beads mints short ids under a configured `issue_prefix`, which is `fm` on this fleet, so its ids read `fm-0hw`; older records instead carry descriptive slugs such as `crew-state-live-run-precedence`.
+Do not read that prefix as a beads universal, because another home's `bd config` can set a different one.
+A descriptive slug has no beads issue behind it: `bd show crew-state-live-run-precedence` answers `no issue found matching`, while `bd show fm-0hw` returns the issue.
 When you meet a legacy descriptive id, close it in the backend that actually holds its row and let `bin/fm-teardown.sh` perform that transition under the task's own lock.
 Never mint a replacement id to re-file a legacy record: the meta, status log, worktree, and any pending close all key on the recorded id, so renaming it strands every one of them.
 `bin/fm-backlog-transition-lib.sh` owns how a transition is addressed to the owning home's configured backend.
@@ -66,6 +68,8 @@ Serialize only for a genuine semantic dependency or shared mutable external stat
 ## Relaunch a quota-blocked seat
 
 A seat idle because its runtime is out of allowance is blocked, not wedged, so the escalation ladder in `stuck-crewmate-recovery` does not apply and its work needs no recovery.
-Replace it with `bin/fm-control.sh <id> relaunch --harness <name> --note '<progress so far>'`, which swaps the agent inside the same endpoint and worktree and restores the prior record if the replacement cannot start; switching harness is an ordinary use of that verb.
+Replace it with `bin/fm-control.sh <id> relaunch --harness <name> --note '<progress so far>'`, which swaps the agent inside the same endpoint and worktree; switching harness is an ordinary use of that verb.
+That script's header owns what a failed replacement leaves behind, and the distinction matters here: a failure before the new record is published keeps the prior record, but once it is published the new record is deliberately kept, so the task reads as running on the new harness with no agent alive.
+Reconcile that residue rather than assuming a clean rollback.
 Choose the replacement candidate through the ordinary dispatch route on current quota evidence, loading `quota-array-dispatch` when a configured profile offers more than one, rather than picking a runtime by name.
 Leaving the seat stalled is the failure mode this exists to prevent: the work is preserved either way, so the only cost of relaunching onto a healthy candidate is the note you carry across.
