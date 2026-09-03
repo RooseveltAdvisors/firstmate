@@ -174,55 +174,6 @@ fm_backlog_data_relative() {  # <data-dir>
   esac
 }
 
-fm_backlog_markdown_file() {  # <data-dir>
-  local data root config configured='' candidate
-  data=$(fm_backlog_data_absolute "$1") || return 1
-  root=$(fm_backlog_root "$data") || return 1
-  config="$root/.tasks.toml"
-  if [ ! -f "$config" ]; then
-    fm_backlog_file "$data"
-    return $?
-  fi
-  configured=$(awk '
-      BEGIN { table = "root" }
-      {
-        line = $0
-        if (line ~ /^[[:space:]]*\[[^]]+\][[:space:]]*(#.*)?$/) {
-          table = line
-          sub(/[[:space:]]*#.*/, "", table)
-          gsub(/[[:space:]\[\]]/, "", table)
-          next
-        }
-        if (table == "markdown" && line ~ /^[[:space:]]*path[[:space:]]*=/) {
-          sub(/^[^=]*=[[:space:]]*/, "", line)
-          quote = substr(line, 1, 1)
-          if (quote == "\"" || quote == sprintf("%c", 39)) {
-            rest = substr(line, 2)
-            ending = index(rest, quote)
-            tail = substr(rest, ending + 1)
-            if (ending > 1 && tail ~ /^[[:space:]]*(#.*)?$/) {
-              print substr(rest, 1, ending - 1)
-            }
-          }
-          exit
-        }
-      }
-    ' "$config") || return 1
-  if [ -n "$configured" ]; then
-    case "$configured" in
-      /*) printf '%s\n' "$configured" ;;
-      *) printf '%s/%s\n' "$root" "$configured" ;;
-    esac
-    return 0
-  fi
-  for candidate in "$root/backlog.md" "$root/data/backlog.md"; do
-    if [ -e "$candidate" ] || [ -L "$candidate" ]; then
-      printf '%s\n' "$candidate"
-      return 0
-    fi
-  done
-  printf '%s/backlog.md\n' "$root"
-}
 
 # Any adapter selection, markdown path, or exemption derived from a home's
 # `.tasks.toml` is only as safe as that file, so validate it before reading it.
@@ -240,16 +191,16 @@ fm_backlog_source_present() {  # <data-dir> <authorized-data-dir>
   authorized_root=$(fm_backlog_root "$authorized_data") || return 1
   fm_backlog_config_present "$root" "$authorized_root" || return 1
   [ "$(fm_tasks_axi_backend "$root")" = markdown ] || return 0
-  file=$(fm_backlog_markdown_file "$data") || return 1
+  file=$(fm_backlog_file "$data") || return 1
   fm_backlog_record_present "$file" "backlog file" "$authorized_root"
 }
 
 # Run tasks-axi from the owning home's configuration root. This is the single
 # place the --file gate is decided, for reads and mutations alike. A markdown
-# backlog is addressed explicitly so the change lands in the home that owns the
-# task regardless of the caller's working directory; any other configured
-# adapter is addressed by that root alone, because --file would override the
-# adapter's own workspace path.
+# backlog is addressed as <data>/backlog.md so the change lands in the home that
+# owns the task regardless of the caller's working directory; any other
+# configured adapter is addressed by that root alone, because --file would
+# override the adapter's own workspace path.
 fm_backlog_tasks_axi() {  # <data-dir> <verb> [arg...]
   local data root file
   data=$(fm_backlog_data_absolute "$1") || return 1
@@ -259,7 +210,7 @@ fm_backlog_tasks_axi() {  # <data-dir> <verb> [arg...]
     (cd "$root" 2>/dev/null && tasks-axi "$@")
     return $?
   fi
-  file=$(fm_backlog_markdown_file "$data") || return 1
+  file=$(fm_backlog_file "$data") || return 1
   (cd "$root" 2>/dev/null && tasks-axi "$@" --file "$file")
 }
 
@@ -283,7 +234,7 @@ fm_backlog_transition_applies() {  # <config-dir> <data-dir> <kind>
   authorized_root=$(fm_backlog_root "$authorized_data") || return 2
   fm_backlog_config_present "$root" "$authorized_root" || return 2
   if [ "$(fm_tasks_axi_backend "$root")" = markdown ]; then
-    file=$(fm_backlog_markdown_file "$data") || return 2
+    file=$(fm_backlog_file "$data") || return 2
     if [ ! -e "$file" ] && [ ! -L "$file" ]; then
       FM_BACKLOG_TRANSITION_SKIP="this home keeps no markdown backlog at $file"
       return 1
