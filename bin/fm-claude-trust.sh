@@ -38,9 +38,10 @@
 # Only the launching user's own store is written: the projects entry for the
 # worktree path in ${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json, which must be a
 # regular file this uid owns. Every unrelated key and project entry is
-# preserved, and the replacement is atomic. That resolution is the same one the
-# worker reads, because fm-spawn.sh forwards its own resolved CLAUDE_CONFIG_DIR
-# onto the claude launch and an unset value is the single-store default.
+# preserved, and the replacement is atomic. fm-spawn.sh forwards CLAUDE_CONFIG_DIR
+# onto the claude launch verbatim rather than resolving it, and the worker's pane
+# starts in the task worktree, so only an absolute value names the same store on
+# both sides; a relative one is refused below rather than guessed at.
 set -u
 # Path resolution here must answer from the filesystem, never from the caller's
 # environment, because the refusals below are the safety property. CDPATH would
@@ -86,6 +87,14 @@ PROJ_REAL=$(real_dir "$PROJ_ARG") || true
 
 CONFIG_DIR=${CLAUDE_CONFIG_DIR:-${HOME:-}}
 [ -n "$CONFIG_DIR" ] || refuse "neither CLAUDE_CONFIG_DIR nor HOME is set, so the store cannot be located"
+# A relative value resolves against this process's cwd here but against the
+# worker's own cwd once fm-spawn.sh forwards it verbatim onto the launch, so the
+# two sides can name different stores and the registration would report a
+# success the worker never sees. Refuse rather than guess at the worker's cwd.
+case ${CLAUDE_CONFIG_DIR:-} in
+  '' | /*) ;;
+  *) refuse "CLAUDE_CONFIG_DIR '$CLAUDE_CONFIG_DIR' is a relative path, so the store the worker reads cannot be guaranteed to be the one written here; set it to an absolute path" ;;
+esac
 # fm-spawn forwards a set CLAUDE_CONFIG_DIR onto the launch without requiring it
 # to exist, because claude creates its own store directory. Create it here for
 # the same reason, and refuse only when it genuinely cannot be written, since a
@@ -149,30 +158,49 @@ if [ -e "$STORE" ]; then
   [ -w "$STORE" ] || refuse "'$STORE' is not writable"
 fi
 
-# Read-modify-write, then read back and confirm. Any running claude session
-# holds its own copy of this store and can rewrite the whole file at any time,
-# so a dropped entry - never a torn file, the replacement is a rename - is the
-# one realistic failure, and re-reading catches it. A lost update would only
-# resurrect the dialog this registration exists to remove, so it must fail
-# loudly rather than report a trust it did not leave behind.
+# Read-modify-write, then read back and confirm. fm-spawn runs from a live
+# firstmate Claude Code session that writes this same file, so the store can move
+# under us in both directions and each needs its own answer.
 #
-# The readback proves the entry landed, not that it survives: a vendor session
-# that rewrites the whole store after this returns can still drop it, and no
-# lock closes that window because the writer is Claude itself. The worker then
-# meets the dialog and stalls, which reaches firstmate as the ordinary stale
-# wake rather than as silent success, and a relaunch registers again.
-# ponytail: verify-and-retry, not a lock; flock is absent on macOS and cannot
-# stop a vendor session's own rewrite anyway. Reach for a lock only if
-# concurrent spawns are ever shown to exhaust the retries.
+# Losing the VENDOR's write is the serious one: this renames a whole
+# re-serialisation over the file, so anything Claude changed since the read -
+# oauthAccount, user-scope mcpServers, another project's history - would be gone,
+# in a format this does not own. So the bytes read are fingerprinted and
+# re-checked immediately before the rename, and a store that moved is not
+# overwritten: the whole read-modify-write is retried once, and a second move
+# refuses rather than clobbering.
+#
+# That narrows the window; it does not close it. Rename cannot be conditioned on
+# content, so a write landing between the final check and the rename is still
+# lost, and this claims no more than that.
+#
+# Losing OUR entry is the mild one: a vendor rewrite that drops it only resurrects
+# the dialog this registration removes, which reaches firstmate as an ordinary
+# stale wake and a relaunch registers again. The readback catches it within these
+# attempts, and it must fail loudly rather than report a trust it did not leave.
+# ponytail: fingerprint-and-refuse, not a lock; flock is absent on macOS and
+# cannot stop a vendor session's own rewrite anyway.
 if ! node - "$STORE" "$WT_REAL" <<'NODE'
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const [store, worktree] = process.argv.slice(2);
+const readStore = () => {
+  try {
+    return fs.readFileSync(store);
+  } catch (err) {
+    if (err.code === "ENOENT") return null;
+    throw err;
+  }
+};
+const fingerprint = (buf) =>
+  buf === null ? "absent" : crypto.createHash("sha256").update(buf).digest("hex");
 const attempt = () => {
+  const original = readStore();
+  const before = fingerprint(original);
   let root = {};
-  if (fs.existsSync(store)) {
-    const raw = fs.readFileSync(store, "utf8");
+  if (original !== null) {
+    const raw = original.toString("utf8");
     if (raw.trim() !== "") {
       root = JSON.parse(raw);
       if (root === null || typeof root !== "object" || Array.isArray(root)) {
@@ -198,6 +226,10 @@ const attempt = () => {
   const unique = `${process.pid}.${crypto.randomBytes(8).toString("hex")}`;
   const tmp = path.join(path.dirname(store), `.claude.json.fm-trust.${unique}`);
   fs.writeFileSync(tmp, `${JSON.stringify(root)}\n`, { mode: 0o600, flag: "wx" });
+  if (fingerprint(readStore()) !== before) {
+    fs.rmSync(tmp, { force: true });
+    return "moved";
+  }
   try {
     fs.renameSync(tmp, store);
   } catch (err) {
@@ -205,11 +237,16 @@ const attempt = () => {
     throw err;
   }
   const back = JSON.parse(fs.readFileSync(store, "utf8"));
-  return back.projects?.[worktree]?.hasTrustDialogAccepted === true;
+  return back.projects?.[worktree]?.hasTrustDialogAccepted === true ? "recorded" : "dropped";
 };
 try {
   for (let i = 0; i < 3; i += 1) {
-    if (attempt()) process.exit(0);
+    const result = attempt();
+    if (result === "recorded") process.exit(0);
+    if (result === "moved" && i >= 1) {
+      console.error(`error: ${store} was modified while trust was being recorded; refusing to overwrite it`);
+      process.exit(1);
+    }
   }
 } catch (err) {
   console.error(`error: ${err.message}`);

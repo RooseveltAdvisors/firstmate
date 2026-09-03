@@ -183,6 +183,27 @@ test_home_directory_is_refused_even_when_it_is_a_worktree() {
   pass "fm-claude-trust.sh: refuses a home directory the git checks would accept"
 }
 
+# fm-spawn forwards CLAUDE_CONFIG_DIR onto the worker verbatim and the worker's
+# pane starts in the task worktree, so a relative value names one store here and
+# another there; registering into the first and reporting success would leave the
+# worker meeting the dialog this control exists to remove.
+test_relative_config_dir_is_refused() {
+  local rec out
+  rec=$(make_case relative-config)
+  read_case "$rec"
+  mkdir -p "$CASE_DIR/relhome"
+  out=$(cd "$CASE_DIR/relhome" && CLAUDE_CONFIG_DIR=.claude-work HOME="$CASE_DIR/relhome" "$TRUST" "$WT" "$PROJ" 2>&1)
+  expect_code 1 $? "a relative CLAUDE_CONFIG_DIR must be refused: $out"
+  assert_contains "$out" ".claude-work" "the refusal did not name the relative value"
+  assert_contains "$out" "relative" "the refusal did not say why the value is unusable"
+  [ ! -e "$CASE_DIR/relhome/.claude-work/.claude.json" ] \
+    || fail "a store was written under this process's cwd for a relative CLAUDE_CONFIG_DIR"
+  case "$out" in
+    *"trusted:"*) fail "a registration was claimed for a store the worker may not read: $out" ;;
+  esac
+  pass "fm-claude-trust.sh: refuses a relative CLAUDE_CONFIG_DIR"
+}
+
 test_config_directory_is_refused() {
   local rec out
   rec=$(make_case config-dir)
@@ -318,7 +339,7 @@ test_missing_node_is_refused() {
   pass "fm-claude-trust.sh: a missing node is refused rather than degraded"
 }
 
-# Degrading on a missing interpreter must not soften the scope boundary, which
+# A missing interpreter must not soften the scope boundary, which
 # git and the filesystem decide on their own.
 test_scope_refusal_stays_fail_closed_without_node() {
   local rec out bindir
@@ -384,6 +405,7 @@ test_cdpath_cannot_defeat_the_primary_checkout_refusal
 test_git_env_overrides_cannot_defeat_the_primary_checkout_refusal
 test_home_directory_is_refused_even_when_it_is_a_worktree
 test_config_directory_is_refused
+test_relative_config_dir_is_refused
 test_non_git_directory_is_refused
 test_missing_directory_is_refused
 test_foreign_project_worktree_is_refused
