@@ -304,9 +304,47 @@ fm_lint_run_backend_purity() {
       if (quote != "") return 0
       return command_word ~ /(^|\/)bd$/
     }
+    function split_commands(line, segments,   position, character, quote, current, count) {
+      delete segments
+      count=0
+      current=""
+      quote=""
+      for (position=1; position <= length(line); position++) {
+        character=substr(line, position, 1)
+        if (quote != "") {
+          current=current character
+          if (character == quote) {
+            quote=""
+          } else if (quote == "\"" && character == "\\") {
+            position++
+            if (position <= length(line)) current=current substr(line, position, 1)
+          }
+          continue
+        }
+        if (character == "\\") {
+          current=current character
+          position++
+          if (position <= length(line)) current=current substr(line, position, 1)
+          continue
+        }
+        if (character == "\"" || character == sprintf("%c", 39)) {
+          quote=character
+          current=current character
+          continue
+        }
+        if (character ~ /[();|&]/) {
+          segments[++count]=current
+          current=""
+          continue
+        }
+        current=current character
+      }
+      segments[++count]=current
+      return count
+    }
     /^[[:space:]]*#/ { next }
     {
-      count=split($0, segments, /[();|&]+/)
+      count=split_commands($0, segments)
       for (i=1; i<=count; i++) {
         if (invokes_bd(segments[i])) {
           print FILENAME ":" FNR ": direct Beads CLI invocation bypasses tasks-axi"
