@@ -42,6 +42,15 @@ command -v tasks-axi >/dev/null 2>&1 || {
 
 # --- fixture ----------------------------------------------------------------
 
+# fm_tasks_axi_backend reads <addressing-root>/.tasks.toml and otherwise falls
+# through to the developer's ambient ~/.tasks-axi/config.toml. make_home pins
+# the home itself; a case that relocates its data directory is addressed from
+# that directory's own parent instead, so it pins that root too. Cases that
+# prove a root OUTSIDE the home is refused deliberately leave it unpinned.
+pin_markdown_backend() {  # <addressing-root>
+  printf '%s\n' 'backend = "markdown"' > "$1/.tasks.toml"
+}
+
 # A home with a real backlog, a real project clone with an origin, a pooled
 # worktree, and stubs for every tool the spawn path shells out to.
 make_home() {  # <name> [task-id...]
@@ -656,6 +665,7 @@ test_recovery_uses_the_parent_of_a_trailing_slash_data_record() {
   case_dir=$(make_home recovery-relocated-root)
   relocated="$case_dir/fm-records"
   mkdir -p "$relocated"
+  pin_markdown_backend "$case_dir"
   backlog="$relocated/backlog.md"
   printf '%s\n' '# Backlog' '' '## In flight' '' '## Queued' '' '## Done' > "$backlog"
   tasks-axi add "$id" "item for $id" --kind ship --file "$backlog" >/dev/null
@@ -678,6 +688,7 @@ test_completion_targets_a_nested_relative_data_directory() {
   relative_data=relocated/data
   data="$case_dir/$relative_data"
   mkdir -p "$case_dir/relocated"
+  pin_markdown_backend "$case_dir/relocated"
   mv "$(home_of "$case_dir")/data" "$data"
   data_resolved=$(cd "$data" && pwd -P)
   backlog="$data/backlog.md"
@@ -705,6 +716,7 @@ test_immediate_child_absolute_data_dispatches_and_completes() {
   local case_dir id data data_resolved backlog out
   id=atomic-immediate-child-data-b2
   case_dir=$(make_home immediate-child-data "$id")
+  pin_markdown_backend "$case_dir"
   data="$case_dir/fm-records"
   mv "$(home_of "$case_dir")/data" "$data"
   data_resolved=$(cd "$data" && pwd -P)
@@ -730,6 +742,7 @@ test_bare_relative_data_dispatches_and_completes() {
   local case_dir id data backlog out
   id=atomic-bare-relative-data-b2
   case_dir=$(make_home bare-relative-data "$id")
+  pin_markdown_backend "$case_dir"
   data="$case_dir/records"
   mv "$(home_of "$case_dir")/data" "$data"
   backlog="$data/backlog.md"
@@ -1163,6 +1176,7 @@ test_completion_records_a_relative_report_for_relocated_data() {
   case_dir=$(make_home close-relocated-scout)
   relocated="$case_dir/relocated/data"
   mkdir -p "$case_dir/relocated"
+  pin_markdown_backend "$case_dir/relocated"
   mv "$(home_of "$case_dir")/data" "$relocated"
   backlog="$relocated/backlog.md"
   tasks-axi add "$id" "item for $id" --kind scout --file "$backlog" >/dev/null
@@ -1190,6 +1204,7 @@ test_space_containing_scout_report_marker_replays() {
   case_dir=$(make_home space-report-replay)
   data="$case_dir/crew space/data"
   mkdir -p "$case_dir/crew space"
+  pin_markdown_backend "$case_dir/crew space"
   mv "$(home_of "$case_dir")/data" "$data"
   backlog="$data/backlog.md"
   tasks-axi add "$id" "item for $id" --kind scout --file "$backlog" >/dev/null
@@ -2337,7 +2352,7 @@ test_spawn_refuses_a_data_directory_symlinked_outside_the_home() {
   rmdir "$home/data"
   ln -s "$case_dir/outside" "$home/data"
 
-  out=$(run_ship_spawn "$case_dir" "$id") || rc=$?
+  out=$(TASKS_AXI_BACKEND=markdown run_ship_spawn "$case_dir" "$id") || rc=$?
   [ "$rc" -ne 0 ] || fail "spawn accepted a data directory resolving outside the home"
   assert_contains "$out" "backlog file authorized directory resolves outside this home" \
     "spawn did not identify the data directory escaping the home"
@@ -2443,6 +2458,7 @@ test_manual_backend_home_dispatches_and_completes_without_touching_the_backlog()
   id=atomic-manual-b12
   case_dir=$(make_home manual-backend "$id")
   printf '%s\n' manual > "$(home_of "$case_dir")/config/backlog-backend"
+  pin_markdown_backend "$case_dir"
   data="$case_dir/manual-data"
   mv "$(home_of "$case_dir")/data" "$data"
   data_resolved=$(cd "$data" && pwd -P)
