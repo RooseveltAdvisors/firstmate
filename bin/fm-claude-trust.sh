@@ -115,12 +115,19 @@ fi
 # one realistic failure, and re-reading catches it. A lost update would only
 # resurrect the dialog this registration exists to remove, so it must fail
 # loudly rather than report a trust it did not leave behind.
+#
+# The readback proves the entry landed, not that it survives: a vendor session
+# that rewrites the whole store after this returns can still drop it, and no
+# lock closes that window because the writer is Claude itself. The worker then
+# meets the dialog and stalls, which reaches firstmate as the ordinary stale
+# wake rather than as silent success, and a relaunch registers again.
 # ponytail: verify-and-retry, not a lock; flock is absent on macOS and cannot
 # stop a vendor session's own rewrite anyway. Reach for a lock only if
 # concurrent spawns are ever shown to exhaust the retries.
 if ! node - "$STORE" "$WT_REAL" <<'NODE'
 const fs = require("node:fs");
 const path = require("node:path");
+const crypto = require("node:crypto");
 const [store, worktree] = process.argv.slice(2);
 const attempt = () => {
   let root = {};
@@ -144,8 +151,13 @@ const attempt = () => {
   }
   entry.hasTrustDialogAccepted = true;
   projects[worktree] = entry;
-  const tmp = path.join(path.dirname(store), `.claude.json.fm-trust.${process.pid}`);
-  fs.writeFileSync(tmp, `${JSON.stringify(root, null, 2)}\n`, { mode: 0o600 });
+  // Unpredictable name plus an exclusive create: the config directory may be
+  // writable by another local account, and a predictable path could be
+  // pre-created there as a symlink that a plain write would follow into some
+  // other file this user owns. "wx" refuses an existing path outright.
+  const unique = `${process.pid}.${crypto.randomBytes(8).toString("hex")}`;
+  const tmp = path.join(path.dirname(store), `.claude.json.fm-trust.${unique}`);
+  fs.writeFileSync(tmp, `${JSON.stringify(root, null, 2)}\n`, { mode: 0o600, flag: "wx" });
   try {
     fs.renameSync(tmp, store);
   } catch (err) {
