@@ -43,3 +43,28 @@ fi
 [ -n "$FM_BACKLOG_ROW_ERROR" ] \
   || fail "an unresolvable data directory should name the failure"
 pass "fm_backlog_row_probe: an unresolvable data directory clears the prior probe's outputs"
+
+# A configured root addresses its own backend. Passing the markdown-era
+# `--file <data>/backlog.md` over a `.tasks.toml` that points somewhere else
+# probes the wrong file and reports a seeded row as missing.
+CONFIGURED_ROOT=$(fm_test_tmproot fm-backlog-row-probe-configured)
+mkdir -p "$CONFIGURED_ROOT/data"
+printf 'backend = "markdown"\n\n[markdown]\npath = "data/queue.md"\n' > "$CONFIGURED_ROOT/.tasks.toml"
+printf '# Backlog\n\n## In flight\n\n## Queued\n\n## Done\n' > "$CONFIGURED_ROOT/data/queue.md"
+tasks-axi add t2 "Mend the sail" --file="$CONFIGURED_ROOT/data/queue.md" >/dev/null \
+  || fail "fixture: could not seed the configured backlog row"
+
+if ! fm_backlog_row_probe "$CONFIGURED_ROOT/data" t2; then
+  fail "a probe of a configured-markdown home should succeed: $FM_BACKLOG_ROW_ERROR"
+fi
+[ "$FM_BACKLOG_ROW_RESULT" = found ] \
+  || fail "a configured-markdown row should report found, got '$FM_BACKLOG_ROW_RESULT'"
+[ "$FM_BACKLOG_ROW_TITLE" = "Mend the sail" ] \
+  || fail "a configured-markdown row should report its title, got '$FM_BACKLOG_ROW_TITLE'"
+pass "fm_backlog_row_probe: a configured root addresses its own backend"
+
+# Title and hold kind are orthogonal row annotations: a row carries its title
+# whether or not it is held, so neither output displaces the other.
+[ -z "${FM_BACKLOG_ROW_HOLD_KIND:-}" ] \
+  || fail "an unheld row should report no hold kind, got '$FM_BACKLOG_ROW_HOLD_KIND'"
+pass "fm_backlog_row_probe: title and hold kind are independent row annotations"
