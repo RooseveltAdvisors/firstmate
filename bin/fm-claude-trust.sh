@@ -122,6 +122,17 @@ PROJ_COMMON=$(common_dir_of "$PROJ_REAL") || true
 [ -n "$PROJ_COMMON" ] || refuse "project '$PROJ_REAL' is not inside a git repository"
 [ "$WT_COMMON" = "$PROJ_COMMON" ] || refuse "'$WT_REAL' is not a worktree of project '$PROJ_REAL'"
 
+# Every refusal above is decided by git and the filesystem alone, so the scope
+# boundary stays fail-closed with or without node. Only the store write needs an
+# interpreter, and a box without one must not lose every claude spawn to a
+# missing dependency, so this degrades the way the other node callers in bin/ do:
+# say plainly that the trust was not registered and that the worker may meet the
+# dialog, then let the spawn proceed.
+if ! command -v node >/dev/null 2>&1; then
+  echo "warning: node is not available, so Claude workspace trust was not pre-registered for '$WT_REAL'; the worker may stall on the workspace-trust dialog" >&2
+  exit 0
+fi
+
 STORE="$CONFIG_DIR_REAL/.claude.json"
 # A dotfile manager or a synced folder legitimately symlinks this store, so the
 # link is followed to its final target and every check below judges that target.

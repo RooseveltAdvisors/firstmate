@@ -67,6 +67,17 @@ assert_store_value() {  # <store> <expected-json> <msg> <key...>
   [ "$actual" = "$expected" ] || fail "$msg (expected $expected, got $actual)"
 }
 
+# A PATH carrying the tools the scope test needs but no node, so the
+# missing-interpreter path is exercised without disturbing the real PATH.
+node_free_path() {  # <case-dir> -> a bin dir holding the script's own tools but no node
+  local dir=$1/nonode-bin tool
+  mkdir -p "$dir"
+  for tool in bash env git mkdir; do
+    ln -sf "$(command -v "$tool")" "$dir/$tool"
+  done
+  printf '%s\n' "$dir"
+}
+
 test_fresh_worktree_is_trusted() {
   local rec out
   rec=$(make_case fresh)
@@ -289,6 +300,37 @@ test_symlinked_store_to_an_owned_target_is_accepted() {
   pass "fm-claude-trust.sh: follows a store symlink to this user's own file and leaves the link intact"
 }
 
+# Registering trust is what keeps a worker off the dialog, but a box with no
+# node must not lose every claude spawn to the missing interpreter, so this
+# degrades with a warning and a zero exit instead of refusing.
+test_missing_node_warns_and_lets_the_spawn_proceed() {
+  local rec out bindir
+  rec=$(make_case no-node)
+  read_case "$rec"
+  bindir=$(node_free_path "$CASE_DIR")
+  out=$(PATH="$bindir" run_trust "$CONFIG" "$WT" "$PROJ")
+  expect_code 0 $? "a missing node must not fail the spawn: $out"
+  assert_contains "$out" "node is not available" "the warning did not name the missing interpreter"
+  assert_contains "$out" "workspace-trust dialog" "the warning did not say the worker may meet the dialog"
+  case "$out" in
+    *"trusted:"*) fail "a registration was claimed although none could be written: $out" ;;
+  esac
+  pass "fm-claude-trust.sh: a missing node warns and lets the spawn proceed"
+}
+
+# Degrading on a missing interpreter must not soften the scope boundary, which
+# git and the filesystem decide on their own.
+test_scope_refusal_stays_fail_closed_without_node() {
+  local rec out bindir
+  rec=$(make_case no-node-refusal)
+  read_case "$rec"
+  bindir=$(node_free_path "$CASE_DIR")
+  out=$(PATH="$bindir" run_trust "$CONFIG" "$PROJ" "$PROJ")
+  expect_code 1 $? "the primary checkout must still be refused without node: $out"
+  assert_contains "$out" "primary checkout" "the refusal did not name the primary checkout"
+  pass "fm-claude-trust.sh: a scope refusal stays fail-closed without node"
+}
+
 test_corrupt_store_fails_closed() {
   local rec out store
   rec=$(make_case corrupt)
@@ -350,4 +392,6 @@ test_unrelated_store_content_is_preserved
 test_symlinked_store_to_a_foreign_owned_target_is_refused
 test_symlinked_store_to_an_owned_target_is_accepted
 test_corrupt_store_fails_closed
+test_missing_node_warns_and_lets_the_spawn_proceed
+test_scope_refusal_stays_fail_closed_without_node
 test_claude_spawn_pretrusts_its_worktree_and_reaches_the_brief

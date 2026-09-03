@@ -226,7 +226,54 @@ claude --help | grep -A 5 'workspace trust dialog'
 
 `--dangerously-skip-permissions` is a permission control and is absent from that bypass, so an interactive worker in a fresh worktree still reaches the dialog.
 Firstmate cannot answer it either, because its key plane carries only Enter, Escape, and C-c with no arrow navigation.
-`bin/fm-spawn.sh` therefore pre-registers the task worktree through `bin/fm-claude-trust.sh` before launch, and `tests/fm-claude-trust.test.sh` pins both halves of that contract: a fresh worktree is trusted, and an out-of-scope path is refused.
+Suppression itself was then observed directly on the same date and version, with a control arm and a treatment arm.
+
+The control arm launched a fresh linked worktree with no pre-registration, the way `bin/fm-spawn.sh` launches one.
+
+```sh
+tmux new-session -d -s tp-a -c /tmp/trustproof/wt-a \
+  "CLAUDE_CONFIG_DIR=<cfg> CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions '<brief>'"
+```
+
+```
+Accessing workspace: /tmp/trustproof/wt-a
+Quick safety check: Is this a project you created or one you trust? ...
+Claude Code'll be able to read, edit, and execute files here.
+> No, exit
+  Yes, I trust this folder
+Enter to confirm . Esc to cancel
+```
+
+That pane confirms two load-bearing claims at once: the dialog fires despite `--dangerously-skip-permissions`, and the selection cursor sits on `No, exit`, so a sent Enter would have exited the worker.
+
+The treatment arm pre-registered an equivalent fresh worktree and launched it identically against the operator's real config.
+
+```sh
+bin/fm-claude-trust.sh /tmp/trustproof/wt-c /tmp/trustproof/proj
+tmux new-session -d -s tp-c -c /tmp/trustproof/wt-c \
+  "CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions 'reply with exactly: BRIEF-REACHED'"
+```
+
+```
+trusted: /tmp/trustproof/wt-c
+```
+
+```
+Claude Code v2.1.259 ... /tmp/trustproof/wt-c
+> reply with exactly: BRIEF-REACHED
+. BRIEF-REACHED
+```
+
+No dialog appeared and the worker executed its brief with zero keypresses.
+All test entries were removed from the store afterwards and the scratch repo deleted.
+
+One limitation belongs beside that result.
+An intermediate arm run against an isolated `CLAUDE_CONFIG_DIR` holding only a copied `.claude.json` cleared the trust dialog but then surfaced the separate machine-scoped Bypass Permissions warning, which also defaults to `No, exit`.
+That gate is not a production blocker, because a normal environment has already accepted it and the treatment arm above ran against the real config and saw neither dialog.
+This change does not address that warning and does not claim to.
+
+`bin/fm-spawn.sh` therefore pre-registers the task worktree through `bin/fm-claude-trust.sh` before launch, and `tests/fm-claude-trust.test.sh` pins both halves of the scope contract: a fresh worktree is trusted, and an out-of-scope path is refused.
+That automated spawn case runs against a fake claude, so it asserts the store entry and the launch command and nothing more; the live arms above are what establish that the entry actually suppresses the dialog.
 The composer-classification record below observes the same gate from the other side, where an untrusted worktree left Claude, Grok, and Muse unverified because the guard reads a first-launch trust dialog as an unreadable composer.
 
 ## Composer classification matrix
