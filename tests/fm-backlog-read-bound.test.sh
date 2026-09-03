@@ -55,6 +55,17 @@ case "${1:-}" in
     sleep 300
     exit 0
     ;;
+  hold)
+    [ "${2:-}" = --help ] || exit 0
+    printf '%s\n' 'usage: tasks-axi hold <id> [flags]' '  --kind captain' '  --until <date>'
+    exit 0
+    ;;
+  add)
+    # Recorded, never silent: creating a row that already exists is the damage a
+    # timed-out read must never be spent on.
+    [ -z "${FM_TEST_TASKS_AXI_ADD_LOG:-}" ] || printf '%s\n' "$*" >> "$FM_TEST_TASKS_AXI_ADD_LOG"
+    exit 0
+    ;;
   list)
     printf 'count: 0\n'
     printf 'tasks[0]{id,state,kind,repo,title,blocked_by,hold_kind,hold_reason}:\n'
@@ -137,6 +148,63 @@ for SKIPPED in wedged-two wedged-three; do
     || fail "the latch is inert: $SKIPPED paid ${SKIPPED_ELAPSED}s against a known-wedged backend"
 done
 pass "after the first bound hit the sweep continues and names every remaining item without paying the bound again"
+
+# A padded zero is still zero, and `timeout 0` / `alarm 0` disable the deadline
+# outright, so a bound that only rejects the literal 0 silently restores the
+# unbounded read this whole change exists to prevent.
+PADDED_OUT="$UNIT/padded.out"
+PADDED_START=$(date +%s)
+PATH="$UNIT_FAKEBIN:$BASE_PATH" FM_BACKLOG_ROW_TIMEOUT_SECS=00 \
+  bash -c '
+    set -u
+    . "$1/bin/fm-tasks-axi-lib.sh"
+    . "$1/bin/fm-backlog-transition-lib.sh"
+    fm_backlog_row_probe "$2" padded-zero && printf "unexpected-success\n"
+    printf "error=%s\n" "$FM_BACKLOG_ROW_ERROR"
+  ' _ "$ROOT" "$UNIT/data" > "$PADDED_OUT" 2>&1
+PADDED_ELAPSED=$(elapsed_since "$PADDED_START")
+
+[ "$PADDED_ELAPSED" -lt "$BOUND_CEILING" ] \
+  || fail "a padded-zero bound disabled the deadline: the read ran ${PADDED_ELAPSED}s"
+case "$(sed -n 's/^error=//p' "$PADDED_OUT")" in
+  *padded-zero*bound*) ;;
+  *) fail "a padded-zero bound must fall back to the default bound and report it: $(cat "$PADDED_OUT")" ;;
+esac
+pass "a padded-zero bound falls back to the default instead of disabling the deadline"
+
+# --- a bound hit is not absence ---------------------------------------------
+#
+# Turning a hang into a fast 124 reaches every caller that reads a non-zero row
+# status as "this row does not exist". bin/fm-captain-hold.sh's hold path is the
+# one where that misreading corrupts: it would create a task that already
+# exists. The bound must stop the command instead.
+
+CAPTAIN="$TMP_ROOT/captain"
+CAPTAIN_FAKEBIN=$(fm_fakebin "$CAPTAIN")
+mkdir -p "$CAPTAIN/data" "$CAPTAIN/state" "$CAPTAIN/config"
+make_hanging_tasks_axi "$CAPTAIN_FAKEBIN"
+cp "$ROOT/.tasks.toml" "$CAPTAIN/.tasks.toml"
+printf '# Backlog\n' > "$CAPTAIN/data/backlog.md"
+
+ADD_LOG="$CAPTAIN/add.log"
+HOLD_OUT="$CAPTAIN/hold.out"
+HOLD_STATUS=0
+PATH="$CAPTAIN_FAKEBIN:$BASE_PATH" FM_HOME="$CAPTAIN" \
+  FM_STATE_OVERRIDE="$CAPTAIN/state" FM_DATA_OVERRIDE="$CAPTAIN/data" \
+  FM_CONFIG_OVERRIDE="$CAPTAIN/config" FM_BACKLOG_ROW_TIMEOUT_SECS="$BOUND_SECS" \
+  FM_TEST_TASKS_AXI_ADD_LOG="$ADD_LOG" \
+  "$ROOT/bin/fm-captain-hold.sh" hold wedged-hold --title 'Wedged hold' --reason 'backend wedged' \
+  > "$HOLD_OUT" 2>&1 || HOLD_STATUS=$?
+
+[ "$HOLD_STATUS" -ne 0 ] \
+  || fail "holding a task against a wedged backend must not report success: $(cat "$HOLD_OUT")"
+[ ! -s "$ADD_LOG" ] \
+  || fail "a timed-out read was spent as absence: tasks-axi add ran anyway: $(cat "$ADD_LOG")"
+case "$(cat "$HOLD_OUT")" in
+  *wedged-hold*bound*) ;;
+  *) fail "the refusal must name the item and the bound it hit, got: $(cat "$HOLD_OUT")" ;;
+esac
+pass "a bound hit stops a captain hold loudly instead of being read as a missing task"
 
 # --- half two: the digest still completes end to end ------------------------
 

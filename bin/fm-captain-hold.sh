@@ -350,10 +350,26 @@ require_tasks_axi() {
     || fail "tasks-axi does not expose the captain-hold contract"
 }
 
-task_show() {  # <id>
-  local data
+# Read one row into TASK_SHOW_OUTPUT; a non-zero return means the row is
+# absent. A read that could not finish inside its bound is NOT absence, and
+# every caller below would otherwise spend it as one - minting a duplicate task,
+# skipping a keyed answer, or reporting a task that exists as missing. So the
+# bound's own status stops the command instead, loudly and by name, and it
+# leaves 124 intact rather than collapsing to fail's 1 so a caller running this
+# inside a command substitution can still tell a wedged backend from a
+# genuinely unknown id.
+TASK_SHOW_OUTPUT=
+task_show() {  # <id>; sets TASK_SHOW_OUTPUT
+  local data status=0 reason
   data=$(fm_backlog_data_absolute "$DATA") || fail "data directory cannot be resolved: $DATA"
-  fm_backlog_row_show "$data" "$1" --full 2>/dev/null
+  TASK_SHOW_OUTPUT=$(fm_backlog_row_show "$data" "$1" --full 2>/dev/null) || status=$?
+  if [ "$status" -eq 124 ]; then
+    reason=${TASK_SHOW_OUTPUT%%$'\n'*}
+    printf 'fm-captain-hold: %s\n' \
+      "${reason:-tasks-axi show $1 exceeded its backlog read bound}" >&2
+    exit 124
+  fi
+  return "$status"
 }
 
 show_field() {  # <show-output> <field>
@@ -388,7 +404,7 @@ show_field_value() {  # <show-output> <field>
 origin_exists_here() {  # <origin-id>
   [ -f "$STATE/$1.meta" ] && return 0
   [ -f "$DATA/$1/report.md" ] && return 0
-  task_show "$1" >/dev/null 2>&1
+  task_show "$1"
 }
 
 list_has_key() {  # <comma-list> <key>
@@ -493,7 +509,8 @@ resolution_block() {  # <mode>
 # surviving even when a date gate has expired) or a recorded captain answer.
 verify_hold_durable() {  # <task-id>
   local id=$1 show state hold_kind body
-  show=$(task_show "$id") || fail "captain-held task $id is absent from this home's configured backlog (data directory $DATA)"
+  task_show "$id" || fail "captain-held task $id is absent from this home's configured backlog (data directory $DATA)"
+  show=$TASK_SHOW_OUTPUT
   state=$(show_field "$show" state)
   hold_kind=$(show_field_value "$show" hold_kind)
   body=$(show_field "$show" body)
@@ -699,13 +716,13 @@ resolve_migrated_entry() {  # <origin-or-empty> <entry>
 # migrated-prefix, so a caller can record which evidence carried the attestation.
 resolve_entry() {  # <origin-or-empty> <entry>; prints "<id> <how>" or fails
   local origin=$1 entry=$2 legacy migrated rc
-  if task_show "$entry" >/dev/null 2>&1; then
+  if task_show "$entry"; then
     printf '%s exact' "$entry"
     return 0
   fi
   if [ -n "$origin" ] && [ "$origin" != "$BINDING_ANY" ]; then
     legacy=$(legacy_hold_id "$origin" "$entry")
-    if task_show "$legacy" >/dev/null 2>&1; then
+    if task_show "$legacy"; then
       printf '%s legacy' "$legacy"
       return 0
     fi
@@ -798,7 +815,8 @@ command_hold() {
   esac
   acquire_task_control_lock "$id"
   require_tasks_axi
-  if show=$(task_show "$id"); then
+  if task_show "$id"; then
+    show=$TASK_SHOW_OUTPUT
     state=$(show_field "$show" state)
     [ "$state" != "done" ] \
       || fail "task $id is already closed; a new captain call needs its own task"
@@ -845,7 +863,8 @@ command_hold() {
     tasks_axi hold "$id" --reason "$reason" --kind captain >/dev/null \
       || fail "could not hold task $id for the captain"
   fi
-  show=$(task_show "$id") || fail "task $id disappeared while holding it"
+  task_show "$id" || fail "task $id disappeared while holding it"
+  show=$TASK_SHOW_OUTPUT
   hold_kind=$(show_field_value "$show" hold_kind)
   [ "$hold_kind" = captain ] || fail "task $id did not retain its captain hold"
   occurrence=$(( $(resolution_record_count "$(show_field "$show" body)") + 1 ))
@@ -958,7 +977,8 @@ command_answer() {
   load_decision "$decision_file"
   acquire_task_control_lock "$id"
   require_tasks_axi
-  show=$(task_show "$id") || fail "captain-held task $id is absent from this home's configured backlog (data directory $DATA)"
+  task_show "$id" || fail "captain-held task $id is absent from this home's configured backlog (data directory $DATA)"
+  show=$TASK_SHOW_OUTPUT
   state=$(show_field "$show" state)
   hold_kind=$(show_field_value "$show" hold_kind)
   body=$(show_field "$show" body)
@@ -994,7 +1014,8 @@ command_answer() {
       || fail "task $id was never held for the captain; nothing to record an answer on"
     write_resolution_record "$id" repaired "$body"
     remove_interrupted_answer_stamp "$id"
-    show=$(task_show "$id") || fail "task $id disappeared while recording the answer"
+    task_show "$id" || fail "task $id disappeared while recording the answer"
+    show=$TASK_SHOW_OUTPUT
     [ "$(show_field "$show" state)" = "done" ] || fail "recording the answer reopened closed task $id"
     body_has_resolution_record "$(show_field "$show" body)" \
       || fail "captain-held task $id did not retain its durable resolution record"
@@ -1031,7 +1052,8 @@ command_answer() {
       fail "could not close answered captain-held task $id"
     fi
     remove_interrupted_answer_stamp "$id"
-    show=$(task_show "$id") || fail "task $id disappeared after closing"
+    task_show "$id" || fail "task $id disappeared after closing"
+    show=$TASK_SHOW_OUTPUT
     body_has_resolution_record "$(show_field "$show" body)" \
       || fail "captain-held task $id did not retain its durable resolution record"
     publish_parent_resolution_then_retire "$id" "$occurrence" "$outcome"
@@ -1152,6 +1174,7 @@ sanitize_reconcile_provenance() {
 command_answers() {
   local origin='' source='' row rest key answer label mode id show state hold_kind body digest legacy_digest legacy_key
   local recorded_digest recorded_mode occurrence tmp err closed=0 skipped=0 reason release_flag tab=$'\t'
+  local resolve_rc
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --source) shift; source=${1:-} ;;
@@ -1212,6 +1235,12 @@ command_answers() {
       continue
     fi
     if [ "$resolve_rc" -ne 0 ]; then
+      # resolve_entry runs in a command substitution, so task_show's exit
+      # cannot stop this loop; only its status crosses back. 124 means the
+      # backend never answered, which is not the same as an unknown key and
+      # must not be spent as a skip.
+      [ "$resolve_rc" -ne 124 ] \
+        || fail "the backlog backend exceeded its read bound resolving $key"
       printf 'skipped: %s (no captain-held task with that id)\n' "$key"
       skipped=$((skipped + 1))
       continue
@@ -1231,7 +1260,8 @@ command_answers() {
     if [ -n "$legacy_key" ]; then
       legacy_digest=$(sha256_text "$(legacy_keyed_decision_text "$source" "$legacy_key" "$answer" "$label")")
     fi
-    show=$(task_show "$id") || { printf 'skipped: %s (absent)\n' "$id"; skipped=$((skipped + 1)); continue; }
+    task_show "$id" || { printf 'skipped: %s (absent)\n' "$id"; skipped=$((skipped + 1)); continue; }
+    show=$TASK_SHOW_OUTPUT
     state=$(show_field "$show" state)
     hold_kind=$(show_field_value "$show" hold_kind)
     body=$(show_field "$show" body)
@@ -1770,7 +1800,8 @@ command_diverged() {
       while IFS= read -r key; do
         list_has_line "$tokens" "$key" || continue
         [ "$(status_key_closing_verb "$f" "$key")" = "$resolve" ] || continue
-        show=$(task_show "$id") || continue
+        task_show "$id" || continue
+        show=$TASK_SHOW_OUTPUT
         [ "$(show_field "$show" state)" != "done" ] || continue
         [ "$(show_field_value "$show" hold_kind)" = captain ] || continue
         # The title is the only free-text field here, and the report is

@@ -326,10 +326,14 @@ fm_tasks_axi() {
 # process-wide because these scripts are short-lived and a backend that wedged
 # once will wedge again within the same run.
 fm_backlog_row_show() {  # <resolved-data-dir> <id> [flag...]
-  local data=$1 id=$2 file root backend status secs=${FM_BACKLOG_ROW_TIMEOUT_SECS:-10}
+  local data=$1 id=$2 file root backend out status secs=${FM_BACKLOG_ROW_TIMEOUT_SECS:-10}
   shift 2
-  # A non-positive or non-numeric bound is not a bound (fm-timeout-lib.sh).
-  case "$secs" in ''|*[!0-9]*|0) secs=10 ;; esac
+  # A non-positive bound is not a bound (fm-timeout-lib.sh), and a padded zero
+  # such as 00 is still zero, so the digits test alone would let the very read
+  # this bound exists to prevent back in. Compare arithmetically, tolerating a
+  # value too large for the shell to compare at all.
+  case "$secs" in ''|*[!0-9]*) secs=10 ;; esac
+  [ "$secs" -gt 0 ] 2>/dev/null || secs=10
   file=$(fm_backlog_file "$data") || return 1
   root=$(fm_backlog_root "$data") || return 1
   backend=$(fm_tasks_axi_backend "$root") || return 2
@@ -341,11 +345,17 @@ fm_backlog_row_show() {  # <resolved-data-dir> <id> [flag...]
     set -- "$@" --file "$file"
   fi
   # shellcheck disable=SC2016  # Expansion is deliberately deferred to the child shell.
-  fm_run_timed "$secs" bash -c 'cd "$1" 2>/dev/null || exit 1; shift; exec tasks-axi show "$@"' \
-    _ "$root" "$id" "$@" 2>&1
+  out=$(fm_run_timed "$secs" bash -c 'cd "$1" 2>/dev/null || exit 1; shift; exec tasks-axi show "$@"' \
+    _ "$root" "$id" "$@" 2>&1)
   status=$?
+  # A backend that wrote a header or a progress line before wedging leaves that
+  # fragment as the first output line, and every caller reads the first line as
+  # the failure reason. Whatever a timed-out read managed to emit is incomplete
+  # by definition, so the bound speaks for it instead.
   if [ "$status" -eq 124 ]; then
     printf 'tasks-axi show %s exceeded its %ss backlog read bound\n' "$id" "$secs"
+  else
+    printf '%s\n' "$out"
   fi
   return "$status"
 }
