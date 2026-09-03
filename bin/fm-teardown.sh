@@ -214,6 +214,16 @@ TEARDOWN_TARGETS=()
 FORCE=
 RETIRE_AUTH=
 RETIRE_AUTH_GIVEN=0
+# The target is positional-first (usage above), exactly as it was before this
+# script took options at all. Parsing the first argument as an option would
+# strand any task whose id happens to spell one - fm_task_id_path_safe permits
+# "--force" and "--retire-secondmate" - leaving its worktree and treehouse
+# lease allocated with no way to reach it. So the first argument is always a
+# target, and only the arguments after it are read as options.
+if [ "$#" -gt 0 ]; then
+  TEARDOWN_TARGETS+=("$1")
+  shift
+fi
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --force) FORCE=--force ;;
@@ -230,9 +240,8 @@ while [ "$#" -gt 0 ]; do
       RETIRE_AUTH=${1#*=}
       RETIRE_AUTH_GIVEN=1
       ;;
-    # Only a known option is an option: a task id may legitimately start with
-    # one or two dashes, and reading one as an option would strand its worktree
-    # forever. Same idiom as bin/fm-spawn.sh.
+    # Anything else is a target, not an unknown option: a task id may
+    # legitimately start with dashes. Same idiom as bin/fm-spawn.sh.
     *) TEARDOWN_TARGETS+=("$1") ;;
   esac
   shift

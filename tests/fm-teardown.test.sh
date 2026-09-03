@@ -2824,7 +2824,7 @@ test_retirement_authority_on_ordinary_task_refuses() {
 # cleaned up and its worktree and treehouse lease would leak.
 test_leading_dash_task_id_is_torn_down_as_a_target() {
   local dash_id case_dir rc
-  for dash_id in -foo --foo; do
+  for dash_id in -foo --foo --force --retire-secondmate; do
     case_dir=$(make_case "dash-id${dash_id}")
     fm_write_meta "$case_dir/state/$dash_id.meta" \
       "window=firstmate:fm-$dash_id" \
@@ -2852,7 +2852,7 @@ test_leading_dash_task_id_is_torn_down_as_a_target() {
       || fail "dash-id: the task id $dash_id was read as an option: $(tail -6 "$case_dir/stderr")"
     assert_absent "$case_dir/state/$dash_id.meta" "dash-id: teardown left the task record $dash_id behind"
   done
-  pass "a dash-leading task id is torn down as a target, not refused as an option"
+  pass "a dash-leading task id, including one spelling an option name, is torn down as a target"
 }
 
 test_multi_target_teardown_refuses_and_names_the_secondmates() {
