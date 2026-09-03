@@ -780,6 +780,24 @@ write_hold_set_stamp() {  # <task-id> <shown-body> <timestamp> <preserve-existin
   rm -f -- "$tmp"
 }
 
+# Resolve one entry and verify the row it names is durably captain-held. A
+# resolution failure that is not the read bound keeps resolve_entry's own
+# status - its stderr already named the entry; 124 means the backend never
+# answered, which is not the same as an unknown entry and must not be spent
+# as absence. On success prints "<id> <how>" so the caller can keep the
+# attestation evidence.
+verify_entry_durable() {  # <origin-or-empty> <entry>; prints "<id> <how>"
+  local origin=$1 entry=$2 resolved resolve_status=0
+  resolved=$(resolve_entry "$origin" "$entry") || resolve_status=$?
+  if [ "$resolve_status" -ne 0 ]; then
+    [ "$resolve_status" -ne 124 ] \
+      || fail "the backlog backend exceeded its read bound resolving $entry"
+    exit "$resolve_status"
+  fi
+  printf '%s\n' "$resolved"
+  verify_hold_durable "${resolved%% *}"
+}
+
 command_hold() {
   local id=${1:-} title='' reason='' repo='' origin='' until='' show state existing_title body='' hold_kind hold_set occurrence
   local existing_hold_kind='' existing_held='' preserve_hold_set=0
@@ -1614,13 +1632,9 @@ command_complete() {
   if [ -n "$keys" ]; then
     while IFS= read -r entry; do
       [ -n "$entry" ] || continue
-      if ! resolved=$(resolve_entry "$origin" "$entry"); then
-        # resolve_entry has already refused on stderr naming the entry.
-        exit 1
-      fi
+      resolved=$(verify_entry_durable "$origin" "$entry") || exit $?
       resolved_how=${resolved##* }
       resolved=${resolved%% *}
-      verify_hold_durable "$resolved"
       if [ "$resolved_how" = migrated-prefix ]; then
         attested_by_prefix="${attested_by_prefix}${attested_by_prefix:+ }$entry=$resolved"
       fi
@@ -1678,11 +1692,7 @@ command_verify() {
   if [ -n "$keys" ]; then
     while IFS= read -r entry; do
       [ -n "$entry" ] || continue
-      if ! resolved=$(resolve_entry "$origin" "$entry"); then
-        # resolve_entry has already refused on stderr naming the entry.
-        exit 1
-      fi
-      verify_hold_durable "${resolved%% *}"
+      verify_entry_durable "$origin" "$entry" >/dev/null
     done <<EOF
 $(printf '%s\n' "$keys" | tr ',' '\n')
 EOF

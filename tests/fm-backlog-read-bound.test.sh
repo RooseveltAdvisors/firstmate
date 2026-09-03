@@ -51,6 +51,12 @@ case "${1:-}" in
     exit 0
     ;;
   show)
+    # A real backend rejects an unusable id promptly instead of wedging, which
+    # is what makes a dropped 124 surface as "absent" rather than as a bound.
+    if [ -z "${2:-}" ]; then
+      printf 'code: NOT_FOUND\n' >&2
+      exit 1
+    fi
     # The wedge under test: a read that never returns.
     sleep 300
     exit 0
@@ -205,6 +211,34 @@ case "$(cat "$HOLD_OUT")" in
   *) fail "the refusal must name the item and the bound it hit, got: $(cat "$HOLD_OUT")" ;;
 esac
 pass "a bound hit stops a captain hold loudly instead of being read as a missing task"
+
+# The teardown gate reaches a row read through the same resolver, so the bound
+# hit has to survive the command substitution that carries the resolved id.
+fm_write_meta "$CAPTAIN/state/wedged-origin.meta" \
+  'window=firstmate:fm-wedged-origin' \
+  'worktree=/nonexistent/wedged-origin' \
+  'project=alpha' \
+  'harness=claude' \
+  'decisions_reviewed=1' \
+  'decision_keys=wedged-entry'
+
+VERIFY_OUT="$CAPTAIN/verify.out"
+VERIFY_STATUS=0
+PATH="$CAPTAIN_FAKEBIN:$BASE_PATH" FM_HOME="$CAPTAIN" \
+  FM_STATE_OVERRIDE="$CAPTAIN/state" FM_DATA_OVERRIDE="$CAPTAIN/data" \
+  FM_CONFIG_OVERRIDE="$CAPTAIN/config" FM_BACKLOG_ROW_TIMEOUT_SECS="$BOUND_SECS" \
+  "$ROOT/bin/fm-captain-hold.sh" verify wedged-origin > "$VERIFY_OUT" 2>&1 || VERIFY_STATUS=$?
+
+[ "$VERIFY_STATUS" -ne 0 ] \
+  || fail "verify must not attest an inventory it could not read: $(cat "$VERIFY_OUT")"
+case "$(cat "$VERIFY_OUT")" in
+  *absent*) fail "a bound hit was reported as an absent task: $(cat "$VERIFY_OUT")" ;;
+esac
+case "$(cat "$VERIFY_OUT")" in
+  *wedged-entry*bound*) ;;
+  *) fail "verify must name the entry it could not read and the bound it hit, got: $(cat "$VERIFY_OUT")" ;;
+esac
+pass "the teardown verify gate reports a bound hit by name instead of as an absent inventory entry"
 
 # --- half two: the digest still completes end to end ------------------------
 
