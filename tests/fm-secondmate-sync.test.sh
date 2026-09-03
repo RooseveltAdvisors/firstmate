@@ -1056,6 +1056,72 @@ test_remote_sync_reports_the_changed_instruction_surface() {
   pass "R1b a remote sync names exactly which instruction paths its advance changed"
 }
 
+# --- R1c: the remote leg keeps a home's .tasks.toml, and says so when it cannot -
+# The carry itself lives in ff_target, so a remote persistent home is covered by
+# it. The REPORTING is the part this leg can lose: it captures ff output to drive
+# its own protocol line, so a home that really did lose its backlog config is as
+# silent as if nothing carried it at all.
+test_remote_sync_carries_tasks_config_and_reports_a_loss() {
+  local w c_untrack c_seed before shim real_mktemp saved_path
+  w=$(new_remote_world remote-tasks-config)
+
+  # Pre-rename world: .tasks.toml is TRACKED, so a home running on it holds the
+  # very copy the rename below deletes.
+  printf 'backend = "markdown"\n\n[markdown]\npath = "data/backlog.md"\ndone_keep = 10\n' \
+    > "$w/main/.tasks.toml"
+  git -C "$w/main" add -A
+  git -C "$w/main" commit -qm seed-tasks-toml
+  c_seed=$(head_of "$w/main")
+
+  # The advance under test: the tracked file becomes a tracked example plus a
+  # gitignore entry, which is what removes a live home's copy.
+  git -C "$w/main" mv .tasks.toml .tasks.toml.example
+  printf '.tasks.toml\n' >> "$w/main/.gitignore"
+  git -C "$w/main" add -A
+  git -C "$w/main" commit -qm untrack-tasks-toml
+  c_untrack=$(head_of "$w/main")
+  git -C "$w/coderoot" fetch -q --no-tags "$w/main" "$c_untrack"
+
+  add_remote_home "$w" sm "$w/main" "$c_seed"
+  before=$(cat "$w/sm/.tasks.toml")
+  remote_sync "$w" sm "$c_untrack"
+
+  [ "$REMOTE_SYNC_RC" -eq 0 ] || fail "the untracking advance did not sync: $REMOTE_SYNC_OUT"
+  assert_contains "$REMOTE_SYNC_OUT" "synced: $c_untrack" "the sync result line was lost"
+  [ "$(cat "$w/sm/.tasks.toml")" = "$before" ] \
+    || fail "the remote sync did not preserve the home's .tasks.toml"
+  assert_contains "$REMOTE_SYNC_OUT" "sm/.tasks.toml, which the update removed" \
+    "the remote leg swallowed the restore it actually made"
+
+  # A home whose snapshot cannot be staged really does lose the file. Failing the
+  # carry's own temp file is the one deterministic way to reach that branch, and
+  # it is exactly the case the diagnostic exists for.
+  shim="$w/shim"
+  mkdir -p "$shim"
+  real_mktemp=$(command -v mktemp)
+  cat > "$shim/mktemp" <<SH
+#!/usr/bin/env bash
+case "\$*" in *fm-tasks-toml.*) exit 1 ;; esac
+exec "$real_mktemp" "\$@"
+SH
+  chmod +x "$shim/mktemp"
+
+  add_remote_home "$w" sm2 "$w/main" "$c_seed"
+  saved_path=$PATH
+  PATH="$shim:$PATH"
+  remote_sync "$w" sm2 "$c_untrack"
+  PATH=$saved_path
+
+  [ "$REMOTE_SYNC_RC" -eq 0 ] || fail "the unstageable advance did not sync: $REMOTE_SYNC_OUT"
+  [ ! -e "$w/sm2/.tasks.toml" ] \
+    || fail "precondition: an unstageable carry should leave the home without the file"
+  assert_contains "$REMOTE_SYNC_OUT" "sm2/.tasks.toml and it could not be restored" \
+    "the remote leg swallowed a home that lost its backlog config"
+  assert_contains "$REMOTE_SYNC_OUT" "synced: $c_untrack" \
+    "the protocol line must still be readable alongside the diagnostic"
+  pass "R1c a remote sync carries .tasks.toml and reports the home it could not carry"
+}
+
 test_remote_sync_imports_from_host_copy() {
   local w c1 c2 coderoot_before
   w=$(new_remote_world remote-import-host)
@@ -1365,6 +1431,7 @@ test_seed_marker_converges_existing_home
 test_seed_marker_does_not_mask_real_dirt
 test_remote_sync_targets_primary_not_host_copy
 test_remote_sync_reports_the_changed_instruction_surface
+test_remote_sync_carries_tasks_config_and_reports_a_loss
 test_remote_sync_imports_from_host_copy
 test_remote_sync_imports_from_origin
 test_remote_sync_uses_present_objects
