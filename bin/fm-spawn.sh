@@ -2586,6 +2586,24 @@ if [ "$RELAUNCH" -eq 1 ]; then
   RELAUNCH_REPLACEMENT_WT=$WT
 fi
 if [ "$KIND" != secondmate ]; then
+  # Pre-register Claude's workspace trust for this fresh worktree FIRST, before
+  # the busy-state generation is armed below. The dialog gates the pane before
+  # the brief is ever read, and it also gates loading the project settings
+  # written further down, so nothing else in this block takes effect without it.
+  # bin/fm-claude-trust.sh owns the structural scope test and refuses any path
+  # that is not this project's own isolated worktree; a refusal blocks the spawn
+  # rather than launching a worker that would wedge on a dialog firstmate cannot
+  # answer. It runs ahead of the arm so that refusal exits while there is still
+  # no busy record to strand: nothing between here and the rollback arming can
+  # clear one, and a stranded record reads as a task busy forever.
+  case "$HARNESS" in
+    claude*)
+      if ! "$FM_ROOT/bin/fm-claude-trust.sh" "$WT" "$PROJ_ABS" >/dev/null; then
+        echo "error: could not pre-register Claude workspace trust for $WT; refusing to launch a claude worker that would wedge on the trust dialog" >&2
+        exit 1
+      fi
+      ;;
+  esac
   # Arm the semantic busy-state contract (bin/fm-busy-lib.sh) for every
   # adapter with a verified semantic source. The launch brief sent below IS a
   # submitted turn, so the seed record is busy/fm-spawn. The minted gen is
@@ -2623,17 +2641,6 @@ if [ "$KIND" != secondmate ]; then
   esac
   case "$HARNESS" in
     claude*)
-      # Pre-register Claude's workspace trust for this fresh worktree FIRST.
-      # The dialog gates the pane before the brief is ever read, and it also
-      # gates loading the project settings written just below, so nothing else
-      # in this branch takes effect without it. bin/fm-claude-trust.sh owns the
-      # structural scope test and refuses any path that is not this project's
-      # own isolated worktree; a refusal blocks the spawn rather than launching
-      # a worker that would wedge on a dialog firstmate cannot answer.
-      if ! "$FM_ROOT/bin/fm-claude-trust.sh" "$WT" "$PROJ_ABS" >/dev/null; then
-        echo "error: could not pre-register Claude workspace trust for $WT; refusing to launch a claude worker that would wedge on the trust dialog" >&2
-        exit 1
-      fi
       # Semantic busy-state hooks (bin/fm-busy-lib.sh): UserPromptSubmit opens
       # a turn; Stop (normal completion), StopFailure (API-error turn end),
       # and SessionEnd (process shutdown) all close it, so an abnormal end can
