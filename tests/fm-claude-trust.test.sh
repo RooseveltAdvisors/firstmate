@@ -123,6 +123,24 @@ test_cdpath_cannot_defeat_the_primary_checkout_refusal() {
   pass "fm-claude-trust.sh: an exported CDPATH cannot defeat the scope refusal"
 }
 
+# The primary-checkout refusal reads the worktree's git dir, so a git dir this
+# user cannot resolve must refuse rather than satisfy the comparison by being
+# empty. Made unresolvable by removing traversal on the linked worktree's own
+# git dir, which is a real directory distinct from the shared common dir.
+test_unresolvable_git_dir_is_refused() {
+  local rec out gitdir
+  rec=$(make_case unresolvable-gitdir)
+  read_case "$rec"
+  gitdir=$(git -C "$WT" rev-parse --absolute-git-dir)
+  chmod 000 "$gitdir"
+  out=$(run_trust "$CONFIG" "$WT" "$PROJ")
+  set -- $?
+  chmod 755 "$gitdir"
+  expect_code 1 "$1" "a worktree whose git dir cannot be resolved must be refused: $out"
+  assert_not_trusted "$CONFIG/.claude.json" "$WT" "a worktree with an unresolvable git dir was trusted"
+  pass "fm-claude-trust.sh: refuses a worktree whose git dir cannot be resolved"
+}
+
 test_home_directory_is_refused_even_when_it_is_a_worktree() {
   local rec out home
   rec=$(make_case home-worktree)
@@ -284,6 +302,7 @@ test_fresh_worktree_is_trusted
 test_registration_is_idempotent
 test_primary_checkout_is_refused
 test_cdpath_cannot_defeat_the_primary_checkout_refusal
+test_unresolvable_git_dir_is_refused
 test_home_directory_is_refused_even_when_it_is_a_worktree
 test_config_directory_is_refused
 test_non_git_directory_is_refused

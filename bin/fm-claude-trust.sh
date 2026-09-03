@@ -99,6 +99,7 @@ WT_TOP_REAL=$(real_dir "$WT_TOP") || true
 WT_GIT_DIR=$(git -C "$WT_REAL" rev-parse --absolute-git-dir 2>/dev/null) || true
 [ -n "$WT_GIT_DIR" ] || refuse "'$WT_REAL' has no resolvable git directory"
 WT_GIT_DIR=$(real_dir "$WT_GIT_DIR") || true
+[ -n "$WT_GIT_DIR" ] || refuse "'$WT_REAL' has an unresolvable git directory"
 WT_COMMON=$(common_dir_of "$WT_REAL") || true
 [ -n "$WT_COMMON" ] || refuse "'$WT_REAL' has no resolvable git common directory"
 [ "$WT_GIT_DIR" != "$WT_COMMON" ] || refuse "'$WT_REAL' is a primary checkout, not an isolated worktree"
@@ -163,7 +164,7 @@ const attempt = () => {
   // other file this user owns. "wx" refuses an existing path outright.
   const unique = `${process.pid}.${crypto.randomBytes(8).toString("hex")}`;
   const tmp = path.join(path.dirname(store), `.claude.json.fm-trust.${unique}`);
-  fs.writeFileSync(tmp, `${JSON.stringify(root, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+  fs.writeFileSync(tmp, `${JSON.stringify(root)}\n`, { mode: 0o600, flag: "wx" });
   try {
     fs.renameSync(tmp, store);
   } catch (err) {

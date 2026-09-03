@@ -21,7 +21,8 @@ Claude gates a fresh worktree and cannot be answered by key, so the spawn pre-re
 Cursor suppresses its dialog with launch-time `--trust`, and Muse suppresses its own with `--yolo`.
 Pi and Grok dodge their gates instead of granting trust, by loading Firstmate's turn-end wiring from outside the worktree.
 Codex shows a directory-trust dialog on the first run for a repository root.
-A Claude secondmate is deliberately not pre-registered, because its home is a persistent checkout rather than an isolated task worktree and the scope test refuses it by design.
+A Claude secondmate is deliberately not pre-registered, because `../../../bin/fm-spawn.sh` runs its per-harness pre-launch setup only for non-secondmate kinds, so the registration is never invoked for one.
+That kind guard is the whole exclusion, because a treehouse-leased secondmate home is itself a linked worktree that the scope test would accept, and only a plain-clone home would be refused as a primary checkout.
 
 Use the tool's exact skill form, or natural language only when no separate command is verified or the form remains uncertain.
 A successful send or key return is not proof of submission; require the tool-specific postcondition.
