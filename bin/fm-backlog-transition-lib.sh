@@ -224,14 +224,21 @@ fm_backlog_markdown_file() {  # <data-dir>
   printf '%s/backlog.md\n' "$root"
 }
 
-fm_backlog_source_present() {  # <data-dir> <authorized-data-dir>
-  local data=$1 authorized_data=$2 root authorized_root file tasks_config
-  root=$(fm_backlog_root "$data") || return 1
-  authorized_root=$(fm_backlog_root "$authorized_data") || return 1
-  tasks_config="$root/.tasks.toml"
+# Any adapter selection, markdown path, or exemption derived from a home's
+# `.tasks.toml` is only as safe as that file, so validate it before reading it.
+fm_backlog_config_present() {  # <root> <authorized-root>
+  local root=$1 authorized_root=$2 tasks_config="$1/.tasks.toml"
   if [ -e "$tasks_config" ] || [ -L "$tasks_config" ]; then
     fm_backlog_record_present "$tasks_config" "tasks-axi config" "$authorized_root" || return 1
   fi
+  return 0
+}
+
+fm_backlog_source_present() {  # <data-dir> <authorized-data-dir>
+  local data=$1 authorized_data=$2 root authorized_root file
+  root=$(fm_backlog_root "$data") || return 1
+  authorized_root=$(fm_backlog_root "$authorized_data") || return 1
+  fm_backlog_config_present "$root" "$authorized_root" || return 1
   [ "$(fm_tasks_axi_backend "$root")" = markdown ] || return 0
   file=$(fm_backlog_markdown_file "$data") || return 1
   fm_backlog_record_present "$file" "backlog file" "$authorized_root"
@@ -258,7 +265,7 @@ fm_backlog_tasks_axi() {  # <data-dir> <verb> [arg...]
 
 
 fm_backlog_transition_applies() {  # <config-dir> <data-dir> <kind>
-  local config=$1 data authorized_data=$2 kind=$3 file root
+  local config=$1 data authorized_data=$2 kind=$3 file root authorized_root
   FM_BACKLOG_TRANSITION_SKIP=
   if [ "$kind" = secondmate ]; then
     FM_BACKLOG_TRANSITION_SKIP="secondmates are not backlog items"
@@ -273,6 +280,8 @@ fm_backlog_transition_applies() {  # <config-dir> <data-dir> <kind>
     return 2
   fi
   root=$(fm_backlog_root "$data") || return 2
+  authorized_root=$(fm_backlog_root "$authorized_data") || return 2
+  fm_backlog_config_present "$root" "$authorized_root" || return 2
   if [ "$(fm_tasks_axi_backend "$root")" = markdown ]; then
     file=$(fm_backlog_markdown_file "$data") || return 2
     if [ ! -e "$file" ] && [ ! -L "$file" ]; then
