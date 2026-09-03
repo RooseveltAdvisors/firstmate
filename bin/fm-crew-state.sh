@@ -377,8 +377,9 @@ nm_ci_checks_state() {
 # NON-TERMINAL matching row's status word, else the most recent terminal one
 # (running/completed/cancelled/failed), or empty when the branch has no
 # matching row within FM_CREW_STATE_RUNS_LIMIT rows. A same-branch row at an
-# unresolvable head stops the scan, but never discards an already
-# head-verified newer match.
+# unresolvable head stops the scan: an ACTIVE one answers empty, because a
+# live pipeline-owned run routinely has a lane head this worktree cannot
+# resolve, while a terminal one leaves a head-verified newer match standing.
 nm_runs_status_for_branch() {  # <branch>
   local branch=$1 out row st rest br sha newest_terminal=""
   out=$(nm_run runs --limit "$FM_CREW_STATE_RUNS_LIMIT")
@@ -398,11 +399,15 @@ nm_runs_status_for_branch() {  # <branch>
       # short-sha does not match this worktree (rewritten or advanced tip).
       if ! nm_coarse_head_matches_worktree "$sha"; then
         # An UNRESOLVABLE head is unknown attribution, not a proven
-        # mismatch. Stop instead of surfacing an older, superseded row; with
-        # nothing matched yet the caller's pane/log fallback answers without
-        # misattribution, and an already head-verified NEWER row still stands.
+        # mismatch, so stop instead of surfacing an older, superseded row. An
+        # ACTIVE row at an unresolvable head is the routine shape of a live
+        # pipeline-owned run whose lane head never reached this worktree, so
+        # it must not be answered with a terminal verdict; only a terminal
+        # unknown row leaves an already head-verified newer match standing.
         if ! fm_nm_head_resolvable "$WT" "$sha"; then
-          printf '%s' "$newest_terminal"
+          case "$st" in
+            completed|failed|cancelled) printf '%s' "$newest_terminal" ;;
+          esac
           return 0
         fi
         continue

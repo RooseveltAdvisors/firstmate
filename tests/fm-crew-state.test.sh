@@ -1522,9 +1522,9 @@ EOF
 }
 
 # The unresolvable-head stop must not un-answer a row already verified as this
-# worktree's. A terminal run at the exact head sits ABOVE an older row whose
-# pipeline lane head never reached this worktree, so the scan reaches the stop
-# holding a proven answer; an older unknown row cannot supersede it.
+# worktree's. A terminal run at the exact head sits ABOVE an older TERMINAL row
+# whose head this worktree cannot resolve, so the scan reaches the stop holding
+# a proven answer; an older dead unknown row cannot supersede it.
 test_coarse_older_unresolvable_row_keeps_newer_terminal_match() {
   reset_fakes
   local d short; d=$(new_case coarse-older-unresolvable)
@@ -1535,7 +1535,7 @@ test_coarse_older_unresolvable_row_keeps_newer_terminal_match() {
   FM_FAKE_AXI_STATUS="$(run_running fm/other-crew)"
   FM_FAKE_RUNS_LIST="$(cat <<EOF
   failed     fm/feat-keep ${short}  2026-09-03 13:55
-  running    fm/feat-keep f0f0f0f0  2026-09-03 13:50
+  cancelled  fm/feat-keep f0f0f0f0  2026-09-03 13:50
 EOF
 )"
   FM_FAKE_BUSY=1
@@ -1545,7 +1545,37 @@ EOF
   local out; out=$(run_crew_state "$d" feat-keep)
   assert_contains "$out" "state: failed" "the head-verified newer terminal row must still answer"
   assert_contains "$out" "source: run-step" "the verified row binds as run-step"
-  pass "an older unresolvable row does not discard a newer head-verified match"
+  pass "an older terminal unresolvable row does not discard a newer head-verified match"
+}
+
+# The same stop, with the older row ALIVE: a live pipeline-owned run's lane head
+# is routinely not a git object in the task worktree (rebase and fix commits
+# never pushed back), so an unresolvable ACTIVE row is genuine unknown
+# attribution. Answering it with the newer terminal row would report live work
+# as failed - the exact safety defect this selection order exists to prevent.
+test_coarse_older_unresolvable_live_row_never_reports_failed() {
+  reset_fakes
+  local d short; d=$(new_case coarse-older-unresolvable-live)
+  make_repo_on_branch "$d/wt" fm/feat-alive
+  short=$(git -C "$d/wt" rev-parse --short=8 HEAD)
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-alive.meta" "window=fm:fm-feat-alive" "worktree=$d/wt" "kind=ship" "harness=claude"
+  FM_FAKE_AXI_STATUS="$(run_running fm/other-crew)"
+  FM_FAKE_RUNS_LIST="$(cat <<EOF
+  failed     fm/feat-alive ${short}  2026-09-03 13:55
+  running    fm/feat-alive f0f0f0f0  2026-09-03 13:50
+EOF
+)"
+  FM_FAKE_BUSY=1
+  local gen; gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" feat-alive)
+  "$ROOT/bin/fm-busy-event.sh" apply "$d/state" feat-alive busy --gen "$gen" \
+    --source claude-hook --event user-prompt-submit
+  local out; out=$(run_crew_state "$d" feat-alive)
+  assert_not_contains "$out" "state: failed" "a live unresolvable row must not be answered with the newer failed row"
+  assert_not_contains "$out" "source: run-step" "unknown attribution must not bind a run"
+  assert_contains "$out" "state: working" "the busy crew reads working through the pane fallback"
+  assert_contains "$out" "source: pane" "unknown attribution falls to the pane, not the newer terminal row"
+  pass "an older unresolvable LIVE row is never reported as the newer terminal failure"
 }
 
 # Negative control: the exemption is gated on pipeline_owned specifically - any
@@ -1664,6 +1694,7 @@ test_failed_run_with_no_later_run_still_surfaces
 test_coarse_unresolvable_active_row_never_falls_to_older_row
 test_coarse_live_run_beats_terminal_run_at_exact_head
 test_coarse_older_unresolvable_row_keeps_newer_terminal_match
+test_coarse_older_unresolvable_live_row_never_reports_failed
 test_non_pipeline_owned_unresolvable_head_not_attributed
 test_pipeline_owned_terminal_run_not_exempt
 test_missing_run_head_falls_back_to_current_state
