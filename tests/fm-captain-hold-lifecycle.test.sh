@@ -639,7 +639,7 @@ test_secondmate_home_publishes_holds_and_answers() {
   parent=$(make_home parent-channel)
   mate="$TMP_ROOT/channel-mate-home"
   mkdir -p "$mate/data" "$mate/state" "$mate/config" "$mate/projects"
-  cp "$ROOT/.tasks.toml" "$mate/.tasks.toml"
+  cp "$ROOT/.tasks.toml.example" "$mate/.tasks.toml"
   printf '# Synthetic secondmate home\n' > "$mate/AGENTS.md"
   printf 'channel-mate\n' > "$mate/.fm-secondmate-home"
   printf 'schema=fm-secondmate-parent.v1\nroute=local\nparent_home=%s\n' "$parent" \

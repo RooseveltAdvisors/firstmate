@@ -151,7 +151,11 @@ if [ -f "$SECONDMATES_MD" ]; then
     home=$SECONDMATE_REGISTRY_HOME
     if [ "$SECONDMATE_REGISTRY_REMOTE" -eq 1 ]; then
       if remote_out=$("$SCRIPT_DIR/fm-on.sh" "$id" fm-remote-secondmate-control.sh update "$id" < /dev/null 2>&1); then
-        remote_result=$(printf '%s\n' "$remote_out" | tail -1)
+        tasks_config_report_lines "$remote_out"
+        # Select the host's protocol line by its own prefix rather than by
+        # position: the diagnostic above shares this capture, and ssh does not
+        # promise the host's stdout and stderr arrive interleaved in write order.
+        remote_result=$(printf '%s\n' "$remote_out" | grep -E '^(synced|current): ' | tail -1)
         case "$remote_result" in
           synced:*)
             remote_detail=${remote_result#synced: }

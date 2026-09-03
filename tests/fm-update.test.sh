@@ -287,6 +287,61 @@ EOF
   pass "T3e a legacy remote advance falls back to the re-read steer"
 }
 
+# --- T3f: a remote host's TASKS_CONFIG diagnostic reaches the operator -------
+# The carry runs on the host, so the host is the only place that fact exists. If
+# this lane drops the line, a remote home that lost its backlog addressing is
+# silent to the captain running /updatefirstmate - the exact failure the carry
+# exists to make loud. The host emits it AFTER its result line, because ssh does
+# not promise the two streams arrive in write order.
+test_remote_tasks_config_diagnostic_is_surfaced() {
+  local w out fake_ssh
+  w=$(new_world t3f)
+  fake_ssh="$w/fakebin/fake-ssh"
+  cat > "$fake_ssh" <<'SH'
+#!/usr/bin/env bash
+set -u
+cat > /dev/null
+while [ "$#" -gt 0 ]; do
+  case "$1" in -o) shift 2 ;; --) shift; break ;; *) exit 90 ;; esac
+done
+shift 2
+argv_b64=$4
+decode() { printf '%s' "$1" | base64 --decode 2>/dev/null || printf '%s' "$1" | base64 -D; }
+rargs=()
+while IFS= read -r -d '' a; do rargs+=("$a"); done < <(decode "$argv_b64")
+case "${rargs[1]:-}" in
+  update)
+    printf 'synced: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb instr=\n'
+    printf 'TASKS_CONFIG: the update removed /srv/sm1/.tasks.toml and it could not be restored\n'
+    ;;
+  state) printf 'alive\n' ;;
+  *) exit 91 ;;
+esac
+SH
+  chmod +x "$fake_ssh"
+  cat > "$w/home/state/sm1.meta" <<EOF
+window=remote:sm1
+endpoint_task_id=sm1
+worktree=/srv/sm1
+project=/srv/sm1
+harness=claude
+kind=secondmate
+home=/srv/sm1
+remote_host=remote-mac
+remote_backend=herdr
+EOF
+  printf -- '- sm1 - remote domain (host: remote-mac; root: /srv/fm; home: /srv/sm1; scope: things; projects: p; added 2026-09-03)\n' \
+    > "$w/home/data/secondmates.md"
+
+  out=$(FM_TEST_SSH_BIN="$fake_ssh" run_update "$w")
+
+  assert_contains "$out" "TASKS_CONFIG: the update removed /srv/sm1/.tasks.toml and it could not be restored" \
+    "the remote home's lost backlog config never reached the operator"
+  assert_contains "$out" "remote secondmate sm1: updated on remote-mac" \
+    "the host's result must still parse when a diagnostic shares its output"
+  pass "T3f a remote host's TASKS_CONFIG diagnostic reaches the operator"
+}
+
 # --- T4: dirty secondmate is skipped, its edit preserved -------------------
 test_dirty_secondmate_skipped() {
   local w out
@@ -564,6 +619,7 @@ test_bin_only_advance_never_restarts
 test_unprovable_runtime_gets_fallback_nudge
 test_dead_secondmate_gets_no_action
 test_legacy_remote_advance_is_nudged
+test_remote_tasks_config_diagnostic_is_surfaced
 test_dirty_secondmate_skipped
 test_diverged_secondmate_skipped
 test_idempotent_already_current

@@ -321,6 +321,21 @@ tasks_config_restore() {  # <dir>
   TASKS_CONFIG_CARRIED=no
 }
 
+# TASKS_CONFIG is a home-level diagnostic, not part of any caller's parseable
+# protocol, so a lane that CAPTURES ff output instead of letting it through must
+# re-emit these lines rather than swallow them: a home that lost its backlog
+# config has to be as loud on the remote lane as it is on the local one. The
+# prefix lives here, beside the only code that writes it.
+tasks_config_report_lines() {  # <captured-output>
+  printf '%s\n' "$1" | grep '^TASKS_CONFIG: ' || true
+}
+
+# The same capture with those lines taken out, for a caller that reports the rest
+# of the ff output as one reason string.
+tasks_config_strip_report_lines() {  # <captured-output>
+  printf '%s\n' "$1" | grep -v '^TASKS_CONFIG: ' || true
+}
+
 # List this home's LIVE secondmate direct reports from state/<id>.meta records.
 # The meta file is the liveness signal; data/secondmates.md is only the fallback
 # for durable fields such as home= when an older/incomplete meta lacks them.
