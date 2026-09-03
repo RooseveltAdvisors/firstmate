@@ -265,10 +265,12 @@ Claude Code v2.1.259 ... /tmp/trustproof/wt-c
 ```
 
 No dialog appeared and the worker executed its brief with zero keypresses.
-All test entries were removed from the store afterwards and the scratch repo deleted.
+The scratch repo was deleted and the test entries were removed from the store and verified absent.
+That verification is point-in-time rather than a durable guarantee, because a concurrent Claude session can re-add a path it visited: one entry reappeared after an earlier zero-residual check, most plausibly flushed by a session as it exited, and was removed again.
 
 One limitation belongs beside that result.
-An intermediate arm run against an isolated `CLAUDE_CONFIG_DIR` holding only a copied `.claude.json` cleared the trust dialog but then surfaced the separate machine-scoped Bypass Permissions warning, which also defaults to `No, exit`.
+An intermediate arm run against an isolated `CLAUDE_CONFIG_DIR` holding only a copied `.claude.json` cleared the trust dialog but then surfaced the separate machine-scoped Bypass Permissions warning.
+That warning rendered in the same shape as the trust dialog, with the selection cursor on `No, exit` and the footer `Enter to confirm . Esc to cancel`, so a sent Enter would end that worker too.
 That gate is not a production blocker, because a normal environment has already accepted it and the treatment arm above ran against the real config and saw neither dialog.
 This change does not address that warning and does not claim to.
 

@@ -25,7 +25,9 @@ Firstmate's key plane carries only Enter, Escape, and C-c with no arrow navigati
 A visible trust dialog means pre-registration did not take effect, so inspect the store and the spawn's error output rather than sending keys.
 
 The once-per-machine bypass-permissions confirmation is a separate dialog, scoped to the machine rather than the path, and pre-registration does not address it.
-Inspect the pane before answering that one, and confirm which dialog is on screen rather than sending Enter to whatever appeared.
+Never send Enter to that one either: it was observed rendering in the same shape as the trust dialog, with the selection on `No, exit` and the footer `Enter to confirm . Esc to cancel`, so Enter ends the session rather than accepting.
+Firstmate cannot move a selection with Enter, Escape, and C-c alone, so it cannot accept this dialog at all, and an operator accepts it once per machine instead.
+Inspect the pane to identify which dialog is on screen, and report it rather than answering it.
 
 ## Composer ghost
 

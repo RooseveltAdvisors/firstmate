@@ -235,7 +235,12 @@ const attempt = () => {
   // other file this user owns. "wx" refuses an existing path outright.
   const unique = `${process.pid}.${crypto.randomBytes(8).toString("hex")}`;
   const tmp = path.join(path.dirname(store), `.claude.json.fm-trust.${unique}`);
-  fs.writeFileSync(tmp, `${JSON.stringify(root)}\n`, { mode: 0o600, flag: "wx" });
+  // Two-space pretty-printed, because that is the format Claude Code itself
+  // writes: the store on the box this was measured on begins "{\n  " and runs
+  // 9646 lines. Compact would reformat the operator's whole config on every
+  // spawn and the vendor's next write would expand it again, so this must not
+  // be "simplified" to JSON.stringify(root) without re-measuring the vendor.
+  fs.writeFileSync(tmp, `${JSON.stringify(root, null, 2)}\n`, { mode: 0o600, flag: "wx" });
   let renamed = false;
   try {
     if (fingerprint(readStore()) !== before) return "moved";
