@@ -60,6 +60,9 @@ test_fresh_worktree_is_trusted() {
   expect_code 0 $? "a fresh linked worktree must be trusted: $out"
   assert_contains "$out" "trusted:" "registration did not report what it trusted"
   assert_trusted "$CONFIG/.claude.json" "$WT" "the worktree was not recorded as trusted"
+  # The staged write is renamed into place, so no temporary store may survive it.
+  [ -z "$(find "$CONFIG" -maxdepth 1 -name '.claude.json.fm-trust.*' -print -quit)" ] \
+    || fail "a temporary store file was left behind in the config directory"
   pass "fm-claude-trust.sh: a fresh task worktree is trusted"
 }
 
