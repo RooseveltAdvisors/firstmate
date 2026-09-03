@@ -89,6 +89,25 @@ test_primary_checkout_is_refused() {
   pass "fm-claude-trust.sh: refuses the primary checkout"
 }
 
+# CDPATH redirects a relative `cd` operand, and `git rev-parse
+# --git-common-dir` answers `.git` for a primary checkout. With a decoy on
+# CDPATH that also holds a `.git`, the common dir resolved for both arguments
+# once landed in the decoy instead, so the git-dir-vs-common-dir comparison
+# disagreed and the primary checkout was trusted.
+test_cdpath_cannot_defeat_the_primary_checkout_refusal() {
+  local rec out
+  rec=$(make_case cdpath)
+  read_case "$rec"
+  mkdir -p "$CASE_DIR/decoy/.git"
+  export CDPATH="$CASE_DIR/decoy"
+  out=$(run_trust "$CONFIG" "$PROJ" "$PROJ")
+  expect_code 1 $? "an exported CDPATH must not let the primary checkout through: $out"
+  unset CDPATH
+  assert_contains "$out" "primary checkout" "the refusal did not name the primary checkout"
+  assert_not_trusted "$CONFIG/.claude.json" "$PROJ" "an exported CDPATH let the primary checkout be trusted"
+  pass "fm-claude-trust.sh: an exported CDPATH cannot defeat the scope refusal"
+}
+
 test_home_directory_is_refused_even_when_it_is_a_worktree() {
   local rec out home
   rec=$(make_case home-worktree)
@@ -249,6 +268,7 @@ test_claude_spawn_pretrusts_its_worktree_and_reaches_the_brief() {
 test_fresh_worktree_is_trusted
 test_registration_is_idempotent
 test_primary_checkout_is_refused
+test_cdpath_cannot_defeat_the_primary_checkout_refusal
 test_home_directory_is_refused_even_when_it_is_a_worktree
 test_config_directory_is_refused
 test_non_git_directory_is_refused

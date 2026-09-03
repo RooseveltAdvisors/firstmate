@@ -42,6 +42,12 @@
 # worker reads, because fm-spawn.sh forwards its own resolved CLAUDE_CONFIG_DIR
 # onto the claude launch and an unset value is the single-store default.
 set -u
+# CDPATH would redirect any relative `cd` operand - notably the `.git` that
+# `git rev-parse --git-common-dir` returns for a primary checkout - into an
+# unrelated directory, which silently defeats the scope refusals below. Unset
+# once here so every subshell in this script inherits a resolution that only
+# ever means what it says.
+unset CDPATH
 
 [ "$#" -eq 2 ] || { echo "usage: fm-claude-trust.sh <worktree> <project>" >&2; exit 2; }
 WT_ARG=$1
@@ -49,14 +55,14 @@ PROJ_ARG=$2
 
 refuse() { echo "error: refusing to pre-register Claude trust: $1" >&2; exit 1; }
 
-real_dir() { (cd "$1" 2>/dev/null && pwd -P); }
+real_dir() { (cd -P -- "$1" 2>/dev/null && pwd -P); }
 
 # The resolved common dir of a git worktree, or empty. --git-common-dir can be
 # relative, so it is resolved from inside the worktree rather than joined here.
 common_dir_of() {
   local dir=$1 common
   common=$(git -C "$dir" rev-parse --git-common-dir 2>/dev/null) || return 1
-  (cd "$dir" && real_dir "$common")
+  (cd -P -- "$dir" && real_dir "$common")
 }
 
 WT_REAL=$(real_dir "$WT_ARG") || true
