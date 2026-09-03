@@ -220,7 +220,7 @@ fm_backlog_source_present() {  # <data-dir> <authorized-data-dir>
     fm_backlog_record_present "$file" "backlog file" "$authorized_data"
     return $?
   fi
-  fm_backlog_record_parent_authorized "$file" "backlog file" "$authorized_data"
+  fm_backlog_record_parent_authorized "$file" "backlog data directory" "$authorized_data"
 }
 
 # Run tasks-axi from the owning home's configuration root. This is the single
@@ -293,7 +293,7 @@ fm_backlog_row_list() {  # <resolved-data-dir> [flag...]
 }
 
 fm_backlog_row_probe() {  # <data-dir> <id>
-  local data authorized_data=$1 file id=$2 out state held blocked hold_kind command_status
+  local data authorized_data=$1 id=$2 out state held blocked hold_kind command_status
   if ! data=$(fm_backlog_data_absolute "$1"); then
     FM_BACKLOG_ROW_RESULT=error
     FM_BACKLOG_ROW_STATE=

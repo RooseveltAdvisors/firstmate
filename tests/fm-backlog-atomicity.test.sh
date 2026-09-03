@@ -2361,7 +2361,7 @@ test_configured_adapter_refuses_a_data_directory_outside_the_home() {
   out=$(TASKS_AXI_BACKEND=beads run_ship_spawn "$case_dir" "$id") || rc=$?
   [ "$rc" -ne 0 ] \
     || fail "a configured adapter accepted a data directory resolving outside the home"
-  assert_contains "$out" "backlog file authorized directory resolves outside this home" \
+  assert_contains "$out" "backlog data directory authorized directory resolves outside this home" \
     "a configured adapter did not identify the data directory escaping the home"
   assert_absent "$home/state/$id.meta" \
     "a configured adapter published a task record outside the home"
