@@ -275,7 +275,15 @@ make_spawn_fakebin() {
 fm_test_run_spawn() {
   local home=$1 pane=$2 fakebin=$3
   shift 3
-  FM_ROOT_OVERRIDE='' FM_HOME="$home" \
+  # A claude spawn pre-registers workspace trust in the launching user's own
+  # store (bin/fm-claude-trust.sh), so every spawn here runs against a throwaway
+  # HOME; without it the suite would write the developer's real ~/.claude.json.
+  # HOME rather than CLAUDE_CONFIG_DIR deliberately: the spawn forwards a SET
+  # CLAUDE_CONFIG_DIR onto the claude launch, so pinning it here would change the
+  # launch command every launch-shape assertion in the suite reads.
+  local spawn_home=${FM_TEST_SPAWN_USER_HOME:-$home/user-home}
+  mkdir -p "$spawn_home"
+  FM_ROOT_OVERRIDE='' FM_HOME="$home" HOME="$spawn_home" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
     FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
     FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$pane" TMUX="${TMUX:-fake,1,0}" \
