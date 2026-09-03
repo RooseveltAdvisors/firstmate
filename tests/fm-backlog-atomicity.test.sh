@@ -2290,6 +2290,30 @@ test_spawn_refuses_a_special_file_tasks_config() {
   pass "spawn refuses a special-file tasks-axi config instead of blocking on it"
 }
 
+test_spawn_refuses_an_unsafe_tasks_config_before_exempting_a_missing_backlog() {
+  local case_dir home id out rc=0
+  id=atomic-unsafe-config-b15
+  case_dir=$(make_home unsafe-config "$id")
+  home=$(home_of "$case_dir")
+  rm -f "$(backlog_of "$case_dir")"
+  mkdir -p "$case_dir/outside"
+  cat > "$case_dir/outside/tasks.toml" <<'EOF'
+backend = "markdown"
+
+[markdown]
+path = "records/tasks.md"
+EOF
+  ln -s "$case_dir/outside/tasks.toml" "$home/.tasks.toml"
+
+  out=$(run_ship_spawn "$case_dir" "$id") || rc=$?
+  [ "$rc" -ne 0 ] || fail "spawn accepted a tasks-axi config resolving outside the home"
+  assert_contains "$out" "tasks-axi config resolves outside its authorized directory" \
+    "spawn silently exempted the home instead of reporting the unsafe config"
+  assert_absent "$home/state/$id.meta" \
+    "spawn published a task record through an unsafe tasks-axi config"
+  pass "spawn refuses an unsafe tasks-axi config before any exemption is derived from it"
+}
+
 test_configured_markdown_path_receives_lifecycle_transitions() {
   local case_dir home id out
   id=atomic-configured-markdown-b15
@@ -2545,6 +2569,7 @@ test_teardown_rechecks_record_parent_after_lock_acquisition
 test_teardown_refuses_a_symlinked_state_directory_at_entry
 test_home_without_a_backlog_dispatches_and_completes
 test_spawn_refuses_a_special_file_tasks_config
+test_spawn_refuses_an_unsafe_tasks_config_before_exempting_a_missing_backlog
 test_configured_markdown_path_receives_lifecycle_transitions
 test_configured_markdown_path_preserves_hash_characters
 test_dispatch_and_completion_are_structural

@@ -759,7 +759,8 @@ SH
     "b'd' close fm-example" \
     "/usr/local/bin/b'd' close fm-example" \
     "\$'bd' close fm-example" \
-    '$"bd" close fm-example'
+    '$"bd" close fm-example' \
+    "' \"\$file\") && bd close fm-example"
   do
     printf '#!/usr/bin/env bash\n%s\n' "$invocation" > "$tmp/repo/bin/direct-beads.sh"
     rc=0

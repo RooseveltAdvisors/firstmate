@@ -261,6 +261,7 @@ fm_lint_run_backend_purity() {
         }
         current=current character
       }
+      if (quote != "") return split(line, segments, /[();|&]+/)
       segments[++count]=current
       return count
     }
