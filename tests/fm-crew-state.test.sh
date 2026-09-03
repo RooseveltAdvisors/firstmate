@@ -1599,6 +1599,30 @@ EOF
   pass "a live fixing row reads working rather than unknown"
 }
 
+# A re-armed ci run carries a checks-green status line written before the
+# re-arm, and the coarse arm cannot read the ci log to notice. Emitting done
+# there is not cosmetic: bin/fm-inactive-reconcile.sh hardens a done verdict
+# into a durable terminal outcome and wakes the supervisor while validation is
+# still running. Narrow by design - see task coarse-emit-currency-polarity.
+test_coarse_live_ci_row_with_stale_green_log_is_not_done() {
+  reset_fakes
+  local d short; d=$(new_case coarse-live-ci-stale-green)
+  make_repo_on_branch "$d/wt" fm/feat-rearm
+  short=$(git -C "$d/wt" rev-parse --short=8 HEAD)
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-rearm.meta" "window=fm:fm-feat-rearm" "worktree=$d/wt" "kind=ship" "harness=claude"
+  printf 'done: PR https://github.com/o/r/pull/9 checks green\n' > "$d/state/feat-rearm.status"
+  FM_FAKE_AXI_STATUS="$(run_running fm/other-crew)"
+  FM_FAKE_RUNS_LIST="$(cat <<EOF
+  ci         fm/feat-rearm ${short}  2026-09-03 14:00
+EOF
+)"
+  local out; out=$(run_crew_state "$d" feat-rearm)
+  assert_not_contains "$out" "state: done" "a re-armed ci run must not answer done from a stale checks-green line"
+  assert_contains "$out" "state: working" "the live ci run reads working"
+  pass "a live ci row does not emit done from a stale checks-green log line"
+}
+
 # A crew appends "done: PR <url> checks green" at the CI-ready return point and
 # stops, while the run keeps monitoring in the background and can re-enter
 # fixing later. The coarse arm cannot read the run status field (it belongs to
@@ -1797,6 +1821,7 @@ test_coarse_live_run_beats_terminal_run_at_exact_head
 test_coarse_older_unresolvable_row_keeps_newer_terminal_match
 test_coarse_full_scan_finds_live_row_below_terminal_rows
 test_coarse_live_fixing_row_reads_working_not_unknown
+test_coarse_live_ci_row_with_stale_green_log_is_not_done
 test_coarse_fixing_row_does_not_satisfy_stale_checks_green_log
 test_coarse_newer_unresolvable_terminal_row_suppresses_older_completed
 test_coarse_older_unresolvable_live_row_never_reports_failed

@@ -580,10 +580,21 @@ if [ "$HAVE_RUN" = 1 ]; then
     if [ "$RUN_SOURCE" = coarse ]; then
       # The coarse arm cannot read RUN_STATUS (RUN_OUT belongs to another
       # branch), so the runs-list status word carries the same invariant the
-      # full path enforces below: a live fix round never satisfies checks-green,
-      # because the log line was written before the run re-entered fixing.
-      [ "$COARSE_STATUS" = fixing ] || \
-        emit "done" status-log "$(status_line_note "$LOG_LINE")${SEP}run still monitoring PR"
+      # full path enforces below: a live fix or CI round never satisfies
+      # checks-green, because the log line was written before the run re-entered
+      # that phase. A re-armed ci run would otherwise emit a done that
+      # bin/fm-inactive-reconcile.sh hardens into a durable terminal outcome.
+      #
+      # This is a deliberately NARROW exclusion, not the general rule. The
+      # coarse arm cannot establish that a checks-green log line still speaks
+      # for the CURRENT run in any live state, `running` included, while the
+      # full arm below emits unless a not-ready CI state is proven - the
+      # opposite polarity. Task coarse-emit-currency-polarity owns that contract
+      # question; take it there rather than widening this list.
+      case "$COARSE_STATUS" in
+        fixing|ci) ;;
+        *) emit "done" status-log "$(status_line_note "$LOG_LINE")${SEP}run still monitoring PR" ;;
+      esac
     else
       [ -n "$CI_STEP_STATUS" ] || CI_STEP_STATUS=$(nm_effective_ci_step_status)
       if [ "$RUN_STATUS" = fixing ]; then
