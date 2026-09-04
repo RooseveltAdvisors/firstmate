@@ -1457,8 +1457,12 @@ check_no_mistakes_mirror_one() {  # <label> <clone> <root>
   local label=$1 clone=$2 root=$3 url
   git -C "$clone" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
   url=$(git -C "$clone" remote get-url no-mistakes 2>/dev/null || true)
-  case "$url" in
-    "$root"/repos/*) return 0 ;;
+  # A bare "/" root must not double the leading slash: "$root"/repos/* would
+  # become //repos/* and never match a healthy /repos/<repo>.git remote, and
+  # re-running no-mistakes init against the same root could never clear it.
+  case "$root" in
+    /) case "$url" in /repos/*) return 0 ;; esac ;;
+    *) case "$url" in "$root"/repos/*) return 0 ;; esac ;;
   esac
   [ -n "$url" ] || url=absent
   echo "NO_MISTAKES_MIRROR: $label remote=$url expected-root=$root (run no-mistakes init inside $clone to point its gate at the active root)"

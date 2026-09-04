@@ -1231,6 +1231,14 @@ NO_MISTAKES_MIRROR: absent remote=absent expected-root=$root_a (run no-mistakes 
   expect="NO_MISTAKES_MIRROR: firstmate remote=$root_b/repos/fm.git expected-root=/ (run no-mistakes init inside $case_dir/fm-root to point its gate at the active root)"
   [ "$out" = "$expect" ] \
     || fail "mirror check: a bare / NM_HOME must survive normalization, got: $out"
+  # With a bare / root the healthy prefix is /repos/*, not //repos/*: a remote
+  # already under it must stay silent (re-init could never produce a //repos
+  # URL, so the warning would be unfixable).
+  git -C "$case_dir/fm-root" remote set-url no-mistakes /repos/fm.git
+  out=$(PATH="$fakebin:$BASE_PATH" NM_HOME=/ FM_HOME="$home" \
+    FM_ROOT_OVERRIDE="$case_dir/fm-root" FM_FAKE_TREEHOUSE_LEASE_HELP=1 \
+    "$ROOT/bin/fm-bootstrap.sh")
+  [ -z "$out" ] || fail "mirror check: a bare / root should accept a /repos/* remote, got: $out"
 
   # The default resolution leg: with NM_HOME unset, the root is
   # ~/.no-mistakes, so a remote under it stays silent. The URL is a string
