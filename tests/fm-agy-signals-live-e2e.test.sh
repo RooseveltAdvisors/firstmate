@@ -32,7 +32,6 @@ SESSION=agy-signals
 TARGET="$SESSION:agy"
 VERSION=
 STORE="$HOME/.gemini/antigravity-cli/settings.json"
-STORE_BACKUP=
 REGISTRY="$HOME/.gemini/antigravity-cli/fm-turn-end.d"
 TOKEN=
 HOOK_INSTALLED=
@@ -41,11 +40,23 @@ HOOK_INSTALLED=
 # the success path, because a failed assertion exits through this trap: an
 # orphan task token left in the registry makes every later `remove` refuse, and
 # a deleted worktree left in trustedWorkspaces is invisible until it misroutes.
+#
+# Each mutation is unwound by REVERSING it, never by restoring a snapshot over
+# the store. This guard runs for minutes against the operator's live agy home,
+# and a `cp` of bytes read at the start would silently discard whatever their own
+# agy session wrote meanwhile - exactly the loss bin/fm-agy-trust.sh fingerprints
+# its reads to refuse. Withdrawing the spellings this run added leaves every
+# other entry, and every other key, as the vendor last wrote them.
 cleanup() {
   [ -n "$REAL_TMUX" ] && "$REAL_TMUX" -L "$SOCKET" kill-server >/dev/null 2>&1 || true
   [ -z "$TOKEN" ] || rm -f -- "$REGISTRY/$TOKEN"
   [ -z "$HOOK_INSTALLED" ] || "$ROOT/bin/fm-agy-turnend-hook.sh" remove >/dev/null 2>&1 || true
-  [ -f "$STORE_BACKUP" ] && cp "$STORE_BACKUP" "$STORE"
+  while IFS= read -r cleanup_path; do
+    [ -n "$cleanup_path" ] || continue
+    "$ROOT/bin/fm-agy-trust.sh" --remove "$cleanup_path" >/dev/null 2>&1 || true
+  done <<EOF
+$TRUST_ADDED
+EOF
   [ -z "$LAB" ] || rm -rf -- "$LAB"
 }
 trap cleanup EXIT
@@ -74,9 +85,6 @@ git -C "$PROJ" worktree add -q -b wt-agy-signals "$WT"
 # again below. A separate HOME would land on an unauthenticated agy and every
 # assertion would degrade into a login prompt.
 [ -f "$STORE" ] || fail "no agy settings store at $STORE; sign in to agy before running this guard"
-cp "$STORE" "$LAB/settings.json.bak"
-STORE_BACKUP="$LAB/settings.json.bak"
-restore_store() { cp "$STORE_BACKUP" "$STORE"; }
 
 capture() { "$REAL_TMUX" -L "$SOCKET" capture-pane -t "$TARGET" -p; }
 start_pane() {  # <command>
@@ -98,7 +106,8 @@ wait_for() {  # <regex> <seconds> <what>
 # 1. The dialog appears with the permission flag set. This is the whole reason
 # bin/fm-agy-trust.sh exists; if agy ever starts honouring the flag for
 # workspace trust, this failing is the signal to simplify, not a regression.
-restore_store
+# The worktree is a fresh mktemp path agy has never seen, so nothing has to be
+# reset to reach the unregistered starting state this asserts.
 start_pane "$AGY_BIN --dangerously-skip-permissions"
 wait_for 'Do you trust the contents of this project' 60 \
   "the workspace-trust dialog did not appear in a fresh worktree with --dangerously-skip-permissions; re-check whether the trust pre-seed is still needed"
@@ -161,5 +170,4 @@ done <<EOF
 $TRUST_ADDED
 EOF
 grep -Fq "$WT" "$STORE" && fail "the guard left its worktree in the operator's trusted workspaces"
-restore_store
 pass "the guard leaves the operator's store and hooks exactly as it found them"

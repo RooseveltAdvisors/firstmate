@@ -993,9 +993,12 @@ remove_turnend_auth() {  # <harness> <state-dir> <id>
 # and withdrawing after the return can revoke trust that task just registered,
 # wedging its worker on a dialog that draws no status text.
 #
-# Best effort: a store the vendor moved under it refuses rather than clobbering,
-# which must not strand an otherwise finished teardown. The record is dropped
-# either way - a retry would face the same store.
+# Best effort: a store the vendor moved under it, or one this user does not own,
+# refuses rather than clobbering, and that must not strand an otherwise finished
+# teardown. The record is dropped either way, because nothing reads it after this
+# teardown and retaining it would only be state with no reader - so a refusal
+# NAMES the path it could not withdraw and the exact command that finishes the
+# job, rather than leaving a dead path in the operator's settings unannounced.
 retire_agy_workspace_trust() {  # <state-dir> <id>
   local state_dir=${1:-} id=${2:-} record path
   [ -n "$state_dir" ] && [ -n "$id" ] || return 0
@@ -1003,7 +1006,11 @@ retire_agy_workspace_trust() {  # <state-dir> <id>
   [ -f "$record" ] && [ ! -L "$record" ] || return 0
   while IFS= read -r path; do
     case "$path" in
-      /*) "$SCRIPT_DIR/fm-agy-trust.sh" --remove "$path" >/dev/null || true ;;
+      /*)
+        "$SCRIPT_DIR/fm-agy-trust.sh" --remove "$path" >/dev/null || {
+          echo "warning: agy workspace trust for '$path' could not be withdrawn; this task's record is gone, so withdraw it by hand: $SCRIPT_DIR/fm-agy-trust.sh --remove '$path'" >&2
+        }
+        ;;
     esac
   done < "$record"
   rm -f -- "$record"

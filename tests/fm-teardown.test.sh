@@ -1418,6 +1418,33 @@ test_teardown_leaves_an_operator_trust_entry_this_task_never_registered() {
   pass "teardown leaves an operator's own trust entry alone when the task never registered one"
 }
 
+# The withdrawal is best effort and the record is dropped either way, so a refusal
+# is the one path where an entry outlives everything that could name it. It has to
+# say which path was stranded and how to finish the job, or the operator learns
+# about it the next time agy asks them to trust a directory they already trusted.
+test_teardown_names_a_trust_entry_it_could_not_withdraw() {
+  local case_dir agyhome store rc
+  case_dir=$(make_case agy-trust-refused)
+  write_meta "$case_dir" local-only ship
+  agyhome="$case_dir/agyhome"
+  store="$agyhome/.gemini/antigravity-cli/settings.json"
+  mkdir -p "$(dirname "$store")"
+  # A non-array trustedWorkspaces is one of the store shapes the trust script
+  # refuses outright rather than rewriting.
+  printf '%s\n' '{"enableTelemetry":false,"trustedWorkspaces":"not-an-array"}' > "$store"
+  printf '%s\n' "$case_dir/wt" > "$case_dir/state/task-x1.agy-trust"
+  rc=0
+  HOME="$agyhome" run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 0 "$rc" "agy-trust-refused: a refused withdrawal must not strand the teardown: $(cat "$case_dir/stderr")"
+  assert_grep "$case_dir/wt" "$case_dir/stderr" \
+    "agy-trust-refused: the refusal did not name the stranded workspace path"
+  assert_grep "fm-agy-trust.sh --remove" "$case_dir/stderr" \
+    "agy-trust-refused: the refusal did not name the command that finishes the job"
+  [ "$(node -e 'process.stdout.write(JSON.stringify(JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")).trustedWorkspaces))' "$store")" = '"not-an-array"' ] \
+    || fail "agy-trust-refused: the refused withdrawal rewrote the store anyway"
+  pass "teardown names the agy trust entry it could not withdraw, and the command to finish it"
+}
+
 test_local_only_force_overrides_unpushed() {
   local case_dir rc
   case_dir=$(make_case force-override)
@@ -2865,6 +2892,7 @@ test_teardown_retires_the_agy_workspace_trust_entry
 test_teardown_retires_the_agy_trust_entry_when_the_worktree_is_gone
 test_teardown_retires_the_agy_trust_before_releasing_the_worktree
 test_teardown_leaves_an_operator_trust_entry_this_task_never_registered
+test_teardown_names_a_trust_entry_it_could_not_withdraw
 test_secondmate_pr_registration_publishes_ready_line
 test_secondmate_home_teardown_delivers_final_line_or_refuses
 test_teardown_missing_busy_sidecar_completes
