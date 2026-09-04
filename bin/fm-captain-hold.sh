@@ -280,6 +280,9 @@ tasks_axi() {
   data=$(fm_backlog_data_absolute "$DATA") || fail "data directory cannot be resolved: $DATA"
   file=$(fm_backlog_file "$data") || fail "$FM_BACKLOG_TRANSITION_ERROR"
   root=$(fm_backlog_root "$data") || fail "$FM_BACKLOG_TRANSITION_ERROR"
+  # Holds and their answers are firstmate-owned state changes, so they carry
+  # firstmate's audit identity unless the caller already exported an actor.
+  fm_tasks_axi_export_actor
   (cd "$root" && tasks-axi "$@" --file "$file")
 }
 

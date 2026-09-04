@@ -19,7 +19,10 @@ command -v tasks-axi >/dev/null 2>&1 || { echo "skip: tasks-axi not found"; exit
 
 make_home() {  # <name>
   local home="$TMP_ROOT/$1" fakebin
-  mkdir -p "$home/data" "$home/state" "$home/config" "$home/projects"
+  mkdir -p "$home/data" "$home/config" "$home/projects"
+  # The process-event state-root contract requires a private directory, so the
+  # fixture must not inherit an ambient group-writable umask for it.
+  (umask 077; mkdir -p "$home/state")
   cp "$ROOT/.tasks.toml" "$home/.tasks.toml"
   cat > "$home/data/backlog.md" <<'EOF'
 ## In flight

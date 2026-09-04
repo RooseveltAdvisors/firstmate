@@ -285,7 +285,11 @@ fm_backlog_row_probe() {  # <data-dir> <id>
 }
 
 # Run one tasks-axi mutation against <home>'s backlog, capturing its first
-# output line in FM_BACKLOG_TRANSITION_ERROR on failure.
+# output line in FM_BACKLOG_TRANSITION_ERROR on failure. The mutation carries
+# the caller's exported audit-trail actor, defaulting to firstmate's own
+# identity through fm_tasks_axi_export_actor (bin/fm-spawn.sh deliberately
+# pre-exports the worker's task id so a dispatch claim is attributed to the
+# worker that takes the work).
 fm_backlog_mutate() {  # <data-dir> <verb> <id> [flag...]
   local data authorized_data=$1 file verb=$2 id=$3 out command_status
   if ! data=$(fm_backlog_data_absolute "$1"); then
@@ -296,6 +300,7 @@ fm_backlog_mutate() {  # <data-dir> <verb> <id> [flag...]
   FM_BACKLOG_TRANSITION_ERROR=
   file=$(fm_backlog_file "$data") || return 1
   fm_backlog_record_present "$file" "backlog file" "$authorized_data" || return 1
+  fm_tasks_axi_export_actor
   out=$(cd "$(fm_backlog_root "$data")" 2>/dev/null && tasks-axi "$verb" "$id" \
       --file "$file" "$@" 2>&1)
   command_status=$?

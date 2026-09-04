@@ -1003,6 +1003,14 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
 fi
 ID=${POS[0]}
 fm_task_id_creation_valid "$ID" || { echo "error: invalid task id" >&2; exit 2; }
+# Attribute this task's Beads audit trail to the worker identity: the dispatch
+# claim below and every claim, hold, or close the worker drives record who did
+# it (bd reads $BEADS_ACTOR; tasks-axi's beads backend shells out to bd). The
+# task id IS the registered secondmate name for a --secondmate spawn, so one
+# value covers crewmates, scouts, and secondmates. An inherited value is
+# deliberately replaced: the worker's writes belong to the worker, not to
+# whatever session launched it.
+export BEADS_ACTOR="$ID"
 if [ -e "$STATE" ] || [ -L "$STATE" ]; then
   fm_backlog_directory_present "$STATE" "state directory" || {
     echo "error: spawn refused: $FM_BACKLOG_TRANSITION_ERROR" >&2
@@ -3231,6 +3239,12 @@ spawn_record_traceparent() {
 # process (go build, go test, ...) inherit it. Sent before the launch command so
 # the env is set when the agent starts; the brief sleep lets the export land.
 spawn_send_text_line "$T" "export GOTMPDIR=$TASK_TMP/gotmp"
+# Ship the worker's audit identity through the same pane channel: pane
+# processes do not inherit this launcher's environment, so the export must be
+# delivered before the launch command for the agent and its children to
+# inherit it. BEADS_ACTOR is already exported in this process for the dispatch
+# claim; this line extends it to the worker's own tasks-axi and bd writes.
+spawn_send_text_line "$T" "export BEADS_ACTOR=$(shell_quote "$ID")"
 # Send through the exact channel that already ships GOTMPDIR, so every backend
 # and harness - ship, scout, and secondmate - gets it before launch. Skipped
 # entirely when trace context is off.
