@@ -7,18 +7,26 @@
 # capacity silently shrinks. This sweep makes stale claims reclaim themselves.
 #
 # Usage:
-#   fm-stale-sweep.sh [sweep] [--apply] [--older-than <hours>]
+#   fm-stale-sweep.sh [sweep] [--apply] [--apply-orphans] [--older-than <hours>]
 #   fm-stale-sweep.sh check
 #   fm-stale-sweep.sh arm
 #   fm-stale-sweep.sh disarm
 #   fm-stale-sweep.sh --help
 #
-# Default is a dry run: it prints a table (id, home, age, verdict, action) and a
-# summary line with the count of rows it would reclaim. `--apply` performs the
-# reclaims. `--older-than <hours>` overrides the default 24-hour staleness
-# threshold (measured from the row's updated_at - the last recorded graph
-# activity - so an actively-touched claim is never stale however old its
-# started_at is).
+# Default is a dry run: it prints a table (id, home, age, verdict, action,
+# actor, provenance) and a summary line with the count of rows it would
+# reclaim. `--apply` performs the reclaims. `--older-than <hours>` overrides
+# the default 24-hour staleness threshold (measured from the row's updated_at
+# - the last recorded graph activity - so an actively-touched claim is never
+# stale however old its started_at is; the AGE column always shows the row's
+# true age against the same clock, never threshold-shifted). No-home rows
+# additionally carry the row's own ownership evidence in the ACTOR column
+# (the tasks-axi claim marker's kind/repo) and the PROV column (the first 40
+# characters of its provenance line), so a reviewer can rule on orphans
+# without opening each bead. `--apply-orphans` (default off) reclaims a
+# no-home row only when it is older than 48 hours, carries no claim marker,
+# and has no landing URL in its description; without the flag orphan rows are
+# listed and kept.
 #
 # Selection and reclaim, per row:
 #   1. `bd list --all --json` reads the shared graph to a temp file (never
@@ -110,7 +118,7 @@ RECORD_SCHEMA=fm-stale-sweep-v1
 usage() {
   cat <<'EOF'
 Usage:
-  fm-stale-sweep.sh [sweep] [--apply] [--older-than <hours>]   sweep the shared Beads graph for dead-endpoint claims
+  fm-stale-sweep.sh [sweep] [--apply] [--apply-orphans] [--older-than <hours>]   sweep the shared Beads graph for dead-endpoint claims
   fm-stale-sweep.sh check    watcher check mode: silent unless rows are reclaimable
   fm-stale-sweep.sh arm      write and register state/stale-sweep.check.sh
   fm-stale-sweep.sh disarm   remove the check shim, its trust binding, and the record
@@ -521,6 +529,8 @@ FM_STALE_COUNT_NOHOME=0
 FM_STALE_RECLAIMED=0
 FM_STALE_APPLY_FAILED=0
 FM_STALE_UNCONSIDERED=0
+FM_STALE_ORPHANS_RECLAIMED=0
+FM_STALE_ORPHANS_ELIGIBLE=0
 
 fm_stale_sweep() {  # <apply 0|1> <budget-secs 0-unbounded> <cutoff-epoch>
   local apply=$1 budget=$2 cutoff=$3 tmp rows start now id age_h desc ask_timeout remaining bd_timeout
@@ -535,15 +545,15 @@ fm_stale_sweep() {  # <apply 0|1> <budget-secs 0-unbounded> <cutoff-epoch>
     rm -f -- "$tmp"
     return 1
   fi
-  rows=$(jq -r --argjson cutoff "$cutoff" '
+  rows=$(jq -r --argjson cutoff "$cutoff" --argjson now "$(record_epoch_now)" '
     .[] | select(.status == "in_progress") | select(.updated_at)
         | (.updated_at | fromdateiso8601?) as $epoch
         | select($epoch != null) | select($epoch < $cutoff)
-        | [(.id // ""), (((($cutoff - $epoch) / 3600) | floor) | tostring), (.description // "")]
+        | [(.id // ""), (((($now - $epoch) / 3600) | floor) | tostring), (.description // "")]
         | @tsv' "$tmp" 2>/dev/null)
   rm -f -- "$tmp"
   [ -n "$rows" ] || return 0
-  printf '%-42s %-18s %-7s %-9s %s\n' ID HOME AGE VERDICT ACTION
+  printf '%-42s %-18s %-7s %-9s %-24s %-13s %s\n' ID HOME AGE VERDICT ACTION ACTOR PROV
   while IFS=$'\t' read -r id age_h desc; do
     [ -n "$id" ] || continue
     ask_timeout=$STATE_TIMEOUT
@@ -565,7 +575,7 @@ EOF
 
 fm_stale_consider() {  # <apply> <id> <age-hours> <escaped description> <ask-timeout>
   local apply=$1 id=$2 age_h=$3 desc=$4 ask_timeout=$5 home actor state_line verdict action reason
-  local mutation_home
+  local mutation_home row_actor="" row_prov=""
   if fm_stale_resolve_home "$id" "$desc"; then
     home=$FM_STALE_RESOLVED_HOME
     actor=$FM_STALE_HOME_ACTOR
@@ -576,6 +586,10 @@ fm_stale_consider() {  # <apply> <id> <age-hours> <escaped description> <ask-tim
     home=-
     actor=-
     verdict=no-home
+    # Orphan rows carry their own ownership evidence for the reviewer: the
+    # claim marker tasks-axi embedded and the provenance line, if any.
+    row_actor=$(fm_stale_row_actor "$desc")
+    row_prov=$(fm_stale_row_prov "$desc")
   fi
   case "$verdict" in
     dead) FM_STALE_COUNT_DEAD=$((FM_STALE_COUNT_DEAD + 1)) ;;
@@ -605,8 +619,26 @@ fm_stale_consider() {  # <apply> <id> <age-hours> <escaped description> <ask-tim
     else
       action='would reclaim'
     fi
+  elif [ "$verdict" = no-home ] && [ "$APPLY_ORPHANS" = 1 ] \
+       && fm_stale_orphan_eligible "$age_h" "$desc"; then
+    # An orphan row has no home to ask, so its own recorded evidence decides:
+    # 48h+ of age, no claim marker, and no landing URL. The graph-owning sweep
+    # home performs the reclaim; the note names the unknown claimant.
+    if [ "$apply" = 1 ]; then
+      if reason=$(fm_stale_reclaim "$FM_HOME" "$FM_HOME" "$id" unknown); then
+        action='reclaimed (orphan)'
+        FM_STALE_RECLAIMED=$((FM_STALE_RECLAIMED + 1))
+        FM_STALE_ORPHANS_RECLAIMED=$((FM_STALE_ORPHANS_RECLAIMED + 1))
+      else
+        action="reclaim failed: $reason"
+        FM_STALE_APPLY_FAILED=$((FM_STALE_APPLY_FAILED + 1))
+      fi
+    else
+      action='would reclaim (orphan)'
+      FM_STALE_ORPHANS_ELIGIBLE=$((FM_STALE_ORPHANS_ELIGIBLE + 1))
+    fi
   fi
-  printf '%-42s %-18s %-7s %-9s %s\n' "$id" "$(fm_stale_home_label "$home" "$actor")" "${age_h}h" "$verdict" "$action"
+  printf '%-42s %-18s %-7s %-9s %-24s %-13s %s\n' "$id" "$(fm_stale_home_label "$home" "$actor")" "${age_h}h" "$verdict" "$action" "${row_actor:--}" "${row_prov:--}"
 }
 
 # One readable home label for the table: the actor id when known, else the
@@ -624,6 +656,46 @@ fm_stale_home_label() {  # <home> <actor>
   printf '%s' "$(basename "$home")"
 }
 
+# The row's own recorded claim actor: the tasks-axi marker embedded in its
+# description decodes to {"kind":...,"repo":...}. Empty when the row was
+# created outside tasks-axi and nothing else recorded who claimed it.
+fm_stale_row_actor() {  # <escaped description>
+  local marker
+  marker=$(printf '%s\n' "$1" | sed -n 's/.*tasks-axi:beads\/v1:\([A-Za-z0-9+/=]*\).*/\1/p' | head -1)
+  [ -n "$marker" ] || return 0
+  printf '%s\n' "$marker" | jq -Rr '
+    . + ((4 - (length % 4)) % 4) * "="
+    | @base64d
+    | (try fromjson catch null)
+    | if . == null then empty
+      else ((.kind // "?") + "/" + (.repo // "-"))
+      end' 2>/dev/null
+}
+
+# The first 40 characters of the row's provenance line, if any, for reviewers
+# ruling on orphan rows without opening each bead. The description arrives
+# @tsv-escaped, so the line's end reads as a literal backslash-n.
+fm_stale_row_prov() {  # <escaped description>
+  printf '%s\n' "$1" \
+    | sed -n 's/.*\(Provenance:[^\\]*\).*/\1/p' \
+    | head -1 \
+    | cut -c1-40
+}
+
+# A no-home row is orphan-reclaimable only when ALL THREE guards pass: older
+# than 48 hours against the sweep clock, no recorded claim actor, and no
+# landing URL in its description (a PR or merge link means the work may have
+# landed even though no home claims the row).
+FM_STALE_ORPHAN_MIN_AGE_HOURS=48
+fm_stale_orphan_eligible() {  # <age-hours> <escaped description>
+  local age_h=$1 desc=$2
+  case "$age_h" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$age_h" -ge "$FM_STALE_ORPHAN_MIN_AGE_HOURS" ] || return 1
+  [ -z "$(fm_stale_row_actor "$desc")" ] || return 1
+  printf '%s\n' "$desc" | grep -q 'https\{0,1\}://' && return 1
+  return 0
+}
+
 fm_stale_budget_cut_note() {
   [ -n "$BUDGET_CUT_FROM" ] || return 0
   printf 'note: FM_STALE_SWEEP_BUDGET_SECS %s cut to %s to fit FM_CHECK_TIMEOUT\n' "$BUDGET_CUT_FROM" "$BUDGET_SECS"
@@ -632,7 +704,7 @@ fm_stale_budget_cut_note() {
 fm_stale_summary() {  # <apply 0|1>
   local apply=$1 reclaim_word reclaim_count
   reclaim_word='would reclaim'
-  reclaim_count=$FM_STALE_COUNT_DEAD
+  reclaim_count=$((FM_STALE_COUNT_DEAD + FM_STALE_ORPHANS_ELIGIBLE))
   if [ "$apply" = 1 ]; then
     reclaim_word=reclaimed
     reclaim_count=$FM_STALE_RECLAIMED
@@ -767,6 +839,7 @@ action_disarm() {
 
 ACTION=sweep
 APPLY=0
+APPLY_ORPHANS=0
 while [ $# -gt 0 ]; do
   case "$1" in
     sweep|check|arm|disarm)
@@ -774,6 +847,7 @@ while [ $# -gt 0 ]; do
       ACTION=$1
       ;;
     --apply) APPLY=1 ;;
+    --apply-orphans) APPLY_ORPHANS=1 ;;
     --older-than)
       [ $# -ge 2 ] || die_usage "--older-than needs <hours>"
       case "$2" in ''|*[!0-9]*|0) die_usage "--older-than needs a positive whole number of hours" ;; esac

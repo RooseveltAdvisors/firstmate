@@ -101,12 +101,36 @@ path = "data/backlog.md"
 archive = "data/done-archive.md"
 done_keep = 10
 EOF
+  # Every fixture row creation is loud: a swallowed failure here reads later
+  # as an empty sweep table on some other machine, which is exactly the CI
+  # failure mode this suite once shipped with. The captured log is printed
+  # by the fail below so the runner's actual error is in the log.
+  fxlog="$case_dir/fixture-create.log"
+  : > "$fxlog"
+  fx() {
+    if ! "$@" >>"$fxlog" 2>&1; then
+      cat "$fxlog" >&2
+      fail "fixture row creation failed: $*"
+    fi
+  }
   for id in fm-dead-row fm-live-row fm-orphan-row fm-prov-row; do
-    (cd "$home" && tasks-axi add "$id" "fixture $id" --kind ship >/dev/null)
-    (cd "$home" && tasks-axi start "$id" >/dev/null)
+    fx sh -c "cd '$home' && tasks-axi add '$id' 'fixture $id' --kind ship >/dev/null"
+    fx sh -c "cd '$home' && tasks-axi start '$id' >/dev/null"
   done
-  (cd "$home" && tasks-axi update fm-prov-row --body \
-    "Provenance: imported 2026-09-01 from secondmate home widgets ($case_dir/other-home) markdown backlog" >/dev/null)
+  fx sh -c "cd '$home' && tasks-axi update fm-prov-row --body \
+    'Provenance: imported 2026-09-01 from secondmate home widgets ($case_dir/other-home) markdown backlog' >/dev/null"
+  # Marker-less orphans created straight through bd: no tasks-axi claim marker
+  # ever touched them, which is what --apply-orphans keys on.
+  fx env BEADS_DIR="$graph/.beads" bd create "bare orphan" --id fm-bare-orphan
+  fx env BEADS_DIR="$graph/.beads" bd update fm-bare-orphan --claim
+  fx env BEADS_DIR="$graph/.beads" bd create "url orphan" --id fm-orphan-url
+  fx env BEADS_DIR="$graph/.beads" bd update fm-orphan-url --claim
+  fx env BEADS_DIR="$graph/.beads" bd update fm-orphan-url --description \
+    "see https://github.com/o/r/pull/9 for the landing"
+  fx env BEADS_DIR="$graph/.beads" bd create "prov orphan" --id fm-orphan-prov
+  fx env BEADS_DIR="$graph/.beads" bd update fm-orphan-prov --claim
+  fx env BEADS_DIR="$graph/.beads" bd update fm-orphan-prov --description \
+    "Provenance: imported 2026-09-01 from secondmate home ghost ($case_dir/ghost-home) markdown backlog"
   make_repo_on_branch "$case_dir/wt-dead" fm/dead
   make_repo_on_branch "$case_dir/wt-live" fm/live
   fm_write_meta "$home/state/fm-dead-row.meta" \
@@ -171,6 +195,71 @@ run_sweep() {  # [args...]
     PATH="$FAKEBIN:$PATH" "$SWEEP" "$@"
 }
 
+
+# The AGE column shows the row's true age against the sweep clock, never the
+# threshold-shifted value (a 25.5h row under the default 24h must read 25h,
+# not 1h), and --older-than gates the selection itself: rows younger than the
+# threshold never appear in the table.
+test_age_column_is_true_age_and_threshold_gates_selection() {
+  local rec out
+  rec=$(make_fixture age)
+  read_fixture "$rec"
+  out=$(run_sweep)
+  assert_row_matches 'fm-dead-row[[:space:]]+main home[[:space:]]+50h[[:space:]]+dead' "$out" \
+    "age column must show the true clock age, not the threshold-shifted age"
+  # Rows aged ~2h by the clock with a 3h threshold: nothing is listed at all.
+  out=$(FM_HOME="$HOME_DIR" FM_STALE_SWEEP_NOW=$(( $(date +%s) + 2 * 3600 )) \
+    PATH="$FAKEBIN:$PATH" "$SWEEP" --older-than 3)
+  assert_contains "$out" "0 stale candidates" \
+    "rows younger than --older-than must not be listed"
+}
+
+# No-home rows carry the row's own ownership evidence: the ACTOR column decodes
+# the tasks-axi claim marker (marker-bearing rows show kind/repo, bare bd rows
+# show -) and the PROV column carries the first 40 characters of the provenance
+# line. --apply-orphans reclaims a no-home row only when it is older than 48h,
+# carries no marker, and has no landing URL; without the flag every orphan is
+# kept even when eligible.
+test_orphan_columns_and_apply_orphans_guards() {
+  local rec out rc date
+  rec=$(make_fixture orphan)
+  read_fixture "$rec"
+  out=$(run_sweep)
+  assert_row_matches 'fm-orphan-row[[:space:]]+-[[:space:]]+[0-9]+h[[:space:]]+no-home[[:space:]]+keep[[:space:]]+ship/-' "$out" \
+    "marker-bearing orphan must show its claim actor, and stay kept without the flag"
+  assert_row_matches 'fm-orphan-prov[[:space:]]+-[[:space:]]+[0-9]+h[[:space:]]+no-home[[:space:]]+keep[[:space:]]+-[[:space:]]+Provenance: imported 2026-09-01 from sec' "$out" \
+    "provenance-bearing orphan must show the first 40 characters of its provenance line"
+  assert_row_matches 'fm-orphan-url[[:space:]]+-[[:space:]]+[0-9]+h[[:space:]]+no-home[[:space:]]+keep[[:space:]]+-[[:space:]]+-$' "$out" \
+    "marker-less orphan with a landing URL must stay kept and carry no actor or provenance"
+  out=$(run_sweep --apply-orphans)
+  assert_row_matches 'fm-bare-orphan[[:space:]]+-[[:space:]]+[0-9]+h[[:space:]]+no-home[[:space:]]+would reclaim \(orphan\)' "$out" \
+    "eligible bare orphan must read would reclaim (orphan) under the flag"
+  assert_row_matches 'fm-orphan-url[[:space:]]+-[[:space:]]+[0-9]+h[[:space:]]+no-home[[:space:]]+keep' "$out" \
+    "a landing URL keeps an orphan reclaim-ineligible even under the flag"
+  assert_row_matches 'fm-orphan-row[[:space:]]+-[[:space:]]+[0-9]+h[[:space:]]+no-home[[:space:]]+keep' "$out" \
+    "a claim marker keeps an orphan reclaim-ineligible even under the flag"
+  assert_contains "$out" "would reclaim 4" \
+    "summary must count the eligible orphans among what a flagged apply would reclaim"
+  # The 48h gate: the same fixture at 47h by the clock selects the rows via the
+  # 24h threshold but the bare orphan stays kept.
+  out=$(FM_HOME="$HOME_DIR" FM_STALE_SWEEP_NOW=$(( $(date +%s) + 47 * 3600 )) \
+    PATH="$FAKEBIN:$PATH" "$SWEEP" --apply-orphans)
+  assert_row_matches 'fm-bare-orphan[[:space:]]+-[[:space:]]+[0-9]+h[[:space:]]+no-home[[:space:]]+keep' "$out" \
+    "an orphan younger than 48h must stay kept even under the flag"
+  # The real flagged apply at 50h reclaims exactly the bare orphan.
+  out=$(run_sweep --apply --apply-orphans)
+  rc=$?
+  expect_code 0 "$rc" "flagged apply run should succeed"
+  date=$(date +%F)
+  [ "$(row_state fm-bare-orphan)" = queued ] || fail "eligible orphan was not reclaimed under the flag"
+  assert_contains "$(row_body fm-bare-orphan)" "reclaimed $date: endpoint dead, previous claim by unknown" \
+    "reclaimed orphan must carry the note naming the unknown claimant"
+  [ "$(row_state fm-orphan-url)" = in_flight ] || fail "URL-bearing orphan was reclaimed under the flag"
+  [ "$(row_state fm-orphan-row)" = in_flight ] || fail "marker-bearing orphan was reclaimed under the flag"
+  [ "$(row_state fm-orphan-prov)" = queued ] || fail "eligible provenance orphan was not reclaimed under the flag"
+  pass "orphan columns show actor and provenance; --apply-orphans honors age, marker, and URL guards"
+}
+
 test_dry_run_lists_verdicts_and_reclaims_nothing() {
   local rec out rc
   rec=$(make_fixture dry)
@@ -178,19 +267,28 @@ test_dry_run_lists_verdicts_and_reclaims_nothing() {
   out=$(run_sweep)
   rc=$?
   expect_code 0 "$rc" "dry run should succeed"
+  if ! printf '%s\n' "$out" | grep -q fm-dead-row; then
+    # Ground truth for any environment where the table comes back empty: the
+    # graph exactly as this machine's bd emits it, plus the sweep's cutoff, so
+    # a status-spelling or timestamp difference is visible in the CI log
+    # instead of only the missing-table symptom.
+    printf 'diagnostic: graph rows as bd emits them here:\n' >&2
+    BEADS_DIR="$CASE_DIR/fm/.beads" bd list --all --json 2>&1 | head -c 3000 >&2
+    printf '\ndiagnostic: sweep clock=%s older-than=24h\n' "$(sweep_clock)" >&2
+  fi
   assert_contains "$out" "fm-dead-row" "dry run table lists the dead row"
   assert_contains "$out" "fm-live-row" "dry run table lists the live row"
   assert_contains "$out" "fm-orphan-row" "dry run table lists the unowned row"
   assert_contains "$out" "fm-prov-row" "dry run table lists the provenance row"
-  assert_row_matches 'fm-dead-row[[:space:]]+main home[[:space:]]+26h[[:space:]]+dead[[:space:]]+would reclaim' "$out" \
+  assert_row_matches 'fm-dead-row[[:space:]]+main home[[:space:]]+50h[[:space:]]+dead[[:space:]]+would reclaim' "$out" \
     "dead endpoint row must read dead / would reclaim"
-  assert_row_matches 'fm-live-row[[:space:]]+main home[[:space:]]+26h[[:space:]]+live[[:space:]]+keep' "$out" \
+  assert_row_matches 'fm-live-row[[:space:]]+main home[[:space:]]+50h[[:space:]]+live[[:space:]]+keep' "$out" \
     "live endpoint row must read live / keep"
-  assert_row_matches 'fm-orphan-row[[:space:]]+-[[:space:]]+26h[[:space:]]+no-home[[:space:]]+keep' "$out" \
+  assert_row_matches 'fm-orphan-row[[:space:]]+-[[:space:]]+50h[[:space:]]+no-home[[:space:]]+keep' "$out" \
     "unowned row must read no-home / keep"
-  assert_row_matches 'fm-prov-row[[:space:]]+widgets[[:space:]]+26h[[:space:]]+dead[[:space:]]+would reclaim' "$out" \
+  assert_row_matches 'fm-prov-row[[:space:]]+widgets[[:space:]]+50h[[:space:]]+dead[[:space:]]+would reclaim' "$out" \
     "provenance row must read dead under the provenance actor"
-  assert_contains "$out" "4 stale candidates: 2 dead, 1 live, 0 unproven, 1 no-home; would reclaim 2" \
+  assert_contains "$out" "7 stale candidates: 2 dead, 1 live, 0 unproven, 4 no-home; would reclaim 2" \
     "summary must count the dry-run verdicts"
   [ "$(row_state fm-dead-row)" = in_flight ] || fail "dry run changed the dead row's state"
   [ "$(row_state fm-live-row)" = in_flight ] || fail "dry run changed the live row's state"
@@ -206,13 +304,13 @@ test_apply_reclaims_only_dead_rows() {
   out=$(run_sweep --apply)
   rc=$?
   expect_code 0 "$rc" "apply run should succeed"
-  assert_row_matches 'fm-dead-row[[:space:]]+main home[[:space:]]+26h[[:space:]]+dead[[:space:]]+reclaimed' "$out" \
+  assert_row_matches 'fm-dead-row[[:space:]]+main home[[:space:]]+50h[[:space:]]+dead[[:space:]]+reclaimed' "$out" \
     "dead endpoint row must be reclaimed"
-  assert_row_matches 'fm-live-row[[:space:]]+main home[[:space:]]+26h[[:space:]]+live[[:space:]]+keep' "$out" \
+  assert_row_matches 'fm-live-row[[:space:]]+main home[[:space:]]+50h[[:space:]]+live[[:space:]]+keep' "$out" \
     "live endpoint row must stay untouched"
-  assert_row_matches 'fm-orphan-row[[:space:]]+-[[:space:]]+26h[[:space:]]+no-home[[:space:]]+keep' "$out" \
+  assert_row_matches 'fm-orphan-row[[:space:]]+-[[:space:]]+50h[[:space:]]+no-home[[:space:]]+keep' "$out" \
     "unowned row must stay untouched"
-  assert_row_matches 'fm-prov-row[[:space:]]+widgets[[:space:]]+26h[[:space:]]+dead[[:space:]]+reclaimed' "$out" \
+  assert_row_matches 'fm-prov-row[[:space:]]+widgets[[:space:]]+50h[[:space:]]+dead[[:space:]]+reclaimed' "$out" \
     "provenance row must be reclaimed through the sweep home"
   assert_contains "$out" "reclaimed 2" "summary must count the reclaims"
   [ "$(row_state fm-dead-row)" = queued ] || fail "dead row was not reopened to queued"
@@ -352,7 +450,7 @@ test_apply_refuses_a_row_whose_record_lock_a_completion_holds() {
   [ -e "$lock" ] || fail "fixture holder never took the record lock"
   out=$(run_sweep --apply)
   assert_row_matches \
-    'fm-dead-row[[:space:]]+main home[[:space:]]+26h[[:space:]]+dead[[:space:]]+reclaim failed: record locked by another actor' \
+    'fm-dead-row[[:space:]]+main home[[:space:]]+50h[[:space:]]+dead[[:space:]]+reclaim failed: record locked by another actor' \
     "$out" "a row whose record lock a completion holds must be refused, not reopened"
   [ "$(row_state fm-dead-row)" = in_flight ] || fail "the sweep touched a row whose record lock was held"
   assert_contains "$out" "reclaimed 1" \
@@ -362,7 +460,7 @@ test_apply_refuses_a_row_whose_record_lock_a_completion_holds() {
   kill "$holder_pid" 2>/dev/null
   wait "$holder_pid" 2>/dev/null
   out=$(run_sweep --apply)
-  assert_row_matches 'fm-dead-row[[:space:]]+main home[[:space:]]+26h[[:space:]]+dead[[:space:]]+reclaimed' "$out" \
+  assert_row_matches 'fm-dead-row[[:space:]]+main home[[:space:]]+50h[[:space:]]+dead[[:space:]]+reclaimed' "$out" \
     "once no completion holds the record lock, the same sweep must reclaim the row"
   [ "$(row_state fm-dead-row)" = queued ] || fail "the row was not reclaimed after the lock freed"
   [ ! -e "$lock" ] || fail "the sweep left the record lock behind after reclaiming"
@@ -383,7 +481,7 @@ test_apply_refuses_a_row_with_a_pending_completion_replay() {
   } > "$HOME_DIR/state/fm-dead-row.backlog-close"
   out=$(run_sweep --apply)
   assert_row_matches \
-    'fm-dead-row[[:space:]]+main home[[:space:]]+26h[[:space:]]+dead[[:space:]]+reclaim failed: completion replay pending' \
+    'fm-dead-row[[:space:]]+main home[[:space:]]+50h[[:space:]]+dead[[:space:]]+reclaim failed: completion replay pending' \
     "$out" "a row with a pending completion replay must be refused, not reopened"
   [ "$(row_state fm-dead-row)" = in_flight ] || fail "the sweep touched a row whose completion is still owed"
   rm -f "$HOME_DIR/state/fm-dead-row.backlog-close"
@@ -393,6 +491,8 @@ test_apply_refuses_a_row_with_a_pending_completion_replay() {
   pass "a row with a pending completion replay is refused until the replay lands"
 }
 
+test_age_column_is_true_age_and_threshold_gates_selection
+test_orphan_columns_and_apply_orphans_guards
 test_dry_run_lists_verdicts_and_reclaims_nothing
 test_apply_reclaims_only_dead_rows
 test_apply_refuses_a_row_whose_record_lock_a_completion_holds
