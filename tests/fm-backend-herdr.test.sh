@@ -3523,6 +3523,27 @@ test_send_text_submit_detects_swallowed_enter() {
   pass "fm_backend_herdr_send_text_submit: reports 'pending' when agent_status stays idle and the composer still holds unsent text after retried Enters (swallowed)"
 }
 
+# Herdr's footer rescue promotes `pending` only. A composer whose verdict can
+# never BE pending - a bare shell-prompt glyph outside a bordered container, which
+# is agy's shape - therefore falls straight through as `unknown`, and fm-send
+# reports the send unconfirmed. This is what makes agy's typed-submit boundary
+# narrower than Cursor's (which reads `pending` and IS rescued here), and the
+# docs claim that scope, so the verdict Herdr actually returns is pinned.
+test_send_text_submit_does_not_rescue_an_unknown_composer() {
+  local dir log resp fb out
+  dir="$TMP_ROOT/submit-unknown"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
+  printf '{"result":{"agent":{"agent_status":"idle"}}}\n' > "$resp/2.out"
+  printf '{"result":{"agent":{"agent_status":"idle"}}}\n' > "$resp/4.out"
+  printf '%s\n' '─────────────────────────' '> ' '─────────────────────────' \
+    '? for shortcuts      Gemini 3.8 Flash · high' > "$resp/5.out"
+  fb=$(make_herdr_fakebin "$dir")
+  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_send_text_submit default:w1:p2 "hello captain" 3 0.01 0.01' "$ROOT" )
+  [ "$out" = unknown ] \
+    || fail "send_text_submit must return an unrescuable composer verdict as-is, got '$out'"
+  pass "fm_backend_herdr_send_text_submit: an 'unknown' composer is returned unrescued, not promoted to 'empty'"
+}
+
 # Regression coverage for the 2026-07-03 incident using the NEW mechanism: a
 # slash command's first Enter can close a completion popup and fill an
 # argument-hint placeholder WITHOUT submitting. In the idle-baseline path,
@@ -4620,6 +4641,7 @@ test_wait_for_working_returns_unknown_when_never_readable
 test_wait_for_working_treats_blocked_as_submit_active
 test_send_text_submit_detects_landed_send
 test_send_text_submit_detects_swallowed_enter
+test_send_text_submit_does_not_rescue_an_unknown_composer
 test_send_text_submit_popup_autocomplete_requires_second_enter
 test_send_text_submit_confirms_blocked_after_enter
 test_send_text_submit_preexisting_working_pending_is_queued_enter

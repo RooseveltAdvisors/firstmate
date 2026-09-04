@@ -1085,7 +1085,14 @@ unknown
 ```
 
 On tmux that costs nothing: the rich submit core promotes `unknown` to `empty` when a pane that read idle before typing reads busy after Enter, and agy's two status bars supply exactly that transition (`? for shortcuts` idle, `esc to cancel` busy).
-On Zellij, cmux, and Orca the shared submit core returns the non-pending verdict as-is, so a typed-plane agy send lands but `fm-send` reports delivery unconfirmed and exits non-zero - the same boundary Cursor has, for the same structural reason.
+
+**Every other backend, Herdr included, reports a typed agy send as unconfirmed.**
+On Zellij, cmux, and Orca the shared submit core returns any non-pending verdict as-is.
+Herdr does consult its rendered footer, but that rescue is gated on `pending` alone, and an `unknown` verdict is returned unchanged by both its native-busy and native-idle branches.
+So a typed-plane agy send lands on all four and `fm-send` still reports delivery unconfirmed and exits non-zero.
+
+This is NOT the same boundary Cursor has, and the difference is the verdict rather than the backend: Cursor's cursorless composer reads `pending` with typed text (§"Cursor Agent CLI"), which is exactly what Herdr's footer rescue promotes, so Cursor is verified on tmux AND Herdr.
+agy's bare `>` can never read `pending`, so the one branch that would rescue it never fires.
 It does not bound the spawn: the brief rides the launch command's `-i "<prompt>"`, not `fm-send`.
 
 ## Pi supervision branch
