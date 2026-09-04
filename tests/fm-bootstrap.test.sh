@@ -882,8 +882,12 @@ test_routine_bootstrap_confirmations_are_silent() {
 
 run_bootstrap_home() {
   local fakebin=$1 home=$2 root=$3
+  # The fixture's firstmate checkout carries its no-mistakes gate remote under
+  # the fixture nm-root, so pin NM_HOME the way run_routine_bootstrap_fixture
+  # does and keep the mirror check hermetic instead of reporting drift against
+  # this machine's real ~/.no-mistakes.
   PATH="$fakebin:$BASE_PATH" FM_BACKEND=tmux FM_HOME="$home" FM_ROOT_OVERRIDE="$root" \
-    FM_FAKE_TREEHOUSE_LEASE_HELP=1 \
+    NM_HOME="${home%/*}/nm-root" FM_FAKE_TREEHOUSE_LEASE_HELP=1 \
     bash "$ROOT/bin/fm-bootstrap.sh"
 }
 
