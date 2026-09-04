@@ -146,7 +146,10 @@ test_registration_is_idempotent() {
 # The registration is the one task artifact written outside this home, into the
 # operator's own vendor settings, so teardown needs a withdrawal that takes back
 # exactly what the spawn added and nothing else.
-test_removal_withdraws_both_spellings_and_keeps_the_rest() {
+# Registration covers both spellings of the directory, and each is withdrawn by
+# naming it: the caller withdraws from a record of what its own registration
+# reported adding, so withdrawing both is two calls, not one that re-derives.
+test_removal_withdraws_the_spelling_it_is_named_and_keeps_the_rest() {
   local rec out store link wt_link
   rec=$(make_case removal)
   read_case "$rec"
@@ -158,13 +161,45 @@ test_removal_withdraws_both_spellings_and_keeps_the_rest() {
   wt_link="$link/wt"
   run_trust "$AGY_HOME" "$wt_link" "$PROJ" >/dev/null || fail "the fixture registration failed"
   assert_trusted "$store" "$wt_link" "the fixture did not register the launch spelling"
+  assert_trusted "$store" "$WT" "the fixture did not register the resolved spelling"
   out=$(run_untrust "$AGY_HOME" "$wt_link")
   expect_code 0 $? "a registered worktree must be withdrawable: $out"
-  assert_not_trusted "$store" "$wt_link" "the launch spelling survived the withdrawal"
-  assert_not_trusted "$store" "$WT" "the resolved spelling survived the withdrawal"
+  assert_not_trusted "$store" "$wt_link" "the named spelling survived its own withdrawal"
+  assert_trusted "$store" "$WT" "withdrawing one spelling took the other spelling with it"
+  out=$(run_untrust "$AGY_HOME" "$WT")
+  expect_code 0 $? "the second spelling must be withdrawable too: $out"
+  assert_not_trusted "$store" "$WT" "the resolved spelling survived being named"
   assert_trusted "$store" "/already/trusted" "the withdrawal dropped an unrelated operator entry"
   assert_store_value "$store" 'false' "the withdrawal disturbed an unrelated key" enableTelemetry
-  pass "fm-agy-trust.sh: removal withdraws both spellings and leaves the rest of the store alone"
+  pass "fm-agy-trust.sh: removal withdraws the spelling it is named and leaves the rest alone"
+}
+
+# The two spellings of one directory can have two different owners: the operator
+# trusted the resolved path by hand, and only the launch spelling is the task's.
+# Re-deriving the pair on removal would take theirs, and the dialog it resurrects
+# draws no status text, so the pane it wedges looks idle.
+test_removal_leaves_the_operator_spelling_of_the_same_directory() {
+  local rec out store link wt_link
+  rec=$(make_case removal-operator-spelling)
+  read_case "$rec"
+  store=$(store_path "$AGY_HOME")
+  mkdir -p "$(dirname "$store")"
+  # The operator's own entry, on the RESOLVED spelling, made before any task ran.
+  printf '{"trustedWorkspaces":["%s"]}\n' "$WT" > "$store"
+  link="$TMP_ROOT/removal-operator-link"
+  ln -sfn "$CASE_DIR" "$link"
+  wt_link="$link/wt"
+  out=$(run_trust "$AGY_HOME" "$wt_link" "$PROJ")
+  expect_code 0 $? "the spawn's registration must succeed: $out"
+  assert_contains "$out" "added: $wt_link" "the registration did not report adding the launch spelling"
+  case "$out" in
+    *"added: $WT"*) fail "the registration claimed to add the spelling the operator already trusted" ;;
+  esac
+  out=$(run_untrust "$AGY_HOME" "$wt_link")
+  expect_code 0 $? "the task's own spelling must be withdrawable: $out"
+  assert_not_trusted "$store" "$wt_link" "the task's own spelling survived the withdrawal"
+  assert_trusted "$store" "$WT" "the withdrawal revoked the operator's own entry for the same directory"
+  pass "fm-agy-trust.sh: removal leaves the operator's spelling of the same directory alone"
 }
 
 # Teardown calls the withdrawal for every task, so a task that never ran on agy
@@ -1049,7 +1084,8 @@ test_refused_spawn_leaves_no_task_state() {
 
 test_fresh_worktree_is_trusted
 test_symlinked_worktree_spelling_is_trusted_too
-test_removal_withdraws_both_spellings_and_keeps_the_rest
+test_removal_withdraws_the_spelling_it_is_named_and_keeps_the_rest
+test_removal_leaves_the_operator_spelling_of_the_same_directory
 test_removal_of_an_unregistered_path_writes_nothing
 test_removal_without_a_store_creates_nothing
 test_removal_works_after_the_worktree_is_gone

@@ -20,9 +20,11 @@
 # orca task worktree is named for its task id, so every task is a new path).
 # It takes no <project> and runs NO scope test, because the scope test is the
 # safety property of GRANTING trust and removal can only ever withdraw it. It
-# writes nothing when the named paths are already absent, so calling it for a
-# task that never ran on agy leaves the store untouched rather than rewritten,
-# and an absent store is nothing to retire rather than a store to create.
+# withdraws EXACTLY the spelling it is given - never the other spelling of the
+# same directory, which may be the operator's own entry. It writes nothing when
+# the named path is already absent, so calling it for a task that never ran on
+# agy leaves the store untouched rather than rewritten, and an absent store is
+# nothing to retire rather than a store to create.
 #
 # WHY THIS EXISTS. agy gates a folder it has never seen behind an interactive
 # workspace-trust dialog, and --dangerously-skip-permissions does NOT cover it:
@@ -169,18 +171,25 @@ else
 fi
 
 # Every check above judges the resolved path, and that stays the scope boundary.
-# Trust is recorded under both spellings of that one directory because a lookup
-# miss is silent: agy parks on a dialog that draws no status text at all. The
-# same pair is retired, so a removal run before the worktree is gone withdraws
-# whichever spelling the registration left.
-WT_LOGICAL=$(logical_dir "$WT_ARG") || true
-[ -n "$WT_LOGICAL" ] && [ "$(real_dir "$WT_LOGICAL")" = "$WT_REAL" ] || WT_LOGICAL=$WT_REAL
-if [ -z "$WT_REAL" ]; then
-  # A worktree already removed resolves to nothing, and its registration still
-  # has to be withdrawable, so an absolute argument stands for itself.
+# REGISTRATION covers both spellings of that one directory, because a lookup miss
+# is silent: agy parks on a dialog that draws no status text at all, and which
+# spelling it presents depends on how its process was started.
+#
+# REMOVAL is deliberately NOT symmetric: it withdraws exactly the spelling it was
+# named and never re-derives the pair. The caller withdraws from a record of the
+# spellings its own registration reported ADDING, and the other spelling of the
+# same directory may be an entry the operator made by hand - taking that one too
+# would resurrect the very dialog this exists to remove. Withdrawing both is the
+# caller naming both, once each.
+if [ "$MODE" = remove ]; then
   case "$WT_ARG" in
-    /*) WT_REAL=$WT_ARG; WT_LOGICAL=$WT_ARG ;;
+    /*) WT_REAL=$WT_ARG ;;
+    *) WT_REAL=$(logical_dir "$WT_ARG") || true ;;
   esac
+  WT_LOGICAL=$WT_REAL
+else
+  WT_LOGICAL=$(logical_dir "$WT_ARG") || true
+  [ -n "$WT_LOGICAL" ] && [ "$(real_dir "$WT_LOGICAL")" = "$WT_REAL" ] || WT_LOGICAL=$WT_REAL
 fi
 [ -n "$WT_REAL" ] || refuse "worktree '$WT_ARG' cannot be resolved to an absolute path"
 
