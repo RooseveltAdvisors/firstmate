@@ -32,6 +32,7 @@ agy does NOT clear an inherited `CLAUDECODE`.
 Launching with that flag into a folder agy has never seen still renders `Do you trust the contents of this project?`, so every fresh task worktree hits it.
 The dialog draws NO status-bar text, so a pane parked on it is indistinguishable from idle by any rendered signal - no spinner, no `esc to cancel`.
 `../../../bin/fm-agy-trust.sh` therefore registers the worktree in `trustedWorkspaces` in `$HOME/.gemini/antigravity-cli/settings.json` before launch, and refuses rather than degrades.
+Teardown withdraws the same entry with `--remove`, which runs no scope test because removal can only withdraw trust, and writes nothing when the path is already absent.
 Its scope test is structural: only a linked git worktree of the named project is accepted, and a primary checkout, a foreign project's worktree, a worktree subdirectory, a plain directory, the home directory, and the settings directory are each refused.
 Trust is not inherited by a nested repository - `/tmp/claude-1000` trusted did not cover the git repo at `/tmp/claude-1000/agylab` - so each task worktree needs its own entry.
 

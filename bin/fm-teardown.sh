@@ -978,6 +978,18 @@ remove_turnend_auth() {  # <harness> <state-dir> <id>
   rm -f -- "$path"
 }
 
+# The agy spawn's workspace-trust entry lives in the operator's own vendor
+# settings file rather than under this home, so it is the one task artifact with
+# no in-tree path to remove. Retired beside the worktree's own hook file, while
+# the worktree still resolves. Best effort: the removal writes nothing when the
+# path was never registered, and a store the vendor moved under it refuses
+# rather than clobbering, which must not strand an otherwise finished teardown.
+retire_agy_workspace_trust() {  # <worktree>
+  [ -n "${1:-}" ] || return 0
+  "$SCRIPT_DIR/fm-agy-trust.sh" --remove "$1" >/dev/null || true
+  return 0
+}
+
 # Every harness that mints a global turn-end registry entry, retired together so
 # a task torn down after a relaunch that changed harness leaves nothing behind.
 remove_all_turnend_auth() {  # <state-dir> <id>
@@ -2537,6 +2549,7 @@ cleanup_firstmate_home_children() {
         rm -f "$child_wt/.claude/settings.local.json" "$child_wt/.opencode/plugins/fm-turn-end.js" \
           "$child_wt/.fm-grok-turnend" "$child_wt/.fm-kimi-turnend" \
           "$child_wt/.fm-agy-turnend"
+        retire_agy_workspace_trust "$child_wt"
       fi
       fm_backend_remove_worktree "$child_backend" "$child_orca_worktree_id" || return 1
     elif [ -n "$child_wt" ] && [ -d "$child_wt" ]; then
@@ -2545,6 +2558,7 @@ cleanup_firstmate_home_children() {
         "$child_wt/.opencode/plugins/fm-busy-state.js" \
         "$child_wt/.fm-grok-turnend" "$child_wt/.fm-kimi-turnend" \
         "$child_wt/.fm-agy-turnend"
+      retire_agy_workspace_trust "$child_wt"
       if [ -n "$child_proj" ] && [ -d "$child_proj" ] && command -v treehouse >/dev/null 2>&1; then
         if teardown_treehouse_return "$child_wt" "$child_proj" "child worktree"; then
           :
@@ -2783,6 +2797,7 @@ if [ "$BACKEND" = orca ] && [ "$KIND" != secondmate ]; then
     rm -f "$WT/.claude/settings.local.json" "$WT/.opencode/plugins/fm-turn-end.js" \
       "$WT/.opencode/plugins/fm-busy-state.js" \
       "$WT/.fm-grok-turnend" "$WT/.fm-kimi-turnend" "$WT/.fm-agy-turnend"
+    retire_agy_workspace_trust "$WT"
   fi
   [ -z "$T_ORCA" ] || fm_backend_kill "$BACKEND" "$T" "$(meta_value "$META" zellij_tab_id)" "fm-$ID" 2>/dev/null || true
   fm_backend_remove_worktree "$BACKEND" "$ORCA_WORKTREE_ID"
@@ -2796,6 +2811,7 @@ elif [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
   # Remove our hook file so a reused pool worktree cannot fire signals for a dead task.
   rm -f "$WT/.claude/settings.local.json" "$WT/.opencode/plugins/fm-turn-end.js" \
     "$WT/.fm-grok-turnend" "$WT/.fm-kimi-turnend" "$WT/.fm-agy-turnend"
+  retire_agy_workspace_trust "$WT"
   # Kills remaining processes in the worktree (including the agent), resets, returns
   # to pool. treehouse resolves the pool from the working directory, so run it from
   # the project. teardown_treehouse_return tolerates transient and stale git locks

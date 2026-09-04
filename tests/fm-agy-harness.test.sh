@@ -49,6 +49,10 @@ run_trust() {  # <home> <worktree> <project>
   HOME="$1" "$TRUST" "$2" "$3" 2>&1
 }
 
+run_untrust() {  # <home> <worktree>
+  HOME="$1" "$TRUST" --remove "$2" 2>&1
+}
+
 trusted_paths() {  # <store>
   node -e 'const fs=require("node:fs");const p=process.argv[1];if(!fs.existsSync(p))process.exit(0);const j=JSON.parse(fs.readFileSync(p,"utf8"));for(const v of (j.trustedWorkspaces||[]))console.log(v);' "$1"
 }
@@ -134,6 +138,76 @@ test_registration_is_idempotent() {
   count=$(trusted_paths "$(store_path "$AGY_HOME")" | grep -Fxc "$WT")
   [ "$count" = 1 ] || fail "a repeat registration duplicated the entry ($count)"
   pass "fm-agy-trust.sh: repeat registration is idempotent"
+}
+
+# The registration is the one task artifact written outside this home, into the
+# operator's own vendor settings, so teardown needs a withdrawal that takes back
+# exactly what the spawn added and nothing else.
+test_removal_withdraws_both_spellings_and_keeps_the_rest() {
+  local rec out store link wt_link
+  rec=$(make_case removal)
+  read_case "$rec"
+  store=$(store_path "$AGY_HOME")
+  mkdir -p "$(dirname "$store")"
+  printf '%s\n' '{"enableTelemetry":false,"trustedWorkspaces":["/already/trusted"]}' > "$store"
+  link="$TMP_ROOT/removal-link"
+  ln -sfn "$CASE_DIR" "$link"
+  wt_link="$link/wt"
+  run_trust "$AGY_HOME" "$wt_link" "$PROJ" >/dev/null || fail "the fixture registration failed"
+  assert_trusted "$store" "$wt_link" "the fixture did not register the launch spelling"
+  out=$(run_untrust "$AGY_HOME" "$wt_link")
+  expect_code 0 $? "a registered worktree must be withdrawable: $out"
+  assert_not_trusted "$store" "$wt_link" "the launch spelling survived the withdrawal"
+  assert_not_trusted "$store" "$WT" "the resolved spelling survived the withdrawal"
+  assert_trusted "$store" "/already/trusted" "the withdrawal dropped an unrelated operator entry"
+  assert_store_value "$store" 'false' "the withdrawal disturbed an unrelated key" enableTelemetry
+  pass "fm-agy-trust.sh: removal withdraws both spellings and leaves the rest of the store alone"
+}
+
+# Teardown calls the withdrawal for every task, so a task that never ran on agy
+# must not cause a write at all - reformatting a vendor file firstmate does not
+# own is exactly what the registration promises not to do.
+test_removal_of_an_unregistered_path_writes_nothing() {
+  local rec out store before
+  rec=$(make_case removal-noop)
+  read_case "$rec"
+  store=$(store_path "$AGY_HOME")
+  mkdir -p "$(dirname "$store")"
+  printf '%s\n' '{"enableTelemetry":false,"trustedWorkspaces":["/already/trusted"]}' > "$store"
+  before=$(cat "$store")
+  out=$(run_untrust "$AGY_HOME" "$WT")
+  expect_code 0 $? "withdrawing a path that was never registered must succeed: $out"
+  [ "$(cat "$store")" = "$before" ] \
+    || fail "withdrawing an unregistered path rewrote the operator's store"
+  pass "fm-agy-trust.sh: withdrawing an unregistered path leaves the store byte-identical"
+}
+
+# A home that never ran agy has no store, and a teardown must not mint one.
+test_removal_without_a_store_creates_nothing() {
+  local rec out
+  rec=$(make_case removal-no-store)
+  read_case "$rec"
+  out=$(run_untrust "$AGY_HOME" "$WT")
+  expect_code 0 $? "withdrawing against a home with no agy store must succeed: $out"
+  [ ! -e "$AGY_HOME/.gemini" ] || fail "the withdrawal created an agy store in a home that had none"
+  pass "fm-agy-trust.sh: withdrawing against a home with no store creates nothing"
+}
+
+# Teardown withdraws while the worktree still resolves, but the entry is an
+# absolute path and must stay withdrawable once the directory is gone.
+test_removal_works_after_the_worktree_is_gone() {
+  local rec out store wt_path
+  rec=$(make_case removal-after-removal)
+  read_case "$rec"
+  store=$(store_path "$AGY_HOME")
+  wt_path=$WT
+  run_trust "$AGY_HOME" "$WT" "$PROJ" >/dev/null || fail "the fixture registration failed"
+  git -C "$PROJ" worktree remove --force "$WT" >/dev/null 2>&1 || rm -rf "$WT"
+  [ ! -d "$wt_path" ] || fail "the fixture did not remove the worktree"
+  out=$(run_untrust "$AGY_HOME" "$wt_path")
+  expect_code 0 $? "a removed worktree's registration must still be withdrawable: $out"
+  assert_not_trusted "$store" "$wt_path" "the registration survived after the worktree was removed"
+  pass "fm-agy-trust.sh: a registration is withdrawable after its worktree is gone"
 }
 
 test_unrelated_store_content_is_preserved() {
@@ -732,6 +806,10 @@ test_refused_spawn_leaves_no_task_state() {
 
 test_fresh_worktree_is_trusted
 test_symlinked_worktree_spelling_is_trusted_too
+test_removal_withdraws_both_spellings_and_keeps_the_rest
+test_removal_of_an_unregistered_path_writes_nothing
+test_removal_without_a_store_creates_nothing
+test_removal_works_after_the_worktree_is_gone
 test_registration_is_idempotent
 test_unrelated_store_content_is_preserved
 test_primary_checkout_is_refused

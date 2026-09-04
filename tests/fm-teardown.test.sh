@@ -1303,6 +1303,31 @@ test_fractional_legacy_retry_wait_refuses_without_arithmetic_error() {
   pass "fractional legacy retry wait remains supported without arithmetic"
 }
 
+# The agy spawn's workspace-trust entry is the one task artifact written outside
+# this home, into the operator's own vendor settings file, so teardown has to
+# take it back or every task leaves a dead absolute path there forever.
+test_teardown_retires_the_agy_workspace_trust_entry() {
+  local case_dir agyhome store rc
+  case_dir=$(make_case agy-trust-retire)
+  write_meta "$case_dir" local-only ship
+  agyhome="$case_dir/agyhome"
+  store="$agyhome/.gemini/antigravity-cli/settings.json"
+  mkdir -p "$(dirname "$store")"
+  printf '%s\n' '{"enableTelemetry":false,"trustedWorkspaces":["/already/trusted"]}' > "$store"
+  HOME="$agyhome" "$ROOT/bin/fm-agy-trust.sh" "$case_dir/wt" "$case_dir/project" >/dev/null \
+    || fail "agy-trust-retire: the fixture could not register workspace trust"
+  grep -Fq "$case_dir/wt" "$store" \
+    || fail "agy-trust-retire: the fixture registration did not reach the store"
+  rc=0
+  HOME="$agyhome" run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 0 "$rc" "agy-trust-retire: teardown should succeed: $(cat "$case_dir/stderr")"
+  ! grep -Fq "$case_dir/wt" "$store" \
+    || fail "agy-trust-retire: teardown left the workspace-trust entry behind"
+  grep -Fq "/already/trusted" "$store" \
+    || fail "agy-trust-retire: teardown dropped an unrelated operator entry"
+  pass "teardown retires the agy workspace-trust entry the spawn registered"
+}
+
 test_local_only_force_overrides_unpushed() {
   local case_dir rc
   case_dir=$(make_case force-override)
@@ -2746,6 +2771,7 @@ test_local_only_merged_to_local_main_allows
 test_no_mistakes_origin_remote_allows
 test_no_mistakes_truly_unpushed_refuses
 test_local_only_force_overrides_unpushed
+test_teardown_retires_the_agy_workspace_trust_entry
 test_secondmate_pr_registration_publishes_ready_line
 test_secondmate_home_teardown_delivers_final_line_or_refuses
 test_teardown_missing_busy_sidecar_completes

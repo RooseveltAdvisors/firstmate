@@ -145,6 +145,8 @@ pass "the Stop hook signals a finished turn through the task token"
 retire_token
 "$ROOT/bin/fm-agy-turnend-hook.sh" remove >/dev/null || fail "the turn-end hook could not be removed"
 HOOK_INSTALLED=
-restore_store
+# The same withdrawal teardown performs, against the operator's real store.
+"$ROOT/bin/fm-agy-trust.sh" --remove "$WT" >/dev/null || fail "the trust registration could not be withdrawn"
 grep -Fq "$WT" "$STORE" && fail "the guard left its worktree in the operator's trusted workspaces"
+restore_store
 pass "the guard leaves the operator's store and hooks exactly as it found them"

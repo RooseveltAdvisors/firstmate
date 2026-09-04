@@ -4,9 +4,19 @@
 # its brief instead of wedging on the trust dialog.
 #
 # Usage: fm-agy-trust.sh <worktree> <project>
+#        fm-agy-trust.sh --remove <worktree>
 #   <worktree>  the isolated task worktree this spawn launches into
 #   <project>   the primary checkout that worktree belongs to
 # Prints one line naming what it registered; refuses loudly on anything else.
+#
+# --remove retires a registration at teardown, so a vendor-owned settings file
+# firstmate does not own cannot accumulate one dead absolute path per task (an
+# orca task worktree is named for its task id, so every task is a new path).
+# It takes no <project> and runs NO scope test, because the scope test is the
+# safety property of GRANTING trust and removal can only ever withdraw it. It
+# writes nothing when the named paths are already absent, so calling it for a
+# task that never ran on agy leaves the store untouched rather than rewritten,
+# and an absent store is nothing to retire rather than a store to create.
 #
 # WHY THIS EXISTS. agy gates a folder it has never seen behind an interactive
 # workspace-trust dialog, and --dangerously-skip-permissions does NOT cover it:
@@ -61,11 +71,24 @@ unset CDPATH \
   GIT_DISCOVERY_ACROSS_FILESYSTEM GIT_CONFIG GIT_CONFIG_GLOBAL \
   GIT_CONFIG_SYSTEM GIT_CONFIG_NOSYSTEM GIT_CONFIG_COUNT
 
-[ "$#" -eq 2 ] || { echo "usage: fm-agy-trust.sh <worktree> <project>" >&2; exit 2; }
-WT_ARG=$1
-PROJ_ARG=$2
+MODE=register
+if [ "${1-}" = --remove ]; then
+  MODE=remove
+  shift
+  [ "$#" -eq 1 ] || { echo "usage: fm-agy-trust.sh --remove <worktree>" >&2; exit 2; }
+  WT_ARG=$1
+  PROJ_ARG=
+else
+  [ "$#" -eq 2 ] || { echo "usage: fm-agy-trust.sh <worktree> <project>" >&2; exit 2; }
+  WT_ARG=$1
+  PROJ_ARG=$2
+fi
 
-refuse() { echo "error: refusing to pre-register agy workspace trust: $1" >&2; exit 1; }
+if [ "$MODE" = remove ]; then
+  refuse() { echo "error: refusing to retire agy workspace trust: $1" >&2; exit 1; }
+else
+  refuse() { echo "error: refusing to pre-register agy workspace trust: $1" >&2; exit 1; }
+fi
 
 real_dir() { (cd -P -- "$1" 2>/dev/null && pwd -P); }
 
@@ -89,9 +112,11 @@ common_dir_of() {
 }
 
 WT_REAL=$(real_dir "$WT_ARG") || true
-[ -n "$WT_REAL" ] || refuse "worktree '$WT_ARG' is not an accessible directory"
-PROJ_REAL=$(real_dir "$PROJ_ARG") || true
-[ -n "$PROJ_REAL" ] || refuse "project '$PROJ_ARG' is not an accessible directory"
+if [ "$MODE" = register ]; then
+  [ -n "$WT_REAL" ] || refuse "worktree '$WT_ARG' is not an accessible directory"
+  PROJ_REAL=$(real_dir "$PROJ_ARG") || true
+  [ -n "$PROJ_REAL" ] || refuse "project '$PROJ_ARG' is not an accessible directory"
+fi
 
 [ -n "${HOME:-}" ] || refuse "HOME is not set, so the agy settings store cannot be located"
 HOME_REAL=$(real_dir "$HOME") || true
@@ -102,38 +127,56 @@ CONFIG_DIR="$HOME_REAL/.gemini/antigravity-cli"
 # and refuse only when it genuinely cannot be written, since a store this cannot
 # reach means the worker meets the dialog after all.
 CONFIG_DIR_REAL=$(real_dir "$CONFIG_DIR") || true
-if [ -z "$CONFIG_DIR_REAL" ]; then
+if [ -z "$CONFIG_DIR_REAL" ] && [ "$MODE" = register ]; then
   mkdir -p "$CONFIG_DIR" 2>/dev/null || true
   CONFIG_DIR_REAL=$(real_dir "$CONFIG_DIR") || true
 fi
-[ -n "$CONFIG_DIR_REAL" ] || refuse "agy settings directory '$CONFIG_DIR' does not exist and could not be created"
+if [ "$MODE" = remove ]; then
+  # A home that has never run agy holds no registration, so there is nothing to
+  # retire and nothing to create on its behalf.
+  [ -n "$CONFIG_DIR_REAL" ] || exit 0
+  [ -e "$CONFIG_DIR_REAL/settings.json" ] || exit 0
+else
+  [ -n "$CONFIG_DIR_REAL" ] || refuse "agy settings directory '$CONFIG_DIR' does not exist and could not be created"
 
-# A home or config directory is never a task worktree. Checked explicitly so the
-# refusal names the real reason instead of the git verdict behind it.
-[ "$WT_REAL" != "$CONFIG_DIR_REAL" ] || refuse "'$WT_REAL' is the agy settings directory, not a task worktree"
-[ "$WT_REAL" != "$HOME_REAL" ] || refuse "'$WT_REAL' is the home directory, not a task worktree"
+  # A home or config directory is never a task worktree. Checked explicitly so the
+  # refusal names the real reason instead of the git verdict behind it.
+  [ "$WT_REAL" != "$CONFIG_DIR_REAL" ] || refuse "'$WT_REAL' is the agy settings directory, not a task worktree"
+  [ "$WT_REAL" != "$HOME_REAL" ] || refuse "'$WT_REAL' is the home directory, not a task worktree"
 
-WT_TOP=$(git -C "$WT_REAL" rev-parse --show-toplevel 2>/dev/null) || true
-[ -n "$WT_TOP" ] || refuse "'$WT_REAL' is not inside a git repository"
-WT_TOP_REAL=$(real_dir "$WT_TOP") || true
-[ "$WT_TOP_REAL" = "$WT_REAL" ] || refuse "'$WT_REAL' is not a worktree root (its root is '${WT_TOP_REAL:-unresolvable}')"
+  WT_TOP=$(git -C "$WT_REAL" rev-parse --show-toplevel 2>/dev/null) || true
+  [ -n "$WT_TOP" ] || refuse "'$WT_REAL' is not inside a git repository"
+  WT_TOP_REAL=$(real_dir "$WT_TOP") || true
+  [ "$WT_TOP_REAL" = "$WT_REAL" ] || refuse "'$WT_REAL' is not a worktree root (its root is '${WT_TOP_REAL:-unresolvable}')"
 
-WT_GIT_DIR=$(git -C "$WT_REAL" rev-parse --absolute-git-dir 2>/dev/null) || true
-[ -n "$WT_GIT_DIR" ] || refuse "'$WT_REAL' has no resolvable git directory"
-WT_GIT_DIR=$(real_dir "$WT_GIT_DIR") || true
-WT_COMMON=$(common_dir_of "$WT_REAL") || true
-[ -n "$WT_COMMON" ] || refuse "'$WT_REAL' has no resolvable git common directory"
-[ "$WT_GIT_DIR" != "$WT_COMMON" ] || refuse "'$WT_REAL' is a primary checkout, not an isolated worktree"
+  WT_GIT_DIR=$(git -C "$WT_REAL" rev-parse --absolute-git-dir 2>/dev/null) || true
+  [ -n "$WT_GIT_DIR" ] || refuse "'$WT_REAL' has no resolvable git directory"
+  WT_GIT_DIR=$(real_dir "$WT_GIT_DIR") || true
+  WT_COMMON=$(common_dir_of "$WT_REAL") || true
+  [ -n "$WT_COMMON" ] || refuse "'$WT_REAL' has no resolvable git common directory"
+  [ "$WT_GIT_DIR" != "$WT_COMMON" ] || refuse "'$WT_REAL' is a primary checkout, not an isolated worktree"
 
-PROJ_COMMON=$(common_dir_of "$PROJ_REAL") || true
-[ -n "$PROJ_COMMON" ] || refuse "project '$PROJ_REAL' is not inside a git repository"
-[ "$WT_COMMON" = "$PROJ_COMMON" ] || refuse "'$WT_REAL' is not a worktree of project '$PROJ_REAL'"
+  PROJ_COMMON=$(common_dir_of "$PROJ_REAL") || true
+  [ -n "$PROJ_COMMON" ] || refuse "project '$PROJ_REAL' is not inside a git repository"
+  [ "$WT_COMMON" = "$PROJ_COMMON" ] || refuse "'$WT_REAL' is not a worktree of project '$PROJ_REAL'"
+
+fi
 
 # Every check above judges the resolved path, and that stays the scope boundary.
 # Trust is recorded under both spellings of that one directory because a lookup
-# miss is silent: agy parks on a dialog that draws no status text at all.
+# miss is silent: agy parks on a dialog that draws no status text at all. The
+# same pair is retired, so a removal run before the worktree is gone withdraws
+# whichever spelling the registration left.
 WT_LOGICAL=$(logical_dir "$WT_ARG") || true
 [ -n "$WT_LOGICAL" ] && [ "$(real_dir "$WT_LOGICAL")" = "$WT_REAL" ] || WT_LOGICAL=$WT_REAL
+if [ -z "$WT_REAL" ]; then
+  # A worktree already removed resolves to nothing, and its registration still
+  # has to be withdrawable, so an absolute argument stands for itself.
+  case "$WT_ARG" in
+    /*) WT_REAL=$WT_ARG; WT_LOGICAL=$WT_ARG ;;
+  esac
+fi
+[ -n "$WT_REAL" ] || refuse "worktree '$WT_ARG' cannot be resolved to an absolute path"
 
 # The store write needs node, and a missing interpreter refuses like every other
 # failure here. Degrading instead would launch a worker straight into the dialog
@@ -184,11 +227,11 @@ fi
 # did not leave.
 # ponytail: fingerprint-and-refuse, not a lock; flock is absent on macOS and
 # cannot stop a vendor session's own rewrite anyway.
-if ! node - "$STORE" "$WT_REAL" "$WT_LOGICAL" <<'NODE'
+if ! node - "$STORE" "$MODE" "$WT_REAL" "$WT_LOGICAL" <<'NODE'
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
-const [store, ...requested] = process.argv.slice(2);
+const [store, mode, ...requested] = process.argv.slice(2);
 // One directory, both spellings; a repeat spawn must not grow the array either.
 const worktrees = [...new Set(requested.filter((value) => value !== ""))];
 const readStore = () => {
@@ -219,8 +262,16 @@ const attempt = () => {
   if (!Array.isArray(trusted)) {
     throw new Error(`${store} has a non-array "trustedWorkspaces" value`);
   }
-  for (const worktree of worktrees) {
-    if (!trusted.includes(worktree)) trusted.push(worktree);
+  if (mode === "remove") {
+    const kept = trusted.filter((value) => !worktrees.includes(value));
+    // Nothing of ours to withdraw is not a write: a task that never ran on agy
+    // must not reformat the operator's settings file on its way out.
+    if (kept.length === trusted.length) return "recorded";
+    root.trustedWorkspaces = kept;
+  } else {
+    for (const worktree of worktrees) {
+      if (!trusted.includes(worktree)) trusted.push(worktree);
+    }
   }
   // Two-space pretty-printed with a trailing newline, because that is the format
   // agy itself writes: the store measured on the box this was written on is
@@ -244,10 +295,12 @@ const attempt = () => {
     if (!renamed) fs.rmSync(tmp, { force: true });
   }
   const back = JSON.parse(fs.readFileSync(store, "utf8"));
-  return Array.isArray(back.trustedWorkspaces) &&
-    worktrees.every((worktree) => back.trustedWorkspaces.includes(worktree))
-    ? "recorded"
-    : "dropped";
+  const recorded = Array.isArray(back.trustedWorkspaces)
+    ? (mode === "remove"
+      ? worktrees.every((worktree) => !back.trustedWorkspaces.includes(worktree))
+      : worktrees.every((worktree) => back.trustedWorkspaces.includes(worktree)))
+    : false;
+  return recorded ? "recorded" : "dropped";
 };
 try {
   for (let i = 0; i < 3; i += 1) {
@@ -262,11 +315,22 @@ try {
   console.error(`error: ${err.message}`);
   process.exit(1);
 }
-console.error(`error: ${store} did not retain trust for ${worktrees.join(", ")} after 3 attempts`);
+console.error(
+  mode === "remove"
+    ? `error: ${store} still trusts ${worktrees.join(", ")} after 3 attempts`
+    : `error: ${store} did not retain trust for ${worktrees.join(", ")} after 3 attempts`,
+);
 process.exit(1);
 NODE
 then
+  if [ "$MODE" = remove ]; then
+    refuse "could not withdraw trust for '$WT_REAL' in '$STORE'"
+  fi
   refuse "could not record trust for '$WT_REAL' in '$STORE'"
 fi
 
-echo "trusted: $WT_REAL"
+if [ "$MODE" = remove ]; then
+  echo "untrusted: $WT_REAL"
+else
+  echo "trusted: $WT_REAL"
+fi
