@@ -272,9 +272,9 @@ load_decision() {  # <path>; sets DECISION_TEXT and DECISION_DIGEST
   DECISION_DIGEST=$(sha256_text "$decision")
 }
 
-# Mutations address the configured data directory's backlog from its root, the
-# way bin/fm-backlog-transition-lib.sh addresses every transition, so a home
-# with a relocated data directory keeps one backlog.
+# Mutations run from the configured data directory's root and address that
+# home's markdown backlog at <data>/backlog.md explicitly, so a home with a
+# relocated data directory keeps one backlog.
 tasks_axi() {
   local data file root
   data=$(fm_backlog_data_absolute "$DATA") || fail "data directory cannot be resolved: $DATA"
