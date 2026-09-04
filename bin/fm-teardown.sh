@@ -2864,11 +2864,12 @@ elif [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
     if [ -n "$capacity_pool" ]; then
       fm_capacity_release_oldest "$DATA" "$capacity_pool" || true
       # Spawn may have had to record its hold under the fallback pool identity
-      # (the project root, when treehouse could not answer it); when the
-      # worktree-derived scan released nothing, scan that identity too before
-      # leaving the hold stranded for a manual unhold.
+      # (the canonical project root, as fm_capacity_pool_of_project resolves it
+      # when treehouse cannot answer); when the worktree-derived scan released
+      # nothing, scan that identity too before leaving the hold stranded for a
+      # manual unhold.
       if [ -z "$FM_CAPACITY_RELEASED_ID" ] && [ -n "$PROJ" ]; then
-        capacity_fallback=$(fm_capacity_pool_of_project "$PROJ" 2>/dev/null || true)
+        capacity_fallback=$(fm_capacity_canonical_or_raw "$PROJ" 2>/dev/null || true)
         if [ -n "$capacity_fallback" ] && [ "$capacity_fallback" != "$capacity_pool" ]; then
           fm_capacity_release_oldest "$DATA" "$capacity_fallback" || true
         fi

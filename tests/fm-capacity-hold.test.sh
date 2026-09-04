@@ -184,9 +184,14 @@ make_teardown_case() {  # <name> [fallback-pool-identity]
   pool="$case_dir/pool"
   mkdir -p "$case_dir/state" "$case_dir/config" "$case_dir/data" "$fakebin" "$pool"
 
-  cat > "$fakebin/treehouse" <<'SH'
+  cat > "$fakebin/treehouse" <<SH
 #!/usr/bin/env bash
-# `treehouse return --force <wt>`: succeed silently.
+case "\$1 \$2" in
+  "status --json")
+    printf '[{"name":"7","path":"$pool/7/wt","status":"in-use","flavor":"git","lease_id":"","lease_holder":"","leased_at":null,"processes":[]}]'
+    exit 0
+    ;;
+esac
 exit 0
 SH
   cat > "$fakebin/tmux" <<'SH'
