@@ -35,12 +35,11 @@ SPAWN="$ROOT/bin/fm-spawn.sh"
 TEARDOWN="$ROOT/bin/fm-teardown.sh"
 TMP_ROOT=$(fm_test_tmproot fm-beads-actor)
 
-command -v tasks-axi >/dev/null 2>&1 \
-  && command -v bd >/dev/null 2>&1 \
-  && command -v jq >/dev/null 2>&1 || {
+if ! command -v tasks-axi >/dev/null 2>&1 || ! command -v bd >/dev/null 2>&1 \
+  || ! command -v jq >/dev/null 2>&1; then
   printf 'ok - skipped (tasks-axi, bd, and jq are required to exercise the beads backend)\n'
   exit 0
-}
+fi
 
 # --- fixture ----------------------------------------------------------------
 
@@ -200,7 +199,7 @@ test_teardown_closes_as_firstmate_and_reads_two_distinct_actors() {
     || fail "beads spawn failed: $out"
   detach_worktree "$case_dir" "$id"
   out=$(run_teardown "$case_dir" "$id") || fail "teardown failed: $out"
-  [ "$(row_state "$case_dir" "$id")" = done ] \
+  [ "$(row_state "$case_dir" "$id")" = "done" ] \
     || fail "teardown reported success with the item still $(row_state "$case_dir" "$id")"
   [ "$(status_actor "$case_dir" closed)" = "$fm_actor" ] \
     || fail "the teardown close records actor '$(status_actor "$case_dir" closed)' instead of $fm_actor"
