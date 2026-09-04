@@ -127,6 +127,24 @@ $1
 EOF
 }
 
+# A background process holding one per-task record lock the way a completing
+# teardown does (the wake-lib lock protocol), so the sweep's contention path
+# is exercised against a real holder.
+make_lock_holder() {  # <dir>
+  local dir=$1
+  cat > "$dir/holder.sh" <<SH
+#!/usr/bin/env bash
+set -u
+FM_ROOT_OVERRIDE="$ROOT"
+FM_STATE_OVERRIDE="$dir/holder-state"
+. "$ROOT/bin/fm-wake-lib.sh"
+fm_lock_try_acquire "\$1" >/dev/null 2>&1 || exit 3
+sleep 20
+fm_lock_release "\$1" >/dev/null 2>&1
+SH
+  chmod +x "$dir/holder.sh"
+}
+
 row_state() {  # <id>
   (cd "$HOME_DIR" && tasks-axi show "$1" 2>/dev/null) | sed -n 's/^  state: *//p' | head -1
 }
@@ -315,8 +333,70 @@ test_arm_disarm_roundtrip() {
   pass "arm writes and registers the check shim; disarm removes all of it"
 }
 
+# A record lock held by another actor: a completion (teardown's meta removal
+# plus `tasks-axi done`) owns the row right now, so the sweep must refuse the
+# row instead of racing the close and resurrecting finished work. After the
+# holder dies, the same sweep reclaims the row, proving the lock was the gate.
+test_apply_refuses_a_row_whose_record_lock_a_completion_holds() {
+  local rec out holder_pid lock
+  rec=$(make_fixture lockheld)
+  read_fixture "$rec"
+  make_lock_holder "$CASE_DIR"
+  lock="$HOME_DIR/state/.meta-fm-dead-row.lock"
+  "$CASE_DIR/holder.sh" "$lock" >/dev/null 2>&1 &
+  holder_pid=$!
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    [ -e "$lock" ] && break
+    sleep 0.1
+  done
+  [ -e "$lock" ] || fail "fixture holder never took the record lock"
+  out=$(run_sweep --apply)
+  assert_row_matches \
+    'fm-dead-row[[:space:]]+main home[[:space:]]+26h[[:space:]]+dead[[:space:]]+reclaim failed: record locked by another actor' \
+    "$out" "a row whose record lock a completion holds must be refused, not reopened"
+  [ "$(row_state fm-dead-row)" = in_flight ] || fail "the sweep touched a row whose record lock was held"
+  assert_contains "$out" "reclaimed 1" \
+    "the summary must count only the row the lock did not protect"
+  [ "$(row_state fm-prov-row)" = queued ] \
+    || fail "a record home with no state dir must still reclaim (no lock to share)"
+  kill "$holder_pid" 2>/dev/null
+  wait "$holder_pid" 2>/dev/null
+  out=$(run_sweep --apply)
+  assert_row_matches 'fm-dead-row[[:space:]]+main home[[:space:]]+26h[[:space:]]+dead[[:space:]]+reclaimed' "$out" \
+    "once no completion holds the record lock, the same sweep must reclaim the row"
+  [ "$(row_state fm-dead-row)" = queued ] || fail "the row was not reclaimed after the lock freed"
+  [ ! -e "$lock" ] || fail "the sweep left the record lock behind after reclaiming"
+  pass "a row whose record lock a completion holds is refused until the lock frees"
+}
+
+# A pending backlog-close replay record: a completion was recorded and is still
+# owed (the teardown crash window), so the row must never be reopened.
+test_apply_refuses_a_row_with_a_pending_completion_replay() {
+  local rec out
+  rec=$(make_fixture closereplay)
+  read_fixture "$rec"
+  {
+    printf 'id=fm-dead-row\n'
+    printf 'data=%s/data\n' "$HOME_DIR"
+    printf 'spawn_gen=fm-dead-row-gen\n'
+    printf 'cleanup_incomplete=0\n'
+  } > "$HOME_DIR/state/fm-dead-row.backlog-close"
+  out=$(run_sweep --apply)
+  assert_row_matches \
+    'fm-dead-row[[:space:]]+main home[[:space:]]+26h[[:space:]]+dead[[:space:]]+reclaim failed: completion replay pending' \
+    "$out" "a row with a pending completion replay must be refused, not reopened"
+  [ "$(row_state fm-dead-row)" = in_flight ] || fail "the sweep touched a row whose completion is still owed"
+  rm -f "$HOME_DIR/state/fm-dead-row.backlog-close"
+  run_sweep --apply >/dev/null
+  [ "$(row_state fm-dead-row)" = queued ] \
+    || fail "the row was not reclaimed once no completion was pending"
+  pass "a row with a pending completion replay is refused until the replay lands"
+}
+
 test_dry_run_lists_verdicts_and_reclaims_nothing
 test_apply_reclaims_only_dead_rows
+test_apply_refuses_a_row_whose_record_lock_a_completion_holds
+test_apply_refuses_a_row_with_a_pending_completion_replay
 test_apply_names_the_resolved_homes_actor_when_two_homes_hold_meta
 test_check_mode_gates_on_the_interval_record
 test_check_mode_reports_the_budget_cut

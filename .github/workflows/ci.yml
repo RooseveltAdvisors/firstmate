@@ -165,6 +165,14 @@ jobs:
           set -eu
           npm install -g tasks-axi
           tasks-axi --version
+      # The stale-sweep suite drives a real scratch Beads graph through the
+      # real bd 1.2.x CLI; without bd every fixture row fails to create and
+      # the suite fails fast, so the binary is a required serial-lane tool.
+      - name: Install beads (bd) for the stale-sweep suite
+        run: |
+          set -eu
+          npm install -g @beads/bd
+          bd version
       - name: Run portable serial shard ${{ matrix.shard }}
         env:
           # job-total rather than a literal, so shrinking or growing the matrix

@@ -45,13 +45,18 @@
 #      home's backend reaches the swept graph (a home whose backlog lives
 #      elsewhere cannot reopen a beads row, so the graph-owning sweep home
 #      performs the reclaim instead, still naming the resolved owner as the
-#      actor): it appends "reclaimed <date>: endpoint dead, previous claim by
-#      <actor>" to the row's body, then reopens the row (back to Queued) - only
+#      actor): under the owning home's per-task record lock - the same lock
+#      the completion path holds across its meta removal and `tasks-axi done`
+#      - it appends "reclaimed <date>: endpoint dead, previous claim by
+#      <actor>" to the row's body, then reopens the row (back to Queued) only
 #      after re-proving the row is still in flight and unheld, so a row that
 #      finished between the sweep's read and its write is never resurrected.
-#      The sweep never touches a row whose endpoint is live and never removes
-#      a meta, worktree, or pane; the dead endpoint's records are left exactly
-#      where they are for stuck-crewmate recovery to inspect.
+#      A completion running concurrently holds the lock first: the sweep then
+#      refuses the row outright instead of racing the close. A pending
+#      backlog-close replay record counts the same way. The sweep never
+#      touches a row whose endpoint is live and never removes a meta,
+#      worktree, or pane; the dead endpoint's records are left exactly where
+#      they are for stuck-crewmate recovery to inspect.
 #
 # `check` composes with the watcher's state-check contract: it runs the sweep
 # dry at most once per FM_STALE_SWEEP_INTERVAL (default 86400, 0 disables the
@@ -91,6 +96,8 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-check-lib.sh
 . "$SCRIPT_DIR/fm-check-lib.sh"
+# shellcheck source=bin/fm-wake-lib.sh
+. "$SCRIPT_DIR/fm-wake-lib.sh"
 
 CHECK_ID=stale-sweep
 CHECK_SHIM="$STATE/$CHECK_ID.check.sh"
@@ -401,10 +408,47 @@ else:
 PY
 }
 
-# Reclaim one dead-endpoint row through its owning home. Re-proves the row is
-# still in flight and unheld before writing, appends the reclaim note, then
-# reopens. Prints the failure reason and returns non-zero on any refusal.
-fm_stale_reclaim() {  # <home> <id> <actor>
+# Reclaim one dead-endpoint row through its owning home. The whole reclaim
+# runs under the owning home's per-task record lock (state/.meta-<id>.lock) -
+# the lock the completion path (teardown's meta removal plus `tasks-axi done`)
+# holds across its own two steps - so a completion either lands before the
+# sweep's proof and the row reads done, or waits until the reopen has landed;
+# the two can never interleave into a resurrected finished row. When that lock
+# is already held, a completion is running right now and the row is refused
+# rather than reopened. A pending backlog-close replay record means a recorded
+# completion is still owed, so the row is refused too. Prints the failure
+# reason and returns non-zero on any refusal.
+fm_stale_reclaim() {  # <mutation-home> <record-home> <id> <actor>
+  local home=$1 record_home=$2 id=$3 actor=$4 lock rc
+  home=$(fm_capacity_resolve_dir "$home") || {
+    printf 'mutation home unresolvable'
+    return 1
+  }
+  # The record home's state dir may not exist (a provenance-only owner): then
+  # no firstmate actor can be completing there and there is no lock to share.
+  if [ -d "$record_home/state" ]; then
+    lock=$(fm_meta_lock_path "$record_home/state/$id.meta") || {
+      printf 'record lock unresolvable'
+      return 1
+    }
+    if [ -e "$record_home/state/$id.backlog-close" ]; then
+      printf 'completion replay pending'
+      return 1
+    fi
+    if ! fm_lock_try_acquire "$lock"; then
+      printf 'record locked by another actor'
+      return 1
+    fi
+  else
+    lock=
+  fi
+  rc=0
+  fm_stale_reclaim_locked "$home" "$id" "$actor" || rc=$?
+  [ -z "$lock" ] || fm_lock_release "$lock"
+  return "$rc"
+}
+
+fm_stale_reclaim_locked() {  # <home> <id> <actor>
   local home=$1 id=$2 actor=$3 out state held blocked body note new_body date
   out=$(fm_stale_axi "$home" show "$id") || {
     printf 'row unreadable'
@@ -549,7 +593,7 @@ fm_stale_consider() {  # <apply> <id> <age-hours> <escaped description> <ask-tim
       if [ "$(fm_stale_home_beads_path "$home" 2>/dev/null || true)" != "$FM_STALE_BD_PATH" ]; then
         mutation_home=$FM_HOME
       fi
-      if reason=$(fm_stale_reclaim "$mutation_home" "$id" "$actor"); then
+      if reason=$(fm_stale_reclaim "$mutation_home" "$home" "$id" "$actor"); then
         action=reclaimed
         FM_STALE_RECLAIMED=$((FM_STALE_RECLAIMED + 1))
       else
