@@ -690,11 +690,11 @@ test_hook_refuses_a_malformed_config() {
 # dispatch several agy crewmates at once. Losing that race must not refuse a
 # spawn whose directory now exists and is correct.
 test_concurrent_first_installs_all_succeed() {
-  local round worker home failures
+  local round home failures
   for round in 1 2 3 4 5; do
     home="$TMP_ROOT/concurrent-install-$round"
     mkdir -p "$home"
-    for worker in 1 2 3 4 5 6 7 8; do
+    for _ in 1 2 3 4 5 6 7 8; do
       ( run_hook_install "$home" >/dev/null 2>&1 || printf 'x' >> "$home/failures" ) &
     done
     wait
@@ -717,8 +717,9 @@ test_install_normalizes_a_loose_registry_mode() {
   mkdir -p "$AGY_HOME/.gemini/antigravity-cli/fm-turn-end.d"
   chmod 0755 "$AGY_HOME/.gemini/antigravity-cli/fm-turn-end.d"
   run_hook_install "$AGY_HOME" >/dev/null || fail "install failed against an existing registry"
-  mode=$(ls -ld "$AGY_HOME/.gemini/antigravity-cli/fm-turn-end.d" | cut -c1-10)
-  [ "$mode" = "drwx------" ] \
+  mode=$(stat -c %a "$AGY_HOME/.gemini/antigravity-cli/fm-turn-end.d" 2>/dev/null \
+    || stat -f %Lp "$AGY_HOME/.gemini/antigravity-cli/fm-turn-end.d")
+  [ "$mode" = 700 ] \
     || fail "the install left the registry world-readable (mode $mode)"
   pass "fm-agy-turnend-hook.sh: install narrows a loose registry directory mode"
 }
