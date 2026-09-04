@@ -805,6 +805,10 @@ test_agy_spawn_pretrusts_its_worktree_and_reaches_the_brief() {
     "the agy spawn did not install the turn-end hook" firstmate-turn-end Stop 0 type
   assert_grep 'token=fm.' "$wt/.fm-agy-turnend" \
     "the agy spawn did not leave a task token pointer in the worktree"
+  # Teardown withdraws exactly what this record names, so a spawn that registers
+  # without writing it would leave the entry with nothing to key the removal off.
+  [ "$(head -1 "$home/state/agyspawn.agy-trust" 2>/dev/null)" = "$wt" ] \
+    || fail "the agy spawn did not record the workspace trust it registered"
   pass "fm-spawn.sh: an agy spawn pre-trusts its worktree, arms its wake, and launches with the brief"
 }
 

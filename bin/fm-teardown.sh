@@ -980,21 +980,33 @@ remove_turnend_auth() {  # <harness> <state-dir> <id>
 
 # The agy spawn's workspace-trust entry lives in the operator's own vendor
 # settings file rather than under this home, so it is the one task artifact with
-# no in-tree path to remove. Two placement constraints meet here. It is keyed by
-# the recorded absolute path rather than by the directory, so it must NOT sit
-# inside a worktree-exists branch: a worktree already gone is exactly the case
-# that would otherwise strand the entry forever. And it must run BEFORE the
-# worktree is released, because a returned pool worktree is handed to the next
-# spawn at the SAME path - withdrawing after the return can revoke trust another
-# task just registered, wedging its worker on a dialog that draws no status text.
-# Releasing also deletes the directory, after which only the literal spelling can
-# be withdrawn and a symlinked one would be left behind. Best effort: the removal
-# writes nothing when the path was never registered, and a store the vendor moved
-# under it refuses rather than clobbering, which must not strand an otherwise
-# finished teardown.
-retire_agy_workspace_trust() {  # <worktree>
-  [ -n "${1:-}" ] || return 0
-  "$SCRIPT_DIR/fm-agy-trust.sh" --remove "$1" >/dev/null || true
+# no in-tree path to remove. What is withdrawn is exactly what state/<id>.agy-trust
+# records this task's spawn as having registered - never the task's worktree path
+# on its own word. The same store holds workspaces the operator trusted BY HAND,
+# and the removal runs no scope test by design, so a path-keyed withdrawal would
+# silently revoke one of theirs whenever a task shares the path: a secondmate's
+# worktree IS the firstmate home, and a pool worktree is reused across tasks and
+# harnesses. No record means this task registered nothing and nothing is touched.
+#
+# Placement is load-bearing too: this runs BEFORE the worktree is released,
+# because a returned pool worktree is handed to the next spawn at the SAME path,
+# and withdrawing after the return can revoke trust that task just registered,
+# wedging its worker on a dialog that draws no status text.
+#
+# Best effort: a store the vendor moved under it refuses rather than clobbering,
+# which must not strand an otherwise finished teardown. The record is dropped
+# either way - a retry would face the same store.
+retire_agy_workspace_trust() {  # <state-dir> <id>
+  local state_dir=${1:-} id=${2:-} record path
+  [ -n "$state_dir" ] && [ -n "$id" ] || return 0
+  record="$state_dir/$id.agy-trust"
+  [ -f "$record" ] && [ ! -L "$record" ] || return 0
+  while IFS= read -r path; do
+    case "$path" in
+      /*) "$SCRIPT_DIR/fm-agy-trust.sh" --remove "$path" >/dev/null || true ;;
+    esac
+  done < "$record"
+  rm -f -- "$record"
   return 0
 }
 
@@ -2544,7 +2556,7 @@ cleanup_firstmate_home_children() {
         fm_backend_kill "$child_backend" "$child_t" "$(meta_value "$child_meta" zellij_tab_id)" "fm-$child_id" 2>/dev/null || true
       fi
     fi
-    retire_agy_workspace_trust "$child_wt"
+    retire_agy_workspace_trust "$sub_state" "$child_id"
     if [ "$child_kind" = secondmate ]; then
       child_home=$(meta_value "$child_meta" home)
       [ -n "$child_home" ] || child_home=$child_wt
@@ -2592,7 +2604,7 @@ cleanup_firstmate_home_children() {
     rm -f "$sub_state/$child_id.turn-ended" \
       "$sub_state/$child_id.pi-ext.ts" \
       "$sub_state/$child_id.grok-turnend-token" "$sub_state/$child_id.kimi-turnend-token" \
-      "$sub_state/$child_id.agy-turnend-token" \
+      "$sub_state/$child_id.agy-turnend-token" "$sub_state/$child_id.agy-trust" \
       "$sub_state/$child_id.muse-session" "$sub_state/$child_id.muse-session-current" \
       "$sub_state/$child_id.cursor-session" "$sub_state/$child_id.reconcile-nudged"
   done
@@ -2788,7 +2800,7 @@ fi
 # pruned code root. Best effort - a sweep failure never blocks this teardown.
 "$SCRIPT_DIR/fm-remote-job-reap-orphans.sh" >&2 || true
 
-retire_agy_workspace_trust "$WT"
+retire_agy_workspace_trust "$STATE" "$ID"
 
 # Best-effort: drop the local task branch so the shared repo does not accumulate refs.
 if [ "$BACKEND" = orca ] && [ "$KIND" != secondmate ]; then
@@ -2941,6 +2953,7 @@ status_retire_presentation_task "$STATE" "$ID" || exit 1
 rm -f "$STATE/$ID.turn-ended" \
   "$STATE/$ID.pi-ext.ts" "$STATE/$ID.grok-turnend-token" \
   "$STATE/$ID.kimi-turnend-token" "$STATE/$ID.agy-turnend-token" \
+  "$STATE/$ID.agy-trust" \
   "$STATE/$ID.muse-session" \
   "$STATE/$ID.muse-session-current" "$STATE/$ID.cursor-session" \
   "$STATE/$ID.control-relaunch" "$STATE/$ID.control-relaunch.meta-prior" \

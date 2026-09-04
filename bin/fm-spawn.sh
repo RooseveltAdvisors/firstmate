@@ -901,6 +901,7 @@ spawn_abort_cleanup() {
         "$FM_ROOT/bin/fm-agy-trust.sh" --remove "$agy_trust_path" >/dev/null \
           || echo "warning: could not withdraw agy workspace trust for '$agy_trust_path' after the aborted spawn of $ID" >&2
       done
+      rm -f -- "$STATE/$ID.agy-trust"
     fi
   fi
   if [ "$SPAWN_META_LOCK_HELD" = 1 ]; then
@@ -2639,6 +2640,17 @@ if [ "$HARNESS" = agy ]; then
   case "$AGY_TRUST_WT_REAL" in /*) ;; *) AGY_TRUST_WT_REAL= ;; esac
   [ "$AGY_TRUST_WT_REAL" != "$AGY_TRUST_WT" ] || AGY_TRUST_WT_REAL=
   AGY_TRUST_REGISTERED=1
+  # The exact paths THIS task registered, so teardown withdraws those and only
+  # those. The store is the operator's own: it also holds workspaces they trusted
+  # by hand, and a withdrawal keyed on the worktree path alone would take one of
+  # those with it whenever a task happens to share the path - a secondmate whose
+  # worktree IS the firstmate home, or any task on a reused pool worktree. The
+  # record is deliberately NOT part of the relaunch wiring tables: a relaunch onto
+  # another harness leaves the registration standing, so the note that firstmate
+  # made it has to outlive the harness that did.
+  mkdir -p "$STATE"
+  printf '%s\n' "$AGY_TRUST_WT" > "$STATE/$ID.agy-trust"
+  [ -z "$AGY_TRUST_WT_REAL" ] || printf '%s\n' "$AGY_TRUST_WT_REAL" >> "$STATE/$ID.agy-trust"
   "$FM_ROOT/bin/fm-agy-turnend-hook.sh" install || {
     echo "error: refusing agy spawn because the global turn-end hook could not be installed safely" >&2
     exit 1
