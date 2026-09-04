@@ -364,21 +364,26 @@ test_corrupt_store_fails_closed() {
   pass "fm-claude-trust.sh: refuses an unparseable store and leaves it untouched"
 }
 
-# A refused registration must abort the spawn before any task state exists.
-# The busy-state generation is armed in the same block, and nothing between that
-# arm and the far-later rollback arming can clear it, so a record stranded here
-# would read as a task busy forever for an id that has no meta at all.
-test_refused_spawn_leaves_no_busy_state() {
-  local case_dir home proj wt config fakebin out
+# A refused registration must abort the spawn before any per-task state exists.
+# The busy-state generation is armed after it, and nothing between that arm and
+# the far-later rollback arming can clear it, so a record stranded here would
+# read as a task busy forever for an id that has no meta at all. The per-task
+# temp root /tmp/fm-<id> is the other resource created on the way to the arm, and
+# nothing removes it either: fm-teardown finds it through tasktmp= in the task's
+# meta, which a refused spawn never publishes. The id carries this process's pid
+# so the temp-root assertion reads only this run's path.
+test_refused_spawn_leaves_no_task_state() {
+  local case_dir home proj wt config fakebin out id
   case_dir="$TMP_ROOT/refused-spawn"
   home="$case_dir/home"
   proj="$case_dir/project"
   wt="$case_dir/wt"
   config="$case_dir/claude-config"
+  id="refusedspawn$$"
   # Root owns /etc/passwd, so a store resolving to it is refused as another
   # user's file. Running as root would own it and make the refusal vacuous.
   if [ "$(id -u)" = 0 ]; then
-    pass "fm-spawn.sh: a trust-refused claude spawn leaves no busy state (skipped as root)"
+    pass "fm-spawn.sh: a trust-refused claude spawn leaves no task state (skipped as root)"
     return 0
   fi
   mkdir -p "$config"
@@ -386,17 +391,19 @@ test_refused_spawn_leaves_no_busy_state() {
   fakebin=$(make_spawn_fakebin "$case_dir/fake" claude)
   fm_test_spawn_home "$home" claude
   fm_git_worktree "$proj" "$wt" wt-refused
-  fm_test_spawn_brief "$home" refusedspawn
+  fm_test_spawn_brief "$home" "$id"
   out=$(FM_TEST_CLAUDE_CONFIG_DIR="$config" \
-    fm_test_run_spawn "$home" "$wt" "$fakebin" refusedspawn "$proj" claude \
+    fm_test_run_spawn "$home" "$wt" "$fakebin" "$id" "$proj" claude \
     --mode no-mistakes --yolo off)
   expect_code 1 $? "a spawn whose trust registration is refused must fail: $out"
   assert_contains "$out" "workspace trust" "the spawn did not report the trust refusal"
-  [ ! -e "$home/state/refusedspawn.busy-state" ] \
+  [ ! -e "$home/state/$id.busy-state" ] \
     || fail "a refused spawn stranded a busy record nothing can clear"
-  [ ! -e "$home/state/refusedspawn.busy-gen" ] \
+  [ ! -e "$home/state/$id.busy-gen" ] \
     || fail "a refused spawn stranded a busy generation nothing can clear"
-  pass "fm-spawn.sh: a trust-refused claude spawn leaves no busy state behind"
+  [ ! -e "/tmp/fm-$id" ] \
+    || { rm -rf "/tmp/fm-$id"; fail "a refused spawn stranded a temp root no teardown can find"; }
+  pass "fm-spawn.sh: a trust-refused claude spawn leaves no task state behind"
 }
 
 # The spawn half: a real fm-spawn of a claude worker must pre-register the
@@ -452,4 +459,4 @@ test_corrupt_store_fails_closed
 test_missing_node_is_refused
 test_scope_refusal_stays_fail_closed_without_node
 test_claude_spawn_pretrusts_its_worktree_and_reaches_the_brief
-test_refused_spawn_leaves_no_busy_state
+test_refused_spawn_leaves_no_task_state
