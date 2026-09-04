@@ -734,6 +734,7 @@ spawn_remote_secondmate() {
 BACKEND=
 AGY_TRUST_REGISTERED=0
 AGY_TRUST_WT=
+AGY_TRUST_WT_REAL=
 ORCA_ABORT_CLEANUP=0
 ORCA_WORKTREE_ID=
 ORCA_TERMINAL=
@@ -791,7 +792,7 @@ parse_orca_worktree_result() {
 }
 
 spawn_abort_cleanup() {
-  local status=$?
+  local status=$? agy_trust_path
   if [ "$RELAUNCH_REPLACEMENT_PENDING" = 1 ] \
      && [ "$SPAWN_META_PUBLISH_STARTED" = 1 ] \
      && [ -n "$SPAWN_META_TMP" ] \
@@ -891,8 +892,15 @@ spawn_abort_cleanup() {
   if [ "$AGY_TRUST_REGISTERED" = 1 ]; then
     AGY_TRUST_REGISTERED=0
     if [ ! -e "$STATE/$ID.meta" ] && [ ! -L "$STATE/$ID.meta" ]; then
-      "$FM_ROOT/bin/fm-agy-trust.sh" --remove "$AGY_TRUST_WT" >/dev/null \
-        || echo "warning: could not withdraw agy workspace trust for '$AGY_TRUST_WT' after the aborted spawn of $ID" >&2
+      # The registration records both spellings of the worktree, and --remove can
+      # only recompute that pair while the directory still resolves. An orca abort
+      # deletes it above, so the resolved spelling captured at registration is
+      # withdrawn explicitly rather than re-derived from a path that is gone.
+      for agy_trust_path in "$AGY_TRUST_WT" "$AGY_TRUST_WT_REAL"; do
+        [ -n "$agy_trust_path" ] || continue
+        "$FM_ROOT/bin/fm-agy-trust.sh" --remove "$agy_trust_path" >/dev/null \
+          || echo "warning: could not withdraw agy workspace trust for '$agy_trust_path' after the aborted spawn of $ID" >&2
+      done
     fi
   fi
   if [ "$SPAWN_META_LOCK_HELD" = 1 ]; then
@@ -2618,11 +2626,18 @@ fi
 # a busy record that nothing could later clear. Both refuse loudly rather than
 # degrade, because degrading launches exactly the wedged worker they prevent.
 if [ "$HARNESS" = agy ]; then
-  "$FM_ROOT/bin/fm-agy-trust.sh" "$WT" "$PROJ_ABS" || {
+  AGY_TRUST_REPORT=$("$FM_ROOT/bin/fm-agy-trust.sh" "$WT" "$PROJ_ABS") || {
     echo "error: refusing agy spawn because workspace trust could not be pre-registered for '$WT'" >&2
     exit 1
   }
+  printf '%s\n' "$AGY_TRUST_REPORT"
   AGY_TRUST_WT=$WT
+  # The registration names the resolved spelling it recorded. Keeping it means an
+  # abort can withdraw that entry even after the worktree directory is gone,
+  # which is when it can no longer be derived from the path.
+  AGY_TRUST_WT_REAL=${AGY_TRUST_REPORT#trusted: }
+  case "$AGY_TRUST_WT_REAL" in /*) ;; *) AGY_TRUST_WT_REAL= ;; esac
+  [ "$AGY_TRUST_WT_REAL" != "$AGY_TRUST_WT" ] || AGY_TRUST_WT_REAL=
   AGY_TRUST_REGISTERED=1
   "$FM_ROOT/bin/fm-agy-turnend-hook.sh" install || {
     echo "error: refusing agy spawn because the global turn-end hook could not be installed safely" >&2

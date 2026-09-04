@@ -896,6 +896,68 @@ SH
   pass "fm-spawn.sh: an abort after the record is published still withdraws the trust it registered"
 }
 
+# The registration records both spellings of the worktree, and --remove can only
+# re-derive that pair while the directory still resolves. An orca abort deletes
+# the worktree before the cleanup runs, so a re-derived pair would collapse to
+# the literal argument and leave the resolved spelling behind forever.
+test_abort_withdraws_both_spellings_after_the_worktree_is_deleted() {
+  local case_dir home proj wt agyhome fakebin store link wt_link wt_real out
+  case_dir="$TMP_ROOT/abort-deleted-worktree"
+  home="$case_dir/home"
+  proj="$case_dir/project"
+  wt="$case_dir/wt"
+  agyhome="$case_dir/agyhome"
+  store=$(store_path "$agyhome")
+  mkdir -p "$case_dir" "$(dirname "$store")"
+  printf '%s\n' '{"enableTelemetry":false,"trustedWorkspaces":["/already/trusted"]}' > "$store"
+  fm_test_spawn_home "$home" agy
+  fm_git_worktree "$proj" "$wt" wt-abort-deleted
+  fm_test_spawn_brief "$home" abortdeleted
+  link="$TMP_ROOT/abort-deleted-link"
+  ln -sfn "$case_dir" "$link"
+  wt_link="$link/wt"
+  wt_real=$(cd -P -- "$wt" && pwd -P)
+  [ "$wt_link" != "$wt_real" ] || fail "the fixture did not produce two distinct spellings"
+  fakebin=$(make_spawn_fakebin "$case_dir/fake" agy)
+  # The abort fires on the trace-context send, and the stub removes the worktree
+  # first - the state an orca abort leaves behind when it reclaims the worktree.
+  cat > "$fakebin/tmux" <<SH
+#!/usr/bin/env bash
+set -u
+case "\$*" in
+  *"#{pane_current_path}"*) printf '%s\\n' "\${FM_FAKE_PANE_PATH:-}"; exit 0 ;;
+esac
+case "\${1:-}" in
+  display-message) printf 'firstmate\\n'; exit 0 ;;
+  list-windows) exit 0 ;;
+  has-session|new-session|new-window|kill-window|set-window-option) exit 0 ;;
+  send-keys)
+    for a in "\$@"; do
+      case "\$a" in
+        "export TRACEPARENT="*) rm -rf -- "$wt_real"; exit 2 ;;
+      esac
+    done
+    exit 0
+    ;;
+esac
+exit 0
+SH
+  chmod +x "$fakebin/tmux"
+  : > "$home/config/trace-context"
+  printf '%s\n' "$$" > "$home/state/.lock"
+  fm_trace_context_session_start "$home/config" "$home/state/.trace-context-effective"
+  out=$(HOME="$agyhome" fm_test_run_spawn "$home" "$wt_link" "$fakebin" abortdeleted "$proj" agy \
+    --mode no-mistakes --yolo off)
+  expect_code 1 $? "an unsafe trace-context send must abort the spawn: $out"
+  [ ! -d "$wt_real" ] || fail "the fixture did not remove the worktree before the cleanup ran"
+  [ ! -e "$home/state/abortdeleted.meta" ] \
+    || fail "the abort left a task record, so this case no longer covers the recordless leak"
+  assert_not_trusted "$store" "$wt_link" "the launch spelling survived the aborted spawn"
+  assert_not_trusted "$store" "$wt_real" "the resolved spelling survived the aborted spawn"
+  assert_trusted "$store" "/already/trusted" "the withdrawal dropped an unrelated operator entry"
+  pass "fm-spawn.sh: an abort withdraws both trust spellings after the worktree is deleted"
+}
+
 # A refused registration must abort the spawn before any task state exists: the
 # busy-state generation is armed later in the same run and nothing between would
 # clear it, so a record stranded here would read as a task busy forever for an id
@@ -973,3 +1035,4 @@ test_agy_spawn_pretrusts_its_worktree_and_reaches_the_brief
 test_refused_spawn_leaves_no_task_state
 test_aborted_spawn_withdraws_the_trust_it_registered
 test_post_publish_abort_withdraws_the_trust_it_registered
+test_abort_withdraws_both_spellings_after_the_worktree_is_deleted
