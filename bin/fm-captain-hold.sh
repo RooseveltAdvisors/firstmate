@@ -47,12 +47,15 @@
 # act. It requires a non-empty captain decision file of at most 8192 bytes and
 # writes a resolution block while preserving the leading hold-set stamp until
 # the close succeeds (the previous body is preserved and archived through
-# tasks-axi --archive-body). It then closes the task with `tasks-axi done` - or,
-# with `--release`, lifts the hold with `tasks-axi unhold` so a captain-gated
-# WORK item resumes instead of closing - and restores resolution-first body
-# ordering. An exact retry also completes unfinished ordering normalization and
-# is idempotent only when its requested close mode
-# matches the newest record; a changed decision or a mode mismatch is rejected.
+# tasks-axi --archive-body). It then closes the task through the guarded
+# backlog close owned by bin/fm-backlog-transition-lib.sh, carrying
+# `--note "answered: <first line of the decision>"` as the close's done-class
+# reason so the closed row records why it closed - or, with `--release`, lifts
+# the hold with `tasks-axi unhold` so a captain-gated WORK item resumes instead
+# of closing - and restores resolution-first body ordering. An exact retry also
+# completes unfinished ordering normalization and is idempotent only when its
+# requested close mode matches the newest record; a changed decision or a mode
+# mismatch is rejected.
 # A re-held task may record a new answer on top. On a task already closed outside this script,
 # `answer` records the missing resolution block (the old `repair` path) only
 # when the task still carries the captain-hold provenance tasks-axi preserves
