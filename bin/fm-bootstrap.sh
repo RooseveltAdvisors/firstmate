@@ -1473,8 +1473,9 @@ detect_no_mistakes_mirror() {
   root=${NM_HOME:-}
   [ -n "$root" ] || root=$HOME/.no-mistakes
   # init canonicalizes NM_HOME when it writes the remote, so a trailing-slash
-  # NM_HOME must not poison the <root>/repos/* prefix match below.
-  while [ "$root" != "${root%/}" ]; do root=${root%/}; done
+  # NM_HOME must not poison the <root>/repos/* prefix match below. A bare "/"
+  # root is already canonical and must survive the strip.
+  while [ "$root" != "/" ] && [ "$root" != "${root%/}" ]; do root=${root%/}; done
   check_no_mistakes_mirror_one firstmate "$FM_ROOT" "$root"
   [ -f "$DATA/projects.md" ] || return 0
   while IFS= read -r name; do

@@ -1217,6 +1217,21 @@ NO_MISTAKES_MIRROR: absent remote=absent expected-root=$root_a (run no-mistakes 
   [ "$out" = "$expect" ] \
     || fail "mirror check: expected the firstmate drift line, got: $out"
 
+  # Trailing-slash NM_HOME must normalize to the canonical root, and a bare
+  # "/" root must survive the slash-strip instead of collapsing to empty.
+  out=$(PATH="$fakebin:$BASE_PATH" NM_HOME="$root_a///" FM_HOME="$home" \
+    FM_ROOT_OVERRIDE="$case_dir/fm-root" FM_FAKE_TREEHOUSE_LEASE_HELP=1 \
+    "$ROOT/bin/fm-bootstrap.sh")
+  expect="NO_MISTAKES_MIRROR: firstmate remote=$root_b/repos/fm.git expected-root=$root_a (run no-mistakes init inside $case_dir/fm-root to point its gate at the active root)"
+  [ "$out" = "$expect" ] \
+    || fail "mirror check: trailing-slash NM_HOME should normalize to the root, got: $out"
+  out=$(PATH="$fakebin:$BASE_PATH" NM_HOME=/ FM_HOME="$home" \
+    FM_ROOT_OVERRIDE="$case_dir/fm-root" FM_FAKE_TREEHOUSE_LEASE_HELP=1 \
+    "$ROOT/bin/fm-bootstrap.sh")
+  expect="NO_MISTAKES_MIRROR: firstmate remote=$root_b/repos/fm.git expected-root=/ (run no-mistakes init inside $case_dir/fm-root to point its gate at the active root)"
+  [ "$out" = "$expect" ] \
+    || fail "mirror check: a bare / NM_HOME must survive normalization, got: $out"
+
   # The default resolution leg: with NM_HOME unset, the root is
   # ~/.no-mistakes, so a remote under it stays silent. The URL is a string
   # only; nothing under the real home is read or written.
