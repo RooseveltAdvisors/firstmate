@@ -733,8 +733,7 @@ spawn_remote_secondmate() {
 
 BACKEND=
 AGY_TRUST_REGISTERED=0
-AGY_TRUST_WT=
-AGY_TRUST_WT_REAL=
+AGY_TRUST_ADDED=
 ORCA_ABORT_CLEANUP=0
 ORCA_WORKTREE_ID=
 ORCA_TERMINAL=
@@ -892,11 +891,11 @@ spawn_abort_cleanup() {
   if [ "$AGY_TRUST_REGISTERED" = 1 ]; then
     AGY_TRUST_REGISTERED=0
     if [ ! -e "$STATE/$ID.meta" ] && [ ! -L "$STATE/$ID.meta" ]; then
-      # The registration records both spellings of the worktree, and --remove can
-      # only recompute that pair while the directory still resolves. An orca abort
-      # deletes it above, so the resolved spelling captured at registration is
-      # withdrawn explicitly rather than re-derived from a path that is gone.
-      for agy_trust_path in "$AGY_TRUST_WT" "$AGY_TRUST_WT_REAL"; do
+      # Only what the registration reported adding, and by the spelling it named:
+      # a workspace the operator had already trusted is not this spawn's to take
+      # back, and --remove could no longer re-derive the resolved spelling anyway
+      # once an orca abort above deleted the directory.
+      printf '%s\n' "$AGY_TRUST_ADDED" | while IFS= read -r agy_trust_path; do
         [ -n "$agy_trust_path" ] || continue
         "$FM_ROOT/bin/fm-agy-trust.sh" --remove "$agy_trust_path" >/dev/null \
           || echo "warning: could not withdraw agy workspace trust for '$agy_trust_path' after the aborted spawn of $ID" >&2
@@ -2632,25 +2631,22 @@ if [ "$HARNESS" = agy ]; then
     exit 1
   }
   printf '%s\n' "$AGY_TRUST_REPORT"
-  AGY_TRUST_WT=$WT
-  # The registration names the resolved spelling it recorded. Keeping it means an
-  # abort can withdraw that entry even after the worktree directory is gone,
-  # which is when it can no longer be derived from the path.
-  AGY_TRUST_WT_REAL=${AGY_TRUST_REPORT#trusted: }
-  case "$AGY_TRUST_WT_REAL" in /*) ;; *) AGY_TRUST_WT_REAL= ;; esac
-  [ "$AGY_TRUST_WT_REAL" != "$AGY_TRUST_WT" ] || AGY_TRUST_WT_REAL=
   AGY_TRUST_REGISTERED=1
-  # The exact paths THIS task registered, so teardown withdraws those and only
-  # those. The store is the operator's own: it also holds workspaces they trusted
-  # by hand, and a withdrawal keyed on the worktree path alone would take one of
-  # those with it whenever a task happens to share the path - a secondmate whose
-  # worktree IS the firstmate home, or any task on a reused pool worktree. The
-  # record is deliberately NOT part of the relaunch wiring tables: a relaunch onto
-  # another harness leaves the registration standing, so the note that firstmate
-  # made it has to outlive the harness that did.
+  # The spellings the registration reported ADDING - never the ones it merely
+  # found already present. The store is the operator's own: they may have trusted
+  # this very path by hand, and taking that back at teardown would park their next
+  # hand-run agy on the dialog this whole control exists to remove.
+  AGY_TRUST_ADDED=$(printf '%s\n' "$AGY_TRUST_REPORT" | sed -n 's/^added: //p')
+  # Appended rather than rewritten, and deliberately NOT part of the relaunch
+  # wiring tables: a relaunch adds nothing when the path is already trusted, and
+  # one onto another harness leaves the registration standing, so the note that
+  # firstmate made it has to outlive both.
   mkdir -p "$STATE"
-  printf '%s\n' "$AGY_TRUST_WT" > "$STATE/$ID.agy-trust"
-  [ -z "$AGY_TRUST_WT_REAL" ] || printf '%s\n' "$AGY_TRUST_WT_REAL" >> "$STATE/$ID.agy-trust"
+  printf '%s\n' "$AGY_TRUST_ADDED" | while IFS= read -r agy_added_path; do
+    [ -n "$agy_added_path" ] || continue
+    grep -Fxq -- "$agy_added_path" "$STATE/$ID.agy-trust" 2>/dev/null \
+      || printf '%s\n' "$agy_added_path" >> "$STATE/$ID.agy-trust"
+  done
   "$FM_ROOT/bin/fm-agy-turnend-hook.sh" install || {
     echo "error: refusing agy spawn because the global turn-end hook could not be installed safely" >&2
     exit 1

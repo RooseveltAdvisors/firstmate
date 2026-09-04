@@ -213,6 +213,26 @@ test_removal_works_after_the_worktree_is_gone() {
   pass "fm-agy-trust.sh: a registration is withdrawable after its worktree is gone"
 }
 
+# The registration is idempotent, so it cannot be asked "did you add this?" after
+# the fact - it has to say so at the time. Teardown withdraws exactly what it
+# reported adding, and a workspace the operator trusted by hand is not that.
+test_registration_reports_only_what_it_added() {
+  local rec out
+  rec=$(make_case reports-added)
+  read_case "$rec"
+  out=$(run_trust "$AGY_HOME" "$WT" "$PROJ")
+  expect_code 0 $? "a fresh registration must succeed: $out"
+  assert_contains "$out" "added: $WT" "a fresh registration did not report the spelling it added"
+  out=$(run_trust "$AGY_HOME" "$WT" "$PROJ")
+  expect_code 0 $? "a repeat registration must succeed: $out"
+  case "$out" in
+    *"added: "*) fail "a repeat registration claimed to add a spelling that was already trusted: $out" ;;
+  esac
+  assert_contains "$out" "trusted:" "a repeat registration did not report what it trusted"
+  assert_trusted "$(store_path "$AGY_HOME")" "$WT" "the repeat registration dropped the entry"
+  pass "fm-agy-trust.sh: registration reports only the spellings it actually added"
+}
+
 test_unrelated_store_content_is_preserved() {
   local rec store
   rec=$(make_case preserve)
@@ -962,6 +982,35 @@ SH
   pass "fm-spawn.sh: an abort withdraws both trust spellings after the worktree is deleted"
 }
 
+# The store is the operator's own. If they trusted this worktree by hand, the
+# spawn finds it already there and adds nothing, so it must not claim it: the
+# record is what teardown withdraws, and taking their entry back would park their
+# next hand-run agy on the dialog the whole control exists to remove.
+test_spawn_does_not_claim_a_workspace_the_operator_already_trusted() {
+  local case_dir home proj wt agyhome fakebin store out
+  case_dir="$TMP_ROOT/operator-trusted"
+  home="$case_dir/home"
+  proj="$case_dir/project"
+  wt="$case_dir/wt"
+  agyhome="$case_dir/agyhome"
+  store=$(store_path "$agyhome")
+  mkdir -p "$agyhome"
+  fakebin=$(make_spawn_fakebin "$case_dir/fake" agy)
+  fm_test_spawn_home "$home" agy
+  fm_git_worktree "$proj" "$wt" wt-operator-trusted
+  fm_test_spawn_brief "$home" operatortrusted
+  # The operator's own trust for this exact path, made before any task ran here.
+  HOME="$agyhome" "$TRUST" "$wt" "$proj" >/dev/null \
+    || fail "the fixture could not record the operator's own trust"
+  out=$(HOME="$agyhome" fm_test_run_spawn "$home" "$wt" "$fakebin" operatortrusted "$proj" agy \
+    --mode no-mistakes --yolo off)
+  expect_code 0 $? "the agy spawn must succeed against an already-trusted worktree: $out"
+  assert_trusted "$store" "$wt" "the spawn disturbed the operator's own trust entry"
+  [ ! -e "$home/state/operatortrusted.agy-trust" ] \
+    || fail "the spawn claimed a workspace the operator had already trusted: $(cat "$home/state/operatortrusted.agy-trust")"
+  pass "fm-spawn.sh: a spawn into an already-trusted worktree claims no registration of its own"
+}
+
 # A refused registration must abort the spawn before any task state exists: the
 # busy-state generation is armed later in the same run and nothing between would
 # clear it, so a record stranded here would read as a task busy forever for an id
@@ -1005,6 +1054,7 @@ test_removal_of_an_unregistered_path_writes_nothing
 test_removal_without_a_store_creates_nothing
 test_removal_works_after_the_worktree_is_gone
 test_registration_is_idempotent
+test_registration_reports_only_what_it_added
 test_unrelated_store_content_is_preserved
 test_primary_checkout_is_refused
 test_cdpath_cannot_defeat_the_primary_checkout_refusal
@@ -1037,6 +1087,7 @@ test_spawn_refuses_a_secondmate_on_agy
 test_a_non_agy_launch_clears_the_inherited_agy_marker
 test_agy_spawn_pretrusts_its_worktree_and_reaches_the_brief
 test_refused_spawn_leaves_no_task_state
+test_spawn_does_not_claim_a_workspace_the_operator_already_trusted
 test_aborted_spawn_withdraws_the_trust_it_registered
 test_post_publish_abort_withdraws_the_trust_it_registered
 test_abort_withdraws_both_spellings_after_the_worktree_is_deleted

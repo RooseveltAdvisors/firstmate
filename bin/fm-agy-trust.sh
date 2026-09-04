@@ -9,6 +9,12 @@
 #   <project>   the primary checkout that worktree belongs to
 # Prints one line naming what it registered; refuses loudly on anything else.
 #
+# Registration also prints one `added: <path>` line per spelling this run PUT in
+# the store, and none for a spelling that was already there. That distinction is
+# the caller's only way to tell its own registration from a workspace the
+# operator trusted by hand, and withdrawing the latter would resurrect the very
+# dialog this exists to remove. A run that adds nothing writes nothing.
+#
 # --remove retires a registration at teardown, so a vendor-owned settings file
 # firstmate does not own cannot accumulate one dead absolute path per task (an
 # orca task worktree is named for its task id, so every task is a new path).
@@ -234,6 +240,10 @@ const crypto = require("node:crypto");
 const [store, mode, ...requested] = process.argv.slice(2);
 // One directory, both spellings; a repeat spawn must not grow the array either.
 const worktrees = [...new Set(requested.filter((value) => value !== ""))];
+// The spellings this run actually PUT in the store, which is not the same as the
+// spellings it was asked for: the operator may have trusted one of them by hand
+// already. Only what this run added is this task's to withdraw later.
+let added = [];
 const readStore = () => {
   try {
     return fs.readFileSync(store);
@@ -245,6 +255,7 @@ const readStore = () => {
 const fingerprint = (buf) =>
   buf === null ? "absent" : crypto.createHash("sha256").update(buf).digest("hex");
 const attempt = () => {
+  added = [];
   const original = readStore();
   const before = fingerprint(original);
   let root = {};
@@ -270,8 +281,14 @@ const attempt = () => {
     root.trustedWorkspaces = kept;
   } else {
     for (const worktree of worktrees) {
-      if (!trusted.includes(worktree)) trusted.push(worktree);
+      if (trusted.includes(worktree)) continue;
+      trusted.push(worktree);
+      added.push(worktree);
     }
+    // Already trusted is not a write either, for the same reason: re-serialising
+    // the operator's settings file on every relaunch is a change they did not ask
+    // for, and there is nothing to verify when nothing moved.
+    if (added.length === 0) return "recorded";
   }
   // Two-space pretty-printed with a trailing newline, because that is the format
   // agy itself writes: the store measured on the box this was written on is
@@ -305,7 +322,10 @@ const attempt = () => {
 try {
   for (let i = 0; i < 3; i += 1) {
     const result = attempt();
-    if (result === "recorded") process.exit(0);
+    if (result === "recorded") {
+      for (const worktree of added) console.log(`added: ${worktree}`);
+      process.exit(0);
+    }
     if (result === "moved" && i >= 1) {
       console.error(`error: ${store} was modified while trust was being recorded; refusing to overwrite it`);
       process.exit(1);
