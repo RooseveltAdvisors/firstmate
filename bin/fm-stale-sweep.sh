@@ -571,6 +571,11 @@ fm_stale_home_label() {  # <home> <actor>
   printf '%s' "$(basename "$home")"
 }
 
+fm_stale_budget_cut_note() {
+  [ -n "$BUDGET_CUT_FROM" ] || return 0
+  printf 'note: FM_STALE_SWEEP_BUDGET_SECS %s cut to %s to fit FM_CHECK_TIMEOUT\n' "$BUDGET_CUT_FROM" "$BUDGET_SECS"
+}
+
 fm_stale_summary() {  # <apply 0|1>
   local apply=$1 reclaim_word reclaim_count
   reclaim_word='would reclaim'
@@ -587,7 +592,7 @@ fm_stale_summary() {  # <apply 0|1>
     printf 'budget stopped the sweep with %d candidates unconsidered; raise FM_STALE_SWEEP_BUDGET_SECS or run without the check gate\n' "$FM_STALE_UNCONSIDERED"
   fi
   if [ -n "$BUDGET_CUT_FROM" ]; then
-    printf 'note: FM_STALE_SWEEP_BUDGET_SECS %s cut to %s to fit FM_CHECK_TIMEOUT\n' "$BUDGET_CUT_FROM" "$BUDGET_SECS"
+    fm_stale_budget_cut_note
   fi
 }
 
@@ -617,6 +622,7 @@ action_check() {
     printf 'fm-stale-sweep: graph config unreadable\n'
     return 0
   fi
+  fm_stale_budget_cut_note
   cutoff=$((now - OLDER_THAN_HOURS * 3600))
   if ! fm_stale_sweep 0 "$BUDGET_SECS" "$cutoff" >/dev/null; then
     # A failed graph read is reported once per interval rather than every

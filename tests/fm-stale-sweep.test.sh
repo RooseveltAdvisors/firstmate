@@ -236,6 +236,20 @@ test_check_mode_gates_on_the_interval_record() {
   pass "check mode reports only past the interval gate and only when rows are reclaimable"
 }
 
+test_check_mode_reports_the_budget_cut() {
+  local rec out
+  rec=$(make_fixture cut)
+  read_fixture "$rec"
+  # FM_CHECK_TIMEOUT=3 cuts the 25s budget to 1 (clamped from CHECK_TIMEOUT-3),
+  # so the check must report the cut alongside its reclaimable verdict.
+  out=$(FM_HOME="$HOME_DIR" FM_CHECK_TIMEOUT=3 FM_STALE_SWEEP_NOW="$(sweep_clock)" \
+    PATH="$FAKEBIN:$PATH" "$SWEEP" check)
+  assert_contains "$out" "note: FM_STALE_SWEEP_BUDGET_SECS 25 cut to 1 to fit FM_CHECK_TIMEOUT" \
+    "check mode must report the budget cut instead of swallowing it"
+  printf '%s\n' "$out" | grep -q "^stale-sweep: " || fail "the cut note must not replace the reclaimable report"
+  pass "check mode reports the budget cut alongside its reclaimable verdict"
+}
+
 test_arm_disarm_roundtrip() {
   local rec
   rec=$(make_fixture arm)
@@ -257,6 +271,7 @@ test_arm_disarm_roundtrip() {
 test_dry_run_lists_verdicts_and_reclaims_nothing
 test_apply_reclaims_only_dead_rows
 test_check_mode_gates_on_the_interval_record
+test_check_mode_reports_the_budget_cut
 test_arm_disarm_roundtrip
 
 echo "# all fm-stale-sweep tests passed"
