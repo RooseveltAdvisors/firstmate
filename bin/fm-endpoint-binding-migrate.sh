@@ -213,11 +213,11 @@ endpoint_claim_conflicts() {
 
 candidate_for() {
   local meta=$1 id=$2 candidate=$3
-  cp -- "$meta" "$candidate" || return 1
-  if [ -s "$candidate" ] && [ "$(tail -c 1 "$candidate")" != $'\n' ]; then
-    printf '\n' >> "$candidate" || return 1
-  fi
-  printf 'endpoint_task_id=%s\n' "$id" >> "$candidate" || return 1
+  binding=$id awk '
+    !inserted && /^pr=/ { print "endpoint_task_id=" ENVIRON["binding"]; inserted = 1 }
+    { print }
+    END { if (!inserted) print "endpoint_task_id=" ENVIRON["binding"] }
+  ' "$meta" > "$candidate" || return 1
   chmod 600 "$candidate"
 }
 

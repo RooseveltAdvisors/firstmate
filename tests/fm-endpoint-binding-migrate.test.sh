@@ -210,8 +210,29 @@ test_locked_record_is_skipped_without_waiting() {
   pass 'a contended record is skipped with a reason and converges on rerun'
 }
 
+test_stamped_record_keeps_pr_metadata_valid() {
+  local dir out
+  dir=$(make_case prmeta)
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" 'kind=scout' \
+    'pr=https://github.com/owner/repo/pull/7' \
+    'pr_head=0123456789abcdef0123456789abcdef01234567'
+  ( . "$ROOT/bin/fm-pr-lib.sh"; fm_pr_metadata_identity_parse "$dir/home/state/good.meta" ) \
+    || fail 'baseline legacy record was already invalid to fm-pr-lib'
+
+  out=$(run_locked "$dir") || fail "pr metadata scan failed: $out"
+  grep -qx 'endpoint_task_id=good' "$dir/home/state/good.meta" \
+    || fail 'live exact endpoint was not stamped'
+  ( . "$ROOT/bin/fm-pr-lib.sh"; fm_pr_metadata_identity_parse "$dir/home/state/good.meta" ) \
+    || fail 'stamped record no longer parses as valid PR metadata'
+  ! grep -qx '' "$dir/home/state/good.meta" \
+    || fail 'stamped record gained a blank line'
+  pass 'stamping preserves the record PR metadata contract without blank lines'
+}
+
 test_evidence_bound_scan
 test_rerun_converges_after_interruption
 test_refusal_reasons_are_per_record
 test_hidden_records_are_reported_out_of_scope
 test_locked_record_is_skipped_without_waiting
+test_stamped_record_keeps_pr_metadata_valid
