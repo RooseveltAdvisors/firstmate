@@ -387,21 +387,30 @@ fm_backlog_close_captain_word() {  # <arg>...
 #
 # DELIBERATELY UNENFORCED, TRACKED, NOT AN OVERSIGHT: an EMPTY argument list is
 # still accepted, so a close carrying no done-class reason at all marks the row
-# done. Enforcing the contract here was tried and reverted: bin/fm-teardown.sh
-# has no flag for supplying a reason, so a refusal turns into a hard teardown
-# failure before any destructive step, with no way through on retry. Three
-# reachable paths still arrive here with nothing to record:
+# done. Enforcing the contract here was tried and reverted, and so was every
+# attempt to have bin/fm-teardown.sh derive the missing reason. Enforcement
+# alone turns teardown into a hard failure before any destructive step, with no
+# way through on retry, because teardown has no flag for supplying a reason.
 #
-#   * a ship already pushed to a remote whose branch is not merged, so
-#     validate_worktree_teardown_safety never runs work_is_landed and PR_URL
-#     stays empty;
-#   * a --force discard of unlanded work, where the content check is false by
-#     definition and is skipped anyway so the discard cannot block on a remote;
-#   * a ship whose worktree is already gone, so there is no tree to read.
+# THE REAL FAILURE IS DERIVATION ITSELF. "This task is being closed" and "why it
+# is done" are different facts, and teardown only dependably knows the first.
+# Asking it to infer the second from repository state it does not reliably have
+# produced a wrong answer every way it was tried:
 #
-# Closing this gap needs a way for teardown to carry the captain's own word
-# (the `cancelled` kind already has the right shape) - it is a scope decision,
-# not a missing line here.
+#   * --pr <url> - PR_URL is empty for a ship already pushed but not merged:
+#     validate_worktree_teardown_safety only consults work_is_landed when there
+#     are unpushed commits, so it never resolves a URL for that ship at all.
+#   * --note "local main" from the tree - a containment check against the
+#     default branch is silently TRUE for a branch with no commits of its own,
+#     because merging an ancestor yields the default branch's own tree. That
+#     records a specific untrue claim, which is worse than silence.
+#   * nothing at all - a --force discard of unlanded work and a ship whose
+#     worktree is already gone carry no evidence to read in the first place.
+#
+# So the gap is not a missing line here. Closing it means teardown being TOLD
+# the reason rather than deriving it - carrying the captain's own word, for
+# which the `cancelled` kind already has the right shape. That is a scope
+# decision about how a close is invoked, made deliberately and left open.
 fm_backlog_close_args_valid() {  # <live|staged> <arg>...
   local mode=$1 note_spelling arg_value superseded_id
   local url_tail url_authority url_path url_host url_port host_rest host_label host_valid
