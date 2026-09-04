@@ -157,14 +157,16 @@ fm_tasks_axi_backend() {  # <tasks-axi-working-directory>
 # attributes every state change to $BEADS_ACTOR (bd --help: default is
 # $BEADS_ACTOR, git user.name, then $USER), which collapses a whole fleet into
 # one actor in the shared Beads graph, and tasks-axi's beads backend shells
-# out to bd. Firstmate records itself as firstmate@<basename of FM_HOME>
-# unless a caller already exported an explicit actor: bin/fm-spawn.sh exports
-# the worker's task id (the registered secondmate name for a --secondmate
-# spawn) so the dispatch claim, the worker's pane, and everything the worker
-# claims, holds, or closes carry who did it.
+# out to bd. Firstmate records itself as firstmate@<basename of FM_HOME>.<short
+# hostname> unless a caller already exported an explicit actor: bin/fm-spawn.sh
+# exports the worker's task id (the registered secondmate name for a
+# --secondmate spawn) so the dispatch claim, the worker's pane, and everything
+# the worker claims, holds, or closes carry who did it.
 fm_tasks_axi_export_actor() {
+  local host
   [ -n "${BEADS_ACTOR:-}" ] && return 0
-  BEADS_ACTOR="firstmate@$(basename "${FM_HOME:-firstmate}")"
+  host=$(hostname -s 2>/dev/null) || host=""
+  BEADS_ACTOR="firstmate@$(basename "${FM_HOME:-firstmate}")${host:+.$host}"
   export BEADS_ACTOR
 }
 

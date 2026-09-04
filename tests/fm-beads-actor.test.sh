@@ -11,9 +11,10 @@
 #             the worker drives) record the worker that did it. For a
 #             --secondmate spawn the same $ID is the registered name.
 #   firstmate bin/fm-teardown.sh and every other firstmate-owned mutation run
-#             as firstmate@<basename of FM_HOME> through the shared resolver
-#             fm_tasks_axi_export_actor (bin/fm-tasks-axi-lib.sh), which never
-#             overrides an explicitly exported actor.
+#             as firstmate@<basename of FM_HOME>.<short hostname> through the
+#             shared resolver fm_tasks_axi_export_actor
+#             (bin/fm-tasks-axi-lib.sh), which never overrides an explicitly
+#             exported actor.
 #
 # These tests drive the real bin/fm-spawn.sh and bin/fm-teardown.sh against a
 # real tasks-axi on the beads backend with a real bd database, then assert the
@@ -89,6 +90,9 @@ SH
 }
 
 home_of() { printf '%s/home\n' "$1"; }
+# The firstmate actor the resolver derives for this fixture: the home's
+# basename qualified by this machine's short hostname.
+fm_actor="firstmate@home.$(hostname -s 2>/dev/null)"
 interactions_of() { printf '%s/home/.beads/interactions.jsonl\n' "$1"; }
 
 write_brief() {  # <case-dir> <id>
@@ -198,8 +202,8 @@ test_teardown_closes_as_firstmate_and_reads_two_distinct_actors() {
   out=$(run_teardown "$case_dir" "$id") || fail "teardown failed: $out"
   [ "$(row_state "$case_dir" "$id")" = done ] \
     || fail "teardown reported success with the item still $(row_state "$case_dir" "$id")"
-  [ "$(status_actor "$case_dir" closed)" = "firstmate@home" ] \
-    || fail "the teardown close records actor '$(status_actor "$case_dir" closed)' instead of firstmate@home"
+  [ "$(status_actor "$case_dir" closed)" = "$fm_actor" ] \
+    || fail "the teardown close records actor '$(status_actor "$case_dir" closed)' instead of $fm_actor"
 
   # The documented attribution read (docs/configuration.md) must show both
   # boundaries after one spawn and one teardown.
@@ -209,9 +213,9 @@ test_teardown_closes_as_firstmate_and_reads_two_distinct_actors() {
     || fail "one spawn and one teardown left only these actors: $(printf '%s' "$actors")"
   printf '%s\n' "$actors" | grep -qx "$id" \
     || fail "the attribution read is missing the worker actor $id"
-  printf '%s\n' "$actors" | grep -qx 'firstmate@home' \
-    || fail "the attribution read is missing the firstmate@home actor"
-  pass "one spawn and one teardown leave the worker and firstmate@home as distinct actors"
+  printf '%s\n' "$actors" | grep -qx "$fm_actor" \
+    || fail "the attribution read is missing the $fm_actor actor"
+  pass "one spawn and one teardown leave the worker and $fm_actor as distinct actors"
 }
 
 test_an_explicitly_exported_actor_is_never_overridden() {

@@ -213,7 +213,7 @@ require_tools() {
 # Every tasks-axi call runs from the home whose backlog owns the obligation, the
 # same convention bin/fm-captain-hold.sh uses for typed backlog state. The
 # subshell also scopes the audit-trail actor to each call, so adds, bindings,
-# receipts, and retirements record firstmate@<home> (or the worker's own actor
+# receipts, and retirements record firstmate@<home>.<host> (or the worker's own actor
 # when a pane-launched caller already exported one).
 tx() { (fm_tasks_axi_export_actor; cd "$FM_HOME" && tasks-axi "$@"); }
 
