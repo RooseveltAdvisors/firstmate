@@ -1328,6 +1328,33 @@ test_teardown_retires_the_agy_workspace_trust_entry() {
   pass "teardown retires the agy workspace-trust entry the spawn registered"
 }
 
+# The entry is keyed by the recorded absolute path, not by the directory, so a
+# worktree already removed out of band - a reclaimed orca worktree, a pruned pool
+# worktree, a captain's rm -rf - is the case that would otherwise strand it with
+# no supported command left to withdraw it.
+test_teardown_retires_the_agy_trust_entry_when_the_worktree_is_gone() {
+  local case_dir agyhome store rc
+  case_dir=$(make_case agy-trust-retire-gone)
+  write_meta "$case_dir" local-only ship
+  agyhome="$case_dir/agyhome"
+  store="$agyhome/.gemini/antigravity-cli/settings.json"
+  mkdir -p "$(dirname "$store")"
+  printf '%s\n' '{"enableTelemetry":false,"trustedWorkspaces":["/already/trusted"]}' > "$store"
+  HOME="$agyhome" "$ROOT/bin/fm-agy-trust.sh" "$case_dir/wt" "$case_dir/project" >/dev/null \
+    || fail "agy-trust-retire-gone: the fixture could not register workspace trust"
+  git -C "$case_dir/project" worktree remove --force "$case_dir/wt" >/dev/null 2>&1 \
+    || rm -rf "$case_dir/wt"
+  [ ! -d "$case_dir/wt" ] || fail "agy-trust-retire-gone: the fixture did not remove the worktree"
+  rc=0
+  HOME="$agyhome" run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 0 "$rc" "agy-trust-retire-gone: teardown should succeed: $(cat "$case_dir/stderr")"
+  ! grep -Fq "$case_dir/wt" "$store" \
+    || fail "agy-trust-retire-gone: teardown left the workspace-trust entry behind"
+  grep -Fq "/already/trusted" "$store" \
+    || fail "agy-trust-retire-gone: teardown dropped an unrelated operator entry"
+  pass "teardown retires the agy workspace-trust entry even when the worktree is already gone"
+}
+
 test_local_only_force_overrides_unpushed() {
   local case_dir rc
   case_dir=$(make_case force-override)
@@ -2772,6 +2799,7 @@ test_no_mistakes_origin_remote_allows
 test_no_mistakes_truly_unpushed_refuses
 test_local_only_force_overrides_unpushed
 test_teardown_retires_the_agy_workspace_trust_entry
+test_teardown_retires_the_agy_trust_entry_when_the_worktree_is_gone
 test_secondmate_pr_registration_publishes_ready_line
 test_secondmate_home_teardown_delivers_final_line_or_refuses
 test_teardown_missing_busy_sidecar_completes

@@ -197,7 +197,8 @@ try {
     if (registryInfo !== null && (registryInfo.isSymbolicLink() || !registryInfo.isDirectory())) {
       refuse(`Firstmate registry is not a regular directory at ${REGISTRY}.`);
     }
-    if (registryInfo === null) fs.mkdirSync(REGISTRY, { mode: 0o700 });
+    fs.mkdirSync(REGISTRY, { recursive: true, mode: 0o700 });
+    fs.chmodSync(REGISTRY, 0o700);
     const hookInfo = lstatOrNull(HOOK);
     if (hookInfo !== null) regularNotSymlink(HOOK, "Firstmate hook script");
     if (hookInfo === null || fs.readFileSync(HOOK, "utf8") !== HOOK_BYTES) {

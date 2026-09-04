@@ -628,6 +628,43 @@ test_hook_refuses_a_malformed_config() {
   pass "fm-agy-turnend-hook.sh: refuses a malformed hooks config and leaves it untouched"
 }
 
+# The registry is created on the first install a box ever runs, and a captain can
+# dispatch several agy crewmates at once. Losing that race must not refuse a
+# spawn whose directory now exists and is correct.
+test_concurrent_first_installs_all_succeed() {
+  local round worker home failures
+  for round in 1 2 3 4 5; do
+    home="$TMP_ROOT/concurrent-install-$round"
+    mkdir -p "$home"
+    for worker in 1 2 3 4 5 6 7 8; do
+      ( run_hook_install "$home" >/dev/null 2>&1 || printf 'x' >> "$home/failures" ) &
+    done
+    wait
+    if [ -s "$home/failures" ]; then
+      failures=$(wc -c < "$home/failures" | tr -d ' ')
+      fail "$failures of 8 concurrent first installs were refused in round $round"
+    fi
+    assert_store_value "$(hooks_config "$home")" '"command"' \
+      "a concurrent install round left no usable hook" firstmate-turn-end Stop 0 type
+  done
+  pass "fm-agy-turnend-hook.sh: concurrent first installs all succeed"
+}
+
+# The registry holds every live task's wake token, so its mode is a property of
+# the install rather than of whoever happened to create the directory first.
+test_install_normalizes_a_loose_registry_mode() {
+  local rec mode
+  rec=$(make_case loose-registry)
+  read_case "$rec"
+  mkdir -p "$AGY_HOME/.gemini/antigravity-cli/fm-turn-end.d"
+  chmod 0755 "$AGY_HOME/.gemini/antigravity-cli/fm-turn-end.d"
+  run_hook_install "$AGY_HOME" >/dev/null || fail "install failed against an existing registry"
+  mode=$(ls -ld "$AGY_HOME/.gemini/antigravity-cli/fm-turn-end.d" | cut -c1-10)
+  [ "$mode" = "drwx------" ] \
+    || fail "the install left the registry world-readable (mode $mode)"
+  pass "fm-agy-turnend-hook.sh: install narrows a loose registry directory mode"
+}
+
 # --- adapter tables ----------------------------------------------------------
 
 # agy does NOT clear an inherited CLAUDECODE, so both markers can be present at
@@ -866,6 +903,8 @@ test_hook_ignores_an_unregistered_token
 test_hook_always_answers_and_exits_zero
 test_hook_remove_refuses_while_a_task_token_is_live
 test_hook_refuses_a_malformed_config
+test_concurrent_first_installs_all_succeed
+test_install_normalizes_a_loose_registry_mode
 test_detection_prefers_the_agy_marker_over_an_inherited_claudecode
 test_control_tables_carry_agys_verified_mechanics
 test_delivery_guard_reads_agys_status_bar
