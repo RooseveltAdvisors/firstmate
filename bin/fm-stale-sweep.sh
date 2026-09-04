@@ -23,7 +23,8 @@
 # Selection and reclaim, per row:
 #   1. `bd list --all --json` reads the shared graph to a temp file (never
 #      piped into a subshell) and selects in_progress rows older than the
-#      threshold.
+#      threshold. FM_STALE_SWEEP_BD_TIMEOUT (default 120) bounds the read and
+#      is cut down to the remaining budget in check mode.
 #   2. The owning home is resolved from whichever registered home has
 #      state/<id>.meta (this home plus the local routes in data/secondmates.md,
 #      the current-ownership signal), falling back to the row's provenance line
@@ -31,7 +32,9 @@
 #      local home owns is listed as no-home and kept: a remote route owns its
 #      own liveness and no local verdict may reclaim it.
 #   3. That home's current state is asked with
-#      `FM_HOME=<home> timeout 90 bin/fm-crew-state.sh <id>`.
+#      `FM_HOME=<home> timeout <FM_STALE_SWEEP_STATE_TIMEOUT, default 90>
+#      bin/fm-crew-state.sh <id>`; in check mode the timeout is capped to the
+#      remaining FM_STALE_SWEEP_BUDGET_SECS so one probe stays bounded.
 #   4. Only POSITIVE death reclaims: `state: unknown` with source none and a
 #      missing/dead endpoint detail (no metadata, worktree gone, backend target
 #      gone, no backend target recorded), or source remote-endpoint with a
