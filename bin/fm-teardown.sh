@@ -1195,7 +1195,9 @@ work_is_landed() {
 
 # The completion links this teardown already holds locally. A scout's
 # deliverable is its report, a local-only ship lands on local main, and every
-# other ship carries the PR recorded on its own record.
+# other ship carries the PR recorded on its own record - or, when its branch was
+# squash-merged so no PR URL survives, the content already in the default branch,
+# which is the same local-main landing spelled from the tree rather than a record.
 BACKLOG_DONE_ARGS=()
 backlog_done_args() {
   local data_relative
@@ -1210,6 +1212,8 @@ backlog_done_args() {
         BACKLOG_DONE_ARGS=(--note "local main")
       elif [ -n "$PR_URL" ]; then
         BACKLOG_DONE_ARGS=(--pr "$PR_URL")
+      elif [ -d "$WT" ] && content_in_default; then
+        BACKLOG_DONE_ARGS=(--note "local main")
       fi
       ;;
   esac

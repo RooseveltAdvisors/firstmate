@@ -394,11 +394,7 @@ fm_backlog_close_args_valid() {  # <live|staged> <arg>...
     staged) note_spelling='local%20main' ;;
     *) return 1 ;;
   esac
-  case "$#" in
-    0) return 0 ;;
-    2) ;;
-    *) return 1 ;;
-  esac
+  [ "$#" -eq 2 ] || return 1
   case "$1" in
     --note)
       arg_value=$2
@@ -901,8 +897,12 @@ fm_backlog_close_marker_validate() {  # <marker-path> <authorized-data-dir> <exp
     FM_BACKLOG_TRANSITION_ERROR="foreign data directory in pending-close record $marker"
     return 1
   fi
-  fm_backlog_close_args_valid staged "${args[@]+"${args[@]}"}" \
-    || { FM_BACKLOG_TRANSITION_ERROR="invalid pending-close arguments in $marker"; return 1; }
+  # A retain records the deliverable a captain-held row carries, and a hold that
+  # produced none legitimately carries no flags; only a close must name a reason.
+  if [ "$mode" != retain ] || [ "${#args[@]}" -gt 0 ]; then
+    fm_backlog_close_args_valid staged "${args[@]+"${args[@]}"}" \
+      || { FM_BACKLOG_TRANSITION_ERROR="invalid pending-close arguments in $marker"; return 1; }
+  fi
   FM_BACKLOG_CLOSE_VALIDATED_ID=$id
   FM_BACKLOG_CLOSE_VALIDATED_DATA=$data_resolved
   FM_BACKLOG_CLOSE_VALIDATED_SPAWN_GEN=$marker_spawn_gen

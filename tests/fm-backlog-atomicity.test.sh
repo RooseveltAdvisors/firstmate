@@ -1066,6 +1066,54 @@ test_completion_closes_a_local_only_ship_before_reporting_success() {
   pass "completion closes a local-only ship, with its landing note, before reporting success"
 }
 
+# A ship whose branch was squash-merged keeps no PR URL to record, yet its
+# content is already in the default branch. Teardown still closes the row, so the
+# close must carry the local-main landing that content proves - a close with no
+# done-class reason at all is the same unverifiable "Closed" the contract bans,
+# spelled as silence.
+test_completion_closes_a_content_landed_ship_with_its_landing_note() {
+  local case_dir home id wt out
+  id=atomic-close-content-landed-b5
+  case_dir=$(make_home close-content-landed)
+  home=$(home_of "$case_dir")
+  add_item "$case_dir" "$id"
+  start_item "$case_dir" "$id"
+
+  wt="$case_dir/content-landed-wt"
+  git -C "$case_dir/project" worktree add --quiet -b content-landed "$wt"
+  printf 'feature\n' > "$wt/feature.txt"
+  git -C "$wt" add feature.txt
+  git -C "$wt" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' \
+    commit -qm 'add the feature'
+  # The same content lands on the default branch the way a squash merge leaves
+  # it, and is pushed - so the branch's own commit is on no remote and no PR URL
+  # was ever recorded, but the work is genuinely landed.
+  printf 'feature\n' > "$case_dir/project/feature.txt"
+  git -C "$case_dir/project" add feature.txt
+  git -C "$case_dir/project" -c user.name='Firstmate Tests' \
+    -c user.email='tests@example.invalid' commit -qm 'squash-merge the feature'
+  git -C "$case_dir/project" push --quiet origin HEAD
+
+  fm_write_meta "$home/state/$id.meta" \
+    "window=firstmate:fm-$id" \
+    "endpoint_task_id=$id" \
+    "worktree=$wt" \
+    "project=$case_dir/project" \
+    "harness=claude" \
+    "kind=ship" \
+    "mode=no-mistakes" \
+    "yolo=off" \
+    "spawn_gen=spawn-content-landed"
+
+  out=$(run_teardown "$case_dir" "$id") \
+    || fail "content-landed teardown failed: $out"
+  [ "$(row_state "$case_dir" "$id")" = "done" ] \
+    || fail "content-landed teardown left the item $(row_state "$case_dir" "$id"): $out"
+  assert_grep 'local main' "$(backlog_of "$case_dir")" \
+    "a content-landed ship was marked done with no done-class reason recorded"
+  pass "completion closes a content-landed ship with its local-main landing note"
+}
+
 test_completion_closes_a_scout_with_its_report() {
   local case_dir id out
   id=atomic-close-b6
@@ -2340,6 +2388,7 @@ test_dispatch_interruption_during_kimi_readiness_fails_before_commit
 test_dispatch_does_not_resurrect_a_row_closed_after_preflight
 test_dispatch_fails_when_its_row_vanishes_after_preflight
 test_completion_closes_a_local_only_ship_before_reporting_success
+test_completion_closes_a_content_landed_ship_with_its_landing_note
 test_completion_closes_a_scout_with_its_report
 test_completion_refuses_a_legacy_record_without_an_incarnation
 test_completion_refuses_ambiguous_incarnation_metadata
