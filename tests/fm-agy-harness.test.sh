@@ -854,7 +854,11 @@ test_agy_spawn_pretrusts_its_worktree_and_reaches_the_brief() {
   home="$case_dir/home"
   proj="$case_dir/project"
   wt="$case_dir/wt"
-  agyhome="$case_dir/agyhome"
+  # The spawn fixture pins HOME to $home/user-home so a trust pre-registration
+  # cannot reach the developer's real store (tests/fixtures.sh), and that pin
+  # beats an outer HOME= on the call. agy registers into the same sandboxed
+  # HOME as claude, so the store this asserts against must be that one.
+  agyhome="$home/user-home"
   launch_log="$case_dir/launch.log"
   mkdir -p "$agyhome"
   fakebin=$(make_spawn_fakebin "$case_dir/fake" agy)
@@ -900,7 +904,11 @@ test_aborted_spawn_withdraws_the_trust_it_registered() {
   home="$case_dir/home"
   proj="$case_dir/project"
   wt="$case_dir/wt"
-  agyhome="$case_dir/agyhome"
+  # The spawn fixture pins HOME to $home/user-home so a trust pre-registration
+  # cannot reach the developer's real store (tests/fixtures.sh), and that pin
+  # beats an outer HOME= on the call. agy registers into the same sandboxed
+  # HOME as claude, so the store this asserts against must be that one.
+  agyhome="$home/user-home"
   store=$(store_path "$agyhome")
   config=$(hooks_config "$agyhome")
   mkdir -p "$(dirname "$store")" "$(dirname "$config")"
@@ -931,7 +939,11 @@ test_post_publish_abort_withdraws_the_trust_it_registered() {
   home="$case_dir/home"
   proj="$case_dir/project"
   wt="$case_dir/wt"
-  agyhome="$case_dir/agyhome"
+  # The spawn fixture pins HOME to $home/user-home so a trust pre-registration
+  # cannot reach the developer's real store (tests/fixtures.sh), and that pin
+  # beats an outer HOME= on the call. agy registers into the same sandboxed
+  # HOME as claude, so the store this asserts against must be that one.
+  agyhome="$home/user-home"
   store=$(store_path "$agyhome")
   mkdir -p "$(dirname "$store")"
   printf '%s\n' '{"enableTelemetry":false,"trustedWorkspaces":["/already/trusted"]}' > "$store"
@@ -986,7 +998,11 @@ test_abort_withdraws_both_spellings_after_the_worktree_is_deleted() {
   home="$case_dir/home"
   proj="$case_dir/project"
   wt="$case_dir/wt"
-  agyhome="$case_dir/agyhome"
+  # The spawn fixture pins HOME to $home/user-home so a trust pre-registration
+  # cannot reach the developer's real store (tests/fixtures.sh), and that pin
+  # beats an outer HOME= on the call. agy registers into the same sandboxed
+  # HOME as claude, so the store this asserts against must be that one.
+  agyhome="$home/user-home"
   store=$(store_path "$agyhome")
   mkdir -p "$case_dir" "$(dirname "$store")"
   printf '%s\n' '{"enableTelemetry":false,"trustedWorkspaces":["/already/trusted"]}' > "$store"
@@ -1048,7 +1064,11 @@ test_spawn_does_not_claim_a_workspace_the_operator_already_trusted() {
   home="$case_dir/home"
   proj="$case_dir/project"
   wt="$case_dir/wt"
-  agyhome="$case_dir/agyhome"
+  # The spawn fixture pins HOME to $home/user-home so a trust pre-registration
+  # cannot reach the developer's real store (tests/fixtures.sh), and that pin
+  # beats an outer HOME= on the call. agy registers into the same sandboxed
+  # HOME as claude, so the store this asserts against must be that one.
+  agyhome="$home/user-home"
   store=$(store_path "$agyhome")
   mkdir -p "$agyhome"
   fakebin=$(make_spawn_fakebin "$case_dir/fake" agy)
@@ -1077,7 +1097,11 @@ test_refused_spawn_leaves_no_task_state() {
   home="$case_dir/home"
   proj="$case_dir/project"
   wt="$case_dir/wt"
-  agyhome="$case_dir/agyhome"
+  # The spawn fixture pins HOME to $home/user-home so a trust pre-registration
+  # cannot reach the developer's real store (tests/fixtures.sh), and that pin
+  # beats an outer HOME= on the call. agy registers into the same sandboxed
+  # HOME as claude, so the store this asserts against must be that one.
+  agyhome="$home/user-home"
   # Root owns /etc/passwd, so a store resolving to it is refused as another
   # user's file. Running as root would own it and make the refusal vacuous.
   if [ "$(id -u)" = 0 ]; then
