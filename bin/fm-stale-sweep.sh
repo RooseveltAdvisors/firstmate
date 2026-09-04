@@ -545,12 +545,16 @@ fm_stale_sweep() {  # <apply 0|1> <budget-secs 0-unbounded> <cutoff-epoch>
     rm -f -- "$tmp"
     return 1
   fi
-  rows=$(jq -r --argjson cutoff "$cutoff" --argjson now "$(record_epoch_now)" '
+  if ! rows=$(jq -r --argjson cutoff "$cutoff" --argjson now "$(record_epoch_now)" '
     .[] | select(.status == "in_progress") | select(.updated_at)
         | (.updated_at | fromdateiso8601?) as $epoch
         | select($epoch != null) | select($epoch < $cutoff)
         | [(.id // ""), (((($now - $epoch) / 3600) | floor) | tostring), (.description // "")]
-        | @tsv' "$tmp" 2>/dev/null)
+        | @tsv' "$tmp" 2>/dev/null); then
+    rm -f -- "$tmp"
+    printf 'fm-stale-sweep: graph read failed on %s\n' "$FM_STALE_BD_PATH" >&2
+    return 1
+  fi
   rm -f -- "$tmp"
   [ -n "$rows" ] || return 0
   printf '%-42s %-18s %-7s %-9s %-24s %-13s %s\n' ID HOME AGE VERDICT ACTION ACTOR PROV

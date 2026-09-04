@@ -496,7 +496,7 @@ A home whose backlog is not beads-backed has no graph to sweep and the script sa
 
 Register the daily check with `bin/fm-stale-sweep.sh arm`.
 That writes `state/stale-sweep.check.sh` and binds its bytes with `bin/fm-check-register.sh`, so the existing watcher polls it on its normal `FM_CHECK_INTERVAL` cadence and turns its one line into a `check:` wake; no separate schedule is involved.
-The check runs the sweep dry at most once per `FM_STALE_SWEEP_INTERVAL` (default 86400 seconds, `0` disables the gate, otherwise 900 to 604800), stays silent when nothing is reclaimable, and reports one line when dead-endpoint rows are reclaimable so firstmate decides whether to run `--apply`.
+The check runs the sweep dry at most once per `FM_STALE_SWEEP_INTERVAL` (default 86400 seconds, `0` disables the gate, otherwise 900 to 604800), stays silent when nothing is reclaimable, and reports one line when dead-endpoint rows are reclaimable so firstmate decides whether to run `--apply`; if `FM_STALE_SWEEP_BUDGET_SECS` was cut to fit `FM_CHECK_TIMEOUT`, that cut is reported on the report line even on polls where nothing is reclaimable.
 `FM_STALE_SWEEP_BUDGET_SECS` (default 25, 1 to 3600) bounds one probe and is cut down to what `FM_CHECK_TIMEOUT` allows, exactly like the tool-update check's budget.
 `FM_STALE_SWEEP_STATE_TIMEOUT` (default 90) bounds one home's `fm-crew-state.sh` call, capped to the remaining budget in check mode.
 `FM_STALE_SWEEP_BD_TIMEOUT` (default 120) bounds the `bd list` graph read, also capped to the remaining budget in check mode so a slow graph read fails visibly inside the probe instead of being killed silently.
