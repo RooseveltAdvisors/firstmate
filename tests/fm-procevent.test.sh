@@ -60,7 +60,9 @@ procevent_teardown() {
   fm_test_cleanup
 }
 trap procevent_teardown EXIT
-new_home() { mkdir -p "$1/state"; }
+# The process-event state-root contract requires a private directory, so the
+# fixture must not inherit an ambient group-writable umask.
+new_home() { (umask 077; mkdir -p "$1/state"); }
 wake_payloads() { awk -F '\t' '{print $5}' "$1/state/.wake-queue" 2>/dev/null; }
 
 first_result() {  # <home> <source-id>: print the first captured result, if any
@@ -138,7 +140,10 @@ hold_source_lock_then_handle() {  # <home> <source-id> <sequence> <ready-file> <
 }
 
 # --- inert with nothing configured ------------------------------------------
-IDLE="$TMP_ROOT/idle"; mkdir -p "$IDLE"
+IDLE="$TMP_ROOT/idle"
+# Pre-create the state root private: the wake queue helper materializes it
+# first under the ambient umask, which the state-root privacy contract refuses.
+(umask 077; mkdir -p "$IDLE/state")
 out=$(pe "$IDLE" list)
 assert_contains "$out" "no sources registered" "an unconfigured home reports no sources"
 out=$(pe "$IDLE" reconcile)
@@ -151,7 +156,9 @@ sup=$(PATH="${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}" bash -c \
 assert_contains "$sup" no "an unconfigured home does not need supervision"
 
 # --- a blocking source completes into exactly one normalized event ----------
-H1="$TMP_ROOT/h1"; mkdir -p "$H1"
+H1="$TMP_ROOT/h1"
+# Pre-created private for the same reason as the IDLE state root above.
+new_home "$H1"
 TRIG="$TMP_ROOT/trigger-one"
 out=$(pe_register "$H1" lavish src-one -- "$BLOCKER" "$TRIG" "payload one")
 assert_contains "$out" "registered: src-one" "register records a source"

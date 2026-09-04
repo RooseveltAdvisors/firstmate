@@ -142,6 +142,8 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-public-followup-lib.sh"
 # shellcheck source=bin/fm-secondmate-registry-lib.sh
 . "$SCRIPT_DIR/fm-secondmate-registry-lib.sh"
+# shellcheck source=bin/fm-tasks-axi-lib.sh disable=SC1091
+. "$SCRIPT_DIR/fm-tasks-axi-lib.sh"
 
 RETRY_BACKOFF=${FM_PF_RETRY_BACKOFF_SECS:-900}
 case "$RETRY_BACKOFF" in ''|*[!0-9]*) RETRY_BACKOFF=900 ;; esac
@@ -209,8 +211,11 @@ require_tools() {
 }
 
 # Every tasks-axi call runs from the home whose backlog owns the obligation, the
-# same convention bin/fm-captain-hold.sh uses for typed backlog state.
-tx() { (cd "$FM_HOME" && tasks-axi "$@"); }
+# same convention bin/fm-captain-hold.sh uses for typed backlog state. The
+# subshell also scopes the audit-trail actor to each call, so adds, bindings,
+# receipts, and retirements record firstmate@<home> (or the worker's own actor
+# when a pane-launched caller already exported one).
+tx() { (fm_tasks_axi_export_actor; cd "$FM_HOME" && tasks-axi "$@"); }
 
 # obligation_json <id>: the complete typed obligation payload on stdout, empty
 # when the backlog simply has no such public-followup item, and a non-zero exit

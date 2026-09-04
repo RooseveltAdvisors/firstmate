@@ -37,7 +37,9 @@ when_teardown() {
 }
 trap when_teardown EXIT
 
-new_home() { mkdir -p "$1/state"; WHEN_HOMES+=("$1"); }
+# The process-event state-root contract requires a private directory, so the
+# fixture must not inherit an ambient group-writable umask.
+new_home() { (umask 077; mkdir -p "$1/state"); WHEN_HOMES+=("$1"); }
 
 wake_payloads() { awk -F '\t' '{print $5}' "$1/state/.wake-queue" 2>/dev/null; }
 

@@ -109,6 +109,8 @@ Set the local, gitignored `config/backlog-backend` file to `manual` to force man
 A `manual` home owns its backlog file outright: the lifecycle transitions above are skipped there, dispatch and completion never fail over the file's contents, and a completed teardown prints the hand edit that is owed instead.
 Absent or `tasks-axi` selects the tasks-axi path.
 On the default markdown adapter, tasks-axi and manual edits produce the same `## In flight`, `## Queued`, and `## Done` sections.
+On a `beads` backend, every claim, hold, and close in the shared Beads graph is attributed to `BEADS_ACTOR` (bd's audit-trail actor, which otherwise falls back to git identity and collapses a fleet into one name), exported at two boundaries: [`bin/fm-spawn.sh`](../bin/fm-spawn.sh) sets it to the task id - the registered secondmate name for a secondmate - so the dispatch claim, the worker's pane, and every state change the worker drives record who did it, while every firstmate-owned mutation (`bin/fm-teardown.sh`, `bin/fm-captain-hold.sh`, handoffs, and the rest through the resolver in [`bin/fm-tasks-axi-lib.sh`](../bin/fm-tasks-axi-lib.sh)) records `firstmate@<basename of FM_HOME>` when the variable is unset, never overriding an explicitly exported one.
+Read attribution in a home with a beads backlog with `tail -100 .beads/interactions.jsonl | jq -r .actor | sort | uniq -c`.
 
 ## Runtime backend (config/backend / FM_BACKEND)
 
@@ -844,6 +846,7 @@ FM_CODEX_WATCH_CHECKPOINT=180   # seconds per foreground watcher checkpoint in C
 FM_CREW_STATE_NM_TIMEOUT=10   # seconds allowed per no-mistakes query inside fm-crew-state.sh
 FM_TEARDOWN_NM_TIMEOUT=10    # seconds allowed per no-mistakes query or abort inside fm-teardown.sh
 FM_CREW_STATE_RUNS_LIMIT=200  # recent no-mistakes run rows scanned when axi status cannot be attributed directly
+FM_TEARDOWN_NM_RUNS_LIMIT=200  # recent no-mistakes run rows scanned to prove an unresolved-head parked run belongs to teardown's task
 FM_CREW_STATE_BIN=bin/fm-crew-state.sh   # test override for the current-state reader used by working/paused watcher triage
 FMX_PAIRING_TOKEN=      # Relay pairing token; .env opt-in authorizes replies and eligible lifecycle actions
 FMX_RELAY_URL=https://myfirstmate.io   # optional Relay endpoint override, mainly for local relay development
