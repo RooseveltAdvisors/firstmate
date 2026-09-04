@@ -393,6 +393,20 @@ write_task_meta() {  # <case-dir> <id> <kind> <mode> [extra-line...]
     "$@"
 }
 
+# Shadow git with a wrapper that appends each invocation's verb-bearing argv to a
+# log and delegates to the real binary, so a network call the script must not
+# make is asserted from the calls it actually made.
+record_git_calls() {  # <case-dir>
+  local case_dir=$1 real_git
+  real_git=$(command -v git)
+  cat > "$case_dir/fakebin/git" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" | sed 's/^-C [^ ]* //' >> '$case_dir/git-calls'
+exec '$real_git' "\$@"
+SH
+  chmod +x "$case_dir/fakebin/git"
+}
+
 run_spawn() {  # <case-dir> <args...>
   local case_dir=$1
   shift
@@ -1064,6 +1078,47 @@ test_completion_closes_a_local_only_ship_before_reporting_success() {
   assert_grep 'local main' "$(backlog_of "$case_dir")" \
     "a local-only landing was closed without its local-main note"
   pass "completion closes a local-only ship, with its landing note, before reporting success"
+}
+
+# --force is the captain-authorized discard lever, so its pre-destructive path
+# must never depend on a remote: a forced teardown of unlanded work reads no tree
+# and fetches nothing, and still tears the task down rather than dead-ending on a
+# reason it has no way to supply.
+test_forced_completion_touches_no_remote_before_tearing_down() {
+  local case_dir home id wt out
+  id=atomic-close-forced-unlanded-b5
+  case_dir=$(make_home close-forced-unlanded)
+  home=$(home_of "$case_dir")
+  add_item "$case_dir" "$id"
+  start_item "$case_dir" "$id"
+
+  wt="$case_dir/forced-unlanded-wt"
+  git -C "$case_dir/project" worktree add --quiet -b forced-unlanded "$wt"
+  printf 'unlanded\n' > "$wt/unlanded.txt"
+  git -C "$wt" add unlanded.txt
+  git -C "$wt" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' \
+    commit -qm 'work that never landed'
+  # Every git call the teardown makes is recorded, so a fetch it must not make is
+  # observable rather than inferred, and the real binary still does the work.
+  record_git_calls "$case_dir"
+
+  fm_write_meta "$home/state/$id.meta" \
+    "window=firstmate:fm-$id" \
+    "endpoint_task_id=$id" \
+    "worktree=$wt" \
+    "project=$case_dir/project" \
+    "harness=claude" \
+    "kind=ship" \
+    "mode=no-mistakes" \
+    "yolo=off" \
+    "spawn_gen=spawn-forced-unlanded"
+
+  out=$(run_teardown "$case_dir" "$id" --force) \
+    || fail "forced teardown of unlanded work dead-ended: $out"
+  assert_no_grep '^fetch' "$case_dir/git-calls" \
+    "a forced teardown reached the network on its pre-destructive path"
+  assert_absent "$home/state/$id.meta" "forced teardown retained its task record"
+  pass "a forced teardown reaches no remote before tearing the task down"
 }
 
 # A ship whose branch was squash-merged keeps no PR URL to record, yet its
@@ -2389,6 +2444,7 @@ test_dispatch_does_not_resurrect_a_row_closed_after_preflight
 test_dispatch_fails_when_its_row_vanishes_after_preflight
 test_completion_closes_a_local_only_ship_before_reporting_success
 test_completion_closes_a_content_landed_ship_with_its_landing_note
+test_forced_completion_touches_no_remote_before_tearing_down
 test_completion_closes_a_scout_with_its_report
 test_completion_refuses_a_legacy_record_without_an_incarnation
 test_completion_refuses_ambiguous_incarnation_metadata

@@ -384,6 +384,24 @@ fm_backlog_close_captain_word() {  # <arg>...
 # only with a landing or a scout report, and the replay decodes any staged
 # --note straight back to the local-land note, so a staged record must never
 # carry a superseded or cancelled note that decode would silently rewrite.
+#
+# DELIBERATELY UNENFORCED, TRACKED, NOT AN OVERSIGHT: an EMPTY argument list is
+# still accepted, so a close carrying no done-class reason at all marks the row
+# done. Enforcing the contract here was tried and reverted: bin/fm-teardown.sh
+# has no flag for supplying a reason, so a refusal turns into a hard teardown
+# failure before any destructive step, with no way through on retry. Three
+# reachable paths still arrive here with nothing to record:
+#
+#   * a ship already pushed to a remote whose branch is not merged, so
+#     validate_worktree_teardown_safety never runs work_is_landed and PR_URL
+#     stays empty;
+#   * a --force discard of unlanded work, where the content check is false by
+#     definition and is skipped anyway so the discard cannot block on a remote;
+#   * a ship whose worktree is already gone, so there is no tree to read.
+#
+# Closing this gap needs a way for teardown to carry the captain's own word
+# (the `cancelled` kind already has the right shape) - it is a scope decision,
+# not a missing line here.
 fm_backlog_close_args_valid() {  # <live|staged> <arg>...
   local mode=$1 note_spelling arg_value superseded_id
   local url_tail url_authority url_path url_host url_port host_rest host_label host_valid
@@ -394,7 +412,11 @@ fm_backlog_close_args_valid() {  # <live|staged> <arg>...
     staged) note_spelling='local%20main' ;;
     *) return 1 ;;
   esac
-  [ "$#" -eq 2 ] || return 1
+  case "$#" in
+    0) return 0 ;;
+    2) ;;
+    *) return 1 ;;
+  esac
   case "$1" in
     --note)
       arg_value=$2
@@ -897,12 +919,8 @@ fm_backlog_close_marker_validate() {  # <marker-path> <authorized-data-dir> <exp
     FM_BACKLOG_TRANSITION_ERROR="foreign data directory in pending-close record $marker"
     return 1
   fi
-  # A retain records the deliverable a captain-held row carries, and a hold that
-  # produced none legitimately carries no flags; only a close must name a reason.
-  if [ "$mode" != retain ] || [ "${#args[@]}" -gt 0 ]; then
-    fm_backlog_close_args_valid staged "${args[@]+"${args[@]}"}" \
-      || { FM_BACKLOG_TRANSITION_ERROR="invalid pending-close arguments in $marker"; return 1; }
-  fi
+  fm_backlog_close_args_valid staged "${args[@]+"${args[@]}"}" \
+    || { FM_BACKLOG_TRANSITION_ERROR="invalid pending-close arguments in $marker"; return 1; }
   FM_BACKLOG_CLOSE_VALIDATED_ID=$id
   FM_BACKLOG_CLOSE_VALIDATED_DATA=$data_resolved
   FM_BACKLOG_CLOSE_VALIDATED_SPAWN_GEN=$marker_spawn_gen

@@ -1198,6 +1198,8 @@ work_is_landed() {
 # other ship carries the PR recorded on its own record - or, when its branch was
 # squash-merged so no PR URL survives, the content already in the default branch,
 # which is the same local-main landing spelled from the tree rather than a record.
+# --force skips that tree read: it is the captain-authorized discard lever, and
+# it must never block on a fetch from an unreachable remote to stay usable.
 BACKLOG_DONE_ARGS=()
 backlog_done_args() {
   local data_relative
@@ -1212,7 +1214,7 @@ backlog_done_args() {
         BACKLOG_DONE_ARGS=(--note "local main")
       elif [ -n "$PR_URL" ]; then
         BACKLOG_DONE_ARGS=(--pr "$PR_URL")
-      elif [ -d "$WT" ] && content_in_default; then
+      elif [ "$FORCE" != "--force" ] && [ -d "$WT" ] && content_in_default; then
         BACKLOG_DONE_ARGS=(--note "local main")
       fi
       ;;
