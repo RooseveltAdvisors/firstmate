@@ -164,6 +164,54 @@ test_refusal_reasons_are_per_record() {
   pass 'endpoint binding scan reports per-record refusal reasons without stamping'
 }
 
+test_hidden_records_are_reported_out_of_scope() {
+  local dir out
+  dir=$(make_case hidden)
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  fm_write_meta "$dir/home/state/.meta" \
+    'window=firstmate:fm-dead' "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  fm_write_meta "$dir/home/state/.hidden.meta" \
+    'window=firstmate:fm-bound' "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+
+  out=$(run_locked "$dir") || fail "hidden record scan failed: $out"
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/.meta" \
+    || fail 'hidden metadata record was stamped'
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/.hidden.meta" \
+    || fail 'hidden metadata record was stamped'
+  grep -qx 'endpoint_task_id=good' "$dir/home/state/good.meta" \
+    || fail 'scan did not continue past hidden metadata records'
+  assert_contains "$out" 'record .meta: skipped - hidden metadata record is out of scope' \
+    'hidden metadata record was not reported'
+  assert_contains "$out" 'record .hidden.meta: skipped - hidden metadata record is out of scope' \
+    'hidden metadata record was not reported'
+  pass 'hidden metadata records are reported out of scope and never stamped'
+}
+
+test_locked_record_is_skipped_without_waiting() {
+  local dir out lock
+  dir=$(make_case contended)
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  lock="$dir/home/state/.meta-good.lock"
+  mkdir -p "$lock"
+  printf '%s\n' "$$" > "$lock/pid"
+
+  out=$(run_locked "$dir") || fail "contended scan failed: $out"
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
+    || fail 'record held by another operation was stamped'
+  assert_contains "$out" 'task good: skipped - metadata record is locked by another operation; rerun migration' \
+    'contended record reason was not reported'
+
+  rm -rf "$lock"
+  out=$(run_locked "$dir") || fail "rerun after contention failed: $out"
+  grep -qx 'endpoint_task_id=good' "$dir/home/state/good.meta" \
+    || fail 'rerun did not converge the contended record'
+  pass 'a contended record is skipped with a reason and converges on rerun'
+}
+
 test_evidence_bound_scan
 test_rerun_converges_after_interruption
 test_refusal_reasons_are_per_record
+test_hidden_records_are_reported_out_of_scope
+test_locked_record_is_skipped_without_waiting

@@ -248,12 +248,19 @@ trap 'exit 143' HUP INT TERM
 
 require_session_lock || exit 1
 
-shopt -s nullglob
+shopt -s nullglob dotglob
 for stale in "$STATE"/.fm-endpoint-binding-candidate.*; do
   [ -e "$stale" ] || [ -L "$stale" ] || continue
   rm -f -- "$stale" || exit 1
 done
 for meta in "$STATE"/*.meta; do
+  base=${meta##*/}
+  case "$base" in
+    .*)
+      record_outcome "record $(reason_one_line "$base"): skipped - hidden metadata record is out of scope"
+      continue
+      ;;
+  esac
   id=$(basename "$meta" .meta)
   if [ -L "$meta" ]; then
     record_outcome "task $(reason_one_line "$id"): skipped - metadata record is a symlink; endpoint identity is unverifiable"
@@ -269,7 +276,10 @@ for meta in "$STATE"/*.meta; do
   fi
   require_session_lock || exit 1
   meta_lock=$(fm_meta_lock_path "$meta") || exit 1
-  fm_lock_acquire_wait "$meta_lock" || exit 1
+  if ! fm_lock_try_acquire "$meta_lock"; then
+    record_outcome "task $id: skipped - metadata record is locked by another operation; rerun migration"
+    continue
+  fi
   if ! regular_file "$meta" || ! cat -- "$meta" >/dev/null 2>&1; then
     record_outcome "task $id: skipped - metadata record is unreadable; endpoint identity is unverifiable"
     fm_lock_release "$meta_lock" || exit 1
