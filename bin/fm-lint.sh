@@ -136,12 +136,23 @@ fm_lint_run_workflows() {
 # prefix the comment filter anchors on.
 # Command position is recognized lexically, not by parsing shell: the start of a
 # line, after a separator (`;` `&` `|` `(` `)` backtick `!` `{` and either
-# quote), and after a shell keyword or wrapper that is followed by a command
-# (if/while/until/then/do/elif/else/sudo/env/command/time/xargs/exec/eval/
-# nohup/timeout). The closing paren carries a `case` branch, the most common
+# quote), and after a shell keyword or wrapper that is followed IMMEDIATELY by
+# the command (if/while/until/then/do/elif/else/sudo/command/time/xargs/exec/
+# eval/nohup). The closing paren carries a `case` branch, the most common
 # command position in these scripts, and the quotes carry an `eval` body. A `bd`
 # inside a string literal on a code line is reported like any other command
 # position; rewrite such a line rather than suppressing the check.
+#
+# KNOWN, TRACKED GAP - NOT AN OVERSIGHT: because a wrapper must sit immediately
+# before the command, any form that puts ARGUMENTS between them is NOT caught.
+# So `timeout 5 bd close <id>`, `env FOO=1 bd list`, and the inline-assignment
+# prefix `x=1 bd y` all pass this check silently. `env` and `timeout` are absent
+# from the list above for exactly that reason: they are essentially never
+# written bare, so listing them would claim a coverage this pattern does not
+# provide. Widening the pattern to span an argument run risks trading these
+# false negatives for false positives, so the narrower rule is deliberate and
+# the gap is recorded here rather than papered over. Do not read a clean verdict
+# from this check as proof that a script makes no direct beads call.
 fm_lint_interface_purity() {  # <root>...
   local hits
   [ "$#" -gt 0 ] || return 0
