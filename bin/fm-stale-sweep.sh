@@ -46,7 +46,8 @@
 #      elsewhere cannot reopen a beads row, so the graph-owning sweep home
 #      performs the reclaim instead, still naming the resolved owner as the
 #      actor): under the owning home's per-task record lock - the same lock
-#      the completion path holds across its meta removal and `tasks-axi done`
+#      every completion path (teardown's meta removal plus `tasks-axi done`,
+#      and the captain-hold answer's resolution record plus close) holds
 #      - it appends "reclaimed <date>: endpoint dead, previous claim by
 #      <actor>" to the row's body, then reopens the row (back to Queued) only
 #      after re-proving the row is still in flight and unheld, so a row that
@@ -410,8 +411,9 @@ PY
 
 # Reclaim one dead-endpoint row through its owning home. The whole reclaim
 # runs under the owning home's per-task record lock (state/.meta-<id>.lock) -
-# the lock the completion path (teardown's meta removal plus `tasks-axi done`)
-# holds across its own two steps - so a completion either lands before the
+# the lock every completion path (teardown's meta removal plus `tasks-axi
+# done`, and the captain-hold answer's resolution record plus close) holds
+# across its own steps - so a completion either lands before the
 # sweep's proof and the row reads done, or waits until the reopen has landed;
 # the two can never interleave into a resurrected finished row. When that lock
 # is already held, a completion is running right now and the row is refused
