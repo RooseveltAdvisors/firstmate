@@ -168,7 +168,8 @@ That warning uses `bin/fm-supervision-instructions.sh --repair-line`, so it alwa
 - agy crew wake support uses `bin/fm-agy-turnend-hook.sh` to own exactly one `firstmate-turn-end` key in `~/.gemini/config/hooks.json` and install a silent always-zero hook, preserving every operator hook in that file.
 - The hook remains inert unless a payload `workspacePaths` entry contains a per-task token pointer that resolves through Firstmate's private registry to one `state/<id>.turn-ended` marker.
 - The hook fires only when the payload reports `fullyIdle` true: agy backgrounds a command that outruns its own wait, yields the composer, and fires `Stop` with `fullyIdle` false while that command still runs, with a second `fullyIdle` true `Stop` once it finishes.
-- Two paths end an agy turn with NO `Stop` event and therefore no wake: a declined tool call, and an Escape interrupt. A crewmate launches with `--dangerously-skip-permissions` so it never reaches the first, and firstmate initiates its own interrupts; the watcher's staleness check is the backstop for both.
+- Two paths end an agy turn with NO `Stop` event and therefore no wake: a declined tool call, and an Escape interrupt.
+- A crewmate launches with `--dangerously-skip-permissions` so it never reaches the first, and firstmate initiates its own interrupts; the watcher's staleness check is the backstop for both.
 - `terminationReason` values beyond `NO_TOOL_CALL` are unverified.
 - Installation refuses before writing unless `node` is available, and the installed hook exits 0 with `{}` on any unreadable input.
 - No harness adapter uses a shell ampersand to manufacture supervision.

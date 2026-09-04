@@ -54,8 +54,11 @@ The installed hook fires only on `fullyIdle` true, and any future busy-state wri
 Two paths end a turn with NO Stop event, so a worker on either goes idle and quiet and the watcher's staleness check is the only backstop.
 Do not read a silent pane as a healthy one.
 
-- **A DECLINED tool call.** Choosing `4. No` at a permission prompt returns the pane to idle with `⎿ User declined the tool call` and fires nothing. Reproduced twice, with a same-session plain turn firing Stop normally as a positive control. Launching with `--dangerously-skip-permissions` is what keeps a crewmate off this path.
-- **An Escape interrupt.** Cancelling a turn fires nothing. Firstmate initiates its own interrupts, so it already knows, but a captain interrupting a pane by hand leaves no wake.
+- **A DECLINED tool call.** Choosing `4. No` at a permission prompt returns the pane to idle with `⎿ User declined the tool call` and fires nothing.
+  Reproduced twice, with a same-session plain turn firing Stop normally as a positive control.
+  Launching with `--dangerously-skip-permissions` is what keeps a crewmate off this path.
+- **An Escape interrupt.** Cancelling a turn fires nothing.
+  Firstmate initiates its own interrupts, so it already knows, but a captain interrupting a pane by hand leaves no wake.
 
 Stop correctly does NOT fire while parked at a permission prompt, which is the safe direction: there is no false "done".
 

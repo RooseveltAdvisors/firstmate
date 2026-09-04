@@ -136,7 +136,7 @@ quota-axi --json --no-credential-refresh | jq -c '.providers[] | select(.provide
 {"provider":"agy","status":"unknown"}
 ```
 
-A family present with `status: unknown` is missing evidence, not a wrong family name — the same shape §"Quota granularity the judgment depends on" already records for `cursor` and `copilot`.
+A family present with `status: unknown` is missing evidence, not a wrong family name - the same shape §"Quota granularity the judgment depends on" already records for `cursor` and `copilot`.
 
 ## Provider-family counterfactual that this producer schema supports
 
