@@ -131,7 +131,7 @@ fm_capacity_hold() {  # <data-dir> <id> <reason>
 FM_CAPACITY_RELEASED_ID=
 fm_capacity_release_oldest() {  # <data-dir> <pool>
   local data=$1 pool=$2 out line prefix reason created id
-  local best_id= best_created=
+  local best_id='' best_created=''
   FM_CAPACITY_RELEASED_ID=
   data=$(fm_capacity_resolve_dir "$data") || return 0
   command -v tasks-axi >/dev/null 2>&1 || return 0
@@ -172,6 +172,9 @@ EOF
     printf 'teardown: capacity release of %s failed; the hold stays recorded\n' "$best_id" >&2
     return 0
   fi
+  # Part of this library's output contract: fm-teardown.sh reads it after a
+  # successful release, so ShellCheck's in-file use check is a false positive.
+  # shellcheck disable=SC2034
   FM_CAPACITY_RELEASED_ID=$best_id
   printf 'ready: %s - capacity hold released for pool %s\n' "$best_id" "$pool"
 }

@@ -182,7 +182,7 @@ test_dry_run_lists_verdicts_and_reclaims_nothing() {
 }
 
 test_apply_reclaims_only_dead_rows() {
-  local rec out rc date note
+  local rec out rc date
   rec=$(make_fixture apply)
   read_fixture "$rec"
   out=$(run_sweep --apply)

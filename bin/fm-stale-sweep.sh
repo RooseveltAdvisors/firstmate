@@ -685,7 +685,7 @@ shim_write() {
 }
 
 action_arm() {
-  local want home problem
+  local want home
   fm_stale_read_beads_config || return 1
   mkdir -p "$STATE" || return 1
   case "$FM_HOME" in
