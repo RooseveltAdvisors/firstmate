@@ -94,10 +94,10 @@
 #          reads or writes another home; the fleet snapshot's classifier and
 #          bin/fm-secondmate-reconcile.sh's nudge stay as backstops. Replayed
 #          transitions and restored In-flight rows print BOOTSTRAP_INFO facts.
-#          Set FM_BOOTSTRAP_DETECT_ONLY=1 to skip the six MUTATING sweeps
-#          (backlog_record_reconcile, secondmate_sync,
-#          secondmate_liveness_sweep, secondmate_handoff_resume, x_mode_setup,
-#          fleet_sync) while still
+#          Set FM_BOOTSTRAP_DETECT_ONLY=1 to skip the seven MUTATING sweeps
+#          (backlog_record_reconcile, endpoint-binding migration,
+#          secondmate_sync, secondmate_liveness_sweep,
+#          secondmate_handoff_resume, x_mode_setup, fleet_sync) while still
 #          printing every read-only detect line
 #          above; the TANGLE line switches to advisory-only wording with no
 #          checkout command. Used by
@@ -105,7 +105,7 @@
 #          the fleet lock, so a second concurrent session never race-mutates
 #          secondmate homes, pending handoff outboxes,
 #          X-mode artifacts, project clones, or repair instructions.
-#          Unset/0 (the default) runs all six sweeps - this flag is purely
+#          Unset/0 (the default) runs all seven sweeps - this flag is purely
 #          additive.
 #          Set FM_BOOTSTRAP_NETWORK to split this run by whether a step talks to
 #          the network, so a session start can print its digest from local reads
@@ -132,6 +132,7 @@
 #          consumes respawned ids. Worker output is captured separately and
 #          replayed in spawn order; failure to create that private capture
 #          directory selects the sequential fallback.
+#          Endpoint-binding migration is a repeatable scan; rerun it after interruption.
 #          A relaunch that the liveness sweep performs during an `only` run is
 #          always reported, because a digest composed before that run already
 #          printed the superseded endpoint record.
@@ -175,6 +176,8 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-x-lib.sh"
 # shellcheck source=bin/fm-backend.sh disable=SC1091
 . "$SCRIPT_DIR/fm-backend.sh"
+# shellcheck source=bin/fm-session-lock-lib.sh disable=SC1091
+. "$SCRIPT_DIR/fm-session-lock-lib.sh"
 # shellcheck source=bin/fm-remote-readiness-lib.sh disable=SC1091
 . "$SCRIPT_DIR/fm-remote-readiness-lib.sh"
 # fm-timing-lib.sh is inert unless FM_TIMING_LOG names a file, which only the
@@ -1384,6 +1387,11 @@ if [ "${FM_BOOTSTRAP_DETECT_ONLY:-0}" != 1 ] && local_phase; then
     if [ "$BOOTSTRAP_BACKLOG_GATE_STATUS" -eq 2 ]; then
       echo "error: bootstrap cannot access configured backlog data directory $DATA ($FM_BACKLOG_TRANSITION_ERROR)" >&2
       exit 1
+    fi
+  fi
+  if fm_session_lock_owned_by_self "$STATE"; then
+    if ! "$SCRIPT_DIR/fm-endpoint-binding-migrate.sh"; then
+      echo 'ENDPOINT_BINDING_MIGRATION: scan incomplete; rerun migration' >&2
     fi
   fi
   startup_memory_budget_setup
