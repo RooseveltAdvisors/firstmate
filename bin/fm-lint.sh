@@ -135,15 +135,17 @@ fm_lint_run_workflows() {
 # load-bearing for that, because a single-root run otherwise drops the filename
 # prefix the comment filter anchors on.
 # Command position is recognized lexically, not by parsing shell: the start of a
-# line, after a separator (`;` `&` `|` `(` backtick `!` `{`), and after a shell
-# keyword or wrapper that is followed by a command (if/while/until/then/do/elif/
-# else/sudo/env/command/time/xargs). A `bd` inside a string literal on a code
-# line is reported like any other command position; rewrite such a line rather
-# than suppressing the check.
+# line, after a separator (`;` `&` `|` `(` `)` backtick `!` `{` and either
+# quote), and after a shell keyword or wrapper that is followed by a command
+# (if/while/until/then/do/elif/else/sudo/env/command/time/xargs/exec/eval/
+# nohup/timeout). The closing paren carries a `case` branch, the most common
+# command position in these scripts, and the quotes carry an `eval` body. A `bd`
+# inside a string literal on a code line is reported like any other command
+# position; rewrite such a line rather than suppressing the check.
 fm_lint_interface_purity() {  # <root>...
   local hits
   [ "$#" -gt 0 ] || return 0
-  hits=$(grep -HnE '(^|[;&|(`!{]|(^|[[:space:]])(if|while|until|then|do|elif|else|sudo|env|command|time|xargs)[[:space:]])[[:space:]]*bd([^A-Za-z0-9_.=/-]|$)' "$@" 2>/dev/null \
+  hits=$(grep -HnE '(^|[;&|()`!{'"'"'"]|(^|[[:space:]])(if|while|until|then|do|elif|else|sudo|env|command|time|xargs|exec|eval|nohup|timeout)[[:space:]])[[:space:]]*bd([^A-Za-z0-9_.=/-]|$)' "$@" 2>/dev/null \
     | grep -vE '^[^:]*:[0-9]+:[[:space:]]*#') || return 0
   [ -n "$hits" ] || return 0
   printf 'fm-lint.sh: firstmate scripts must reach the backlog through tasks-axi, never the beads CLI directly.\n' >&2
@@ -510,6 +512,8 @@ while [ "$worker" -lt "$SHARD_COUNT" ]; do
   worker=$((worker + 1))
 done
 
+[ "$PURITY_RC" -eq 0 ] || overall_rc=$PURITY_RC
+
 if [ -n "$TELEMETRY" ]; then
   TELEMETRY_END_EPOCH=$(date +%s)
   TELEMETRY_SHELLCHECK_END=$(fm_lint_shellcheck_count)
@@ -623,6 +627,4 @@ if [ "$overall_rc" -eq 0 ]; then
 else
   fm_lint_run_workflows || true
 fi
-[ "$PURITY_RC" -eq 0 ] || overall_rc=$PURITY_RC
-
 exit "$overall_rc"

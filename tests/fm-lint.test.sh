@@ -156,7 +156,7 @@ pinned_ready() {
 # tasks-axi, never through the beads CLI tasks-axi wraps. The offending token is
 # assembled with printf instead of written literally, so this test file stays
 # clean under the very check it exercises.
-fm_lint_write_purity_fixture() {  # <path> <call|prose|keywords>
+fm_lint_write_purity_fixture() {  # <path> <call|prose|keywords|positions>
   local path=$1 mode=$2 tool
   tool=$(printf 'b%s' d)
   {
@@ -183,6 +183,14 @@ fm_lint_write_purity_fixture() {  # <path> <call|prose|keywords>
         ;;
       keywords)
         printf 'if %s ready --json; then :; fi\nsudo %s ready\ncommand %s list\nxargs %s show\n' \
+          "$tool" "$tool" "$tool" "$tool"
+        ;;
+      positions)
+        # A case branch, an exec, and an eval body: the command positions a
+        # separator class missing `)` and a keyword list missing exec/eval let
+        # through. Written as FIXTURE TEXT into the generated script.
+        # shellcheck disable=SC2016
+        printf 'case "$1" in\n  ready) %s ready --json ;;\n  list) %s list ;;\nesac\nexec %s show\neval "%s close"\n' \
           "$tool" "$tool" "$tool" "$tool"
         ;;
       *) return 1 ;;
@@ -215,6 +223,21 @@ test_interface_purity_catches_keyword_command_positions() {
   [ "$(printf '%s\n' "$out" | grep -c 'wrapped.sh:')" -eq 4 ] \
     || fail "not every wrapped command position was reported"$'\n'"$out"
   pass "fm-lint.sh catches beads calls after a shell keyword or wrapper"
+}
+
+test_interface_purity_catches_case_exec_and_eval_positions() {
+  local tmp out rc=0
+  tmp=$(fm_test_tmproot fm-lint-purity-positions)
+  fm_lint_write_purity_fixture "$tmp/positions.sh" positions
+  out=$("$LINT" "$tmp/positions.sh" 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "beads calls in case, exec and eval positions passed the boundary"$'\n'"$out"
+  assert_contains "$out" "never the beads CLI directly" \
+    "the interface-boundary failure did not name the rule"
+  # Both case branches, the exec and the eval body - every one, not just the
+  # first, and not merely a non-zero status some other check could produce.
+  [ "$(printf '%s\n' "$out" | grep -c 'positions.sh:[0-9]*:')" -eq 4 ] \
+    || fail "not every case, exec or eval command position was reported"$'\n'"$out"
+  pass "fm-lint.sh catches beads calls in case, exec and eval command positions"
 }
 
 test_interface_purity_allows_prose_and_tasks_axi() {
@@ -1108,3 +1131,4 @@ test_list_files_respects_changed_mode
 test_interface_purity_rejects_a_direct_beads_call
 test_interface_purity_allows_prose_and_tasks_axi
 test_interface_purity_catches_keyword_command_positions
+test_interface_purity_catches_case_exec_and_eval_positions
