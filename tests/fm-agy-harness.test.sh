@@ -768,6 +768,38 @@ test_agy_spawn_pretrusts_its_worktree_and_reaches_the_brief() {
   pass "fm-spawn.sh: an agy spawn pre-trusts its worktree, arms its wake, and launches with the brief"
 }
 
+# The trust entry is written into the operator's vendor settings before the rest
+# of the spawn can fail, and teardown - the only other withdrawal - refuses for an
+# id that never published a task record. So an abort after a SUCCESSFUL
+# registration has to take the entry back, or it is stranded with no supported
+# command that can remove it. A malformed operator hooks config is the abort:
+# the hook install refuses on it, one step after the registration.
+test_aborted_spawn_withdraws_the_trust_it_registered() {
+  local case_dir home proj wt agyhome fakebin store config out
+  case_dir="$TMP_ROOT/aborted-spawn"
+  home="$case_dir/home"
+  proj="$case_dir/project"
+  wt="$case_dir/wt"
+  agyhome="$case_dir/agyhome"
+  store=$(store_path "$agyhome")
+  config=$(hooks_config "$agyhome")
+  mkdir -p "$(dirname "$store")" "$(dirname "$config")"
+  printf '%s\n' '{"enableTelemetry":false,"trustedWorkspaces":["/already/trusted"]}' > "$store"
+  printf '%s\n' 'not json' > "$config"
+  fakebin=$(make_spawn_fakebin "$case_dir/fake" agy)
+  fm_test_spawn_home "$home" agy
+  fm_git_worktree "$proj" "$wt" wt-aborted
+  fm_test_spawn_brief "$home" abortedspawn
+  out=$(HOME="$agyhome" fm_test_run_spawn "$home" "$wt" "$fakebin" abortedspawn "$proj" agy \
+    --mode no-mistakes --yolo off)
+  expect_code 1 $? "a spawn whose hook install is refused must fail: $out"
+  [ ! -e "$home/state/abortedspawn.meta" ] \
+    || fail "the abort published a task record, so the leak this covers cannot happen"
+  assert_not_trusted "$store" "$wt" "the aborted spawn stranded its workspace-trust entry"
+  assert_trusted "$store" "/already/trusted" "the withdrawal dropped an unrelated operator entry"
+  pass "fm-spawn.sh: a spawn that aborts after registering trust withdraws it again"
+}
+
 # A refused registration must abort the spawn before any task state exists: the
 # busy-state generation is armed later in the same run and nothing between would
 # clear it, so a record stranded here would read as a task busy forever for an id
@@ -841,3 +873,4 @@ test_spawn_refuses_a_secondmate_on_agy
 test_a_non_agy_launch_clears_the_inherited_agy_marker
 test_agy_spawn_pretrusts_its_worktree_and_reaches_the_brief
 test_refused_spawn_leaves_no_task_state
+test_aborted_spawn_withdraws_the_trust_it_registered

@@ -111,7 +111,7 @@
 #   profile consultation. A --secondmate spawn is exempt and resolves the SECONDMATE
 #   harness (config/secondmate-harness -> config/crew-harness -> own), so the
 #   secondmate-vs-crewmate split is DURABLE across every respawn (recovery,
-#   /updatefirstmate, restart). A bare adapter name (claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|muse)
+#   /updatefirstmate, restart). A bare adapter name (claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|muse|agy)
 #   overrides it for this spawn (either kind). A non-flag string containing
 #   whitespace is treated as a RAW launch command - the escape hatch for verifying
 #   new adapters. For pi and pi-signed, fm-spawn resolves the selected executable
@@ -183,6 +183,14 @@
 # a firstmate-owned global hook and registry, and a gitignored per-task pointer.
 # grok uses a firstmate-owned global hook under ${GROK_HOME:-$HOME/.grok}/hooks
 # plus a gitignored .fm-grok-turnend worktree pointer and a state token.
+# agy uses the same shape: a firstmate-owned global Stop hook in
+# $HOME/.gemini/config/hooks.json with its own registry, a gitignored
+# .fm-agy-turnend worktree pointer and a state token. It additionally needs its
+# task worktree pre-registered in agy's own trustedWorkspaces before launch,
+# because its workspace-trust dialog draws no status text and cannot be answered
+# from the steering plane; that registration is withdrawn again by teardown, or
+# here by the abort cleanup when the spawn never publishes a record. agy is
+# crewmate/scout only and is refused for --secondmate.
 # muse installs no hook at all - its plugin engine is off in the default build - so
 # it writes state/<id>.muse-session to bind the pane to muse's own session event
 # log; muse is crewmate/scout only and is refused for --secondmate.
@@ -724,6 +732,8 @@ spawn_remote_secondmate() {
 }
 
 BACKEND=
+AGY_TRUST_REGISTERED=0
+AGY_TRUST_WT=
 ORCA_ABORT_CLEANUP=0
 ORCA_WORKTREE_ID=
 ORCA_TERMINAL=
@@ -804,6 +814,17 @@ spawn_abort_cleanup() {
           --gen "$RELAUNCH_REPLACEMENT_BUSY_GEN"; then
         echo "warning: could not retire replacement busy generation after aborted relaunch of $ID" >&2
       fi
+    fi
+  fi
+  # The agy trust entry lives in the operator's vendor settings rather than under
+  # this home, and teardown - the only other thing that withdraws it - refuses
+  # outright for an id with no task record. So a spawn that registered and then
+  # aborted before publishing one has to take it back itself, or nothing ever can.
+  if [ "$AGY_TRUST_REGISTERED" = 1 ]; then
+    AGY_TRUST_REGISTERED=0
+    if [ ! -e "$STATE/$ID.meta" ] && [ ! -L "$STATE/$ID.meta" ]; then
+      "$FM_ROOT/bin/fm-agy-trust.sh" --remove "$AGY_TRUST_WT" >/dev/null \
+        || echo "warning: could not withdraw agy workspace trust for '$AGY_TRUST_WT' after the aborted spawn of $ID" >&2
     fi
   fi
   if [ "$HERDR_PROJECTION_ABORT_CLEANUP" = 1 ] \
@@ -2599,6 +2620,8 @@ if [ "$HARNESS" = agy ]; then
     echo "error: refusing agy spawn because workspace trust could not be pre-registered for '$WT'" >&2
     exit 1
   }
+  AGY_TRUST_WT=$WT
+  AGY_TRUST_REGISTERED=1
   "$FM_ROOT/bin/fm-agy-turnend-hook.sh" install || {
     echo "error: refusing agy spawn because the global turn-end hook could not be installed safely" >&2
     exit 1
