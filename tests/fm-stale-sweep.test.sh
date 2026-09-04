@@ -240,14 +240,61 @@ test_check_mode_reports_the_budget_cut() {
   local rec out
   rec=$(make_fixture cut)
   read_fixture "$rec"
-  # FM_CHECK_TIMEOUT=3 cuts the 25s budget to 1 (clamped from CHECK_TIMEOUT-3),
-  # so the check must report the cut alongside its reclaimable verdict.
-  out=$(FM_HOME="$HOME_DIR" FM_CHECK_TIMEOUT=3 FM_STALE_SWEEP_NOW="$(sweep_clock)" \
+  # FM_CHECK_TIMEOUT=8 cuts the 25s budget to 5 (CHECK_TIMEOUT-3), so the
+  # check must report the cut alongside its reclaimable verdict.
+  out=$(FM_HOME="$HOME_DIR" FM_CHECK_TIMEOUT=8 FM_STALE_SWEEP_NOW="$(sweep_clock)" \
     PATH="$FAKEBIN:$PATH" "$SWEEP" check)
-  assert_contains "$out" "note: FM_STALE_SWEEP_BUDGET_SECS 25 cut to 1 to fit FM_CHECK_TIMEOUT" \
+  assert_contains "$out" "note: FM_STALE_SWEEP_BUDGET_SECS 25 cut to 5 to fit FM_CHECK_TIMEOUT" \
     "check mode must report the budget cut instead of swallowing it"
   printf '%s\n' "$out" | grep -q "^stale-sweep: " || fail "the cut note must not replace the reclaimable report"
   pass "check mode reports the budget cut alongside its reclaimable verdict"
+}
+
+test_apply_names_the_resolved_homes_actor_when_two_homes_hold_meta() {
+  local rec out date
+  rec=$(make_fixture handoff)
+  read_fixture "$rec"
+  # A second registered home also holding the dead row's meta is the handoff
+  # seam; the resolved home stays this home (listed first), so the reclaim note
+  # must carry this home's actor, not the last-scanned registry home's id.
+  mkdir -p "$CASE_DIR/other-home/state"
+  fm_write_meta "$CASE_DIR/other-home/state/fm-dead-row.meta" \
+    "window=firstmate:%dead" "worktree=$CASE_DIR/wt-dead" "kind=ship" "harness=claude"
+  printf '%s\n' "- widgets2 - handoff twin (home: $CASE_DIR/other-home; repo: -)" \
+    > "$HOME_DIR/data/secondmates.md"
+  out=$(run_sweep --apply)
+  date=$(date +%F)
+  assert_contains "$(row_body fm-dead-row)" "reclaimed $date: endpoint dead, previous claim by main home" \
+    "the note must name the resolved first home's actor, not the last scanned one"
+  [ "$(row_state fm-dead-row)" = queued ] || fail "the dead row was not reclaimed"
+  pass "a two-home handoff reclaims through the first home and names its actor"
+}
+
+# A bd that hangs: in check mode the graph read must be bounded by the budget
+# so the probe fails visibly (with its record written) instead of being killed
+# silently by the watcher's timeout.
+test_check_mode_bounds_the_graph_read() {
+  local rec out t0 bdslow="$TMP_ROOT/bdslow/fakebin"
+  rec=$(make_fixture bdslow)
+  read_fixture "$rec"
+  mkdir -p "$bdslow"
+  cat > "$bdslow/bd" <<'SH'
+#!/usr/bin/env bash
+sleep 5
+exit 0
+SH
+  chmod +x "$bdslow/bd"
+  t0=$(sweep_clock)
+  out=$(FM_HOME="$HOME_DIR" FM_CHECK_TIMEOUT=3 FM_STALE_SWEEP_NOW=$t0 \
+    PATH="$bdslow:$FAKEBIN:$PATH" "$SWEEP" check)
+  assert_contains "$out" "fm-stale-sweep: graph read failed" \
+    "a graph read that exceeds the budget must fail visibly, not silently"
+  # The probe record is still written, so the next poll inside the interval
+  # stays quiet instead of retrying a doomed read every poll.
+  out=$(FM_HOME="$HOME_DIR" FM_CHECK_TIMEOUT=3 FM_STALE_SWEEP_NOW=$((t0 + 600)) \
+    PATH="$bdslow:$FAKEBIN:$PATH" "$SWEEP" check)
+  [ -z "$out" ] || fail "check inside the interval gate printed: $out"
+  pass "check mode bounds the graph read by the budget and records the failed probe"
 }
 
 test_arm_disarm_roundtrip() {
@@ -270,8 +317,10 @@ test_arm_disarm_roundtrip() {
 
 test_dry_run_lists_verdicts_and_reclaims_nothing
 test_apply_reclaims_only_dead_rows
+test_apply_names_the_resolved_homes_actor_when_two_homes_hold_meta
 test_check_mode_gates_on_the_interval_record
 test_check_mode_reports_the_budget_cut
+test_check_mode_bounds_the_graph_read
 test_arm_disarm_roundtrip
 
 echo "# all fm-stale-sweep tests passed"

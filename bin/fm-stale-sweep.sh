@@ -281,8 +281,7 @@ fm_stale_resolve_home() {  # <id> <escaped description>
     [ -n "$rid" ] && [ -n "$home" ] || continue
     canon=$(fm_capacity_resolve_dir "$home" 2>/dev/null) || continue
     if [ -f "$canon/state/$id.meta" ] || [ -L "$canon/state/$id.meta" ]; then
-      metas+=("$canon")
-      FM_STALE_HOME_ACTOR=$rid
+      metas+=("$canon"$'\t'"$rid")
     fi
   done <<EOF
 $(printf 'main home\t%s\n' "$this_canon"; fm_stale_registry_homes)
@@ -290,7 +289,8 @@ EOF
   if [ "${#metas[@]}" -ge 1 ]; then
     # Several homes holding state/<id>.meta is a handoff seam; the first found
     # wins (this home is listed first) and the verdict below still governs.
-    FM_STALE_RESOLVED_HOME=${metas[0]}
+    FM_STALE_RESOLVED_HOME=${metas[0]%%$'\t'*}
+    FM_STALE_HOME_ACTOR=${metas[0]#*$'\t'}
     return 0
   fi
   if prov_home=$(fm_stale_provenance_home "$desc"); then
@@ -474,9 +474,14 @@ FM_STALE_APPLY_FAILED=0
 FM_STALE_UNCONSIDERED=0
 
 fm_stale_sweep() {  # <apply 0|1> <budget-secs 0-unbounded> <cutoff-epoch>
-  local apply=$1 budget=$2 cutoff=$3 tmp rows start now id age_h desc ask_timeout remaining
+  local apply=$1 budget=$2 cutoff=$3 tmp rows start now id age_h desc ask_timeout remaining bd_timeout
+  bd_timeout=$BD_TIMEOUT
+  start=$(date +%s)
+  if [ "$budget" -gt 0 ] && [ "$BD_TIMEOUT" -gt "$budget" ]; then
+    bd_timeout=$budget
+  fi
   tmp=$(umask 077; mktemp "${TMPDIR:-/tmp}/fm-stale-sweep.XXXXXX") || return 1
-  if ! BEADS_DIR="$FM_STALE_BD_PATH" timeout "$BD_TIMEOUT" "$FM_STALE_BD_BIN" list --all --json > "$tmp" 2>/dev/null; then
+  if ! BEADS_DIR="$FM_STALE_BD_PATH" timeout "$bd_timeout" "$FM_STALE_BD_BIN" list --all --json > "$tmp" 2>/dev/null; then
     printf 'fm-stale-sweep: bd list failed on %s\n' "$FM_STALE_BD_PATH" >&2
     rm -f -- "$tmp"
     return 1
@@ -489,7 +494,6 @@ fm_stale_sweep() {  # <apply 0|1> <budget-secs 0-unbounded> <cutoff-epoch>
         | @tsv' "$tmp" 2>/dev/null)
   rm -f -- "$tmp"
   [ -n "$rows" ] || return 0
-  start=$(date +%s)
   printf '%-42s %-18s %-7s %-9s %s\n' ID HOME AGE VERDICT ACTION
   while IFS=$'\t' read -r id age_h desc; do
     [ -n "$id" ] || continue
