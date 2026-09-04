@@ -895,23 +895,26 @@ test_network_phase_partitions_the_run() {
   # Break the two diagnostics that stand for the two halves: a local tool floor
   # and the network GitHub-auth probe.
   rm -f "$fakebin/node"
+  # Hermetic node isolation: a host with a real /bin/node would answer through
+  # BASE_PATH and the MISSING: node contract would never fire (CI has no node).
+  no_node_base=$(fm_base_path_without_node "$case_dir")
   cat > "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 exit 1
 SH
   chmod +x "$fakebin/gh"
 
-  all_out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
+  all_out=$(PATH="$fakebin:$no_node_base" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
     FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
   assert_contains "$all_out" "MISSING: node (install:" "the unsplit run lost its local diagnostic"
   assert_contains "$all_out" "NEEDS_GH_AUTH" "the unsplit run lost its network diagnostic"
 
-  skip_out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
+  skip_out=$(PATH="$fakebin:$no_node_base" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
     FM_FAKE_TREEHOUSE_LEASE_HELP=1 FM_BOOTSTRAP_NETWORK=skip "$ROOT/bin/fm-bootstrap.sh")
   assert_contains "$skip_out" "MISSING: node (install:" "the local half lost its own diagnostic"
   assert_not_contains "$skip_out" "NEEDS_GH_AUTH" "the local half still made a network call"
 
-  only_out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
+  only_out=$(PATH="$fakebin:$no_node_base" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
     FM_FAKE_TREEHOUSE_LEASE_HELP=1 FM_BOOTSTRAP_NETWORK=only "$ROOT/bin/fm-bootstrap.sh")
   assert_contains "$only_out" "NEEDS_GH_AUTH" "the network half lost its own diagnostic"
   assert_not_contains "$only_out" "MISSING: node" "the network half repeated the local half's work"
@@ -922,7 +925,7 @@ SH
 
   # A typo must never silently drop a safety sweep, so anything unrecognized
   # resolves to the complete run.
-  [ "$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
+  [ "$(PATH="$fakebin:$no_node_base" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
     FM_FAKE_TREEHOUSE_LEASE_HELP=1 FM_BOOTSTRAP_NETWORK=sikp "$ROOT/bin/fm-bootstrap.sh")" = "$all_out" ] \
     || fail "an unrecognized FM_BOOTSTRAP_NETWORK value did not fall back to the complete run"
   pass "bootstrap: FM_BOOTSTRAP_NETWORK partitions one run into local and network halves"
