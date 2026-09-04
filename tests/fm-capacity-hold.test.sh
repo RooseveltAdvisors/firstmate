@@ -177,8 +177,8 @@ test_pool_full_refusal_on_manual_home_exits_two_without_hold() {
 
 # --- teardown side -----------------------------------------------------------
 
-make_teardown_case() {  # <name>
-  local name=$1 case_dir fakebin pool
+make_teardown_case() {  # <name> [fallback-pool-identity]
+  local name=$1 fallback=${2:-} case_dir fakebin pool a_reason b_reason
   case_dir="$TMP_ROOT/$name"
   fakebin="$case_dir/fakebin"
   pool="$case_dir/pool"
@@ -247,22 +247,33 @@ SH
     "mode=local-only" \
     "spawn_gen=capacity-test-task-x1"
 
-  # The backlog: the torn-down task In flight, plus four held rows:
+  # The backlog: the torn-down task In flight, plus four held rows. Without a
+  # fallback identity, task-a and task-b carry this pool's capacity reason:
   #   task-a: oldest capacity hold for THIS pool   -> must be released
   #   task-b: newer capacity hold for this pool    -> must stay held
   #   task-c: capacity hold for a DIFFERENT pool   -> must stay held
   #   task-d: non-capacity external hold           -> must stay held
+  # With a fallback identity, task-a and task-b carry that identity instead
+  # (spawn's project-root fallback when treehouse could not answer), so the
+  # worktree-derived scan matches nothing and the fallback scan must release
+  # task-a, the oldest fallback-identity hold.
   printf '%s\n' '# Backlog' '' '## In flight' '' '## Queued' '' '## Done' \
     > "$case_dir/data/backlog.md"
   local backlog="$case_dir/data/backlog.md"
+  a_reason="pool $pool full 3/4"
+  b_reason="pool $pool full 3/4"
+  if [ -n "$fallback" ]; then
+    a_reason="pool $fallback full 3/4"
+    b_reason="pool $fallback full 2/4"
+  fi
   tasks-axi add task-x1 "teardown fixture task" --kind ship --file "$backlog" >/dev/null
   tasks-axi start task-x1 --file "$backlog" >/dev/null
   tasks-axi add task-a "oldest held" --kind ship --file "$backlog" >/dev/null
   tasks-axi add task-b "newer held" --kind ship --file "$backlog" >/dev/null
   tasks-axi add task-c "other pool" --kind ship --file "$backlog" >/dev/null
   tasks-axi add task-d "external" --kind ship --file "$backlog" >/dev/null
-  tasks-axi hold task-a --reason "pool $pool full 3/4" --kind load --file "$backlog" >/dev/null
-  tasks-axi hold task-b --reason "pool $pool full 3/4" --kind load --file "$backlog" >/dev/null
+  tasks-axi hold task-a --reason "$a_reason" --kind load --file "$backlog" >/dev/null
+  tasks-axi hold task-b --reason "$b_reason" --kind load --file "$backlog" >/dev/null
   tasks-axi hold task-c --reason "pool /some/other-pool full 1/2" --kind load --file "$backlog" >/dev/null
   tasks-axi hold task-d --reason "awaiting captain" --kind external --file "$backlog" >/dev/null
   printf '%s\n' "$case_dir"
@@ -298,8 +309,35 @@ test_teardown_releases_oldest_capacity_hold_for_the_pool() {
   pass "returning a worktree releases exactly the oldest capacity hold for that pool"
 }
 
+test_teardown_releases_fallback_identity_hold_when_pool_scan_matches_nothing() {
+  local case_dir rc proj_canon name=fb-z4
+  mkdir -p "$TMP_ROOT/$name"
+  proj_canon=$(cd "$TMP_ROOT/$name" && pwd -P)/project
+  case_dir=$(make_teardown_case "$name" "$proj_canon")
+  set +e
+  FM_ROOT_OVERRIDE="$ROOT" \
+  FM_STATE_OVERRIDE="$case_dir/state" \
+  FM_DATA_OVERRIDE="$case_dir/data" \
+  FM_CONFIG_OVERRIDE="$case_dir/config" \
+  PATH="$case_dir/fakebin:$PATH" \
+    "$TEARDOWN" task-x1 > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "landed task teardown should succeed (stderr: $(cat "$case_dir/stderr"))"
+  assert_contains "$(cat "$case_dir/stdout")" "ready: task-a - capacity hold released for pool $proj_canon" \
+    "the fallback scan must name the fallback pool identity it released"
+  [ "$(held_field "$case_dir" task-a)" = no ] || fail "fallback-identity hold was not released"
+  [ "$(held_field "$case_dir" task-b)" = yes ] || fail "newer fallback-identity hold was wrongly released"
+  [ "$(held_field "$case_dir" task-c)" = yes ] || fail "different-pool hold was wrongly released"
+  [ "$(held_field "$case_dir" task-d)" = yes ] || fail "non-capacity hold was wrongly released"
+  [ "$(tasks-axi show task-a --file "$case_dir/data/backlog.md" 2>/dev/null | sed -n 's/^  state: *//p' | head -1)" = queued ] \
+    || fail "fallback release did not return its item to queued"
+  pass "a hold recorded under the project-root fallback identity is released when the worktree-derived pool matches nothing"
+}
+
 test_pool_full_refusal_holds_and_exits_two
 test_pool_full_refusal_on_manual_home_exits_two_without_hold
 test_teardown_releases_oldest_capacity_hold_for_the_pool
+test_teardown_releases_fallback_identity_hold_when_pool_scan_matches_nothing
 
 echo "# all fm-capacity-hold tests passed"

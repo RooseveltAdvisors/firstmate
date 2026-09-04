@@ -501,7 +501,7 @@ The check runs the sweep dry at most once per `FM_STALE_SWEEP_INTERVAL` (default
 `FM_STALE_SWEEP_STATE_TIMEOUT` (default 90) bounds one home's `fm-crew-state.sh` call.
 `bin/fm-stale-sweep.sh disarm` removes the shim, its trust binding, and the report record.
 
-A full treehouse pool is the sibling condition: [`bin/fm-spawn.sh`](../bin/fm-spawn.sh) detects treehouse's exact `all N worktrees are in use` refusal during the worktree wait, records a load-kind capacity hold whose reason names the pool (`bin/fm-capacity-lib.sh` owns the reason contract), and exits 2 with the item left queued, and [`bin/fm-teardown.sh`](../bin/fm-teardown.sh) releases the oldest capacity hold recorded for the same pool once a worktree is returned to it, printing which item became ready.
+A full treehouse pool is the sibling condition: [`bin/fm-spawn.sh`](../bin/fm-spawn.sh) detects treehouse's exact `all N worktrees are in use` refusal during the worktree wait, records a load-kind capacity hold whose reason names the pool (`bin/fm-capacity-lib.sh` owns the reason contract), and exits 2 with the item left queued, and [`bin/fm-teardown.sh`](../bin/fm-teardown.sh) releases the oldest capacity hold recorded for the same pool once a worktree is returned to it, printing which item became ready. When the worktree-derived pool scan matches nothing, teardown also scans the project-root fallback identity a spawn may have had to record when treehouse could not answer it, so such a hold is still released instead of stranded.
 
 ## Relay (.env)
 

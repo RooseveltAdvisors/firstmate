@@ -158,6 +158,7 @@ BUDGET_CUT_FROM=
 if [ "$BUDGET_SECS" -gt $((CHECK_TIMEOUT - 3)) ]; then
   BUDGET_CUT_FROM=$BUDGET_SECS
   BUDGET_SECS=$((CHECK_TIMEOUT - 3))
+  [ "$BUDGET_SECS" -ge 1 ] || BUDGET_SECS=1
 fi
 
 # The record epoch is overridable so a test can drive both the cadence gate
@@ -172,21 +173,12 @@ record_epoch_now() {
 
 # --- graph read --------------------------------------------------------------
 
-# Resolve the shared Beads graph from this home's .tasks.toml. The beads
-# backend's `path` and `binary` own the graph location and bd executable.
-FM_STALE_BD_BIN=
-FM_STALE_BD_PATH=
-fm_stale_read_beads_config() {
-  local toml="$FM_HOME/.tasks.toml" parsed bin path
-  [ -f "$toml" ] || {
-    printf 'fm-stale-sweep: no .tasks.toml at %s; a home without a backlog config has no graph to sweep\n' "$toml" >&2
-    return 1
-  }
-  if [ "$(fm_tasks_axi_backend "$FM_HOME")" != beads ]; then
-    printf 'fm-stale-sweep: this home'\''s backlog backend is not beads; the sweep reads the shared Beads graph .tasks.toml points at\n' >&2
-    return 1
-  fi
-  parsed=$(LC_ALL=C awk '
+# Section-aware [beads] extraction from a .tasks.toml: comments stripped, only
+# the keys inside the [beads] section, so a [markdown] path before or after it
+# is never mistaken for the graph. Prints "BIN <value>" and "PATH <value>"
+# lines.
+fm_stale_beads_toml_entries() {  # <toml-file>
+  LC_ALL=C awk '
     function trim(v) { sub(/^[[:space:]]+/, "", v); sub(/[[:space:]]+$/, "", v); return v }
     BEGIN { inbeads = 0 }
     {
@@ -206,7 +198,24 @@ fm_stale_read_beads_config() {
         printf "PATH %s\n", line
       }
     }
-  ' "$toml") || return 1
+  ' "$1"
+}
+
+# Resolve the shared Beads graph from this home's .tasks.toml. The beads
+# backend's `path` and `binary` own the graph location and bd executable.
+FM_STALE_BD_BIN=
+FM_STALE_BD_PATH=
+fm_stale_read_beads_config() {
+  local toml="$FM_HOME/.tasks.toml" parsed bin path
+  [ -f "$toml" ] || {
+    printf 'fm-stale-sweep: no .tasks.toml at %s; a home without a backlog config has no graph to sweep\n' "$toml" >&2
+    return 1
+  }
+  if [ "$(fm_tasks_axi_backend "$FM_HOME")" != beads ]; then
+    printf 'fm-stale-sweep: this home'\''s backlog backend is not beads; the sweep reads the shared Beads graph .tasks.toml points at\n' >&2
+    return 1
+  fi
+  parsed=$(fm_stale_beads_toml_entries "$toml") || return 1
   bin=$(printf '%s\n' "$parsed" | sed -n 's/^BIN //p' | head -1)
   path=$(printf '%s\n' "$parsed" | sed -n 's/^PATH //p' | head -1)
   FM_STALE_BD_BIN=${bin:-bd}
@@ -226,7 +235,7 @@ fm_stale_read_beads_config() {
     return 1
   }
   command -v jq >/dev/null 2>&1 || {
-    printf 'fm-stale-sweep: jq is required to read the graph\n' >printf 'fm-stale-sweep: jq is required to read the graph\n'2 >&2
+    printf 'fm-stale-sweep: jq is required to read the graph\n' >&2
     return 1
   }
   return 0
@@ -302,8 +311,8 @@ fm_stale_home_beads_path() {  # <home>
   home=$(fm_capacity_resolve_dir "$home" 2>/dev/null) || return 1
   [ -f "$home/.tasks.toml" ] || return 1
   [ "$(fm_tasks_axi_backend "$home")" = beads ] || return 1
-  parsed=$(sed -n 's/^[[:space:]]*path[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$home/.tasks.toml" | head -1)
-  [ -n "$parsed" ] || parsed=$(sed -n "s/^[[:space:]]*path[[:space:]]*=[[:space:]]*'\([^']*\)'.*/\1/p" "$home/.tasks.toml" | head -1)
+  parsed=$(fm_stale_beads_toml_entries "$home/.tasks.toml" 2>/dev/null) || return 1
+  parsed=$(printf '%s\n' "$parsed" | sed -n 's/^PATH //p' | head -1)
   [ -n "$parsed" ] || return 1
   case "$parsed" in
     /*) ;;
@@ -348,9 +357,9 @@ fm_stale_verdict() {  # <crew-state-line>
   printf 'unproven'
 }
 
-fm_stale_ask_home() {  # <home> <id>
-  local home=$1 id=$2 out
-  out=$(FM_HOME="$home" timeout "$STATE_TIMEOUT" "$SCRIPT_DIR/fm-crew-state.sh" "$id" 2>/dev/null) \
+fm_stale_ask_home() {  # <home> <id> <timeout>
+  local home=$1 id=$2 timeout=$3 out
+  out=$(FM_HOME="$home" timeout "$timeout" "$SCRIPT_DIR/fm-crew-state.sh" "$id" 2>/dev/null) \
     || out='state: unknown · source: none · crew-state unreadable'
   printf '%s\n' "$out" | tail -1
 }
@@ -426,6 +435,24 @@ fm_stale_reclaim() {  # <home> <id> <actor>
       }
       ;;
   esac
+  # Second proof, immediately before the reopen: a row that finished or got
+  # held between the first read and this write is skipped rather than
+  # reopened, and the just-appended note is undone when the pre-note body can
+  # be restored (tasks-axi cannot clear a body, so a bodyless row keeps it).
+  out=$(fm_stale_axi "$home" show "$id") || {
+    printf 'row unreadable'
+    return 1
+  }
+  state=$(printf '%s\n' "$out" | sed -n 's/^  state: *//p' | head -1)
+  held=$(printf '%s\n' "$out" | sed -n 's/^  held: *//p' | head -1)
+  blocked=$(printf '%s\n' "$out" | sed -n 's/^  blocked: *//p' | head -1)
+  if [ "$state" != in_flight ] || [ "${held:-no}" != no ] || [ "${blocked:-no}" != no ]; then
+    if [ -n "$body" ]; then
+      fm_stale_axi "$home" update "$id" --body "$body" >/dev/null 2>&1 || true
+    fi
+    printf 'row changed under the sweep (state=%s held=%s blocked=%s)' "$state" "${held:-?}" "${blocked:-?}"
+    return 1
+  fi
   fm_stale_axi "$home" reopen "$id" >/dev/null || {
     printf 'reopen failed'
     return 1
@@ -447,7 +474,7 @@ FM_STALE_APPLY_FAILED=0
 FM_STALE_UNCONSIDERED=0
 
 fm_stale_sweep() {  # <apply 0|1> <budget-secs 0-unbounded> <cutoff-epoch>
-  local apply=$1 budget=$2 cutoff=$3 tmp rows start now id age_h desc
+  local apply=$1 budget=$2 cutoff=$3 tmp rows start now id age_h desc ask_timeout remaining
   tmp=$(umask 077; mktemp "${TMPDIR:-/tmp}/fm-stale-sweep.XXXXXX") || return 1
   if ! BEADS_DIR="$FM_STALE_BD_PATH" timeout "$BD_TIMEOUT" "$FM_STALE_BD_BIN" list --all --json > "$tmp" 2>/dev/null; then
     printf 'fm-stale-sweep: bd list failed on %s\n' "$FM_STALE_BD_PATH" >&2
@@ -466,28 +493,31 @@ fm_stale_sweep() {  # <apply 0|1> <budget-secs 0-unbounded> <cutoff-epoch>
   printf '%-42s %-18s %-7s %-9s %s\n' ID HOME AGE VERDICT ACTION
   while IFS=$'\t' read -r id age_h desc; do
     [ -n "$id" ] || continue
+    ask_timeout=$STATE_TIMEOUT
     if [ "$budget" -gt 0 ]; then
       now=$(date +%s)
       if [ $((now - start)) -ge "$budget" ]; then
         FM_STALE_UNCONSIDERED=$((FM_STALE_UNCONSIDERED + 1))
         continue
       fi
+      remaining=$((start + budget - now))
+      [ "$remaining" -lt "$ask_timeout" ] && ask_timeout=$remaining
     fi
-    fm_stale_consider "$apply" "$id" "$age_h" "$desc"
+    fm_stale_consider "$apply" "$id" "$age_h" "$desc" "$ask_timeout"
   done <<EOF
 $rows
 EOF
   return 0
 }
 
-fm_stale_consider() {  # <apply> <id> <age-hours> <escaped description>
-  local apply=$1 id=$2 age_h=$3 desc=$4 home actor state_line verdict action reason
+fm_stale_consider() {  # <apply> <id> <age-hours> <escaped description> <ask-timeout>
+  local apply=$1 id=$2 age_h=$3 desc=$4 ask_timeout=$5 home actor state_line verdict action reason
   local mutation_home
   if fm_stale_resolve_home "$id" "$desc"; then
     home=$FM_STALE_RESOLVED_HOME
     actor=$FM_STALE_HOME_ACTOR
     [ -n "$actor" ] || actor=$(basename "$home")
-    state_line=$(fm_stale_ask_home "$home" "$id")
+    state_line=$(fm_stale_ask_home "$home" "$id" "$ask_timeout")
     verdict=$(fm_stale_verdict "$state_line")
   else
     home=-

@@ -16,9 +16,10 @@
 #   pool <pool-root> full <N>/<max>
 #   pool <pool-root> full <N>          (when the refusal carries no max_trees)
 # The pool identity is the canonical treehouse pool root directory, falling
-# back to the project root when the pool cannot be resolved; both sides derive
-# it the same way (dirname twice of a pool worktree path), so a hold recorded
-# by spawn matches the release computed by teardown.
+# back to the project root when the pool cannot be resolved. Spawn records
+# whichever identity it can resolve; teardown scans for the worktree-derived
+# pool root first and, when nothing matched, for the project-root fallback
+# identity, so a hold recorded under either identity is released.
 #
 # Hold kind: "load". tasks-axi has no capacity kind; load is its load-based
 # hold, and the reason prefix above is what distinguishes a capacity hold from
