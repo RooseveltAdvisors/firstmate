@@ -980,13 +980,18 @@ remove_turnend_auth() {  # <harness> <state-dir> <id>
 
 # The agy spawn's workspace-trust entry lives in the operator's own vendor
 # settings file rather than under this home, so it is the one task artifact with
-# no in-tree path to remove. It is keyed by the recorded absolute worktree path
-# rather than by the directory, so it is retired beside the other task-record
-# artifacts and NOT inside a worktree-exists branch: a worktree already gone is
-# exactly the case that would otherwise strand the entry forever. Best effort:
-# the removal writes nothing when the path was never registered, and a store the
-# vendor moved under it refuses rather than clobbering, which must not strand an
-# otherwise finished teardown.
+# no in-tree path to remove. Two placement constraints meet here. It is keyed by
+# the recorded absolute path rather than by the directory, so it must NOT sit
+# inside a worktree-exists branch: a worktree already gone is exactly the case
+# that would otherwise strand the entry forever. And it must run BEFORE the
+# worktree is released, because a returned pool worktree is handed to the next
+# spawn at the SAME path - withdrawing after the return can revoke trust another
+# task just registered, wedging its worker on a dialog that draws no status text.
+# Releasing also deletes the directory, after which only the literal spelling can
+# be withdrawn and a symlinked one would be left behind. Best effort: the removal
+# writes nothing when the path was never registered, and a store the vendor moved
+# under it refuses rather than clobbering, which must not strand an otherwise
+# finished teardown.
 retire_agy_workspace_trust() {  # <worktree>
   [ -n "${1:-}" ] || return 0
   "$SCRIPT_DIR/fm-agy-trust.sh" --remove "$1" >/dev/null || true
@@ -2539,6 +2544,7 @@ cleanup_firstmate_home_children() {
         fm_backend_kill "$child_backend" "$child_t" "$(meta_value "$child_meta" zellij_tab_id)" "fm-$child_id" 2>/dev/null || true
       fi
     fi
+    retire_agy_workspace_trust "$child_wt"
     if [ "$child_kind" = secondmate ]; then
       child_home=$(meta_value "$child_meta" home)
       [ -n "$child_home" ] || child_home=$child_wt
@@ -2575,7 +2581,6 @@ cleanup_firstmate_home_children() {
       fi
     fi
     remove_all_turnend_auth "$sub_state" "$child_id" || return 1
-    retire_agy_workspace_trust "$child_wt"
     remove_pr_poll_artifacts "$sub_state" "$child_id" || return 1
     child_busy_gen=$(meta_value "$child_meta" busy_gen)
     if [ -z "$child_busy_gen" ]; then
@@ -2783,6 +2788,8 @@ fi
 # pruned code root. Best effort - a sweep failure never blocks this teardown.
 "$SCRIPT_DIR/fm-remote-job-reap-orphans.sh" >&2 || true
 
+retire_agy_workspace_trust "$WT"
+
 # Best-effort: drop the local task branch so the shared repo does not accumulate refs.
 if [ "$BACKEND" = orca ] && [ "$KIND" != secondmate ]; then
   if [ "$ORCA_PATH_MATCH_VERIFIED" != 1 ]; then
@@ -2924,7 +2931,6 @@ if [ "$KIND" = secondmate ]; then
   remove_secondmate_registry_entry "$ID"
 fi
 remove_all_turnend_auth "$STATE" "$ID" || exit 1
-retire_agy_workspace_trust "$WT"
 fm_backend_clear_transition "$BACKEND" "$STATE" "$T" || true
 # Remove the per-task temp root (/tmp/fm-<id>/, incl. its gotmp/) recorded by spawn.
 # Read before the state-file rm below; empty (pre-fix tasks without tasktmp=) is a no-op.

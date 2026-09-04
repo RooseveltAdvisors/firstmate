@@ -19,6 +19,9 @@ set -u
 unset CLAUDECODE PI_CODING_AGENT FM_PI_HARNESS GROK_AGENT CURSOR_AGENT \
   CURSOR_INVOKED_AS ANTIGRAVITY_CONVERSATION_ID
 
+# shellcheck source=bin/fm-trace-context-lib.sh
+. "$ROOT/bin/fm-trace-context-lib.sh"
+
 TMP_ROOT=$(fm_test_tmproot fm-agy-harness)
 TRUST="$ROOT/bin/fm-agy-trust.sh"
 HOOK="$ROOT/bin/fm-agy-turnend-hook.sh"
@@ -837,6 +840,62 @@ test_aborted_spawn_withdraws_the_trust_it_registered() {
   pass "fm-spawn.sh: a spawn that aborts after registering trust withdraws it again"
 }
 
+# The withdrawal is guarded on whether a task record survives, because a record
+# is what lets teardown withdraw it later. An abort AFTER the provisional record
+# is published still ends with no record - the fresh-commit rollback removes it -
+# so the guard has to observe the state the cleanup LEAVES, not an intermediate
+# one. An unsafe trace-context send is that abort: it fires after publication.
+test_post_publish_abort_withdraws_the_trust_it_registered() {
+  local case_dir home proj wt agyhome fakebin store out
+  case_dir="$TMP_ROOT/post-publish-abort"
+  home="$case_dir/home"
+  proj="$case_dir/project"
+  wt="$case_dir/wt"
+  agyhome="$case_dir/agyhome"
+  store=$(store_path "$agyhome")
+  mkdir -p "$(dirname "$store")"
+  printf '%s\n' '{"enableTelemetry":false,"trustedWorkspaces":["/already/trusted"]}' > "$store"
+  fakebin=$(make_spawn_fakebin "$case_dir/fake" agy)
+  cat > "$fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+set -u
+case "$*" in
+  *"#{pane_current_path}"*) printf '%s\n' "${FM_FAKE_PANE_PATH:-}"; exit 0 ;;
+esac
+case "${1:-}" in
+  display-message) printf 'firstmate\n'; exit 0 ;;
+  list-windows) exit 0 ;;
+  has-session|new-session|new-window|kill-window|set-window-option) exit 0 ;;
+  send-keys)
+    for a in "$@"; do
+      case "$a" in
+        "export TRACEPARENT="*) exit 2 ;;
+      esac
+    done
+    exit 0
+    ;;
+esac
+exit 0
+SH
+  chmod +x "$fakebin/tmux"
+  fm_test_spawn_home "$home" agy
+  fm_git_worktree "$proj" "$wt" wt-post-publish
+  fm_test_spawn_brief "$home" postpublish
+  # The home's own frozen trace-context decision is what makes the spawn export a
+  # carrier at all; the stub above then refuses that send unsafely.
+  : > "$home/config/trace-context"
+  printf '%s\n' "$$" > "$home/state/.lock"
+  fm_trace_context_session_start "$home/config" "$home/state/.trace-context-effective"
+  out=$(HOME="$agyhome" fm_test_run_spawn "$home" "$wt" "$fakebin" postpublish "$proj" agy \
+    --mode no-mistakes --yolo off)
+  expect_code 1 $? "an unsafe trace-context send must abort the spawn: $out"
+  [ ! -e "$home/state/postpublish.meta" ] \
+    || fail "the abort left a task record, so this case no longer covers the recordless leak"
+  assert_not_trusted "$store" "$wt" "the post-publish abort stranded its workspace-trust entry"
+  assert_trusted "$store" "/already/trusted" "the withdrawal dropped an unrelated operator entry"
+  pass "fm-spawn.sh: an abort after the record is published still withdraws the trust it registered"
+}
+
 # A refused registration must abort the spawn before any task state exists: the
 # busy-state generation is armed later in the same run and nothing between would
 # clear it, so a record stranded here would read as a task busy forever for an id
@@ -913,3 +972,4 @@ test_a_non_agy_launch_clears_the_inherited_agy_marker
 test_agy_spawn_pretrusts_its_worktree_and_reaches_the_brief
 test_refused_spawn_leaves_no_task_state
 test_aborted_spawn_withdraws_the_trust_it_registered
+test_post_publish_abort_withdraws_the_trust_it_registered

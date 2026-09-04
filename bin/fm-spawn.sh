@@ -816,17 +816,6 @@ spawn_abort_cleanup() {
       fi
     fi
   fi
-  # The agy trust entry lives in the operator's vendor settings rather than under
-  # this home, and teardown - the only other thing that withdraws it - refuses
-  # outright for an id with no task record. So a spawn that registered and then
-  # aborted before publishing one has to take it back itself, or nothing ever can.
-  if [ "$AGY_TRUST_REGISTERED" = 1 ]; then
-    AGY_TRUST_REGISTERED=0
-    if [ ! -e "$STATE/$ID.meta" ] && [ ! -L "$STATE/$ID.meta" ]; then
-      "$FM_ROOT/bin/fm-agy-trust.sh" --remove "$AGY_TRUST_WT" >/dev/null \
-        || echo "warning: could not withdraw agy workspace trust for '$AGY_TRUST_WT' after the aborted spawn of $ID" >&2
-    fi
-  fi
   if [ "$HERDR_PROJECTION_ABORT_CLEANUP" = 1 ] \
      && [ "$HERDR_PRESENTATION_ORDER_LOCK_HELD" != 1 ]; then
     if ! spawn_herdr_presentation_order_lock_acquire "${HERDR_PROJECTION_ABORT_SESSION:-}"; then
@@ -891,6 +880,19 @@ spawn_abort_cleanup() {
   if [ "$SPAWN_FRESH_COMMIT_PENDING" = 1 ]; then
     if ! spawn_fresh_commit_rollback; then
       status=1
+    fi
+  fi
+  # The agy trust entry lives in the operator's vendor settings rather than under
+  # this home, and teardown - the only other thing that withdraws it - refuses
+  # outright for an id with no task record. So a spawn that registered and then
+  # left no record has to take it back itself, or nothing ever can. This runs
+  # after the rollback above and after the orca recovery record, so the test sees
+  # whether a record SURVIVES this cleanup rather than an intermediate state.
+  if [ "$AGY_TRUST_REGISTERED" = 1 ]; then
+    AGY_TRUST_REGISTERED=0
+    if [ ! -e "$STATE/$ID.meta" ] && [ ! -L "$STATE/$ID.meta" ]; then
+      "$FM_ROOT/bin/fm-agy-trust.sh" --remove "$AGY_TRUST_WT" >/dev/null \
+        || echo "warning: could not withdraw agy workspace trust for '$AGY_TRUST_WT' after the aborted spawn of $ID" >&2
     fi
   fi
   if [ "$SPAWN_META_LOCK_HELD" = 1 ]; then

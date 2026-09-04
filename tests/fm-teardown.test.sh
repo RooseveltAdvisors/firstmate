@@ -1355,6 +1355,38 @@ test_teardown_retires_the_agy_trust_entry_when_the_worktree_is_gone() {
   pass "teardown retires the agy workspace-trust entry even when the worktree is already gone"
 }
 
+# A pool worktree is handed to the NEXT task at the SAME path, so the store as it
+# stands when the worktree is returned is the store that task inherits. Withdraw
+# after the return and this teardown can revoke trust the next task just
+# registered, wedging its worker on a dialog that draws no status text.
+test_teardown_retires_the_agy_trust_before_releasing_the_worktree() {
+  local case_dir agyhome store observed rc
+  case_dir=$(make_case agy-trust-before-release)
+  write_meta "$case_dir" local-only ship
+  agyhome="$case_dir/agyhome"
+  store="$agyhome/.gemini/antigravity-cli/settings.json"
+  observed="$case_dir/store-at-return.json"
+  mkdir -p "$(dirname "$store")"
+  printf '%s\n' '{"enableTelemetry":false,"trustedWorkspaces":["/already/trusted"]}' > "$store"
+  HOME="$agyhome" "$ROOT/bin/fm-agy-trust.sh" "$case_dir/wt" "$case_dir/project" >/dev/null \
+    || fail "agy-trust-before-release: the fixture could not register workspace trust"
+  cat > "$case_dir/fakebin/treehouse" <<SH
+#!/usr/bin/env bash
+if [ "\${1:-}" = return ]; then cp "$store" "$observed"; fi
+exit 0
+SH
+  chmod +x "$case_dir/fakebin/treehouse"
+  rc=0
+  HOME="$agyhome" run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 0 "$rc" "agy-trust-before-release: teardown should succeed: $(cat "$case_dir/stderr")"
+  [ -f "$observed" ] || fail "agy-trust-before-release: the fixture never observed a worktree return"
+  ! grep -Fq "$case_dir/wt" "$observed" \
+    || fail "agy-trust-before-release: the worktree was released to the pool while this task still held its trust entry"
+  grep -Fq "/already/trusted" "$observed" \
+    || fail "agy-trust-before-release: the withdrawal dropped an unrelated operator entry"
+  pass "teardown withdraws the agy trust entry before releasing the worktree to the pool"
+}
+
 test_local_only_force_overrides_unpushed() {
   local case_dir rc
   case_dir=$(make_case force-override)
@@ -2800,6 +2832,7 @@ test_no_mistakes_truly_unpushed_refuses
 test_local_only_force_overrides_unpushed
 test_teardown_retires_the_agy_workspace_trust_entry
 test_teardown_retires_the_agy_trust_entry_when_the_worktree_is_gone
+test_teardown_retires_the_agy_trust_before_releasing_the_worktree
 test_secondmate_pr_registration_publishes_ready_line
 test_secondmate_home_teardown_delivers_final_line_or_refuses
 test_teardown_missing_busy_sidecar_completes
