@@ -1,0 +1,711 @@
+#!/usr/bin/env bash
+# fm-stale-sweep.sh - reclaim stale in_progress claims whose endpoint is dead.
+#
+# The Beads graph this home's .tasks.toml points at records claims, but bd 1.2.2
+# never reclaims one on its own: a task whose worker endpoint died stays
+# in_progress forever, so the in_progress count only grows and dispatch
+# capacity silently shrinks. This sweep makes stale claims reclaim themselves.
+#
+# Usage:
+#   fm-stale-sweep.sh [sweep] [--apply] [--older-than <hours>]
+#   fm-stale-sweep.sh check
+#   fm-stale-sweep.sh arm
+#   fm-stale-sweep.sh disarm
+#   fm-stale-sweep.sh --help
+#
+# Default is a dry run: it prints a table (id, home, age, verdict, action) and a
+# summary line with the count of rows it would reclaim. `--apply` performs the
+# reclaims. `--older-than <hours>` overrides the default 24-hour staleness
+# threshold (measured from the row's updated_at - the last recorded graph
+# activity - so an actively-touched claim is never stale however old its
+# started_at is).
+#
+# Selection and reclaim, per row:
+#   1. `bd list --all --json` reads the shared graph to a temp file (never
+#      piped into a subshell) and selects in_progress rows older than the
+#      threshold.
+#   2. The owning home is resolved from whichever registered home has
+#      state/<id>.meta (this home plus the local routes in data/secondmates.md,
+#      the current-ownership signal), falling back to the row's provenance line
+#      ("... from secondmate home <id> (<home>)" in the description). A row no
+#      local home owns is listed as no-home and kept: a remote route owns its
+#      own liveness and no local verdict may reclaim it.
+#   3. That home's current state is asked with
+#      `FM_HOME=<home> timeout 90 bin/fm-crew-state.sh <id>`.
+#   4. Only POSITIVE death reclaims: `state: unknown` with source none and a
+#      missing/dead endpoint detail (no metadata, worktree gone, backend target
+#      gone, no backend target recorded), or source remote-endpoint with a
+#      remote dead/missing verdict. Everything else - any live state, an
+#      unproven pane verdict, an unreachable remote - is kept, because none of
+#      those is proof the endpoint is dead.
+#   5. `--apply` reclaims through the OWNING home's tasks-axi when that
+#      home's backend reaches the swept graph (a home whose backlog lives
+#      elsewhere cannot reopen a beads row, so the graph-owning sweep home
+#      performs the reclaim instead, still naming the resolved owner as the
+#      actor): it appends "reclaimed <date>: endpoint dead, previous claim by
+#      <actor>" to the row's body, then reopens the row (back to Queued) - only
+#      after re-proving the row is still in flight and unheld, so a row that
+#      finished between the sweep's read and its write is never resurrected.
+#      The sweep never touches a row whose endpoint is live and never removes
+#      a meta, worktree, or pane; the dead endpoint's records are left exactly
+#      where they are for stuck-crewmate recovery to inspect.
+#
+# `check` composes with the watcher's state-check contract: it runs the sweep
+# dry at most once per FM_STALE_SWEEP_INTERVAL (default 86400, 0 disables the
+# gate, otherwise 900..604800) inside FM_STALE_SWEEP_BUDGET_SECS (default 25,
+# 1..3600, cut down to what FM_CHECK_TIMEOUT allows), stays silent when nothing
+# is reclaimable, and prints one line when rows are reclaimable. A failed graph
+# read reports one line on the same interval instead of every poll, and writes
+# its probe record either way, so a killed probe is retried rather than
+# suppressed.
+#
+# Register it as a daily check with bin/fm-check-register.sh via `arm`:
+#   fm-stale-sweep.sh arm
+# writes state/stale-sweep.check.sh (a single-link 0700 shim that execs this
+# script's `check` mode with this home pinned) and binds its bytes through
+# bin/fm-check-register.sh, so the existing watcher polls it on its normal
+# FM_CHECK_INTERVAL cadence and turns its one line into a `check:` wake; no
+# separate schedule is involved. `disarm` removes the shim, its trust binding,
+# and the report record. docs/configuration.md "Stale-claim sweep" owns the
+# operator-facing contract.
+#
+# The reclaim note keeps its parentheses because it lives in the row body;
+# tasks-axi hold reasons cannot carry them, but no hold is recorded here.
+set -u
+export LC_ALL=C
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
+STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
+DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
+
+# shellcheck source=bin/fm-tasks-axi-lib.sh
+. "$SCRIPT_DIR/fm-tasks-axi-lib.sh"
+# shellcheck source=bin/fm-capacity-lib.sh
+. "$SCRIPT_DIR/fm-capacity-lib.sh"
+# shellcheck source=bin/fm-pr-lib.sh
+. "$SCRIPT_DIR/fm-pr-lib.sh"
+# shellcheck source=bin/fm-check-lib.sh
+. "$SCRIPT_DIR/fm-check-lib.sh"
+
+CHECK_ID=stale-sweep
+CHECK_SHIM="$STATE/$CHECK_ID.check.sh"
+CHECK_TRUST="$STATE/$CHECK_ID.check-trust"
+RECORD="$STATE/.stale-sweep"
+REGISTER_BIN="$SCRIPT_DIR/fm-check-register.sh"
+RECORD_SCHEMA=fm-stale-sweep-v1
+
+usage() {
+  cat <<'EOF'
+Usage:
+  fm-stale-sweep.sh [sweep] [--apply] [--older-than <hours>]   sweep the shared Beads graph for dead-endpoint claims
+  fm-stale-sweep.sh check    watcher check mode: silent unless rows are reclaimable
+  fm-stale-sweep.sh arm      write and register state/stale-sweep.check.sh
+  fm-stale-sweep.sh disarm   remove the check shim, its trust binding, and the record
+  fm-stale-sweep.sh --help   print this help
+
+Default is a dry run; --apply performs reclaims through each owning home's tasks-axi.
+See docs/configuration.md "Stale-claim sweep" for thresholds and the check contract.
+EOF
+}
+
+die_usage() {
+  printf 'fm-stale-sweep: %s\n' "$1" >&2
+  usage >&2
+  exit 2
+}
+
+# --- configuration -----------------------------------------------------------
+
+OLDER_THAN_HOURS=24
+STATE_TIMEOUT=${FM_STALE_SWEEP_STATE_TIMEOUT:-90}
+case "$STATE_TIMEOUT" in ''|*[!0-9]*|0) STATE_TIMEOUT=90 ;; esac
+BD_TIMEOUT=${FM_STALE_SWEEP_BD_TIMEOUT:-120}
+case "$BD_TIMEOUT" in ''|*[!0-9]*|0) BD_TIMEOUT=120 ;; esac
+
+INTERVAL=${FM_STALE_SWEEP_INTERVAL:-86400}
+case "$INTERVAL" in
+  ''|*[!0-9]*)
+    printf 'fm-stale-sweep: FM_STALE_SWEEP_INTERVAL must be 0 or a whole number from 900 to 604800\n' >&2
+    exit 2
+    ;;
+esac
+if [ "$INTERVAL" -ne 0 ] && { [ "$INTERVAL" -lt 900 ] || [ "$INTERVAL" -gt 604800 ]; }; then
+  printf 'fm-stale-sweep: FM_STALE_SWEEP_INTERVAL must be 0 or a whole number from 900 to 604800\n' >&2
+  exit 2
+fi
+
+BUDGET_SECS=${FM_STALE_SWEEP_BUDGET_SECS:-25}
+case "$BUDGET_SECS" in
+  ''|*[!0-9]*|0)
+    printf 'fm-stale-sweep: FM_STALE_SWEEP_BUDGET_SECS must be a whole number from 1 to 3600\n' >&2
+    exit 2
+    ;;
+esac
+if [ "$BUDGET_SECS" -gt 3600 ]; then
+  printf 'fm-stale-sweep: FM_STALE_SWEEP_BUDGET_SECS must be a whole number from 1 to 3600\n' >&2
+  exit 2
+fi
+
+# The watcher's per-check bound, read from this check's own environment exactly
+# as bin/fm-tool-update-check.sh does: a probe the watcher kills prints nothing
+# and writes no record, so the sweep budget must fit inside it. Cut rather than
+# refuse, and let the sweep summary report the cut.
+CHECK_TIMEOUT=${FM_CHECK_TIMEOUT:-30}
+case "$CHECK_TIMEOUT" in ''|*[!0-9]*|0) CHECK_TIMEOUT=30 ;; esac
+BUDGET_CUT_FROM=
+if [ "$BUDGET_SECS" -gt $((CHECK_TIMEOUT - 3)) ]; then
+  BUDGET_CUT_FROM=$BUDGET_SECS
+  BUDGET_SECS=$((CHECK_TIMEOUT - 3))
+fi
+
+# The record epoch is overridable so a test can drive both the cadence gate
+# and the staleness cutoff; the liveness verdicts themselves always come from
+# fm-crew-state.sh and cannot be faked from here.
+record_epoch_now() {
+  case "${FM_STALE_SWEEP_NOW:-}" in
+    ''|*[!0-9]*) date +%s ;;
+    *) printf '%s\n' "$FM_STALE_SWEEP_NOW" ;;
+  esac
+}
+
+# --- graph read --------------------------------------------------------------
+
+# Resolve the shared Beads graph from this home's .tasks.toml. The beads
+# backend's `path` and `binary` own the graph location and bd executable.
+FM_STALE_BD_BIN=
+FM_STALE_BD_PATH=
+fm_stale_read_beads_config() {
+  local toml="$FM_HOME/.tasks.toml" parsed bin path
+  [ -f "$toml" ] || {
+    printf 'fm-stale-sweep: no .tasks.toml at %s; a home without a backlog config has no graph to sweep\n' "$toml" >&2
+    return 1
+  }
+  if [ "$(fm_tasks_axi_backend "$FM_HOME")" != beads ]; then
+    printf 'fm-stale-sweep: this home'\''s backlog backend is not beads; the sweep reads the shared Beads graph .tasks.toml points at\n' >&2
+    return 1
+  fi
+  parsed=$(LC_ALL=C awk '
+    function trim(v) { sub(/^[[:space:]]+/, "", v); sub(/[[:space:]]+$/, "", v); return v }
+    BEGIN { inbeads = 0 }
+    {
+      line = $0
+      sub(/[[:space:]]*#.*/, "", line)
+      line = trim(line)
+      if (line ~ /^\[[^]]+\]$/) { inbeads = (line == "[beads]"); next }
+      if (!inbeads) next
+      if (line ~ /^binary[[:space:]]*=/) {
+        sub(/^binary[[:space:]]*=[[:space:]]*/, "", line)
+        gsub(/^"|"$/, "", line); gsub(/^'\''|'\''$/, "", line)
+        printf "BIN %s\n", line
+      }
+      if (line ~ /^path[[:space:]]*=/) {
+        sub(/^path[[:space:]]*=[[:space:]]*/, "", line)
+        gsub(/^"|"$/, "", line); gsub(/^'\''|'\''$/, "", line)
+        printf "PATH %s\n", line
+      }
+    }
+  ' "$toml") || return 1
+  bin=$(printf '%s\n' "$parsed" | sed -n 's/^BIN //p' | head -1)
+  path=$(printf '%s\n' "$parsed" | sed -n 's/^PATH //p' | head -1)
+  FM_STALE_BD_BIN=${bin:-bd}
+  FM_STALE_BD_PATH=$path
+  [ -n "$FM_STALE_BD_PATH" ] || {
+    printf 'fm-stale-sweep: .tasks.toml [beads] carries no graph path\n' >&2
+    return 1
+  }
+  [ -d "$FM_STALE_BD_PATH" ] || {
+    printf 'fm-stale-sweep: beads graph path %s is not a directory\n' "$FM_STALE_BD_PATH" >&2
+    return 1
+  }
+  # Canonicalized once so per-row owning-home graph comparisons are path-exact.
+  FM_STALE_BD_PATH=$(fm_capacity_canonical_or_raw "$FM_STALE_BD_PATH")
+  command -v "$FM_STALE_BD_BIN" >/dev/null 2>&1 || {
+    printf 'fm-stale-sweep: beads binary %s not found on PATH\n' "$FM_STALE_BD_BIN" >&2
+    return 1
+  }
+  command -v jq >/dev/null 2>&1 || {
+    printf 'fm-stale-sweep: jq is required to read the graph\n' >printf 'fm-stale-sweep: jq is required to read the graph\n'2 >&2
+    return 1
+  }
+  return 0
+}
+
+# --- owning-home resolution --------------------------------------------------
+
+# Local secondmate routes from data/secondmates.md: "- <id> - ... (home: <path>; ...)"
+# without a host: field. Remote routes are deliberately excluded: their homes
+# are not local directories and their liveness is the remote transport's to own.
+fm_stale_registry_homes() {
+  [ -f "$DATA/secondmates.md" ] || return 0
+  sed -n '/^host:/d; s/^- \([^ ]\{1,\}\) - .*(home: \([^);]*\);.*/\1\t\2/p' "$DATA/secondmates.md" 2>/dev/null || true
+}
+
+# The provenance home named inside a row's description, if any.
+fm_stale_provenance_home() {  # <description>
+  local desc=$1 path
+  path=$(printf '%s\n' "$desc" | sed -n 's/.*from secondmate home [^ ]* (\([^)]*\)).*/\1/p' | head -1)
+  if [ -z "$path" ]; then
+    path=$(printf '%s\n' "$desc" | sed -n 's/.*(\([^ ()][^()]*\/firstmate[^()]*\)).*/\1/p' | head -1)
+  fi
+  [ -n "$path" ] || return 1
+  printf '%s\n' "$path"
+}
+
+# Resolve the owning home for <id> from <escaped description>: prefer the one
+# registered home whose state/<id>.meta exists (current ownership), then the
+# provenance home when it exists as a local directory. Prints the home path and
+# sets FM_STALE_HOME_ACTOR; no output when unresolvable. The actor names the
+# claim for the reclaim note: the registry id for meta rows, the secondmate id
+# for provenance rows, "main home" for this home, and the directory basename
+# when nothing better is known.
+FM_STALE_HOME_ACTOR=
+FM_STALE_RESOLVED_HOME=
+fm_stale_resolve_home() {  # <id> <escaped description>
+  local id=$1 desc=$2 rid home canon this_canon prov_home prov_rid
+  local -a metas=()
+  FM_STALE_HOME_ACTOR=
+  FM_STALE_RESOLVED_HOME=
+  this_canon=$(fm_capacity_resolve_dir "$FM_HOME" 2>/dev/null) || this_canon=$FM_HOME
+  while IFS=$'\t' read -r rid home; do
+    [ -n "$rid" ] && [ -n "$home" ] || continue
+    canon=$(fm_capacity_resolve_dir "$home" 2>/dev/null) || continue
+    if [ -f "$canon/state/$id.meta" ] || [ -L "$canon/state/$id.meta" ]; then
+      metas+=("$canon")
+      FM_STALE_HOME_ACTOR=$rid
+    fi
+  done <<EOF
+$(printf 'main home\t%s\n' "$this_canon"; fm_stale_registry_homes)
+EOF
+  if [ "${#metas[@]}" -ge 1 ]; then
+    # Several homes holding state/<id>.meta is a handoff seam; the first found
+    # wins (this home is listed first) and the verdict below still governs.
+    FM_STALE_RESOLVED_HOME=${metas[0]}
+    return 0
+  fi
+  if prov_home=$(fm_stale_provenance_home "$desc"); then
+    if [ -d "$prov_home" ]; then
+      prov_rid=$(printf '%s\n' "$desc" | sed -n 's/.*from secondmate home \([^ ]*\) (.*/\1/p' | head -1)
+      FM_STALE_HOME_ACTOR=${prov_rid:-$(basename "$prov_home")}
+      FM_STALE_RESOLVED_HOME=$prov_home
+      return 0
+    fi
+  fi
+  return 1
+}
+
+# The [beads] graph path another home's .tasks.toml points at, canonicalized,
+# or nothing when that home is not beads-backed.
+fm_stale_home_beads_path() {  # <home>
+  local home=$1 parsed path
+  home=$(fm_capacity_resolve_dir "$home" 2>/dev/null) || return 1
+  [ -f "$home/.tasks.toml" ] || return 1
+  [ "$(fm_tasks_axi_backend "$home")" = beads ] || return 1
+  parsed=$(sed -n 's/^[[:space:]]*path[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$home/.tasks.toml" | head -1)
+  [ -n "$parsed" ] || parsed=$(sed -n "s/^[[:space:]]*path[[:space:]]*=[[:space:]]*'\([^']*\)'.*/\1/p" "$home/.tasks.toml" | head -1)
+  [ -n "$parsed" ] || return 1
+  case "$parsed" in
+    /*) ;;
+    *) parsed=$home/$parsed ;;
+  esac
+  [ -d "$parsed" ] || return 1
+  CDPATH='' cd -- "$parsed" 2>/dev/null && pwd -P
+}
+
+# --- verdict -----------------------------------------------------------------
+
+# Classify one `fm-crew-state.sh` line. "dead" only on positive missing/dead
+# endpoint evidence; everything else is live (a real current state) or
+# unproven (never a reclaim).
+fm_stale_verdict() {  # <crew-state-line>
+  local line=$1 state source detail
+  state=$(printf '%s\n' "$line" | sed -n 's/^state: \([^·]*\) ·.*/\1/p' | tr -d ' ')
+  source=$(printf '%s\n' "$line" | sed -n 's/^state: [^·]*· source: \([^·]*\) ·.*/\1/p' | tr -d ' ')
+  detail=$(printf '%s\n' "$line" | sed -n 's/^state: [^·]*· source: [^·]*· //p')
+  case "$state" in
+    working|parked|done|blocked|paused|failed)
+      printf 'live'
+      return 0
+      ;;
+  esac
+  if [ "$state" = unknown ] && [ "$source" = none ]; then
+    case "$detail" in
+      "no metadata for "*|"worktree gone"*|"backend target gone"*|"no backend target recorded"*)
+        printf 'dead'
+        return 0
+        ;;
+    esac
+  fi
+  if [ "$state" = unknown ] && [ "$source" = remote-endpoint ]; then
+    case "$detail" in
+      "remote endpoint dead on "*|"remote endpoint missing on "*)
+        printf 'dead'
+        return 0
+        ;;
+    esac
+  fi
+  printf 'unproven'
+}
+
+fm_stale_ask_home() {  # <home> <id>
+  local home=$1 id=$2 out
+  out=$(FM_HOME="$home" timeout "$STATE_TIMEOUT" "$SCRIPT_DIR/fm-crew-state.sh" "$id" 2>/dev/null) \
+    || out='state: unknown · source: none · crew-state unreadable'
+  printf '%s\n' "$out" | tail -1
+}
+
+# --- reclaim -----------------------------------------------------------------
+
+# Run one tasks-axi command from the owning home's backlog root, with --file
+# only for the markdown backend (mirroring fm_backlog_row_show's backend
+# awareness in bin/fm-backlog-transition-lib.sh).
+fm_stale_axi() {  # <home> <verb> <id> [flag...]
+  local home=$1 verb=$2 id=$3
+  shift 3
+  home=$(fm_capacity_resolve_dir "$home") || return 1
+  if [ "$(fm_tasks_axi_backend "$home")" = markdown ]; then
+    (cd "$home" 2>/dev/null && tasks-axi "$verb" "$id" --file "$home/data/backlog.md" "$@")
+  else
+    (cd "$home" 2>/dev/null && tasks-axi "$verb" "$id" "$@")
+  fi
+}
+
+# Decode the `body:` field tasks-axi show prints: "-" or empty for none, a
+# JSON-encoded string when it contains newlines or quotes, plain otherwise.
+fm_stale_decode_body() {  # <body-field-value>
+  python3 - "$1" <<'PY'
+import json, sys
+shown = sys.argv[1].rstrip("\n")
+if shown in ("", "-", '"-"'):
+    sys.exit(0)
+if shown.startswith('"'):
+    try:
+        sys.stdout.write(json.loads(shown))
+    except Exception:
+        sys.exit(1)
+else:
+    sys.stdout.write(shown)
+PY
+}
+
+# Reclaim one dead-endpoint row through its owning home. Re-proves the row is
+# still in flight and unheld before writing, appends the reclaim note, then
+# reopens. Prints the failure reason and returns non-zero on any refusal.
+fm_stale_reclaim() {  # <home> <id> <actor>
+  local home=$1 id=$2 actor=$3 out state held blocked body note new_body date
+  out=$(fm_stale_axi "$home" show "$id") || {
+    printf 'row unreadable'
+    return 1
+  }
+  state=$(printf '%s\n' "$out" | sed -n 's/^  state: *//p' | head -1)
+  held=$(printf '%s\n' "$out" | sed -n 's/^  held: *//p' | head -1)
+  blocked=$(printf '%s\n' "$out" | sed -n 's/^  blocked: *//p' | head -1)
+  if [ "$state" != in_flight ] || [ "${held:-no}" != no ] || [ "${blocked:-no}" != no ]; then
+    printf 'row changed under the sweep (state=%s held=%s blocked=%s)' "$state" "${held:-?}" "${blocked:-?}"
+    return 1
+  fi
+  date=$(date +%F)
+  note="reclaimed $date: endpoint dead, previous claim by $actor"
+  body=$(fm_stale_axi "$home" show "$id" --full | sed -n 's/^  body: //p' | head -1)
+  if [ -n "$body" ] && ! body=$(fm_stale_decode_body "$body"); then
+    printf 'body undecodable'
+    return 1
+  fi
+  case "$body" in
+    *"$note"*) ;;
+    *)
+      if [ -z "$body" ]; then
+        new_body=$note
+      else
+        new_body=$(printf '%s\n\n%s' "$body" "$note")
+      fi
+      fm_stale_axi "$home" update "$id" --body "$new_body" >/dev/null || {
+        printf 'note append failed'
+        return 1
+      }
+      ;;
+  esac
+  fm_stale_axi "$home" reopen "$id" >/dev/null || {
+    printf 'reopen failed'
+    return 1
+  }
+  return 0
+}
+
+# --- the sweep ---------------------------------------------------------------
+
+# Reads the graph, classifies candidates, prints the table. Sets the counters
+# used by the summary line. APPLY=1 performs reclaims; BUDGET>0 stops
+# considering new candidates once the elapsed time exceeds it.
+FM_STALE_COUNT_DEAD=0
+FM_STALE_COUNT_LIVE=0
+FM_STALE_COUNT_UNPROVEN=0
+FM_STALE_COUNT_NOHOME=0
+FM_STALE_RECLAIMED=0
+FM_STALE_APPLY_FAILED=0
+FM_STALE_UNCONSIDERED=0
+
+fm_stale_sweep() {  # <apply 0|1> <budget-secs 0-unbounded> <cutoff-epoch>
+  local apply=$1 budget=$2 cutoff=$3 tmp rows start now id age_h desc
+  tmp=$(umask 077; mktemp "${TMPDIR:-/tmp}/fm-stale-sweep.XXXXXX") || return 1
+  if ! BEADS_DIR="$FM_STALE_BD_PATH" timeout "$BD_TIMEOUT" "$FM_STALE_BD_BIN" list --all --json > "$tmp" 2>/dev/null; then
+    printf 'fm-stale-sweep: bd list failed on %s\n' "$FM_STALE_BD_PATH" >&2
+    rm -f -- "$tmp"
+    return 1
+  fi
+  rows=$(jq -r --argjson cutoff "$cutoff" '
+    .[] | select(.status == "in_progress") | select(.updated_at)
+        | (.updated_at | fromdateiso8601?) as $epoch
+        | select($epoch != null) | select($epoch < $cutoff)
+        | [(.id // ""), (((($cutoff - $epoch) / 3600) | floor) | tostring), (.description // "")]
+        | @tsv' "$tmp" 2>/dev/null)
+  rm -f -- "$tmp"
+  [ -n "$rows" ] || return 0
+  start=$(date +%s)
+  printf '%-42s %-18s %-7s %-9s %s\n' ID HOME AGE VERDICT ACTION
+  while IFS=$'\t' read -r id age_h desc; do
+    [ -n "$id" ] || continue
+    if [ "$budget" -gt 0 ]; then
+      now=$(date +%s)
+      if [ $((now - start)) -ge "$budget" ]; then
+        FM_STALE_UNCONSIDERED=$((FM_STALE_UNCONSIDERED + 1))
+        continue
+      fi
+    fi
+    fm_stale_consider "$apply" "$id" "$age_h" "$desc"
+  done <<EOF
+$rows
+EOF
+  return 0
+}
+
+fm_stale_consider() {  # <apply> <id> <age-hours> <escaped description>
+  local apply=$1 id=$2 age_h=$3 desc=$4 home actor state_line verdict action reason
+  local mutation_home
+  if fm_stale_resolve_home "$id" "$desc"; then
+    home=$FM_STALE_RESOLVED_HOME
+    actor=$FM_STALE_HOME_ACTOR
+    [ -n "$actor" ] || actor=$(basename "$home")
+    state_line=$(fm_stale_ask_home "$home" "$id")
+    verdict=$(fm_stale_verdict "$state_line")
+  else
+    home=-
+    actor=-
+    verdict=no-home
+  fi
+  case "$verdict" in
+    dead) FM_STALE_COUNT_DEAD=$((FM_STALE_COUNT_DEAD + 1)) ;;
+    live) FM_STALE_COUNT_LIVE=$((FM_STALE_COUNT_LIVE + 1)) ;;
+    unproven) FM_STALE_COUNT_UNPROVEN=$((FM_STALE_COUNT_UNPROVEN + 1)) ;;
+    no-home) FM_STALE_COUNT_NOHOME=$((FM_STALE_COUNT_NOHOME + 1)) ;;
+  esac
+  action=keep
+  if [ "$verdict" = dead ]; then
+    if [ "$apply" = 1 ]; then
+      # The mutation runs through the OWNING home when its backend reaches the
+      # swept graph; a home whose backlog lives elsewhere (a markdown home a
+      # row was imported from) cannot reopen a beads row, so the graph-ownning
+      # sweep home performs the reclaim instead. The actor still names the
+      # resolved owner.
+      mutation_home=$home
+      if [ "$(fm_stale_home_beads_path "$home" 2>/dev/null || true)" != "$FM_STALE_BD_PATH" ]; then
+        mutation_home=$FM_HOME
+      fi
+      if reason=$(fm_stale_reclaim "$mutation_home" "$id" "$actor"); then
+        action=reclaimed
+        FM_STALE_RECLAIMED=$((FM_STALE_RECLAIMED + 1))
+      else
+        action="reclaim failed: $reason"
+        FM_STALE_APPLY_FAILED=$((FM_STALE_APPLY_FAILED + 1))
+      fi
+    else
+      action='would reclaim'
+    fi
+  fi
+  printf '%-42s %-18s %-7s %-9s %s\n' "$id" "$(fm_stale_home_label "$home" "$actor")" "${age_h}h" "$verdict" "$action"
+}
+
+# One readable home label for the table: the actor id when known, else the
+# home basename, with "-" for unresolvable rows.
+fm_stale_home_label() {  # <home> <actor>
+  local home=$1 actor=$2
+  if [ "$home" = - ] || [ -z "$home" ]; then
+    printf '%s' '-'
+    return 0
+  fi
+  if [ -n "$actor" ] && [ "$actor" != "-" ]; then
+    printf '%s' "$actor"
+    return 0
+  fi
+  printf '%s' "$(basename "$home")"
+}
+
+fm_stale_summary() {  # <apply 0|1>
+  local apply=$1 reclaim_word reclaim_count
+  reclaim_word='would reclaim'
+  reclaim_count=$FM_STALE_COUNT_DEAD
+  if [ "$apply" = 1 ]; then
+    reclaim_word=reclaimed
+    reclaim_count=$FM_STALE_RECLAIMED
+  fi
+  printf '%d stale candidates: %d dead, %d live, %d unproven, %d no-home; %s %s\n' \
+    "$((FM_STALE_COUNT_DEAD + FM_STALE_COUNT_LIVE + FM_STALE_COUNT_UNPROVEN + FM_STALE_COUNT_NOHOME + FM_STALE_UNCONSIDERED))" \
+    "$FM_STALE_COUNT_DEAD" "$FM_STALE_COUNT_LIVE" "$FM_STALE_COUNT_UNPROVEN" "$FM_STALE_COUNT_NOHOME" \
+    "$reclaim_word" "$reclaim_count"
+  if [ "$FM_STALE_UNCONSIDERED" -gt 0 ]; then
+    printf 'budget stopped the sweep with %d candidates unconsidered; raise FM_STALE_SWEEP_BUDGET_SECS or run without the check gate\n' "$FM_STALE_UNCONSIDERED"
+  fi
+  if [ -n "$BUDGET_CUT_FROM" ]; then
+    printf 'note: FM_STALE_SWEEP_BUDGET_SECS %s cut to %s to fit FM_CHECK_TIMEOUT\n' "$BUDGET_CUT_FROM" "$BUDGET_SECS"
+  fi
+}
+
+# --- check / arm / disarm ----------------------------------------------------
+
+fm_stale_gate_open() {
+  local last
+  [ "$INTERVAL" -eq 0 ] && return 0
+  [ -f "$RECORD" ] || return 0
+  last=$(sed -n 's/^epoch //p' "$RECORD" | head -1)
+  case "$last" in
+    ''|*[!0-9]*) return 0 ;;
+  esac
+  [ $(( $(record_epoch_now) - last )) -ge "$INTERVAL" ]
+}
+
+fm_stale_write_record() {  # <now-epoch>
+  printf '%s\nepoch %s\n' "$RECORD_SCHEMA" "$1" > "$RECORD" 2>/dev/null || true
+}
+
+action_check() {
+  local now cutoff out count
+  fm_stale_gate_open || return 0
+  now=$(record_epoch_now)
+  if ! fm_stale_read_beads_config; then
+    fm_stale_write_record "$now"
+    printf 'fm-stale-sweep: graph config unreadable\n'
+    return 0
+  fi
+  cutoff=$((now - OLDER_THAN_HOURS * 3600))
+  if ! fm_stale_sweep 0 "$BUDGET_SECS" "$cutoff" >/dev/null; then
+    # A failed graph read is reported once per interval rather than every
+    # poll, and the probe record is still written, so the next poll stays
+    # quiet while the one after retries.
+    fm_stale_write_record "$now"
+    printf 'fm-stale-sweep: graph read failed\n'
+    return 0
+  fi
+  count=$FM_STALE_COUNT_DEAD
+  fm_stale_write_record "$now"
+  [ "$count" -gt 0 ] || return 0
+  printf 'stale-sweep: %d dead-endpoint in_progress rows reclaimable - run bin/fm-stale-sweep.sh --apply\n' "$count"
+  return 0
+}
+
+shim_content() {
+  local home=$1
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    '# Auto-generated by fm-stale-sweep.sh - stale-claim reclaim poll shim.' \
+    '# The watcher validates these bytes, then dispatches the trusted check script.' \
+    "export FM_HOME=$(printf '%q' "$home")" \
+    "exec $(printf '%q' "$SCRIPT_DIR/fm-stale-sweep.sh") check"
+}
+
+# Write the shim the way this repo writes its other trusted check shim: the
+# guards run before anything is written, so a symlink at the shim path is
+# refused instead of followed, and the bytes arrive by rename so the watcher
+# never reads a half-written shim and rejects it as unauthenticated.
+shim_write() {
+  local want=$1 device tmp
+  [ -d "$STATE" ] && [ ! -L "$STATE" ] || return 1
+  device=$(fm_pr_file_device "$STATE") || return 1
+  [ -n "$device" ] || return 1
+  fm_pr_regular_destination_on_device_or_absent "$CHECK_SHIM" "$device" || return 1
+  if [ -e "$CHECK_SHIM" ] && [ "$(fm_pr_file_mode "$CHECK_SHIM")" = 700 ] \
+    && [ "$(cat "$CHECK_SHIM" 2>/dev/null)" = "$want" ]; then
+    return 0
+  fi
+  tmp=$(umask 077; mktemp "$STATE/.fm-stale-sweep-check.XXXXXX" 2>/dev/null) || return 1
+  if ! printf '%s\n' "$want" > "$tmp" || ! chmod 0700 "$tmp" \
+    || ! fm_pr_private_file_valid "$tmp" 700 "$device"; then
+    rm -f -- "$tmp"
+    return 1
+  fi
+  if ! fm_pr_regular_destination_on_device_or_absent "$CHECK_SHIM" "$device" \
+    || ! mv -f -- "$tmp" "$CHECK_SHIM"; then
+    rm -f -- "$tmp"
+    return 1
+  fi
+  return 0
+}
+
+action_arm() {
+  local want home problem
+  fm_stale_read_beads_config || return 1
+  mkdir -p "$STATE" || return 1
+  case "$FM_HOME" in
+    /*) home=$FM_HOME ;;
+    *)
+      home=$(CDPATH='' cd -- "$FM_HOME" 2>/dev/null && pwd -P) || {
+        printf 'fm-stale-sweep: cannot resolve FM_HOME %s\n' "$FM_HOME" >&2
+        return 1
+      }
+      ;;
+  esac
+  want=$(shim_content "$home")
+  if ! shim_write "$want"; then
+    printf 'fm-stale-sweep: could not write %s\n' "$CHECK_SHIM" >&2
+    return 1
+  fi
+  if ! FM_HOME="$home" "$REGISTER_BIN" "$CHECK_ID" >/dev/null; then
+    rm -f -- "$CHECK_SHIM"
+    printf 'fm-stale-sweep: could not register %s\n' "$CHECK_SHIM" >&2
+    return 1
+  fi
+  printf 'armed: state/%s.check.sh\n' "$CHECK_ID"
+  return 0
+}
+
+action_disarm() {
+  rm -f -- "$CHECK_SHIM" "$CHECK_TRUST" "$RECORD"
+  printf 'disarmed: state/%s.check.sh\n' "$CHECK_ID"
+  return 0
+}
+
+# --- entry -------------------------------------------------------------------
+
+ACTION=sweep
+APPLY=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    sweep|check|arm|disarm)
+      [ "$ACTION" = sweep ] || die_usage "one action only"
+      ACTION=$1
+      ;;
+    --apply) APPLY=1 ;;
+    --older-than)
+      [ $# -ge 2 ] || die_usage "--older-than needs <hours>"
+      case "$2" in ''|*[!0-9]*|0) die_usage "--older-than needs a positive whole number of hours" ;; esac
+      OLDER_THAN_HOURS=$2
+      shift
+      ;;
+    -h|--help) usage; exit 0 ;;
+    *) die_usage "unknown argument: $1" ;;
+  esac
+  shift
+done
+
+case "$ACTION" in
+  sweep)
+    fm_stale_read_beads_config || exit 1
+    cutoff=$(( $(record_epoch_now) - OLDER_THAN_HOURS * 3600 ))
+    fm_stale_sweep "$APPLY" 0 "$cutoff" || exit 1
+    fm_stale_summary "$APPLY"
+    [ "$FM_STALE_APPLY_FAILED" -eq 0 ] || exit 1
+    ;;
+  check) action_check ;;
+  arm) action_arm ;;
+  disarm) action_disarm ;;
+esac

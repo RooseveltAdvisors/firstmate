@@ -483,6 +483,26 @@ The sweep must finish inside `FM_CHECK_TIMEOUT` (default 30), because a run the 
 So a budget larger than that timeout allows is cut down to what fits instead of being refused, and the cut is reported in the report line.
 A budget that is not a whole number from 1 to 120 is still refused outright.
 
+## Stale-claim sweep (bin/fm-stale-sweep.sh)
+
+The Beads graph a beads-backed home's `.tasks.toml` points at never reclaims an in_progress claim on its own, so a task whose worker endpoint died stays claimed forever and dispatch capacity silently shrinks.
+[`bin/fm-stale-sweep.sh`](../bin/fm-stale-sweep.sh) makes those stale claims reclaim themselves.
+A dry run prints a table (id, home, age, verdict, action) plus a summary with the count it would reclaim; `--apply` performs the reclaims, and `--older-than <hours>` overrides the default 24-hour threshold measured from the row's `updated_at` (the last recorded graph activity).
+For every stale row the sweep resolves the owning home (the registered home holding `state/<id>.meta`, else the row's provenance line), asks that home with `fm-crew-state.sh`, and reclaims only on positive death evidence - a missing or dead endpoint, or a remote dead/missing verdict.
+Anything merely unproven (an unreadable pane, an unreachable remote) is kept.
+The reclaim appends `reclaimed <date>: endpoint dead, previous claim by <actor>` to the row's body and reopens it through the owning home's tasks-axi, only after re-proving the row is still in flight and unheld.
+The sweep never touches a row whose endpoint is live and never removes a meta, worktree, or pane, so stuck-crewmate recovery can still inspect what died.
+A home whose backlog is not beads-backed has no graph to sweep and the script says so instead of guessing.
+
+Register the daily check with `bin/fm-stale-sweep.sh arm`.
+That writes `state/stale-sweep.check.sh` and binds its bytes with `bin/fm-check-register.sh`, so the existing watcher polls it on its normal `FM_CHECK_INTERVAL` cadence and turns its one line into a `check:` wake; no separate schedule is involved.
+The check runs the sweep dry at most once per `FM_STALE_SWEEP_INTERVAL` (default 86400 seconds, `0` disables the gate, otherwise 900 to 604800), stays silent when nothing is reclaimable, and reports one line when dead-endpoint rows are reclaimable so firstmate decides whether to run `--apply`.
+`FM_STALE_SWEEP_BUDGET_SECS` (default 25, 1 to 3600) bounds one probe and is cut down to what `FM_CHECK_TIMEOUT` allows, exactly like the tool-update check's budget.
+`FM_STALE_SWEEP_STATE_TIMEOUT` (default 90) bounds one home's `fm-crew-state.sh` call.
+`bin/fm-stale-sweep.sh disarm` removes the shim, its trust binding, and the report record.
+
+A full treehouse pool is the sibling condition: [`bin/fm-spawn.sh`](../bin/fm-spawn.sh) detects treehouse's exact `all N worktrees are in use` refusal during the worktree wait, records a load-kind capacity hold whose reason names the pool (`bin/fm-capacity-lib.sh` owns the reason contract), and exits 2 with the item left queued, and [`bin/fm-teardown.sh`](../bin/fm-teardown.sh) releases the oldest capacity hold recorded for the same pool once a worktree is returned to it, printing which item became ready.
+
 ## Relay (.env)
 
 Relay lets a firstmate instance answer public mentions and act on normal reversible mention requests through firstmate's normal lifecycle.

@@ -56,7 +56,13 @@
 #   Spawn-capable backends are the reference tmux adapter and experimental
 #   herdr, zellij, orca, and cmux. Orca owns both the task worktree and
 #   terminal, so ship/scout Orca spawns do not run treehouse get; cmux is a
-#   session provider only, exactly like herdr/zellij, so it does. An
+#   session provider only, exactly like herdr/zellij, so it does. When
+#   treehouse get instead refuses because the pool is full ("all N worktrees
+#   are in use..."), the spawn detects that exact refusal during the worktree
+#   wait, holds the still-Queued item with a load-kind capacity hold whose
+#   reason names the pool (bin/fm-capacity-lib.sh owns the contract), prints
+#   one line naming the hold, and exits 2; bin/fm-teardown.sh releases the
+#   oldest hold for the same pool when a worktree returns to it. An
 #   auto-detected herdr or cmux spawn prints a loud stderr notice;
 #   auto-detected tmux stays silent; zellij and orca are never auto-detected.
 #   codex-app is not a known backend yet; docs/codex-app-backend.md owns that
@@ -255,6 +261,8 @@ FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 
 # shellcheck source=bin/fm-tasks-axi-lib.sh
 . "$SCRIPT_DIR/fm-tasks-axi-lib.sh"
+# shellcheck source=bin/fm-capacity-lib.sh
+. "$SCRIPT_DIR/fm-capacity-lib.sh"
 # shellcheck source=bin/fm-backlog-transition-lib.sh
 . "$SCRIPT_DIR/fm-backlog-transition-lib.sh"
 
@@ -2471,6 +2479,54 @@ spawn_send_key() {  # <target> <key>
   esac
 }
 
+# treehouse get's terminal refusal when the pool has nothing to hand out:
+#   "all %d worktrees are in use or dirty (max_trees = %d). Run ..."
+# and its mixed-flavor sibling "all %d worktrees are in use, dirty, or hold
+# the other backend's worktrees (...)". Both share the leading count clause,
+# so one prefix match covers them. The message can wrap at the pane width, so
+# the capture is flattened (newlines and squeezed runs become single spaces)
+# before matching; that reconstructs the message regardless of where it wrapped.
+# Sets POOL_FULL_N and POOL_FULL_MAX for the capacity hold reason.
+POOL_FULL_N=
+POOL_FULL_MAX=
+spawn_treehouse_pool_refusal() {
+  local cap flat
+  cap=$(fm_backend_capture "$BACKEND" "$WT_TARGET" 60 "$W" 2>/dev/null || true)
+  [ -n "$cap" ] || return 1
+  flat=$(printf '%s\n' "$cap" | tr '\n' ' ' | tr -s ' ')
+  [[ "$flat" =~ all\ ([0-9]+)\ worktrees\ are\ in\ use ]] || return 1
+  POOL_FULL_N=${BASH_REMATCH[1]}
+  POOL_FULL_MAX=
+  [[ "$flat" =~ max_trees\ =\ ([0-9]+) ]] && POOL_FULL_MAX=${BASH_REMATCH[1]}
+  return 0
+}
+
+# A full pool is a recorded capacity hold, not a silent wait: detect the exact
+# refusal, hold the still-Queued item (bin/fm-capacity-lib.sh owns the reason
+# contract), print one line naming the hold, and leave the item queued - never
+# In flight - for redispatch once teardown releases the hold. Exit 2 is the
+# capacity signal; the created endpoint is left open in the project directory
+# and safe to close by hand. At this point no meta, busy record, or backlog
+# transition exists yet, so nothing else needs unwinding.
+spawn_capacity_refuse() {
+  local pool reason
+  pool=$(fm_capacity_pool_of_project "$PROJ_ABS_REAL" 2>/dev/null || true)
+  [ -n "$pool" ] || pool=$PROJ_ABS_REAL
+  reason=$(fm_capacity_reason "$pool" "$POOL_FULL_N" "$POOL_FULL_MAX")
+  if [ "$BACKLOG_TRANSITION" = 1 ]; then
+    if ! fm_capacity_hold "$DATA" "$ID" "$reason"; then
+      echo "error: treehouse refused the spawn: $reason, and recording the capacity hold on $ID failed; inspect window $T" >&2
+      exit 2
+    fi
+    printf 'held: %s - %s; item left queued for redispatch when a worktree frees; window %s left open in the project\n' "$ID" "$reason" "$T"
+  else
+    # A manual-backend home owns its backlog by hand, so no hold is invented;
+    # the refusal is still terminal for this dispatch either way.
+    printf 'refused: %s - %s; manual backlog home, record the hold by hand; window %s left open in the project\n' "$ID" "$reason" "$T"
+  fi
+  exit 2
+}
+
 kimi_capture() {
   fm_backend_capture "$BACKEND" "$T" 120 "$W" 2>/dev/null || true
 }
@@ -2571,6 +2627,13 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
   # inter-poll sleep as confirmation, not a whole extra cycle on top.
   candidate=""
   for _ in $(seq 1 60); do
+    # A pool-full refusal is terminal for treehouse get, so check it before
+    # each path poll: the pane never leaves the project on that path, and the
+    # refusal turns the wait into a recorded capacity hold instead of a
+    # 60-second silence. spawn_capacity_refuse never returns.
+    if spawn_treehouse_pool_refusal; then
+      spawn_capacity_refuse
+    fi
     p=$(spawn_current_path "$WT_TARGET" || true)
     if [ -n "$p" ]; then
       p_real=$(real_path_or_raw "$p")
