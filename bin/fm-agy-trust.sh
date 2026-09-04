@@ -69,6 +69,12 @@ refuse() { echo "error: refusing to pre-register agy workspace trust: $1" >&2; e
 
 real_dir() { (cd -P -- "$1" 2>/dev/null && pwd -P); }
 
+# The caller's own spelling of a directory, symlink components intact. agy runs
+# in the pane's cwd, and Go's os.Getwd answers with $PWD when it names the same
+# directory, so the trust lookup can present this spelling rather than the
+# resolved one.
+logical_dir() { (cd -- "$1" 2>/dev/null && pwd); }
+
 # The fully resolved path of an existing file, or empty. Resolution runs in node
 # because it must follow a symlink chain to its final target, and node is already
 # this script's JSON writer.
@@ -123,6 +129,12 @@ PROJ_COMMON=$(common_dir_of "$PROJ_REAL") || true
 [ -n "$PROJ_COMMON" ] || refuse "project '$PROJ_REAL' is not inside a git repository"
 [ "$WT_COMMON" = "$PROJ_COMMON" ] || refuse "'$WT_REAL' is not a worktree of project '$PROJ_REAL'"
 
+# Every check above judges the resolved path, and that stays the scope boundary.
+# Trust is recorded under both spellings of that one directory because a lookup
+# miss is silent: agy parks on a dialog that draws no status text at all.
+WT_LOGICAL=$(logical_dir "$WT_ARG") || true
+[ -n "$WT_LOGICAL" ] && [ "$(real_dir "$WT_LOGICAL")" = "$WT_REAL" ] || WT_LOGICAL=$WT_REAL
+
 # The store write needs node, and a missing interpreter refuses like every other
 # failure here. Degrading instead would launch a worker straight into the dialog
 # this registration exists to remove, which is the one outcome the whole control
@@ -172,11 +184,13 @@ fi
 # did not leave.
 # ponytail: fingerprint-and-refuse, not a lock; flock is absent on macOS and
 # cannot stop a vendor session's own rewrite anyway.
-if ! node - "$STORE" "$WT_REAL" <<'NODE'
+if ! node - "$STORE" "$WT_REAL" "$WT_LOGICAL" <<'NODE'
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
-const [store, worktree] = process.argv.slice(2);
+const [store, ...requested] = process.argv.slice(2);
+// One directory, both spellings; a repeat spawn must not grow the array either.
+const worktrees = [...new Set(requested.filter((value) => value !== ""))];
 const readStore = () => {
   try {
     return fs.readFileSync(store);
@@ -205,8 +219,9 @@ const attempt = () => {
   if (!Array.isArray(trusted)) {
     throw new Error(`${store} has a non-array "trustedWorkspaces" value`);
   }
-  // Idempotent: a repeat spawn into the same worktree must not grow the array.
-  if (!trusted.includes(worktree)) trusted.push(worktree);
+  for (const worktree of worktrees) {
+    if (!trusted.includes(worktree)) trusted.push(worktree);
+  }
   // Two-space pretty-printed with a trailing newline, because that is the format
   // agy itself writes: the store measured on the box this was written on is
   // exactly `{\n  "enableTelemetry": ...\n}\n`. Compact would reformat the
@@ -229,7 +244,8 @@ const attempt = () => {
     if (!renamed) fs.rmSync(tmp, { force: true });
   }
   const back = JSON.parse(fs.readFileSync(store, "utf8"));
-  return Array.isArray(back.trustedWorkspaces) && back.trustedWorkspaces.includes(worktree)
+  return Array.isArray(back.trustedWorkspaces) &&
+    worktrees.every((worktree) => back.trustedWorkspaces.includes(worktree))
     ? "recorded"
     : "dropped";
 };
@@ -246,7 +262,7 @@ try {
   console.error(`error: ${err.message}`);
   process.exit(1);
 }
-console.error(`error: ${store} did not retain trust for ${worktree} after 3 attempts`);
+console.error(`error: ${store} did not retain trust for ${worktrees.join(", ")} after 3 attempts`);
 process.exit(1);
 NODE
 then

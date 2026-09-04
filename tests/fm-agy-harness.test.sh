@@ -105,6 +105,25 @@ test_fresh_worktree_is_trusted() {
   pass "fm-agy-trust.sh: a fresh task worktree is trusted"
 }
 
+# agy runs in the pane's cwd, which fm-spawn hands over unresolved, so a
+# worktree reached through a symlinked parent can be presented to the trust
+# lookup under either spelling. A miss is silent - the pane parks on a dialog
+# that draws no status text - so both spellings of the one directory are recorded.
+test_symlinked_worktree_spelling_is_trusted_too() {
+  local rec out store link wt_link
+  rec=$(make_case symlink-spelling)
+  read_case "$rec"
+  link="$TMP_ROOT/symlink-spelling-link"
+  ln -sfn "$CASE_DIR" "$link"
+  wt_link="$link/wt"
+  out=$(run_trust "$AGY_HOME" "$wt_link" "$PROJ")
+  expect_code 0 $? "a worktree named through a symlinked parent must be trusted: $out"
+  store=$(store_path "$AGY_HOME")
+  assert_trusted "$store" "$wt_link" "the launch spelling of the worktree was not recorded as trusted"
+  assert_trusted "$store" "$WT" "the resolved spelling of the worktree was not recorded as trusted"
+  pass "fm-agy-trust.sh: both spellings of a symlinked worktree path are trusted"
+}
+
 test_registration_is_idempotent() {
   local rec out count
   rec=$(make_case idempotent)
@@ -712,6 +731,7 @@ test_refused_spawn_leaves_no_task_state() {
 }
 
 test_fresh_worktree_is_trusted
+test_symlinked_worktree_spelling_is_trusted_too
 test_registration_is_idempotent
 test_unrelated_store_content_is_preserved
 test_primary_checkout_is_refused
