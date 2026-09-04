@@ -768,6 +768,26 @@ test_delivery_guard_reads_agys_status_bar() {
   pass "fm-composer-lib.sh: agy's delivery guard separates its two status bars"
 }
 
+# agy's composer is a bare `>` between rules, and the classifier's safety rule
+# reads a bare shell glyph outside a bordered container as a dead shell prompt.
+# The verdict is therefore `unknown`, never `empty`, which is the whole reason
+# typed-submit confirmation is a tmux-only boundary for agy - the docs claim that
+# scope, so the verdict it rests on is pinned here rather than assumed.
+test_agy_composer_verdict_is_unknown_not_empty() {
+  # shellcheck source=bin/fm-composer-lib.sh
+  . "$ROOT/bin/fm-composer-lib.sh"
+  local screen verdict
+  screen=$(printf '%s\n' \
+    '─────────────────────────────────────────' \
+    '> ' \
+    '─────────────────────────────────────────' \
+    '? for shortcuts      Gemini 3.8 Flash · high')
+  verdict=$(fm_composer_classify_screen "" "$screen" "" agy)
+  [ "$verdict" = unknown ] \
+    || fail "an empty agy composer classified '$verdict'; the documented tmux-only submit boundary rests on 'unknown'"
+  pass "fm-composer-lib.sh: an empty agy composer classifies unknown, not empty"
+}
+
 test_spawn_refuses_a_secondmate_on_agy() {
   local case_dir home out
   case_dir="$TMP_ROOT/secondmate-refusal"
@@ -1119,6 +1139,7 @@ test_install_normalizes_a_loose_registry_mode
 test_detection_prefers_the_agy_marker_over_an_inherited_claudecode
 test_control_tables_carry_agys_verified_mechanics
 test_delivery_guard_reads_agys_status_bar
+test_agy_composer_verdict_is_unknown_not_empty
 test_spawn_refuses_a_secondmate_on_agy
 test_a_non_agy_launch_clears_the_inherited_agy_marker
 test_agy_spawn_pretrusts_its_worktree_and_reaches_the_brief

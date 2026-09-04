@@ -1068,6 +1068,26 @@ Resuming by id from a different working directory restored the conversation and 
 Typing a prompt and sending `Enter` as a separate step submitted it and the agent acted, writing the requested file; a three-line message delivered by bracketed paste landed intact with no premature submit and was answered from all three lines.
 `-i` and `-p` consume the next argument, so `agy -p --dangerously-skip-permissions "<prompt>"` reports that it took the flag as its prompt and ignored the real one; every flag must precede the prompt.
 
+### Typed-submit confirmation is a tmux-only boundary
+
+agy's composer is a bare `>` between two horizontal rules rather than a bordered container.
+`>` is a shell-prompt glyph, and the composer classifier's safety rule reads a bare shell glyph outside a bordered container as a dead-shell prompt, so an agy pane's composer verdict is always `unknown` - never `empty`:
+
+```sh
+. bin/fm-composer-lib.sh
+printf '%s\n' '─────' '> ' '─────' '? for shortcuts      Gemini 3.8 Flash · high' |
+  { read -r a; read -r b; read -r c; read -r d;
+    fm_composer_classify_screen "" "$(printf '%s\n' "$a" "$b" "$c" "$d")" "" agy; }
+```
+
+```text
+unknown
+```
+
+On tmux that costs nothing: the rich submit core promotes `unknown` to `empty` when a pane that read idle before typing reads busy after Enter, and agy's two status bars supply exactly that transition (`? for shortcuts` idle, `esc to cancel` busy).
+On Zellij, cmux, and Orca the shared submit core returns the non-pending verdict as-is, so a typed-plane agy send lands but `fm-send` reports delivery unconfirmed and exits non-zero - the same boundary Cursor has, for the same structural reason.
+It does not bound the spawn: the brief rides the launch command's `-i "<prompt>"`, not `fm-send`.
+
 ## Pi supervision branch
 
 The supervision-branch extension (`.pi/extensions/fm-branch-supervision.ts`, [docs/pi-supervision-branch.md](../pi-supervision-branch.md)) builds its second session through the Pi SDK surface: `createAgentSession` (including its `model`, `modelRuntime`, and `thinkingLevel` options), `DefaultResourceLoader` with `extensionFactories`, `SessionManager`, `createBashToolDefinition` with a `spawnHook`, `sendCustomMessage` for routine notes, `appendEntry` and `registerEntryRenderer` for captain outcomes, the `before_provider_request` hook, the command context's model registry for picker candidates, a fresh `ModelRuntime` for isolated-branch resolution, and Pi's own `getSupportedThinkingLevels`/`clampThinkingLevel` plus its `getThinkingLevel` and `thinking_level_select` extension surface for effort.

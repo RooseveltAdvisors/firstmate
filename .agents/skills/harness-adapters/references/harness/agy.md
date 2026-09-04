@@ -17,7 +17,7 @@ Describe agy by behavior rather than by version: it updates itself without being
 | Interrupt | Single Escape. Renders `⎿ Interrupted · What should Antigravity CLI do instead?` and leaves the composer EMPTY, so no clear key is needed. |
 | Resume | `agy --conversation=<id>`, printed on exit. Restores real model context, NOT the workspace: the banner shows the launching cwd, so resume must run from the original worktree. |
 | Environment marker | `ANTIGRAVITY_CONVERSATION_ID`, exported to every tool subprocess, whose value equals the `conversationId` in the Stop payload. |
-| Composer | Bare `>` prompt inside horizontal rules; no bordered box. |
+| Composer | Bare `>` prompt inside horizontal rules; no bordered box. `>` is a shell-prompt glyph outside a bordered container, so the composer verdict is always `unknown` - typed-submit confirmation therefore works on tmux (whose submit core resolves it through the busy footer) and reports unconfirmed on zellij/cmux/orca, exactly as cursor does. The brief rides the launch command, not `fm-send`. |
 | Status bar | `? for shortcuts` when it will accept a prompt; `esc to cancel` when it will not. |
 
 ## Detection ordering

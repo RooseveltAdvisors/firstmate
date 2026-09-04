@@ -26,6 +26,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 AGY_BIN=$(command -v agy 2>/dev/null || true)
 REAL_TMUX=$(command -v tmux 2>/dev/null || true)
 LAB=
+TRUST_ADDED=
 SOCKET="fm-agy-signals-$$"
 SESSION=agy-signals
 TARGET="$SESSION:agy"
@@ -105,7 +106,13 @@ pass "--dangerously-skip-permissions does not suppress the workspace-trust dialo
 
 # 2. Registering the worktree suppresses it, and the pane reaches the idle bar.
 "$REAL_TMUX" -L "$SOCKET" kill-session -t "$SESSION" >/dev/null 2>&1 || true
-"$ROOT/bin/fm-agy-trust.sh" "$WT" "$PROJ" >/dev/null || fail "the trust registration refused a legitimate task worktree"
+# A worktree named through a symlinked TMPDIR - macOS's /var -> /private/var -
+# registers under BOTH spellings, and removal withdraws exactly the spelling it
+# is named, so the guard unwinds by the same record its callers keep: one
+# withdrawal per reported `added:` line.
+TRUST_REPORT=$("$ROOT/bin/fm-agy-trust.sh" "$WT" "$PROJ") \
+  || fail "the trust registration refused a legitimate task worktree"
+TRUST_ADDED=$(printf '%s\n' "$TRUST_REPORT" | sed -n 's/^added: //p')
 start_pane "$AGY_BIN --dangerously-skip-permissions"
 wait_for '\? for shortcuts' 60 "a registered worktree did not reach the idle status bar"
 capture | grep -q 'Do you trust the contents' \
@@ -146,7 +153,13 @@ retire_token
 "$ROOT/bin/fm-agy-turnend-hook.sh" remove >/dev/null || fail "the turn-end hook could not be removed"
 HOOK_INSTALLED=
 # The same withdrawal teardown performs, against the operator's real store.
-"$ROOT/bin/fm-agy-trust.sh" --remove "$WT" >/dev/null || fail "the trust registration could not be withdrawn"
+while IFS= read -r trust_path; do
+  [ -n "$trust_path" ] || continue
+  "$ROOT/bin/fm-agy-trust.sh" --remove "$trust_path" >/dev/null \
+    || fail "the trust registration could not be withdrawn"
+done <<EOF
+$TRUST_ADDED
+EOF
 grep -Fq "$WT" "$STORE" && fail "the guard left its worktree in the operator's trusted workspaces"
 restore_store
 pass "the guard leaves the operator's store and hooks exactly as it found them"
