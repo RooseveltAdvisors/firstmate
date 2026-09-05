@@ -236,6 +236,72 @@ test_verify_resolves_a_hold_migrated_under_the_configured_prefix() {
   pass "verify resolves a captain hold whose id is the legacy id under the configured prefix"
 }
 
+# The prefix guess is a name, not evidence: when a row actually carries the
+# migration marker, that row is the one attested even though an unrelated
+# captain-held task occupies the <prefix>-<legacy id> name. The stub tasks-axi
+# is what makes the order observable - the real one resolves a bare legacy id
+# onto its prefixed row itself, answering before any migration lookup runs.
+test_marker_noted_row_wins_over_a_prefix_namesake() {
+  local fixture home beads scout fb row out
+  require_tasks_axi_beads "prefer a marker-noted row over a prefix namesake" || return 0
+  fixture=$(make_beads_home migrated-marker-wins)
+  home=${fixture%%|*}
+  beads=${fixture##*|}
+  scout=sample-marker-wins-scout
+  for row in fm-dual-row fm-marked-dual-row fm-solo-row; do
+    (cd "$home" && BEADS_ACTOR=fixture tasks-axi add "$row" "Captain call $row" \
+      --repo sample) >/dev/null 2>&1 || fail "could not create the fixture row $row"
+    (cd "$home" && BEADS_ACTOR=fixture tasks-axi hold "$row" --kind captain \
+      --reason "captain must decide") >/dev/null 2>&1 \
+      || fail "could not hold the fixture row $row"
+  done
+  bdrow "$beads" note fm-marked-dual-row \
+    "migrated from data/backlog.md id dual-row on 2026-09-04" \
+    >/dev/null 2>&1 || fail "could not record the migration marker note"
+  fb=$(fm_fakebin "$home")
+  cat > "$fb/tasks-axi" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}" in
+  --version) printf '%s\n' '0.2.5' ;;
+  update)
+    [ "${2:-}" = --help ] || exit 1
+    printf '%s\n' '--archive-body'
+    ;;
+  mv)
+    [ "${2:-}" = --help ] || exit 1
+    printf '%s\n' 'usage: tasks-axi mv [<id>...]'
+    ;;
+  hold)
+    [ "${2:-}" = --help ] || exit 1
+    printf '%s\n' '  --kind captain'
+    ;;
+  show)
+    case "${2:-}" in
+      fm-dual-row|fm-marked-dual-row|fm-solo-row) ;;
+      *) printf 'error: no task %s in this backlog\n' "${2:-}" >&2; exit 1 ;;
+    esac
+    printf '%s\n' 'task:'
+    printf '  id: %s\n' "$2"
+    printf '%s\n' '  state: queued' '  held: yes' '  blocked: no' \
+      '  hold_kind: captain' '  body: ""'
+    ;;
+  *) exit 1 ;;
+esac
+SH
+  chmod +x "$fb/tasks-axi"
+  write_scout_with_attested_inventory "$home" "$scout" "dual-row,solo-row"
+
+  out=$(run_captain "$home" complete "$scout" dual-row solo-row) \
+    || fail "the completion gate refused an inventory carrying both migrated shapes"
+  assert_not_contains "$out" "dual-row=fm-dual-row" \
+    "the bare prefix namesake shadowed the row carrying the migration marker"
+  assert_contains "$out" "solo-row=fm-solo-row" \
+    "completion did not name the row the prefix guess attested against"
+  run_captain "$home" verify "$scout" >/dev/null \
+    || fail "verify did not re-resolve both migrated shapes after completion"
+  pass "the marker-noted row wins over an unrelated row holding the prefix namesake"
+}
+
 test_complete_accepts_a_migrated_inventory_on_beads() {
   local fixture home scout
   require_tasks_axi_beads "complete against a beads-migrated hold" || return 0
@@ -2053,6 +2119,7 @@ test_teardown_retains_captain_calls_in_a_relocated_backlog
 test_teardown_refuses_a_ship_when_the_captain_hold_cannot_be_read
 test_verify_resolves_a_hold_migrated_to_beads_notes
 test_verify_resolves_a_hold_migrated_under_the_configured_prefix
+test_marker_noted_row_wins_over_a_prefix_namesake
 test_complete_accepts_a_migrated_inventory_on_beads
 test_verify_names_the_unresolvable_legacy_id_once
 test_verify_resolves_a_pre_collapse_key_through_its_derived_marker

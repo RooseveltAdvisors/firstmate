@@ -451,8 +451,10 @@ verify_hold_durable() {  # <task-id>
 # notes as the exact line "migrated from data/backlog.md id <legacy id>" (what
 # fm-hold-migration wrote on 2026-09-04). When an attested legacy id resolves
 # to no task, the beads backend accepts the row the migration produced, found
-# either by prepending the configured prefix to the legacy id or by scanning
-# the configured graph's notes for that exact marker line. A markdown home
+# by scanning the configured graph's notes for that exact marker line, and only
+# when no row carries the marker by prepending the configured prefix to the
+# legacy id - a name-only guess, so it is accepted solely for a row still held
+# for the captain and only when it is the single such row. A markdown home
 # keeps its legacy rows verbatim, so its exact-id resolution is unchanged.
 
 CAPTAIN_MIGRATION_SCAN_LOADED=0
@@ -543,12 +545,15 @@ captain_migration_scan_load() {  # <resolved-data-dir>
 }
 
 # Resolve one attested legacy id to the migrated row that carries it on the
-# beads backend. Prints the row id and returns 0 when exactly one migration
-# matches, returns 1 when none does, and returns 2 with the reason on stderr
-# when the scan itself cannot run or is ambiguous.
+# beads backend. Prints "<row id> <how>" and returns 0 when exactly one
+# migration matches, returns 1 when none does, and returns 2 with the reason on
+# stderr when the scan itself cannot run or is ambiguous. The marker note is the
+# authoritative evidence and is scanned first; the bare configured prefix is a
+# guess, so it only runs when no marker line matches any identity and it accepts
+# a row solely when that row is itself still held for the captain.
 resolve_migrated_entry() {  # <origin-or-empty> <entry>
-  local origin=$1 entry=$2 data root entries prefix derived
-  local candidate prefixed matches count
+  local origin=$1 entry=$2 data root entries prefix derived show
+  local candidate candidate_matches prefixed matches count prefixed_matches prefixed_count
   data=$(fm_backlog_data_absolute "$DATA") || {
     printf 'fm-captain-hold: the migrated hold of %s cannot be resolved: %s\n' \
       "$entry" "${FM_BACKLOG_TRANSITION_ERROR:-the configured data directory $DATA cannot be resolved}" >&2
@@ -571,57 +576,71 @@ resolve_migrated_entry() {  # <origin-or-empty> <entry>
       CAPTAIN_MIGRATION_IDENTITIES="$CAPTAIN_MIGRATION_IDENTITIES $derived"
     fi
   fi
-  # A mechanical migration keeps the legacy id under the configured prefix.
+  captain_migration_scan_load "$data" || return 2
+  matches=
+  if [ -n "$CAPTAIN_MIGRATION_SCAN_JSON" ]; then
+    for candidate in $CAPTAIN_MIGRATION_IDENTITIES; do
+      candidate_matches=$(printf '%s\n' "$CAPTAIN_MIGRATION_SCAN_JSON" | jq -r \
+        --arg exact "migrated from data/backlog.md id $candidate" \
+        --arg dated "migrated from data/backlog.md id $candidate on " \
+        '.[] | select(((.notes // "") | split("\n")) | any(. == $exact or startswith($dated))) | .id' 2>/dev/null) || {
+        printf 'fm-captain-hold: the beads graph scan for the migrated hold of %s could not be parsed\n' "$candidate" >&2
+        return 2
+      }
+      matches="${matches}${matches:+$NL_SEP}${candidate_matches}"
+    done
+    count=$(printf '%s\n' "$matches" | sed '/^$/d' | wc -l | tr -d ' ')
+    case "$count" in
+      0) : ;;
+      1) printf '%s migrated-note' "$(printf '%s\n' "$matches" | sed '/^$/d' | sed -n 1p)"; return 0 ;;
+      *)
+        printf 'fm-captain-hold: the migrated hold of %s is ambiguous: %s rows carry its marker line (identities tried: %s)\n' \
+          "$entry" "$count" "$(printf '%s' "$CAPTAIN_MIGRATION_IDENTITIES" | tr ' ' ',')" >&2
+        return 2
+        ;;
+    esac
+  fi
+  # No marker line anywhere: a mechanical migration keeps the legacy id under
+  # the configured prefix, but that name alone is evidence of nothing, so only
+  # a row still held for the captain - and only one of them - is accepted.
   entries=$(captain_beads_toml_entries "$root/.tasks.toml")
   prefix=$(captain_beads_setting "$entries" prefix)
-  if [ -n "$prefix" ]; then
-    for candidate in $CAPTAIN_MIGRATION_IDENTITIES; do
-      case "$prefix" in
-        *-) prefixed="$prefix$candidate" ;;
-        *) prefixed="$prefix-$candidate" ;;
-      esac
-      if task_show "$prefixed" >/dev/null 2>&1; then
-        printf '%s' "$prefixed"
-        return 0
-      fi
-    done
-  fi
-  captain_migration_scan_load "$data" || return 2
-  [ -n "$CAPTAIN_MIGRATION_SCAN_JSON" ] || return 1
-  matches=
+  [ -n "$prefix" ] || return 1
+  prefixed_matches=
   for candidate in $CAPTAIN_MIGRATION_IDENTITIES; do
-    candidate_matches=$(printf '%s\n' "$CAPTAIN_MIGRATION_SCAN_JSON" | jq -r \
-      --arg exact "migrated from data/backlog.md id $candidate" \
-      --arg dated "migrated from data/backlog.md id $candidate on " \
-      '.[] | select(((.notes // "") | split("\n")) | any(. == $exact or startswith($dated))) | .id' 2>/dev/null) || {
-      printf 'fm-captain-hold: the beads graph scan for the migrated hold of %s could not be parsed\n' "$candidate" >&2
-      return 2
-    }
-    matches="${matches}${matches:+$NL_SEP}${candidate_matches}"
+    case "$prefix" in
+      *-) prefixed="$prefix$candidate" ;;
+      *) prefixed="$prefix-$candidate" ;;
+    esac
+    show=$(task_show "$prefixed" 2>/dev/null) || continue
+    [ "$(show_field_value "$show" hold_kind)" = captain ] || continue
+    prefixed_matches="${prefixed_matches}${prefixed_matches:+$NL_SEP}$prefixed"
   done
-  count=$(printf '%s\n' "$matches" | sed '/^$/d' | wc -l | tr -d ' ')
-  case "$count" in
+  prefixed_count=$(printf '%s\n' "$prefixed_matches" | sed '/^$/d' | wc -l | tr -d ' ')
+  case "$prefixed_count" in
     0) return 1 ;;
-    1) printf '%s' "$(printf '%s\n' "$matches" | sed '/^$/d' | sed -n 1p)"; return 0 ;;
+    1) printf '%s migrated-prefix' "$prefixed_matches"; return 0 ;;
   esac
-  printf 'fm-captain-hold: the migrated hold of %s is ambiguous: %s rows carry its marker line (identities tried: %s)\n' \
-    "$entry" "$count" "$(printf '%s' "$CAPTAIN_MIGRATION_IDENTITIES" | tr ' ' ',')" >&2
+  printf 'fm-captain-hold: the migrated hold of %s is ambiguous: %s captain-held rows carry the configured prefix (identities tried: %s)\n' \
+    "$entry" "$prefixed_count" "$(printf '%s' "$CAPTAIN_MIGRATION_IDENTITIES" | tr ' ' ',')" >&2
   return 2
 }
 
 # Resolve one inventory entry or channel key to the task that carries it: the
 # exact task id when it exists, else the legacy derived identity, else - on the
 # beads backend - the migrated row the markdown-to-beads hold migration wrote.
-resolve_entry() {  # <origin-or-empty> <entry>; prints the resolved id or fails
+# Prints "<resolved id> <how>", where <how> is exact, legacy, migrated-note or
+# migrated-prefix, so a caller can record which evidence carried the attestation.
+resolve_entry() {  # <origin-or-empty> <entry>; prints "<id> <how>" or fails
   local origin=$1 entry=$2 legacy migrated rc
   if task_show "$entry" >/dev/null 2>&1; then
-    printf '%s' "$entry"
+    printf '%s exact' "$entry"
     return 0
   fi
   if [ -n "$origin" ] && [ "$origin" != "$BINDING_ANY" ]; then
     legacy=$(legacy_hold_id "$origin" "$entry")
     if task_show "$legacy" >/dev/null 2>&1; then
-      printf '%s' "$legacy"
+      printf '%s legacy' "$legacy"
       return 0
     fi
   fi
@@ -1085,6 +1104,7 @@ command_answers() {
     esac
     resolve_rc=0
     id=$(resolve_entry "$origin" "$key" 2>"$err") || resolve_rc=$?
+    id=${id%% *}
     if [ "$resolve_rc" = 2 ]; then
       reason=$(tr -d '\n' < "$err")
       printf 'skipped: %s (migrated-hold scan refused%s)\n' "$key" "${reason:+: $reason}"
@@ -1165,6 +1185,7 @@ command_answers() {
 
 command_complete() {
   local origin=${1:-} meta previous='' supplied='' keys='' entry key status_file open raw_open has_meta=0 transfer_rc resolved
+  local resolved_how attested_by_prefix=''
   [ "$#" -ge 2 ] || { usage >&2; exit 2; }
   validate_slug origin-id "$origin"
   shift
@@ -1199,7 +1220,12 @@ command_complete() {
         # resolve_entry has already refused on stderr naming the entry.
         exit 1
       fi
+      resolved_how=${resolved##* }
+      resolved=${resolved%% *}
       verify_hold_durable "$resolved"
+      if [ "$resolved_how" = migrated-prefix ]; then
+        attested_by_prefix="${attested_by_prefix}${attested_by_prefix:+ }$entry=$resolved"
+      fi
     done <<EOF
 $(printf '%s\n' "$keys" | tr ',' '\n')
 EOF
@@ -1237,7 +1263,8 @@ $raw_open
 EOF
     fi
   fi
-  printf 'complete: %s captain-call inventory reviewed%s\n' "$origin" "${keys:+ ($keys)}"
+  printf 'complete: %s captain-call inventory reviewed%s%s\n' "$origin" "${keys:+ ($keys)}" \
+    "${attested_by_prefix:+ [attested through the configured prefix: $attested_by_prefix]}"
 }
 
 command_verify() {
@@ -1257,7 +1284,7 @@ command_verify() {
         # resolve_entry has already refused on stderr naming the entry.
         exit 1
       fi
-      verify_hold_durable "$resolved"
+      verify_hold_durable "${resolved%% *}"
     done <<EOF
 $(printf '%s\n' "$keys" | tr ',' '\n')
 EOF
