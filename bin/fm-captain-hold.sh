@@ -523,8 +523,16 @@ captain_migration_scan_load() {  # <resolved-data-dir>
 # when the scan itself cannot run or is ambiguous.
 resolve_migrated_entry() {  # <entry>
   local entry=$1 data root entries prefix prefixed matches count
-  data=$(fm_backlog_data_absolute "$DATA") || return 2
-  root=$(fm_backlog_root "$data") || return 2
+  data=$(fm_backlog_data_absolute "$DATA") || {
+    printf 'fm-captain-hold: the migrated hold of %s cannot be resolved: %s\n' \
+      "$entry" "${FM_BACKLOG_TRANSITION_ERROR:-the configured data directory $DATA cannot be resolved}" >&2
+    return 2
+  }
+  root=$(fm_backlog_root "$data") || {
+    printf 'fm-captain-hold: the migrated hold of %s cannot be resolved: %s\n' \
+      "$entry" "${FM_BACKLOG_TRANSITION_ERROR:-the configured data directory $DATA cannot be resolved}" >&2
+    return 2
+  }
   [ "$(fm_tasks_axi_backend "$root")" = beads ] || return 1
   # A mechanical migration keeps the legacy id under the configured prefix.
   entries=$(captain_beads_toml_entries "$root/.tasks.toml")
@@ -1031,7 +1039,15 @@ command_answers() {
         continue
         ;;
     esac
-    if ! id=$(resolve_entry "$origin" "$key" 2>/dev/null); then
+    resolve_rc=0
+    id=$(resolve_entry "$origin" "$key" 2>"$err") || resolve_rc=$?
+    if [ "$resolve_rc" = 2 ]; then
+      reason=$(tr -d '\n' < "$err")
+      printf 'skipped: %s (migrated-hold scan refused%s)\n' "$key" "${reason:+: $reason}"
+      skipped=$((skipped + 1))
+      continue
+    fi
+    if [ "$resolve_rc" -ne 0 ]; then
       printf 'skipped: %s (no captain-held task with that id)\n' "$key"
       skipped=$((skipped + 1))
       continue

@@ -2836,6 +2836,12 @@ if [ "$TEARDOWN_BACKLOG_APPLIES" = 1 ]; then
   # the record byte-identical, and every later replay reads the same stamped
   # token the marker carries.
   if [ "$TEARDOWN_LEGACY_ACCEPTED" = 1 ]; then
+    if [ -s "$META" ] && [ -n "$(tail -c 1 -- "$META" 2>/dev/null)" ]; then
+      printf '\n' >> "$META" || {
+        echo "error: could not stamp the accepted legacy incarnation into task $ID's record; refusing destructive teardown" >&2
+        exit 1
+      }
+    fi
     printf 'spawn_gen=%s\n' "$TEARDOWN_META_SPAWN_GEN" >> "$META" || {
       echo "error: could not stamp the accepted legacy incarnation into task $ID's record; refusing destructive teardown" >&2
       exit 1
