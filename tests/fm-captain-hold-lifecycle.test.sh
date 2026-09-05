@@ -217,48 +217,14 @@ migrated from data/backlog.md id herald-retire-decision-github-delete on 2026-09
   pass "verify resolves a captain hold migrated to a beads row with a marker note"
 }
 
-test_verify_resolves_a_hold_migrated_under_the_configured_prefix() {
-  local fixture home scout
-  require_tasks_axi_beads "verify against a prefix-migrated hold" || return 0
-  fixture=$(make_beads_home migrated-prefix)
-  home=${fixture%%|*}
-  scout=sample-prefix-scout
-  (cd "$home" && BEADS_ACTOR=fixture tasks-axi add fm-other-legacy-row \
-    "Second migrated hold" --repo sample) >/dev/null 2>&1 \
-    || fail "could not create the prefix-migrated fixture row"
-  (cd "$home" && BEADS_ACTOR=fixture tasks-axi hold fm-other-legacy-row \
-    --kind captain --reason "captain must decide") >/dev/null 2>&1 \
-    || fail "could not hold the prefix-migrated fixture row"
-  write_scout_with_attested_inventory "$home" "$scout" other-legacy-row
-
-  run_captain "$home" verify "$scout" >/dev/null \
-    || fail "verify did not resolve the legacy id under the configured prefix"
-  pass "verify resolves a captain hold whose id is the legacy id under the configured prefix"
-}
-
-# The prefix guess is a name, not evidence: when a row actually carries the
-# migration marker, that row is the one attested even though an unrelated
-# captain-held task occupies the <prefix>-<legacy id> name. The stub tasks-axi
-# is what makes the order observable - the real one resolves a bare legacy id
-# onto its prefixed row itself, answering before any migration lookup runs.
-test_marker_noted_row_wins_over_a_prefix_namesake() {
-  local fixture home beads scout fb row out
-  require_tasks_axi_beads "prefer a marker-noted row over a prefix namesake" || return 0
-  fixture=$(make_beads_home migrated-marker-wins)
-  home=${fixture%%|*}
-  beads=${fixture##*|}
-  scout=sample-marker-wins-scout
-  for row in fm-dual-row fm-marked-dual-row fm-solo-row; do
-    (cd "$home" && BEADS_ACTOR=fixture tasks-axi add "$row" "Captain call $row" \
-      --repo sample) >/dev/null 2>&1 || fail "could not create the fixture row $row"
-    (cd "$home" && BEADS_ACTOR=fixture tasks-axi hold "$row" --kind captain \
-      --reason "captain must decide") >/dev/null 2>&1 \
-      || fail "could not hold the fixture row $row"
-  done
-  bdrow "$beads" note fm-marked-dual-row \
-    "migrated from data/backlog.md id dual-row on 2026-09-04" \
-    >/dev/null 2>&1 || fail "could not record the migration marker note"
-  fb=$(fm_fakebin "$home")
+# A tasks-axi stub that knows ONLY the row ids it is given. The real
+# beads-capable tasks-axi resolves a bare legacy id onto its prefixed row
+# itself, answering before any migration lookup runs; against this stub the
+# migrated-hold resolution order is what has to answer.
+write_known_rows_stub() {  # <fakebin> <row-id...>
+  local fb=$1 known
+  shift
+  known=$(printf '%s|' "$@")
   cat > "$fb/tasks-axi" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
@@ -277,7 +243,7 @@ case "${1:-}" in
     ;;
   show)
     case "${2:-}" in
-      fm-dual-row|fm-marked-dual-row|fm-solo-row) ;;
+      @KNOWN@) ;;
       *) printf 'error: no task %s in this backlog\n' "${2:-}" >&2; exit 1 ;;
     esac
     printf '%s\n' 'task:'
@@ -288,7 +254,59 @@ case "${1:-}" in
   *) exit 1 ;;
 esac
 SH
+  sed -i.bak "s%@KNOWN@%${known%|}%" "$fb/tasks-axi"
+  rm -f "$fb/tasks-axi.bak"
   chmod +x "$fb/tasks-axi"
+}
+
+test_verify_resolves_a_hold_migrated_under_the_configured_prefix() {
+  local fixture home scout out
+  require_tasks_axi_beads "verify against a prefix-migrated hold" || return 0
+  fixture=$(make_beads_home migrated-prefix)
+  home=${fixture%%|*}
+  scout=sample-prefix-scout
+  (cd "$home" && BEADS_ACTOR=fixture tasks-axi add fm-other-legacy-row \
+    "Second migrated hold" --repo sample) >/dev/null 2>&1 \
+    || fail "could not create the prefix-migrated fixture row"
+  (cd "$home" && BEADS_ACTOR=fixture tasks-axi hold fm-other-legacy-row \
+    --kind captain --reason "captain must decide") >/dev/null 2>&1 \
+    || fail "could not hold the prefix-migrated fixture row"
+  # No row in this graph carries a marker note, so the narrowed prefix guess is
+  # the only resolution left for the attested legacy id.
+  write_known_rows_stub "$(fm_fakebin "$home")" fm-other-legacy-row
+  write_scout_with_attested_inventory "$home" "$scout" other-legacy-row
+
+  run_captain "$home" verify "$scout" >/dev/null \
+    || fail "verify did not resolve the legacy id under the configured prefix"
+  out=$(run_captain "$home" complete "$scout" other-legacy-row) \
+    || fail "the completion gate refused the prefix-resolved hold"
+  assert_contains "$out" "other-legacy-row=fm-other-legacy-row" \
+    "completion did not name the row the prefix guess attested against"
+  pass "verify resolves a captain hold whose id is the legacy id under the configured prefix"
+}
+
+# The prefix guess is a name, not evidence: when a row actually carries the
+# migration marker, that row is the one attested even though an unrelated
+# captain-held task occupies the <prefix>-<legacy id> name.
+test_marker_noted_row_wins_over_a_prefix_namesake() {
+  local fixture home beads scout row out
+  require_tasks_axi_beads "prefer a marker-noted row over a prefix namesake" || return 0
+  fixture=$(make_beads_home migrated-marker-wins)
+  home=${fixture%%|*}
+  beads=${fixture##*|}
+  scout=sample-marker-wins-scout
+  for row in fm-dual-row fm-marked-dual-row fm-solo-row; do
+    (cd "$home" && BEADS_ACTOR=fixture tasks-axi add "$row" "Captain call $row" \
+      --repo sample) >/dev/null 2>&1 || fail "could not create the fixture row $row"
+    (cd "$home" && BEADS_ACTOR=fixture tasks-axi hold "$row" --kind captain \
+      --reason "captain must decide") >/dev/null 2>&1 \
+      || fail "could not hold the fixture row $row"
+  done
+  bdrow "$beads" note fm-marked-dual-row \
+    "migrated from data/backlog.md id dual-row on 2026-09-04" \
+    >/dev/null 2>&1 || fail "could not record the migration marker note"
+  write_known_rows_stub "$(fm_fakebin "$home")" \
+    fm-dual-row fm-marked-dual-row fm-solo-row
   write_scout_with_attested_inventory "$home" "$scout" "dual-row,solo-row"
 
   out=$(run_captain "$home" complete "$scout" dual-row solo-row) \

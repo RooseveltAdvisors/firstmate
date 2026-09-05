@@ -121,9 +121,12 @@
 # identity, so pre-collapse metadata written by fm-decision-hold.sh verifies
 # unchanged. An entry that exists as a task id is always that task. On the
 # Beads backend an attested legacy markdown id that resolves to no task is
-# accepted through the migrated row fm-hold-migration produced: the legacy id
-# under the configured beads prefix, or a row whose notes carry the exact
-# marker line "migrated from data/backlog.md id <legacy id>".
+# accepted through the migrated row fm-hold-migration produced, found by the
+# authoritative evidence first: a row whose notes carry the exact marker line
+# "migrated from data/backlog.md id <legacy id>". Only when no row carries that
+# line is the legacy id tried under the configured beads prefix, and that
+# name-only guess is accepted solely for a single row still held for the
+# captain; two such rows refuse rather than attest.
 #
 # `open` is the read-only predicate a mechanical closer asks before it may
 # retire a task's row: is this task still an open captain call? Exit 0 means it
