@@ -122,11 +122,13 @@
 # unchanged. An entry that exists as a task id is always that task. On the
 # Beads backend an attested legacy markdown id that resolves to no task is
 # accepted through the migrated row fm-hold-migration produced, found by the
-# authoritative evidence first: a row whose notes carry the exact marker line
-# "migrated from data/backlog.md id <legacy id>". Only when no row carries that
-# line is the legacy id tried under the configured beads prefix, and that
-# name-only guess is accepted solely for a single row still held for the
-# captain; two such rows refuse rather than attest.
+# authoritative evidence first: a row whose notes carry the marker line
+# "migrated from data/backlog.md id <legacy id>", alone or followed by
+# " on <date>". Only when no row carries that line is the legacy id tried under
+# the configured beads prefix, and that name-only guess is accepted solely for
+# a single row still held for the captain; two such rows refuse rather than
+# attest, and `complete` names each prefix-resolved row beside its attested
+# legacy id so the guess stays auditable.
 #
 # `open` is the read-only predicate a mechanical closer asks before it may
 # retire a task's row: is this task still an open captain call? Exit 0 means it
@@ -451,14 +453,15 @@ verify_hold_durable() {  # <task-id>
 # A home that moved its backlog from markdown to Beads no longer carries the
 # legacy hold ids a scout report attested: the migration rehomed every held
 # row under a prefixed fm- id and recorded its markdown identity in the row's
-# notes as the exact line "migrated from data/backlog.md id <legacy id>" (what
-# fm-hold-migration wrote on 2026-09-04). When an attested legacy id resolves
-# to no task, the beads backend accepts the row the migration produced, found
-# by scanning the configured graph's notes for that exact marker line, and only
-# when no row carries the marker by prepending the configured prefix to the
-# legacy id - a name-only guess, so it is accepted solely for a row still held
-# for the captain and only when it is the single such row. A markdown home
-# keeps its legacy rows verbatim, so its exact-id resolution is unchanged.
+# notes as "migrated from data/backlog.md id <legacy id>", alone or followed by
+# " on <date>" (fm-hold-migration wrote the dated form on 2026-09-04). When an
+# attested legacy id resolves to no task, the beads backend accepts the row the
+# migration produced, found by scanning the configured graph's notes for either
+# form of that marker line, and only when no row carries the marker by
+# prepending the configured prefix to the legacy id - a name-only guess, so it
+# is accepted solely for a row still held for the captain and only when it is
+# the single such row. A markdown home keeps its legacy rows verbatim, so its
+# exact-id resolution is unchanged.
 
 CAPTAIN_MIGRATION_SCAN_LOADED=0
 CAPTAIN_MIGRATION_SCAN_JSON=
