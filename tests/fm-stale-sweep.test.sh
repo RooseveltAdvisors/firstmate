@@ -428,10 +428,17 @@ test_unreachable_backend_row_reads_unproven_and_is_kept() {
   printf '#!/usr/bin/env bash\nexit 1\n' > "$FAKEBIN/herdr"
   chmod +x "$FAKEBIN/herdr"
   make_repo_on_branch "$CASE_DIR/wt-unreach" fm/unreach
-  BEADS_DIR="$CASE_DIR/fm/.beads" bd create "fixture unreachable row" --id fm-unreach-row >/dev/null 2>&1 \
-    || fail "bd create fm-unreach-row failed"
-  BEADS_DIR="$CASE_DIR/fm/.beads" bd update fm-unreach-row --claim >/dev/null 2>&1 \
-    || fail "bd claim fm-unreach-row failed"
+  # Row setup captures bd's own output so a runner-side bd failure names
+  # itself in the failure log (the fx/fxlog contract the suite documents).
+  unreach_log="$CASE_DIR/unreach-setup.log"
+  if ! BEADS_DIR="$CASE_DIR/fm/.beads" bd create "fixture unreachable row" --id fm-unreach-row >"$unreach_log" 2>&1; then
+    cat "$unreach_log" >&2
+    fail "bd create fm-unreach-row failed (captured log above)"
+  fi
+  if ! BEADS_DIR="$CASE_DIR/fm/.beads" bd update fm-unreach-row --claim >>"$unreach_log" 2>&1; then
+    cat "$unreach_log" >&2
+    fail "bd claim fm-unreach-row failed (captured log above)"
+  fi
   fm_write_meta "$HOME_DIR/state/fm-unreach-row.meta" \
     "window=firstmate:w9:p9" "worktree=$CASE_DIR/wt-unreach" "kind=ship" "harness=claude" "backend=herdr"
   out=$(run_sweep)
