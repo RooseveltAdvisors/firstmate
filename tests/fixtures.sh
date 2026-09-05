@@ -6,9 +6,9 @@
 #   . "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
 #
 # Generic reporters, temp roots, git fixtures, and fail/pass/fm_test_cleanup
-# come from tests/lib.sh, pulled in below. This file owns the shared fake
-# no-mistakes, gh, gh-axi, tmux, ssh, and spawn-world helpers. Wake-queue mocks
-# stay in wake-helpers.sh; secondmate-lifecycle mocks stay in
+# come from tests/lib.sh, pulled in below. This file owns the shared fake-CLI
+# builders - every fm_test_fake_* below - and the spawn-world helpers.
+# Wake-queue mocks stay in wake-helpers.sh; secondmate-lifecycle mocks stay in
 # secondmate-helpers.sh.
 #
 # FM_TEST_NO_MISTAKES_VERSION is the single default version for the shared fake
@@ -73,7 +73,7 @@ SH
   chmod +x "$fakebin/no-mistakes"
 }
 
-# --- fake gh / gh-axi -------------------------------------------------------
+# --- fake gh / axi CLIs / treehouse -----------------------------------------
 
 # fm_test_fake_gh <fakebin>
 # Authenticates (`gh auth status` exits 0) and otherwise exits 0.
@@ -157,7 +157,7 @@ SH
   chmod +x "$fakebin/tasks-axi"
 }
 
-# --- fake tmux / ssh / sleep ------------------------------------------------
+# --- fake tmux / ssh / sleep / uname / curl / hashers -----------------------
 
 # fm_test_fake_tmux_spawn <fakebin>
 # Spawn-world tmux: pane_current_path from FM_FAKE_PANE_PATH, session named
