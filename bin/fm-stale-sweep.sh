@@ -221,11 +221,16 @@ fm_stale_beads_toml_entries() {  # <toml-file>
 }
 
 # Resolve the shared Beads graph from this home's .tasks.toml. The beads
-# backend's `path` and `binary` own the graph location and bd executable.
+# backend's `path` and `binary` own the graph location and bd executable. A
+# non-absolute `path` is resolved against this home exactly as
+# fm_stale_home_beads_path resolves another home's, never against the process
+# working directory: the armed check shim pins FM_HOME but not a working
+# directory, so a CWD-relative read would let whatever directory the watcher
+# happens to poll from decide which graph the sweep reads and --apply mutates.
 FM_STALE_BD_BIN=
 FM_STALE_BD_PATH=
 fm_stale_read_beads_config() {
-  local toml="$FM_HOME/.tasks.toml" parsed bin path
+  local toml="$FM_HOME/.tasks.toml" parsed bin path home
   [ -f "$toml" ] || {
     printf 'fm-stale-sweep: no .tasks.toml at %s; a home without a backlog config has no graph to sweep\n' "$toml" >&2
     return 1
@@ -243,6 +248,13 @@ fm_stale_read_beads_config() {
     printf 'fm-stale-sweep: .tasks.toml [beads] carries no graph path\n' >&2
     return 1
   }
+  case "$FM_STALE_BD_PATH" in
+    /*) ;;
+    *)
+      home=$(fm_capacity_resolve_dir "$FM_HOME" 2>/dev/null) || home=$FM_HOME
+      FM_STALE_BD_PATH=$home/$FM_STALE_BD_PATH
+      ;;
+  esac
   [ -d "$FM_STALE_BD_PATH" ] || {
     printf 'fm-stale-sweep: beads graph path %s is not a directory\n' "$FM_STALE_BD_PATH" >&2
     return 1

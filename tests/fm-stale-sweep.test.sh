@@ -33,6 +33,9 @@ set -u
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
+command -v bd >/dev/null 2>&1 || { echo "skip: bd not found (the fixture graph is a real Beads graph)"; exit 0; }
+command -v jq >/dev/null 2>&1 || { echo "skip: jq not found (required to read rows back out of the graph)"; exit 0; }
+
 fm_git_identity fmtest fmtest@example.invalid
 
 SWEEP="$ROOT/bin/fm-stale-sweep.sh"
@@ -296,8 +299,9 @@ run_sweep() {  # [args...]
 
 
 # The AGE column shows the row's true age against the sweep clock, never the
-# threshold-shifted value (a 25.5h row under the default 24h must read 25h,
-# not 1h), and --older-than gates the selection itself: rows younger than the
+# threshold-shifted value: the fixture's clock runs 50h ahead, so a row under
+# the default 24h threshold must read 50h, not the 26h it is over the
+# threshold. --older-than gates the selection itself: rows younger than the
 # threshold never appear in the table.
 test_age_column_is_true_age_and_threshold_gates_selection() {
   local rec out
@@ -312,6 +316,54 @@ test_age_column_is_true_age_and_threshold_gates_selection() {
     PATH="$FAKEBIN:$PATH" "$SWEEP" --older-than 3)
   assert_contains "$out" "0 stale candidates" \
     "rows younger than --older-than must not be listed"
+  pass "the age column is the true clock age and --older-than gates selection"
+}
+
+# A non-absolute [beads] path names the graph relative to THIS HOME, never to
+# whatever directory the sweep happens to run from. The armed check shim pins
+# FM_HOME but no working directory, so a CWD-relative read would let the
+# watcher's polling directory pick the graph - reading an unrelated graph, or
+# under --apply reopening rows in it.
+test_relative_beads_path_resolves_against_the_home() {
+  local rec out
+  rec=$(make_fixture relpath)
+  [ -n "$rec" ] || fail "fixture construction failed (see stderr above)"
+  read_fixture "$rec"
+  # The same graph the fixture built, now named home-relative.
+  cat > "$HOME_DIR/.tasks.toml" <<EOF
+backend = "beads"
+
+[beads]
+path = "../fm/.beads"
+binary = "bd"
+prefix = "fm"
+
+[markdown]
+path = "data/backlog.md"
+archive = "data/done-archive.md"
+done_keep = 10
+EOF
+  # A decoy graph that a CWD-relative read would reach instead: real, valid,
+  # and empty, so reading it looks like a clean sweep rather than an error.
+  mkdir -p "$CASE_DIR/decoy/fm" "$CASE_DIR/decoy/sub" "$CASE_DIR/elsewhere"
+  git -C "$CASE_DIR/decoy/fm" init -q
+  (cd "$CASE_DIR/decoy/fm" && bd init >/dev/null 2>&1) \
+    || fail "fixture decoy bd init failed"
+
+  # From a directory where the relative path resolves to nothing at all.
+  out=$(cd "$CASE_DIR/elsewhere" && FM_HOME="$HOME_DIR" \
+    FM_STALE_SWEEP_NOW="$(sweep_clock)" PATH="$FAKEBIN:$PATH" "$SWEEP") \
+    || fail "the sweep could not resolve its own home-relative graph path"
+  assert_row_matches 'fm-dead-row[[:space:]]+main home[[:space:]]+50h[[:space:]]+dead' "$out" \
+    "a home-relative [beads] path must resolve against the home, not the working directory"
+
+  # From a directory where the relative path resolves to a DIFFERENT graph.
+  out=$(cd "$CASE_DIR/decoy/sub" && FM_HOME="$HOME_DIR" \
+    FM_STALE_SWEEP_NOW="$(sweep_clock)" PATH="$FAKEBIN:$PATH" "$SWEEP") \
+    || fail "the sweep failed when the working directory held a same-named graph"
+  assert_row_matches 'fm-dead-row[[:space:]]+main home[[:space:]]+50h[[:space:]]+dead' "$out" \
+    "the working directory's graph must never displace the home's own graph"
+  pass "a home-relative [beads] path resolves against the home, not the working directory"
 }
 
 # No-home rows carry the row's own ownership evidence: the ACTOR column decodes
@@ -628,6 +680,7 @@ test_apply_refuses_a_row_with_a_pending_completion_replay() {
 }
 
 test_age_column_is_true_age_and_threshold_gates_selection
+test_relative_beads_path_resolves_against_the_home
 test_orphan_columns_and_apply_orphans_guards
 test_dry_run_lists_verdicts_and_reclaims_nothing
 test_apply_reclaims_only_dead_rows
