@@ -530,6 +530,8 @@ SH
     "the Beads completion teardown left the task record behind"
   assert_absent "$home/state/$id.backlog-close" \
     "the Beads completion teardown left its pending-close record behind"
+  assert_not_contains "$out" "backlog.md" \
+    "the Beads teardown reported the close against a markdown file this home has not got"
   pass "completion applies and closes a Beads backlog without any markdown file"
 }
 

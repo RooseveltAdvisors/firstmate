@@ -1277,10 +1277,12 @@ backlog_done_args() {
 # invariant). This prints what already happened, so the follow-up wording stays
 # only where a human still owes the edit.
 backlog_refresh_reminder() {
-  local backlog_display
+  local backlog_display root
   [ "$KIND" = secondmate ] && return 0
   [ "$CLEANUP_RECOVERY" = orca ] && return 0
-  if backlog_display=$(fm_backlog_file "$DATA"); then
+  if root=$(fm_backlog_root "$DATA") && [ "$(fm_tasks_axi_backend "$root")" != markdown ]; then
+    backlog_display="this home's configured tasks-axi backend (data directory $DATA)"
+  elif backlog_display=$(fm_backlog_file "$DATA"); then
     :
   else
     backlog_display="${DATA%/}/backlog.md"

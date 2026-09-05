@@ -103,7 +103,7 @@ write_origin_meta() {  # <home> <id> [kind]
 # through bd directly where possible because the npm-published tasks-axi ships
 # the markdown backend only; the hold itself needs a beads-capable tasks-axi,
 # so that family probes once and skips itself with an explicit reason on
-# markdown-only installs, mirroring tests/fm-stale-sweep.test.sh.
+# markdown-only installs, mirroring tests/fm-control-relaunch.test.sh.
 
 # Build a fixture home whose configured backend is a scratch Beads graph.
 # Echoes "<home>|<graph-beads-dir>". The graph repo dir is named "fm" because
@@ -419,8 +419,6 @@ SH
     || fail "holding on a beads-configured home failed without a markdown backlog"
   assert_grep "hold $id" "$log" \
     "the captain-hold mutation never reached the configured backend"
-  assert_no_grep "hold $id --file" "$log" \
-    "the captain-hold mutation passed a markdown file override to a beads home"
 
   decision="$home/captain-decision.txt"
   printf 'Ship the gold-only plan.\n' > "$decision"
@@ -431,12 +429,10 @@ SH
     || fail "answering on a beads-configured home failed without a markdown backlog"
   assert_grep "update $id --body-file" "$log" \
     "the captain answer never reached the configured backend"
-  assert_no_grep "update $id --body-file .* --file" "$log" \
-    "the captain answer update passed a markdown file override to a beads home"
   assert_grep "done $id" "$log" \
     "the captain answer close never reached the configured backend"
-  assert_no_grep "done $id --file" "$log" \
-    "the captain answer close passed a markdown file override to a beads home"
+  assert_no_grep " --file " "$log" \
+    "a captain-hold mutation passed a markdown file override to a beads home"
   pass "captain-hold mutations address the beads backend without a markdown override"
 }
 
