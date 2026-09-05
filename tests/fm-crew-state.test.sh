@@ -865,6 +865,36 @@ test_no_run_herdr_unknown_uses_backend_capture() {
   pass "herdr's native busy verdict reads working with no record present"
 }
 
+# Regression (2026-09 G7 stale-claim incident): a herdr CLI that errors or
+# stalls under load made pane_readable's capture fail, and the fallback read
+# that single failure as "backend target gone" - text the stale sweep matches
+# as positive death - so a busy box briefly scored dozens of live claims dead.
+# The reader must separate the two outcomes: only a successful herdr answer
+# proving the pane absent may say gone; a CLI that failed to answer is unknown
+# and unreachable, never death.
+test_no_run_herdr_cli_failure_reads_unreachable_not_gone() {
+  command -v jq >/dev/null 2>&1 || { pass "herdr cli-failure fallback skipped without jq"; return; }
+  reset_fakes
+  local d; d=$(new_case herdr-cli-dead)
+  make_repo_on_branch "$d/wt" fm/feat-herdr-cli
+  make_fakebin "$d" >/dev/null
+  # A herdr that cannot answer at all: every invocation exits non-zero, the
+  # busiest-box form of a stalled CLI (capture and pane get alike fail).
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$d/fakebin/herdr"
+  chmod +x "$d/fakebin/herdr"
+  fm_write_meta "$d/state/feat-herdr-cli.meta" "window=default:w1:p2" "worktree=$d/wt" "kind=ship" \
+    "backend=herdr" "harness=claude"
+  FM_FAKE_AXI_STATUS=""
+  FM_FAKE_RUNS_LIST=""
+  FM_FAKE_TMUX_MISSING=1
+  local out; out=$(run_crew_state "$d" feat-herdr-cli)
+  assert_contains "$out" "state: unknown" "a failed herdr CLI must stay unknown"
+  assert_contains "$out" "source: none" "a failed herdr CLI has no state source"
+  assert_contains "$out" "backend unreachable" "a failed herdr CLI must read as unreachable, not gone"
+  assert_not_contains "$out" "backend target gone" "a failed herdr CLI is not positive death evidence"
+  pass "a herdr CLI that fails to answer reads unknown/unreachable, never gone"
+}
+
 # Regression (2026-07 herdr false-surface incident, now solved semantically):
 # herdr's agent.get reports generation state ("working" only while the model is
 # actively streaming - docs/herdr-backend.md "Busy state"), not "this crew's
@@ -1752,6 +1782,7 @@ test_no_run_busy_pane
 test_no_run_footer_text_alone_is_not_working
 test_no_run_grok_uses_isolated_fallback
 test_no_run_herdr_unknown_uses_backend_capture
+test_no_run_herdr_cli_failure_reads_unreachable_not_gone
 test_no_run_herdr_idle_agent_status_outranked_by_record
 test_no_run_herdr_idle_agent_status_and_idle_record_stays_idle
 test_no_run_idle_pane_uses_log
