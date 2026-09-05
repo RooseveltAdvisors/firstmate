@@ -402,19 +402,16 @@ fm_stale_axi() {  # <home> <verb> <id> [flag...]
 # Decode the `body:` field tasks-axi show prints: "-" or empty for none, a
 # JSON-encoded string when it contains newlines or quotes, plain otherwise.
 fm_stale_decode_body() {  # <body-field-value>
-  python3 - "$1" <<'PY'
-import json, sys
-shown = sys.argv[1].rstrip("\n")
-if shown in ("", "-", '"-"'):
-    sys.exit(0)
-if shown.startswith('"'):
-    try:
-        sys.stdout.write(json.loads(shown))
-    except Exception:
-        sys.exit(1)
-else:
-    sys.stdout.write(shown)
-PY
+  local shown=$1
+  case "$shown" in
+    ''|-|'"-"') return 0 ;;
+    '"'*)
+      printf '%s' "$shown" | jq -r . 2>/dev/null
+      ;;
+    *)
+      printf '%s' "$shown"
+      ;;
+  esac
 }
 
 # Reclaim one dead-endpoint row through its owning home. The whole reclaim
@@ -760,6 +757,9 @@ action_check() {
     fm_stale_write_record "$now"
     printf 'fm-stale-sweep: graph read failed\n'
     return 0
+  fi
+  if [ "$FM_STALE_UNCONSIDERED" -gt 0 ]; then
+    printf 'budget stopped the sweep with %d candidates unconsidered; raise FM_STALE_SWEEP_BUDGET_SECS or run without the check gate\n' "$FM_STALE_UNCONSIDERED"
   fi
   count=$FM_STALE_COUNT_DEAD
   fm_stale_write_record "$now"
