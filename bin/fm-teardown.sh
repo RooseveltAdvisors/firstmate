@@ -326,6 +326,7 @@ TEARDOWN_META_SPAWN_GEN=
 TEARDOWN_LEGACY_PENDING=0
 TEARDOWN_LEGACY_ACCEPTED=0
 TEARDOWN_LEGACY_ENDPOINT=
+TEARDOWN_LEGACY_PRESTAMP_SIZE=0
 TEARDOWN_BACKLOG_APPLIES=0
 TEARDOWN_BACKLOG_SKIP_REASON=
 if [ "$TEARDOWN_CLEANUP_RECOVERY" != orca ]; then
@@ -2834,8 +2835,12 @@ if [ "$TEARDOWN_BACKLOG_APPLIES" = 1 ]; then
   # The accepted legacy incarnation is stamped under the meta lock already
   # held, right before the close marker binds to it: every refusal above leaves
   # the record byte-identical, and every later replay reads the same stamped
-  # token the marker carries.
+  # token the marker carries. A failed close-marker write rolls the stamp back
+  # to the record's pre-stamp bytes, so a retried teardown re-runs the
+  # dead-or-agent-less endpoint gate instead of sailing past it on a stamp the
+  # abandoned attempt left behind.
   if [ "$TEARDOWN_LEGACY_ACCEPTED" = 1 ]; then
+    TEARDOWN_LEGACY_PRESTAMP_SIZE=$(wc -c < "$META" | tr -d ' ')
     if [ -s "$META" ] && [ -n "$(tail -c 1 -- "$META" 2>/dev/null)" ]; then
       printf '\n' >> "$META" || {
         echo "error: could not stamp the accepted legacy incarnation into task $ID's record; refusing destructive teardown" >&2
@@ -2853,10 +2858,22 @@ if [ "$TEARDOWN_BACKLOG_APPLIES" = 1 ]; then
   fi
   BACKLOG_CLOSED=1
   META_SPAWN_GEN=$TEARDOWN_META_SPAWN_GEN
-  fm_backlog_close_marker_write "$STATE" "$ID" "$DATA" "$META_SPAWN_GEN" \
-    "${BACKLOG_TRANSITION_FLAGS[@]+"${BACKLOG_TRANSITION_FLAGS[@]}"}" \
-    "${BACKLOG_DONE_ARGS[@]+"${BACKLOG_DONE_ARGS[@]}"}" \
-    || { echo "error: the pending backlog $BACKLOG_TRANSITION for $ID could not be recorded ($FM_BACKLOG_TRANSITION_ERROR); retaining every durable task record" >&2; exit 1; }
+  if ! fm_backlog_close_marker_write "$STATE" "$ID" "$DATA" "$META_SPAWN_GEN" \
+      "${BACKLOG_TRANSITION_FLAGS[@]+"${BACKLOG_TRANSITION_FLAGS[@]}"}" \
+      "${BACKLOG_DONE_ARGS[@]+"${BACKLOG_DONE_ARGS[@]}"}"; then
+    if [ "$TEARDOWN_LEGACY_ACCEPTED" = 1 ] \
+       && [ "$TEARDOWN_LEGACY_PRESTAMP_SIZE" -gt 0 ] 2>/dev/null \
+       && truncate -s "$TEARDOWN_LEGACY_PRESTAMP_SIZE" -- "$META" 2>/dev/null \
+       && [ "$(wc -c < "$META" | tr -d ' ')" = "$TEARDOWN_LEGACY_PRESTAMP_SIZE" ]; then
+      echo "error: the pending backlog $BACKLOG_TRANSITION for $ID could not be recorded ($FM_BACKLOG_TRANSITION_ERROR); the accepted legacy incarnation was rolled back, retaining every durable task record" >&2
+    else
+      echo "error: the pending backlog $BACKLOG_TRANSITION for $ID could not be recorded ($FM_BACKLOG_TRANSITION_ERROR); retaining every durable task record" >&2
+      if [ "$TEARDOWN_LEGACY_ACCEPTED" = 1 ]; then
+        echo "error: the legacy incarnation stamp on $ID's record could not be rolled back; re-run teardown with --legacy-record after reconciling its endpoint" >&2
+      fi
+    fi
+    exit 1
+  fi
 else
   if [ "$CLEANUP_RECOVERY" = orca ]; then
     BACKLOG_SKIP_REASON="Orca cleanup recovery is not a launched backlog worker"

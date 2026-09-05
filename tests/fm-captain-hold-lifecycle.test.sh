@@ -350,6 +350,16 @@ case "${1:-}" in
     esac
     printf 'ok: hold %s\n' "${2:-}"
     ;;
+  done)
+    [ "${2:-}" = "@ID@" ] || exit 1
+    case " $* " in
+      *" --file "*)
+        printf '%s\n' 'error: beads done received a markdown file override' >&2
+        exit 1
+        ;;
+    esac
+    printf 'ok: done %s\n' "${2:-}"
+    ;;
   show)
     [ "${2:-}" = "@ID@" ] || exit 1
     case " $* " in
@@ -385,6 +395,22 @@ SH
     "the captain-hold mutation never reached the configured backend"
   assert_no_grep "hold $id --file" "$log" \
     "the captain-hold mutation passed a markdown file override to a beads home"
+
+  decision="$home/captain-decision.txt"
+  printf 'Ship the gold-only plan.\n' > "$decision"
+  PATH="$fb:$PATH" REAL_TASKS_AXI="$TASKS_AXI_BIN" \
+    FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
+    FM_DATA_OVERRIDE="$home/data" FM_CONFIG_OVERRIDE="$home/config" \
+    "$ROOT/bin/fm-captain-hold.sh" answer "$id" --decision-file "$decision" >/dev/null \
+    || fail "answering on a beads-configured home failed without a markdown backlog"
+  assert_grep "update $id --body-file" "$log" \
+    "the captain answer never reached the configured backend"
+  assert_no_grep "update $id --body-file .* --file" "$log" \
+    "the captain answer update passed a markdown file override to a beads home"
+  assert_grep "done $id" "$log" \
+    "the captain answer close never reached the configured backend"
+  assert_no_grep "done $id --file" "$log" \
+    "the captain answer close passed a markdown file override to a beads home"
   pass "captain-hold mutations address the beads backend without a markdown override"
 }
 
