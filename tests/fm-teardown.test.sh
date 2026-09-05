@@ -1126,6 +1126,43 @@ test_legacy_record_teardown_refuses_an_ambiguous_endpoint() {
   pass "an endpoint that cannot be confidently read as dead refuses --legacy-record teardown"
 }
 
+test_legacy_record_rolls_the_stamp_back_when_the_marker_write_fails() {
+  local case_dir rc before
+  case_dir=$(make_case legacy-stamp-rollback)
+  write_legacy_meta "$case_dir" no-mistakes ship
+  printf '%s\n' 'pr=not-a-valid-url' >> "$case_dir/state/task-x1.meta"
+  seed_backlog_in_flight "$case_dir"
+  wt_commit "$case_dir" "landed legacy work"
+  add_fork_with_pushed_branch "$case_dir"
+  before=$(cksum "$case_dir/state/task-x1.meta" | awk '{print $1, $2}')
+
+  set +e
+  run_teardown "$case_dir" --legacy-record > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" \
+    "legacy-stamp-rollback: an unrecordable close must fail the teardown after accepting the legacy record"
+  [ "$(cksum "$case_dir/state/task-x1.meta" | awk '{print $1, $2}')" = "$before" ] \
+    || fail "legacy-stamp-rollback: the failed marker write left the record modified"
+  grep -q "rolled back" "$case_dir/stderr" \
+    || fail "legacy-stamp-rollback: the refusal did not report the rolled-back stamp"
+  [ "$(backlog_row_state "$case_dir")" = in_flight ] \
+    || fail "legacy-stamp-rollback: the failed teardown closed the backlog item anyway"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout2" 2> "$case_dir/stderr2"
+  rc=$?
+  set -e
+  expect_code 1 "$rc" \
+    "legacy-stamp-rollback: the flag-less retry must not sail past the endpoint gate on the rolled-back record"
+  grep -q -- '--legacy-record' "$case_dir/stderr2" \
+    || fail "legacy-stamp-rollback: the retry refusal did not name the flag path"
+  [ "$(cksum "$case_dir/state/task-x1.meta" | awk '{print $1, $2}')" = "$before" ] \
+    || fail "legacy-stamp-rollback: the flag-less retry modified the record"
+  pass "--legacy-record teardown rolls its stamp back when the close marker write fails"
+}
+
 test_legacy_record_never_accepts_a_corrupt_spawn_gen() {
   local case_dir rc
   case_dir=$(make_case legacy-corrupt)
@@ -3394,6 +3431,7 @@ test_legacy_record_without_the_flag_refuses
 test_legacy_record_teardown_completes_when_landed_and_endpoint_dead
 test_legacy_record_teardown_refuses_unlanded_work
 test_legacy_record_teardown_refuses_an_ambiguous_endpoint
+test_legacy_record_rolls_the_stamp_back_when_the_marker_write_fails
 test_legacy_record_never_accepts_a_corrupt_spawn_gen
 test_stale_index_lock_cleared_and_teardown_succeeds
 test_live_index_lock_is_never_removed_and_teardown_refuses

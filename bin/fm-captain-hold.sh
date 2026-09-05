@@ -457,6 +457,7 @@ verify_hold_durable() {  # <task-id>
 
 CAPTAIN_MIGRATION_SCAN_LOADED=0
 CAPTAIN_MIGRATION_SCAN_JSON=
+NL_SEP=$'\n'
 
 # Section-aware [beads] extraction from a .tasks.toml: only keys inside the
 # [beads] section, comments stripped. Prints "<key> <value>" lines.
@@ -545,8 +546,9 @@ captain_migration_scan_load() {  # <resolved-data-dir>
 # beads backend. Prints the row id and returns 0 when exactly one migration
 # matches, returns 1 when none does, and returns 2 with the reason on stderr
 # when the scan itself cannot run or is ambiguous.
-resolve_migrated_entry() {  # <entry>
-  local entry=$1 data root entries prefix prefixed matches count
+resolve_migrated_entry() {  # <origin-or-empty> <entry>
+  local origin=$1 entry=$2 data root entries prefix derived
+  local candidate prefixed matches count
   data=$(fm_backlog_data_absolute "$DATA") || {
     printf 'fm-captain-hold: the migrated hold of %s cannot be resolved: %s\n' \
       "$entry" "${FM_BACKLOG_TRANSITION_ERROR:-the configured data directory $DATA cannot be resolved}" >&2
@@ -558,34 +560,52 @@ resolve_migrated_entry() {  # <entry>
     return 2
   }
   [ "$(fm_tasks_axi_backend "$root")" = beads ] || return 1
+  # Every identity this entry could have been migrated under: the raw entry,
+  # and - for a pre-collapse channel key - the derived legacy identity its
+  # origin would have minted, because fm-hold-migration recorded the DERIVED
+  # id in each migrated row's marker note.
+  CAPTAIN_MIGRATION_IDENTITIES=$entry
+  if [ -n "$origin" ] && [ "$origin" != "$BINDING_ANY" ]; then
+    derived=$(legacy_hold_id "$origin" "$entry")
+    if [ "$derived" != "$entry" ]; then
+      CAPTAIN_MIGRATION_IDENTITIES="$CAPTAIN_MIGRATION_IDENTITIES $derived"
+    fi
+  fi
   # A mechanical migration keeps the legacy id under the configured prefix.
   entries=$(captain_beads_toml_entries "$root/.tasks.toml")
   prefix=$(captain_beads_setting "$entries" prefix)
   if [ -n "$prefix" ]; then
-    case "$prefix" in
-      *-) prefixed="$prefix$entry" ;;
-      *) prefixed="$prefix-$entry" ;;
-    esac
-    if task_show "$prefixed" >/dev/null 2>&1; then
-      printf '%s' "$prefixed"
-      return 0
-    fi
+    for candidate in $CAPTAIN_MIGRATION_IDENTITIES; do
+      case "$prefix" in
+        *-) prefixed="$prefix$candidate" ;;
+        *) prefixed="$prefix-$candidate" ;;
+      esac
+      if task_show "$prefixed" >/dev/null 2>&1; then
+        printf '%s' "$prefixed"
+        return 0
+      fi
+    done
   fi
   captain_migration_scan_load "$data" || return 2
   [ -n "$CAPTAIN_MIGRATION_SCAN_JSON" ] || return 1
-  matches=$(printf '%s\n' "$CAPTAIN_MIGRATION_SCAN_JSON" | jq -r \
-    --arg exact "migrated from data/backlog.md id $entry" \
-    --arg dated "migrated from data/backlog.md id $entry on " \
-    '.[] | select(((.notes // "") | split("\n")) | any(. == $exact or startswith($dated))) | .id' 2>/dev/null) || {
-    printf 'fm-captain-hold: the beads graph scan for the migrated hold of %s could not be parsed\n' "$entry" >&2
-    return 2
-  }
+  matches=
+  for candidate in $CAPTAIN_MIGRATION_IDENTITIES; do
+    candidate_matches=$(printf '%s\n' "$CAPTAIN_MIGRATION_SCAN_JSON" | jq -r \
+      --arg exact "migrated from data/backlog.md id $candidate" \
+      --arg dated "migrated from data/backlog.md id $candidate on " \
+      '.[] | select(((.notes // "") | split("\n")) | any(. == $exact or startswith($dated))) | .id' 2>/dev/null) || {
+      printf 'fm-captain-hold: the beads graph scan for the migrated hold of %s could not be parsed\n' "$candidate" >&2
+      return 2
+    }
+    matches="${matches}${matches:+$NL_SEP}${candidate_matches}"
+  done
   count=$(printf '%s\n' "$matches" | sed '/^$/d' | wc -l | tr -d ' ')
   case "$count" in
     0) return 1 ;;
-    1) printf '%s' "$(printf '%s\n' "$matches" | sed -n 1p)"; return 0 ;;
+    1) printf '%s' "$(printf '%s\n' "$matches" | sed '/^$/d' | sed -n 1p)"; return 0 ;;
   esac
-  printf 'fm-captain-hold: the migrated hold of %s is ambiguous: %s rows carry its marker line\n' "$entry" "$count" >&2
+  printf 'fm-captain-hold: the migrated hold of %s is ambiguous: %s rows carry its marker line (identities tried: %s)\n' \
+    "$entry" "$count" "$(printf '%s' "$CAPTAIN_MIGRATION_IDENTITIES" | tr ' ' ',')" >&2
   return 2
 }
 
@@ -606,7 +626,7 @@ resolve_entry() {  # <origin-or-empty> <entry>; prints the resolved id or fails
     fi
   fi
   rc=0
-  migrated=$(resolve_migrated_entry "$entry") || rc=$?
+  migrated=$(resolve_migrated_entry "$origin" "$entry") || rc=$?
   case "$rc" in
     0) printf '%s' "$migrated"; return 0 ;;
     2) return 2 ;;

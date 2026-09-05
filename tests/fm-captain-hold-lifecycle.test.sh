@@ -291,6 +291,31 @@ test_verify_names_the_unresolvable_legacy_id_once() {
   pass "an unresolvable legacy id is refused once, naming the id"
 }
 
+test_verify_resolves_a_pre_collapse_key_through_its_derived_marker() {
+  local fixture home beads scout
+  require_tasks_axi_beads "verify a derived pre-collapse key" || return 0
+  fixture=$(make_beads_home migrated-derived)
+  home=${fixture%%|*}
+  beads=${fixture##*|}
+  scout=sample-derived-scout
+  # The row was migrated under the DERIVED pre-collapse identity, keyed by a
+  # bare decision key the origin's old metadata attests.
+  (cd "$home" && BEADS_ACTOR=fixture tasks-axi add fm-dec-call \
+    "Migrated pre-collapse call" --repo sample) >/dev/null 2>&1 \
+    || fail "could not create the derived-marker fixture row"
+  (cd "$home" && BEADS_ACTOR=fixture tasks-axi hold fm-dec-call \
+    --kind captain --reason "captain must decide") >/dev/null 2>&1 \
+    || fail "could not hold the derived-marker fixture row"
+  bdrow "$beads" note fm-dec-call \
+    "migrated from data/backlog.md id $scout-decision-github-delete on 2026-09-04" \
+    >/dev/null 2>&1 || fail "could not record the derived-id marker note"
+  write_scout_with_attested_inventory "$home" "$scout" github-delete
+
+  run_captain "$home" verify "$scout" >/dev/null \
+    || fail "verify did not probe the derived pre-collapse identity for its migrated row"
+  pass "a pre-collapse key resolves through its derived identity's migration marker"
+}
+
 # The captain-hold mutation wrapper must address the configured backend like
 # the transition library does: on a beads-configured home its hold/answer/done
 # calls reach tasks-axi with no markdown file override. Fully portable - the
@@ -383,7 +408,8 @@ case "${1:-}" in
   *) exit 1 ;;
 esac
 SH
-  sed -i "s|@HOME@|$home|g; s|@ID@|$id|g; s|@LOG@|$log|g" "$fb/tasks-axi"
+  sed -i.bak "s|@HOME@|$home|g; s|@ID@|$id|g; s|@LOG@|$log|g" "$fb/tasks-axi"
+  rm -f "$fb/tasks-axi.bak"
   chmod +x "$fb/tasks-axi"
 
   PATH="$fb:$PATH" REAL_TASKS_AXI="$TASKS_AXI_BIN" \
@@ -2033,4 +2059,5 @@ test_verify_resolves_a_hold_migrated_to_beads_notes
 test_verify_resolves_a_hold_migrated_under_the_configured_prefix
 test_complete_accepts_a_migrated_inventory_on_beads
 test_verify_names_the_unresolvable_legacy_id_once
+test_verify_resolves_a_pre_collapse_key_through_its_derived_marker
 test_captain_hold_mutations_address_the_beads_backend
