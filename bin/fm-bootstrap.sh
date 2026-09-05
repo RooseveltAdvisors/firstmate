@@ -1527,7 +1527,14 @@ check_no_mistakes_mirror_one() {  # <label> <clone> <root> <absent-is-drift>
 detect_no_mistakes_mirror() {
   local root name mode clone fm_absent_is_drift=0
   root=${NM_HOME:-}
-  [ -n "$root" ] || root=$HOME/.no-mistakes
+  if [ -z "$root" ]; then
+    # Bootstrap is a reporting command that always exits 0, so an environment
+    # with no HOME (a unit file, a cron job, env -i) must leave mirror drift
+    # unreported rather than abort the whole digest on an unbound variable.
+    root=${HOME:-}
+    [ -n "$root" ] || return 0
+    root=$root/.no-mistakes
+  fi
   # init canonicalizes NM_HOME when it writes the remote, so a trailing-slash
   # NM_HOME must not poison the <root>/repos/* prefix match below. A bare "/"
   # root is already canonical and must survive the strip.
@@ -1537,14 +1544,16 @@ detect_no_mistakes_mirror() {
   [ -f "$DATA/projects.md" ] || return 0
   while IFS= read -r name; do
     [ -n "$name" ] || continue
+    # Registered but never cloned is skipped either way, so test it before
+    # paying a fork per registry line inside the bounded local phase.
+    clone="$PROJECTS/$name"
+    [ -d "$clone" ] || continue
     mode=$("$SCRIPT_DIR/fm-project-mode.sh" --raw "$name" 2>/dev/null || true)
     mode=${mode%% *}
     case "$mode" in
       no-mistakes|no-mistakes-prod-only) ;;
       *) continue ;;
     esac
-    clone="$PROJECTS/$name"
-    [ -d "$clone" ] || continue
     check_no_mistakes_mirror_one "$name" "$clone" "$root" 1
   done < <(awk '$1=="-" && $2!="" { print $2 }' "$DATA/projects.md" 2>/dev/null)
 }

@@ -53,7 +53,11 @@ case "\${1:-}" in
     ;;
   display-message) printf 'firstmate\n'; exit 0 ;;
   list-windows) exit 0 ;;
-  has-session|new-session|new-window|kill-window|set-window-option) exit 0 ;;
+  kill-window)
+    printf '%s\n' "\$*" >> "\${FM_FAKE_TMUX_KILL_LOG:-/dev/null}"
+    exit 0
+    ;;
+  has-session|new-session|new-window|set-window-option) exit 0 ;;
   send-keys) exit 0 ;;
 esac
 exit 0
@@ -132,6 +136,7 @@ run_capacity_spawn() {  # [fm-spawn args...]
     FM_STATE_OVERRIDE="$HOME_DIR/state" FM_DATA_OVERRIDE="$HOME_DIR/data" \
     FM_PROJECTS_OVERRIDE="$HOME_DIR/projects" FM_CONFIG_OVERRIDE="$HOME_DIR/config" \
     FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$PROJ_DIR" \
+    FM_FAKE_TMUX_KILL_LOG="$CASE_DIR/tmux-kill.log" \
     FM_FAKE_PANE_TEXT_FILE="$CASE_DIR/refusal.txt" TMUX="fake,1,0" \
     PATH="$FAKEBIN:$PATH" \
     "$SPAWN" "$@" 2>&1
@@ -147,6 +152,12 @@ test_pool_full_refusal_holds_and_exits_two() {
   expect_code 2 "$rc" "pool-full spawn must exit 2, got $rc"
   assert_contains "$out" "held: cap-x1 - pool $pool full 3/4; item left queued" \
     "the one hold line must name the item, pool, and counts"
+  # The endpoint this path created is closed here, so the redispatch after a
+  # release can create it again instead of colliding with a stale one.
+  assert_contains "$(cat "$CASE_DIR/tmux-kill.log" 2>/dev/null)" "fm-cap-x1" \
+    "the refusal must close the endpoint it created for the held task"
+  assert_contains "$out" "endpoint firstmate:fm-cap-x1 closed" \
+    "the hold line must state that the endpoint was closed"
   local show
   show=$(tasks-axi show cap-x1 --file "$HOME_DIR/data/backlog.md" 2>/dev/null)
   assert_contains "$show" "state: queued" "held item must stay queued, not in flight"
@@ -170,6 +181,8 @@ test_pool_full_refusal_on_manual_home_exits_two_without_hold() {
   assert_contains "$out" "record the hold by hand" \
     "manual-home refusal must say the hold is the operator's to record"
   assert_not_contains "$out" "held: cap-x1" "manual home must not claim a recorded hold"
+  assert_contains "$(cat "$CASE_DIR/tmux-kill.log" 2>/dev/null)" "fm-cap-x1" \
+    "a manual-home refusal must close its endpoint too"
   [ ! -e "$HOME_DIR/data/backlog.md" ] || fail "manual home unexpectedly owns a backlog file"
   [ ! -e "$HOME_DIR/state/cap-x1.meta" ] || fail "manual-home pool-full spawn published a task record"
   pass "a full pool on a manual-backend home still exits 2 and records no phantom hold"

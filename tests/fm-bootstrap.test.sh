@@ -1293,6 +1293,16 @@ NO_MISTAKES_MIRROR: absent remote=absent expected-root=$root_a (run no-mistakes 
   [ "$out" = "$expect" ] \
     || fail "mirror check: a wrong-root remote must report regardless of the gate record, got: $out"
 
+  # With neither NM_HOME nor HOME set (a unit file, a cron job, env -i) there is
+  # no root to resolve, and bootstrap is a reporting command that always exits
+  # 0: the mirror check must go quiet rather than abort the whole digest.
+  out=$(env -u HOME -u NM_HOME PATH="$fakebin:$BASE_PATH" FM_HOME="$home" \
+    FM_ROOT_OVERRIDE="$ungated" FM_FAKE_TREEHOUSE_LEASE_HELP=1 \
+    "$ROOT/bin/fm-bootstrap.sh") \
+    || fail "bootstrap must still report and exit 0 with no HOME and no NM_HOME"
+  assert_not_contains "$out" "NO_MISTAKES_MIRROR:" \
+    "with no resolvable no-mistakes root there is no mirror drift to report"
+
   pass "bootstrap reports no-mistakes gate-remote drift outside the resolved root"
 }
 

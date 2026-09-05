@@ -274,12 +274,16 @@ fm_stale_read_beads_config() {
 
 # --- owning-home resolution --------------------------------------------------
 
-# Local secondmate routes from data/secondmates.md: "- <id> - ... (home: <path>; ...)"
-# without a host: field. Remote routes are deliberately excluded: their homes
-# are not local directories and their liveness is the remote transport's to own.
+# Local secondmate routes from data/secondmates.md: "- <id> - ... (home: <path>; ...)".
+# The literal "(" before "home: " is what excludes remote routes, and it is the
+# only thing that does: bin/fm-secondmate-registry-lib.sh writes a remote record
+# as one line whose suffix reads "(host: ...; root: ...; home: ...)", so its
+# home field is preceded by "; ", never by "(". Remote homes are not local
+# directories and their liveness is the remote transport's to own, so relaxing
+# that anchor would admit them into this local-ownership scan.
 fm_stale_registry_homes() {
   [ -f "$DATA/secondmates.md" ] || return 0
-  sed -n '/^host:/d; s/^- \([^ ]\{1,\}\) - .*(home: \([^);]*\);.*/\1\t\2/p' "$DATA/secondmates.md" 2>/dev/null || true
+  sed -n 's/^- \([^ ]\{1,\}\) - .*(home: \([^);]*\);.*/\1\t\2/p' "$DATA/secondmates.md" 2>/dev/null || true
 }
 
 # The provenance home named inside a row's description, if any.
@@ -325,7 +329,14 @@ EOF
     return 0
   fi
   if prov_home=$(fm_stale_provenance_home "$desc"); then
-    if [ -d "$prov_home" ]; then
+    # A firstmate home, not merely an existing directory. The provenance format
+    # is prose no script in this repo writes, so the path is a guess until it
+    # is proven; and an unproven guess is never harmless here, because
+    # fm-crew-state.sh answers "no metadata" for any directory that holds no
+    # state/<id>.meta and this sweep reads that as positive death evidence. A
+    # directory with no state/ could therefore only ever turn an unowned row
+    # into a reclaimable one, so it falls through to the no-home keep path.
+    if [ -d "$prov_home" ] && [ -d "$prov_home/state" ]; then
       prov_rid=$(printf '%s\n' "$desc" | sed -n 's/.*from secondmate home \([^ ]*\) (.*/\1/p' | head -1)
       FM_STALE_HOME_ACTOR=${prov_rid:-$(basename "$prov_home")}
       FM_STALE_RESOLVED_HOME=$prov_home

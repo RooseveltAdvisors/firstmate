@@ -2992,24 +2992,30 @@ spawn_treehouse_pool_refusal() {
 # refusal, hold the still-Queued item (bin/fm-capacity-lib.sh owns the reason
 # contract), print one line naming the hold, and leave the item queued - never
 # In flight - for redispatch once teardown releases the hold. Exit 2 is the
-# capacity signal; the created endpoint is left open in the project directory
-# and safe to close by hand. At this point no meta, busy record, or backlog
-# transition exists yet, so nothing else needs unwinding.
+# capacity signal. The endpoint this path created is closed here, on every exit
+# path, because it is what the redispatch would collide with: the backends
+# refuse to create a second endpoint for the same task (bin/backends/tmux.sh
+# rejects an existing fm-<id> window), and nothing else can remove it - the
+# pane never left the project and holds no work, and fm-teardown.sh refuses a
+# task whose state/<id>.meta was never published, which is exactly this path.
+# At this point no meta, busy record, or backlog transition exists yet, so
+# nothing else needs unwinding.
 spawn_capacity_refuse() {
   local pool reason
   pool=$(fm_capacity_pool_of_project "$PROJ_ABS_REAL" 2>/dev/null || true)
   [ -n "$pool" ] || pool=$PROJ_ABS_REAL
   reason=$(fm_capacity_reason "$pool" "$POOL_FULL_N" "$POOL_FULL_MAX")
+  fm_backend_kill "$BACKEND" "$T" "${ZELLIJ_TAB_ID:-}" "$W" 2>/dev/null || true
   if [ "$BACKLOG_TRANSITION" = 1 ]; then
     if ! fm_capacity_hold "$DATA" "$ID" "$reason"; then
-      echo "error: treehouse refused the spawn: $reason, and recording the capacity hold on $ID failed; inspect window $T" >&2
+      echo "error: treehouse refused the spawn: $reason, and recording the capacity hold on $ID failed; endpoint $T closed and the item left queued with no hold recorded" >&2
       exit 2
     fi
-    printf 'held: %s - %s; item left queued for redispatch when a worktree frees; window %s left open in the project\n' "$ID" "$reason" "$T"
+    printf 'held: %s - %s; item left queued for redispatch when a worktree frees; endpoint %s closed so the redispatch can create it again\n' "$ID" "$reason" "$T"
   else
     # A manual-backend home owns its backlog by hand, so no hold is invented;
     # the refusal is still terminal for this dispatch either way.
-    printf 'refused: %s - %s; manual backlog home, record the hold by hand; window %s left open in the project\n' "$ID" "$reason" "$T"
+    printf 'refused: %s - %s; manual backlog home, record the hold by hand; endpoint %s closed so a redispatch can create it again\n' "$ID" "$reason" "$T"
   fi
   exit 2
 }
