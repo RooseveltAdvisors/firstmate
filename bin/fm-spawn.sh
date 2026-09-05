@@ -3003,7 +3003,10 @@ spawn_treehouse_pool_refusal() {
 # holds the presentation session lock), so the endpoint is READ BACK after the
 # close and the printed line reports what the read proved, never what was
 # attempted: an endpoint still standing is the operator's to close before the
-# redispatch, and saying so is the only thing that gets it looked at.
+# redispatch, and saying so is the only thing that gets it looked at. A backend
+# that cannot prove an endpoint absent at all gets the third answer rather than
+# either claim - the close is reported as unconfirmed and the endpoint as the
+# operator's to check.
 # At this point no meta, busy record, or backlog transition exists yet, so
 # nothing else needs unwinding.
 spawn_capacity_refuse() {
@@ -3012,12 +3015,19 @@ spawn_capacity_refuse() {
   [ -n "$pool" ] || pool=$PROJ_ABS_REAL
   reason=$(fm_capacity_reason "$pool" "$POOL_FULL_N" "$POOL_FULL_MAX")
   fm_backend_kill "$BACKEND" "$T" "${ZELLIJ_TAB_ID:-}" "$W" 2>/dev/null || true
-  if spawn_capacity_endpoint_gone; then
-    endpoint_note="endpoint $T closed so the redispatch can create it again"
-  else
-    endpoint_note="endpoint $T IS STILL OPEN - close it by hand before the redispatch, which cannot create a second endpoint for $ID"
-    echo "warning: the capacity refusal could not close endpoint $T for $ID; the redispatch after the hold is released will collide with it until it is closed by hand" >&2
-  fi
+  case "$(spawn_capacity_endpoint_verdict)" in
+    gone)
+      endpoint_note="endpoint $T closed so the redispatch can create it again"
+      ;;
+    open)
+      endpoint_note="endpoint $T IS STILL OPEN - close it by hand before the redispatch, which cannot create a second endpoint for $ID"
+      echo "warning: the capacity refusal could not close endpoint $T for $ID; the redispatch after the hold is released will collide with it until it is closed by hand" >&2
+      ;;
+    *)
+      endpoint_note="endpoint $T close attempted but NOT CONFIRMED - the $BACKEND backend cannot prove an endpoint absent, so check $T by hand before the redispatch, which cannot create a second endpoint for $ID"
+      echo "warning: the capacity refusal attempted to close endpoint $T for $ID and the $BACKEND backend cannot prove it absent; check the endpoint by hand before the redispatch after the hold is released, which will collide with it if it is still open" >&2
+      ;;
+  esac
   if [ "$BACKLOG_TRANSITION" = 1 ]; then
     if ! fm_capacity_hold "$DATA" "$ID" "$reason"; then
       echo "error: treehouse refused the spawn: $reason, and recording the capacity hold on $ID failed; the item is left queued with no hold recorded; $endpoint_note" >&2
@@ -3032,20 +3042,48 @@ spawn_capacity_refuse() {
   exit 2
 }
 
-# Is the endpoint the capacity refusal just tried to close actually gone? Both
-# reads are the existing read-only presence primitives: herdr answers through
-# fm_backend_herdr_endpoint_confirmed_gone, whose structured pane_not_found is
-# the only thing that proves a herdr pane gone (present and unknown both refuse,
-# which is the safe direction here), and every other backend through
-# fm_backend_target_exists. An unanswerable read is never taken as proof.
-spawn_capacity_endpoint_gone() {
+# What did reading the endpoint back after the close actually prove - `gone`,
+# `open`, or `unconfirmed`? Every read is an existing read-only presence
+# primitive; only two backends can answer `gone`, because only their negative
+# read is an ABSENCE read:
+#   herdr  - fm_backend_herdr_endpoint_confirmed_gone, whose structured
+#            pane_not_found is the only thing that proves a herdr pane gone
+#            (present and unknown both refuse, the safe direction here).
+#   tmux   - fm_backend_target_exists looks the window up directly, so a failed
+#            lookup means no such window (a dead server has none either, and
+#            the redispatch starts its own).
+# zellij and cmux reach this path too, but fm_backend_target_exists dispatches
+# both to a READINESS predicate (fm_backend_zellij_target_ready,
+# fm_backend_cmux_target_ready) that also fails on a label mismatch or an
+# unreadable CLI, so a failed read there is not absence: they answer `open`
+# when the read proves the endpoint present and `unconfirmed` otherwise, and
+# the refusal reports a close it cannot see rather than claiming one. Giving
+# those adapters their own confirmed-gone primitive, the way herdr has one, is
+# the follow-up that would let them answer `gone`. An unanswerable read is
+# never taken as proof.
+spawn_capacity_endpoint_verdict() {
   case "$BACKEND" in
     herdr)
-      fm_backend_source herdr 2>/dev/null || return 1
-      fm_backend_herdr_endpoint_confirmed_gone "$T" 2>/dev/null
+      fm_backend_source herdr 2>/dev/null || { printf 'open'; return 0; }
+      if fm_backend_herdr_endpoint_confirmed_gone "$T" 2>/dev/null; then
+        printf 'gone'
+      else
+        printf 'open'
+      fi
+      ;;
+    tmux)
+      if fm_backend_target_exists tmux "$T" "$W" 2>/dev/null; then
+        printf 'open'
+      else
+        printf 'gone'
+      fi
       ;;
     *)
-      ! fm_backend_target_exists "$BACKEND" "$T" "$W" 2>/dev/null
+      if fm_backend_target_exists "$BACKEND" "$T" "$W" 2>/dev/null; then
+        printf 'open'
+      else
+        printf 'unconfirmed'
+      fi
       ;;
   esac
 }

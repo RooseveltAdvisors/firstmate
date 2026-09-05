@@ -8,8 +8,9 @@ set -u
 
 BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
 TMP_ROOT=$(fm_test_tmproot fm-startup-memory-budget)
-# Pin the no-mistakes data root the bootstrap mirror check resolves, so the
-# fixture firstmate roots below can carry a healthy gate remote hermetically.
+# Pin the no-mistakes data root the bootstrap mirror check resolves at a
+# directory holding no gate records, so the ungated fixture roots below stay
+# silent on their own terms instead of against whatever the real root holds.
 export NM_HOME="$TMP_ROOT/nm-root"
 BUDGET="$ROOT/bin/fm-startup-memory-budget.sh"
 BOOTSTRAP="$ROOT/bin/fm-bootstrap.sh"
@@ -81,7 +82,6 @@ new_bootstrap_world() {
   home="$world/home"
   mkdir -p "$home/config" "$home/data" "$home/state" "$root/bin"
   git init -q -b main "$root"
-  git -C "$root" remote add no-mistakes "$NM_HOME/repos/firstmate.git"
   printf '%s\n' 'config/' > "$root/.gitignore"
   printf '%s\n' '# Firstmate test root' > "$root/AGENTS.md"
   printf '%s\n' '#!/usr/bin/env bash' 'exit 0' > "$root/bin/placeholder.sh"
@@ -214,7 +214,6 @@ new_propagation_world() {
   mkdir -p "$home/config" "$home/data" "$home/state" "$root/bin"
   touch "$home/state/.last-watcher-beat"
   git init -q -b main "$root"
-  git -C "$root" remote add no-mistakes "$NM_HOME/repos/firstmate.git"
   printf '%s\n' 'config/' > "$root/.gitignore"
   printf '%s\n' '# Firstmate test root' > "$root/AGENTS.md"
   printf '%s\n' '#!/usr/bin/env bash' 'exit 0' > "$root/bin/placeholder.sh"
