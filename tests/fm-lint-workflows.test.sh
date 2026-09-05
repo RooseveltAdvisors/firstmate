@@ -123,11 +123,7 @@ SH
 
 fm_install_stub_sleep() {
   local fakebin=$1
-  cat > "$fakebin/sleep" <<'SH'
-#!/usr/bin/env bash
-exit 0
-SH
-  chmod +x "$fakebin/sleep"
+  fm_fake_exit0 "$fakebin" sleep
 }
 
 write_valid_workflow() {
