@@ -137,11 +137,7 @@ SH
 
 fm_install_stub_sleep() {
   local fakebin=$1
-  cat > "$fakebin/sleep" <<'SH'
-#!/usr/bin/env bash
-exit 0
-SH
-  chmod +x "$fakebin/sleep"
+  fm_fake_exit0 "$fakebin" sleep
 }
 
 # True only when the resolved shellcheck is exactly the pinned version, so the
