@@ -126,9 +126,10 @@
 # "migrated from data/backlog.md id <legacy id>", alone or followed by
 # " on <date>". Only when no row carries that line is the legacy id tried under
 # the configured beads prefix, and that name-only guess is accepted solely for
-# a single row still held for the captain; two such rows refuse rather than
-# attest, and `complete` names each prefix-resolved row beside its attested
-# legacy id so the guess stays auditable.
+# a single candidate row - one still held for the captain, or one carrying a
+# recorded captain answer, so a released call still resolves; two candidate
+# rows refuse rather than attest, and `complete` names each prefix-resolved
+# row beside its attested legacy id so the guess stays auditable.
 #
 # `open` is the read-only predicate a mechanical closer asks before it may
 # retire a task's row: is this task still an open captain call? Exit 0 means it
@@ -459,9 +460,9 @@ verify_hold_durable() {  # <task-id>
 # migration produced, found by scanning the configured graph's notes for either
 # form of that marker line, and only when no row carries the marker by
 # prepending the configured prefix to the legacy id - a name-only guess, so it
-# is accepted solely for a row still held for the captain and only when it is
-# the single such row. A markdown home keeps its legacy rows verbatim, so its
-# exact-id resolution is unchanged.
+# is accepted solely for a single candidate row: one still held for the
+# captain, or one carrying a recorded captain answer. A markdown home keeps its
+# legacy rows verbatim, so its exact-id resolution is unchanged.
 
 CAPTAIN_MIGRATION_SCAN_LOADED=0
 CAPTAIN_MIGRATION_SCAN_JSON=
@@ -608,7 +609,10 @@ resolve_migrated_entry() {  # <origin-or-empty> <entry>
   fi
   # No marker line anywhere: a mechanical migration keeps the legacy id under
   # the configured prefix, but that name alone is evidence of nothing, so only
-  # a row still held for the captain - and only one of them - is accepted.
+  # a sole candidate row is accepted - one still held for the captain, or one
+  # whose body carries a recorded captain answer (the same resolution record
+  # verify_hold_durable trusts), so a released call still resolves for a later
+  # complete/verify.
   entries=$(captain_beads_toml_entries "$root/.tasks.toml")
   prefix=$(captain_beads_setting "$entries" prefix)
   [ -n "$prefix" ] || return 1
@@ -619,7 +623,10 @@ resolve_migrated_entry() {  # <origin-or-empty> <entry>
       *) prefixed="$prefix-$candidate" ;;
     esac
     show=$(task_show "$prefixed" 2>/dev/null) || continue
-    [ "$(show_field_value "$show" hold_kind)" = captain ] || continue
+    if [ "$(show_field_value "$show" hold_kind)" != captain ] \
+       && ! body_has_resolution_record "$(show_field "$show" body)"; then
+      continue
+    fi
     prefixed_matches="${prefixed_matches}${prefixed_matches:+$NL_SEP}$prefixed"
   done
   prefixed_count=$(printf '%s\n' "$prefixed_matches" | sed '/^$/d' | wc -l | tr -d ' ')
@@ -627,7 +634,7 @@ resolve_migrated_entry() {  # <origin-or-empty> <entry>
     0) return 1 ;;
     1) printf '%s migrated-prefix' "$prefixed_matches"; return 0 ;;
   esac
-  printf 'fm-captain-hold: the migrated hold of %s is ambiguous: %s captain-held rows carry the configured prefix (identities tried: %s)\n' \
+  printf 'fm-captain-hold: the migrated hold of %s is ambiguous: %s candidate rows carry the configured prefix (identities tried: %s)\n' \
     "$entry" "$prefixed_count" "$(printf '%s' "$CAPTAIN_MIGRATION_IDENTITIES" | tr ' ' ',')" >&2
   return 2
 }

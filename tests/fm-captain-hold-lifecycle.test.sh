@@ -285,6 +285,108 @@ test_verify_resolves_a_hold_migrated_under_the_configured_prefix() {
   pass "verify resolves a captain hold whose id is the legacy id under the configured prefix"
 }
 
+# A released call must still resolve: `answer --release` clears hold_kind while
+# leaving the recorded captain answer in the body, and the prefix fallback
+# accepts that row through the same resolution record verify_hold_durable
+# trusts, so the scout completion gate passes after a release.
+test_a_released_prefix_resolved_call_still_resolves() {
+  local fixture home scout id fb decision out
+  require_tasks_axi_beads "verify a released prefix-resolved call" || return 0
+  fixture=$(make_beads_home migrated-released)
+  home=${fixture%%|*}
+  scout=sample-released-scout
+  id=fm-rel-legacy-row
+  # Seed the row through the real backend so the graph holds it, then drive the
+  # hold and its release through a stateful stub so the bare legacy id never
+  # resolves directly and the fallback branch is the only path left.
+  (cd "$home" && BEADS_ACTOR=fixture tasks-axi add "$id" \
+    "Released migrated call" --repo sample) >/dev/null 2>&1 \
+    || fail "could not create the released-call fixture row"
+  fb=$(fm_fakebin "$home")
+  cat > "$fb/tasks-axi" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}" in
+  --version) printf '%s\n' '0.2.5' ;;
+  update)
+    if [ "${2:-}" = --help ]; then printf '%s\n' '--archive-body'; exit 0; fi
+    stub_prev=; stub_path=
+    for stub_arg in "$@"; do
+      if [ "$stub_prev" = --body-file ]; then stub_path=$stub_arg; fi
+      stub_prev=$stub_arg
+    done
+    [ -n "$stub_path" ] && cp -- "$stub_path" "@HOME@/last-body"
+    printf 'ok: update %s\n' "${2:-}"
+    ;;
+  unhold)
+    : > "@HOME@/released"
+    printf 'ok: unhold %s\n' "${2:-}"
+    ;;
+  mv)
+    [ "${2:-}" = --help ] || exit 1
+    printf '%s\n' 'usage: tasks-axi mv [<id>...]'
+    ;;
+  hold)
+    case " $* " in
+      *" --help "*) printf '%s\n' '  --kind captain' ; exit 0 ;;
+      *" --file "*)
+        printf '%s\n' 'error: beads hold received a markdown file override' >&2
+        exit 1
+        ;;
+    esac
+    printf 'ok: hold %s\n' "${2:-}"
+    ;;
+  show)
+    case "${2:-}" in
+      "@ID@") ;;
+      *) printf 'error: no task %s in this backlog\n' "${2:-}" >&2; exit 1 ;;
+    esac
+    printf '%s\n' 'task:'
+    printf '  id: %s\n' "$2"
+    printf '%s\n' '  state: queued' '  held: no' '  blocked: no'
+    if [ -f "@HOME@/released" ]; then
+      printf '%s\n' '  hold_kind: "-"'
+    else
+      printf '%s\n' '  hold_kind: captain'
+    fi
+    if [ -f "@HOME@/last-body" ]; then
+      printf '%s' '  body: '
+      perl -MJSON::PP -e 'local $/; print encode_json(<STDIN>)' < "@HOME@/last-body"
+      printf '\n'
+    else
+      printf '%s\n' '  body: ""'
+    fi
+    ;;
+  *) exit 1 ;;
+esac
+SH
+  sed -i.bak "s|@HOME@|$home|g; s|@ID@|$id|g" "$fb/tasks-axi"
+  rm -f "$fb/tasks-axi.bak"
+  chmod +x "$fb/tasks-axi"
+  write_scout_with_attested_inventory "$home" "$scout" rel-legacy-row
+
+  PATH="$fb:$PATH" REAL_TASKS_AXI="$TASKS_AXI_BIN" \
+    FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
+    FM_DATA_OVERRIDE="$home/data" FM_CONFIG_OVERRIDE="$home/config" \
+    "$ROOT/bin/fm-captain-hold.sh" hold "$id" --reason "captain must decide" >/dev/null \
+    || fail "could not hold the fixture row for the captain"
+  decision="$home/decision.txt"
+  printf 'Resume the gated work as planned.\n' > "$decision"
+  PATH="$fb:$PATH" REAL_TASKS_AXI="$TASKS_AXI_BIN" \
+    FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
+    FM_DATA_OVERRIDE="$home/data" FM_CONFIG_OVERRIDE="$home/config" \
+    "$ROOT/bin/fm-captain-hold.sh" answer "$id" --decision-file "$decision" --release >/dev/null \
+    || fail "could not release the fixture call with its recorded answer"
+  [ -f "$home/released" ] || fail "the stubbed release never lifted the hold"
+
+  out=$(run_captain "$home" complete "$scout" rel-legacy-row) \
+    || fail "the completion gate refused a released call resolved through the prefix fallback"
+  assert_contains "$out" "rel-legacy-row=$id" \
+    "completion did not name the released row the prefix guess attested against"
+  run_captain "$home" verify "$scout" >/dev/null \
+    || fail "verify refused the released call after completion"
+  pass "a released prefix-resolved call still resolves through its recorded answer"
+}
+
 # The prefix guess is a name, not evidence: when a row actually carries the
 # migration marker, that row is the one attested even though an unrelated
 # captain-held task occupies the <prefix>-<legacy id> name.
@@ -2137,6 +2239,7 @@ test_teardown_retains_captain_calls_in_a_relocated_backlog
 test_teardown_refuses_a_ship_when_the_captain_hold_cannot_be_read
 test_verify_resolves_a_hold_migrated_to_beads_notes
 test_verify_resolves_a_hold_migrated_under_the_configured_prefix
+test_a_released_prefix_resolved_call_still_resolves
 test_marker_noted_row_wins_over_a_prefix_namesake
 test_complete_accepts_a_migrated_inventory_on_beads
 test_verify_names_the_unresolvable_legacy_id_once
