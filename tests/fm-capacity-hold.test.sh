@@ -51,7 +51,22 @@ case "\${1:-}" in
     fi
     exit 0
     ;;
-  display-message) printf 'firstmate\n'; exit 0 ;;
+  display-message)
+    case "\$*" in
+      *'#{pane_id}'*)
+        # A killed window is gone: the presence probe for it must fail, unless
+        # the fake is standing in for a kill that returned 0 without closing.
+        if [ -s "\${FM_FAKE_TMUX_KILL_LOG:-/dev/null}" ] \
+           && [ -z "\${FM_FAKE_TMUX_KILL_REFUSED:-}" ]; then
+          exit 1
+        fi
+        printf '%%1\n'
+        exit 0
+        ;;
+    esac
+    printf 'firstmate\n'
+    exit 0
+    ;;
   list-windows) exit 0 ;;
   kill-window)
     printf '%s\n' "\$*" >> "\${FM_FAKE_TMUX_KILL_LOG:-/dev/null}"
@@ -158,6 +173,8 @@ test_pool_full_refusal_holds_and_exits_two() {
     "the refusal must close the endpoint it created for the held task"
   assert_contains "$out" "endpoint firstmate:fm-cap-x1 closed" \
     "the hold line must state that the endpoint was closed"
+  assert_not_contains "$out" "STILL OPEN" \
+    "a proven-closed endpoint must not warn about a manual close"
   local show
   show=$(tasks-axi show cap-x1 --file "$HOME_DIR/data/backlog.md" 2>/dev/null)
   assert_contains "$show" "state: queued" "held item must stay queued, not in flight"
@@ -186,6 +203,30 @@ test_pool_full_refusal_on_manual_home_exits_two_without_hold() {
   [ ! -e "$HOME_DIR/data/backlog.md" ] || fail "manual home unexpectedly owns a backlog file"
   [ ! -e "$HOME_DIR/state/cap-x1.meta" ] || fail "manual-home pool-full spawn published a task record"
   pass "a full pool on a manual-backend home still exits 2 and records no phantom hold"
+}
+
+# Backend closes are best effort and some refuse while still returning 0, so
+# the refusal reads the endpoint back and reports what the read proved. An
+# endpoint still standing is the operator's to close: the redispatch after the
+# hold is released cannot create a second endpoint for the same task.
+test_pool_full_refusal_reports_an_endpoint_it_could_not_close() {
+  local rec out rc pool
+  rec=$(make_spawn_case refused-z3 0)
+  read_spawn_record "$rec"
+  pool="$CASE_DIR/pool"
+  out=$(FM_FAKE_TMUX_KILL_REFUSED=1 run_capacity_spawn cap-x1 "$PROJ_DIR" \
+    --mode no-mistakes --yolo off 2>&1)
+  rc=$?
+  expect_code 2 "$rc" "a refused endpoint close must still exit 2, got $rc"
+  assert_contains "$out" "held: cap-x1 - pool $pool full 3/4; item left queued" \
+    "the hold is still recorded when the endpoint could not be closed"
+  assert_contains "$out" "endpoint firstmate:fm-cap-x1 IS STILL OPEN" \
+    "the line must say the endpoint is still open, never claim it closed"
+  assert_contains "$out" "warning: the capacity refusal could not close endpoint" \
+    "an unclosed endpoint must be reported loudly enough to act on"
+  assert_not_contains "$out" "closed so the redispatch can create it again" \
+    "the refusal must not claim a close it could not prove"
+  pass "an endpoint the refusal could not close is reported, never claimed closed"
 }
 
 # --- teardown side -----------------------------------------------------------
@@ -355,6 +396,7 @@ test_teardown_releases_fallback_identity_hold_when_pool_scan_matches_nothing() {
 
 test_pool_full_refusal_holds_and_exits_two
 test_pool_full_refusal_on_manual_home_exits_two_without_hold
+test_pool_full_refusal_reports_an_endpoint_it_could_not_close
 test_teardown_releases_oldest_capacity_hold_for_the_pool
 test_teardown_releases_fallback_identity_hold_when_pool_scan_matches_nothing
 

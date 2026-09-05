@@ -670,7 +670,7 @@ test_apply_refuses_a_row_whose_record_lock_a_completion_holds() {
   assert_contains "$out" "reclaimed 1" \
     "the summary must count only the row the lock did not protect"
   [ "$(row_state fm-prov-row)" = queued ] \
-    || fail "a record home with no state dir must still reclaim (no lock to share)"
+    || fail "a provenance-owned row whose own record lock is free must still reclaim"
   kill "$holder_pid" 2>/dev/null
   wait "$holder_pid" 2>/dev/null
   out=$(run_sweep --apply)
@@ -679,6 +679,49 @@ test_apply_refuses_a_row_whose_record_lock_a_completion_holds() {
   [ "$(row_state fm-dead-row)" = queued ] || fail "the row was not reclaimed after the lock freed"
   [ ! -e "$lock" ] || fail "the sweep left the record lock behind after reclaiming"
   pass "a row whose record lock a completion holds is refused until the lock frees"
+}
+
+# A claim marker whose payload will not decode still records that something
+# claimed the row: the orphan guard reads the marker's PRESENCE, and only the
+# ACTOR column is allowed to give up on an undecodable payload.
+test_undecodable_claim_marker_still_blocks_an_orphan_reclaim() {
+  local rec out
+  rec=$(make_fixture badmarker)
+  [ -n "$rec" ] || fail "fixture construction failed (see stderr above)"
+  read_fixture "$rec"
+  # Eligible on every other count - 50h old, no landing URL - and marker-less
+  # until this update gives it a marker no base64/JSON decode can read.
+  out=$(run_sweep --apply-orphans)
+  assert_row_matches 'fm-bare-orphan[[:space:]]+-[[:space:]]+[0-9]+h[[:space:]]+no-home[[:space:]]+would reclaim \(orphan\)' \
+    "$out" "the fixture row must be orphan-eligible before it carries a marker"
+  BEADS_DIR="$CASE_DIR/fm/.beads" bd update fm-bare-orphan \
+    --description "bare orphan tasks-axi:beads/v1:!!truncated" >/dev/null \
+    || fail "fixture marker update failed"
+  out=$(run_sweep --apply-orphans)
+  assert_row_matches 'fm-bare-orphan[[:space:]]+-[[:space:]]+[0-9]+h[[:space:]]+no-home[[:space:]]+keep[[:space:]]+-' \
+    "$out" "an undecodable claim marker must keep the row reclaim-ineligible, with no actor to show"
+  pass "an undecodable claim marker still blocks an orphan reclaim"
+}
+
+# The record home with no state dir at all: an orphan reclaim runs through the
+# graph-owning sweep home, and a home that has never spawned anything has no
+# state dir, so there is no per-task record lock to share and the reclaim must
+# proceed rather than refuse on an unresolvable lock.
+test_apply_orphans_reclaims_without_a_record_state_dir() {
+  require_tasks_axi_beads "the lockless orphan reclaim path" || return 0
+  local rec out
+  rec=$(make_fixture nostate)
+  [ -n "$rec" ] || fail "fixture construction failed (see stderr above)"
+  read_fixture "$rec"
+  # No state dir: every row is unowned, and the sweep home holds no record
+  # lock for any of them.
+  rm -rf "$HOME_DIR/state"
+  out=$(run_sweep --apply --apply-orphans)
+  assert_row_matches 'fm-bare-orphan[[:space:]]+-[[:space:]]+[0-9]+h[[:space:]]+no-home[[:space:]]+reclaimed \(orphan\)' \
+    "$out" "a marker-less orphan must reclaim when the record home has no state dir"
+  [ "$(row_state fm-bare-orphan)" = queued ] \
+    || fail "the lockless reclaim did not reopen the row"
+  pass "an orphan reclaim runs when the record home has no state dir to lock"
 }
 
 # A pending backlog-close replay record: a completion was recorded and is still
@@ -715,6 +758,8 @@ test_dry_run_lists_verdicts_and_reclaims_nothing
 test_apply_reclaims_only_dead_rows
 test_apply_refuses_a_row_whose_record_lock_a_completion_holds
 test_apply_refuses_a_row_with_a_pending_completion_replay
+test_undecodable_claim_marker_still_blocks_an_orphan_reclaim
+test_apply_orphans_reclaims_without_a_record_state_dir
 test_apply_names_the_resolved_homes_actor_when_two_homes_hold_meta
 test_check_mode_gates_on_the_interval_record
 test_check_mode_reports_the_budget_cut
