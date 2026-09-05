@@ -286,12 +286,24 @@ fm_stale_registry_homes() {
   sed -n 's/^- \([^ ]\{1,\}\) - .*(home: \([^);]*\);.*/\1\t\2/p' "$DATA/secondmates.md" 2>/dev/null || true
 }
 
-# The provenance home named inside a row's description, if any.
-fm_stale_provenance_home() {  # <description>
-  local desc=$1 path
-  path=$(printf '%s\n' "$desc" | sed -n 's/.*from secondmate home [^ ]* (\([^)]*\)).*/\1/p' | head -1)
+# The row's provenance line, whole. The description arrives @tsv-escaped, so
+# the line's end reads as a literal backslash-n.
+fm_stale_prov_line() {  # <escaped description>
+  printf '%s\n' "$1" | sed -n 's/.*\(Provenance:[^\\]*\).*/\1/p' | head -1
+}
+
+# The provenance home named on a row's provenance line, if any. Only that line
+# is read: any parenthesized path elsewhere in a description is prose, and
+# accepting one would decide the row's fate rather than describe it, because a
+# home that holds no state/<id>.meta answers "no metadata" and this sweep reads
+# that as positive death evidence.
+fm_stale_provenance_home() {  # <escaped description>
+  local prov path
+  prov=$(fm_stale_prov_line "$1")
+  [ -n "$prov" ] || return 1
+  path=$(printf '%s\n' "$prov" | sed -n 's/.*from secondmate home [^ ]* (\([^)]*\)).*/\1/p' | head -1)
   if [ -z "$path" ]; then
-    path=$(printf '%s\n' "$desc" | sed -n 's/.*(\([^ ()][^()]*\/firstmate[^()]*\)).*/\1/p' | head -1)
+    path=$(printf '%s\n' "$prov" | sed -n 's/.*(\([^ ()][^()]*\/firstmate[^()]*\)).*/\1/p' | head -1)
   fi
   [ -n "$path" ] || return 1
   printf '%s\n' "$path"
@@ -683,6 +695,16 @@ fm_stale_home_label() {  # <home> <actor>
 # The row's own recorded claim actor: the tasks-axi marker embedded in its
 # description decodes to {"kind":...,"repo":...}. Empty when the row was
 # created outside tasks-axi and nothing else recorded who claimed it.
+# Does the row carry a claim marker at all, decodable or not? A truncated or
+# over-captured payload still records that something claimed this row, so the
+# orphan guard keys on this and only the ACTOR column keys on the decode.
+fm_stale_row_has_marker() {  # <escaped description>
+  case "$1" in
+    *'tasks-axi:beads/v1:'*) return 0 ;;
+  esac
+  return 1
+}
+
 fm_stale_row_actor() {  # <escaped description>
   local marker
   marker=$(printf '%s\n' "$1" | sed -n 's/.*tasks-axi:beads\/v1:\([A-Za-z0-9+/=]*\).*/\1/p' | head -1)
@@ -697,25 +719,23 @@ fm_stale_row_actor() {  # <escaped description>
 }
 
 # The first 40 characters of the row's provenance line, if any, for reviewers
-# ruling on orphan rows without opening each bead. The description arrives
-# @tsv-escaped, so the line's end reads as a literal backslash-n.
+# ruling on orphan rows without opening each bead.
 fm_stale_row_prov() {  # <escaped description>
-  printf '%s\n' "$1" \
-    | sed -n 's/.*\(Provenance:[^\\]*\).*/\1/p' \
-    | head -1 \
-    | cut -c1-40
+  fm_stale_prov_line "$1" | cut -c1-40
 }
 
 # A no-home row is orphan-reclaimable only when ALL THREE guards pass: older
-# than 48 hours against the sweep clock, no recorded claim actor, and no
-# landing URL in its description (a PR or merge link means the work may have
-# landed even though no home claims the row).
+# than 48 hours against the sweep clock, no claim marker, and no landing URL in
+# its description (a PR or merge link means the work may have landed even though
+# no home claims the row). The marker guard reads presence, not decodability: a
+# marker whose payload will not decode still records a claim, and only the ACTOR
+# column has to give up on it.
 FM_STALE_ORPHAN_MIN_AGE_HOURS=48
 fm_stale_orphan_eligible() {  # <age-hours> <escaped description>
   local age_h=$1 desc=$2
   case "$age_h" in ''|*[!0-9]*) return 1 ;; esac
   [ "$age_h" -ge "$FM_STALE_ORPHAN_MIN_AGE_HOURS" ] || return 1
-  [ -z "$(fm_stale_row_actor "$desc")" ] || return 1
+  ! fm_stale_row_has_marker "$desc" || return 1
   printf '%s\n' "$desc" | grep -q 'https\{0,1\}://' && return 1
   return 0
 }

@@ -2998,26 +2998,56 @@ spawn_treehouse_pool_refusal() {
 # rejects an existing fm-<id> window), and nothing else can remove it - the
 # pane never left the project and holds no work, and fm-teardown.sh refuses a
 # task whose state/<id>.meta was never published, which is exactly this path.
+# Every backend close is best effort and some refuse while still returning 0
+# (fm_backend_herdr_kill declines an unlocked pane close when a sibling spawn
+# holds the presentation session lock), so the endpoint is READ BACK after the
+# close and the printed line reports what the read proved, never what was
+# attempted: an endpoint still standing is the operator's to close before the
+# redispatch, and saying so is the only thing that gets it looked at.
 # At this point no meta, busy record, or backlog transition exists yet, so
 # nothing else needs unwinding.
 spawn_capacity_refuse() {
-  local pool reason
+  local pool reason endpoint_note
   pool=$(fm_capacity_pool_of_project "$PROJ_ABS_REAL" 2>/dev/null || true)
   [ -n "$pool" ] || pool=$PROJ_ABS_REAL
   reason=$(fm_capacity_reason "$pool" "$POOL_FULL_N" "$POOL_FULL_MAX")
   fm_backend_kill "$BACKEND" "$T" "${ZELLIJ_TAB_ID:-}" "$W" 2>/dev/null || true
+  if spawn_capacity_endpoint_gone; then
+    endpoint_note="endpoint $T closed so the redispatch can create it again"
+  else
+    endpoint_note="endpoint $T IS STILL OPEN - close it by hand before the redispatch, which cannot create a second endpoint for $ID"
+    echo "warning: the capacity refusal could not close endpoint $T for $ID; the redispatch after the hold is released will collide with it until it is closed by hand" >&2
+  fi
   if [ "$BACKLOG_TRANSITION" = 1 ]; then
     if ! fm_capacity_hold "$DATA" "$ID" "$reason"; then
-      echo "error: treehouse refused the spawn: $reason, and recording the capacity hold on $ID failed; endpoint $T closed and the item left queued with no hold recorded" >&2
+      echo "error: treehouse refused the spawn: $reason, and recording the capacity hold on $ID failed; the item is left queued with no hold recorded; $endpoint_note" >&2
       exit 2
     fi
-    printf 'held: %s - %s; item left queued for redispatch when a worktree frees; endpoint %s closed so the redispatch can create it again\n' "$ID" "$reason" "$T"
+    printf 'held: %s - %s; item left queued for redispatch when a worktree frees; %s\n' "$ID" "$reason" "$endpoint_note"
   else
     # A manual-backend home owns its backlog by hand, so no hold is invented;
     # the refusal is still terminal for this dispatch either way.
-    printf 'refused: %s - %s; manual backlog home, record the hold by hand; endpoint %s closed so a redispatch can create it again\n' "$ID" "$reason" "$T"
+    printf 'refused: %s - %s; manual backlog home, record the hold by hand; %s\n' "$ID" "$reason" "$endpoint_note"
   fi
   exit 2
+}
+
+# Is the endpoint the capacity refusal just tried to close actually gone? Both
+# reads are the existing read-only presence primitives: herdr answers through
+# fm_backend_herdr_endpoint_confirmed_gone, whose structured pane_not_found is
+# the only thing that proves a herdr pane gone (present and unknown both refuse,
+# which is the safe direction here), and every other backend through
+# fm_backend_target_exists. An unanswerable read is never taken as proof.
+spawn_capacity_endpoint_gone() {
+  case "$BACKEND" in
+    herdr)
+      fm_backend_source herdr 2>/dev/null || return 1
+      fm_backend_herdr_endpoint_confirmed_gone "$T" 2>/dev/null
+      ;;
+    *)
+      ! fm_backend_target_exists "$BACKEND" "$T" "$W" 2>/dev/null
+      ;;
+  esac
 }
 
 kimi_capture() {
