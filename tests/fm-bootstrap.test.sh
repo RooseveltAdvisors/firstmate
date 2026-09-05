@@ -820,10 +820,6 @@ make_routine_bootstrap_fixture() {
   printf '%s\n' '{"rules":[{"when":"normal work","use":{"harness":"codex"}}],"default":{"harness":"claude","effort":"low"}}' \
     > "$home/config/crew-dispatch.json"
   git init -q -b main "$root"
-  # A healthy firstmate checkout carries its no-mistakes gate remote under the
-  # root NM_HOME resolves to; run_routine_bootstrap_fixture pins NM_HOME to
-  # $case_dir/nm-root so this stays hermetic.
-  git -C "$root" remote add no-mistakes "$case_dir/nm-root/repos/firstmate.git"
   {
     printf '%s\n' '.fm-secondmate-home'
     printf '%s\n' 'config/crew-harness'
@@ -872,6 +868,9 @@ run_routine_bootstrap_fixture() {
   fixture=${fixture#*|}
   home=${fixture%%|*}
   fakebin=${fixture#*|}
+  # NM_HOME pins the resolved no-mistakes root at an empty hermetic directory,
+  # so the mirror check reads this fixture's ungated checkout against it rather
+  # than against the operator's real root.
   PATH="$fakebin:$BASE_PATH" FM_BACKEND=tmux FM_HOME="$home" FM_ROOT_OVERRIDE="$root" \
     NM_HOME="$2/nm-root" FM_FAKE_TREEHOUSE_LEASE_HELP=1 \
     "$shell" "$ROOT/bin/fm-bootstrap.sh"
@@ -1168,7 +1167,7 @@ ROWS
 }
 
 test_no_mistakes_mirror_check() {
-  local case_dir home fakebin root_a root_b out expect
+  local case_dir home fakebin root_a root_b out expect ungated gate_id
 
   # Registry fixtures across every posture: only the no-mistakes legs are
   # mirror-checked, and only clones that exist under projects/.
@@ -1258,6 +1257,41 @@ NO_MISTAKES_MIRROR: absent remote=absent expected-root=$root_a (run no-mistakes 
     FM_ROOT_OVERRIDE="$case_dir/fm-root" FM_FAKE_TREEHOUSE_LEASE_HELP=1 \
     env -u NM_HOME "$ROOT/bin/fm-bootstrap.sh")
   [ -z "$out" ] || fail "mirror check: default-root resolution should stay silent, got: $out"
+
+  # A firstmate checkout with no gate remote at all: drift only when this root
+  # holds the gate record no-mistakes init writes for that checkout. A home
+  # nothing ever gated - every git-clone-provisioned secondmate home - must
+  # stay silent instead of printing the same unfixable line every session.
+  ungated="$case_dir/ungated-root"
+  git init -q -b main "$ungated"
+  git -C "$ungated" commit --allow-empty -m fixture >/dev/null
+  out=$(PATH="$fakebin:$BASE_PATH" NM_HOME="$root_a" FM_HOME="$home" \
+    FM_ROOT_OVERRIDE="$ungated" FM_FAKE_TREEHOUSE_LEASE_HELP=1 \
+    "$ROOT/bin/fm-bootstrap.sh")
+  [ -z "$out" ] || fail "mirror check: a never-gated firstmate checkout should stay silent, got: $out"
+
+  # Same checkout, now carrying that gate record: losing the remote is real
+  # drift and must still report. <root>/repos/<id>.git is no-mistakes' own
+  # layout, with <id> the first 12 hex digits of the sha256 of the work tree.
+  gate_id=$(git -C "$ungated" rev-parse --show-toplevel | tr -d '\n' | \
+    { if command -v sha256sum >/dev/null 2>&1; then sha256sum; else shasum -a 256; fi; } | cut -c1-12)
+  mkdir -p "$root_a/repos/$gate_id.git"
+  out=$(PATH="$fakebin:$BASE_PATH" NM_HOME="$root_a" FM_HOME="$home" \
+    FM_ROOT_OVERRIDE="$ungated" FM_FAKE_TREEHOUSE_LEASE_HELP=1 \
+    "$ROOT/bin/fm-bootstrap.sh")
+  expect="NO_MISTAKES_MIRROR: firstmate remote=absent expected-root=$root_a (run no-mistakes init inside $ungated to point its gate at the active root)"
+  [ "$out" = "$expect" ] \
+    || fail "mirror check: a gated checkout that lost its remote must report, got: $out"
+
+  # The gate record only decides the absent case: a remote pointing at another
+  # root is drift on its own, with or without a record here.
+  git -C "$ungated" remote add no-mistakes "$root_b/repos/fm.git"
+  out=$(PATH="$fakebin:$BASE_PATH" NM_HOME="$root_a" FM_HOME="$home" \
+    FM_ROOT_OVERRIDE="$ungated" FM_FAKE_TREEHOUSE_LEASE_HELP=1 \
+    "$ROOT/bin/fm-bootstrap.sh")
+  expect="NO_MISTAKES_MIRROR: firstmate remote=$root_b/repos/fm.git expected-root=$root_a (run no-mistakes init inside $ungated to point its gate at the active root)"
+  [ "$out" = "$expect" ] \
+    || fail "mirror check: a wrong-root remote must report regardless of the gate record, got: $out"
 
   pass "bootstrap reports no-mistakes gate-remote drift outside the resolved root"
 }
