@@ -5,13 +5,15 @@
 # The fixture graph is driven through bd directly, because the npm-published
 # tasks-axi ships the markdown backend only ("Unsupported backend \"beads\" -
 # P1 ships the markdown backend only"); only beads-capable tasks-axi builds
-# (the local fork this fleet runs) can perform the sweep's reclaim mutations.
-# Row state and bodies are therefore read back through bd as well. The
-# tasks-axi-bound coverage - the apply/reclaim path and the claim-marker ACTOR
-# column - probes that capability once and skips itself with an explicit
-# reason on markdown-only installs, mirroring the suite runner's optional
-# binary skips; everything else (selection, true-age display, orphan evidence
-# columns and guards, check gating, arm/disarm) runs everywhere bd exists.
+# (the local fork this fleet runs) can talk to a beads-backed home at all. Row
+# state and bodies are therefore read back through bd as well, and where the
+# installed tasks-axi is markdown-only the fakebin carries a bd-backed
+# stand-in for the four calls the sweep makes on a mutation home (see
+# make_axi_shim), so the mutating half - the reclaim and orphan-apply paths,
+# the record-lock and pending-replay refusals - runs everywhere bd exists
+# instead of skipping on exactly the machine that most needs it. Every
+# assertion is over real graph state either way; nothing here is gated on the
+# installed tasks-axi's backend support.
 #
 # Fixture: one firstmate home whose .tasks.toml points at a scratch Beads
 # graph, holding four stale in_progress rows:
@@ -40,6 +42,11 @@ fm_git_identity fmtest fmtest@example.invalid
 
 SWEEP="$ROOT/bin/fm-stale-sweep.sh"
 TMP_ROOT=$(fm_test_tmproot fm-stale-sweep)
+
+# The claim marker a beads-capable tasks-axi embeds in a `--kind ship` row's
+# bd description; its base64 payload decodes to {"kind":"ship"}, which is what
+# the sweep's ACTOR column renders as "ship/-".
+AXI_CLAIM_MARKER='<!-- tasks-axi:beads/v1:eyJraW5kIjoic2hpcCJ9 -->'
 
 # A fakebin whose tmux answers every target except the dead row's window, and
 # whose no-mistakes reports no run anywhere (crew-state's run lookup finds
@@ -77,7 +84,89 @@ esac
 exit 0
 SH
   chmod +x "$fb/tmux" "$fb/no-mistakes"
+  [ "$TASKS_AXI_BEADS_OK" = 1 ] || make_axi_shim "$fb"
   printf '%s\n' "$fb"
+}
+
+# A beads-speaking stand-in for tasks-axi, installed in the fakebin ONLY where
+# the installed tasks-axi cannot reach a beads backend - the npm-published
+# build ships the markdown backend only, and that is what CI has. Without it
+# every assertion over the sweep's mutating half (the reclaim and orphan-apply
+# paths, the record-lock and pending-replay refusals) would skip on exactly the
+# machine that most needs to run them.
+#
+# It implements the only calls the sweep makes on a mutation home - `show`,
+# `show --full`, `update --body`, `reopen` - over bd, the tool that owns the
+# graph, so the sweep's real reclaim logic (both proofs, the note append, the
+# lock protocol, the reopen) runs for real and its result is read back out of
+# the same graph. The field shapes are copied from a real beads-backed
+# tasks-axi: the bd description is the claim-marker comment line followed by
+# the body, `held` is the tasks-axi-held label, and `body:` is always a
+# JSON-encoded string. Where the real binary IS beads-capable it is used
+# instead, so the fleet keeps proving these paths against the real contract.
+make_axi_shim() {  # <fakebin>
+  cat > "$1/tasks-axi" <<'SH'
+#!/usr/bin/env bash
+set -u
+verb=${1:-}
+id=${2:-}
+shift 2 2>/dev/null || true
+graph=$(awk '/^\[beads\]/{s=1;next} /^\[/{s=0} s && /^[[:space:]]*path[[:space:]]*=/{sub(/^[^"]*"/,"");sub(/".*$/,"");print;exit}' .tasks.toml)
+[ -n "$graph" ] || { echo 'error: not a beads-backed home' >&2; exit 1; }
+export BEADS_DIR=$graph
+row=$(bd show "$id" --json 2>/dev/null) || exit 1
+[ -n "$row" ] || exit 1
+desc=$(printf '%s' "$row" | jq -r '.[0].description // ""')
+marker=$(printf '%s\n' "$desc" | sed -n '1{/^<!-- tasks-axi:beads\/v1:.*-->$/p}')
+body=$(printf '%s\n' "$desc" | sed '1{/^<!-- tasks-axi:beads\/v1:.*-->$/d}')
+case "$verb" in
+  show)
+    state=$(printf '%s' "$row" | jq -r '
+      .[0].status
+      | if . == "in_progress" then "in_flight"
+        elif . == "open" then "queued"
+        elif . == "closed" then "done"
+        else . end')
+    held=no
+    if printf '%s' "$row" | jq -e '(.[0].labels // []) | index("tasks-axi-held")' >/dev/null 2>&1; then
+      held=yes
+    fi
+    blocked=no
+    if [ "$(printf '%s' "$row" | jq -r '.[0].dependency_count // 0')" -gt 0 ]; then
+      blocked=yes
+    fi
+    printf 'task:\n'
+    printf '  id: %s\n' "$id"
+    printf '  state: %s\n' "$state"
+    printf '  blocked: %s\n' "$blocked"
+    printf '  held: %s\n' "$held"
+    printf '  body: %s\n' "$(printf '%s' "$body" | jq -Rs .)"
+    ;;
+  update)
+    new=
+    while [ $# -gt 0 ]; do
+      if [ "$1" = --body ]; then
+        new=${2:-}
+        break
+      fi
+      shift
+    done
+    if [ -n "$marker" ]; then
+      new=$(printf '%s\n%s' "$marker" "$new")
+    fi
+    bd update "$id" --description "$new" >/dev/null 2>&1 || exit 1
+    ;;
+  reopen)
+    bd update "$id" --status open >/dev/null 2>&1 || exit 1
+    ;;
+  *)
+    echo "error: unsupported verb $verb" >&2
+    exit 1
+    ;;
+esac
+exit 0
+SH
+  chmod +x "$1/tasks-axi"
 }
 
 # A real git repo checked out on <branch> so crew-state's run attribution has a
@@ -163,13 +252,18 @@ EOF
       'Provenance: imported 2026-09-01 from secondmate home widgets ($case_dir/other-home) markdown backlog'"
   else
     # The npm tasks-axi ships markdown only; create the same rows straight
-    # through bd so everything except the marker-dependent coverage still runs.
+    # through bd, carrying the identical claim marker a beads-capable
+    # tasks-axi embeds for a `--kind ship` row (the base64 payload is
+    # {"kind":"ship"}), so the ACTOR column and the orphan marker guard see
+    # the same graph either way.
     for id in fm-dead-row fm-live-row fm-orphan-row fm-prov-row; do
-      fx env BEADS_DIR="$graph/.beads" bd create "fixture $id" --id "$id"
+      fx env BEADS_DIR="$graph/.beads" bd create "fixture $id" --id "$id" \
+        --description "$AXI_CLAIM_MARKER"
       bdrows "$id"
     done
     fx env BEADS_DIR="$graph/.beads" bd update fm-prov-row --description \
-      "Provenance: imported 2026-09-01 from secondmate home widgets ($case_dir/other-home) markdown backlog"
+      "$AXI_CLAIM_MARKER
+Provenance: imported 2026-09-01 from secondmate home widgets ($case_dir/other-home) markdown backlog"
   fi
   # Marker-less orphans created straight through bd: no tasks-axi claim marker
   # ever touched them, which is what --apply-orphans keys on.
@@ -254,14 +348,6 @@ TASKS_AXI_BEADS_OK=0
 if bd --version >/dev/null 2>&1 && probe_tasks_axi_beads; then
   TASKS_AXI_BEADS_OK=1
 fi
-
-# Guard for coverage that drives the sweep's reclaim mutations through
-# tasks-axi: on a markdown-only install it skips with an explicit reason.
-require_tasks_axi_beads() {  # <what>
-  [ "$TASKS_AXI_BEADS_OK" = 1 ] && return 0
-  pass "skipped on markdown-only tasks-axi: $1"
-  return 1
-}
 
 # Row reads go through bd, the tool that owns the graph, so the helpers work
 # under every tasks-axi. tasks-axi states map onto bd statuses.
@@ -406,15 +492,8 @@ test_orphan_columns_and_apply_orphans_guards() {
   [ -n "$rec" ] || fail "fixture construction failed (see stderr above)"
   read_fixture "$rec"
   out=$(run_sweep)
-  if [ "$TASKS_AXI_BEADS_OK" = 1 ]; then
-    assert_row_matches 'fm-orphan-row[[:space:]]+-[[:space:]]+[0-9]+h[[:space:]]+no-home[[:space:]]+keep[[:space:]]+ship/-' "$out" \
-      "marker-bearing orphan must show its claim actor, and stay kept without the flag"
-  else
-    # Under the markdown-only npm tasks-axi the rows are bd-created and carry
-    # no marker, so the ACTOR column reads "-" and nothing else changes.
-    assert_row_matches 'fm-orphan-row[[:space:]]+-[[:space:]]+[0-9]+h[[:space:]]+no-home[[:space:]]+keep[[:space:]]+-[[:space:]]+-$' "$out" \
-      "bd-created orphan must read keep with empty actor and provenance columns"
-  fi
+  assert_row_matches 'fm-orphan-row[[:space:]]+-[[:space:]]+[0-9]+h[[:space:]]+no-home[[:space:]]+keep[[:space:]]+ship/-' "$out" \
+    "marker-bearing orphan must show its claim actor, and stay kept without the flag"
   assert_row_matches 'fm-orphan-prov[[:space:]]+-[[:space:]]+[0-9]+h[[:space:]]+no-home[[:space:]]+keep[[:space:]]+-[[:space:]]+Provenance: imported 2026-09-01 from sec' "$out" \
     "provenance-bearing orphan must show the first 40 characters of its provenance line"
   assert_row_matches 'fm-orphan-url[[:space:]]+-[[:space:]]+[0-9]+h[[:space:]]+no-home[[:space:]]+keep[[:space:]]+-[[:space:]]+-$' "$out" \
@@ -424,16 +503,10 @@ test_orphan_columns_and_apply_orphans_guards() {
     "eligible bare orphan must read would reclaim (orphan) under the flag"
   assert_row_matches 'fm-orphan-url[[:space:]]+-[[:space:]]+[0-9]+h[[:space:]]+no-home[[:space:]]+keep' "$out" \
     "a landing URL keeps an orphan reclaim-ineligible even under the flag"
-  if [ "$TASKS_AXI_BEADS_OK" = 1 ]; then
-    assert_row_matches 'fm-orphan-row[[:space:]]+-[[:space:]]+[0-9]+h[[:space:]]+no-home[[:space:]]+keep' "$out" \
-      "a claim marker keeps an orphan reclaim-ineligible even under the flag"
-    assert_contains "$out" "would reclaim 4" \
-      "summary must count the eligible orphans among what a flagged apply would reclaim"
-  else
-    # Without markers fm-orphan-row is eligible too: 2 dead + 3 orphans.
-    assert_contains "$out" "would reclaim 5" \
-      "summary must count every eligible orphan under a markdown-only tasks-axi"
-  fi
+  assert_row_matches 'fm-orphan-row[[:space:]]+-[[:space:]]+[0-9]+h[[:space:]]+no-home[[:space:]]+keep' "$out" \
+    "a claim marker keeps an orphan reclaim-ineligible even under the flag"
+  assert_contains "$out" "would reclaim 4" \
+    "summary must count the eligible orphans among what a flagged apply would reclaim"
   # The 48h gate: the same fixture at 47h by the clock selects the rows via the
   # 24h threshold but the bare orphan stays kept.
   out=$(FM_HOME="$HOME_DIR" FM_STALE_SWEEP_NOW=$(( $(date +%s) + 47 * 3600 )) \
@@ -441,7 +514,6 @@ test_orphan_columns_and_apply_orphans_guards() {
   assert_row_matches 'fm-bare-orphan[[:space:]]+-[[:space:]]+[0-9]+h[[:space:]]+no-home[[:space:]]+keep' "$out" \
     "an orphan younger than 48h must stay kept even under the flag"
   # The real flagged apply at 50h reclaims exactly the bare orphan.
-  require_tasks_axi_beads "the orphan apply path" || return 0
   out=$(run_sweep --apply --apply-orphans)
   rc=$?
   expect_code 0 "$rc" "flagged apply run should succeed"
@@ -495,7 +567,6 @@ test_dry_run_lists_verdicts_and_reclaims_nothing() {
 }
 
 test_apply_reclaims_only_dead_rows() {
-  require_tasks_axi_beads "the reclaim apply path" || return 0
   local rec out rc date
   rec=$(make_fixture apply)
   [ -n "$rec" ] || fail "fixture construction failed (see stderr above)"
@@ -546,14 +617,9 @@ test_check_mode_gates_on_the_interval_record() {
   out=$(FM_HOME="$HOME_DIR" FM_STALE_SWEEP_NOW=$((t0 + 86401)) PATH="$FAKEBIN:$PATH" "$SWEEP" check)
   assert_contains "$out" "stale-sweep: 2 dead-endpoint in_progress rows reclaimable" \
     "check after the interval must report again"
-  # A clean graph stays silent even past the gate. Cleaning through the
-  # sweep's own apply needs a beads-capable tasks-axi; a markdown-only install
-  # reclaims the two dead rows straight through bd instead.
-  if [ "$TASKS_AXI_BEADS_OK" = 1 ]; then
-    FM_HOME="$HOME_DIR" FM_STALE_SWEEP_NOW=$((t0 + 50 * 3600)) PATH="$FAKEBIN:$PATH" "$SWEEP" --apply >/dev/null
-  else
-    BEADS_DIR="$CASE_DIR/fm/.beads" bd close fm-dead-row fm-prov-row >/dev/null 2>&1
-  fi
+  # A clean graph stays silent even past the gate, cleaned through the sweep's
+  # own apply.
+  FM_HOME="$HOME_DIR" FM_STALE_SWEEP_NOW=$((t0 + 50 * 3600)) PATH="$FAKEBIN:$PATH" "$SWEEP" --apply >/dev/null
   out=$(FM_HOME="$HOME_DIR" FM_STALE_SWEEP_NOW=$((t0 + 100 * 3600)) PATH="$FAKEBIN:$PATH" "$SWEEP" check)
   [ -z "$out" ] || fail "check on a clean graph printed: $out"
   pass "check mode reports only past the interval gate and only when rows are reclaimable"
@@ -575,7 +641,6 @@ test_check_mode_reports_the_budget_cut() {
 }
 
 test_apply_names_the_resolved_homes_actor_when_two_homes_hold_meta() {
-  require_tasks_axi_beads "the reclaim apply path" || return 0
   local rec out date
   rec=$(make_fixture handoff)
   [ -n "$rec" ] || fail "fixture construction failed (see stderr above)"
@@ -648,7 +713,6 @@ test_arm_disarm_roundtrip() {
 # row instead of racing the close and resurrecting finished work. After the
 # holder dies, the same sweep reclaims the row, proving the lock was the gate.
 test_apply_refuses_a_row_whose_record_lock_a_completion_holds() {
-  require_tasks_axi_beads "the reclaim apply path" || return 0
   local rec out holder_pid lock
   rec=$(make_fixture lockheld)
   [ -n "$rec" ] || fail "fixture construction failed (see stderr above)"
@@ -708,7 +772,6 @@ test_undecodable_claim_marker_still_blocks_an_orphan_reclaim() {
 # state dir, so there is no per-task record lock to share and the reclaim must
 # proceed rather than refuse on an unresolvable lock.
 test_apply_orphans_reclaims_without_a_record_state_dir() {
-  require_tasks_axi_beads "the lockless orphan reclaim path" || return 0
   local rec out
   rec=$(make_fixture nostate)
   [ -n "$rec" ] || fail "fixture construction failed (see stderr above)"
@@ -727,7 +790,6 @@ test_apply_orphans_reclaims_without_a_record_state_dir() {
 # A pending backlog-close replay record: a completion was recorded and is still
 # owed (the teardown crash window), so the row must never be reopened.
 test_apply_refuses_a_row_with_a_pending_completion_replay() {
-  require_tasks_axi_beads "the reclaim apply path" || return 0
   local rec out
   rec=$(make_fixture closereplay)
   [ -n "$rec" ] || fail "fixture construction failed (see stderr above)"
