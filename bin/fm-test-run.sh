@@ -109,6 +109,11 @@
 # recorded family-level coupling still expands to the whole family.
 set -eu
 
+# Pin the runner umask to CI's 022 so suites that create state roots with plain
+# mkdir satisfy the private-directory contract (no group/other write bits)
+# regardless of the invoking lane's umask (e.g. 002 in local agent lanes).
+umask 022
+
 now_ms() {
   if command -v python3 >/dev/null 2>&1; then
     python3 -c 'import time; print(int(time.time() * 1000))'
