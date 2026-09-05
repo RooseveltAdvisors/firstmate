@@ -87,7 +87,14 @@ make_fixture() {  # <name>
   mkdir -p "$home/data" "$home/state" "$graph" "$case_dir/other-home"
   fb=$(make_fakebin "$case_dir")
   git -C "$graph" init -q
-  (cd "$graph" && bd init >/dev/null 2>&1)
+  # bd init can exit non-zero while still leaving a half-usable graph behind,
+  # whose symptoms later surface as unrelated empty-table assertions, so the
+  # init status and its output are checked here rather than discarded.
+  if ! (cd "$graph" && bd init >"$case_dir/bd-init.log" 2>&1); then
+    cat "$case_dir/bd-init.log" >&2
+    printf '%s\n' "$case_dir/bd-init.log" > "$TMP_ROOT/fixture-failed"
+    fail "fixture bd init failed on $graph"
+  fi
   cat > "$home/.tasks.toml" <<EOF
 backend = "beads"
 
@@ -104,21 +111,28 @@ EOF
   # Every fixture row creation is loud: a swallowed failure here reads later
   # as an empty sweep table on some other machine, which is exactly the CI
   # failure mode this suite once shipped with. The captured log is printed
-  # by the fail below so the runner's actual error is in the log.
+  # by the fail below so the runner's actual error is in the log. Both
+  # streams are captured and the callers must not redirect inside the sh -c:
+  # tasks-axi reports its errors on stdout, so a >/dev/null there would leave
+  # the log empty exactly when a diagnosis is needed (the 2026-09-04 CI
+  # failure mode). make_fixture runs inside a command substitution, so its
+  # fail can only kill the subshell; the marker file lets read_fixture, which
+  # runs in the real test shell, abort the whole suite with the log attached.
   fxlog="$case_dir/fixture-create.log"
   : > "$fxlog"
   fx() {
     if ! "$@" >>"$fxlog" 2>&1; then
       cat "$fxlog" >&2
+      printf '%s\n' "$fxlog" > "$TMP_ROOT/fixture-failed"
       fail "fixture row creation failed: $*"
     fi
   }
   for id in fm-dead-row fm-live-row fm-orphan-row fm-prov-row; do
-    fx sh -c "cd '$home' && tasks-axi add '$id' 'fixture $id' --kind ship >/dev/null"
-    fx sh -c "cd '$home' && tasks-axi start '$id' >/dev/null"
+    fx sh -c "cd '$home' && tasks-axi add '$id' 'fixture $id' --kind ship"
+    fx sh -c "cd '$home' && tasks-axi start '$id'"
   done
   fx sh -c "cd '$home' && tasks-axi update fm-prov-row --body \
-    'Provenance: imported 2026-09-01 from secondmate home widgets ($case_dir/other-home) markdown backlog' >/dev/null"
+    'Provenance: imported 2026-09-01 from secondmate home widgets ($case_dir/other-home) markdown backlog'"
   # Marker-less orphans created straight through bd: no tasks-axi claim marker
   # ever touched them, which is what --apply-orphans keys on.
   fx env BEADS_DIR="$graph/.beads" bd create "bare orphan" --id fm-bare-orphan
@@ -146,6 +160,14 @@ EOF
 }
 
 read_fixture() {
+  # A make_fixture failure can only fail its own command-substitution subshell,
+  # so a leftover marker means the fixture graph is absent and every later
+  # assertion would fail with confusing secondary symptoms. Abort the suite
+  # here, with the captured fixture log that names the real error.
+  if [ -e "$TMP_ROOT/fixture-failed" ]; then
+    cat "$(cat "$TMP_ROOT/fixture-failed")" >&2
+    fail "the fixture graph could not be created; the captured fixture log above names the failing command and its real error"
+  fi
   IFS='|' read -r CASE_DIR HOME_DIR FAKEBIN <<EOF
 $1
 EOF
