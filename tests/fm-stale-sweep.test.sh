@@ -98,7 +98,9 @@ make_fixture() {  # <name>
   case_dir="$TMP_ROOT/$name"
   home="$case_dir/home"
   graph="$case_dir/fm"
-  mkdir -p "$home/data" "$home/state" "$graph" "$case_dir/other-home"
+  # other-home stands in for a real markdown-backed firstmate home, so it
+  # carries the state/ dir every home has and the provenance fallback requires.
+  mkdir -p "$home/data" "$home/state" "$graph" "$case_dir/other-home/state"
   fb=$(make_fakebin "$case_dir")
   git -C "$graph" init -q
   # bd init can exit non-zero while still leaving a half-usable graph behind,
@@ -364,6 +366,32 @@ EOF
   assert_row_matches 'fm-dead-row[[:space:]]+main home[[:space:]]+50h[[:space:]]+dead' "$out" \
     "the working directory's graph must never displace the home's own graph"
   pass "a home-relative [beads] path resolves against the home, not the working directory"
+}
+
+# A provenance path that is not a firstmate home must never be accepted as one.
+# fm-crew-state.sh answers "no metadata" for any directory holding no
+# state/<id>.meta and the sweep reads that as positive death evidence, so a
+# misresolved directory can only ever turn an unowned row into a reclaimable
+# one - the opposite of the keep-unless-proven-dead contract.
+test_provenance_home_must_be_a_home_not_any_directory() {
+  local rec out
+  rec=$(make_fixture provguard)
+  [ -n "$rec" ] || fail "fixture construction failed (see stderr above)"
+  read_fixture "$rec"
+  # An existing directory whose path contains "/firstmate" but which is not a
+  # home, named in parentheses the way the loose provenance pattern reads.
+  mkdir -p "$CASE_DIR/firstmate/bin"
+  BEADS_DIR="$CASE_DIR/fm/.beads" bd update fm-bare-orphan \
+    --description "align with ($CASE_DIR/firstmate/bin) before landing" >/dev/null \
+    || fail "fixture description update failed"
+  out=$(run_sweep)
+  assert_row_matches 'fm-bare-orphan[[:space:]]+-[[:space:]]+[0-9]+h[[:space:]]+no-home[[:space:]]+keep' "$out" \
+    "a parenthesized non-home directory must leave the row unowned and kept, never dead"
+  # The same fixture proves the guard did not break a real provenance home:
+  # other-home carries state/ and still resolves.
+  assert_row_matches 'fm-prov-row[[:space:]]+widgets[[:space:]]+[0-9]+h' "$out" \
+    "a provenance path that is a real home must still resolve to it"
+  pass "the provenance fallback accepts a firstmate home, not any directory"
 }
 
 # No-home rows carry the row's own ownership evidence: the ACTOR column decodes
@@ -681,6 +709,7 @@ test_apply_refuses_a_row_with_a_pending_completion_replay() {
 
 test_age_column_is_true_age_and_threshold_gates_selection
 test_relative_beads_path_resolves_against_the_home
+test_provenance_home_must_be_a_home_not_any_directory
 test_orphan_columns_and_apply_orphans_guards
 test_dry_run_lists_verdicts_and_reclaims_nothing
 test_apply_reclaims_only_dead_rows
