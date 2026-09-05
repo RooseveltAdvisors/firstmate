@@ -27,21 +27,25 @@ FM_TEST_FIXTURES_SOURCED=1
 # equal to that floor so a bump is one constant here plus that production pin.
 export FM_TEST_NO_MISTAKES_VERSION=1.46.0
 export FM_TEST_NO_MISTAKES_FAKE_VERSION="no-mistakes version v${FM_TEST_NO_MISTAKES_VERSION} (fake)"
+# The timestamped form is the default banner: it is the shape the real CLI
+# prints, and the suites that pin a banner (bootstrap, session-start) pin this
+# form. Override a single case with FM_FAKE_NO_MISTAKES_VERSION.
 export FM_TEST_NO_MISTAKES_FAKE_VERSION_TS="${FM_TEST_NO_MISTAKES_FAKE_VERSION} 2026-06-27T00:02:18Z"
 export FM_TEST_GH_AXI_VERSION=0.1.29
+export FM_TEST_QUOTA_AXI_VERSION=0.1.29
 
 # --- fake no-mistakes -------------------------------------------------------
 
 # fm_test_fake_no_mistakes <fakebin>
-# Drops a no-mistakes stub that answers --version with
-# FM_TEST_NO_MISTAKES_FAKE_VERSION (or FM_FAKE_NO_MISTAKES_VERSION when set)
-# and exits 0 for every other invocation.
+# Drops a no-mistakes stub that answers --version with the shared timestamped
+# banner (or FM_FAKE_NO_MISTAKES_VERSION when set) and exits 0 for every other
+# invocation.
 fm_test_fake_no_mistakes() {
   local fakebin=$1
   cat > "$fakebin/no-mistakes" <<SH
 #!/usr/bin/env bash
 if [ "\${1:-}" = --version ]; then
-  printf '%s\\n' "\${FM_FAKE_NO_MISTAKES_VERSION:-$FM_TEST_NO_MISTAKES_FAKE_VERSION}"
+  printf '%s\\n' "\${FM_FAKE_NO_MISTAKES_VERSION:-$FM_TEST_NO_MISTAKES_FAKE_VERSION_TS}"
   exit 0
 fi
 exit 0
@@ -87,6 +91,67 @@ SH
 fm_test_fake_gh_axi() {
   local fakebin=$1
   fm_fake_version_tool "$fakebin" gh-axi FM_FAKE_GH_AXI_VERSION "$FM_TEST_GH_AXI_VERSION"
+}
+
+# fm_test_fake_quota_axi <fakebin>
+# Answers --version with FM_FAKE_QUOTA_AXI_VERSION or FM_TEST_QUOTA_AXI_VERSION.
+fm_test_fake_quota_axi() {
+  local fakebin=$1
+  fm_fake_version_tool "$fakebin" quota-axi FM_FAKE_QUOTA_AXI_VERSION "$FM_TEST_QUOTA_AXI_VERSION"
+}
+
+# fm_test_fake_treehouse <fakebin> [default-usage]
+# Answers `get --help` with <default-usage> (default: the lease-capable form)
+# and exits 0 otherwise. FM_FAKE_TREEHOUSE_LEASE_HELP=1 switches the help to
+# the lease-holder form, so a suite can drive both sides of spawn's
+# capability detection without owning a private copy of the stub.
+fm_test_fake_treehouse() {
+  local fakebin=$1 usage=${2:-Usage: treehouse get [--lease]}
+  cat > "$fakebin/treehouse" <<SH
+#!/usr/bin/env bash
+if [ "\${1:-}" = get ] && [ "\${2:-}" = --help ]; then
+  if [ "\${FM_FAKE_TREEHOUSE_LEASE_HELP:-}" = 1 ]; then
+    printf '%s\\n' 'Usage: treehouse get [--lease] [--lease-holder <holder>]'
+  else
+    printf '%s\\n' '$usage'
+  fi
+  exit 0
+fi
+exit 0
+SH
+  chmod +x "$fakebin/treehouse"
+}
+
+# fm_test_fake_tasks_axi <fakebin> [version] [archive-body] [multi-id]
+# Answers --version (default 0.2.4), the two capability helps the backlog gate
+# probes (`update --help` advertises --body-file and, unless archive-body is
+# "no", --archive-body; `mv --help` shows the multi-id usage unless multi-id
+# is "no"), and exits 0 for every other invocation.
+fm_test_fake_tasks_axi() {
+  local fakebin=$1 version=${2:-0.2.4} archive_body=${3:-yes} multi_id=${4:-yes} archive_line mv_usage
+  archive_line='  --archive-body'
+  [ "$archive_body" = yes ] || archive_line=
+  mv_usage='usage: tasks-axi mv <id> [<id>...] --to <path-or-dir>'
+  [ "$multi_id" = yes ] || mv_usage='usage: tasks-axi mv <id> --to <path-or-dir>'
+  cat > "$fakebin/tasks-axi" <<SH
+#!/usr/bin/env bash
+if [ "\${1:-}" = --version ]; then
+  printf '%s\\n' '$version'
+  exit 0
+fi
+if [ "\${1:-}" = update ] && [ "\${2:-}" = --help ]; then
+  printf '%s\\n' 'usage: tasks-axi update <id> [flags]'
+  printf '%s\\n' '  --body-file <path>'
+  [ -z '$archive_line' ] || printf '%s\\n' '$archive_line'
+  exit 0
+fi
+if [ "\${1:-}" = mv ] && [ "\${2:-}" = --help ]; then
+  printf '%s\\n' '$mv_usage'
+  exit 0
+fi
+exit 0
+SH
+  chmod +x "$fakebin/tasks-axi"
 }
 
 # --- fake tmux / ssh / sleep ------------------------------------------------
