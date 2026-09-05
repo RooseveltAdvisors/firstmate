@@ -291,6 +291,103 @@ test_verify_names_the_unresolvable_legacy_id_once() {
   pass "an unresolvable legacy id is refused once, naming the id"
 }
 
+# The captain-hold mutation wrapper must address the configured backend like
+# the transition library does: on a beads-configured home its hold/answer/done
+# calls reach tasks-axi with no markdown file override. Fully portable - the
+# stubbed tasks-axi fakes the beads backend, so no bd or beads-capable install
+# is needed.
+test_captain_hold_mutations_address_the_beads_backend() {
+  local home id fb log
+  home="$TMP_ROOT/captain-stub-beads/home"
+  mkdir -p "$home/data" "$home/config" "$home/projects" "$home/state"
+  cat > "$home/.tasks.toml" <<'EOF'
+backend = "beads"
+
+[beads]
+path = "graph/.beads"
+binary = "bd"
+prefix = "fm"
+EOF
+  id=fm-stub-held-row
+  fb=$(fm_fakebin "$home")
+  log="$home/tasks-axi-calls"
+  cat > "$fb/tasks-axi" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "@LOG@"
+case "${1:-}" in
+  --version) printf '%s\n' '0.2.5' ;;
+  update)
+    if [ "${2:-}" = --help ]; then
+      printf '%s\n' '--archive-body'
+      exit 0
+    fi
+    case " $* " in
+      *" --file "*)
+        printf '%s\n' 'error: beads update received a markdown file override' >&2
+        exit 1
+        ;;
+    esac
+    stub_prev=
+    stub_path=
+    for stub_arg in "$@"; do
+      if [ "$stub_prev" = --body-file ]; then stub_path=$stub_arg; fi
+      stub_prev=$stub_arg
+    done
+    [ -n "$stub_path" ] && cp -- "$stub_path" "@HOME@/last-body"
+    printf 'ok: update %s\n' "${2:-}"
+    ;;
+  mv)
+    [ "${2:-}" = --help ] || exit 1
+    printf '%s\n' 'usage: tasks-axi mv [<id>...]'
+    ;;
+  hold)
+    case " $* " in
+      *" --help "*) printf '%s\n' '  --kind captain' ; exit 0 ;;
+      *" --file "*)
+        printf '%s\n' 'error: beads hold received a markdown file override' >&2
+        exit 1
+        ;;
+    esac
+    printf 'ok: hold %s\n' "${2:-}"
+    ;;
+  show)
+    [ "${2:-}" = "@ID@" ] || exit 1
+    case " $* " in
+      *" --file "*)
+        printf '%s\n' 'error: beads show received a markdown file override' >&2
+        exit 1
+        ;;
+    esac
+    printf '%s\n' 'task:'
+    printf '  id: %s\n' "@ID@"
+    printf '%s\n' '  state: queued' '  held: yes' '  blocked: no' \
+      '  hold_kind: captain'
+    if [ -f "@HOME@/last-body" ]; then
+      printf '%s' '  body: '
+      perl -MJSON::PP -e 'local $/; print encode_json(<STDIN>)' < "@HOME@/last-body"
+      printf '\n'
+    else
+      printf '%s\n' '  body: ""'
+    fi
+    ;;
+  *) exit 1 ;;
+esac
+SH
+  sed -i "s|@HOME@|$home|g; s|@ID@|$id|g; s|@LOG@|$log|g" "$fb/tasks-axi"
+  chmod +x "$fb/tasks-axi"
+
+  PATH="$fb:$PATH" REAL_TASKS_AXI="$TASKS_AXI_BIN" \
+    FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
+    FM_DATA_OVERRIDE="$home/data" FM_CONFIG_OVERRIDE="$home/config" \
+    "$ROOT/bin/fm-captain-hold.sh" hold "$id" --reason "captain must decide" >/dev/null \
+    || fail "holding on a beads-configured home failed without a markdown backlog"
+  assert_grep "hold $id" "$log" \
+    "the captain-hold mutation never reached the configured backend"
+  assert_no_grep "hold $id --file" "$log" \
+    "the captain-hold mutation passed a markdown file override to a beads home"
+  pass "captain-hold mutations address the beads backend without a markdown override"
+}
+
 # Reproduces the loss exactly with privacy-safe synthetic names: the investigation
 # and visual review have ended, the only genuine unresolved captain call is report
 # prose, no held backlog item or open status exists, and the authoritative
@@ -1910,3 +2007,4 @@ test_verify_resolves_a_hold_migrated_to_beads_notes
 test_verify_resolves_a_hold_migrated_under_the_configured_prefix
 test_complete_accepts_a_migrated_inventory_on_beads
 test_verify_names_the_unresolvable_legacy_id_once
+test_captain_hold_mutations_address_the_beads_backend

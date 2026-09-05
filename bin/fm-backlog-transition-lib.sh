@@ -175,7 +175,7 @@ fm_backlog_data_relative() {  # <data-dir>
 }
 
 fm_backlog_transition_applies() {  # <config-dir> <data-dir> <kind>
-  local config=$1 data authorized_data=$2 kind=$3 file
+  local config=$1 data authorized_data=$2 kind=$3 file root
   FM_BACKLOG_TRANSITION_SKIP=
   if [ "$kind" = secondmate ]; then
     FM_BACKLOG_TRANSITION_SKIP="secondmates are not backlog items"
@@ -189,13 +189,16 @@ fm_backlog_transition_applies() {  # <config-dir> <data-dir> <kind>
     FM_BACKLOG_TRANSITION_ERROR="data directory cannot be resolved: $2"
     return 2
   fi
-  file=$(fm_backlog_file "$data")
-  if [ ! -e "$file" ] && [ ! -L "$file" ]; then
-    FM_BACKLOG_TRANSITION_SKIP="this home keeps no backlog at $file"
-    return 1
-  fi
-  if ! fm_backlog_record_present "$file" "backlog file" "$authorized_data"; then
-    return 2
+  root=$(fm_backlog_root "$data") || return 2
+  if [ "$(fm_tasks_axi_backend "$root")" = markdown ]; then
+    file=$(fm_backlog_file "$data")
+    if [ ! -e "$file" ] && [ ! -L "$file" ]; then
+      FM_BACKLOG_TRANSITION_SKIP="this home keeps no backlog at $file"
+      return 1
+    fi
+    if ! fm_backlog_record_present "$file" "backlog file" "$authorized_data"; then
+      return 2
+    fi
   fi
   if ! fm_tasks_axi_compatible; then
     FM_BACKLOG_TRANSITION_ERROR="automatic backlog transitions require tasks-axi $FM_TASKS_AXI_MIN or newer with the required update and mv features"
@@ -232,7 +235,7 @@ fm_backlog_row_list() {  # <resolved-data-dir> [flag...]
 }
 
 fm_backlog_row_probe() {  # <data-dir> <id>
-  local data authorized_data=$1 file id=$2 out state held blocked hold_kind command_status
+  local data authorized_data=$1 file id=$2 out state held blocked hold_kind command_status root
   if ! data=$(fm_backlog_data_absolute "$1"); then
     FM_BACKLOG_ROW_RESULT=error
     FM_BACKLOG_ROW_STATE=
@@ -243,18 +246,20 @@ fm_backlog_row_probe() {  # <data-dir> <id>
   FM_BACKLOG_ROW_STATE=
   FM_BACKLOG_ROW_HOLD_KIND=
   FM_BACKLOG_ROW_ERROR=
-  file=$(fm_backlog_file "$data") || {
+  root=$(fm_backlog_root "$data") || {
     FM_BACKLOG_ROW_ERROR=$FM_BACKLOG_TRANSITION_ERROR
     return 1
   }
-  if ! fm_backlog_record_present "$file" "backlog file" "$authorized_data"; then
-    FM_BACKLOG_ROW_ERROR=$FM_BACKLOG_TRANSITION_ERROR
-    return 1
+  if [ "$(fm_tasks_axi_backend "$root")" = markdown ]; then
+    file=$(fm_backlog_file "$data") || {
+      FM_BACKLOG_ROW_ERROR=$FM_BACKLOG_TRANSITION_ERROR
+      return 1
+    }
+    if ! fm_backlog_record_present "$file" "backlog file" "$authorized_data"; then
+      FM_BACKLOG_ROW_ERROR=$FM_BACKLOG_TRANSITION_ERROR
+      return 1
+    fi
   fi
-  fm_backlog_root "$data" >/dev/null || {
-    FM_BACKLOG_ROW_ERROR=$FM_BACKLOG_TRANSITION_ERROR
-    return 1
-  }
   out=$(fm_backlog_row_show "$data" "$id")
   command_status=$?
   if [ "$command_status" -ne 0 ]; then
@@ -285,20 +290,29 @@ fm_backlog_row_probe() {  # <data-dir> <id>
 }
 
 # Run one tasks-axi mutation against <home>'s backlog, capturing its first
-# output line in FM_BACKLOG_TRANSITION_ERROR on failure.
+# output line in FM_BACKLOG_TRANSITION_ERROR on failure. The markdown backend
+# keeps its explicit <data>/backlog.md file and presence requirement; every
+# other configured backend is addressed by the root's own tasks-axi
+# configuration, so passing the markdown-era path would write the wrong store.
 fm_backlog_mutate() {  # <data-dir> <verb> <id> [flag...]
-  local data authorized_data=$1 file verb=$2 id=$3 out command_status
+  local data authorized_data=$1 file verb=$2 id=$3 out command_status root
   if ! data=$(fm_backlog_data_absolute "$1"); then
     FM_BACKLOG_TRANSITION_ERROR="data directory cannot be resolved: $1"
     return 1
   fi
   shift 3
   FM_BACKLOG_TRANSITION_ERROR=
-  file=$(fm_backlog_file "$data") || return 1
-  fm_backlog_record_present "$file" "backlog file" "$authorized_data" || return 1
-  out=$(cd "$(fm_backlog_root "$data")" 2>/dev/null && tasks-axi "$verb" "$id" \
-      --file "$file" "$@" 2>&1)
-  command_status=$?
+  root=$(fm_backlog_root "$data") || return 1
+  if [ "$(fm_tasks_axi_backend "$root")" != markdown ]; then
+    out=$(cd "$root" 2>/dev/null && tasks-axi "$verb" "$id" "$@" 2>&1)
+    command_status=$?
+  else
+    file=$(fm_backlog_file "$data") || return 1
+    fm_backlog_record_present "$file" "backlog file" "$authorized_data" || return 1
+    out=$(cd "$root" 2>/dev/null && tasks-axi "$verb" "$id" \
+        --file "$file" "$@" 2>&1)
+    command_status=$?
+  fi
   [ "$command_status" -ne 0 ] || return 0
   FM_BACKLOG_TRANSITION_ERROR=$(printf '%s\n' "$out" | sed -n '1p')
   [ -n "$FM_BACKLOG_TRANSITION_ERROR" ] \

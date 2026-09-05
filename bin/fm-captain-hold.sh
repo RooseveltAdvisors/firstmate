@@ -278,13 +278,20 @@ load_decision() {  # <path>; sets DECISION_TEXT and DECISION_DIGEST
 
 # Mutations address the configured data directory's backlog from its root, the
 # way bin/fm-backlog-transition-lib.sh addresses every transition, so a home
-# with a relocated data directory keeps one backlog.
+# with a relocated data directory keeps one backlog. The explicit --file file
+# belongs to the markdown backend only; a non-markdown backend is addressed by
+# the root's own tasks-axi configuration, exactly like the transition library's
+# mutate path.
 tasks_axi() {
   local data file root
   data=$(fm_backlog_data_absolute "$DATA") || fail "data directory cannot be resolved: $DATA"
-  file=$(fm_backlog_file "$data") || fail "$FM_BACKLOG_TRANSITION_ERROR"
   root=$(fm_backlog_root "$data") || fail "$FM_BACKLOG_TRANSITION_ERROR"
-  (cd "$root" && tasks-axi "$@" --file "$file")
+  if [ "$(fm_tasks_axi_backend "$root")" = markdown ]; then
+    file=$(fm_backlog_file "$data") || fail "$FM_BACKLOG_TRANSITION_ERROR"
+    (cd "$root" && tasks-axi "$@" --file "$file")
+  else
+    (cd "$root" && tasks-axi "$@")
+  fi
 }
 
 require_tasks_axi() {
@@ -479,8 +486,11 @@ captain_beads_setting() {  # <entries-output> <setting>
   printf '%s\n' "$1" | sed -n "s/^$2 //p" | head -1
 }
 
-# Load the configured beads graph's full row listing once per process, for
-# migration-note scans. Returns 0 when loaded or nothing needs loading, and 2
+# Read the configured beads graph's row listing for a migration-note scan.
+# The listing is deliberately re-read per unresolvable key: the cache below
+# lives and dies with the command-substitution subshell every resolve_entry
+# call site runs in, so it cannot persist across keys - bounded by a scout
+# report's handful of attested ids. Returns 0 when the listing loads, and 2
 # with the reason on stderr when the graph cannot be read.
 captain_migration_scan_load() {  # <resolved-data-dir>
   local data=$1 root entries bd_bin bd_path
@@ -501,6 +511,12 @@ captain_migration_scan_load() {  # <resolved-data-dir>
     printf 'fm-captain-hold: the beads backend carries no graph path in %s, so a migrated hold cannot be found\n' "$root/.tasks.toml" >&2
     return 2
   fi
+  # A relative [beads] path resolves against the backlog root, the same rule
+  # every other .tasks.toml path consumer uses, never against the process CWD.
+  case "$bd_path" in
+    /*) ;;
+    *) bd_path="$root/$bd_path" ;;
+  esac
   command -v "$bd_bin" >/dev/null 2>&1 || {
     printf 'fm-captain-hold: the beads binary %s is not on PATH, so a migrated hold cannot be found\n' "$bd_bin" >&2
     return 2
@@ -509,10 +525,18 @@ captain_migration_scan_load() {  # <resolved-data-dir>
     printf 'fm-captain-hold: jq is required to scan the beads graph for a migrated hold\n' >&2
     return 2
   }
-  if ! CAPTAIN_MIGRATION_SCAN_JSON=$(BEADS_DIR="$bd_path" "$bd_bin" list --all --json 2>/dev/null); then
-    printf 'fm-captain-hold: reading the beads graph at %s failed, so a migrated hold cannot be found\n' "$bd_path" >&2
+  local bd_err
+  bd_err=$(mktemp "${TMPDIR:-/tmp}/fm-captain-hold-bd.XXXXXX") || {
+    printf 'fm-captain-hold: cannot stage the beads graph read diagnostics\n' >&2
+    return 2
+  }
+  if ! CAPTAIN_MIGRATION_SCAN_JSON=$(BEADS_DIR="$bd_path" "$bd_bin" list --all --json 2>"$bd_err"); then
+    printf 'fm-captain-hold: reading the beads graph at %s failed (%s), so a migrated hold cannot be found\n' \
+      "$bd_path" "$(sanitize_field "$(head -c 200 "$bd_err" | tr '\n' ' ')")" >&2
+    rm -f "$bd_err"
     return 2
   fi
+  rm -f "$bd_err"
   CAPTAIN_MIGRATION_SCAN_LOADED=1
   return 0
 }
