@@ -73,9 +73,11 @@ SH
 
 # herdr_run <dir> [K=V ...] <adapter-fn> [args...]
 # Source the adapter and run <adapter-fn> against a canned-response case world
-# (dir with log, responses/, and the make_herdr_fakebin stub - installed here
-# only when absent, so a case that deletes or replaces the stub stays in
-# control of what runs). Leading K=V arguments apply to this one call only.
+# (dir with log, responses/, and the make_herdr_fakebin stub - re-installed
+# here whenever it is missing, so a case that REPLACES the stub stays in
+# control of what runs, but a case that needs herdr absent must point PATH at
+# a stub-free dir instead of deleting it). Leading K=V arguments apply to this
+# one call only.
 herdr_run() {
   local dir=$1
   shift

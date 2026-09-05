@@ -94,7 +94,8 @@ test_fake_treehouse_and_tasks_axi() {
     fail "a suite's non-lease default usage should be honored, got '$out'"
   fm_test_fake_tasks_axi "$fakebin"
   out=$("$fakebin/tasks-axi" --version)
-  [ "$out" = 0.2.4 ] || fail "fake tasks-axi --version should be 0.2.4, got '$out'"
+  [ "$out" = "$FM_TEST_TASKS_AXI_VERSION" ] || \
+    fail "fake tasks-axi --version should be $FM_TEST_TASKS_AXI_VERSION, got '$out'"
   out=$("$fakebin/tasks-axi" update --help)
   assert_contains "$out" '  --body-file <path>' "update help should advertise --body-file"
   assert_contains "$out" '  --archive-body' "update help should advertise --archive-body"
@@ -113,7 +114,7 @@ test_fake_treehouse_and_tasks_axi() {
 }
 
 test_fake_uname_curl_hasher() {
-  local fakebin out log
+  local fakebin out log rc
   fakebin=$(fm_fakebin "$TMP_ROOT/lint")
   fm_test_fake_uname "$fakebin"
   out=$("$fakebin/uname" -s)
@@ -126,7 +127,8 @@ test_fake_uname_curl_hasher() {
   CURL_COUNT="$log.count" CURL_URL_LOG="$log" "$fakebin/curl" -o "$TMP_ROOT/lint/dl" https://example.test/a
   expect_code 0 $? "fake curl should succeed by default"
   assert_grep 'https://example.test/a' "$log" "fake curl did not log its URL"
-  assert_grep '1' "$log.count" "fake curl did not count its call"
+  [ "$(cat "$log.count")" = 1 ] || \
+    fail "fake curl should have counted exactly 1 call, got '$(cat "$log.count")'"
   CURL_COUNT="$log.count" CURL_FAIL_UNTIL=2 "$fakebin/curl" -o "$TMP_ROOT/lint/dl" https://example.test/b; rc=$?
   expect_code 22 "$rc" "fake curl should fail while under CURL_FAIL_UNTIL"
   fm_test_fake_hasher "$fakebin" sha256sum

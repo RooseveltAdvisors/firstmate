@@ -33,6 +33,9 @@ export FM_TEST_NO_MISTAKES_FAKE_VERSION="no-mistakes version v${FM_TEST_NO_MISTA
 export FM_TEST_NO_MISTAKES_FAKE_VERSION_TS="${FM_TEST_NO_MISTAKES_FAKE_VERSION} 2026-06-27T00:02:18Z"
 export FM_TEST_GH_AXI_VERSION=0.1.29
 export FM_TEST_QUOTA_AXI_VERSION=0.1.29
+# Production floor lives in bin/fm-tasks-axi-lib.sh (FM_TASKS_AXI_MIN). Keep
+# this equal to that floor so a bump is one constant here plus that pin.
+export FM_TEST_TASKS_AXI_VERSION=0.2.4
 
 # --- fake no-mistakes -------------------------------------------------------
 
@@ -123,12 +126,12 @@ SH
 }
 
 # fm_test_fake_tasks_axi <fakebin> [version] [archive-body] [multi-id]
-# Answers --version (default 0.2.4), the two capability helps the backlog gate
-# probes (`update --help` advertises --body-file and, unless archive-body is
-# "no", --archive-body; `mv --help` shows the multi-id usage unless multi-id
-# is "no"), and exits 0 for every other invocation.
+# Answers --version (default FM_TEST_TASKS_AXI_VERSION), the two capability
+# helps the backlog gate probes (`update --help` advertises --body-file and,
+# unless archive-body is "no", --archive-body; `mv --help` shows the multi-id
+# usage unless multi-id is "no"), and exits 0 for every other invocation.
 fm_test_fake_tasks_axi() {
-  local fakebin=$1 version=${2:-0.2.4} archive_body=${3:-yes} multi_id=${4:-yes} archive_line mv_usage
+  local fakebin=$1 version=${2:-$FM_TEST_TASKS_AXI_VERSION} archive_body=${3:-yes} multi_id=${4:-yes} archive_line mv_usage
   archive_line='  --archive-body'
   [ "$archive_body" = yes ] || archive_line=
   mv_usage='usage: tasks-axi mv <id> [<id>...] --to <path-or-dir>'
