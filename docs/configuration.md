@@ -585,6 +585,28 @@ A fail-closed poll that already queued a wake, and a timeout, always print so th
 `FM_MAIL_CHECK_BUDGET` (default 15, valid 5..25) bounds one standing poll and is cut down to fit `FM_CHECK_TIMEOUT`.
 `bin/fm-mail-check.sh disarm` removes the standing check.
 
+## Stale-claim sweep (bin/fm-stale-sweep.sh)
+
+The Beads graph a beads-backed home's `.tasks.toml` points at never reclaims an in_progress claim on its own, so a task whose worker endpoint died stays claimed forever and dispatch capacity silently shrinks.
+[`bin/fm-stale-sweep.sh`](../bin/fm-stale-sweep.sh) makes those stale claims reclaim themselves.
+A dry run prints a table (id, home, age, verdict, action, plus the row's own claim-actor and provenance evidence on no-home rows) and a summary with the count it would reclaim; `--apply` performs the reclaims, and `--older-than <hours>` overrides the default 24-hour threshold measured from the row's `updated_at` (the last recorded graph activity).
+For every stale row the sweep resolves the owning home (the registered home holding `state/<id>.meta`, else the row's provenance line), asks that home with `fm-crew-state.sh`, and reclaims only on positive death evidence - a missing or dead endpoint, or a remote dead/missing verdict.
+Anything merely unproven (an unreadable pane, an unreachable remote) is kept.
+A row no local home owns is listed and kept too; `--apply-orphans` additionally reclaims such an orphan row only when it is older than 48 hours, carries no claim actor, and has no landing URL in its description.
+The reclaim appends `reclaimed <date>: endpoint dead, previous claim by <actor>` to the row's body and reopens it through the owning home's tasks-axi, only after re-proving the row is still in flight and unheld.
+The sweep never touches a row whose endpoint is live and never removes a meta, worktree, or pane, so stuck-crewmate recovery can still inspect what died.
+A home whose backlog is not beads-backed has no graph to sweep and the script says so instead of guessing.
+
+Register the daily check with `bin/fm-stale-sweep.sh arm`.
+That writes `state/stale-sweep.check.sh` and binds its bytes with `bin/fm-check-register.sh`, so the existing watcher polls it on its normal `FM_CHECK_INTERVAL` cadence and turns its one line into a `check:` wake; no separate schedule is involved.
+The check runs the sweep dry at most once per `FM_STALE_SWEEP_INTERVAL` (default 86400 seconds, `0` disables the gate, otherwise 900 to 604800), stays silent when nothing is reclaimable, and reports one line when dead-endpoint rows are reclaimable so firstmate decides whether to run `--apply`; if `FM_STALE_SWEEP_BUDGET_SECS` was cut to fit `FM_CHECK_TIMEOUT`, that cut is reported on the report line even on polls where nothing is reclaimable, and so is a budget that stopped the sweep before every candidate was probed.
+`FM_STALE_SWEEP_BUDGET_SECS` (default 25, 1 to 3600) bounds one probe and is cut down to what `FM_CHECK_TIMEOUT` allows, exactly like the tool-update check's budget.
+`FM_STALE_SWEEP_STATE_TIMEOUT` (default 90) bounds one home's `fm-crew-state.sh` call, capped to the remaining budget in check mode.
+`FM_STALE_SWEEP_BD_TIMEOUT` (default 120) bounds the `bd list` graph read, also capped to the remaining budget in check mode so a slow graph read fails visibly inside the probe instead of being killed silently.
+`bin/fm-stale-sweep.sh disarm` removes the shim, its trust binding, and the report record.
+
+A full treehouse pool is the sibling condition: [`bin/fm-spawn.sh`](../bin/fm-spawn.sh) detects treehouse's exact `all N worktrees are in use` refusal during the worktree wait, records a load-kind capacity hold whose reason names the pool (`bin/fm-capacity-lib.sh` owns the reason contract), and exits 2 with the item left queued, and [`bin/fm-teardown.sh`](../bin/fm-teardown.sh) releases the oldest capacity hold recorded for the same pool once a worktree is returned to it, printing which item became ready. When the worktree-derived pool scan matches nothing, teardown also scans the project-root fallback identity a spawn may have had to record when treehouse could not answer it, so such a hold is still released instead of stranded.
+
 ## Relay (.env)
 
 Relay lets a firstmate instance answer public mentions and act on normal reversible mention requests through firstmate's normal lifecycle.
