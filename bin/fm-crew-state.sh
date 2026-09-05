@@ -562,18 +562,25 @@ fi
 # liveness, so a finished-but-pane-closed crew never reaches here. Down here there
 # is no run to consult, so only positive evidence that the target is gone may
 # read as death - a backend that failed to answer is unknown, never death, for
-# both classifier-backed backends (tmux and herdr) - and either way this reports
-# unknown rather than trusting a possibly-stale status log as the current state.
+# both classifier-backed backends (tmux and herdr) - and every death-class
+# verdict reports unknown rather than trusting a possibly-stale status log as
+# the current state.
 [ -n "$BACKEND_TARGET" ] || emit unknown none "no backend target recorded"
 if ! pane_readable "$BACKEND_TARGET"; then
   # A failed probe is not itself evidence the pane is gone: the herdr CLI can
-  # error or stall under load, and tmux can fail to answer on a trimmed PATH or
-  # a socket hiccup, while the pane is alive - a busy box would otherwise score
-  # dozens of live claims dead. Both backends own a recovery-grade classifier
-  # (fm_backend_agent_state), which separates the outcomes:
+  # error or stall under load, and tmux can fail to be executed at all (a
+  # trimmed PATH) or answer non-definitively, while the pane is alive - a busy
+  # box would otherwise score dozens of live claims dead. Both backends own a
+  # recovery-grade classifier (fm_backend_agent_state), which separates the
+  # outcomes:
   #   missing - the endpoint is authoritatively absent: herdr's pane get
   #             answered pane_not_found; tmux's successful window inventory
-  #             omitted the exact recorded window.
+  #             omitted the exact recorded window, or tmux gave one of its
+  #             definitive no-session/no-server/no-socket responses (which
+  #             fm_backend_tmux_agent_state owns as death, since fm-bootstrap
+  #             and fm-session-start depend on it to license a respawn after a
+  #             genuine server death - a socket-connection failure is NOT
+  #             covered by the unknown-never-death rule above).
   #   dead    - the endpoint exists but confidently has no agent (herdr's agent
   #             get answered agent_not_found; tmux's readable foreground process
   #             group is nothing but shells), still positive death evidence.

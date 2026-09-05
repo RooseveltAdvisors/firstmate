@@ -85,9 +85,10 @@ set -u
 # FM_FAKE_TMUX_MISSING: the window is authoritatively gone - every addressed
 # call fails, but the session inventory still answers successfully and simply
 # omits the window, which is what proves absence.
-# FM_FAKE_TMUX_UNREADABLE: tmux itself cannot answer (trimmed PATH, socket
-# hiccup, transient failure) - even the inventory fails, with a message that
-# is not one of the definitive no-session/no-server responses.
+# FM_FAKE_TMUX_UNREADABLE: tmux itself cannot answer - it fails to execute (a
+# trimmed PATH) or errors non-definitively - so even the inventory fails, with
+# a message that is NOT one of the definitive no-session/no-server/no-socket
+# responses that fm_backend_tmux_agent_state owns as death.
 [ "${FM_FAKE_TMUX_UNREADABLE:-0}" = 1 ] && { printf 'no current client\n' >&2; exit 1; }
 case "${1:-}" in
   list-windows)
@@ -1165,10 +1166,14 @@ test_dead_window_ignores_stale_status_log() {
 
 # Regression (2026-09 G7 stale-claim incident, tmux half): the default backend
 # reached the same false-death path as herdr. A tmux that cannot answer at all
-# - a trimmed PATH, a TMUX_TMPDIR mismatch, a socket hiccup - made every live
-# crew report "backend target gone", the text the stale sweep matches as
-# positive death. Only a successful window inventory that omits the recorded
-# window proves absence; a tmux that failed to answer is unknown, never death.
+# - a trimmed PATH, or any non-definitive error - made every live crew report
+# "backend target gone", the text the stale sweep matches as positive death.
+# Absence must be proved by tmux's own answer: a window inventory that omits
+# the recorded window, or one of its definitive no-session/no-server/no-socket
+# responses. Anything else is a tmux that failed to answer: unknown, never
+# death. (A socket-connection error is deliberately NOT in this test's scope -
+# fm_backend_tmux_agent_state classifies it as `missing` so fm-bootstrap and
+# fm-session-start can respawn after a genuine server death.)
 test_no_run_tmux_unreadable_reads_unreachable_not_gone() {
   reset_fakes
   local d; d=$(new_case tmux-unreadable)
