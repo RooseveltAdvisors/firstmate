@@ -47,8 +47,8 @@
 #      missing/dead endpoint detail (no metadata, worktree gone, backend target
 #      gone, no backend target recorded), or source remote-endpoint with a
 #      remote dead/missing verdict. Everything else - any live state, an
-#      unproven pane verdict, an unreachable remote - is kept, because none of
-#      those is proof the endpoint is dead.
+#      unproven pane verdict, an unreachable backend or remote - is kept,
+#      because none of those is proof the endpoint is dead.
 #   5. `--apply` reclaims through the OWNING home's tasks-axi when that
 #      home's backend reaches the swept graph (a home whose backlog lives
 #      elsewhere cannot reopen a beads row, so the graph-owning sweep home

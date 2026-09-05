@@ -414,6 +414,42 @@ test_dry_run_lists_verdicts_and_reclaims_nothing() {
   pass "dry run lists every verdict and reclaims nothing"
 }
 
+# Regression (2026-09 G7 stale-claim incident): a herdr-backed row whose CLI
+# cannot answer must never be reclaimed. crew-state reads it as
+# `backend unreachable`, which no dead pattern matches, so the verdict is
+# unproven and the claim is kept - a busy box's stalled herdr CLI no longer
+# reaps live claims.
+test_unreachable_backend_row_reads_unproven_and_is_kept() {
+  local rec out rc
+  rec=$(make_fixture unreachable)
+  [ -n "$rec" ] || fail "fixture construction failed (see stderr above)"
+  read_fixture "$rec"
+  # A herdr that cannot answer at all: every invocation exits non-zero.
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$FAKEBIN/herdr"
+  chmod +x "$FAKEBIN/herdr"
+  make_repo_on_branch "$CASE_DIR/wt-unreach" fm/unreach
+  BEADS_DIR="$CASE_DIR/fm/.beads" bd create "fixture unreachable row" --id fm-unreach-row >/dev/null 2>&1 \
+    || fail "bd create fm-unreach-row failed"
+  BEADS_DIR="$CASE_DIR/fm/.beads" bd update fm-unreach-row --claim >/dev/null 2>&1 \
+    || fail "bd claim fm-unreach-row failed"
+  fm_write_meta "$HOME_DIR/state/fm-unreach-row.meta" \
+    "window=firstmate:w9:p9" "worktree=$CASE_DIR/wt-unreach" "kind=ship" "harness=claude" "backend=herdr"
+  out=$(run_sweep)
+  rc=$?
+  expect_code 0 "$rc" "dry run with an unreachable-backend row should succeed"
+  # Age is not this test's contract (bd writes updated_at up to 1s in the
+  # future, so a sub-second claim->sweep gap floors 50h to 49h); the row's
+  # presence already proves it cleared the 24h staleness threshold.
+  assert_row_matches 'fm-unreach-row[[:space:]]+main home[[:space:]]+[0-9]+h[[:space:]]+unproven[[:space:]]+keep' "$out" \
+    "an unreachable backend row must read unproven / keep"
+  if [ "$TASKS_AXI_BEADS_OK" = 1 ]; then
+    run_sweep --apply >/dev/null 2>&1
+    [ "$(row_state fm-unreach-row)" = in_flight ] \
+      || fail "--apply reclaimed a row whose backend merely failed to answer"
+  fi
+  pass "a herdr CLI that fails to answer reads unproven and is never reclaimed"
+}
+
 test_apply_reclaims_only_dead_rows() {
   require_tasks_axi_beads "the reclaim apply path" || return 0
   local rec out rc date
@@ -630,6 +666,7 @@ test_apply_refuses_a_row_with_a_pending_completion_replay() {
 test_age_column_is_true_age_and_threshold_gates_selection
 test_orphan_columns_and_apply_orphans_guards
 test_dry_run_lists_verdicts_and_reclaims_nothing
+test_unreachable_backend_row_reads_unproven_and_is_kept
 test_apply_reclaims_only_dead_rows
 test_apply_refuses_a_row_whose_record_lock_a_completion_holds
 test_apply_refuses_a_row_with_a_pending_completion_replay

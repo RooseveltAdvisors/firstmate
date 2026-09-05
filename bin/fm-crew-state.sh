@@ -560,10 +560,25 @@ fi
 # --- fallback: no run attributed to this crew ------------------------------
 # The run-step path above already handled any crew with a run, regardless of pane
 # liveness, so a finished-but-pane-closed crew never reaches here. Down here there
-# is no run to consult, so a dead/unreadable target means the crew is gone: report
-# unknown rather than trusting a possibly-stale status log as the current state.
+# is no run to consult, so only positive evidence that the target is gone may
+# read as death - a backend that failed to answer is unknown, never death - and
+# either way this reports unknown rather than trusting a possibly-stale status
+# log as the current state.
 [ -n "$BACKEND_TARGET" ] || emit unknown none "no backend target recorded"
-pane_readable "$BACKEND_TARGET" || emit unknown none "backend target gone: $BACKEND_TARGET"
+if ! pane_readable "$BACKEND_TARGET"; then
+  # A failed capture is not evidence the pane is gone: the herdr CLI can error
+  # or stall under load while the pane is alive, so a busy box would otherwise
+  # score dozens of live claims dead. Only the recovery-grade classifier's
+  # authoritative-absence verdict (`missing`, a successful pane read answering
+  # pane_not_found) may say gone; every other verdict means the backend failed
+  # to answer, which the stale sweep scores as unproven and keeps.
+  if [ "$TASK_BACKEND" = herdr ]; then
+    AGENT_STATE=$(fm_backend_agent_state herdr "$BACKEND_TARGET")
+    [ "$AGENT_STATE" = missing ] \
+      || emit unknown none "backend unreachable (herdr read failed; endpoint state: $AGENT_STATE)"
+  fi
+  emit unknown none "backend target gone: $BACKEND_TARGET"
+fi
 
 # Secondmates idle on their own watcher (idle pane = healthy), so the busy
 # state is not meaningful for them; read their state from the status log only.
