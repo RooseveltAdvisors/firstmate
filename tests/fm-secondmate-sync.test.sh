@@ -43,7 +43,8 @@ fm_git_identity fmtest fmtest@example.com
 
 TMP_ROOT=$(fm_test_tmproot fm-secondmate-sync)
 # Pin the no-mistakes data root the bootstrap mirror check resolves, so the
-# fixture firstmate roots below can carry a healthy gate remote hermetically.
+# fixture firstmate roots below - which no-mistakes never gated - are read
+# against an empty hermetic root instead of the operator's real one.
 export NM_HOME="$TMP_ROOT/nm-root"
 export FM_BACKEND=tmux
 
@@ -60,8 +61,6 @@ new_world() {
   touch "$w/home/state/.last-watcher-beat"
 
   git init -q -b main "$w/main"
-  # Healthy no-mistakes gate remote under the hermetic NM_HOME above.
-  git -C "$w/main" remote add no-mistakes "$NM_HOME/repos/firstmate.git"
   # Mirror the real repo: the gitignored operational dirs never dirty a worktree,
   # so a secondmate home's data/state/projects can never block its fast-forward.
   printf 'projects/\nstate/\ndata/\n.no-mistakes/\nconfig/crew-harness\nscratchpad*\n' > "$w/main/.gitignore"
@@ -920,7 +919,6 @@ new_remote_world() {
   w="$TMP_ROOT/$name"
   mkdir -p "$w/home/state" "$w/home/data"
   git init -q -b main "$w/main"
-  git -C "$w/main" remote add no-mistakes "$NM_HOME/repos/firstmate.git"
   printf 'projects/\nstate/\ndata/\nconfig/\n.no-mistakes/\n.fm-secondmate-home\n' > "$w/main/.gitignore"
   printf 'v1\n' > "$w/main/AGENTS.md"
   mkdir -p "$w/main/bin" "$w/main/.agents/skills"
