@@ -1163,6 +1163,76 @@ test_legacy_record_rolls_the_stamp_back_when_the_marker_write_fails() {
   pass "--legacy-record teardown rolls its stamp back when the close marker write fails"
 }
 
+# Override fakebin/perl so ONLY the stamp rollback's truncate fails; every other
+# perl call in the lifecycle still runs the real interpreter, so the abandoned
+# attempt leaves its stamp behind for exactly the reason under test.
+add_failing_truncate_perl() {
+  local case_dir=$1 real
+  real=$(command -v perl)
+  cat > "$case_dir/fakebin/perl" <<SH
+#!/usr/bin/env bash
+case "\$*" in
+  *truncate*) exit 1 ;;
+esac
+exec "$real" "\$@"
+SH
+  chmod +x "$case_dir/fakebin/perl"
+}
+
+test_retained_legacy_stamp_still_faces_the_endpoint_gate() {
+  local case_dir rc stamped
+  case_dir=$(make_case legacy-stamp-retained)
+  write_legacy_meta "$case_dir" no-mistakes ship
+  printf '%s\n' 'pr=not-a-valid-url' >> "$case_dir/state/task-x1.meta"
+  seed_backlog_in_flight "$case_dir"
+  wt_commit "$case_dir" "landed legacy work"
+  add_fork_with_pushed_branch "$case_dir"
+  add_failing_truncate_perl "$case_dir"
+
+  set +e
+  run_teardown "$case_dir" --legacy-record > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 1 "$rc" \
+    "legacy-stamp-retained: an unrecordable close must fail the teardown after accepting the legacy record"
+  grep -q "could not be rolled back" "$case_dir/stderr" \
+    || fail "legacy-stamp-retained: the fixture did not exercise a failed rollback"
+  [ "$(legacy_meta_gen_count "$case_dir")" = 1 ] \
+    || fail "legacy-stamp-retained: the abandoned attempt did not leave its stamp on the record"
+  stamped=$(cksum "$case_dir/state/task-x1.meta" | awk '{print $1, $2}')
+
+  # The stamp the failed rollback left behind is the whole risk: a retry must
+  # not read it as an incarnation some spawn published and sail past the
+  # dead-or-agent-less endpoint gate onto a reused endpoint.
+  add_unreadable_tmux "$case_dir"
+  set +e
+  run_teardown "$case_dir" --legacy-record > "$case_dir/stdout2" 2> "$case_dir/stderr2"
+  rc=$?
+  set -e
+  expect_code 1 "$rc" \
+    "legacy-stamp-retained: the retry must re-run the endpoint gate on the retained stamp"
+  grep -q "not confidently dead or agent-less" "$case_dir/stderr2" \
+    || fail "legacy-stamp-retained: the retry skipped the dead-or-agent-less endpoint gate"
+  [ "$(legacy_meta_gen_count "$case_dir")" = 1 ] \
+    || fail "legacy-stamp-retained: the retry stamped a second incarnation into the record"
+  [ "$(cksum "$case_dir/state/task-x1.meta" | awk '{print $1, $2}')" = "$stamped" ] \
+    || fail "legacy-stamp-retained: the endpoint refusal modified the task record"
+  [ "$(backlog_row_state "$case_dir")" = in_flight ] \
+    || fail "legacy-stamp-retained: the endpoint refusal closed the backlog item anyway"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout3" 2> "$case_dir/stderr3"
+  rc=$?
+  set -e
+  expect_code 1 "$rc" \
+    "legacy-stamp-retained: a flag-less retry must refuse the retained legacy stamp"
+  grep -q -- '--legacy-record' "$case_dir/stderr3" \
+    || fail "legacy-stamp-retained: the flag-less refusal did not name the flag path"
+  [ "$(cksum "$case_dir/state/task-x1.meta" | awk '{print $1, $2}')" = "$stamped" ] \
+    || fail "legacy-stamp-retained: the flag-less refusal modified the task record"
+  pass "a legacy stamp a failed rollback left behind still faces the endpoint gate"
+}
+
 test_legacy_record_never_accepts_a_corrupt_spawn_gen() {
   local case_dir rc
   case_dir=$(make_case legacy-corrupt)
@@ -3432,6 +3502,7 @@ test_legacy_record_teardown_completes_when_landed_and_endpoint_dead
 test_legacy_record_teardown_refuses_unlanded_work
 test_legacy_record_teardown_refuses_an_ambiguous_endpoint
 test_legacy_record_rolls_the_stamp_back_when_the_marker_write_fails
+test_retained_legacy_stamp_still_faces_the_endpoint_gate
 test_legacy_record_never_accepts_a_corrupt_spawn_gen
 test_stale_index_lock_cleared_and_teardown_succeeds
 test_live_index_lock_is_never_removed_and_teardown_refuses

@@ -93,7 +93,10 @@
 #   --force the worktree still passes the ordinary landed-work checks. The
 #   accepted legacy incarnation is stamped into the record before its close is
 #   recorded and named in the teardown line; the flag never relaxes the
-#   unlanded-work refusal, which --force alone can authorize.
+#   unlanded-work refusal, which --force alone can authorize. A legacy- stamp
+#   an abandoned attempt left behind never counts as a published incarnation:
+#   the record still reads as a legacy record, so the endpoint gate runs again
+#   and the retry still needs --legacy-record.
 #
 # Transient / stale worktree git lock recovery (teardown-lock-race): a crew process
 # killed mid-git-operation can leave a .git/worktrees/<wt>/index.lock (or, for a
@@ -326,6 +329,7 @@ TEARDOWN_META_SPAWN_GEN=
 TEARDOWN_LEGACY_PENDING=0
 TEARDOWN_LEGACY_ACCEPTED=0
 TEARDOWN_LEGACY_ENDPOINT=
+TEARDOWN_LEGACY_RETAINED_STAMP=
 TEARDOWN_LEGACY_PRESTAMP_SIZE=0
 TEARDOWN_BACKLOG_APPLIES=0
 TEARDOWN_BACKLOG_SKIP_REASON=
@@ -356,6 +360,24 @@ if [ "$TEARDOWN_BACKLOG_APPLIES" = 1 ]; then
       echo "error: task $ID's record has an unreadable spawn_gen that identifies one exact incarnation ($FM_BACKLOG_TRANSITION_ERROR); refusing automatic teardown - fix the record, then retry teardown" >&2
       exit 1
     fi
+  else
+    case "$FM_BACKLOG_META_SPAWN_GEN" in
+      legacy-*)
+        # Only this teardown path mints a legacy- token; a launch publishes
+        # s<epoch>.<pid>.<random>. So one still on a retained record is the
+        # stamp an abandoned --legacy-record attempt could not roll back, not
+        # an incarnation any spawn ever published. The record is still the
+        # legacy record it was, and is treated as one: the dead-or-agent-less
+        # endpoint gate runs again on the retry instead of being skipped by
+        # the abandoned attempt's own stamp.
+        if [ "$LEGACY_RECORD_GIVEN" != 1 ]; then
+          echo "error: task $ID's record carries the legacy incarnation stamp $FM_BACKLOG_META_SPAWN_GEN left by an abandoned --legacy-record teardown, not an incarnation published by a spawn; refusing automatic teardown - relaunch the task to publish an unambiguous incarnation, then retry teardown, or pass --legacy-record once its recorded endpoint is confirmed dead or agent-less" >&2
+          exit 1
+        fi
+        TEARDOWN_LEGACY_PENDING=1
+        TEARDOWN_LEGACY_RETAINED_STAMP=$FM_BACKLOG_META_SPAWN_GEN
+        ;;
+    esac
   fi
   [ "$TEARDOWN_LEGACY_PENDING" = 1 ] || TEARDOWN_META_SPAWN_GEN=$FM_BACKLOG_META_SPAWN_GEN
 fi
@@ -837,7 +859,11 @@ if [ "$TEARDOWN_LEGACY_PENDING" = 1 ]; then
       exit 1
       ;;
   esac
-  TEARDOWN_META_SPAWN_GEN="legacy-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+  if [ -n "$TEARDOWN_LEGACY_RETAINED_STAMP" ]; then
+    TEARDOWN_META_SPAWN_GEN=$TEARDOWN_LEGACY_RETAINED_STAMP
+  else
+    TEARDOWN_META_SPAWN_GEN="legacy-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+  fi
   TEARDOWN_LEGACY_ACCEPTED=1
 fi
 
@@ -2852,7 +2878,7 @@ teardown_legacy_stamp_rollback() {
   # to the record's pre-stamp bytes, so a retried teardown re-runs the
   # dead-or-agent-less endpoint gate instead of sailing past it on a stamp the
   # abandoned attempt left behind.
-  if [ "$TEARDOWN_LEGACY_ACCEPTED" = 1 ]; then
+  if [ "$TEARDOWN_LEGACY_ACCEPTED" = 1 ] && [ -z "$TEARDOWN_LEGACY_RETAINED_STAMP" ]; then
     TEARDOWN_LEGACY_PRESTAMP_SIZE=$(wc -c < "$META" | tr -d ' ')
     TEARDOWN_LEGACY_STAMP_FAILED=
     if [ -s "$META" ] && [ -n "$(tail -c 1 -- "$META" 2>/dev/null)" ]; then
@@ -2882,11 +2908,12 @@ teardown_legacy_stamp_rollback() {
   if ! fm_backlog_close_marker_write "$STATE" "$ID" "$DATA" "$META_SPAWN_GEN" \
       "${BACKLOG_TRANSITION_FLAGS[@]+"${BACKLOG_TRANSITION_FLAGS[@]}"}" \
       "${BACKLOG_DONE_ARGS[@]+"${BACKLOG_DONE_ARGS[@]}"}"; then
-    if [ "$TEARDOWN_LEGACY_ACCEPTED" = 1 ] && teardown_legacy_stamp_rollback; then
+    if [ "$TEARDOWN_LEGACY_ACCEPTED" = 1 ] && [ -z "$TEARDOWN_LEGACY_RETAINED_STAMP" ] \
+       && teardown_legacy_stamp_rollback; then
       echo "error: the pending backlog $BACKLOG_TRANSITION for $ID could not be recorded ($FM_BACKLOG_TRANSITION_ERROR); the accepted legacy incarnation was rolled back, retaining every durable task record" >&2
     else
       echo "error: the pending backlog $BACKLOG_TRANSITION for $ID could not be recorded ($FM_BACKLOG_TRANSITION_ERROR); retaining every durable task record" >&2
-      if [ "$TEARDOWN_LEGACY_ACCEPTED" = 1 ]; then
+      if [ "$TEARDOWN_LEGACY_ACCEPTED" = 1 ] && [ -z "$TEARDOWN_LEGACY_RETAINED_STAMP" ]; then
         echo "error: the legacy incarnation stamp on $ID's record could not be rolled back; re-run teardown with --legacy-record after reconciling its endpoint" >&2
       fi
     fi
