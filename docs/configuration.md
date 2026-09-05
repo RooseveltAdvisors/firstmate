@@ -471,9 +471,9 @@ An absent or incompatible `gh-axi` reports `MISSING: gh-axi (install: npm instal
 An absent or incompatible `lavish-axi` reports `PRESENTATION_UNAVAILABLE` with its required floor, install command, and explicit text fallback; [`bootstrap-diagnostics`](../.agents/skills/bootstrap-diagnostics/SKILL.md) owns the response and compatibility check before visual use.
 An absent or too-old `quota-axi` reports `MISSING: quota-axi (install: npm install -g quota-axi)`; firstmate cannot resolve a profile array without a compatible binary.
 Bootstrap also reports a `TANGLE:` line when `FM_ROOT` is on a named non-default branch; follow the printed checkout remediation rather than treating it as an installable tool problem.
+In a read-only session that did not get the fleet lock, the same line is advisory and omits the checkout command.
 Bootstrap also reports one `NO_MISTAKES_MIRROR:` line per no-mistakes-posture project clone, and for the home's own firstmate checkout, whose `no-mistakes` gate remote points outside the data root the installed CLI resolves (`NM_HOME` when set non-empty, else `~/.no-mistakes`); the printed `no-mistakes init` fix inside the affected clone is the operator's to run, never bootstrap's.
 A gate remote that is missing altogether is drift only where something declares the clone should be gated: the registry posture for a project clone, and for the firstmate checkout the gate record `no-mistakes init` leaves under the active root, so a home that was gated and then lost its remote is still reported while a secondmate home nothing ever gated stays silent.
-In a read-only session that did not get the fleet lock, the same line is advisory and omits the checkout command.
 The locked session-start deferred network stage runs bootstrap's best-effort project clone refresh through `fm-fleet-sync.sh`; [`fm-bootstrap.sh`'s header](../bin/fm-bootstrap.sh) owns the exact clone-refresh overlap, liveness-before-convergence, per-mate concurrency, ordered diagnostic replay, and sequential-fallback contract.
 It emits `FLEET_SYNC:` for skipped refreshes that may matter, recovered self-heals, and `STUCK:` alarms.
 Normal completed runs keep local-only and no-origin skips silent.
@@ -608,7 +608,8 @@ The check runs the sweep dry at most once per `FM_STALE_SWEEP_INTERVAL` (default
 `bin/fm-stale-sweep.sh disarm` removes the shim, its trust binding, and the report record.
 
 A full treehouse pool is the sibling condition: [`bin/fm-spawn.sh`](../bin/fm-spawn.sh) detects treehouse's exact `all N worktrees are in use` refusal during the worktree wait, records a load-kind capacity hold whose reason names the pool (`bin/fm-capacity-lib.sh` owns the reason contract), and exits 2 with the item left queued, and [`bin/fm-teardown.sh`](../bin/fm-teardown.sh) releases the oldest capacity hold recorded for the same pool once a worktree is returned to it, printing which item became ready. When the worktree-derived pool scan matches nothing, teardown also scans the project-root fallback identity a spawn may have had to record when treehouse could not answer it, so such a hold is still released instead of stranded.
-That release runs only on the teardown path that still finds the worktree present, so a pool slot freed another way - a hand `treehouse return`, a prune, or a prior teardown that returned the worktree and then failed - leaves the hold recorded with no diagnostic until an operator runs `fm-captain-hold.sh` to unhold the item by hand.
+That release runs only on the teardown path that still finds the worktree present, so a pool slot freed another way - a hand `treehouse return`, a prune, or a prior teardown that returned the worktree and then failed - leaves the hold recorded with no diagnostic until an operator lifts it by hand with `tasks-axi unhold <id>`, run from the home (adding `--file <home>/data/backlog.md` on a markdown-backed home), which is the same call the release path makes.
+`bin/fm-captain-hold.sh` cannot do it: its `answer --release` only lifts a `captain`-kind hold and refuses a `load`-kind capacity hold.
 
 ## Relay (.env)
 
