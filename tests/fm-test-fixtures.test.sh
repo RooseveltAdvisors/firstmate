@@ -112,6 +112,34 @@ test_fake_treehouse_and_tasks_axi() {
   pass "fake treehouse and tasks-axi answer the capability helps suites probe"
 }
 
+test_fake_uname_curl_hasher() {
+  local fakebin out log
+  fakebin=$(fm_fakebin "$TMP_ROOT/lint")
+  fm_test_fake_uname "$fakebin"
+  out=$("$fakebin/uname" -s)
+  [ "$out" = Linux ] || fail "fake uname -s should default to Linux, got '$out'"
+  out=$(FM_TEST_UNAME_M=arm64 "$fakebin/uname" -m)
+  [ "$out" = arm64 ] || fail "FM_TEST_UNAME_M should override the machine, got '$out'"
+  log="$TMP_ROOT/lint/curls"
+  : > "$log"
+  fm_test_fake_curl "$fakebin"
+  CURL_COUNT="$log.count" CURL_URL_LOG="$log" "$fakebin/curl" -o "$TMP_ROOT/lint/dl" https://example.test/a
+  expect_code 0 $? "fake curl should succeed by default"
+  assert_grep 'https://example.test/a' "$log" "fake curl did not log its URL"
+  assert_grep '1' "$log.count" "fake curl did not count its call"
+  CURL_COUNT="$log.count" CURL_FAIL_UNTIL=2 "$fakebin/curl" -o "$TMP_ROOT/lint/dl" https://example.test/b; rc=$?
+  expect_code 22 "$rc" "fake curl should fail while under CURL_FAIL_UNTIL"
+  fm_test_fake_hasher "$fakebin" sha256sum
+  out=$(SHA256_STUB_HASH=abc123 "$fakebin/sha256sum" "$log")
+  case "$out" in 'abc123  '*) ;; *) fail "fake hasher should print <hash>  <file>, got '$out'" ;; esac
+  fm_test_fake_hasher "$fakebin" shasum
+  SHA256_STUB_HASH=abc123 "$fakebin/shasum" -a 256 "$log" >/dev/null
+  expect_code 0 $? "fake shasum should accept -a 256"
+  SHA256_STUB_HASH=abc123 "$fakebin/shasum" -a 1 "$log" >/dev/null 2>&1; rc=$?
+  expect_code 1 "$rc" "fake shasum should refuse a non-256 algorithm"
+  pass "fake uname/curl/hasher answer the installer suites' probes"
+}
+
 test_spawn_tmux_and_fakebin() {
   local fakebin out log
   fakebin=$(make_spawn_fakebin "$TMP_ROOT/spawn" gh-axi)
@@ -170,6 +198,7 @@ test_no_mistakes_version_constant
 test_no_mistakes_init_doctor_markers
 test_fake_gh_and_gh_axi
 test_fake_treehouse_and_tasks_axi
+test_fake_uname_curl_hasher
 test_spawn_tmux_and_fakebin
 test_send_stubs_and_ssh
 test_spawn_home_layout

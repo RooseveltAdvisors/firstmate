@@ -287,6 +287,93 @@ SH
   chmod +x "$fakebin/sleep"
 }
 
+# fm_test_fake_uname <fakebin>
+# Answers -s/-m with FM_TEST_UNAME_S / FM_TEST_UNAME_M (Linux/x86_64 default).
+fm_test_fake_uname() {
+  local fakebin=$1
+  cat > "$fakebin/uname" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}" in
+  -s) printf '%s\n' "${FM_TEST_UNAME_S:-Linux}" ;;
+  -m) printf '%s\n' "${FM_TEST_UNAME_M:-x86_64}" ;;
+  *) printf '%s\n' "${FM_TEST_UNAME_S:-Linux}" ;;
+esac
+SH
+  chmod +x "$fakebin/uname"
+}
+
+# fm_test_fake_curl <fakebin>
+# Download stub for installer tests: counts calls to CURL_COUNT, logs each URL
+# to CURL_URL_LOG, exits 22 for the first CURL_FAIL_UNTIL calls, else writes an
+# empty file to the -o target.
+fm_test_fake_curl() {
+  local fakebin=$1
+  cat > "$fakebin/curl" <<'SH'
+#!/usr/bin/env bash
+count=0
+[ ! -f "${CURL_COUNT:-}" ] || count=$(cat "$CURL_COUNT")
+count=$((count + 1))
+[ -z "${CURL_COUNT:-}" ] || printf '%s\n' "$count" > "$CURL_COUNT"
+url=
+out=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -o)
+      out=$2
+      shift 2
+      ;;
+    -*)
+      shift
+      ;;
+    *)
+      url=$1
+      shift
+      ;;
+  esac
+done
+[ -z "${CURL_URL_LOG:-}" ] || printf '%s\n' "$url" >> "$CURL_URL_LOG"
+fail_until=${CURL_FAIL_UNTIL:-0}
+[ "$count" -gt "$fail_until" ] || exit 22
+: > "$out"
+exit 0
+SH
+  chmod +x "$fakebin/curl"
+}
+
+# fm_test_fake_hasher <fakebin> <name>
+# sha256-style hasher stub: logs "$self $*" to HASHER_LOG and prints
+# SHA256_STUB_HASH for the file (shasum requires -a 256).
+fm_test_fake_hasher() {
+  local fakebin=$1 name=$2
+  cat > "$fakebin/$name" <<'SH'
+#!/usr/bin/env bash
+self=${0##*/}
+if [ -n "${HASHER_LOG:-}" ]; then
+  printf '%s\n' "$self $*" >> "$HASHER_LOG"
+fi
+file=$1
+if [ "$self" = shasum ]; then
+  algo=
+  file=
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -a)
+        algo=$2
+        shift 2
+        ;;
+      *)
+        file=$1
+        shift
+        ;;
+    esac
+  done
+  [ "$algo" = 256 ] || exit 1
+fi
+printf '%s  %s\n' "${SHA256_STUB_HASH:?}" "$file"
+SH
+  chmod +x "$fakebin/$name"
+}
+
 # --- spawn-world ------------------------------------------------------------
 
 # fm_test_spawn_home <home> [harness]
