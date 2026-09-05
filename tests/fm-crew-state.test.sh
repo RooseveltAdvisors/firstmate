@@ -82,7 +82,19 @@ SH
   cat > "$fb/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
+# FM_FAKE_TMUX_MISSING: the window is authoritatively gone - every addressed
+# call fails, but the session inventory still answers successfully and simply
+# omits the window, which is what proves absence.
+# FM_FAKE_TMUX_UNREADABLE: tmux itself cannot answer (trimmed PATH, socket
+# hiccup, transient failure) - even the inventory fails, with a message that
+# is not one of the definitive no-session/no-server responses.
+[ "${FM_FAKE_TMUX_UNREADABLE:-0}" = 1 ] && { printf 'no current client\n' >&2; exit 1; }
 case "${1:-}" in
+  list-windows)
+    # A successful but empty inventory: it omits the crew's window, so absence
+    # is proved by the answer rather than by an addressed call failing. Only
+    # reached once display-message has already failed.
+    ;;
   display-message)
     [ "${FM_FAKE_TMUX_MISSING:-0}" = 1 ] && exit 1
     printf '%%1\n' ;;
@@ -178,13 +190,14 @@ reset_fakes() {
   FM_FAKE_BUSY=0
   FM_FAKE_BUSY_TEXT=
   FM_FAKE_TMUX_MISSING=0
+  FM_FAKE_TMUX_UNREADABLE=0
   FM_FAKE_HERDR_BUSY=0
   FM_FAKE_HERDR_MISSING=0
   FM_FAKE_HERDR_READ_FAIL=0
   FM_FAKE_HERDR_HUSK=0
   FM_FAKE_HERDR_AGENT_STATUS=""
   FM_FAKE_CI_LOGS=""
-  export FM_FAKE_AXI_STATUS FM_FAKE_AXI_STATUS_RUN FM_FAKE_RUNS_LIST FM_FAKE_BUSY FM_FAKE_BUSY_TEXT FM_FAKE_TMUX_MISSING
+  export FM_FAKE_AXI_STATUS FM_FAKE_AXI_STATUS_RUN FM_FAKE_RUNS_LIST FM_FAKE_BUSY FM_FAKE_BUSY_TEXT FM_FAKE_TMUX_MISSING FM_FAKE_TMUX_UNREADABLE
   export FM_FAKE_HERDR_BUSY FM_FAKE_HERDR_MISSING FM_FAKE_HERDR_READ_FAIL FM_FAKE_HERDR_HUSK FM_FAKE_HERDR_AGENT_STATUS FM_FAKE_CI_LOGS
 }
 
@@ -892,9 +905,16 @@ test_no_run_herdr_cli_failure_reads_unreachable_not_gone() {
   local d; d=$(new_case herdr-cli-dead)
   make_repo_on_branch "$d/wt" fm/feat-herdr-cli
   make_fakebin "$d" >/dev/null
-  # A herdr that cannot answer at all: every invocation exits non-zero, the
-  # busiest-box form of a stalled CLI (capture and pane get alike fail).
-  printf '#!/usr/bin/env bash\nexit 1\n' > "$d/fakebin/herdr"
+  # A herdr whose server is up but whose endpoint calls cannot answer at all:
+  # every pane/agent invocation exits non-zero, the busiest-box form of a
+  # stalled CLI (capture and pane get alike fail). `status` still answers so
+  # the reader probes the endpoint instead of waiting out a server start.
+  cat > "$d/fakebin/herdr" <<'SH'
+#!/usr/bin/env bash
+set -u
+[ "${1:-}" = status ] && { printf '{"server":{"running":true}}\n'; exit 0; }
+exit 1
+SH
   chmod +x "$d/fakebin/herdr"
   fm_write_meta "$d/state/feat-herdr-cli.meta" "window=default:w1:p2" "worktree=$d/wt" "kind=ship" \
     "backend=herdr" "harness=claude"
@@ -1139,7 +1159,33 @@ test_dead_window_ignores_stale_status_log() {
   assert_contains "$out" "state: unknown" "dead window -> unknown"
   assert_contains "$out" "source: none" "dead window -> none source"
   assert_not_contains "$out" "source: status-log" "dead window does not reuse stale log"
+  assert_contains "$out" "backend target gone" "an inventory that omits the window is positive death evidence"
   pass "dead window ignores stale status log"
+}
+
+# Regression (2026-09 G7 stale-claim incident, tmux half): the default backend
+# reached the same false-death path as herdr. A tmux that cannot answer at all
+# - a trimmed PATH, a TMUX_TMPDIR mismatch, a socket hiccup - made every live
+# crew report "backend target gone", the text the stale sweep matches as
+# positive death. Only a successful window inventory that omits the recorded
+# window proves absence; a tmux that failed to answer is unknown, never death.
+test_no_run_tmux_unreadable_reads_unreachable_not_gone() {
+  reset_fakes
+  local d; d=$(new_case tmux-unreadable)
+  make_repo_on_branch "$d/wt" fm/feat-tmux-unread
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-tmux-unread.meta" "window=fm:fm-feat-tmux-unread" \
+    "worktree=$d/wt" "kind=ship"
+  printf 'done: old completion event\n' > "$d/state/feat-tmux-unread.status"
+  FM_FAKE_AXI_STATUS=""
+  FM_FAKE_RUNS_LIST=""
+  FM_FAKE_TMUX_UNREADABLE=1
+  local out; out=$(run_crew_state "$d" feat-tmux-unread)
+  assert_contains "$out" "state: unknown" "an unreadable tmux must stay unknown"
+  assert_contains "$out" "source: none" "an unreadable tmux has no state source"
+  assert_contains "$out" "backend unreachable" "an unreadable tmux reads as unreachable, not gone"
+  assert_not_contains "$out" "backend target gone" "an unreadable tmux is not positive death evidence"
+  pass "a tmux that fails to answer reads unknown/unreachable, never gone"
 }
 
 # A closed/unreadable pane must NOT mask an authoritative run-step: judge by the
@@ -1858,6 +1904,7 @@ test_no_run_idle_pane_paused
 test_no_run_idle_pane_custom_paused_verb
 test_no_run_idle_secondmate_resolved_event_not_state
 test_dead_window_ignores_stale_status_log
+test_no_run_tmux_unreadable_reads_unreachable_not_gone
 test_dead_window_still_reports_terminal_run_step
 test_dead_window_still_reports_active_run_step
 test_no_timeout_uses_perl_bound
