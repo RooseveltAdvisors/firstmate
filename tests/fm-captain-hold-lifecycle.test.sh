@@ -94,6 +94,203 @@ write_origin_meta() {  # <home> <id> [kind]
     "spawn_gen=fixture-$id"
 }
 
+# --- markdown-to-beads migration resolution ----------------------------------
+#
+# A home on the Beads backend no longer carries the legacy markdown ids a scout
+# report attested: fm-hold-migration rehomed each held row under a prefixed fm-
+# id and recorded its markdown identity in the row's notes as the exact line
+# "migrated from data/backlog.md id <legacy id>". The fixture graph is driven
+# through bd directly where possible because the npm-published tasks-axi ships
+# the markdown backend only; the hold itself needs a beads-capable tasks-axi,
+# so that family probes once and skips itself with an explicit reason on
+# markdown-only installs, mirroring tests/fm-stale-sweep.test.sh.
+
+# Build a fixture home whose configured backend is a scratch Beads graph.
+# Echoes "<home>|<graph-beads-dir>". The graph repo dir is named "fm" because
+# bd derives the row-id prefix from the repo directory name.
+make_beads_home() {  # <name>
+  local name=$1 case_dir home graph fb
+  case_dir="$TMP_ROOT/$name"
+  home="$case_dir/home"
+  graph="$case_dir/fm"
+  mkdir -p "$home/data" "$home/config" "$home/projects" "$graph"
+  (umask 077; mkdir -p "$home/state")
+  git -C "$graph" init -q
+  if ! (cd "$graph" && bd init >"$case_dir/bd-init.log" 2>&1); then
+    cat "$case_dir/bd-init.log" >&2
+    fail "fixture bd init failed on $graph"
+  fi
+  cat > "$home/.tasks.toml" <<EOF
+backend = "beads"
+
+[beads]
+path = "$graph/.beads"
+binary = "bd"
+prefix = "fm"
+
+[markdown]
+path = "data/backlog.md"
+archive = "data/done-archive.md"
+done_keep = 10
+EOF
+  fb=$(fm_fakebin "$home")
+  fm_fake_exit0 "$fb" tmux treehouse no-mistakes gh gh-axi
+  printf '%s\n' "$home|$graph/.beads"
+}
+
+bdrow() {  # <beads-dir> <args...>
+  BEADS_DIR="$1" bd "${@:2}"
+}
+
+# One capability probe for the migration family: can the installed tasks-axi
+# operate on a beads-backed home? The npm-published tasks-axi cannot, and the
+# hold fixture needs its beads backend; those installs skip with this reason.
+probe_tasks_axi_beads() {
+  local probe_home="$TMP_ROOT/.probe" probe_graph="$TMP_ROOT/.probe-fm"
+  rm -rf "$probe_home" "$probe_graph"
+  mkdir -p "$probe_home/data" "$probe_graph"
+  git -C "$probe_graph" init -q
+  (cd "$probe_graph" && bd init >/dev/null 2>&1) || return 1
+  cat > "$probe_home/.tasks.toml" <<PROBEEOF
+backend = "beads"
+
+[beads]
+path = "$probe_graph/.beads"
+binary = "bd"
+prefix = "fm"
+PROBEEOF
+  (cd "$probe_home" && tasks-axi list) >/dev/null 2>&1
+}
+TASKS_AXI_BEADS_OK=0
+if bd --version >/dev/null 2>&1 && jq --version >/dev/null 2>&1 \
+   && probe_tasks_axi_beads; then
+  TASKS_AXI_BEADS_OK=1
+fi
+
+require_tasks_axi_beads() {  # <what>
+  [ "$TASKS_AXI_BEADS_OK" = 1 ] && return 0
+  pass "skipped on markdown-only tasks-axi: $1"
+  return 1
+}
+
+write_scout_with_attested_inventory() {  # <home> <scout-id> <keys>
+  local home=$1 scout=$2 keys=$3
+  mkdir -p "$home/data/$scout"
+  fm_write_meta "$home/state/$scout.meta" \
+    "window=firstmate:fm-$scout" \
+    "worktree=$home/projects/missing-$scout" \
+    "project=$home/projects/sample" \
+    "harness=codex" \
+    "kind=scout" \
+    "spawn_gen=fixture-$scout" \
+    "decisions_reviewed=1" \
+    "decision_keys=$keys"
+  printf 'done: report complete\n' > "$home/state/$scout.status"
+  printf '# Report\n\nThe investigation finished.\n' > "$home/data/$scout/report.md"
+}
+
+test_verify_resolves_a_hold_migrated_to_beads_notes() {
+  local fixture home beads scout
+  require_tasks_axi_beads "verify against a beads-migrated hold" || return 0
+  fixture=$(make_beads_home migrated-notes)
+  home=${fixture%%|*}
+  beads=${fixture##*|}
+  scout=sample-beads-scout
+  (cd "$home" && BEADS_ACTOR=fixture tasks-axi add fm-herald-github-delete \
+    "Delete the herald repo" --repo herald) >/dev/null 2>&1 \
+    || fail "could not create the migrated hold fixture"
+  (cd "$home" && BEADS_ACTOR=fixture tasks-axi hold fm-herald-github-delete \
+    --kind captain --reason "captain must confirm the delete") >/dev/null 2>&1 \
+    || fail "could not hold the migrated fixture row"
+  bdrow "$beads" note fm-herald-github-delete \
+    "Origin: herald-retire
+Decision key: github-delete
+State: awaiting captain decision.
+
+migrated from data/backlog.md id herald-retire-decision-github-delete on 2026-09-04" \
+    >/dev/null 2>&1 || fail "could not record the migration marker note"
+  write_scout_with_attested_inventory "$home" "$scout" \
+    herald-retire-decision-github-delete
+
+  run_captain "$home" verify "$scout" >/dev/null \
+    || fail "verify did not resolve the attested legacy id through its migrated beads row"
+  pass "verify resolves a captain hold migrated to a beads row with a marker note"
+}
+
+test_verify_resolves_a_hold_migrated_under_the_configured_prefix() {
+  local fixture home scout
+  require_tasks_axi_beads "verify against a prefix-migrated hold" || return 0
+  fixture=$(make_beads_home migrated-prefix)
+  home=${fixture%%|*}
+  scout=sample-prefix-scout
+  (cd "$home" && BEADS_ACTOR=fixture tasks-axi add fm-other-legacy-row \
+    "Second migrated hold" --repo sample) >/dev/null 2>&1 \
+    || fail "could not create the prefix-migrated fixture row"
+  (cd "$home" && BEADS_ACTOR=fixture tasks-axi hold fm-other-legacy-row \
+    --kind captain --reason "captain must decide") >/dev/null 2>&1 \
+    || fail "could not hold the prefix-migrated fixture row"
+  write_scout_with_attested_inventory "$home" "$scout" other-legacy-row
+
+  run_captain "$home" verify "$scout" >/dev/null \
+    || fail "verify did not resolve the legacy id under the configured prefix"
+  pass "verify resolves a captain hold whose id is the legacy id under the configured prefix"
+}
+
+test_complete_accepts_a_migrated_inventory_on_beads() {
+  local fixture home scout
+  require_tasks_axi_beads "complete against a beads-migrated hold" || return 0
+  fixture=$(make_beads_home migrated-complete)
+  home=${fixture%%|*}
+  beads=${fixture##*|}
+  scout=sample-complete-scout
+  (cd "$home" && BEADS_ACTOR=fixture tasks-axi add fm-herald-github-delete \
+    "Delete the herald repo" --repo herald) >/dev/null 2>&1 \
+    || fail "could not create the migrated hold fixture"
+  (cd "$home" && BEADS_ACTOR=fixture tasks-axi hold fm-herald-github-delete \
+    --kind captain --reason "captain must confirm the delete") >/dev/null 2>&1 \
+    || fail "could not hold the migrated fixture row"
+  bdrow "$beads" note fm-herald-github-delete \
+    "migrated from data/backlog.md id herald-retire-decision-github-delete on 2026-09-04" \
+    >/dev/null 2>&1 || fail "could not record the migration marker note"
+  fm_write_meta "$home/state/$scout.meta" \
+    "window=firstmate:fm-$scout" \
+    "worktree=$home/projects/missing-$scout" \
+    "project=$home/projects/sample" \
+    "harness=codex" \
+    "kind=scout" \
+    "spawn_gen=fixture-$scout"
+  printf 'done: report complete\n' > "$home/state/$scout.status"
+  mkdir -p "$home/data/$scout"
+  printf '# Report\n\nThe investigation finished.\n' > "$home/data/$scout/report.md"
+
+  run_captain "$home" complete "$scout" herald-retire-decision-github-delete >/dev/null \
+    || fail "the completion gate refused an inventory resolved through a migrated beads row"
+  assert_grep "decision_keys=herald-retire-decision-github-delete" \
+    "$home/state/$scout.meta" \
+    "the attestation did not record the attested legacy id"
+  run_captain "$home" verify "$scout" >/dev/null \
+    || fail "verify did not re-resolve the attested legacy id after completion"
+  pass "the completion gate attests an inventory resolved through a migrated beads row"
+}
+
+test_verify_names_the_unresolvable_legacy_id_once() {
+  local fixture home scout err rc
+  require_tasks_axi_beads "verify an unresolvable beads legacy id" || return 0
+  fixture=$(make_beads_home migrated-absent)
+  home=${fixture%%|*}
+  scout=sample-absent-scout
+  write_scout_with_attested_inventory "$home" "$scout" ghost-legacy-id
+
+  rc=0
+  err=$(run_captain "$home" verify "$scout" 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "verify accepted an attested id that resolves to nothing"
+  assert_contains "$err" "ghost-legacy-id" \
+    "the refusal did not name the id it could not resolve"
+  [ "$(printf '%s\n' "$err" | grep -c '^fm-captain-hold:')" = 1 ] \
+    || fail "the refusal emitted more than one line: $err"
+  pass "an unresolvable legacy id is refused once, naming the id"
+}
+
 # Reproduces the loss exactly with privacy-safe synthetic names: the investigation
 # and visual review have ended, the only genuine unresolved captain call is report
 # prose, no held backlog item or open status exists, and the authoritative
@@ -1709,3 +1906,7 @@ test_teardown_never_closes_a_captain_held_task
 test_interrupted_cleanup_keeps_the_captain_call_recoverable
 test_teardown_retains_captain_calls_in_a_relocated_backlog
 test_teardown_refuses_a_ship_when_the_captain_hold_cannot_be_read
+test_verify_resolves_a_hold_migrated_to_beads_notes
+test_verify_resolves_a_hold_migrated_under_the_configured_prefix
+test_complete_accepts_a_migrated_inventory_on_beads
+test_verify_names_the_unresolvable_legacy_id_once

@@ -992,6 +992,164 @@ test_gh_error_and_content_absent_refuses() {
   pass "gh lookup error with content not in default refuses (fail-safe)"
 }
 
+# Write a meta that predates the spawn_gen field entirely. Args: case_dir mode kind
+write_legacy_meta() {
+  local case_dir=$1 mode=$2 kind=$3
+  fm_write_meta "$case_dir/state/task-x1.meta" \
+    "window=firstmate:fm-task-x1" \
+    "endpoint_task_id=task-x1" \
+    "worktree=$case_dir/wt" \
+    "project=$case_dir/project" \
+    "kind=$kind" \
+    "mode=$mode" \
+    "harness=codex"
+}
+
+# Count spawn_gen fields in the task's meta, so a refusal can prove it left the
+# record byte-equivalent rather than stamped.
+legacy_meta_gen_count() {
+  local case_dir=$1
+  awk -F= '$1 == "spawn_gen" { count++ } END { print count + 0 }' \
+    "$case_dir/state/task-x1.meta" 2>/dev/null || printf '0\n'
+}
+
+# Override fakebin/tmux so the recovery-grade classifier reads the endpoint as
+# unreadable (a session inventory failure it cannot attribute), never dead.
+add_unreadable_tmux() {
+  local case_dir=$1
+  cat > "$case_dir/fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}" in
+  list-windows) echo "error connecting to fixture: permission denied" >&2 ; exit 1 ;;
+esac
+exit 0
+SH
+  chmod +x "$case_dir/fakebin/tmux"
+}
+
+test_legacy_record_without_the_flag_refuses() {
+  local case_dir rc
+  case_dir=$(make_case legacy-noflag)
+  write_legacy_meta "$case_dir" no-mistakes ship
+  seed_backlog_in_flight "$case_dir"
+  wt_commit "$case_dir" "landed legacy work"
+  add_fork_with_pushed_branch "$case_dir"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "legacy-noflag: a record without spawn_gen must refuse without --legacy-record"
+  grep -q -- '--legacy-record' "$case_dir/stderr" \
+    || fail "legacy-noflag: the refusal did not name the --legacy-record path"
+  [ "$(legacy_meta_gen_count "$case_dir")" = 0 ] \
+    || fail "legacy-noflag: the refusal stamped a spawn generation into the record"
+  [ "$(backlog_row_state "$case_dir")" = in_flight ] \
+    || fail "legacy-noflag: the refusal closed the backlog item anyway"
+  assert_present "$case_dir/state/task-x1.meta" \
+    "legacy-noflag: the refusal removed the task record"
+  pass "a record predating spawn_gen refuses teardown until --legacy-record is passed"
+}
+
+test_legacy_record_teardown_completes_when_landed_and_endpoint_dead() {
+  local case_dir out
+  case_dir=$(make_case legacy-allow)
+  write_legacy_meta "$case_dir" no-mistakes ship
+  seed_backlog_in_flight "$case_dir"
+  wt_commit "$case_dir" "landed legacy work"
+  add_fork_with_pushed_branch "$case_dir"
+  # The default fakebin tmux answers every query with success and no output, so
+  # the classifier reads the recorded window as authoritatively missing.
+
+  out=$(run_teardown "$case_dir" --legacy-record) \
+    || fail "legacy-allow: teardown refused a landed legacy record with a dead endpoint"
+  [ "$(backlog_row_state "$case_dir")" = "done" ] \
+    || fail "legacy-allow: teardown returned success with its backlog item still open"
+  printf '%s\n' "$out" | grep -Fq 'legacy record accepted without spawn_gen: endpoint missing, incarnation legacy-' \
+    || fail "legacy-allow: the teardown line did not log the accepted legacy incarnation: $out"
+  assert_absent "$case_dir/state/task-x1.backlog-close" \
+    "legacy-allow: a landed legacy close left its pending-close record behind"
+  assert_absent "$case_dir/state/task-x1.meta" \
+    "legacy-allow: teardown left the task record behind"
+  pass "a landed legacy record with a dead endpoint tears down and logs its accepted incarnation"
+}
+
+test_legacy_record_teardown_refuses_unlanded_work() {
+  local case_dir rc before
+  case_dir=$(make_case legacy-unlanded)
+  write_legacy_meta "$case_dir" no-mistakes ship
+  seed_backlog_in_flight "$case_dir"
+  # Real content committed but pushed nowhere and merged nowhere.
+  wt_commit_file "$case_dir" feature.txt unique-legacy-content "real unlanded work"
+  before=$(cksum "$case_dir/state/task-x1.meta" | awk '{print $1, $2}')
+
+  set +e
+  run_teardown "$case_dir" --legacy-record > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "legacy-unlanded: --legacy-record must not relax the unlanded-work refusal"
+  grep -q REFUSED "$case_dir/stderr" \
+    || fail "legacy-unlanded: no REFUSED line for unlanded legacy work"
+  [ "$(legacy_meta_gen_count "$case_dir")" = 0 ] \
+    || fail "legacy-unlanded: the unlanded refusal stamped a spawn generation into the record"
+  [ "$(cksum "$case_dir/state/task-x1.meta" | awk '{print $1, $2}')" = "$before" ] \
+    || fail "legacy-unlanded: the unlanded refusal modified the task record"
+  [ "$(backlog_row_state "$case_dir")" = in_flight ] \
+    || fail "legacy-unlanded: the unlanded refusal closed the backlog item anyway"
+  pass "--legacy-record never relaxes the unlanded-work refusal"
+}
+
+test_legacy_record_teardown_refuses_an_ambiguous_endpoint() {
+  local case_dir rc before
+  case_dir=$(make_case legacy-ambiguous)
+  write_legacy_meta "$case_dir" no-mistakes ship
+  seed_backlog_in_flight "$case_dir"
+  wt_commit "$case_dir" "landed legacy work"
+  add_fork_with_pushed_branch "$case_dir"
+  add_unreadable_tmux "$case_dir"
+  before=$(cksum "$case_dir/state/task-x1.meta" | awk '{print $1, $2}')
+
+  set +e
+  run_teardown "$case_dir" --legacy-record > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "legacy-ambiguous: an unreadable endpoint must refuse the legacy acceptance"
+  grep -q "not confidently dead or agent-less" "$case_dir/stderr" \
+    || fail "legacy-ambiguous: the refusal did not name the endpoint state"
+  [ "$(cksum "$case_dir/state/task-x1.meta" | awk '{print $1, $2}')" = "$before" ] \
+    || fail "legacy-ambiguous: the endpoint refusal modified the task record"
+  [ "$(backlog_row_state "$case_dir")" = in_flight ] \
+    || fail "legacy-ambiguous: the endpoint refusal closed the backlog item anyway"
+  pass "an endpoint that cannot be confidently read as dead refuses --legacy-record teardown"
+}
+
+test_legacy_record_never_accepts_a_corrupt_spawn_gen() {
+  local case_dir rc
+  case_dir=$(make_case legacy-corrupt)
+  write_legacy_meta "$case_dir" no-mistakes ship
+  printf 'spawn_gen=one\nspawn_gen=two\n' >> "$case_dir/state/task-x1.meta"
+  seed_backlog_in_flight "$case_dir"
+  wt_commit "$case_dir" "landed legacy work"
+  add_fork_with_pushed_branch "$case_dir"
+
+  set +e
+  run_teardown "$case_dir" --legacy-record > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "legacy-corrupt: an ambiguous spawn_gen must refuse even with --legacy-record"
+  grep -q "unreadable spawn_gen" "$case_dir/stderr" \
+    || fail "legacy-corrupt: the refusal did not name the unreadable spawn_gen"
+  [ "$(legacy_meta_gen_count "$case_dir")" = 2 ] \
+    || fail "legacy-corrupt: the refusal rewrote the corrupt record"
+  [ "$(backlog_row_state "$case_dir")" = in_flight ] \
+    || fail "legacy-corrupt: the refusal closed the backlog item anyway"
+  pass "a corrupt spawn_gen is never accepted as a legacy record"
+}
+
 test_stale_index_lock_cleared_and_teardown_succeeds() {
   local case_dir rc lock
   case_dir=$(make_case stale-index-lock)
@@ -3232,6 +3390,11 @@ test_content_in_default_fallback_allows
 test_content_fallback_refreshes_stale_origin_ref
 test_dirty_worktree_refuses
 test_gh_error_and_content_absent_refuses
+test_legacy_record_without_the_flag_refuses
+test_legacy_record_teardown_completes_when_landed_and_endpoint_dead
+test_legacy_record_teardown_refuses_unlanded_work
+test_legacy_record_teardown_refuses_an_ambiguous_endpoint
+test_legacy_record_never_accepts_a_corrupt_spawn_gen
 test_stale_index_lock_cleared_and_teardown_succeeds
 test_live_index_lock_is_never_removed_and_teardown_refuses
 test_lsof_error_never_clears_index_lock
