@@ -2,6 +2,17 @@
 # Tests for bin/fm-stale-sweep.sh - the dead-endpoint stale-claim reclaim
 # sweep over the shared Beads graph.
 #
+# The fixture graph is driven through bd directly, because the npm-published
+# tasks-axi ships the markdown backend only ("Unsupported backend \"beads\" -
+# P1 ships the markdown backend only"); only beads-capable tasks-axi builds
+# (the local fork this fleet runs) can perform the sweep's reclaim mutations.
+# Row state and bodies are therefore read back through bd as well. The
+# tasks-axi-bound coverage - the apply/reclaim path and the claim-marker ACTOR
+# column - probes that capability once and skips itself with an explicit
+# reason on markdown-only installs, mirroring the suite runner's optional
+# binary skips; everything else (selection, true-age display, orphan evidence
+# columns and guards, check gating, arm/disarm) runs everywhere bd exists.
+#
 # Fixture: one firstmate home whose .tasks.toml points at a scratch Beads
 # graph, holding four stale in_progress rows:
 #   - fm-dead-row: owned by this home, endpoint dead (missing tmux target)
@@ -120,19 +131,41 @@ EOF
   # runs in the real test shell, abort the whole suite with the log attached.
   fxlog="$case_dir/fixture-create.log"
   : > "$fxlog"
+  FX_FAILED=
   fx() {
+    if [ -n "$FX_FAILED" ]; then
+      return 0
+    fi
     if ! "$@" >>"$fxlog" 2>&1; then
+      FX_FAILED=1
+      printf 'fixture mutation failed: %s\n' "$*" >&2
       cat "$fxlog" >&2
       printf '%s\n' "$fxlog" > "$TMP_ROOT/fixture-failed"
       fail "fixture row creation failed: $*"
     fi
   }
-  for id in fm-dead-row fm-live-row fm-orphan-row fm-prov-row; do
-    fx sh -c "cd '$home' && tasks-axi add '$id' 'fixture $id' --kind ship"
-    fx sh -c "cd '$home' && tasks-axi start '$id'"
-  done
-  fx sh -c "cd '$home' && tasks-axi update fm-prov-row --body \
-    'Provenance: imported 2026-09-01 from secondmate home widgets ($case_dir/other-home) markdown backlog'"
+  bdrows() {
+    fx env BEADS_DIR="$graph/.beads" bd update "$1" --claim
+  }
+  if [ "$TASKS_AXI_BEADS_OK" = 1 ]; then
+    # A beads-capable tasks-axi: rows carry its claim marker, which the ACTOR
+    # column decodes and --apply-orphans treats as ownership evidence.
+    for id in fm-dead-row fm-live-row fm-orphan-row fm-prov-row; do
+      fx sh -c "cd '$home' && tasks-axi add '$id' 'fixture $id' --kind ship"
+      fx sh -c "cd '$home' && tasks-axi start '$id'"
+    done
+    fx sh -c "cd '$home' && tasks-axi update fm-prov-row --body \
+      'Provenance: imported 2026-09-01 from secondmate home widgets ($case_dir/other-home) markdown backlog'"
+  else
+    # The npm tasks-axi ships markdown only; create the same rows straight
+    # through bd so everything except the marker-dependent coverage still runs.
+    for id in fm-dead-row fm-live-row fm-orphan-row fm-prov-row; do
+      fx env BEADS_DIR="$graph/.beads" bd create "fixture $id" --id "$id"
+      bdrows "$id"
+    done
+    fx env BEADS_DIR="$graph/.beads" bd update fm-prov-row --description \
+      "Provenance: imported 2026-09-01 from secondmate home widgets ($case_dir/other-home) markdown backlog"
+  fi
   # Marker-less orphans created straight through bd: no tasks-axi claim marker
   # ever touched them, which is what --apply-orphans keys on.
   fx env BEADS_DIR="$graph/.beads" bd create "bare orphan" --id fm-bare-orphan
@@ -145,6 +178,7 @@ EOF
   fx env BEADS_DIR="$graph/.beads" bd update fm-orphan-prov --claim
   fx env BEADS_DIR="$graph/.beads" bd update fm-orphan-prov --description \
     "Provenance: imported 2026-09-01 from secondmate home ghost ($case_dir/ghost-home) markdown backlog"
+  [ -z "$FX_FAILED" ] || return 1
   make_repo_on_branch "$case_dir/wt-dead" fm/dead
   make_repo_on_branch "$case_dir/wt-live" fm/live
   fm_write_meta "$home/state/fm-dead-row.meta" \
@@ -191,13 +225,56 @@ SH
   chmod +x "$dir/holder.sh"
 }
 
-row_state() {  # <id>
-  (cd "$HOME_DIR" && tasks-axi show "$1" 2>/dev/null) | sed -n 's/^  state: *//p' | head -1
+# One capability probe for the whole suite: can the installed tasks-axi
+# operate on a beads-backed home? The npm-published tasks-axi cannot (its P1
+# ships markdown only), and the reclaim-mutation tests must skip themselves
+# with that reason instead of failing.
+probe_tasks_axi_beads() {
+  local probe_home="$TMP_ROOT/.probe"
+  rm -rf "$probe_home" "$TMP_ROOT/.probe-graph"
+  mkdir -p "$probe_home/data" "$TMP_ROOT/.probe-graph"
+  git -C "$TMP_ROOT/.probe-graph" init -q
+  (cd "$TMP_ROOT/.probe-graph" && bd init >/dev/null 2>&1) || return 1
+  cat > "$probe_home/.tasks.toml" <<PROBEEOF
+backend = "beads"
+
+[beads]
+path = "$TMP_ROOT/.probe-graph/.beads"
+binary = "bd"
+prefix = "fm"
+PROBEEOF
+  (cd "$probe_home" && tasks-axi list) >/dev/null 2>&1
+}
+TASKS_AXI_BEADS_OK=0
+if bd --version >/dev/null 2>&1 && probe_tasks_axi_beads; then
+  TASKS_AXI_BEADS_OK=1
+fi
+
+# Guard for coverage that drives the sweep's reclaim mutations through
+# tasks-axi: on a markdown-only install it skips with an explicit reason.
+require_tasks_axi_beads() {  # <what>
+  [ "$TASKS_AXI_BEADS_OK" = 1 ] && return 0
+  pass "skipped on markdown-only tasks-axi: $1"
+  return 1
 }
 
-row_body() {  # <id>
-  (cd "$HOME_DIR" && tasks-axi show "$1" --full 2>/dev/null) | sed -n 's/^  body: //p' | head -1
+# Row reads go through bd, the tool that owns the graph, so the helpers work
+# under every tasks-axi. tasks-axi states map onto bd statuses.
+row_field() {  # <id> <field>
+  BEADS_DIR="$CASE_DIR/fm/.beads" bd show "$1" --json 2>/dev/null \
+    | jq -r --arg f "$2" '.[0][$f] // "-"'
 }
+row_state() {  # <id>
+  case "$(row_field "$1" status)" in
+    in_progress) printf 'in_flight' ;;
+    open) printf 'queued' ;;
+    *) row_field "$1" status ;;
+  esac
+}
+row_body() {  # <id>
+  row_field "$1" description
+}
+
 
 # assert_row_matches <ere> <haystack> <msg>: one table row must match the
 # pattern (lib.sh's assert_grep is fixed-string against a file, and the table's
@@ -225,6 +302,7 @@ run_sweep() {  # [args...]
 test_age_column_is_true_age_and_threshold_gates_selection() {
   local rec out
   rec=$(make_fixture age)
+  [ -n "$rec" ] || fail "fixture construction failed (see stderr above)"
   read_fixture "$rec"
   out=$(run_sweep)
   assert_row_matches 'fm-dead-row[[:space:]]+main home[[:space:]]+50h[[:space:]]+dead' "$out" \
@@ -245,10 +323,18 @@ test_age_column_is_true_age_and_threshold_gates_selection() {
 test_orphan_columns_and_apply_orphans_guards() {
   local rec out rc date
   rec=$(make_fixture orphan)
+  [ -n "$rec" ] || fail "fixture construction failed (see stderr above)"
   read_fixture "$rec"
   out=$(run_sweep)
-  assert_row_matches 'fm-orphan-row[[:space:]]+-[[:space:]]+[0-9]+h[[:space:]]+no-home[[:space:]]+keep[[:space:]]+ship/-' "$out" \
-    "marker-bearing orphan must show its claim actor, and stay kept without the flag"
+  if [ "$TASKS_AXI_BEADS_OK" = 1 ]; then
+    assert_row_matches 'fm-orphan-row[[:space:]]+-[[:space:]]+[0-9]+h[[:space:]]+no-home[[:space:]]+keep[[:space:]]+ship/-' "$out" \
+      "marker-bearing orphan must show its claim actor, and stay kept without the flag"
+  else
+    # Under the markdown-only npm tasks-axi the rows are bd-created and carry
+    # no marker, so the ACTOR column reads "-" and nothing else changes.
+    assert_row_matches 'fm-orphan-row[[:space:]]+-[[:space:]]+[0-9]+h[[:space:]]+no-home[[:space:]]+keep[[:space:]]+-[[:space:]]+-$' "$out" \
+      "bd-created orphan must read keep with empty actor and provenance columns"
+  fi
   assert_row_matches 'fm-orphan-prov[[:space:]]+-[[:space:]]+[0-9]+h[[:space:]]+no-home[[:space:]]+keep[[:space:]]+-[[:space:]]+Provenance: imported 2026-09-01 from sec' "$out" \
     "provenance-bearing orphan must show the first 40 characters of its provenance line"
   assert_row_matches 'fm-orphan-url[[:space:]]+-[[:space:]]+[0-9]+h[[:space:]]+no-home[[:space:]]+keep[[:space:]]+-[[:space:]]+-$' "$out" \
@@ -258,10 +344,16 @@ test_orphan_columns_and_apply_orphans_guards() {
     "eligible bare orphan must read would reclaim (orphan) under the flag"
   assert_row_matches 'fm-orphan-url[[:space:]]+-[[:space:]]+[0-9]+h[[:space:]]+no-home[[:space:]]+keep' "$out" \
     "a landing URL keeps an orphan reclaim-ineligible even under the flag"
-  assert_row_matches 'fm-orphan-row[[:space:]]+-[[:space:]]+[0-9]+h[[:space:]]+no-home[[:space:]]+keep' "$out" \
-    "a claim marker keeps an orphan reclaim-ineligible even under the flag"
-  assert_contains "$out" "would reclaim 4" \
-    "summary must count the eligible orphans among what a flagged apply would reclaim"
+  if [ "$TASKS_AXI_BEADS_OK" = 1 ]; then
+    assert_row_matches 'fm-orphan-row[[:space:]]+-[[:space:]]+[0-9]+h[[:space:]]+no-home[[:space:]]+keep' "$out" \
+      "a claim marker keeps an orphan reclaim-ineligible even under the flag"
+    assert_contains "$out" "would reclaim 4" \
+      "summary must count the eligible orphans among what a flagged apply would reclaim"
+  else
+    # Without markers fm-orphan-row is eligible too: 2 dead + 3 orphans.
+    assert_contains "$out" "would reclaim 5" \
+      "summary must count every eligible orphan under a markdown-only tasks-axi"
+  fi
   # The 48h gate: the same fixture at 47h by the clock selects the rows via the
   # 24h threshold but the bare orphan stays kept.
   out=$(FM_HOME="$HOME_DIR" FM_STALE_SWEEP_NOW=$(( $(date +%s) + 47 * 3600 )) \
@@ -269,6 +361,7 @@ test_orphan_columns_and_apply_orphans_guards() {
   assert_row_matches 'fm-bare-orphan[[:space:]]+-[[:space:]]+[0-9]+h[[:space:]]+no-home[[:space:]]+keep' "$out" \
     "an orphan younger than 48h must stay kept even under the flag"
   # The real flagged apply at 50h reclaims exactly the bare orphan.
+  require_tasks_axi_beads "the orphan apply path" || return 0
   out=$(run_sweep --apply --apply-orphans)
   rc=$?
   expect_code 0 "$rc" "flagged apply run should succeed"
@@ -285,6 +378,8 @@ test_orphan_columns_and_apply_orphans_guards() {
 test_dry_run_lists_verdicts_and_reclaims_nothing() {
   local rec out rc
   rec=$(make_fixture dry)
+  [ -n "$rec" ] || fail "fixture construction failed (see stderr above)"
+  [ -n "$rec" ] || fail "fixture construction failed (see stderr above)"
   read_fixture "$rec"
   out=$(run_sweep)
   rc=$?
@@ -320,8 +415,10 @@ test_dry_run_lists_verdicts_and_reclaims_nothing() {
 }
 
 test_apply_reclaims_only_dead_rows() {
+  require_tasks_axi_beads "the reclaim apply path" || return 0
   local rec out rc date
   rec=$(make_fixture apply)
+  [ -n "$rec" ] || fail "fixture construction failed (see stderr above)"
   read_fixture "$rec"
   out=$(run_sweep --apply)
   rc=$?
@@ -344,8 +441,9 @@ test_apply_reclaims_only_dead_rows() {
     "dead row body must carry the reclaim note with the owning actor"
   assert_contains "$(row_body fm-prov-row)" "reclaimed $date: endpoint dead, previous claim by widgets" \
     "provenance row body must carry the reclaim note with the provenance actor"
-  [ "$(row_body fm-live-row)" = '""' ] || [ -z "$(row_body fm-live-row)" ] || [ "$(row_body fm-live-row)" = '"-"' ] \
-    || fail "apply appended a note to the live row"
+  case "$(row_body fm-live-row)" in
+    *reclaimed*) fail "apply appended a note to the live row" ;;
+  esac
   [ -f "$HOME_DIR/state/fm-dead-row.meta" ] || fail "apply removed the dead row's meta file"
   [ -f "$HOME_DIR/state/fm-live-row.meta" ] || fail "apply removed the live row's meta file"
   pass "apply reclaims exactly the dead rows with the note, touching nothing else"
@@ -354,6 +452,7 @@ test_apply_reclaims_only_dead_rows() {
 test_check_mode_gates_on_the_interval_record() {
   local rec out t0
   rec=$(make_fixture check)
+  [ -n "$rec" ] || fail "fixture construction failed (see stderr above)"
   read_fixture "$rec"
   t0=$(( $(date +%s) + 50 * 3600 ))
   out=$(FM_HOME="$HOME_DIR" FM_STALE_SWEEP_NOW=$t0 PATH="$FAKEBIN:$PATH" "$SWEEP" check)
@@ -367,8 +466,14 @@ test_check_mode_gates_on_the_interval_record() {
   out=$(FM_HOME="$HOME_DIR" FM_STALE_SWEEP_NOW=$((t0 + 86401)) PATH="$FAKEBIN:$PATH" "$SWEEP" check)
   assert_contains "$out" "stale-sweep: 2 dead-endpoint in_progress rows reclaimable" \
     "check after the interval must report again"
-  # A clean graph stays silent even past the gate.
-  FM_HOME="$HOME_DIR" FM_STALE_SWEEP_NOW=$((t0 + 50 * 3600)) PATH="$FAKEBIN:$PATH" "$SWEEP" --apply >/dev/null
+  # A clean graph stays silent even past the gate. Cleaning through the
+  # sweep's own apply needs a beads-capable tasks-axi; a markdown-only install
+  # reclaims the two dead rows straight through bd instead.
+  if [ "$TASKS_AXI_BEADS_OK" = 1 ]; then
+    FM_HOME="$HOME_DIR" FM_STALE_SWEEP_NOW=$((t0 + 50 * 3600)) PATH="$FAKEBIN:$PATH" "$SWEEP" --apply >/dev/null
+  else
+    BEADS_DIR="$CASE_DIR/fm/.beads" bd close fm-dead-row fm-prov-row >/dev/null 2>&1
+  fi
   out=$(FM_HOME="$HOME_DIR" FM_STALE_SWEEP_NOW=$((t0 + 100 * 3600)) PATH="$FAKEBIN:$PATH" "$SWEEP" check)
   [ -z "$out" ] || fail "check on a clean graph printed: $out"
   pass "check mode reports only past the interval gate and only when rows are reclaimable"
@@ -377,6 +482,7 @@ test_check_mode_gates_on_the_interval_record() {
 test_check_mode_reports_the_budget_cut() {
   local rec out
   rec=$(make_fixture cut)
+  [ -n "$rec" ] || fail "fixture construction failed (see stderr above)"
   read_fixture "$rec"
   # FM_CHECK_TIMEOUT=8 cuts the 25s budget to 5 (CHECK_TIMEOUT-3), so the
   # check must report the cut alongside its reclaimable verdict.
@@ -389,8 +495,10 @@ test_check_mode_reports_the_budget_cut() {
 }
 
 test_apply_names_the_resolved_homes_actor_when_two_homes_hold_meta() {
+  require_tasks_axi_beads "the reclaim apply path" || return 0
   local rec out date
   rec=$(make_fixture handoff)
+  [ -n "$rec" ] || fail "fixture construction failed (see stderr above)"
   read_fixture "$rec"
   # A second registered home also holding the dead row's meta is the handoff
   # seam; the resolved home stays this home (listed first), so the reclaim note
@@ -414,6 +522,7 @@ test_apply_names_the_resolved_homes_actor_when_two_homes_hold_meta() {
 test_check_mode_bounds_the_graph_read() {
   local rec out t0 bdslow="$TMP_ROOT/bdslow/fakebin"
   rec=$(make_fixture bdslow)
+  [ -n "$rec" ] || fail "fixture construction failed (see stderr above)"
   read_fixture "$rec"
   mkdir -p "$bdslow"
   cat > "$bdslow/bd" <<'SH'
@@ -438,6 +547,7 @@ SH
 test_arm_disarm_roundtrip() {
   local rec
   rec=$(make_fixture arm)
+  [ -n "$rec" ] || fail "fixture construction failed (see stderr above)"
   read_fixture "$rec"
   FM_HOME="$HOME_DIR" PATH="$FAKEBIN:$PATH" "$SWEEP" arm >/dev/null \
     || fail "arm failed"
@@ -458,8 +568,10 @@ test_arm_disarm_roundtrip() {
 # row instead of racing the close and resurrecting finished work. After the
 # holder dies, the same sweep reclaims the row, proving the lock was the gate.
 test_apply_refuses_a_row_whose_record_lock_a_completion_holds() {
+  require_tasks_axi_beads "the reclaim apply path" || return 0
   local rec out holder_pid lock
   rec=$(make_fixture lockheld)
+  [ -n "$rec" ] || fail "fixture construction failed (see stderr above)"
   read_fixture "$rec"
   make_lock_holder "$CASE_DIR"
   lock="$HOME_DIR/state/.meta-fm-dead-row.lock"
@@ -492,8 +604,10 @@ test_apply_refuses_a_row_whose_record_lock_a_completion_holds() {
 # A pending backlog-close replay record: a completion was recorded and is still
 # owed (the teardown crash window), so the row must never be reopened.
 test_apply_refuses_a_row_with_a_pending_completion_replay() {
+  require_tasks_axi_beads "the reclaim apply path" || return 0
   local rec out
   rec=$(make_fixture closereplay)
+  [ -n "$rec" ] || fail "fixture construction failed (see stderr above)"
   read_fixture "$rec"
   {
     printf 'id=fm-dead-row\n'
