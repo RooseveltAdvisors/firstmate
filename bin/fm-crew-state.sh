@@ -566,18 +566,44 @@ fi
 # log as the current state.
 [ -n "$BACKEND_TARGET" ] || emit unknown none "no backend target recorded"
 if ! pane_readable "$BACKEND_TARGET"; then
-  # A failed capture is not evidence the pane is gone: the herdr CLI can error
-  # or stall under load while the pane is alive, so a busy box would otherwise
-  # score dozens of live claims dead. Only the recovery-grade classifier's
-  # authoritative-absence verdict (`missing`, a successful pane read answering
-  # pane_not_found) may say gone; every other verdict means the backend failed
-  # to answer, which the stale sweep scores as unproven and keeps.
+  # A failed capture is not itself evidence the pane is gone: the herdr CLI can
+  # error or stall under load while the pane is alive, so a busy box would
+  # otherwise score dozens of live claims dead. The recovery-grade classifier
+  # (fm_backend_agent_state) separates the outcomes for herdr:
+  #   missing - a successful pane get answered pane_not_found: the endpoint is
+  #             authoritatively absent.
+  #   dead    - a successful pane get found the pane but agent get answered
+  #             agent_not_found: the worker agent is gone (husk pane), still
+  #             positive death evidence for reclaim.
+  #   alive   - the endpoint and its agent answered and only the heavy
+  #             scrollback read failed, so the live state is classified by the
+  #             normal flow below instead of being discarded.
+  #   anything else - the cheap pane get / agent get calls themselves failed
+  #             to answer, which is unknown, never death.
   if [ "$TASK_BACKEND" = herdr ]; then
     AGENT_STATE=$(fm_backend_agent_state herdr "$BACKEND_TARGET")
-    [ "$AGENT_STATE" = missing ] \
-      || emit unknown none "backend unreachable (herdr read failed; endpoint state: $AGENT_STATE)"
+  else
+    AGENT_STATE=none
   fi
-  emit unknown none "backend target gone: $BACKEND_TARGET"
+  case "$TASK_BACKEND:$AGENT_STATE" in
+    herdr:alive)
+      # The endpoint and its agent answered and only the heavy scrollback
+      # read failed, so the live state is classified by the normal flow
+      # below instead of being discarded.
+      ;;
+    herdr:missing)
+      emit unknown none "backend target gone: $BACKEND_TARGET"
+      ;;
+    herdr:dead)
+      emit unknown none "backend target gone: $BACKEND_TARGET (agent gone, pane shell remains)"
+      ;;
+    herdr:*)
+      emit unknown none "backend unreachable (herdr endpoint state: $AGENT_STATE)"
+      ;;
+    *)
+      emit unknown none "backend target gone: $BACKEND_TARGET"
+      ;;
+  esac
 fi
 
 # Secondmates idle on their own watcher (idle pane = healthy), so the busy
