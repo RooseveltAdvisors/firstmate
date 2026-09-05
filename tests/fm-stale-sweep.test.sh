@@ -13,7 +13,8 @@
 # the record-lock and pending-replay refusals - runs everywhere bd exists
 # instead of skipping on exactly the machine that most needs it. Every
 # assertion is over real graph state either way; nothing here is gated on the
-# installed tasks-axi's backend support.
+# installed tasks-axi's backend support. What the stand-in cannot prove is the
+# tasks-axi contract it stands in for, so every pass line it serves says so.
 #
 # Fixture: one firstmate home whose .tasks.toml points at a scratch Beads
 # graph, holding four stale in_progress rows:
@@ -104,6 +105,13 @@ SH
 # the body, `held` is the tasks-axi-held label, and `body:` is always a
 # JSON-encoded string. Where the real binary IS beads-capable it is used
 # instead, so the fleet keeps proving these paths against the real contract.
+#
+# What the double CANNOT prove is the contract itself: on a markdown-only
+# install these field names and encodings are asserted against this file, not
+# against tasks-axi, so a real build that printed `state: in_progress` or an
+# unquoted `body:` would still pass here while `--apply` mis-parsed every row.
+# Every pass line served by the double says so (see pass_mutation). Pinning the
+# contract against a recorded real-tasks-axi fixture is the follow-up.
 make_axi_shim() {  # <fakebin>
   cat > "$1/tasks-axi" <<'SH'
 #!/usr/bin/env bash
@@ -349,6 +357,23 @@ if bd --version >/dev/null 2>&1 && probe_tasks_axi_beads; then
   TASKS_AXI_BEADS_OK=1
 fi
 
+# The pass line for coverage whose tasks-axi calls make_axi_shim serves. The
+# graph mutations and every assertion over them are real either way, but on a
+# markdown-only install the ONE external contract the reclaim path depends on -
+# the `show` field names and `body:` encoding fm_stale_decode_body parses,
+# `update --body`, `reopen` - comes from the in-suite double rather than from
+# the real tool, so the ok line must say so instead of claiming the path is
+# proven. A real tasks-axi that printed `state: in_progress` instead of
+# `in_flight`, or an unquoted `body:`, would still pass here. Pinning that
+# contract against a recorded real-tasks-axi fixture is the follow-up.
+pass_mutation() {  # <what>
+  if [ "$TASKS_AXI_BEADS_OK" = 1 ]; then
+    pass "$1"
+  else
+    pass "$1 - tasks-axi contract served by the in-suite double, NOT verified against the real tool"
+  fi
+}
+
 # Row reads go through bd, the tool that owns the graph, so the helpers work
 # under every tasks-axi. tasks-axi states map onto bd statuses.
 row_field() {  # <id> <field>
@@ -524,7 +549,7 @@ test_orphan_columns_and_apply_orphans_guards() {
   [ "$(row_state fm-orphan-url)" = in_flight ] || fail "URL-bearing orphan was reclaimed under the flag"
   [ "$(row_state fm-orphan-row)" = in_flight ] || fail "marker-bearing orphan was reclaimed under the flag"
   [ "$(row_state fm-orphan-prov)" = queued ] || fail "eligible provenance orphan was not reclaimed under the flag"
-  pass "orphan columns show actor and provenance; --apply-orphans honors age, marker, and URL guards"
+  pass_mutation "orphan columns show actor and provenance; --apply-orphans honors age, marker, and URL guards"
 }
 
 test_dry_run_lists_verdicts_and_reclaims_nothing() {
@@ -597,7 +622,7 @@ test_apply_reclaims_only_dead_rows() {
   esac
   [ -f "$HOME_DIR/state/fm-dead-row.meta" ] || fail "apply removed the dead row's meta file"
   [ -f "$HOME_DIR/state/fm-live-row.meta" ] || fail "apply removed the live row's meta file"
-  pass "apply reclaims exactly the dead rows with the note, touching nothing else"
+  pass_mutation "apply reclaims exactly the dead rows with the note, touching nothing else"
 }
 
 test_check_mode_gates_on_the_interval_record() {
@@ -658,7 +683,7 @@ test_apply_names_the_resolved_homes_actor_when_two_homes_hold_meta() {
   assert_contains "$(row_body fm-dead-row)" "reclaimed $date: endpoint dead, previous claim by main home" \
     "the note must name the resolved first home's actor, not the last scanned one"
   [ "$(row_state fm-dead-row)" = queued ] || fail "the dead row was not reclaimed"
-  pass "a two-home handoff reclaims through the first home and names its actor"
+  pass_mutation "a two-home handoff reclaims through the first home and names its actor"
 }
 
 # A bd that hangs: in check mode the graph read must be bounded by the budget
@@ -742,7 +767,7 @@ test_apply_refuses_a_row_whose_record_lock_a_completion_holds() {
     "once no completion holds the record lock, the same sweep must reclaim the row"
   [ "$(row_state fm-dead-row)" = queued ] || fail "the row was not reclaimed after the lock freed"
   [ ! -e "$lock" ] || fail "the sweep left the record lock behind after reclaiming"
-  pass "a row whose record lock a completion holds is refused until the lock frees"
+  pass_mutation "a row whose record lock a completion holds is refused until the lock frees"
 }
 
 # A claim marker whose payload will not decode still records that something
@@ -784,7 +809,7 @@ test_apply_orphans_reclaims_without_a_record_state_dir() {
     "$out" "a marker-less orphan must reclaim when the record home has no state dir"
   [ "$(row_state fm-bare-orphan)" = queued ] \
     || fail "the lockless reclaim did not reopen the row"
-  pass "an orphan reclaim runs when the record home has no state dir to lock"
+  pass_mutation "an orphan reclaim runs when the record home has no state dir to lock"
 }
 
 # A pending backlog-close replay record: a completion was recorded and is still
@@ -809,7 +834,7 @@ test_apply_refuses_a_row_with_a_pending_completion_replay() {
   run_sweep --apply >/dev/null
   [ "$(row_state fm-dead-row)" = queued ] \
     || fail "the row was not reclaimed once no completion was pending"
-  pass "a row with a pending completion replay is refused until the replay lands"
+  pass_mutation "a row with a pending completion replay is refused until the replay lands"
 }
 
 test_age_column_is_true_age_and_threshold_gates_selection

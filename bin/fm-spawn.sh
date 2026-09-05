@@ -990,20 +990,7 @@ spawn_abort_cleanup() {
       fi
     fi
   fi
-  if [ "$HERDR_PROJECTION_ABORT_CLEANUP" = 1 ] \
-     && [ "$HERDR_PRESENTATION_ORDER_LOCK_HELD" != 1 ]; then
-    if ! spawn_herdr_presentation_order_lock_acquire "${HERDR_PROJECTION_ABORT_SESSION:-}"; then
-      echo "warning: herdr presentation focus lock unavailable; retaining the projection journal and refusing concurrent abort cleanup" >&2
-      HERDR_PROJECTION_ABORT_CLEANUP=0
-    fi
-  fi
-  if [ "$HERDR_PROJECTION_ABORT_CLEANUP" = 1 ]; then
-    HERDR_PROJECTION_ABORT_CLEANUP=0
-    fm_backend_herdr_projection_cleanup_exact \
-      "$HERDR_PROJECTION_ABORT_SESSION" \
-      "$HERDR_PROJECTION_ABORT_TASK_PANE" \
-      "$HERDR_PROJECTION_ABORT_SEEDED_PANE" || true
-  fi
+  spawn_herdr_projection_abort_cleanup || true
   if [ "$HERDR_PRESENTATION_ORDER_LOCK_HELD" = 1 ]; then
     HERDR_PRESENTATION_ORDER_LOCK_HELD=0
     fm_lock_release "$HERDR_PRESENTATION_ORDER_LOCK" || true
@@ -1149,6 +1136,30 @@ spawn_herdr_presentation_order_lock_release() {
   [ "$HERDR_PRESENTATION_ORDER_LOCK_HELD" = 1 ] || return 0
   HERDR_PRESENTATION_ORDER_LOCK_HELD=0
   fm_lock_release "$HERDR_PRESENTATION_ORDER_LOCK" || true
+}
+
+# The herdr projection cleanup this spawn owes for the endpoint it created:
+# take the presentation order lock every projection mutation takes, close the
+# exact panes, and disarm so it runs exactly once. The EXIT trap calls it, and
+# so does any path that must know the endpoint's final state before it prints
+# one - the cleanup has to have happened before the endpoint is read back, or
+# the read describes a pane the trap is about to remove. Returns non-zero only
+# when the lock was unavailable and the cleanup was therefore refused, which
+# also disarms it: nothing closes the endpoint after that.
+spawn_herdr_projection_abort_cleanup() {
+  [ "$HERDR_PROJECTION_ABORT_CLEANUP" = 1 ] || return 0
+  if [ "$HERDR_PRESENTATION_ORDER_LOCK_HELD" != 1 ] \
+     && ! spawn_herdr_presentation_order_lock_acquire "${HERDR_PROJECTION_ABORT_SESSION:-}"; then
+    echo "warning: herdr presentation focus lock unavailable; retaining the projection journal and refusing concurrent abort cleanup" >&2
+    HERDR_PROJECTION_ABORT_CLEANUP=0
+    return 1
+  fi
+  HERDR_PROJECTION_ABORT_CLEANUP=0
+  fm_backend_herdr_projection_cleanup_exact \
+    "$HERDR_PROJECTION_ABORT_SESSION" \
+    "$HERDR_PROJECTION_ABORT_TASK_PANE" \
+    "$HERDR_PROJECTION_ABORT_SEEDED_PANE" || true
+  return 0
 }
 
 # Batch dispatch (see header): when the first positional is an `id=repo` pair, treat every
@@ -3003,19 +3014,33 @@ spawn_treehouse_pool_refusal() {
 # holds the presentation session lock), so the endpoint is READ BACK after the
 # close and the printed line reports what the read proved, never what was
 # attempted: an endpoint still standing is the operator's to close before the
-# redispatch, and saying so is the only thing that gets it looked at. A backend
-# that cannot prove an endpoint absent at all gets the third answer rather than
-# either claim - the close is reported as unconfirmed and the endpoint as the
-# operator's to check.
+# redispatch, and saying so is the only thing that gets it looked at. A read
+# that settles neither way gets the third answer rather than either claim - the
+# close is reported as unconfirmed and the endpoint as the operator's to check.
+# On herdr the projection cleanup this spawn owes runs HERE, before the read
+# back, instead of being left to the EXIT trap: the trap fires after exit 2 and
+# closes the projection under the presentation lock, so a read taken before it
+# would describe a pane that is removed moments later and send the operator to
+# close by hand an endpoint that no longer exists. When that cleanup is refused
+# because the lock is unavailable, nothing closes the endpoint afterwards and
+# no close is confirmed, which is the unconfirmed answer.
 # At this point no meta, busy record, or backlog transition exists yet, so
 # nothing else needs unwinding.
 spawn_capacity_refuse() {
-  local pool reason endpoint_note
+  local pool reason endpoint_note verdict cleanup_refused=0
   pool=$(fm_capacity_pool_of_project "$PROJ_ABS_REAL" 2>/dev/null || true)
   [ -n "$pool" ] || pool=$PROJ_ABS_REAL
   reason=$(fm_capacity_reason "$pool" "$POOL_FULL_N" "$POOL_FULL_MAX")
   fm_backend_kill "$BACKEND" "$T" "${ZELLIJ_TAB_ID:-}" "$W" 2>/dev/null || true
-  case "$(spawn_capacity_endpoint_verdict)" in
+  if [ "$BACKEND" = herdr ]; then
+    spawn_herdr_projection_abort_cleanup || cleanup_refused=1
+  fi
+  if [ "$cleanup_refused" = 1 ]; then
+    verdict=unconfirmed
+  else
+    verdict=$(spawn_capacity_endpoint_verdict)
+  fi
+  case "$verdict" in
     gone)
       endpoint_note="endpoint $T closed so the redispatch can create it again"
       ;;
@@ -3024,8 +3049,8 @@ spawn_capacity_refuse() {
       echo "warning: the capacity refusal could not close endpoint $T for $ID; the redispatch after the hold is released will collide with it until it is closed by hand" >&2
       ;;
     *)
-      endpoint_note="endpoint $T close attempted but NOT CONFIRMED - the $BACKEND backend cannot prove an endpoint absent, so check $T by hand before the redispatch, which cannot create a second endpoint for $ID"
-      echo "warning: the capacity refusal attempted to close endpoint $T for $ID and the $BACKEND backend cannot prove it absent; check the endpoint by hand before the redispatch after the hold is released, which will collide with it if it is still open" >&2
+      endpoint_note="endpoint $T close attempted but NOT CONFIRMED - the read settled neither way, so check $T by hand before the redispatch, which cannot create a second endpoint for $ID"
+      echo "warning: the capacity refusal attempted to close endpoint $T for $ID and could not confirm it absent on the $BACKEND backend; check the endpoint by hand before the redispatch after the hold is released, which will collide with it if it is still open" >&2
       ;;
   esac
   if [ "$BACKLOG_TRANSITION" = 1 ]; then
@@ -3046,9 +3071,12 @@ spawn_capacity_refuse() {
 # `open`, or `unconfirmed`? Every read is an existing read-only presence
 # primitive; only two backends can answer `gone`, because only their negative
 # read is an ABSENCE read:
-#   herdr  - fm_backend_herdr_endpoint_confirmed_gone, whose structured
-#            pane_not_found is the only thing that proves a herdr pane gone
-#            (present and unknown both refuse, the safe direction here).
+#   herdr  - fm_backend_herdr_pane_presence_state classifies the exact pane
+#            from its structured reply, so all three answers are reachable:
+#            pane_not_found is `gone`, an echoed pane id is `open`, and its
+#            `unknown` - any other error, an unparseable reply, a server that
+#            has since exited - is `unconfirmed`, as is a target that will not
+#            parse or an adapter that will not source.
 #   tmux   - fm_backend_target_exists looks the window up directly, so a failed
 #            lookup means no such window (a dead server has none either, and
 #            the redispatch starts its own).
@@ -3064,12 +3092,15 @@ spawn_capacity_refuse() {
 spawn_capacity_endpoint_verdict() {
   case "$BACKEND" in
     herdr)
-      fm_backend_source herdr 2>/dev/null || { printf 'open'; return 0; }
-      if fm_backend_herdr_endpoint_confirmed_gone "$T" 2>/dev/null; then
-        printf 'gone'
-      else
-        printf 'open'
-      fi
+      fm_backend_source herdr 2>/dev/null || { printf 'unconfirmed'; return 0; }
+      fm_backend_herdr_parse_target "$T" 2>/dev/null \
+        || { printf 'unconfirmed'; return 0; }
+      case "$(fm_backend_herdr_pane_presence_state \
+                "$FM_BACKEND_HERDR_SESSION" "$FM_BACKEND_HERDR_PANE" 2>/dev/null)" in
+        dead) printf 'gone' ;;
+        present) printf 'open' ;;
+        *) printf 'unconfirmed' ;;
+      esac
       ;;
     tmux)
       if fm_backend_target_exists tmux "$T" "$W" 2>/dev/null; then

@@ -692,9 +692,6 @@ fm_stale_home_label() {  # <home> <actor>
   printf '%s' "$(basename "$home")"
 }
 
-# The row's own recorded claim actor: the tasks-axi marker embedded in its
-# description decodes to {"kind":...,"repo":...}. Empty when the row was
-# created outside tasks-axi and nothing else recorded who claimed it.
 # Does the row carry a claim marker at all, decodable or not? A truncated or
 # over-captured payload still records that something claimed this row, so the
 # orphan guard keys on this and only the ACTOR column keys on the decode.
@@ -705,6 +702,11 @@ fm_stale_row_has_marker() {  # <escaped description>
   return 1
 }
 
+# The row's own recorded claim actor: the tasks-axi marker embedded in its
+# description decodes to {"kind":...,"repo":...}. Empty when the row was
+# created outside tasks-axi and nothing else recorded who claimed it, and also
+# when a marker IS present but its payload will not decode - which is why the
+# orphan guard above reads presence rather than calling this.
 fm_stale_row_actor() {  # <escaped description>
   local marker
   marker=$(printf '%s\n' "$1" | sed -n 's/.*tasks-axi:beads\/v1:\([A-Za-z0-9+/=]*\).*/\1/p' | head -1)
