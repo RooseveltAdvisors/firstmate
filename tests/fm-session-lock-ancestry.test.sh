@@ -72,7 +72,8 @@ case "$pid:$field:${FM_TEST_CLAUDE_SHAPE:-linux}" in
   *:ppid=:*) printf '%s\n' 700 ;;
 esac
 SH
-  chmod +x "$fakebin/ps"
+  printf '#!/bin/sh\nexit 99\n' > "$fakebin/perl"
+  chmod +x "$fakebin/ps" "$fakebin/perl"
   printf '700\n' > "$dir/state/.lock"
 
   for shape in linux macos; do
