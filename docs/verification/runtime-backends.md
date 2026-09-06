@@ -1184,7 +1184,7 @@ Polling remained active and is covered as the fallback for capability, connect, 
 
 ### Agent lifecycle control
 
-Herdr is one of the two backends whose recovery-grade agent-state classifier the control plane may trust ([agent-control.md](../agent-control.md)), so its lifecycle gating is measured against the real binary; reverified 2026-08-08 on Herdr 0.8.0, and first measured 2026-08-02 on Herdr 0.7.5 with identical results:
+Herdr is one of the two backends whose recovery-grade agent-state classifier the control plane may trust ([agent-control.md](../agent-control.md)), so its lifecycle gating is measured against the real binary; reverified 2026-09-06 on Herdr 0.8.2 (whose submitted `/exit` reaps the seat's pane, making the recorded endpoint authoritatively absent - a positive stop, never a failure), previously 2026-08-08 on Herdr 0.8.0, and first measured 2026-08-02 on Herdr 0.7.5:
 
 ```sh
 tests/fm-control-herdr-smoke.test.sh
