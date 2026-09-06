@@ -242,19 +242,29 @@ fm_backlog_source_present() {  # <data-dir>
 # Run tasks-axi from the owning home's configuration root. Supplying --file
 # would replace the Beads workspace path too, so it is only a legacy fallback
 # when no project config exists.
+#
+# Must be called from inside a command substitution, and changes directory in
+# that subshell rather than opening one of its own. fm_tasks_axi execs, so the
+# tasks-axi (or bounding timeout) process takes this subshell's own slot; an
+# extra nested subshell here would push it one level deeper than the plain call
+# sat, breaking the process placement fm_tasks_axi documents and that the
+# interrupted-spawn path depends on to signal the spawn it was launched from.
 fm_backlog_tasks_axi() {  # <data-dir> <verb> [arg...]
   local data root file backend
   data=$(fm_backlog_data_absolute "$1") || return 1
   shift
   root=$(fm_backlog_root "$data") || return 1
   backend=$(fm_backlog_selected_backend "$root") || return 1
+  cd "$root" 2>/dev/null || return 1
+  # fm_tasks_axi execs, so each branch is this subshell's last command; nothing
+  # may follow the branch that runs it.
   if [ -e "$root/.tasks.toml" ] || [ -L "$root/.tasks.toml" ] \
      || [ "$backend" != markdown ]; then
-    (cd "$root" 2>/dev/null && fm_tasks_axi "$@")
-    return $?
+    fm_tasks_axi "$@"
+  else
+    file=$(fm_backlog_file "$data") || return 1
+    fm_tasks_axi "$@" --file "$file"
   fi
-  file=$(fm_backlog_file "$data") || return 1
-  (cd "$root" 2>/dev/null && fm_tasks_axi "$@" --file "$file")
 }
 
 # Resolve only the top-level adapter selector needed for the absent-markdown
