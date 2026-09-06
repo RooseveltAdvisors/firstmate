@@ -1,0 +1,50 @@
+HOME=/tmp/fm-agy-lab.MHiiLS/home /home/jon/.local/bin/agy --dangerously-skip-permissions
+gpu% HOME=/tmp/fm-agy-lab.MHiiLS/home /home/jon/.local/bin/agy --dangerously-skip-permissions
+
+      ▄▀▀▄        Antigravity CLI 1.1.27
+     ▀▀▀▀▀▀       rooseveltadvisors@gmail.com
+    ▀▀▀▀▀▀▀▀      Gemini 3.8 Flash (High)
+   ▄▀▀    ▀▀▄     /tmp/fm-agy-lab.MHiiLS/wt
+  ▄▀▀      ▀▀▄
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+? for shortcuts                                                                                                                                                                  Gemini 3.8 Flash · high
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

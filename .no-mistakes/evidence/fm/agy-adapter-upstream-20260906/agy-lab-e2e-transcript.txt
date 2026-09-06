@@ -1,0 +1,11 @@
+lab: /tmp/fm-agy-lab.MHiiLS
+ok - agy 1.1.27: --dangerously-skip-permissions does not suppress the workspace-trust dialog
+--- trust report ---
+added: /tmp/fm-agy-lab.MHiiLS/wt
+trusted: /tmp/fm-agy-lab.MHiiLS/wt
+ok - agy 1.1.27: registering the worktree suppresses the dialog and reaches the idle status bar
+ok - agy 1.1.27: a running turn renders the busy status bar
+ok - agy 1.1.27: typing plus a separate Enter submits and the agent acts on it
+ok - agy 1.1.27: the Stop hook signals a finished turn through the task token
+ok - agy 1.1.27: withdraw restores the lab store exactly as the copy had it
+ALL PASS
