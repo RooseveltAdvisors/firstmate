@@ -187,6 +187,16 @@ fm_backlog_markdown_file() {  # <data-dir>
     fm_backlog_file "$data"
     return $?
   fi
+  # The configured [markdown] path is resolved from the root, so it describes
+  # this home's backlog only while the data directory sits at its default
+  # <root>/data. A home that relocated its data directory carries its backlog
+  # with it, and the stock path this config ships with must not pull reads back
+  # to the vacated default - that is how a relocated home ended up addressing an
+  # empty backlog and treating an existing captain call as a task to create.
+  if [ "$(fm_backlog_data_relative "$data")" != data ]; then
+    fm_backlog_file "$data"
+    return $?
+  fi
   configured=$(awk '
       BEGIN { table = "root" }
       {
@@ -263,7 +273,7 @@ fm_backlog_tasks_axi() {  # <data-dir> <verb> [arg...]
   if [ "$backend" != markdown ]; then
     fm_tasks_axi "$@"
   else
-    file=$(fm_backlog_file "$data") || return 1
+    file=$(fm_backlog_markdown_file "$data") || return 1
     fm_tasks_axi "$@" --file "$file"
   fi
 }
@@ -429,7 +439,7 @@ fm_backlog_row_show() {  # <resolved-data-dir> <id> [flag...]
     (cd "$root" 2>/dev/null && fm_tasks_axi show "$id" "$@" 2>&1)
     return $?
   fi
-  file=$(fm_backlog_file "$data") || return 1
+  file=$(fm_backlog_markdown_file "$data") || return 1
   (cd "$root" 2>/dev/null && fm_tasks_axi show "$id" "$@" --file "$file" 2>&1)
 }
 
@@ -441,7 +451,7 @@ fm_backlog_row_list() {  # <resolved-data-dir> [flag...]
     (cd "$root" 2>/dev/null && tasks-axi list "$@" 2>&1)
     return $?
   fi
-  file=$(fm_backlog_file "$data") || return 1
+  file=$(fm_backlog_markdown_file "$data") || return 1
   (cd "$root" 2>/dev/null && tasks-axi list "$@" --file "$file" 2>&1)
 }
 
