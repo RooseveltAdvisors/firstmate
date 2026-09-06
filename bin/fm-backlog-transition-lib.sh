@@ -28,15 +28,17 @@
 # returns 2 so callers refuse before mutation.
 #
 # ADDRESSING. Every call runs from the configured data directory's parent so
-# that home's `.tasks.toml` selects and addresses the backend, and a root with
-# no `.tasks.toml` gets tasks-axi's built-in defaults. A legacy home without
-# that config still receives `--file <data>/backlog.md` on mutations,
-# preserving relocated markdown backlogs without overriding a configured
-# non-markdown adapter. Row probes pass `--file` only for the markdown backend
-# and otherwise run from the addressing root so backend-owned state remains
-# discoverable. The parent of the data directory is the addressing root rather
-# than FM_HOME, so a home whose data directory is relocated keeps its backlog
-# and its archive together.
+# that home's `.tasks.toml` selects the backend, and a root with no
+# `.tasks.toml` gets tasks-axi's built-in defaults. The explicit
+# `--file <data>/backlog.md` belongs to the markdown backend alone: markdown
+# homes always receive it, so a relocated data directory keeps addressing its
+# own backlog rather than the default path, while every other configured
+# adapter is addressed by the root's own configuration and never has its
+# workspace path overridden. Selecting markdown through a `.tasks.toml` does
+# not waive the file: the selector says which backend, not where its store
+# lives. The parent of the data directory is the addressing root rather than
+# FM_HOME, so a home whose data directory is relocated keeps its backlog and
+# its archive together.
 #
 # CRASH RECOVERY. Only teardown needs a durable record: it removes the meta and
 # with it the completion links, so a process killed between the two halves would
@@ -240,8 +242,8 @@ fm_backlog_source_present() {  # <data-dir>
 }
 
 # Run tasks-axi from the owning home's configuration root. Supplying --file
-# would replace the Beads workspace path too, so it is only a legacy fallback
-# when no project config exists.
+# would replace a non-markdown workspace path too, so only the markdown backend
+# receives it.
 #
 # Must be called from inside a command substitution, and changes directory in
 # that subshell rather than opening one of its own. fm_tasks_axi execs, so the
@@ -258,8 +260,7 @@ fm_backlog_tasks_axi() {  # <data-dir> <verb> [arg...]
   cd "$root" 2>/dev/null || return 1
   # fm_tasks_axi execs, so each branch is this subshell's last command; nothing
   # may follow the branch that runs it.
-  if [ -e "$root/.tasks.toml" ] || [ -L "$root/.tasks.toml" ] \
-     || [ "$backend" != markdown ]; then
+  if [ "$backend" != markdown ]; then
     fm_tasks_axi "$@"
   else
     file=$(fm_backlog_file "$data") || return 1
@@ -416,16 +417,15 @@ fm_tasks_axi() {
 }
 
 # Print one row's `tasks-axi show` output (plus stderr) from the backlog root.
-# `--file` is passed only for a legacy markdown home with no `.tasks.toml`; a
-# configured root addresses its own backend, so overriding it with the
-# markdown-era path would probe the wrong file. The exit status is tasks-axi's.
+# `--file` is passed for the markdown backend only; every other configured
+# backend addresses its own store from the root, so overriding it with the
+# markdown path would probe the wrong file. The exit status is tasks-axi's.
 # Extra flags (such as --full) are passed through.
 fm_backlog_row_show() {  # <resolved-data-dir> <id> [flag...]
   local data=$1 id=$2 file root
   shift 2
   root=$(fm_backlog_root "$data") || return 1
-  if [ -e "$root/.tasks.toml" ] || [ -L "$root/.tasks.toml" ] \
-     || [ "$(fm_tasks_axi_backend "$root")" != markdown ]; then
+  if [ "$(fm_tasks_axi_backend "$root")" != markdown ]; then
     (cd "$root" 2>/dev/null && fm_tasks_axi show "$id" "$@" 2>&1)
     return $?
   fi
@@ -437,8 +437,7 @@ fm_backlog_row_list() {  # <resolved-data-dir> [flag...]
   local data=$1 file root
   shift
   root=$(fm_backlog_root "$data") || return 1
-  if [ -e "$root/.tasks.toml" ] || [ -L "$root/.tasks.toml" ] \
-     || [ "$(fm_tasks_axi_backend "$root")" != markdown ]; then
+  if [ "$(fm_tasks_axi_backend "$root")" != markdown ]; then
     (cd "$root" 2>/dev/null && tasks-axi list "$@" 2>&1)
     return $?
   fi
