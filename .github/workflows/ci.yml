@@ -138,12 +138,12 @@ jobs:
     # Current runners can take ~20 min for a balanced shard. This 30-minute cap
     # preserves the timeout as a hang tripwire while allowing runner-speed and
     # job-setup margin; it is not the expected healthy end of the lane.
-    timeout-minutes: 30
+    timeout-minutes: 30 (no-mistakes(ci): Diagnosed 'Behavior portable serial 4' as a CI job-cap timeout, not a test failure: the job log shows 'The job has exceeded the maximum execution time of 20m0s'. The PR added tests/fm-spawn-beads-assign.test.sh to the portable-serial lane while bin/fm-test-run.sh's balance hints were still the 2026-09-01 CI maxima; the lane had grown to 152 scripts / ~79 min of real work and many hints were 2-6x low (e.g. fm-watch-triage 439.6s vs 262.6s hinted), so the 5-shard packing overloaded shard 4 past the cap while other shards ran 12.5-16.5 min. Applied the repo's documented hint-refresh procedure: replaced portable_serial_weight_hints in bin/fm-test-run.sh with per-script maxima taken from the fm-test-timing-portable-serial-* artifacts of three green 2026-09-07 runs plus this PR run's four green serial shards (maxima total 4,717,963 ms; the new test stays on the documented 27s default, measured 12.7s locally), and bumped PORTABLE_SERIAL_SHARDS to 6, restoring ~13.18 min per shard (~1.5x margin) with 35 ms imbalance. Updated .github/workflows/ci.yml matrix to shard [1..6] (the lane derives n from strategy.job-total, so mismatch is refused loudly) and its duration comment, and updated docs/fm-test-portable-shards.md provenance, shard table, longest-script floor, timeout rationale, and recorded this cap hit as precedent. Verified: bin/fm-test-run.sh --check-coverage ok (serial=152 serial_shards=6 serial_unhinted=1); all six lanes list correctly and the old of5 lane is refused exit 2; tests/fm-test-run.test.sh 35/35 ok; tests/fm-lint-workflows.test.sh ok; actionlint clean; shellcheck clean except the pre-existing SC1091 info)
     strategy:
       # Every shard reports so one failure never hides another shard's result.
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5]
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@v6
         with:
