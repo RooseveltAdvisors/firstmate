@@ -305,6 +305,10 @@
 # after publication removes the record it just wrote rather than leaving a
 # worker the backlog does not own. A relaunch re-reads the row instead of
 # re-running the transition, so an eligible In-flight item is left untouched.
+# After the successful commit the spawn also stamps the worker as its backlog
+# bead's assignee (`bd assign`, bin/fm-backlog-transition-lib.sh's
+# fm_beads_assign): best-effort, silent on non-beads homes and on a secondmate
+# spawn's expected missing bead, a stderr warning on any other miss.
 # The transition is
 # skipped entirely for --secondmate spawns (persistent agents are not work
 # items), on a config/backlog-backend=manual home, and in a home that keeps no
@@ -4023,6 +4027,17 @@ if [ -n "$SPAWN_DEFERRED_SIGNAL" ]; then
 fi
 fm_lock_release "$SPAWN_META_LOCK"
 SPAWN_META_LOCK_HELD=0
+
+# Captain 2026-09-07: stamp the backlog assignee at task creation time, so
+# every spawned worker (crewmate or secondmate) owns its bead from the first
+# moment. Best-effort: a spawn never fails because the stamp could not land,
+# and a secondmate has no backlog row to stamp, so only a crewmate spawn
+# reports the miss.
+if ! fm_beads_assign "$DATA" "$ID" "$ID"; then
+  if [ "$KIND" != secondmate ]; then
+    echo "warning: task $ID's backlog assignee could not be stamped" >&2
+  fi
+fi
 
 SPAWN_DELIVERY=
 [ -z "$MODE" ] || SPAWN_DELIVERY=" mode=$MODE yolo=$YOLO"

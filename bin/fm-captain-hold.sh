@@ -523,34 +523,9 @@ CAPTAIN_MIGRATION_SCAN_LOADED=0
 CAPTAIN_MIGRATION_SCAN_JSON=
 NL_SEP=$'\n'
 
-# Section-aware [beads] extraction from a .tasks.toml: only keys inside the
-# [beads] section, comments stripped. Prints "<key> <value>" lines.
-captain_beads_toml_entries() {  # <toml-file>
-  [ -f "$1" ] || return 0
-  LC_ALL=C awk '
-    function trim(v) { sub(/^[[:space:]]+/, "", v); sub(/[[:space:]]+$/, "", v); return v }
-    BEGIN { inbeads = 0 }
-    {
-      line = $0
-      sub(/[[:space:]]*#.*/, "", line)
-      line = trim(line)
-      if (line ~ /^\[[^]]+\]$/) { inbeads = (line == "[beads]"); next }
-      if (!inbeads) next
-      if (line ~ /^(prefix|path|binary)[[:space:]]*=/) {
-        key = line
-        sub(/[[:space:]]*=.*/, "", key)
-        sub(/^[^=]*=[[:space:]]*/, "", line)
-        gsub(/^"|"$/, "", line); gsub(/^'\''|'\''$/, "", line)
-        printf "%s %s\n", key, line
-      }
-    }
-  ' "$1"
-}
-
-captain_beads_setting() {  # <entries-output> <setting>
-  printf '%s\n' "$1" | sed -n "s/^$2 //p" | head -1
-}
-
+# Section-aware [beads] extraction lives in bin/fm-tasks-axi-lib.sh
+# (fm_beads_toml_entries / fm_beads_setting), shared with the spawn-time
+# assignee stamp.
 # Read the configured beads graph's row listing for a migration-note scan.
 # The listing is deliberately re-read per unresolvable key: the cache below
 # lives and dies with the command-substitution subshell every resolve_entry
@@ -568,9 +543,9 @@ captain_migration_scan_load() {  # <resolved-data-dir>
     CAPTAIN_MIGRATION_SCAN_LOADED=1
     return 0
   fi
-  entries=$(captain_beads_toml_entries "$root/.tasks.toml")
-  bd_bin=$(captain_beads_setting "$entries" binary)
-  bd_path=$(captain_beads_setting "$entries" path)
+  entries=$(fm_beads_toml_entries "$root/.tasks.toml")
+  bd_bin=$(fm_beads_setting "$entries" binary)
+  bd_path=$(fm_beads_setting "$entries" path)
   bd_bin=${bd_bin:-bd}
   if [ -z "$bd_path" ]; then
     printf 'fm-captain-hold: the beads backend carries no graph path in %s, so a migrated hold cannot be found\n' "$root/.tasks.toml" >&2
@@ -665,8 +640,8 @@ resolve_migrated_entry() {  # <origin-or-empty> <entry>
   # No marker line anywhere: a mechanical migration keeps the legacy id under
   # the configured prefix, but that name alone is evidence of nothing, so only
   # a row still held for the captain - and only one of them - is accepted.
-  entries=$(captain_beads_toml_entries "$root/.tasks.toml")
-  prefix=$(captain_beads_setting "$entries" prefix)
+  entries=$(fm_beads_toml_entries "$root/.tasks.toml")
+  prefix=$(fm_beads_setting "$entries" prefix)
   [ -n "$prefix" ] || return 1
   prefixed_matches=
   for candidate in $CAPTAIN_MIGRATION_IDENTITIES; do

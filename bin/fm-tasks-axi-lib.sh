@@ -170,6 +170,35 @@ fm_backlog_backend_manual() {
   [ "$(fm_backlog_backend_value "$config_dir")" = manual ]
 }
 
+# Section-aware [beads] extraction from a .tasks.toml: only keys inside the
+# [beads] section, comments stripped. Prints "<key> <value>" lines.
+fm_beads_toml_entries() {  # <toml-file>
+  [ -f "$1" ] || return 0
+  LC_ALL=C awk '
+    function trim(v) { sub(/^[[:space:]]+/, "", v); sub(/[[:space:]]+$/, "", v); return v }
+    BEGIN { inbeads = 0 }
+    {
+      line = $0
+      sub(/[[:space:]]*#.*/, "", line)
+      line = trim(line)
+      if (line ~ /^\[[^]]+\]$/) { inbeads = (line == "[beads]"); next }
+      if (!inbeads) next
+      if (line ~ /^(prefix|path|binary)[[:space:]]*=/) {
+        key = line
+        sub(/[[:space:]]*=.*/, "", key)
+        sub(/^[^=]*=[[:space:]]*/, "", line)
+        gsub(/^"|"$/, "", line); gsub(/^'\''|'\''$/, "", line)
+        printf "%s %s\n", key, line
+      }
+    }
+  ' "$1"
+}
+
+fm_beads_setting() {  # <entries-output> <setting>
+  printf '%s\n' "$1" | sed -n "s/^$2 //p" | head -1
+}
+
+
 fm_tasks_axi_backend_available() {
   local config_dir=$1
   fm_backlog_backend_manual "$config_dir" && return 1

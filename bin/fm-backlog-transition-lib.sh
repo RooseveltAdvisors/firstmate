@@ -155,6 +155,30 @@ fm_backlog_root() {  # <data-dir>
   printf '%s\n' "$parent"
 }
 
+# Stamp a beads issue's assignee (bd assign, the shorthand for
+# `bd update --assignee`). Best-effort by contract: it skips quietly on a home
+# that is not beads-backed or that carries no usable [beads] section, and it
+# suppresses bd's own output so a missing bead (for example a spawned agent id
+# that is not a backlog item) is the caller's ordinary not-found signal.
+fm_beads_assign() {  # <data-dir> <id> <name>
+  local root=$1 id=$2 name=$3 entries bd_bin bd_path
+  root=$(fm_backlog_root "$root") || return 0
+  [ "$(fm_tasks_axi_backend "$root")" = beads ] || return 0
+  entries=$(fm_beads_toml_entries "$root/.tasks.toml")
+  bd_bin=$(fm_beads_setting "$entries" binary)
+  bd_bin=${bd_bin:-bd}
+  bd_path=$(fm_beads_setting "$entries" path)
+  [ -n "$bd_path" ] || return 0
+  # A relative [beads] path resolves against the backlog root, the same rule
+  # every other .tasks.toml path consumer uses, never against the process CWD.
+  case "$bd_path" in
+    /*) ;;
+    *) bd_path="$root/$bd_path" ;;
+  esac
+  command -v "$bd_bin" >/dev/null 2>&1 || return 0
+  BEADS_DIR="$bd_path" "$bd_bin" assign "$id" "$name" >/dev/null 2>&1
+}
+
 fm_backlog_data_relative() {  # <data-dir>
   local data root
   data=$(fm_backlog_data_absolute "$1") || {
