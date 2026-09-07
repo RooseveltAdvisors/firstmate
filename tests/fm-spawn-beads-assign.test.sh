@@ -131,7 +131,8 @@ write_beads_toml() {  # <case-dir> [extra-lines...]
 # A bd stub that records every invocation with its BEADS_DIR and exits with a
 # fixed code for `assign` (0 unless the case overrides it).
 make_bd_stub() {  # <case-dir> [assign-exit-code]
-  local case_dir=$1 rc=${2:-0} log="$case_dir/bd-calls"
+  local case_dir=$1 rc=${2:-0}
+  local log="$case_dir/bd-calls"
   cat > "$case_dir/fakebin/bd" <<SH
 #!/usr/bin/env bash
 printf '%s\n' "BEADS_DIR=\${BEADS_DIR:-unset} \$*" >> "$log"
