@@ -36,10 +36,10 @@
 #     still runs the backend-purity check and validates workflows.
 # Explicit paths always bypass this file-set selection and lint exactly the
 # given paths, matching the same config, without the workflow YAML check.
-# Explicit core bin/ scripts still receive the backend-purity check.
-# The backend-purity check rejects direct Beads CLI invocations in core bin/
-# scripts so every configured backlog backend follows the same tasks-axi
-# lifecycle path.
+# Explicit core bin/ and bin/backends/ scripts still receive the
+# backend-purity check. The backend-purity check rejects direct Beads CLI
+# invocations in the core bin/ and bin/backends/ scripts so every configured
+# backlog backend follows the same tasks-axi lifecycle path.
 #
 # Canonical lint defaults to two bounded workers over two stable logical shards.
 # Each shard writes separate diagnostics, and the parent replays those outputs in
