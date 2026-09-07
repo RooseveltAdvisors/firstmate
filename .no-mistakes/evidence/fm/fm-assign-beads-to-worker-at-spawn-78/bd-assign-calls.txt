@@ -1,0 +1,1 @@
+BEADS_DIR=/tmp/fmassign-demo-run/demo/home/.beads assign beads-assign-demo1 beads-assign-demo1

@@ -1,0 +1,1 @@
+spawned beads-assign-demo1 harness=claude kind=ship mode=no-mistakes yolo=off window=firstmate:fm-beads-assign-demo1 worktree=/tmp/fmassign-demo-run/demo/wt

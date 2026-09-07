@@ -1,0 +1,2 @@
+warning: task beads-assign-demo2's backlog assignee could not be stamped
+spawned beads-assign-demo2 harness=claude kind=ship mode=no-mistakes yolo=off window=firstmate:fm-beads-assign-demo2 worktree=/tmp/fmassign-demo-run/demo-fail/wt
