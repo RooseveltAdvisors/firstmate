@@ -158,6 +158,37 @@ run_ship_spawn() {  # <case-dir> <id>
     "$SPAWN" "$id" "$case_dir/project" --mode no-mistakes --yolo off 2>&1
 }
 
+# Runs the same spawn again as a relaunch (identity comes from the task's own
+# record, so the id alone is enough). The fresh spawn's dumb tmux stub leaves
+# no inventory, so the relaunch's agent-free probe reads 'missing'; this stub
+# answers the probe with an inventory entry for the task's recorded window and
+# an idle shell foreground, the classification bin/backends/tmux.sh accepts as
+# positively agent-free.
+run_ship_relaunch() {  # <case-dir> <id> <window-name>
+  local case_dir=$1 id=$2 window=$3
+  cat > "$case_dir/fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}" in
+  list-windows) printf '%s\n' "$FM_FAKE_TMUX_WINDOW_NAME"; exit 0 ;;
+  display-message)
+    case "$*" in
+      *pane_current_command*) printf '%s\n' 'bash'; exit 0 ;;
+      *pane_current_path*) printf '%s\n' "${FM_FAKE_PANE_PATH:-}"; exit 0 ;;
+    esac
+    exit 0 ;;
+esac
+exit 0
+SH
+  chmod +x "$case_dir/fakebin/tmux"
+  mkdir -p "$case_dir/user-home"
+  FM_FAKE_TMUX_WINDOW_NAME="$window" \
+    FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$(home_of "$case_dir")" HOME="$case_dir/user-home" \
+    FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$case_dir/wt" TMUX="fake,1,0" \
+    CLAUDE_CONFIG_DIR='' \
+    PATH="$case_dir/fakebin:$PATH" \
+    "$SPAWN" "$id" --relaunch 2>&1
+}
+
 # Runs fm-spawn.sh in secondmate mode against a minimal seeded secondmate home
 # (validate_firstmate_home_for_spawn needs the seed marker, AGENTS.md, bin/,
 # and a charter). Shared shape with tests/fm-secondmate-harness.test.sh.
@@ -252,8 +283,34 @@ test_absent_beads_binary_skips_quietly() {
   pass "an absent beads binary skips the assignee stamp quietly"
 }
 
+test_beads_relaunch_never_restamps_the_assignee() {
+  local case_dir id out calls
+  id=beads-assign-rl1
+  case_dir=$(make_home assign-relaunch "$id")
+  write_beads_toml "$case_dir"
+  make_beads_tasks_axi_stub "$case_dir" "$id"
+  make_bd_stub "$case_dir"
+
+  out=$(run_ship_spawn "$case_dir" "$id") || fail "fresh spawn failed: $out"
+  assert_contains "$out" "spawned $id" "fresh spawn did not report success"
+  calls=$(bd_calls "$case_dir")
+  assert_contains "$calls" "assign $id $id" "fresh spawn did not stamp the assignee"
+
+  # The recorded window's name part is the only fixture detail the relaunch's
+  # tmux stub needs; take it from the fresh spawn's own success line.
+  window_name=$(printf '%s\n' "$out" | sed -n 's/.* window=[^:]*:\([^ ]*\) .*/\1/p')
+  [ -n "$window_name" ] || fail "could not read the fresh spawn's recorded window from: $out"
+
+  out=$(run_ship_relaunch "$case_dir" "$id" "$window_name") || fail "relaunch failed: $out"
+  assert_contains "$out" "spawned $id" "relaunch did not report success"
+  [ "$(bd_calls "$case_dir")" = "$calls" ] \
+    || fail "a relaunch re-stamped the assignee: $(bd_calls "$case_dir")"
+  pass "a relaunch leaves the bead's assignee untouched"
+}
+
 test_beads_ship_spawn_stamps_the_assignee
 test_markdown_spawn_makes_no_bd_call
 test_secondmate_spawn_skips_a_missing_bead_quietly
 test_ship_spawn_survives_a_failed_stamp
 test_absent_beads_binary_skips_quietly
+test_beads_relaunch_never_restamps_the_assignee

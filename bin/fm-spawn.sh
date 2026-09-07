@@ -304,9 +304,11 @@
 # unheld, unblocked Queued or In flight item for the id; a transition that fails
 # after publication removes the record it just wrote rather than leaving a
 # worker the backlog does not own. A relaunch re-reads the row instead of
-# re-running the transition, so an eligible In-flight item is left untouched.
-# After the successful commit the spawn also stamps the worker as its backlog
-# bead's assignee (`bd assign`, bin/fm-backlog-transition-lib.sh's
+# re-running the transition, so an eligible In-flight item is left untouched -
+# including its assignee: a relaunch never re-stamps, so a bead reassigned
+# since the task's first spawn keeps its current owner.
+# After the successful commit a FRESH spawn also stamps the worker as its
+# backlog bead's assignee (`bd assign`, bin/fm-backlog-transition-lib.sh's
 # fm_beads_assign): best-effort, silent on non-beads homes and on a secondmate
 # spawn's expected missing bead, a stderr warning on any other miss.
 # The transition is
@@ -4032,8 +4034,10 @@ SPAWN_META_LOCK_HELD=0
 # every spawned worker (crewmate or secondmate) owns its bead from the first
 # moment. Best-effort: a spawn never fails because the stamp could not land,
 # and a secondmate has no backlog row to stamp, so only a crewmate spawn
-# reports the miss.
-if ! fm_beads_assign "$DATA" "$ID" "$ID"; then
+# reports the miss. A relaunch is not task creation: like the transition it
+# re-reads rather than re-runs, it leaves the row's assignee alone so a bead
+# reassigned since the first spawn keeps its current owner.
+if [ "$RELAUNCH" -eq 0 ] && ! fm_beads_assign "$DATA" "$ID" "$ID"; then
   if [ "$KIND" != secondmate ]; then
     echo "warning: task $ID's backlog assignee could not be stamped" >&2
   fi
