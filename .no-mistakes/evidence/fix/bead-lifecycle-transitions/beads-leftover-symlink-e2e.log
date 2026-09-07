@@ -1,0 +1,36 @@
+=== Scenario: Beads home whose data/backlog.md is a leftover symlink to archive/backlog.md ===
+
+--- fm-spawn.sh (dispatch) ---
+spawn exit: 0
+spawned demo-beads-b1 harness=claude kind=ship mode=no-mistakes yolo=off window=firstmate:fm-demo-beads-b1 worktree=/tmp/fm-beads-demo.Po0Ogw/case/wt
+
+state record published: yes
+beads adapter invocations (note: no --file argument anywhere):
+--version
+update --help
+mv --help
+show demo-beads-b1
+show demo-beads-b1
+start demo-beads-b1
+
+--- fm-teardown.sh (completion, against a recorded worktree that no longer exists) ---
+teardown exit: 0
+teardown demo-beads-b1 complete (window firstmate:fm-demo-beads-b1, worktree /tmp/fm-beads-demo.Po0Ogw/case/wt)
+Backlog: demo-beads-b1 is closed in this home's configured tasks-axi backend (data directory /tmp/fm-beads-demo.Po0Ogw/case/home/data). Run tasks-axi ready for dependency-cleared candidates, check date gates, and dispatch only work whose blockers are gone and date is due.
+
+state record after teardown: removed
+beads adapter invocations after teardown:
+--version
+update --help
+mv --help
+show demo-beads-b1
+show demo-beads-b1
+start demo-beads-b1
+--version
+update --help
+mv --help
+--version
+update --help
+mv --help
+show demo-beads-b1
+done demo-beads-b1 --pr https://github.com/example/firstmate/pull/42
