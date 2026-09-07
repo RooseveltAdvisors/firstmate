@@ -667,6 +667,27 @@ test_dispatch_omits_the_file_for_a_beads_show() {
   pass "dispatch omits the markdown file when probing a Beads backlog"
 }
 
+test_a_leftover_markdown_symlink_does_not_brick_a_beads_home() {
+  local case_dir home id out
+  id=atomic-dispatch-beads-b2
+  case_dir=$(make_home dispatch-beads-leftover "$id")
+  home=$(home_of "$case_dir")
+  printf '%s\n' 'backend = "beads"' '[beads]' 'path = ".beads"' \
+    'prefix = "atomic"' > "$home/.tasks.toml"
+  mkdir -p "$home/archive"
+  mv "$home/data/backlog.md" "$home/archive/backlog.md"
+  ln -s ../archive/backlog.md "$home/data/backlog.md"
+  make_beads_tasks_axi_stub "$case_dir" "$id"
+
+  out=$(run_ship_spawn "$case_dir" "$id") \
+    || fail "Beads spawn failed over a leftover markdown symlink: $out"
+  assert_contains "$out" "spawned $id" "Beads spawn did not report success"
+  assert_present "$home/state/$id.meta" "spawn published no record"
+  assert_grep "show $id" "$case_dir/tasks-axi-calls" \
+    "Beads dispatch did not probe the backlog row"
+  pass "a leftover markdown symlink does not brick a Beads home's dispatch"
+}
+
 test_completion_omits_the_file_for_a_beads_done() {
   local case_dir home id out
   id=atomic-completion-beads-b1
@@ -2825,6 +2846,7 @@ test_a_persistent_secondmate_is_never_a_backlog_item() {
 
 test_dispatch_moves_the_item_in_flight_in_the_same_run
 test_dispatch_omits_the_file_for_a_beads_show
+test_a_leftover_markdown_symlink_does_not_brick_a_beads_home
 test_completion_omits_the_file_for_a_beads_done
 test_dispatch_refuses_a_pending_authoritative_close
 test_dispatch_refuses_a_held_row_before_creating_resources

@@ -210,17 +210,19 @@ fm_backlog_config_present() {  # <root> <authorized-root>
 # so the boundary is authorized first and unconditionally. Only the markdown
 # backlog's regular-file requirement is adapter-specific: another adapter keeps
 # its rows in its own workspace and need not carry <data>/backlog.md at all.
-fm_backlog_source_present() {  # <data-dir> <authorized-data-dir>
-  local data=$1 authorized_data=$2 root authorized_root file
-  root=$(fm_backlog_root "$data") || return 1
-  authorized_root=$(fm_backlog_authorized_root "$authorized_data")
-  fm_backlog_config_present "$root" "$authorized_root" || return 1
+fm_backlog_source_present() {  # <data-dir> <authorized-data-dir> [root authorized-root]
+  local data=$1 authorized_data=$2 root=${3:-} authorized_root=${4:-} file
+  if [ -z "$root" ]; then
+    root=$(fm_backlog_root "$data") || return 1
+    authorized_root=$(fm_backlog_authorized_root "$authorized_data")
+    fm_backlog_config_present "$root" "$authorized_root" || return 1
+  fi
   file=$(fm_backlog_file "$data") || return 1
   if [ "$(fm_tasks_axi_backend "$root")" = markdown ]; then
     fm_backlog_record_present "$file" "backlog file" "$authorized_data"
     return $?
   fi
-  fm_backlog_record_parent_authorized "$file" "backlog data directory" "$authorized_data"
+  fm_backlog_record_parent_authorized "$file" "backlog data directory" "$authorized_data" parent-only
 }
 
 # Resolve how the owning home's backlog is addressed, for reads and mutations
@@ -270,7 +272,7 @@ fm_backlog_transition_applies() {  # <config-dir> <data-dir> <kind>
       return 1
     fi
   fi
-  if ! fm_backlog_source_present "$data" "$authorized_data"; then
+  if ! fm_backlog_source_present "$data" "$authorized_data" "$root" "$authorized_root"; then
     return 2
   fi
   if ! fm_tasks_axi_compatible; then
@@ -553,8 +555,8 @@ fm_backlog_canonical_existing() {
   ' "$1" 2>/dev/null
 }
 
-fm_backlog_record_parent_authorized() {
-  local path=$1 label=$2 root=$3 parent base parent_resolved expected_path
+fm_backlog_record_parent_authorized() {  # <path> <label> <root> [parent-only]
+  local path=$1 label=$2 root=$3 parent_only=${4:-} parent base parent_resolved expected_path
   local path_resolved root_resolved root_prefix home_resolved final_matches=1
   parent=${path%/*}
   [ "$parent" != "$path" ] || parent=.
@@ -589,7 +591,7 @@ fm_backlog_record_parent_authorized() {
     return 1
   }
   expected_path=${parent_resolved%/}/$base
-  if [ -e "$path" ] || [ -L "$path" ]; then
+  if [ -z "$parent_only" ] && { [ -e "$path" ] || [ -L "$path" ]; }; then
     path_resolved=$(fm_backlog_canonical_existing "$path") || {
       FM_BACKLOG_TRANSITION_ERROR="$label cannot be resolved at $path"
       return 1

@@ -178,7 +178,7 @@ fm_lint_run_backend_purity() {
         print $resolved;
       ' "$path" 2>/dev/null) || continue
       case "$canonical" in
-        "$ROOT"/bin/*.sh)
+        "$ROOT"/bin/*.sh|"$ROOT"/bin/backends/*.sh)
           purity_roots+=("$canonical")
           ;;
       esac
