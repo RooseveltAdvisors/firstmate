@@ -1,0 +1,7 @@
+=== s1-migrated-prefix: base commit b84e0e362face25f3dd8945297a3df1320d7668c ===
+--- exit status: 1 ---
+fm-captain-hold: no captain-held task migrated-key and no migrated hold for it in this home's configured backlog (data directory /tmp/fm-bound-verify.MBeGXF/s1-migrated-prefix/data); the nearest legacy identity wedged-origin-decision-migrated-key also resolves to nothing
+
+=== s1-migrated-prefix: target (branch fm/fm-bootstrap-bounded-backlog-read-successor) ===
+--- exit status: 1 ---
+fm-captain-hold: the backlog backend exceeded its read bound resolving migrated-key
