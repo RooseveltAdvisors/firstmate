@@ -17,10 +17,10 @@
 #   FM_AGY_SIGNALS_LIVE_E2E=1 bin/fm-test-run.sh --family live-harness-optin
 set -u
 
-if [ "${FM_AGY_SIGNALS_LIVE_E2E:-0}" != 1 ]; then
-  echo "skip: set FM_AGY_SIGNALS_LIVE_E2E=1 to run the live agy signal guard"
-  exit 0
-fi
+# shellcheck source=tests/lib.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
+fm_live_gate opt-in FM_AGY_SIGNALS_LIVE_E2E agy tmux
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 AGY_BIN=$(command -v agy 2>/dev/null || true)
@@ -64,11 +64,6 @@ trap cleanup EXIT
 fail() { printf 'not ok - agy %s: %s\n' "${VERSION:-unknown}" "$1" >&2; exit 1; }
 pass() { printf 'ok - agy %s: %s\n' "$VERSION" "$1"; }
 
-# An absent harness is reported explicitly. This guard is opt-in, so reaching it
-# with no binary means the operator asked for a check that cannot run, and
-# passing over it silently would report evidence that was never gathered.
-[ -n "$AGY_BIN" ] || fail "agy was requested for the live guard but is not on PATH"
-[ -n "$REAL_TMUX" ] || fail "tmux not found"
 VERSION=$("$AGY_BIN" --version 2>&1 | head -1)
 
 LAB=$(mktemp -d "${TMPDIR:-/tmp}/fm-agy-signals.XXXXXX")
