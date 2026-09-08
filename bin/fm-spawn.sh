@@ -309,7 +309,11 @@
 # since the task's first spawn keeps its current owner.
 # After the successful commit a FRESH spawn also stamps the worker as its
 # backlog bead's assignee (`bd assign`, bin/fm-backlog-transition-lib.sh's
-# fm_beads_assign): best-effort, silent on non-beads homes and on a secondmate
+# fm_beads_assign), but only after reading the bead's current assignee
+# (fm_beads_assignee): an existing assignee is ownership evidence and is
+# never replaced, and an unreadable or ambiguous read leaves assignment
+# unchanged, so the stamp lands only on a reliably read unassigned bead.
+# The stamp is best-effort, silent on non-beads homes and on a secondmate
 # spawn's expected missing bead, a stderr warning on any other miss. An
 # interruption deferred across that same landed commit attempts the identical
 # stamp on its exit path, before it reports the preserved state.
@@ -3718,14 +3722,21 @@ spawn_report_preserved_state() {
   return 1
 }
 
-# The assignee stamp itself (captain 2026-09-07), shared by the success exit
-# and the deferred-signal exit: both run only after a fresh spawn's dispatch
-# commit landed, so both stamp proved task creation and neither ever stamps a
-# relaunch. Best-effort: a spawn never fails because the stamp could not land,
-# and a secondmate has no backlog row to stamp, so a crewmate or scout spawn
-# reports the miss on stderr.
+# The assignee stamp itself (captain 2026-09-07; ownership rule 2026-09-08),
+# shared by the success exit and the deferred-signal exit: both run only after
+# a fresh spawn's dispatch commit landed, so both stamp proved task creation
+# and neither ever stamps a relaunch. Captain 2026-09-08: an existing assignee
+# is ownership evidence, so the stamp lands only on a reliably read unassigned
+# bead - a delegated worker never replaces a recorded owner, and an unreadable
+# or ambiguous read leaves assignment unchanged rather than guessing. Best-
+# effort: a spawn never fails because the stamp could not land, and a
+# secondmate has no backlog row to stamp, so a crewmate or scout spawn reports
+# a stamp miss (not a preserved owner) on stderr.
 spawn_stamp_backlog_assignee() {
   [ "$RELAUNCH" -eq 0 ] || return 0
+  local current
+  current=$(fm_beads_assignee "$DATA" "$ID") || return 0
+  [ -n "$current" ] && return 0
   if ! fm_beads_assign "$DATA" "$ID" "$ID"; then
     if [ "$KIND" != secondmate ]; then
       echo "warning: task $ID's backlog assignee could not be stamped" >&2

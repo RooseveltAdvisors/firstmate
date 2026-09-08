@@ -182,14 +182,26 @@ write_beads_toml() {  # <case-dir> [extra-lines...]
   } > "$(home_of "$case_dir")/.tasks.toml"
 }
 
-# A bd stub that records every invocation with its BEADS_DIR and exits with a
-# fixed code for `assign` (0 unless the case overrides it).
-make_bd_stub() {  # <case-dir> [assign-exit-code]
+# A bd stub that records every invocation with its BEADS_DIR, answers the
+# assignee read from an optional per-case fixture file (one line: the current
+# assignee; empty means unassigned; a nonexistent path makes the read fail),
+# and exits with a fixed code for `assign` (0 unless the case overrides it).
+make_bd_stub() {  # <case-dir> [assign-exit-code] [assignee-file]
   local case_dir=$1 rc=${2:-0}
-  local log="$case_dir/bd-calls"
+  local log="$case_dir/bd-calls" assignee_file=${3:-}
   cat > "$case_dir/fakebin/bd" <<SH
 #!/usr/bin/env bash
 printf '%s\n' "BEADS_DIR=\${BEADS_DIR:-unset} \$*" >> "$log"
+if [ "\${1:-}" = show ] && [ "\${2:-}" = "$id" ]; then
+  if [ -n "$assignee_file" ] && ! [ -f "$assignee_file" ]; then
+    echo 'stub: assignee read failed' >&2
+    exit 1
+  fi
+  assignee=''
+  [ -z "$assignee_file" ] || assignee=\$(cat "$assignee_file")
+  printf '{"id":"$id","assignee":%s}\n' "\$(printf '%s' "\$assignee" | jq -Rs .)"
+  exit 0
+fi
 [ "\${1:-}" = assign ] || exit 0
 exit $rc
 SH
@@ -362,6 +374,41 @@ test_beads_relaunch_never_restamps_the_assignee() {
   pass "a relaunch leaves the bead's assignee untouched"
 }
 
+test_beads_fresh_spawn_preserves_a_preassigned_owner() {
+  local case_dir id out
+  id=beads-assign-owner1
+  case_dir=$(make_home assign-preowned "$id")
+  write_beads_toml "$case_dir"
+  make_beads_tasks_axi_stub "$case_dir" "$id"
+  printf 'portal-ops\n' > "$case_dir/current-assignee"
+  make_bd_stub "$case_dir" 0 "$case_dir/current-assignee"
+
+  out=$(run_ship_spawn "$case_dir" "$id") || fail "spawn failed: $out"
+  assert_contains "$out" "spawned $id" "spawn did not report success"
+  case "$(bd_calls "$case_dir")" in
+    *" assign "*) fail "a fresh spawn replaced the recorded owner: $(bd_calls "$case_dir")" ;;
+  esac
+  pass "a fresh spawn preserves an existing assignee on its own bead"
+}
+
+test_beads_failed_assignee_read_leaves_assignment_unchanged() {
+  local case_dir id out
+  id=beads-assign-unread1
+  case_dir=$(make_home assign-unreadable "$id")
+  write_beads_toml "$case_dir"
+  make_beads_tasks_axi_stub "$case_dir" "$id"
+  # The fixture file does not exist, so the stub's assignee read fails - the
+  # spawn must leave assignment unchanged rather than guess.
+  make_bd_stub "$case_dir" 0 "$case_dir/current-assignee-missing"
+
+  out=$(run_ship_spawn "$case_dir" "$id") || fail "spawn failed: $out"
+  assert_contains "$out" "spawned $id" "spawn did not report success"
+  case "$(bd_calls "$case_dir")" in
+    *" assign "*) fail "an unreadable assignee read did not prevent stamping: $(bd_calls "$case_dir")" ;;
+  esac
+  pass "an unreadable assignee read leaves assignment unchanged"
+}
+
 test_interrupted_spawn_stills_stamps_the_assignee() {
   local case_dir id out rc=0
   id=beads-assign-int1
@@ -387,4 +434,6 @@ test_secondmate_spawn_skips_a_missing_bead_quietly
 test_ship_spawn_survives_a_failed_stamp
 test_absent_beads_binary_skips_quietly
 test_beads_relaunch_never_restamps_the_assignee
+test_beads_fresh_spawn_preserves_a_preassigned_owner
+test_beads_failed_assignee_read_leaves_assignment_unchanged
 test_interrupted_spawn_stills_stamps_the_assignee

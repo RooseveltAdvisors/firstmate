@@ -179,6 +179,29 @@ fm_beads_assign() {  # <data-dir> <id> <name>
   BEADS_DIR="$bd_path" "$bd_bin" assign "$id" "$name" >/dev/null 2>&1
 }
 
+# Print the bead's current assignee on stdout, or nothing when it has none.
+# Emits nothing and returns 1 when the assignee cannot be reliably read: the
+# bead is missing, the graph is unreadable, or jq is unavailable to parse the
+# listing, so a caller can never confuse "unassigned" with "unknown".
+fm_beads_assignee() {  # <data-dir> <id>
+  local root=$1 id=$2 entries bd_bin bd_path json
+  root=$(fm_backlog_root "$root") || return 1
+  [ "$(fm_tasks_axi_backend "$root")" = beads ] || return 1
+  entries=$(fm_beads_toml_entries "$root/.tasks.toml")
+  bd_bin=$(fm_beads_setting "$entries" binary)
+  bd_bin=${bd_bin:-bd}
+  bd_path=$(fm_beads_setting "$entries" path)
+  [ -n "$bd_path" ] || return 1
+  case "$bd_path" in
+    /*) ;;
+    *) bd_path="$root/$bd_path" ;;
+  esac
+  command -v "$bd_bin" >/dev/null 2>&1 || return 1
+  command -v jq >/dev/null 2>&1 || return 1
+  json=$(BEADS_DIR="$bd_path" "$bd_bin" show "$id" --json 2>/dev/null) || return 1
+  printf '%s' "$json" | jq -r 'if type == "array" then .[0] else . end | .assignee // empty' 2>/dev/null || return 1
+}
+
 fm_backlog_data_relative() {  # <data-dir>
   local data root
   data=$(fm_backlog_data_absolute "$1") || {
