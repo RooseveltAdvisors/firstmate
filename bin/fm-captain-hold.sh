@@ -374,11 +374,14 @@ task_show() {  # <id>; sets TASK_SHOW_OUTPUT
 
 # Read one row into `show`, failing with <absence-message> only when the read
 # genuinely failed; a read-bound hit (124) stops the command by name instead.
-task_show_or_fail() {  # <id> <absence-message>
-  show=$(task_show "$1") || {
+# task_show must be called in THIS shell, not inside a command substitution:
+# it carries the row in TASK_SHOW_OUTPUT, which a subshell cannot hand back.
+task_show_or_fail() {  # <id> <absence-message>; sets show
+  task_show "$1" || {
     [ "$?" -ne 124 ] || fail "the backlog backend exceeded its read bound reading $1"
     fail "$2"
   }
+  show=$TASK_SHOW_OUTPUT
 }
 
 show_field() {  # <show-output> <field>
@@ -704,10 +707,13 @@ resolve_migrated_entry() {  # <origin-or-empty> <entry>
       *-) prefixed="$prefix$candidate" ;;
       *) prefixed="$prefix-$candidate" ;;
     esac
-    show=$(task_show "$prefixed" 2>/dev/null) || {
+    # Same shell rule as task_show_or_fail: the row is read out of
+    # TASK_SHOW_OUTPUT, so the read cannot sit inside a command substitution.
+    task_show "$prefixed" 2>/dev/null || {
       [ "$?" -ne 124 ] || return 124
       continue
     }
+    show=$TASK_SHOW_OUTPUT
     [ "$(show_field_value "$show" hold_kind)" = captain ] || continue
     prefixed_matches="${prefixed_matches}${prefixed_matches:+$NL_SEP}$prefixed"
   done
@@ -1434,7 +1440,9 @@ command_reconcile_requests() {
       || { printf 'refused: %s (task id is too long)\n' "$id"; skipped=$((skipped + 1)); continue; }
     acquire_task_control_lock "$id"
     show_status=0
-    show=$(task_show "$id") || show_status=$?
+    show=''
+    task_show "$id" || show_status=$?
+    [ "$show_status" -ne 0 ] || show=$TASK_SHOW_OUTPUT
     if [ "$show_status" -eq 124 ]; then
       fail "the backlog backend exceeded its read bound reading $id"
     fi
@@ -1896,10 +1904,11 @@ command_open() {  # <task-id> [--identity] [--distinguish-absent]
     state=${FM_BACKLOG_ROW_STATE%% *}
     if [ "$state" != "done" ] && [ "$FM_BACKLOG_ROW_HOLD_KIND" = captain ]; then
       if [ "$identity" -eq 1 ]; then
-        show=$(task_show "$id") || {
+        task_show "$id" || {
           printf 'fm-captain-hold: captain call %s is open but its record could not be read\n' "$id" >&2
           exit 2
         }
+        show=$TASK_SHOW_OUTPUT
         shown_body=$(show_field "$show" body)
         printf '%s#%s\n' \
           "$(body_hold_set_timestamp "$(decode_shown_value "$shown_body")")" \
