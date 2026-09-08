@@ -1,0 +1,1 @@
+relaunch left the bd call log byte-identical (no re-stamp)
