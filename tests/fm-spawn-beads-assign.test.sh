@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Behavior tests for the spawn-time beads assignee stamp (captain 2026-09-07:
 # assign every spawned worker - crewmate or secondmate - its backlog bead at
-# task creation time, via the existing `bd assign`).
+# task creation time, via the existing `bd assign`; ownership rule 2026-09-08:
+# an existing assignee is ownership evidence, so the stamp lands only on a
+# reliably read unassigned bead).
 #
 # bin/fm-backlog-transition-lib.sh's fm_beads_assign owns the mechanics and
 # bin/fm-spawn.sh stamps the assignee at its success commit point and, for a
@@ -18,6 +20,9 @@
 #   assign failure a crewmate spawn survives a failed stamp (best-effort) and
 #                  says so on stderr;
 #   binary absent  a [beads] binary that is not on PATH skips quietly;
+#   relaunch       a relaunch never re-stamps, so a recorded owner stays;
+#   preowned       a fresh spawn preserves a bead's existing assignee;
+#   unreadable     a failed assignee read leaves assignment unchanged;
 #   interrupted    a signal deferred across the landed dispatch commit still
 #                  stamps the assignee on the interrupted-spawn exit path.
 set -u
