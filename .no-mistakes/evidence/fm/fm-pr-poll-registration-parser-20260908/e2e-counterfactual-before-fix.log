@@ -1,0 +1,10 @@
+== step 1: initial deployed check armed the poll ==
+armed: state/task-a.check.sh
+== step 2: meta after simulated relaunch ==
+window=fm-pr3417-attest
+pr=https://github.com/o/r/pull/3417
+control_relaunch_tx=tx-3417
+== step 3: deployed parser + artifact auth against the relaunched meta ==
+fm_pr_metadata_identity_parse: REJECT
+fm_pr_poll_artifacts_valid: REJECT
+not ok - relaunched registration was rejected by the deployed parser
