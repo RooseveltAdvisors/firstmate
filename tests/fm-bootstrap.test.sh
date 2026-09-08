@@ -1091,6 +1091,44 @@ SH
   pass "bootstrap never clobbers a .tasks.toml created during its own setup"
 }
 
+# A bootstrap interrupted after its temporary file exists must not leave that
+# file beside the target: it is untracked and unignored in the home checkout,
+# so bin/fm-ff-lib.sh dirty_status reads it as a dirty working tree and every
+# later advance reports "skipped: dirty working tree" until the file is
+# removed by hand. The fake ln terminates the bootstrap from inside the
+# publish step - the window between mktemp and the hard link - and the shell
+# must still remove the temporary file on the way out.
+test_tasks_config_temp_file_is_removed_when_bootstrap_is_interrupted() {
+  local case_dir fixture root home fakebin real_ln leftovers
+  case_dir="$TMP_ROOT/tasks-config-interrupted"
+  fixture=$(make_routine_bootstrap_fixture "$case_dir")
+  root=${fixture%%|*}
+  fixture=${fixture#*|}
+  home=${fixture%%|*}
+  fakebin=${fixture#*|}
+
+  real_ln=$(command -v ln) || fail "ln is required for the interrupt case"
+  cat > "$fakebin/ln" <<SH
+#!/usr/bin/env bash
+case "\$2" in
+  *.tasks.toml)
+    kill -TERM \$PPID 2>/dev/null
+    exit 1
+    ;;
+esac
+exec '$real_ln' "\$@"
+SH
+  chmod +x "$fakebin/ln"
+
+  out=$(run_bootstrap_home "$fakebin" "$home" "$root")
+  [ ! -e "$home/.tasks.toml" ] \
+    || fail "the interrupted bootstrap still published .tasks.toml"
+  leftovers=$(ls "$home"/.tasks.toml.* 2>/dev/null)
+  [ -z "$leftovers" ] \
+    || fail "the interrupted bootstrap left its temporary file behind: $leftovers"
+  pass "an interrupted bootstrap removes its .tasks.toml temporary file"
+}
+
 # A home that cannot be given its .tasks.toml must say so: falling back to
 # tasks-axi's built-in defaults silently is exactly the degrade this guards.
 test_tasks_config_failure_is_actionable() {
@@ -1419,6 +1457,7 @@ test_tasks_config_follows_a_symlinked_override
 test_tasks_config_readdresses_a_renamed_data_directory
 test_tasks_config_leaves_an_existing_home_copy_untouched
 test_tasks_config_never_clobbers_a_concurrent_home_copy
+test_tasks_config_temp_file_is_removed_when_bootstrap_is_interrupted
 test_tasks_config_failure_is_actionable
 test_network_phase_partitions_the_run
 test_network_sweeps_recheck_lock_ownership

@@ -1370,6 +1370,17 @@ tasks_config_setup() {
     echo "TASKS_CONFIG: could not create $root/.tasks.toml from $example"
     return 0
   }
+  # An interrupted bootstrap must not leave the temporary file beside the
+  # target: it is untracked and unignored in the home checkout, so every
+  # later advance's dirty guard (bin/fm-ff-lib.sh dirty_status) reads it as
+  # a dirty working tree and skips the home until the file is removed by
+  # hand. bash runs the EXIT trap on SIGINT/SIGTERM before terminating, so
+  # this covers an ordinary interruption; the trap is cleared on every path
+  # below so it never outlives the file it guards. The path is deliberately
+  # expanded at trap-set time: tmp is local to this function and out of scope
+  # by the time the trap fires.
+  # shellcheck disable=SC2064
+  trap "rm -f '$tmp' 2>/dev/null" EXIT
   if [ "$rel_data" = data ]; then
     if ! cp "$example" "$tmp" 2>/dev/null; then
       rm -f "$tmp" 2>/dev/null
@@ -1405,6 +1416,7 @@ tasks_config_setup() {
       echo "TASKS_CONFIG: could not create $root/.tasks.toml from $example"
     fi
   fi
+  trap - EXIT
 }
 
 startup_memory_budget_setup() {
