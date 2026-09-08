@@ -732,6 +732,7 @@ resolve_entry() {  # <origin-or-empty> <entry>; prints "<id> <how>" or fails
   case "$rc" in
     0) printf '%s' "$migrated"; return 0 ;;
     2) return 2 ;;
+    124) return 124 ;;
   esac
   if [ -n "$origin" ] && [ "$origin" != "$BINDING_ANY" ]; then
     legacy=$(legacy_hold_id "$origin" "$entry")
@@ -1395,7 +1396,7 @@ publish_parent_resolution_then_retire() {  # <task-id> <occurrence> <note>
 }
 
 command_reconcile_requests() {
-  local source_id='' source='' origin row id note provenance show created=0 skipped=0 tab=$'\t'
+  local source_id='' source='' origin row id note provenance show show_status=0 created=0 skipped=0 tab=$'\t'
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --source-id) shift; source_id=${1:-} ;;
@@ -1420,7 +1421,11 @@ command_reconcile_requests() {
     [ "${#id}" -le 128 ] \
       || { printf 'refused: %s (task id is too long)\n' "$id"; skipped=$((skipped + 1)); continue; }
     acquire_task_control_lock "$id"
-    show=$(task_show "$id") || true
+    show_status=0
+    show=$(task_show "$id") || show_status=$?
+    if [ "$show_status" -eq 124 ]; then
+      fail "the backlog backend exceeded its read bound reading $id"
+    fi
     if [ -z "$show" ]; then
       printf 'refused: %s (absent)\n' "$id"
       skipped=$((skipped + 1))
