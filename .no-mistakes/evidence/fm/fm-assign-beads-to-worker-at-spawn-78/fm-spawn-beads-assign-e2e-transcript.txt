@@ -1,0 +1,18 @@
+
+=== Scenario 1: fresh spawn of an UNASSIGNED bead stamps the worker as assignee ===
+before: assignee(fm-demo1) = UNASSIGNED
+spawned fm-demo1 harness=claude kind=ship mode=no-mistakes yolo=off window=firstmate:fm-fm-demo1 worktree=/tmp/fm-e2e-demo/s1/wt
+after:  assignee(fm-demo1) = fm-demo1
+
+=== Scenario 2: fresh spawn of a bead PRE-ASSIGNED to portal-ops keeps that owner (2026-09-08 ownership rule) ===
+before: assignee(fm-demo2) = portal-ops
+spawned fm-demo2 harness=claude kind=ship mode=no-mistakes yolo=off window=firstmate:fm-fm-demo2 worktree=/tmp/fm-e2e-demo/s2/wt
+after:  assignee(fm-demo2) = portal-ops  (must still be portal-ops)
+
+=== Scenario 3: relaunch of fm-demo1 never re-stamps ===
+spawned fm-demo1 harness=claude kind=ship mode=no-mistakes yolo=off window=firstmate:fm-fm-demo1 worktree=/tmp/fm-e2e-demo/s1/wt
+relaunch: assignee(fm-demo1) = fm-demo1  (before relaunch: fm-demo1)
+
+=== Final persisted beads state ===
+○ fm-demo1 ● P2 Spawn assignee demo task
+○ fm-demo2 ● P2 Pre-owned demo task
