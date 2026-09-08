@@ -1,0 +1,6 @@
+$ fm-spawn.sh demo-assign-1 <project> --mode no-mistakes --yolo off
+--- spawn transcript (stderr merged) ---
+spawned demo-assign-1 harness=claude kind=ship mode=no-mistakes yolo=off window=firstmate:fm-demo-assign-1 worktree=/tmp/fm-assign-evidence.lm49TP/wt
+--- exit code: 0 ---
+--- recorded bd invocations (bd-calls log) ---
+BEADS_DIR=/tmp/fm-assign-evidence.lm49TP/home/.beads assign demo-assign-1 demo-assign-1
