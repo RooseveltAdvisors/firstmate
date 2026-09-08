@@ -22,6 +22,9 @@
 # The close - and only the close - is replaced by `tasks-axi reopen` with the
 # deliverable recorded while the backlog item is still an open captain call
 # (bin/fm-captain-hold.sh `open` owns that predicate), because the policy holds
+# NOTE: this uses `open`'s silent default and depends only on its unchanged
+# 0/1/2 exit-code contract. The optional `--identity` output that bin/fm-watch.sh
+# asks for prints only on an exit 0 and changes nothing read here.
 # the very work item a question gates and cleanup must never retire the
 # captain's own question. The same pending-close record carries that intent as
 # `mode=retain`, so an interrupted cleanup replays the retention rather than a
@@ -79,8 +82,11 @@
 # before cleanup. Its current working directory is only incidental process
 # state: the same worker remains the owner after changing directory, so cwd can
 # never veto teardown of that exact recorded endpoint.
-# The scan and destructive return hold a project-identity lock in the root
-# Firstmate home's state directory. Fresh Treehouse spawns for that project in
+# The scan and destructive return hold a project-identity lock in the local root
+# Firstmate home's state directory, as resolved by bin/fm-wake-lib.sh's
+# fm_firstmate_root_home; a home seeded from another machine is its own local
+# root, since a lock on this filesystem cannot be held or observed across that
+# boundary. Fresh Treehouse spawns for that project in
 # every local Firstmate home hold the same lock from before slot allocation
 # through metadata publication, closing the publication
 # gap; forced secondmate teardown takes it and runs the same checks for every
