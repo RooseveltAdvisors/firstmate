@@ -310,7 +310,9 @@
 # After the successful commit a FRESH spawn also stamps the worker as its
 # backlog bead's assignee (`bd assign`, bin/fm-backlog-transition-lib.sh's
 # fm_beads_assign): best-effort, silent on non-beads homes and on a secondmate
-# spawn's expected missing bead, a stderr warning on any other miss.
+# spawn's expected missing bead, a stderr warning on any other miss. An
+# interruption deferred across that same landed commit attempts the identical
+# stamp on its exit path, before it reports the preserved state.
 # The transition is
 # skipped entirely for --secondmate spawns (persistent agents are not work
 # items), on a config/backlog-backend=manual home, and in a home that keeps no
@@ -3716,6 +3718,22 @@ spawn_report_preserved_state() {
   return 1
 }
 
+# The assignee stamp itself (captain 2026-09-07), shared by the success exit
+# and the deferred-signal exit: both run only after a fresh spawn's dispatch
+# commit landed, so both stamp proved task creation and neither ever stamps a
+# relaunch. Best-effort: a spawn never fails because the stamp could not land,
+# and a secondmate has no backlog row to stamp, so a crewmate or scout spawn
+# reports the miss on stderr.
+spawn_stamp_backlog_assignee() {
+  [ "$RELAUNCH" -eq 0 ] || return 0
+  if ! fm_beads_assign "$DATA" "$ID" "$ID"; then
+    if [ "$KIND" != secondmate ]; then
+      echo "warning: task $ID's backlog assignee could not be stamped" >&2
+    fi
+  fi
+  return 0
+}
+
 if [ "$RELAUNCH" -eq 1 ]; then
   SPAWN_META_PUBLISH_STARTED=1
   if ! fm_backlog_atomic_transition publish "$SPAWN_META_TMP" "$STATE/$ID.meta" "task record" "$STATE"; then
@@ -4024,6 +4042,7 @@ if [ -n "$SPAWN_DEFERRED_SIGNAL" ]; then
   # the honest attempted-preservation claim the exit below reports.
   spawn_report_preserved_state || true
   trap - HUP INT TERM
+  spawn_stamp_backlog_assignee
   echo "error: spawn of $ID was interrupted after launch delivery began; $SPAWN_PRESERVED_CLAIM" >&2
   exit "$SPAWN_DEFERRED_SIGNAL_STATUS"
 fi
@@ -4032,16 +4051,10 @@ SPAWN_META_LOCK_HELD=0
 
 # Captain 2026-09-07: stamp the backlog assignee at task creation time, so
 # every spawned worker (crewmate or secondmate) owns its bead from the first
-# moment. Best-effort: a spawn never fails because the stamp could not land,
-# and a secondmate has no backlog row to stamp, so only a crewmate spawn
-# reports the miss. A relaunch is not task creation: like the transition it
-# re-reads rather than re-runs, it leaves the row's assignee alone so a bead
-# reassigned since the first spawn keeps its current owner.
-if [ "$RELAUNCH" -eq 0 ] && ! fm_beads_assign "$DATA" "$ID" "$ID"; then
-  if [ "$KIND" != secondmate ]; then
-    echo "warning: task $ID's backlog assignee could not be stamped" >&2
-  fi
-fi
+# moment. A relaunch is not task creation: like the transition it re-reads
+# rather than re-runs, it leaves the row's assignee alone so a bead reassigned
+# since the first spawn keeps its current owner.
+spawn_stamp_backlog_assignee
 
 SPAWN_DELIVERY=
 [ -z "$MODE" ] || SPAWN_DELIVERY=" mode=$MODE yolo=$YOLO"

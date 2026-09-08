@@ -4,7 +4,9 @@
 # task creation time, via the existing `bd assign`).
 #
 # bin/fm-backlog-transition-lib.sh's fm_beads_assign owns the mechanics and
-# bin/fm-spawn.sh stamps the assignee at its success commit point. These tests
+# bin/fm-spawn.sh stamps the assignee at its success commit point and, for a
+# fresh spawn whose dispatch commit landed, again on the deferred-signal exit
+# path. These tests
 # drive the real spawn script against fixture homes and a stubbed bd, and
 # assert the recorded bd calls and the spawn outcome:
 #
@@ -15,7 +17,9 @@
 #                  quietly - the spawn still succeeds with no warning;
 #   assign failure a crewmate spawn survives a failed stamp (best-effort) and
 #                  says so on stderr;
-#   binary absent  a [beads] binary that is not on PATH skips quietly.
+#   binary absent  a [beads] binary that is not on PATH skips quietly;
+#   interrupted    a signal deferred across the landed dispatch commit still
+#                  stamps the assignee on the interrupted-spawn exit path.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -111,6 +115,56 @@ case "\${1:-}" in
     printf '%s\n' 'task:'
     printf '  id: %s\n' "$id"
     printf '%s\n' '  state: in_flight' '  held: no' '  blocked: no'
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+SH
+  chmod +x "$case_dir/fakebin/tasks-axi"
+}
+
+# The same beads stub, plus the interrupted-spawn trigger: the fixture row
+# reads Queued until its dispatch `start` lands. That first `start` delivers
+# SIGTERM to the spawn - the first signal under the spawn's deferred-signal
+# traps - and then succeeds, so the commit lands and the spawn takes its
+# interrupted exit path with the row In flight.
+make_beads_tasks_axi_interrupt_stub() {  # <case-dir> <id>
+  local case_dir=$1 id=$2
+  cat > "$case_dir/fakebin/tasks-axi" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$case_dir/tasks-axi-calls"
+if [ "\${1:-}" = start ] && [ "\${2:-}" = "$id" ] && [ ! -f "$case_dir/start-interrupted" ]; then
+  : > "$case_dir/start-interrupted"
+  spawn_pid=\$(ps -o ppid= -p "\$PPID" | tr -d ' ')
+  case "\$spawn_pid" in ''|*[!0-9]*) exit 1 ;; esac
+  kill -TERM "\$spawn_pid"
+fi
+case "\${1:-}" in
+  --version)
+    printf '%s\n' '0.2.5'
+    ;;
+  update)
+    [ "\${2:-}" = --help ] || exit 1
+    printf '%s\n' '--archive-body'
+    ;;
+  mv)
+    [ "\${2:-}" = --help ] || exit 1
+    printf '%s\n' 'usage: tasks-axi mv [<id>...]'
+    ;;
+  start)
+    [ "\${2:-}" = "$id" ] || exit 1
+    ;;
+  show)
+    [ "\${2:-}" = "$id" ] || exit 1
+    printf '%s\n' 'task:'
+    printf '  id: %s\n' "$id"
+    if [ -f "$case_dir/start-interrupted" ]; then
+      printf '%s\n' '  state: in_flight'
+    else
+      printf '%s\n' '  state: queued'
+    fi
+    printf '%s\n' '  held: no' '  blocked: no'
     ;;
   *)
     exit 1
@@ -308,9 +362,29 @@ test_beads_relaunch_never_restamps_the_assignee() {
   pass "a relaunch leaves the bead's assignee untouched"
 }
 
+test_interrupted_spawn_stills_stamps_the_assignee() {
+  local case_dir id out rc=0
+  id=beads-assign-int1
+  case_dir=$(make_home assign-interrupted "$id")
+  write_beads_toml "$case_dir"
+  make_beads_tasks_axi_interrupt_stub "$case_dir" "$id"
+  make_bd_stub "$case_dir"
+
+  out=$(run_ship_spawn "$case_dir" "$id") || rc=$?
+  [ "$rc" -ne 0 ] || fail "an interrupted spawn reported success"
+  assert_contains "$out" "interrupted after launch delivery began" \
+    "the interrupted spawn did not take the deferred-signal exit path"
+  assert_contains "$out" "verified preserved" \
+    "the interrupted spawn did not verify its committed state"
+  assert_contains "$(bd_calls "$case_dir")" "BEADS_DIR=$(home_of "$case_dir")/.beads assign $id $id" \
+    "an interrupted spawn whose commit landed did not stamp the assignee"
+  pass "an interrupted spawn whose commit landed still stamps the assignee"
+}
+
 test_beads_ship_spawn_stamps_the_assignee
 test_markdown_spawn_makes_no_bd_call
 test_secondmate_spawn_skips_a_missing_bead_quietly
 test_ship_spawn_survives_a_failed_stamp
 test_absent_beads_binary_skips_quietly
 test_beads_relaunch_never_restamps_the_assignee
+test_interrupted_spawn_stills_stamps_the_assignee
