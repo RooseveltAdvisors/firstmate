@@ -1,0 +1,43 @@
+== merge shape of the reconciled head (no rebase, published heads preserved) ==
+--- commit object ---
+tree f072bffd335a344530bf9e2ad7e8093e8c3c4645
+parent 3e50822105e1da706a2bed64ac070c206d1bf733
+parent b84e0e362face25f3dd8945297a3df1320d7668c
+author Jon Roosevelt <rooseveltadvisors@gmail.com> 1788881004 -0400
+committer Jon Roosevelt <rooseveltadvisors@gmail.com> 1788881004 -0400
+
+
+--- upstream main b84e0e3 is an ancestor of the merge: ---
+yes
+
+--- PR branch parent (3e50822) is an ancestor of the merge: ---
+yes
+
+--- HEAD == target merge commit: ---
+3ac4528c708aba40c9419b5d889df4644c01f281
+
+--- merge diff vs main touches the PR surface only: ---
+ .agents/skills/bootstrap-diagnostics/SKILL.md |   7 +-
+ .agents/skills/updatefirstmate/SKILL.md       |   3 +
+ .github/workflows/ci.yml                      |   2 +-
+ .gitignore                                    |   1 +
+ .tasks.toml => .tasks.toml.example            |   0
+ AGENTS.md                                     |  11 +-
+ CONTRIBUTING.md                               |   8 +-
+ bin/fm-bootstrap.sh                           |  94 +++++++++-
+ bin/fm-ff-lib.sh                              |  91 +++++++++-
+ bin/fm-remote-secondmate-control.sh           |   7 +
+ bin/fm-spawn.sh                               |   8 +-
+ bin/fm-test-run.sh                            |  20 ++-
+ bin/fm-update.sh                              |  23 ++-
+ docs/configuration.md                         |   3 +-
+ tests/fm-backlog-atomicity.test.sh            |   2 +-
+ tests/fm-backlog-handoff.test.sh              |   2 +-
+ tests/fm-bearings-board.test.sh               |   2 +-
+ tests/fm-bootstrap.test.sh                    | 250 ++++++++++++++++++++++++++
+ tests/fm-captain-hold-lifecycle.test.sh       |   6 +-
+ tests/fm-public-followup.test.sh              |   2 +-
+ tests/fm-secondmate-sync.test.sh              | 163 +++++++++++++++++
+ tests/fm-test-run.test.sh                     |  28 +++
+ tests/fm-update.test.sh                       | 241 +++++++++++++++++++++++++
+ 23 files changed, 946 insertions(+), 28 deletions(-)

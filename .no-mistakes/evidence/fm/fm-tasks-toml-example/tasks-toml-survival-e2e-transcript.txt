@@ -1,0 +1,25 @@
+== world: /tmp/fm-e2e-tasks-config.7iUeq3
+warning: You appear to have cloned an empty repository.
+
+== running bin/fm-update.sh against the home ==
+TASKS_CONFIG: restored /tmp/fm-e2e-tasks-config.7iUeq3/main/.tasks.toml, which the update removed
+firstmate: updated 144520d..cdced57
+reread-firstmate: no
+restart-secondmates: none
+nudge-secondmates: none
+
+== updater exit: 0 ==
+
+== home .tasks.toml after the advance ==
+backend = "markdown"
+
+[markdown]
+path = "data/backlog.md"
+done_keep = 10
+PASS: live .tasks.toml preserved byte-for-byte across the untracking advance
+
+== advanced home state ==
+cdced57 untrack .tasks.toml per-home
+144520d seed-tasks-toml
+tracked template present: .tasks.toml.example
+gitignored per-home: .tasks.toml 
