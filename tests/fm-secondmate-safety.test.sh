@@ -2028,7 +2028,7 @@ EOF
   set +e
   PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TMUX_LOG="$log" \
     FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/force-duplicate-slot-fake/pane.txt" \
-    "$ROOT/bin/fm-teardown.sh" domain --force >/dev/null 2>"$err"
+    "$ROOT/bin/fm-teardown.sh" domain --retire-secondmate domain --force >/dev/null 2>"$err"
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "forced secondmate teardown returned a duplicated child slot"
