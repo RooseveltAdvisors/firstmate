@@ -372,6 +372,15 @@ task_show() {  # <id>; sets TASK_SHOW_OUTPUT
   return "$status"
 }
 
+# Read one row into `show`, failing with <absence-message> only when the read
+# genuinely failed; a read-bound hit (124) stops the command by name instead.
+task_show_or_fail() {  # <id> <absence-message>
+  show=$(task_show "$1") || {
+    [ "$?" -ne 124 ] || fail "the backlog backend exceeded its read bound reading $1"
+    fail "$2"
+  }
+}
+
 show_field() {  # <show-output> <field>
   local output=$1 field=$2
   printf '%s\n' "$output" | sed -n "s/^  $field: //p" | head -1
@@ -695,7 +704,10 @@ resolve_migrated_entry() {  # <origin-or-empty> <entry>
       *-) prefixed="$prefix$candidate" ;;
       *) prefixed="$prefix-$candidate" ;;
     esac
-    show=$(task_show "$prefixed" 2>/dev/null) || continue
+    show=$(task_show "$prefixed" 2>/dev/null) || {
+      [ "$?" -ne 124 ] || return 124
+      continue
+    }
     [ "$(show_field_value "$show" hold_kind)" = captain ] || continue
     prefixed_matches="${prefixed_matches}${prefixed_matches:+$NL_SEP}$prefixed"
   done
@@ -870,9 +882,9 @@ command_hold() {
   # Publish the timestamp before the captain-hold annotation. A concurrent
   # snapshot may see the harmless stamp by itself, but can never see a newly
   # held task without the timestamp that defines this hold lifecycle's age.
-  show=$(task_show "$id") || fail "task $id disappeared before recording its hold-set stamp"
+  task_show_or_fail "$id" "task $id disappeared before recording its hold-set stamp"
   write_hold_set_stamp "$id" "$(show_field "$show" body)" "$hold_set" "$preserve_hold_set"
-  show=$(task_show "$id") || fail "task $id disappeared while recording its hold-set stamp"
+  task_show_or_fail "$id" "task $id disappeared while recording its hold-set stamp"
   [ -n "$(body_hold_set_timestamp "$(show_field_value "$show" body)")" ] \
     || fail "task $id did not retain its hold-set stamp"
   if [ -n "$until" ]; then
@@ -960,7 +972,7 @@ close_answered() {  # <task-id> <release-0-or-1>
 
 remove_interrupted_answer_stamp() {  # <task-id>
   local id=$1 show body existing tmp
-  show=$(task_show "$id") || fail "task $id disappeared after closing"
+  task_show_or_fail "$id" "task $id disappeared after closing"
   body=$(decode_shown_value "$(show_field "$show" body)") \
     || fail "could not decode the closed body for $id"
   existing=$(body_hold_set_timestamp "$body")
@@ -1500,7 +1512,7 @@ reconcile_close() {
   reconcile_request_read "$id" \
     || fail "task $id has no pending board-created reconcile request"
   require_tasks_axi
-  show=$(task_show "$id") || fail "captain-held task $id is absent from this home's configured backlog (data directory $DATA)"
+  task_show_or_fail "$id" "captain-held task $id is absent from this home's configured backlog (data directory $DATA)"
   state=$(show_field "$show" state)
   hold_kind=$(show_field_value "$show" hold_kind)
   body=$(show_field "$show" body)
@@ -1536,7 +1548,7 @@ reconcile_close() {
   fi
   close_answered "$id" 0 || fail "could not close reconciled captain-held task $id"
   remove_interrupted_answer_stamp "$id"
-  show=$(task_show "$id") || fail "task $id disappeared after closing"
+  task_show_or_fail "$id" "task $id disappeared after closing"
   body_has_resolution_record "$(show_field "$show" body)" \
     || fail "captain-held task $id did not retain its durable resolution record"
   publish_parent_hold "$id" "$occurrence" resolved reconciled
@@ -1572,7 +1584,7 @@ reconcile_note() {
   require_tasks_axi
   command_open "$id" \
     || fail "task $id is not an open captain call; a note cannot keep a closed call open"
-  show=$(task_show "$id") || fail "captain-held task $id is absent from this home's configured backlog (data directory $DATA)"
+  task_show_or_fail "$id" "captain-held task $id is absent from this home's configured backlog (data directory $DATA)"
   body=$(decode_shown_value "$(show_field "$show" body)") \
     || fail "could not decode the existing body for $id"
   note_digest=$(sha256_text "$note")
