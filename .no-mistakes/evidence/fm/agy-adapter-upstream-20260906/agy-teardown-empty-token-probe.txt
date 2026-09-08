@@ -1,0 +1,8 @@
+registry directories present before:
+/tmp/agy-e2e/demo/home/.gemini/antigravity-cli/fm-turn-end.d
+/tmp/agy-e2e/demo/home/.grok/hooks/fm-turn-end.d
+/tmp/agy-e2e/demo/home/.kimi-code/fm-turn-end.d
+state dir holds no token files: 0 entries
+remove_all_turnend_auth (no tokens minted) exit=0
+remove_all_turnend_auth (grok token minted) exit=0
+grok registry entry tok-1 was retired

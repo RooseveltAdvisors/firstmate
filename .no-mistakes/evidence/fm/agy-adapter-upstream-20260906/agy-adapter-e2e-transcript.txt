@@ -1,0 +1,59 @@
+agy adapter end-to-end transcript — real scripts, isolated HOME, live agy-adapter code
+=====================================================================================
+
+=== 1. Trust registration on a fresh task worktree (bin/fm-agy-trust.sh) ===
+$ HOME=$DEMO/home bin/fm-agy-trust.sh $DEMO/wt $DEMO/project
+added: /tmp/agy-e2e/demo/wt
+trusted: /tmp/agy-e2e/demo/wt
+exit=0
+
+=== 2. What the operator's agy store now holds ===
+$ python3 -m json.tool $DEMO/home/.gemini/antigravity-cli/settings.json
+{
+    "trustedWorkspaces": [
+        "/tmp/agy-e2e/demo/wt"
+    ]
+}
+
+(Live guard demonstration: with the demo HOME accidentally 0775, the same
+command refused fail-closed with
+  error: refusing to pre-register agy workspace trust: '/tmp/agy-e2e/demo/home'
+  is writable by other users, so the agy settings store reached through it
+  cannot be trusted; remove write access for others with: chmod go-w '...'
+and nothing was written to the store. A primary checkout was likewise refused:
+  error: ... '$DEMO/project' is a primary checkout, not an isolated worktree)
+
+=== 3. Turn-end hook installer: tree and modes agy will execute on every Stop ===
+$ HOME=$DEMO/home bin/fm-agy-turnend-hook.sh install
+installed: firstmate-turn-end in /tmp/agy-e2e/demo/home/.gemini/config/hooks.json
+exit=0
+$ find ... -name 'fm-turn-end*' -exec stat -c '%a %n' {} \;
+700 .../home/.gemini/antigravity-cli/fm-turn-end.d
+700 .../home/.gemini/antigravity-cli/fm-turn-end.sh
+
+=== 4. Hook answers an unregistered workspace with {} and exit 0 (no wake) ===
+$ echo '{"workspace":{"currentFolder":{"path":".../wt"}}}' | bash .../fm-turn-end.sh
+{}
+
+=== 5. Harness classification: agy marker outranks GEMINI_CLI and CLAUDECODE ===
+$ env ANTIGRAVITY_CONVERSATION_ID=conv-123 GEMINI_CLI=1 CLAUDECODE=1 \
+    bash -c 'unset CLAUDECODE; . bin/fm-harness.sh; detect_own'
+agy
+
+=== 6. Teardown: empty-token no-op while harness registry directories exist ===
+(see agy-teardown-empty-token-probe.txt for the full probe)
+registry directories present before: ~/.gemini/antigravity-cli/fm-turn-end.d,
+~/.grok/hooks/fm-turn-end.d, ~/.kimi-code/fm-turn-end.d
+state dir holds no token files: 0 entries
+remove_all_turnend_auth (no tokens minted) exit=0
+remove_all_turnend_auth (grok token minted) exit=0
+grok registry entry tok-1 was retired
+
+=== Notes ===
+- The opt-in live-signal guard (tests/fm-agy-signals-live-e2e.test.sh,
+  FM_AGY_SIGNALS_LIVE_E2E=1) was NOT run: agy is installed on this machine, but
+  that guard mutates the operator's real $HOME/.gemini and is designated for
+  post-upgrade runs only.
+- All targeted suites green: fm-agy-harness, fm-teardown, fm-omp-harness,
+  fm-kimi-harness, fm-quota-choose, fm-bootstrap, fm-spawn-dispatch-profile,
+  fm-secondmate-harness, fm-muse-harness, fm-backend-herdr.
