@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Behavior tests for the spawn-time beads assignee stamp (captain 2026-09-07:
 # assign every spawned worker - crewmate or secondmate - its backlog bead at
-# task creation time, via the existing `bd assign`; ownership rule 2026-09-08:
+# task creation time; ownership rule 2026-09-08:
 # an existing assignee is ownership evidence, so the stamp lands only on a
 # reliably read unassigned bead).
 #
