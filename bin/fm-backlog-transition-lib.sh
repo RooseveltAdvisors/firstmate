@@ -179,13 +179,41 @@ fm_beads_resolve_bd() {  # <data-dir>
   command -v "$FM_BD_BIN" >/dev/null 2>&1
 }
 
-# Stamp a beads issue's assignee (bd assign, the shorthand for
-# `bd update --assignee`). Best-effort by contract: it skips quietly on a home
-# that is not beads-backed or that carries no usable [beads] section, and it
-# suppresses bd's own output so a missing bead (for example a spawned agent id
-# that is not a backlog item) is the caller's ordinary not-found signal.
+# Whether the installed bd supports conditional (compare-and-set) assignee
+# guards (`bd update --if-assignee`; a stale guard exits 13 with nothing
+# written). Same help-text probe shape as fm-tasks-axi-lib.sh's feature
+# probes: one subprocess per call, no memoisation, so a bd upgrade is picked
+# up by the next stamp.
+fm_beads_update_supports_if_assignee() {
+  local output
+  output=$(BEADS_DIR="$FM_BD_PATH" "$FM_BD_BIN" update --help 2>&1) || return 1
+  printf '%s\n' "$output" | grep -F -- '--if-assignee' >/dev/null
+}
+
+# Stamp a beads issue's assignee. On a bd with conditional updates the write
+# is one atomic guarded update - only an issue still reading unassigned is
+# stamped - so an owner recorded after the caller's own read wins and nothing
+# is overwritten; a lost race sets FM_BD_ASSIGN_RACED=1 (the concurrent owner
+# is ownership evidence, not a failure). Older bd falls back to the
+# unconditional `bd assign` shorthand for `bd update --assignee`, where the
+# caller's read is the only ownership check. Best-effort by contract: it
+# skips quietly on a home that is not beads-backed or that carries no usable
+# [beads] section, and it suppresses bd's own output so a missing bead (for
+# example a spawned agent id that is not a backlog item) is the caller's
+# ordinary not-found signal.
 fm_beads_assign() {  # <data-dir> <id> <name>
+  FM_BD_ASSIGN_RACED=0
+  local rc
   fm_beads_resolve_bd "$1" || return 0
+  if fm_beads_update_supports_if_assignee; then
+    rc=0
+    BEADS_DIR="$FM_BD_PATH" "$FM_BD_BIN" update "$2" --assignee "$3" --if-assignee '' >/dev/null 2>&1 || rc=$?
+    [ "$rc" -eq 0 ] && return 0
+    # bd names a lost compare-and-set race with exit 13 ("every failure in
+    # the run was a stale guard"): the bead gained an owner first.
+    [ "$rc" -eq 13 ] && FM_BD_ASSIGN_RACED=1
+    return 1
+  fi
   BEADS_DIR="$FM_BD_PATH" "$FM_BD_BIN" assign "$2" "$3" >/dev/null 2>&1
 }
 

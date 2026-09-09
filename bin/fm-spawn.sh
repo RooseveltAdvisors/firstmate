@@ -308,11 +308,15 @@
 # including its assignee: a relaunch never re-stamps, so a bead reassigned
 # since the task's first spawn keeps its current owner.
 # After the successful commit a FRESH spawn also stamps the worker as its
-# backlog bead's assignee (`bd assign`, bin/fm-backlog-transition-lib.sh's
-# fm_beads_assign), but only after reading the bead's current assignee
+# backlog bead's assignee (bin/fm-backlog-transition-lib.sh's fm_beads_assign),
+# but only after reading the bead's current assignee
 # (fm_beads_assignee): an existing assignee is ownership evidence and is
 # never replaced, and an unreadable or ambiguous read leaves assignment
-# unchanged, so the stamp lands only on a reliably read unassigned bead.
+# unchanged, so the stamp lands only on a reliably read unassigned bead. The
+# write itself is one guarded compare-and-set on a bd that supports
+# `--if-assignee`, so an owner recorded between that read and the stamp wins
+# and the loss is treated as ownership evidence rather than a failure; older
+# bd falls back to the unconditional `bd assign`.
 # The stamp is best-effort, silent on non-beads homes and on a secondmate
 # spawn's expected missing bead, a stderr warning on any other miss. An
 # interruption deferred across that same landed commit attempts the identical
@@ -3731,13 +3735,17 @@ spawn_report_preserved_state() {
 # or ambiguous read leaves assignment unchanged rather than guessing. Best-
 # effort: a spawn never fails because the stamp could not land, and a
 # secondmate has no backlog row to stamp, so a crewmate or scout spawn reports
-# a failed assign attempt (not a preserved owner) on stderr.
+# a failed assign attempt (not a preserved owner) on stderr. A stamp that
+# loses fm_beads_assign's guarded compare-and-set race is not a failure: the
+# bead gained a canonical owner between the read and the write, so their
+# ownership stands and the spawn stays silent.
 spawn_stamp_backlog_assignee() {
   [ "$RELAUNCH" -eq 0 ] || return 0
   local current
   current=$(fm_beads_assignee "$DATA" "$ID") || return 0
   [ -n "$current" ] && return 0
   if ! fm_beads_assign "$DATA" "$ID" "$ID"; then
+    [ "$FM_BD_ASSIGN_RACED" -eq 1 ] && return 0
     if [ "$KIND" != secondmate ]; then
       echo "warning: task $ID's backlog assignee could not be stamped" >&2
     fi

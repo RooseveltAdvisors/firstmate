@@ -23,6 +23,9 @@
 #   relaunch       a relaunch never re-stamps, so a recorded owner stays;
 #   preowned       a fresh spawn preserves a bead's existing assignee;
 #   unreadable     a failed assignee read leaves assignment unchanged;
+#   guarded        a guard-capable bd stamps with one atomic compare-and-set,
+#                  a lost race defers to the concurrent owner quietly, and a
+#                  real failure still warns;
 #   interrupted    a signal deferred across the landed dispatch commit still
 #                  stamps the assignee on the interrupted-spawn exit path.
 set -u
@@ -191,11 +194,23 @@ write_beads_toml() {  # <case-dir> [extra-lines...]
 # assignee read from an optional per-case fixture file (one line: the current
 # assignee; empty means unassigned; a nonexistent path makes the read fail),
 # and exits with a fixed code for `assign` (0 unless the case overrides it).
-make_bd_stub() {  # <case-dir> [assign-exit-code] [assignee-file]
-  local case_dir=$1 rc=${2:-0}
+# A non-empty fourth argument makes the stub a guard-capable bd: its
+# `bd update --help` advertises --if-assignee and its guarded stamp
+# (`bd update <id> --assignee <name> --if-assignee ''`) exits with that code -
+# 0 lands the stamp, 13 is bd's stale-guard exit (a racer won, nothing
+# written), anything else is a real failure. The capability probe itself is
+# answered before the log line, so the recorded calls stay reads and writes.
+make_bd_stub() {  # <case-dir> [assign-exit-code] [assignee-file] [guard-exit-code]
+  local case_dir=$1 rc=${2:-0} guard_rc=${4:-}
   local log="$case_dir/bd-calls" assignee_file=${3:-}
   cat > "$case_dir/fakebin/bd" <<SH
 #!/usr/bin/env bash
+if [ "\${1:-}" = update ] && [ "\${2:-}" = --help ]; then
+  if [ -n "$guard_rc" ]; then
+    printf '%s\n' 'Usage:' 'Flags:' '      --if-assignee string   Expected assignee' '      --if-status string     Expected status'
+  fi
+  exit 0
+fi
 printf '%s\n' "BEADS_DIR=\${BEADS_DIR:-unset} \$*" >> "$log"
 if [ "\${1:-}" = show ] && [ "\${2:-}" = "$id" ]; then
   if [ -n "$assignee_file" ] && ! [ -f "$assignee_file" ]; then
@@ -207,7 +222,10 @@ if [ "\${1:-}" = show ] && [ "\${2:-}" = "$id" ]; then
   printf '{"id":"$id","assignee":%s}\n' "\$(printf '%s' "\$assignee" | jq -Rs .)"
   exit 0
 fi
-[ "\${1:-}" = assign ] || exit 0
+if [ "\${1:-}" = update ] && [ -n "$guard_rc" ]; then
+  exit $guard_rc
+fi
+[ "\${1:-}" = assign ] || exit 1
 exit $rc
 SH
   chmod +x "$case_dir/fakebin/bd"
@@ -414,6 +432,66 @@ test_beads_failed_assignee_read_leaves_assignment_unchanged() {
   pass "an unreadable assignee read leaves assignment unchanged"
 }
 
+test_beads_guarded_bd_stamps_with_one_compare_and_set() {
+  local case_dir id out calls
+  id=beads-assign-g1
+  case_dir=$(make_home assign-guard "$id")
+  write_beads_toml "$case_dir"
+  make_beads_tasks_axi_stub "$case_dir" "$id"
+  make_bd_stub "$case_dir" 0 '' 0
+
+  out=$(run_ship_spawn "$case_dir" "$id") || fail "spawn failed: $out"
+  assert_contains "$out" "spawned $id" "spawn did not report success"
+  calls=$(bd_calls "$case_dir")
+  assert_contains "$calls" "update $id --assignee $id --if-assignee" \
+    "a guard-capable bd did not receive the atomic guarded stamp"
+  case "$calls" in
+    *" assign "*) fail "a guard-capable bd still received the unconditional assign: $calls" ;;
+  esac
+  pass "a guard-capable bd stamps the assignee with one guarded compare-and-set"
+}
+
+test_beads_guarded_stamp_race_loss_defers_to_the_new_owner() {
+  local case_dir id out calls
+  id=beads-assign-g2
+  case_dir=$(make_home assign-guard-race "$id")
+  write_beads_toml "$case_dir"
+  make_beads_tasks_axi_stub "$case_dir" "$id"
+  # The read says unassigned, but the guarded stamp loses the compare-and-set
+  # race (bd's stale-guard exit 13): an owner was recorded between the read
+  # and the write, and their ownership must stand.
+  make_bd_stub "$case_dir" 0 '' 13
+
+  out=$(run_ship_spawn "$case_dir" "$id") || fail "spawn failed: $out"
+  assert_contains "$out" "spawned $id" "a raced stamp must not fail the spawn"
+  case "$out" in
+    *"could not be stamped"*) fail "a lost stamp race surfaced a warning instead of deferring to the new owner" ;;
+  esac
+  calls=$(bd_calls "$case_dir")
+  assert_contains "$calls" "--if-assignee" "the guarded stamp did not run"
+  case "$calls" in
+    *" assign "*) fail "the race loss was retried as an unconditional assign: $calls" ;;
+  esac
+  pass "a stamp that loses the ownership race defers to the new owner quietly"
+}
+
+test_beads_guarded_bd_still_reports_a_failed_stamp() {
+  local case_dir id out
+  id=beads-assign-g3
+  case_dir=$(make_home assign-guard-failure "$id")
+  write_beads_toml "$case_dir"
+  make_beads_tasks_axi_stub "$case_dir" "$id"
+  # An exit that is not bd's stale-guard code is a real failure even on a
+  # guard-capable bd, so the best-effort warning still fires.
+  make_bd_stub "$case_dir" 0 '' 1
+
+  out=$(run_ship_spawn "$case_dir" "$id") || fail "spawn failed: $out"
+  assert_contains "$out" "spawned $id" "a failed stamp must not fail the spawn"
+  assert_contains "$out" "could not be stamped" \
+    "a crewmate spawn did not report its failed guarded stamp"
+  pass "a failed guarded stamp is still best-effort and reported"
+}
+
 test_interrupted_spawn_stills_stamps_the_assignee() {
   local case_dir id out rc=0
   id=beads-assign-int1
@@ -441,4 +519,7 @@ test_absent_beads_binary_skips_quietly
 test_beads_relaunch_never_restamps_the_assignee
 test_beads_fresh_spawn_preserves_a_preassigned_owner
 test_beads_failed_assignee_read_leaves_assignment_unchanged
+test_beads_guarded_bd_stamps_with_one_compare_and_set
+test_beads_guarded_stamp_race_loss_defers_to_the_new_owner
+test_beads_guarded_bd_still_reports_a_failed_stamp
 test_interrupted_spawn_stills_stamps_the_assignee
