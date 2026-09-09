@@ -3731,7 +3731,7 @@ spawn_report_preserved_state() {
 # or ambiguous read leaves assignment unchanged rather than guessing. Best-
 # effort: a spawn never fails because the stamp could not land, and a
 # secondmate has no backlog row to stamp, so a crewmate or scout spawn reports
-# a stamp miss (not a preserved owner) on stderr.
+# a failed assign attempt (not a preserved owner) on stderr.
 spawn_stamp_backlog_assignee() {
   [ "$RELAUNCH" -eq 0 ] || return 0
   local current

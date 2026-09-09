@@ -155,28 +155,38 @@ fm_backlog_root() {  # <data-dir>
   printf '%s\n' "$parent"
 }
 
+# Resolve a data dir's [beads] section to the bd binary and graph path,
+# setting FM_BD_BIN and FM_BD_PATH for the caller. Returns 1 when the home is
+# not beads-backed or carries no usable [beads] section; FM_BD_* are then
+# cleared. A relative [beads] path resolves against the backlog root, the same
+# rule every other .tasks.toml path consumer uses, never against the process
+# CWD.
+fm_beads_resolve_bd() {  # <data-dir>
+  FM_BD_BIN=
+  FM_BD_PATH=
+  local root entries
+  root=$(fm_backlog_root "$1") || return 1
+  [ "$(fm_tasks_axi_backend "$root")" = beads ] || return 1
+  entries=$(fm_beads_toml_entries "$root/.tasks.toml")
+  FM_BD_BIN=$(fm_beads_setting "$entries" binary)
+  FM_BD_BIN=${FM_BD_BIN:-bd}
+  FM_BD_PATH=$(fm_beads_setting "$entries" path)
+  [ -n "$FM_BD_PATH" ] || return 1
+  case "$FM_BD_PATH" in
+    /*) ;;
+    *) FM_BD_PATH="$root/$FM_BD_PATH" ;;
+  esac
+  command -v "$FM_BD_BIN" >/dev/null 2>&1
+}
+
 # Stamp a beads issue's assignee (bd assign, the shorthand for
 # `bd update --assignee`). Best-effort by contract: it skips quietly on a home
 # that is not beads-backed or that carries no usable [beads] section, and it
 # suppresses bd's own output so a missing bead (for example a spawned agent id
 # that is not a backlog item) is the caller's ordinary not-found signal.
 fm_beads_assign() {  # <data-dir> <id> <name>
-  local root=$1 id=$2 name=$3 entries bd_bin bd_path
-  root=$(fm_backlog_root "$root") || return 0
-  [ "$(fm_tasks_axi_backend "$root")" = beads ] || return 0
-  entries=$(fm_beads_toml_entries "$root/.tasks.toml")
-  bd_bin=$(fm_beads_setting "$entries" binary)
-  bd_bin=${bd_bin:-bd}
-  bd_path=$(fm_beads_setting "$entries" path)
-  [ -n "$bd_path" ] || return 0
-  # A relative [beads] path resolves against the backlog root, the same rule
-  # every other .tasks.toml path consumer uses, never against the process CWD.
-  case "$bd_path" in
-    /*) ;;
-    *) bd_path="$root/$bd_path" ;;
-  esac
-  command -v "$bd_bin" >/dev/null 2>&1 || return 0
-  BEADS_DIR="$bd_path" "$bd_bin" assign "$id" "$name" >/dev/null 2>&1
+  fm_beads_resolve_bd "$1" || return 0
+  BEADS_DIR="$FM_BD_PATH" "$FM_BD_BIN" assign "$2" "$3" >/dev/null 2>&1
 }
 
 # Print the bead's current assignee on stdout, or nothing when it has none.
@@ -184,21 +194,10 @@ fm_beads_assign() {  # <data-dir> <id> <name>
 # bead is missing, the graph is unreadable, or jq is unavailable to parse the
 # listing, so a caller can never confuse "unassigned" with "unknown".
 fm_beads_assignee() {  # <data-dir> <id>
-  local root=$1 id=$2 entries bd_bin bd_path json
-  root=$(fm_backlog_root "$root") || return 1
-  [ "$(fm_tasks_axi_backend "$root")" = beads ] || return 1
-  entries=$(fm_beads_toml_entries "$root/.tasks.toml")
-  bd_bin=$(fm_beads_setting "$entries" binary)
-  bd_bin=${bd_bin:-bd}
-  bd_path=$(fm_beads_setting "$entries" path)
-  [ -n "$bd_path" ] || return 1
-  case "$bd_path" in
-    /*) ;;
-    *) bd_path="$root/$bd_path" ;;
-  esac
-  command -v "$bd_bin" >/dev/null 2>&1 || return 1
+  local json
+  fm_beads_resolve_bd "$1" || return 1
   command -v jq >/dev/null 2>&1 || return 1
-  json=$(BEADS_DIR="$bd_path" "$bd_bin" show "$id" --json 2>/dev/null) || return 1
+  json=$(BEADS_DIR="$FM_BD_PATH" "$FM_BD_BIN" show "$2" --json 2>/dev/null) || return 1
   printf '%s' "$json" | jq -r 'if type == "array" then .[0] else . end | .assignee // empty' 2>/dev/null || return 1
 }
 
