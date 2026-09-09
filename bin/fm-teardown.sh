@@ -120,6 +120,9 @@
 # never left leased forever. If the treehouse return fails, teardown leaves the
 # leased home and state in place instead of hiding a still-held lease.
 # Usage: fm-teardown.sh <task-id> [--force] [--legacy-record] [--retire-secondmate <task-id>]
+#   "--" ends the options: every argument after it is a target, so a selection
+#   list whose later ids spell option names refuses as a multi-target mistake
+#   instead of being read as flags.
 #   --force skips ordinary-task dirty and landed-work checks, skips scout report
 #   checks, and discards secondmate child work for kind=secondmate. Only use it
 #   when the captain has explicitly said to discard the work.
@@ -281,27 +284,39 @@ if [ "$#" -gt 0 ]; then
   TEARDOWN_TARGETS+=("$1")
   shift
 fi
+# After "--" every remaining argument is a target: a selection list whose later
+# ids spell option names still reaches the multi-target refusal below instead
+# of being silently read as flags, where "--force" could also discard the first
+# target's work. Before it, the long options keep their flag meanings.
+SEEN_END_OF_OPTIONS=0
 while [ "$#" -gt 0 ]; do
-  case "$1" in
-    --force) FORCE=--force ;;
-    --legacy-record) LEGACY_RECORD_GIVEN=1 ;;
-    --retire-secondmate)
-      shift
-      [ "$#" -gt 0 ] || {
-        echo "error: --retire-secondmate needs the exact task id it authorizes" >&2
-        exit 2
-      }
-      RETIRE_AUTH=$1
-      RETIRE_AUTH_GIVEN=1
-      ;;
-    --retire-secondmate=*)
-      RETIRE_AUTH=${1#*=}
-      RETIRE_AUTH_GIVEN=1
-      ;;
-    # Anything else is a target, not an unknown option: a task id may
-    # legitimately start with dashes. Same idiom as bin/fm-spawn.sh.
-    *) TEARDOWN_TARGETS+=("$1") ;;
-  esac
+  if [ "$SEEN_END_OF_OPTIONS" = 1 ]; then
+    TEARDOWN_TARGETS+=("$1")
+  else
+    case "$1" in
+      --)
+        SEEN_END_OF_OPTIONS=1
+        ;;
+      --force) FORCE=--force ;;
+      --legacy-record) LEGACY_RECORD_GIVEN=1 ;;
+      --retire-secondmate)
+        shift
+        [ "$#" -gt 0 ] || {
+          echo "error: --retire-secondmate needs the exact task id it authorizes" >&2
+          exit 2
+        }
+        RETIRE_AUTH=$1
+        RETIRE_AUTH_GIVEN=1
+        ;;
+      --retire-secondmate=*)
+        RETIRE_AUTH=${1#*=}
+        RETIRE_AUTH_GIVEN=1
+        ;;
+      # Anything else is a target, not an unknown option: a task id may
+      # legitimately start with dashes. Same idiom as bin/fm-spawn.sh.
+      *) TEARDOWN_TARGETS+=("$1") ;;
+    esac
+  fi
   shift
 done
 if [ "${#TEARDOWN_TARGETS[@]}" -lt 1 ]; then

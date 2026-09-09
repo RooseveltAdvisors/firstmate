@@ -3806,11 +3806,44 @@ test_multi_target_teardown_refuses_and_names_the_secondmates() {
   pass "a multi-target teardown refuses with the count and the secondmate ids before any change"
 }
 
+# An end-of-options escape: a mistaken list whose later ids spell option names
+# must reach the multi-target refusal as targets, never be read as flags where
+# "--force" could silently discard the first target's work.
+test_option_spelled_later_targets_refuse_after_end_of_options() {
+  local case_dir rc
+  case_dir=$(make_case ddash-batch-refusal)
+  write_meta "$case_dir" local-only ship
+  wt_commit "$case_dir" "fix the thing"
+  add_fork_with_pushed_branch "$case_dir"
+
+  set +e
+  FM_ROOT_OVERRIDE="$ROOT" \
+  FM_STATE_OVERRIDE="$case_dir/state" \
+  FM_DATA_OVERRIDE="$case_dir/data" \
+  FM_CONFIG_OVERRIDE="$case_dir/config" \
+  PATH="$case_dir/fakebin:${FM_TEARDOWN_TEST_PATH:-$PATH}" \
+    "$TEARDOWN" task-x1 -- --force --legacy-record > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  [ "$rc" -ne 0 ] || fail "ddash-batch-refusal: a three-target teardown was accepted"
+  grep -Fq '3 targets were given' "$case_dir/stderr" \
+    || fail "ddash-batch-refusal: the refusal did not name the target count: $(tail -6 "$case_dir/stderr")"
+  grep -Fq -- '--force --legacy-record' "$case_dir/stderr" \
+    || fail "ddash-batch-refusal: the option-spelled ids were not recorded as targets: $(tail -6 "$case_dir/stderr")"
+  # The option-spelled ids stayed targets: --force never discarded the first
+  # target's landed work and nothing was torn down.
+  assert_present "$case_dir/state/task-x1.meta" \
+    "ddash-batch-refusal: the first target was force-torn down anyway"
+  pass "ids spelling option names after -- refuse as targets instead of being read as flags"
+}
+
 test_local_only_fork_remote_allows
 test_ordinary_ship_teardown_needs_no_retirement_authority
 test_ordinary_scout_teardown_needs_no_retirement_authority
 test_retirement_authority_on_ordinary_task_refuses
 test_multi_target_teardown_refuses_and_names_the_secondmates
+test_option_spelled_later_targets_refuse_after_end_of_options
 test_leading_dash_task_id_is_torn_down_as_a_target
 test_teardown_closes_the_backlog_item_itself
 test_teardown_manual_backend_leaves_the_backlog_to_the_operator
