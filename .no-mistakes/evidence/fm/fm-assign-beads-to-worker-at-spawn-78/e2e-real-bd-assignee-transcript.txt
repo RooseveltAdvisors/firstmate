@@ -1,0 +1,16 @@
+# End-to-end: spawn-time beads assignee stamp against real bd 1.2.2
+# Worktree: 3871e3b74a5fd8785e625baecc69b1aa6039cc91
+
+## Case 1: fresh crewmate spawn on an UNOWNED bead -> assignee stamped to the crewmate id
+$ bin/fm-spawn.sh fm-beads-assign-e2e <project> --mode no-mistakes --yolo off
+spawned fm-beads-assign-e2e harness=claude kind=ship mode=no-mistakes yolo=off window=firstmate:fm-fm-beads-assign-e2e worktree=/tmp/fm-assign-e2e/wt   (rc=0)
+$ BEADS_DIR=/tmp/fm-assign-e2e/home/.beads bd show fm-beads-assign-e2e
+Owner: Jon Roosevelt · Assignee: fm-beads-assign-e2e · Type: task
+
+## Case 2: fresh crewmate spawn on an OWNED bead (secondmate-alice) -> owner preserved, quiet
+assignee BEFORE spawn:
+Owner: Jon Roosevelt · Assignee: secondmate-alice · Type: task
+$ bin/fm-spawn.sh fm-beads-assign-owned <project> --mode no-mistakes --yolo off
+spawned fm-beads-assign-owned harness=claude kind=ship mode=no-mistakes yolo=off window=firstmate:fm-fm-beads-assign-owned worktree=/tmp/fm-assign-e2e-owned/wt   (rc=0, no stamp warnings on stderr)
+assignee AFTER spawn:
+Owner: Jon Roosevelt · Assignee: secondmate-alice · Type: task

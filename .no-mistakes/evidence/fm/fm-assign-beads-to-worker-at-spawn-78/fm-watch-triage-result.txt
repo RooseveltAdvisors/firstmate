@@ -1,0 +1,1 @@
+fm-watch-triage.test.sh: exit=0 duration_ms=443782 under umask 022 + UTF-8 locale (CI-like), including the new regression case "reap bounds its wait and escalates to KILL when a watcher survives TERM"
