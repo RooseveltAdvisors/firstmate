@@ -240,6 +240,127 @@ case "$(cat "$VERIFY_OUT")" in
 esac
 pass "the teardown verify gate reports a bound hit by name instead of as an absent inventory entry"
 
+# The reconcile-requests intake reads each row with task_show in this shell and
+# must stop on a bound hit by name; spending the 124 as 'refused: <id>
+# (absent)' would let a wedged backend erase real rows from the reconcile
+# sweep.
+REQ="$TMP_ROOT/req"
+REQ_FAKEBIN=$(fm_fakebin "$REQ")
+mkdir -p "$REQ/data" "$REQ/state" "$REQ/config" "$REQ/state/decision-bindings"
+make_hanging_tasks_axi "$REQ_FAKEBIN"
+cp "$ROOT/.tasks.toml" "$REQ/.tasks.toml"
+printf '# Backlog\n' > "$REQ/data/backlog.md"
+printf 'schema=fm-decision-binding.v1\norigin=wedged-origin\n' \
+  > "$REQ/state/decision-bindings/probe.origin"
+
+REQ_OUT="$REQ/req.out"
+REQ_STATUS=0
+printf 'wedged-req\n' \
+  | PATH="$REQ_FAKEBIN:$BASE_PATH" FM_HOME="$REQ" \
+    FM_STATE_OVERRIDE="$REQ/state" FM_DATA_OVERRIDE="$REQ/data" \
+    FM_CONFIG_OVERRIDE="$REQ/config" FM_BACKLOG_ROW_TIMEOUT_SECS="$BOUND_SECS" \
+    "$ROOT/bin/fm-captain-hold.sh" reconcile-requests --source-id probe --source 'test capture' \
+    > "$REQ_OUT" 2>&1 || REQ_STATUS=$?
+
+[ "$REQ_STATUS" -ne 0 ] \
+  || fail "reconcile-requests must not report success against a wedged backend: $(cat "$REQ_OUT")"
+case "$(cat "$REQ_OUT")" in
+  *absent*|*refused*) fail "the reconcile intake spent a bound hit as an absent row: $(cat "$REQ_OUT")" ;;
+esac
+case "$(cat "$REQ_OUT")" in
+  *wedged-req*bound*) ;;
+  *) fail "the reconcile intake must name the row and the bound it hit, got: $(cat "$REQ_OUT")" ;;
+esac
+pass "the reconcile-requests intake stops loudly on a bound hit instead of refusing the row as absent"
+
+# The migrated-prefix scan is the resolution path whose exact and legacy ids
+# genuinely answer NOT_FOUND: only the prefixed migrated row wedges. A dropped
+# 124 there falls through to 'no captain-held task $entry resolves to nothing'
+# - the exact bound-hit-as-absence outcome the resolver's own 124 arm exists to
+# prevent - so the bound must survive the prefixed scan to verify_entry_durable.
+MIG="$TMP_ROOT/migrated"
+MIG_FAKEBIN=$(fm_fakebin "$MIG")
+mkdir -p "$MIG/data" "$MIG/state" "$MIG/config"
+cat > "$MIG_FAKEBIN/tasks-axi" <<'SH'
+#!/usr/bin/env bash
+set -u
+case "${1:-}" in
+  --version) printf '%s\n' '0.2.5'; exit 0 ;;
+  show)
+    [ -z "${2:-}" ] && { printf 'code: NOT_FOUND\n' >&2; exit 1; }
+    # Only the prefixed migrated candidates wedge; the exact and legacy ids
+    # answer NOT_FOUND promptly, the concrete path the prefix scan exists for.
+    case "$2" in $FM_TEST_PREFIXED_GLOB) sleep 300; exit 0 ;; esac
+    printf 'code: NOT_FOUND\n' >&2
+    exit 1
+    ;;
+  update)
+    [ "${2:-}" = --help ] || exit 0
+    printf '%s\n' 'usage: tasks-axi update <id> [flags]' '  --body-file <path>' '  --archive-body'
+    exit 0
+    ;;
+  mv)
+    [ "${2:-}" = --help ] || exit 0
+    printf '%s\n' 'usage: tasks-axi mv <id> [<id>...] --to <path-or-dir>'
+    exit 0
+    ;;
+  hold)
+    [ "${2:-}" = --help ] || exit 0
+    printf '%s\n' 'usage: tasks-axi hold <id> [flags]' '  --kind captain' '  --until <date>'
+    exit 0
+    ;;
+  list)
+    printf 'count: 0\n'
+    printf 'tasks[0]{id,state,kind,repo,title,blocked_by,hold_kind,hold_reason}:\n'
+    exit 0
+    ;;
+esac
+exit 0
+SH
+chmod +x "$MIG_FAKEBIN/tasks-axi"
+cat > "$MIG_FAKEBIN/bd" <<'SH'
+#!/usr/bin/env bash
+[ "${1:-}" = list ] && { printf '[]\n'; exit 0; }
+exit 1
+SH
+chmod +x "$MIG_FAKEBIN/bd"
+cat > "$MIG/.tasks.toml" <<'TOML'
+backend = "beads"
+
+[beads]
+prefix = "bd"
+path = "graph"
+binary = "bd"
+TOML
+printf '# Backlog\n' > "$MIG/data/backlog.md"
+fm_write_meta "$MIG/state/wedged-origin.meta" \
+  'window=firstmate:fm-wedged-origin' \
+  'worktree=/nonexistent/wedged-origin' \
+  'project=alpha' \
+  'harness=claude' \
+  'decisions_reviewed=1' \
+  'decision_keys=mig-entry'
+
+VERIFY_MIG_OUT="$MIG/verify.out"
+VERIFY_MIG_STATUS=0
+PATH="$MIG_FAKEBIN:$BASE_PATH" FM_HOME="$MIG" \
+  FM_STATE_OVERRIDE="$MIG/state" FM_DATA_OVERRIDE="$MIG/data" \
+  FM_CONFIG_OVERRIDE="$MIG/config" FM_BACKLOG_ROW_TIMEOUT_SECS="$BOUND_SECS" \
+  FM_TEST_PREFIXED_GLOB='bd-*' \
+  "$ROOT/bin/fm-captain-hold.sh" verify wedged-origin > "$VERIFY_MIG_OUT" 2>&1 || VERIFY_MIG_STATUS=$?
+
+[ "$VERIFY_MIG_STATUS" -ne 0 ] \
+  || fail "verify must not attest an inventory whose migrated-prefix read wedged: $(cat "$VERIFY_MIG_OUT")"
+case "$(cat "$VERIFY_MIG_OUT")" in
+  *'no captain-held task'*|*absent*) 
+    fail "the migrated-prefix bound hit was spent as an unresolved key: $(cat "$VERIFY_MIG_OUT")" ;;
+esac
+case "$(cat "$VERIFY_MIG_OUT")" in
+  *'exceeded its read bound resolving mig-entry') ;;
+  *) fail "verify must name the entry it could not read and the bound it hit, got: $(cat "$VERIFY_MIG_OUT")" ;;
+esac
+pass "a bound hit in the migrated-prefix scan stops verify by name instead of resolving to nothing"
+
 # --- half two: the digest still completes end to end ------------------------
 
 E2E="$TMP_ROOT/e2e"
