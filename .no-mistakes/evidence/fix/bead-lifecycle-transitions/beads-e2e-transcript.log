@@ -1,0 +1,99 @@
+=== BEFORE: bead state (real tasks-axi show over the real beads db) ===
+task:
+  id: home-e2e-1
+  title: demonstrate bead lifecycle transitions end to end
+  state: queued
+  blocked: no
+  blocked_by: none
+  held: no
+  hold_reason: "-"
+  hold_kind: "-"
+  hold_until: "-"
+  kind: ship
+  repo: "-"
+  priority: 2
+  priority_why: "-"
+  created: 2026-09-09
+  closed: "-"
+  deps: none
+  links: none
+  body: ""
+
+=== RUN: bin/fm-spawn.sh home-e2e-1 (FM_HOME=/tmp/fm-beads-e2e/case/home, backend=beads) ===
+spawned home-e2e-1 harness=claude kind=ship mode=no-mistakes yolo=off window=firstmate:fm-home-e2e-1 worktree=/tmp/fm-beads-e2e/case/wt
+spawn exit: 0
+
+=== AFTER SPAWN ===
+--- bead state (tasks-axi show, no --file):
+task:
+  id: home-e2e-1
+  title: demonstrate bead lifecycle transitions end to end
+  state: in_flight
+  blocked: no
+  blocked_by: none
+  held: no
+  hold_reason: "-"
+  hold_kind: "-"
+  hold_until: "-"
+  kind: ship
+  repo: "-"
+  priority: 2
+  priority_why: "-"
+  created: 2026-09-09
+  closed: "-"
+  deps: none
+  links: none
+  body: ""
+--- published task record:
+window=firstmate:fm-home-e2e-1
+endpoint_task_id=home-e2e-1
+worktree=/tmp/fm-beads-e2e/case/wt
+project=/tmp/fm-beads-e2e/case/project
+harness=claude
+kind=ship
+mode=no-mistakes
+yolo=off
+tasktmp=/tmp/fm-home-e2e-1
+model=default
+effort=default
+busy_gen=g1788986366.2507734.17919
+spawn_gen=s1788986366.2502930.19381
+
+=== RUN: bin/fm-teardown.sh home-e2e-1 ===
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 8s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e /home/jon/.no-mistakes/worktrees/2f32188048b1/01M23X6633SZ0MFFTZXTKQN6CY/.pi/extensions/fm-primary-turnend-guard.ts -e /home/jon/.no-mistakes/worktrees/2f32188048b1/01M23X6633SZ0MFFTZXTKQN6CY/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+/tmp/fm-beads-e2e/case/project: skipped: no origin remote
+teardown home-e2e-1 complete (window firstmate:fm-home-e2e-1, worktree /tmp/fm-beads-e2e/case/wt)
+Backlog: home-e2e-1 is closed in this home's configured tasks-axi backend (data directory /tmp/fm-beads-e2e/case/home/data). Run tasks-axi ready for dependency-cleared candidates, check date gates, and dispatch only work whose blockers are gone and date is due.
+teardown exit: 0
+
+=== AFTER TEARDOWN ===
+--- bead state (tasks-axi show):
+task:
+  id: home-e2e-1
+  title: "demonstrate bead lifecycle transitions end to end https://github.com/example/fir\n... (truncated, 96 chars total - use --full to see complete text)"
+  state: done
+  blocked: no
+  blocked_by: none
+  held: no
+  hold_reason: "-"
+  hold_kind: "-"
+  hold_until: "-"
+  kind: ship
+  repo: "-"
+  priority: 2
+  priority_why: "-"
+  created: 2026-09-09
+  closed: 2026-09-09
+  deps: none
+  links: "pr:https://github.com/example/firstmate/pull/4202"
+  body: ""
+--- task record after teardown:
+ls: cannot access '/tmp/fm-beads-e2e/case/home/state/home-e2e-1.meta': No such file or directory
+--- markdown backlog file (must never have existed for this beads home):
+ls: cannot access '/tmp/fm-beads-e2e/case/home/data/backlog.md': No such file or directory
