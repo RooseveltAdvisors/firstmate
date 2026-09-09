@@ -174,7 +174,60 @@ record_pi_busy() {  # <state-dir> <id>
     --source pi-ext --event agent-start
 }
 
-reap() { kill "$1" 2>/dev/null || true; wait "$1" 2>/dev/null || true; }
+# Stop a background watcher and reap it. The TERM trap itself can be lost by
+# bash: a signal that fires while the shell is mid-parse between two command
+# substitutions of one word is parsed inside that substitution's context and
+# silently dropped ("trap: line 2: unexpected EOF while looking for matching
+# `)'"), so the watcher survives the signal. An unconditional wait on such a
+# survivor blocked the 2026-09-09 portable-serial-1 CI job for its whole 20m
+# cap, so bound the grace and escalate to KILL instead of hanging the suite.
+reap() {  # <pid>
+  local pid=$1 i=0 state
+  kill "$pid" 2>/dev/null || true
+  while [ "$i" -lt 50 ]; do
+    state=$(ps -o state= -p "$pid" 2>/dev/null | tr -d '[:space:]')
+    case "$state" in
+      ''|Z*) break ;;
+    esac
+    sleep 0.1
+    i=$((i + 1))
+  done
+  if [ -n "$state" ] && [ "$state" != Z ]; then
+    kill -KILL "$pid" 2>/dev/null || true
+  fi
+  wait "$pid" 2>/dev/null || true
+}
+
+# --- reap harness contract --------------------------------------------------
+
+# Regression for the 2026-09-09 portable-serial-1 CI hang: bash dropped the
+# watcher's TERM trap (fired mid-parse between two command substitutions), the
+# watcher survived the signal, and reap's unconditional wait blocked the shard
+# until the 20m job cap. reap must bound its wait and escalate to KILL. The
+# real reap function is executed in a child shell (declare -f + eval) against
+# a stub that survives TERM, so a regression hangs that child - bounded here
+# by wait_live - instead of hanging the suite.
+test_reap_escalates_to_kill_when_term_is_lost() {
+  local reap_src child_pid
+  reap_src=$(declare -f reap)
+  [ -n "$reap_src" ] || fail "could not capture the reap function under test"
+  bash -c '
+    eval "$1"
+    trap "" TERM
+    while :; do sleep 5; done &
+    stub=$!
+    reap "$stub"
+  ' _ "$reap_src" >/dev/null &
+  child_pid=$!
+  if wait_live "$child_pid" 100; then
+    pkill -KILL -P "$child_pid" 2>/dev/null || true
+    kill -KILL "$child_pid" 2>/dev/null || true
+    wait "$child_pid" 2>/dev/null || true
+    fail "reap waited unboundedly on a watcher that survived its TERM"
+  fi
+  wait "$child_pid" 2>/dev/null || true
+  pass "reap bounds its wait and escalates to KILL when a watcher survives TERM"
+}
 
 # --- pure classifier predicates (fm-classify-lib.sh) ------------------------
 
@@ -4785,3 +4838,4 @@ test_afk_one_shot_never_hands_off_captain_held_under_away_record
 test_paused_until_near_future_is_quiet_before_the_cadence
 test_paused_until_wrong_year_is_bounded_by_the_cadence
 test_paused_until_that_passed_is_rechecked_before_the_cadence
+test_reap_escalates_to_kill_when_term_is_lost
