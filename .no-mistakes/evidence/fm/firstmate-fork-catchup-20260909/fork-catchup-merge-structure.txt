@@ -1,0 +1,23 @@
+=== 1. Target commit parents (normal 2-parent merge: upstream base + fork/main) ===
+44896dda parents: 0fe226c9 719e222c
+
+=== 2. No fork commit discarded: commits reachable from fork/main but NOT from target ===
+count: 0
+PASS - every commit in fork/main is preserved in target ancestry
+
+=== 3. Upstream commits missing from target (should be only the 2 merge commits) ===
+44896dda22862e4ba69db8deaaeecc11d987b099
+719e222c351c2a5cd66993b7e622059613b9ca5d
+
+=== 4. Tree reconciliation: target tree vs upstream base tree ===
+upstream base tree: 46339051c3cf6ca164fd6bb9abce41706a657e7a
+target tree:        46339051c3cf6ca164fd6bb9abce41706a657e7a
+IDENTICAL - catch-up took current upstream content (house work already upstreamed)
+
+=== 5. House-work ancestry preserved ===
+fork/main (719e222c, incl. PR #5 house merge) IS ancestor of target
+house branch tip af8c4b62 IS ancestor of target
+
+=== 6. No history rewrite: target first parent is upstream base 0fe226c9 ===
+first parent: 0fe226c93efdd12a38f1c3936d758571e40111b7
+upstream base: 0fe226c93efdd12a38f1c3936d758571e40111b7
