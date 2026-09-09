@@ -1,0 +1,18 @@
+
+== 1. Assignee read before any stamp (empty = unassigned) ==
+assignee: []
+
+== 2. fm_beads_assign (what fm-spawn.sh runs at the dispatch success commit) ==
+stamp exit: 0
+
+== 3. Persisted state read back through real bd ==
+assignee via fm_beads_assignee: [sm-alpha]
+Owner: Jon Roosevelt · Assignee: sm-alpha · Type: task
+
+== 4. Ownership rule: existing assignee is evidence - a fresh spawn must not replace it ==
+skipping stamp: existing assignee 'sm-alpha' preserved
+assignee after guarded fresh spawn: [sm-alpha]
+
+== 5. Unassign only when ownership ends (fm_beads_unassign path via bd) ==
+✓ Updated issue: fm-0m2 — item for spawn stamp test
+assignee after unassign: []
