@@ -405,7 +405,7 @@ test_dry_run_lists_verdicts_and_reclaims_nothing() {
     "unowned row must read no-home / keep"
   assert_row_matches 'fm-prov-row[[:space:]]+widgets[[:space:]]+50h[[:space:]]+dead[[:space:]]+would reclaim' "$out" \
     "provenance row must read dead under the provenance actor"
-  assert_contains "$out" "7 stale candidates: 2 dead, 1 live, 0 unproven, 4 no-home; would reclaim 2" \
+  assert_contains "$out" "7 stale candidates: 2 dead, 1 live, 0 unproven, 4 no-home, 0 held; would reclaim 2" \
     "summary must count the dry-run verdicts"
   [ "$(row_state fm-dead-row)" = in_flight ] || fail "dry run changed the dead row's state"
   [ "$(row_state fm-live-row)" = in_flight ] || fail "dry run changed the live row's state"
@@ -490,6 +490,81 @@ test_apply_reclaims_only_dead_rows() {
   [ -f "$HOME_DIR/state/fm-dead-row.meta" ] || fail "apply removed the dead row's meta file"
   [ -f "$HOME_DIR/state/fm-live-row.meta" ] || fail "apply removed the live row's meta file"
   pass "apply reclaims exactly the dead rows with the note, touching nothing else"
+}
+
+# Held rows (the tasks-axi-held label, which tasks-axi hold and unhold write)
+# classify as held, are kept without a liveness probe, and never count as
+# reclaimable, so the check goes silent when only held rows remain instead of
+# re-instructing an apply that must refuse them. Ungated: a bare bd label add
+# is exactly what tasks-axi reads back as held, so no beads-capable tasks-axi
+# is required.
+test_held_rows_classify_held_and_are_never_counted() {
+  local rec out t0
+  rec=$(make_fixture held)
+  [ -n "$rec" ] || fail "fixture construction failed (see stderr above)"
+  read_fixture "$rec"
+  BEADS_DIR="$CASE_DIR/fm/.beads" bd update fm-dead-row --add-label tasks-axi-held >/dev/null \
+    || fail "bd label add on fm-dead-row failed"
+  out=$(run_sweep)
+  assert_row_matches 'fm-dead-row[[:space:]]+main home[[:space:]]+50h[[:space:]]+held[[:space:]]+keep' "$out" \
+    "a held row must classify held and be kept without a probe"
+  assert_contains "$out" "7 stale candidates: 1 dead, 1 live, 0 unproven, 4 no-home, 1 held; would reclaim 1" \
+    "the summary must count held rows apart from the reclaimable dead"
+  t0=$(sweep_clock)
+  out=$(FM_HOME="$HOME_DIR" FM_STALE_SWEEP_NOW=$t0 PATH="$FAKEBIN:$PATH" "$SWEEP" check)
+  assert_contains "$out" "stale-sweep: 1 dead-endpoint in_progress rows reclaimable" \
+    "the check must count only the unheld dead row"
+  # Once the remaining dead row is held too, a check past the interval gate
+  # prints nothing and still refreshes its probe record.
+  BEADS_DIR="$CASE_DIR/fm/.beads" bd update fm-prov-row --add-label tasks-axi-held >/dev/null \
+    || fail "bd label add on fm-prov-row failed"
+  out=$(FM_HOME="$HOME_DIR" FM_STALE_SWEEP_NOW=$((t0 + 86401)) PATH="$FAKEBIN:$PATH" "$SWEEP" check)
+  [ -z "$out" ] || fail "check with only held dead rows printed: $out"
+  [ "$(sed -n 's/^epoch //p' "$HOME_DIR/state/.stale-sweep")" = "$((t0 + 86401))" ] \
+    || fail "the silent check did not refresh its probe record"
+  pass "held rows classify held, are kept, and never count as reclaimable"
+}
+
+# Regression pin for the scan-to-mutation race the apply guard owns: a row
+# eligible at scan time but held before the reclaim's first proof must be
+# refused mid-apply - no note, no reopen - while the other dead row still
+# reclaims. The fakebin tasks-axi wrapper passes every call through except the
+# first `show fm-dead-row`, which it holds first behind a once-only marker, so
+# the sweep's bd scan saw the row unheld and the guard's proof reads held=yes
+# with no sleeps.
+test_apply_refuses_a_row_held_between_scan_and_mutation() {
+  require_tasks_axi_beads "the reclaim apply path" || return 0
+  local rec out rc real_axi
+  rec=$(make_fixture raceheld)
+  [ -n "$rec" ] || fail "fixture construction failed (see stderr above)"
+  read_fixture "$rec"
+  real_axi=$(command -v tasks-axi) || fail "no real tasks-axi on PATH"
+  cat > "$FAKEBIN/tasks-axi" <<SH
+#!/usr/bin/env bash
+set -u
+if [ "\${1:-}" = show ] && [ "\${2:-}" = fm-dead-row ] && [ ! -e "$CASE_DIR/held-once" ]; then
+  : > "$CASE_DIR/held-once"
+  (cd "$HOME_DIR" && "$real_axi" hold fm-dead-row --reason race-probe --kind captain) >/dev/null
+fi
+exec "$real_axi" "\$@"
+SH
+  chmod +x "$FAKEBIN/tasks-axi"
+  out=$(run_sweep --apply)
+  rc=$?
+  expect_code 1 "$rc" "an apply that refuses a mid-run held row must exit 1"
+  assert_row_matches \
+    'fm-dead-row[[:space:]]+main home[[:space:]]+50h[[:space:]]+dead[[:space:]]+reclaim failed: row changed under the sweep \(state=in_flight held=yes blocked=no\)' \
+    "$out" "a row held between scan and mutation must be refused by the locked proof"
+  [ "$(row_state fm-dead-row)" = in_flight ] || fail "the sweep reopened a row held mid-apply"
+  (cd "$HOME_DIR" && "$real_axi" show fm-dead-row) | grep -q 'held: yes' \
+    || fail "the mid-apply hold did not land on fm-dead-row"
+  case "$(row_body fm-dead-row)" in
+    *reclaimed*) fail "a refused row carried a reclaim note" ;;
+  esac
+  [ "$(row_state fm-prov-row)" = queued ] || fail "the other dead row was not reclaimed"
+  assert_contains "$out" "reclaimed 1" \
+    "the summary must count only the row the race did not protect"
+  pass "a row held between scan and mutation is refused with no note and no reopen"
 }
 
 test_check_mode_gates_on_the_interval_record() {
@@ -675,6 +750,8 @@ test_orphan_columns_and_apply_orphans_guards
 test_dry_run_lists_verdicts_and_reclaims_nothing
 test_unreachable_backend_row_reads_unproven_and_is_kept
 test_apply_reclaims_only_dead_rows
+test_held_rows_classify_held_and_are_never_counted
+test_apply_refuses_a_row_held_between_scan_and_mutation
 test_apply_refuses_a_row_whose_record_lock_a_completion_holds
 test_apply_refuses_a_row_with_a_pending_completion_replay
 test_apply_names_the_resolved_homes_actor_when_two_homes_hold_meta
