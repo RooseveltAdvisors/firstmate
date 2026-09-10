@@ -21,8 +21,11 @@
 # before merge instead of only failing to run as CI.
 # Every run also enforces one interface boundary over the production shell
 # roots it lints: firstmate reaches its backlog through tasks-axi and never
-# through the beads CLI directly (see fm_lint_interface_purity; test scripts
-# are exempt by design).
+# through the beads CLI directly (see fm_lint_run_backend_purity). The
+# check's roots are the production bin/ and bin/backends/ scripts, so test
+# scripts are out of scope by construction: a beads-backed test fixture must
+# bootstrap its scratch graph with `bd` before tasks-axi can operate on it at
+# all, as tests/fm-captain-hold-lifecycle.test.sh documents.
 #
 # With no explicit paths, the file set and source-following posture depend
 # on context:
@@ -37,9 +40,13 @@
 #     `gh`). That local pass drops --external-sources and excludes SC1091,
 #     SC2034, SC2153, and SC2329. A branch with zero matching changed files
 #     skips ShellCheck and prints a "no changed lint targets" note, then
-#     still validates workflows.
+#     still runs the backend-purity check and validates workflows.
 # Explicit paths always bypass this file-set selection and lint exactly the
 # given paths, matching the same config, without the workflow YAML check.
+# Explicit core bin/ and bin/backends/ scripts still receive the
+# backend-purity check. The backend-purity check rejects direct Beads CLI
+# invocations in the core bin/ and bin/backends/ scripts so every configured
+# backlog backend follows the same tasks-axi lifecycle path.
 #
 # Canonical lint defaults to two bounded workers over two stable logical shards.
 # Each shard writes separate diagnostics, and the parent replays those outputs in
@@ -64,9 +71,9 @@ REQUIRED_SHELLCHECK=0.11.0
 # Cross-file codes that need --external-sources. Local changed-file mode
 # cannot judge them, so they stay CI-only.
 LOCAL_NOX_EXCLUDE=SC1091,SC2034,SC2153,SC2329
-SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 SELF="$SELF_DIR/fm-lint.sh"
-ROOT="$(cd "$SELF_DIR/.." && pwd)"
+ROOT="$(cd "$SELF_DIR/.." && pwd -P)"
 cd "$ROOT" || exit 1
 
 FM_LINT_WORKER_SHELLCHECK_PID=
@@ -159,66 +166,237 @@ fm_lint_run_workflows() {
   "$SELF_DIR/fm-lint-workflows.sh"
 }
 
-# Firstmate reaches its backlog only through tasks-axi, never through the beads
-# CLI that tasks-axi wraps. tasks-axi owns the backend gate, the per-home
-# addressing root, and the compatibility verdict, so a direct `bd` call silently
-# bypasses all three and mutates the wrong home or an unsupported schema.
-# This is a source check over the production shell roots this run lints (bin/
-# and bin/backends/), so it applies to the canonical set, a changed-file set,
-# and explicit paths alike. Test scripts are exempt by design: a fixture that
-# exercises a beads-backed backend must bootstrap its scratch graph with `bd`
-# before tasks-axi can operate on it at all - the npm-published tasks-axi ships
-# the markdown backend only, so tests/fm-captain-hold-lifecycle.test.sh drives
-# `bd` directly for fixture setup, documents why, and self-skips on
-# markdown-only installs. A direct `bd` call there builds a throwaway graph and
-# never reaches a real home, so the runtime bypass this boundary exists for
-# cannot happen; a blanket ban over tests/ would instead forbid the repo's own
-# documented fixture pattern.
-# Full-line comments are exempt so prose may still name the tool; grep -H is
-# load-bearing for that, because a single-root run otherwise drops the filename
-# prefix the comment filter anchors on.
-# Command position is recognized lexically, not by parsing shell: the start of a
-# line, after a separator (`;` `&` `|` `(` `)` backtick `!` `{` and either
-# quote), and after a shell keyword or wrapper that is followed IMMEDIATELY by
-# the command (if/while/until/then/do/elif/else/sudo/command/time/xargs/exec/
-# eval/nohup). The closing paren carries a `case` branch, the most common
-# command position in these scripts, and the quotes carry an `eval` body. A `bd`
-# inside a string literal on a code line is reported like any other command
-# position; rewrite such a line rather than suppressing the check.
-#
-# KNOWN, TRACKED GAP - NOT AN OVERSIGHT: because a wrapper must sit immediately
-# before the command, any form that puts ARGUMENTS between them is NOT caught.
-# So `timeout 5 bd close <id>`, `env FOO=1 bd list`, and the inline-assignment
-# prefix `x=1 bd y` all pass this check silently. `env` and `timeout` are absent
-# from the list above for exactly that reason: they are essentially never
-# written bare, so listing them would claim a coverage this pattern does not
-# provide. Widening the pattern to span an argument run risks trading these
-# false negatives for false positives, so the narrower rule is deliberate and
-# the gap is recorded here rather than papered over. Do not read a clean verdict
-# from this check as proof that a script makes no direct beads call.
-fm_lint_is_production_root() {  # <path>
-  local dir base
-  case "$1" in
-    */*) dir=${1%/*}; base=${1##*/} ;;
-    *) dir=; base=$1 ;;
-  esac
-  [ "${base%.sh}" != "$base" ] || return 0
-  case "$dir" in
-    tests | */tests) return 1 ;;
-    *) return 0 ;;
-  esac
-}
-
-fm_lint_interface_purity() {  # <root>...
-  local hits
-  [ "$#" -gt 0 ] || return 0
-  hits=$(grep -HnE '(^|[;&|()`!{'"'"'"]|(^|[[:space:]])(if|while|until|then|do|elif|else|sudo|env|command|time|xargs|exec|eval|nohup|timeout)[[:space:]])[[:space:]]*bd([^A-Za-z0-9_.=/-]|$)' "$@" 2>/dev/null \
-    | grep -vE '^[^:]*:[0-9]+:[[:space:]]*#') || return 0
-  [ -n "$hits" ] || return 0
-  printf 'fm-lint.sh: firstmate scripts must reach the backlog through tasks-axi, never the beads CLI directly.\n' >&2
-  printf 'fm-lint.sh: replace each call below with the matching tasks-axi command.\n' >&2
-  printf '%s\n' "$hits" >&2
-  return 1
+# Backend adapters belong behind tasks-axi. Keep direct Beads CLI invocations
+# out of firstmate's core scripts so every configured backend follows the same
+# lifecycle path.
+fm_lint_run_backend_purity() {
+  local findings path canonical
+  local -a purity_roots
+  purity_roots=()
+  if [ "$EXPLICIT_PATHS" -eq 0 ]; then
+    purity_roots=(bin/*.sh bin/backends/*.sh)
+  else
+    for path in "${ROOTS[@]}"; do
+      [ -f "$path" ] || continue
+      # shellcheck disable=SC2016 # Perl, not the shell, expands $ARGV.
+      canonical=$("$PERL_BIN" -MCwd=realpath -e '
+        my $resolved = realpath($ARGV[0]);
+        exit 1 unless defined $resolved;
+        print $resolved;
+      ' "$path" 2>/dev/null) || continue
+      case "$canonical" in
+        "$ROOT"/bin/*.sh|"$ROOT"/bin/backends/*.sh)
+          purity_roots+=("$canonical")
+          ;;
+      esac
+    done
+  fi
+  [ "${#purity_roots[@]}" -gt 0 ] || return 0
+  findings=$(LC_ALL=C awk '
+    function hex_value(character) {
+      return index("0123456789abcdef", tolower(character)) - 1
+    }
+    function ansi_number(digits, base,    i, value) {
+      value=0
+      for (i=1; i <= length(digits); i++) value=value * base + hex_value(substr(digits, i, 1))
+      return value
+    }
+    # Non-printable and non-ASCII bytes can never spell the bd command, so a
+    # placeholder keeps them from colliding into it.
+    function ansi_character(value) {
+      if (value < 32 || value > 126) return "?"
+      return sprintf("%c", value)
+    }
+    function invokes_bd(segment) {
+      sub(/^[[:space:]]+/, "", segment)
+      while (1) {
+        previous=segment
+        sub(/^(if|then|elif|else|while|until|do)[[:space:]]+/, "", segment)
+        sub(/^![[:space:]]+/, "", segment)
+        sub(/^(command|exec|sudo|time|xargs|nohup|timeout)[[:space:]]+/, "", segment)
+        sub(/^[[:alpha:]_][[:alnum:]_]*=[^[:space:]]+[[:space:]]+/, "", segment)
+        if (segment ~ /^env[[:space:]]+/) {
+          sub(/^env[[:space:]]+/, "", segment)
+          while (1) {
+            if (segment ~ /^--[[:space:]]+/) {
+              sub(/^--[[:space:]]+/, "", segment)
+              break
+            }
+            if (segment ~ /^(-u|--unset|-C|--chdir|-S|--split-string|--argv0)[[:space:]]+[^[:space:]]+[[:space:]]+/) {
+              sub(/^(-u|--unset|-C|--chdir|-S|--split-string|--argv0)[[:space:]]+[^[:space:]]+[[:space:]]+/, "", segment)
+              continue
+            }
+            if (segment ~ /^--(unset|chdir|split-string|argv0)=[^[:space:]]+[[:space:]]+/) {
+              sub(/^--(unset|chdir|split-string|argv0)=[^[:space:]]+[[:space:]]+/, "", segment)
+              continue
+            }
+            if (segment ~ /^(-i|--ignore-environment|-0|--null|-v|--debug)[[:space:]]+/) {
+              sub(/^(-i|--ignore-environment|-0|--null|-v|--debug)[[:space:]]+/, "", segment)
+              continue
+            }
+            if (segment ~ /^[[:alpha:]_][[:alnum:]_]*=[^[:space:]]+[[:space:]]+/) {
+              sub(/^[[:alpha:]_][[:alnum:]_]*=[^[:space:]]+[[:space:]]+/, "", segment)
+              continue
+            }
+            break
+          }
+        }
+        if (segment == previous) break
+      }
+      command_word=""
+      quote=""
+      ansi=0
+      for (position=1; position <= length(segment); position++) {
+        character=substr(segment, position, 1)
+        if (quote == "") {
+          if (character ~ /[[:space:]]/) break
+          if (character == "$" && position < length(segment)) {
+            next_character=substr(segment, position + 1, 1)
+            if (next_character == "\"" || next_character == sprintf("%c", 39)) {
+              position++
+              quote=next_character
+              ansi=(next_character == sprintf("%c", 39)) ? 1 : 0
+              continue
+            }
+          }
+          if (character == "\"" || character == sprintf("%c", 39)) {
+            quote=character
+            ansi=0
+            continue
+          }
+          if (character == "\\") {
+            position++
+            if (position > length(segment)) return 0
+            character=substr(segment, position, 1)
+          }
+          command_word=command_word character
+          continue
+        }
+        if (character == quote) {
+          quote=""
+          ansi=0
+          continue
+        }
+        if (character == "\\" && (quote == "\"" || ansi)) {
+          position++
+          if (position > length(segment)) return 0
+          escape=substr(segment, position, 1)
+          if (ansi) {
+            # ANSI-C quoting decodes escapes, so an encoded spelling of the
+            # command still runs bd and must be decoded here to be caught.
+            value=-1
+            if (escape == "x" || escape == "u" || escape == "U") {
+              max_digits=2
+              if (escape == "u") max_digits=4
+              if (escape == "U") max_digits=8
+              digits=""
+              while (length(digits) < max_digits && position < length(segment)) {
+                digit=substr(segment, position + 1, 1)
+                if (digit !~ /[0-9A-Fa-f]/) break
+                digits=digits digit
+                position++
+              }
+              if (digits == "") {
+                # An escape prefix with no digits yields the prefix character.
+                command_word=command_word escape
+                continue
+              }
+              value=ansi_number(digits, 16)
+            } else if (escape ~ /[0-7]/) {
+              digits=escape
+              while (length(digits) < 3 && position < length(segment)) {
+                digit=substr(segment, position + 1, 1)
+                if (digit !~ /[0-7]/) break
+                digits=digits digit
+                position++
+              }
+              value=ansi_number(digits, 8)
+            }
+            if (value >= 0) {
+              if (value == 0) {
+                # NUL truncates the bash word.
+                quote=""
+                break
+              }
+              command_word=command_word ansi_character(value)
+              continue
+            }
+            if (escape == "c") {
+              # Control characters can never spell the bd command.
+              if (position < length(segment)) position++
+              command_word=command_word "?"
+              continue
+            }
+            if (escape ~ /^[abeEfnrtv]$/) {
+              command_word=command_word "?"
+              continue
+            }
+            # Remaining ANSI-C escapes keep their character, and bash drops
+            # the backslash before any other character.
+            command_word=command_word escape
+            continue
+          }
+          character=escape
+        }
+        command_word=command_word character
+      }
+      if (quote != "") return 0
+      return command_word ~ /(^|\/)bd$/
+    }
+    function split_commands(line, segments,   position, character, quote, current, count) {
+      delete segments
+      count=0
+      current=""
+      quote=""
+      for (position=1; position <= length(line); position++) {
+        character=substr(line, position, 1)
+        if (quote != "") {
+          current=current character
+          if (character == quote) {
+            quote=""
+          } else if (quote == "\"" && character == "\\") {
+            position++
+            if (position <= length(line)) current=current substr(line, position, 1)
+          }
+          continue
+        }
+        if (character == "\\") {
+          current=current character
+          position++
+          if (position <= length(line)) current=current substr(line, position, 1)
+          continue
+        }
+        if (character == "\"" || character == sprintf("%c", 39)) {
+          quote=character
+          current=current character
+          continue
+        }
+        if (character ~ /[();|&{}]/) {
+          segments[++count]=current
+          current=""
+          continue
+        }
+        current=current character
+      }
+      if (quote != "") return split(line, segments, /[();|&{}]+/)
+      segments[++count]=current
+      return count
+    }
+    /^[[:space:]]*#/ { next }
+    {
+      count=split_commands($0, segments)
+      for (i=1; i<=count; i++) {
+        if (invokes_bd(segments[i])) {
+          print FILENAME ":" FNR ": direct Beads CLI invocation bypasses tasks-axi"
+          break
+        }
+      }
+    }
+  ' "${purity_roots[@]}")
+  [ -z "$findings" ] || {
+    printf '%s\n' "$findings" >&2
+    return 1
+  }
 }
 
 JOBS=${FM_LINT_JOBS:-2}
@@ -359,18 +537,6 @@ if [ "$LIST_FILES" -eq 1 ]; then
   exit 0
 fi
 
-# Runs before ShellCheck resolution so an interface violation is reported even
-# on a host without the pinned ShellCheck. Its verdict is folded into the final
-# exit status rather than exiting here, so one run still reports every finding.
-PURITY_RC=0
-PURITY_ROOTS=()
-for purity_path in ${ROOTS[@]+"${ROOTS[@]}"}; do
-  if fm_lint_is_production_root "$purity_path"; then
-    PURITY_ROOTS+=("$purity_path")
-  fi
-done
-fm_lint_interface_purity ${PURITY_ROOTS[@]+"${PURITY_ROOTS[@]}"} || PURITY_RC=$?
-
 if ! command -v shellcheck >/dev/null 2>&1; then
   printf 'fm-lint.sh: ShellCheck not found; install ShellCheck %s with bin/fm-install-shellcheck.sh <destination-directory> and put that directory on PATH.\n' \
     "$REQUIRED_SHELLCHECK" >&2
@@ -399,7 +565,8 @@ fi
 
 if [ "$CHANGED_MODE" -eq 1 ] && [ "$ROOT_COUNT" -eq 0 ]; then
   printf 'fm-lint.sh: no changed lint targets\n'
-  overall_rc=$PURITY_RC
+  overall_rc=0
+  fm_lint_run_backend_purity || overall_rc=$?
   fm_lint_run_workflows || overall_rc=$?
   exit "$overall_rc"
 fi
@@ -600,8 +767,6 @@ while [ "$worker" -lt "$SHARD_COUNT" ]; do
   worker=$((worker + 1))
 done
 
-[ "$PURITY_RC" -eq 0 ] || overall_rc=$PURITY_RC
-
 if [ -n "$TELEMETRY" ]; then
   TELEMETRY_END_EPOCH=$(date +%s)
   TELEMETRY_SHELLCHECK_END=$(fm_lint_shellcheck_count)
@@ -712,6 +877,12 @@ EOF
     printf 'fm-lint.sh: could not write telemetry to %s.\n' "$TELEMETRY" >&2
     [ "$overall_rc" -ne 0 ] || overall_rc=2
   fi
+fi
+
+purity_rc=0
+fm_lint_run_backend_purity || purity_rc=$?
+if [ "$overall_rc" -eq 0 ] && [ "$purity_rc" -ne 0 ]; then
+  overall_rc=$purity_rc
 fi
 
 if [ "$overall_rc" -eq 0 ]; then

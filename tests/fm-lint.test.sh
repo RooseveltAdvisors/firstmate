@@ -152,131 +152,6 @@ pinned_ready() {
 }
 
 # --- tasks-axi interface boundary -------------------------------------------
-# fm-lint.sh enforces that firstmate scripts reach the backlog only through
-# tasks-axi, never through the beads CLI tasks-axi wraps. The offending token is
-# assembled with printf instead of written literally, so this test file stays
-# clean under the very check it exercises.
-fm_lint_write_purity_fixture() {  # <path> <call|prose|keywords|positions>
-  local path=$1 mode=$2 tool
-  tool=$(printf 'b%s' d)
-  {
-    printf '#!/usr/bin/env bash\n'
-    case "$mode" in
-      call)
-        # The command substitution and parameter expansion below are FIXTURE
-        # TEXT written verbatim into the generated script, not expansions in
-        # this test, and that substitution is one command position under test.
-        # shellcheck disable=SC2016
-        printf 'out=$(%s ready --json)\nprintf "%%s\\n" "$out"\n' "$tool"
-        ;;
-      prose)
-        # The backtick is in the separator class, so this comment DOES reach the
-        # purity regex and is only excluded by the comment filter. That is what
-        # makes this fixture load-bearing: without grep -H a single-root run
-        # loses the filename prefix the filter anchors on and reports it as a
-        # call. A comment whose tool name follows plain text never reaches the
-        # regex at all and would pass with or without -H, proving nothing.
-        # The backticks are FIXTURE TEXT written into the generated script, and
-        # the backtick is exactly what makes this comment reach the purity regex.
-        # shellcheck disable=SC2016
-        printf '# prose: run `%s ready` to list\ntasks-axi ready --file backlog.md\n' "$tool"
-        ;;
-      keywords)
-        printf 'if %s ready --json; then :; fi\nsudo %s ready\ncommand %s list\nxargs %s show\n' \
-          "$tool" "$tool" "$tool" "$tool"
-        ;;
-      positions)
-        # A case branch, an exec, and an eval body: the command positions a
-        # separator class missing `)` and a keyword list missing exec/eval let
-        # through. Written as FIXTURE TEXT into the generated script.
-        # shellcheck disable=SC2016
-        printf 'case "$1" in\n  ready) %s ready --json ;;\n  list) %s list ;;\nesac\nexec %s show\neval "%s close"\n' \
-          "$tool" "$tool" "$tool" "$tool"
-        ;;
-      *) return 1 ;;
-    esac
-  } > "$path"
-}
-
-test_interface_purity_rejects_a_direct_beads_call() {
-  local tmp out rc=0
-  tmp=$(fm_test_tmproot fm-lint-purity-call)
-  fm_lint_write_purity_fixture "$tmp/offender.sh" call
-  out=$("$LINT" "$tmp/offender.sh" 2>&1) || rc=$?
-  [ "$rc" -ne 0 ] || fail "a direct beads call passed the interface boundary"$'\n'"$out"
-  assert_contains "$out" "never the beads CLI directly" \
-    "the interface-boundary failure did not name the rule"
-  assert_contains "$out" "offender.sh" \
-    "the interface-boundary failure did not name the offending file"
-  pass "fm-lint.sh refuses a direct beads call in a linted shell root"
-}
-
-test_interface_purity_catches_keyword_command_positions() {
-  local tmp out rc=0
-  tmp=$(fm_test_tmproot fm-lint-purity-keywords)
-  fm_lint_write_purity_fixture "$tmp/wrapped.sh" keywords
-  out=$("$LINT" "$tmp/wrapped.sh" 2>&1) || rc=$?
-  [ "$rc" -ne 0 ] || fail "beads calls after a shell keyword or wrapper passed the boundary"$'\n'"$out"
-  assert_contains "$out" "never the beads CLI directly" \
-    "the interface-boundary failure did not name the rule"
-  # Every wrapped position must be reported, not just the first.
-  [ "$(printf '%s\n' "$out" | grep -c 'wrapped.sh:')" -eq 4 ] \
-    || fail "not every wrapped command position was reported"$'\n'"$out"
-  pass "fm-lint.sh catches beads calls after a shell keyword or wrapper"
-}
-
-test_interface_purity_exempts_test_scripts() {
-  local tmp out rc=0
-  if ! pinned_ready; then
-    pass "SKIP (ShellCheck $REQUIRED not resolved): interface-boundary tests exemption"
-    return 0
-  fi
-  tmp=$(fm_test_tmproot fm-lint-purity-tests)
-  mkdir -p "$tmp/tests"
-  # A REAL direct bd call, not prose: the exemption must cover an actual call in
-  # a tests/ path, the exact shape upstream fixture scripts need to bootstrap a
-  # beads graph before tasks-axi can operate on it.
-  fm_lint_write_purity_fixture "$tmp/tests/offender.sh" call
-  out=$("$LINT" "$tmp/tests/offender.sh" 2>&1) || rc=$?
-  [ "$rc" -eq 0 ] || fail "a direct beads call in a tests/ path failed the interface boundary"$'\n'"$out"
-  assert_not_contains "$out" "never the beads CLI directly" \
-    "a direct beads call in a tests/ path was reported as a call"
-  pass "fm-lint.sh exempts test scripts from the interface boundary"
-}
-
-test_interface_purity_catches_case_exec_and_eval_positions() {
-  local tmp out rc=0
-  tmp=$(fm_test_tmproot fm-lint-purity-positions)
-  fm_lint_write_purity_fixture "$tmp/positions.sh" positions
-  out=$("$LINT" "$tmp/positions.sh" 2>&1) || rc=$?
-  [ "$rc" -ne 0 ] || fail "beads calls in case, exec and eval positions passed the boundary"$'\n'"$out"
-  assert_contains "$out" "never the beads CLI directly" \
-    "the interface-boundary failure did not name the rule"
-  # Both case branches, the exec and the eval body - every one, not just the
-  # first, and not merely a non-zero status some other check could produce.
-  [ "$(printf '%s\n' "$out" | grep -c 'positions.sh:[0-9]*:')" -eq 4 ] \
-    || fail "not every case, exec or eval command position was reported"$'\n'"$out"
-  pass "fm-lint.sh catches beads calls in case, exec and eval command positions"
-}
-
-test_interface_purity_allows_prose_and_tasks_axi() {
-  local tmp out rc=0
-  if ! pinned_ready; then
-    pass "SKIP (ShellCheck $REQUIRED not resolved): interface-boundary prose check"
-    return 0
-  fi
-  tmp=$(fm_test_tmproot fm-lint-purity-prose)
-  fm_lint_write_purity_fixture "$tmp/clean.sh" prose
-  # A SINGLE explicit root is the case that regressed: grep drops the filename
-  # prefix for one file, and the comment filter anchors on that prefix, so a
-  # comment naming the tool was reported as a call.
-  out=$("$LINT" "$tmp/clean.sh" 2>&1) || rc=$?
-  [ "$rc" -eq 0 ] || fail "a tasks-axi-only script failed the interface boundary"$'\n'"$out"
-  assert_not_contains "$out" "never the beads CLI directly" \
-    "prose naming the beads CLI was reported as a call"
-  pass "fm-lint.sh accepts tasks-axi calls and prose naming the beads CLI"
-}
-
 test_help_reports_the_complete_interface() {
   local help
   help=$("$LINT" --help) || fail "fm-lint.sh --help failed"
@@ -1143,6 +1018,85 @@ SH
   pass "fm-lint.sh catches a real lint defect the old no-op gate passed"
 }
 
+test_rejects_direct_beads_cli_invocations() {
+  local tmp fakebin log lint_copy invocation out rc
+  tmp=$(fm_test_tmproot fm-lint-backend-purity)
+  fakebin=$(fm_fakebin "$tmp")
+  log="$tmp/shellcheck.log"
+  mkdir -p "$tmp/repo/bin/backends" "$tmp/repo/tests"
+  lint_copy="$tmp/repo/bin/fm-lint.sh"
+  cp "$LINT" "$lint_copy"
+  cat > "$tmp/repo/bin/fm-lint-workflows.sh" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+  cat > "$tmp/repo/bin/backends/noop.sh" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+  cat > "$tmp/repo/tests/noop.test.sh" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+  chmod +x "$lint_copy" "$tmp/repo/bin/fm-lint-workflows.sh"
+  fm_lint_stub_shellcheck "$fakebin" "$log"
+
+  for invocation in \
+    'bd update fm-example --status in_progress' \
+    'BD_ACTOR=firstmate bd update fm-example --status closed' \
+    'env bd close fm-example' \
+    'env -i BD_ACTOR=firstmate bd close fm-example' \
+    'env -u BD_ACTOR bd close fm-example' \
+    'env -- bd close fm-example' \
+    '/usr/local/bin/bd close fm-example' \
+    '"/usr/local/bin/bd" close fm-example' \
+    "'/usr/local/bin/bd' close fm-example" \
+    "b'd' close fm-example" \
+    "/usr/local/bin/b'd' close fm-example" \
+    "\$'bd' close fm-example" \
+    '$"bd" close fm-example' \
+    "\$'\\x62\\x64' close fm-example" \
+    "\$'\\142\\144' close fm-example" \
+    "b\$'\\x64' close fm-example" \
+    'sudo bd close fm-example' \
+    'time bd list' \
+    'xargs bd show fm-example' \
+    'nohup bd ready --json' \
+    'timeout bd close fm-example'
+  do
+    printf '#!/usr/bin/env bash\n%s\n' "$invocation" > "$tmp/repo/bin/direct-beads.sh"
+    rc=0
+    out=$(cd "$tmp/repo" && CI=true PATH="$fakebin:$PATH" "$lint_copy" 2>&1) || rc=$?
+    [ "$rc" -ne 0 ] || fail "lint accepted a direct Beads CLI invocation: $invocation"
+    assert_contains "$out" "direct Beads CLI invocation bypasses tasks-axi" \
+      "lint did not identify the backend-boundary violation: $invocation"
+  done
+  pass "fm-lint.sh rejects direct Beads CLI invocations in firstmate core"
+}
+
+test_rejects_direct_beads_cli_in_explicit_core_path() {
+  local tmp fakebin log lint_copy target spelling out rc
+  tmp=$(fm_test_tmproot fm-lint-explicit-backend-purity)
+  fakebin=$(fm_fakebin "$tmp")
+  log="$tmp/shellcheck.log"
+  mkdir -p "$tmp/repo/bin/backends"
+  lint_copy="$tmp/repo/bin/fm-lint.sh"
+  target="$tmp/repo/bin/direct-beads.sh"
+  cp "$LINT" "$lint_copy"
+  printf '#!/usr/bin/env bash\nbd close fm-example\n' > "$target"
+  chmod +x "$lint_copy"
+  fm_lint_stub_shellcheck "$fakebin" "$log"
+
+  for spelling in bin/direct-beads.sh bin/../bin/direct-beads.sh; do
+    rc=0
+    out=$(cd "$tmp/repo" && PATH="$fakebin:$PATH" "$lint_copy" "$spelling" 2>&1) || rc=$?
+    [ "$rc" -ne 0 ] || fail "explicit core path bypassed backend-purity lint: $spelling"
+    assert_contains "$out" "direct Beads CLI invocation bypasses tasks-axi" \
+      "explicit core path did not report the backend-boundary violation: $spelling"
+  done
+  pass "fm-lint.sh enforces backend purity for explicit core paths"
+}
+
 test_ignores_ambient_shellcheck_opts() {
   if ! pinned_ready; then
     pass "SKIP (ShellCheck $REQUIRED not resolved): ambient options regression check"
@@ -1430,6 +1384,8 @@ test_installer_rejects_unsupported_platform
 test_missing_shellcheck_fails_closed
 test_rejects_wrong_shellcheck_version
 test_catches_a_real_lint_defect
+test_rejects_direct_beads_cli_invocations
+test_rejects_direct_beads_cli_in_explicit_core_path
 test_ignores_ambient_shellcheck_opts
 test_clean_fixture_passes
 test_jobs_are_deterministic_and_complete
@@ -1450,8 +1406,3 @@ test_explicit_path_keeps_external_sources
 test_fast_mode_on_a_local_branch_keeps_source_following
 test_changed_mode_hides_cross_file_codes_that_ci_still_sees
 test_local_exclusion_list_covers_every_no_external_sources_code
-test_interface_purity_rejects_a_direct_beads_call
-test_interface_purity_allows_prose_and_tasks_axi
-test_interface_purity_exempts_test_scripts
-test_interface_purity_catches_keyword_command_positions
-test_interface_purity_catches_case_exec_and_eval_positions
