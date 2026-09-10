@@ -1,0 +1,164 @@
+#!/usr/bin/env bash
+# Real-Herdr E2E for fm-herdr-recovery.sh: two scripted seats in one isolated
+# lab session, one parked at a real-rendered directory trust dialog and one at
+# a real-rendered command-approval prompt for an allowlisted read. The tool
+# must recover both through the real pane read/send-keys plumbing while the
+# lab helper keeps the fleet default session untouched.
+set -u
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+HERDR_LAB_HELPER=${HERDR_LAB_HELPER:-$ROOT/bin/fm-herdr-lab.sh}
+
+fail() { printf 'not ok - %s\n' "$1" >&2; exit 1; }
+pass() { printf 'ok - %s\n' "$1"; }
+
+command -v herdr >/dev/null 2>&1 || { echo 'skip: herdr not found'; exit 0; }
+command -v jq >/dev/null 2>&1 || { echo 'skip: jq not found'; exit 0; }
+[ -x "$HERDR_LAB_HELPER" ] || { echo "skip: Herdr lab helper not executable at $HERDR_LAB_HELPER"; exit 0; }
+
+REAL_HERDR=$(command -v herdr)
+HERDR_ORIGINAL_PATH=$PATH
+TMP_ROOT=$(mktemp -d "$(cd "${TMPDIR:-/tmp}" && pwd -P)/fm-herdr-recovery-e2e.XXXXXX")
+FAKEBIN="$TMP_ROOT/fakebin"
+HOME_DIR="$TMP_ROOT/home"
+mkdir -p "$FAKEBIN" "$HOME_DIR/state"
+
+HERDR_LAB_SESSION=$("$HERDR_LAB_HELPER" name fm-gcm7b-reco)
+export HERDR_LAB_HELPER HERDR_LAB_SESSION REAL_HERDR HERDR_ORIGINAL_PATH
+cleanup() {
+  local status=$?
+  env PATH="$HERDR_ORIGINAL_PATH" "$HERDR_LAB_HELPER" teardown "$HERDR_LAB_SESSION" || status=1
+  rm -rf "$TMP_ROOT"
+  exit "$status"
+}
+trap cleanup EXIT
+"$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION" || fail 'could not provision the lab session'
+
+# Shim: strip the tool's trailing --session pair and route everything through
+# the guarded lab helper, the same transport the other Herdr E2Es use.
+cat > "$FAKEBIN/herdr" <<SH
+#!/usr/bin/env bash
+set -u
+args=("\$@")
+last=\$((\${#args[@]} - 1))
+flag=\$((last - 1))
+if [ "\${#args[@]}" -ge 2 ] \\
+  && [ "\${args[\$flag]}" = --session ] \\
+  && [ "\${args[\$last]}" = "$HERDR_LAB_SESSION" ]; then
+  unset "args[\$last]" "args[\$flag]"
+fi
+set -- "\${args[@]}"
+for arg in "\$@"; do
+  case "\$arg" in --session|--session=*) exit 9 ;; esac
+done
+exec env PATH="$HERDR_ORIGINAL_PATH" "$HERDR_LAB_HELPER" run "$HERDR_LAB_SESSION" "\$@"
+SH
+chmod +x "$FAKEBIN/herdr"
+
+lab() { env PATH="$HERDR_ORIGINAL_PATH" "$HERDR_LAB_HELPER" run "$HERDR_LAB_SESSION" "$@"; }
+
+TRUST_DIALOG=$TMP_ROOT/trust-dialog
+APPROVAL_DIALOG=$TMP_ROOT/approval-dialog
+cat > "$TRUST_DIALOG" <<'EOF'
+
+  Do you trust the contents of this directory? Working with untrusted contents comes with higher risk of prompt
+  injection. Trusting the directory allows project-local config, hooks, and exec policies to load.
+
+> 1. Yes, continue
+  2. No, quit
+
+  Press enter to continue
+EOF
+cat > "$APPROVAL_DIALOG" <<EOF
+
+  Would you like to run the following command?
+
+  Environment: local
+
+  Reason: re-reading the routed inbox instruction after the restart.
+
+  \$ timeout 15s cat $HOME_DIR/state/fm-e2e-b.inbox/001.msg
+
+> 1. Yes, proceed (y)
+  2. Yes, and don't ask again for commands that start with \`timeout 15s cat\` (p)
+  3. No, and tell Codex what to do differently (esc)
+
+  Press enter to confirm or esc to cancel
+EOF
+mkdir -p "$HOME_DIR/state/fm-e2e-b.inbox"
+printf 'recovery instruction for the e2e seat\n' > "$HOME_DIR/state/fm-e2e-b.inbox/001.msg"
+
+# Seat script: park blocked at a real-rendered dialog, consume one Enter, then
+# report working again through herdr's real agent-state reporting.
+make_seat_script() { # <script-path> <pane-id> <dialog-file>
+  cat > "$1" <<SEAT
+#!/usr/bin/env bash
+set -u
+P=$2
+SRC=fm-herdr-recovery-e2e
+LAB=$HERDR_LAB_SESSION
+seq=1
+rep() {
+  herdr pane report-agent --source "\$SRC" --agent codex --state "\$1" --seq "\$seq" "\$P" --session "\$LAB" >/dev/null 2>&1
+  seq=\$((seq + 1))
+}
+rep blocked
+cat "$3"
+read -r
+rep working
+printf 'seat recovered\n'
+sleep 600
+SEAT
+  chmod +x "$1"
+}
+
+add_seat() { # <id> <dialog-file>
+  local id=$1 dialog=$2
+  local label="recovery-e2e-$id" out pane script
+  out=$(lab workspace create --cwd "$TMP_ROOT" --label "$label" --no-focus) || fail "could not create workspace for $id"
+  pane=$(printf '%s' "$out" | jq -r '.result.root_pane.pane_id')
+  script=$TMP_ROOT/$id-seat.sh
+  make_seat_script "$script" "$pane" "$dialog"
+  lab pane run "$pane" "bash $script" >/dev/null 2>&1 || fail "could not start the seat script for $id"
+  {
+    printf 'version=1\n'
+    printf 'task_id=%s\n' "$id"
+    printf 'window=%s:%s\n' "$HERDR_LAB_SESSION" "$pane"
+    printf 'backend=herdr\n'
+    printf 'herdr_session=%s\n' "$HERDR_LAB_SESSION"
+    printf 'herdr_workspace_id=%s\n' "$(printf '%s' "$out" | jq -r '.result.workspace.workspace_id')"
+    printf 'herdr_tab_id=%s\n' "$(printf '%s' "$out" | jq -r '.result.tab.tab_id')"
+    printf 'herdr_pane_id=%s\n' "$pane"
+    printf 'endpoint_task_id=%s\n' "$id"
+    printf 'harness=codex\n'
+  } > "$HOME_DIR/state/$id.meta"
+}
+
+add_seat fm-e2e-a "$TRUST_DIALOG"
+add_seat fm-e2e-b "$APPROVAL_DIALOG"
+
+# Wait until both scripted seats report blocked through the real pane API.
+attempt=0
+while [ "$attempt" -lt 50 ]; do
+  statuses=$(lab pane list | jq -r '.result.panes[] | "\(.pane_id)\t\(.agent_status)"')
+  if [ "$(printf '%s' "$statuses" | grep -c blocked)" -ge 2 ]; then
+    break
+  fi
+  sleep 0.2
+  attempt=$((attempt + 1))
+done
+[ "$(printf '%s' "$statuses" | grep -c blocked)" -ge 2 ] || fail 'scripted seats never reached blocked'
+
+OUT=$(env -u FM_HOME -u FM_STATE_OVERRIDE \
+  PATH="$FAKEBIN:$HERDR_ORIGINAL_PATH" \
+  bash "$ROOT/bin/fm-herdr-recovery.sh" --home "$HOME_DIR")
+RC=$?
+printf '%s\n' "$OUT"
+[ "$RC" -eq 0 ] || fail "recovery run exited $RC, expected 0"
+printf '%s' "$OUT" | grep -Eq "seat fm-e2e-a harness=codex pane=$HERDR_LAB_SESSION:[^ ]+ before=blocked after=working enters=1 recovered" \
+  || fail 'the trust-dialog seat was not recovered with exactly one Enter'
+printf '%s' "$OUT" | grep -Eq "seat fm-e2e-b harness=codex pane=$HERDR_LAB_SESSION:[^ ]+ before=blocked after=working enters=1 recovered" \
+  || fail 'the approval seat was not recovered with exactly one Enter'
+printf '%s' "$OUT" | grep -Fq 'summary: seats=2 recovered=2 needs-human=0 no-action=0' \
+  || fail 'the summary did not report both seats recovered'
+pass 'both scripted seats were recovered through the real Herdr pane plumbing'
