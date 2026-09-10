@@ -1,0 +1,50 @@
+FM_TEST_BEGIN 2026-09-10T18:18:45Z tests/fm-captain-hold-lifecycle.test.sh family=pure-contract-unit expected_gate_skip=none
+FM_TEST_BEGIN 2026-09-10T18:18:45Z tests/fm-cd-pretool-check.test.sh family=pure-contract-unit expected_gate_skip=none
+FM_TEST_BEGIN 2026-09-10T18:18:45Z tests/fm-test-run.test.sh family=pure-contract-unit expected_gate_skip=none
+FM_TEST_END 2026-09-10T18:18:55Z tests/fm-cd-pretool-check.test.sh exit=0 duration_ms=10384 gate_skip=false
+FM_TEST_END 2026-09-10T18:19:08Z tests/fm-test-run.test.sh exit=1 duration_ms=22939 gate_skip=false
+FM_TEST_END 2026-09-10T18:20:44Z tests/fm-captain-hold-lifecycle.test.sh exit=0 duration_ms=119417 gate_skip=false
+FM_TEST_BEGIN 2026-09-10T18:20:44Z tests/fm-cursor-primary.test.sh family=watcher-wake-lock expected_gate_skip=none
+FM_TEST_END 2026-09-10T18:21:42Z tests/fm-cursor-primary.test.sh exit=0 duration_ms=57137 gate_skip=false
+FM_TEST_BEGIN 2026-09-10T18:21:42Z tests/fm-bearings-board.test.sh family=pure-contract-unit expected_gate_skip=none
+FM_TEST_BEGIN 2026-09-10T18:21:42Z tests/fm-test-isolation-proof.test.sh family=pure-contract-unit expected_gate_skip=none
+FM_TEST_END 2026-09-10T18:21:43Z tests/fm-test-isolation-proof.test.sh exit=0 duration_ms=1116 gate_skip=false
+FM_TEST_END 2026-09-10T18:21:44Z tests/fm-bearings-board.test.sh exit=0 duration_ms=2464 gate_skip=false
+FM_TEST_BEGIN 2026-09-10T18:21:44Z tests/fm-remote-transport-lanes.test.sh family=secondmate expected_gate_skip=none
+FM_TEST_BEGIN 2026-09-10T18:21:44Z tests/fm-remote-job.test.sh family=secondmate expected_gate_skip=none
+FM_TEST_BEGIN 2026-09-10T18:21:44Z tests/fm-backlog-handoff.test.sh family=secondmate expected_gate_skip=none
+FM_TEST_BEGIN 2026-09-10T18:21:44Z tests/fm-remote-backlog-handoff.test.sh family=secondmate expected_gate_skip=none
+FM_TEST_END 2026-09-10T18:22:06Z tests/fm-remote-backlog-handoff.test.sh exit=0 duration_ms=22211 gate_skip=false
+FM_TEST_BEGIN 2026-09-10T18:22:06Z tests/fm-send-secondmate-marker.test.sh family=secondmate expected_gate_skip=none
+FM_TEST_END 2026-09-10T18:22:08Z tests/fm-send-secondmate-marker.test.sh exit=0 duration_ms=1465 gate_skip=false
+FM_TEST_END 2026-09-10T18:22:12Z tests/fm-backlog-handoff.test.sh exit=0 duration_ms=28394 gate_skip=false
+FM_TEST_END 2026-09-10T18:22:17Z tests/fm-remote-transport-lanes.test.sh exit=0 duration_ms=32772 gate_skip=false
+FM_TEST_END 2026-09-10T18:22:38Z tests/fm-remote-job.test.sh exit=0 duration_ms=53519 gate_skip=false
+FM_TEST_BEGIN 2026-09-10T18:22:38Z tests/fm-backlog-atomicity.test.sh family=session-bootstrap expected_gate_skip=none
+FM_TEST_BEGIN 2026-09-10T18:22:38Z tests/fm-gotmp.test.sh family=session-bootstrap expected_gate_skip=none
+FM_TEST_END 2026-09-10T18:22:38Z tests/fm-gotmp.test.sh exit=0 duration_ms=823 gate_skip=false
+FM_TEST_END 2026-09-10T18:23:59Z tests/fm-backlog-atomicity.test.sh exit=0 duration_ms=81614 gate_skip=false
+FM_TEST_BEGIN 2026-09-10T18:23:59Z tests/fm-public-followup.test.sh family=standalone expected_gate_skip=none
+FM_TEST_BEGIN 2026-09-10T18:23:59Z tests/fm-send-remote-delivery.test.sh family=standalone expected_gate_skip=none
+FM_TEST_BEGIN 2026-09-10T18:23:59Z tests/fm-pending-reply.test.sh family=standalone expected_gate_skip=none
+FM_TEST_BEGIN 2026-09-10T18:23:59Z tests/fm-extension-binding.test.sh family=standalone expected_gate_skip=none
+FM_TEST_END 2026-09-10T18:24:03Z tests/fm-extension-binding.test.sh exit=0 duration_ms=3434 gate_skip=false
+FM_TEST_END 2026-09-10T18:24:11Z tests/fm-send-remote-delivery.test.sh exit=0 duration_ms=11314 gate_skip=false
+FM_TEST_END 2026-09-10T18:24:12Z tests/fm-pending-reply.test.sh exit=0 duration_ms=12963 gate_skip=false
+FM_TEST_END 2026-09-10T18:25:15Z tests/fm-public-followup.test.sh exit=0 duration_ms=75945 gate_skip=false
+FM_TEST_BEGIN 2026-09-10T18:25:15Z tests/fm-stdlib.test.sh family=unclassified expected_gate_skip=none
+FM_TEST_END 2026-09-10T18:25:15Z tests/fm-stdlib.test.sh exit=0 duration_ms=116 gate_skip=false
+FM_TEST_BEGIN 2026-09-10T18:25:15Z tests/fm-control.test.sh family=backend-dispatch expected_gate_skip=none
+FM_TEST_END 2026-09-10T18:25:49Z tests/fm-control.test.sh exit=0 duration_ms=33456 gate_skip=false
+FM_TEST_BEGIN 2026-09-10T18:25:49Z tests/fm-send-inbox.test.sh family=backend-dispatch expected_gate_skip=none
+FM_TEST_END 2026-09-10T18:26:21Z tests/fm-send-inbox.test.sh exit=0 duration_ms=31904 gate_skip=false
+FM_TEST_BEGIN 2026-09-10T18:26:21Z tests/fm-send-resolve-key.test.sh family=backend-dispatch expected_gate_skip=none
+FM_TEST_END 2026-09-10T18:26:28Z tests/fm-send-resolve-key.test.sh exit=0 duration_ms=7442 gate_skip=false
+FM_TEST_SUMMARY total=21 failed=1 skipped_gate=0 duration_ms=463445
+FM_TEST_SUMMARY_FAMILY family=backend-dispatch count=3 duration_ms=72802 failed=0
+FM_TEST_SUMMARY_FAMILY family=pure-contract-unit count=5 duration_ms=156320 failed=1
+FM_TEST_SUMMARY_FAMILY family=secondmate count=5 duration_ms=138361 failed=0
+FM_TEST_SUMMARY_FAMILY family=session-bootstrap count=2 duration_ms=82437 failed=0
+FM_TEST_SUMMARY_FAMILY family=standalone count=4 duration_ms=103656 failed=0
+FM_TEST_SUMMARY_FAMILY family=unclassified count=1 duration_ms=116 failed=0
+FM_TEST_SUMMARY_FAMILY family=watcher-wake-lock count=1 duration_ms=57137 failed=0
