@@ -2127,7 +2127,7 @@ test_legacy_captain_hold_records_remain_compatible() {
     "$old_digest" "$old_text" > "$home/old-route-body.txt"
   tasks_in "$home" update "$legacy_id" --body-file "$home/old-route-body.txt" --archive-body >/dev/null \
     || fail "could not seed the pre-collapse resolution record"
-  tasks_in "$home" done "$legacy_id" >/dev/null \
+  tasks_in "$home" "done" "$legacy_id" >/dev/null \
     || fail "could not close the seeded pre-collapse record"
 
   out=$(printf 'old-route\tnorth\t\n' | run_captain "$home" answers "$id" --source "legacy replay") \

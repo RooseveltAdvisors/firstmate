@@ -16,6 +16,7 @@ test_sha256_file_requires_a_hasher() {
   printf 'payload\n' > "$file"
   mkdir -p "$fakebin"
   set +e
+  # shellcheck disable=SC2016
   out=$(PATH="$fakebin" "$bash_path" -c \
     '. "$1"; sha256_file "$2"' _ "$STDLIB" "$file" 2>&1)
   rc=$?
