@@ -44,7 +44,10 @@
 # (absolute under FM_HOME, relative without "..", no "~", or /dev/null), no
 # write redirects, and no deny word in the command text - credentials,
 # 1Password/op, tokens/secrets, git, package installs, network or process
-# tools, other agent CLIs, or anything mutating. Herdr/tmux/zellij/cmux are
+# tools, other agent CLIs, or anything mutating (including the mutating flags
+# and scripts of the read tools themselves: find -delete/-fprint*/-fls/
+# -execdir, sed -i/--in-place and its shell-executing e command, and sort
+# -o/--output). Herdr/tmux/zellij/cmux are
 # not allowlisted command words, so lifecycle commands are refused by the
 # allowlist itself. Any mismatch refuses the seat as needs-human.
 #
@@ -85,14 +88,16 @@ fm_reco_usage() {
   sed -n '2,6p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
+# Missing, empty, or ambiguous (duplicate-key) values refuse, matching the
+# repo's provable-binding metadata semantics: a record this tool cannot read
+# unambiguously is one it must not drive.
 fm_reco_meta_get() { # <key> <meta-file>
-  local key=$1 value=
-  [ -f "$2" ] || return 0
-  while IFS= read -r line || [ -n "$line" ]; do
-    case "$line" in
-      "$key="*) value=${line#*=} ;;
-    esac
-  done < "$2" 2>/dev/null || true
+  local key=$1 count value
+  [ -f "$2" ] || return 1
+  count=$(grep -c "^$key=" "$2" 2>/dev/null) || return 1
+  [ "$count" -eq 1 ] || return 1
+  value=$(grep "^$key=" "$2" | cut -d= -f2-)
+  [ -n "$value" ] || return 1
   printf '%s' "$value"
 }
 
@@ -170,6 +175,59 @@ fm_reco_command_words() { # <line>
   done <<< "$s"
 }
 
+# fm_reco_flags_ok: refuse the mutating or shell-executing flags and scripts
+# of the otherwise read-only allowlist tools, scoped to each segment head so
+# a flag lookalike inside a path is not itself a refusal: find's
+# -delete/-fprint*/-fls/-execdir, sed's -i/--in-place and its shell-executing
+# e command, and sort's -o/--output write target. Mirrors the segment
+# splitting of fm_reco_command_words (including timeout unwrapping) so a
+# wrapper cannot smuggle a flagged tool past this screen.
+fm_reco_flags_ok() { # <line>
+  local nl=$'\n' s seg head rest dur cmdsub
+  cmdsub="\$("
+  s=" $1 "
+  s=${s//;/"$nl"}
+  s=${s//&/"$nl"}
+  s=${s//|/"$nl"}
+  s=${s//"$cmdsub"/"$nl"}
+  s=${s//\`/"$nl"}
+  s=${s//'('/"$nl"}
+  s=${s//')'/"$nl"}
+  s=${s//' do '/"$nl"}
+  s=${s//' then '/"$nl"}
+  s=${s//' else '/"$nl"}
+  while IFS= read -r seg; do
+    seg=${seg#"${seg%%[![:space:]]*}"}
+    [ -n "$seg" ] || continue
+    head=${seg%%[[:space:]]*}
+    if [ "$head" = timeout ]; then
+      rest=${seg#timeout}
+      rest=${rest#"${rest%%[![:space:]]*}"}
+      dur=${rest%%[[:space:]]*}
+      case "$dur" in
+        [0-9]*[a-z]) rest=${rest#"$dur"} ;;
+        [0-9]*) rest=${rest#"$dur"} ;;
+      esac
+      rest=${rest#"${rest%%[![:space:]]*}"}
+      head=${rest%%[[:space:]]*}
+    fi
+    case "$head" in
+      find)
+        printf '%s' "$seg" | grep -qE '(^|[[:space:]])-(delete|execdir|fprint|fls)([^[:alnum:]]|$)' && return 1
+        ;;
+      sed)
+        printf '%s' "$seg" | grep -qE '(^|[[:space:]])--in-place' && return 1
+        printf '%s' "$seg" | grep -qE '(^|[[:space:]])-i([^[:alnum:]]|$)' && return 1
+        printf '%s' "$seg" | grep -qE "(^|[[:space:]\"'/;,])[0-9\$]*e([[:space:]\"';]|\$)" && return 1
+        ;;
+      sort)
+        printf '%s' "$seg" | grep -qE '(^|[[:space:]])-(o|output)([^A-Za-z0-9-]|$)' && return 1
+        ;;
+    esac
+  done <<< "$s"
+  return 0
+}
+
 # fm_reco_paths_ok: every path-like token in <text> stays inside <home>.
 fm_reco_paths_ok() { # <text> <home>
   local home=$2 tok
@@ -227,6 +285,10 @@ fm_reco_command_allowed() { # <command-text> <home>
         return 0
       }
     done <<< "$words"
+    fm_reco_flags_ok "$line" || {
+      printf 'refuse:command mutates or executes through a read-tool flag'
+      return 0
+    }
     fm_reco_paths_ok "$line" "$home" || {
       printf 'refuse:command reaches a path outside this home'
       return 0
@@ -301,7 +363,11 @@ fm_reco_recover_seat() { # <session> <pane>
   FM_RECO_ENTERS=0
   FM_RECO_VERDICT=
   while [ "$round" -lt "$MAX_ROUNDS" ]; do
-    status=$(fm_reco_pane_status "$session" "$pane") || status=none
+    if ! status=$(fm_reco_pane_status "$session" "$pane"); then
+      FM_RECO_AFTER=unknown
+      FM_RECO_VERDICT='needs-human:pane status could not be read'
+      return 0
+    fi
     case "$status" in
       blocked) ;;
       *) FM_RECO_AFTER=$status; FM_RECO_VERDICT=recovered; return 0 ;;
@@ -340,7 +406,11 @@ fm_reco_recover_seat() { # <session> <pane>
       return 0
     }
   done
-  status=$(fm_reco_pane_status "$session" "$pane") || status=none
+  if ! status=$(fm_reco_pane_status "$session" "$pane"); then
+    FM_RECO_AFTER=unknown
+    FM_RECO_VERDICT='needs-human:pane status could not be read'
+    return 0
+  fi
   FM_RECO_AFTER=$status
   if [ "$status" = blocked ]; then
     FM_RECO_VERDICT="needs-human:round cap ($MAX_ROUNDS) reached with the seat still blocked"

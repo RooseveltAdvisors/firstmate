@@ -60,6 +60,7 @@ case "$sub $op" in
     printf '%s%s\n' "$out" ']}}'
     ;;
   'pane get')
+    [ -f "$(pane_file "$pane.getfail")" ] && exit 4
     [ -f "$(pane_file "$pane.status")" ] || exit 4
     printf '{"id":"cli:pane:get","result":{"pane":{"pane_id":"%s","agent_status":"%s"}}}\n' \
       "$pane" "$(cat "$(pane_file "$pane.status")")"
@@ -104,6 +105,7 @@ reco_add_meta() {
   local home=$1 id=$2 harness=$3
   shift 3
   mkdir -p "$home/state"
+  local body=$home/state/$id.meta.body kv k v
   {
     printf 'version=1\n'
     printf 'task_id=%s\n' "$id"
@@ -115,10 +117,17 @@ reco_add_meta() {
     printf 'herdr_pane_id=w1:p%s\n' "$id"
     printf 'endpoint_task_id=%s\n' "$id"
     printf 'harness=%s\n' "$harness"
-    for kv in "$@"; do
-      printf '%s\n' "$kv"
-    done
-  } > "$home/state/$id.meta"
+  } > "$body"
+  for kv in "$@"; do
+    k=${kv%%=*}
+    v=${kv#*=}
+    awk -v k="$k" -v v="$v" '
+      $0 ~ "^" k "=" { print k "=" v; seen = 1; next }
+      { print }
+      END { if (!seen) print k "=" v }
+    ' "$body" > "$body.next" && mv "$body.next" "$body"
+  done
+  mv "$body" "$home/state/$id.meta"
 }
 
 reco_run() { # <home> [tool args...]
@@ -228,6 +237,46 @@ EOF
 > 1. Yes, proceed (y)
   3. No (esc)
 EOF
+  cat > "$prompts/allow-find" <<EOF
+  Would you like to run the following command?
+
+  find $ROOT/state -name '*.msg'
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-find-delete" <<EOF
+  Would you like to run the following command?
+
+  find $ROOT/state -name '*.tmp' -delete
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-sed-inplace" <<EOF
+  Would you like to run the following command?
+
+  sed -i s/TODO/DONE/g $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-sed-exec" <<EOF
+  Would you like to run the following command?
+
+  sed '2e id' $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-sort-output" <<EOF
+  Would you like to run the following command?
+
+  sort $ROOT/state/list.txt -o $ROOT/state/list.txt
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
   cat > "$prompts/unknown" <<'EOF'
 Status header
 gpt-5.6-sol high - some/cwd
@@ -245,6 +294,7 @@ EOF
   }
   classify trust 'trust' 'classifier accepts the live-verified trust dialog'
   classify allow 'approve' 'classifier approves an allowlisted read'
+  classify allow-find 'approve' 'classifier approves a plain find read'
   classify loop 'approve' 'classifier approves an allowlisted for-loop read'
   classify timeout-read 'approve' 'classifier approves the real Environment/Reason/$ dialog format'
   classify deny-cmd 'refuse:command names a denied tool' 'classifier refuses curl|bash'
@@ -252,6 +302,10 @@ EOF
   classify deny-timeout-curl 'refuse:command names a denied tool' 'classifier refuses curl behind a timeout wrapper'
   classify deny-path 'refuse:command reaches a path outside this home' 'classifier refuses /etc/shadow'
   classify deny-redirect 'refuse:command writes with a redirect' 'classifier refuses a write redirect'
+  classify deny-find-delete 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses find -delete'
+  classify deny-sed-inplace 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses sed -i'
+  classify deny-sed-exec 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses the sed e command'
+  classify deny-sort-output 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses sort -o'
   classify unknown 'unknown' 'classifier fails closed on an unrecognized prompt'
 }
 
@@ -337,6 +391,36 @@ test_inventory_classification() {
     "summary counts the inventory correctly"
   assert_equals 1 "$(reco_sends w1:pt-trust)" "exactly one Enter was sent to the trust seat"
   [ ! -f "$FIXTURE/panes/w1:pt-claude.sends" ] || fail "no Enter may reach a non-codex blocked seat"
+}
+
+test_duplicate_meta_key() {
+  reco_fixture_init
+  local home=$TMP_ROOT/home
+  write_shared_prompts "$home"
+  reco_add_pane w1:pt-dup blocked "$TRUST_PROMPT"
+  reco_add_meta "$home" t-dup codex
+  printf 'endpoint_task_id=someone-else\n' >> "$home/state/t-dup.meta"
+  local out rc
+  out=$(reco_run "$home"); rc=$?
+  expect_code 2 "$rc" "duplicate-key meta run exits 2"
+  assert_contains "$out" 'needs-human:metadata lacks a provable herdr seat binding' \
+    "an ambiguous duplicate-key meta is never driven"
+  [ ! -f "$FIXTURE/panes/w1:pt-dup.sends" ] || fail "an ambiguous meta must never receive Enter"
+}
+
+test_status_read_failure() {
+  reco_fixture_init
+  local home=$TMP_ROOT/home
+  write_shared_prompts "$home"
+  reco_add_pane w1:pt-getfail blocked "$APPROVAL_PROMPT"
+  reco_add_meta "$home" t-getfail codex
+  touch "$FIXTURE/panes/w1:pt-getfail.getfail"
+  local out rc
+  out=$(reco_run "$home"); rc=$?
+  expect_code 2 "$rc" "status-read failure run exits 2"
+  assert_contains "$out" 'needs-human:pane status could not be read' \
+    "an unreadable pane status is never labeled recovered"
+  [ ! -f "$FIXTURE/panes/w1:pt-getfail.sends" ] || fail "an unreadable-status seat must never receive Enter"
 }
 
 test_allowlist_refusal_e2e() {
@@ -446,6 +530,8 @@ test_fake_isolation_guard() {
 
 unit_classifier
 test_inventory_classification
+test_duplicate_meta_key
+test_status_read_failure
 test_allowlist_refusal_e2e
 test_unrecognized_prompt_e2e
 test_round_cap
