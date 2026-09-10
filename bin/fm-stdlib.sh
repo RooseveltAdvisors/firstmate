@@ -22,7 +22,13 @@ usage_render_header() {  # <script-file>: print its leading comment block
 }
 
 sha256_file() {  # <path>: hex SHA-256 digest of the file
-  if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | awk '{print $1}'; else sha256sum "$1" | awk '{print $1}'; fi
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  elif command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    die "shasum or sha256sum is required"
+  fi
 }
 
 json_escape() {  # <text>: JSON string content, newlines become spaces
