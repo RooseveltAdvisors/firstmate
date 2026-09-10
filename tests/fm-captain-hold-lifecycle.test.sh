@@ -2098,6 +2098,66 @@ SH
   pass "a board answer reaches the keyed-answer intake and wakes firstmate"
 }
 
+# A binding pinned to a concrete origin (the two-argument bind form) makes a
+# short channel key resolve through the composed <origin>-decision-<key>
+# identity at answer time.
+test_concrete_origin_binding_resolves_the_composed_identity() {
+  local home id result show
+  home=$(make_home pinned-binding)
+  id=sample-pinned-review
+  mkdir -p "$home/data/$id"
+  tasks_in "$home" add "$id" "Review sample pinned routing" --kind scout --repo sample --start >/dev/null \
+    || fail "could not create the pinned origin"
+  write_origin_meta "$home" "$id"
+  printf 'done: report complete\n' > "$home/state/$id.status"
+  run_captain "$home" hold "$id-decision-pick-one" --origin "$id" \
+    --title "Pick one" --reason "pinned captain choice pending" --repo sample >/dev/null \
+    || fail "could not create the composed captain-held task"
+
+  run_captain "$home" bind pinned-src "$id" >/dev/null \
+    || fail "could not pin the channel source to the origin"
+  [ "$(run_captain "$home" binding pinned-src)" = "$id" ] \
+    || fail "the two-argument bind did not record the concrete origin"
+
+  result="$home/state/procevent-inbox/pinned-src.1.result"
+  mkdir -p "$home/state/procevent-inbox"
+  cat > "$result" <<'EOF'
+session:
+  file: /review.html
+  status: feedback
+  session_ended: true
+  ended_by: user
+prompts[1]{uid,prompt,selector,tag,text}:
+  "2","Pick one: gold-only\n\nContext data:\n{\n  \"question\": \"pick-one\",\n  \"answer\": \"gold-only\"\n}","section#call > form",choice,"Pick one: gold-only"
+next_step: This was the last feedback before the user ended the session.
+EOF
+
+  mkdir -p "$home/adapter-root/bin"
+  cat > "$home/adapter-root/bin/fm-procevent-fixturechan.sh" <<SH
+#!/usr/bin/env bash
+# Fixture channel: reports keyed captain answers and nothing else.
+case "\${1-}" in
+  answers) exec "$ROOT/bin/fm-procevent-lavish.sh" answers "\${2-}" ;;
+esac
+exit 2
+SH
+  chmod +x "$home/adapter-root/bin/fm-procevent-fixturechan.sh"
+  PATH="$home/fakebin:$PATH" FM_ROOT_OVERRIDE="$home/adapter-root" FM_HOME="$home" \
+    FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
+    FM_PROCEVENT_CLAIM_ROOT="$home/procevent-claims" \
+    "$ROOT/bin/fm-procevent.sh" register fixturechan pinned-src -- cat "$result" >/dev/null \
+    || fail "could not register the pinned channel source"
+  PATH="$home/fakebin:$PATH" FM_ROOT_OVERRIDE="$home/adapter-root" FM_HOME="$home" \
+    FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
+    FM_PROCEVENT_CLAIM_ROOT="$home/procevent-claims" \
+    "$ROOT/bin/fm-procevent.sh" start pinned-src >/dev/null 2>&1
+
+  show=$(tasks_in "$home" show "$id-decision-pick-one" --full)
+  assert_contains "$show" "state: done" "a pinned channel's short key did not close the composed captain-held task"
+  assert_contains "$show" "Answer: gold-only" "the composed captain-held task lost the captain's answer"
+  pass "a concrete-origin binding resolves a short key through the composed legacy identity"
+}
+
 # Pre-collapse metadata and answer records still resolve through the surviving
 # captain-hold intake; only the retired command shim loses coverage.
 test_legacy_captain_hold_records_remain_compatible() {
@@ -3776,6 +3836,7 @@ test_reconcile_closes_with_evidence_or_keeps_the_call_open
 test_reconcile_outcomes_retry_partial_failures_once
 test_unbound_source_closes_no_hold
 test_board_answer_reaches_the_keyed_answer_intake
+test_concrete_origin_binding_resolves_the_composed_identity
 test_legacy_captain_hold_records_remain_compatible
 test_chat_channel_feeds_the_same_keyed_answer_intake
 test_origin_slug_validation_precedes_path_construction
