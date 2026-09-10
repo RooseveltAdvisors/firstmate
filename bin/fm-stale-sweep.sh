@@ -32,7 +32,9 @@
 #   1. `bd list --all --json` reads the shared graph to a temp file (never
 #      piped into a subshell) and selects in_progress rows older than the
 #      threshold. FM_STALE_SWEEP_BD_TIMEOUT (default 120) bounds the read and
-#      is cut down to the remaining budget in check mode.
+#      is cut down to the remaining budget in check mode. A row carrying the
+#      `tasks-axi-held` label is classified held and kept without a liveness
+#      probe, and is never counted as reclaimable.
 #   2. The owning home is resolved from whichever registered home has
 #      state/<id>.meta (this home plus the local routes in data/secondmates.md,
 #      the current-ownership signal), falling back to the row's provenance line
@@ -71,7 +73,9 @@
 # dry at most once per FM_STALE_SWEEP_INTERVAL (default 86400, 0 disables the
 # gate, otherwise 900..604800) inside FM_STALE_SWEEP_BUDGET_SECS (default 25,
 # 1..3600, cut down to what FM_CHECK_TIMEOUT allows), stays silent when nothing
-# is reclaimable, and prints one line when rows are reclaimable. A failed graph
+# is reclaimable, and prints one line when rows are reclaimable. Held rows
+# never count as reclaimable, so a graph whose only stale rows are held keeps
+# the check silent. A failed graph
 # read reports one line on the same interval instead of every poll, and writes
 # its probe record either way, so a killed probe is retried rather than
 # suppressed.
@@ -523,6 +527,7 @@ FM_STALE_COUNT_DEAD=0
 FM_STALE_COUNT_LIVE=0
 FM_STALE_COUNT_UNPROVEN=0
 FM_STALE_COUNT_NOHOME=0
+FM_STALE_COUNT_HELD=0
 FM_STALE_RECLAIMED=0
 FM_STALE_APPLY_FAILED=0
 FM_STALE_UNCONSIDERED=0
@@ -546,7 +551,8 @@ fm_stale_sweep() {  # <apply 0|1> <budget-secs 0-unbounded> <cutoff-epoch>
     .[] | select(.status == "in_progress") | select(.updated_at)
         | (.updated_at | fromdateiso8601?) as $epoch
         | select($epoch != null) | select($epoch < $cutoff)
-        | [(.id // ""), (((($now - $epoch) / 3600) | floor) | tostring), (.description // "")]
+        | [(.id // ""), (((($now - $epoch) / 3600) | floor) | tostring), (.description // ""),
+           (if ((.labels // []) | index("tasks-axi-held")) == null then "0" else "1" end)]
         | @tsv' "$tmp" 2>/dev/null); then
     rm -f -- "$tmp"
     printf 'fm-stale-sweep: graph read failed on %s\n' "$FM_STALE_BD_PATH" >&2
@@ -555,7 +561,7 @@ fm_stale_sweep() {  # <apply 0|1> <budget-secs 0-unbounded> <cutoff-epoch>
   rm -f -- "$tmp"
   [ -n "$rows" ] || return 0
   printf '%-42s %-18s %-7s %-9s %-24s %-13s %s\n' ID HOME AGE VERDICT ACTION ACTOR PROV
-  while IFS=$'\t' read -r id age_h desc; do
+  while IFS=$'\t' read -r id age_h desc held; do
     [ -n "$id" ] || continue
     ask_timeout=$STATE_TIMEOUT
     if [ "$budget" -gt 0 ]; then
@@ -567,22 +573,34 @@ fm_stale_sweep() {  # <apply 0|1> <budget-secs 0-unbounded> <cutoff-epoch>
       remaining=$((start + budget - now))
       [ "$remaining" -lt "$ask_timeout" ] && ask_timeout=$remaining
     fi
-    fm_stale_consider "$apply" "$id" "$age_h" "$desc" "$ask_timeout"
+    fm_stale_consider "$apply" "$id" "$age_h" "$desc" "$held" "$ask_timeout"
   done <<EOF
 $rows
 EOF
   return 0
 }
 
-fm_stale_consider() {  # <apply> <id> <age-hours> <escaped description> <ask-timeout>
-  local apply=$1 id=$2 age_h=$3 desc=$4 ask_timeout=$5 home actor state_line verdict action reason
+fm_stale_consider() {  # <apply> <id> <age-hours> <escaped description> <held 0|1> <ask-timeout>
+  local apply=$1 id=$2 age_h=$3 desc=$4 held=$5 ask_timeout=$6 home actor state_line verdict action reason
   local mutation_home row_actor="" row_prov=""
   if fm_stale_resolve_home "$id" "$desc"; then
     home=$FM_STALE_RESOLVED_HOME
     actor=$FM_STALE_HOME_ACTOR
     [ -n "$actor" ] || actor=$(basename "$home")
-    state_line=$(fm_stale_ask_home "$home" "$id" "$ask_timeout")
-    verdict=$(fm_stale_verdict "$state_line")
+    if [ "$held" = 1 ]; then
+      # A held row is preserved: classified held and kept without spending a
+      # liveness probe, and never counted as reclaimable.
+      verdict=held
+    else
+      state_line=$(fm_stale_ask_home "$home" "$id" "$ask_timeout")
+      verdict=$(fm_stale_verdict "$state_line")
+    fi
+  elif [ "$held" = 1 ]; then
+    # Held classifies before the orphan branch below, so a held orphan is
+    # never orphan-reclaimed.
+    home=-
+    actor=-
+    verdict=held
   else
     home=-
     actor=-
@@ -597,6 +615,7 @@ fm_stale_consider() {  # <apply> <id> <age-hours> <escaped description> <ask-tim
     live) FM_STALE_COUNT_LIVE=$((FM_STALE_COUNT_LIVE + 1)) ;;
     unproven) FM_STALE_COUNT_UNPROVEN=$((FM_STALE_COUNT_UNPROVEN + 1)) ;;
     no-home) FM_STALE_COUNT_NOHOME=$((FM_STALE_COUNT_NOHOME + 1)) ;;
+    held) FM_STALE_COUNT_HELD=$((FM_STALE_COUNT_HELD + 1)) ;;
   esac
   action=keep
   if [ "$verdict" = dead ]; then
@@ -710,9 +729,9 @@ fm_stale_summary() {  # <apply 0|1>
     reclaim_word=reclaimed
     reclaim_count=$FM_STALE_RECLAIMED
   fi
-  printf '%d stale candidates: %d dead, %d live, %d unproven, %d no-home; %s %s\n' \
-    "$((FM_STALE_COUNT_DEAD + FM_STALE_COUNT_LIVE + FM_STALE_COUNT_UNPROVEN + FM_STALE_COUNT_NOHOME + FM_STALE_UNCONSIDERED))" \
-    "$FM_STALE_COUNT_DEAD" "$FM_STALE_COUNT_LIVE" "$FM_STALE_COUNT_UNPROVEN" "$FM_STALE_COUNT_NOHOME" \
+  printf '%d stale candidates: %d dead, %d live, %d unproven, %d no-home, %d held; %s %s\n' \
+    "$((FM_STALE_COUNT_DEAD + FM_STALE_COUNT_LIVE + FM_STALE_COUNT_UNPROVEN + FM_STALE_COUNT_NOHOME + FM_STALE_COUNT_HELD + FM_STALE_UNCONSIDERED))" \
+    "$FM_STALE_COUNT_DEAD" "$FM_STALE_COUNT_LIVE" "$FM_STALE_COUNT_UNPROVEN" "$FM_STALE_COUNT_NOHOME" "$FM_STALE_COUNT_HELD" \
     "$reclaim_word" "$reclaim_count"
   if [ "$FM_STALE_UNCONSIDERED" -gt 0 ]; then
     printf 'budget stopped the sweep with %d candidates unconsidered; raise FM_STALE_SWEEP_BUDGET_SECS or run without the check gate\n' "$FM_STALE_UNCONSIDERED"
