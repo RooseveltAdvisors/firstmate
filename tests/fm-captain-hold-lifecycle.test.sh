@@ -2098,6 +2098,47 @@ SH
   pass "a board answer reaches the keyed-answer intake and wakes firstmate"
 }
 
+# Pre-collapse metadata and answer records still resolve through the surviving
+# captain-hold intake; only the retired command shim loses coverage.
+test_legacy_captain_hold_records_remain_compatible() {
+  local home id legacy_id old_text old_digest out show
+  home=$(make_home legacy-records)
+  id=sample-legacy-review
+  legacy_id="$id-decision-pick-one"
+  tasks_in "$home" add "$id" "Review legacy sample routing" --kind scout --repo sample --start >/dev/null \
+    || fail "could not create the legacy origin"
+  write_origin_meta "$home" "$id"
+  printf 'done: report complete\n' > "$home/state/$id.status"
+  run_captain "$home" hold "$legacy_id" --origin "$id" \
+    --title "Pick one" --reason "legacy captain choice pending" --repo sample >/dev/null \
+    || fail "could not create the legacy captain-held task"
+
+  printf 'decisions_reviewed=1\ndecision_keys=pick-one\n' >> "$home/state/$id.meta"
+  run_captain "$home" verify "$id" >/dev/null \
+    || fail "legacy short-key metadata did not resolve through the surviving intake"
+
+  old_text=$(printf 'Captain answered this decision through legacy replay.\nDecision key: old-route\nAnswer: north\n')
+  old_digest=$(printf '%s' "$old_text" | shasum -a 256 | awk '{print $1}')
+  legacy_id="$id-decision-old-route"
+  run_captain "$home" hold "$legacy_id" --origin "$id" \
+    --title "Old route" --reason "legacy route pending" --repo sample >/dev/null \
+    || fail "could not create the legacy replay task"
+  printf 'Resolution recorded by fm-decision-hold.\nDecision digest: %s\nRouted identities: none\nResolution mode: answered\n\nCaptain decision:\n%s\n' \
+    "$old_digest" "$old_text" > "$home/old-route-body.txt"
+  tasks_in "$home" update "$legacy_id" --body-file "$home/old-route-body.txt" --archive-body >/dev/null \
+    || fail "could not seed the pre-collapse resolution record"
+  tasks_in "$home" done "$legacy_id" >/dev/null \
+    || fail "could not close the seeded pre-collapse record"
+
+  out=$(printf 'old-route\tnorth\t\n' | run_captain "$home" answers "$id" --source "legacy replay") \
+    || fail "the surviving intake rejected a matching pre-collapse answer"
+  assert_contains "$out" "closed: $legacy_id" \
+    "the surviving intake did not recognize the pre-collapse answer digest"
+  show=$(tasks_in "$home" show "$legacy_id" --full)
+  assert_contains "$show" "state: done" "the legacy replay reopened its closed task"
+  pass "legacy metadata and resolution records remain compatible after shim retirement"
+}
+
 # The intake is channel-agnostic, so chat must reach it the same way a captured
 # review does - for a task-id key, and for a legacy composed identity.
 test_chat_channel_feeds_the_same_keyed_answer_intake() {
@@ -3735,6 +3776,7 @@ test_reconcile_closes_with_evidence_or_keeps_the_call_open
 test_reconcile_outcomes_retry_partial_failures_once
 test_unbound_source_closes_no_hold
 test_board_answer_reaches_the_keyed_answer_intake
+test_legacy_captain_hold_records_remain_compatible
 test_chat_channel_feeds_the_same_keyed_answer_intake
 test_origin_slug_validation_precedes_path_construction
 test_status_resolution_over_an_open_hold_is_signalled
