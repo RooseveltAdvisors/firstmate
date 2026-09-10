@@ -40,14 +40,17 @@
 #
 # Allowlist: file-read commands only (cat sed ls head tail grep rg wc find awk
 # echo printf sort uniq plus for/while/if shells over them; every shell segment
-# head must be an allowed word), every path confined to this home's tree
-# (absolute under FM_HOME, relative without "..", no "~", or /dev/null), no
-# write redirects, and no deny word in the command text - credentials,
-# 1Password/op, tokens/secrets, git, package installs, network or process
-# tools, other agent CLIs, or anything mutating (including the mutating flags
-# and scripts of the read tools themselves: find -delete/-fprint*/-fls/
-# -execdir, sed -i/--in-place and its shell-executing e command, and sort
-# -o/--output). Herdr/tmux/zellij/cmux are
+# head must be an allowed word). For the read tools whose flags can mutate or
+# execute, every flag token must match a bounded read-only set: find's
+# search/print primaries, sed's -n/-E/-r/-e inline scripts (never program
+# files or long options, never its e/w shell-running or file-writing
+# commands), awk's -F/-v only, and sort's behavior flags (never -o/--output).
+# Every path stays inside this home's tree (absolute under FM_HOME, relative
+# without "..", no "~", or /dev/null; '='-attached values included; existing
+# tokens resolved so symlinks cannot leave the tree), no write redirects, and
+# no deny word in the command text - credentials, 1Password/op, tokens/secrets,
+# git, package installs, network or process tools, other agent CLIs, or
+# anything mutating. Herdr/tmux/zellij/cmux are
 # not allowlisted command words, so lifecycle commands are refused by the
 # allowlist itself. Any mismatch refuses the seat as needs-human.
 #
@@ -110,9 +113,13 @@ fm_reco_herdr() { # <session> <herdr arguments...>
 }
 
 fm_reco_pane_statuses() { # <session> -> "pane<TAB>status" lines
-  local out
+  local out rows
   out=$(fm_reco_herdr "$1" pane list 2>/dev/null) || return 1
-  printf '%s' "$out" | jq -r '.result.panes[]? | "\(.pane_id)\t\(.agent_status // "none")"' 2>/dev/null
+  rows=$(printf '%s' "$out" | jq -r '.result.panes[]? | "\(.pane_id)\t\(.agent_status // "none")"' 2>/dev/null) || return 1
+  # A pane list without a real panes array is an output-shape drift, never an
+  # authoritative "no panes": fail closed instead of mass-reporting no-pane.
+  printf '%s' "$out" | jq -e '.result.panes | type == "array"' >/dev/null 2>&1 || return 1
+  printf '%s' "$rows"
 }
 
 fm_reco_pane_status() { # <session> <pane>
@@ -136,12 +143,13 @@ fm_reco_is_allowed_word() { # <word>
   return 1
 }
 
-# fm_reco_command_words: print the first word of every shell segment of <line>.
-# Separators and shell structure words become line breaks so each segment head
-# is the word that would actually execute. A "timeout <duration> <cmd>" head
-# also emits the wrapped command word.
-fm_reco_command_words() { # <line>
-  local nl=$'\n' s seg cmdsub word rest dur
+# fm_reco_segments: print every shell segment of <line>, one per line, with
+# leading whitespace and surrounding quotes stripped. Separators and shell
+# structure words split segments so each head is the word that would actually
+# execute. A "timeout <duration> <cmd>" segment also emits the wrapped command
+# as its own segment (recursively) so both screens see through the wrapper.
+fm_reco_segments() { # <line>
+  local nl=$'\n' s seg rest dur cmdsub
   cmdsub="\$("
   s=" $1 "
   s=${s//;/"$nl"}
@@ -155,52 +163,13 @@ fm_reco_command_words() { # <line>
   s=${s//' then '/"$nl"}
   s=${s//' else '/"$nl"}
   while IFS= read -r seg; do
-    seg=${seg#"${seg%%[![:space:]]*}"}
-    seg=${seg%\"}; seg=${seg#\"}
-    seg=${seg%\'}; seg=${seg#\'}
-    [ -n "$seg" ] || continue
-    word=${seg%%[[:space:]]*}
-    printf '%s\n' "$word"
-    if [ "$word" = timeout ]; then
-      rest=${seg#"$word"}
-      rest=${rest#"${rest%%[![:space:]]*}"}
-      dur=${rest%%[[:space:]]*}
-      case "$dur" in
-        [0-9]*[a-z]) rest=${rest#"$dur"} ;;
-        [0-9]*) rest=${rest#"$dur"} ;;
-      esac
-      rest=${rest#"${rest%%[![:space:]]*}"}
-      [ -n "$rest" ] && printf '%s\n' "${rest%%[[:space:]]*}"
-    fi
-  done <<< "$s"
-}
-
-# fm_reco_flags_ok: refuse the mutating or shell-executing flags and scripts
-# of the otherwise read-only allowlist tools, scoped to each segment head so
-# a flag lookalike inside a path is not itself a refusal: find's
-# -delete/-fprint*/-fls/-execdir, sed's -i/--in-place and its shell-executing
-# e command, and sort's -o/--output write target. Mirrors the segment
-# splitting of fm_reco_command_words (including timeout unwrapping) so a
-# wrapper cannot smuggle a flagged tool past this screen.
-fm_reco_flags_ok() { # <line>
-  local nl=$'\n' s seg head rest dur cmdsub
-  cmdsub="\$("
-  s=" $1 "
-  s=${s//;/"$nl"}
-  s=${s//&/"$nl"}
-  s=${s//|/"$nl"}
-  s=${s//"$cmdsub"/"$nl"}
-  s=${s//\`/"$nl"}
-  s=${s//'('/"$nl"}
-  s=${s//')'/"$nl"}
-  s=${s//' do '/"$nl"}
-  s=${s//' then '/"$nl"}
-  s=${s//' else '/"$nl"}
-  while IFS= read -r seg; do
-    seg=${seg#"${seg%%[![:space:]]*}"}
-    [ -n "$seg" ] || continue
-    head=${seg%%[[:space:]]*}
-    if [ "$head" = timeout ]; then
+    while :; do
+      seg=${seg#"${seg%%[![:space:]]*}"}
+      seg=${seg%\"}; seg=${seg#\"}
+      seg=${seg%\'}; seg=${seg#\'}
+      [ -n "$seg" ] || break
+      printf '%s\n' "$seg"
+      [ "${seg%%[[:space:]]*}" = timeout ] || break
       rest=${seg#timeout}
       rest=${rest#"${rest%%[![:space:]]*}"}
       dur=${rest%%[[:space:]]*}
@@ -209,41 +178,95 @@ fm_reco_flags_ok() { # <line>
         [0-9]*) rest=${rest#"$dur"} ;;
       esac
       rest=${rest#"${rest%%[![:space:]]*}"}
-      head=${rest%%[[:space:]]*}
-    fi
+      [ -n "$rest" ] || break
+      [ "$rest" != "$seg" ] || break
+      seg=$rest
+    done
+  done <<< "$s"
+}
+
+# fm_reco_command_words: print the first word of every shell segment of <line>
+# via the shared segment printer; each head is the word that would execute.
+fm_reco_command_words() { # <line>
+  local seg
+  while IFS= read -r seg; do
+    printf '%s\n' "${seg%%[[:space:]]*}"
+  done < <(fm_reco_segments "$1")
+}
+
+# fm_reco_flags_ok: an allowlisted-flags boundary for the read tools whose
+# flags can mutate or execute. For find/sed/awk/sort segments every flag token
+# must match that head's safe read set; long options, program/expression
+# files, and sed's e/w shell-running or file-writing script commands are
+# refused outright. Other heads pass. Consumes the shared segment printer so
+# a timeout wrapper cannot smuggle a flagged tool past this screen.
+fm_reco_flags_ok() { # <line>
+  local seg head tok
+  local -a toks
+  while IFS= read -r seg; do
+    head=${seg%%[[:space:]]*}
     case "$head" in
-      find)
-        printf '%s' "$seg" | grep -qE '(^|[[:space:]])-(delete|execdir|fprint|fls)([^[:alnum:]]|$)' && return 1
-        ;;
+      find|sed|awk|sort) ;;
+      *) continue ;;
+    esac
+    read -ra toks <<< "$seg" || return 1
+    for tok in "${toks[@]}"; do
+      case "$tok" in
+        [^-]*|-) continue ;;
+        --*) return 1 ;;
+      esac
+      case "$head:$tok" in
+        find:-name|find:-iname|find:-lname|find:-path|find:-ipath|find:-regex|find:-iregex|find:-type|find:-maxdepth|find:-mindepth|find:-depth|find:-print|find:-print0|find:-prune|find:-xdev|find:-mount|find:-mtime|find:-mmin|find:-size) ;;
+        sed:-[nrEz]*|sed:-e) ;;
+        awk:-F*|awk:-v*) ;;
+        sort:-[bcCdfghikmnrsStuVz]*) ;;
+        *) return 1 ;;
+      esac
+    done
+    case "$head" in
       sed)
-        printf '%s' "$seg" | grep -qE '(^|[[:space:]])--in-place' && return 1
-        printf '%s' "$seg" | grep -qE '(^|[[:space:]])-i([^[:alnum:]]|$)' && return 1
-        printf '%s' "$seg" | grep -qE "(^|[[:space:]\"'/;,])[0-9\$]*e([[:space:]\"';]|\$)" && return 1
-        ;;
-      sort)
-        printf '%s' "$seg" | grep -qE '(^|[[:space:]])-(o|output)([^A-Za-z0-9-]|$)' && return 1
+        printf '%s' "$seg" | grep -qE "(^|[[:space:]\"'/;,])[0-9\$]*[ewW]([[:space:]\"';]|\$)" && return 1
         ;;
     esac
-  done <<< "$s"
+  done < <(fm_reco_segments "$1")
   return 0
 }
 
-# fm_reco_paths_ok: every path-like token in <text> stays inside <home>.
+# fm_reco_paths_ok: every path-like token in <text> stays inside <home>,
+# including '='-attached values, and existing tokens are resolved so a
+# symlink cannot carry a read outside the tree.
 fm_reco_paths_ok() { # <text> <home>
-  local home=$2 tok
+  local home resolved tok part
+  home=$(readlink -f -- "$2" 2>/dev/null) || return 1
   while IFS= read -r tok; do
     [ -n "$tok" ] || continue
     case "$tok" in
       *'..'*) return 1 ;;
       '~'*) return 1 ;;
       *'://'*) return 1 ;;
-      /*)
-        case "$tok" in
-          "$home"/*|/dev/null) ;;
-          *) return 1 ;;
-        esac
-        ;;
     esac
+    part=$tok
+    while :; do
+      case "$part" in
+        /*)
+          case "$part" in
+            "$home"|"$home"/*|/dev/null) ;;
+            *) return 1 ;;
+          esac
+          ;;
+      esac
+      case "$part" in
+        *=*) part=${part#*=} ;;
+        *) break ;;
+      esac
+    done
+    if [ -e "$tok" ] || [ -L "$tok" ]; then
+      resolved=$(readlink -f -- "$tok" 2>/dev/null) || return 1
+      case "$resolved" in
+        "$home"|"$home"/*|/dev/null) ;;
+        *) return 1 ;;
+      esac
+    fi
   done < <(printf '%s' "$1" | grep -oE '[^[:space:]"'"'"']*/[^[:space:]"'"'"']*')
   return 0
 }
@@ -463,10 +486,23 @@ fm_reco_main() {
   trap 'rm -f "$FM_RECO_STATUSES"' EXIT
   for meta in "$STATE"/*.meta; do
     [ -f "$meta" ] || continue
-    backend=$(fm_reco_meta_get backend "$meta")
-    [ "$backend" = herdr ] || continue
     id=${meta##*/}
     id=${id%.meta}
+    backend=$(fm_reco_meta_get backend "$meta")
+    if [ "$backend" != herdr ]; then
+      # A clean non-herdr backend is out of scope, but a record whose backend
+      # is ambiguous while naming herdr is unverifiable and must be reported,
+      # never silently dropped from the one-line-per-seat report.
+      local backend_count
+      backend_count=$(grep -c '^backend=' "$meta" 2>/dev/null || true)
+      if [ "${backend_count:-0}" -gt 1 ] && grep -q '^backend=herdr$' "$meta" 2>/dev/null; then
+        harness=$(fm_reco_meta_get harness "$meta")
+        total=$((total + 1))
+        needs_human=$((needs_human + 1))
+        printf 'seat %s harness=%s pane=- before=- after=- enters=0 needs-human:metadata lacks a provable herdr seat binding\n' "$id" "${harness:-none}"
+      fi
+      continue
+    fi
     total=$((total + 1))
     harness=$(fm_reco_meta_get harness "$meta")
     session=$(fm_reco_meta_get herdr_session "$meta")

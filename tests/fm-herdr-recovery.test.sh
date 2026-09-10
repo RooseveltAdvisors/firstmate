@@ -49,6 +49,10 @@ pane=${3:-}
 pane_file() { printf '%s/%s' "$FIXTURE/panes" "$1"; }
 case "$sub $op" in
   'pane list')
+    if [ -f "$FIXTURE/panes.shape-drift" ]; then
+      printf '%s\n' '{"id":"cli:pane:list","result":{"panes":null}}'
+      exit 0
+    fi
     first=1
     out='{"id":"cli:pane:list","result":{"panes":['
     for f in "$FIXTURE"/panes/*.status; do
@@ -277,6 +281,102 @@ EOF
 > 1. Yes, proceed (y)
   3. No (esc)
 EOF
+  cat > "$prompts/deny-find-fprint0" <<EOF
+  Would you like to run the following command?
+
+  find $ROOT/state -name x -fprint0 $ROOT/state/out.txt
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-find-okdir" <<EOF
+  Would you like to run the following command?
+
+  find $ROOT/state -name x -okdir sed -i s/a/b/ {} ;
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-awk-programfile" <<EOF
+  Would you like to run the following command?
+
+  awk -f $ROOT/state/prog.awk $ROOT/state/in.txt
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-sed-programfile" <<EOF
+  Would you like to run the following command?
+
+  sed -f $ROOT/state/evil.sed $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-sed-expression" <<EOF
+  Would you like to run the following command?
+
+  sed --expression=2e date $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-sed-write" <<EOF
+  Would you like to run the following command?
+
+  sed w $ROOT/state/evil.txt $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-sort-output-long" <<EOF
+  Would you like to run the following command?
+
+  sort $ROOT/state/in.txt --output=$ROOT/state/out.txt
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-awk-fv" <<EOF
+  Would you like to run the following command?
+
+  awk -F'\t' '{print \$1, \$2}' $ROOT/state/rows.txt
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-sort-rn" <<EOF
+  Would you like to run the following command?
+
+  sort -rn $ROOT/state/list.txt
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-sed-e-flag" <<EOF
+  Would you like to run the following command?
+
+  sed -e s/a/b/ $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-sed-w-subst" <<EOF
+  Would you like to run the following command?
+
+  sed s/w/W/g $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-find-type" <<EOF
+  Would you like to run the following command?
+
+  find $ROOT/state -type f -name '*.msg' -print
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
   cat > "$prompts/unknown" <<'EOF'
 Status header
 gpt-5.6-sol high - some/cwd
@@ -306,6 +406,18 @@ EOF
   classify deny-sed-inplace 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses sed -i'
   classify deny-sed-exec 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses the sed e command'
   classify deny-sort-output 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses sort -o'
+  classify deny-find-fprint0 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses find -fprint0'
+  classify deny-find-okdir 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses find -okdir with an inner mutating command'
+  classify deny-awk-programfile 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses awk -f program files'
+  classify deny-sed-programfile 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses sed -f program files'
+  classify deny-sed-expression 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses sed --expression='
+  classify deny-sed-write 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses the sed w write command'
+  classify deny-sort-output-long 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses sort --output='
+  classify allow-awk-fv 'approve' 'classifier approves an awk field read with -F'
+  classify allow-sort-rn 'approve' 'classifier approves a sort -rn read'
+  classify allow-sed-e-flag 'approve' 'classifier approves an inline sed -e substitution read'
+  classify allow-sed-w-subst 'approve' 'classifier approves a sed substitution of the letter w'
+  classify allow-find-type 'approve' 'classifier approves a find type/name/print read'
   classify unknown 'unknown' 'classifier fails closed on an unrecognized prompt'
 }
 
@@ -423,6 +535,58 @@ test_status_read_failure() {
   [ ! -f "$FIXTURE/panes/w1:pt-getfail.sends" ] || fail "an unreadable-status seat must never receive Enter"
 }
 
+test_ambiguous_backend_meta() {
+  reco_fixture_init
+  local home=$TMP_ROOT/home
+  write_shared_prompts "$home"
+  reco_add_pane w1:pt-amb blocked "$TRUST_PROMPT"
+  reco_add_meta "$home" t-amb codex
+  printf 'backend=tmux\n' >> "$home/state/t-amb.meta"
+  local out rc
+  out=$(reco_run "$home"); rc=$?
+  expect_code 2 "$rc" "ambiguous-backend meta run exits 2"
+  assert_contains "$out" 'seat t-amb harness=codex pane=- before=- after=- enters=0 needs-human:metadata lacks a provable herdr seat binding' \
+    "an ambiguous backend meta is reported, never silently dropped"
+  assert_contains "$out" 'summary: seats=1 recovered=0 needs-human=1 no-action=0' \
+    "the ambiguous-backend seat is counted in the summary"
+  [ ! -f "$FIXTURE/panes/w1:pt-amb.sends" ] || fail "an ambiguous-backend meta must never receive Enter"
+}
+
+test_pane_list_shape_drift() {
+  reco_fixture_init
+  local home=$TMP_ROOT/home
+  write_shared_prompts "$home"
+  reco_add_pane w1:pt-drift blocked "$TRUST_PROMPT"
+  reco_add_meta "$home" t-drift codex
+  touch "$FIXTURE/panes.shape-drift"
+  local out rc
+  out=$(reco_run "$home" 2>&1); rc=$?
+  expect_code 1 "$rc" "pane-list shape drift exits 1 as an environment error"
+  assert_contains "$out" 'could not read pane states from herdr session' \
+    "a drifted pane list is never mass-reported as no-pane"
+  [ ! -f "$FIXTURE/panes/w1:pt-drift.sends" ] || fail "shape drift must never reach the seat"
+}
+
+test_symlink_escape() {
+  [ -n "$TMP_ROOT" ] || TMP_ROOT=$(mktemp -d)
+  local home=$TMP_ROOT/symhome out
+  mkdir -p "$home/state" "$TMP_ROOT/outside"
+  printf 'msg\n' > "$home/state/001.msg"
+  printf 'secret\n' > "$TMP_ROOT/outside/secret.txt"
+  ln -s "$TMP_ROOT/outside/secret.txt" "$home/notes.txt"
+  ln -s state "$home/state-link"
+  out=$(bash -c '
+    . "$1"
+    fm_reco_command_allowed "cat $2/notes.txt" "$2"
+    printf "|"
+    fm_reco_command_allowed "cat $2/state-link/001.msg" "$2"
+  ' _ "$TOOL" "$home")
+  case "$out" in
+    'refuse:command reaches a path outside this home|ok') : ;;
+    *) fail "a symlink escaping the home is refused while an in-tree symlink passes (got: '$out')" ;;
+  esac
+}
+
 test_allowlist_refusal_e2e() {
   reco_fixture_init
   local home=$TMP_ROOT/home
@@ -532,6 +696,9 @@ unit_classifier
 test_inventory_classification
 test_duplicate_meta_key
 test_status_read_failure
+test_ambiguous_backend_meta
+test_pane_list_shape_drift
+test_symlink_escape
 test_allowlist_refusal_e2e
 test_unrecognized_prompt_e2e
 test_round_cap
