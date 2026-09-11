@@ -59,6 +59,13 @@ lab() { env PATH="$HERDR_ORIGINAL_PATH" "$HERDR_LAB_HELPER" run "$HERDR_LAB_SESS
 
 TRUST_DIALOG=$TMP_ROOT/trust-dialog
 APPROVAL_DIALOG=$TMP_ROOT/approval-dialog
+# Every rendered line stays narrow (herdr 0.7.4 panes are ~54 columns and pane
+# read returns hard-wrapped rows): a line that wraps mid-token would hand the
+# classifier a spliced path it must refuse, and a wrapped Reason/option line
+# would inject a non-command head into the screened block. The approval
+# command therefore reads the inbox by its home-relative path, which the
+# classifier resolves from the tool's runner context (the tool runs from the
+# home below).
 cat > "$TRUST_DIALOG" <<'EOF'
 
   Do you trust the contents of this directory? Working with untrusted contents comes with higher risk of prompt
@@ -69,19 +76,19 @@ cat > "$TRUST_DIALOG" <<'EOF'
 
   Press enter to continue
 EOF
-cat > "$APPROVAL_DIALOG" <<EOF
+cat > "$APPROVAL_DIALOG" <<'EOF'
 
   Would you like to run the following command?
 
   Environment: local
 
-  Reason: re-reading the routed inbox instruction after the restart.
+  Reason: re-reading the routed inbox.
 
-  \$ timeout 15s cat $HOME_DIR/state/fm-e2e-b.inbox/001.msg
+  $ timeout 15s cat state/fm-e2e-b.inbox/001.msg
 
 > 1. Yes, proceed (y)
-  2. Yes, and don't ask again for commands that start with \`timeout 15s cat\` (p)
-  3. No, and tell Codex what to do differently (esc)
+  2. Yes, and don't ask again (p)
+  3. No, and tell Codex what to do (esc)
 
   Press enter to confirm or esc to cancel
 EOF
@@ -92,15 +99,27 @@ printf 'recovery instruction for the e2e seat\n' > "$HOME_DIR/state/fm-e2e-b.inb
 # report working again through herdr's real agent-state reporting.
 # report-agent carries only flags that exist across the supported herdr range
 # (0.7.x has no --seq); the tool reads pane list/pane get agent_status.
+# The report call pins REAL_HERDR, the exact binary this script verified and
+# the lab helper itself drives: a pane's login shell builds its own PATH, so
+# the ambient `herdr` inside the pane can be missing entirely (CI installs
+# herdr under RUNNER_TEMP/bin via GITHUB_PATH) or a protocol-mismatched
+# version, and a silent failure here would leave the seats never blocked.
+# The <PANE_ID> positional leads the flags: herdr 0.7.4's own CLI parser
+# rejects report-agent's pane id after the options (0.9.x accepts both), the
+# same pane-first order every other real-herdr test uses. Report errors are
+# logged per seat so a future regression names its cause.
 make_seat_script() { # <script-path> <pane-id> <dialog-file>
+  local report_log=${1%.sh}.report.log
   cat > "$1" <<SEAT
 #!/usr/bin/env bash
 set -u
 P=$2
 SRC=fm-herdr-recovery-e2e
 LAB=$HERDR_LAB_SESSION
+HERDR_BIN=$REAL_HERDR
+LOG=$report_log
 rep() {
-  herdr pane report-agent --source "\$SRC" --agent codex --state "\$1" "\$P" --session "\$LAB" >/dev/null 2>&1
+  "\$HERDR_BIN" pane report-agent "\$P" --source "\$SRC" --agent codex --state "\$1" --session "\$LAB" >>"\$LOG" 2>&1
 }
 rep blocked
 cat "$3"
@@ -150,9 +169,12 @@ while [ "$attempt" -lt 90 ]; do
   sleep 0.5
   attempt=$((attempt + 1))
 done
-[ "$(printf '%s' "$statuses" | grep -c blocked)" -ge 2 ] || fail 'scripted seats never reached blocked'
+[ "$(printf '%s' "$statuses" | grep -c blocked)" -ge 2 ] || fail "scripted seats never reached blocked$(printf '\n%s\n' $TMP_ROOT/*.report.log 2>/dev/null | while IFS= read -r f; do [ -f "$f" ] && printf '\n--- %s ---\n%s' "$f" "$(cat "$f")"; done)"
 
-OUT=$(env -u FM_HOME -u FM_STATE_OVERRIDE \
+# Run from the home so the approval command's home-relative inbox token is
+# verifiable in the tool's runner context, exactly like an operator running
+# the recovery from inside the home.
+OUT=$(cd "$HOME_DIR" && env -u FM_HOME -u FM_STATE_OVERRIDE \
   PATH="$FAKEBIN:$HERDR_ORIGINAL_PATH" \
   bash "$ROOT/bin/fm-herdr-recovery.sh" --home "$HOME_DIR")
 RC=$?
