@@ -70,17 +70,6 @@ resolved_existing_dir() {
   cd "$path" && pwd -P
 }
 
-path_is_ancestor_of() {
-  local ancestor=$1 path=$2
-  [ -n "$ancestor" ] || return 1
-  [ -n "$path" ] || return 1
-  [ "$ancestor" != "$path" ] || return 1
-  case "$path" in
-    "$ancestor"/*) return 0 ;;
-  esac
-  return 1
-}
-
 VALIDATED_HOME=""
 VALIDATION_ERROR=""
 
