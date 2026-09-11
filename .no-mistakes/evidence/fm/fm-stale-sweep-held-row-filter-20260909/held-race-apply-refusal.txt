@@ -1,0 +1,12 @@
+fm-stale-sweep.sh --apply (fixture: fm-dead-row becomes held between scan and apply via the real tasks-axi hold)
+Race refusal fires for the newly-held row (hold and in_progress state preserved, no reclaim note); the other valid dead row fm-prov-row is still reclaimed.
+
+ID                                         HOME               AGE     VERDICT   ACTION                   ACTOR         PROV
+fm-orphan-prov                             -                  49h     no-home   keep                     -             Provenance: imported 2026-09-01 from sec
+fm-orphan-url                              -                  50h     no-home   keep                     -             -
+fm-bare-orphan                             -                  50h     no-home   keep                     -             -
+fm-prov-row                                widgets            50h     dead      reclaimed                -             -
+fm-orphan-row                              -                  50h     no-home   keep                     ship/-        -
+fm-live-row                                main home          50h     live      keep                     -             -
+fm-dead-row                                main home          50h     dead      reclaim failed: row changed under the sweep (state=in_flight held=yes blocked=no) -             -
+7 stale candidates: 2 dead, 1 live, 0 unproven, 4 no-home; reclaimed 1

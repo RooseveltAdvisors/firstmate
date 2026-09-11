@@ -1,0 +1,4 @@
+Pre-fix regression check: fm-stale-sweep.sh reverted to parent commit 576b5c0^ and tests/fm-stale-sweep.test.sh run against it
+not ok - a row already held during scan must be excluded from stale candidates (unexpected: 'fm-dead-row')
+
+With the fix (576b5c0) restored, the full suite passes: # all fm-stale-sweep tests passed

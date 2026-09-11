@@ -1,0 +1,11 @@
+fm-stale-sweep.sh dry run (fixture: one in_progress dead-endpoint row already held via 'tasks-axi hold ... --kind captain', one unheld dead row, one live row, orphans)
+Held row fm-dead-row is NOT listed as a stale candidate; only the unheld dead row is 'would reclaim'; count does not include held rows.
+
+ID                                         HOME               AGE     VERDICT   ACTION                   ACTOR         PROV
+fm-orphan-prov                             -                  50h     no-home   keep                     -             Provenance: imported 2026-09-01 from sec
+fm-bare-orphan                             -                  50h     no-home   keep                     -             -
+fm-orphan-url                              -                  50h     no-home   keep                     -             -
+fm-prov-row                                widgets            50h     dead      would reclaim            -             -
+fm-orphan-row                              -                  50h     no-home   keep                     ship/-        -
+fm-live-row                                main home          50h     live      keep                     -             -
+6 stale candidates: 1 dead, 1 live, 0 unproven, 4 no-home; would reclaim 1
