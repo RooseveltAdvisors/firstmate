@@ -1,0 +1,25 @@
+=== Scenario 1: ambiguous post-interrupt evidence ===
+error: exit-interrupted t1 interrupt=delivered verified=unattributed cancel=unconfirmed exit-command=not-sent agent-state=ambiguous exit=unconfirmed; the stop state was not observed within the 0.1s exit window and its 0.05s confirm window - a window's expiry is not evidence the agent kept running, so this is unconfirmed rather than failed; read the seat's current state before any recovery action
+exit status: 1
+keys sent: Escape
+literals typed: []
+
+=== Scenario 2: ambiguous post-interrupt evidence, then a positive stop lands ===
+stopped t1 harness=claude backend=tmux endpoint=fmses:fm-t1 worktree=/tmp/fm-control-demo/cases/blur-stop-27428/wt-t1
+exit status: 0
+
+=== Scenario 3: endpoint authoritatively absent after the interrupt ===
+stopped t1 harness=claude backend=tmux endpoint=fmses:fm-t1 worktree=/tmp/fm-control-demo/cases/vanishes-852/wt-t1
+exit status: 0
+keys sent: Escape
+literals typed: []
+
+=== Scenario 4: stop lands after the exit window, inside the confirm window ===
+stopped t2 harness=pi backend=tmux endpoint=fmses:fm-t2 worktree=/tmp/fm-control-demo/cases/late-stop-3076/wt-t2
+exit status: 0
+
+=== Scenario 5: stubborn agent, both windows expire -> unconfirmed, never failed ===
+error: exit-delivered t3 interrupt=delivered verified=agent-alive cancel=unconfirmed exit-command=delivered agent-state=alive exit=unconfirmed; the stop state was not observed within the 0.1s exit window and its 0.05s confirm window - a window's expiry is not evidence the agent kept running, so this is unconfirmed rather than failed; read the seat's current state before any recovery action
+exit status: 1
+keys sent: Escape
+literals typed: /exit
