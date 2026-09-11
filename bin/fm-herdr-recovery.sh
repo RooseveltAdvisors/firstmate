@@ -456,14 +456,25 @@ fm_reco_command_allowed() { # <command-text> <home>
 # fm_reco_classify_prompt <prompt> <home> -> one of:
 #   trust | approve | refuse:<reason> | unknown
 fm_reco_classify_prompt() { # <prompt> <home>
-  local prompt=$1 home=$2 qline qno rest text verdict
-  # The last question line, never a numbered option line carrying the same words.
+  local prompt=$1 home=$2 qline qno pre rest text verdict
+  # The first question line, never a numbered option line carrying the same
+  # words, so later lines bearing the phrase stay inside the screened block.
   qline=$(printf '%s\n' "$prompt" \
     | grep -inE 'yes, proceed|would you like to run the following command|yes, and don.t ask again' \
     | grep -vE '^[0-9]+:[^a-zA-Z0-9]*[0-9]+[.)]' \
-    | tail -1) || qline=
+    | head -1) || qline=
   if [ -n "$qline" ]; then
     qno=${qline%%:*}
+    pre=$(printf '%s\n' "$prompt" \
+      | sed -n "1,${qno}p" \
+      | sed -nE 's/^[[:space:]]*\$[[:space:]]//p') || pre=
+    if [ -n "$pre" ]; then
+      verdict=$(fm_reco_command_allowed "$pre" "$home")
+      case "$verdict" in
+        ok) : ;;
+        *) printf '%s' "$verdict" ; return 0 ;;
+      esac
+    fi
     rest=$(printf '%s\n' "$prompt" | sed -n "$((qno + 1)),\$p")
     if ! printf '%s\n' "$rest" | grep -qE '^[^a-zA-Z0-9]*[0-9]+[.)]'; then
       printf 'refuse:approval block has no numbered options'

@@ -487,6 +487,25 @@ EOF
   \$ cat $ROOT/state/a.md
   \$ cat $ROOT/state/b.md
 EOF
+  cat > "$prompts/deny-phrase-before" <<EOF
+  \$ cat /etc/hostname
+  Would you like to run the following command?
+
+  \$ cat $ROOT/state/a.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-phrase-inside" <<EOF
+  Would you like to run the following command?
+
+  \$ cat /etc/hostname
+  \$ echo "Would you like to run the following command?"
+  \$ cat $ROOT/state/a.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
   cat > "$prompts/unknown" <<'EOF'
 Status header
 gpt-5.6-sol high - some/cwd
@@ -541,6 +560,8 @@ EOF
   classify deny-rg-f-file 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an unverified rg -f pattern file'
   classify deny-find-parent 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a find start point outside this home'
   classify deny-no-options 'refuse:approval block has no numbered options' 'classifier refuses an approval block without numbered options'
+  classify deny-phrase-before 'refuse:command reaches a path outside this home' 'classifier refuses a command line preceding the question line'
+  classify deny-phrase-inside 'refuse:command reaches a path outside this home' 'classifier screens a command block bearing the question phrase'
   classify allow-rg-short 'approve' 'classifier approves an rg short-flag read'
   classify unknown 'unknown' 'classifier fails closed on an unrecognized prompt'
 }
