@@ -31,8 +31,10 @@
 # Selection and reclaim, per row:
 #   1. `bd list --all --json` reads the shared graph to a temp file (never
 #      piped into a subshell) and selects in_progress rows older than the
-#      threshold. FM_STALE_SWEEP_BD_TIMEOUT (default 120) bounds the read and
-#      is cut down to the remaining budget in check mode.
+#      threshold, excluding held rows (the tasks-axi-held label) before
+#      endpoint classification so check and dry-run output can never present
+#      a held row as reclaimable. FM_STALE_SWEEP_BD_TIMEOUT (default 120)
+#      bounds the read and is cut down to the remaining budget in check mode.
 #   2. The owning home is resolved from whichever registered home has
 #      state/<id>.meta (this home plus the local routes in data/secondmates.md,
 #      the current-ownership signal), falling back to the row's provenance line

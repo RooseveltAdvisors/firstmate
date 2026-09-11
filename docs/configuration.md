@@ -546,6 +546,7 @@ The Beads graph a beads-backed home's `.tasks.toml` points at never reclaims an 
 A dry run prints a table (id, home, age, verdict, action, plus the row's own claim-actor and provenance evidence on no-home rows) and a summary with the count it would reclaim; `--apply` performs the reclaims, and `--older-than <hours>` overrides the default 24-hour threshold measured from the row's `updated_at` (the last recorded graph activity).
 For every stale row the sweep resolves the owning home (the registered home holding `state/<id>.meta`, else the row's provenance line), asks that home with `fm-crew-state.sh`, and reclaims only on positive death evidence - a missing or dead endpoint, or a remote dead/missing verdict.
 Anything merely unproven (an unreadable pane, an unreachable remote) is kept.
+A held row is never a candidate: the scan itself excludes held in_progress rows before endpoint classification, so check and dry-run output cannot present a held row as reclaimable.
 A row no local home owns is listed and kept too; `--apply-orphans` additionally reclaims such an orphan row only when it is older than 48 hours, carries no claim actor, and has no landing URL in its description.
 The reclaim appends `reclaimed <date>: endpoint dead, previous claim by <actor>` to the row's body and reopens it through the owning home's tasks-axi, only after re-proving the row is still in flight and unheld.
 The sweep never touches a row whose endpoint is live and never removes a meta, worktree, or pane, so stuck-crewmate recovery can still inspect what died.
