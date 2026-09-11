@@ -1,0 +1,31 @@
+# Targeted validation transcript — fm/ponytail r1 bin consolidation
+commit: ef977165f4ae483059658e2190b458e5c52e0e91
+env: LC_ALL=C (exported), umask 022 (host locale/umask quirks documented in test round 1; en_US.UTF-8 collation breaks fm-test-run.sh's LC_ALL=C-sorted comm calls, umask 0002 trips fm-procevent private-dir guard)
+
+=== tests/fm-stdlib.test.sh ===
+exit=0
+ok=1 not_ok=0
+ok - sha256_file fails explicitly when no SHA-256 tool is available
+
+=== tests/fm-gitignore-config.test.sh ===
+exit=0
+ok=5 not_ok=0
+ok - scratchpad2/ does not make git status --porcelain dirty
+
+=== tests/fm-test-run.test.sh ===
+exit=0
+ok=38 not_ok=0
+ok - aggregate-json merges lane timing artifacts
+
+=== tests/fm-secondmate-harness.test.sh ===
+exit=0
+ok=49 not_ok=0
+# all fm-secondmate-harness tests passed
+
+=== tests/fm-captain-hold-lifecycle.test.sh ===
+exit=0
+ok=51 not_ok=0
+ok - captain-hold mutations address the beads backend without a markdown override
+
+=== git status --porcelain (post-run) ===
+(empty = clean)
