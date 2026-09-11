@@ -1,0 +1,6 @@
+== pane content at the moment the tool would first read it (mode=old) ==
+bash /tmp/fm-reco-race-demo.caei4u/seat.sh
+/tmp/fm-reco-race-demo.caei4u ➜ bash /tmp/fm-reco-race-demo.caei4u/seat.sh
+== recovery tool output (mode=old, rc=2) ==
+seat race-seat harness=codex pane=fm-lab-race-old-3547396-26930:w1:p1 before=blocked after=blocked enters=0 needs-human:unrecognized prompt
+summary: seats=1 recovered=0 needs-human=1 no-action=0

@@ -1,0 +1,4 @@
+seat fm-e2e-a harness=codex pane=fm-lab-fm-gcm7b-reco-3668157-19871:w1:p1 before=blocked after=working enters=1 recovered
+seat fm-e2e-b harness=codex pane=fm-lab-fm-gcm7b-reco-3668157-19871:w2:p1 before=blocked after=working enters=1 recovered
+summary: seats=2 recovered=2 needs-human=0 no-action=0
+ok - both scripted seats were recovered through the real Herdr pane plumbing

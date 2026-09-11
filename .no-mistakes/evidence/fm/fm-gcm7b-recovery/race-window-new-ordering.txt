@@ -1,0 +1,12 @@
+== pane content at the moment the tool would first read it (mode=new) ==
+
+  Do you trust the contents of this directory? Working with untrusted contents comes with higher risk of prompt
+  injection. Trusting the directory allows project-local config, hooks, and exec policies to load.
+
+> 1. Yes, continue
+  2. No, quit
+
+  Press enter to continue
+== recovery tool output (mode=new, rc=0) ==
+seat race-seat harness=codex pane=fm-lab-race-new-3558953-11544:w1:p1 before=blocked after=working enters=1 recovered
+summary: seats=1 recovered=1 needs-human=0 no-action=0
