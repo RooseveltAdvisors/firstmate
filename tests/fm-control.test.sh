@@ -883,7 +883,8 @@ test_ambiguous_post_interrupt_evidence_reports_unconfirmed_never_failed() {
   alive_as "$dir" claude
   gen=$("$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1)
   printf 'busy_gen=%s\n' "$gen" >> "$dir/home/state/t1.meta"
-  out=$(FM_FAKE_INTERRUPT_BLURS=1 run_control "$dir" t1 exit); rc=$?
+  out=$(FM_FAKE_INTERRUPT_BLURS=1 FM_CONTROL_EXIT_CONFIRM_WAIT=0.05 \
+    run_control "$dir" t1 exit); rc=$?
   expect_code 1 "$rc" "an unattributable post-interrupt seat must not report success"$'\n'"$out"
   assert_contains "$out" "exit=unconfirmed" \
     "ambiguous post-interrupt evidence must be reported unconfirmed"
@@ -908,7 +909,7 @@ test_stop_landing_during_ambiguous_post_interrupt_wait_is_success() {
   gen=$("$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1)
   printf 'busy_gen=%s\n' "$gen" >> "$dir/home/state/t1.meta"
   out=$(FM_FAKE_INTERRUPT_BLURS=1 FM_FAKE_INTERRUPT_STOP_DELAY=0.3 \
-    run_control "$dir" t1 exit); rc=$?
+    FM_CONTROL_EXIT_CONFIRM_WAIT=1 run_control "$dir" t1 exit); rc=$?
   expect_code 0 "$rc" "a positive stop observed during the post-interrupt waits is success"$'\n'"$out"
   assert_contains "$out" "stopped t1 harness=claude" \
     "a stop landing inside the post-interrupt confirm window should be reported stopped"
