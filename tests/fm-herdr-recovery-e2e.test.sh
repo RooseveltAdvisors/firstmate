@@ -117,6 +117,10 @@ printf 'recovery instruction for the e2e seat\n' > "$HOME_DIR/state/fm-e2e-b.inb
 # with 'command names a denied tool or topic' - correctly, fail-closed, on
 # fixture noise. Clearing first leaves the dialog as the only pane content and
 # keeps the test about the dialog rather than about the runner's prompt.
+# The dialog is also rendered before `rep blocked`: the tool's first pane read
+# must never be able to observe agent_status=blocked on a pane whose visible
+# text is not yet the dialog, since the classifier would correctly fail closed
+# on that not-yet-dialog content and flake the e2e on a loaded runner.
 make_seat_script() { # <script-path> <pane-id> <dialog-file>
   local report_log=${1%.sh}.report.log
   cat > "$1" <<SEAT
