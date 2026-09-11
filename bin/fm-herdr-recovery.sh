@@ -337,22 +337,24 @@ fm_reco_relative_token_ok() { # <token> <resolved-home>
 }
 
 # fm_reco_relative_ok: positional file tokens of the file-consuming heads
-# (cat/ls/head/tail/wc/sort/uniq fully; sed/awk/grep/rg after their script or
-# pattern positional) must pass fm_reco_relative_token_ok, so an unverifiable
-# relative read is needs-manual instead of blind-approved.
+# (cat/ls/head/tail/wc/sort/uniq/find fully; sed/awk/grep/rg after their
+# script or pattern positional; grep/rg -f values) must pass
+# fm_reco_relative_token_ok, so an unverifiable relative read is needs-manual
+# instead of blind-approved.
 fm_reco_relative_ok() { # <line> <resolved-home>
-  local seg head tok home seen_special used_e expect_val
+  local seg head tok home seen_special used_e expect_val check_next
   home=$(readlink -f -- "$2" 2>/dev/null) || return 1
   local -a toks
   while IFS= read -r seg; do
     head=${seg%%[[:space:]]*}
     case "$head" in
-      cat|ls|head|tail|wc|sort|uniq) seen_special=1 ;;
+      cat|ls|head|tail|wc|sort|uniq|find) seen_special=1 ;;
       sed|awk|grep|rg) seen_special=0 ;;
       *) continue ;;
     esac
     used_e=0
     expect_val=0
+    check_next=0
     read -ra toks <<< "$seg" || return 1
     for tok in "${toks[@]:1}"; do
       tok=${tok//\'/}
@@ -360,6 +362,11 @@ fm_reco_relative_ok() { # <line> <resolved-home>
       [ -n "$tok" ] || continue
       if [ "$expect_val" -eq 1 ]; then
         expect_val=0
+        continue
+      fi
+      if [ "$check_next" -eq 1 ]; then
+        check_next=0
+        fm_reco_relative_token_ok "$tok" "$home" || return 1
         continue
       fi
       case "$head:$tok" in
@@ -370,8 +377,11 @@ fm_reco_relative_ok() { # <line> <resolved-home>
           case "$head:$tok" in
             sed:-e) expect_val=1; used_e=1 ;;
             awk:-F|awk:-v) expect_val=1 ;;
-            grep:-A|grep:-B|grep:-C|grep:-e|grep:-f|grep:-m) expect_val=1; case "$tok" in -e|-f) used_e=1 ;; esac ;;
-            rg:-A|rg:-B|rg:-C|rg:-e|rg:-f|rg:-g|rg:-t|rg:-T|rg:-m|rg:-M|rg:-r) expect_val=1; case "$tok" in -e|-f) used_e=1 ;; esac ;;
+            find:-name|find:-iname|find:-lname|find:-path|find:-ipath|find:-regex|find:-iregex|find:-type|find:-maxdepth|find:-mindepth|find:-mtime|find:-mmin|find:-size) expect_val=1 ;;
+            grep:-A|grep:-B|grep:-C|grep:-e|grep:-m) expect_val=1; case "$tok" in -e) used_e=1 ;; esac ;;
+            grep:-f) used_e=1; check_next=1 ;;
+            rg:-A|rg:-B|rg:-C|rg:-e|rg:-g|rg:-t|rg:-T|rg:-m|rg:-M|rg:-r) expect_val=1; case "$tok" in -e) used_e=1 ;; esac ;;
+            rg:-f) used_e=1; check_next=1 ;;
             head:-n|head:-c|tail:-n|tail:-c) expect_val=1 ;;
             sort:-k|sort:-t|sort:-S|sort:-T) expect_val=1 ;;
             uniq:-f|uniq:-s|uniq:-w) expect_val=1 ;;
@@ -446,7 +456,7 @@ fm_reco_command_allowed() { # <command-text> <home>
 # fm_reco_classify_prompt <prompt> <home> -> one of:
 #   trust | approve | refuse:<reason> | unknown
 fm_reco_classify_prompt() { # <prompt> <home>
-  local prompt=$1 home=$2 qline qno text verdict
+  local prompt=$1 home=$2 qline qno rest text verdict
   # The last question line, never a numbered option line carrying the same words.
   qline=$(printf '%s\n' "$prompt" \
     | grep -inE 'yes, proceed|would you like to run the following command|yes, and don.t ask again' \
@@ -454,10 +464,14 @@ fm_reco_classify_prompt() { # <prompt> <home>
     | tail -1) || qline=
   if [ -n "$qline" ]; then
     qno=${qline%%:*}
+    rest=$(printf '%s\n' "$prompt" | sed -n "$((qno + 1)),\$p")
+    if ! printf '%s\n' "$rest" | grep -qE '^[^a-zA-Z0-9]*[0-9]+[.)]'; then
+      printf 'refuse:approval block has no numbered options'
+      return 0
+    fi
     # The command block between the question and the first numbered option,
     # minus codex's Environment/Reason context lines and blank or border lines.
-    text=$(printf '%s\n' "$prompt" \
-      | sed -n "$((qno + 1)),\$p" \
+    text=$(printf '%s\n' "$rest" \
       | sed -E '/^[^a-zA-Z0-9]*[0-9]+[.)]/q' \
       | sed -E '$d' \
       | sed -E 's/^[[:space:]]*\$[[:space:]]//' \

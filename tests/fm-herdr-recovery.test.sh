@@ -457,6 +457,36 @@ EOF
 > 1. Yes, proceed (y)
   3. No (esc)
 EOF
+  cat > "$prompts/deny-grep-f-file" <<EOF
+  Would you like to run the following command?
+
+  grep -f bad.txt $ROOT/state/in.txt
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-rg-f-file" <<EOF
+  Would you like to run the following command?
+
+  rg -f bad.txt $ROOT/state/in.txt
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-find-parent" <<EOF
+  Would you like to run the following command?
+
+  find .. -print
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-no-options" <<EOF
+  Would you like to run the following command?
+
+  \$ cat $ROOT/state/a.md
+  \$ cat $ROOT/state/b.md
+EOF
   cat > "$prompts/unknown" <<'EOF'
 Status header
 gpt-5.6-sol high - some/cwd
@@ -507,6 +537,10 @@ EOF
   classify deny-sed-bang-exec 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses the !-negated sed e command'
   classify deny-sed-subs-exec 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses the s///eg execute flag'
   classify deny-rg-pre 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses rg --pre'
+  classify deny-grep-f-file 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an unverified grep -f pattern file'
+  classify deny-rg-f-file 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an unverified rg -f pattern file'
+  classify deny-find-parent 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a find start point outside this home'
+  classify deny-no-options 'refuse:approval block has no numbered options' 'classifier refuses an approval block without numbered options'
   classify allow-rg-short 'approve' 'classifier approves an rg short-flag read'
   classify unknown 'unknown' 'classifier fails closed on an unrecognized prompt'
 }
