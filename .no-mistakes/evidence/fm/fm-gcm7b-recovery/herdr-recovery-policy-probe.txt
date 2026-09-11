@@ -1,0 +1,30 @@
+--- R12 attached file-valued flags (expect refuse, fail-closed) ---
+grep -fbad.txt /tmp/tmp.p2oKxRvUaJ/home/state/in.txt             -> refuse:relative file token is not symlink-verifiable inside this home
+rg -fbad.txt /tmp/tmp.p2oKxRvUaJ/home/state/in.txt               -> refuse:relative file token is not symlink-verifiable inside this home
+grep --file=bad.txt /tmp/tmp.p2oKxRvUaJ/home/state/in.txt        -> refuse:relative file token is not symlink-verifiable inside this home
+wc --files0-from=bad.txt                                         -> refuse:relative file token is not symlink-verifiable inside this home
+--- R13 backslash-escaped flags (expect refuse, fail-closed) ---
+sort \-o /tmp/tmp.p2oKxRvUaJ/home/state/x.md /tmp/tmp.p2oKxRvUaJ/home/state/in.txt -> refuse:command mutates or executes through a read-tool flag
+find /tmp/tmp.p2oKxRvUaJ/home/state \-delete                     -> refuse:command mutates or executes through a read-tool flag
+--- R14 sed r/R attached filename (expect refuse, fail-closed) ---
+sed \x272rout.txt\x27 /tmp/tmp.p2oKxRvUaJ/home/state/in.txt      -> approve
+--- R15 pre-anchor loop-head command line (expect refuse) ---
+(while line before question)                                     -> refuse:command segment "herdr" is outside the read allowlist
+--- R16 /dev/null redirect carve-out (expect approve) ---
+cat /tmp/tmp.p2oKxRvUaJ/home/state/fm-x.inbox/001.msg > /dev/null -> approve
+--- symlink escapes from pane cwd (expect refuse) ---
+cat escape.txt                                                   -> refuse:relative file token is not symlink-verifiable inside this home
+cat state/escape.md                                              -> refuse:relative file token is not symlink-verifiable inside this home
+--- positive controls (expect approve) ---
+cat /tmp/tmp.p2oKxRvUaJ/home/state/fm-x.inbox/001.msg            -> approve
+sed -n 1,50p /tmp/tmp.p2oKxRvUaJ/home/state/fm-x.inbox/001.msg   -> approve
+grep -rn foo /tmp/tmp.p2oKxRvUaJ/home/state/in.txt               -> approve
+--- R14 sed r/R real quoting (expect refuse) ---
+--- R14 sed r/R real quoting (expect refuse) ---
+sed '2rout.txt' /tmp/tmp.FuBmlhzTci/home/state/in.txt            -> refuse:command mutates or executes through a read-tool flag
+sed 2rout.txt /tmp/tmp.FuBmlhzTci/home/state/in.txt              -> refuse:command mutates or executes through a read-tool flag
+sed '2 rout.txt' /tmp/tmp.FuBmlhzTci/home/state/in.txt           -> refuse:relative file token is not symlink-verifiable inside this home
+sed '1r outside.txt' /tmp/tmp.FuBmlhzTci/home/state/in.txt       -> refuse:command mutates or executes through a read-tool flag
+--- positive sed controls (expect approve) ---
+sed -n 1,50p /tmp/tmp.FuBmlhzTci/home/state/in.txt               -> approve
+sed s/q/Q/g /tmp/tmp.FuBmlhzTci/home/state/in.txt                -> approve

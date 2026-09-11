@@ -1,0 +1,8 @@
+== bash tests/fm-herdr-recovery.test.sh ==
+ok - fm-herdr-recovery: all cases passed
+
+== bash tests/fm-herdr-recovery-e2e.test.sh ==
+seat fm-e2e-a harness=codex pane=fm-lab-fm-gcm7b-reco-2686904-7076:w1:p1 before=blocked after=working enters=1 recovered
+seat fm-e2e-b harness=codex pane=fm-lab-fm-gcm7b-reco-2686904-7076:w2:p1 before=blocked after=working enters=1 recovered
+summary: seats=2 recovered=2 needs-human=0 no-action=0
+ok - both scripted seats were recovered through the real Herdr pane plumbing
