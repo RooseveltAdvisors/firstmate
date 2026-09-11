@@ -1,0 +1,29 @@
+# Fixture-consumption & heredoc-reduction over the PR diff (e0d269e0..e4bbc4a9)
+
+## heredoc lines in changed test files (<<- style heredoc body lines, before -> after)
+   262 ->    405  tests/fixtures.sh
+  5297 ->   4994  tests/fm-backend-herdr.test.sh
+  1112 ->   1031  tests/fm-bootstrap.test.sh
+   492 ->    410  tests/fm-lint-workflows.test.sh
+  1335 ->   1248  tests/fm-lint.test.sh
+  1559 ->   1556  tests/fm-pending-reply.test.sh
+  2007 ->   1995  tests/fm-pr-check-security.test.sh
+   775 ->    770  tests/fm-remote-doctor.test.sh
+  2497 ->   2456  tests/fm-secondmate-harness.test.sh
+   499 ->    465  tests/fm-secondmate-liveness.test.sh
+  1083 ->   1046  tests/fm-secondmate-sync.test.sh
+   304 ->    301  tests/fm-send-inbox.test.sh
+   740 ->    737  tests/fm-send-remote-delivery.test.sh
+   686 ->    683  tests/fm-send-resolve-key.test.sh
+   237 ->    234  tests/fm-send-secondmate-marker.test.sh
+   219 ->    216  tests/fm-send-strict.test.sh
+  2524 ->   2485  tests/fm-session-start.test.sh
+   366 ->    337  tests/fm-shared-captain-inheritance.test.sh
+   308 ->    292  tests/fm-startup-memory-budget.test.sh
+     0 ->      0  tests/fm-test-fixtures.test.sh
+   187 ->    184  tests/fm-watch-recovery-loop.test.sh
+  3036 ->   3016  tests/fm-x-mode.test.sh
+
+## fm_fake_exit0 call sites on head vs base
+head: 71 across 29 suites
+base: 54
