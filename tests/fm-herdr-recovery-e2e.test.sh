@@ -108,6 +108,15 @@ printf 'recovery instruction for the e2e seat\n' > "$HOME_DIR/state/fm-e2e-b.inb
 # rejects report-agent's pane id after the options (0.9.x accepts both), the
 # same pane-first order every other real-herdr test uses. Report errors are
 # logged per seat so a future regression names its cause.
+# The screen and its scrollback are cleared before the dialog is rendered: the
+# recovery tool screens the whole 40-line pane read, and the pane's own shell
+# echoes the launching "bash <seat script>" line behind a "$ " prompt on a
+# runner whose PS1 is the bare default (observed on CI, not on a developer
+# shell with a themed prompt). That echoed line is a "$"-prefixed command
+# candidate carrying a denied word, so the classifier refused the approval seat
+# with 'command names a denied tool or topic' - correctly, fail-closed, on
+# fixture noise. Clearing first leaves the dialog as the only pane content and
+# keeps the test about the dialog rather than about the runner's prompt.
 make_seat_script() { # <script-path> <pane-id> <dialog-file>
   local report_log=${1%.sh}.report.log
   cat > "$1" <<SEAT
@@ -122,6 +131,7 @@ rep() {
   "\$HERDR_BIN" pane report-agent "\$P" --source "\$SRC" --agent codex --state "\$1" --session "\$LAB" >>"\$LOG" 2>&1
 }
 rep blocked
+printf '\033[H\033[2J\033[3J'
 cat "$3"
 read -r
 rep working
@@ -179,7 +189,19 @@ OUT=$(cd "$HOME_DIR" && env -u FM_HOME -u FM_STATE_OVERRIDE \
   bash "$ROOT/bin/fm-herdr-recovery.sh" --home "$HOME_DIR")
 RC=$?
 printf '%s\n' "$OUT"
-[ "$RC" -eq 0 ] || fail "recovery run exited $RC, expected 0"
+# The tool classifies exactly what the pane renders, so a verdict this test did
+# not expect is only diagnosable with the pane text the tool saw; print it for
+# every seat rather than leaving the next failure to be guessed at.
+dump_panes() {
+  local id pane
+  for id in fm-e2e-a fm-e2e-b; do
+    pane=$(sed -n 's/^herdr_pane_id=//p' "$HOME_DIR/state/$id.meta" 2>/dev/null)
+    [ -n "$pane" ] || continue
+    printf '\n--- pane read: %s (%s) ---\n' "$id" "$pane"
+    lab pane read "$pane" --lines 40 2>&1 || true
+  done
+}
+[ "$RC" -eq 0 ] || fail "recovery run exited $RC, expected 0$(dump_panes)"
 printf '%s' "$OUT" | grep -Eq "seat fm-e2e-a harness=codex pane=$HERDR_LAB_SESSION:[^ ]+ before=blocked after=working enters=1 recovered" \
   || fail 'the trust-dialog seat was not recovered with exactly one Enter'
 printf '%s' "$OUT" | grep -Eq "seat fm-e2e-b harness=codex pane=$HERDR_LAB_SESSION:[^ ]+ before=blocked after=working enters=1 recovered" \
