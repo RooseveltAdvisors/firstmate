@@ -1,0 +1,5 @@
+$ git show e0d269e:bin/fm-test-run.sh -> bin/fm-test-run.sh (baseline)
+$ LC_ALL=en_AG.utf8 bin/fm-test-run.sh --check-coverage   # base commit
+comm: file 2 is not in sorted order
+comm: input is not in sorted order
+exit=1

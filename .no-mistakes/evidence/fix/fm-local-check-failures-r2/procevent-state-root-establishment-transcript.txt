@@ -1,0 +1,13 @@
+$ umask
+0002
+$ stat -c %a /tmp/fm-demo-home.2658775/state   # shared root created by another firstmate script under host umask
+775
+$ FM_HOME=/tmp/fm-demo-home.2658775 bin/fm-procevent.sh list   # was refused before this change
+no sources registered
+exit=0
+$ stat -c %a /tmp/fm-demo-home.2658775/state   # established private on first use
+755
+$ FM_HOME=/tmp/fm-demo-home.2658775 bin/fm-procevent.sh list   # idempotent on repeat
+exit=0
+$ stat -c %a /tmp/fm-demo-home.2658775/state
+755

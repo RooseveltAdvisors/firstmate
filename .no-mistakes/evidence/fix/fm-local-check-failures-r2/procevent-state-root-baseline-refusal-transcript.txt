@@ -1,0 +1,7 @@
+$ umask
+0002
+$ stat -c %a /tmp/fm-demo-base.2811428/state
+775
+$ FM_HOME=/tmp/fm-demo-base.2811428 bin/fm-procevent.sh list   # base commit: same command
+error: process-event state root is not a private directory
+exit=1
