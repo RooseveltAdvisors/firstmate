@@ -461,6 +461,18 @@ retire_busy_incarnation() {
   fi
 }
 
+# await_positive_stop: run the staged positive-stop waits - the primary exit
+# window, then the shorter confirm window - and report their combined expiry.
+# Window expiry is not evidence the agent kept running, so the report is
+# unconfirmed with the last observed state, never a definite failure claim.
+await_positive_stop() {  # <outcome prefix>
+  state=$(wait_agent_state "$EXIT_WAIT" dead missing) || {
+    state=$(wait_agent_state "$EXIT_CONFIRM_WAIT" dead missing) || {
+      die "$1 agent-state=$state exit=unconfirmed; the stop state was not observed within the ${EXIT_WAIT}s exit window and its ${EXIT_CONFIRM_WAIT}s confirm window - a window's expiry is not evidence the agent kept running, so this is unconfirmed rather than failed; read the seat's current state before any recovery action"
+    }
+  }
+}
+
 # do_exit: stop the running agent, preserving endpoint and worktree. Prints
 # `already-stopped` or `stopped`.
 do_exit() {
@@ -488,7 +500,19 @@ do_exit() {
           return 0
           ;;
         alive) interrupt_result="delivered verified=agent-alive cancel=$cancel" ;;
-        *) die "task $ID's endpoint reads '$state' after interrupt delivery rather than a positively classified state; exit cannot prove whether the agent stopped" ;;
+        *)
+          # The interrupt landed but the seat cannot be positively attributed
+          # right now. That is neither a refusal nor stop evidence, so the exit
+          # command is withheld (an unattributed endpoint takes no lifecycle
+          # command) and the same staged positive-state waits decide the
+          # outcome: a positively observed stop is success, their expiry is
+          # unconfirmed.
+          interrupt_result="delivered verified=unattributed cancel=$cancel"
+          await_positive_stop "exit-interrupted $ID interrupt=$interrupt_result exit-command=not-sent"
+          retire_busy_incarnation
+          printf 'stopped'
+          return 0
+          ;;
       esac
       ;;
   esac
@@ -510,11 +534,7 @@ do_exit() {
   # then a shorter confirm window for a stop that lands just late. Both key on
   # the same positive state, and only their combined expiry reports unconfirmed
   # - with the observed state, never a definite "did not stop" failure claim.
-  state=$(wait_agent_state "$EXIT_WAIT" dead missing) || {
-    state=$(wait_agent_state "$EXIT_CONFIRM_WAIT" dead missing) || {
-      die "exit-delivered $ID interrupt=$interrupt_result exit-command=delivered agent-state=$state exit=unconfirmed; the stop state was not observed within the ${EXIT_WAIT}s exit window and its ${EXIT_CONFIRM_WAIT}s confirm window - a window's expiry is not evidence the agent kept running, so this is unconfirmed rather than failed; read the seat's current state before any recovery action"
-    }
-  }
+  await_positive_stop "exit-delivered $ID interrupt=$interrupt_result exit-command=delivered"
   # The incarnation is over: retire its busy wiring so no stale record or
   # orphaned generation survives the agent that produced it.
   retire_busy_incarnation
