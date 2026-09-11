@@ -208,6 +208,9 @@ fm_reco_sed_scripts_ok() { # <segment>
   local -a toks
   read -ra toks <<< "$1" || return 1
   for tok in "${toks[@]:1}"; do
+    tok=${tok//\'/}
+    tok=${tok//\"/}
+    [ -n "$tok" ] || continue
     if [ "$expect" -eq 1 ]; then
       expect=0
       script="$script$tok"$'\n'
@@ -243,13 +246,16 @@ fm_reco_flags_ok() { # <line>
     esac
     read -ra toks <<< "$seg" || return 1
     for tok in "${toks[@]}"; do
+      tok=${tok//\'/}
+      tok=${tok//\"/}
+      [ -n "$tok" ] || continue
       case "$tok" in
         [^-]*|-) continue ;;
         --*) return 1 ;;
       esac
       case "$head:$tok" in
         find:-name|find:-iname|find:-lname|find:-path|find:-ipath|find:-regex|find:-iregex|find:-type|find:-maxdepth|find:-mindepth|find:-depth|find:-print|find:-print0|find:-prune|find:-xdev|find:-mount|find:-mtime|find:-mmin|find:-size) ;;
-        sed:-[nrEz]*|sed:-e) ;;
+        sed:-n|sed:-r|sed:-E|sed:-z|sed:-e) ;;
         awk:-F*|awk:-v*) ;;
         rg:-*) ;;
         sort:-[bcCdfghikmnrsStuVz]*) ;;
@@ -277,6 +283,8 @@ fm_reco_paths_ok() { # <text> <home>
       *'..'*) return 1 ;;
       '~'*) return 1 ;;
       *'://'*) return 1 ;;
+      *\\*) return 1 ;;
+      *'$'*) return 1 ;;
     esac
     part=$tok
     while :; do
@@ -313,7 +321,7 @@ fm_reco_relative_token_ok() { # <token> <resolved-home>
   tok=${tok%\"}; tok=${tok#\"}
   tok=${tok%\'}; tok=${tok#\'}
   case "$tok" in
-    ''|-*|[\\]*|\$*|*'*'*|*'?'*) return 0 ;;
+    ''|-*|*\\\'*|*\$*|*'*'*|*'?'*) return 1 ;;
     */*) return 0 ;;
     *'..'*) return 1 ;;
     '~'*) return 1 ;;
@@ -347,10 +355,16 @@ fm_reco_relative_ok() { # <line> <resolved-home>
     expect_val=0
     read -ra toks <<< "$seg" || return 1
     for tok in "${toks[@]:1}"; do
+      tok=${tok//\'/}
+      tok=${tok//\"/}
+      [ -n "$tok" ] || continue
       if [ "$expect_val" -eq 1 ]; then
         expect_val=0
         continue
       fi
+      case "$head:$tok" in
+        awk:\$*) continue ;;
+      esac
       case "$tok" in
         -*)
           case "$head:$tok" in

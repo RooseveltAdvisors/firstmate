@@ -409,6 +409,54 @@ EOF
 > 1. Yes, proceed (y)
   3. No (esc)
 EOF
+  cat > "$prompts/deny-sed-attached" <<EOF
+  Would you like to run the following command?
+
+  sed -re2e sh $ROOT/state/in.txt
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-sed-attached-file" <<EOF
+  Would you like to run the following command?
+
+  sed -nfprog.sed $ROOT/state/in.txt
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-find-quoted" <<EOF
+  Would you like to run the following command?
+
+  find . '-fprint0' out.bin
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-sort-quoted" <<EOF
+  Would you like to run the following command?
+
+  sort '-o' $ROOT/state/x.md $ROOT/state/in.txt
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-escaped-path" <<EOF
+  Would you like to run the following command?
+
+  cat \/etc\/shadow
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-var-path" <<EOF
+  Would you like to run the following command?
+
+  cat \$HOME/.netrc
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
   cat > "$prompts/unknown" <<'EOF'
 Status header
 gpt-5.6-sol high - some/cwd
@@ -427,7 +475,7 @@ EOF
   classify trust 'trust' 'classifier accepts the live-verified trust dialog'
   classify allow 'approve' 'classifier approves an allowlisted read'
   classify allow-find 'approve' 'classifier approves a plain find read'
-  classify loop 'approve' 'classifier approves an allowlisted for-loop read'
+  classify loop 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier fails closed on a loop reading through a shell variable'
   classify timeout-read 'approve' 'classifier approves the real Environment/Reason/$ dialog format'
   classify deny-cmd 'refuse:command names a denied tool' 'classifier refuses curl|bash'
   classify deny-git 'refuse:command names a denied tool' 'classifier refuses git push'
@@ -445,6 +493,12 @@ EOF
   classify deny-sed-expression 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses sed --expression='
   classify deny-sed-write 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses the sed w write command'
   classify deny-sort-output-long 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses sort --output='
+  classify deny-sed-attached 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses sed attached no-arg-flag payloads'
+  classify deny-sed-attached-file 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses sed attached program files'
+  classify deny-find-quoted 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses quoted find write primaries'
+  classify deny-sort-quoted 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses a quoted sort -o'
+  classify deny-escaped-path 'refuse:command reaches a path outside this home' 'classifier refuses backslash-escaped paths'
+  classify deny-var-path 'refuse:command reaches a path outside this home' 'classifier refuses variable-expanded paths'
   classify allow-awk-fv 'approve' 'classifier approves an awk field read with -F'
   classify allow-sort-rn 'approve' 'classifier approves a sort -rn read'
   classify allow-sed-e-flag 'approve' 'classifier approves an inline sed -e substitution read'
