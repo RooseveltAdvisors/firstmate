@@ -43,8 +43,9 @@
 # head must be an allowed word). For the read tools whose flags can mutate or
 # execute, every flag token must match a bounded read-only set: find's
 # search/print primaries, sed's -n/-E/-r/-e inline scripts (never program
-# files or long options, never its e/w shell-running or file-writing commands
-# in any address or s/// flag form, including !-negated addresses), awk's
+# files or long options, never its e/w shell-running, r/R file-reading, or
+# file-writing commands in any address or s/// flag form, including
+# !-negated addresses), awk's
 # -F/-v only, rg's short flags only (never long options such as --pre), and
 # sort's behavior flags (never -o/--output). Every path stays inside this
 # home's tree (absolute under FM_HOME, relative without "..", no "~", or
@@ -226,7 +227,7 @@ fm_reco_sed_scripts_ok() { # <segment>
     esac
   done
   [ -n "$script" ] || return 0
-  printf '%s' "$script" | grep -qE "(^|[^A-Za-z0-9])[0-9\$]*!?[ewW]|[0-9\$]*!?[ewW]([^[:alnum:]]|\$)" && return 1
+  printf '%s' "$script" | grep -qE "(^|[^A-Za-z0-9])[0-9\$]*!?[ewWrR]|[0-9\$]*!?[ewWrR]([^[:alnum:]]|\$)" && return 1
   return 0
 }
 
@@ -251,6 +252,7 @@ fm_reco_flags_ok() { # <line>
       tok=${tok//\"/}
       [ -n "$tok" ] || continue
       case "$tok" in
+        \\-*) return 1 ;;
         [^-]*|-) continue ;;
         --*) return 1 ;;
       esac
@@ -323,7 +325,7 @@ fm_reco_relative_token_ok() { # <token> <resolved-home>
   tok=${tok%\"}; tok=${tok#\"}
   tok=${tok%\'}; tok=${tok#\'}
   case "$tok" in
-    ''|-*|*\\\'*|*\$*|*'*'*|*'?'*) return 1 ;;
+    ''|-*|*\\*|*\$*|*'*'*|*'?'*) return 1 ;;
     *'..'*) return 1 ;;
     '~'*) return 1 ;;
   esac
@@ -370,6 +372,9 @@ fm_reco_relative_ok() { # <line> <resolved-home>
         fm_reco_relative_token_ok "$tok" "$home" || return 1
         continue
       fi
+      case "$tok" in
+        '>'|'<'|'1>'|'2>') continue ;;
+      esac
       case "$head:$tok" in
         awk:\$*) continue ;;
       esac
@@ -386,6 +391,8 @@ fm_reco_relative_ok() { # <line> <resolved-home>
             head:-n|head:-c|tail:-n|tail:-c) expect_val=1 ;;
             sort:-k|sort:-t|sort:-S|sort:-T) expect_val=1 ;;
             uniq:-f|uniq:-s|uniq:-w) expect_val=1 ;;
+            grep:-f*|rg:-f*) return 1 ;;
+            grep:--*|wc:--*) return 1 ;;
           esac
           continue
           ;;
@@ -468,7 +475,7 @@ fm_reco_classify_prompt() { # <prompt> <home>
     qno=${qline%%:*}
     cands=$({ printf '%s\n' "$prompt" | sed -nE 's/^[[:space:]]*\$[[:space:]]?//p'
       printf '%s\n' "$prompt" \
-        | grep -E '^[[:space:]]*(cat|ls|head|tail|wc|sort|uniq|find|sed|awk|grep|rg|timeout)([[:space:]]|$)' || :; }) || cands=
+        | grep -E '^[[:space:]]*(cat|ls|head|tail|wc|sort|uniq|find|sed|awk|grep|rg|timeout|for|while|if|echo|printf)([[:space:]]|$)' || :; }) || cands=
     if [ -n "$cands" ]; then
       verdict=$(fm_reco_command_allowed "$cands" "$home")
       case "$verdict" in

@@ -521,6 +521,63 @@ EOF
 > 1. Yes, proceed (y)
   3. No (esc)
 EOF
+  cat > "$prompts/deny-grep-attached-f" <<EOF
+  Would you like to run the following command?
+
+  grep -fbad.txt $ROOT/state/in.txt
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-grep-long-file" <<EOF
+  Would you like to run the following command?
+
+  grep --file=bad.txt $ROOT/state/in.txt
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-wc-files0" <<EOF
+  Would you like to run the following command?
+
+  wc --files0-from=bad.txt
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-sed-read-command" <<EOF
+  Would you like to run the following command?
+
+  sed '2rout.txt' $ROOT/state/in.txt
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-escaped-flag" <<EOF
+  Would you like to run the following command?
+
+  sort \-o $ROOT/state/x.md $ROOT/state/in.txt
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-while-pre" <<EOF
+  while true; do herdr pane send-keys p enter; done
+  Would you like to run the following command?
+
+  \$ cat $ROOT/state/fm-x.inbox/001.msg
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-dev-null" <<EOF
+  Would you like to run the following command?
+
+  \$ cat $ROOT/state/fm-x.inbox/001.msg > /dev/null
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
   cat > "$prompts/deny-no-options" <<EOF
   Would you like to run the following command?
 
@@ -627,6 +684,13 @@ EOF
   classify deny-grep-f-file 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an unverified grep -f pattern file'
   classify deny-rg-f-file 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an unverified rg -f pattern file'
   classify deny-find-parent 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a find start point outside this home'
+  classify deny-grep-attached-f 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an attached grep -f pattern file'
+  classify deny-grep-long-file 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a grep --file= pattern file'
+  classify deny-wc-files0 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a wc --files0-from list'
+  classify deny-sed-read-command 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses the sed r read-file command'
+  classify deny-escaped-flag 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses a backslash-escaped flag token'
+  classify deny-while-pre 'refuse:command segment' 'classifier screens a shell-loop command line preceding the question'
+  classify allow-dev-null 'approve' 'classifier approves a read redirected to /dev/null'
   classify deny-no-options 'refuse:approval block has no numbered options' 'classifier refuses an approval block without numbered options'
   classify deny-phrase-before 'refuse:command reaches a path outside this home' 'classifier refuses a command line preceding the question line'
   classify deny-phrase-inside 'refuse:command reaches a path outside this home' 'classifier screens a command block bearing the question phrase'
