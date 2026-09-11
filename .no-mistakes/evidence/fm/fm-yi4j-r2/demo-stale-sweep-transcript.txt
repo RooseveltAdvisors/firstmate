@@ -1,0 +1,20 @@
+# (sweep clock pinned 50h past fixture creation; the default threshold is 24h)
+
+$ fm-stale-sweep.sh            # dry run over the shared Beads graph
+ID                                         HOME               AGE     VERDICT   ACTION                   ACTOR         PROV
+fm-live-row                                main home          49h     live      keep                     -             -
+fm-dead-row                                main home          50h     dead      would reclaim            -             -
+2 stale candidates: 1 dead, 1 live, 0 unproven, 0 no-home; would reclaim 1
+
+$ fm-stale-sweep.sh --apply
+ID                                         HOME               AGE     VERDICT   ACTION                   ACTOR         PROV
+fm-live-row                                main home          49h     live      keep                     -             -
+fm-dead-row                                main home          50h     dead      reclaimed                -             -
+2 stale candidates: 1 dead, 1 live, 0 unproven, 0 no-home; reclaimed 1
+
+# graph read-back after --apply (the dead row reopened, live row untouched):
+fm-dead-row status=open description:
+<!-- tasks-axi:beads/v1:eyJraW5kIjoic2hpcCJ9 -->
+reclaimed 2026-09-11: endpoint dead, previous claim by main home
+fm-live-row status=in_progress description:
+<!-- tasks-axi:beads/v1:eyJraW5kIjoic2hpcCJ9 -->

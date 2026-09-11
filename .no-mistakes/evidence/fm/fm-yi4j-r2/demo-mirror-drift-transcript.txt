@@ -1,0 +1,10 @@
+# session start with one clone whose no-mistakes gate remote points at
+# another data root (root-b) than the one the CLI resolves (root-a):
+
+$ fm-bootstrap.sh
+MISSING: quota-axi (install: npm install -g quota-axi)
+MISSING: tasks-axi (install: npm install -g tasks-axi)
+NO_MISTAKES_MIRROR: macro remote=/tmp/fm-evidence-demo.7afue4/mirror/root-b/repos/macro.git expected-root=/tmp/fm-evidence-demo.7afue4/mirror/root-a (run no-mistakes init inside /tmp/fm-evidence-demo.7afue4/mirror/home/projects/macro to point its gate at the active root)
+fatal: cannot change to '/tmp/fm-evidence-demo.7afue4/mirror/non-git-root': No such file or directory
+fatal: cannot change to '/tmp/fm-evidence-demo.7afue4/mirror/non-git-root': No such file or directory
+(bootstrap exit code: 0)
