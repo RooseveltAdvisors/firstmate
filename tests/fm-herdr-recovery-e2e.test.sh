@@ -90,6 +90,8 @@ printf 'recovery instruction for the e2e seat\n' > "$HOME_DIR/state/fm-e2e-b.inb
 
 # Seat script: park blocked at a real-rendered dialog, consume one Enter, then
 # report working again through herdr's real agent-state reporting.
+# report-agent carries only flags that exist across the supported herdr range
+# (0.7.x has no --seq); the tool reads pane list/pane get agent_status.
 make_seat_script() { # <script-path> <pane-id> <dialog-file>
   cat > "$1" <<SEAT
 #!/usr/bin/env bash
@@ -97,10 +99,8 @@ set -u
 P=$2
 SRC=fm-herdr-recovery-e2e
 LAB=$HERDR_LAB_SESSION
-seq=1
 rep() {
-  herdr pane report-agent --source "\$SRC" --agent codex --state "\$1" --seq "\$seq" "\$P" --session "\$LAB" >/dev/null 2>&1
-  seq=\$((seq + 1))
+  herdr pane report-agent --source "\$SRC" --agent codex --state "\$1" "\$P" --session "\$LAB" >/dev/null 2>&1
 }
 rep blocked
 cat "$3"
@@ -138,13 +138,16 @@ add_seat fm-e2e-a "$TRUST_DIALOG"
 add_seat fm-e2e-b "$APPROVAL_DIALOG"
 
 # Wait until both scripted seats report blocked through the real pane API.
+# Budget matches the sibling herdr e2es (90 x 0.5s): a freshly created pane can
+# take a while to run its command on a loaded CI runner.
 attempt=0
-while [ "$attempt" -lt 50 ]; do
-  statuses=$(lab pane list | jq -r '.result.panes[] | "\(.pane_id)\t\(.agent_status)"')
+statuses=''
+while [ "$attempt" -lt 90 ]; do
+  statuses=$(lab pane list | jq -r '.result.panes[]? | "\(.pane_id)\t\(.agent_status // "none")"' 2>/dev/null) || statuses=''
   if [ "$(printf '%s' "$statuses" | grep -c blocked)" -ge 2 ]; then
     break
   fi
-  sleep 0.2
+  sleep 0.5
   attempt=$((attempt + 1))
 done
 [ "$(printf '%s' "$statuses" | grep -c blocked)" -ge 2 ] || fail 'scripted seats never reached blocked'
