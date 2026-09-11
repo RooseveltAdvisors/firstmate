@@ -1,0 +1,7 @@
+scripts=158 total=4638106
+shard 1: scripts=32 weight=927624 ms (15.46 min)
+shard 2: scripts=32 weight=927618 ms (15.46 min)
+shard 3: scripts=31 weight=927619 ms (15.46 min)
+shard 4: scripts=31 weight=927618 ms (15.46 min)
+shard 5: scripts=32 weight=927627 ms (15.46 min)
+imbalance=9 ms

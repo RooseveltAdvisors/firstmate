@@ -1,0 +1,15 @@
+== meta file registered alongside the poll ==
+window=fm-task-a
+pr=https://github.com/o/r/pull/1
+pr_head=0123456789abcdef0123456789abcdef01234567
+control_relaunch_tx=tx-1
+PASS: deployed validator authenticated the relaunch-meta registration
+== real fm-watch.sh cycle over the relaunch-meta registration (rc=0) ==
+-- stdout:
+check: /tmp/pr3417-e2e.lMNytX/case/home/state/task-a.check.sh: merged
+-- stderr:
+PASS: real watcher authenticated the poll and emitted exactly one merged wake
+PASS: tampered registration is rejected by the same validator
+== single-variable counterfactual (pre-fix parser) ==
+PASS: counterfactual - reverting only the accept-list line reproduces the reported rejection
+ALL EVIDENCE CHECKS PASSED
