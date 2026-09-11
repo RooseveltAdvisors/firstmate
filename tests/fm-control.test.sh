@@ -126,6 +126,15 @@ case "${1:-}" in
         # from the session inventory, so the endpoint is authoritatively absent.
         printf '%s\n' 'other-window' > "$D/windows"
       fi
+      if [ "$payload" = Escape ] && [ -n "${FM_FAKE_INTERRUPT_BLURS:-}" ]; then
+        # The interrupt lands but the classifier cannot positively attribute
+        # the seat: the foreground command reads as neither agent nor shell.
+        printf 'python' > "$D/command"
+        if [ -n "${FM_FAKE_INTERRUPT_STOP_DELAY:-}" ]; then
+          printf '%s' "$(awk -v now="${EPOCHREALTIME:-$SECONDS}" \
+            -v d="$FM_FAKE_INTERRUPT_STOP_DELAY" 'BEGIN{printf "%.6f\n", now + d}')" > "$D/exit-deadline"
+        fi
+      fi
       if [ "$payload" = Escape ] && [ -n "${FM_FAKE_MUSE_LOG:-}" ]; then
         if [ -n "${FM_FAKE_MUSE_DISAPPEAR_BEFORE_ACK:-}" ]; then
           : > "$D/muse-ack-pending"
@@ -228,6 +237,8 @@ run_control() {
     FM_FAKE_MUSE_DISAPPEAR_BEFORE_ACK="${FM_FAKE_MUSE_DISAPPEAR_BEFORE_ACK:-}" \
     FM_FAKE_INTERRUPT_STOPS_AGENT="${FM_FAKE_INTERRUPT_STOPS_AGENT:-}" \
     FM_FAKE_INTERRUPT_DISAPPEARS="${FM_FAKE_INTERRUPT_DISAPPEARS:-}" \
+    FM_FAKE_INTERRUPT_BLURS="${FM_FAKE_INTERRUPT_BLURS:-}" \
+    FM_FAKE_INTERRUPT_STOP_DELAY="${FM_FAKE_INTERRUPT_STOP_DELAY:-}" \
     "$CONTROL" "$@" 2>&1
 }
 
@@ -865,6 +876,49 @@ test_agent_that_does_not_stop_reports_unconfirmed_never_failed() {
 # resume line and returned to a shell prompt while the check kept asserting
 # the agent did not stop. The stop landing after the primary window, inside
 # the confirm window, is SUCCESS.
+test_ambiguous_post_interrupt_evidence_reports_unconfirmed_never_failed() {
+  local dir out rc gen
+  dir=$(new_case interrupt-blur)
+  add_task "$dir" t1 claude
+  alive_as "$dir" claude
+  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1)
+  printf 'busy_gen=%s\n' "$gen" >> "$dir/home/state/t1.meta"
+  out=$(FM_FAKE_INTERRUPT_BLURS=1 run_control "$dir" t1 exit); rc=$?
+  expect_code 1 "$rc" "an unattributable post-interrupt seat must not report success"$'\n'"$out"
+  assert_contains "$out" "exit=unconfirmed" \
+    "ambiguous post-interrupt evidence must be reported unconfirmed"
+  assert_not_contains "$out" "did not stop" \
+    "ambiguous post-interrupt evidence must never be claimed as a definite stop failure"
+  assert_not_contains "$out" "nothing was changed" \
+    "the report must not deny the interrupt that was delivered"
+  assert_contains "$out" "exit-interrupted t1 interrupt=delivered verified=unattributed cancel=unconfirmed exit-command=not-sent agent-state=ambiguous exit=unconfirmed" \
+    "the unconfirmed report should distinguish the delivered interrupt and the withheld exit command from the unattributable seat"
+  [ "$(keys_sent "$dir")" = Escape ] \
+    || fail "a busy agent whose post-interrupt state blurs should receive its interrupt sequence"
+  [ -z "$(literals "$dir")" ] \
+    || fail "an unattributed post-interrupt seat must not receive a lifecycle command"
+  pass "fm-control exit: ambiguous post-interrupt evidence is unconfirmed, never failed, and takes no exit command"
+}
+
+test_stop_landing_during_ambiguous_post_interrupt_wait_is_success() {
+  local dir out rc gen
+  dir=$(new_case interrupt-blur-stop)
+  add_task "$dir" t1 claude
+  alive_as "$dir" claude
+  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1)
+  printf 'busy_gen=%s\n' "$gen" >> "$dir/home/state/t1.meta"
+  out=$(FM_FAKE_INTERRUPT_BLURS=1 FM_FAKE_INTERRUPT_STOP_DELAY=0.3 \
+    run_control "$dir" t1 exit); rc=$?
+  expect_code 0 "$rc" "a positive stop observed during the post-interrupt waits is success"$'\n'"$out"
+  assert_contains "$out" "stopped t1 harness=claude" \
+    "a stop landing inside the post-interrupt confirm window should be reported stopped"
+  assert_not_contains "$out" "exit=unconfirmed" \
+    "a succeeded exit must never be reported as unconfirmed"
+  [ ! -e "$dir/home/state/t1.busy-gen" ] && [ ! -e "$dir/home/state/t1.busy-state" ] \
+    || fail "exit should retire busy wiring for a stop observed after ambiguous evidence"
+  pass "fm-control exit: a positively observed stop after ambiguous post-interrupt evidence is success"
+}
+
 test_exit_reports_late_stop_as_success() {
   local dir out rc
   dir=$(new_case late-stop)
@@ -989,6 +1043,8 @@ test_interrupt_revalidates_agent_after_acknowledgement_wait
 test_exit_accepts_agent_stopped_by_busy_interrupt
 test_exit_accepts_endpoint_that_disappears_after_busy_interrupt
 test_agent_that_does_not_stop_reports_unconfirmed_never_failed
+test_ambiguous_post_interrupt_evidence_reports_unconfirmed_never_failed
+test_stop_landing_during_ambiguous_post_interrupt_wait_is_success
 test_exit_reports_late_stop_as_success
 test_grok_interrupt_without_acknowledgement_reports_unconfirmed
 test_grok_idle_footer_does_not_confirm_cancellation
