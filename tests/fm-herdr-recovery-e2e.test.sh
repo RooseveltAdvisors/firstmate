@@ -169,7 +169,7 @@ while [ "$attempt" -lt 90 ]; do
   sleep 0.5
   attempt=$((attempt + 1))
 done
-[ "$(printf '%s' "$statuses" | grep -c blocked)" -ge 2 ] || fail "scripted seats never reached blocked$(printf '\n%s\n' $TMP_ROOT/*.report.log 2>/dev/null | while IFS= read -r f; do [ -f "$f" ] && printf '\n--- %s ---\n%s' "$f" "$(cat "$f")"; done)"
+[ "$(printf '%s' "$statuses" | grep -c blocked)" -ge 2 ] || fail "scripted seats never reached blocked$(printf '\n%s\n' "$TMP_ROOT"/*.report.log 2>/dev/null | while IFS= read -r f; do [ -f "$f" ] && printf '\n--- %s ---\n%s' "$f" "$(cat "$f")"; done)"
 
 # Run from the home so the approval command's home-relative inbox token is
 # verifiable in the tool's runner context, exactly like an operator running
