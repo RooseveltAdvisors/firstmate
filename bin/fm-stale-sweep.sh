@@ -542,8 +542,12 @@ fm_stale_sweep() {  # <apply 0|1> <budget-secs 0-unbounded> <cutoff-epoch>
     rm -f -- "$tmp"
     return 1
   fi
+  # Raw bd JSON carries a tasks-axi structured hold as this label; exclude it
+  # before endpoint classification so check mode cannot call it reclaimable.
   if ! rows=$(jq -r --argjson cutoff "$cutoff" --argjson now "$(record_epoch_now)" '
-    .[] | select(.status == "in_progress") | select(.updated_at)
+    .[] | select(.status == "in_progress")
+        | select((.labels // [] | index("tasks-axi-held")) == null)
+        | select(.updated_at)
         | (.updated_at | fromdateiso8601?) as $epoch
         | select($epoch != null) | select($epoch < $cutoff)
         | [(.id // ""), (((($now - $epoch) / 3600) | floor) | tostring), (.description // "")]

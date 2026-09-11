@@ -449,6 +449,66 @@ test_apply_reclaims_only_dead_rows() {
   pass "apply reclaims exactly the dead rows with the note, touching nothing else"
 }
 
+# A held in_progress row is preserved by the graph classifier, so check and
+# dry-run output cannot present it as reclaimable.
+test_held_row_is_excluded_from_scan() {
+  require_tasks_axi_beads "the held-row scan path" || return 0
+  local rec out
+  rec=$(make_fixture heldscan)
+  [ -n "$rec" ] || fail "fixture construction failed (see stderr above)"
+  read_fixture "$rec"
+  (cd "$HOME_DIR" && tasks-axi hold fm-dead-row --reason "captain decision pending" --kind captain) \
+    >/dev/null || fail "could not hold the scan fixture row"
+  out=$(run_sweep)
+  assert_not_contains "$out" "fm-dead-row" \
+    "a row already held during scan must be excluded from stale candidates"
+  assert_contains "$out" "fm-prov-row" \
+    "an unheld dead row must remain in the stale candidate scan"
+  [ "$(row_state fm-dead-row)" = in_flight ] \
+    || fail "the held row changed state during a dry run"
+  assert_contains "$(cd "$HOME_DIR" && tasks-axi show fm-dead-row)" "hold_kind: captain" \
+    "the held row lost its hold during a dry run"
+  assert_contains "$out" "6 stale candidates:" \
+    "held rows must not inflate the stale candidate count"
+  pass "held in_progress rows are excluded from stale-sweep candidates"
+}
+
+# A row can become held after the liveness scan but before apply. The existing
+# second proof must refuse it, leaving both the hold and the row in flight.
+test_apply_refuses_row_held_after_scan() {
+  require_tasks_axi_beads "the scan-to-apply held-row race path" || return 0
+  local rec out real_tasks_axi
+  rec=$(make_fixture heldrace)
+  [ -n "$rec" ] || fail "fixture construction failed (see stderr above)"
+  read_fixture "$rec"
+  real_tasks_axi=$(command -v tasks-axi) || fail "could not locate tasks-axi"
+  cat > "$FAKEBIN/tasks-axi" <<SH
+#!/usr/bin/env bash
+set -u
+if [ "\${1:-}" = show ] && [ ! -e "$CASE_DIR/held-after-scan" ]; then
+  : > "$CASE_DIR/held-after-scan"
+  BEADS_DIR="$CASE_DIR/fm/.beads" "$real_tasks_axi" hold fm-dead-row \\
+    --reason "captain decision pending" --kind captain >/dev/null
+fi
+exec "$real_tasks_axi" "\$@"
+SH
+  chmod +x "$FAKEBIN/tasks-axi"
+  out=$(run_sweep --apply)
+  assert_row_matches \
+    'fm-dead-row[[:space:]]+main home[[:space:]]+50h[[:space:]]+dead[[:space:]]+reclaim failed: row changed under the sweep \(state=in_flight held=yes blocked=no\)' \
+    "$out" "a row held after scan must be refused at apply"
+  [ "$(row_state fm-dead-row)" = in_flight ] \
+    || fail "the scan-to-apply held row was reopened"
+  assert_contains "$(cd "$HOME_DIR" && tasks-axi show fm-dead-row)" "hold_kind: captain" \
+    "the scan-to-apply held row lost its hold"
+  case "$(row_body fm-dead-row)" in
+    *reclaimed*) fail "the refused held row received a reclaim note" ;;
+  esac
+  assert_contains "$out" "reclaimed 1" \
+    "the race refusal must not prevent the other valid dead row from being reclaimed"
+  pass "scan-to-apply hold transition remains refused and preserves the row"
+}
+
 test_check_mode_gates_on_the_interval_record() {
   local rec out t0
   rec=$(make_fixture check)
@@ -631,6 +691,8 @@ test_age_column_is_true_age_and_threshold_gates_selection
 test_orphan_columns_and_apply_orphans_guards
 test_dry_run_lists_verdicts_and_reclaims_nothing
 test_apply_reclaims_only_dead_rows
+test_held_row_is_excluded_from_scan
+test_apply_refuses_row_held_after_scan
 test_apply_refuses_a_row_whose_record_lock_a_completion_holds
 test_apply_refuses_a_row_with_a_pending_completion_replay
 test_apply_names_the_resolved_homes_actor_when_two_homes_hold_meta
