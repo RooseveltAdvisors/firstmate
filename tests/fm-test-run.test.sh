@@ -1010,6 +1010,7 @@ test_list_scheduled_non_lane_selections_use_serial_weights() {
   repo="$tmp/repo"
   mkdir -p "$repo/bin" "$repo/tests"
   cp "$RUNNER" "$repo/bin/fm-test-run.sh"
+  cp "$ROOT/bin/fm-stdlib.sh" "$repo/bin/fm-stdlib.sh"
   for script in "${scripts[@]}"; do
     printf '#!/usr/bin/env bash\nexit 0\n' >"$repo/$script"
     chmod +x "$repo/$script"
