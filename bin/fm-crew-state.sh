@@ -44,13 +44,27 @@
 #      before it having ended at exactly this worktree's head - so an active fix
 #      round never reads as an older failed run (rule owned by
 #      fm_nm_runs_status_for_worktree in bin/fm-nm-run-lib.sh).
+#      More than one recorded run can bind to this worktree at once, and
+#      bin/fm-nm-run-lib.sh also owns which of them wins: a LIVE run always
+#      outranks a terminal one, so a terminal answer here is provisional until
+#      the ledger has been asked whether a live sibling run exists.
 #      The run-step is AUTHORITATIVE: running/fixing -> working, ci -> working,
 #      awaiting_approval/fix_review -> parked (with gate findings), terminal
 #      passed/checks-passed -> done, failed/cancelled -> failed. EXCEPT: while
 #      the active step is ci, `axi status` alone cannot tell "still waiting on
 #      checks" from "checks green, waiting on merge" (see nm_ci_checks_state) -
 #      a ci-step log-tail check overrides working -> done once checks read
-#      green, so a green PR is never silently read as still-validating.
+#      green, so a green PR is never silently read as still-validating. And a
+#      terminal FAILED run whose only failure is the ci monitor step, after
+#      every substantive step completed and the ci log's last marker reads
+#      checks green, also reads done (held-for-merge), never failed: a monitor
+#      whose only remaining job is to observe a human merge decision must not
+#      convert the absence of that decision into a failure verdict
+#      (nm_failed_run_is_green_held_ci; 2026-09-05 jr-voice incident). In the
+#      coarse runs-ledger fallback (no steps table, no ci log), a terminal
+#      FAILED record whose daemon an explicit probe proves down reads unknown,
+#      never failed: an instrument failure must not read as work failure
+#      (nm_daemon_probe_down).
 #   3. Reconcile the status log: if its last line says needs-decision/blocked but
 #      the run-step shows the run moved on, the log is deterministically stale and
 #      is flagged superseded. A genuinely parked run plus a needs-decision log
@@ -104,10 +118,12 @@ META=${FM_CREW_STATE_META_OVERRIDE:-"$STATE/$ID.meta"}
 LOG=${FM_CREW_STATE_STATUS_OVERRIDE:-"$STATE/$ID.status"}
 NM_TIMEOUT=${FM_CREW_STATE_NM_TIMEOUT:-10}
 case "$NM_TIMEOUT" in ''|*[!0-9]*) NM_TIMEOUT=10 ;; esac
-# How many of the most recent `no-mistakes runs` rows the cross-branch fallback
-# (fm_nm_runs_status_for_worktree in bin/fm-nm-run-lib.sh) scans. Generous
-# enough to still find a branch's own run on a busy multi-crew fleet without
-# listing the entire history every call.
+# How many of the most recent `no-mistakes runs` rows each ledger read
+# (fm_nm_runs_status_for_worktree in bin/fm-nm-run-lib.sh) scans, whether it is
+# the cross-branch fallback or the live-sibling probe behind a terminal `axi
+# status` answer (docs/configuration.md owns the setting). Generous enough to
+# still find a branch's own run on a busy multi-crew fleet without listing the
+# entire history every call.
 FM_CREW_STATE_RUNS_LIMIT=${FM_CREW_STATE_RUNS_LIMIT:-200}
 case "$FM_CREW_STATE_RUNS_LIMIT" in ''|*[!0-9]*) FM_CREW_STATE_RUNS_LIMIT=200 ;; esac
 SEP=' · '
@@ -362,6 +378,24 @@ nm_active_steps_rows() {
   '
 }
 
+# Rows of the `steps[N]{step,status,findings,duration_ms}:` table in the
+# captured run output ($RUN_OUT) - the full per-step ledger, present on
+# terminal runs too, unlike active_steps[] which the pipeline emits only while
+# a step is actually running or fixing. Column order is deliberately not
+# assumed: the header's own indentation bounds the block, and callers below
+# read the table as text.
+nm_steps_rows() {
+  printf '%s\n' "$RUN_OUT" | awk '
+    /^[[:space:]]*steps\[[0-9]+\]\{/ { hdr = index($0, "steps"); inblock = 1; next }
+    inblock {
+      if ($0 ~ /^[[:space:]]*$/) { inblock = 0; next }
+      match($0, /[^ \t]/)
+      if (RSTART <= hdr) { inblock = 0; next }
+      print
+    }
+  '
+}
+
 # 0 when the pipeline itself reports RECENT activity on an actively running or
 # fixing step. The client prefixes a step's `last_activity` with `quiet` once no
 # step log or native-agent lifecycle event has arrived for longer than its
@@ -374,6 +408,66 @@ nm_run_activity_is_recent() {
   rows=$(nm_active_steps_rows)
   [ -n "$rows" ] || return 1
   ! printf '%s\n' "$rows" | grep -q 'quiet'
+}
+
+# 0 when a terminal FAILED run's only failure is the ci monitor step and the
+# ci log's last recognized marker reads checks green. Requires the exact
+# shape, all on positive evidence: a steps[] table where every step completed
+# except exactly `ci` failed (any other non-completed status, or a second
+# failed step, disqualifies), plus nm_ci_checks_state=green (a genuinely red
+# check, or an unreadable ci log, keeps the failure a failure). This is the
+# orphaned-CI-monitor gap (2026-09-05 jr-voice): a run held for a captain
+# merge decision polls until the shared daemon restarts under it and marks
+# the run failed, although GitHub's own check state - the actual shippability
+# authority - is green and every substantive step completed.
+nm_failed_run_is_green_held_ci() {
+  local rows row rest step status saw_ci_failed
+  rows=$(nm_steps_rows)
+  [ -n "$rows" ] || return 1
+  saw_ci_failed=0
+  while IFS= read -r row; do
+    row=$(trim "$row")
+    step=$(trim "${row%%,*}")
+    rest=${row#*,}
+    status=$(strip_quotes "$(trim "${rest%%,*}")")
+    case "$status" in
+      completed) continue ;;
+      failed)
+        [ "$step" = ci ] || return 1
+        saw_ci_failed=1
+        continue
+        ;;
+      *) return 1 ;;
+    esac
+  done <<EOF
+$rows
+EOF
+  [ "$saw_ci_failed" = 1 ] || return 1
+  [ "$(nm_ci_checks_state)" = green ]
+}
+
+# Reclassify a terminal failed run as done (held-for-merge) when
+# nm_failed_run_is_green_held_ci matches, surfacing the run's PR URL so the
+# supervisor reads the concrete review-ready outcome instead of a failure.
+nm_reclassify_failed_run_as_held_green() {
+  nm_failed_run_is_green_held_ci || return 1
+  RUN_STATE="done"
+  RUN_DETAIL="checks green: PR held for merge (ci monitor ended)"
+  local pr_url
+  pr_url=$(strip_quotes "$(nm_field pr)")
+  [ -n "$pr_url" ] && RUN_DETAIL="$RUN_DETAIL: $pr_url"
+  return 0
+}
+
+# 0 when an explicit probe proves the shared daemon down: `no-mistakes daemon
+# status` is the canonical down-probe (the same one fm-brief.sh hands crews
+# before a blocked append) and exits non-zero when the daemon is not running.
+# Bounded like every other CLI call; a probe that fails for any reason -
+# refused socket, timeout, non-zero answer - means the daemon is not provably
+# up, which is the only fact the coarse fallback needs.
+nm_daemon_probe_down() {
+  fm_nm_run_checked "$WT" "$NM_TIMEOUT" daemon status >/dev/null || return 0
+  return 1
 }
 
 nm_ci_step_status() {
@@ -440,11 +534,13 @@ nm_ci_checks_state() {
 # has no runs-listing subcommand; tests/fm-crew-state.test.sh owns the
 # 2026-07-02 dead-code incident history this fallback replaced).
 # fm_nm_runs_status_for_worktree in bin/fm-nm-run-lib.sh is the ONE owner of
-# the ledger format, the newest-row-decides rule, and the anchored
-# pipeline-continuation recognition (model-routing-benchmark-hardening: an
-# active fix round whose head object the task copy never fetched used to be
-# rejected here, letting the older failed row answer as current), so both
-# attribution routes share one rule.
+# the ledger format, the newest-row-decides rule, its live-over-terminal
+# exception, and the anchored pipeline-continuation recognition
+# (model-routing-benchmark-hardening: an active fix round whose head object the
+# task copy never fetched used to be rejected here, letting the older failed row
+# answer as current), so both attribution routes share one rule.
+# The same reader is also consulted when `axi status` DID bind this branch's run
+# but that run is terminal, to find a live sibling run for this worktree.
 nm_runs_list() {
   nm_run runs --limit "$FM_CREW_STATE_RUNS_LIMIT"
 }
@@ -484,6 +580,21 @@ if [ "$KIND" = ship ] && [ -n "$CREW_BRANCH" ] && command -v no-mistakes >/dev/n
     if [ -n "$run_branch" ] && [ "$run_branch" = "$CREW_BRANCH" ] \
       && { nm_run_head_matches_worktree || fm_nm_run_is_pipeline_owned_active "$RUN_OUT"; }; then
       HAVE_RUN=1
+      # Live-over-terminal (bin/fm-nm-run-lib.sh). Bare `axi status` answers
+      # with the most-recently-touched run, which after a pipeline crash is the
+      # dead run sitting at this worktree's exact commit while the live run
+      # that replaced it validates a descendant commit on the same branch. Both
+      # bind, so a terminal answer is provisional until the ledger has been
+      # asked whether this worktree also has a live run. Only a live word
+      # displaces it: a terminal run with no live sibling keeps its full
+      # `axi status` step and gate detail rather than degrading to the ledger.
+      if ! fm_nm_run_is_active "$RUN_OUT"; then
+        live_status=$(fm_nm_runs_status_for_worktree "$WT" "$CREW_BRANCH" "$(nm_runs_list)")
+        if [ "$(fm_nm_run_status_class "$live_status")" = live ]; then
+          COARSE_STATUS=$live_status
+          RUN_SOURCE=coarse
+        fi
+      fi
     else
       # The active-or-most-recent run is for another branch, or it names this
       # branch with a head this copy cannot verify (a pipeline-advanced fix
@@ -525,7 +636,17 @@ if [ "$HAVE_RUN" = 1 ]; then
     case "$COARSE_STATUS" in
       running)   RUN_STATE=working; RUN_DETAIL="validating (background run)" ;;
       completed) RUN_STATE="done";  RUN_DETAIL="run completed" ;;
-      failed)    RUN_STATE=failed;  RUN_DETAIL="run failed" ;;
+      failed)
+        # The ledger row is terminal but the coarse path has no steps table
+        # and no ci log, so the orphaned-monitor shape cannot be recognized
+        # here. With the daemon provably down, the row is unverified evidence
+        # from a dead instrument and must not read as work failure.
+        if nm_daemon_probe_down; then
+          RUN_STATE=unknown
+          RUN_DETAIL="no-mistakes daemon unreachable; last ledger record failed - unverified"
+        else
+          RUN_STATE=failed; RUN_DETAIL="run failed"
+        fi ;;
       cancelled) RUN_STATE=failed;  RUN_DETAIL="run cancelled" ;;
       *)         RUN_STATE=unknown; RUN_DETAIL="runs list status: $COARSE_STATUS" ;;
     esac
@@ -542,7 +663,10 @@ if [ "$HAVE_RUN" = 1 ]; then
       case "$outcome" in
         passed)        RUN_STATE="done"; RUN_DETAIL="run passed: PR merged/closed" ;;
         checks-passed) RUN_STATE="done"; RUN_DETAIL="checks green: PR ready for review" ;;
-        failed)        RUN_STATE=failed; RUN_DETAIL="run failed" ;;
+        failed)
+          if nm_reclassify_failed_run_as_held_green; then :; else
+            RUN_STATE=failed; RUN_DETAIL="run failed"
+          fi ;;
         cancelled)     RUN_STATE=failed; RUN_DETAIL="run cancelled" ;;
         *)             RUN_STATE=unknown; RUN_DETAIL="outcome: $outcome" ;;
       esac
@@ -566,7 +690,10 @@ if [ "$HAVE_RUN" = 1 ]; then
         ci)             RUN_STATE=working; RUN_DETAIL="ci running" ;;
         running|fixing) RUN_STATE=working; RUN_DETAIL="validating ($status)" ;;
         completed)      RUN_STATE="done"; RUN_DETAIL="run completed" ;;
-        failed)         RUN_STATE=failed;  RUN_DETAIL="run failed" ;;
+        failed)
+          if nm_reclassify_failed_run_as_held_green; then :; else
+            RUN_STATE=failed; RUN_DETAIL="run failed"
+          fi ;;
         cancelled)      RUN_STATE=failed;  RUN_DETAIL="run cancelled" ;;
         "")             RUN_STATE=working; RUN_DETAIL="run active" ;;
         *)              RUN_STATE=working; RUN_DETAIL="run active ($status)" ;;
@@ -667,8 +794,10 @@ if ! pane_readable "$BACKEND_TARGET"; then
   #             genuine server death - a socket-connection failure is NOT
   #             covered by the unknown-never-death rule above).
   #   dead    - the endpoint exists but confidently has no agent (herdr's agent
-  #             get answered agent_not_found; tmux's readable foreground process
-  #             group is nothing but shells), still positive death evidence.
+  #             get answered agent_not_found, or its registration lingers over a
+  #             pane whose processes are nothing but shells - issue #4115;
+  #             tmux's readable foreground process group is nothing but
+  #             shells), still positive death evidence.
   #   alive   - the endpoint and its agent answered and only the heavy
   #             scrollback read failed, so the live state is classified by the
   #             normal flow below instead of being discarded.
