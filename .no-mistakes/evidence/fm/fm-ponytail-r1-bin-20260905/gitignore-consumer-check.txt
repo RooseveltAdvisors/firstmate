@@ -1,0 +1,13 @@
+=== git check-ignore -v (real consumer of restored .gitignore rules) ===
+.gitignore:1:projects/	projects/
+.gitignore:2:state/	state/
+.gitignore:3:data/	data/
+.gitignore:4:scratchpad*	scratchpad
+.gitignore:4:scratchpad*	scratchpad2
+.gitignore:5:.no-mistakes/	.no-mistakes/
+.gitignore:6:.lavish/	.lavish/
+.gitignore:16:.tasks.toml	.tasks.toml
+.gitignore:9:.DS_Store	.DS_Store
+.gitignore:7:.fm-secondmate-home	.fm-secondmate-home
+.gitignore:8:.fm-secondmate-parent	.fm-secondmate-parent
+rc=0

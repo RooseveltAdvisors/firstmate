@@ -1,0 +1,13 @@
+$ # fixture: origin task "sample-pinned-review" created in a scratch home
+$ # 1. hold a captain decision under the composed origin identity
+sample-pinned-review-decision-pick-one
+$ # 2. two-argument concrete-origin bind: bind <source> <origin>
+bound: pinned-src -> sample-pinned-review
+bind pinned-src sample-pinned-review: ok
+$ # 3. binding <source> prints the stored concrete origin verbatim
+binding pinned-src -> sample-pinned-review
+$ # 4. one-argument any-origin bind for contrast
+binding loose-src  -> (any)
+$ # 5. the held task is an open captain call under the composed identity
+2026-09-11T19:15:29Z#0
+(open captain call)

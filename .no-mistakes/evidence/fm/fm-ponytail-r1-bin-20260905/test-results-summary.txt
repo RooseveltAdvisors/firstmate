@@ -1,0 +1,17 @@
+=== Targeted suite results (fresh runs; umask 022; LC_ALL=C except fm-public-followup, which needs the ambient UTF-8 locale for codepoint counting) ===
+fm-stdlib                      rc=0 ok=1 not_ok=0
+fm-gotmp                       rc=0 ok=3 not_ok=0
+fm-gitignore-config            rc=0 ok=5 not_ok=0
+fm-captain-hold-lifecycle      rc=0 ok=51 not_ok=0
+fm-test-run                    rc=0 ok=38 not_ok=0
+fm-secondmate-sync             rc=0 ok=32 not_ok=0
+fm-remote-transport-lanes      rc=0 ok=12 not_ok=0
+fm-session-start               rc=0 ok=52 not_ok=0
+fm-secondmate-harness          rc=0 ok=49 not_ok=0
+fm-backlog-atomicity           rc=0 ok=99 not_ok=0
+fm-bearings-board              rc=0 ok=18 not_ok=0
+fm-backlog-handoff             rc=0 ok=24 not_ok=0
+fm-public-followup             rc=0 ok=73 not_ok=0
+
+=== bin/fm-test-run.sh --check-coverage (LC_ALL=C) ===
+FM_TEST_COVERAGE ok total=198 parallel=24 parallel_max_ms=414299 parallel_imbalance_ms=30 parallel_unhinted=0 serial=159 serial_shards=5 serial_unhinted=13 herdr=15

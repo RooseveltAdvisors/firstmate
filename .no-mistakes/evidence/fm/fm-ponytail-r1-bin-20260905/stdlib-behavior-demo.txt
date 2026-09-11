@@ -1,0 +1,7 @@
+=== sha256_file with no SHA-256 tool on PATH (stdlib consolidated guard) ===
+error: shasum or sha256sum is required
+exit=1 (non-zero with explicit error above — the guard survives consolidation)
+
+=== sha256_file with shasum present (normal path, stdlib) ===
+d4e4877bac978b7952f0d544fc52ebff5411d351d129f1f056fa43f11da9af2b
+expected: d4e4877bac978b7952f0d544fc52ebff5411d351d129f1f056fa43f11da9af2b

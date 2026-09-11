@@ -1,0 +1,11 @@
+=== fm-captain-hold-lifecycle: two-argument bind + legacy-record assertions (TAP excerpt) ===
+22:ok - a concrete-origin binding resolves a short key through the composed legacy identity
+23:ok - legacy metadata and resolution records remain compatible after shim retirement
+46:ok - verify resolves a captain hold whose id is the legacy id under the configured prefix
+49:ok - an unresolvable legacy id is refused once, naming the id
+50:ok - a pre-collapse key resolves through its derived identity's migration marker
+
+tail:
+ok - an unresolvable legacy id is refused once, naming the id
+ok - a pre-collapse key resolves through its derived identity's migration marker
+ok - captain-hold mutations address the beads backend without a markdown override
