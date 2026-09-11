@@ -1,0 +1,50 @@
+=================== 1. fm-spawn.sh against a full treehouse pool =============================
+warning: /tmp/fm-demo/capacity/home/data/cap-x1/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+held: cap-x1 - pool /tmp/fm-demo/capacity/pool full 3/4; item left queued for redispatch when a worktree frees; endpoint firstmate:fm-cap-x1 closed so the redispatch can create it again
+spawn exit code: 2
+
+=================== 2. the persisted backlog state after the refusal (tasks-axi show) ========
+task:
+  id: cap-x1
+  title: capacity fixture task
+  state: queued
+  blocked: no
+  blocked_by: none
+  held: yes
+  hold_reason: pool /tmp/fm-demo/capacity/pool full 3/4
+  hold_kind: load
+  hold_until: "-"
+  kind: ship
+  repo: "-"
+  priority: "-"
+  priority_why: "-"
+  created: 2026-09-11
+  closed: "-"
+  deps: none
+  links: none
+  body: ""
+
+=================== 3. backlog holds before the worktree return ==============================
+task-a held=yes state=queued
+task-b held=yes state=queued
+task-c held=yes state=queued
+task-d held=yes state=queued
+
+=================== 4. fm-teardown.sh returns the worktree to the pool =======================
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 2s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e /home/jon/.no-mistakes/worktrees/2f32188048b1/01M28RB8449BAAVRW5YC0274EX/.pi/extensions/fm-primary-turnend-guard.ts -e /home/jon/.no-mistakes/worktrees/2f32188048b1/01M28RB8449BAAVRW5YC0274EX/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ready: task-a - capacity hold released for pool /tmp/fm-demo/capacity/pool
+teardown task-x1 complete (window firstmate:fm-task-x1, worktree /tmp/fm-demo/capacity/pool/7/wt)
+Backlog: task-x1 is closed in /tmp/fm-demo/capacity/teardown/data/backlog.md. Run tasks-axi ready for dependency-cleared candidates, check date gates, and dispatch only work whose blockers are gone and date is due.
+teardown exit code: 0
+
+=================== 5. backlog holds after the return ========================================
+task-a held=no state=queued
+task-b held=yes state=queued
+task-c held=yes state=queued
+task-d held=yes state=queued

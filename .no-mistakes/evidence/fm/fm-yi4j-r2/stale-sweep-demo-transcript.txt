@@ -1,0 +1,40 @@
+=================== 1. dry run (default): lists verdicts, reclaims nothing ===================
+ID                                         HOME               AGE     VERDICT   ACTION                   ACTOR         PROV
+fm-orphan-url                              -                  50h     no-home   keep                     -             -
+fm-bare-orphan                             -                  50h     no-home   keep                     -             -
+fm-orphan-row                              -                  50h     no-home   keep                     ship/-        -
+fm-live-row                                main home          50h     live      keep                     -             -
+fm-dead-row                                main home          50h     dead      would reclaim            -             -
+5 stale candidates: 1 dead, 1 live, 0 unproven, 3 no-home; would reclaim 1
+
+=================== 2. dry run with --apply-orphans preview (still a dry run) ==================
+ID                                         HOME               AGE     VERDICT   ACTION                   ACTOR         PROV
+fm-orphan-url                              -                  50h     no-home   keep                     -             -
+fm-bare-orphan                             -                  50h     no-home   would reclaim (orphan)   -             -
+fm-orphan-row                              -                  50h     no-home   keep                     ship/-        -
+fm-live-row                                main home          50h     live      keep                     -             -
+fm-dead-row                                main home          50h     dead      would reclaim            -             -
+5 stale candidates: 1 dead, 1 live, 0 unproven, 3 no-home; would reclaim 2
+
+=================== 3. --apply: reclaims dead rows, orphan guard still holds ==================
+ID                                         HOME               AGE     VERDICT   ACTION                   ACTOR         PROV
+fm-orphan-url                              -                  50h     no-home   keep                     -             -
+fm-bare-orphan                             -                  50h     no-home   reclaimed (orphan)       -             -
+fm-orphan-row                              -                  50h     no-home   keep                     ship/-        -
+fm-live-row                                main home          50h     live      keep                     -             -
+fm-dead-row                                main home          50h     dead      reclaimed                -             -
+5 stale candidates: 1 dead, 1 live, 0 unproven, 3 no-home; reclaimed 2
+
+=================== 4. graph state after apply (bd, the tool that owns the graph) =============
+--- fm-dead-row: status=open
+    reclaimed 2026-09-11: endpoint dead, previous claim by main home
+--- fm-live-row: status=in_progress
+--- fm-orphan-row: status=in_progress
+--- fm-bare-orphan: status=open
+--- fm-orphan-url: status=in_progress
+
+=================== 5. no meta file, no worktree was touched ==================================
+state/fm-dead-row.meta
+state/fm-live-row.busy-gen
+state/fm-live-row.busy-state
+state/fm-live-row.meta

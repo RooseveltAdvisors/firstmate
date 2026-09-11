@@ -1,0 +1,10 @@
+=================== fm-bootstrap.sh at session start (drift fixtures, resolved root = root-a) ===
+NO_MISTAKES_MIRROR: macro remote=/tmp/fm-demo/mirror/root-b/repos/macro.git expected-root=/tmp/fm-demo/mirror/root-a (run no-mistakes init inside /tmp/fm-demo/mirror/home/projects/macro to point its gate at the active root)
+NO_MISTAKES_MIRROR: portal remote=/tmp/fm-demo/mirror/root-b/repos/portal.git expected-root=/tmp/fm-demo/mirror/root-a (run no-mistakes init inside /tmp/fm-demo/mirror/home/projects/portal to point its gate at the active root)
+NO_MISTAKES_MIRROR: absent remote=absent expected-root=/tmp/fm-demo/mirror/root-a (run no-mistakes init inside /tmp/fm-demo/mirror/home/projects/absent to point its gate at the active root)
+bootstrap exit code: 0
+
+=================== the operator fix applied: macro re-inited at the active root ================
+NO_MISTAKES_MIRROR: portal remote=/tmp/fm-demo/mirror/root-b/repos/portal.git expected-root=/tmp/fm-demo/mirror/root-a (run no-mistakes init inside /tmp/fm-demo/mirror/home/projects/portal to point its gate at the active root)
+NO_MISTAKES_MIRROR: absent remote=absent expected-root=/tmp/fm-demo/mirror/root-a (run no-mistakes init inside /tmp/fm-demo/mirror/home/projects/absent to point its gate at the active root)
+bootstrap exit code: 0
