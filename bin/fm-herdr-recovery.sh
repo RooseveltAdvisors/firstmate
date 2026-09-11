@@ -263,7 +263,7 @@ fm_reco_flags_ok() { # <line>
         find:-name|find:-iname|find:-lname|find:-path|find:-ipath|find:-regex|find:-iregex|find:-type|find:-maxdepth|find:-mindepth|find:-depth|find:-print|find:-print0|find:-prune|find:-xdev|find:-mount|find:-mtime|find:-mmin|find:-size) ;;
         sed:-n|sed:-r|sed:-E|sed:-z|sed:-e) ;;
         awk:-F*|awk:-v*) ;;
-        rg:-*) ;;
+        rg:*) case "$tok" in -f) ;; *f*) return 1 ;; esac ;;
         sort:-[bcCdfghikmnrsStuVz]*) ;;
         *) return 1 ;;
       esac
@@ -383,6 +383,12 @@ fm_reco_relative_ok() { # <line> <resolved-home>
       esac
       case "$tok" in
         -*)
+          if [ "$head" = grep ] || [ "$head" = rg ]; then
+            case "$tok" in
+              -f) ;;
+              *f*) return 1 ;;
+            esac
+          fi
           case "$head:$tok" in
             sed:-e) expect_val=1; used_e=1 ;;
             awk:-F|awk:-v) expect_val=1 ;;
@@ -395,7 +401,7 @@ fm_reco_relative_ok() { # <line> <resolved-home>
             sort:-k|sort:-t|sort:-S|sort:-T) expect_val=1 ;;
             uniq:-f|uniq:-s|uniq:-w) expect_val=1 ;;
             grep:-f*|rg:-f*) return 1 ;;
-            grep:--*|wc:--*) return 1 ;;
+            grep:--*|rg:--*|wc:--*) return 1 ;;
           esac
           continue
           ;;
