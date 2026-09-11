@@ -130,9 +130,9 @@ LOG=$report_log
 rep() {
   "\$HERDR_BIN" pane report-agent "\$P" --source "\$SRC" --agent codex --state "\$1" --session "\$LAB" >>"\$LOG" 2>&1
 }
-rep blocked
 printf '\033[H\033[2J\033[3J'
 cat "$3"
+rep blocked
 read -r
 rep working
 printf 'seat recovered\n'
