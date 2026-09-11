@@ -1,0 +1,59 @@
+== SHIPPED PARSER (accept-list includes control_relaunch_tx) ==
+ARM: ok; armed poll check is byte-identical to bin/fm-pr-poll.sh: yes
+registration (fm-pr-poll-registration-v2) id/url/data_hash lines:
+  task-a
+  github
+  14301287d7b07dd8f9947a8fcb9efea7179c469816a34847195497c62d8ce390
+meta after arming (canonical pr identity recorded):
+  window=fm-pr3417-attest
+  endpoint_task_id=task-a
+  worktree=/tmp/e2e-pr3417.Iyrd4a/shipped/wt
+  project=/tmp/e2e-pr3417.Iyrd4a/shipped/project
+  kind=ship
+  mode=no-mistakes
+  pr=https://github.com/o/r/pull/3417
+  pr_head=0123456789abcdef0123456789abcdef01234567
+meta after relaunch append gains: control_relaunch_tx=tx-3417
+watcher cycle with PR still open: exit=0
+  out: check: /tmp/e2e-pr3417.Iyrd4a/shipped/home/state/z-stop.check.sh: stop-cycle
+  poll artifacts survived the relaunch metadata: still armed and authenticated
+watcher cycle with PR merged (attempt 1): exit=0
+  out: check: rearm-resurface
+watcher cycle with PR merged (attempt 2): exit=0
+  out: check: /tmp/e2e-pr3417.Iyrd4a/shipped/home/state/task-a.check.sh: merged
+  automatic merge detection: DELIVERED
+  merged notification acknowledged via bin/fm-wake-drain.sh
+  poll retired after merged notification (check.sh, pr-poll, registration all removed)
+  canonical meta preserved after retirement: 1 pr= lines, 1 control_relaunch_tx= lines
+
+== COUNTERFACTUAL (accept-list reverted to base 40c50ea) ==
+ARM: ok; armed poll check is byte-identical to bin/fm-pr-poll.sh: yes
+registration (fm-pr-poll-registration-v2) id/url/data_hash lines:
+  task-a
+  github
+  14301287d7b07dd8f9947a8fcb9efea7179c469816a34847195497c62d8ce390
+meta after arming (canonical pr identity recorded):
+  window=fm-pr3417-attest
+  endpoint_task_id=task-a
+  worktree=/tmp/e2e-pr3417.Iyrd4a/counterfactual/wt
+  project=/tmp/e2e-pr3417.Iyrd4a/counterfactual/project
+  kind=ship
+  mode=no-mistakes
+  pr=https://github.com/o/r/pull/3417
+  pr_head=0123456789abcdef0123456789abcdef01234567
+meta after relaunch append gains: control_relaunch_tx=tx-3417
+watcher cycle with PR still open: exit=0
+  out: check: /tmp/e2e-pr3417.Iyrd4a/counterfactual/home/state/z-stop.check.sh: stop-cycle
+  poll artifacts survived the relaunch metadata: still armed and authenticated
+watcher cycle with PR merged (attempt 1): exit=0
+  out: check: rearm-resurface
+watcher cycle with PR merged (attempt 2): exit=0
+  out: check: /tmp/e2e-pr3417.Iyrd4a/counterfactual/home/state/z-stop.check.sh: stop-cycle
+watcher cycle with PR merged (attempt 3): exit=0
+  out: check: /tmp/e2e-pr3417.Iyrd4a/counterfactual/home/state/z-stop.check.sh: stop-cycle
+  automatic merge detection: NOT DELIVERED
+  merged notification acknowledgement: FAILED
+  poll artifacts still present after merged retirement
+  canonical meta preserved after retirement: 1 pr= lines, 1 control_relaunch_tx= lines
+
+worktree restored to shipped parser
