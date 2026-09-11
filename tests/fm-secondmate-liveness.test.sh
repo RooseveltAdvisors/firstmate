@@ -162,10 +162,14 @@ SH
 test_herdr_agent_state_preserves_husk_classifier() {
   local pane_state expected out
 
+  # The server-running probe is pinned to 'unknown' so the mapping stays
+  # host-independent: a developer machine with a real herdr CLI answers
+  # `status --json` for an unregistered session with running:false, which
+  # would otherwise leak 'stopped' in and flip the unknown row to 'missing'.
   for row in 'dead missing' 'no-agent dead' 'live alive' 'unknown unreadable'; do
     pane_state=${row%% *}
     expected=${row#* }
-    out=$(FM_TEST_PANE_STATE="$pane_state" bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_pane_agent_state() { printf "%s" "$FM_TEST_PANE_STATE"; }; fm_backend_herdr_agent_state "sess:p1"' "$ROOT")
+    out=$(FM_TEST_PANE_STATE="$pane_state" bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_pane_agent_state() { printf "%s" "$FM_TEST_PANE_STATE"; }; fm_backend_herdr_server_running_state() { printf unknown; }; fm_backend_herdr_agent_state "sess:p1"' "$ROOT")
     [ "$out" = "$expected" ] || fail "Herdr pane state $pane_state should map to $expected, got '$out'"
   done
 
