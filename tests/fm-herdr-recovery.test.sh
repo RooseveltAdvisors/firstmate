@@ -364,7 +364,7 @@ EOF
   cat > "$prompts/allow-sed-w-subst" <<EOF
   Would you like to run the following command?
 
-  sed s/w/W/g $ROOT/state/x.md
+  sed s/q/Q/g $ROOT/state/x.md
 
 > 1. Yes, proceed (y)
   3. No (esc)
@@ -373,6 +373,38 @@ EOF
   Would you like to run the following command?
 
   find $ROOT/state -type f -name '*.msg' -print
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-sed-bang-exec" <<EOF
+  Would you like to run the following command?
+
+  sed -n '2!e date' $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-sed-subs-exec" <<EOF
+  Would you like to run the following command?
+
+  sed 's/.*/date/eg' $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-rg-pre" <<EOF
+  Would you like to run the following command?
+
+  rg --pre 'sh evil.sh' $ROOT/state/f.txt
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-rg-short" <<EOF
+  Would you like to run the following command?
+
+  rg -n pattern $ROOT/state
 
 > 1. Yes, proceed (y)
   3. No (esc)
@@ -416,8 +448,12 @@ EOF
   classify allow-awk-fv 'approve' 'classifier approves an awk field read with -F'
   classify allow-sort-rn 'approve' 'classifier approves a sort -rn read'
   classify allow-sed-e-flag 'approve' 'classifier approves an inline sed -e substitution read'
-  classify allow-sed-w-subst 'approve' 'classifier approves a sed substitution of the letter w'
+  classify allow-sed-w-subst 'approve' 'classifier approves a sed letter substitution read'
   classify allow-find-type 'approve' 'classifier approves a find type/name/print read'
+  classify deny-sed-bang-exec 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses the !-negated sed e command'
+  classify deny-sed-subs-exec 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses the s///eg execute flag'
+  classify deny-rg-pre 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses rg --pre'
+  classify allow-rg-short 'approve' 'classifier approves an rg short-flag read'
   classify unknown 'unknown' 'classifier fails closed on an unrecognized prompt'
 }
 
@@ -587,6 +623,28 @@ test_symlink_escape() {
   esac
 }
 
+test_relative_token_policy() {
+  [ -n "$TMP_ROOT" ] || TMP_ROOT=$(mktemp -d)
+  local home=$TMP_ROOT/relhome cwd=$TMP_ROOT/relcwd out
+  mkdir -p "$home/state" "$cwd"
+  printf 'msg\n' > "$home/state/001.msg"
+  printf 'secret\n' > "$TMP_ROOT/rel-outside.txt"
+  ln -s "$TMP_ROOT/rel-outside.txt" "$cwd/escape.txt"
+  ln -s "$home/state/001.msg" "$cwd/inhome.txt"
+  out=$(cd "$cwd" && bash -c '
+    . "$1"
+    fm_reco_command_allowed "cat escape.txt" "$2"
+    printf "|"
+    fm_reco_command_allowed "cat inhome.txt" "$2"
+    printf "|"
+    fm_reco_command_allowed "cat missing.txt" "$2"
+  ' _ "$TOOL" "$home")
+  case "$out" in
+    'refuse:relative file token is not symlink-verifiable inside this home|ok|refuse:relative file token is not symlink-verifiable inside this home') : ;;
+    *) fail "relative file tokens are fail-closed unless verified inside the home (got: '$out')" ;;
+  esac
+}
+
 test_allowlist_refusal_e2e() {
   reco_fixture_init
   local home=$TMP_ROOT/home
@@ -699,6 +757,7 @@ test_status_read_failure
 test_ambiguous_backend_meta
 test_pane_list_shape_drift
 test_symlink_escape
+test_relative_token_policy
 test_allowlist_refusal_e2e
 test_unrecognized_prompt_e2e
 test_round_cap

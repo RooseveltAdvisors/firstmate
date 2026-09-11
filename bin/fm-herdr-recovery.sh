@@ -43,16 +43,20 @@
 # head must be an allowed word). For the read tools whose flags can mutate or
 # execute, every flag token must match a bounded read-only set: find's
 # search/print primaries, sed's -n/-E/-r/-e inline scripts (never program
-# files or long options, never its e/w shell-running or file-writing
-# commands), awk's -F/-v only, and sort's behavior flags (never -o/--output).
-# Every path stays inside this home's tree (absolute under FM_HOME, relative
-# without "..", no "~", or /dev/null; '='-attached values included; existing
-# tokens resolved so symlinks cannot leave the tree), no write redirects, and
-# no deny word in the command text - credentials, 1Password/op, tokens/secrets,
-# git, package installs, network or process tools, other agent CLIs, or
-# anything mutating. Herdr/tmux/zellij/cmux are
-# not allowlisted command words, so lifecycle commands are refused by the
-# allowlist itself. Any mismatch refuses the seat as needs-human.
+# files or long options, never its e/w shell-running or file-writing commands
+# in any address or s/// flag form, including !-negated addresses), awk's
+# -F/-v only, rg's short flags only (never long options such as --pre), and
+# sort's behavior flags (never -o/--output). Every path stays inside this
+# home's tree (absolute under FM_HOME, relative without "..", no "~", or
+# /dev/null; '='-attached values included; absolute tokens resolved so
+# symlinks cannot leave the tree), no write redirects, and no deny word in
+# the command text - credentials, 1Password/op, tokens/secrets, git, package
+# installs, network or process tools, other agent CLIs, or anything mutating.
+# Slash-less relative file tokens cannot be symlink-verified from the runner
+# context (the pane's real cwd is not fetched), so prompts carrying them are
+# left for manual confirmation instead of blind approval. Herdr/tmux/zellij/
+# cmux are not allowlisted command words, so lifecycle commands are refused
+# by the allowlist itself. Any mismatch refuses the seat as needs-human.
 #
 # Output: one line per seat (seat, harness, pane, before/after state, Enters
 # sent, verdict) plus a summary line. Exit codes: 0 all seats resolved or
@@ -194,9 +198,37 @@ fm_reco_command_words() { # <line>
   done < <(fm_reco_segments "$1")
 }
 
+# fm_reco_sed_scripts_ok: extract the inline program tokens of a sed segment
+# (the -e values and the first positional) and refuse any e/w/W command or
+# s/// flag occurrence, however addressed: leading non-alnum boundaries cover
+# start, quotes, delimiters, commas, and GNU sed's !-negation prefix, and the
+# trailing guard also catches combined s/// flags like eg or ge.
+fm_reco_sed_scripts_ok() { # <segment>
+  local tok script='' expect=0
+  local -a toks
+  read -ra toks <<< "$1" || return 1
+  for tok in "${toks[@]:1}"; do
+    if [ "$expect" -eq 1 ]; then
+      expect=0
+      script="$script$tok"$'\n'
+      continue
+    fi
+    case "$tok" in
+      -e) expect=1 ;;
+      -*) ;;
+      *)
+        [ -n "$script" ] || script="$tok"$'\n'
+        ;;
+    esac
+  done
+  [ -n "$script" ] || return 0
+  printf '%s' "$script" | grep -qE "(^|[^A-Za-z0-9])[0-9\$]*!?[ewW]|[0-9\$]*!?[ewW]([^[:alnum:]]|\$)" && return 1
+  return 0
+}
+
 # fm_reco_flags_ok: an allowlisted-flags boundary for the read tools whose
-# flags can mutate or execute. For find/sed/awk/sort segments every flag token
-# must match that head's safe read set; long options, program/expression
+# flags can mutate or execute. For find/sed/awk/sort/rg segments every flag
+# token must match that head's safe read set; long options, program/expression
 # files, and sed's e/w shell-running or file-writing script commands are
 # refused outright. Other heads pass. Consumes the shared segment printer so
 # a timeout wrapper cannot smuggle a flagged tool past this screen.
@@ -206,7 +238,7 @@ fm_reco_flags_ok() { # <line>
   while IFS= read -r seg; do
     head=${seg%%[[:space:]]*}
     case "$head" in
-      find|sed|awk|sort) ;;
+      find|sed|awk|sort|rg) ;;
       *) continue ;;
     esac
     read -ra toks <<< "$seg" || return 1
@@ -219,13 +251,14 @@ fm_reco_flags_ok() { # <line>
         find:-name|find:-iname|find:-lname|find:-path|find:-ipath|find:-regex|find:-iregex|find:-type|find:-maxdepth|find:-mindepth|find:-depth|find:-print|find:-print0|find:-prune|find:-xdev|find:-mount|find:-mtime|find:-mmin|find:-size) ;;
         sed:-[nrEz]*|sed:-e) ;;
         awk:-F*|awk:-v*) ;;
+        rg:-*) ;;
         sort:-[bcCdfghikmnrsStuVz]*) ;;
         *) return 1 ;;
       esac
     done
     case "$head" in
       sed)
-        printf '%s' "$seg" | grep -qE "(^|[[:space:]\"'/;,])[0-9\$]*[ewW]([[:space:]\"';]|\$)" && return 1
+        fm_reco_sed_scripts_ok "$seg" || return 1
         ;;
     esac
   done < <(fm_reco_segments "$1")
@@ -268,6 +301,77 @@ fm_reco_paths_ok() { # <text> <home>
       esac
     fi
   done < <(printf '%s' "$1" | grep -oE '[^[:space:]"'"'"']*/[^[:space:]"'"'"']*')
+  return 0
+}
+
+# fm_reco_relative_token_ok: one slash-less file token. A token that resolves
+# inside the home from the runner context passes; every other slash-less file
+# token (escaping symlink or one whose pane-cwd target cannot be verified
+# here) refuses for manual confirmation.
+fm_reco_relative_token_ok() { # <token> <resolved-home>
+  local tok=$1 resolved
+  tok=${tok%\"}; tok=${tok#\"}
+  tok=${tok%\'}; tok=${tok#\'}
+  case "$tok" in
+    ''|-*|[\\]*|\$*|*'*'*|*'?'*) return 0 ;;
+    */*) return 0 ;;
+    *'..'*) return 1 ;;
+    '~'*) return 1 ;;
+  esac
+  if [ -e "$tok" ] || [ -L "$tok" ]; then
+    resolved=$(readlink -f -- "$tok" 2>/dev/null) || return 1
+    case "$resolved" in
+      "$2"|"$2"/*|/dev/null) return 0 ;;
+      *) return 1 ;;
+    esac
+  fi
+  return 1
+}
+
+# fm_reco_relative_ok: positional file tokens of the file-consuming heads
+# (cat/ls/head/tail/wc/sort/uniq fully; sed/awk/grep/rg after their script or
+# pattern positional) must pass fm_reco_relative_token_ok, so an unverifiable
+# relative read is needs-manual instead of blind-approved.
+fm_reco_relative_ok() { # <line> <resolved-home>
+  local seg head tok home seen_special used_e expect_val
+  home=$(readlink -f -- "$2" 2>/dev/null) || return 1
+  local -a toks
+  while IFS= read -r seg; do
+    head=${seg%%[[:space:]]*}
+    case "$head" in
+      cat|ls|head|tail|wc|sort|uniq) seen_special=1 ;;
+      sed|awk|grep|rg) seen_special=0 ;;
+      *) continue ;;
+    esac
+    used_e=0
+    expect_val=0
+    read -ra toks <<< "$seg" || return 1
+    for tok in "${toks[@]:1}"; do
+      if [ "$expect_val" -eq 1 ]; then
+        expect_val=0
+        continue
+      fi
+      case "$tok" in
+        -*)
+          case "$head:$tok" in
+            sed:-e) expect_val=1; used_e=1 ;;
+            awk:-F|awk:-v) expect_val=1 ;;
+            grep:-A|grep:-B|grep:-C|grep:-e|grep:-f|grep:-m) expect_val=1; case "$tok" in -e|-f) used_e=1 ;; esac ;;
+            rg:-A|rg:-B|rg:-C|rg:-e|rg:-f|rg:-g|rg:-t|rg:-T|rg:-m|rg:-M|rg:-r) expect_val=1; case "$tok" in -e|-f) used_e=1 ;; esac ;;
+            head:-n|head:-c|tail:-n|tail:-c) expect_val=1 ;;
+            sort:-k|sort:-t|sort:-S|sort:-T) expect_val=1 ;;
+            uniq:-f|uniq:-s|uniq:-w) expect_val=1 ;;
+          esac
+          continue
+          ;;
+      esac
+      if [ "$seen_special" -eq 0 ] && [ "$used_e" -eq 0 ]; then
+        seen_special=1
+        continue
+      fi
+      fm_reco_relative_token_ok "$tok" "$home" || return 1
+    done
+  done < <(fm_reco_segments "$1")
   return 0
 }
 
@@ -314,6 +418,10 @@ fm_reco_command_allowed() { # <command-text> <home>
     }
     fm_reco_paths_ok "$line" "$home" || {
       printf 'refuse:command reaches a path outside this home'
+      return 0
+    }
+    fm_reco_relative_ok "$line" "$home" || {
+      printf 'refuse:relative file token is not symlink-verifiable inside this home'
       return 0
     }
   done <<< "$text"
