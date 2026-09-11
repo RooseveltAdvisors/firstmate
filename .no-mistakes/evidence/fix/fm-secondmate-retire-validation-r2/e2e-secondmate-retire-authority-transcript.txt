@@ -1,0 +1,73 @@
+=== End-to-end demo: secondmate retirement authority (PR 3657 surface) ===
+Home: /tmp/fm-e2e-demo.qKBVSr/home   (state under /tmp/fm-e2e-demo.qKBVSr/home/state)
+
+---- 1. Choosing targets: bin/fm-fleet-view.sh --cleanup-candidates ----
+
+# Cleanup Candidates
+
+Home: /tmp/fm-e2e-demo.qKBVSr/home
+
+| ID | Kind | Persistence | Teardown |
+| --- | --- | --- | --- |
+| design | secondmate | persistent | retire only by an explicit decision naming this home - see .agents/skills/secondmate-provisioning |
+| domain | secondmate | persistent | retire only by an explicit decision naming this home - see .agents/skills/secondmate-provisioning |
+| ops | secondmate | persistent | retire only by an explicit decision naming this home - see .agents/skills/secondmate-provisioning |
+| task-x1 | ship | disposable | bin/fm-teardown.sh task-x1 |
+
+A persistent home is retired only by a decision naming that exact home; an idle queue is healthy, not finished.
+This report prints no runnable retirement command, so retiring a standing home has to be typed deliberately.
+Teardown takes one target per invocation.
+
+---- 2. A caller sweeps the worktree-path glob and tears down several targets at once: refused as a batch ----
+
+$ fm-teardown.sh task-x1 design ops
+  error: teardown acts on exactly one task, but 3 targets were given: task-x1 design ops
+  error: 2 of those targets are persistent secondmate homes, not finished workers: design ops
+  Retiring a secondmate is a per-target decision. Nothing was changed.
+  List candidates with their kinds using bin/fm-fleet-view.sh --cleanup-candidates, then act on one target per invocation.
+  exit=2   (state/task-x1.meta still present: yes)
+
+---- 3. Teardown of the persistent home without retirement authority ----
+
+$ fm-teardown.sh domain
+  REFUSED: task domain is a persistent secondmate home, not a finished worker; nothing was changed.
+  An idle queue is a healthy secondmate's normal state, never evidence it is done.
+  Retiring it takes authority naming that exact home: bin/fm-teardown.sh domain --retire-secondmate domain
+  List candidates with their kinds using bin/fm-fleet-view.sh --cleanup-candidates rather than inferring persistence from a worktree path.
+  exit=1   (home intact: yes; lease still held: yes)
+
+---- 4. --force does not substitute for retirement authority ----
+
+$ fm-teardown.sh domain --force
+  REFUSED: task domain is a persistent secondmate home, not a finished worker; nothing was changed.
+  An idle queue is a healthy secondmate's normal state, never evidence it is done.
+  Retiring it takes authority naming that exact home: bin/fm-teardown.sh domain --retire-secondmate domain
+  List candidates with their kinds using bin/fm-fleet-view.sh --cleanup-candidates rather than inferring persistence from a worktree path.
+  exit=1   (home intact: yes)
+
+---- 5. Authority naming another home refuses ----
+
+$ fm-teardown.sh domain --retire-secondmate other-domain
+  REFUSED: --retire-secondmate names other-domain, but this teardown targets domain; nothing was changed.
+  Authority for retiring a persistent home must name that exact home.
+  exit=1   (home intact: yes)
+
+---- 6. End-of-options escape: ids spelling option names reach the batch refusal ----
+
+$ fm-teardown.sh task-x1 -- --force --legacy-record
+  error: teardown acts on exactly one task, but 3 targets were given: task-x1 --force --legacy-record
+  List candidates with their kinds using bin/fm-fleet-view.sh --cleanup-candidates, then act on one target per invocation.
+  exit=2   (state/task-x1.meta still present, force never discarded the first target: yes)
+
+---- 7. Deliberate retirement: authority naming exactly this home ----
+
+$ fm-teardown.sh domain --retire-secondmate domain
+  teardown domain complete (window firstmate:fm-domain, worktree /tmp/fm-e2e-demo.qKBVSr/domain-home)
+  exit=0   (home removed: yes; lease released: yes; meta cleared: yes; registry route removed: yes)
+
+---- 8. Ordinary ship teardown unchanged ----
+
+$ fm-teardown.sh task-x1
+  teardown task-x1 complete (window firstmate:fm-task-x1, worktree /tmp/fm-e2e-demo.qKBVSr/home/projects/task-x1-wt)
+  Backlog: task-x1 just finished (this home keeps no backlog at /tmp/fm-e2e-demo.qKBVSr/home/data/backlog.md). Update /tmp/fm-e2e-demo.qKBVSr/home/data/backlog.md - move task-x1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+  exit=0   (meta cleared: yes)
