@@ -1,0 +1,11 @@
+ok - a bound hit stops a captain hold loudly instead of being read as a missing task
+ok - the teardown verify gate reports a bound hit by name instead of as an absent inventory entry
+=== fm-captain-hold.sh hold wedged-hold --title "Wedged hold" --reason "backend wedged" ===
+exit=124
+fm-captain-hold: tasks-axi show wedged-hold exceeded its 2s backlog read bound
+=== fm-captain-hold.sh verify wedged-origin ===
+exit=1
+fm-captain-hold: tasks-axi show wedged-entry exceeded its 2s backlog read bound
+fm-captain-hold: the backlog backend exceeded its read bound resolving wedged-entry
+=== tasks-axi add was invoked this many times (must be 0): ===
+0

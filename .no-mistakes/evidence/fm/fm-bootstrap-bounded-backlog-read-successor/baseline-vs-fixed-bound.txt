@@ -1,0 +1,9 @@
+=== WITH FIX (target commit 598319fa) ===
+elapsed=2
+error=tasks-axi show wedged-item exceeded its 2s backlog read bound
+exit=0
+
+=== BASELINE (base commit e0d269e0, fix reverted) ===
+exit=124 (124=timeout command killed it: the read was still running unbounded)
+worktree restored:
+0
