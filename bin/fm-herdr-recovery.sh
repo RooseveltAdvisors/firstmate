@@ -33,9 +33,12 @@
 #              same quality of live evidence; an unverified pattern is a
 #              blind-Enter risk.
 #   approval   an approval question signal ("Yes, proceed", "Would you like to
-#              run the following command?", "Yes, and don't ask again"); the
-#              command text between the last question line and the next
-#              numbered option line must then pass the allowlist.
+#              run the following command?", "Yes, and don't ask again"),
+#              anchored on the first such line so a phrase planted inside a
+#              command stays screened; every '$'-prefixed or allowlist-head
+#              command line anywhere in the prompt plus the block between that
+#              question line and the next numbered option line must pass the
+#              allowlist, and a block with no numbered option line refuses.
 #   anything else   needs-human; the seat is left untouched.
 #
 # Allowlist: file-read commands only (cat sed ls head tail grep rg wc find awk
