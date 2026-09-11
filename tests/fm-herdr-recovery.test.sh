@@ -524,8 +524,36 @@ EOF
   cat > "$prompts/deny-no-options" <<EOF
   Would you like to run the following command?
 
-  \$ cat $ROOT/state/a.md
-  \$ cat $ROOT/state/b.md
+  \$ cat $ROOT/state/fm-x.inbox/001.msg
+  \$ cat $ROOT/state/x.md
+EOF
+  cat > "$prompts/deny-nospace-dollar" <<EOF
+  \$cat /etc/hostname
+  Would you like to run the following command?
+
+  \$ cat $ROOT/state/fm-x.inbox/001.msg
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-interior-option" <<EOF
+  Would you like to run the following command?
+
+  \$ cat $ROOT/state/fm-x.inbox/001.msg
+  2. padding line
+  \$ cat /etc/hostname
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-trailing-command" <<EOF
+  Would you like to run the following command?
+
+  \$ cat $ROOT/state/fm-x.inbox/001.msg
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+  cat /etc/hostname
 EOF
   cat > "$prompts/deny-phrase-before" <<EOF
   \$ cat /etc/hostname
@@ -606,6 +634,9 @@ EOF
   classify deny-slashful-missing 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a slash-ful token absent from the runner context'
   classify allow-slashful 'approve' 'classifier approves a slash-ful in-home read'
   classify deny-bare-precommand 'refuse:command reaches a path outside this home' 'classifier screens a bare command line preceding the question'
+  classify deny-nospace-dollar 'refuse:command reaches a path outside this home' 'classifier screens a no-space dollar-prefixed command line'
+  classify deny-interior-option 'refuse:command reaches a path outside this home' 'classifier screens lines after an interior option-shaped line'
+  classify deny-trailing-command 'refuse:command reaches a path outside this home' 'classifier screens a command line after the options'
   classify allow-rg-short 'approve' 'classifier approves an rg short-flag read'
   classify unknown 'unknown' 'classifier fails closed on an unrecognized prompt'
   ROOT=$saved_root

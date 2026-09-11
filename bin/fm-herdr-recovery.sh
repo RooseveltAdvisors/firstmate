@@ -52,9 +52,10 @@
 # symlinks cannot leave the tree), no write redirects, and no deny word in
 # the command text - credentials, 1Password/op, tokens/secrets, git, package
 # installs, network or process tools, other agent CLIs, or anything mutating.
-# Slash-less relative file tokens cannot be symlink-verified from the runner
-# context (the pane's real cwd is not fetched), so prompts carrying them are
-# left for manual confirmation instead of blind approval. Herdr/tmux/zellij/
+# Positional file tokens (slash-less or slash-ful) are resolved from the
+# runner context; tokens resolving inside the home pass, and absent,
+# escaping, or unresolvable ones are left for manual confirmation instead of
+# blind approval (the pane's real cwd is not fetched). Herdr/tmux/zellij/
 # cmux are not allowlisted command words, so lifecycle commands are refused
 # by the allowlist itself. Any mismatch refuses the seat as needs-human.
 #
@@ -456,7 +457,7 @@ fm_reco_command_allowed() { # <command-text> <home>
 # fm_reco_classify_prompt <prompt> <home> -> one of:
 #   trust | approve | refuse:<reason> | unknown
 fm_reco_classify_prompt() { # <prompt> <home>
-  local prompt=$1 home=$2 qline qno pre rest text verdict
+  local prompt=$1 home=$2 qline qno cands rest text verdict
   # The first question line, never a numbered option line carrying the same
   # words, so later lines bearing the phrase stay inside the screened block.
   qline=$(printf '%s\n' "$prompt" \
@@ -465,14 +466,11 @@ fm_reco_classify_prompt() { # <prompt> <home>
     | head -1) || qline=
   if [ -n "$qline" ]; then
     qno=${qline%%:*}
-    pre=$({ printf '%s\n' "$prompt" \
-        | sed -n "1,${qno}p" \
-        | sed -nE 's/^[[:space:]]*\$[[:space:]]//p'
+    cands=$({ printf '%s\n' "$prompt" | sed -nE 's/^[[:space:]]*\$[[:space:]]?//p'
       printf '%s\n' "$prompt" \
-        | sed -n "1,${qno}p" \
-        | grep -E '^[[:space:]]*(cat|ls|head|tail|wc|sort|uniq|find|sed|awk|grep|rg|timeout)([[:space:]]|$)' || :; }) || pre=
-    if [ -n "$pre" ]; then
-      verdict=$(fm_reco_command_allowed "$pre" "$home")
+        | grep -E '^[[:space:]]*(cat|ls|head|tail|wc|sort|uniq|find|sed|awk|grep|rg|timeout)([[:space:]]|$)' || :; }) || cands=
+    if [ -n "$cands" ]; then
+      verdict=$(fm_reco_command_allowed "$cands" "$home")
       case "$verdict" in
         ok) : ;;
         *) printf '%s' "$verdict" ; return 0 ;;
