@@ -312,17 +312,17 @@ fm_reco_paths_ok() { # <text> <home>
   return 0
 }
 
-# fm_reco_relative_token_ok: one slash-less file token. A token that resolves
-# inside the home from the runner context passes; every other slash-less file
-# token (escaping symlink or one whose pane-cwd target cannot be verified
-# here) refuses for manual confirmation.
+# fm_reco_relative_token_ok: one positional file token, slash-less or
+# slash-ful. A token that resolves inside the home from the runner context
+# passes; every other file token (escaping symlink, one whose pane-cwd target
+# cannot be verified here, or one absent from the runner context) refuses for
+# manual confirmation.
 fm_reco_relative_token_ok() { # <token> <resolved-home>
   local tok=$1 resolved
   tok=${tok%\"}; tok=${tok#\"}
   tok=${tok%\'}; tok=${tok#\'}
   case "$tok" in
     ''|-*|*\\\'*|*\$*|*'*'*|*'?'*) return 1 ;;
-    */*) return 0 ;;
     *'..'*) return 1 ;;
     '~'*) return 1 ;;
   esac
@@ -465,9 +465,12 @@ fm_reco_classify_prompt() { # <prompt> <home>
     | head -1) || qline=
   if [ -n "$qline" ]; then
     qno=${qline%%:*}
-    pre=$(printf '%s\n' "$prompt" \
-      | sed -n "1,${qno}p" \
-      | sed -nE 's/^[[:space:]]*\$[[:space:]]//p') || pre=
+    pre=$({ printf '%s\n' "$prompt" \
+        | sed -n "1,${qno}p" \
+        | sed -nE 's/^[[:space:]]*\$[[:space:]]//p'
+      printf '%s\n' "$prompt" \
+        | sed -n "1,${qno}p" \
+        | grep -E '^[[:space:]]*(cat|ls|head|tail|wc|sort|uniq|find|sed|awk|grep|rg|timeout)([[:space:]]|$)' || :; }) || pre=
     if [ -n "$pre" ]; then
       verdict=$(fm_reco_command_allowed "$pre" "$home")
       case "$verdict" in

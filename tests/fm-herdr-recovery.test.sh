@@ -161,8 +161,48 @@ reco_sends() { # <pane>
 # misparses some multi-line "for...do...done" content inside local strings.
 unit_classifier() {
   [ -n "$TMP_ROOT" ] || TMP_ROOT=$(mktemp -d)
-  local prompts=$TMP_ROOT/classifier-prompts
-  mkdir -p "$prompts"
+  local prompts=$TMP_ROOT/classifier-prompts saved_root=$ROOT
+  ROOT=$TMP_ROOT/classifier-home
+  mkdir -p "$prompts" "$ROOT/state/fm-x.inbox"
+  printf 'msg\n' > "$ROOT/state/fm-x.inbox/001.msg"
+  printf 'msg\n' > "$ROOT/state/x.md"
+  printf 'msg\n' > "$ROOT/state/list.txt"
+  printf 'msg\n' > "$ROOT/state/rows.txt"
+  printf 'outside\n' > "$TMP_ROOT/classifier-outside.txt"
+  ln -s "$TMP_ROOT/classifier-outside.txt" "$ROOT/state/escape.md"
+  cat > "$prompts/deny-slashful-escape" <<EOF
+  Would you like to run the following command?
+
+  cat $ROOT/state/escape.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-slashful-missing" <<EOF
+  Would you like to run the following command?
+
+  cat $ROOT/state/missing.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-slashful" <<EOF
+  Would you like to run the following command?
+
+  cat $ROOT/state/fm-x.inbox/001.msg
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-bare-precommand" <<EOF
+  cat /etc/hostname
+  Would you like to run the following command?
+
+  \$ cat \$ROOT/state/fm-x.inbox/001.msg
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
   cat > "$prompts/trust" <<'EOF'
   Do you trust the contents of this directory? Working with untrusted contents comes with higher risk of prompt
   injection. Trusting the directory allows project-local config, hooks, and exec policies to load.
@@ -562,8 +602,13 @@ EOF
   classify deny-no-options 'refuse:approval block has no numbered options' 'classifier refuses an approval block without numbered options'
   classify deny-phrase-before 'refuse:command reaches a path outside this home' 'classifier refuses a command line preceding the question line'
   classify deny-phrase-inside 'refuse:command reaches a path outside this home' 'classifier screens a command block bearing the question phrase'
+  classify deny-slashful-escape 'refuse:command reaches a path outside this home' 'classifier refuses a slash-ful symlink escape'
+  classify deny-slashful-missing 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a slash-ful token absent from the runner context'
+  classify allow-slashful 'approve' 'classifier approves a slash-ful in-home read'
+  classify deny-bare-precommand 'refuse:command reaches a path outside this home' 'classifier screens a bare command line preceding the question'
   classify allow-rg-short 'approve' 'classifier approves an rg short-flag read'
   classify unknown 'unknown' 'classifier fails closed on an unrecognized prompt'
+  ROOT=$saved_root
 }
 
 # --- inventory classification ------------------------------------------------
@@ -574,6 +619,8 @@ UNRECOGNIZED_PROMPT=
 
 write_shared_prompts() { # <home>: the approval prompt reads inside this home
   local home=$1
+  mkdir -p "$home/state/fm-x.inbox"
+  printf 'msg\n' > "$home/state/fm-x.inbox/001.msg"
   TRUST_PROMPT=$TMP_ROOT/trust-prompt
   APPROVAL_PROMPT=$TMP_ROOT/approval-prompt
   UNRECOGNIZED_PROMPT=$TMP_ROOT/unrecognized-prompt
