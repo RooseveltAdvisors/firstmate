@@ -178,6 +178,7 @@ init_primary_and_linked_worktree() {
     mkdir -p "$tree/bin" "$tree/tests"
     cp "$RUNNER" "$tree/bin/fm-test-run.sh"
     cp "$ROOT/tests/git-config-helpers.sh" "$tree/tests/"
+    cp "$ROOT/bin/fm-stdlib.sh" "$tree/bin/fm-stdlib.sh"
     chmod +x "$tree/bin/fm-test-run.sh"
     cat >"$tree/tests/probe.test.sh" <<PROBE
 #!/usr/bin/env bash
