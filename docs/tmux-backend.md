@@ -67,7 +67,7 @@ agy is anchored to the exact `agy` identity: its launch execs the bare binary, s
 
 The CI-enforced portable regression and opt-in real-harness drift guard follow the split owned by `.agents/skills/firstmate-coding-guidelines/SKILL.md`.
 Run the real-harness guard after any harness upgrade and before trusting refreshed evidence.
-agy is the one entry above outside that guard's installed-harness roster, so no live run refreshes its attribution and only the portable regression pins the exact-`agy` anchoring; the opt-in `tests/fm-agy-signals-live-e2e.test.sh` guard exercises agy's vendor signals rather than its process name.
+agy and Rovo are the entries above outside that guard's installed-harness roster, so no run of it refreshes their attribution: Rovo's anchoring was proven live once on tmux ([runtime backend verification](verification/runtime-backends.md#agent-liveness-name-sources) and [its own record](verification/rovo.md)), while only the portable regression pins the exact-`agy` anchoring; the opt-in `tests/fm-agy-signals-live-e2e.test.sh` guard exercises agy's vendor signals rather than its process name.
 
 ### Composer, busy state, and delivery
 
