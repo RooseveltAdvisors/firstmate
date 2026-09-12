@@ -1,0 +1,181 @@
+# fm-herdr-recovery classifier: fail-closed boundary check (commit b1a3a442)
+# FM_HOME=/tmp/tmp.vwn01FPw7w
+# Bypass prompts reference /etc/cron.d/x, which is outside the home and must refuse.
+# Control prompts reference files that exist inside FM_HOME and must approve.
+
+## Bypass attempts (all must refuse / fail closed)
+
+prompt:
+Would you like to run the following command?
+
+  if grep -f/etc/cron.d/x state/in.txt; then echo ok; fi
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+verdict:   refuse:relative file token is not symlink-verifiable inside this home
+
+prompt:
+Would you like to run the following command?
+
+  while grep -f/etc/cron.d/x state/in.txt; do echo x; done
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+verdict:   refuse:relative file token is not symlink-verifiable inside this home
+
+prompt:
+Would you like to run the following command?
+
+  if true;do grep -f/etc/cron.d/x state/in.txt;fi
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+verdict:   refuse:relative file token is not symlink-verifiable inside this home
+
+prompt:
+Would you like to run the following command?
+
+  for f in cat;do grep -f/etc/cron.d/x state/in.txt;done
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+verdict:   refuse:relative file token is not symlink-verifiable inside this home
+
+prompt:
+Would you like to run the following command?
+
+  if true;then grep -f/etc/cron.d/x state/in.txt;fi
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+verdict:   refuse:relative file token is not symlink-verifiable inside this home
+
+prompt:
+Would you like to run the following command?
+
+  true &&do grep -f/etc/cron.d/x state/in.txt
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+verdict:   refuse:relative file token is not symlink-verifiable inside this home
+
+prompt:
+Would you like to run the following command?
+
+  grep -if/etc/cron.d/x state/in.txt
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+verdict:   refuse:relative file token is not symlink-verifiable inside this home
+
+prompt:
+Would you like to run the following command?
+
+  rg -if/etc/cron.d/x state/in.txt
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+verdict:   refuse:command mutates or executes through a read-tool flag
+
+prompt:
+Would you like to run the following command?
+
+  grep -rf/etc/cron.d/x state/in.txt
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+verdict:   refuse:relative file token is not symlink-verifiable inside this home
+
+prompt:
+Would you like to run the following command?
+
+  if awk -f/evil.awk state/in.txt; then echo ok; fi
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+verdict:   refuse:command mutates or executes through a read-tool flag
+
+prompt:
+Would you like to run the following command?
+
+  cat /etc/cron.d/x
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+verdict:   refuse:command reaches a path outside this home
+
+prompt:
+Would you like to run the following command?
+
+  grep -f/tmp/tmp.vwn01FPw7w/../outside.txt state/in.txt
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+verdict:   refuse:command reaches a path outside this home
+
+## Control: allowlisted in-home reads still approve
+
+prompt:
+Would you like to run the following command?
+
+  cat /tmp/tmp.vwn01FPw7w/state/in.txt
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+verdict:   approve
+
+prompt:
+Would you like to run the following command?
+
+  grep -q row /tmp/tmp.vwn01FPw7w/state/list.txt
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+verdict:   approve
+
+prompt:
+Would you like to run the following command?
+
+  if grep -q row /tmp/tmp.vwn01FPw7w/state/list.txt; then echo ok; fi
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+verdict:   approve
+
+prompt:
+Would you like to run the following command?
+
+  if true;do grep -q row /tmp/tmp.vwn01FPw7w/state/list.txt;fi
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+verdict:   approve
+
+prompt:
+Would you like to run the following command?
+
+  while grep -q row /tmp/tmp.vwn01FPw7w/state/list.txt; do echo x; done
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+verdict:   approve
+
+prompt:
+Would you like to run the following command?
+
+  sed -n 1p /tmp/tmp.vwn01FPw7w/state/in.txt
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+verdict:   approve
+
+## Extra: attached -f just outside the home boundary
+prompt:
+Would you like to run the following command?
+
+  grep -f/tmp/tmp.vwn01FPw7w/../outside.txt /tmp/tmp.vwn01FPw7w/state/in.txt
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+verdict:   refuse:command reaches a path outside this home
+
