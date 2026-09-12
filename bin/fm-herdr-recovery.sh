@@ -178,18 +178,31 @@ fm_reco_segments() { # <line>
       seg=${seg%\'}; seg=${seg#\'}
       [ -n "$seg" ] || break
       printf '%s\n' "$seg"
-      [ "${seg%%[[:space:]]*}" = timeout ] || break
-      rest=${seg#timeout}
-      rest=${rest#"${rest%%[![:space:]]*}"}
-      dur=${rest%%[[:space:]]*}
-      case "$dur" in
-        [0-9]*[a-z]) rest=${rest#"$dur"} ;;
-        [0-9]*) rest=${rest#"$dur"} ;;
+      case "${seg%%[[:space:]]*}" in
+        timeout)
+          rest=${seg#timeout}
+          rest=${rest#"${rest%%[![:space:]]*}"}
+          dur=${rest%%[[:space:]]*}
+          case "$dur" in
+            [0-9]*[a-z]) rest=${rest#"$dur"} ;;
+            [0-9]*) rest=${rest#"$dur"} ;;
+          esac
+          rest=${rest#"${rest%%[![:space:]]*}"}
+          [ -n "$rest" ] || break
+          [ "$rest" != "$seg" ] || break
+          seg=$rest
+          ;;
+        if|while)
+          case "${seg%%[[:space:]]*}" in
+            if) rest=${seg#if} ;;
+            *) rest=${seg#while} ;;
+          esac
+          rest=${rest#"${rest%%[![:space:]]*}"}
+          [ -n "$rest" ] || break
+          seg=$rest
+          ;;
+        *) break ;;
       esac
-      rest=${rest#"${rest%%[![:space:]]*}"}
-      [ -n "$rest" ] || break
-      [ "$rest" != "$seg" ] || break
-      seg=$rest
     done
   done <<< "$s"
 }

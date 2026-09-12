@@ -537,6 +537,62 @@ EOF
 > 1. Yes, proceed (y)
   3. No (esc)
 EOF
+  cat > "$prompts/deny-grep-cluster-f" <<EOF
+  Would you like to run the following command?
+
+  grep -if/etc/cron.d/x $ROOT/state/in.txt
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-grep-rf-cluster" <<EOF
+  Would you like to run the following command?
+
+  grep -rf/etc/cron.d/x $ROOT/state/in.txt
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-rg-cluster-f" <<EOF
+  Would you like to run the following command?
+
+  rg -if/etc/cron.d/x $ROOT/state/in.txt
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-if-grep-cluster-f" <<EOF
+  Would you like to run the following command?
+
+  if grep -f/etc/cron.d/x $ROOT/state/in.txt; then echo ok; fi
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-while-grep-cluster-f" <<EOF
+  Would you like to run the following command?
+
+  while grep -f/etc/cron.d/x $ROOT/state/in.txt; do echo x; done
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-if-awk-programfile" <<EOF
+  Would you like to run the following command?
+
+  if awk -f/evil.awk $ROOT/state/in.txt; then echo ok; fi
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-if-grep" <<EOF
+  Would you like to run the following command?
+
+  if grep -q pattern $ROOT/state/list.txt; then echo ok; fi
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
   cat > "$prompts/deny-wc-files0" <<EOF
   Would you like to run the following command?
 
@@ -686,6 +742,13 @@ EOF
   classify deny-find-parent 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a find start point outside this home'
   classify deny-grep-attached-f 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an attached grep -f pattern file'
   classify deny-grep-long-file 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a grep --file= pattern file'
+  classify deny-grep-cluster-f 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a clustered grep -f pattern file'
+  classify deny-grep-rf-cluster 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a clustered grep -rf pattern file'
+  classify deny-rg-cluster-f 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses a clustered rg -f pattern file'
+  classify deny-if-grep-cluster-f 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a clustered grep -f pattern file inside an if condition'
+  classify deny-while-grep-cluster-f 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a clustered grep -f pattern file inside a while condition'
+  classify deny-if-awk-programfile 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses an awk -f program file inside an if condition'
+  classify allow-if-grep 'approve' 'classifier approves an in-home grep inside an if condition'
   classify deny-wc-files0 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a wc --files0-from list'
   classify deny-sed-read-command 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses the sed r read-file command'
   classify deny-escaped-flag 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses a backslash-escaped flag token'
