@@ -1,0 +1,47 @@
+Regression demonstration for the agy turn-end token recordless-abort leak
+(fix commit 7a30c2d on fm/agy-adapter-upstream-20260906)
+
+Behavioral test: tests/fm-agy-harness.test.sh ::
+  "fm-spawn.sh: a spawn that aborts after minting its turn-end token removes it again"
+
+The test simulates a recordless abort inside the token window: the worktree
+pointer directory makes the .fm-agy-turnend write fail immediately after the
+registry token and state pointer are minted, before any task record exists.
+It then asserts the spawn fails AND leaves no registry token, no state token
+pointer, no stranded trust entry, and no damage to the operator's pre-existing
+trusted-workspace entries.
+
+--- Run A: bin/fm-spawn.sh at pre-fix merge head 24c4a7e, new test present ---
+
+$ git checkout 24c4a7e -- bin/fm-spawn.sh
+$ bash bin/fm-test-run.sh tests/fm-agy-harness.test.sh
+
+ok - fm-spawn.sh: a spawn that aborts after registering trust withdraws it again
+not ok - the aborted spawn stranded turn-end registry token(s): fm.xHsQkFKRevoD
+FM_TEST_END 2026-09-12T19:03:10Z tests/fm-agy-harness.test.sh exit=1 duration_ms=16611 gate_skip=false
+FM_TEST_SUMMARY total=1 failed=1 skipped_gate=0 duration_ms=16651
+
+Result: FAILS before the fix. The simulated abort leaves the registry file
+fm.xHsQkFKRevoD behind under $HOME/.gemini/antigravity-cli/fm-turn-end.d —
+the leak class reported in review (a stranded token with no supported removal
+path, permanently blocking the hook's remove action).
+
+--- Run B: bin/fm-spawn.sh at fixed HEAD 7a30c2d (spawn_abort_cleanup
+--- withdraws AGY_TURNTOKEN_MINTED on recordless abort) ---
+
+$ git checkout HEAD -- bin/fm-spawn.sh
+$ bash bin/fm-test-run.sh tests/fm-agy-harness.test.sh
+
+ok - fm-spawn.sh: a spawn that aborts after registering trust withdraws it again
+ok - fm-spawn.sh: a spawn that aborts after minting its turn-end token removes it again
+ok - fm-spawn.sh: an abort after the record is published still withdraws the trust it registered
+ok - fm-spawn.sh: an abort withdraws both spellings after the worktree is deleted
+FM_TEST_END 2026-09-12T19:02:12Z tests/fm-agy-harness.test.sh exit=0 duration_ms=21454 gate_skip=false
+FM_TEST_SUMMARY total=1 failed=0 skipped_gate=0 duration_ms=21495
+
+Result: PASSES after the fix. Registry directory empty after the simulated
+abort; state pointer and trust entry also withdrawn; operator trust entries
+untouched.
+
+Grok/kimi token handling untouched; fm-agy-turnend-hook remove semantics
+untouched, per the accepted scope.
