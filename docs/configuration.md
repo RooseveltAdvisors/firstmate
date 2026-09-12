@@ -596,7 +596,7 @@ For every stale row the sweep resolves the owning home (the registered home hold
 Anything merely unproven (an unreadable pane, an unreachable remote) is kept.
 A row no local home owns is listed and kept too; `--apply-orphans` additionally reclaims such an orphan row only when it is older than 48 hours, carries no claim marker, and has no landing URL in its description.
 The marker guard reads presence, not decodability: a row whose `tasks-axi` claim marker is present but whose payload will not decode shows no claim actor in the table and is still not orphan-reclaimable, because the marker records that something claimed the row.
-The reclaim appends `reclaimed <date>: endpoint dead, previous claim by <actor>` to the row's body and reopens it through the owning home's tasks-axi, only after re-proving the row is still in flight and unheld.
+The reclaim appends `reclaimed <date>: endpoint dead, previous claim by <actor>` to the row's body and reopens it through the owning home's tasks-axi when that home's backlog reaches the swept graph, falling back to the sweep home's own tasks-axi otherwise while still naming the resolved owner, and only after re-proving the row is still in flight and unheld.
 The sweep never touches a row whose endpoint is live and never removes a meta, worktree, or pane, so stuck-crewmate recovery can still inspect what died.
 A home whose backlog is not beads-backed has no graph to sweep and the script says so instead of guessing.
 
@@ -1032,6 +1032,11 @@ FM_TOOL_UPDATE_INTERVAL=900   # seconds between watched-tool probe sweeps; 0 pro
 FM_TOOL_UPDATE_PROBE_SECS=5   # 1..30 seconds allowed for one version or git probe
 FM_TOOL_UPDATE_BUDGET_SECS=20   # 1..120 seconds allowed for a whole watched-tool sweep; cut to fit FM_CHECK_TIMEOUT, and the cut is reported
 FM_TOOL_UPDATE_NOW=     # test override for the watched-tool sweep clock; the sweep budget still uses real time
+FM_STALE_SWEEP_INTERVAL=86400   # seconds between stale-claim sweep dry runs in check mode; 0 disables the gate, otherwise 900..604800 (docs/configuration.md "Stale-claim sweep")
+FM_STALE_SWEEP_BUDGET_SECS=25   # 1..3600 seconds allowed for one sweep probe; cut to fit FM_CHECK_TIMEOUT, and the cut is reported
+FM_STALE_SWEEP_STATE_TIMEOUT=90   # seconds allowed for one home's fm-crew-state.sh call; capped to the remaining budget in check mode
+FM_STALE_SWEEP_BD_TIMEOUT=120   # seconds allowed for the bd list graph read; capped to the remaining budget in check mode
+FM_STALE_SWEEP_NOW=     # test override for the stale-sweep cadence and staleness clock
 FM_PROCEVENT_MAX_OUTPUT_BYTES=1048576   # bound on one captured process-to-event result
 FM_PROCEVENT_CLAIM_ROOT=                # machine-wide source claim root; default $XDG_STATE_HOME/firstmate/procevent-claims
 FM_PROCEVENT_OWNER_LEASE_SECONDS=600    # how long a source runner keeps going with no activity in its owning home; 1..86400
