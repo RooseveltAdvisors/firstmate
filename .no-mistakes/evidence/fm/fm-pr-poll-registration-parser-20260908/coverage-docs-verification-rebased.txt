@@ -1,0 +1,8 @@
+== bin/fm-test-run.sh --check-coverage (real consumer) ==
+FM_TEST_COVERAGE ok total=204 parallel=24 parallel_max_ms=417163 parallel_imbalance_ms=2894 parallel_unhinted=0 serial=164 serial_shards=5 serial_unhinted=16 herdr=16
+
+== docs/fm-test-portable-shards.md numeric claims vs ground truth ==
+doc: 'all 24 candidates'        <-> parallel=24: match
+doc: watch-triage 262626 ms     <-> hint table line 800 'tests/fm-watch-triage.test.sh 262626': match
+doc: 'portable serial 1-5'      <-> serial_shards=5 and ci.yml strategy.matrix shard [1,2,3,4,5]: match
+doc: no copied hint counts/totals/per-shard table remain (defers to --check-coverage output): verified by grep for stale figures (4312606/4314106/4638106/4555606/145/146/153/154-script/158-script/'nine unhinted'/911128/927620): none found
