@@ -593,6 +593,46 @@ EOF
 > 1. Yes, proceed (y)
   3. No (esc)
 EOF
+  cat > "$prompts/deny-semicolon-do-cluster-f" <<EOF
+  Would you like to run the following command?
+
+  if true;do grep -f/etc/cron.d/x $ROOT/state/in.txt;fi
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-for-semicolon-do-cluster-f" <<EOF
+  Would you like to run the following command?
+
+  for f in cat;do grep -f/etc/cron.d/x $ROOT/state/in.txt;done
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-semicolon-then-cluster-f" <<EOF
+  Would you like to run the following command?
+
+  if true;then grep -f/etc/cron.d/x $ROOT/state/in.txt;fi
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-andand-do-cluster-f" <<EOF
+  Would you like to run the following command?
+
+  true &&do grep -f/etc/cron.d/x $ROOT/state/in.txt
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-semicolon-do-grep" <<EOF
+  Would you like to run the following command?
+
+  if true;do grep -q pattern $ROOT/state/list.txt;fi
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
   cat > "$prompts/deny-wc-files0" <<EOF
   Would you like to run the following command?
 
@@ -749,6 +789,11 @@ EOF
   classify deny-while-grep-cluster-f 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a clustered grep -f pattern file inside a while condition'
   classify deny-if-awk-programfile 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses an awk -f program file inside an if condition'
   classify allow-if-grep 'approve' 'classifier approves an in-home grep inside an if condition'
+  classify deny-semicolon-do-cluster-f 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a clustered grep -f pattern file after ;do'
+  classify deny-for-semicolon-do-cluster-f 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a clustered grep -f pattern file after for ;do'
+  classify deny-semicolon-then-cluster-f 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a clustered grep -f pattern file after ;then'
+  classify deny-andand-do-cluster-f 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a clustered grep -f pattern file after &&do'
+  classify allow-semicolon-do-grep 'approve' 'classifier approves an in-home grep after ;do'
   classify deny-wc-files0 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a wc --files0-from list'
   classify deny-sed-read-command 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses the sed r read-file command'
   classify deny-escaped-flag 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses a backslash-escaped flag token'

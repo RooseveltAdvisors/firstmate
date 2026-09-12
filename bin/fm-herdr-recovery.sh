@@ -192,9 +192,12 @@ fm_reco_segments() { # <line>
           [ "$rest" != "$seg" ] || break
           seg=$rest
           ;;
-        if|while)
+        if|while|do|then|else)
           case "${seg%%[[:space:]]*}" in
             if) rest=${seg#if} ;;
+            do) rest=${seg#do} ;;
+            then) rest=${seg#then} ;;
+            else) rest=${seg#else} ;;
             *) rest=${seg#while} ;;
           esac
           rest=${rest#"${rest%%[![:space:]]*}"}
