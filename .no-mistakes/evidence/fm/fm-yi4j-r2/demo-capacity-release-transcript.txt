@@ -7,9 +7,9 @@ $ fm-teardown.sh task-x1   # a landed worktree is returned to the pool
 ●  This is a supervision warning only; the guarded operation WILL still run.
 ●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e /home/jon/.no-mistakes/worktrees/2f32188048b1/01M28RB8449BAAVRW5YC0274EX/.pi/extensions/fm-primary-turnend-guard.ts -e /home/jon/.no-mistakes/worktrees/2f32188048b1/01M28RB8449BAAVRW5YC0274EX/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
 ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-ready: task-a - capacity hold released for pool /tmp/fm-evidence-demo.7afue4/cap-release/pool
-teardown task-x1 complete (window firstmate:fm-task-x1, worktree /tmp/fm-evidence-demo.7afue4/cap-release/pool/7/wt)
-Backlog: task-x1 is closed in /tmp/fm-evidence-demo.7afue4/cap-release/data/backlog.md. Run tasks-axi ready for dependency-cleared candidates, check date gates, and dispatch only work whose blockers are gone and date is due.
+ready: task-a - capacity hold released for pool /tmp/fm-evidence-demo.BY42oM/cap-release/pool
+teardown task-x1 complete (window firstmate:fm-task-x1, worktree /tmp/fm-evidence-demo.BY42oM/cap-release/pool/7/wt)
+Backlog: task-x1 is closed in /tmp/fm-evidence-demo.BY42oM/cap-release/data/backlog.md. Run tasks-axi ready for dependency-cleared candidates, check date gates, and dispatch only work whose blockers are gone and date is due.
 (teardown exit code: 0)
 
 # backlog read-back after the release:

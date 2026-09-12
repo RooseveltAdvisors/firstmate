@@ -1,6 +1,6 @@
 $ fm-spawn.sh cap-x1 <project> --mode no-mistakes --yolo off   # pool is full (3/4)
-warning: /tmp/fm-evidence-demo.7afue4/cap/home/data/cap-x1/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
-held: cap-x1 - pool /tmp/fm-evidence-demo.7afue4/cap/pool full 3/4; item left queued for redispatch when a worktree frees; endpoint firstmate:fm-cap-x1 closed so the redispatch can create it again
+warning: /tmp/fm-evidence-demo.BY42oM/cap/home/data/cap-x1/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+held: cap-x1 - pool /tmp/fm-evidence-demo.BY42oM/cap/pool full 3/4; item left queued for redispatch when a worktree frees; endpoint firstmate:fm-cap-x1 closed so the redispatch can create it again
 (spawn exit code: 2)
 
 # backlog read-back after the hold:
@@ -11,7 +11,7 @@ task:
   blocked: no
   blocked_by: none
   held: yes
-  hold_reason: pool /tmp/fm-evidence-demo.7afue4/cap/pool full 3/4
+  hold_reason: pool /tmp/fm-evidence-demo.BY42oM/cap/pool full 3/4
   hold_kind: load
   hold_until: "-"
   kind: ship

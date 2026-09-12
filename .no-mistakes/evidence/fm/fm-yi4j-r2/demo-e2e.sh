@@ -313,7 +313,6 @@ printf '%s\n' manual > "$mhome/config/backlog-backend"
 mkdir -p "$case3/fakebin"
 fm_fake_exit0 "$case3/fakebin" tmux node chrome-devtools-axi
 fm_fake_version_tool "$case3/fakebin" lavish-axi FM_FAKE_LAVISH_AXI_VERSION 0.1.46
-cp "$case3/fakebin/"* /dev/null 2>/dev/null || true
 cat > "$case3/fakebin/gh-axi" <<'SH'
 #!/usr/bin/env bash
 [ "${1:-}" = --version ] && { printf '%s\n' 0.1.29; exit 0; }
@@ -334,7 +333,20 @@ cat > "$case3/fakebin/no-mistakes" <<'SH'
 [ "${1:-}" = --version ] && { printf '%s\n' 'no-mistakes version v1.46.0 (fake)'; exit 0; }
 exit 0
 SH
+cat > "$case3/fakebin/tasks-axi" <<'SH'
+#!/usr/bin/env bash
+[ "${1:-}" = --version ] && { printf '%s\n' 0.2.4; exit 0; }
+[ "${1:-} ${2:-}" = "update --help" ] && { printf '%s\n' 'usage: tasks-axi update <id> [--archive-body]'; exit 0; }
+[ "${1:-} ${2:-}" = "mv --help" ] && { printf '%s\n' 'usage: tasks-axi mv <id> [<id>...] --to <path-or-dir>'; exit 0; }
+exit 0
+SH
+cat > "$case3/fakebin/quota-axi" <<'SH'
+#!/usr/bin/env bash
+[ "${1:-}" = --version ] && { printf '%s\n' 0.1.29; exit 0; }
+exit 0
+SH
 chmod +x "$case3/fakebin/"*
+mkdir -p "$case3/non-git-root"
 
 cat > "$mhome/data/projects.md" <<'REG'
 - macro [no-mistakes] - drift fixture (added 2026-09-04)
@@ -350,9 +362,9 @@ git -C "$mhome/projects/well" remote add no-mistakes "$root_a/repos/well.git"   
   echo '# another data root (root-b) than the one the CLI resolves (root-a):'
   echo
   echo '$ fm-bootstrap.sh'
-  PATH="$case3/fakebin:$ROOT/bin:$PATH" NM_HOME="$root_a" FM_HOME="$mhome" \
+  PATH="$case3/fakebin:$PATH" NM_HOME="$root_a" FM_HOME="$mhome" \
     FM_ROOT_OVERRIDE="$case3/non-git-root" FM_FAKE_TREEHOUSE_LEASE_HELP=1 \
-    "$ROOT/bin/fm-bootstrap.sh" 2>&1
+    "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null
   echo "(bootstrap exit code: $?)"
 } > "$EVID/demo-mirror-drift-transcript.txt" 2>&1
 cat "$EVID/demo-mirror-drift-transcript.txt"
