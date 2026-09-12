@@ -907,6 +907,7 @@ spawn_remote_secondmate() {
 BACKEND=
 AGY_TRUST_REGISTERED=0
 AGY_TRUST_ADDED=
+AGY_TURNTOKEN_MINTED=0
 ORCA_ABORT_CLEANUP=0
 ORCA_WORKTREE_ID=
 ORCA_TERMINAL=
@@ -1079,6 +1080,14 @@ spawn_abort_cleanup() {
       rm -f -- "$STATE/$ID.agy-trust"
     fi
   fi
+  if [ "$AGY_TURNTOKEN_MINTED" = 1 ]; then
+    AGY_TURNTOKEN_MINTED=0
+    if [ ! -e "$STATE/$ID.meta" ] && [ ! -L "$STATE/$ID.meta" ]; then
+      if ! clear_relaunch_harness_wiring agy "$WT" "$STATE" "$ID"; then
+        echo "warning: could not remove the agy turn-end token after the aborted spawn of $ID" >&2
+      fi
+    fi
+  fi
   if [ "$SPAWN_META_LOCK_HELD" = 1 ]; then
     SPAWN_META_LOCK_HELD=0
     fm_lock_release "$SPAWN_META_LOCK" || true
@@ -1142,7 +1151,7 @@ spawn_herdr_presentation_order_lock_acquire() {
 }
 
 clear_relaunch_harness_wiring() {
-  local harness=$1 wt=$2 state=$3 id=$4 token_path token auth_path path
+  local harness=$1 wt=$2 state=$3 id=$4 token_path token auth_path path rc=0
   # The wiring arms above match on harness PREFIXES, because a task launched
   # from a raw command records that command's basename rather than the exact
   # adapter name. The retirement tables are keyed by the exact adapter, so the
@@ -1157,15 +1166,17 @@ clear_relaunch_harness_wiring() {
     IFS= read -r token < "$token_path" || [ -n "$token" ] || return 1
   fi
   auth_path=$(fm_control_harness_turnend_auth_path "$harness" "$token") || return 1
+  rc=0
   if [ -n "$auth_path" ]; then
-    rm -f -- "$auth_path" || return 1
+    rm -f -- "$auth_path" || rc=1
   fi
   while IFS= read -r path; do
     [ -n "$path" ] || continue
-    rm -f -- "$path" || return 1
+    rm -f -- "$path" || rc=1
   done <<EOF
 $(fm_control_harness_wiring_paths "$harness" "$wt" "$state" "$id")
 EOF
+  return "$rc"
 }
 
 spawn_herdr_presentation_order_lock_release() {
@@ -3758,6 +3769,7 @@ EOF
       umask "$old_umask"
       printf '%s\n' "$TURNEND" > "$auth_file"
       printf '%s\n' "${auth_file##*/}" > "$STATE/$ID.agy-turnend-token"
+      AGY_TURNTOKEN_MINTED=1
       printf 'token=%s\n' "${auth_file##*/}" > "$WT/.fm-agy-turnend"
       exclude_path '.fm-agy-turnend'
       ;;

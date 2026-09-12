@@ -1176,6 +1176,45 @@ test_aborted_spawn_withdraws_the_trust_it_registered() {
   pass "fm-spawn.sh: a spawn that aborts after registering trust withdraws it again"
 }
 
+# The turn-end token is minted one step after the trust registration, and it
+# lands in the same recordless-abort window: teardown refuses for an id with no
+# task record, and the hook's remove refuses while any token is live, so a
+# spawn that minted and then left no record has to take its token back itself.
+# A directory where the worktree pointer belongs is that abort: the pointer
+# write fails immediately after the registry entry and the state token were
+# minted, before any task record exists.
+test_aborted_spawn_removes_the_turnend_token_it_minted() {
+  local case_dir home proj wt agyhome fakebin regdir store leftovers out
+  case_dir="$TMP_ROOT/aborted-token"
+  home="$case_dir/home"
+  proj="$case_dir/project"
+  wt="$case_dir/wt"
+  # The spawn fixture pins HOME to $home/user-home, and the registry and trust
+  # store both live under that sandboxed home (tests/fixtures.sh).
+  agyhome="$home/user-home"
+  regdir="$agyhome/.gemini/antigravity-cli/fm-turn-end.d"
+  store=$(store_path "$agyhome")
+  mkdir -p "$(dirname "$store")"
+  printf '%s\n' '{"enableTelemetry":false,"trustedWorkspaces":["/already/trusted"]}' > "$store"
+  fakebin=$(make_spawn_fakebin "$case_dir/fake" agy)
+  fm_test_spawn_home "$home" agy
+  fm_git_worktree "$proj" "$wt" wt-aborted-token
+  fm_test_spawn_brief "$home" abortedtoken
+  mkdir -p "$wt/.fm-agy-turnend"
+  out=$(HOME="$agyhome" fm_test_run_spawn "$home" "$wt" "$fakebin" abortedtoken "$proj" agy \
+    --mode no-mistakes --yolo off)
+  expect_code 1 $? "an abort in the token window must fail the spawn: $out"
+  [ ! -e "$home/state/abortedtoken.meta" ] \
+    || fail "the abort published a task record, so the leak this covers cannot happen"
+  leftovers=$(ls -A "$regdir" 2>/dev/null || true)
+  [ -z "$leftovers" ] || fail "the aborted spawn stranded turn-end registry token(s): $leftovers"
+  [ ! -e "$home/state/abortedtoken.agy-turnend-token" ] \
+    || fail "the aborted spawn stranded its state token pointer"
+  assert_not_trusted "$store" "$wt" "the aborted spawn stranded its workspace-trust entry"
+  assert_trusted "$store" "/already/trusted" "the cleanup dropped an unrelated operator entry"
+  pass "fm-spawn.sh: a spawn that aborts after minting its turn-end token removes it again"
+}
+
 # The withdrawal is guarded on whether a task record survives, because a record
 # is what lets teardown withdraw it later. An abort AFTER the provisional record
 # is published still ends with no record - the fresh-commit rollback removes it -
@@ -1429,5 +1468,6 @@ test_agy_spawn_pretrusts_its_worktree_and_reaches_the_brief
 test_refused_spawn_leaves_no_task_state
 test_spawn_does_not_claim_a_workspace_the_operator_already_trusted
 test_aborted_spawn_withdraws_the_trust_it_registered
+test_aborted_spawn_removes_the_turnend_token_it_minted
 test_post_publish_abort_withdraws_the_trust_it_registered
 test_abort_withdraws_both_spellings_after_the_worktree_is_deleted
