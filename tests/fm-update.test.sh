@@ -51,6 +51,11 @@ case "${1:-}" in
   display-message)
     target=
     for arg in "$@"; do
+      # bin/backends/tmux.sh targets sessions and windows with tmux's
+      # exact-match '=' prefix (tmux >= 2.1); strip it like real tmux does
+      # before resolving the pane.
+      arg=${arg/#=/}
+      arg=${arg/:=/:}
       case "$arg" in main:fm-*) target=$arg ;; esac
     done
     case "${*: -1}" in

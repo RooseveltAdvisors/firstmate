@@ -1,0 +1,238 @@
+#!/usr/bin/env bash
+set -u
+
+# shellcheck source=tests/lib.sh
+. "$(dirname "$0")/lib.sh"
+
+MIGRATE="$ROOT/bin/fm-endpoint-binding-migrate.sh"
+TMP_ROOT=$(fm_test_tmproot fm-endpoint-binding-migrate)
+BASE_PATH=$PATH
+
+make_case() {
+  local dir=$1 fakebin
+  mkdir -p "$TMP_ROOT/$dir/home/state" "$TMP_ROOT/$dir/worktree" \
+    "$TMP_ROOT/$dir/project" "$TMP_ROOT/$dir/fakebin"
+  fakebin="$TMP_ROOT/$dir/fakebin"
+  cat > "$fakebin/ps" <<'SH'
+#!/usr/bin/env bash
+case "$1:$2" in
+  -o:comm=|-o:args=)
+    [ "$4" = "$FM_LOCK_PID" ] && printf 'pi\n' || printf 'bash\n'
+    ;;
+  -o:ppid=) printf '1\n' ;;
+  -t:*) exit 0 ;;
+  *) exit 1 ;;
+esac
+SH
+  cat > "$fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+if [ "$1" = list-windows ]; then
+  if [ "${FM_FAKE_MODE:-}" = refusals ]; then
+    printf '%s\n' fm-ambiguous fm-ambiguous fm-unreadable fm-mismatch
+  else
+    printf '%s\n' fm-good fm-dead fm-bound
+  fi
+  exit 0
+fi
+  if [ "$1" = display-message ]; then
+    case "$5" in
+    '#{pane_tty}') printf '/dev/null\n' ;;
+    '#{pane_current_command}')
+      case "$4" in
+        '=firstmate:=fm-unreadable') printf '\n' ;;
+        '=firstmate:=fm-good'|'=firstmate:=fm-mismatch'|'=firstmate:=fm-ambiguous') printf 'pi\n' ;;
+        *) printf 'bash\n' ;;
+      esac
+      ;;
+    '#{pane_current_path}')
+      case "$4" in
+        '=firstmate:=fm-unreadable') exit 0 ;;
+        '=firstmate:=fm-mismatch') printf '%s\n' "$FM_WRONG_WORKTREE" ;;
+        *) printf '%s\n' "$FM_LIVE_WORKTREE" ;;
+      esac
+      ;;
+    *) printf 'pane\n' ;;
+  esac
+  exit 0
+fi
+exit 0
+SH
+  chmod +x "$fakebin/ps" "$fakebin/tmux"
+  printf '%s\n' "$TMP_ROOT/$dir"
+}
+
+run_locked() {
+  local dir=$1
+  shift
+  (
+    local owner=$BASHPID
+    export FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_LOCK_PID="$owner" FM_MIGRATE_PID="$owner"
+    export PATH="$dir/fakebin:$BASE_PATH" FM_LIVE_WORKTREE="$dir/worktree" FM_WRONG_WORKTREE="$dir/project"
+    printf '%s\n' "$owner" > "$dir/home/state/.lock"
+    exec "$MIGRATE" "$@"
+  )
+}
+
+test_evidence_bound_scan() {
+  local dir out
+  dir=$(make_case apply)
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  fm_write_meta "$dir/home/state/dead.meta" \
+    'window=firstmate:fm-dead' "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  fm_write_meta "$dir/home/state/bound.meta" \
+    'window=firstmate:fm-bound' 'endpoint_task_id=bound' \
+    "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+
+  out=$(run_locked "$dir") || fail "migration failed: $out"
+  grep -qx 'endpoint_task_id=good' "$dir/home/state/good.meta" \
+    || fail 'live exact endpoint was not stamped'
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/dead.meta" \
+    || fail 'dead endpoint was stamped'
+  grep -qx 'endpoint_task_id=bound' "$dir/home/state/bound.meta" \
+    || fail 'existing binding changed'
+  ! compgen -G "$dir/home/state/.fm-endpoint-binding-*" >/dev/null \
+    || fail 'scan left migration state behind'
+  assert_contains "$out" 'task good: stamped - exact live endpoint identity verified' 'stamp was not reported'
+  assert_contains "$out" 'task dead: skipped - dead endpoint' 'dead endpoint was not reported'
+  pass 'endpoint binding scan stamps only a verified live identity'
+}
+
+test_rerun_converges_after_interruption() {
+  local dir out rc
+  dir=$(make_case interruption)
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  cat > "$dir/fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+set -u
+real_mv=$FM_REAL_MV
+count_file=$FM_MV_COUNT
+count=0
+[ -f "$count_file" ] && count=$(cat "$count_file")
+count=$((count + 1))
+printf '%s\n' "$count" > "$count_file"
+"$real_mv" "$@"
+rc=$?
+[ "$rc" -eq 0 ] || exit "$rc"
+if [ "$count" -eq 1 ]; then
+  kill -TERM "$FM_MIGRATE_PID"
+fi
+SH
+  chmod +x "$dir/fakebin/mv"
+  set +e
+  out=$(FM_REAL_MV=$(command -v mv) FM_MV_COUNT="$dir/mv.count" run_locked "$dir")
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "interrupted scan unexpectedly succeeded: $out"
+  out=$(run_locked "$dir") || fail "rerun failed: $out"
+  grep -qx 'endpoint_task_id=good' "$dir/home/state/good.meta" \
+    || fail 'rerun did not converge the interrupted scan'
+  pass 'rerunning after interruption converges without migration state'
+}
+
+test_refusal_reasons_are_per_record() {
+  local dir out
+  dir=$(make_case refusals)
+  fm_write_meta "$dir/home/state/ambiguous.meta" \
+    'window=firstmate:fm-ambiguous' "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  fm_write_meta "$dir/home/state/unreadable.meta" \
+    'window=firstmate:fm-unreadable' "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  fm_write_meta "$dir/home/state/unverified.meta" \
+    'window=zellij:2' 'backend=zellij' 'zellij_session=zellij' 'zellij_tab_id=1' \
+    'zellij_pane_id=2' "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  fm_write_meta "$dir/home/state/mismatch.meta" \
+    'window=firstmate:fm-mismatch' "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+
+  out=$(FM_FAKE_MODE=refusals run_locked "$dir") || fail "refusal scan failed: $out"
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/ambiguous.meta" \
+    || fail 'ambiguous endpoint was stamped'
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/unreadable.meta" \
+    || fail 'unreadable endpoint was stamped'
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/unverified.meta" \
+    || fail 'unverified endpoint was stamped'
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/mismatch.meta" \
+    || fail 'mismatched endpoint was stamped'
+  assert_contains "$out" 'task ambiguous: skipped - ambiguous live endpoint identity' \
+    'ambiguous endpoint reason was not reported'
+  assert_contains "$out" 'task unreadable: skipped - endpoint identity is unreadable' \
+    'unreadable endpoint reason was not reported'
+  assert_contains "$out" "task unverified: skipped - backend 'zellij' has no verified endpoint identity" \
+    'unverified endpoint reason was not reported'
+  assert_contains "$out" 'task mismatch: skipped - task identity mismatch: live endpoint worktree does not match recorded worktree' \
+    'mismatched endpoint reason was not reported'
+  pass 'endpoint binding scan reports per-record refusal reasons without stamping'
+}
+
+test_hidden_records_are_reported_out_of_scope() {
+  local dir out
+  dir=$(make_case hidden)
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  fm_write_meta "$dir/home/state/.meta" \
+    'window=firstmate:fm-dead' "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  fm_write_meta "$dir/home/state/.hidden.meta" \
+    'window=firstmate:fm-bound' "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+
+  out=$(run_locked "$dir") || fail "hidden record scan failed: $out"
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/.meta" \
+    || fail 'hidden metadata record was stamped'
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/.hidden.meta" \
+    || fail 'hidden metadata record was stamped'
+  grep -qx 'endpoint_task_id=good' "$dir/home/state/good.meta" \
+    || fail 'scan did not continue past hidden metadata records'
+  assert_contains "$out" 'record .meta: skipped - hidden metadata record is out of scope' \
+    'hidden metadata record was not reported'
+  assert_contains "$out" 'record .hidden.meta: skipped - hidden metadata record is out of scope' \
+    'hidden metadata record was not reported'
+  pass 'hidden metadata records are reported out of scope and never stamped'
+}
+
+test_locked_record_is_skipped_without_waiting() {
+  local dir out lock
+  dir=$(make_case contended)
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  lock="$dir/home/state/.meta-good.lock"
+  mkdir -p "$lock"
+  printf '%s\n' "$$" > "$lock/pid"
+
+  out=$(run_locked "$dir") || fail "contended scan failed: $out"
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
+    || fail 'record held by another operation was stamped'
+  assert_contains "$out" 'task good: skipped - metadata record is locked by another operation; rerun migration' \
+    'contended record reason was not reported'
+
+  rm -rf "$lock"
+  out=$(run_locked "$dir") || fail "rerun after contention failed: $out"
+  grep -qx 'endpoint_task_id=good' "$dir/home/state/good.meta" \
+    || fail 'rerun did not converge the contended record'
+  pass 'a contended record is skipped with a reason and converges on rerun'
+}
+
+test_stamped_record_keeps_pr_metadata_valid() {
+  local dir out
+  dir=$(make_case prmeta)
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" 'kind=scout' \
+    'pr=https://github.com/owner/repo/pull/7' \
+    'pr_head=0123456789abcdef0123456789abcdef01234567'
+  ( . "$ROOT/bin/fm-pr-lib.sh"; fm_pr_metadata_identity_parse "$dir/home/state/good.meta" ) \
+    || fail 'baseline legacy record was already invalid to fm-pr-lib'
+
+  out=$(run_locked "$dir") || fail "pr metadata scan failed: $out"
+  grep -qx 'endpoint_task_id=good' "$dir/home/state/good.meta" \
+    || fail 'live exact endpoint was not stamped'
+  ( . "$ROOT/bin/fm-pr-lib.sh"; fm_pr_metadata_identity_parse "$dir/home/state/good.meta" ) \
+    || fail 'stamped record no longer parses as valid PR metadata'
+  ! grep -qx '' "$dir/home/state/good.meta" \
+    || fail 'stamped record gained a blank line'
+  pass 'stamping preserves the record PR metadata contract without blank lines'
+}
+
+test_evidence_bound_scan
+test_rerun_converges_after_interruption
+test_refusal_reasons_are_per_record
+test_hidden_records_are_reported_out_of_scope
+test_locked_record_is_skipped_without_waiting
+test_stamped_record_keeps_pr_metadata_valid
