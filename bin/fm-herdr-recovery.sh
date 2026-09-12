@@ -155,8 +155,10 @@ fm_reco_is_allowed_word() { # <word>
 # fm_reco_segments: print every shell segment of <line>, one per line, with
 # leading whitespace and surrounding quotes stripped. Separators and shell
 # structure words split segments so each head is the word that would actually
-# execute. A "timeout <duration> <cmd>" segment also emits the wrapped command
-# as its own segment (recursively) so both screens see through the wrapper.
+# execute. A "timeout <duration> <cmd>" segment and an if/while/do/then/else
+# head also emit their remainder as its own segment (recursively), so a
+# wrapper or structure word never shields the real command from either
+# screen - the condition or body command is screened like a bare one.
 fm_reco_segments() { # <line>
   local nl=$'\n' s seg rest dur cmdsub
   cmdsub="\$("
@@ -255,7 +257,8 @@ fm_reco_sed_scripts_ok() { # <segment>
 # token must match that head's safe read set; long options, program/expression
 # files, and sed's e/w shell-running or file-writing script commands are
 # refused outright. Other heads pass. Consumes the shared segment printer so
-# a timeout wrapper cannot smuggle a flagged tool past this screen.
+# a timeout wrapper, an if/while condition, or a do/then/else structure word
+# cannot smuggle a flagged tool past this screen.
 fm_reco_flags_ok() { # <line>
   local seg head tok
   local -a toks
