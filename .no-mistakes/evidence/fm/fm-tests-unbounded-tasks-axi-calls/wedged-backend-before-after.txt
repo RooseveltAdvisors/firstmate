@@ -1,0 +1,52 @@
+A wedged backlog backend, run through a real firstmate test suite.
+
+The stand-in backend serves every call through the real tasks-axi except one
+that touches the row the suite seeds ("fix-windows"), which never returns - what
+a stuck lock or a hung beads daemon looks like from the suite's side:
+
+    $ cat /tmp/wedged-axi-row/tasks-axi
+    #!/usr/bin/env bash
+    # A backlog backend that is wedged on ONE row: every other call is served by the
+    # real tasks-axi, but a call touching 'fix-windows' never returns - the shape a
+    # stuck lock or a hung beads daemon produces in the field.
+    for a in "$@"; do
+      case "$a" in
+        *fix-windows*) while :; do sleep 3600; done ;;
+      esac
+    done
+    exec /home/jon/.npm-global/bin/tasks-axi "$@"
+
+The suite is tests/fm-afk-return.test.sh; the call site is the backlog seed in
+test_return_brief_composes_from_record_store_and_held_set.
+
+=============================================================================
+BEFORE - base b182d0f9, the call site runs tasks-axi bare
+=============================================================================
+$ PATH=/tmp/wedged-axi-row:$PATH timeout 120 bash tests/fm-afk-return.test.sh
+ok - /quiet off's return path behaves identically for a quiet-content flag as for a legacy away-content one
+ok - check retries recorded terminal teardown and keeps catch-up gated until success
+ok - an unreadable superseded mandate stays required until its record validates
+ok - the retained contract epoch requires its final archive on every check
+Terminated
+
+[exit=124 after 120s]  cases reported: 9 ok, 0 not ok
+
+The run never came back on its own. The outer 120s ceiling killed it (exit 124),
+and the case that wedged is reported nowhere: on CI this is a job that burns its
+whole budget and then says nothing about why.
+
+=============================================================================
+AFTER - 49f40b36, the same call site runs through fm_test_tasks_axi
+=============================================================================
+$ PATH=/tmp/wedged-axi-row:$PATH timeout 120 bash tests/fm-afk-return.test.sh
+ok - /quiet off's return path behaves identically for a quiet-content flag as for a legacy away-content one
+ok - check retries recorded terminal teardown and keeps catch-up gated until success
+ok - an unreadable superseded mandate stays required until its record validates
+ok - the retained contract epoch requires its final archive on every check
+not ok - could not seed the held backlog
+
+[exit=1 after 35s]  cases reported: 9 ok, 1 not ok
+
+Same wedge, same suite: the run now ends itself inside the 30s default bound,
+fails the case by name, and exits 1. A hanging backlog command fails the test
+instead of stalling the run.

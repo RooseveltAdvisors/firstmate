@@ -1,0 +1,35 @@
+The 14 tasks-axi call sites in tests/fm-bearings-snapshot.test.sh, under the
+same wedge. These are the sites the previous review round flagged: they called
+the real binary bare through "$TASKS_AXI_BIN", outside any bound.
+
+Run here is test_landed_accepts_only_kind_owned_delivery_artifacts alone (the
+suite's own file with only that one case invoked at the bottom), against a
+backend wedged on the first row it seeds, 'answered-question':
+    #!/usr/bin/env bash
+    # Wedged on the 'answered-question' row only; every other call is the real one.
+    for a in "$@"; do
+      case "$a" in
+        answered-question) while :; do sleep 3600; done ;;
+      esac
+    done
+    exec /home/jon/.npm-global/bin/tasks-axi "$@"
+
+=============================================================================
+BEFORE - base b182d0f9: "$TASKS_AXI_BIN" add answered-question ... (bare)
+=============================================================================
+Terminated
+[exit=124 after 90s]  cases reported: 0 ok, 0 not ok
+
+Nothing came back; the outer 90s ceiling killed it (exit 124) and the case is
+reported nowhere. Unwedged this same case finishes in about 5 seconds.
+
+=============================================================================
+AFTER - 49f40b36: fm_test_tasks_axi add answered-question ... (bounded)
+=============================================================================
+not ok - could not create the answered captain question
+[exit=1 after 30s]  cases reported: 0 ok, 1 not ok
+
+The bound fires at the bearings-snapshot call site too: the case fails by name
+inside the 30s default instead of holding the run open, and the real binary and
+the `|| fail` wording are unchanged - unwedged, the same case still passes:
+ok - landed accepts only kind-owned delivery artifacts while answered questions stay out

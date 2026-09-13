@@ -1,0 +1,26 @@
+tests/fm-captain-hold-lifecycle.test.sh fails one case on this host. The same
+case fails identically at the base commit, so it is a host toolchain gap, not
+something this change introduced.
+
+BASE b182d0f9
+ok - a released merge passes the guarded entrypoint and remains recently landed
+ok - cleanup refuses a ship row when its captain hold cannot be read
+not ok - could not create the migrated hold fixture
+  [43 ok, 1 not ok, exit 1]
+
+TARGET 49f40b36
+ok - a released merge passes the guarded entrypoint and remains recently landed
+ok - cleanup refuses a ship row when its captain hold cannot be read
+not ok - could not create the migrated hold fixture
+  [43 ok, 1 not ok, exit 1]
+
+Cause, reproduced outside the suite against this host's backlog toolchain
+(bd 1.2.2, tasks-axi 0.2.5) on a beads-backed fixture home - the bare call and
+the newly bounded call fail the same way, so the bound is not involved:
+
+  BARE    (cd $home && BEADS_ACTOR=fixture tasks-axi add fm-herald-github-delete ...)      -> exit 1
+  BOUNDED (cd $home && BEADS_ACTOR=fixture fm_test_tasks_axi add fm-herald-github-delete ...) -> exit 1
+  both print: error: "beads create failed: exit 1"
+
+The suite's beads capability probe (tasks-axi list) succeeds on this host, so the
+migration family is not skipped; the create verb is what this bd build refuses.
