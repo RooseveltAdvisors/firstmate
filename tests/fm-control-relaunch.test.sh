@@ -122,6 +122,31 @@ case "${1:-}" in
     fi
     exit 0 ;;
   list-windows)
+    all=0
+    for a in "$@"; do [ "$a" = -a ] && all=1; done
+    if [ "$all" = 1 ]; then
+      # The SERVER-WIDE inventory. This is the second, independent read a
+      # rebind must pass: it answers "does a window by this name exist under
+      # ANY session", which a per-session read cannot.
+      if [ -f "$D/all-inventory-broken" ]; then
+        echo 'no server running on /tmp/tmux-1000/default' >&2
+        exit 1
+      fi
+      if [ -f "$D/all-windows" ]; then
+        cat "$D/all-windows"
+      elif [ -f "$D/windows" ]; then
+        # By default every window the session holds, under that session's name.
+        sed "s/^/${FM_FAKE_SESSION:-fmses}:/" "$D/windows"
+      fi
+      exit 0
+    fi
+    # A DEFINITIVE per-session refusal: the recorded session is not there. That
+    # is real tmux's answer to a renamed session, and it says nothing about
+    # whether the window (and its agent) survived under the new name.
+    if [ -f "$D/session-missing" ]; then
+      echo "can't find session: ${FM_FAKE_SESSION:-fmses}" >&2
+      exit 1
+    fi
     # A non-definitive inventory failure: tmux could not answer, which is NOT
     # evidence the window is gone (the classifier must read `unreadable`).
     if [ -f "$D/inventory-broken" ]; then
@@ -129,8 +154,21 @@ case "${1:-}" in
       exit 1
     fi
     [ -f "$D/windows" ] && cat "$D/windows"; exit 0 ;;
+  list-sessions) [ -f "$D/sessions" ] && cat "$D/sessions"; exit 0 ;;
   has-session) [ -f "$D/no-session" ] && exit 1; exit 0 ;;
-  new-session) rm -f "$D/no-session"; exit 0 ;;
+  new-session)
+    shift
+    ses=
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        -s) ses=${2:-}; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    printf '%s\n' "$ses" >> "$D/sessions"
+    printf '%s\n' "$ses" >> "$D/created-sessions"
+    rm -f "$D/no-session"
+    exit 0 ;;
   new-window)
     # Model the one thing an endpoint re-creation depends on: the window now
     # appears in the session inventory, so the very next agent-state read stops
@@ -169,13 +207,17 @@ new_case() {
   printf 'claude' > "$dir/fake/command"
   printf 'claude' > "$dir/fake/becomes"
   printf '%s\n' "fm-$id" > "$dir/fake/windows"
+  # The session the records below name already exists, so the reclaim path
+  # exercises fm_backend_tmux_session_ensure's EXISTING-session branch by
+  # default; a case that wants the create branch clears or replaces this.
+  printf '%s\n' fmses > "$dir/fake/sessions"
   make_tmux_stub "$dir"
   printf '%s\n' "$dir"
 }
 
-# add_ship_task <case-dir> <id> [harness]
+# add_ship_task <case-dir> <id> [harness] [session]
 add_ship_task() {
-  local dir=$1 id=$2 harness=${3:-claude}
+  local dir=$1 id=$2 harness=${3:-claude} ses=${4:-fmses}
   local home="$dir/home" proj="$dir/proj" wt="$dir/wt"
   fm_git_worktree "$proj" "$wt" "task-$id"
   mkdir -p "$home/data/$id"
@@ -188,7 +230,7 @@ Exercise relaunch behavior for $id.
 Preserve the task while replacing its agent process.
 EOF
   {
-    echo "window=fmses:fm-$id"
+    echo "window=$ses:fm-$id"
     echo "endpoint_task_id=$id"
     echo "worktree=$wt"
     echo "project=$proj"
@@ -1807,6 +1849,204 @@ test_reclaim_of_a_secondmate_names_its_own_owner() {
   pass "reclaim: a secondmate whose endpoint is gone is sent to its own respawn owner"
 }
 
+# strand_session_unreachable <case-dir> <id> <live-session>: the recorded
+# session cannot be read - real tmux's answer to a renamed session, and the
+# same answer a different TMUX_TMPDIR/socket gives - while the SERVER-WIDE
+# inventory answers fine and still names the task's window under another
+# session. The endpoint is unreachable from here; it is not gone, and the agent
+# in it is still holding the worktree.
+strand_session_unreachable() {  # <case-dir> <id> <live-session>
+  : > "$1/fake/session-missing"
+  printf '%s:fm-%s\n' "$3" "$2" > "$1/fake/all-windows"
+}
+
+test_reclaim_refuses_an_unreachable_but_live_endpoint() {
+  local dir out rc
+  dir=$(new_case gone-unreachable rl65)
+  add_ship_task "$dir" rl65 claude
+  strand_session_unreachable "$dir" rl65 renamed
+
+  out=$(run_spawn "$dir" rl65 --relaunch --harness claude); rc=$?
+  expect_code 1 "$rc" "an endpoint that is only unreachable must refuse, not rebind"$'\n'"$out"
+  assert_contains "$out" "fm-rl65" "the refusal should name the window it could not prove gone"
+  assert_absent "$dir/fake/created-windows" "a refused reclaim must not create a window"
+  assert_absent "$dir/fake/created-sessions" "a refused reclaim must not create a session"
+  [ ! -s "$dir/fake/literal" ] || fail "a refused reclaim must send nothing into any pane"
+  pass "reclaim: an unreachable endpoint refuses, so its live agent is never duplicated in one worktree"
+}
+
+test_reclaim_reuses_an_existing_recorded_session() {
+  local dir rc=0
+  dir=$(new_case gone-session-reuse rl66)
+  add_ship_task "$dir" rl66 claude
+  strand_endpoint "$dir" rl66
+
+  run_control "$dir" rl66 relaunch --note "the pane was destroyed; pick the work back up" >/dev/null || rc=$?
+  expect_code 0 "$rc" "the reclaim should succeed"
+  assert_absent "$dir/fake/created-sessions" \
+    "a reclaim into a session that already exists must not create a second one"
+  [ "$(meta_field "$dir" rl66 window)" = "fmses:fm-rl66" ] \
+    || fail "the reclaim should have landed back on the recorded session"
+  pass "reclaim: an exactly-named recorded session is reused rather than re-created"
+}
+
+test_reclaim_does_not_take_a_prefix_sharing_session_for_its_own() {
+  local dir rc=0
+  dir=$(new_case gone-session-prefix rl67)
+  # The record names session `fm`, and the only live session is `fmses`, which
+  # shares its prefix. `has-session -t fm` answers YES for that, which would
+  # re-create this task's endpoint inside somebody else's session.
+  add_ship_task "$dir" rl67 claude fm
+  printf '%s\n' fmses > "$dir/fake/sessions"
+  strand_endpoint "$dir" rl67
+
+  run_control "$dir" rl67 relaunch --note "the pane was destroyed; pick the work back up" >/dev/null || rc=$?
+  expect_code 0 "$rc" "the reclaim should succeed"
+  [ "$(cat "$dir/fake/created-sessions" 2>/dev/null || true)" = fm ] \
+    || fail "the recorded session should have been created, not satisfied by a prefix-sharing one"
+  [ "$(meta_field "$dir" rl67 window)" = "fm:fm-rl67" ] \
+    || fail "the reclaim should name the recorded session, got $(meta_field "$dir" rl67 window)"
+  pass "reclaim: a prefix-sharing session does not satisfy the recorded session's membership"
+}
+
+# --- herdr: a stopped server is not a destroyed endpoint --------------------
+#
+# Stopping and restarting a named Herdr server preserves workspace, tab, pane
+# and label ids; only the harness processes and their registrations die
+# (docs/herdr-backend.md "Restart and liveness behavior"). The recovery-grade
+# classifier still reads a stopped server as `missing`, so a reclaim that
+# believed that verdict would abandon a pane that was about to come back and
+# open a second tab beside it.
+#
+# Canned/stateful fake only - never a real herdr session.
+make_herdr_stub() {  # <case-dir>
+  local fb="$1/fakebin"
+  mkdir -p "$fb"
+  # The herdr server-ensure poll must actually wait between reads, so this case
+  # keeps the real sleep rather than the tmux cases' instant stub.
+  rm -f "$fb/sleep"
+  cat > "$fb/herdr" <<'SH'
+#!/usr/bin/env bash
+set -u
+D=$FM_FAKE_DIR
+printf '%s\n' "$*" >> "$D/herdr-log"
+if [ "${1:-}" = status ] && [ "${2:-}" = --json ]; then
+  if [ -f "$D/herdr-stopped" ]; then
+    printf '{"client":{"version":"0.9.0","protocol":22},"server":{"running":false}}\n'
+  else
+    printf '{"client":{"version":"0.9.0","protocol":22},"server":{"running":true}}\n'
+  fi
+  exit 0
+fi
+if [ "${1:-}" = server ]; then
+  rm -f "$D/herdr-stopped"
+  exit 0
+fi
+if [ -f "$D/herdr-stopped" ]; then
+  # Every operational call against a stopped server fails at the transport,
+  # with no JSON body to classify.
+  echo 'error: could not connect to the herdr server' >&2
+  exit 1
+fi
+case "${1:-} ${2:-}" in
+  'pane get')
+    if [ "${3:-}" = "$(cat "$D/herdr-pane")" ]; then
+      printf '{"result":{"pane":{"pane_id":"%s","foreground_cwd":"%s"}}}\n' \
+        "${3:-}" "$(cat "$D/cwd")"
+    else
+      printf '{"error":{"code":"pane_not_found"}}\n'
+    fi
+    exit 0 ;;
+  'agent get')
+    # The pane survived its server's restart; the agent that lived in it did
+    # not, which is exactly the adoptable state.
+    printf '{"error":{"code":"agent_not_found"}}\n'
+    exit 0 ;;
+esac
+exit 0
+SH
+  chmod +x "$fb/herdr"
+}
+
+# add_herdr_ship_task <case-dir> <id>: a ship task recorded on the herdr
+# backend, with its server stopped so its endpoint classifies `missing`.
+add_herdr_ship_task() {  # <case-dir> <id>
+  local dir=$1 id=$2
+  local home="$dir/home" proj="$dir/proj" wt="$dir/wt"
+  fm_git_worktree "$proj" "$wt" "task-$id"
+  mkdir -p "$home/data/$id"
+  cat > "$home/data/$id/brief.md" <<EOF
+# Task
+## Captain's intent
+Exercise a herdr reclaim safely.
+
+## Firstmate spec
+Keep the recorded endpoint when it outlives its server.
+EOF
+  {
+    echo "window=fmlab:%7"
+    echo "endpoint_task_id=$id"
+    echo "worktree=$wt"
+    echo "project=$proj"
+    echo "harness=claude"
+    echo "kind=ship"
+    echo "mode=no-mistakes"
+    echo "yolo=off"
+    echo "tasktmp=/tmp/fm-$id"
+    echo "model=default"
+    echo "effort=default"
+    echo "backend=herdr"
+    echo "herdr_session=fmlab"
+    echo "herdr_workspace_id=ws1"
+    echo "herdr_tab_id=tab1"
+    echo "herdr_pane_id=%7"
+  } > "$home/state/$id.meta"
+  printf '%s' "$wt" > "$dir/fake/cwd"
+  printf '%s' '%7' > "$dir/fake/herdr-pane"
+  : > "$dir/fake/herdr-log"
+  : > "$dir/fake/herdr-stopped"
+  TASK_TMPS+=("/tmp/fm-$id")
+}
+
+test_herdr_reclaim_adopts_a_pane_that_outlived_its_server() {
+  local dir out rc=0 log stray
+  command -v jq >/dev/null 2>&1 || {
+    echo "skip - herdr reclaim needs jq (the herdr adapter parses JSON with it)"
+    return 0
+  }
+  dir=$(new_case gone-herdr rl68)
+  add_herdr_ship_task "$dir" rl68
+  make_herdr_stub "$dir"
+
+  out=$(run_spawn "$dir" rl68 --relaunch --harness claude) || rc=$?
+  log=$(cat "$dir/fake/herdr-log")
+  expect_code 0 "$rc" "a pane that outlived its stopped server is adoptable"$'\n'"$out"$'\n'"$log"
+
+  assert_contains "$log" "server --session fmlab" \
+    "the reclaim must bring the RECORDED session's server back before deciding anything"
+  assert_contains "$log" "agent get %7 --session fmlab" \
+    "the reclaim must re-read the recorded pane once its server is running"
+  assert_not_contains "$log" "workspace create" \
+    "adopting a preserved pane must not create a workspace"
+  assert_not_contains "$log" "tab create" \
+    "adopting a preserved pane must not open a second tab beside it"
+  # Every call belongs to the session the record names. A rebind resolves its
+  # container from the ambient session instead, which is how the preserved pane
+  # ends up orphaned in a workspace nothing points at.
+  stray=$(printf '%s\n' "$log" | grep -v -- '--session fmlab$' | grep -v '^status --json$' || true)
+  [ -z "$stray" ] || fail "a herdr reclaim touched a session the record does not name: $stray"
+  assert_contains "$out" "window=fmlab:%7" "the reclaim should report the adopted endpoint"
+  [ "$(meta_field "$dir" rl68 herdr_pane_id)" = '%7' ] \
+    || fail "the adopted record's pane id changed, got $(meta_field "$dir" rl68 herdr_pane_id)"
+  [ "$(meta_field "$dir" rl68 herdr_tab_id)" = tab1 ] \
+    || fail "the adopted record's tab id changed, got $(meta_field "$dir" rl68 herdr_tab_id)"
+  [ "$(meta_field "$dir" rl68 window)" = 'fmlab:%7' ] \
+    || fail "the adopted record's endpoint moved, got $(meta_field "$dir" rl68 window)"
+  assert_contains "$log" "pane send-text %7 " \
+    "the replacement's launch brief must be delivered into the adopted pane"
+  pass "reclaim: a herdr pane that outlived its stopped server is adopted, never orphaned beside a new tab"
+}
+
 test_relaunch_reverifies_an_already_in_flight_item_instead_of_rewriting_it() {
   local dir out rc=0
   command -v tasks-axi >/dev/null 2>&1 || {
@@ -1900,6 +2140,10 @@ test_exit_reports_a_gone_endpoint_instead_of_refusing
 test_relaunch_reclaims_a_gone_endpoint
 test_reclaim_preserves_unlanded_work
 test_reclaim_refuses_an_unreadable_endpoint
+test_reclaim_refuses_an_unreachable_but_live_endpoint
+test_reclaim_reuses_an_existing_recorded_session
+test_reclaim_does_not_take_a_prefix_sharing_session_for_its_own
 test_reclaim_of_a_secondmate_names_its_own_owner
+test_herdr_reclaim_adopts_a_pane_that_outlived_its_server
 test_relaunch_reverifies_an_already_in_flight_item_instead_of_rewriting_it
 test_relaunch_moves_a_drifted_item_back_in_flight

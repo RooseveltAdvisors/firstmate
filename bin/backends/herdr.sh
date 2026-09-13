@@ -2353,6 +2353,32 @@ fm_backend_herdr_agent_state() {  # <target>
   esac
 }
 
+# fm_backend_herdr_endpoint_absence_recheck: re-read <target> with its own
+# session's server running, and print the resulting fm_backend_agent_state
+# verdict. For a recovery that is about to RE-CREATE an endpoint, this is the
+# read that decides whether there is anything to re-create at all.
+#
+# fm_backend_herdr_agent_state maps a positively STOPPED session server to
+# `missing` (issue #4091), which is correct for "no agent is running" but is
+# NOT evidence the endpoint was destroyed: stopping and restarting a named
+# Herdr server preserves workspace, tab, pane, and label ids (docs/herdr-backend.md
+# "Restart and liveness behavior") - only the harness processes and their
+# registrations die. So `missing` there means unreachable right now, and a
+# caller that rebound on it would abandon a pane that was about to come back.
+#
+# Only the RECORDED session's server is ensured, never a workspace or tab, so
+# this creates nothing: a merely-stopped server comes back and the recorded
+# pane classifies `dead` (adoptable), a genuinely destroyed pane still reads
+# `missing`, a returning agent reads `alive`, and a server that will not start
+# is `unreadable` - unreachable, which refuses, rather than absence.
+fm_backend_herdr_endpoint_absence_recheck() {  # <target>
+  local target=$1
+  fm_backend_herdr_parse_target "$target" || { printf 'unreadable'; return 0; }
+  fm_backend_herdr_server_ensure "$FM_BACKEND_HERDR_SESSION" >/dev/null 2>&1 \
+    || { printf 'unreadable'; return 0; }
+  fm_backend_herdr_agent_state "$target"
+}
+
 # Backward-compatible three-state view for callers that only need a yes/no
 # agent verdict. The detailed state contract is owned by fm_backend_agent_state.
 fm_backend_herdr_agent_alive() {  # <target>

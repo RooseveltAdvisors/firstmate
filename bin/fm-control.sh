@@ -882,6 +882,8 @@ do_relaunch() {
     if fm_backend_validate_task_endpoint "$META" "$ID" >/dev/null 2>&1 \
        && [ -n "$FM_BACKEND_VALIDATED_TARGET" ]; then
       T=$FM_BACKEND_VALIDATED_TARGET
+    else
+      die "the replacement agent for $ID was launched, but task $ID's republished record no longer passes endpoint validation, so this transaction cannot say which endpoint to confirm it on; reconcile $META before any further control action"
     fi
   else
     [ "$(fm_meta_get "$META" control_relaunch_tx)" != "$RELAUNCH_TX" ] \

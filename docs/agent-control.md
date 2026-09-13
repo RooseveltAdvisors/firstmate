@@ -72,7 +72,7 @@ It is not deterministic across the verified adapters: codex, grok, and gemini re
    A secondmate relaunch does not require one and never rewrites its standing charter.
 4. **Stop the old agent** through the `exit` verb, with its postcondition.
 5. **Launch the replacement** through its single owner, `bin/fm-spawn.sh --relaunch`, which reuses the recorded worktree instead of creating one, adopts the recorded endpoint when it still exists, clears the previous harness's per-task wiring, and arms a fresh busy generation.
-   When the classifier proves the recorded endpoint is gone rather than merely idle, the launch owner creates one fresh endpoint in that same worktree and the republished record rebinds the task to it - see [Reclaiming a task whose endpoint is gone](#reclaiming-a-task-whose-endpoint-is-gone).
+   When the recorded endpoint is proven gone rather than merely idle or unreachable, the launch owner creates one fresh endpoint in that same worktree and the republished record rebinds the task to it - see [Reclaiming a task whose endpoint is gone](#reclaiming-a-task-whose-endpoint-is-gone).
 
 Switching harness is therefore one ordinary relaunch rather than a separate mechanism.
 
@@ -84,10 +84,17 @@ The task's worktree, branch, commits, and uncommitted changes all survive that; 
 Two endpoint verdicts are agent-free, and both license a relaunch:
 
 - `dead` - the endpoint exists and confidently holds no agent. It is **adopted**, so the task keeps its exact recorded address.
-- `missing` - the endpoint itself is authoritatively gone. There is no endpoint and therefore no agent, so it is agent-free a fortiori. It cannot be adopted, so the launch owner **creates one fresh endpoint in the recorded worktree** and the republished record rebinds the task to it.
+- gone, **proven** - there is no endpoint and therefore no agent, and it cannot be adopted, so the launch owner **creates one fresh endpoint in the recorded worktree** and the republished record rebinds the task to it.
 
-The duplicate-agent argument is unchanged by that widening.
-Both verdicts come from the same recovery-grade classifier, which claims `missing` only from positive absence: a successful tmux window inventory that omits the exact window, one of tmux's definitive no-session/no-server answers, Herdr's `pane_not_found`, or a positively stopped Herdr session server.
+That proof is its own step, because the classifier's `missing` is not one state.
+It conflates *the endpoint was destroyed* with *the endpoint is unreachable from here right now*: tmux answers `missing` for a renamed session, a moved window, or a different `TMUX_TMPDIR`/socket, and Herdr answers it for a positively stopped session server whose workspace, tab, and pane ids all survive the restart ([`docs/herdr-backend.md`](herdr-backend.md) "Restart and liveness behavior").
+An unreachable endpoint can still hold the live agent a rebind would duplicate, so absence is proven per backend and never inferred from a failed read:
+
+- **tmux** requires a *successful* server-wide window inventory (`list-windows -a`) that names the recorded window under no session at all.
+  An inventory that cannot be read - including one that fails because the tmux server is genuinely dead - refuses, and so does an inventory that still names the window somewhere, because that endpoint was merely unreachable.
+- **Herdr** starts the recorded session's server (only the server: nothing is created) and **re-reads the recorded pane**.
+  `dead` means the pane survived the restart and is adopted after all, with no second tab; `alive` means the agent came back and refuses; only a second `missing` proves the pane itself did not survive.
+
 Every transient or self-contradicting read stays `unreadable` or `ambiguous` and still refuses, so a momentary backend failure can never be mistaken for absence.
 
 What a reclaim is not:
@@ -98,7 +105,7 @@ What a reclaim is not:
 - It does **not** cover a secondmate. A secondmate whose endpoint is gone already has one owner for that recovery - `bin/fm-spawn.sh <id> --secondmate`, driven by the session-start liveness sweep - so relaunch refuses and names it rather than becoming a second path to the same outcome.
 
 On tmux the re-created window is opened under the session the record already names, and the task's recorded window name is unchanged, so a tmux reclaim lands back on its exact recorded address.
-On Herdr the new pane necessarily gets a new id, and the record follows it.
+On Herdr a reclaim that reaches the rebind - the pane did not survive its server's restart - necessarily gets a new pane id, and the record follows it.
 A Herdr reclaim deliberately uses the flat container shape rather than presentation projection: projection is a presentation-only layout that is never endpoint or ownership authority, and flat is already the documented fallback for every recovery it cannot bind exactly ([`docs/herdr-backend.md`](herdr-backend.md)).
 
 ### Failure and rollback
@@ -128,8 +135,8 @@ A Herdr reclaim deliberately uses the flat container shape rather than presentat
 - An ambiguous or unreadable endpoint state refuses.
   Only a positively classified state acts.
 - `exit`'s composer-empty check, above, is itself a fail-closed boundary that `relaunch` inherits by stopping the old agent through `exit`.
-- `fm-spawn --relaunch` independently refuses unless the endpoint is positively agent-free - either a `dead` endpoint that survives, or one positively proven gone - so a replacement can never join a live agent.
-  An `alive`, `ambiguous`, or `unreadable` verdict all refuse; absence is claimed only from positive evidence of it.
+- `fm-spawn --relaunch` independently refuses unless the endpoint is positively agent-free - either a `dead` endpoint that survives, or one proven gone by the per-backend absence proof above - so a replacement can never join a live agent.
+  An `alive`, `ambiguous`, or `unreadable` verdict all refuse, and so does an endpoint that is only unreachable; absence is claimed only from positive evidence of it.
   It also requires the shell to be in the recorded worktree: tmux refuses immediately when it is not, while Herdr sends one `cd` to the recorded path and refuses unless a subsequent path read confirms the move.
 
 ## Capability matrix

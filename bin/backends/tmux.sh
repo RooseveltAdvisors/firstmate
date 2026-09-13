@@ -100,6 +100,39 @@ fm_backend_tmux_session_ensure() {  # <session>
   printf '%s' "$ses"
 }
 
+# fm_backend_tmux_window_absent_server_wide: PROVE, across every session this
+# tmux can see, that no window named <window-name> exists. Returns success
+# ONLY on a SUCCESSFUL server-wide inventory containing no match.
+#
+# fm_backend_tmux_agent_state's `missing` is session-scoped, and two of its
+# sources - a definitive no-session answer and an unreachable server - say
+# nothing about the window itself: a renamed session, a moved window, or a
+# different TMUX_TMPDIR/socket all produce them while the task's window, and
+# the agent in it, are still very much alive somewhere. This is the second,
+# server-wide read that turns that "not where the record says" into "not
+# anywhere", using the same `list-windows -a` inventory shape
+# fm_backend_tmux_resolve_bare_selector already relies on.
+#
+# Both non-proofs return failure, and callers must treat that as a REFUSAL:
+#   - an inventory that FAILS for any reason (including no server at all) is
+#     unreachability, never absence;
+#   - an inventory that SUCCEEDS and still names the window is positive
+#     evidence the endpoint merely moved.
+# Session names cannot contain ':' in tmux, so the window name is everything
+# after the first colon of each `<session>:<window>` row.
+fm_backend_tmux_window_absent_server_wide() {  # <window-name>
+  local window=${1:-} inventory row
+  [ -n "$window" ] || return 1
+  inventory=$(LC_ALL=C tmux list-windows -a -F '#{session_name}:#{window_name}' 2>/dev/null) || return 1
+  while IFS= read -r row; do
+    [ -n "$row" ] || continue
+    [ "${row#*:}" = "$window" ] && return 1
+  done <<EOF
+$inventory
+EOF
+  return 0
+}
+
 # fm_backend_tmux_create_task: create the task's window in <proj-abs>,
 # refusing an existing <window-name> in <session>. Mirrors fm-spawn.sh's
 # duplicate-check-then-new-window sequence, including the exact error text

@@ -44,13 +44,17 @@
 #   agent-free on a backend with a recovery-grade agent-state classifier (tmux
 #   or herdr), and clears the previous harness's per-task wiring before arming
 #   the new incarnation. Two verdicts are agent-free: a `dead` endpoint is
-#   ADOPTED as-is, while an endpoint the classifier proves is `missing` - gone
-#   entirely, so trivially agent-free - is RE-CREATED in the recorded worktree
-#   and the republished record rebinds the task to it. The worktree is reused
-#   untouched in both cases; a rebind is a recovery, never a teardown. Only a
-#   crewmate or scout rebinds: a secondmate whose endpoint is gone is respawned
-#   by its own owner (`--secondmate`, driven by the session-start liveness
-#   sweep). The replacement still never starts outside the copy
+#   ADOPTED as-is, while an endpoint PROVEN gone is RE-CREATED in the recorded
+#   worktree and the republished record rebinds the task to it. That proof is
+#   its own step, because a backend's `missing` also covers an endpoint that is
+#   merely unreachable from here: tmux must additionally show the recorded
+#   window in no session server-wide, and herdr must still read the recorded
+#   pane as gone once its session's server is running again. An endpoint that
+#   cannot be reached, or that turns out to have survived, refuses instead. The
+#   worktree is reused untouched in both cases; a rebind is a recovery, never a
+#   teardown. Only a crewmate or scout rebinds: a secondmate whose endpoint is
+#   gone is respawned by its own owner (`--secondmate`, driven by the
+#   session-start liveness sweep). The replacement still never starts outside the copy
 #   holding the work: a Herdr shell that has drifted out of the recorded
 #   worktree is told once to return, and only a shell that will not go refuses.
 #   --harness <name> is the explicit per-spawn harness/profile adapter. The old
@@ -1568,25 +1572,44 @@ if [ "$RELAUNCH" -eq 1 ]; then
   # Two states are agent-free, and both license a relaunch:
   #   dead    - the endpoint exists and confidently holds no agent. The
   #             endpoint is ADOPTED, so the task keeps its exact address.
-  #   missing - the endpoint itself is authoritatively gone (a pane or
-  #             workspace destroyed in Herdr churn, a tmux session or server
-  #             restarted). There is no endpoint AND therefore no agent, so it
-  #             is agent-free a fortiori - strictly safer than `dead`, which
-  #             still has to reason about a surviving pane. A relaunch cannot
-  #             adopt what is gone, so it CREATES a fresh endpoint in the
-  #             recorded worktree and the published record rebinds to it.
-  # The duplicate-agent argument is unchanged by the widening: both verdicts
-  # come from the same recovery-grade classifier, which claims `missing` only
-  # from POSITIVE absence (a successful tmux window inventory that omits the
-  # exact window, a definitive no-session/no-server answer, herdr's
-  # pane_not_found or a positively stopped session server). Every transient or
-  # self-contradicting read stays `unreadable`/`ambiguous` and still refuses
-  # here, so a momentary backend failure can never be mistaken for absence
-  # (bin/fm-backend.sh's fm_backend_agent_state owns that vocabulary).
+  #   missing - the endpoint itself is gone. There is no endpoint AND therefore
+  #             no agent, so a relaunch cannot adopt it: it CREATES a fresh
+  #             endpoint in the recorded worktree and the published record
+  #             rebinds to it.
+  # `missing` is NOT one state, and that is what the duplicate-agent argument
+  # turns on. fm_backend_agent_state's per-backend `missing` conflates "the
+  # endpoint was DESTROYED" with "the endpoint is UNREACHABLE from here right
+  # now": tmux answers it for a renamed session, a moved window, or a different
+  # TMUX_TMPDIR/socket, and herdr answers it for a positively STOPPED session
+  # server whose workspace, tab, and pane ids all survive the restart. An
+  # unreachable endpoint can still hold the live agent this relaunch would
+  # duplicate, so absence is PROVEN here per backend before it may rebind, never
+  # inferred from a failed read:
+  #   tmux  - a SUCCESSFUL server-wide window inventory that names the recorded
+  #           window nowhere. A failed inventory (including a genuinely dead
+  #           server) and an inventory that still names the window both refuse.
+  #   herdr - the recorded session's server is started, and the recorded pane is
+  #           RE-READ. `dead` means the pane survived the restart and is adopted
+  #           after all; `alive` means the agent came back and refuses; only a
+  #           second `missing` proves the pane itself did not survive.
+  # Every transient or self-contradicting read stays `unreadable`/`ambiguous`
+  # and refuses as it always did (bin/fm-backend.sh's fm_backend_agent_state
+  # owns that vocabulary).
   RELAUNCH_STATE=$(fm_backend_agent_state "$BACKEND" "$RELAUNCH_TARGET")
+  if [ "$RELAUNCH_STATE" = missing ] && [ "$BACKEND" = herdr ]; then
+    RELAUNCH_STATE=$(fm_backend_herdr_endpoint_absence_recheck "$RELAUNCH_TARGET")
+  fi
   case "$RELAUNCH_STATE" in
     dead) ;;
-    missing) RELAUNCH_REBIND=1 ;;
+    missing)
+      if [ "$BACKEND" = tmux ]; then
+        fm_backend_tmux_window_absent_server_wide "${RELAUNCH_TARGET#*:}" || {
+          echo "error: task $ID's recorded endpoint $RELAUNCH_TARGET reads 'missing', but a server-wide tmux inventory did not prove the window '${RELAUNCH_TARGET#*:}' is gone: either that inventory could not be read at all, or some session still holds a window by that name. An endpoint this process cannot reach is not an endpoint that is absent, and its agent may still hold the worktree; refusing rather than launching a second agent into it" >&2
+          exit 1
+        }
+      fi
+      RELAUNCH_REBIND=1
+      ;;
     *)
       echo "error: task $ID's endpoint reads '$RELAUNCH_STATE'; a relaunch requires a positively agent-free endpoint (stop the agent first with bin/fm-control.sh $ID exit)" >&2
       exit 1
