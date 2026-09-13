@@ -588,6 +588,42 @@ test_unsafe_secondmate_home_skipped_before_git_update() {
   pass "T11 unsafe secondmate home is not fast-forwarded"
 }
 
+# --- T12: a self-update rebinds a locally armed watch on the primary --------
+# A self-update fast-forwards bin/ in place, changing bytes an armed
+# fm-procevent-when watch's trust binding was hashed against with no
+# tampering involved; without a rebind the very next fire would be refused.
+test_primary_update_rebinds_local_watch() {
+  local w before_hash after_hash out spec
+  w=$(new_world t12)
+  mkdir -p "$w/seed/bin"
+  printf "#!/usr/bin/env bash\necho v1 >> \"\$1\"\n" > "$w/seed/bin/watched-action.sh"
+  chmod +x "$w/seed/bin/watched-action.sh"
+  git -C "$w/seed" add -A
+  git -C "$w/seed" commit -qm add-watched-action
+  git -C "$w/seed" push -q origin main
+  git -C "$w/main" pull -q origin main
+
+  FM_ROOT_OVERRIDE="$w/main" FM_HOME="$w/home" "$ROOT/bin/fm-procevent-when.sh" \
+    arm rebind-primary --interval 60 --stable 1 \
+    --condition true --action "$w/main/bin/watched-action.sh" "$w/rebind.log" >/dev/null
+  spec="$w/home/state/when/when-rebind-primary.spec"
+  before_hash=$(grep '^action_sha256=' "$spec")
+
+  printf "#!/usr/bin/env bash\necho v2 >> \"\$1\"\n" > "$w/seed/bin/watched-action.sh"
+  git -C "$w/seed" add -A
+  git -C "$w/seed" commit -qm bump-watched-action
+  git -C "$w/seed" push -q origin main
+
+  out=$(run_update "$w")
+
+  assert_contains "$out" "firstmate: updated " "the primary still advanced"
+  assert_contains "$out" "rebound: when-rebind-primary" "the primary self-update rebound its own locally armed watch"
+  after_hash=$(grep '^action_sha256=' "$spec")
+  [ "$before_hash" != "$after_hash" ] \
+    || fail "the watch's trust binding was not refreshed to match the updated action bytes"
+  pass "T12 a self-update rebinds a locally armed watch on the primary"
+}
+
 # Seed the pre-rename world: .tasks.toml is a TRACKED file and the home is
 # running on it, with the operational dirs gitignored exactly as in the real
 # repo so a running home is a clean tree and the advance is eligible.
@@ -613,7 +649,7 @@ untrack_tasks_config() {  # <world>
   git -C "$w/seed" push -q origin main
 }
 
-# --- T12: a live home's .tasks.toml survives the advance that untracks it ---
+# --- T13: a live home's .tasks.toml survives the advance that untracks it ---
 # The primary home's FM_HOME IS the checkout, so its .tasks.toml is a tracked
 # file until the per-home rename lands. bootstrap's tasks_config_setup runs once
 # at session start and leaves an existing file alone, so if the fast-forward that
@@ -622,7 +658,7 @@ untrack_tasks_config() {  # <world>
 # nothing about it. The update must carry the file across the advance.
 test_tasks_config_survives_the_untracking_advance() {
   local w out before
-  w=$(new_world t12)
+  w=$(new_world t13)
   mkdir -p "$w/main/state"
   touch "$w/main/state/.last-watcher-beat"
 
@@ -643,10 +679,10 @@ test_tasks_config_survives_the_untracking_advance() {
     || fail "the update did not preserve .tasks.toml byte-for-byte"
   assert_contains "$out" "TASKS_CONFIG: restored $w/main/.tasks.toml, which the update removed" \
     "the update reports the restore it actually made"
-  pass "T12 an existing .tasks.toml survives the advance that untracks it"
+  pass "T13 an existing .tasks.toml survives the advance that untracks it"
 }
 
-# --- T13: a SECONDMATE home keeps its .tasks.toml across the same advance ----
+# --- T14: a SECONDMATE home keeps its .tasks.toml across the same advance ----
 # The same update advances every registered secondmate home, and a treehouse home
 # is a checkout too, so it holds the still-tracked .tasks.toml and loses it to the
 # identical rename. That mate's bootstrap already ran, so nothing re-seeds it for
@@ -654,7 +690,7 @@ test_tasks_config_survives_the_untracking_advance() {
 # advances, not only the one the primary happens to be running from.
 test_tasks_config_survives_on_a_secondmate_home() {
   local w out before
-  w=$(new_world t13)
+  w=$(new_world t14)
   seed_tracked_tasks_config "$w" data/backlog.md
   add_sm "$w" a1
   before=$(cat "$w/a1/.tasks.toml")
@@ -667,17 +703,17 @@ test_tasks_config_survives_on_a_secondmate_home() {
     || fail "the update removed the secondmate home's live .tasks.toml"
   [ "$(cat "$w/a1/.tasks.toml")" = "$before" ] \
     || fail "the update did not preserve the secondmate home's .tasks.toml byte-for-byte"
-  pass "T13 a secondmate home's .tasks.toml survives the advance that untracks it"
+  pass "T14 a secondmate home's .tasks.toml survives the advance that untracks it"
 }
 
-# --- T14: the carry restores a REMOVED file, it never reverts a live writer ---
+# --- T15: the carry restores a REMOVED file, it never reverts a live writer ---
 # The carry exists to stop data loss, so it must not cause any. A writer other
 # than the fast-forward that owns .tasks.toml inside the advance window keeps its
 # write, and the run must not claim a removal that did not happen. The post-merge
 # hook fires after the ff-only merge, which is exactly that window.
 test_tasks_config_restore_never_reverts_a_live_writer() {
   local w out
-  w=$(new_world t14)
+  w=$(new_world t15)
   mkdir -p "$w/main/state"
   touch "$w/main/state/.last-watcher-beat"
 
@@ -704,7 +740,7 @@ SH
   case "$out" in
     *TASKS_CONFIG:*) fail "the update reported a TASKS_CONFIG action that never happened: $out" ;;
   esac
-  pass "T14 a live .tasks.toml writer is never reverted and no removal is claimed"
+  pass "T15 a live .tasks.toml writer is never reverted and no removal is claimed"
 }
 
 test_updates_main_and_secondmate
@@ -723,6 +759,7 @@ test_registry_backstop_dedup_and_self_exclusion
 test_firstmate_wrong_branch_skipped
 test_firstmate_detached_head_skipped
 test_unsafe_secondmate_home_skipped_before_git_update
+test_primary_update_rebinds_local_watch
 test_tasks_config_survives_the_untracking_advance
 test_tasks_config_survives_on_a_secondmate_home
 test_tasks_config_restore_never_reverts_a_live_writer
