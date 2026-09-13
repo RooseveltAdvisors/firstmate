@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Detect the agent harness this process tree runs on.
-# Usage: fm-harness.sh                  print own harness: claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|unknown
+# Usage: fm-harness.sh                  print own harness: claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|agy|unknown
 #        fm-harness.sh crew             print the effective CREWMATE harness
 #                                        (config/crew-harness; "default" resolves to own)
 #        fm-harness.sh secondmate       print the harness the PRIMARY uses to launch
@@ -13,6 +13,12 @@
 #                                        config/secondmate-harness, or empty when absent.
 #        fm-harness.sh secondmate-effort   print the optional EFFORT token from
 #                                        config/secondmate-harness, or empty when absent.
+#        fm-harness.sh validate-native-effort <harness> <model> <effort>
+#                                        Refuse ultra unless the harness is pi or
+#                                        pi-signed and the model explicitly names
+#                                        codex-native/<id>. Other efforts retain
+#                                        their adapter's existing policy. Native
+#                                        Codex validates model support at startup.
 # config/secondmate-harness format: a single line "<harness> [<model>] [<effort>]",
 # whitespace-separated. A bare "<harness>" (today's format) behaves exactly as before:
 # harness only, no model/effort. Only the first non-empty, non-comment line is parsed.
@@ -161,6 +167,15 @@ detect_own() {
       # named `claude` with its own node child, and that fallback's *claude*
       # args glob would otherwise claim it if that subtree were ever walked.
       omp) echo omp; return ;;
+      # agy (Antigravity CLI) is a Go-compiled single binary whose process name
+      # is exactly `agy` (verified, agy 1.2.0: `ps -o comm=` reports agy and
+      # Herdr's process-info reports name agy with argv[0] agy). Anchored, never
+      # *agy*, so unrelated commands cannot be misread as this harness. agy
+      # publishes no harness-identity marker of its own (a live 1.2.0 TUI
+      # carries no AGY_* or ANTIGRAVITY_* variable; AGENT=1 seen there is an
+      # inherited launcher value, not an agy identity), so like muse it is
+      # detected by ancestry alone.
+      agy) echo agy; return ;;
       node*|python*)
         # Bare interpreter: match the harness name in its script path.
         args=$(ps -o args= -p "$pid" 2>/dev/null)
@@ -270,7 +285,20 @@ resolve_secondmate_effort() {
   secondmate_field 3
 }
 
+validate_native_effort() {
+  local harness=${1:-} model=${2:-} effort=${3:-}
+  [ "$effort" = ultra ] || return 0
+  case "$harness" in
+    pi|pi-signed)
+      case "$model" in codex-native/?*) return 0 ;; esac
+      ;;
+  esac
+  echo "error: ultra effort requires pi or pi-signed with an explicit codex-native/<model> model" >&2
+  return 1
+}
+
 case "${1:-}" in
+  validate-native-effort) shift; validate_native_effort "$@" ;;
   crew) resolve_crew ;;
   secondmate) resolve_secondmate ;;
   secondmate-model) resolve_secondmate_model ;;
