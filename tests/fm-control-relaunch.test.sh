@@ -121,7 +121,33 @@ case "${1:-}" in
       printf '╭────╮\n│    │\n╰────╯\n'
     fi
     exit 0 ;;
-  list-windows) [ -f "$D/windows" ] && cat "$D/windows"; exit 0 ;;
+  list-windows)
+    # A non-definitive inventory failure: tmux could not answer, which is NOT
+    # evidence the window is gone (the classifier must read `unreadable`).
+    if [ -f "$D/inventory-broken" ]; then
+      echo 'lost server' >&2
+      exit 1
+    fi
+    [ -f "$D/windows" ] && cat "$D/windows"; exit 0 ;;
+  has-session) [ -f "$D/no-session" ] && exit 1; exit 0 ;;
+  new-session) rm -f "$D/no-session"; exit 0 ;;
+  new-window)
+    # Model the one thing an endpoint re-creation depends on: the window now
+    # appears in the session inventory, so the very next agent-state read stops
+    # answering `missing`. Echo a stable window id the way the real -P -F does.
+    shift
+    name=
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        -n) name=${2:-}; shift 2 ;;
+        -c|-t) shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    printf '%s\n' "$name" >> "$D/windows"
+    printf '%s\n' "$name" >> "$D/created-windows"
+    printf '@9\n'
+    exit 0 ;;
 esac
 exit 0
 SH
@@ -1649,6 +1675,138 @@ test_spawn_relaunch_refuses_a_pane_outside_the_worktree() {
   pass "fm-spawn --relaunch: refuses to start a replacement outside the copy holding its work"
 }
 
+# --- 7. reclaiming a task whose endpoint is gone ----------------------------
+#
+# Before this, `missing` was a terminal state: fm-spawn --relaunch accepted only
+# `dead` and told the caller to stop the agent first, while fm-control exit
+# refused `missing` outright and told the caller to reconcile the task first -
+# and there is no reconcile verb. Each command named the other as its
+# prerequisite, so a task whose pane or workspace was destroyed could not be
+# reclaimed by anything, and any no-mistakes approval it was parked on had no
+# seat left to answer it.
+
+# strand_endpoint <case-dir> <id>: make the recorded endpoint POSITIVELY gone -
+# a successful session inventory that omits the exact window, which is the one
+# reading fm_backend_tmux_agent_state calls `missing`.
+strand_endpoint() {  # <case-dir> <id>
+  : > "$1/fake/windows"
+}
+
+test_exit_reports_a_gone_endpoint_instead_of_refusing() {
+  local dir out rc=0
+  dir=$(new_case gone-exit rl60)
+  add_ship_task "$dir" rl60 claude
+  strand_endpoint "$dir" rl60
+
+  out=$(run_control "$dir" rl60 exit) || rc=$?
+  expect_code 0 "$rc" "stopping a task whose endpoint is gone should succeed idempotently"$'\n'"$out"
+  assert_contains "$out" "endpoint-gone" "exit should name the outcome it actually observed"
+  assert_not_contains "$out" "reconcile the task before any further control action" \
+    "exit must no longer dead-end a task whose endpoint is gone"
+  [ ! -s "$dir/fake/literal" ] \
+    || fail "exit sent a command into an endpoint it had proven is gone"
+  assert_present "$dir/home/state/rl60.meta" "exit must not remove the task's record"
+  pass "fm-control exit: a proven-gone endpoint is an idempotent success, not a dead end"
+}
+
+test_relaunch_reclaims_a_gone_endpoint() {
+  local dir out rc=0
+  dir=$(new_case gone-reclaim rl61)
+  add_ship_task "$dir" rl61 claude
+  strand_endpoint "$dir" rl61
+
+  # A reclaim rebinds the ENDPOINT. Everything that identifies the task must
+  # come through untouched: its own record's non-endpoint rows, the armed
+  # watcher check and the private binding that authorizes it, and the status
+  # log the supervisor reads.
+  printf '%s\n' "pr=https://example.invalid/pr/7" >> "$dir/home/state/rl61.meta"
+  printf '%s\n' '#!/usr/bin/env bash' 'exit 0' > "$dir/home/state/rl61.check.sh"
+  chmod 0700 "$dir/home/state/rl61.check.sh"
+  FM_HOME="$dir/home" "$ROOT/bin/fm-check-register.sh" rl61 >/dev/null \
+    || fail "could not arm a custom check for the reclaim fixture"
+  printf 'working: parked on an approval nobody can answer\n' >> "$dir/home/state/rl61.status"
+
+  out=$(run_control "$dir" rl61 relaunch --note "the pane was destroyed; pick the work back up") || rc=$?
+  expect_code 0 "$rc" "the owning seat should be able to reclaim a task whose endpoint is gone"$'\n'"$out"
+  assert_not_contains "$out" "positively agent-free endpoint" \
+    "a proven-gone endpoint is agent-free and must not be refused as if it were not"
+  assert_contains "$(cat "$dir/fake/created-windows" 2>/dev/null || true)" "fm-rl61" \
+    "the reclaim should have created a fresh endpoint for the task"
+  [ "$(meta_field "$dir" rl61 window)" = "fmses:fm-rl61" ] \
+    || fail "the reclaimed task's record should name its live endpoint, got $(meta_field "$dir" rl61 window)"
+  [ "$(meta_field "$dir" rl61 worktree)" = "$dir/wt" ] \
+    || fail "a reclaim must keep the recorded worktree"
+  [ "$(journal_field "$dir" rl61 exit_result)" = endpoint-gone ] \
+    || fail "the transaction should record that the endpoint was already gone"
+  assert_contains "$(cat "$dir/home/data/rl61/brief.md")" "the pane was destroyed" \
+    "the replacement must inherit the progress note"
+  [ "$(meta_field "$dir" rl61 pr)" = "https://example.invalid/pr/7" ] \
+    || fail "a reclaim dropped a record row it does not own"
+  assert_present "$dir/home/state/rl61.check.sh" "a reclaim retired the task's armed check"
+  assert_present "$dir/home/state/rl61.check-trust" "a reclaim broke the armed check's registration"
+  assert_contains "$(cat "$dir/home/state/rl61.status")" "parked on an approval nobody can answer" \
+    "a reclaim truncated the status log"
+  pass "fm-control relaunch: the owning seat reclaims a task whose endpoint is gone"
+}
+
+test_reclaim_preserves_unlanded_work() {
+  local dir rc=0 head_before
+  dir=$(new_case gone-work rl62)
+  add_ship_task "$dir" rl62 claude
+  printf 'landed on the branch\n' > "$dir/wt/committed.txt"
+  git -C "$dir/wt" add committed.txt
+  git -C "$dir/wt" -c user.email=t@example.com -c user.name=t commit -qm "work in progress"
+  head_before=$(git -C "$dir/wt" rev-parse HEAD)
+  printf 'never committed\n' > "$dir/wt/dirty.txt"
+  strand_endpoint "$dir" rl62
+
+  run_control "$dir" rl62 relaunch --note "reclaiming after the terminal went away" >/dev/null || rc=$?
+  expect_code 0 "$rc" "the reclaim should succeed"
+  [ "$(git -C "$dir/wt" rev-parse HEAD)" = "$head_before" ] \
+    || fail "a reclaim moved the worktree's HEAD"
+  [ "$(git -C "$dir/wt" rev-parse --abbrev-ref HEAD)" = "task-rl62" ] \
+    || fail "a reclaim changed the worktree's branch"
+  assert_present "$dir/wt/dirty.txt" "a reclaim destroyed an uncommitted change"
+  assert_contains "$(cat "$dir/wt/dirty.txt")" "never committed" \
+    "a reclaim rewrote an uncommitted change"
+  assert_present "$dir/wt/committed.txt" "a reclaim destroyed committed work"
+  pass "reclaim: the worktree, its branch, its commits and its uncommitted changes all survive"
+}
+
+test_reclaim_refuses_an_unreadable_endpoint() {
+  local dir out rc
+  dir=$(new_case gone-unreadable rl63)
+  add_ship_task "$dir" rl63 claude
+  # The inventory itself fails non-definitively. That is not evidence of
+  # absence, and reading it as one is exactly how two agents end up in one
+  # endpoint.
+  : > "$dir/fake/inventory-broken"
+
+  out=$(run_spawn "$dir" rl63 --relaunch --harness claude); rc=$?
+  expect_code 1 "$rc" "an unreadable endpoint must still refuse"
+  assert_contains "$out" "positively agent-free endpoint" \
+    "only a POSITIVELY proven agent-free endpoint may be relaunched into"
+  assert_absent "$dir/fake/created-windows" \
+    "a refused relaunch must not create an endpoint"
+  [ ! -s "$dir/fake/literal" ] || fail "a refused relaunch must launch nothing"
+  pass "reclaim: an unclassifiable endpoint is still refused, so two agents cannot share one"
+}
+
+test_reclaim_of_a_secondmate_names_its_own_owner() {
+  local dir out rc
+  dir=$(new_case gone-secondmate rl64)
+  add_ship_task "$dir" rl64 claude
+  printf '%s\n' "kind=secondmate" "home=$dir/wt" >> "$dir/home/state/rl64.meta"
+  strand_endpoint "$dir" rl64
+
+  out=$(run_spawn "$dir" rl64 --relaunch --harness claude); rc=$?
+  expect_code 1 "$rc" "a secondmate reclaim belongs to the secondmate respawn path"
+  assert_contains "$out" "--secondmate" "the refusal should name the path that owns this recovery"
+  assert_absent "$dir/fake/created-windows" \
+    "the refusal must happen before any endpoint is created"
+  pass "reclaim: a secondmate whose endpoint is gone is sent to its own respawn owner"
+}
+
 test_relaunch_reverifies_an_already_in_flight_item_instead_of_rewriting_it() {
   local dir out rc=0
   command -v tasks-axi >/dev/null 2>&1 || {
@@ -1738,5 +1896,10 @@ test_spawn_relaunch_refuses_a_pending_authoritative_close
 test_spawn_relaunch_refuses_contradicting_flags
 test_spawn_relaunch_refuses_an_unrecorded_task
 test_spawn_relaunch_refuses_a_pane_outside_the_worktree
+test_exit_reports_a_gone_endpoint_instead_of_refusing
+test_relaunch_reclaims_a_gone_endpoint
+test_reclaim_preserves_unlanded_work
+test_reclaim_refuses_an_unreadable_endpoint
+test_reclaim_of_a_secondmate_names_its_own_owner
 test_relaunch_reverifies_an_already_in_flight_item_instead_of_rewriting_it
 test_relaunch_moves_a_drifted_item_back_in_flight

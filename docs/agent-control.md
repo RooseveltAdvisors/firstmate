@@ -31,8 +31,8 @@ A recorded `harness=` is not always an exact adapter name: a task launched from 
 | Verb | Effect | Postcondition |
 | --- | --- | --- |
 | `interrupt` | Deliver the harness's verified interrupt sequence while leaving the agent running. | Delivery succeeds while the endpoint still exists and the agent is still alive where the backend can classify that; cancellation is confirmed only from an adapter-owned acknowledgement and otherwise reports `cancel=unconfirmed`. |
-| `exit` | Stop the agent, preserving the endpoint, the worktree, and every uncommitted change. | The backend's recovery-grade classifier reports the agent gone. Already-stopped is idempotent success. |
-| `relaunch` | Replace the running agent with a new one in the same endpoint and worktree, on the exact recorded adapter or an explicitly chosen harness, model, and effort. | The new agent is alive on the recorded endpoint, and the durable record names the harness that is actually running. |
+| `exit` | Stop the agent, preserving the endpoint, the worktree, and every uncommitted change. | The backend's recovery-grade classifier reports the agent gone. Already-stopped is idempotent success, and so is an endpoint the classifier proves is gone - the agent went with it - reported as `endpoint-gone` because the endpoint this verb normally preserves did not survive. |
+| `relaunch` | Replace the running agent with a new one in the same worktree - and the same endpoint whenever that endpoint still exists - on the exact recorded adapter or an explicitly chosen harness, model, and effort. | The new agent is alive on the endpoint the task's record now names, and that record names the harness that is actually running. |
 
 An exit that delivers lifecycle input but cannot prove the agent stopped fails with `exit=unconfirmed`, reports the observed agent state and any interrupt cancellation claim, and never claims that nothing changed.
 Interrupt never rewrites busy state as proof of its own success.
@@ -71,9 +71,35 @@ It is not deterministic across the verified adapters: codex, grok, and gemini re
    A ship or scout relaunch requires `--note`, because the replacement inherits the local copy but none of the conversation; the note is appended to the instructions it reads.
    A secondmate relaunch does not require one and never rewrites its standing charter.
 4. **Stop the old agent** through the `exit` verb, with its postcondition.
-5. **Launch the replacement** through its single owner, `bin/fm-spawn.sh --relaunch`, which adopts the recorded endpoint and worktree instead of creating either, clears the previous harness's per-task wiring, and arms a fresh busy generation.
+5. **Launch the replacement** through its single owner, `bin/fm-spawn.sh --relaunch`, which reuses the recorded worktree instead of creating one, adopts the recorded endpoint when it still exists, clears the previous harness's per-task wiring, and arms a fresh busy generation.
+   When the classifier proves the recorded endpoint is gone rather than merely idle, the launch owner creates one fresh endpoint in that same worktree and the republished record rebinds the task to it - see [Reclaiming a task whose endpoint is gone](#reclaiming-a-task-whose-endpoint-is-gone).
 
 Switching harness is therefore one ordinary relaunch rather than a separate mechanism.
+
+### Reclaiming a task whose endpoint is gone
+
+A pane or workspace can be destroyed out from under a live task - Herdr churn, a restarted tmux server, a reboot.
+The task's worktree, branch, commits, and uncommitted changes all survive that; only its terminal does not.
+
+Two endpoint verdicts are agent-free, and both license a relaunch:
+
+- `dead` - the endpoint exists and confidently holds no agent. It is **adopted**, so the task keeps its exact recorded address.
+- `missing` - the endpoint itself is authoritatively gone. There is no endpoint and therefore no agent, so it is agent-free a fortiori. It cannot be adopted, so the launch owner **creates one fresh endpoint in the recorded worktree** and the republished record rebinds the task to it.
+
+The duplicate-agent argument is unchanged by that widening.
+Both verdicts come from the same recovery-grade classifier, which claims `missing` only from positive absence: a successful tmux window inventory that omits the exact window, one of tmux's definitive no-session/no-server answers, Herdr's `pane_not_found`, or a positively stopped Herdr session server.
+Every transient or self-contradicting read stays `unreadable` or `ambiguous` and still refuses, so a momentary backend failure can never be mistaken for absence.
+
+What a reclaim is not:
+
+- It is **not a teardown**. The worktree is reused exactly as the previous agent left it; nothing unlanded is ever discarded, and the ordinary `--note` requirement still applies.
+- It does **not** change the task's identity. The task id, its instructions, its armed poll and registration, and its status log are untouched; only the endpoint binding in the record moves.
+- It is **not** a peer seat's operation. `fm-control` resolves an exact task id against **this** home's `state/`, so only the home that owns the task can reclaim it.
+- It does **not** cover a secondmate. A secondmate whose endpoint is gone already has one owner for that recovery - `bin/fm-spawn.sh <id> --secondmate`, driven by the session-start liveness sweep - so relaunch refuses and names it rather than becoming a second path to the same outcome.
+
+On tmux the re-created window is opened under the session the record already names, and the task's recorded window name is unchanged, so a tmux reclaim lands back on its exact recorded address.
+On Herdr the new pane necessarily gets a new id, and the record follows it.
+A Herdr reclaim deliberately uses the flat container shape rather than presentation projection: projection is a presentation-only layout that is never endpoint or ownership authority, and flat is already the documented fallback for every recovery it cannot bind exactly ([`docs/herdr-backend.md`](herdr-backend.md)).
 
 ### Failure and rollback
 
@@ -102,7 +128,8 @@ Switching harness is therefore one ordinary relaunch rather than a separate mech
 - An ambiguous or unreadable endpoint state refuses.
   Only a positively classified state acts.
 - `exit`'s composer-empty check, above, is itself a fail-closed boundary that `relaunch` inherits by stopping the old agent through `exit`.
-- `fm-spawn --relaunch` independently refuses unless the recorded endpoint is positively agent-free, so a replacement can never join a live agent.
+- `fm-spawn --relaunch` independently refuses unless the endpoint is positively agent-free - either a `dead` endpoint that survives, or one positively proven gone - so a replacement can never join a live agent.
+  An `alive`, `ambiguous`, or `unreadable` verdict all refuse; absence is claimed only from positive evidence of it.
   It also requires the shell to be in the recorded worktree: tmux refuses immediately when it is not, while Herdr sends one `cd` to the recorded path and refuses unless a subsequent path read confirms the move.
 
 ## Capability matrix

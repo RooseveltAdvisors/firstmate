@@ -30,11 +30,22 @@
 #              every uncommitted change. Interrupts first when the task reads
 #              busy, then submits the harness's exit command. Postcondition:
 #              the backend's recovery-grade classifier reports the agent gone.
-#              Already-stopped is success (idempotent).
+#              Already-stopped is success (idempotent), and so is an endpoint
+#              the classifier proves is gone: the agent went with it, nothing
+#              is left to send to, and the worktree is untouched. That case
+#              reports `endpoint-gone` rather than `already-stopped`, because
+#              the endpoint this verb normally preserves did not survive.
 #   relaunch   Transactionally replace the running agent with a new one, in the
-#              SAME endpoint and SAME worktree, on the same or a newly chosen
+#              SAME worktree - and the same endpoint whenever that endpoint
+#              still exists - on the same or a newly chosen
 #              harness/model/effort - so switching harness is one ordinary use
-#              of this verb. An explicit `default` model or effort clears that
+#              of this verb. When the recorded endpoint is instead proven gone
+#              (a pane destroyed in Herdr churn, a restarted tmux server), the
+#              launch owner re-creates one in that worktree and the task's
+#              record rebinds to it; that is how a task whose terminal was
+#              destroyed is reclaimed by the home that owns it, rather than
+#              being stranded with a parked approval nobody can answer.
+#              An explicit `default` model or effort clears that
 #              axis for the replacement. With no explicit axis, a secondmate
 #              re-resolves its durable config/secondmate-harness pin (harness
 #              plus its optional model and effort tokens) exactly as any other
@@ -447,7 +458,7 @@ retire_busy_incarnation() {
 }
 
 # do_exit: stop the running agent, preserving endpoint and worktree. Prints
-# `already-stopped` or `stopped`.
+# `already-stopped`, `endpoint-gone`, or `stopped`.
 do_exit() {
   local state cmd verdict composer_state cancel interrupt_result=not-needed
   require_state_verified_backend exit
@@ -458,7 +469,17 @@ do_exit() {
       return 0
       ;;
     alive) ;;
-    missing) die "task $ID's recorded endpoint is gone, so there is no agent to stop; reconcile the task before any further control action" ;;
+    missing)
+      # The endpoint is authoritatively gone, so the agent that lived in it is
+      # gone with it: exit's postcondition - no agent is running at this task's
+      # recorded endpoint - already holds, and there is nothing to send. Report
+      # it as its own outcome rather than as `already-stopped`, because the
+      # endpoint this verb normally preserves did not survive. The worktree and
+      # every uncommitted change are untouched either way, and `relaunch`
+      # re-creates the endpoint from here.
+      printf 'endpoint-gone'
+      return 0
+      ;;
     *) die "task $ID's endpoint reads '$state' rather than a positively classified state; refusing to send a lifecycle command into an unattributed endpoint" ;;
   esac
   # A busy agent is interrupted first before the exit command is submitted.
@@ -851,6 +872,17 @@ do_relaunch() {
   if FM_CONTROL_RELAUNCH_TX="$RELAUNCH_TX" \
       "$SCRIPT_DIR/fm-spawn.sh" "${spawn_args[@]}" >/dev/null; then
     RELAUNCH_META_PUBLISHED=1
+    # $T was resolved from the record before the launch. When the recorded
+    # endpoint was gone, the launch owner created a fresh one and republished
+    # the record pointing at it, so every postcondition below must be read from
+    # the endpoint the task now HAS, not the one it had. Re-resolving through
+    # the same shared validation is what makes that safe: a record that no
+    # longer passes it refuses here rather than leaving this transaction
+    # polling an address nothing owns.
+    if fm_backend_validate_task_endpoint "$META" "$ID" >/dev/null 2>&1 \
+       && [ -n "$FM_BACKEND_VALIDATED_TARGET" ]; then
+      T=$FM_BACKEND_VALIDATED_TARGET
+    fi
   else
     [ "$(fm_meta_get "$META" control_relaunch_tx)" != "$RELAUNCH_TX" ] \
       || RELAUNCH_META_PUBLISHED=1

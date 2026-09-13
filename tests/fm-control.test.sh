@@ -634,15 +634,22 @@ test_already_stopped_exit_is_idempotent() {
   pass "fm-control exit: an already-stopped agent is idempotent success with no bytes sent"
 }
 
-test_missing_endpoint_refuses() {
+test_missing_endpoint_reports_itself() {
   local dir out rc
   dir=$(new_case gone)
   add_task "$dir" t1 claude
   : > "$dir/fake/windows"
   out=$(run_control "$dir" t1 exit); rc=$?
-  expect_code 1 "$rc" "a missing endpoint should refuse"
-  assert_contains "$out" "recorded endpoint is gone" "the refusal should name the missing endpoint"
-  pass "fm-control exit: a vanished endpoint refuses instead of silently succeeding"
+  # The endpoint is authoritatively gone, so the agent that lived in it is too:
+  # exit's postcondition already holds. It says so in its own words rather than
+  # claiming `already-stopped`, because the endpoint this verb normally
+  # preserves did not survive - and it never dead-ends the task, which is what
+  # left a destroyed pane unreclaimable by any command.
+  expect_code 0 "$rc" "a gone endpoint means the agent is gone; that is success"
+  assert_contains "$out" "endpoint-gone t1" "the outcome should name the gone endpoint"
+  assert_not_contains "$out" "already-stopped" "a gone endpoint is not the same outcome as a surviving idle pane"
+  [ -z "$(literals "$dir")" ] || fail "nothing may be sent into an endpoint proven gone"
+  pass "fm-control exit: a vanished endpoint reports itself and stays reclaimable"
 }
 
 test_interrupt_refuses_when_no_agent_runs() {
@@ -900,7 +907,7 @@ test_verb_allowlist_is_closed
 test_resume_is_refused_with_its_reason
 test_relaunch_only_flags_are_rejected_on_other_verbs
 test_already_stopped_exit_is_idempotent
-test_missing_endpoint_refuses
+test_missing_endpoint_reports_itself
 test_interrupt_refuses_when_no_agent_runs
 test_ambiguous_endpoint_refuses
 test_busy_agent_is_interrupted_before_the_exit_command
