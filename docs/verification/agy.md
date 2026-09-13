@@ -153,12 +153,81 @@ Same-copy relaunch held: `bin/fm-control.sh relaunch --note` replaced the worker
 Exit held: `bin/fm-control.sh exit` stopped the worker, the registry returned `agent_not_found`, and the pane remained a lone shell in the worktree with all work intact.
 No automatic quota failover was exercised or claimed; every handoff above was an explicit supervised relaunch.
 
+## Crew turn-end: a native Stop hook, gated on fullyIdle
+
+An earlier revision of this adapter recorded that agy exposes no hook surface at all.
+That is wrong, and the claim is corrected here rather than left to rot.
+agy loads named hooks from `$HOME/.gemini/config/hooks.json`, verified present on `agy 1.2.2` (2026-09-13) on a host where an unrelated third-party tool was already registered there on both `PreInvocation` and `Stop`.
+The binary carries the `hooks_json` and `workspacePaths` strings and this changelog line:
+
+```
+- Fixed a bug where the `/hooks` command wrote configurations to
+  `~/.gemini/antigravity-cli/hooks.json` instead of the shared
+  `~/.gemini/config/hooks.json`, ensuring hooks remain synchronized between
+  the TUI and the backend.
+```
+
+`bin/fm-agy-turnend-hook.sh` owns exactly one `firstmate-turn-end` key in that file and rewrites every other named hook untouched.
+An operator hook present before the install survived it and survived the removal:
+
+```
+$ HOME=$H bin/fm-agy-turnend-hook.sh install
+installed: firstmate-turn-end in .../.gemini/config/hooks.json
+$ cat $H/.gemini/config/hooks.json
+{
+  "operator-lint": { "PostToolUse": [ { "type": "command", "command": "true" } ] },
+  "firstmate-turn-end": {
+    "Stop": [ { "type": "command", "command": "bash \"$HOME/.gemini/antigravity-cli/fm-turn-end.sh\"", "timeout": 5 } ]
+  }
+}
+```
+
+### The fullyIdle gate is load-bearing
+
+agy moves a shell command that outruns its `WaitMsBeforeAsync` into the background, yields the composer, and fires `Stop` with `fullyIdle` false while that command is still running; a second `Stop` with `fullyIdle` true follows once it finishes and the agent has reported it (observed on `agy 1.1.25` with a 40s sleep: two Stop events, false then true).
+Signalling on the first event would report a worker done while its own build or test run is still going.
+Both events driven apart against the installed hook on 2026-09-13:
+
+```
+$ printf '{"fullyIdle":false,"workspacePaths":["$WS"]}' | bash fm-turn-end.sh
+{}
+exit=0
+marker: absent
+
+$ printf '{"fullyIdle":true,"workspacePaths":["$WS"]}' | bash fm-turn-end.sh
+{}
+exit=0
+marker: touched
+```
+
+`tests/fm-agy-harness.test.sh` pins that divergence.
+Deleting the `fullyIdle` check from the hook body turns it red with `a Stop with fullyIdle false reported the turn finished`, so the assertion cannot go quietly vacuous.
+
+### Removal refuses while a task still expects a wake
+
+A live token means a task is still waiting on a turn-end signal, so removal is refused rather than silently silencing it:
+
+```
+$ HOME=$H bin/fm-agy-turnend-hook.sh remove
+fm-agy-turnend-hook: refused: 1 task token(s) still registered in .../fm-turn-end.d; tear those tasks down first.
+exit=1
+```
+
+After the token is retired, removal restores the file to exactly its pre-install content, and a home that never had a `hooks.json` gets none back.
+
+### What this does NOT establish
+
+The Stop payload reports only that a turn ended, so it is not a primary supervision protocol.
+`docs/supervision-protocols/` still carries no agy wake protocol, and `bin/fm-spawn.sh` still refuses `--secondmate` on agy for that reason - not for the absence of hooks.
+The hook reports turn END only, so it cannot source a busy START: the rendered-tail fallback above remains the busy source.
+
 ## What is still unproven
 
 The unauthenticated failure mode was never observed; this host's agy runs signed in, so any auth prompt is a fail-loud credential blocker, not a handled dialog.
 No slash-skill invocation form was verified, so skill invocation stays natural language.
 `--continue` and `--conversation` resume were never exercised; recovery uses deterministic relaunch from the brief on disk.
 No primary or secondmate behavior was built or tested, and none is claimed.
+The crew turn-end hook was proven against the installed binary and in the portable suite, but an end-to-end wake of a live firstmate supervision cycle through a real agy worker turn was not captured in this record.
 
 ## Refreshing this record
 

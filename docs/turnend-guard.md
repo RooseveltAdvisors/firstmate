@@ -178,6 +178,8 @@ That warning uses `bin/fm-supervision-instructions.sh --repair-line`, so it alwa
 - Kimi Code CLI 0.29.1 exposes only global `[[hooks]]` configuration in `~/.kimi-code/config.toml`, including a `Stop` event with snake_case payload fields `hook_event_name`, `session_id`, `cwd`, and `stop_hook_active`.
 - Kimi has no project-level hook configuration and remains outside the primary guard integrations above.
 - Captain-approved Kimi crew wake support uses `bin/fm-kimi-turnend-hook.sh` to edit only one marker-delimited Firstmate region in that global config and install a silent always-zero hook.
+- agy crew wake support uses `bin/fm-agy-turnend-hook.sh` to own exactly one `firstmate-turn-end` key in `~/.gemini/config/hooks.json` and install a silent always-zero hook, rewriting every other named hook untouched.
+- agy's Stop payload carries a `fullyIdle` flag, and the hook fires only when it is true, because agy backgrounds a command that outruns its `WaitMsBeforeAsync` and emits an earlier `fullyIdle` false event while that command is still running.
 - The hook remains inert unless the payload `cwd` contains a per-task token pointer that resolves through Firstmate's private registry to one `state/<id>.turn-ended` marker.
 - Installation refuses before writing unless `python3` with `tomllib` and `jq` are available.
 - If `jq` is removed after installation, the hook remains silent and exits 0, turn-end wakes stop, and Kimi crews fall back to idle detection.
