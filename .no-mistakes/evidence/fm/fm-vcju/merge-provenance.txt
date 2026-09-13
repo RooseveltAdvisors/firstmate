@@ -1,0 +1,27 @@
+# Mergeability + published-work provenance
+
+$ git log --format='%H %P %s' -1 HEAD
+0d6a6a6d462c9f146f16cf5368333aeb7ebf51b5 2679ee3eb9a86eb348917870855cb43609285090 b518a256e89c4f3b4072670af5ac8ee5188672da Merge remote-tracking branch 'origin/main' into fm/fm-vcju
+
+## The branch now contains upstream main, so merging it into main cannot conflict
+$ git merge-base --is-ancestor <main> HEAD; echo $?
+exit=0 (0 = main is an ancestor => fast-forward merge, no conflict)
+
+## The published PR work is still exactly what lands on main
+$ git diff --stat <pr-base> <pr-head>   # what the PR published
+ 13 files changed, 705 insertions(+), 56 deletions(-)
+$ git diff --stat <main> HEAD           # what the merge lands on main
+ 13 files changed, 705 insertions(+), 56 deletions(-)
+
+## Only deltas between the two are the conflict resolutions against upstream
+(hunk offsets and blob ids elided)
+<    root=$(fm_backlog_root "$data") || {
+<      FM_BACKLOG_ROW_ERROR=$FM_BACKLOG_TRANSITION_ERROR
+>    fm_backlog_source_present "$data" "$authorized_data"
+>    source_status=$?
+< -FM_INHERITABLE_CONFIG="${FM_INHERITABLE_CONFIG:-crew-dispatch.json crew-harness backlog-backend backend herdr-presentation-spaces startup-memory-budget trace-context launch-env-allowlist}"
+< +FM_INHERITABLE_CONFIG="${FM_INHERITABLE_CONFIG:-crew-dispatch.json crew-harness backlog-backend backend herdr-presentation-spaces herdr-task-titles startup-memory-budget trace-context launch-env-allowlist}"
+> -FM_INHERITABLE_CONFIG="${FM_INHERITABLE_CONFIG:-crew-dispatch.json crew-harness backlog-backend backend herdr-presentation-spaces startup-memory-budget trace-context launch-env-allowlist claude-permission-mode}"
+> +FM_INHERITABLE_CONFIG="${FM_INHERITABLE_CONFIG:-crew-dispatch.json crew-harness backlog-backend backend herdr-presentation-spaces herdr-task-titles startup-memory-budget trace-context launch-env-allowlist claude-permission-mode}"
+<  The tracked `.no-mistakes.yaml` sets `test.evidence.store_in_repo: true`, pins `commands.lint` to `bin/fm-lint.sh`, the same owner CI invokes, and pins `commands.test` to `bin/fm-test-run.sh --changed --exclude-family real-herdr-gated` so the gate's test baseline runs through the repository's own runner instead of a hand-chained walk of `bash tests/*.test.sh`.
+>  The tracked `.no-mistakes.yaml` sets `test.evidence.store_in_repo: true` and pins `commands.lint` to `bin/fm-lint.sh`, the same owner CI invokes.

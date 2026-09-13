@@ -1,0 +1,40 @@
+ spaces                  │  Fix the porch railing before winter (porch-rail)     fm-shed-paint    +
+                         │treehouse get
+ · firstmate             │project ➜ treehouse get
+   master                │A new version of treehouse is available: v1.8.1-0.20260905115643-6e0ac79a026b → v2.3.0
+                         │Run "treehouse update" to update
+                         │
+                         │🌳 Setting up worktree...
+                         │🌳 Entered worktree at ~/.treehouse/project-f6ad86/1/project. Type 'exit' to return.
+                         │project ➜ export GOTMPDIR=/tmp/fm-porch-rail/gotmp
+                         │export FM_TASK_ID=porch-rail
+                         │project ➜ export FM_TASK_ID=porch-rail
+                         │project ➜ sh -c 'echo worker-porch-rail-running; sleep 900'
+                         │worker-porch-rail-running
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+ new                 menu│
+─────────────────────────│
+ agents           grouped│
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+                        «│

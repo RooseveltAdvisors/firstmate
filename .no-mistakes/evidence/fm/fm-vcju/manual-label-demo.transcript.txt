@@ -1,0 +1,13 @@
+# Manual evidence: herdr task-tab labels via real fm-spawn + real herdr 0.9.0
+# session: fm-lab-evidence-4110124 (isolated lab; stopped and deleted at end)
+
+== herdr tab list (real CLI), workspace 'firstmate' ==
+{"id":"cli:tab:list","result":{"tabs":[{"agent_status":"unknown","focused":true,"label":"Fix herdr tab labels for the crew. (hired)","number":2,"pane_count":1,"tab_id":"w1:t2","workspace_id":"w1"},{"agent_status":"unknown","focused":false,"label":"fm-plain","number":3,"pane_count":1,"tab_id":"w1:t3","workspace_id":"w1"}],"type":"tab_list"}}
+
+== operator-visible summary ==
+task hired: live tab label = [Fix herdr tab labels for the crew. (hired)]; meta herdr_task_label = [Fix herdr tab labels for the crew. (hired)]
+task plain: live tab label = [fm-plain]; meta herdr_task_label = [fm-plain]
+
+== label history sidecar (home-a, opted in) ==
+Fix herdr tab labels for the crew. (hired)
+(home-b unconfigured sidecar:) fm-plain

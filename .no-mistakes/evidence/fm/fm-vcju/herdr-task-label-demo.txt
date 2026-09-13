@@ -1,0 +1,99 @@
+==============================================================================
+1. This home OPTS IN:  touch config/herdr-task-titles
+==============================================================================
+-rw-rw-r-- 1 jon jon 0 Sep 13 02:03 <home>/config/herdr-task-titles
+
+   backlog row being dispatched:
+task:
+  id: porch-rail
+  title: Fix the porch railing before winter
+  state: queued
+  blocked: no
+  blocked_by: none
+  held: no
+  hold_reason: "-"
+
+   spawned. state/porch-rail.meta records:
+backend=herdr
+herdr_tab_id=w1:t2
+herdr_pane_id=w1:p2
+herdr_task_label=Fix the porch railing before winter (porch-rail)
+
+==============================================================================
+2. The SAME home stands the flag down:  rm config/herdr-task-titles
+==============================================================================
+   spawned. state/shed-paint.meta records:
+backend=herdr
+herdr_tab_id=w1:t3
+herdr_pane_id=w1:p3
+herdr_task_label=fm-shed-paint
+
+==============================================================================
+3. What Herdr itself reports for this home's workspace (w1)
+==============================================================================
+  tab w1:t2   label: Fix the porch railing before winter (porch-rail)
+  tab w1:t3   label: fm-shed-paint
+
+   (the opted-in worker's tab now names its backlog title;
+    the stood-down worker's tab keeps the historical fm-<id>)
+
+==============================================================================
+4. Live tab labels as recovery/orphan discovery sees them
+==============================================================================
+  fm-lab-tasklabel2073079:w1:p2	Fix the porch railing before winter (porch-rail)
+  fm-lab-tasklabel2073079:w1:p3	fm-shed-paint
+
+==============================================================================
+5. The real Herdr TUI an operator looks at
+==============================================================================
+ spaces                  │  Fix the porch railing before winter (porch-rail)     fm-shed-paint    +
+                         │treehouse get
+ · firstmate             │project ➜ treehouse get
+   master                │A new version of treehouse is available: v1.8.1-0.20260905115643-6e0ac79a026b → v2.3.0
+                         │Run "treehouse update" to update
+                         │
+                         │🌳 Setting up worktree...
+                         │🌳 Entered worktree at ~/.treehouse/project-f6ad86/1/project. Type 'exit' to return.
+                         │project ➜ export GOTMPDIR=/tmp/fm-porch-rail/gotmp
+                         │export FM_TASK_ID=porch-rail
+                         │project ➜ export FM_TASK_ID=porch-rail
+                         │project ➜ sh -c 'echo worker-porch-rail-running; sleep 900'
+                         │worker-porch-rail-running
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+ new                 menu│
+─────────────────────────│
+ agents           grouped│
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+                         │
+                        «│
+
+==============================================================================
+6. Teardown removes the label sidecar with the rest of the task state
+==============================================================================
+porch-rail.herdr-task-labels
+shed-paint.herdr-task-labels
+  state/ after teardown:
+    home-summary.json
+    terminal-outcomes
+
+demo complete
