@@ -2624,8 +2624,8 @@ EOF
 }
 
 # fm_backend_herdr_projection_create_task: create one disposable presentation
-# workspace and its normal human-readable task tab without looking up, adopting, or
-# reusing any existing workspace.
+# workspace and its normal task tab without looking up, adopting, or reusing
+# any existing workspace.
 # The caller must atomically publish the projection journal first.
 # This function sets exact response-derived globals and prints nothing:
 #   FM_BACKEND_HERDR_PROJECTION_SESSION

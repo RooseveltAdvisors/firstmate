@@ -283,7 +283,8 @@ No Herdr-specific copy of that protocol exists.
 ## Restart and liveness behavior
 
 Stopping and restarting a named Herdr server preserves workspace, tab, pane, and label ids, but the underlying harness processes and live agent registrations do not survive.
-A restored same-labeled tab with a missing pane or no registered agent is a husk.
+A restored tab with a missing pane or no registered agent is a husk.
+Husk and duplicate matching covers every label the task is known by: the label the new worker would use, the legacy `fm-<id>` label, and any label an interrupted earlier attempt recorded in `state/<id>.herdr-task-labels`, so editing a task title between attempts cannot hide a live prior tab.
 Create replaces only a confidently dead or no-agent husk, creates the replacement before closing the old tab, and refuses live or unknown states.
 This prevents closing the workspace's last tab before a replacement exists.
 

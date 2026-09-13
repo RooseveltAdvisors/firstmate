@@ -13,7 +13,7 @@
 # for human-readable Herdr task-tab labels - an absent primary file and an
 # absent destination file both mean the same unconfigured default, so the
 # generic absence mirror below converges a secondmate without deciding the
-# release-dependent floor; explicit "on" and
+# presentation projection's release-dependent floor; explicit "on" and
 # "off" preferences propagate as files. Primary
 # config/trace-context is copied at the launch convergence point as part of the
 # default-off W3C trace-context setup, while live convergence leaves it unchanged.
