@@ -136,7 +136,7 @@ case "${1:-}" in
         cat "$D/all-windows"
       elif [ -f "$D/windows" ]; then
         # By default every window the session holds, under that session's name.
-        sed "s/^/${FM_FAKE_SESSION:-fmses}:/" "$D/windows"
+        sed "s/^/$(cat "$D/session-name"):/" "$D/windows"
       fi
       exit 0
     fi
@@ -144,7 +144,7 @@ case "${1:-}" in
     # is real tmux's answer to a renamed session, and it says nothing about
     # whether the window (and its agent) survived under the new name.
     if [ -f "$D/session-missing" ]; then
-      echo "can't find session: ${FM_FAKE_SESSION:-fmses}" >&2
+      echo "can't find session: $(cat "$D/session-name")" >&2
       exit 1
     fi
     # A non-definitive inventory failure: tmux could not answer, which is NOT
@@ -155,7 +155,6 @@ case "${1:-}" in
     fi
     [ -f "$D/windows" ] && cat "$D/windows"; exit 0 ;;
   list-sessions) [ -f "$D/sessions" ] && cat "$D/sessions"; exit 0 ;;
-  has-session) [ -f "$D/no-session" ] && exit 1; exit 0 ;;
   new-session)
     shift
     ses=
@@ -167,7 +166,6 @@ case "${1:-}" in
     done
     printf '%s\n' "$ses" >> "$D/sessions"
     printf '%s\n' "$ses" >> "$D/created-sessions"
-    rm -f "$D/no-session"
     exit 0 ;;
   new-window)
     # Model the one thing an endpoint re-creation depends on: the window now
@@ -211,6 +209,7 @@ new_case() {
   # exercises fm_backend_tmux_session_ensure's EXISTING-session branch by
   # default; a case that wants the create branch clears or replaces this.
   printf '%s\n' fmses > "$dir/fake/sessions"
+  printf '%s' fmses > "$dir/fake/session-name"
   make_tmux_stub "$dir"
   printf '%s\n' "$dir"
 }
@@ -243,6 +242,7 @@ EOF
     echo "effort=default"
   } > "$home/state/$id.meta"
   printf '%s\n' "fm-$id" > "$dir/fake/windows"
+  printf '%s' "$ses" > "$dir/fake/session-name"
   printf '%s' "$wt" > "$dir/fake/cwd"
   TASK_TMPS+=("/tmp/fm-$id")
 }
@@ -253,7 +253,9 @@ run_control() {  # <case-dir> <args...>
   # store (bin/fm-claude-trust.sh), and a relaunch reaches it through fm-control.sh, so this runs against a throwaway HOME;
   # without it this suite would write the developer's real ~/.claude.json.
   mkdir -p "$dir/user-home"
-  env PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
+  env -u HERDR_ENV -u HERDR_PANE_ID -u HERDR_SESSION -u HERDR_SOCKET_PATH \
+    -u HERDR_TAB_ID -u HERDR_WORKSPACE_ID \
+    PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
     HOME="$dir/user-home" CLAUDE_CONFIG_DIR='' \
     FM_SPAWN_NO_GUARD=1 GROK_HOME="$dir/grokhome" \
     FM_CONTROL_POLL=0.01 FM_CONTROL_EXIT_WAIT=0.05 FM_CONTROL_LAUNCH_WAIT=0.05 \
@@ -273,7 +275,9 @@ run_spawn() {  # <case-dir> <args...>
   # store (bin/fm-claude-trust.sh), so it runs against a throwaway HOME;
   # without it this suite would write the developer's real ~/.claude.json.
   mkdir -p "$dir/user-home"
-  env PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
+  env -u HERDR_ENV -u HERDR_PANE_ID -u HERDR_SESSION -u HERDR_SOCKET_PATH \
+    -u HERDR_TAB_ID -u HERDR_WORKSPACE_ID \
+    PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
     HOME="$dir/user-home" CLAUDE_CONFIG_DIR='' \
     FM_SPAWN_NO_GUARD=1 GROK_HOME="$dir/grokhome" \
     "$SPAWN" "$@" 2>&1
@@ -1954,13 +1958,32 @@ case "${1:-} ${2:-}" in
       printf '{"result":{"pane":{"pane_id":"%s","foreground_cwd":"%s"}}}\n' \
         "${3:-}" "$(cat "$D/cwd")"
     else
+      # Only the pane this case says survived can be read back. Any other pane
+      # id is structurally gone, which is herdr's `pane_not_found`.
       printf '{"error":{"code":"pane_not_found"}}\n'
     fi
     exit 0 ;;
   'agent get')
-    # The pane survived its server's restart; the agent that lived in it did
-    # not, which is exactly the adoptable state.
+    # A pane that comes back with its server holds no agent, which is exactly
+    # the adoptable state.
     printf '{"error":{"code":"agent_not_found"}}\n'
+    exit 0 ;;
+  'workspace list')
+    printf '{"result":{"workspaces":[]}}\n'
+    exit 0 ;;
+  'workspace create')
+    printf '{"result":{"workspace":{"workspace_id":"wsnew"},"tab":{"tab_id":"seedtab"}}}\n'
+    exit 0 ;;
+  'tab list')
+    printf '{"result":{"tabs":[]}}\n'
+    exit 0 ;;
+  'tab create')
+    # The re-created endpoint. Recording it lets a case prove the pane the
+    # record ends up naming is the one this call minted.
+    printf '%s\n' "$*" >> "$D/herdr-created-tabs"
+    printf '{"result":{"tab":{"tab_id":"tabnew"},"root_pane":{"pane_id":"%%9"}}}\n'
+    # From here on the new pane is the one that reads back.
+    printf '%s' '%9' > "$D/herdr-pane"
     exit 0 ;;
 esac
 exit 0
@@ -1968,10 +1991,13 @@ SH
   chmod +x "$fb/herdr"
 }
 
-# add_herdr_ship_task <case-dir> <id>: a ship task recorded on the herdr
-# backend, with its server stopped so its endpoint classifies `missing`.
-add_herdr_ship_task() {  # <case-dir> <id>
-  local dir=$1 id=$2
+# add_herdr_ship_task <case-dir> <id> [session] [surviving-pane]: a ship task
+# recorded on the herdr backend, with its server stopped so its endpoint
+# classifies `missing`. <surviving-pane> is the pane id the fake will answer for
+# once that server is back; default is the recorded one (it survived the
+# restart). Pass a different id to model a pane that genuinely did not.
+add_herdr_ship_task() {  # <case-dir> <id> [session] [surviving-pane]
+  local dir=$1 id=$2 ses=${3:-fmlab} survivor=${4:-'%7'}
   local home="$dir/home" proj="$dir/proj" wt="$dir/wt"
   fm_git_worktree "$proj" "$wt" "task-$id"
   mkdir -p "$home/data/$id"
@@ -1984,7 +2010,7 @@ Exercise a herdr reclaim safely.
 Keep the recorded endpoint when it outlives its server.
 EOF
   {
-    echo "window=fmlab:%7"
+    echo "window=$ses:%7"
     echo "endpoint_task_id=$id"
     echo "worktree=$wt"
     echo "project=$proj"
@@ -1996,13 +2022,13 @@ EOF
     echo "model=default"
     echo "effort=default"
     echo "backend=herdr"
-    echo "herdr_session=fmlab"
+    echo "herdr_session=$ses"
     echo "herdr_workspace_id=ws1"
     echo "herdr_tab_id=tab1"
     echo "herdr_pane_id=%7"
   } > "$home/state/$id.meta"
   printf '%s' "$wt" > "$dir/fake/cwd"
-  printf '%s' '%7' > "$dir/fake/herdr-pane"
+  printf '%s' "$survivor" > "$dir/fake/herdr-pane"
   : > "$dir/fake/herdr-log"
   : > "$dir/fake/herdr-stopped"
   TASK_TMPS+=("/tmp/fm-$id")
@@ -2045,6 +2071,111 @@ test_herdr_reclaim_adopts_a_pane_that_outlived_its_server() {
   assert_contains "$log" "pane send-text %7 " \
     "the replacement's launch brief must be delivered into the adopted pane"
   pass "reclaim: a herdr pane that outlived its stopped server is adopted, never orphaned beside a new tab"
+}
+
+test_reclaim_refuses_when_the_tmux_server_is_gone() {
+  local dir out rc
+  dir=$(new_case gone-server rl69)
+  add_ship_task "$dir" rl69 claude
+  # The recorded session answers definitively that it is not there, and the
+  # server-wide inventory cannot be read AT ALL - a genuinely dead tmux server,
+  # or this process pointed at a different socket. Nothing here proves the
+  # window is gone; it proves only that this seat cannot see it.
+  : > "$dir/fake/session-missing"
+  : > "$dir/fake/all-inventory-broken"
+
+  out=$(run_spawn "$dir" rl69 --relaunch --harness claude); rc=$?
+  expect_code 1 "$rc" "an unreadable server-wide inventory is unreachability, never absence"$'\n'"$out"
+  assert_contains "$out" "fm-rl69" "the refusal should name the window it could not prove gone"
+  assert_absent "$dir/fake/created-windows" "a refused reclaim must not create a window"
+  assert_absent "$dir/fake/created-sessions" "a refused reclaim must not create a session"
+  [ ! -s "$dir/fake/literal" ] || fail "a refused reclaim must send nothing into any pane"
+  pass "reclaim: a tmux server this seat cannot read is refused, not read as an absent endpoint"
+}
+
+test_exit_refuses_an_unreachable_but_live_endpoint() {
+  local dir out rc
+  dir=$(new_case gone-exit-unreachable rl70)
+  add_ship_task "$dir" rl70 claude
+  strand_session_unreachable "$dir" rl70 renamed
+
+  out=$(run_control "$dir" rl70 exit); rc=$?
+  expect_code 1 "$rc" "exit must not claim an agent stopped at an address it cannot reach"$'\n'"$out"
+  assert_not_contains "$out" "endpoint-gone" \
+    "an endpoint that is merely unreachable was not proven gone"
+  assert_contains "$out" "fm-rl70" "the refusal should name what it could not prove"
+  [ ! -s "$dir/fake/literal" ] \
+    || fail "exit sent lifecycle input into an endpoint it could not trust"
+  pass "fm-control exit: an unreachable endpoint refuses instead of reporting a stop it cannot see"
+}
+
+test_relaunch_of_an_unreachable_endpoint_leaves_the_live_brief_alone() {
+  local dir out rc brief_before
+  dir=$(new_case gone-note-unreachable rl71)
+  add_ship_task "$dir" rl71 claude
+  brief_before=$(cat "$dir/home/data/rl71/brief.md")
+  strand_session_unreachable "$dir" rl71 renamed
+
+  out=$(run_control "$dir" rl71 relaunch --note "this note must never reach a live agent"); rc=$?
+  expect_code 1 "$rc" "a relaunch onto an unreachable endpoint must fail closed"$'\n'"$out"
+  [ "$(cat "$dir/home/data/rl71/brief.md")" = "$brief_before" ] \
+    || fail "a refused relaunch edited the instructions an agent that may still be running is reading"
+  assert_not_contains "$out" "progress note were preserved" \
+    "a relaunch that never stopped the agent must not claim it preserved a note for a replacement"
+  assert_absent "$dir/fake/created-windows" "a refused relaunch must not create an endpoint"
+  [ ! -s "$dir/fake/literal" ] || fail "a refused relaunch must launch nothing"
+  pass "reclaim: a relaunch refused on an unreachable endpoint restores the live agent's instructions"
+}
+
+test_herdr_exit_reports_already_stopped_when_the_pane_outlived_its_server() {
+  local dir out rc=0
+  command -v jq >/dev/null 2>&1 || {
+    echo "skip - herdr exit needs jq (the herdr adapter parses JSON with it)"
+    return 0
+  }
+  dir=$(new_case gone-herdr-exit rl72)
+  add_herdr_ship_task "$dir" rl72
+  make_herdr_stub "$dir"
+
+  out=$(run_control "$dir" rl72 exit) || rc=$?
+  expect_code 0 "$rc" "a pane that outlived its stopped server holds no agent, which is success"$'\n'"$out"
+  assert_contains "$out" "already-stopped" \
+    "the endpoint is there and idle, which is the ordinary already-stopped outcome"
+  assert_not_contains "$out" "endpoint-gone" \
+    "a pane that survived its server's restart was never gone"
+  [ "$(meta_field "$dir" rl72 window)" = 'fmlab:%7' ] \
+    || fail "exit must leave the recorded endpoint exactly as it found it"
+  pass "fm-control exit: a herdr pane that outlived its stopped server is already-stopped, not gone"
+}
+
+test_herdr_rebind_stays_in_the_recorded_session() {
+  local dir out rc=0 log
+  command -v jq >/dev/null 2>&1 || {
+    echo "skip - herdr rebind needs jq (the herdr adapter parses JSON with it)"
+    return 0
+  }
+  dir=$(new_case gone-herdr-pin rl73)
+  # The record names session `fmlab`; this seat has no ambient HERDR_SESSION, so
+  # the adapter's own default is `default`. The recorded pane does NOT come back
+  # with the server, so this reclaim really does rebind - and the rebind must
+  # land in `fmlab`, never in `default`.
+  add_herdr_ship_task "$dir" rl73 fmlab '%none'
+  make_herdr_stub "$dir"
+
+  out=$(run_spawn "$dir" rl73 --relaunch --harness claude) || rc=$?
+  log=$(cat "$dir/fake/herdr-log")
+  expect_code 0 "$rc" "a herdr pane that did not survive its server should be rebound"$'\n'"$out"$'\n'"$log"
+
+  assert_contains "$log" "tab create" "a destroyed pane must be replaced by a fresh tab"
+  [ -z "$(grep -v -- '--session fmlab$' <<<"$log" | grep -v '^status --json$' || true)" ] \
+    || fail "the rebind used a herdr session the record does not name: $log"
+  [ "$(meta_field "$dir" rl73 herdr_session)" = fmlab ] \
+    || fail "the rebound record left its recorded herdr session, got $(meta_field "$dir" rl73 herdr_session)"
+  [ "$(meta_field "$dir" rl73 window)" = 'fmlab:%9' ] \
+    || fail "the rebound endpoint should be the new pane in the recorded session, got $(meta_field "$dir" rl73 window)"
+  [ "$(meta_field "$dir" rl73 herdr_pane_id)" = '%9' ] \
+    || fail "the rebound record should name the pane the reclaim minted, got $(meta_field "$dir" rl73 herdr_pane_id)"
+  pass "reclaim: a herdr rebind is created in the session the record names, never the ambient one"
 }
 
 test_relaunch_reverifies_an_already_in_flight_item_instead_of_rewriting_it() {
@@ -2145,5 +2276,10 @@ test_reclaim_reuses_an_existing_recorded_session
 test_reclaim_does_not_take_a_prefix_sharing_session_for_its_own
 test_reclaim_of_a_secondmate_names_its_own_owner
 test_herdr_reclaim_adopts_a_pane_that_outlived_its_server
+test_reclaim_refuses_when_the_tmux_server_is_gone
+test_exit_refuses_an_unreachable_but_live_endpoint
+test_relaunch_of_an_unreachable_endpoint_leaves_the_live_brief_alone
+test_herdr_exit_reports_already_stopped_when_the_pane_outlived_its_server
+test_herdr_rebind_stays_in_the_recorded_session
 test_relaunch_reverifies_an_already_in_flight_item_instead_of_rewriting_it
 test_relaunch_moves_a_drifted_item_back_in_flight

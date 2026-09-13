@@ -30,11 +30,17 @@
 #              every uncommitted change. Interrupts first when the task reads
 #              busy, then submits the harness's exit command. Postcondition:
 #              the backend's recovery-grade classifier reports the agent gone.
-#              Already-stopped is success (idempotent), and so is an endpoint
-#              the classifier proves is gone: the agent went with it, nothing
-#              is left to send to, and the worktree is untouched. That case
-#              reports `endpoint-gone` rather than `already-stopped`, because
-#              the endpoint this verb normally preserves did not survive.
+#              Already-stopped is success (idempotent). An endpoint that reads
+#              `missing` is put through the control plane's per-backend absence
+#              proof (fm_control_endpoint_absence_verdict) before anything is
+#              claimed about it, because `missing` also covers an endpoint that
+#              is merely unreachable from this seat. Proven gone reports
+#              `endpoint-gone` rather than `already-stopped`, because the
+#              endpoint this verb normally preserves did not survive; an
+#              endpoint that turns out to be there and idle is the ordinary
+#              `already-stopped`; one whose agent is back takes the ordinary
+#              interrupt-then-exit path; and one whose absence cannot be proven
+#              REFUSES rather than claim a stop it cannot see.
 #   relaunch   Transactionally replace the running agent with a new one, in the
 #              SAME worktree - and the same endpoint whenever that endpoint
 #              still exists - on the same or a newly chosen
@@ -460,7 +466,7 @@ retire_busy_incarnation() {
 # do_exit: stop the running agent, preserving endpoint and worktree. Prints
 # `already-stopped`, `endpoint-gone`, or `stopped`.
 do_exit() {
-  local state cmd verdict composer_state cancel interrupt_result=not-needed
+  local state cmd verdict composer_state cancel absence interrupt_result=not-needed
   require_state_verified_backend exit
   state=$(agent_state)
   case "$state" in
@@ -470,15 +476,38 @@ do_exit() {
       ;;
     alive) ;;
     missing)
-      # The endpoint is authoritatively gone, so the agent that lived in it is
-      # gone with it: exit's postcondition - no agent is running at this task's
-      # recorded endpoint - already holds, and there is nothing to send. Report
-      # it as its own outcome rather than as `already-stopped`, because the
-      # endpoint this verb normally preserves did not survive. The worktree and
-      # every uncommitted change are untouched either way, and `relaunch`
-      # re-creates the endpoint from here.
-      printf 'endpoint-gone'
-      return 0
+      # `missing` on its own is not a finding about the endpoint: it conflates
+      # "destroyed" with "unreachable from this seat". Route it through the
+      # control plane's one absence proof - the same one the relaunch gate uses
+      # - and report what that proof actually established, never more.
+      absence=$(fm_control_endpoint_absence_verdict "$BACKEND" "$T")
+      case "${absence%%$'\t'*}" in
+        gone)
+          # Proven gone, so the agent that lived in it went with it: exit's
+          # postcondition already holds and there is nothing to send. Its own
+          # outcome rather than `already-stopped`, because the endpoint this
+          # verb normally preserves did not survive. The worktree and every
+          # uncommitted change are untouched, and `relaunch` re-creates the
+          # endpoint from here.
+          printf 'endpoint-gone'
+          return 0
+          ;;
+        dead)
+          # The endpoint was only unreachable and is there after all, holding
+          # no agent - a herdr pane whose session server was merely stopped is
+          # the common case. Nothing is gone, so this is the ordinary
+          # already-stopped outcome.
+          printf 'already-stopped'
+          return 0
+          ;;
+        alive)
+          # The agent came back with its endpoint. Fall through to the ordinary
+          # alive path: interrupt if busy, then the harness's exit command.
+          ;;
+        *)
+          die "task $ID's endpoint $T reads 'missing', but ${absence#*$'\t'}; exit will not claim an agent stopped at an address it cannot trust, nor send lifecycle input to one"
+          ;;
+      esac
       ;;
     *) die "task $ID's endpoint reads '$state' rather than a positively classified state; refusing to send a lifecycle command into an unattributed endpoint" ;;
   esac
@@ -617,8 +646,16 @@ relaunch_rollback() {
           echo "error: $ID's agent stopped but relaunch did not reach replacement launch; no agent is running, and its work plus progress note are preserved at $WT" >&2
           ;;
         *)
-          journal_write "failed:$RELAUNCH_PHASE" "rollback=none-agent-state-$state" || true
-          echo "error: relaunch of $ID failed while stopping the old agent and its state is '$state'; the durable record and progress note were retained for recovery" >&2
+          # The old agent was NOT proven stopped, so no replacement is coming
+          # and the agent that may still be reading these instructions is the
+          # original one. The note exists to brief a replacement; leaving it in
+          # a possibly-live agent's brief would be an unrequested edit to a
+          # running task. Restore byte-exact, exactly as the alive case does.
+          if [ -n "$RELAUNCH_BRIEF" ] && [ -f "$BRIEF_PRIOR" ]; then
+            cp -p "$BRIEF_PRIOR" "$RELAUNCH_BRIEF" 2>/dev/null || true
+          fi
+          journal_write "failed:$RELAUNCH_PHASE" "rollback=instructions-restored-agent-state-$state" || true
+          echo "error: relaunch of $ID failed while stopping the old agent and its state is '$state', so it was not proven stopped; its original instructions were restored and the durable record was retained for recovery" >&2
           ;;
       esac
       ;;

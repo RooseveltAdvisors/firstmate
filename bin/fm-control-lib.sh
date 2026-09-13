@@ -12,9 +12,12 @@
 # verbs addressed to an exact task id, with the per-harness mechanics owned
 # here rather than improvised per harness in agent prose.
 #
-# This file owns three capability tables plus their pure artifact-path tables
-# and nothing else. It has no side effects, runs no backend command, and reads
-# no state, so it can be sourced by a test as a pure contract:
+# This file owns three capability tables plus their pure artifact-path tables,
+# and ONE named exception to that purity - fm_control_endpoint_absence_verdict,
+# the single owner of the per-backend endpoint-absence proof, which does run
+# backend reads. Everything else has no side effects, runs no backend command,
+# and reads no state, so sourcing this file is still free and the tables can be
+# read by a test as a pure contract:
 #
 #   1. Verb allowlist. There is no arbitrary-text and no generic raw-key entry
 #      point on the control plane; a caller either names an allowlisted verb or
@@ -216,6 +219,67 @@ fm_control_backend_state_verified() {  # <backend>
     tmux|herdr) return 0 ;;
   esac
   return 1
+}
+
+# fm_control_endpoint_absence_verdict: the ONE owner of the per-backend proof
+# that an endpoint reading `missing` is actually GONE rather than merely
+# unreachable from this seat. Call it only for a `missing` raw state.
+#
+# Prints "<verdict>\t<reason>" - always exactly one TAB, so a caller splits
+# unambiguously with ${raw%%$'\t'*} and ${raw#*$'\t'}. The reason is empty
+# except on `unproven`, where it is the concrete sentence the caller's refusal
+# message embeds. It is returned on stdout rather than set in a variable
+# because every caller reads this through a command substitution, where an
+# assignment made here could never reach them.
+#
+# The verdicts:
+#   gone     - absence is PROVEN. There is no endpoint and therefore no agent.
+#   dead     - the endpoint is there after all and holds no agent.
+#   alive    - the endpoint is there and an agent is running in it.
+#   unproven - neither could be established; the caller must refuse.
+#
+# fm_backend_agent_state's `missing` conflates "the endpoint was DESTROYED"
+# with "the endpoint is UNREACHABLE from here right now": tmux answers it for a
+# renamed session, a moved window, or a different TMUX_TMPDIR/socket, and herdr
+# answers it for a positively STOPPED session server whose workspace, tab, and
+# pane ids all survive the restart. An unreachable endpoint can still hold a
+# live agent on the task's worktree, so every caller that would act on absence
+# - `exit` claiming the agent stopped, `relaunch` re-creating the endpoint -
+# must come through here rather than trusting the raw verdict.
+#
+# Both control-plane callers share this one implementation so the proof cannot
+# drift into two answers for the same endpoint.
+fm_control_endpoint_absence_verdict() {  # <backend> <target>
+  local backend=${1-} target=${2-} window
+  fm_backend_source "$backend" \
+    || { printf 'unproven\tbackend %s could not be loaded to prove anything about that endpoint' "'$backend'"; return 0; }
+  case "$backend" in
+    tmux)
+      # Absence must hold SERVER-WIDE, not just in the session the record
+      # names. A failed inventory is unreachability, and an inventory that
+      # still names the window is positive evidence the endpoint only moved.
+      window=${target#*:}
+      if fm_backend_tmux_window_absent_server_wide "$window"; then
+        printf 'gone\t'
+        return 0
+      fi
+      printf 'unproven\ta server-wide tmux window inventory did not prove the window %s is gone: either that inventory could not be read at all, or some session still holds a window by that name' "'$window'"
+      ;;
+    herdr)
+      # Start the RECORDED session's server (only the server - nothing is
+      # created) and re-read the recorded pane. A pane that comes back with the
+      # server was never destroyed.
+      case "$(fm_backend_herdr_endpoint_absence_recheck "$target")" in
+        dead) printf 'dead\t' ;;
+        alive) printf 'alive\t' ;;
+        missing) printf 'gone\t' ;;
+        *) printf 'unproven\tthe recorded herdr session'"'"'s server could not be started, or its pane could not be classified once it was running' ;;
+      esac
+      ;;
+    *)
+      printf 'unproven\tbackend %s has no recovery-grade classifier, so absence cannot be proven on it at all' "'$backend'"
+      ;;
+  esac
 }
 
 # The per-task wiring artifacts a harness leaves behind, so a relaunch that

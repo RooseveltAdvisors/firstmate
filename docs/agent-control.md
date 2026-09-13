@@ -31,7 +31,7 @@ A recorded `harness=` is not always an exact adapter name: a task launched from 
 | Verb | Effect | Postcondition |
 | --- | --- | --- |
 | `interrupt` | Deliver the harness's verified interrupt sequence while leaving the agent running. | Delivery succeeds while the endpoint still exists and the agent is still alive where the backend can classify that; cancellation is confirmed only from an adapter-owned acknowledgement and otherwise reports `cancel=unconfirmed`. |
-| `exit` | Stop the agent, preserving the endpoint, the worktree, and every uncommitted change. | The backend's recovery-grade classifier reports the agent gone. Already-stopped is idempotent success, and so is an endpoint the classifier proves is gone - the agent went with it - reported as `endpoint-gone` because the endpoint this verb normally preserves did not survive. |
+| `exit` | Stop the agent, preserving the endpoint, the worktree, and every uncommitted change. | The backend's recovery-grade classifier reports the agent gone. Already-stopped is idempotent success. An endpoint reading `missing` goes through the same per-backend [absence proof](#reclaiming-a-task-whose-endpoint-is-gone) the reclaim uses before anything is claimed about it: proven gone reports `endpoint-gone` (the agent went with it, and the endpoint this verb normally preserves did not survive), an endpoint that turns out to be there and idle is the ordinary `already-stopped`, one whose agent is back takes the ordinary interrupt-then-exit path, and one whose absence cannot be proven refuses rather than claim a stop it cannot see. |
 | `relaunch` | Replace the running agent with a new one in the same worktree - and the same endpoint whenever that endpoint still exists - on the exact recorded adapter or an explicitly chosen harness, model, and effort. | The new agent is alive on the endpoint the task's record now names, and that record names the harness that is actually running. |
 
 An exit that delivers lifecycle input but cannot prove the agent stopped fails with `exit=unconfirmed`, reports the observed agent state and any interrupt cancellation claim, and never claims that nothing changed.
@@ -97,6 +97,9 @@ An unreachable endpoint can still hold the live agent a rebind would duplicate, 
 
 Every transient or self-contradicting read stays `unreadable` or `ambiguous` and still refuses, so a momentary backend failure can never be mistaken for absence.
 
+That proof has one owner for the whole control plane (`fm_control_endpoint_absence_verdict` in `bin/fm-control-lib.sh`), so `exit` and `relaunch` cannot reach two different answers about one endpoint.
+`exit` reports what the proof established and nothing more - see its row in the verb table above.
+
 What a reclaim is not:
 
 - It is **not a teardown**. The worktree is reused exactly as the previous agent left it; nothing unlanded is ever discarded, and the ordinary `--note` requirement still applies.
@@ -105,7 +108,9 @@ What a reclaim is not:
 - It does **not** cover a secondmate. A secondmate whose endpoint is gone already has one owner for that recovery - `bin/fm-spawn.sh <id> --secondmate`, driven by the session-start liveness sweep - so relaunch refuses and names it rather than becoming a second path to the same outcome.
 
 On tmux the re-created window is opened under the session the record already names, and the task's recorded window name is unchanged, so a tmux reclaim lands back on its exact recorded address.
-On Herdr a reclaim that reaches the rebind - the pane did not survive its server's restart - necessarily gets a new pane id, and the record follows it.
+On Herdr the re-created tab is likewise opened in the herdr session the record names, never in whichever session the recovering seat happens to sit in - relocating a task onto another herdr server would be an identity change published as a self-consistent but wrong record.
+A seat that cannot prove it belongs to the recorded session is refused rather than allowed to place the endpoint somewhere else, so reclaim such a task from a seat in that session.
+The pane id necessarily changes (the pane did not survive), and the record follows it.
 A Herdr reclaim deliberately uses the flat container shape rather than presentation projection: projection is a presentation-only layout that is never endpoint or ownership authority, and flat is already the documented fallback for every recovery it cannot bind exactly ([`docs/herdr-backend.md`](herdr-backend.md)).
 
 ### Failure and rollback
