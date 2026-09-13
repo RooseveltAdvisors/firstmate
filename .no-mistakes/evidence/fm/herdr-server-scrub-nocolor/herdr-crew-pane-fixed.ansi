@@ -1,0 +1,19 @@
+printf "crew pane sees: NO_COLOR=%s\n\n" "${NO_COLOR:-<unset>}"; eza -l --no-permissions --no-user --no-filesize --no-ti
+me bin/backends; echo; rg -n --max-count 2 NO_COLOR docs/tmux-backend.md
+[0m[1m[38;5;6m01M2D8QZCAGYHZX6Z6MCAXQF9W[0m [0m[1m[38;2;166;227;161m➜[0m [0m[38;5;2mprintf[0m [0m[38;5;3m"crew pane sees: NO_COLOR=%s\n\n"[0m [0m[38;5;3m"${NO_COLOR:-<unset>}"[0m; [0m[38;5;2meza[0m -l --no-permissions --
+no-user --no-filesize --no-time [0m[4mbin/backends[0m; [0m[38;5;2mecho[0m; [0m[38;5;2mrg[0m -n --max-count 2 NO_COLOR [0m[4mdocs/tmux-backend.md[0m
+crew pane sees: NO_COLOR=<unset>
+
+cmux.sh
+[0m[1m[38;5;2mherdr-eventwait.py[0m
+[0m[1m[38;5;2mherdr-workspace-move.py[0m
+herdr.sh
+orca.sh
+tmux.sh
+zellij.sh
+
+[0m[38;5;2m50[0m:That server hands its startup environment to every window created afterwards, and `[0m[1m[38;5;1mNO_COLOR[0m` is not in tmux's default
+ `update-environment` set, so a later client attach does not repair it.
+[0m[38;5;2m51[0m:Firstmate therefore drops the launcher's color control (`[0m[1m[38;5;1mNO_COLOR[0m`, `FORCE_COLOR`, `CLICOLOR`, `CLICOLOR_FORCE`) befo
+re that one `new-session`, so an agent-launched Firstmate cannot leave every crew pane monochrome.
+[0m[1m[38;5;6m01M2D8QZCAGYHZX6Z6MCAXQF9W[0m [0m[1m[38;2;166;227;161m➜[0m 

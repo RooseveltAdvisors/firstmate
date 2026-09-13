@@ -1,0 +1,22 @@
+crew pane sees: NO_COLOR=<unset>
+
+cmux.sh
+[1m[32mherdr-eventwait.py[0m
+[1m[32mherdr-workspace-move.py[0m
+herdr.sh
+orca.sh
+tmux.sh
+zellij.sh
+
+[32m50[39m:That server hands its startup environment to every window created afterwards, and `[1m[31mNO_COLOR[0m` is n
+ot in tmux's default `update-environment` set, so a later client attach does not repair it.
+[32m51[39m:Firstmate therefore drops the launcher's color control (`[1m[31mNO_COLOR[0m`, `FORCE_COLOR`, `CLICOLOR`, `C
+LICOLOR_FORCE`) before that one `new-session`, so an agent-launched Firstmate cannot leave every cre
+w pane monochrome.
+[1m[36m01M2D8QZCAGYHZX6Z6MCAXQF9W[0m [1m[38;2;166;227;161m➜[0m
+
+
+
+
+
+

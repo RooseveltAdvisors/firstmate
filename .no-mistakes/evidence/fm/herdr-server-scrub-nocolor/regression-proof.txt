@@ -1,0 +1,29 @@
+Does the crew-pane color leak actually reproduce before the fix?
+Each suite below was run TWICE from the SAME (branch) test file: once against the
+pre-fix adapters from base ecfe0719, once against this branch (87a5ee4a).
+
+=== tests/fm-backend-tmux-smoke.test.sh (real tmux server) ===
+--- against base ecfe0719 ---
+ok - real tmux: an unscrubbed server birth really does hand NO_COLOR to every later window
+not ok - container_ensure leaked NO_COLOR into the long-lived tmux server it birthed
+--- against this branch ---
+ok - real tmux: an unscrubbed server birth really does hand NO_COLOR to every later window
+ok - real tmux: fm_backend_tmux_container_ensure scrubs color control from the server it births, leaving unrelated launch environment intact
+ok - real tmux: a second container_ensure reuses the existing session instead of birthing another server
+
+=== tests/fm-backend-herdr.test.sh (herdr adapter) ===
+--- against base ecfe0719 ---
+not ok - server_ensure leaked NO_COLOR into the long-lived Herdr server (missing: 'NO_COLOR=<unset>')
+--- against this branch ---
+ok - fm_backend_herdr_server_ensure: scrubs home, harness identity, and color-suppression vars without disturbing unrelated environment or session routing
+
+=== tests/fm-backend-zellij.test.sh (zellij adapter, new case added in this test phase) ===
+--- against base ecfe0719 ---
+not ok - server_ensure leaked NO_COLOR into the zellij session it birthed (missing: 'NO_COLOR=<unset>')
+--- against this branch ---
+ok - fm_backend_zellij_server_ensure: drops the launcher's color control from the session it births, leaving unrelated launch environment intact
+
+=== real-binary suites, this branch ===
+tests/fm-backend-herdr-smoke.test.sh (real herdr 0.9.0): 17 checks ok, exit 0
+tests/fm-backend-tmux-smoke.test.sh (real tmux):        10 checks ok, exit 0
+tests/fm-backend-zellij-smoke.test.sh:                  skip: zellij not found on this host

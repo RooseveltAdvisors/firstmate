@@ -1,0 +1,114 @@
+<!doctype html><meta charset="utf-8">
+<title>Crew pane color under a NO_COLOR=1 launcher</title>
+<style>
+ body{background:#11111b;color:#cdd6f4;font-family:ui-sans-serif,system-ui,sans-serif;margin:0;padding:26px}
+ h1{font-size:19px;margin:0 0 6px}
+ .lede{color:#9399b2;font-size:12.5px;margin:0 0 8px;max-width:1400px;line-height:1.55}
+ .lede code{color:#cdd6f4}
+ .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px 20px;max-width:1560px;margin-top:18px}
+ h2{font-size:13.5px;margin:0 0 2px}
+ .bad h2{color:#f38ba8} .good h2{color:#a6e3a1}
+ .sub{font-size:11.5px;color:#7f849c;margin:0 0 8px}
+ .term{background:#1e1e2e;border:1px solid #313244;border-radius:9px;padding:12px 14px;
+       box-shadow:0 8px 22px rgba(0,0,0,.45);min-height:250px}
+ .bad .term{border-color:#5b333d} .good .term{border-color:#2f5340}
+ pre{margin:0;font:12.5px/1.45 ui-monospace,"DejaVu Sans Mono",monospace;white-space:pre-wrap;
+     word-break:break-word;color:#cdd6f4}
+ .cap{font-size:10.5px;color:#6c7086;margin:7px 0 0}
+ .rowlabel{grid-column:1/-1;font-size:12px;color:#cba6f7;letter-spacing:.08em;text-transform:uppercase;margin:10px 0 -6px}
+</style>
+<h1>A crew pane must not inherit the launcher's <code>NO_COLOR</code></h1>
+<p class="lede">Every pane below was created by the real backend adapter
+(<code>container_ensure</code> &rarr; <code>create_task</code>) from a launcher running under
+<code>NO_COLOR=1</code>, exactly as an agent-started Firstmate does, and then ran the same two commands a crew agent
+would run: <code>eza -l bin/backends</code> and <code>rg -n NO_COLOR docs/tmux-backend.md</code>.
+Left column = base <code>ecfe0719</code>. Right column = this branch <code>87a5ee4a</code>. Panes captured verbatim
+(<code>tmux capture-pane -p -e</code> / <code>herdr pane read --format ansi</code>).</p>
+<div class="grid">
+  <div class="rowlabel">tmux backend &mdash; real server, private socket</div>
+  
+  <section class="bad">
+    <h2>Before &mdash; server born carrying NO_COLOR=1</h2><p class="sub">eza and rg output is monochrome for every crew pane on that server</p>
+    <div class="term"><pre><span style="color:#cdd6f4;font-weight:400">crew pane sees: NO_COLOR=1
+
+cmux.sh
+herdr-eventwait.py
+herdr-workspace-move.py
+herdr.sh
+orca.sh
+tmux.sh
+zellij.sh
+
+50:That server hands its startup environment to every window created afterwards, and `NO_COLOR` is n
+ot in tmux's default `update-environment` set, so a later client attach does not repair it.
+51:Firstmate therefore drops the launcher's color control (`NO_COLOR`, `FORCE_COLOR`, `CLICOLOR`, `C
+LICOLOR_FORCE`) before that one `new-session`, so an agent-launched Firstmate cannot leave every cre
+w pane monochrome.
+</span><span style="color:#94e2d5;font-weight:700">01M2D8QZCAGYHZX6Z6MCAXQF9W</span><span style="color:#cdd6f4;font-weight:400"> </span><span style="color:rgb(166,227,161);font-weight:700">➜</span><span style="color:#cdd6f4;font-weight:400">
+</span></pre></div>
+    <p class="cap">crew-pane-prefix.ansi</p>
+  </section>
+  
+  <section class="good">
+    <h2>After &mdash; color control dropped at birth</h2><p class="sub">the pane renders in its own terminal's color again</p>
+    <div class="term"><pre><span style="color:#cdd6f4;font-weight:400">crew pane sees: NO_COLOR=&lt;unset&gt;
+
+cmux.sh
+</span><span style="color:#a6e3a1;font-weight:700">herdr-eventwait.py</span><span style="color:#cdd6f4;font-weight:400">
+</span><span style="color:#a6e3a1;font-weight:700">herdr-workspace-move.py</span><span style="color:#cdd6f4;font-weight:400">
+herdr.sh
+orca.sh
+tmux.sh
+zellij.sh
+
+</span><span style="color:#a6e3a1;font-weight:400">50</span><span style="color:#cdd6f4;font-weight:400">:That server hands its startup environment to every window created afterwards, and `</span><span style="color:#f38ba8;font-weight:700">NO_COLOR</span><span style="color:#cdd6f4;font-weight:400">` is n
+ot in tmux's default `update-environment` set, so a later client attach does not repair it.
+</span><span style="color:#a6e3a1;font-weight:400">51</span><span style="color:#cdd6f4;font-weight:400">:Firstmate therefore drops the launcher's color control (`</span><span style="color:#f38ba8;font-weight:700">NO_COLOR</span><span style="color:#cdd6f4;font-weight:400">`, `FORCE_COLOR`, `CLICOLOR`, `C
+LICOLOR_FORCE`) before that one `new-session`, so an agent-launched Firstmate cannot leave every cre
+w pane monochrome.
+</span><span style="color:#94e2d5;font-weight:700">01M2D8QZCAGYHZX6Z6MCAXQF9W</span><span style="color:#cdd6f4;font-weight:400"> </span><span style="color:rgb(166,227,161);font-weight:700">➜</span><span style="color:#cdd6f4;font-weight:400">
+</span></pre></div>
+    <p class="cap">crew-pane-fixed.ansi</p>
+  </section>
+  <div class="rowlabel">Herdr backend &mdash; real herdr 0.9.0, isolated lab session</div>
+  
+  <section class="bad">
+    <h2>Before &mdash; server born carrying NO_COLOR=1</h2><p class="sub">same leak through the Herdr server's startup environment</p>
+    <div class="term"><pre><span style="color:#cdd6f4;font-weight:400">crew pane sees: NO_COLOR=1
+
+cmux.sh
+herdr-eventwait.py
+herdr-workspace-move.py
+herdr.sh
+orca.sh
+tmux.sh
+zellij.sh
+
+50:That server hands its startup environment to every window created afterwards, and `NO_COLOR` is not in tmux's default
+ `update-environment` set, so a later client attach does not repair it.
+51:Firstmate therefore drops the launcher's color control (`NO_COLOR`, `FORCE_COLOR`, `CLICOLOR`, `CLICOLOR_FORCE`) befo
+re that one `new-session`, so an agent-launched Firstmate cannot leave every crew pane monochrome.
+</span><span style="color:#94e2d5;font-weight:700">01M2D8QZCAGYHZX6Z6MCAXQF9W</span><span style="color:#cdd6f4;font-weight:400"> </span><span style="color:rgb(166,227,161);font-weight:700">➜</span><span style="color:#cdd6f4;font-weight:400"> </span></pre></div>
+    <p class="cap">herdr-crew-pane-prefix.ansi (prompt echo trimmed)</p>
+  </section>
+  
+  <section class="good">
+    <h2>After &mdash; color control dropped at birth</h2><p class="sub">crew pane colored again</p>
+    <div class="term"><pre><span style="color:#cdd6f4;font-weight:400">crew pane sees: NO_COLOR=&lt;unset&gt;
+
+cmux.sh
+</span><span style="color:#a6e3a1;font-weight:700">herdr-eventwait.py</span><span style="color:#cdd6f4;font-weight:400">
+</span><span style="color:#a6e3a1;font-weight:700">herdr-workspace-move.py</span><span style="color:#cdd6f4;font-weight:400">
+herdr.sh
+orca.sh
+tmux.sh
+zellij.sh
+
+</span><span style="color:#a6e3a1;font-weight:400">50</span><span style="color:#cdd6f4;font-weight:400">:That server hands its startup environment to every window created afterwards, and `</span><span style="color:#f38ba8;font-weight:700">NO_COLOR</span><span style="color:#cdd6f4;font-weight:400">` is not in tmux's default
+ `update-environment` set, so a later client attach does not repair it.
+</span><span style="color:#a6e3a1;font-weight:400">51</span><span style="color:#cdd6f4;font-weight:400">:Firstmate therefore drops the launcher's color control (`</span><span style="color:#f38ba8;font-weight:700">NO_COLOR</span><span style="color:#cdd6f4;font-weight:400">`, `FORCE_COLOR`, `CLICOLOR`, `CLICOLOR_FORCE`) befo
+re that one `new-session`, so an agent-launched Firstmate cannot leave every crew pane monochrome.
+</span><span style="color:#94e2d5;font-weight:700">01M2D8QZCAGYHZX6Z6MCAXQF9W</span><span style="color:#cdd6f4;font-weight:400"> </span><span style="color:rgb(166,227,161);font-weight:700">➜</span><span style="color:#cdd6f4;font-weight:400"> </span></pre></div>
+    <p class="cap">herdr-crew-pane-fixed.ansi (prompt echo trimmed)</p>
+  </section>
+</div>
