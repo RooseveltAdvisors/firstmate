@@ -1,0 +1,99 @@
+
+=== 1. A maintainer clones the repo at the PR's head: what does git track? ===
+$ git ls-files | grep -i 'tasks\.toml'
+.tasks.toml.example
+$ test -e .tasks.toml && echo 'PRESENT' || echo '.tasks.toml: absent in a fresh clone (per-home local file)'
+.tasks.toml: absent in a fresh clone (per-home local file)
+$ cat .tasks.toml.example
+backend = "markdown"
+
+[markdown]
+path = "data/backlog.md"
+archive = "data/done-archive.md"
+done_keep = 10
+$ grep -n 'tasks.toml' .gitignore
+14:.tasks.toml
+
+=== 2. The home starts a session: the real bootstrap materializes its own copy ===
+$ FM_BACKEND=tmux FM_HOME='/tmp/fm-tasks-toml-e2e.qsN1VU/home' bash bin/fm-bootstrap.sh; echo "(bootstrap exit $?)"
+MISSING: treehouse (install: curl -fsSL https://kunchenguid.github.io/treehouse/install.sh | sh)
+(bootstrap exit 0)
+$ cat .tasks.toml
+backend = "markdown"
+
+[markdown]
+path = "data/backlog.md"
+archive = "data/done-archive.md"
+done_keep = 10
+$ cmp -s .tasks.toml .tasks.toml.example && echo 'identical to the tracked example'
+identical to the tracked example
+
+=== 3. The home's own copy does not dirty the checkout (this is why it is gitignored) ===
+$ git status --porcelain; echo '(empty above == clean working tree)'
+(empty above == clean working tree)
+$ git check-ignore -v .tasks.toml
+.gitignore:14:.tasks.toml	.tasks.toml
+
+=== 4. tasks-axi actually consumes this home's config (real CLI 0.2.5, real backlog) ===
+$ bash bin/fm-tasks-axi.sh add fm-demo-1 'first backlog item' >/dev/null && bash bin/fm-tasks-axi.sh add fm-demo-2 'second backlog item' >/dev/null; echo 'added two items through bin/fm-tasks-axi.sh'
+added two items through bin/fm-tasks-axi.sh
+$ cat data/backlog.md
+# Backlog
+
+## In flight
+
+## Queued
+- [ ] fm-demo-1 - first backlog item (since 2026-09-13)
+
+- [ ] fm-demo-2 - second backlog item (since 2026-09-13)
+## Done
+
+=== 5. A home customizes its config - the settings PR 3543 exists to protect ===
+$ cat .tasks.toml
+backend = "markdown"
+
+[markdown]
+path = "data/backlog.md"
+archive = "data/my-own-archive.md"
+done_keep = 1
+$ sha256sum .tasks.toml
+91814e99c8f7bfd7befdb04314c0394365c7e73ada820ef3b60c3e4e40554ff9  .tasks.toml
+
+===    ... and starts another session: bootstrap must not touch it ===
+$ FM_BACKEND=tmux FM_HOME='/tmp/fm-tasks-toml-e2e.qsN1VU/home' bash bin/fm-bootstrap.sh; echo "(bootstrap exit $?)"
+MISSING: treehouse (install: curl -fsSL https://kunchenguid.github.io/treehouse/install.sh | sh)
+(bootstrap exit 0)
+$ sha256sum .tasks.toml
+91814e99c8f7bfd7befdb04314c0394365c7e73ada820ef3b60c3e4e40554ff9  .tasks.toml
+$ cat .tasks.toml
+backend = "markdown"
+
+[markdown]
+path = "data/backlog.md"
+archive = "data/my-own-archive.md"
+done_keep = 1
+
+=== 6. The customized archive path and done_keep are honored by the real CLI ===
+$ for i in 1..4: fm-tasks-axi.sh add fm-done-$i / start / done   # done_keep = 1 prunes the rest into the archive
+$ ls -1 data/
+backlog.md
+my-own-archive.md
+$ test -f data/my-own-archive.md && echo 'archive landed at the home-configured path data/my-own-archive.md (NOT the example default data/done-archive.md)'
+archive landed at the home-configured path data/my-own-archive.md (NOT the example default data/done-archive.md)
+$ test -f data/done-archive.md && echo 'UNEXPECTED: example default archive was used' || echo 'data/done-archive.md was never created'
+data/done-archive.md was never created
+$ git status --porcelain; echo '(still clean: the home customized its config without touching tracked material)'
+(still clean: the home customized its config without touching tracked material)
+$ sed -n '/## Done/,$p' data/backlog.md
+## Done
+- [x] fm-done-4 - finished item 4 (done 2026-09-13)
+$ head -20 data/my-own-archive.md
+
+## Archived 2026-09-13
+- [x] fm-done-1 - finished item 1 (done 2026-09-13)
+
+## Archived 2026-09-13
+- [x] fm-done-2 - finished item 2 (done 2026-09-13)
+
+## Archived 2026-09-13
+- [x] fm-done-3 - finished item 3 (done 2026-09-13)

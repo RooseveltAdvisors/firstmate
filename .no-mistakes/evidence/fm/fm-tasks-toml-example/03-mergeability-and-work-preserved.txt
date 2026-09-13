@@ -1,0 +1,47 @@
+=== 1. The PR is mergeable again: upstream main is now an ancestor of the head ===
+$ git merge-base --is-ancestor <upstream main b518a256> HEAD
+  yes -> GitHub no longer reports CONFLICTING; the maintainer can merge
+$ git merge-tree --write-tree <upstream main> HEAD   # the merge a maintainer would perform
+  clean tree, zero conflicts
+
+=== 2. Nothing published on the PR was lost or rewritten ===
+$ git merge-base --is-ancestor a832a833 HEAD    # the reviewed TOCTOU race fix
+  yes -> the branch was extended, not rebased or force-pushed
+$ git log --merges --oneline <upstream main>..HEAD | tail -1   # the merge commit is preserved
+17e26cdc Merge branch 'main' into fm/fm-tasks-toml-example
+
+Every hunk the PR owned before the conflict resolution is byte-identical after it:
+  identical  bin/fm-bootstrap.sh
+  identical  bin/fm-ff-lib.sh
+  identical  bin/fm-update.sh
+  identical  bin/fm-spawn.sh
+  identical  bin/fm-remote-secondmate-control.sh
+  identical  bin/fm-test-run.sh
+  identical  .gitignore
+  identical  tests/fm-bootstrap.test.sh
+  identical  tests/fm-update.test.sh
+  identical  tests/fm-secondmate-sync.test.sh
+
+=== 3. What the conflict resolution DID have to add: main's new fixtures, updated for the rename ===
+main grew 6 more call sites of the now-untracked tracked file; every added delta is that one mechanical rename:
+  -# Why it exists: a bare `tasks-axi` resolves the tracked `.tasks.toml` paths
+  +# Why it exists: a bare `tasks-axi` resolves a home's `.tasks.toml` paths
+  -cp "$ROOT/.tasks.toml" "$HOME_DIR/.tasks.toml"
+  +cp "$ROOT/.tasks.toml.example" "$HOME_DIR/.tasks.toml"
+  -  cp "$ROOT/.tasks.toml" "$dir/home/.tasks.toml"
+  +  cp "$ROOT/.tasks.toml.example" "$dir/home/.tasks.toml"
+  -cp "$ROOT/.tasks.toml" "$CAPTAIN/.tasks.toml"
+  +cp "$ROOT/.tasks.toml.example" "$CAPTAIN/.tasks.toml"
+  -cp "$ROOT/.tasks.toml" "$REQ/.tasks.toml"
+  +cp "$ROOT/.tasks.toml.example" "$REQ/.tasks.toml"
+  -  cp "$ROOT/.tasks.toml" "$case_dir/home/.tasks.toml"
+  +  cp "$ROOT/.tasks.toml.example" "$case_dir/home/.tasks.toml"
+  -  cp "$ROOT/.tasks.toml" "$dir/code/.tasks.toml"
+  +  cp "$ROOT/.tasks.toml.example" "$dir/code/.tasks.toml"
+  -  cp "$ROOT/.tasks.toml" "$dir/.tasks.toml"
+  +  cp "$ROOT/.tasks.toml.example" "$dir/.tasks.toml"
+  -  cp "$ROOT/.tasks.toml" "$dir/.tasks.toml"
+  +  cp "$ROOT/.tasks.toml.example" "$dir/.tasks.toml"
+
+$ grep -rn "\$ROOT/\.tasks\.toml" --include=*.sh --include=*.md .   # no stale reference survives anywhere
+  (no matches)

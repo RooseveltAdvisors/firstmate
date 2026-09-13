@@ -1,0 +1,21 @@
+=== CI gate "Personal fleet paths must not be tracked" (.github/workflows/ci.yml), run verbatim ===
+
+--- at the base commit b518a256, BEFORE this PR ---
+$ git ls-files -- data state config projects .no-mistakes .tasks.toml
+.tasks.toml
+(the gate as this PR extends it would have failed: .tasks.toml is tracked shared material)
+
+--- at this PR head ---
+$ git ls-files -- data state config projects .no-mistakes .tasks.toml
+(empty: the gate passes - no personal fleet path is tracked)
+
+$ git ls-files -- ".tasks.toml*"    # what a fresh clone actually gets
+.tasks.toml.example
+
+=== The real changed-test selector picks the suites that cover this change ===
+$ bin/fm-test-run.sh --list --changed --base b518a256   (116 suites selected; the ones this PR owns:)
+  tests/fm-test-run.test.sh
+  tests/fm-bootstrap.test.sh
+  tests/fm-update.test.sh
+  tests/fm-secondmate-sync.test.sh
+  tests/fm-tasks-axi.test.sh

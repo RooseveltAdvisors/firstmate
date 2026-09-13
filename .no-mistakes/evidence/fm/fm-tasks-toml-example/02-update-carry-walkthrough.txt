@@ -1,0 +1,42 @@
+
+=== The home before the update: it is RUNNING on its own customized .tasks.toml ===
+$ cat .tasks.toml
+backend = "markdown"
+
+[markdown]
+path = "data/backlog.md"
+archive = "data/team-archive.md"
+done_keep = 3
+$ git ls-files | grep tasks
+.tasks.toml
+$ git status --porcelain; echo '(clean - the home is eligible to advance)'
+(clean - the home is eligible to advance)
+
+=== CONTROL ARM: what the same advance does with a plain fast-forward ===
+$ git fetch -q origin main && git merge --ff-only origin/main >/dev/null && echo 'advanced'
+advanced
+$ test -e .tasks.toml && cat .tasks.toml || echo 'GONE: the home lost its live .tasks.toml mid-session - no backlog path, no archive, no done_keep, and nothing re-seeds it until the next session start'
+GONE: the home lost its live .tasks.toml mid-session - no backlog path, no archive, no done_keep, and nothing re-seeds it until the next session start
+
+=== SHIPPED PATH: the real /updatefirstmate (bin/fm-update.sh) from the PR head ===
+$ FM_ROOT_OVERRIDE=<home> FM_HOME=<home> bash bin/fm-update.sh
+TASKS_CONFIG: restored /tmp/fm-update-e2e.1LWBzA/carry/main/.tasks.toml, which the update removed
+firstmate: updated 8e47aba..72af48e
+reread-firstmate: no
+restart-secondmates: none
+nudge-secondmates: none
+
+=== The home after the update ===
+$ git log --oneline -1
+72af48e untrack-tasks-toml
+$ git ls-files | grep tasks
+.tasks.toml.example
+$ cat .tasks.toml
+backend = "markdown"
+
+[markdown]
+path = "data/backlog.md"
+archive = "data/team-archive.md"
+done_keep = 3
+$ git status --porcelain; echo '(clean: the surviving file is now gitignored per-home material)'
+(clean: the surviving file is now gitignored per-home material)
