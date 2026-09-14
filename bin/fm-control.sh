@@ -96,8 +96,10 @@
 #     classifier (tmux, herdr), because without one the "the agent stopped"
 #     postcondition cannot be proven. zellij, orca, and cmux are refused rather
 #     than reported as successful blind.
-#   - An ambiguous or unreadable endpoint state refuses; only a positively
-#     classified state acts.
+#   - An ambiguous or unreadable endpoint state is never sent a lifecycle
+#     command; only a positively classified state receives one. For exit after
+#     a delivered interrupt, such a read is not a refusal: the exit command is
+#     withheld and the same staged positive-stop waits decide the outcome.
 #   - A composer that visibly holds pending text refuses before an exit command
 #     is typed, so existing text is preserved instead of being concatenated.
 #
