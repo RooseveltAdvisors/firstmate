@@ -103,8 +103,8 @@ Switching harness is therefore one ordinary relaunch rather than a separate mech
   Orca's terminal API exposes only an interrupt and an Enter, so it can deliver neither Escape nor Ctrl+U.
 - `exit` and `relaunch` require a backend with a recovery-grade agent-state classifier - tmux and herdr - because without one the "the agent stopped" postcondition cannot be proven.
   zellij, orca, and cmux are refused rather than reported as successful blind.
-- An ambiguous or unreadable endpoint state refuses.
-  Only a positively classified state acts.
+- An ambiguous or unreadable endpoint state is never sent a lifecycle command; only a positively classified state receives one.
+  For `exit` after a delivered interrupt, such a read is not a refusal: the exit command is withheld and the same staged positive-stop waits decide the outcome, so a positively observed stop is success and their combined expiry reports `exit=unconfirmed`.
 - `exit`'s composer-empty check, above, is itself a fail-closed boundary that `relaunch` inherits by stopping the old agent through `exit`.
 - `fm-spawn --relaunch` independently refuses unless the recorded endpoint is positively agent-free, so a replacement can never join a live agent.
   It also requires the shell to be in the recorded worktree: tmux refuses immediately when it is not, while Herdr sends one `cd` to the recorded path and refuses unless a subsequent path read confirms the move.
