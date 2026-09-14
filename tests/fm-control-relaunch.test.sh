@@ -1876,6 +1876,10 @@ case "${1:-} ${2:-}" in
     printf '{"result":{"workspaces":[]}}\n'
     exit 0 ;;
   'workspace create')
+    if [ -f "$D/herdr-workspace-create-fails" ]; then
+      echo 'error: workspace create failed' >&2
+      exit 1
+    fi
     printf '{"result":{"workspace":{"workspace_id":"wsnew"},"tab":{"tab_id":"seedtab"}}}\n'
     exit 0 ;;
   'tab list')
@@ -1938,15 +1942,21 @@ EOF
   TASK_TMPS+=("/tmp/fm-$id")
 }
 
+herdr_case_or_skip() {  # <name> <id> [session] [surviving-pane]
+  command -v jq >/dev/null 2>&1 || return 1
+  local dir
+  dir=$(new_case "$1" "$2")
+  add_herdr_ship_task "$dir" "$2" "${3:-fmlab}" "${4:-%7}"
+  make_herdr_stub "$dir"
+  printf '%s\n' "$dir"
+}
+
 test_herdr_reclaim_adopts_a_pane_that_outlived_its_server() {
   local dir out rc=0 log stray
-  command -v jq >/dev/null 2>&1 || {
+  dir=$(herdr_case_or_skip gone-herdr rl68) || {
     echo "skip - herdr reclaim needs jq (the herdr adapter parses JSON with it)"
     return 0
   }
-  dir=$(new_case gone-herdr rl68)
-  add_herdr_ship_task "$dir" rl68
-  make_herdr_stub "$dir"
 
   out=$(run_spawn "$dir" rl68 --relaunch --harness claude) || rc=$?
   log=$(cat "$dir/fake/herdr-log")
@@ -1979,13 +1989,10 @@ test_herdr_reclaim_adopts_a_pane_that_outlived_its_server() {
 
 test_herdr_exit_reports_already_stopped_when_the_pane_outlived_its_server() {
   local dir out rc=0
-  command -v jq >/dev/null 2>&1 || {
+  dir=$(herdr_case_or_skip gone-herdr-exit rl72) || {
     echo "skip - herdr exit needs jq (the herdr adapter parses JSON with it)"
     return 0
   }
-  dir=$(new_case gone-herdr-exit rl72)
-  add_herdr_ship_task "$dir" rl72
-  make_herdr_stub "$dir"
 
   out=$(run_control "$dir" rl72 exit) || rc=$?
   expect_code 0 "$rc" "a pane that outlived its stopped server holds no agent, which is success"$'\n'"$out"
@@ -2000,17 +2007,14 @@ test_herdr_exit_reports_already_stopped_when_the_pane_outlived_its_server() {
 
 test_herdr_rebind_stays_in_the_recorded_session() {
   local dir out rc=0 log
-  command -v jq >/dev/null 2>&1 || {
-    echo "skip - herdr rebind needs jq (the herdr adapter parses JSON with it)"
-    return 0
-  }
-  dir=$(new_case gone-herdr-pin rl73)
   # The record names session `fmlab`; this seat has no ambient HERDR_SESSION, so
   # the adapter's own default is `default`. The recorded pane does NOT come back
   # with the server, so this reclaim really does rebind - and the rebind must
   # land in `fmlab`, never in `default`.
-  add_herdr_ship_task "$dir" rl73 fmlab '%none'
-  make_herdr_stub "$dir"
+  dir=$(herdr_case_or_skip gone-herdr-pin rl73 fmlab '%none') || {
+    echo "skip - herdr rebind needs jq (the herdr adapter parses JSON with it)"
+    return 0
+  }
 
   out=$(run_spawn "$dir" rl73 --relaunch --harness claude) || rc=$?
   log=$(cat "$dir/fake/herdr-log")
@@ -2026,15 +2030,6 @@ test_herdr_rebind_stays_in_the_recorded_session() {
   [ "$(meta_field "$dir" rl73 herdr_pane_id)" = '%9' ] \
     || fail "the rebound record should name the pane the reclaim minted, got $(meta_field "$dir" rl73 herdr_pane_id)"
   pass "reclaim: a herdr rebind is created in the session the record names, never the ambient one"
-}
-
-herdr_case_or_skip() {  # <name> <id> [session] [surviving-pane]
-  command -v jq >/dev/null 2>&1 || return 1
-  local dir
-  dir=$(new_case "$1" "$2")
-  add_herdr_ship_task "$dir" "$2" "${3:-fmlab}" "${4:-%7}"
-  make_herdr_stub "$dir"
-  printf '%s\n' "$dir"
 }
 
 test_herdr_reclaim_refuses_an_agent_that_came_back() {
@@ -2106,6 +2101,29 @@ test_herdr_reclaim_keeps_the_task_whole() {
   [ "$(journal_field "$dir" rl75 exit_result)" = endpoint-gone ] \
     || fail "the transaction should record that the endpoint was already gone"
   pass "reclaim: a herdr reclaim rebinds the endpoint and leaves the whole rest of the task alone"
+}
+
+test_herdr_rebind_failure_from_a_plain_shell_names_the_real_cause() {
+  local dir out rc
+  # No HERDR_* env at all, which is how an operator reclaims from ssh or cron.
+  # The adapter's ambient session then reads `default` while the record names
+  # `fmlab`, but the cross-session launcher guard was never consulted - this
+  # seat claims no launcher pane, so placement fell back to the recorded
+  # session's labeled container and the container failed for its own reason.
+  dir=$(herdr_case_or_skip gone-herdr-plain rl77 fmlab '%none') || {
+    echo "skip - herdr reclaim needs jq (the herdr adapter parses JSON with it)"
+    return 0
+  }
+  : > "$dir/fake/herdr-workspace-create-fails"
+
+  out=$(run_spawn "$dir" rl77 --relaunch --harness claude); rc=$?
+  expect_code 1 "$rc" "a container that cannot be ensured must refuse"$'\n'"$out"
+  assert_contains "$out" "fmlab" "the refusal should name the session the reclaim was targeting"
+  assert_not_contains "$out" "this seat is running in herdr session" \
+    "a seat with no launcher pane never hit the cross-session guard, so the refusal must not blame one"
+  assert_not_contains "$out" "a reclaim never moves a task to another session" \
+    "the operator must not be sent to re-run from another seat when that would not help"
+  pass "reclaim: a rebind refused from a plain shell reports the real cause, not a fabricated session mismatch"
 }
 
 test_herdr_reclaim_of_a_secondmate_names_its_own_owner() {
@@ -2223,5 +2241,6 @@ test_herdr_rebind_stays_in_the_recorded_session
 test_herdr_reclaim_refuses_an_agent_that_came_back
 test_herdr_reclaim_keeps_the_task_whole
 test_herdr_reclaim_of_a_secondmate_names_its_own_owner
+test_herdr_rebind_failure_from_a_plain_shell_names_the_real_cause
 test_relaunch_reverifies_an_already_in_flight_item_instead_of_rewriting_it
 test_relaunch_moves_a_drifted_item_back_in_flight
