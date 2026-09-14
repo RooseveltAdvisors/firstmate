@@ -1,0 +1,12 @@
+
+ok - fm-control exit: ambiguous post-interrupt evidence is unconfirmed, never failed, and takes no exit command
+ok - fm-control exit: a positively observed stop after ambiguous post-interrupt evidence is success
+ambiguous_never_failed: 0.57s ; stop_landing: 0.42s
+
+--- full tests/fm-control.test.sh ---
+
+real	0m27.892s
+user	0m5.102s
+sys	0m2.996s
+suite exit: 0
+hint: tests/fm-control.test.sh 54301 ms (bin/fm-test-run.sh:692)
