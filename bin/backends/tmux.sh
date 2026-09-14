@@ -79,60 +79,6 @@ fm_backend_tmux_container_ensure() {
   fi
 }
 
-# fm_backend_tmux_session_ensure: ensure one EXACTLY NAMED detached session
-# exists, and echo that name. fm_backend_tmux_container_ensure picks a session
-# for a NEW task; this is for re-creating a task's endpoint under the session
-# its record already names, so recovery cannot silently move a task to whatever
-# session the recovering process happens to sit in.
-fm_backend_tmux_session_ensure() {  # <session>
-  local ses=${1:-}
-  [ -n "$ses" ] || { echo "error: fm_backend_tmux_session_ensure needs a session name" >&2; return 1; }
-  # Membership is proved against the exact inventory rather than asked with
-  # `has-session -t`, whose matching falls back to pattern and then PREFIX: a
-  # session named "fm" would answer yes for an existing "fmses". Every later
-  # call here targets $ses by the same name, so a prefix match would silently
-  # re-create a task's endpoint inside a different session - the one failure a
-  # recovery path must not have. A failed or absent listing (no server yet) is
-  # simply not-present, and new-session's own failure still refuses.
-  if ! tmux list-sessions -F '#{session_name}' 2>/dev/null | grep -qxF -- "$ses"; then
-    tmux new-session -d -s "$ses" || return 1
-  fi
-  printf '%s' "$ses"
-}
-
-# fm_backend_tmux_window_absent_server_wide: PROVE, across every session this
-# tmux can see, that no window named <window-name> exists. Returns success
-# ONLY on a SUCCESSFUL server-wide inventory containing no match.
-#
-# fm_backend_tmux_agent_state's `missing` is session-scoped, and two of its
-# sources - a definitive no-session answer and an unreachable server - say
-# nothing about the window itself: a renamed session, a moved window, or a
-# different TMUX_TMPDIR/socket all produce them while the task's window, and
-# the agent in it, are still very much alive somewhere. This is the second,
-# server-wide read that turns that "not where the record says" into "not
-# anywhere", using the same `list-windows -a` inventory shape
-# fm_backend_tmux_resolve_bare_selector already relies on.
-#
-# Both non-proofs return failure, and callers must treat that as a REFUSAL:
-#   - an inventory that FAILS for any reason (including no server at all) is
-#     unreachability, never absence;
-#   - an inventory that SUCCEEDS and still names the window is positive
-#     evidence the endpoint merely moved.
-# Session names cannot contain ':' in tmux, so the window name is everything
-# after the first colon of each `<session>:<window>` row.
-fm_backend_tmux_window_absent_server_wide() {  # <window-name>
-  local window=${1:-} inventory row
-  [ -n "$window" ] || return 1
-  inventory=$(LC_ALL=C tmux list-windows -a -F '#{session_name}:#{window_name}' 2>/dev/null) || return 1
-  while IFS= read -r row; do
-    [ -n "$row" ] || continue
-    [ "${row#*:}" = "$window" ] && return 1
-  done <<EOF
-$inventory
-EOF
-  return 0
-}
-
 # fm_backend_tmux_create_task: create the task's window in <proj-abs>,
 # refusing an existing <window-name> in <session>. Mirrors fm-spawn.sh's
 # duplicate-check-then-new-window sequence, including the exact error text

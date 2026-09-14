@@ -47,14 +47,16 @@
 #   ADOPTED as-is, while an endpoint PROVEN gone is RE-CREATED in the recorded
 #   worktree and the republished record rebinds the task to it. That proof is
 #   its own step, because a backend's `missing` also covers an endpoint that is
-#   merely unreachable from here: tmux must additionally show the recorded
-#   window in no session server-wide, and herdr must still read the recorded
-#   pane as gone once its session's server is running again. An endpoint that
-#   cannot be reached, or that turns out to have survived, refuses instead. The
-#   worktree is reused untouched in both cases; a rebind is a recovery, never a
-#   teardown. Only a crewmate or scout rebinds: a secondmate whose endpoint is
-#   gone is respawned by its own owner (`--secondmate`, driven by the
-#   session-start liveness sweep). The replacement still never starts outside the copy
+#   merely unreachable from here - and it is only available on HERDR, which must
+#   still read the recorded pane as gone once that session's server is running
+#   again. A tmux `missing` always refuses: a task record carries no socket
+#   identity for its endpoint, so no read here can tell a destroyed window from
+#   one on a tmux server this process cannot address. An endpoint that turns out
+#   to have survived refuses too. The worktree is reused untouched either way; a
+#   rebind is a recovery, never a teardown. Only a crewmate or scout rebinds: a
+#   secondmate whose endpoint is gone is respawned by its own owner
+#   (`--secondmate`, driven by the session-start liveness sweep).
+#   The replacement still never starts outside the copy
 #   holding the work: a Herdr shell that has drifted out of the recorded
 #   worktree is told once to return, and only a shell that will not go refuses.
 #   --harness <name> is the explicit per-spawn harness/profile adapter. The old
@@ -1579,19 +1581,20 @@ if [ "$RELAUNCH" -eq 1 ]; then
   # `missing` is NOT one state, and that is what the duplicate-agent argument
   # turns on. fm_backend_agent_state's per-backend `missing` conflates "the
   # endpoint was DESTROYED" with "the endpoint is UNREACHABLE from here right
-  # now": tmux answers it for a renamed session, a moved window, or a different
-  # TMUX_TMPDIR/socket, and herdr answers it for a positively STOPPED session
-  # server whose workspace, tab, and pane ids all survive the restart. An
-  # unreachable endpoint can still hold the live agent this relaunch would
-  # duplicate, so absence is PROVEN here per backend before it may rebind, never
-  # inferred from a failed read:
-  #   tmux  - a SUCCESSFUL server-wide window inventory that names the recorded
-  #           window nowhere. A failed inventory (including a genuinely dead
-  #           server) and an inventory that still names the window both refuse.
+  # now", and an unreachable endpoint can still hold the live agent this
+  # relaunch would duplicate. So absence is PROVEN before it may rebind, never
+  # inferred from a failed read - and only HERDR can prove it:
   #   herdr - the recorded session's server is started, and the recorded pane is
-  #           RE-READ. `dead` means the pane survived the restart and is adopted
-  #           after all; `alive` means the agent came back and refuses; only a
-  #           second `missing` proves the pane itself did not survive.
+  #           RE-READ through that session's own socket. `dead` means the pane
+  #           survived the restart and is adopted after all; `alive` means the
+  #           agent came back and refuses; only a second `missing` proves the
+  #           pane itself did not survive.
+  #   tmux  - REFUSES, always. A task record carries no socket identity for its
+  #           endpoint, and a server-wide inventory describes only the server
+  #           this process addresses, so no read available here can tell "gone"
+  #           from "on a server I cannot see". A tmux `missing` therefore stays
+  #           as deadlocked as it was before this change - deliberately, and
+  #           with the reason stated rather than guessed past.
   # Every transient or self-contradicting read stays `unreadable`/`ambiguous`
   # and refuses as it always did (bin/fm-backend.sh's fm_backend_agent_state
   # owns that vocabulary). The proof itself lives in one place for the whole
@@ -1605,7 +1608,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
       dead) RELAUNCH_STATE=dead ;;
       alive) RELAUNCH_STATE=alive ;;
       *)
-        echo "error: task $ID's recorded endpoint $RELAUNCH_TARGET reads 'missing', but ${RELAUNCH_ABSENCE#*$'\t'}. An endpoint this process cannot reach is not an endpoint that is absent, and its agent may still hold the worktree; refusing rather than launching a second agent into it" >&2
+        echo "error: task $ID's recorded endpoint $RELAUNCH_TARGET reads 'missing', but ${RELAUNCH_ABSENCE#*$'\t'}. An endpoint that cannot be proven absent may still hold a live agent on this task's worktree; refusing rather than launching a second agent into it" >&2
         exit 1
         ;;
     esac
@@ -3138,65 +3141,62 @@ if [ "$RELAUNCH" -eq 1 ]; then
     # ids) from these values, which is the whole rebind - the task id, brief,
     # worktree, armed poll and status log are untouched.
     #
+    # Herdr is the ONLY backend that reaches here: the gate above rebinds only
+    # on a PROVEN-gone endpoint, and absence is provable only on herdr, whose
+    # every read is scoped to the session the record names
+    # (fm_control_endpoint_absence_verdict owns that argument). tmux and every
+    # secondmate were already refused, so there is no dispatch left to make.
+    #
     # This deliberately uses the FLAT container shape rather than Herdr's
     # presentation projection: projection is a presentation-only layout that is
     # never endpoint or ownership authority, and flat is already the documented
     # fallback for every recovery it cannot bind exactly
     # (docs/herdr-backend.md "Presentation spaces").
-    case "$BACKEND" in
-      tmux)
-        # Re-create the window under the RECORDED session, not whichever
-        # session this process happens to sit in, so a rebind cannot silently
-        # move the task to another session. For tmux the recorded window name
-        # is fm-<id>, so the re-created endpoint lands back on the task's exact
-        # recorded address and window= does not change at all.
-        SES=$(fm_backend_tmux_session_ensure "${RELAUNCH_TARGET%%:*}") || exit 1
-        WID=$(fm_backend_tmux_create_task "$SES" "$W" "$WT") || exit 1
-        T="$SES:$W"
-        WT_TARGET=$WID
-        ;;
-      herdr)
-        # Re-create the tab under the RECORDED herdr session, exactly as the
-        # tmux arm re-creates the window under the recorded tmux session.
-        # Without this the container resolves from the AMBIENT session
-        # (${HERDR_SESSION:-default}), so reclaiming a task recorded on a named
-        # session from a seat that is not in it would silently relocate the task
-        # onto another herdr server - an identity change, published as a
-        # self-consistent but wrong record.
-        HERDR_REBIND_SES=${RELAUNCH_TARGET%%:*}
-        HERDR_CONTAINER_RAW=$(HERDR_PANE_ID="$RELAUNCH_LAUNCHER_PANE_ID" \
-          fm_backend_herdr_container_ensure "$PROJ_ABS" launcher-home "$HERDR_REBIND_SES") || {
-          # fm_backend_herdr_launcher_identity refuses when this seat's own
-          # herdr pane belongs to a different session or server, and that
-          # refusal is right: a seat that cannot prove it belongs to the
-          # recorded session must not place the task's endpoint. Name the
-          # concrete situation rather than leaving only the adapter's message.
-          echo "error: task $ID's endpoint could not be re-created in its recorded herdr session '$HERDR_REBIND_SES'; this seat is running in herdr session '$(fm_backend_herdr_session)'. A reclaim never moves a task to another session, so run it from a seat in '$HERDR_REBIND_SES'" >&2
-          exit 1
-        }
-        CONTAINER=${HERDR_CONTAINER_RAW%%$'\t'*}
-        HERDR_SEEDED_DEFAULT_TAB_ID=${HERDR_CONTAINER_RAW#*$'\t'}
-        HERDR_SES=${CONTAINER%%:*}
-        HERDR_WORKSPACE_ID=${CONTAINER#*:}
-        HERDR_TASK_IDS=$(fm_backend_herdr_create_task "$CONTAINER" "$W" "$WT" "$HERDR_SEEDED_DEFAULT_TAB_ID") || exit 1
-        read -r HERDR_TAB_ID HERDR_PANE_ID <<EOF
+    #
+    # KNOWN LIMITATION (bead fm-herdr-rebind-leak-20260913): the tab minted
+    # below is registered with no abort cleanup, so a later refusal leaves that
+    # pane behind and a retry mints another. Documented in
+    # docs/agent-control.md rather than fixed here, because the remedy is
+    # machinery the ordinary flat spawn path does not have either.
+    #
+    # Re-create the tab under the RECORDED herdr session. Without the explicit
+    # session the container would resolve from the AMBIENT one
+    # (${HERDR_SESSION:-default}), so reclaiming a task recorded on a named
+    # session from a seat that is not in it would silently relocate the task
+    # onto another herdr server - an identity change, published as a
+    # self-consistent but wrong record.
+    HERDR_REBIND_SES=${RELAUNCH_TARGET%%:*}
+    HERDR_CONTAINER_RAW=$(HERDR_PANE_ID="$RELAUNCH_LAUNCHER_PANE_ID" \
+      fm_backend_herdr_container_ensure "$PROJ_ABS" launcher-home "$HERDR_REBIND_SES") || {
+      # container_ensure returns 1 for several unrelated reasons - a failed
+      # version check, a server that will not start, an ambiguous workspace
+      # label, a cross-session launcher identity, a failed workspace create -
+      # and each already printed its own accurate message. Add only what this
+      # layer actually knows, and name the session mismatch solely when there
+      # IS one, rather than asserting a cause this condition cannot establish.
+      HERDR_AMBIENT_SES=$(fm_backend_herdr_session)
+      if [ "$HERDR_AMBIENT_SES" != "$HERDR_REBIND_SES" ]; then
+        echo "error: task $ID's endpoint could not be re-created in its recorded herdr session '$HERDR_REBIND_SES'; this seat is running in herdr session '$HERDR_AMBIENT_SES', and a reclaim never moves a task to another session" >&2
+      else
+        echo "error: task $ID's endpoint could not be re-created in its recorded herdr session '$HERDR_REBIND_SES'; see the refusal above for what failed" >&2
+      fi
+      exit 1
+    }
+    CONTAINER=${HERDR_CONTAINER_RAW%%$'\t'*}
+    HERDR_SEEDED_DEFAULT_TAB_ID=${HERDR_CONTAINER_RAW#*$'\t'}
+    HERDR_SES=${CONTAINER%%:*}
+    HERDR_WORKSPACE_ID=${CONTAINER#*:}
+    HERDR_TASK_IDS=$(fm_backend_herdr_create_task "$CONTAINER" "$W" "$WT" "$HERDR_SEEDED_DEFAULT_TAB_ID") || exit 1
+    read -r HERDR_TAB_ID HERDR_PANE_ID <<EOF
 $HERDR_TASK_IDS
 EOF
-        if [ -z "$HERDR_TAB_ID" ] || [ -z "$HERDR_PANE_ID" ]; then
-          echo "error: herdr did not return a tab/pane id for $W" >&2
-          exit 1
-        fi
-        T="$HERDR_SES:$HERDR_PANE_ID"
-        SES=$HERDR_SES
-        WT_TARGET=$T
-        ;;
-      *)
-        # Unreachable: the gate above already refused every backend without a
-        # recovery-grade classifier, and only tmux and herdr have one.
-        echo "error: backend '$BACKEND' cannot re-create a gone endpoint for task $ID" >&2
-        exit 1
-        ;;
-    esac
+    if [ -z "$HERDR_TAB_ID" ] || [ -z "$HERDR_PANE_ID" ]; then
+      echo "error: herdr did not return a tab/pane id for $W" >&2
+      exit 1
+    fi
+    T="$HERDR_SES:$HERDR_PANE_ID"
+    SES=$HERDR_SES
+    WT_TARGET=$T
   fi
 else
   case "$BACKEND" in

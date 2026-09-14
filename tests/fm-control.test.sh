@@ -634,22 +634,23 @@ test_already_stopped_exit_is_idempotent() {
   pass "fm-control exit: an already-stopped agent is idempotent success with no bytes sent"
 }
 
-test_missing_endpoint_reports_itself() {
+test_missing_tmux_endpoint_refuses_rather_than_claiming_a_stop() {
   local dir out rc
   dir=$(new_case gone)
   add_task "$dir" t1 claude
   : > "$dir/fake/windows"
   out=$(run_control "$dir" t1 exit); rc=$?
-  # The endpoint is authoritatively gone, so the agent that lived in it is too:
-  # exit's postcondition already holds. It says so in its own words rather than
-  # claiming `already-stopped`, because the endpoint this verb normally
-  # preserves did not survive - and it never dead-ends the task, which is what
-  # left a destroyed pane unreclaimable by any command.
-  expect_code 0 "$rc" "a gone endpoint means the agent is gone; that is success"
-  assert_contains "$out" "endpoint-gone t1" "the outcome should name the gone endpoint"
-  assert_not_contains "$out" "already-stopped" "a gone endpoint is not the same outcome as a surviving idle pane"
-  [ -z "$(literals "$dir")" ] || fail "nothing may be sent into an endpoint proven gone"
-  pass "fm-control exit: a vanished endpoint reports itself and stays reclaimable"
+  # `missing` on tmux is not a finding about the endpoint. A task record carries
+  # no socket identity for it, and any inventory describes only the tmux server
+  # this process addresses, so a window that is merely on a server this seat
+  # cannot reach is indistinguishable from one that was destroyed. exit refuses
+  # rather than claim a stop it cannot see, and sends nothing to an address it
+  # cannot trust. Reclaim of a destroyed endpoint is Herdr-only
+  # (docs/agent-control.md "Reclaiming a task whose endpoint is gone").
+  expect_code 1 "$rc" "a tmux endpoint whose absence cannot be proven must refuse"
+  assert_not_contains "$out" "endpoint-gone" "exit must not report a stop it could not prove"
+  [ -z "$(literals "$dir")" ] || fail "nothing may be sent into an endpoint exit cannot trust"
+  pass "fm-control exit: an unprovable tmux endpoint refuses instead of claiming the agent stopped"
 }
 
 test_interrupt_refuses_when_no_agent_runs() {
@@ -907,7 +908,7 @@ test_verb_allowlist_is_closed
 test_resume_is_refused_with_its_reason
 test_relaunch_only_flags_are_rejected_on_other_verbs
 test_already_stopped_exit_is_idempotent
-test_missing_endpoint_reports_itself
+test_missing_tmux_endpoint_refuses_rather_than_claiming_a_stop
 test_interrupt_refuses_when_no_agent_runs
 test_ambiguous_endpoint_refuses
 test_busy_agent_is_interrupted_before_the_exit_command
