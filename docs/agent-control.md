@@ -120,12 +120,11 @@ The record is republished consistently and no work is lost, but the task's `herd
 The pane id necessarily changes (the pane did not survive), and the record follows it.
 A Herdr reclaim deliberately uses the flat container shape rather than presentation projection: projection is a presentation-only layout that is never endpoint or ownership authority, and flat is already the documented fallback for every recovery it cannot bind exactly ([`docs/herdr-backend.md`](herdr-backend.md)).
 
-**Known limitation - a rebind that fails after the harness starts blocks the next attempt** (follow-up bead `fm-herdr-rebind-leak-20260913`).
-The rebind registers no abort cleanup, and the record is republished only after the launch steps that follow, so a refusal after the new tab exists leaves that pane behind while the record still names the old, gone one.
-What happens next depends on what the stray pane holds.
-A pane still holding a bare shell is a husk, and the next attempt cleans up after itself: the re-created tab carries the same `fm-<id>` label, so `tab create` finds it, classifies it a husk, and closes and replaces it - leaving no extra panes.
-A refusal *after* the harness has started leaves a pane that reads `live` instead, which is not a husk, so the next attempt refuses outright with herdr's `tab already exists` rather than reclaiming.
-Close that one pane before retrying; the worktree and the task's records are unaffected either way.
+**Known limitation - a refusal before the record is republished leaves a stray husk pane** (follow-up bead `fm-herdr-rebind-leak-20260913`).
+The rebind registers no abort cleanup, so a refusal in the window between the new tab being created and the record being republished leaves that pane behind while the record still names the old, gone one.
+The stray pane holds a bare shell - the harness is not delivered until after publication - so the next reclaim cleans up after it: the re-created tab carries the same `fm-<id>` label, `tab create` finds it, classifies it a husk, and closes and replaces it.
+That self-heals only when the retry resolves the *same* workspace, which the placement rule above does not guarantee.
+The worktree and the task's records are unaffected either way.
 
 ### Failure and rollback
 
