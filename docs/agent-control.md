@@ -168,8 +168,8 @@ The worktree and the task's records are unaffected either way.
   Orca's terminal API exposes only an interrupt and an Enter, so it can deliver neither Escape nor Ctrl+U.
 - `exit` and `relaunch` require a backend with a recovery-grade agent-state classifier - tmux and herdr - because without one the "the agent stopped" postcondition cannot be proven.
   zellij, orca, and cmux are refused rather than reported as successful blind.
-- An ambiguous or unreadable endpoint state refuses.
-  Only a positively classified state acts.
+- An ambiguous or unreadable endpoint state is never sent a lifecycle command; only a positively classified state receives one.
+  For `exit` after a delivered interrupt, such a read is not a refusal: the exit command is withheld and the same staged positive-stop waits decide the outcome, so a positively observed stop is success and their combined expiry reports `exit=unconfirmed`.
 - `exit`'s composer-empty check, above, is itself a fail-closed boundary that `relaunch` inherits by stopping the old agent through `exit`.
 - `fm-spawn --relaunch` independently refuses unless the endpoint is positively agent-free - either a `dead` endpoint that survives, or a Herdr endpoint proven gone by the absence proof above - so a replacement can never join a live agent.
   An `alive`, `ambiguous`, or `unreadable` verdict all refuse, and so does any endpoint whose absence is not provable, which on tmux is every `missing`; absence is claimed only from positive evidence of it.
