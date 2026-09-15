@@ -226,6 +226,9 @@ make_beads_home() {  # <name>
     cat "$case_dir/bd-init.log" >&2
     fail "fixture bd init failed on $graph"
   fi
+  # Newer bd (>=1.2) rejects row creation without a due date unless the graph
+  # opts out; the fixture rows are hold targets, not scheduled work.
+  printf '\ndue:\n  required: false\n' >> "$graph/.beads/config.yaml"
   cat > "$home/.tasks.toml" <<EOF
 backend = "beads"
 

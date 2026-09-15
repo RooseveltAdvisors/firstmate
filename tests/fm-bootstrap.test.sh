@@ -1269,6 +1269,7 @@ NO_MISTAKES_MIRROR: absent remote=absent expected-root=$root_a (run no-mistakes 
   # stay silent instead of printing the same unfixable line every session.
   ungated="$case_dir/ungated-root"
   git init -q -b main "$ungated"
+  fm_git_identity
   git -C "$ungated" commit --allow-empty -m fixture >/dev/null
   out=$(PATH="$fakebin:$BASE_PATH" NM_HOME="$root_a" FM_HOME="$home" \
     FM_ROOT_OVERRIDE="$ungated" FM_FAKE_TREEHOUSE_LEASE_HELP=1 \

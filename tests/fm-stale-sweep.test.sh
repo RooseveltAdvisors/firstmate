@@ -208,6 +208,9 @@ make_fixture() {  # <name>
     printf '%s\n' "$case_dir/bd-init.log" > "$TMP_ROOT/fixture-failed"
     fail "fixture bd init failed on $graph"
   fi
+  # Newer bd (>=1.2) rejects row creation without a due date unless the graph
+  # opts out; the fixture rows are sweep targets, not scheduled work.
+  printf '\ndue:\n  required: false\n' >> "$graph/.beads/config.yaml"
   cat > "$home/.tasks.toml" <<EOF
 backend = "beads"
 
