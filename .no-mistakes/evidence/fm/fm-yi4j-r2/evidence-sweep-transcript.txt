@@ -1,0 +1,46 @@
+# Stale-claim sweep: end-to-end transcript
+
+Fixture: a firstmate home over a scratch Beads (bd) graph. Three in_progress ship rows,
+aged 50h on the sweep clock:
+  fm-dead-row    owned by this home; tmux endpoint firstmate:%dead is dead
+  fm-live-row    owned by this home; live endpoint with a semantic busy record
+  fm-orphan-row  provenance names secondmate home "widgets"; no meta anywhere
+
+$ FM_HOME=<home> bin/fm-stale-sweep.sh                # default: dry run
+ID                                         HOME               AGE     VERDICT   ACTION                   ACTOR         PROV
+fm-orphan-row                              widgets            50h     dead      would reclaim            -             -
+fm-live-row                                main home          50h     live      keep                     -             -
+fm-dead-row                                main home          50h     dead      would reclaim            -             -
+3 stale candidates: 2 dead, 1 live, 0 unproven, 0 no-home; would reclaim 2
+exit=0
+
+$ FM_HOME=<home> bin/fm-stale-sweep.sh --apply        # reclaim dead endpoints only
+ID                                         HOME               AGE     VERDICT   ACTION                   ACTOR         PROV
+fm-orphan-row                              widgets            50h     dead      reclaimed                -             -
+fm-live-row                                main home          50h     live      keep                     -             -
+fm-dead-row                                main home          50h     dead      reclaimed                -             -
+3 stale candidates: 2 dead, 1 live, 0 unproven, 0 no-home; reclaimed 2
+exit=0
+
+Graph read-back through bd (the tool that owns the graph):
+
+$ bd show fm-dead-row --json
+status=open
+reclaimed 2026-09-15: endpoint dead, previous claim by main home
+
+$ bd show fm-live-row --json
+status=in_progress
+<!-- tasks-axi:beads/v1:eyJraW5kIjoic2hpcCJ9 -->
+
+$ bd show fm-orphan-row --json
+status=open
+reclaimed 2026-09-15: endpoint dead, previous claim by widgets
+
+$ ls <home>/state/   # metas and busy records all preserved
+fm-dead-row.meta
+fm-live-row.busy-gen
+fm-live-row.busy-state
+fm-live-row.meta
+
+$ FM_HOME=<home> bin/fm-stale-sweep.sh check   # watcher mode after the sweep
+exit=0

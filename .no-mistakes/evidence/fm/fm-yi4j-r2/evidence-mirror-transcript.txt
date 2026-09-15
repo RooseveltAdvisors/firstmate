@@ -1,0 +1,20 @@
+# No-mistakes mirror drift at session start: end-to-end transcript
+
+Fixture: the firstmate checkout at <root>/fm-root carries a no-mistakes gate
+remote pointing at root-b/repos/fm.git, while the installed no-mistakes CLI
+resolves its data root at root-a. Session start must report the drift and
+name the operator fix; it must never repair it (detect-only).
+
+$ NM_HOME=<root-a> FM_HOME=<home> bin/fm-bootstrap.sh
+NO_MISTAKES_MIRROR: firstmate remote=/tmp/fm-demo/mirror/root-b/repos/fm.git expected-root=/tmp/fm-demo/mirror/root-a (run no-mistakes init inside /tmp/fm-demo/mirror/fm-root to point its gate at the active root)
+exit=0
+
+The gate remote is untouched by the run:
+
+$ git -C <root> remote get-url no-mistakes
+/tmp/fm-demo/mirror/root-b/repos/fm.git
+
+The healthy case stays silent: point the remote back inside the active root.
+
+$ git remote set-url no-mistakes <root-a>/repos/fm.git; bin/fm-bootstrap.sh
+exit=0 (no output above the exit line: no drift, no noise)
