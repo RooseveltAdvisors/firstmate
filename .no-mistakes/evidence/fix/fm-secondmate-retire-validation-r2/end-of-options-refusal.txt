@@ -1,0 +1,6 @@
+$ bin/fm-teardown.sh ops -- --force --legacy-record   (later ids spell option names)
+error: teardown acts on exactly one task, but 3 targets were given: ops --force --legacy-record
+error: 1 of those targets are persistent secondmate homes, not finished workers: ops
+Retiring a secondmate is a per-target decision. Nothing was changed.
+List candidates with their kinds using bin/fm-fleet-view.sh --cleanup-candidates, then act on one target per invocation.
+exit=2

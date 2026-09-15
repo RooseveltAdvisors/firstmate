@@ -1,0 +1,13 @@
+# Cleanup Candidates
+
+Home: /tmp/fm-demo-view.XpFSBI/demo-c
+
+| ID | Kind | Persistence | Teardown |
+| --- | --- | --- | --- |
+| scout-task | scout | disposable | bin/fm-teardown.sh scout-task |
+| secondmate-task | secondmate | persistent | retire only by an explicit decision naming this home - see .agents/skills/secondmate-provisioning |
+| ship-task | ship | disposable | bin/fm-teardown.sh ship-task |
+
+A persistent home is retired only by a decision naming that exact home; an idle queue is healthy, not finished.
+This report prints no runnable retirement command, so retiring a standing home has to be typed deliberately.
+Teardown takes one target per invocation.

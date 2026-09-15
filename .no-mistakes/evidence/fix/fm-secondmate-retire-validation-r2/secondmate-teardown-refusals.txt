@@ -1,0 +1,18 @@
+$ bin/fm-teardown.sh domain
+REFUSED: task domain is a persistent secondmate home, not a finished worker; nothing was changed.
+An idle queue is a healthy secondmate's normal state, never evidence it is done.
+Retiring it takes authority naming that exact home: bin/fm-teardown.sh domain --retire-secondmate domain
+List candidates with their kinds using bin/fm-fleet-view.sh --cleanup-candidates rather than inferring persistence from a worktree path.
+exit=1
+
+$ bin/fm-teardown.sh domain --force   (--force must not substitute)
+REFUSED: task domain is a persistent secondmate home, not a finished worker; nothing was changed.
+An idle queue is a healthy secondmate's normal state, never evidence it is done.
+Retiring it takes authority naming that exact home: bin/fm-teardown.sh domain --retire-secondmate domain
+List candidates with their kinds using bin/fm-fleet-view.sh --cleanup-candidates rather than inferring persistence from a worktree path.
+exit=1
+
+$ bin/fm-teardown.sh domain --retire-secondmate other-domain   (wrong home named)
+REFUSED: --retire-secondmate names other-domain, but this teardown targets domain; nothing was changed.
+Authority for retiring a persistent home must name that exact home.
+exit=1

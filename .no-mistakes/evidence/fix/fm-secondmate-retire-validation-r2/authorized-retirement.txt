@@ -1,0 +1,9 @@
+$ bin/fm-teardown.sh domain --retire-secondmate domain   (authority names the exact home)
+teardown domain complete (window firstmate:fm-domain, worktree /tmp/fm-demo-retire.PbSi1P/demo-subhome)
+exit=0
+
+home removed:      yes
+lease released:    yes
+meta cleared:      yes
+registry route removed: 0 remaining
+lease released via: treehouse return --force /tmp/fm-demo-retire.PbSi1P/demo-subhome
