@@ -3140,16 +3140,21 @@ if [ "$BACKEND" = herdr ]; then
     HERDR_TASK_LABEL_HOME=$PROJ_ABS/config
   fi
   if [ "$(fm_backend_herdr_task_titles_preference "$HERDR_TASK_LABEL_HOME")" = on ]; then
+    # Derive the title from the task's own brief, not the rendered launch
+    # overlay: the overlay prepends the current worker role contract, whose
+    # first non-heading line is identity boilerplate, so reading it would
+    # label every worker with the crewmate sentence instead of its task.
+    HERDR_TASK_TITLE_BRIEF=${SOURCE_BRIEF:-$BRIEF}
     HERDR_TASK_TITLE=${FM_BACKLOG_ROW_TITLE:-}
     if [ -z "$HERDR_TASK_TITLE" ]; then
       HERDR_TASK_TITLE=$(awk '
         /^# Task[[:space:]]*$/ { in_task=1; next }
         in_task && /^#/ { exit }
         in_task && NF { print; exit }
-      ' "$BRIEF")
+      ' "$HERDR_TASK_TITLE_BRIEF")
     fi
     if [ -z "$HERDR_TASK_TITLE" ]; then
-      HERDR_TASK_TITLE=$(awk '!/^#/ && NF { print; exit }' "$BRIEF")
+      HERDR_TASK_TITLE=$(awk '!/^#/ && NF { print; exit }' "$HERDR_TASK_TITLE_BRIEF")
     fi
     HERDR_TASK_LABEL=$(fm_backend_herdr_task_label "$HERDR_TASK_TITLE" "$ID")
   fi
