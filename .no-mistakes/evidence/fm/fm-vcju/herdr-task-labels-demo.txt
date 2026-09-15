@@ -1,0 +1,14 @@
+=== End-user experience: spawn two workers on an opted-in home (config/herdr-task-titles present) ===
+
+--- what the operator sees in the herdr tab list (workspace 'firstmate') ---
+w1:t2	Fix: login crash on Chrome, every morning (t1)
+w1:t3	Ship release notes draft. (t2)
+
+--- spawn meta records (state/t1.meta, state/t2.meta) ---
+/tmp/fm-herdr-label-demo.zHb2A1/home-a/state/t1.meta:herdr_task_label=Fix: login crash on Chrome, every morning (t1)
+/tmp/fm-herdr-label-demo.zHb2A1/home-a/state/t2.meta:herdr_task_label=Ship release notes draft. (t2)
+
+=== Standing the opt-in down: rm config/herdr-task-titles, spawn t3 ===
+--- new tab for t3 (should be the historical fm-t3) ---
+w1:t4	fm-t3
+herdr_task_label=fm-t3
