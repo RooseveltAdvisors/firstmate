@@ -1,0 +1,23 @@
+      ▄▀▀▄        Antigravity CLI 1.2.2
+     ▀▀▀▀▀▀       rooseveltadvisors@gmail.com (Google AI Pro)
+    ▀▀▀▀▀▀▀▀      Gemini 3.8 Flash (Low)
+   ▄▀▀    ▀▀▄     /tmp/agy-wake-testphase/ws
+  ▄▀▀      ▀▀▄
+────────────────────────────────────────────────────────────
+> Reply with exactly AGY_LIVE_WAKE_OK and nothing else
+  AGY_LIVE_WAKE_OK
+────────────────────────────────────────────────────────────
+> Reply with exactly AGY_LIVE_WAKE_2 and nothing else
+  AGY_LIVE_WAKE_2
+────────────────────────────────────────────────────────────
+> Reply with exactly AGY_LIVE_WAKE_3 and nothing else
+  AGY_LIVE_WAKE_3
+────────────────────────────────────────────────────────────
+> Reply with exactly AGY_LIVE_WAKE_OK_FINAL and nothing else
+────────────────────────────────────────────────────────────
+> Reply with exactly AGY_LIVE_WAKE_OK_FINAL and nothing else
+  AGY_LIVE_WAKE_OK_FINAL
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+? for shortcuts                                                                                   Gemini 3.8 Flash · low

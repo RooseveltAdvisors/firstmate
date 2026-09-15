@@ -1,0 +1,22 @@
+TOK=fm.eqhcDwGNZByP
+--- /tmp/agy-wake-testphase/home/.gemini/antigravity-cli/fm-turn-end.d/
+total 12
+drwx------  2 jon jon 4096 Sep 15 10:50 .
+drwxrwxr-x 16 jon jon 4096 Sep 15 11:09 ..
+-rw-rw-r--  1 jon jon   47 Sep 15 10:50 fm.eqhcDwGNZByP
+--- token file content:
+/tmp/agy-wake-testphase/state/task1.turn-ended
+--- pointer /tmp/agy-wake-testphase/ws/.fm-agy-turnend:
+token=fm.eqhcDwGNZByP
+--- hooks.json:
+{
+  "firstmate-turn-end": {
+    "Stop": [
+      {
+        "type": "command",
+        "command": "bash \"$HOME/.gemini/antigravity-cli/fm-turn-end.sh\"",
+        "timeout": 5
+      }
+    ]
+  }
+}
