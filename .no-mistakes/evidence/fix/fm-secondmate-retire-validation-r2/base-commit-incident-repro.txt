@@ -1,0 +1,4 @@
+$ bin/fm-teardown.sh design            (base commit, no authority given)
+teardown design complete (window firstmate:fm-design, worktree /tmp/fm-base-demo.twu2R0/persistent/firstmate)
+exit code: 0
+secondmate home still present: NO (retired with no authority - the incident)

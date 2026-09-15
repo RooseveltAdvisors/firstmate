@@ -1,0 +1,109 @@
+
+======================================================================
+THE INCIDENT: a cleanup list built by the path suffix */firstmate
+======================================================================
+
+$ ls -d "$TMP_ROOT"/*/firstmate
+  /tmp/fm-demo-e2e.7FfbZn/projects/firstmate
+  /tmp/fm-demo-e2e.7FfbZn/persistent/firstmate
+
+Both paths end in /firstmate. One is an ordinary finished worker; the other is a
+standing secondmate home that roughly 17 of once were in one unattended batch.
+
+======================================================================
+1. bin/fm-fleet-view.sh --cleanup-candidates (kind-labeled report)
+======================================================================
+
+$ bin/fm-fleet-view.sh --cleanup-candidates
+# Cleanup Candidates
+
+Home: /tmp/fm-demo-e2e.7FfbZn/fleet-home
+
+| ID | Kind | Persistence | Teardown |
+| --- | --- | --- | --- |
+| design | secondmate | persistent | retire only by an explicit decision naming this home - see .agents/skills/secondmate-provisioning |
+| task-alpha | ship | disposable | bin/fm-teardown.sh task-alpha |
+
+A persistent home is retired only by a decision naming that exact home; an idle queue is healthy, not finished.
+This report prints no runnable retirement command, so retiring a standing home has to be typed deliberately.
+Teardown takes one target per invocation.
+
+$ grep -c 'bin/fm-teardown.sh' <(bin/fm-fleet-view.sh --cleanup-candidates)   # runnable commands in the report
+1
+
+======================================================================
+2. The mistaken batch: one invocation handed both matched targets
+======================================================================
+
+$ bin/fm-teardown.sh design task-alpha
+error: teardown acts on exactly one task, but 2 targets were given: design task-alpha
+error: 1 of those targets are persistent secondmate homes, not finished workers: design
+Retiring a secondmate is a per-target decision. Nothing was changed.
+List candidates with their kinds using bin/fm-fleet-view.sh --cleanup-candidates, then act on one target per invocation.
+
+exit code: 2
+
+$ ls state/ after the refused batch
+  state/: design.meta
+secondmate-summary-cache
+task-alpha.meta
+  secondmate home still present: yes
+
+======================================================================
+3. Single-target teardown of the secondmate without naming authority
+======================================================================
+
+$ bin/fm-teardown.sh design
+REFUSED: task design is a persistent secondmate home, not a finished worker; nothing was changed.
+An idle queue is a healthy secondmate's normal state, never evidence it is done.
+Retiring it takes authority naming that exact home: bin/fm-teardown.sh design --retire-secondmate design
+List candidates with their kinds using bin/fm-fleet-view.sh --cleanup-candidates rather than inferring persistence from a worktree path.
+
+exit code: 1
+  secondmate home still present: yes
+
+======================================================================
+4. --force explicitly does NOT substitute for the authority
+======================================================================
+
+$ bin/fm-teardown.sh design --force
+REFUSED: task design is a persistent secondmate home, not a finished worker; nothing was changed.
+An idle queue is a healthy secondmate's normal state, never evidence it is done.
+Retiring it takes authority naming that exact home: bin/fm-teardown.sh design --retire-secondmate design
+List candidates with their kinds using bin/fm-fleet-view.sh --cleanup-candidates rather than inferring persistence from a worktree path.
+
+exit code: 1
+  secondmate home still present: yes
+
+======================================================================
+5. Wrong-home authority is refused too
+======================================================================
+
+$ bin/fm-teardown.sh design --retire-secondmate other
+REFUSED: --retire-secondmate names other, but this teardown targets design; nothing was changed.
+Authority for retiring a persistent home must name that exact home.
+
+exit code: 1
+
+======================================================================
+6. Deliberate retirement: authority naming the exact home
+======================================================================
+
+$ bin/fm-teardown.sh design --retire-secondmate design
+teardown design complete (window firstmate:fm-design, worktree /tmp/fm-demo-e2e.7FfbZn/persistent/firstmate)
+
+exit code: 0
+  secondmate home removed: yes
+  treehouse lease released: yes
+  registry line removed: yes
+
+======================================================================
+7. Ordinary ship teardown is unchanged (its worktree also matched the glob)
+======================================================================
+
+$ bin/fm-teardown.sh task-alpha --force
+teardown task-alpha complete (window firstmate:fm-task-alpha, worktree /tmp/fm-demo-e2e.7FfbZn/projects/firstmate)
+Backlog: task-alpha just finished (this home keeps no markdown backlog at /tmp/fm-demo-e2e.7FfbZn/fleet-home/data/backlog.md). Update /tmp/fm-demo-e2e.7FfbZn/fleet-home/data/backlog.md - move task-alpha to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+
+exit code: 0
+  ship task record cleared: yes
