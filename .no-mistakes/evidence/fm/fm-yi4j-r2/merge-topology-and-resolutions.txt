@@ -1,0 +1,12 @@
+== git topology ==
+HEAD: 2cd3079d7a4db2a2ff95aab505c432d00ffe5782
+first parent: e7031f063edb94ac62f4d0dec9d699c0b64ea1ab (reviewed published head e7031f0)
+second parent: b430bf50d9aea5d1a810cab1bd293670bbca64be (origin/main b430bf5)
+merge-base --is-ancestor e7031f0 HEAD: OK (no force-push, additive merge)
+
+== fm-spawn.sh EXIT trap (branch addition retained) ==
+1118:  spawn_herdr_projection_abort_cleanup || true
+
+== fm-teardown.sh header (both contracts retained) ==
+8:# Returning a worktree to its treehouse pool also frees one pool slot, so after
+14:# An endpoint whose close could not do its job REFUSES before any record naming

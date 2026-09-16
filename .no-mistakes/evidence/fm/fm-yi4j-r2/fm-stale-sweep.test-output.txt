@@ -1,0 +1,17 @@
+ok - the age column is the true clock age and --older-than gates selection
+ok - a home-relative [beads] path resolves against the home, not the working directory
+ok - the provenance fallback accepts a firstmate home, not any directory
+ok - orphan columns show actor and provenance; --apply-orphans honors age, marker, and URL guards
+ok - dry run lists every verdict and reclaims nothing
+ok - apply reclaims exactly the dead rows with the note, touching nothing else
+ok - a row whose record lock a completion holds is refused until the lock frees
+ok - a row with a pending completion replay is refused until the replay lands
+ok - an undecodable claim marker still blocks an orphan reclaim
+ok - an orphan reclaim runs when the record home has no state dir to lock
+ok - a two-home handoff reclaims through the first home and names its actor
+ok - check mode reports only past the interval gate and only when rows are reclaimable
+ok - check mode reports the budget cut alongside its reclaimable verdict
+fm-stale-sweep: bd list failed on /tmp/fm-stale-sweep.eDL1vk/bdslow/fm/.beads
+ok - check mode bounds the graph read by the budget and records the failed probe
+ok - arm writes and registers the check shim; disarm removes all of it
+# all fm-stale-sweep tests passed

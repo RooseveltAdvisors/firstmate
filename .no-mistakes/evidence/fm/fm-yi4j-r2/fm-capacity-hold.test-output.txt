@@ -1,0 +1,6 @@
+ok - a full pool holds the queued item with a load-kind capacity reason and exits 2
+ok - a full pool on a manual-backend home still exits 2 and records no phantom hold
+ok - an endpoint the refusal could not close is reported, never claimed closed
+ok - returning a worktree releases exactly the oldest capacity hold for that pool
+ok - a hold recorded under the project-root fallback identity is released when the worktree-derived pool matches nothing
+# all fm-capacity-hold tests passed
