@@ -1,0 +1,17 @@
+# Direct CLI transcript of `bin/fm-control.sh exit` (PR #3850 F1 fix: the
+# post-interrupt unconfirmed-exit path), run against the same fake-tmux
+# backend the control suite uses. Three scenarios an operator would see:
+
+=== 1. Late stop: agent stops 0.3s after /exit, after the 0.05s exit window, inside the 2s confirm window -> SUCCESS ===
+stopped t1 harness=claude backend=tmux endpoint=fmses:fm-t1 worktree=/tmp/fm-control.A969BT/late-stop-demo-24196/wt-t1
+exit-code=0 (0 = success)
+
+=== 2. Ambiguous post-interrupt seat, agent stops 0.3s later -> interrupt delivered, exit command withheld, stop observed as SUCCESS ===
+stopped t1 harness=claude backend=tmux endpoint=fmses:fm-t1 worktree=/tmp/fm-control.A969BT/blur-stop-demo-23865/wt-t1
+exit-code=0 (0 = success)
+
+=== 3. Ambiguous post-interrupt seat, agent never stops -> unconfirmed, never a definite failure (exit 1, no exit command typed) ===
+error: exit-interrupted t1 interrupt=delivered verified=unattributed cancel=unconfirmed exit-command=not-sent agent-state=ambiguous exit=unconfirmed; the stop state was not observed within the 0.05s exit window and its 0.05s confirm window - a window's expiry is not evidence the agent kept running, so this is unconfirmed rather than failed; read the seat's current state before any recovery action
+exit-code=1 (1 = unconfirmed)
+keys sent to pane: Escape 
+literals typed: [] (empty = no exit command typed into the unattributed seat)
