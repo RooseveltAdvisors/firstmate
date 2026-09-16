@@ -1,0 +1,48 @@
+==============================================================
+E2E: .tasks.toml becomes per-home local material
+Worktree under test: /home/jon/.no-mistakes/worktrees/16b9fb59e3d9/01M2M7EQNPVTQ0STNP41W2782J
+Date: 2026-09-16T05:11:56Z
+==============================================================
+
+--- BEFORE the advance -----------------------------------------------
+primary home .tasks.toml:      backend = "markdown"  [markdown] path = "data/my-own-backlog.md" done_keep = 3 
+secondmate home .tasks.toml:   backend = "markdown"  [markdown] path = "data/mate-backlog.md" done_keep = 3 
+git tracks .tasks.toml:        .tasks.toml
+
+--- Run the REAL update: bin/fm-update.sh ----------------------------
+(this fast-forwards both homes across the commit that renames
+ .tasks.toml -> .tasks.toml.example and gitignores the live file)
+
+$ env PATH=/tmp/fm-e2e-tasks-toml.vAetsX/world/fakebin:/home/jon/.pi/agent/bin:/home/jon/.npm-global/bin:/home/jon/.local/bin:/home/jon/go/bin:/home/jon/.bun/bin:/home/jon/.local/bin:/home/linuxbrew/.linuxbrew/bin:/home/jon/.npm-global/bin:/home/jon/.local/bin:/home/jon/go/bin:/home/jon/.bun/bin:/home/jon/.local/bin:/home/linuxbrew/.linuxbrew/bin:/home/jon/.npm-global/bin:/home/jon/.local/bin:/home/jon/go/bin:/home/jon/.bun/bin:/home/jon/.local/bin:/home/jon/.kimi-code/bin:/home/linuxbrew/.linuxbrew/bin:/home/jon/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/opt/claude/bin:/home/jon/.cargo/bin:/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/home/jon/go/bin:/opt/homebrew/opt/fzf/bin:/home/jon/.claude/plugins/cache/claude-plugins-official/code-review/85cce0381e78/bin:/home/jon/.claude/plugins/cache/compound-engineering-plugin/compound-engineering/3.12.0/bin:/home/jon/.claude/plugins/cache/claude-code-plugins/frontend-design/1.1.0/bin:/home/jon/.claude/plugins/cache/ponytail/ponytail/4.7.0/bin:/home/jon/.claude/plugins/cache/claude-plugins-official/pr-review-toolkit/85cce0381e78/bin:/home/jon/.claude/plugins/cache/shadcnblocks-marketplace/shadcnblocks/0.1.0/bin:/home/jon/bin:/opt/homebrew/bin:/opt/homebrew/sbin FM_FAKE_DIR=/tmp/fm-e2e-tasks-toml.vAetsX/world/fake FM_ROOT_OVERRIDE=/tmp/fm-e2e-tasks-toml.vAetsX/world/main FM_HOME=/tmp/fm-e2e-tasks-toml.vAetsX/world/main bash /home/jon/.no-mistakes/worktrees/16b9fb59e3d9/01M2M7EQNPVTQ0STNP41W2782J/bin/fm-update.sh
+TASKS_CONFIG: restored /tmp/fm-e2e-tasks-toml.vAetsX/world/main/.tasks.toml, which the update removed
+firstmate: updated c5fd6ff..2b87551
+no watches registered
+reread-firstmate: no
+restart-secondmates: none
+nudge-secondmates: none
+
+--- AFTER the advance ------------------------------------------------
+primary home .tasks.toml:      backend = "markdown"  [markdown] path = "data/my-own-backlog.md" done_keep = 3 
+secondmate home .tasks.toml:   backend = "markdown"  [markdown] path = "data/mate-backlog.md" done_keep = 3 
+gitignore now ignores it:      .gitignore:1:.tasks.toml	.tasks.toml
+customization intact:          YES
+mate customization intact:     YES
+
+--- Run the REAL bootstrap on a FRESH home (no .tasks.toml) ----------
+
+$ env PATH=/tmp/fm-e2e-tasks-toml.vAetsX/world/freshbin:/home/jon/.pi/agent/bin:/home/jon/.npm-global/bin:/home/jon/.local/bin:/home/jon/go/bin:/home/jon/.bun/bin:/home/jon/.local/bin:/home/linuxbrew/.linuxbrew/bin:/home/jon/.npm-global/bin:/home/jon/.local/bin:/home/jon/go/bin:/home/jon/.bun/bin:/home/jon/.local/bin:/home/linuxbrew/.linuxbrew/bin:/home/jon/.npm-global/bin:/home/jon/.local/bin:/home/jon/go/bin:/home/jon/.bun/bin:/home/jon/.local/bin:/home/jon/.kimi-code/bin:/home/linuxbrew/.linuxbrew/bin:/home/jon/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/opt/claude/bin:/home/jon/.cargo/bin:/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/home/jon/go/bin:/opt/homebrew/opt/fzf/bin:/home/jon/.claude/plugins/cache/claude-plugins-official/code-review/85cce0381e78/bin:/home/jon/.claude/plugins/cache/compound-engineering-plugin/compound-engineering/3.12.0/bin:/home/jon/.claude/plugins/cache/claude-code-plugins/frontend-design/1.1.0/bin:/home/jon/.claude/plugins/cache/ponytail/ponytail/4.7.0/bin:/home/jon/.claude/plugins/cache/claude-plugins-official/pr-review-toolkit/85cce0381e78/bin:/home/jon/.claude/plugins/cache/shadcnblocks-marketplace/shadcnblocks/0.1.0/bin:/home/jon/bin:/opt/homebrew/bin:/opt/homebrew/sbin FM_BACKEND=tmux FM_HOME=/tmp/fm-e2e-tasks-toml.vAetsX/world/fresh-home FM_ROOT_OVERRIDE=/tmp/fm-e2e-tasks-toml.vAetsX/world/fresh-root FM_FAKE_TREEHOUSE_LEASE_HELP=1 bash /tmp/fm-e2e-tasks-toml.vAetsX/world/fresh-root/bin/fm-bootstrap.sh
+MISSING: treehouse (install: curl -fsSL https://kunchenguid.github.io/treehouse/install.sh | sh)
+MISSING: tasks-axi (install: npm install -g tasks-axi)
+
+fresh home .tasks.toml now exists:  YES
+matches the tracked example:        YES
+content: backend = "markdown"  [markdown] path = "data/backlog.md" archive = "data/done-archive.md" done_keep = 10 
+
+--- Run the REAL bootstrap on a home with its OWN customized copy ----
+$ env PATH=/tmp/fm-e2e-tasks-toml.vAetsX/world/freshbin:/home/jon/.pi/agent/bin:/home/jon/.npm-global/bin:/home/jon/.local/bin:/home/jon/go/bin:/home/jon/.bun/bin:/home/jon/.local/bin:/home/linuxbrew/.linuxbrew/bin:/home/jon/.npm-global/bin:/home/jon/.local/bin:/home/jon/go/bin:/home/jon/.bun/bin:/home/jon/.local/bin:/home/linuxbrew/.linuxbrew/bin:/home/jon/.npm-global/bin:/home/jon/.local/bin:/home/jon/go/bin:/home/jon/.bun/bin:/home/jon/.local/bin:/home/jon/.kimi-code/bin:/home/linuxbrew/.linuxbrew/bin:/home/jon/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/opt/claude/bin:/home/jon/.cargo/bin:/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/home/jon/go/bin:/opt/homebrew/opt/fzf/bin:/home/jon/.claude/plugins/cache/claude-plugins-official/code-review/85cce0381e78/bin:/home/jon/.claude/plugins/cache/compound-engineering-plugin/compound-engineering/3.12.0/bin:/home/jon/.claude/plugins/cache/claude-code-plugins/frontend-design/1.1.0/bin:/home/jon/.claude/plugins/cache/ponytail/ponytail/4.7.0/bin:/home/jon/.claude/plugins/cache/claude-plugins-official/pr-review-toolkit/85cce0381e78/bin:/home/jon/.claude/plugins/cache/shadcnblocks-marketplace/shadcnblocks/0.1.0/bin:/home/jon/bin:/opt/homebrew/bin:/opt/homebrew/sbin FM_BACKEND=tmux FM_HOME=/tmp/fm-e2e-tasks-toml.vAetsX/world/fresh-home-2 FM_ROOT_OVERRIDE=/tmp/fm-e2e-tasks-toml.vAetsX/world/fresh-root FM_FAKE_TREEHOUSE_LEASE_HELP=1 bash /tmp/fm-e2e-tasks-toml.vAetsX/world/fresh-root/bin/fm-bootstrap.sh
+MISSING: treehouse (install: curl -fsSL https://kunchenguid.github.io/treehouse/install.sh | sh)
+MISSING: tasks-axi (install: npm install -g tasks-axi)
+
+customized copy untouched:          YES
+
+E2E COMPLETE
