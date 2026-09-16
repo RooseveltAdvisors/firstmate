@@ -1,0 +1,3 @@
+full-capability shared stub: real gate PASSES
+reduced-capability shared stub: real gate REFUSES (observes capability helps)
+shared stub --version -> 0.2.4
