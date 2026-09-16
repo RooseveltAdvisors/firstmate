@@ -63,6 +63,7 @@ FM_BACKLOG_TRANSITION_SKIP=
 FM_BACKLOG_TRANSITION_ERROR=
 FM_BACKLOG_ROW_RESULT=
 FM_BACKLOG_ROW_STATE=
+FM_BACKLOG_ROW_TITLE=
 FM_BACKLOG_ROW_ERROR=
 # Set by fm_backlog_row_probe on a found row: the tasks-axi hold kind, empty when
 # the row is not held.
@@ -187,6 +188,60 @@ fm_backlog_data_relative() {  # <data-dir>
   esac
 }
 
+fm_backlog_markdown_file() {  # <data-dir>
+  local data root config configured='' candidate
+  data=$(fm_backlog_data_absolute "$1") || return 1
+  root=$(fm_backlog_root "$data") || return 1
+  config="$root/.tasks.toml"
+  if [ ! -e "$config" ] && [ ! -L "$config" ]; then
+    fm_backlog_file "$data"
+    return $?
+  fi
+  if [ "$(fm_backlog_data_relative "$data")" != data ]; then
+    fm_backlog_file "$data"
+    return $?
+  fi
+  configured=$(awk '
+      BEGIN { table = "root" }
+      {
+        line = $0
+        if (line ~ /^[[:space:]]*\[[^]]+\][[:space:]]*(#.*)?$/) {
+          table = line
+          sub(/[[:space:]]*#.*/, "", table)
+          gsub(/[[:space:]\[\]]/, "", table)
+          next
+        }
+        if (table == "markdown" && line ~ /^[[:space:]]*path[[:space:]]*=/) {
+          sub(/^[^=]*=[[:space:]]*/, "", line)
+          quote = substr(line, 1, 1)
+          if (quote == "\"" || quote == sprintf("%c", 39)) {
+            rest = substr(line, 2)
+            ending = index(rest, quote)
+            tail = substr(rest, ending + 1)
+            if (ending > 1 && tail ~ /^[[:space:]]*(#.*)?$/) {
+              print substr(rest, 1, ending - 1)
+            }
+          }
+          exit
+        }
+      }
+    ' "$config") || return 1
+  if [ -n "$configured" ]; then
+    case "$configured" in
+      /*) printf '%s\n' "$configured" ;;
+      *) printf '%s/%s\n' "$root" "$configured" ;;
+    esac
+    return 0
+  fi
+  for candidate in "$root/backlog.md" "$root/data/backlog.md"; do
+    if [ -e "$candidate" ] || [ -L "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  printf '%s/backlog.md\n' "$root"
+}
+
 
 # The parent an authorized data directory was named from, kept in the caller's
 # own path shape. fm_backlog_record_parent_authorized only applies its FM_HOME
@@ -243,7 +298,7 @@ fm_backlog_source_present() {  # <data-dir> <authorized-data-dir> [root authoriz
     FM_BACKLOG_TRANSITION_ERROR=$backend
     return 2
   }
-  file=$(fm_backlog_file "$data") || return 1
+  file=$(fm_backlog_markdown_file "$data") || return 1
   if [ "$backend" = markdown ]; then
     fm_backlog_record_present "$file" "backlog file" "$authorized_data"
     return $?
@@ -273,7 +328,7 @@ fm_backlog_tasks_axi_addressing() {  # <data-dir>
   }
   FM_BACKLOG_AXI_ROOT=$root
   if [ "$backend" = markdown ]; then
-    FM_BACKLOG_AXI_FILE=$(fm_backlog_file "$data") || return 1
+    FM_BACKLOG_AXI_FILE=$(fm_backlog_markdown_file "$data") || return 1
   fi
 }
 
@@ -479,6 +534,7 @@ fm_backlog_row_probe() {  # <data-dir> <id>
   fi
   FM_BACKLOG_ROW_RESULT=error
   FM_BACKLOG_ROW_STATE=
+  FM_BACKLOG_ROW_TITLE=
   FM_BACKLOG_ROW_HOLD_KIND=
   FM_BACKLOG_ROW_ERROR=
   fm_backlog_source_present "$data" "$authorized_data"
@@ -506,6 +562,7 @@ fm_backlog_row_probe() {  # <data-dir> <id>
     return "$command_status"
   fi
   state=$(printf '%s\n' "$out" | sed -n 's/^  state: *//p' | head -1)
+  FM_BACKLOG_ROW_TITLE=$(printf '%s\n' "$out" | sed -n 's/^  title: *//p' | head -1)
   held=$(printf '%s\n' "$out" | sed -n 's/^  held: *//p' | head -1)
   blocked=$(printf '%s\n' "$out" | sed -n 's/^  blocked: *//p' | head -1)
   hold_kind=$(printf '%s\n' "$out" | sed -n 's/^  hold_kind: *//p' | head -1)
@@ -534,6 +591,7 @@ fm_backlog_mutate() {  # <data-dir> <verb> <id> [flag...]
   fi
   shift 3
   FM_BACKLOG_TRANSITION_ERROR=
+  fm_tasks_axi_export_actor
   fm_backlog_source_present "$data" "$authorized_data"
   source_status=$?
   [ "$source_status" -eq 0 ] || return "$source_status"
