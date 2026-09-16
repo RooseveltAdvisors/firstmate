@@ -524,7 +524,9 @@ ff_target() {
       && divergence_is_redundant "$dir" "$local_rev" "$base_rev"; then
       instr=$(changed_instr "$dir" "$base")
       before=$(git -C "$dir" rev-parse --short HEAD)
+      tasks_config_stage "$dir"
       if git -C "$dir" reset --keep "$base" >/dev/null 2>&1; then
+        tasks_config_restore "$dir"
         after=$(git -C "$dir" rev-parse --short HEAD)
         FF_STATUS="updated"
         FF_INSTR="$instr"
@@ -536,6 +538,7 @@ ff_target() {
         fi
         return 0
       fi
+      tasks_config_restore "$dir"
       echo "$label: skipped: redundant divergence could not be reconciled with reset --keep"
       return 0
     fi
