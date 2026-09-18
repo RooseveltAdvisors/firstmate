@@ -1,0 +1,37 @@
+== Fixture: bd refuses a due-less create and rejects type captain ==
+bd refused 'create --type task' without --due (due.required in force)
+bd rejected '--type captain' (no types.custom registration)
+
+== End-to-end: bin/fm-captain-hold.sh hold on a fresh investigation id ==
+fm-manual-call
+hold exit: 0
+
+== Persisted state: tasks-axi show fm-manual-call ==
+task:
+  id: fm-manual-call
+  title: Choose the sample route
+  state: queued
+  blocked: no
+  blocked_by: none
+  held: yes
+  hold_reason: captain must decide
+  hold_kind: captain
+  hold_until: "-"
+  kind: captain
+  repo: sample
+  priority: 2
+  priority_why: "-"
+  created: 2026-09-18
+  closed: "-"
+  deps: none
+  links: none
+  body: "Captain hold set: 2026-09-18T17:06:17Z\n"
+
+== Persisted state: bd show fm-manual-call (native issue_type) ==
+{
+  "id": "fm-manual-call",
+  "issue_type": "task",
+  "status": "open",
+  "title": "Choose the sample route",
+  "due": null
+}
