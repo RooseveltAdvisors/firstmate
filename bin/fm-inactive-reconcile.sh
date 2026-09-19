@@ -96,6 +96,8 @@ CREW_STATE_BIN="${FM_INACTIVE_CREW_STATE_BIN:-$SCRIPT_DIR/fm-crew-state.sh}"
 . "$SCRIPT_DIR/fm-parent-channel-lib.sh"
 # shellcheck source=bin/fm-timeout-lib.sh
 . "$SCRIPT_DIR/fm-timeout-lib.sh"
+# shellcheck source=bin/fm-done-guard-lib.sh
+. "$SCRIPT_DIR/fm-done-guard-lib.sh"
 
 FM_INACTIVE_RECONCILE_SECS=${FM_INACTIVE_RECONCILE_SECS:-900}
 case "$FM_INACTIVE_RECONCILE_SECS" in
@@ -362,6 +364,9 @@ child_terminal_ledger_line() { # <status>
   [ -f "$status" ] && [ ! -L "$status" ] && [ -s "$status" ] || return 1
   last=$(last_status_line "$status")
   case "$(status_line_verb "$last")" in done|failed) ;; *) return 1 ;; esac
+  if [ "$(status_line_verb "$last")" = "done" ]; then
+    FM_DONE_GUARD_NO_FORGE=1 fm_done_guard_accepts_status_line "$status" "$last" || return 1
+  fi
   snapshot=$(cat "$status"; printf '%s' "$marker") || return 1
   case "$snapshot" in
     *$'\n'"$marker") ;;

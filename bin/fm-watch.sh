@@ -185,6 +185,10 @@ mkdir -p "$STATE"
 # watcher reads only its presence (afk_record_present below).
 # shellcheck source=bin/fm-afk-contract.sh
 . "$SCRIPT_DIR/fm-afk-contract.sh"
+# Ship-done acceptance: a PR-requiring ship `done:` without a pushed branch and
+# open PR is dropped from the span and the worker is steered to push.
+# shellcheck source=bin/fm-done-guard-lib.sh
+. "$SCRIPT_DIR/fm-done-guard-lib.sh"
 
 WATCH_LOCK="$STATE/.watch.lock"
 WATCH_PATH="$SCRIPT_DIR/fm-watch.sh"
@@ -1760,9 +1764,11 @@ run_check_capture() {
 # (docs/pi-supervision-branch.md). Stale and heartbeat rows retain their existing
 # eligibility rules.
 signal_files_actionable() {  # <status-file> ...
-  local f task record rest endpoint ident needs_decision rc found=1
+  local f task record rest endpoint ident needs_decision rc found=1 last
+  local saw_refused_done=0 had_actionable=0
   FM_SIGNAL_SURFACE_ENDPOINTS=''
   FM_SIGNAL_NEEDS_DECISION_FILES=''
+  FM_SIGNAL_DONE_GUARD_HANDLED=0
   for f in "$@"; do
     case "$f" in *.status) ;; *) continue ;; esac
     [ -e "$f" ] || [ -L "$f" ] || continue
@@ -1771,6 +1777,11 @@ signal_files_actionable() {  # <status-file> ...
     status_span_first_actionable_record "$f" \
       "$(fm_wake_signal_seen_size "$STATE" "$f")" record needs_decision
     rc=$?
+    if [ "${FM_STATUS_SPAN_DONE_REFUSED:-0}" = 1 ]; then
+      saw_refused_done=1
+      last=$(last_status_line "$f")
+      fm_done_guard_steer_status "$f" "$last" || true
+    fi
     [ "$rc" -eq 1 ] && [ -z "$record" ] && continue
     if [ "$rc" -eq 2 ]; then
       # Could not classify this log. Surface it rather than absorbing it, and
@@ -1778,6 +1789,7 @@ signal_files_actionable() {  # <status-file> ...
       # again once it is readable. The wake signature still advances, which is
       # what bounds this to one report per distinct file state.
       found=0
+      had_actionable=1
       continue
     fi
     endpoint=${record%%$'\t'*}; rest=${record#*$'\t'}; ident=${rest%%$'\t'*}
@@ -1787,8 +1799,12 @@ signal_files_actionable() {  # <status-file> ...
     fi
     if [ "$rc" -eq 0 ] || [ "$needs_decision" -eq 1 ]; then
       found=0
+      had_actionable=1
     fi
   done
+  if [ "$saw_refused_done" -eq 1 ] && [ "$had_actionable" -eq 0 ]; then
+    FM_SIGNAL_DONE_GUARD_HANDLED=1
+  fi
   return "$found"
 }
 
@@ -2409,7 +2425,8 @@ EOF
     # bin/fm-supervise-daemon.sh).
     # shellcheck disable=SC2086  # same space-separated status-path list
     if afk_present || [ "$signal_actionable" -eq 0 ] \
-      || { ! signal_crew_provably_working $files && ! signal_turnend_panes_churned $files; }; then
+      || { [ "${FM_SIGNAL_DONE_GUARD_HANDLED:-0}" != 1 ] \
+        && ! signal_crew_provably_working $files && ! signal_turnend_panes_churned $files; }; then
       while IFS=$(printf '\t') read -r sf sig f; do
         [ -n "$sf" ] || continue
         file_reason="$reason"
