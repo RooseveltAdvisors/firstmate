@@ -41,9 +41,10 @@
 # a bounded slice of its worktree instead of a status file, so callers run it only
 # at the moment they would otherwise escalate. An optional ship-done hook
 # (fm_done_guard_accepts_status_line, owned by bin/fm-done-guard-lib.sh) may drop
-# a `done:` event that lacks a pushed branch and open PR; the hook is invoked only
-# when the consumer sourced that library, and steering the worker is a watcher-side
-# effect, not a classifier write.
+# a `done:` event that lacks a pushed branch and open PR, at the cost of one
+# bounded forge read unless the caller sets FM_DONE_GUARD_NO_FORGE=1; the hook is
+# invoked only when the consumer sourced that library, and steering the worker is
+# a watcher-side effect, not a classifier write.
 
 # Directory of this library, used to locate the sibling fm-crew-state.sh reader.
 # Resolved at source time from BASH_SOURCE so it works whether sourced by a

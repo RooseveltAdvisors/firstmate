@@ -16,7 +16,10 @@
 # with no heuristics and no LLM.
 # For a terminal passed no-mistakes run, a matching merge-poll retirement
 # receipt is local merged evidence; otherwise a 5s-bounded forge read is tried.
-# FM_CREW_STATE_NO_FORGE=1 keeps the receipt read but skips the forge fallback.
+# FM_CREW_STATE_NO_FORGE=1 keeps the receipt read but skips that forge fallback.
+# It does not cover the ship-done gate in step 4, whose own bounded forge read is
+# governed separately by FM_DONE_GUARD_NO_FORGE (bin/fm-done-guard-lib.sh), so a
+# caller that must stay offline sets both.
 # An absent or unreadable PR identity yields an honest unknown, never an
 # optimistic merged claim.
 # Output is one stable, parseable, token-tight line firstmate can read every
@@ -90,7 +93,10 @@
 #      proven historical head, or kind=scout): fall back to the recorded
 #      backend's pane busy state, then the resolved status declaration
 #      when its verb maps to a recognized run-state. Decision-only events such as
-#      `resolved` never become current state or detail.
+#      `resolved` never become current state or detail. A `done:` declaration from
+#      a PR-requiring ship reads unknown unless the ship-done gate accepts it
+#      (bin/fm-done-guard-lib.sh owns that check), so an unpushed branch or an
+#      unconfirmed PR is never reported here as a completed ship.
 #   5. Missing meta or torn-down worktree: report unknown · none. If no run is
 #      attributed to this crew, a dead endpoint also reports unknown · none rather
 #      than trusting a stale status log. On tmux and herdr, which own a

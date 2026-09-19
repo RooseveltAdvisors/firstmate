@@ -7,10 +7,15 @@
 # running no-mistakes step or a backend busy signal. A home that opts in with
 # config/turnend-churn-absorb lets a bare turn-end also use bounded pane churn
 # since the previous poll. Every other no-verb wake surfaces, so a crew
-# that finishes (or stops and waits) is never silently swallowed. A declared wait,
-# either a paused: external wait or a verified captain-held transfer, is the
-# separate idle absorb case and re-surfaces only on its long bounded cadence,
-# although its initial no-verb status signal still surfaces in normal mode.
+# that finishes (or stops and waits) is never silently swallowed.
+# A ship `done:` the ship-done gate refuses (bin/fm-done-guard-lib.sh) is the one
+# completion this watcher does not hand to firstmate: it is dropped from the span
+# and steered back to its own worker instead, and its wake is absorbed only when
+# that steer was delivered and nothing else in the batch was actionable.
+# A declared wait, either a paused: external wait or a verified captain-held
+# transfer, is the separate idle absorb case and re-surfaces only on its long
+# bounded cadence, although its initial no-verb status signal still surfaces in
+# normal mode.
 # That cadence is hours long and condition-aware: a paused: line naming
 # `until <UTC ISO 8601>` is rechecked when that time passes, but a declared time
 # beyond FM_PAUSE_RESURFACE_SECS cannot extend the ordinary recheck cadence, and

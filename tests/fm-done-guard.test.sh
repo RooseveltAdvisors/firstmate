@@ -2,7 +2,8 @@
 # Behavior tests for the ship-done acceptance gate (bin/fm-done-guard.sh).
 # A PR-requiring ship may report done only after its own branch is on the remote
 # and the forge confirms an open PR in that task's repository. Tests drive the
-# public check/apply CLI, never implementation source bytes.
+# public check/apply CLI and, for the captain-facing half, the real watcher and
+# wake queue - never implementation source bytes.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -268,6 +269,67 @@ EOF
   pass "apply refuses an unpushed done and steers the worker to push"
 }
 
+# The reported failure at the surface it actually bit: a ship crewmate commits
+# locally, reports `done:`, and the always-on watcher hands that completion to
+# the captain's durable wake queue, which reads as a delivered ship. The gate
+# must keep that done out of the queue and steer the crewmate to push instead.
+# This drives the real bin/fm-watch.sh and reads the queue back through the real
+# bin/fm-wake-drain.sh rather than re-deriving either.
+install_watch_fakes() {  # <home>
+  local home=$1
+  mkdir -p "$home/bin" "$home/nogit"
+  cat > "$home/bin/tmux" <<'SH'
+#!/usr/bin/env bash
+[ "${1:-}" = list-windows ] && { printf '%s\n' "${FM_FAKE_TMUX_WINDOWS:-}"; exit 0; }
+[ "${1:-}" = capture-pane ] && exit 0
+exit 1
+SH
+  cat > "$home/bin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'state: unknown - source: pane - harness state unavailable\n'
+SH
+  chmod +x "$home/bin/tmux" "$home/bin/fm-crew-state.sh"
+}
+
+test_watcher_keeps_false_done_out_of_the_wake_queue() {
+  local rec home wt id=watch-queue-a1 log pid i=0 exited=no drained signal_rows
+  rec=$(make_ship "$id" no-mistakes)
+  IFS='|' read -r home wt _ <<EOF
+$rec
+EOF
+  install_watch_fakes "$home"
+  install_fake_send "$home"
+  log="$home/send.log"
+  commit_on "$wt" feature.txt "local only"
+  printf 'done: implementation complete\n' > "$home/state/${id}.status"
+  PATH="$home/bin:$PATH" FM_STATE_OVERRIDE="$home/state" FM_ROOT_OVERRIDE="$home/nogit" \
+    FM_CREW_STATE_BIN="$home/bin/fm-crew-state.sh" FM_FAKE_TMUX_WINDOWS="fm-$id" \
+    FM_DONE_GUARD_SEND="$home/fake-send" FM_DONE_GUARD_SEND_LOG="$log" \
+    FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+    "$ROOT/bin/fm-watch.sh" > "$home/watch.out" 2>&1 &
+  pid=$!
+  # The watcher exits on its first actionable wake; whatever it decides, it has
+  # decided by then. A watcher still running at the cap is killed and the queue
+  # read anyway, so a gate that never ran cannot pass by stalling.
+  while [ "$i" -lt 80 ]; do
+    kill -0 "$pid" 2>/dev/null || { exited=yes; break; }
+    sleep 0.25
+    i=$((i + 1))
+  done
+  [ "$exited" = yes ] || kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  drained=$(PATH="$home/bin:$PATH" FM_STATE_OVERRIDE="$home/state" \
+    FM_ROOT_OVERRIDE="$home/nogit" "$ROOT/bin/fm-wake-drain.sh" 2>&1 || true)
+  signal_rows=$(printf '%s\n' "$drained" | grep "$(printf '\tsignal\t')" \
+    | grep -F "${id}.status" || true)
+  [ -z "$signal_rows" ] \
+    || fail "the captain's wake queue carried the unpushed done: $signal_rows"
+  [ -s "$log" ] || fail "the watcher did not steer the crewmate: $(cat "$home/watch.out")"
+  assert_contains "$(cat "$log")" "pushed branch" \
+    "the steer did not tell the crewmate to push and open a PR"
+  pass "watcher drops an unpushed ship done from the captain's wake queue and steers the crewmate"
+}
+
 test_unpushed_commit_refuses_done
 test_pushed_without_pr_refuses_done
 test_pushed_with_open_pr_accepts_done
@@ -278,3 +340,4 @@ test_unreachable_forge_refuses_done
 test_scout_and_local_only_skip
 test_span_drops_refused_done
 test_apply_steers_on_refuse
+test_watcher_keeps_false_done_out_of_the_wake_queue

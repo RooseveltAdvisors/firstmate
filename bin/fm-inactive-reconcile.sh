@@ -76,7 +76,11 @@
 # and its cursor records the last child visited within the aggregate budget.
 #
 # The scan reads only durable local state and fm-crew-state.sh; it never invokes
-# gh, gh-axi, curl, fm-pr-check.sh, fm-pr-poll.sh, or a state *.check.sh.
+# gh, gh-axi, curl, fm-pr-check.sh, fm-pr-poll.sh, or a state *.check.sh itself.
+# The ledger-first path above runs the ship-done gate offline
+# (FM_DONE_GUARD_NO_FORGE=1), so it stays a pure file read; the delegated
+# fm-crew-state.sh read leaves that gate's own bounded forge read enabled, which
+# is the one forge call this scan can reach (bin/fm-done-guard-lib.sh).
 set -u
 export LC_ALL=C
 
