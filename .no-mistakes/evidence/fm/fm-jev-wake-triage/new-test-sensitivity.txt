@@ -1,0 +1,9 @@
+mutated wedge_jev_enabled: env branch removed
+-- assertion under test A: FM_JEV_WAKE_TRIAGE=off must escalate and must NOT invoke Jev
+   mutated watcher: SUPPRESSED (no page)
+   mutated watcher invoked Jev: YES
+   => test_watcher_env_off_skips_jev would FAIL against this mutation
+-- assertion under test B: FM_JEV_WAKE_TRIAGE=on must beat config 'off' and suppress
+   mutated watcher: PAGED: stale: test:mut-envon (idle 500s, possible wedge, escalation 1)
+   mutated watcher invoked Jev: no
+   => test_watcher_env_on_beats_config_off would FAIL against this mutation

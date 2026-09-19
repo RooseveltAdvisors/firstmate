@@ -1,0 +1,146 @@
+Jev stale-escalation triage — end-to-end operator transcript
+repo:   /home/jon/.no-mistakes/worktrees/16b9fb59e3d9/01M2VVY4YF7E7FK91NRKXS7KM3
+commit: 5c9135de (base 1bb72cc5)
+fixture: one ship, pane unchanged 500s, FM_STALE_ESCALATE_SECS=240, crew state "working (run-step validating)"
+network: none — fake curl replays a canned typesafe.ai System One answer
+
+══════════════════════════════════════════════════════════════════════
+0. BEFORE this change (bin/fm-watch.sh @ 1bb72cc5) — the ship gets paged
+══════════════════════════════════════════════════════════════════════
+$ fm-watch.sh   # what the captain receives on stdout
+  stale: test:jev-before (idle 500s, possible wedge, escalation 1)
+
+state/.watch-deliveries.log (durable wake delivered to the captain):
+  919623	linux-starttime=594013108 cmdline-hex=62617368002f746d702f666d2d6a65762d65766964656e63652e52314e6579742f626173652d62696e2f666d2d77617463682e736800	stale: test:jev-before (idle 500s, possible wedge, escalation 1)
+
+escalation counter: 1
+
+══════════════════════════════════════════════════════════════════════
+1. AFTER — Jev classifies pipeline_wait: no page at all
+══════════════════════════════════════════════════════════════════════
+$ fm-watch.sh   # a full poll cycle completed with no wake printed
+  (no output — the captain is not paged)
+
+watcher stdout bytes: 0   |   deliveries log: empty — nothing delivered
+escalation counter: (never created — counter untouched)
+idle timer restarted: 1789789252 -> 1789789753 (+501s)
+
+state/.watch-triage.log (what the operator reads instead of a page):
+  [2026-09-18T23:49:13-0400] absorbed non-terminal stale (jev pipeline_wait, idle 501s): test:jev-pipeline-wait
+
+state/.jev-triage-telemetry:
+  jev_triage.suppressed	ship
+
+state/.jev-triage-calibration.jsonl (captain audits precision here):
+  {
+    "n": 1,
+    "class": "ship",
+    "action": "suppress",
+    "choice": "pipeline_wait",
+    "noul": 0.07,
+    "outcome": "pending",
+    "summary": {
+      "task_id": "wedged",
+      "kind": "ship",
+      "idle_seconds": 501,
+      "escalation_count": 0,
+      "last_status": "working: still monitoring ci",
+      "status_tail": [
+        "working: still monitoring ci"
+      ],
+      "run_step": "working: still monitoring ci"
+    }
+  }
+
+The real request the helper POSTed to typesafe.ai:
+  endpoint: https://api.typesafe.ai/v1/systemone
+  auth header: Authorization: Bearer ****REDACTED****
+  key on argv: no (0 occurrences)
+  {
+    "model": "jev-latest",
+    "state": {
+      "task_id": "wedged",
+      "kind": "ship",
+      "idle_seconds": 501,
+      "escalation_count": 0,
+      "last_status": "working: still monitoring ci",
+      "status_tail": [
+        "working: still monitoring ci"
+      ],
+      "run_step": "working: still monitoring ci"
+    },
+    "questions": {
+      "class": {
+        "type": "choice",
+        "instructions": "Which one label describes this quiet pane? Read `kind`, `idle_seconds`, `escalation_count`…",
+        "criteria": {
+          "pipeline_wait": "A static pane is expected because in-flight validation, CI, a long tool call, or another pipeline step is still running. Tonight false escalations were this class: ships waiting on no-mistakes or CI while the pane stayed idle.",
+          "true_wedge": "The worker is actually stuck: looping, confused, repeating the same unchanged display without pipeline evidence, or otherwise not making progress that will resume on its own.",
+          "healthy_idle": "Silence is healthy: an idle secondmate with nothing to do, or a finished or waiting worker that is not wedged."
+        }
+      },
+      "wedge_probability": {
+        "type": "noul",
+        "instructions": "Is this quiet pane a true wedge that needs a supervisor now, rather than a pipeline wait o…",
+        "criteria": null
+      }
+    }
+  }
+
+══════════════════════════════════════════════════════════════════════
+2. AFTER — Jev classifies true_wedge: the page still fires
+══════════════════════════════════════════════════════════════════════
+$ fm-watch.sh
+  stale: test:jev-true-wedge (idle 500s, possible wedge, escalation 1)
+
+escalation counter: 1
+telemetry: jev_triage.escalated ship
+
+══════════════════════════════════════════════════════════════════════
+3. AFTER — typesafe.ai returns HTTP 500: fail-open, the page still fires
+══════════════════════════════════════════════════════════════════════
+$ fm-watch.sh
+  stale: test:jev-api-down (idle 500s, possible wedge, escalation 1)
+
+escalation counter: 1
+telemetry: jev_triage.unavailable ship
+
+══════════════════════════════════════════════════════════════════════
+4. AFTER — no TYPESAFE_API_KEY in the watcher environment: fail-open
+══════════════════════════════════════════════════════════════════════
+$ fm-watch.sh
+  stale: test:jev-no-key (idle 500s, possible wedge, escalation 1)
+
+curl invoked: no — not one network call attempted
+telemetry: jev_triage.unavailable ship
+
+══════════════════════════════════════════════════════════════════════
+5. The reported incident — 9 ships parked waiting on CI, one night
+══════════════════════════════════════════════════════════════════════
+BEFORE (watcher @ 1bb72cc5):
+  PAGE  ship-0  stale: test:night-before-0 (idle 500s, possible wedge, escalation 1)
+  PAGE  ship-1  stale: test:night-before-1 (idle 500s, possible wedge, escalation 1)
+  PAGE  ship-2  stale: test:night-before-2 (idle 500s, possible wedge, escalation 1)
+  PAGE  ship-3  stale: test:night-before-3 (idle 500s, possible wedge, escalation 1)
+  PAGE  ship-4  stale: test:night-before-4 (idle 500s, possible wedge, escalation 1)
+  PAGE  ship-5  stale: test:night-before-5 (idle 500s, possible wedge, escalation 1)
+  PAGE  ship-6  stale: test:night-before-6 (idle 500s, possible wedge, escalation 1)
+  PAGE  ship-7  stale: test:night-before-7 (idle 500s, possible wedge, escalation 1)
+  PAGE  ship-8  stale: test:night-before-8 (idle 500s, possible wedge, escalation 1)
+
+AFTER (this change, Jev answering pipeline_wait):
+  quiet ship-0  absorbed non-terminal stale (jev pipeline_wait, idle 500s): test:night-after-0
+  quiet ship-1  absorbed non-terminal stale (jev pipeline_wait, idle 500s): test:night-after-1
+  quiet ship-2  absorbed non-terminal stale (jev pipeline_wait, idle 500s): test:night-after-2
+  quiet ship-3  absorbed non-terminal stale (jev pipeline_wait, idle 501s): test:night-after-3
+  quiet ship-4  absorbed non-terminal stale (jev pipeline_wait, idle 500s): test:night-after-4
+  quiet ship-5  absorbed non-terminal stale (jev pipeline_wait, idle 501s): test:night-after-5
+  quiet ship-6  absorbed non-terminal stale (jev pipeline_wait, idle 500s): test:night-after-6
+  quiet ship-7  absorbed non-terminal stale (jev pipeline_wait, idle 501s): test:night-after-7
+  quiet ship-8  absorbed non-terminal stale (jev pipeline_wait, idle 500s): test:night-after-8
+
+  pages before: 9 of 9      pages after: 0 of 9      jev_triage.suppressed: 9
+
+══════════════════════════════════════════════════════════════════════
+done
+══════════════════════════════════════════════════════════════════════
