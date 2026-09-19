@@ -1,0 +1,73 @@
+Ship-done acceptance gate, walked through the operator CLI (bin/fm-done-guard.sh).
+Fixture: a real git worktree pushed to a LOCAL bare remote (nothing is written to
+the real repository); origin's URL then names the task's real repository so both the
+repo-identity check and the PR reads are genuine. PRs 4961 (open) and 4960 (closed)
+are read LIVE from github.com/kunchenguid/firstmate at run time.
+
+
+─────────────────────────────────────────────────────────────
+1. Worker commits locally and reports done (the reported failure mode)
+─────────────────────────────────────────────────────────────
+worker wrote to state/ship-demo.status: done: implementation complete, all tests pass
+$ bash -c cd "$1" && git -C "$1" log --oneline -1 _ $WORK/worktree
+c6a5db6 implement the feature
+[exit 0]
+$ fm-done-guard.sh check ship-demo
+verdict=refused
+reason=unpushed
+[exit 1]
+
+─────────────────────────────────────────────────────────────
+2. The same refused done, applied: the worker is steered to push
+─────────────────────────────────────────────────────────────
+$ fm-done-guard.sh apply ship-demo
+verdict=refused
+reason=unpushed
+to task: ship-demo
+message: Your done report was refused: this ship task requires a pushed branch and an open PR. Push the branch to origin and open a PR, then report done with the PR's full https URL. For a no-mistakes ship, start /no-mistakes so the pipeline can push and open the PR; do not report done until it prints done: PR <url> checks green.
+[exit 1]
+
+─────────────────────────────────────────────────────────────
+3. Worker pushes the branch but opens no PR
+─────────────────────────────────────────────────────────────
+remote-tracking ref now present: refs/remotes/origin/fm/ship-demo
+worker wrote to state/ship-demo.status: done: pushed the branch, work is finished
+$ fm-done-guard.sh check ship-demo
+verdict=refused
+reason=no-pr
+[exit 1]
+
+─────────────────────────────────────────────────────────────
+4. Worker names a PR that the forge reports CLOSED (live read)
+─────────────────────────────────────────────────────────────
+worker wrote to state/ship-demo.status: done: PR https://github.com/kunchenguid/firstmate/pull/4960 checks green
+$ fm-done-guard.sh check ship-demo
+verdict=refused
+reason=unverified-pr
+[exit 1]
+
+─────────────────────────────────────────────────────────────
+5. Worker names an open PR that belongs to a DIFFERENT repository
+─────────────────────────────────────────────────────────────
+worker wrote to state/ship-demo.status: done: PR https://github.com/cli/cli/pull/1 checks green
+$ fm-done-guard.sh check ship-demo
+verdict=refused
+reason=unverified-pr
+[exit 1]
+
+─────────────────────────────────────────────────────────────
+6. Worker pushes AND opens a PR the forge reports OPEN (live read)
+─────────────────────────────────────────────────────────────
+worker wrote to state/ship-demo.status: done: PR https://github.com/kunchenguid/firstmate/pull/4961 checks green
+$ fm-done-guard.sh check ship-demo
+verdict=accepted
+reason=accepted
+[exit 0]
+
+─────────────────────────────────────────────────────────────
+7. Non-PR work is untouched: a scout done still lands
+─────────────────────────────────────────────────────────────
+$ fm-done-guard.sh check scout-demo
+verdict=skipped
+reason=scout
+[exit 0]

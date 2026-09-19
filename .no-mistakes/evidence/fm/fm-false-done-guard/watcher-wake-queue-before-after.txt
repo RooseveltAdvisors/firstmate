@@ -1,0 +1,58 @@
+What the CAPTAIN is handed when a ship crewmate reports 'done:' with only a local commit.
+Identical fixture both times: real git worktree, one unpushed commit, no PR.
+Drives the real bin/fm-watch.sh and reads the real durable wake queue via bin/fm-wake-drain.sh.
+
+══ BEFORE - base commit b6930db7 ══
+crewmate state/falsedone.status (what the worker reported):
+  done: implementation complete, all tests pass
+crewmate branch fm/falsedone: 1 local commit, no remote-tracking ref, no PR
+
+--- watcher stdout ---
+signal: $WORK/state/falsedone.status
+--- watcher woke firstmate (process exited)? yes ---
+--- durable wake queue firstmate drains ---
+1789842308	2	signal	falsedone.status	signal: $WORK/state/falsedone.status
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 2 --recovery-generation 528918.1789842308.WBaAkK
+wake annotation: latest wake-EVENT observed at drain, not current state: falsedone.status: done: implementation complete, all tests pass
+STATUS OUTCOME BACKSTOP (newest captain-facing task event has no covering branch outcome):
+falsedone done: implementation complete, all tests pass
+WARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.
+--- message delivered to the crewmate ---
+(none)
+
+
+══ AFTER - fm/fm-false-done-guard @ 22e0779c ══
+crewmate state/falsedone.status (what the worker reported):
+  done: implementation complete, all tests pass
+crewmate branch fm/falsedone: 1 local commit, no remote-tracking ref, no PR
+
+--- watcher stdout ---
+stale: test:fm-falsedone
+--- watcher woke firstmate (process exited)? yes ---
+--- durable wake queue firstmate drains ---
+1789842312	1	stale	test:fm-falsedone	stale: test:fm-falsedone
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 544510.1789842312.CWtmad
+STATUS OUTCOME BACKSTOP (newest captain-facing task event has no covering branch outcome):
+falsedone done: implementation complete, all tests pass
+WARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.
+--- message delivered to the crewmate ---
+Your done report was refused: this ship task requires a pushed branch and an open PR. Push the branch to origin and open a PR, then report done with the PR's full https URL. For a no-mistakes ship, start /no-mistakes so the pipeline can push and open the PR; do not report done until it prints done: PR <url> checks green.
+
+
+══ AFTER - a GENUINE ship done must still reach the captain ══
+(branch pushed, done names PR 4961, read live from github.com/kunchenguid/firstmate)
+
+crewmate branch fm/realdone: pushed to its remote
+crewmate state/realdone.status: done: PR https://github.com/kunchenguid/firstmate/pull/4961 checks green
+
+--- watcher stdout ---
+signal: $WORK/state/realdone.status
+--- durable wake queue firstmate drains ---
+1789842404	2	signal	realdone.status	signal: $WORK/state/realdone.status
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 2 --recovery-generation 970234.1789842404.4zD7z4
+wake annotation: latest wake-EVENT observed at drain, not current state: realdone.status: done: PR https://github.com/kunchenguid/firstmate/pull/4961 checks green
+STATUS OUTCOME BACKSTOP (newest captain-facing task event has no covering branch outcome):
+realdone done: PR https://github.com/kunchenguid/firstmate/pull/4961 checks green
+WARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.
+--- message delivered to the crewmate ---
+(none - nothing to correct)

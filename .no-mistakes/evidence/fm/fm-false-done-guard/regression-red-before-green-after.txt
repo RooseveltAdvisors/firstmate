@@ -1,0 +1,8 @@
+The new regression case (tests/fm-done-guard.test.sh::test_watcher_keeps_false_done_out_of_the_wake_queue)
+run unchanged against both trees. It reproduces the reported failure before the fix.
+
+--- against base commit b6930db7 (pre-fix tree) ---
+not ok - the captain's wake queue carried the unpushed done: 1789842372	2	signal	watch-queue-a1.status	signal: $TMP/watch-queue-a1/home/state/watch-queue-a1.status
+
+--- against fm/fm-false-done-guard @ 22e0779c ---
+ok - watcher drops an unpushed ship done from the captain's wake queue and steers the crewmate
