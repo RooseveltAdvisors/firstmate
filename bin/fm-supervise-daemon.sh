@@ -389,7 +389,7 @@ classify_signal() {  # <reason-after-colon> <state>
     # nonetheless ends on a captain-relevant line, this signal is a re-notification
     # of something already escalated, not a routine one; position is the whole
     # dedupe, so no separate seen-marker comparison is needed.
-    status_is_captain_relevant "$last" && seen_rel=1
+    status_is_captain_relevant_accepted "$f" "$last" && seen_rel=1
   done
   # strip a trailing " | " separator so the distilled line is clean
   distilled="${distilled% | }"
@@ -436,7 +436,7 @@ classify_stale() {  # <window> <state> [<span-record> <span-status>]
     printf 'pause|paused (awaiting external), rechecked on a long cadence: %s' "$last"
     return
   fi
-  if [ -n "$last" ] && status_is_captain_relevant "$last"; then
+  if status_is_captain_relevant_accepted "$state/$task.status" "$last"; then
     # Independent of free-text captain-relevant matching: a nonterminal progress
     # verb (working:) must never take the terminal stale path. Seen-status dedupe
     # must not permanently suppress or clear possible-wedge aging merely because
@@ -1452,7 +1452,7 @@ handle_wake() {  # <reason> <state>
         # Nonterminal progress verbs keep possible-wedge markers even if free text
         # once looked captain-relevant or was written into a seen marker.
         _clear_wedge=0
-        if [ -n "$last" ] && status_is_captain_relevant "$last"; then
+        if status_is_captain_relevant_accepted "$state/$task.status" "$last"; then
           if status_is_terminal_verb "$last"; then
             _clear_wedge=1
           else

@@ -509,7 +509,6 @@ tests/fm-cd-pretool-check.test.sh 16964
 tests/fm-composer-ghost.test.sh 2120
 tests/fm-composer-lib.test.sh 4798
 tests/fm-crew-state.test.sh 11557
-tests/fm-done-guard.test.sh 800
 tests/fm-ensure-agents-md.test.sh 901
 tests/fm-grok-harness.test.sh 6563
 tests/fm-herdr-lab.test.sh 9800
@@ -718,8 +717,7 @@ tests/fm-cursor-primary.test.sh 52269
 tests/fm-daemon.test.sh 27262
 tests/fm-dispatch-resolve.test.sh 4397
 tests/fm-documentation-audiences.test.sh 847
-tests/fm-done-guard.test.sh 800
-tests/fm-ensure-agents-md.test.sh 901
+tests/fm-done-guard.test.sh 1600
 tests/fm-extension-binding.test.sh 9053
 tests/fm-fleet-snapshot-view.test.sh 17465
 tests/fm-fleet-sync.test.sh 35983

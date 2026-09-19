@@ -1778,9 +1778,10 @@ signal_files_actionable() {  # <status-file> ...
       "$(fm_wake_signal_seen_size "$STATE" "$f")" record needs_decision
     rc=$?
     if [ "${FM_STATUS_SPAN_DONE_REFUSED:-0}" = 1 ]; then
-      saw_refused_done=1
+      # Only a delivered steer hands the refused done to someone. A failed send
+      # leaves nobody holding it, so the wake must still reach firstmate.
       last=$(last_status_line "$f")
-      fm_done_guard_steer_status "$f" "$last" || true
+      fm_done_guard_steer_status "$f" "$last" && saw_refused_done=1
     fi
     [ "$rc" -eq 1 ] && [ -z "$record" ] && continue
     if [ "$rc" -eq 2 ]; then

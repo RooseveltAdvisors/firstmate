@@ -2117,16 +2117,23 @@ signal_crew_provably_working() {  # <file> ...
 # "non-terminal"; the always-on watcher then applies crew_is_provably_working,
 # while the away-mode daemon applies its persistence recheck.
 stale_is_terminal() {  # <window> <state>
-  local win=$1 state=$2 last task status
-  task=$(window_to_task "$win" "$state")
-  status="$state/$task.status"
-  last=$(last_status_line "$status")
-  [ -n "$last" ] || return 1
-  status_is_captain_relevant "$last" || return 1
-  if [ "$(status_line_verb "$last")" = "done" ] \
-    && command -v fm_done_guard_accepts_status_line >/dev/null 2>&1 \
-    && ! fm_done_guard_accepts_status_line "$status" "$last"; then
-    return 1
-  fi
-  return 0
+  local win=$1 state=$2 status
+  status="$state/$(window_to_task "$win" "$state").status"
+  status_is_captain_relevant_accepted "$status" "$(last_status_line "$status")"
+}
+
+# 0 when <line> is captain-relevant and, when it is a `done:`, the optional
+# ship-done hook accepts it. Single owner of "captain-relevant after the ship
+# done gate", so every triage owner - the always-on watcher here and the
+# away-mode daemon in bin/fm-supervise-daemon.sh - agrees on which terminal
+# lines were actually escalated. A refused ship done was dropped from the span,
+# so reading it as already-escalated terminal would strand it with nobody
+# holding it.
+status_is_captain_relevant_accepted() {  # <status-file> <line>
+  local status=$1 line=$2
+  [ -n "$line" ] || return 1
+  status_is_captain_relevant "$line" || return 1
+  [ "$(status_line_verb "$line")" = "done" ] || return 0
+  command -v fm_done_guard_accepts_status_line >/dev/null 2>&1 || return 0
+  fm_done_guard_accepts_status_line "$status" "$line"
 }

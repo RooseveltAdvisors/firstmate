@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Behavior tests for the ship-done acceptance gate (bin/fm-done-guard.sh).
-# A PR-requiring ship may report done only after HEAD is on origin and an open
-# PR is referenced. Tests drive the public check/apply CLI, never implementation
-# source bytes.
+# A PR-requiring ship may report done only after its own branch is on the remote
+# and the forge confirms an open PR in that task's repository. Tests drive the
+# public check/apply CLI, never implementation source bytes.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -10,6 +10,11 @@ set -u
 
 GUARD="$ROOT/bin/fm-done-guard.sh"
 TMP_ROOT=$(fm_test_tmproot fm-done-guard)
+
+# The forge is stubbed, never reached: the gate's accept path is a live read, so
+# these tests own a fake forge whose answers they set per case.
+FAKE_ORIGIN=https://github.com/example/repo.git
+FAKE_PR_URL=https://github.com/example/repo/pull/7
 
 make_ship() {  # <name> <mode> <kind>
   local name=$1 mode=$2 kind=${3:-ship} home wt branch
@@ -36,7 +41,32 @@ commit_on() {  # <worktree> <file> <message>
 
 run_check() {  # <home> <id>
   local home=$1 id=$2
-  FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$GUARD" check "$id"
+  PATH="$home/bin:$PATH" FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
+    "$GUARD" check "$id"
+}
+
+# A forge that answers for one PR. FM_FAKE_GH_MODE=down makes every call fail so
+# a test can drive the unreachable-forge path; FM_FAKE_GH_STATE picks the state.
+install_fake_forge() {  # <home>
+  local home=$1
+  mkdir -p "$home/bin"
+  cat > "$home/bin/gh" <<'SH'
+#!/usr/bin/env bash
+[ "${FM_FAKE_GH_MODE:-up}" = up ] || exit 1
+case "${1:-}" in
+  api) printf 'state=%s\nmerged=false\n' "${FM_FAKE_GH_STATE:-OPEN}" ;;
+  pr) printf '%s\n' "${FM_FAKE_GH_PR_URL:-}" ;;
+  *) exit 1 ;;
+esac
+SH
+  cp "$home/bin/gh" "$home/bin/gh-axi"
+  chmod +x "$home/bin/gh" "$home/bin/gh-axi"
+}
+
+# Push the task branch and point origin at the repository the fake PR lives in.
+publish() {  # <worktree> <branch>
+  git -C "$1" push -q -u origin "$2"
+  git -C "$1" remote set-url origin "$FAKE_ORIGIN"
 }
 
 run_apply() {  # <home> <id>
@@ -78,7 +108,7 @@ test_pushed_without_pr_refuses_done() {
 $rec
 EOF
   commit_on "$wt" feature.txt "ready"
-  git -C "$wt" push -q -u origin "$branch"
+  publish "$wt" "$branch"
   printf 'done: implementation complete\n' > "$home/state/${id}.status"
   rc=0
   out=$(FM_DONE_GUARD_NO_FORGE=1 run_check "$home" "$id") || rc=$?
@@ -88,20 +118,88 @@ EOF
   pass "worker pushes but opens no PR -> done refused for ship tasks"
 }
 
-test_pushed_with_pr_accepts_done() {
+test_pushed_with_open_pr_accepts_done() {
   local rec home wt branch id=pushed-pr-a1 out rc=0
   rec=$(make_ship "$id" no-mistakes)
   IFS='|' read -r home wt branch <<EOF
 $rec
 EOF
+  install_fake_forge "$home"
   commit_on "$wt" feature.txt "ready"
-  git -C "$wt" push -q -u origin "$branch"
-  printf 'done: PR https://github.com/example/repo/pull/7 checks green\n' \
+  publish "$wt" "$branch"
+  printf 'done: PR %s checks green\n' "$FAKE_PR_URL" > "$home/state/${id}.status"
+  out=$(run_check "$home" "$id") || rc=$?
+  [ "$rc" -eq 0 ] || fail "pushed ship with an open PR should be accepted, got exit $rc ($out)"
+  assert_contains "$out" "verdict=accepted" "pushed+open-PR ship did not print accepted"
+  pass "worker pushes and opens a PR the forge confirms -> done accepted"
+}
+
+test_unpushed_branch_with_pr_url_refuses_done() {
+  local rec home wt id=claimed-pr-a1 out rc=0
+  rec=$(make_ship "$id" no-mistakes)
+  IFS='|' read -r home wt _ <<EOF
+$rec
+EOF
+  install_fake_forge "$home"
+  # The base branch is on the remote and the worker made no commit at all, so
+  # nothing is missing from the remotes: only the task branch's own absence
+  # there distinguishes this from a real ship.
+  git -C "$wt" push -q origin HEAD:refs/heads/base
+  git -C "$wt" remote set-url origin "$FAKE_ORIGIN"
+  printf 'done: PR %s checks green\n' "$FAKE_PR_URL" > "$home/state/${id}.status"
+  out=$(run_check "$home" "$id") || rc=$?
+  [ "$rc" -eq 1 ] || fail "a done naming a PR from an unpushed branch should be refused, got exit $rc ($out)"
+  assert_contains "$out" "reason=unpushed" "a branch that never reached the remote was read as pushed"
+  pass "worker names a PR but never pushes its own branch -> done refused"
+}
+
+test_pr_in_another_repository_refuses_done() {
+  local rec home wt branch id=foreign-pr-a1 out rc=0
+  rec=$(make_ship "$id" no-mistakes)
+  IFS='|' read -r home wt branch <<EOF
+$rec
+EOF
+  install_fake_forge "$home"
+  commit_on "$wt" feature.txt "ready"
+  publish "$wt" "$branch"
+  printf 'done: PR https://github.com/someone-else/other/pull/7 checks green\n' \
     > "$home/state/${id}.status"
   out=$(run_check "$home" "$id") || rc=$?
-  [ "$rc" -eq 0 ] || fail "pushed ship with a PR URL should be accepted, got exit $rc ($out)"
-  assert_contains "$out" "verdict=accepted" "pushed+PR ship did not print accepted"
-  pass "worker pushes and opens a PR -> done accepted"
+  [ "$rc" -eq 1 ] || fail "a PR in another repository should be refused, got exit $rc ($out)"
+  assert_contains "$out" "reason=unverified-pr" "a foreign-repository PR was not named unverified"
+  pass "worker names a PR in another repository -> done refused"
+}
+
+test_closed_pr_refuses_done() {
+  local rec home wt branch id=closed-pr-a1 out rc=0
+  rec=$(make_ship "$id" no-mistakes)
+  IFS='|' read -r home wt branch <<EOF
+$rec
+EOF
+  install_fake_forge "$home"
+  commit_on "$wt" feature.txt "ready"
+  publish "$wt" "$branch"
+  printf 'done: PR %s checks green\n' "$FAKE_PR_URL" > "$home/state/${id}.status"
+  out=$(FM_FAKE_GH_STATE=CLOSED run_check "$home" "$id") || rc=$?
+  [ "$rc" -eq 1 ] || fail "a closed PR should be refused, got exit $rc ($out)"
+  assert_contains "$out" "reason=unverified-pr" "a closed PR was not named unverified"
+  pass "worker names a PR the forge reports closed -> done refused"
+}
+
+test_unreachable_forge_refuses_done() {
+  local rec home wt branch id=forge-down-a1 out rc=0
+  rec=$(make_ship "$id" no-mistakes)
+  IFS='|' read -r home wt branch <<EOF
+$rec
+EOF
+  install_fake_forge "$home"
+  commit_on "$wt" feature.txt "ready"
+  publish "$wt" "$branch"
+  printf 'done: PR %s checks green\n' "$FAKE_PR_URL" > "$home/state/${id}.status"
+  out=$(FM_FAKE_GH_MODE=down run_check "$home" "$id") || rc=$?
+  [ "$rc" -eq 1 ] || fail "an unreachable forge should refuse, got exit $rc ($out)"
+  assert_contains "$out" "reason=unverified-pr" "an unreachable forge did not refuse the claim"
+  pass "forge unreachable -> done refused rather than accepted on the claim"
 }
 
 test_scout_and_local_only_skip() {
@@ -172,7 +270,11 @@ EOF
 
 test_unpushed_commit_refuses_done
 test_pushed_without_pr_refuses_done
-test_pushed_with_pr_accepts_done
+test_pushed_with_open_pr_accepts_done
+test_unpushed_branch_with_pr_url_refuses_done
+test_pr_in_another_repository_refuses_done
+test_closed_pr_refuses_done
+test_unreachable_forge_refuses_done
 test_scout_and_local_only_skip
 test_span_drops_refused_done
 test_apply_steers_on_refuse
