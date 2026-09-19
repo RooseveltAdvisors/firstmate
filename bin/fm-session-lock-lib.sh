@@ -315,9 +315,10 @@ EOF
 }
 
 # True when state dir $1 records a live verified harness outside this process's
-# contiguous harness ancestry. Sets FM_SESSION_LOCK_FOREIGN_OWNER_PID for a
-# diagnostic caller. Malformed, missing, dead, and ancestry-uncertain locks are
-# not foreign-owner evidence.
+# contiguous harness ancestry that was not recorded by this same trusted Claude
+# session. Sets FM_SESSION_LOCK_FOREIGN_OWNER_PID for a diagnostic caller.
+# Malformed, missing, dead, and ancestry-uncertain locks are not foreign-owner
+# evidence.
 # shellcheck disable=SC2034 # Output global, read by the sourcing guard caller.
 FM_SESSION_LOCK_FOREIGN_OWNER_PID=
 fm_session_lock_foreign_owner_live() {
@@ -335,6 +336,7 @@ fm_session_lock_foreign_owner_live() {
   done <<EOF
 $pids
 EOF
+  fm_session_lock_same_session "$state" "$pids" && return 1
   # shellcheck disable=SC2034 # Output global, read by the sourcing guard caller.
   FM_SESSION_LOCK_FOREIGN_OWNER_PID=$lock_pid
   return 0
