@@ -3,8 +3,9 @@
 # report `done:` only after its own branch is on a remote and the forge confirms
 # an open PR, in that task's own repository, named by the done line, the recorded
 # pr=, or the forge itself. Scout, secondmate, and local-only (and any other mode
-# that does not require a PR) are skipped. A missing mode or worktree is also
-# skipped so incomplete fixture metadata does not change classification.
+# that does not require a PR) are skipped. A missing mode, or a worktree that is
+# missing or is not a git checkout, is also skipped so incomplete task metadata
+# does not change classification.
 # Sourced by the watcher, away-mode daemon, crew-state reader, and
 # bin/fm-done-guard.sh. No side effects on source.
 # bin/fm-pr-lib.sh owns URL validation and the forge record reads; a URL that
@@ -188,7 +189,12 @@ fm_done_guard_check() {  # <status-file> [<done-line>]
     FM_DONE_GUARD_REASON=${mode:-${kind:-no-mode}}
     return 0
   fi
-  if [ -z "$wt" ] || [ ! -d "$wt" ]; then
+  # A recorded worktree that is not a checkout carries no branch to judge, which
+  # is the same absence of evidence as no worktree at all - not proof of an
+  # unpushed branch. Refusing here would strand the task on a steer ("push your
+  # branch") its worker has no repository to satisfy.
+  if [ -z "$wt" ] || [ ! -d "$wt" ] \
+    || ! git -C "$wt" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     FM_DONE_GUARD_REASON=no-worktree
     return 0
   fi

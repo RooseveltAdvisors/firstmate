@@ -231,6 +231,29 @@ EOF
   pass "scout and local-only dones are skipped"
 }
 
+# A recorded worktree that is not a git checkout is absence of evidence, not
+# proof of an unpushed branch, so the gate skips it exactly as it skips a
+# missing one. Every classification consumer reads a ship this way, so refusing
+# here would turn any task whose worktree is not a checkout into a permanent
+# unknown that no push could clear.
+test_non_checkout_worktree_skips() {
+  local home id=no-checkout-a1 out rc
+  home="$TMP_ROOT/$id/home"
+  mkdir -p "$home/state" "$TMP_ROOT/$id/plain-dir"
+  fm_write_meta "$home/state/${id}.meta" \
+    "window=test:fm-${id}" \
+    "worktree=$TMP_ROOT/$id/plain-dir" \
+    "kind=ship" \
+    "mode=no-mistakes"
+  printf 'done: implementation complete\n' > "$home/state/${id}.status"
+  rc=0
+  out=$(run_check "$home" "$id") || rc=$?
+  [ "$rc" -eq 0 ] || fail "a non-checkout worktree should skip, got exit $rc ($out)"
+  assert_contains "$out" "verdict=skipped" "non-checkout worktree did not skip"
+  assert_contains "$out" "reason=no-worktree" "non-checkout worktree did not name the worktree reason"
+  pass "a recorded worktree that is not a checkout skips the gate"
+}
+
 test_span_drops_refused_done() {
   local rec home wt id=span-drop-a1 event rc
   rec=$(make_ship "$id" no-mistakes)
@@ -338,6 +361,7 @@ test_pr_in_another_repository_refuses_done
 test_closed_pr_refuses_done
 test_unreachable_forge_refuses_done
 test_scout_and_local_only_skip
+test_non_checkout_worktree_skips
 test_span_drops_refused_done
 test_apply_steers_on_refuse
 test_watcher_keeps_false_done_out_of_the_wake_queue
