@@ -31,7 +31,8 @@
 #      config under an already-running home, a literal-content reread instruction
 #      is written to the secondmate home and only its pointer is sent via the
 #      routed secondmate path (exact destination bytes, no summaries); unchanged
-#      config sends nothing unless a previous send failure is pending.
+#      config, or a payload byte-identical to the latest delivered generation,
+#      sends nothing unless a previous send failure is pending.
 
 #   C) Model/effort pin. config/secondmate-harness may carry optional model and
 #      effort tokens after the harness ("<harness> [<model>] [<effort>]"), read by
@@ -2458,6 +2459,55 @@ test_config_reread_skips_when_unchanged_and_reads_after_push() {
   pass "B17 config reread skips unchanged homes and reads destination post-write bytes"
 }
 
+test_config_reread_skips_byte_identical_payload() {
+  local w head log out status report count first_instr fakebin latest
+  w=$(new_world config-reread-identical-payload)
+  head=$(git -C "$w/main" rev-parse HEAD)
+  add_sm_worktree "$w" sm "$head"
+  mkdir -p "$w/sm/config" "$w/sm/state"
+
+  printf 'old\n' > "$w/sm/config/crew-harness"
+  printf 'codex\n' > "$w/home/config/crew-harness"
+  log="$w/config-reread-identical.tmux.log"
+  out=$(run_config_push "$w" "$log" 2>/dev/null); status=$?
+  expect_code 0 "$status" "changed push should succeed"
+  assert_contains "$out" "config-reread: sent" "changed config must send a reread"
+  first_instr=$(reread_instruction_path "$w/sm") || fail "first reread instruction missing"
+  count=$(inbox_stream "$w/home/state" sm | grep -c 'CONFIG_REREAD:' || true)
+  [ "$count" = 1 ] || fail "changed push did not record exactly one reread pointer (count=$count)"
+
+  # Stale propagate snapshot: report still says pushed, but live dest bytes
+  # already match the payload that was just delivered.
+  report="$w/stale-pushed.report"
+  printf '%s\n' $'crew-harness\tpushed\t' > "$report"
+  fakebin=$(make_fake_toolchain "$w")
+  : > "$log"
+  out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/main" \
+    FM_SEND_SETTLE=0 FM_FAKE_TMUX_LOG="$log" \
+    fm_config_send_reread_nudge sm "$w/sm" "$report" 2>&1); status=$?
+  expect_code 0 "$status" "byte-identical payload skip should succeed"
+  [ "$(inbox_stream "$w/home/state" sm | grep -c 'CONFIG_REREAD:' || true)" = 1 ] \
+    || fail "byte-identical payload was re-sent"
+  [ "$(reread_instruction_path "$w/sm")" = "$first_instr" ] \
+    || fail "byte-identical skip published a new generation"
+  [ ! -s "$log" ] || fail "byte-identical skip still sent text: $(cat "$log")"
+  assert_no_reread_pending "$w/sm"
+  assert_no_reread_retry_stages "$w/home" sm
+
+  printf 'pi\n' > "$w/home/config/crew-harness"
+  printf 'codex\n' > "$w/sm/config/crew-harness"
+  : > "$log"
+  out=$(run_config_push "$w" "$log" 2>/dev/null); status=$?
+  expect_code 0 "$status" "later changed push should succeed"
+  assert_contains "$out" "config-reread: sent" "changed config after an identical skip must send"
+  [ "$(inbox_stream "$w/home/state" sm | grep -c 'CONFIG_REREAD:' || true)" = 2 ] \
+    || fail "changed payload after identical skip did not send"
+  latest=$(fm_config_reread_latest_delivered "$w/sm") || fail "changed payload left no delivered generation"
+  assert_contains "$(cat "$latest")" $'-----BEGIN config/crew-harness-----\npi\n-----END config/crew-harness-----' \
+    "changed payload must carry the new destination bytes"
+  pass "config reread skips a byte-identical payload and still sends a later change"
+}
+
 test_config_reread_bootstrap_path_and_spawn_flexibility() {
   local w head log out fakebin sm launchlog launch instr report stale
   w=$(new_world config-reread-bootstrap)
@@ -2678,6 +2728,7 @@ test_config_reread_full_retry_queue_drains_before_new_push
 test_config_reread_cleanup_runs_after_mixed_delivery_failure
 test_config_reread_stops_after_failed_generation
 test_config_reread_skips_when_unchanged_and_reads_after_push
+test_config_reread_skips_byte_identical_payload
 test_config_reread_bootstrap_path_and_spawn_flexibility
 test_bootstrap_respawns_before_config_reread
 test_spawn_quarantines_pending_rereads_on_cleanup_failure

@@ -37,6 +37,8 @@
 # After successful config/* changes under an already-running secondmate, callers
 # invoke fm_config_send_reread_nudge so the live agent re-reads exact post-write
 # bytes (spawn/respawn already re-reads at launch and needs no redundant nudge).
+# A home whose live destination bytes would produce a payload byte-identical to
+# its latest already-delivered generation is skipped rather than nudged again.
 #
 # Extensible by design: FM_INHERITABLE_CONFIG is the single declared list of
 # config-dir-relative items the primary propagates. Add an item there and every
@@ -790,6 +792,34 @@ fm_config_reread_has_pending() {
   return 1
 }
 
+# fm_config_reread_latest_delivered <dest-home>
+# Print the latest successfully delivered (non-pending) reread instruction path
+# for this home, or return 1 when none exist. Sorted so "latest" is the last
+# generation name, not filesystem glob order.
+fm_config_reread_latest_delivered() {
+  local dest_home=$1 state path latest=
+  [ -n "$dest_home" ] || return 1
+  state="$dest_home/${FM_CONFIG_REREAD_INSTRUCTION_PREFIX_REL%/*}"
+  [ -d "$state" ] || return 1
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    case "$path" in
+      *.pending) continue ;;
+    esac
+    [ -f "$path" ] && [ ! -L "$path" ] || continue
+    if [ -e "$path.pending" ] || [ -L "$path.pending" ]; then
+      continue
+    fi
+    latest="$path"
+  done < <(
+    for path in "$state"/.fm-inherited-config-reread.*; do
+      printf '%s\n' "$path"
+    done | LC_ALL=C sort
+  )
+  [ -n "$latest" ] || return 1
+  printf '%s\n' "$latest"
+}
+
 fm_config_reread_cleanup_sent() {
   local dest_home=$1 state path paths sorted total remove
   state="$dest_home/${FM_CONFIG_REREAD_INSTRUCTION_PREFIX_REL%/*}"
@@ -1064,13 +1094,15 @@ fm_config_reread_quarantine_pending() {
 # (fm-send). The files contain only changed config paths, clear delimiters, and
 # the destination's full exact post-write bytes (or ABSENT) - never summaries,
 # SHA values, selected profiles, or data/captain-shared.md. No-op (return 0) when
-# nothing changed and no pending delivery exists. On publication or send
-# failure, print a concrete CONFIG_REREAD retry diagnostic to stdout and return
-# non-zero - never claim the live agent reread the values.
+# nothing changed and no pending delivery exists, and when the new payload is
+# byte-identical to this home's latest already-delivered generation (the live
+# destination copy, not a stale propagate-report snapshot). On publication or
+# send failure, print a concrete CONFIG_REREAD retry diagnostic to stdout and
+# return non-zero - never claim the live agent reread the values.
 fm_config_send_reread_nudge() {
   local id=$1 dest_home=$2 report=$3
   local dest_home_abs state source_home_abs changed_items pending_paths stage_paths delivery_paths
-  local stage_path instruction_path current_stage_path exact_tmp
+  local stage_path instruction_path current_stage_path exact_tmp latest_delivered
   local send_failures retry_report_paths retry_report_path retry_stage_path retry_record_path
   [ -n "$id" ] || return 1
   [ -n "$dest_home" ] || return 1
@@ -1169,10 +1201,15 @@ EOF
       fi
       return 1
     fi
-    if [ -n "$stage_paths" ]; then
-      stage_paths+=$'\n'
+    latest_delivered=$(fm_config_reread_latest_delivered "$dest_home_abs" || true)
+    if [ -n "$latest_delivered" ] && cmp -s "$current_stage_path" "$latest_delivered"; then
+      rm -f "$current_stage_path"
+    else
+      if [ -n "$stage_paths" ]; then
+        stage_paths+=$'\n'
+      fi
+      stage_paths+="$current_stage_path"
     fi
-    stage_paths+="$current_stage_path"
   fi
   delivery_paths="$pending_paths"
   while IFS= read -r stage_path; do
