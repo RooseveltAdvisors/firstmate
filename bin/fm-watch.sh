@@ -1255,13 +1255,16 @@ wedge_jev_enabled() {
 
 wedge_jev_triage() {  # <window> <task> <age> <escalation-count> <since-file> <triage-label>
   # 0 = suppress; 1 = escalate (including fail-open).
-  local win=$1 task=$2 age=$3 n=$4 since_file=$5 label=$6 kind bin out action choice
+  local win=$1 task=$2 age=$3 n=$4 since_file=$5 label=$6 kind bin out action choice runner=()
   wedge_jev_enabled || return 1
   bin=${FM_JEV_WAKE_TRIAGE_BIN:-$SCRIPT_DIR/fm-jev-wake-triage.sh}
   [ -e "$bin" ] || return 1
+  if [ -z "${TYPESAFE_API_KEY:-}" ] && [ -x "$SCRIPT_DIR/jev-typesafe-run.py" ] && [ -z "${FM_TEST_LIB_SOURCED:-}" ]; then
+    runner=(sudo -n "$SCRIPT_DIR/jev-typesafe-run.py" --)
+  fi
   kind=$(window_kind "$win")
   case "$kind" in ship|scout|secondmate) ;; *) kind=unknown ;; esac
-  out=$(bash "$bin" --class "$kind" --age "$age" --escalation-count "$n" \
+  out=$("${runner[@]}" bash "$bin" --class "$kind" --age "$age" --escalation-count "$n" \
     --task "$task" --status-file "$STATE/$task.status" 2>/dev/null) || out='action=unavailable'
   action=$(printf '%s\n' "$out" | awk -F= '/^action=/{print $2; exit}')
   case "$action" in
