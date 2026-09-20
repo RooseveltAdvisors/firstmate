@@ -177,7 +177,7 @@ test_empty_project_dir_arg_refused() {
     if [ "$shape" = batch ]; then
       out=$(cd "$cwd" && FM_ROOT_OVERRIDE='' FM_STATE_OVERRIDE='' FM_DATA_OVERRIDE='' FM_CONFIG_OVERRIDE='' \
         FM_HOME="$home" FM_PROJECTS_OVERRIDE="$projects" FM_SPAWN_NO_GUARD=1 \
-        "$SPAWN" "$id=" --mode no-mistakes --yolo off 2>&1)
+        "$SPAWN" "$id=" --harness codex --mode no-mistakes --yolo off 2>&1)
     else
       out=$(cd "$cwd" && FM_ROOT_OVERRIDE='' FM_STATE_OVERRIDE='' FM_DATA_OVERRIDE='' FM_CONFIG_OVERRIDE='' \
         FM_HOME="$home" FM_PROJECTS_OVERRIDE="$projects" FM_SPAWN_NO_GUARD=1 \
