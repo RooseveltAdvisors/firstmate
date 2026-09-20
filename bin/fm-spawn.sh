@@ -6,11 +6,11 @@
 #        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] --secondmate
 #   <project-dir> names a project through the firstmate home: `projects/<name>`
 #   and a bare `<name>` (with or without a trailing slash) both resolve under
-#   this home's projects/ regardless of the caller's cwd. Anything still
-#   carrying a slash - an absolute path, `./x`, `../x`, `a/b` - is taken
-#   literally and resolved against the caller's cwd. An argument naming no
-#   project at all (empty, or bare `/`) is refused rather than silently
-#   resolving to the caller's cwd.
+#   this home's projects/ regardless of the caller's cwd. A bare `.` or `..`,
+#   and anything still carrying a slash - an absolute path, `./x`, `../x`,
+#   `a/b` - are taken literally and resolved against the caller's cwd. An
+#   argument naming no project at all (empty, or bare `/`) is refused rather
+#   than silently resolving to the caller's cwd.
 #   --mode and --yolo are this task's delivery contract, REQUIRED for every ship
 #   spawn and refused on --scout and --secondmate spawns. Firstmate resolves both
 #   per task at intake (AGENTS.md section 7); data/projects.md holds the captain's
