@@ -1053,7 +1053,7 @@ wedge_wait_evidence() {  # <task> -> one wait_record on stdout
 }
 
 # Defer ONE wedge escalation for a pane whose wait record explains the quiet
-# (wedge_wait_evidence above). Deliberately the same shape as
+# (wedge_wait_evidence above, or a `ci` record minted at the threshold). Deliberately the same shape as
 # wedge_defer_writing: a DEFERRAL, not a cancellation, so the idle timer restarts
 # and the next window probes the evidence again - a wait that ends is escalating
 # again within one STALE_ESCALATE_SECS, which is why the worst-case detection
@@ -1090,7 +1090,7 @@ wedge_wait_evidence() {  # <task> -> one wait_record on stdout
 # demand-inspection history it had already earned.
 wedge_defer_wait() {  # <window> <since-file> <triage-label> <idle-age> <wait-record>
   local win=$1 since_file=$2 label=$3 age=$4 record=$5
-  local kind subject whom action anchor key mtime wage min_age waited us ok
+  local kind subject whom action anchor key mtime wage min_age waited wlabel us ok
   us=$(printf '\037')
   IFS=$us read -r kind subject whom action anchor <<EOF
 $record
@@ -1122,6 +1122,10 @@ EOF
     triage_log "absorbed $label ($kind, never rechecked while the away-posture record exists): $win"
     return 0
   fi
+  wlabel=waiting
+  case "$kind" in
+    'ci running'*|'ci running,'*) wlabel=quiet ;;
+  esac
   mtime=''
   [ -n "$anchor" ] && mtime=$(stat_mtime "$anchor")
   case "$mtime" in
@@ -1137,7 +1141,7 @@ EOF
     *)
       wage=$(( $(date +%s) - mtime ))
       [ "$wage" -ge 0 ] || wage=0
-      min_age=$PAUSE_RESURFACE_SECS; waited=", waiting ${wage}s"
+      min_age=$PAUSE_RESURFACE_SECS; waited=", ${wlabel} ${wage}s"
       ;;
   esac
   clear_write_tracking "$key"
@@ -1227,22 +1231,29 @@ wedge_dead_record() {  # <window> <since-file> <triage-label> <idle-age> <pane-h
 # Repeat-poll wedge-timer bookkeeping for an already-classified stale hash
 # absorbed as provably-working - repairs a missing/corrupt timer (self-heals a
 # watcher restart between recording the hash and recording the timer), or
-# escalates once STALE_ESCALATE_SECS have elapsed. Shared by both places a hash
-# can be absorbed this way: the plain non-terminal path, and the
-# stale_is_terminal-overridden path (a captain-relevant status-log line that an
-# active run/busy pane outranked).
-# The wait-evidence consult (wedge_wait_evidence), the worktree write probe, and
-# the dead-record probe (wedge_dead_record) run ONLY here, inside the
-# at-threshold branch that is about to escalate: at most one each per window per
-# STALE_ESCALATE_SECS, never on an ordinary poll. The crew-state read
-# wedge_wait_evidence may take under config/wedge-defer-parked-gate keeps that
-# same bound however long the wait lasts, because the deferral it feeds restarts
-# the idle timer like every other deferral below; an unconfigured home never
-# reaches that read at all. The wait consult runs first, because a pane that can
-# account for its own quiet has nothing to prove through its worktree. The dead-record probe
-# runs last of the three, so the two cheaper deferrals keep the panes they
-# already own on their existing bounded cadences and only a pane that would
-# otherwise alarm pays for a backend read.
+# escalates once STALE_ESCALATE_SECS have elapsed. Never re-reads the crew state
+# on an ordinary poll (the costly check already ran once, at classification
+# time). Shared by both places a hash can be absorbed this way: the plain
+# non-terminal path, and the stale_is_terminal-overridden path (a captain-relevant
+# status-log line that an active run/busy pane outranked).
+# All four probes - the wait-evidence consult (wedge_wait_evidence, one
+# status-line read), the worktree write probe, the dead-record probe
+# (wedge_dead_record), and the external-step probe (crew_is_ci_waiting, one
+# fm-crew-state.sh read) - run ONLY here, inside the at-threshold branch that is
+# about to escalate: at most one each per window per STALE_ESCALATE_SECS, never
+# per poll. Order is by cost and by what each can prove. The wait consult runs
+# first, because a pane whose worker already said why it is quiet has nothing to
+# prove through its worktree. The crew-state read wedge_wait_evidence may take
+# under config/wedge-defer-parked-gate keeps that same bound however long the
+# wait lasts, because the deferral it feeds restarts the idle timer like every
+# other deferral below; an unconfigured home never reaches that read at all. The
+# two expensive probes run after the two cheap ones, so the cheaper deferrals
+# keep the panes they already own on their existing bounded cadences and only a
+# pane that would otherwise alarm pays for them. The external-step probe runs
+# LAST, after the dead-record probe, because unlike the worker's own declaration
+# it is a fact about the PIPELINE rather than about the pane: a ci step can still
+# be pending in the ledger while the agent that started it is gone, so an
+# endpoint proven dead is still reported once rather than absorbed behind the step.
 wedge_timer_check() {  # <window> <since-file> <triage-label> <escalation-count-file> <task> <pane-hash>
   local win=$1 since_file=$2 label=$3 escalation_file=$4 task=$5 hash=$6 since age n reason evidence
   since=$(cat "$since_file" 2>/dev/null || true)
@@ -1266,6 +1277,13 @@ wedge_timer_check() {  # <window> <since-file> <triage-label> <escalation-count-
           return 0
         fi
         if wedge_dead_record "$win" "$since_file" "$label" "$age" "$hash" "$task"; then
+          return 0
+        fi
+        if crew_is_ci_waiting "$task"; then
+          evidence=$(wait_record 'ci running, awaiting the forge checks - external pipeline step' \
+            'awaiting the forge checks' external 'confirm the checks are still running' \
+            "$STATE/$task.status")
+          wedge_defer_wait "$win" "$since_file" "$label" "$age" "$evidence"
           return 0
         fi
         n=$(( $(cat "$escalation_file" 2>/dev/null || echo 0) + 1 ))
