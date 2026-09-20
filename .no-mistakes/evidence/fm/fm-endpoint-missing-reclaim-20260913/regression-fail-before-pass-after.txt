@@ -1,0 +1,26 @@
+The reclaim tests added by this change, each run on its own, from the SAME test file,
+against the base tree and the fixed tree. Fail-before / pass-after.
+
+test                                                                     BASE b182d0f   TARGET 57757fd
+-------------------------------------------------------------------------------------------------
+test_tmux_refuses_a_window_missing_from_its_session                      FAIL           pass
+    base says: not ok - a refused relaunch edited instructions an agent that may still be running is reading (window absent from a readable session inventory)
+test_tmux_refuses_a_session_that_cannot_be_found                         FAIL           pass
+    base says: not ok - a refused relaunch edited instructions an agent that may still be running is reading (recorded session not found)
+test_tmux_refuses_when_the_server_is_gone                                FAIL           pass
+    base says: not ok - a refused relaunch edited instructions an agent that may still be running is reading (no tmux server on this socket)
+test_reclaim_refuses_an_unreadable_endpoint                              pass           pass
+test_herdr_reclaim_adopts_a_pane_that_outlived_its_server                FAIL           pass
+    base says: status --json --session fmlab: expected exit 0, got 1
+test_herdr_exit_reports_already_stopped_when_the_pane_outlived_its_server FAIL           pass
+    base says: error: task rl72's recorded endpoint is gone, so there is no agent to stop; reconcile the task before any further control action: expected exit 0, got 1
+test_herdr_rebind_stays_in_the_recorded_session                          FAIL           pass
+    base says: status --json --session fmlab: expected exit 0, got 1
+test_herdr_reclaim_refuses_an_agent_that_came_back                       FAIL           pass
+    base says: error: task rl74's endpoint reads 'missing'; a relaunch requires a positively agent-free endpoint (stop the agent first with bin/fm-control.sh rl74 exit)
+test_herdr_reclaim_keeps_the_task_whole                                  FAIL           pass
+    base says: error: relaunch of rl75 failed while stopping the old agent and its state is 'missing'; the durable record and progress note were retained for recovery: expected exit 0, got 1
+test_herdr_reclaim_of_a_secondmate_names_its_own_owner                   FAIL           pass
+    base says: error: task rl76's endpoint reads 'missing'; a relaunch requires a positively agent-free endpoint (stop the agent first with bin/fm-control.sh rl76 exit)
+test_herdr_rebind_failure_from_a_plain_shell_names_the_real_cause        FAIL           pass
+    base says: error: task rl77's endpoint reads 'missing'; a relaunch requires a positively agent-free endpoint (stop the agent first with bin/fm-control.sh rl77 exit)

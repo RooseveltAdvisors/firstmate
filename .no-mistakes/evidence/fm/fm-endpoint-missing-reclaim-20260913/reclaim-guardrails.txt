@@ -1,0 +1,42 @@
+================================================================
+  reclaim guardrails - three operator transcripts
+  (tree under test: /home/jon/.no-mistakes/worktrees/46339c0817e0/01M2EGP13EBQJT4SQM7NFB7W74)
+================================================================
+CASE 1 - herdr session server was STOPPED; the recorded pane survives a restart.
+         The state read says 'missing'; the pane was never destroyed.
+------------------------------------------------------------
+$ bin/fm-control.sh idle1 exit
+already-stopped idle1 harness=claude backend=herdr endpoint=fmlab:%7 worktree=/tmp/fm-guardrails.ghcSoK/stopped/wt
+[exit status 0]
+$ bin/fm-control.sh idle1 relaunch --note "server bounced; carry on"
+warning: /tmp/fm-guardrails.ghcSoK/stopped/home/data/idle1/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+relaunched idle1 harness=claude from=claude model=default effort=default backend=herdr endpoint=fmlab:%7 worktree=/tmp/fm-guardrails.ghcSoK/stopped/wt
+[exit status 0]
+  endpoint after : fmlab:%7  (unchanged - the pane was ADOPTED)
+  tabs created   : none - no second tab beside the surviving pane
+  side effect    : exit ran `herdr server --session fmlab` to ask - it is not a read-only inspection (documented)
+------------------------------------------------------------
+CASE 2 - the herdr server comes back and so does the AGENT.
+         Re-creating an endpoint here would put two agents on one worktree.
+------------------------------------------------------------
+$ bin/fm-spawn.sh back1 --relaunch --harness claude
+error: task back1's endpoint reads 'alive'; a relaunch requires a positively agent-free endpoint (stop the agent first with bin/fm-control.sh back1 exit)
+[exit status 1]
+  endpoint after : fmlab:%7  (record untouched)
+  tabs created   : none
+------------------------------------------------------------
+CASE 3 - a TMUX task whose window is absent from a readable inventory.
+         A task record carries no socket identity, so 'gone' and 'on a
+         server this seat cannot address' are indistinguishable.
+------------------------------------------------------------
+$ bin/fm-control.sh tmux1 exit
+error: task tmux1's endpoint fmses:fm-tmux1 reads 'missing', but tmux absence cannot be proven from a task record: the record does not carry the endpoint's socket identity, and a server-wide window inventory only describes the tmux server this process addresses, so a window absent from it may still be alive on another; exit will not claim an agent stopped at an address it cannot trust, nor send lifecycle input to one
+[exit status 1]
+$ bin/fm-control.sh tmux1 relaunch --note "this note must never reach a live agent"
+error: task tmux1's endpoint fmses:fm-tmux1 reads 'missing', but tmux absence cannot be proven from a task record: the record does not carry the endpoint's socket identity, and a server-wide window inventory only describes the tmux server this process addresses, so a window absent from it may still be alive on another; exit will not claim an agent stopped at an address it cannot trust, nor send lifecycle input to one
+error: relaunch of tmux1 failed while stopping the old agent and its state is 'missing', so it was not proven stopped; its original instructions were restored and the durable record was retained for recovery
+[exit status 1]
+  windows created: none
+  bytes sent into any pane: none
+  instructions   : byte-identical - the progress note was rolled back
+------------------------------------------------------------

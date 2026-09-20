@@ -1,0 +1,68 @@
+================================================================
+  firstmate endpoint reclaim - operator transcript (BEFORE - base commit b182d0f (the reported deadlock))
+================================================================
+task            : zeelx (ship, no-mistakes, parked on an approval gate)
+recorded endpoint: fmlab:%7   [herdr session fmlab]
+state of the world: that herdr pane was destroyed in churn; the session
+                    server is still running, so the record points at an
+                    address that no longer exists.
+worktree        : HEAD 1f56c617d0eb5451a6b507262ef7ddba8a5c9a35 on branch task-zeelx, 1 uncommitted file
+------------------------------------------------------------
+$ bin/fm-control.sh zeelx exit
+error: task zeelx's recorded endpoint is gone, so there is no agent to stop; reconcile the task before any further control action
+[exit status 1]
+------------------------------------------------------------
+$ bin/fm-control.sh zeelx relaunch --note "the pane was destroyed in herdr churn; pick the work back up"
+error: task zeelx's recorded endpoint is gone, so there is no agent to stop; reconcile the task before any further control action
+error: relaunch of zeelx failed while stopping the old agent and its state is 'missing'; the durable record and progress note were retained for recovery
+[exit status 1]
+------------------------------------------------------------
+AFTER BOTH COMMANDS - what the operator can inspect:
+  recorded endpoint : fmlab:%7
+  herdr session     : fmlab
+  herdr pane        : %7
+  worktree          : /tmp/fm-reclaim-demo.cT3WB4/wt
+  worktree HEAD     : 1f56c617d0eb5451a6b507262ef7ddba8a5c9a35 (unchanged)
+  worktree branch   : task-zeelx
+  uncommitted file  : not committed anywhere
+  herdr workspace   : ws1  (was ws1 - the container follows the reclaiming seat, as documented)
+  pr row            : https://example.invalid/pr/4031
+  status log        : working: parked on a no-mistakes ask-user gate, waiting on the captain
+  brief progress note: 1 block(s) appended; last line: the pane was destroyed in herdr churn; pick the work back up
+  herdr calls made  : pane get %7 --session fmlab ; 
+------------------------------------------------------------
+
+
+================================================================
+  firstmate endpoint reclaim - operator transcript (AFTER - this change (branch fm/fm-endpoint-missing-reclaim-20260913))
+================================================================
+task            : zeelx (ship, no-mistakes, parked on an approval gate)
+recorded endpoint: fmlab:%7   [herdr session fmlab]
+state of the world: that herdr pane was destroyed in churn; the session
+                    server is still running, so the record points at an
+                    address that no longer exists.
+worktree        : HEAD 0490740e83ccd807e0382c3a9889079d5e5be54d on branch task-zeelx, 1 uncommitted file
+------------------------------------------------------------
+$ bin/fm-control.sh zeelx exit
+endpoint-gone zeelx harness=claude backend=herdr endpoint=fmlab:%7 worktree=/tmp/fm-reclaim-demo.1cAkgR/wt
+[exit status 0]
+------------------------------------------------------------
+$ bin/fm-control.sh zeelx relaunch --note "the pane was destroyed in herdr churn; pick the work back up"
+warning: /tmp/fm-reclaim-demo.1cAkgR/home/data/zeelx/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+relaunched zeelx harness=claude from=claude model=default effort=default backend=herdr endpoint=fmlab:%9 worktree=/tmp/fm-reclaim-demo.1cAkgR/wt
+[exit status 0]
+------------------------------------------------------------
+AFTER BOTH COMMANDS - what the operator can inspect:
+  recorded endpoint : fmlab:%9
+  herdr session     : fmlab
+  herdr pane        : %9
+  worktree          : /tmp/fm-reclaim-demo.1cAkgR/wt
+  worktree HEAD     : 0490740e83ccd807e0382c3a9889079d5e5be54d (unchanged)
+  worktree branch   : task-zeelx
+  uncommitted file  : not committed anywhere
+  herdr workspace   : wsnew  (was ws1 - the container follows the reclaiming seat, as documented)
+  pr row            : https://example.invalid/pr/4031
+  status log        : working: parked on a no-mistakes ask-user gate, waiting on the captain
+  brief progress note: 1 block(s) appended; last line: the pane was destroyed in herdr churn; pick the work back up
+  herdr calls made  : agent get %9 --session fmlab ; pane get %7 --session fmlab ; pane get %9 --session fmlab ; pane process-info --pane %9 --session fmlab ; pane read %9 --source recent --lines 200 --session fmlab ; pane run %9 export FM_TASK_ID=zeelx --session fmlab ; pane run %9 export GOTMPDIR=/tmp/fm-zeelx/gotmp --session fmlab ; pane send-keys %9 enter --session fmlab ; pane send-text %9 unset TRACEPARENT; env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude --dangerously-skip-permissions --settings '{"feedbackDrafts":"off","attribution":{"commit":"","pr":"","sessionUrl":false}}' "$('/home/jon/.no-mistakes/worktrees/46339c0817e0/01M2EGP13EBQJT4SQM7NFB7W74/bin/fm-operational-input.sh' encode launch-brief < '/tmp/fm-reclaim-demo.1cAkgR/home/data/zeelx/launch-brief.md')" --session fmlab ; status --json ; status --json --session fmlab ; tab create --workspace wsnew --cwd /tmp/fm-reclaim-demo.1cAkgR/wt --label fm-zeelx --no-focus --session fmlab ; tab list --workspace wsnew --session fmlab ; workspace create --cwd /tmp/fm-reclaim-demo.1cAkgR/proj --label firstmate --no-focus --session fmlab ; workspace list --session fmlab ; 
+------------------------------------------------------------
