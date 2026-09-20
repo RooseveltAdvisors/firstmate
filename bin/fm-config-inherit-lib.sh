@@ -638,17 +638,6 @@ fm_config_reread_pending_reports() {
   done | LC_ALL=C sort
 }
 
-fm_config_reread_has_staged() {
-  local source_home=$1 id=$2 stage
-  while IFS= read -r stage; do
-    [ -n "$stage" ] && return 0
-  done < <(fm_config_reread_pending_stages "$source_home" "$id")
-  while IFS= read -r stage; do
-    [ -n "$stage" ] && return 0
-  done < <(fm_config_reread_pending_reports "$source_home" "$id")
-  return 1
-}
-
 fm_config_reread_retry_queue_is_full() {
   local source_home=$1 id=$2 count report_count
   count=$(fm_config_reread_pending_stages "$source_home" "$id" | wc -l | tr -d ' ')
@@ -782,16 +771,6 @@ fm_config_reread_pending_instructions() {
   done | LC_ALL=C sort
 }
 
-fm_config_reread_has_pending() {
-  local dest_home=$1 state pending
-  state="$dest_home/${FM_CONFIG_REREAD_INSTRUCTION_PREFIX_REL%/*}"
-  for pending in "$state"/.fm-inherited-config-reread.*.pending; do
-    [ -f "$pending" ] && [ ! -L "$pending" ] || continue
-    return 0
-  done
-  return 1
-}
-
 # fm_config_reread_latest_delivered <dest-home>
 # Print the latest successfully delivered (non-pending) reread instruction path
 # for this home, or return 1 when none exist. Sorted so "latest" is the last
@@ -818,6 +797,20 @@ fm_config_reread_latest_delivered() {
   )
   [ -n "$latest" ] || return 1
   printf '%s\n' "$latest"
+}
+
+# fm_config_reread_discard_redundant_stage <dest-home> <stage-path>
+# The single skip gate every newly built generation passes through before it is
+# queued for delivery, whichever producer built it. When the new bytes match the
+# latest generation this home already received, the stage is discarded and true
+# is returned so the unchanged payload is never published or sent again.
+fm_config_reread_discard_redundant_stage() {
+  local dest_home=$1 stage_path=$2 latest
+  [ -f "$stage_path" ] && [ ! -L "$stage_path" ] || return 1
+  latest=$(fm_config_reread_latest_delivered "$dest_home") || return 1
+  cmp -s "$stage_path" "$latest" || return 1
+  rm -f "$stage_path" 2>/dev/null || true
+  return 0
 }
 
 fm_config_reread_cleanup_sent() {
@@ -1094,7 +1087,8 @@ fm_config_reread_quarantine_pending() {
 # (fm-send). The files contain only changed config paths, clear delimiters, and
 # the destination's full exact post-write bytes (or ABSENT) - never summaries,
 # SHA values, selected profiles, or data/captain-shared.md. No-op (return 0) when
-# nothing changed and no pending delivery exists, and when the new payload is
+# nothing changed and no pending delivery exists, and for any newly built
+# generation - fresh or rebuilt from a retained retry report - whose payload is
 # byte-identical to this home's latest already-delivered generation (the live
 # destination copy, not a stale propagate-report snapshot). On publication or
 # send failure, print a concrete CONFIG_REREAD retry diagnostic to stdout and
@@ -1102,7 +1096,7 @@ fm_config_reread_quarantine_pending() {
 fm_config_send_reread_nudge() {
   local id=$1 dest_home=$2 report=$3
   local dest_home_abs state source_home_abs changed_items pending_paths stage_paths delivery_paths
-  local stage_path instruction_path current_stage_path exact_tmp latest_delivered
+  local stage_path instruction_path current_stage_path exact_tmp
   local send_failures retry_report_paths retry_report_path retry_stage_path retry_record_path
   [ -n "$id" ] || return 1
   [ -n "$dest_home" ] || return 1
@@ -1140,10 +1134,12 @@ fm_config_send_reread_nudge() {
     fi
     if fm_config_write_reread_instruction "$dest_home_abs" "$retry_report_path" "$retry_stage_path"; then
       rm -f "$retry_report_path" 2>/dev/null || send_failures=1
-      if [ -n "$stage_paths" ]; then
-        stage_paths+=$'\n'
+      if ! fm_config_reread_discard_redundant_stage "$dest_home_abs" "$retry_stage_path"; then
+        if [ -n "$stage_paths" ]; then
+          stage_paths+=$'\n'
+        fi
+        stage_paths+="$retry_stage_path"
       fi
-      stage_paths+="$retry_stage_path"
     else
       exact_tmp=${FM_CONFIG_REREAD_FAILED_TEMP:-}
       if [ -n "$exact_tmp" ] \
@@ -1201,10 +1197,7 @@ EOF
       fi
       return 1
     fi
-    latest_delivered=$(fm_config_reread_latest_delivered "$dest_home_abs" || true)
-    if [ -n "$latest_delivered" ] && cmp -s "$current_stage_path" "$latest_delivered"; then
-      rm -f "$current_stage_path"
-    else
+    if ! fm_config_reread_discard_redundant_stage "$dest_home_abs" "$current_stage_path"; then
       if [ -n "$stage_paths" ]; then
         stage_paths+=$'\n'
       fi
