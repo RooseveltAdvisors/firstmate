@@ -1,0 +1,48 @@
+fm-spawn.sh <project-dir> resolution - BEFORE vs AFTER
+======================================================
+
+How this was produced: a firstmate home fixture shaped like the reported one -
+$FM_HOME/projects/portal (the real project) with a stray $FM_HOME/portal
+beside it holding only .beads/ and .treehouse/ - and the real bin/fm-spawn.sh
+invoked from cwd = $FM_HOME, exactly as an agent types it. The spawn echoes
+the project directory it adopted in its Treehouse-lock refusal line, so each
+row shows which directory that argument actually bound the task to.
+
+BEFORE = base 90cd351a (bin/fm-spawn.sh only) | AFTER = target 5e056c62
+
+### BEFORE (base 90cd351a)
+<project-dir> ARGUMENT     | WHICH PROJECT THE SPAWN ADOPTED (cwd = $FM_HOME)
+---------------------------+----------------------------------------------------------------
+portal                     | error: could not resolve the shared Treehouse project lock for $FM_HOME/portal
+portal/                    | error: could not resolve the shared Treehouse project lock for $FM_HOME/portal
+projects/portal            | error: could not resolve the shared Treehouse project lock for $FM_HOME/projects/portal
+$FM_HOME/projects/portal   | error: could not resolve the shared Treehouse project lock for $FM_HOME/projects/portal
+./portal                   | error: could not resolve the shared Treehouse project lock for $FM_HOME/portal
+..                         | error: could not resolve the shared Treehouse project lock for $TMP
+                           | error: could not resolve the shared Treehouse project lock for $FM_HOME
+fm-mus81=  (batch pair)    | error: could not resolve the shared Treehouse project lock for $FM_HOME
+
+### AFTER (target 5e056c62)
+<project-dir> ARGUMENT     | WHICH PROJECT THE SPAWN ADOPTED (cwd = $FM_HOME)
+---------------------------+----------------------------------------------------------------
+portal                     | error: could not resolve the shared Treehouse project lock for $FM_HOME/projects/portal
+portal/                    | error: could not resolve the shared Treehouse project lock for $FM_HOME/projects/portal
+projects/portal            | error: could not resolve the shared Treehouse project lock for $FM_HOME/projects/portal
+$FM_HOME/projects/portal   | error: could not resolve the shared Treehouse project lock for $FM_HOME/projects/portal
+./portal                   | error: could not resolve the shared Treehouse project lock for $FM_HOME/portal
+..                         | error: could not resolve the shared Treehouse project lock for $TMP
+                           | error: <project-dir> names no project: ''; pass a project name (portal), a projects/<name> path, or an explicit directory path
+fm-mus81=  (batch pair)    | error: <project-dir> names no project: ''; pass a project name (portal), a projects/<name> path, or an explicit directory path
+
+Reading the table
+-----------------
+  portal, portal/          BEFORE bound the task to the stray $FM_HOME/portal;
+                           AFTER binds it to $FM_HOME/projects/portal. This is
+                           the reported defect (fm-mus81, fm-eqr30, fm-71jlz,
+                           fm-a2ngi, fm-tf745) and its fix.
+  projects/portal          unchanged - still scoped through the home.
+  $FM_HOME/projects/...    unchanged - an absolute path is taken literally.
+  ./portal, ..             unchanged - a slash-bearing or bare-dot argument stays
+                           literal and caller-cwd-relative, as intended.
+  <empty>, fm-mus81=       BEFORE silently adopted the caller's cwd ($FM_HOME)
+                           as the project; AFTER refuses loudly and exits 1.

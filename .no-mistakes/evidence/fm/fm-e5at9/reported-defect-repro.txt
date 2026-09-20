@@ -1,0 +1,72 @@
+Reported defect, reproduced end-to-end and fixed
+================================================
+
+The reported shape: a ship spawn typed with a bare project name while cwd is
+the firstmate home, which also holds a stray same-named directory beside
+projects/ containing only tool scaffolding. That stray is what let the old
+caller-cwd-relative `cd` SUCCEED instead of failing loudly, so meta.project
+recorded the wrong path and the brief's worktree-isolation assertion refused.
+
+### BEFORE (base 90cd351a) - the spawn binds the task to the stray
+
+$ ls -A $FM_HOME $FM_HOME/portal $FM_HOME/projects
+    .:
+    data
+    portal
+    projects
+    state
+    
+    portal:
+    .beads
+    .treehouse
+    
+    projects:
+    portal
+
+$ cd $FM_HOME   # the reported cwd
+$ bin/fm-spawn.sh fm-mus81 portal codex --mode no-mistakes --yolo off
+    error: could not resolve the shared Treehouse project lock for $FM_HOME/portal
+    (exit 1)
+
+======================================================================
+
+### AFTER (target 5e056c62) - the spawn never sees the stray
+
+$ ls -A $FM_HOME $FM_HOME/portal $FM_HOME/projects
+    .:
+    data
+    portal
+    projects
+    state
+    
+    portal:
+    .beads
+    .treehouse
+    
+    projects:
+    portal
+
+$ cd $FM_HOME   # the reported cwd
+$ bin/fm-spawn.sh fm-mus81 portal codex --mode no-mistakes --yolo off
+    error: task fm-mus81 has no brief at inaccessible data path $FM_HOME/data/fm-mus81/brief.md
+    (exit 1)
+
+BEFORE the spawn stopped INSIDE $FM_HOME/portal - the stray - which is the
+wrong project it would have recorded as meta.project. AFTER it is already past
+project resolution (it bound $FM_HOME/projects/portal, a real git repo, so the
+Treehouse lock resolved) and stops at this task's missing brief instead.
+
+With a brief present, the AFTER run names the resolved project outright, and
+its pane opens inside it:
+
+  $ bin/fm-spawn.sh fm-mus81 portal codex --mode no-mistakes --yolo off
+  error: treehouse get did not enter an isolated worktree within 60s
+    (last seen '$FM_HOME/projects/portal': it is the spawning project itself;
+     spawning project '$FM_HOME/projects/portal'); inspect window firstmate:fm-fm-mus81
+
+  $ tmux list-panes -t firstmate:fm-fm-mus81 -F '#{pane_current_path}'
+  /tmp/fm-repro2-b5PHOk/firstmate/projects/portal
+
+(that run needs a live Treehouse pool this host has none of, so it times out at
+the slot step - well past the path resolution under test; the window it opened
+was killed afterwards.)

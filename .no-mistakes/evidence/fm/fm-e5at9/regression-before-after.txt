@@ -1,0 +1,38 @@
+Regression property: the two new cases fail on the pre-fix resolver
+===================================================================
+
+The pre-fix tree below is the target commit's tests running against the BASE
+commit's bin/fm-spawn.sh (nothing else swapped). A test file aborts at its
+first failure, so each new case is exercised in its own run.
+
+$ # BASE bin/fm-spawn.sh + new tests, empty-arg case deferred
+ok - batch dispatch re-execs and reports every id=repo pair
+ok - batch detection: single pair batches, non-pair rejected, single-task and slash-id stay single
+ok - batch dispatch requires the shared ship delivery contract before any pair runs
+ok - scout batch refuses ship delivery flags instead of ignoring them
+ok - projects/ paths are scoped through the firstmate home for single-task spawn
+not ok - bare name resolves under the home's projects/: bare alpha was not resolved through the home before the brief check
+
+$ # BASE bin/fm-spawn.sh + new tests, bare-name case deferred
+ok - batch dispatch re-execs and reports every id=repo pair
+ok - batch detection: single pair batches, non-pair rejected, single-task and slash-id stay single
+ok - batch dispatch requires the shared ship delivery contract before any pair runs
+ok - scout batch refuses ship delivery flags instead of ignoring them
+ok - projects/ paths are scoped through the firstmate home for single-task spawn
+not ok - an empty <project-dir> is refused: the empty project-dir was not refused loudly
+
+Both new cases pass on the target commit, alongside the pre-existing ones
+-------------------------------------------------------------------------
+$ bin/fm-test-run.sh tests/fm-spawn-batch.test.sh
+FM_TEST_BEGIN 2026-09-20T04:46:35Z tests/fm-spawn-batch.test.sh family=backend-dispatch expected_gate_skip=none
+ok - batch dispatch re-execs and reports every id=repo pair
+ok - batch detection: single pair batches, non-pair rejected, single-task and slash-id stay single
+ok - batch dispatch requires the shared ship delivery contract before any pair runs
+ok - scout batch refuses ship delivery flags instead of ignoring them
+ok - projects/ paths are scoped through the firstmate home for single-task spawn
+ok - bare project names are scoped through the firstmate home, never the caller cwd
+ok - an empty project-dir argument is refused instead of adopting the caller cwd
+FM_TEST_END 2026-09-20T04:46:39Z tests/fm-spawn-batch.test.sh exit=0 duration_ms=3718 gate_skip=false
+FM_TEST_SUMMARY total=1 failed=0 skipped_gate=0 duration_ms=3752
+FM_TEST_SUMMARY_FAMILY family=backend-dispatch count=1 duration_ms=3718 failed=0
+FM_TEST_SLOWEST rank=1 script=tests/fm-spawn-batch.test.sh duration_ms=3718
