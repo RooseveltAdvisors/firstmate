@@ -1,0 +1,19 @@
+Per-test regression check: each new/updated test run in isolation against the
+BASE tree (a09090d1, defect present) and the FIXED tree (56a6531d).
+
+test_config_reread_skips_byte_identical_payload                BASE   not ok - byte-identical payload was re-sent
+test_config_reread_skips_byte_identical_payload                FIXED  ok - config reread skips a byte-identical payload and still sends a later change
+test_config_reread_retry_rebuild_skips_byte_identical_payload  BASE   not ok - retry rebuild re-sent a byte-identical payload
+test_config_reread_retry_rebuild_skips_byte_identical_payload  FIXED  ok - config reread retry rebuilds skip byte-identical payloads and deliver changes
+test_config_reread_dedupes_identical_siblings_in_one_delivery  BASE   not ok - identical sibling generations were both sent (count=2)
+test_config_reread_dedupes_identical_siblings_in_one_delivery  FIXED  ok - config reread sends one pointer for byte-identical siblings and both for differing ones
+test_config_reread_salvaged_retry_stage_skips_byte_identical_payload BASE   not ok - a salvaged byte-identical stage was re-sent (count=2)
+test_config_reread_salvaged_retry_stage_skips_byte_identical_payload FIXED  ok - config reread salvaged retry stages pass the byte-identical skip gate
+test_config_reread_drift_restored_convergence_detects_and_corrects BASE   not ok - drift-restoration send count changed (count=2)
+test_config_reread_drift_restored_convergence_detects_and_corrects FIXED  ok - convergence detects and corrects destination drift; sender dedupes the restored payload
+test_ship_mode_is_explicit_not_registry                        BASE   not ok - explicit no-mistakes brief did not render the pipeline definition of done
+test_ship_mode_is_explicit_not_registry                        FIXED  ok - fm-brief.sh: the explicit ship mode wins over the registered posture
+test_faster_paths_use_configured_authority_without_stacked_review BASE   not ok - direct-PR brief still treats the implementation commit as completion
+test_faster_paths_use_configured_authority_without_stacked_review FIXED  ok - fm-brief.sh: faster paths use configured authority without stacked review
+test_no_mistakes_dod_wording                                   BASE   not ok - no-mistakes DOD must require a pushed branch and open PR before done
+test_no_mistakes_dod_wording                                   FIXED  ok - fm-brief.sh: no-mistakes DOD keeps its apostrophe prose and bans --yes outright

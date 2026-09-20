@@ -1,0 +1,100 @@
+########## AFTER the fix - 56a6531d (byte-identical skip gate + in-batch dedupe) ##########
+primary config/crew-harness = codex ; secondmate starts at "old"
+
+--- minute 1: first push of a genuinely new value ---
+$ fm-config-push.sh
+    config-push: /tmp/fm-reread-repro.0eG47H/world/home -> live secondmate homes
+    secondmate sm (/tmp/fm-reread-repro.0eG47H/world/sm):
+      crew-dispatch.json: unchanged
+      crew-harness: pushed
+      backlog-backend: unchanged
+      backend: unchanged
+      herdr-presentation-spaces: unchanged
+      startup-memory-budget: unchanged
+      trace-context: unchanged - session-scoped
+      launch-env-allowlist: unchanged
+      claude-permission-mode: unchanged
+      data/captain-shared.md: unchanged
+      config-reread: sent
+
+--- minute 2: secondmate drifted its own config/crew-harness to "pi" ---
+$ fm-config-push.sh
+    config-push: /tmp/fm-reread-repro.0eG47H/world/home -> live secondmate homes
+    secondmate sm (/tmp/fm-reread-repro.0eG47H/world/sm):
+      crew-dispatch.json: unchanged
+      crew-harness: pushed
+      backlog-backend: unchanged
+      backend: unchanged
+      herdr-presentation-spaces: unchanged
+      startup-memory-budget: unchanged
+      trace-context: unchanged - session-scoped
+      launch-env-allowlist: unchanged
+      claude-permission-mode: unchanged
+      data/captain-shared.md: unchanged
+
+--- minute 3: secondmate drifted its own config/crew-harness to "pi" ---
+$ fm-config-push.sh
+    config-push: /tmp/fm-reread-repro.0eG47H/world/home -> live secondmate homes
+    secondmate sm (/tmp/fm-reread-repro.0eG47H/world/sm):
+      crew-dispatch.json: unchanged
+      crew-harness: pushed
+      backlog-backend: unchanged
+      backend: unchanged
+      herdr-presentation-spaces: unchanged
+      startup-memory-budget: unchanged
+      trace-context: unchanged - session-scoped
+      launch-env-allowlist: unchanged
+      claude-permission-mode: unchanged
+      data/captain-shared.md: unchanged
+
+--- minute 4: secondmate drifted its own config/crew-harness to "pi" ---
+$ fm-config-push.sh
+    config-push: /tmp/fm-reread-repro.0eG47H/world/home -> live secondmate homes
+    secondmate sm (/tmp/fm-reread-repro.0eG47H/world/sm):
+      crew-dispatch.json: unchanged
+      crew-harness: pushed
+      backlog-backend: unchanged
+      backend: unchanged
+      herdr-presentation-spaces: unchanged
+      startup-memory-budget: unchanged
+      trace-context: unchanged - session-scoped
+      launch-env-allowlist: unchanged
+      claude-permission-mode: unchanged
+      data/captain-shared.md: unchanged
+
+--- minute 5: captain changes the primary value codex -> grok (a real change) ---
+$ fm-config-push.sh
+    config-push: /tmp/fm-reread-repro.0eG47H/world/home -> live secondmate homes
+    secondmate sm (/tmp/fm-reread-repro.0eG47H/world/sm):
+      crew-dispatch.json: unchanged
+      crew-harness: pushed
+      backlog-backend: unchanged
+      backend: unchanged
+      herdr-presentation-spaces: unchanged
+      startup-memory-budget: unchanged
+      trace-context: unchanged - session-scoped
+      launch-env-allowlist: unchanged
+      claude-permission-mode: unchanged
+      data/captain-shared.md: unchanged
+      config-reread: sent
+
+===== CONFIG_REREAD messages actually delivered to the live secondmate =====
+[1] [fm-from-firstmate]⁣corr=347cd10422a529fb CONFIG_REREAD: /tmp/fm-reread-repro.0eG47H/world/sm/state/.fm-inherited-config-reread.20260920T064235.00000001.z3Eddy
+      payload bytes:
+        | These inherited config files changed. Re-read and apply their exact contents at every future intake. They are defaults/rules and do not remove your judgment to choose differently when warranted.
+        | 
+        | config/crew-harness
+        | -----BEGIN config/crew-harness-----
+        | codex
+        | -----END config/crew-harness-----
+[2] [fm-from-firstmate]⁣corr=ed8351474baa1f68 CONFIG_REREAD: /tmp/fm-reread-repro.0eG47H/world/sm/state/.fm-inherited-config-reread.20260920T064238.00000005.DUBABM
+      payload bytes:
+        | These inherited config files changed. Re-read and apply their exact contents at every future intake. They are defaults/rules and do not remove your judgment to choose differently when warranted.
+        | 
+        | config/crew-harness
+        | -----BEGIN config/crew-harness-----
+        | grok
+        | -----END config/crew-harness-----
+
+TOTAL CONFIG_REREAD messages the live agent received: 2
+final secondmate config/crew-harness: grok
