@@ -1867,8 +1867,15 @@ case "${1:-} ${2:-}" in
   'pane send-text')
     # Mirrors the tmux fake's `becomes`: delivering the launch brief is what
     # makes an agent exist on this pane, so the control plane's alive-wait can
-    # observe the replacement come up.
-    case "$*" in
+    # observe the replacement come up. A launch arrives as a short line sourcing
+    # the staged launch file rather than the literal command, so read that file
+    # back before deciding what was delivered - exactly as the tmux fake above
+    # and tests/fixtures.sh do.
+    payload=${4:-}
+    case "$payload" in
+      ". '"*"'") staged=${payload#". '"}; staged=${staged%"'"}; [ ! -f "$staged" ] || payload=$(cat "$staged") ;;
+    esac
+    case "$payload" in
       *'encode launch-brief'*) : > "$D/herdr-agent-live" ;;
     esac
     exit 0 ;;
