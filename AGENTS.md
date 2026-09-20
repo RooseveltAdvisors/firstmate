@@ -298,9 +298,11 @@ An explicit project wins, a clear follow-up inherits its referent, and otherwise
 Proceed on one confident match while naming the project in plain language; ask one concise question when multiple or no projects plausibly match.
 
 Route by the nature of the work against each registered secondmate scope, not by a non-exclusive clone list.
+At task intake, consult Jev System One (`bin/fm-route-domain.sh --task "<description>"`) or `bin/fm-route-dispatch.sh` to classify incoming requests against `data/secondmates.md` and recommend dispatch or creation of a new dedicated Second Mate.
+Do not spawn direct-report worker panes in `w1` for project tasks; keep the primary console clean and unencumbered.
 Keep `local-only` work in the main home.
 Send in-scope work to the fitting secondmate unless it is blocked or the captain explicitly redirects it; do not read the secondmate's chat because marked routed replies return through its status or referenced document.
-If no secondmate scope fits, use the main home or discuss creating an appropriate persistent secondmate.
+If no secondmate scope fits, or Jev recommends `create_secondmate`, propose or charter an appropriate persistent secondmate rather than doing project work in the main home.
 For one-off or infrequent operational work, start with the simplest direct end-to-end path.
 Do not build wrappers, control planes, policy layers, custom verifiers, or automation unless the direct path exposes a concrete blocker or repeated need that justifies the added machinery.
 
