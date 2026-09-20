@@ -1,0 +1,77 @@
+==============================================================================
+ AFTER THE FIX - target commit 8b2d6692
+ firstmate code root: /home/jon/.no-mistakes/worktrees/46339c0817e0/01M2EGP13EBQJT4SQM7NFB7W74
+ commit:              8b2d6692
+==============================================================================
+
+A ship task parked on a no-mistakes approval. Its recorded herdr endpoint
+fmlab:%7 was destroyed in churn; the fmlab server is still running and
+answers pane_not_found for %7. Its worktree holds 1 commit + 1 uncommitted
+file. Each attempt below starts from a fresh copy of exactly that state.
+
+------------------------------------------------------------------------------
+ 1. Stop the agent, as the relaunch refusal tells the operator to
+------------------------------------------------------------------------------
+
+$ bin/fm-control.sh fmzeela exit
+endpoint-gone fmzeela harness=claude backend=herdr endpoint=fmlab:%7 worktree=/tmp/fm-reclaim-demo.f1c2mp/fmzeela/wt
+  -> exit 0
+
+  the task afterwards:
+    record: window=fmlab:%7
+    record: herdr_session=fmlab
+    record: herdr_tab_id=tab1
+    record: herdr_pane_id=%7
+    worktree HEAD unchanged:  yes
+    branch:                   task-fmzeela
+    uncommitted change:       uncommitted change the agent never got to save
+    status log:               working: parked on a no-mistakes approval nobody can answer
+    progress note in brief:   not present
+
+------------------------------------------------------------------------------
+ 2. Relaunch directly, as the exit refusal leaves the operator to
+------------------------------------------------------------------------------
+
+$ bin/fm-spawn.sh fmzeelb --relaunch --harness claude
+spawned fmzeelb harness=claude kind=ship mode=no-mistakes yolo=off window=fmlab:%9 worktree=/tmp/fm-reclaim-demo.f1c2mp/fmzeelb/wt
+  -> exit 0
+
+  the task afterwards:
+    record: window=fmlab:%9
+    record: herdr_session=fmlab
+    record: herdr_tab_id=tabnew
+    record: herdr_pane_id=%9
+    worktree HEAD unchanged:  yes
+    branch:                   task-fmzeelb
+    uncommitted change:       uncommitted change the agent never got to save
+    status log:               working: parked on a no-mistakes approval nobody can answer
+    progress note in brief:   not present
+
+------------------------------------------------------------------------------
+ 3. The supported reclaim verb: control-plane relaunch with a progress note
+------------------------------------------------------------------------------
+
+$ bin/fm-control.sh fmzeelc relaunch --note "the pane was destroyed; pick the work back up"
+relaunched fmzeelc harness=claude from=claude model=default effort=default backend=herdr endpoint=fmlab:%9 worktree=/tmp/fm-reclaim-demo.f1c2mp/fmzeelc/wt
+  -> exit 0
+
+  the task afterwards:
+    record: window=fmlab:%9
+    record: herdr_session=fmlab
+    record: herdr_tab_id=tabnew
+    record: herdr_pane_id=%9
+    worktree HEAD unchanged:  yes
+    branch:                   task-fmzeelc
+    uncommitted change:       uncommitted change the agent never got to save
+    status log:               working: parked on a no-mistakes approval nobody can answer
+    progress note in brief:   delivered to the replacement
+
+  herdr calls the reclaim made (all scoped to the RECORDED session fmlab):
+    agent get %9 --session fmlab
+    pane get %7 --session fmlab
+    pane get %9 --session fmlab
+    pane send-text %9 . '/tmp/fm-fmzeelc+ee7b7257b965dd4f0d8f4c5f7ac119d7f659ff0067caa5e6c960dde9e41125fd/launch.s1789880106.1770814.15214.sh' --session fmlab
+    tab create --workspace wsnew --cwd /tmp/fm-reclaim-demo.f1c2mp/fmzeelc/wt --label fm-fmzeelc --no-focus --session fmlab
+    tab list --workspace wsnew --session fmlab
+    workspace create --cwd /tmp/fm-reclaim-demo.f1c2mp/fmzeelc/proj --label firstmate --no-focus --session fmlab
+    workspace list --session fmlab

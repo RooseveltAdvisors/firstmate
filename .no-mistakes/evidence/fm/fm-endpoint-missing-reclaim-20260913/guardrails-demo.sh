@@ -49,7 +49,12 @@ case "${1:-} ${2:-}" in
   'pane process-info')
     printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":4242,"foreground_processes":[{"pid":4243,"name":"claude","argv":["claude"],"cmdline":"claude"}]}}}\n' "$(cat "$D/herdr-pane")"; exit 0 ;;
   'pane send-text')
-    case "$*" in *'encode launch-brief'*) : > "$D/herdr-agent-live" ;; esac; exit 0 ;;
+    # A launch arrives as a short line sourcing the STAGED launch file rather
+    # than the literal command, so read that file back before deciding what was
+    # delivered - same shape tests/fm-control-relaunch.test.sh's fixture uses.
+    payload=${4:-}
+    case "$payload" in ". '"*"'") staged=${payload#". '"}; staged=${staged%"'"}; [ ! -f "$staged" ] || payload=$(cat "$staged") ;; esac
+    case "$payload" in *'encode launch-brief'*) : > "$D/herdr-agent-live" ;; esac; exit 0 ;;
   'workspace list') printf '{"result":{"workspaces":[]}}\n'; exit 0 ;;
   'workspace create') printf '{"result":{"workspace":{"workspace_id":"wsnew"},"tab":{"tab_id":"seedtab"}}}\n'; exit 0 ;;
   'tab list') printf '{"result":{"tabs":[]}}\n'; exit 0 ;;

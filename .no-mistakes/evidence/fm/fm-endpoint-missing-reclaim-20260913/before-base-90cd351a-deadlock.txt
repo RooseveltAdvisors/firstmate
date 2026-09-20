@@ -1,0 +1,71 @@
+==============================================================================
+ BEFORE THE FIX - base commit 90cd351a
+ firstmate code root: /tmp/fm-base-tree.Wzl2V0
+ commit:              (tree extracted with git archive)
+==============================================================================
+
+A ship task parked on a no-mistakes approval. Its recorded herdr endpoint
+fmlab:%7 was destroyed in churn; the fmlab server is still running and
+answers pane_not_found for %7. Its worktree holds 1 commit + 1 uncommitted
+file. Each attempt below starts from a fresh copy of exactly that state.
+
+------------------------------------------------------------------------------
+ 1. Stop the agent, as the relaunch refusal tells the operator to
+------------------------------------------------------------------------------
+
+$ bin/fm-control.sh fmzeela exit
+error: task fmzeela's recorded endpoint is gone, so there is no agent to stop; reconcile the task before any further control action
+  -> exit 1
+
+  the task afterwards:
+    record: window=fmlab:%7
+    record: herdr_session=fmlab
+    record: herdr_tab_id=tab1
+    record: herdr_pane_id=%7
+    worktree HEAD unchanged:  yes
+    branch:                   task-fmzeela
+    uncommitted change:       uncommitted change the agent never got to save
+    status log:               working: parked on a no-mistakes approval nobody can answer
+    progress note in brief:   not present
+
+------------------------------------------------------------------------------
+ 2. Relaunch directly, as the exit refusal leaves the operator to
+------------------------------------------------------------------------------
+
+$ bin/fm-spawn.sh fmzeelb --relaunch --harness claude
+error: task fmzeelb's endpoint reads 'missing'; a relaunch requires a positively agent-free endpoint (stop the agent first with bin/fm-control.sh fmzeelb exit)
+  -> exit 1
+
+  the task afterwards:
+    record: window=fmlab:%7
+    record: herdr_session=fmlab
+    record: herdr_tab_id=tab1
+    record: herdr_pane_id=%7
+    worktree HEAD unchanged:  yes
+    branch:                   task-fmzeelb
+    uncommitted change:       uncommitted change the agent never got to save
+    status log:               working: parked on a no-mistakes approval nobody can answer
+    progress note in brief:   not present
+
+------------------------------------------------------------------------------
+ 3. The supported reclaim verb: control-plane relaunch with a progress note
+------------------------------------------------------------------------------
+
+$ bin/fm-control.sh fmzeelc relaunch --note "the pane was destroyed; pick the work back up"
+error: task fmzeelc's recorded endpoint is gone, so there is no agent to stop; reconcile the task before any further control action
+error: relaunch of fmzeelc failed while stopping the old agent and its state is 'missing'; the durable record and progress note were retained for recovery
+  -> exit 1
+
+  the task afterwards:
+    record: window=fmlab:%7
+    record: herdr_session=fmlab
+    record: herdr_tab_id=tab1
+    record: herdr_pane_id=%7
+    worktree HEAD unchanged:  yes
+    branch:                   task-fmzeelc
+    uncommitted change:       uncommitted change the agent never got to save
+    status log:               working: parked on a no-mistakes approval nobody can answer
+    progress note in brief:   delivered to the replacement
+
+  herdr calls the reclaim made (all scoped to the RECORDED session fmlab):
+    pane get %7 --session fmlab
