@@ -330,7 +330,26 @@ def query_jev_guard(cmd: str, api_key: str) -> dict:
         }
 
 
-def evaluate_command(cmd: str, fm_root: Path | None = None) -> dict:
+def stamp_guard_telemetry(cmd: str, result: dict, fm_root: Path | None = None) -> None:
+    try:
+        root = fm_root or Path("/opt/ra/firstmate")
+        state_dir = root / "state"
+        state_dir.mkdir(parents=True, exist_ok=True)
+        telemetry_file = state_dir / ".jev-guard-telemetry"
+        ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        decision = result.get("decision", "allow")
+        tier = result.get("tier", 1)
+        domain = result.get("target_domain", "-")
+        code = result.get("code", "-")
+        clean_cmd = " ".join(cmd.split())[:160]
+        line = f"{ts}\t{decision}\ttier{tier}\t{code}\t{domain}\t{clean_cmd}\n"
+        with open(telemetry_file, "a", encoding="utf-8") as f:
+            f.write(line)
+    except Exception:
+        pass
+
+
+def _evaluate_command_inner(cmd: str, fm_root: Path | None = None) -> dict:
     cmd_clean = cmd.strip()
     if not cmd_clean:
         return {"decision": "allow", "code": "empty_cmd", "reason": "empty command"}
@@ -376,6 +395,12 @@ def evaluate_command(cmd: str, fm_root: Path | None = None) -> dict:
             "reason": f"Jev query error ({exc}); failing open",
             "tier": 3,
         }
+
+
+def evaluate_command(cmd: str, fm_root: Path | None = None) -> dict:
+    res = _evaluate_command_inner(cmd, fm_root)
+    stamp_guard_telemetry(cmd, res, fm_root)
+    return res
 
 
 def main() -> int:
