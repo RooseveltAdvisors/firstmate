@@ -110,6 +110,53 @@ ROWS
   pass "projects/ paths are scoped through the firstmate home for single-task spawn"
 }
 
+# A BARE project name is scoped through the home's projects/ too, never the
+# caller's cwd. The reported defect: a spawn issued with cwd = the firstmate
+# home resolved `portal` to $FM_HOME/portal - a stray directory sitting beside
+# projects/ - recorded it as meta.project, and the brief's worktree-isolation
+# assertion then refused the launch. The stray row reproduces that exact shape:
+# a cwd holding a same-named decoy is what made the old caller-cwd-relative `cd`
+# succeed instead of failing loudly.
+test_bare_project_name_scoping() {
+  local label have_project have_decoy id home projects cwd out status expected
+  while IFS='|' read -r label have_project have_decoy id; do
+    [ -n "$label" ] || continue
+    home="$TMP_ROOT/$id home"
+    projects="$TMP_ROOT/$id projects"
+    cwd="$TMP_ROOT/$id cwd"
+    mkdir -p "$home/data" "$projects" "$cwd"
+    if [ "$have_decoy" = yes ]; then
+      mkdir -p "$cwd/alpha"
+      git -C "$cwd/alpha" init -q || fail "$label: could not initialize decoy fixture"
+    fi
+    if [ "$have_project" = yes ]; then
+      mkdir -p "$projects/alpha"
+      git -C "$projects/alpha" init -q || fail "$label: could not initialize project fixture"
+    fi
+    out=$(cd "$cwd" && FM_ROOT_OVERRIDE='' FM_STATE_OVERRIDE='' FM_DATA_OVERRIDE='' FM_CONFIG_OVERRIDE='' \
+      FM_HOME="$home" FM_PROJECTS_OVERRIDE="$projects" FM_SPAWN_NO_GUARD=1 \
+      "$SPAWN" "$id" alpha codex --mode no-mistakes --yolo off 2>&1)
+    status=$?
+    [ "$status" -ne 0 ] || fail "$label: spawn should fail"
+    printf '%s\n' "$out" | grep -F "$cwd/alpha" >/dev/null \
+      && fail "$label: spawn adopted the same-named directory beside the projects root"
+    if [ "$have_project" = yes ]; then
+      expected="error: task $id has no brief at inaccessible data path $home/data/$id/brief.md"
+      printf '%s\n' "$out" | grep -F "$expected" >/dev/null \
+        || fail "$label: bare alpha was not resolved through the home before the brief check"
+      printf '%s\n' "$out" | grep -F 'cd: alpha' >/dev/null \
+        && fail "$label: spawn resolved bare alpha from the caller cwd"
+    else
+      printf '%s\n' "$out" | grep -F "$projects/alpha" >/dev/null \
+        || fail "$label: a missing project was not refused against the home's projects root"
+    fi
+  done <<'ROWS'
+bare name resolves under the home's projects/|yes|no|nope-bare-z13
+bare name never adopts a cwd-relative stray|no|yes|nope-bare-stray-z14
+ROWS
+  pass "bare project names are scoped through the firstmate home, never the caller cwd"
+}
+
 # A ship batch carries one shared delivery contract. Missing flags must stop the
 # whole batch before any pair is dispatched, so a batch can never launch workers
 # whose delivery posture was never decided.
@@ -148,3 +195,4 @@ test_batch_mode_boundaries
 test_batch_requires_the_shared_delivery_contract
 test_scout_batch_refuses_delivery_flags
 test_projects_path_scoping
+test_bare_project_name_scoping

@@ -4,6 +4,10 @@
 # Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
 #        fm-spawn.sh <task-id> <project-dir> --scout [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
 #        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] --secondmate
+#   <project-dir> names a project through the firstmate home: `projects/<name>`
+#   and a bare `<name>` both resolve under this home's projects/ regardless of
+#   the caller's cwd. Anything carrying a slash - an absolute path, `./x`,
+#   `../x`, `a/b` - is taken literally and resolved against the caller's cwd.
 #   --mode and --yolo are this task's delivery contract, REQUIRED for every ship
 #   spawn and refused on --scout and --secondmate spawns. Firstmate resolves both
 #   per task at intake (AGENTS.md section 7); data/projects.md holds the captain's
@@ -2415,11 +2419,22 @@ resolved_existing_dir() {
   cd "$path" && pwd -P
 }
 
+# A <project-dir> argument names a project through the firstmate home, never
+# through the caller's cwd: both `projects/<name>` and a bare `<name>` resolve
+# under $PROJECTS. A bare name used to fall through to the caller-cwd-relative
+# `cd` at the PROJ_ABS assignment, so a spawn issued from the firstmate home
+# silently adopted a same-named stray directory sitting beside projects/ (e.g.
+# $FM_HOME/portal instead of $FM_HOME/projects/portal) and recorded it as
+# meta.project; the brief's worktree-isolation assertion then refused the
+# launch. Anything already carrying a slash - an absolute path, `./x`, `../x`,
+# `a/b` - stays a literal path and is still resolved against the caller's cwd,
+# as are a bare `.`/`..` and the empty string.
 resolve_project_dir_arg() {
   local path=$1
   case "$path" in
   projects/*) printf '%s/%s\n' "$PROJECTS" "${path#projects/}" ;;
-  *) printf '%s\n' "$path" ;;
+  '' | . | .. | */*) printf '%s\n' "$path" ;;
+  *) printf '%s/%s\n' "$PROJECTS" "$path" ;;
   esac
 }
 
