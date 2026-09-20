@@ -2672,6 +2672,57 @@ SH
   pass "config reread salvaged retry stages pass the byte-identical skip gate"
 }
 
+test_config_reread_drift_restored_convergence_detects_and_corrects() {
+  local w head log out status count
+  w=$(new_world config-reread-drift-restored)
+  head=$(git -C "$w/main" rev-parse HEAD)
+  add_sm_worktree "$w" sm "$head"
+  mkdir -p "$w/sm/config" "$w/sm/state"
+
+  printf 'codex\n' > "$w/home/config/crew-harness"
+  printf 'old\n' > "$w/sm/config/crew-harness"
+  log="$w/drift-restored.tmux.log"
+  out=$(run_config_push "$w" "$log" 2>/dev/null); status=$?
+  expect_code 0 "$status" "initial changed push should succeed"
+  assert_contains "$out" "config-reread: sent" "initial push must send a reread"
+  count=$(inbox_stream "$w/home/state" sm | grep -c 'CONFIG_REREAD:' || true)
+  [ "$count" = 1 ] || fail "initial push did not deliver exactly one reread (count=$count)"
+  [ "$(cat "$w/sm/config/crew-harness")" = "codex" ] \
+    || fail "convergence did not write primary value to destination"
+
+  # Simulate the live agent drifting its own config.
+  printf 'pi\n' > "$w/sm/config/crew-harness"
+
+  : > "$log"
+  out=$(run_config_push "$w" "$log" 2>/dev/null); status=$?
+  expect_code 0 "$status" "drift-correction push should succeed"
+  # Convergence detected the drift (src=codex != dest=pi) and restored it.
+  [ "$(cat "$w/sm/config/crew-harness")" = "codex" ] \
+    || fail "convergence did not restore drifted destination"
+  # The reread sender's skip gate suppresses the redundant notification because
+  # the payload bytes are identical to the last delivered generation.
+  # The convergence check owns drift detection; the sender owns duplicate suppression.
+  count=$(inbox_stream "$w/home/state" sm | grep -c 'CONFIG_REREAD:' || true)
+  [ "$count" = 1 ] || fail "drift-restoration send count changed (count=$count)"
+  assert_not_contains "$out" "config-reread: sent" \
+    "byte-identical drift-restoration must not send a second reread"
+  [ ! -s "$log" ] || fail "drift-restoration push still sent text: $(cat "$log")"
+  assert_no_reread_pending "$w/sm"
+  assert_no_reread_retry_stages "$w/home" sm
+
+  # A genuinely new primary value still delivers a new reread after the drift episode.
+  printf 'grok\n' > "$w/home/config/crew-harness"
+  : > "$log"
+  out=$(run_config_push "$w" "$log" 2>/dev/null); status=$?
+  expect_code 0 "$status" "new-value push after drift episode should succeed"
+  assert_contains "$out" "config-reread: sent" "new primary value must send a reread"
+  count=$(inbox_stream "$w/home/state" sm | grep -c 'CONFIG_REREAD:' || true)
+  [ "$count" = 2 ] || fail "new-value push did not deliver a second reread (count=$count)"
+  [ "$(cat "$w/sm/config/crew-harness")" = "grok" ] \
+    || fail "convergence did not write new primary value to destination"
+  pass "convergence detects and corrects destination drift; sender dedupes the restored payload"
+}
+
 test_config_reread_bootstrap_path_and_spawn_flexibility() {
   local w head log out fakebin sm launchlog launch instr report stale
   w=$(new_world config-reread-bootstrap)
@@ -2896,6 +2947,7 @@ test_config_reread_skips_byte_identical_payload
 test_config_reread_retry_rebuild_skips_byte_identical_payload
 test_config_reread_dedupes_identical_siblings_in_one_delivery
 test_config_reread_salvaged_retry_stage_skips_byte_identical_payload
+test_config_reread_drift_restored_convergence_detects_and_corrects
 test_config_reread_bootstrap_path_and_spawn_flexibility
 test_bootstrap_respawns_before_config_reread
 test_spawn_quarantines_pending_rereads_on_cleanup_failure

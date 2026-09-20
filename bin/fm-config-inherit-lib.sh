@@ -806,6 +806,9 @@ fm_config_reread_latest_delivered() {
 # true is returned when its bytes match the latest generation this home already
 # received, or a stage already queued for this home in this delivery - first
 # writer wins - so the same payload is never published or sent twice.
+# Skips unchanged payloads only; drift-from-payload (destination edited away
+# from the inherited value and then restored) is detected by the convergence
+# check (propagate_inheritable_config), not here.
 fm_config_reread_discard_redundant_stage() {
   local dest_home=$1 stage_path=$2 queued=${3:-} latest queued_path
   [ -f "$stage_path" ] && [ ! -L "$stage_path" ] || return 1
