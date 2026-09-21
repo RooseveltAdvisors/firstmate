@@ -2552,6 +2552,15 @@ while :; do
     fi
   fi
 
+  # Pattern 34: Jev Multi-Agent Stale Log & Crash Core Dump Compaction Sweeper
+  if [ "${FM_DISABLE_JEV_DUMP_SWEEPER:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-dump-sweeper.sh" ]; then
+    _dump_sweeper_marker="$STATE/.jev-dump-sweeper-last"
+    if [ ! -f "$_dump_sweeper_marker" ] || [ "$(age_of "$_dump_sweeper_marker")" -ge 1800 ]; then
+      touch "$_dump_sweeper_marker"
+      "$SCRIPT_DIR/fm-jev-dump-sweeper.sh" --json > "$STATE/.jev-dump-sweeper-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
 
 
 
