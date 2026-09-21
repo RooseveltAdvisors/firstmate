@@ -2417,6 +2417,15 @@ while :; do
   # generic recovery reason, so give that owner first refusal.
   resurface_after_downtime
 
+  # Pattern 18: Jev Cross-Seat Doorbell & Stale Notification Vacuum
+  if [ "${FM_DISABLE_JEV_DOORBELL_VACUUM:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-doorbell-vacuum.sh" ]; then
+    _vacuum_marker="$STATE/.jev-doorbell-vacuum-last"
+    if [ ! -f "$_vacuum_marker" ] || [ "$(age_of "$_vacuum_marker")" -ge 1800 ]; then
+      touch "$_vacuum_marker"
+      "$SCRIPT_DIR/fm-jev-doorbell-vacuum.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
   # The existing poll loop also owns the bounded inactive-outcome cadence.
   # This is mechanical and silent unless a durable terminal-outcome obligation
   # was created, so quiet cycles never wake firstmate or consume model tokens.
