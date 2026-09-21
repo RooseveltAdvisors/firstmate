@@ -27,15 +27,8 @@
 # unresolvable configured data directory, a backend resolution error, or
 # incompatible tasks-axi instead returns 2 so callers refuse before mutation.
 #
-# ADDRESSING. Every call runs from the configured data directory's parent so
-# that home's `.tasks.toml` supplies the adapter selection, done_keep, and the
-# archive path. A markdown backlog also passes `--file <data>/backlog.md` so the
-# change lands in the home that owns the task regardless of the caller's working
-# directory. A configured non-markdown adapter is addressed by that root alone,
-# because `--file` would override the adapter's own workspace path. The parent of
-# the data directory is the addressing root rather than FM_HOME, so a home whose
-# data directory is relocated keeps its backlog and its archive together. A root
-# with no `.tasks.toml` gets tasks-axi's built-in defaults.
+# ADDRESSING. docs/configuration.md "Backlog backend" owns per-home backlog
+# addressing; fm_backlog_tasks_axi_addressing below implements that contract.
 # bin/fm-tasks-axi-lib.sh owns backend precedence and configuration failures.
 #
 # CRASH RECOVERY. Only teardown needs a durable record: it removes the meta and
@@ -309,11 +302,8 @@ fm_backlog_source_present() {  # <data-dir> <authorized-data-dir> [root authoriz
 # Resolve how the owning home's backlog is addressed, for reads and mutations
 # alike: sets FM_BACKLOG_AXI_ROOT to the cd target and FM_BACKLOG_AXI_FILE to
 # the markdown --file path, empty for every other backend. This is the single
-# place that decision is made. A markdown backlog is addressed as
-# <data>/backlog.md so the change lands in the home that owns the task
-# regardless of the caller's working directory; any other configured adapter
-# is addressed by that root alone, because --file would override the adapter's
-# own workspace path. The caller invokes fm_tasks_axi inside its own subshell
+# place that decision is made; see the ADDRESSING owner above.
+# The caller invokes fm_tasks_axi inside its own subshell
 # - the bound wrapper execs, so a nested subshell here would add a process
 # layer between tasks-axi and the caller, which the lock-holding callers'
 # interruption contract counts on not existing.

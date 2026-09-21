@@ -361,9 +361,9 @@ When a spawn is interrupted after launch delivery began, its exit path re-reads 
 
 Every tasks-axi call a caller makes while holding that lock is bounded by `FM_TASKS_AXI_TIMEOUT`, so an unresponsive tasks-axi cannot hold the lock open and a bound that expires is reported as the timeout it was.
 Automatic transitions run from the configured data directory's parent, letting that home's effective tasks-axi configuration select its adapter while keeping relocated backlog configuration, archives, and relative scout-report links together.
-That explicit markdown file belongs to the markdown backend only: a markdown home always receives `--file <data>/backlog.md`, so a relocated data directory keeps addressing its own backlog rather than the default path, while a home whose resolved backend is non-markdown never receives a markdown file override and requires no markdown backlog file.
-Selecting markdown through a `.tasks.toml` does not waive that file, because the selector says which backend is in use, not where its store lives.
-A `[markdown] path` in that config names the backlog while the data directory sits at its default `<root>/data`; a home that relocated its data directory carries its backlog with it, so the relocated `<data>/backlog.md` wins over the stock path the config ships with.
+A markdown home receives an explicit `--file` for its resolved backlog: `[markdown] path` in the root configuration applies when the data directory is `<root>/data`, with relative paths resolved against that root and `<data>/backlog.md` as the default.
+A relocated data directory instead uses `<data>/backlog.md`.
+A non-markdown backend receives no markdown file override and requires no markdown backlog file.
 
 ### Exemptions and refusal conditions
 
@@ -398,7 +398,7 @@ Read attribution in a home with a beads backlog with `tail -100 .beads/interacti
 
 ### Using a separate operational home
 
-The tracked `.tasks.toml` paths resolve against the directory tasks-axi runs in, not `FM_HOME`, so a bare `tasks-axi` run from the code root addresses the code root's `data/` whenever the home lives elsewhere.
+The per-home `.tasks.toml` paths resolve against the directory tasks-axi runs in, not `FM_HOME`, so a bare `tasks-axi` run from the code root addresses the code root's `data/` whenever the home lives elsewhere.
 tasks-axi replaces its target by renaming a temporary file over it.
 If the target is a symlink, the write replaces it with a regular file.
 Linking the code-root copy into the home therefore forks the queue on the first write instead of keeping the copies in sync.
@@ -1201,7 +1201,7 @@ Every result above exits 0.
 
 **Firstmate retains the dispatch decision**
 
-The tool never replaces firstmate's judgment, `quota-array-dispatch`, the captain-approval gate, or `fm-spawn.sh` validation; `AGENTS.md` section 4 owns what firstmate does with each outcome.
+The tool never replaces firstmate's judgment, `quota-array-dispatch`, the captain-approval gate, or `fm-spawn.sh` validation; [`quota-array-dispatch`](../.agents/skills/quota-array-dispatch/SKILL.md) owns what firstmate does with each outcome.
 By accepted design, a `clear` result does not enforce catalog/authentication, reasoning-class, or completion-runway gates.
 
 Firstmate passes its profile line unless it states a reason to override, such as the brief's reasoning class or an eligible-unranked-candidate note; every non-clear result returns to the full existing intake.

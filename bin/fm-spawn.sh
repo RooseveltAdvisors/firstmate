@@ -182,6 +182,9 @@
 #   a failed or inconclusive probe omits it so older Pi versions remain launchable.
 #   A missing selected executable refuses before endpoint creation, and pi-signed
 #   never falls back to pi.
+#   A cross-harness quota diversion to pi or pi-signed rebuilds the launch
+#   template and repeats this executable and TUI-mode setup before launch.
+#   tests/fm-spawn-dispatch-profile.test.sh covers the diverted Pi command.
 #   Devin is worker-only: --permission-mode dangerous and
 #   --respect-workspace-trust false allow unattended tools in a fresh worktree.
 #   --config points at a private per-task snapshot of the user config with
