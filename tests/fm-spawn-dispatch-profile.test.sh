@@ -794,6 +794,43 @@ test_pi_tui_mode_probe_is_safe_for_old_and_new_pi() {
   pass "Pi launch probing omits --tui-mode on older Pi and preserves it on supporting Pi"
 }
 
+test_quota_divert_to_pi_rebuilds_launch() {
+  local rec id out status launch prober
+  id=profile-quota-divert-pi-z8e
+  rec=$(make_spawn_case profile-quota-divert-pi codex "$id")
+  read_case_record "$rec"
+  prober="$CASE_DIR/jev-quota-prober"
+  cat > "$prober" <<'SH'
+#!/usr/bin/env bash
+set -u
+case " ${*} " in
+  *' --auto-divert '*)
+    printf '%s\n' 'harness=pi' 'model=openai-codex/gpt-5.6-sol'
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+SH
+  chmod +x "$prober"
+
+  out=$(FM_TEST_DISABLE_JEV_PROBER=0 FM_TEST_JEV_PROBER_PATH="$prober" run_ship_spawn \
+    "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" \
+    --harness codex --model codex/gpt-5 --effort max)
+  status=$?
+  expect_code 0 "$status" "quota divert to pi should succeed: $out"
+  launch=$(cat "$LAUNCH_LOG")
+  assert_contains "$launch" "FM_PI_HARNESS=pi '$FAKEBIN_DIR/pi' --tui-mode regular" \
+    "quota divert to pi did not rebuild the Pi launch prefix and executable"
+  assert_contains "$launch" "--model 'openai-codex/gpt-5.6-sol' --thinking 'max'" \
+    "quota-diverted model or effort did not reach the rebuilt Pi launch"
+  assert_not_contains "$launch" '__PIBIN__' \
+    "quota divert to pi left the Pi executable placeholder unsubstituted"
+  assert_not_contains "$launch" '__PITUIMODE__' \
+    "quota divert to pi left the TUI-mode placeholder unsubstituted"
+  pass "quota divert to pi rebuilds concrete Pi launch and applies diverted profile"
+}
+
 test_pi_signed_missing_binary_refuses_before_endpoint_or_metadata() {
   local rec id out status
   id=profile-pi-signed-missing-z8c
@@ -1468,6 +1505,7 @@ test_native_pi_ultra_is_explicit_and_model_scoped
 test_batch_preserves_native_ultra
 test_pi_threads_model_and_max_effort
 test_pi_tui_mode_probe_is_safe_for_old_and_new_pi
+test_quota_divert_to_pi_rebuilds_launch
 test_pi_signed_threads_shared_pi_profile_and_preserves_identity
 test_pi_signed_missing_binary_refuses_before_endpoint_or_metadata
 test_pi_signed_persistent_secondmate_uses_pi_extensions_and_identity
