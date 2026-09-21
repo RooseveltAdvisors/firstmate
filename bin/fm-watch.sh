@@ -2529,6 +2529,16 @@ EOF
           wake "$reason"
         fi
         pr_poll_control_release || exit 1
+        # Pattern 2: Jev Semantic Alert Correlator to dampen held / duplicate check alerts
+        if [ -x "$FM_ROOT/bin/fm-jev-alert-correlator.sh" ]; then
+          correlator_rc=2
+          "$FM_ROOT/bin/fm-jev-alert-correlator.sh" --alert "$reason" --source "$(basename "$c")" >/dev/null 2>&1 || correlator_rc=$?
+          if [ "$correlator_rc" -eq 0 ]; then
+            triage_log "absorbed alert via Jev alert correlator for $c: $out"
+            touch "$STATE/.last-check"
+            continue
+          fi
+        fi
         fm_wake_append check "$c" "$reason" || exit 1
         touch "$STATE/.last-check"
         wake "$reason"
@@ -2770,12 +2780,36 @@ EOF
               clear_write_tracking "$key"
               triage_log "absorbed stale (open captain call already surfaced for this status): $w"
             else
+              stale_status="$STATE/$(window_to_task "$w" "$STATE").status"
+              last_status=$(last_status_line "$stale_status")
+              if [ -n "$last_status" ] && [ "$(status_line_verb "$last_status")" = "done" ]; then
+                if [ -x "$FM_ROOT/bin/fm-jev-done-verify.sh" ]; then
+                  done_verify_out=
+                  done_verify_rc=0
+                  done_verify_out=$("$FM_ROOT/bin/fm-jev-done-verify.sh" --task "$task" --status-line "$last_status" 2>&1) || done_verify_rc=$?
+                  if [ "$done_verify_rc" -ne 0 ]; then
+                    triage_log "fake-done detected by Jev for $task: $done_verify_out"
+                    fm_wake_append fake-done "$w" "fake-done: $w ($done_verify_out)" || exit 1
+                    stale_wait_record "$key"
+                    printf '%s' "$h" > "$sf"
+                    rm -f "$ssf"
+                    clear_write_tracking "$key"
+                    stale_record=$(status_span_first_actionable_record "$stale_status" 0)
+                    case $? in
+                      0|1) stale_end=${stale_record%%$'\t'*}; stale_rest=${stale_record#*$'\t'}; stale_ident=${stale_rest%%$'\t'*} ;;
+                      *) stale_end=''; stale_ident='' ;;
+                    esac
+                    mark_surfaced "$stale_status" "$stale_end" "$stale_ident"
+                    wake "fake-done: $w"
+                    continue
+                  fi
+                fi
+              fi
               fm_wake_append stale "$w" "stale: $w" || exit 1
               stale_wait_record "$key"
               printf '%s' "$h" > "$sf"
               rm -f "$ssf"
               clear_write_tracking "$key"
-              stale_status="$STATE/$(window_to_task "$w" "$STATE").status"
               stale_record=$(status_span_first_actionable_record "$stale_status" 0)
               case $? in
                 0|1) stale_end=${stale_record%%$'\t'*}; stale_rest=${stale_record#*$'\t'}; stale_ident=${stale_rest%%$'\t'*} ;;
