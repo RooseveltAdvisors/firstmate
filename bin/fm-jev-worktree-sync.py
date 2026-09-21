@@ -44,6 +44,18 @@ def find_default_branch(worktree: Path) -> str:
         return "origin/master"
     return "origin/main"
 
+def get_worktree_repo(worktree: Path) -> str:
+    rc, url, _ = run_git(["remote", "get-url", "origin"], worktree)
+    if rc == 0 and url:
+        clean = url.strip().rstrip("/").removesuffix(".git")
+        parts = clean.split("/")
+        if len(parts) >= 1:
+            last = parts[-1]
+            if ":" in last:
+                last = last.split(":")[-1]
+            return last
+    return worktree.name
+
 def inspect_worktree(worktree: Path, auto_sync: bool = False) -> Dict[str, Any]:
     if not (worktree / ".git").exists():
         return {
@@ -131,7 +143,7 @@ def inspect_worktree(worktree: Path, auto_sync: bool = False) -> Dict[str, Any]:
         "sync_error": rebase_error,
     }
 
-def scan_fleet_worktrees() -> List[Path]:
+def scan_fleet_worktrees(repo_filter: Optional[str] = None) -> List[Path]:
     worktrees = []
     # 1. Check ~/.treehouse/*/tutti
     treehouse_root = Path.home() / ".treehouse"
@@ -146,16 +158,33 @@ def scan_fleet_worktrees() -> List[Path]:
         for p in git_root.glob("wt-*"):
             if p.is_dir() and (p / ".git").exists():
                 worktrees.append(p)
-        for name in ("jev", "firstmate", "Portal"):
+        for name in ("jev", "firstmate", "Portal", "Zeta", "beads"):
             p = git_root / name
             if p.is_dir() and (p / ".git").exists():
                 worktrees.append(p)
 
-    return sorted(list(set(worktrees)))
+    unique_worktrees = sorted(list(set(worktrees)))
+    if not repo_filter:
+        return unique_worktrees
 
-def format_summary(results: List[Dict[str, Any]]) -> str:
+    filtered = []
+    rf_lower = repo_filter.lower()
+    for w in unique_worktrees:
+        repo_name = get_worktree_repo(w).lower()
+        if rf_lower in repo_name or rf_lower in w.name.lower():
+            filtered.append(w)
+    return filtered
+
+def format_summary(results: List[Dict[str, Any]], repo_filter: Optional[str] = None) -> str:
     lines = []
-    lines.append(f"Jev Worktree Convergence Audit ({len(results)} worktrees scanned):")
+    header = "Jev Worktree Convergence Audit"
+    if repo_filter:
+        header += f" for repository '{repo_filter}'"
+    header += f" ({len(results)} worktree{'s' if len(results) != 1 else ''} scanned):"
+    lines.append(header)
+    if not results:
+        lines.append(f"  ✓ No active fleet worktrees found matching '{repo_filter}'.")
+        return "\n".join(lines)
     for r in results:
         state = r.get("state", "UNKNOWN")
         symbol = "✓" if "CONVERGED" in state else ("⚠️" if "BEHIND" in state else "❌")
@@ -175,6 +204,7 @@ def main() -> int:
         description="Jev Cross-Seat Worktree Convergence & Upstream Sync Engine (Pattern 15)"
     )
     parser.add_argument("--worktree", default=None, help="Specific worktree path to audit")
+    parser.add_argument("--repo-name", default=None, help="Filter fleet worktrees by repository name")
     parser.add_argument("--scan-all", action="store_true", help="Scan all active fleet worktrees")
     parser.add_argument("--auto-sync", action="store_true", help="Safely fast-forward or rebase clean behind worktrees")
     parser.add_argument("--json", action="store_true", help="Output JSON format")
@@ -184,15 +214,15 @@ def main() -> int:
     targets: List[Path] = []
     if args.worktree:
         targets.append(Path(args.worktree))
-    elif args.scan_all or not args.worktree:
-        targets = scan_fleet_worktrees()
+    elif args.scan_all or args.repo_name or not args.worktree:
+        targets = scan_fleet_worktrees(repo_filter=args.repo_name)
 
     results = [inspect_worktree(t, auto_sync=args.auto_sync) for t in targets]
 
     if args.json:
         print(json.dumps(results, indent=2))
     else:
-        print(format_summary(results))
+        print(format_summary(results, repo_filter=args.repo_name))
 
     # Exit 1 only if there are dirty behind worktrees or conflicts
     diverged_count = sum(1 for r in results if "CONFLICT" in r.get("state", ""))
