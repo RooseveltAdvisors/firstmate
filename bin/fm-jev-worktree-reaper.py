@@ -21,7 +21,29 @@ import json
 import os
 import subprocess
 import sys
+from pathlib import Path
 from typing import Dict, List, Any, Optional
+
+
+def find_repo_dir(repo_name: str) -> Optional[str]:
+    if not repo_name:
+        return None
+    # 1. Look in treehouse roots
+    th_root = Path.home() / ".treehouse"
+    if th_root.exists():
+        for candidate in th_root.glob(f"*/*/{repo_name}"):
+            if candidate.is_dir() and (candidate / ".git").exists():
+                return str(candidate)
+    # 2. Look in /home/jon/git
+    git_root = Path("/home/jon/git")
+    if git_root.exists():
+        direct = git_root / repo_name
+        if direct.is_dir() and (direct / ".git").exists():
+            return str(direct)
+        wt = git_root / f"wt-{repo_name}"
+        if wt.is_dir() and (wt / ".git").exists():
+            return str(wt)
+    return None
 
 
 def run_git(args: List[str], cwd: str) -> subprocess.CompletedProcess:
@@ -183,6 +205,11 @@ def main() -> int:
         help="Base upstream branch to check for merged ancestry (default: origin/main)",
     )
     parser.add_argument(
+        "--repo-name",
+        default="",
+        help="Repository name to target across treehouse/workspace roots (e.g. tutti, Portal, Zeta)",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Simulate reaping scan without modifying worktrees or branches",
@@ -200,8 +227,20 @@ def main() -> int:
 
     args = parser.parse_args()
 
+    repo_dir = args.repo_dir
+    if args.repo_name:
+        found = find_repo_dir(args.repo_name)
+        if found:
+            repo_dir = found
+        elif not os.path.exists(repo_dir) or not os.path.exists(os.path.join(repo_dir, ".git")):
+            if args.json:
+                print(json.dumps({"error": f"Repository '{args.repo_name}' not found", "reaped_worktrees": []}))
+            else:
+                print(f"Jev Worktree Reaper: repository '{args.repo_name}' not found; skipped.")
+            return 0
+
     report = reap_worktrees(
-        repo_path=args.repo_dir,
+        repo_path=repo_dir,
         base_branch=args.base_branch,
         dry_run=args.dry_run,
         prune_branches=args.prune_branches,
