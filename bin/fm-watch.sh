@@ -2426,6 +2426,15 @@ while :; do
     fi
   fi
 
+  # Pattern 20: Jev Harness Pane & Completed Seat Auto-Reconciler
+  if [ "${FM_DISABLE_JEV_PANE_REAPER:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-pane-reaper.sh" ]; then
+    _pane_reaper_marker="$STATE/.jev-pane-reaper-last"
+    if [ ! -f "$_pane_reaper_marker" ] || [ "$(age_of "$_pane_reaper_marker")" -ge 1800 ]; then
+      touch "$_pane_reaper_marker"
+      "$SCRIPT_DIR/fm-jev-pane-reaper.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
   # The existing poll loop also owns the bounded inactive-outcome cadence.
   # This is mechanical and silent unless a durable terminal-outcome obligation
   # was created, so quiet cycles never wake firstmate or consume model tokens.
