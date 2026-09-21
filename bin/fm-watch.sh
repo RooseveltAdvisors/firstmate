@@ -2453,6 +2453,16 @@ while :; do
     fi
   fi
 
+  # Pattern 23: Jev Autonomous CI Runner Health & Shard Load Balancer
+  if [ "${FM_DISABLE_JEV_RUNNER_BALANCER:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-runner-balancer.sh" ]; then
+    _runner_balancer_marker="$STATE/.jev-runner-balancer-last"
+    if [ ! -f "$_runner_balancer_marker" ] || [ "$(age_of "$_runner_balancer_marker")" -ge 900 ]; then
+      touch "$_runner_balancer_marker"
+      "$SCRIPT_DIR/fm-jev-runner-balancer.sh" --repo "ArcsHealth/Portal" --json > "$STATE/.jev-runner-balancer-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
+
 
   # The existing poll loop also owns the bounded inactive-outcome cadence.
   # This is mechanical and silent unless a durable terminal-outcome obligation
