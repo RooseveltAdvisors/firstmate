@@ -1120,8 +1120,10 @@ After the answer, code applies all remaining checks and ranking:
 
 - The confidence floor and the matched rule's `approval` and `floor`.
 - Each candidate's `provider` and `floor`.
-- Every applicable account-wide and model/product row from one `quota-axi --json` snapshot.
+- Every applicable quota row from one `quota-axi --json` snapshot.
 - The numeric `spendPriority` argmax over candidates, using each candidate's limiting row.
+
+Applicable rows are the account-wide `all_models` and `all_products` scopes and the pinned `model:` and `product:` scopes; for provider `agy`, its `gemini` scope additionally applies when the profile omits the model, sets it to `default`, or pins a `gemini` model, and its `claude_gpt` scope when it pins a `claude` or `gpt` model.
 
 The [shared quota library](../bin/fm-quota-axi-lib.sh) accepts schema 5 and schema 6 and implements the [account-matching contract](../.agents/skills/quota-array-dispatch/SKILL.md#1-eligibility).
 
