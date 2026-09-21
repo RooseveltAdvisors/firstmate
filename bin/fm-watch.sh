@@ -2516,6 +2516,15 @@ while :; do
     fi
   fi
 
+  # Pattern 30: Jev Host CPU & Memory Pressure Adaptive Throttler
+  if [ "${FM_DISABLE_JEV_LOAD_THROTTLER:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-load-throttler.sh" ]; then
+    _load_throttle_marker="$STATE/.jev-load-throttler-last"
+    if [ ! -f "$_load_throttle_marker" ] || [ "$(age_of "$_load_throttle_marker")" -ge 900 ]; then
+      touch "$_load_throttle_marker"
+      "$SCRIPT_DIR/fm-jev-load-throttler.sh" --json > "$STATE/.jev-load-throttler-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
 
 
 
