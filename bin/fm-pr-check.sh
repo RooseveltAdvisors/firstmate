@@ -147,6 +147,10 @@ if { [ -z "$PR_HEAD" ] || ! fm_dod_forge_head_is_named_head "$MODE"; } \
   echo "error: $GATE_REASON" >&2
   exit 1
 fi
+# Pattern 10: Jev Zero-CI & Workflow Landing Gate Verifier
+if [ -x "$FM_ROOT/bin/fm-jev-ci-workflow-guard.sh" ] && [ -n "$WT" ] && [ -d "$WT" ]; then
+  "$FM_ROOT/bin/fm-jev-ci-workflow-guard.sh" --repo-dir "$WT" --pr "$URL" --json > "$STATE/pr-$ID.ci-guard.json" 2>/dev/null || true
+fi
 
 META_TMP=
 META_LOCK=
