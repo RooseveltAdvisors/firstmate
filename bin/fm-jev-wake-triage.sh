@@ -27,9 +27,12 @@
 #   or malformed answer prints action=unavailable and exits 0 so the watcher
 #   escalates exactly as it did before this gate. Exit 2 only for usage.
 #
-# Decision: escalate only when the Choice is true_wedge. pipeline_wait and
-#   healthy_idle print action=suppress. The Noul wedge_probability is recorded
-#   for calibration and is not a second escalate gate.
+# Decision: escalate when the Choice is true_wedge. pipeline_wait and
+#   healthy_idle print action=suppress only when Choice confidence is at least
+#   0.6, the same floor as bin/fm-dispatch-resolve.sh. Missing or below-floor
+#   confidence fail-opens to action=unavailable so a coin-flip cannot silence
+#   a page. The Noul wedge_probability is recorded for calibration and is not
+#   a second escalate gate.
 #
 # Telemetry: appends one `jev_triage.<action>\t<class>` line to
 #   state/.jev-triage-telemetry. <class> is ship, scout, secondmate, or
@@ -39,7 +42,8 @@
 #   FM_JEV_WAKE_TRIAGE_CALIBRATION_LIMIT) append one JSON object to
 #   state/.jev-triage-calibration.jsonl with the input summary, Jev answer,
 #   action, and outcome. A later escalate after a suppress for the same task
-#   appends a follow-up line with outcome=later_escalated.
+#   appends a follow-up line with outcome=later_escalated only while that
+#   window is still open.
 #
 # Output (stdout, one key=value per line):
 #   action=escalate|suppress|unavailable
@@ -61,6 +65,7 @@ TS_MODEL=jev-latest
 TS_BASE=https://api.typesafe.ai
 TS_TIMEOUT=${FM_JEV_WAKE_TRIAGE_TIMEOUT:-5}
 CALIBRATION_LIMIT=${FM_JEV_WAKE_TRIAGE_CALIBRATION_LIMIT:-20}
+CONFIDENCE_FLOOR=0.6
 case "$TS_TIMEOUT" in ''|*[!0-9]*|0) TS_TIMEOUT=5 ;; esac
 case "$CALIBRATION_LIMIT" in ''|*[!0-9]*) CALIBRATION_LIMIT=20 ;; esac
 
@@ -153,6 +158,12 @@ write_calibration() {  # <action> [choice] [noul]
   local action=$1 choice=${2-} noul=${3-} n summary pending_action
   n=$(calibration_count)
   mkdir -p "$STATE" 2>/dev/null || return 0
+  if [ "$n" -ge "$CALIBRATION_LIMIT" ]; then
+    if [ -n "$TASK" ]; then
+      printf '%s\t%s\n' "$TASK" "$action" >> "$PENDING" 2>/dev/null || true
+    fi
+    return 0
+  fi
   if [ -n "$TASK" ] && [ -f "$PENDING" ]; then
     pending_action=$(awk -F '\t' -v t="$TASK" '$1 == t { a=$2 } END { print a }' "$PENDING" 2>/dev/null || true)
     if [ "$pending_action" = suppress ] && [ "$action" = escalate ]; then
@@ -161,12 +172,6 @@ write_calibration() {  # <action> [choice] [noul]
         '{n:$n,class:$class,action:$action,choice:$choice,noul:(if $noul == "" then null else ($noul|tonumber) end),outcome:"later_escalated"}' \
         >> "$CALIBRATION" 2>/dev/null || true
     fi
-  fi
-  if [ "$n" -ge "$CALIBRATION_LIMIT" ]; then
-    if [ -n "$TASK" ]; then
-      printf '%s\t%s\n' "$TASK" "$action" >> "$PENDING" 2>/dev/null || true
-    fi
-    return 0
   fi
   summary=$(jq -nc --arg class "$CLASS" --argjson age "$AGE" --argjson count "$COUNT" \
     --arg task "$TASK" --arg last "$(sanitize_line "$LAST_STATUS")" --argjson tail "$(status_tail_json "$STATUS_FILE")" \
@@ -245,6 +250,8 @@ HTTP=$(printf '%s' "$REQUEST" | curl -sS --max-time "$TS_TIMEOUT" -o "$RESP_FILE
 jq -e '
   (.answers.class.choice | type) == "string" and
   (.answers.class.choice == "pipeline_wait" or .answers.class.choice == "true_wedge" or .answers.class.choice == "healthy_idle") and
+  (.answers.class.confidence | type) == "number" and
+  .answers.class.confidence >= 0 and .answers.class.confidence <= 1 and
   (.answers.class.probabilities | type) == "object" and
   ((.answers.class.probabilities | keys | sort) == ["healthy_idle","pipeline_wait","true_wedge"]) and
   all(.answers.class.probabilities[]; type == "number" and . >= 0 and . <= 1) and
@@ -257,6 +264,11 @@ CHOICE=$(jq -r '.answers.class.choice' "$RESP_FILE")
 NOUL=$(jq -r '.answers.wedge_probability.noul' "$RESP_FILE")
 case "$CHOICE" in
   true_wedge) emit escalate "$CHOICE" "$NOUL" ;;
-  pipeline_wait|healthy_idle) emit suppress "$CHOICE" "$NOUL" ;;
+  pipeline_wait|healthy_idle)
+    jq -e --argjson floor "$CONFIDENCE_FLOOR" \
+      '.answers.class.confidence >= $floor' "$RESP_FILE" >/dev/null 2>&1 \
+      || emit_unavailable
+    emit suppress "$CHOICE" "$NOUL"
+    ;;
   *) emit_unavailable ;;
 esac

@@ -62,8 +62,9 @@
 #                          or healthy_idle (bin/fm-jev-wake-triage.sh); only
 #                          true_wedge, or Jev unavailable, still escalates.
 #                          pipeline_wait and healthy_idle suppress the wake and
-#                          restart the idle timer. config/jev-wake-triage=off
-#                          disables that gate.
+#                          restart the idle timer. The gate is off unless
+#                          config/jev-wake-triage or FM_JEV_WAKE_TRIAGE turns
+#                          it on.
 #                          A genuinely busy pane
 #                          (window_is_busy true) is exempt from the above, but
 #                          only up to BUSY_TURN_MAX_SECS with no completed turn
@@ -1508,15 +1509,15 @@ wedge_dead_record() {  # <window> <since-file> <triage-label> <idle-age> <pane-h
 # unavailable (fail-open to today's wake). pipeline_wait and healthy_idle
 # suppress the wake, restart the idle timer, and leave the escalation
 # counter untouched. bin/fm-jev-wake-triage.sh owns the request, telemetry,
-# and calibration log. config/jev-wake-triage=off, or FM_JEV_WAKE_TRIAGE=off,
-# disables this gate. Default on.
+# and calibration log. config/jev-wake-triage=on, or FM_JEV_WAKE_TRIAGE=on,
+# enables this gate. Default off.
 wedge_jev_enabled() {
   local v=${FM_JEV_WAKE_TRIAGE-}
   case "$v" in
     off|0|false|no) return 1 ;;
     on|1|true|yes) return 0 ;;
   esac
-  [ -f "$CONFIG/jev-wake-triage" ] || return 0
+  [ -f "$CONFIG/jev-wake-triage" ] || return 1
   v=$(head -n 1 "$CONFIG/jev-wake-triage" 2>/dev/null || true)
   v=${v#"${v%%[![:space:]]*}"}
   v=${v%"${v##*[![:space:]]}"}

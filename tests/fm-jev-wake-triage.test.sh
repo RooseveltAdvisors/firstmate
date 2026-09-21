@@ -53,8 +53,8 @@ printf '%s' "${FAKE_CURL_HTTP:-200}"
 SH
 chmod +x "$FAKEBIN/curl"
 
-write_choice_response() {  # <choice> [noul]
-  local choice=$1 noul=${2:-0.5} p_wait=0.01 p_wedge=0.01 p_idle=0.01
+write_choice_response() {  # <choice> [noul] [confidence]
+  local choice=$1 noul=${2:-0.5} confidence=${3:-0.9} p_wait=0.01 p_wedge=0.01 p_idle=0.01
   case "$choice" in
     pipeline_wait) p_wait=0.98 ;;
     true_wedge) p_wedge=0.98 ;;
@@ -63,7 +63,7 @@ write_choice_response() {  # <choice> [noul]
   cat > "$RESPONSE" <<JSON
 { "model": "jev-1.13.0",
   "answers": {
-    "class": { "type": "choice", "choice": "$choice", "confidence": 0.9,
+    "class": { "type": "choice", "choice": "$choice", "confidence": $confidence,
       "probabilities": { "pipeline_wait": $p_wait, "true_wedge": $p_wedge, "healthy_idle": $p_idle } },
     "wedge_probability": { "type": "noul", "noul": $noul }
   },
@@ -175,6 +175,28 @@ TYPESAFE_API_KEY=$KEY run_tool code out --class ship --age 500 --escalation-coun
 assert_contains "$out" 'action=unavailable' "a malformed Choice fail-opens"
 pass "a malformed Jev answer fail-opens"
 
+# --- missing or below-floor confidence must not suppress --------------------
+reset_log
+write_choice_response pipeline_wait 0.2 0.34
+TYPESAFE_API_KEY=$KEY run_tool code out --class ship --age 500 --escalation-count 2 \
+  --task wedged --status-file "$STATUS"
+assert_contains "$out" 'action=unavailable' "below-floor pipeline_wait must not suppress"
+pass "below-floor confidence fail-opens instead of suppressing"
+
+reset_log
+write_choice_response true_wedge 0.91 0.34
+TYPESAFE_API_KEY=$KEY run_tool code out --class ship --age 500 --escalation-count 2 \
+  --task wedged --status-file "$STATUS"
+assert_contains "$out" 'action=escalate' "below-floor true_wedge still escalates"
+pass "below-floor true_wedge still pages"
+
+reset_log
+printf '%s\n' '{"answers":{"class":{"type":"choice","choice":"pipeline_wait","probabilities":{"pipeline_wait":0.98,"true_wedge":0.01,"healthy_idle":0.01}},"wedge_probability":{"type":"noul","noul":0.2}}}' > "$RESPONSE"
+TYPESAFE_API_KEY=$KEY run_tool code out --class ship --age 500 --escalation-count 2 \
+  --task wedged --status-file "$STATUS"
+assert_contains "$out" 'action=unavailable' "missing confidence fail-opens"
+pass "missing confidence fail-opens instead of suppressing"
+
 # --- calibration caps at the first 20 decisions ----------------------------
 reset_log
 write_choice_response pipeline_wait 0.2
@@ -189,6 +211,25 @@ cal_n=$(grep -c '"summary"' "$HOME_DIR/state/.jev-triage-calibration.jsonl")
 tel_n=$(grep -c 'jev_triage.suppressed' "$HOME_DIR/state/.jev-triage-telemetry")
 [ "$tel_n" = 3 ] || fail "telemetry must keep counting after the calibration cap, got $tel_n"
 pass "calibration logs the first N decisions; telemetry keeps counting"
+
+# --- later_escalated must not append after the calibration cap -------------
+reset_log
+write_choice_response pipeline_wait 0.2
+TYPESAFE_API_KEY=$KEY FM_JEV_WAKE_TRIAGE_CALIBRATION_LIMIT=2 run_tool code out \
+  --class ship --age 500 --escalation-count 1 --task t1 --status-file "$STATUS"
+TYPESAFE_API_KEY=$KEY FM_JEV_WAKE_TRIAGE_CALIBRATION_LIMIT=2 run_tool code out \
+  --class ship --age 500 --escalation-count 1 --task t2 --status-file "$STATUS"
+write_choice_response pipeline_wait 0.2
+TYPESAFE_API_KEY=$KEY FM_JEV_WAKE_TRIAGE_CALIBRATION_LIMIT=2 run_tool code out \
+  --class ship --age 500 --escalation-count 1 --task Z --status-file "$STATUS"
+write_choice_response true_wedge 0.91
+TYPESAFE_API_KEY=$KEY FM_JEV_WAKE_TRIAGE_CALIBRATION_LIMIT=2 run_tool code out \
+  --class ship --age 500 --escalation-count 2 --task Z --status-file "$STATUS"
+cal_n=$(grep -c '"summary"' "$HOME_DIR/state/.jev-triage-calibration.jsonl")
+[ "$cal_n" = 2 ] || fail "cap must still hold after a post-cap later escalate, got $cal_n"
+grep -F '"outcome":"later_escalated"' "$HOME_DIR/state/.jev-triage-calibration.jsonl" >/dev/null \
+  && fail "later_escalated must not append after the calibration cap"
+pass "later_escalated does not append after the calibration cap"
 
 # --- unknown class is coerced so telemetry never carries free text ---------
 reset_log
@@ -286,11 +327,12 @@ test_watcher_pipeline_wait_suppresses() {
   back=$(cat "$state/.stale-since-$key")
   install_fake_jev "$fakebin" suppress
   export FM_FAKE_CREW_STATE='state: working · source: run-step · validating (running)'
+  export FM_JEV_WAKE_TRIAGE=on
   FM_JEV_WAKE_TRIAGE_BIN="$fakebin/fm-jev-wake-triage.sh" \
     start_stale_watch "$state" "$fakebin" "$out" "$window" "$capture_file"
   pid=$!
   if ! wait_poll_cycle "$state" "$pid"; then
-    reap "$pid"; fail "watcher escalated a pipeline_wait pane: $(cat "$out")"
+    reap "$pid"; unset FM_JEV_WAKE_TRIAGE; fail "watcher escalated a pipeline_wait pane: $(cat "$out")"
   fi
   [ ! -s "$out" ] || { reap "$pid"; fail "pipeline_wait printed a wake reason: $(cat "$out")"; }
   [ ! -e "$state/.wedge-escalations-$key" ] || { reap "$pid"; fail "pipeline_wait advanced the escalation counter"; }
@@ -299,7 +341,7 @@ test_watcher_pipeline_wait_suppresses() {
   [ -s "$fakebin/jev.argv" ] || { reap "$pid"; fail "pipeline_wait never invoked Jev"; }
   reap "$pid"
   ack_stopped_cycle "$state" || fail "could not acknowledge the pipeline_wait watcher stop"
-  unset FM_FAKE_CREW_STATE
+  unset FM_FAKE_CREW_STATE FM_JEV_WAKE_TRIAGE
   pass "watcher pipeline_wait suppresses the stale escalation and restarts the idle timer"
 }
 
@@ -317,14 +359,15 @@ exit 0
 SH
   chmod +x "$fakebin/fm-jev-wake-triage.sh"
   export FM_FAKE_CREW_STATE='state: working · source: run-step · validating (running)'
+  export FM_JEV_WAKE_TRIAGE=on
   FM_JEV_WAKE_TRIAGE_BIN="$fakebin/fm-jev-wake-triage.sh" \
     start_stale_watch "$state" "$fakebin" "$out" "$window" "$capture_file"
   pid=$!
-  wait_for_exit "$pid" 100 || fail "true_wedge did not escalate: $(cat "$out")"
+  wait_for_exit "$pid" 100 || { unset FM_JEV_WAKE_TRIAGE; fail "true_wedge did not escalate: $(cat "$out")"; }
   grep -F "possible wedge" "$out" >/dev/null || fail "true_wedge did not print a possible-wedge reason: $(cat "$out")"
   [ "$(cat "$state/.wedge-escalations-$key" 2>/dev/null || true)" = 1 ] || fail "true_wedge was not counted"
   ack_stopped_cycle "$state" || fail "could not acknowledge the true_wedge escalation"
-  unset FM_FAKE_CREW_STATE
+  unset FM_FAKE_CREW_STATE FM_JEV_WAKE_TRIAGE
   pass "watcher true_wedge still escalates on today's stale reason"
 }
 
@@ -342,15 +385,36 @@ exit 0
 SH
   chmod +x "$fakebin/fm-jev-wake-triage.sh"
   export FM_FAKE_CREW_STATE='state: working · source: run-step · validating (running)'
+  export FM_JEV_WAKE_TRIAGE=on
   FM_JEV_WAKE_TRIAGE_BIN="$fakebin/fm-jev-wake-triage.sh" \
     start_stale_watch "$state" "$fakebin" "$out" "$window" "$capture_file"
   pid=$!
-  wait_for_exit "$pid" 100 || fail "unavailable Jev did not fail open to escalate: $(cat "$out")"
+  wait_for_exit "$pid" 100 || { unset FM_JEV_WAKE_TRIAGE; fail "unavailable Jev did not fail open to escalate: $(cat "$out")"; }
   grep -F "possible wedge" "$out" >/dev/null || fail "unavailable Jev lost today's escalate reason: $(cat "$out")"
   [ "$(cat "$state/.wedge-escalations-$key" 2>/dev/null || true)" = 1 ] || fail "unavailable Jev was not counted as today's escalation"
   ack_stopped_cycle "$state" || fail "could not acknowledge the fail-open escalation"
-  unset FM_FAKE_CREW_STATE
+  unset FM_FAKE_CREW_STATE FM_JEV_WAKE_TRIAGE
   pass "watcher Jev error fails open to today's escalate path"
+}
+
+test_watcher_default_off_skips_jev() {
+  local dir state fakebin out capture_file window key pid
+  dir=$(prime_stale_case jev-default-off)
+  state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"
+  capture_file="$dir/pane.txt"; window="test:fm-jev-jev-default-off"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  install_fake_jev "$fakebin" suppress
+  unset FM_JEV_WAKE_TRIAGE
+  export FM_FAKE_CREW_STATE='state: working · source: run-step · validating (running)'
+  FM_JEV_WAKE_TRIAGE_BIN="$fakebin/fm-jev-wake-triage.sh" \
+    start_stale_watch "$state" "$fakebin" "$out" "$window" "$capture_file"
+  pid=$!
+  wait_for_exit "$pid" 100 || fail "default-off did not keep today's escalate path: $(cat "$out")"
+  grep -F "possible wedge" "$out" >/dev/null || fail "default-off lost today's escalate reason: $(cat "$out")"
+  [ ! -e "$fakebin/jev.argv" ] || fail "default-off still invoked Jev"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the default-off escalation"
+  unset FM_FAKE_CREW_STATE
+  pass "absent config and env skip Jev and escalate as today"
 }
 
 test_watcher_config_off_skips_jev() {
@@ -433,6 +497,7 @@ test_watcher_env_on_beats_config_off() {
 test_watcher_pipeline_wait_suppresses
 test_watcher_true_wedge_escalates
 test_watcher_jev_error_fails_open
+test_watcher_default_off_skips_jev
 test_watcher_config_off_skips_jev
 test_watcher_env_off_skips_jev
 test_watcher_env_on_beats_config_off
