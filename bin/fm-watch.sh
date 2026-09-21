@@ -2534,6 +2534,16 @@ while :; do
     fi
   fi
 
+  # Pattern 32: Jev Multi-Agent IPC & UNIX Domain Socket Leak Watchdog
+  if [ "${FM_DISABLE_JEV_IPC_WATCHDOG:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-ipc-watchdog.sh" ]; then
+    _ipc_wd_marker="$STATE/.jev-ipc-watchdog-last"
+    if [ ! -f "$_ipc_wd_marker" ] || [ "$(age_of "$_ipc_wd_marker")" -ge 1800 ]; then
+      touch "$_ipc_wd_marker"
+      "$SCRIPT_DIR/fm-jev-ipc-watchdog.sh" --json > "$STATE/.jev-ipc-watchdog-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
+
 
 
 
