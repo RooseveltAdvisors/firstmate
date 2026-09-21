@@ -164,9 +164,10 @@
 #   a failed or inconclusive probe omits it so older Pi versions remain launchable.
 #   A missing selected executable refuses before endpoint creation, and pi-signed
 #   never falls back to pi.
-#   A cross-harness quota diversion to pi or pi-signed rebuilds the launch
-#   template and repeats this executable and TUI-mode setup before launch.
-#   tests/fm-spawn-dispatch-profile.test.sh covers the diverted Pi command.
+#   Cross-harness quota diversion rebuilds the launch template before the
+#   selected harness's normal setup and validation run, so diverted launches
+#   receive the same executable resolution and capability checks as direct ones.
+#   tests/fm-spawn-dispatch-profile.test.sh covers diverted Pi and Cursor commands.
 #   For omp (Oh My Pi), fm-spawn resolves the `omp` executable from PATH once and
 #   refuses when it is absent. Every omp launch clears the foreign harness
 #   markers (omp publishes none of its own), sets the Firstmate-owned
