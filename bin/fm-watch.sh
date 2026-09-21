@@ -2471,6 +2471,16 @@ while :; do
     fi
   fi
 
+  # Pattern 25: Jev Cross-Project Dependency Version Drift Harmonizer
+  if [ "${FM_DISABLE_JEV_DEP_HARMONIZER:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-dep-harmonizer.sh" ]; then
+    _dep_harmonizer_marker="$STATE/.jev-dep-harmonizer-last"
+    if [ ! -f "$_dep_harmonizer_marker" ] || [ "$(age_of "$_dep_harmonizer_marker")" -ge 3600 ]; then
+      touch "$_dep_harmonizer_marker"
+      "$SCRIPT_DIR/fm-jev-dep-harmonizer.sh" --roots "/home/jon/git/Portal,/home/jon/.treehouse/tutti-2b1be6/7/tutti,/opt/ra/firstmate" --json > "$STATE/.jev-dep-harmonizer-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
+
 
 
 
