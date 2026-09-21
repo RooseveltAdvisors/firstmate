@@ -3504,6 +3504,11 @@ fi
 # pruned code root. Best effort - a sweep failure never blocks this teardown.
 "$SCRIPT_DIR/fm-remote-job-reap-orphans.sh" >&2 || true
 
+# Pattern 19: Jev Worktree Stale Prune & Detached Branch Reaper (Fail-Open)
+if [ -x "$SCRIPT_DIR/fm-jev-worktree-reaper.sh" ] && [ "${FM_DISABLE_JEV_WORKTREE_REAPER:-0}" != 1 ]; then
+  "$SCRIPT_DIR/fm-jev-worktree-reaper.sh" --repo-dir "${WT:-$PWD}" --dry-run >&2 || true
+fi
+
 # Best-effort: drop the local task branch so the shared repo does not accumulate refs.
 if [ "$BACKEND" = orca ] && [ "$KIND" != secondmate ]; then
   if [ "$ORCA_PATH_MATCH_VERIFIED" != 1 ]; then

@@ -1254,3 +1254,9 @@ if [ -x "$SCRIPT_DIR/fm-jev-worktree-sync.sh" ]; then
   printf 'jev-worktree-sync: auditing active worktrees for %s...\n' "${PR_REPO:-fleet}"
   "$SCRIPT_DIR/fm-jev-worktree-sync.sh" --repo-name "${PR_REPO:-}" 2>&1 || true
 fi
+
+# Pattern 19: Jev Post-Merge Stale Worktree & Detached Branch Reaper (Fail-Open)
+if [ -x "$SCRIPT_DIR/fm-jev-worktree-reaper.sh" ] && [ "${FM_DISABLE_JEV_WORKTREE_REAPER:-0}" != 1 ]; then
+  printf 'jev-worktree-reaper: scanning for clean merged worktrees for %s...\n' "${PR_REPO:-fleet}"
+  "$SCRIPT_DIR/fm-jev-worktree-reaper.sh" --repo-name "${PR_REPO:-}" 2>&1 || true
+fi
