@@ -2606,6 +2606,16 @@ while :; do
     fi
   fi
 
+  # Pattern 40: Jev Multi-Agent Inotify Watch Limit & File Watcher Saturation Guard
+  if [ "${FM_DISABLE_JEV_INOTIFY_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-inotify-guard.sh" ]; then
+    _inotify_marker="$STATE/.jev-inotify-guard-last"
+    if [ ! -f "$_inotify_marker" ] || [ "$(age_of "$_inotify_marker")" -ge 1800 ]; then
+      touch "$_inotify_marker"
+      "$SCRIPT_DIR/fm-jev-inotify-guard.sh" --json > "$STATE/.jev-inotify-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
+
 
 
 
