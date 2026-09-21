@@ -2570,6 +2570,15 @@ while :; do
     fi
   fi
 
+  # Pattern 36: Jev Multi-Agent Host Open File Descriptor & ulimit Exhaustion Guard
+  if [ "${FM_DISABLE_JEV_FD_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-fd-guard.sh" ]; then
+    _fd_guard_marker="$STATE/.jev-fd-guard-last"
+    if [ ! -f "$_fd_guard_marker" ] || [ "$(age_of "$_fd_guard_marker")" -ge 1800 ]; then
+      touch "$_fd_guard_marker"
+      "$SCRIPT_DIR/fm-jev-fd-guard.sh" --json > "$STATE/.jev-fd-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
 
 
 
