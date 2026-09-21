@@ -66,6 +66,19 @@ SUPERVISOR_TOOL_PREFIXES = (
     "herdr",
 )
 
+# Supervisor lifecycle scripts (AGENTS.md sections 4/7/8): seat relaunch/interrupt,
+# task PR merge and check, teardown, lease claim, current-state reads, fleet view.
+# These are firstmate-owned supervision actions, never hands-on project work.
+SUPERVISOR_LIFECYCLE_PREFIXES = (
+    "bin/fm-control.sh",
+    "bin/fm-teardown.sh",
+    "bin/fm-pr-merge.sh",
+    "bin/fm-pr-check.sh",
+    "bin/fm-lease.sh",
+    "bin/fm-crew-state.sh",
+    "bin/fm-fleet-view.sh",
+)
+
 SAFE_READ_TOOLS = (
     "cat ",
     "head ",
@@ -170,7 +183,8 @@ def is_fast_pass_supervisor(subcmd: str) -> bool:
         return False
 
     # 2. Approved supervisor tools (beads, tasks, routing, wake drain, etc.)
-    if clean.startswith(SUPERVISOR_TOOL_PREFIXES) or clean == "bd" or clean == "tasks-axi":
+    #    plus the supervisor lifecycle scripts (control/merge/teardown/lease/state).
+    if clean.startswith(SUPERVISOR_TOOL_PREFIXES) or clean.startswith(SUPERVISOR_LIFECYCLE_PREFIXES) or clean == "bd" or clean == "tasks-axi":
         return True
 
     # 3. Read-only git queries in Firstmate home
