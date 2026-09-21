@@ -2148,12 +2148,11 @@ if [ "$KIND" = secondmate ] && [ "$HARNESS" = rovo ]; then
   exit 1
 fi
 
-# pi launch prep runs once for a direct pi spawn and again after a Jev divert
-# lands on pi, so it lives in this one function (see the divert block below).
-resolve_pi_harness_launch() {
+case "$HARNESS" in
+pi | pi-signed)
   PI_BIN=$(resolve_pi_executable "$HARNESS") || {
     echo "error: $HARNESS executable not found on PATH; install it or select a different verified harness" >&2
-    return 1
+    exit 1
   }
   PI_TUI_MODE=
   if pi_supports_tui_mode "$PI_BIN"; then
@@ -2161,11 +2160,6 @@ resolve_pi_harness_launch() {
   fi
   LAUNCH=${LAUNCH//__PITUIMODE__/$PI_TUI_MODE}
   LAUNCH="FM_PI_HARNESS=$HARNESS $LAUNCH"
-}
-
-case "$HARNESS" in
-pi | pi-signed)
-  resolve_pi_harness_launch || exit 1
   ;;
 cursor)
   # `cursor` is not the CLI name, and the legacy alias `agent` is far too
@@ -2240,10 +2234,11 @@ if [ "$HARNESS" = agy ]; then
 fi
 
 # Jev Pattern 9: Pre-flight runway and token health prober
-if [ "${FM_TEST_DISABLE_JEV_PROBER:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-quota-prober.sh" ]; then
+JEV_QUOTA_PROBER=${FM_TEST_JEV_PROBER_PATH:-$SCRIPT_DIR/fm-jev-quota-prober.sh}
+if [ "${FM_TEST_DISABLE_JEV_PROBER:-0}" != 1 ] && [ -x "$JEV_QUOTA_PROBER" ]; then
   _pre_divert_harness=$HARNESS
-  if ! "$SCRIPT_DIR/fm-jev-quota-prober.sh" --harness "$HARNESS" ${MODEL:+--model "$MODEL"} >/dev/null 2>&1; then
-    _divert=$("$SCRIPT_DIR/fm-jev-quota-prober.sh" --harness "$HARNESS" ${MODEL:+--model "$MODEL"} --auto-divert 2>/dev/null || true)
+  if ! "$JEV_QUOTA_PROBER" --harness "$HARNESS" ${MODEL:+--model "$MODEL"} >/dev/null 2>&1; then
+    _divert=$("$JEV_QUOTA_PROBER" --harness "$HARNESS" ${MODEL:+--model "$MODEL"} --auto-divert 2>/dev/null || true)
     if [ -n "$_divert" ]; then
       eval "$_divert"
       if [ -n "${harness:-}" ] && [ -n "${model:-}" ]; then
@@ -2262,7 +2257,18 @@ if [ "${FM_TEST_DISABLE_JEV_PROBER:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-quota
             exit 1
           }
           case "$HARNESS" in
-          pi | pi-signed) resolve_pi_harness_launch || exit 1 ;;
+          pi | pi-signed)
+            PI_BIN=$(resolve_pi_executable "$HARNESS") || {
+              echo "error: $HARNESS executable not found on PATH; install it or select a different verified harness" >&2
+              exit 1
+            }
+            PI_TUI_MODE=
+            if pi_supports_tui_mode "$PI_BIN"; then
+              PI_TUI_MODE=' --tui-mode regular'
+            fi
+            LAUNCH=${LAUNCH//__PITUIMODE__/$PI_TUI_MODE}
+            LAUNCH="FM_PI_HARNESS=$HARNESS $LAUNCH"
+            ;;
           esac
         fi
       fi
