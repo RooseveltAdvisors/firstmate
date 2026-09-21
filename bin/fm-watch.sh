@@ -2579,6 +2579,15 @@ while :; do
     fi
   fi
 
+  # Pattern 37: Jev Multi-Agent DNS Resolution Latency & Dead Nameserver Watchdog
+  if [ "${FM_DISABLE_JEV_DNS_WATCHDOG:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-dns-watchdog.sh" ]; then
+    _dns_wd_marker="$STATE/.jev-dns-watchdog-last"
+    if [ ! -f "$_dns_wd_marker" ] || [ "$(age_of "$_dns_wd_marker")" -ge 1800 ]; then
+      touch "$_dns_wd_marker"
+      "$SCRIPT_DIR/fm-jev-dns-watchdog.sh" --json > "$STATE/.jev-dns-watchdog-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
 
 
 
