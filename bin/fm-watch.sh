@@ -2462,6 +2462,16 @@ while :; do
     fi
   fi
 
+  # Pattern 24: Jev Cross-Seat Git Ref & Divergence Auto-Realigner
+  if [ "${FM_DISABLE_JEV_REF_ALIGNER:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-ref-aligner.sh" ]; then
+    _ref_aligner_marker="$STATE/.jev-ref-aligner-last"
+    if [ ! -f "$_ref_aligner_marker" ] || [ "$(age_of "$_ref_aligner_marker")" -ge 1800 ]; then
+      touch "$_ref_aligner_marker"
+      "$SCRIPT_DIR/fm-jev-ref-aligner.sh" --auto-ff --json > "$STATE/.jev-ref-aligner-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
+
 
 
   # The existing poll loop also owns the bounded inactive-outcome cadence.
