@@ -850,6 +850,13 @@ EOF
     idle=$((now - observed_at))
     [ "$idle" -ge "$threshold" ] || continue
     ! secondmate_in_active_turn "$(fm_backend_target_of_meta "$meta")" "$idle" || continue
+    # Pattern 14: Jev Long-Run Task Activity Prober & Fake-Stall Dampener
+    if [ "${FM_DISABLE_JEV_STALL_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-stall-guard.sh" ]; then
+      if "$SCRIPT_DIR/fm-jev-stall-guard.sh" --seat "$task" --suppress >/dev/null 2>&1; then
+        triage_log "dampened fake stall for active seat $task (idle ${idle}s)" 2>/dev/null || true
+        continue
+      fi
+    fi
     receipt="$receipt_dir/$row_key"
     if [ "$(cat "$receipt" 2>/dev/null || true)" = "$row_key" ]; then
       fm_wake_secondmate_stall_marker_write "$task" "$row_key" || return 1
