@@ -95,6 +95,11 @@ if [ -x "$FM_ROOT/bin/fm-jev-flake-detector.sh" ] && command -v gh >/dev/null 2>
   "$FM_ROOT/bin/fm-jev-flake-detector.sh" --pr "$URL" --json > "$STATE/pr-$ID.flake.json" 2>/dev/null || true
 fi
 
+# Pattern 16: Jev Memory & Instruction Token Budget Enforcer
+if [ -x "$FM_ROOT/bin/fm-jev-token-budget.sh" ] && [ -n "$WT" ] && [ -d "$WT" ]; then
+  "$FM_ROOT/bin/fm-jev-token-budget.sh" --repo-path "$WT" --json > "$STATE/pr-$ID.token-budget.json" 2>/dev/null || true
+fi
+
 META_TMP=
 META_LOCK=
 META_LOCK_HELD=0

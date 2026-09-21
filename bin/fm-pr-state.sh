@@ -163,3 +163,11 @@ if [ "${FM_DISABLE_JEV_TRIAGE:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-flake-dete
   printf '\n--- Jev Flake vs Regression Analysis ---\n'
   "$SCRIPT_DIR/fm-jev-flake-detector.sh" --pr "$NUMBER" --repo "$PATH_PART" 2>/dev/null || true
 fi
+
+# Pattern 16: Jev Memory & Instruction Token Budget Enforcer
+if [ "${FM_DISABLE_JEV_TRIAGE:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-token-budget.sh" ]; then
+  if [ -f "./AGENTS.md" ] || [ -f "./CLAUDE.md" ]; then
+    printf '\n--- Jev Instruction Token Budget ---\n'
+    "$SCRIPT_DIR/fm-jev-token-budget.sh" --repo-path . 2>/dev/null || true
+  fi
+fi
