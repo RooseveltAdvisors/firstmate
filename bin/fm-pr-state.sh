@@ -151,3 +151,9 @@ if [ "$REVIEW_DECISION" = CHANGES_REQUESTED ]; then
       }
     }' | LC_ALL=C sort
 fi
+
+# Pattern 12: Jev Root-Cause PR Triage
+if [ "${FM_DISABLE_JEV_TRIAGE:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-pr-triage.sh" ] && [ -n "${REQUIRED:-}" ]; then
+  printf '\n--- Jev Root-Cause Triage ---\n'
+  "$SCRIPT_DIR/fm-jev-pr-triage.sh" --pr "$NUMBER" --repo "$PATH_PART" 2>/dev/null || true
+fi
