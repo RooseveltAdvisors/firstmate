@@ -1248,3 +1248,9 @@ case "$outcome_rc" in
     printf 'actionable: merged %s but could not record the outcome for supervision\n' "$URL" >&2
     ;;
 esac
+
+# Pattern 15: Jev Post-Merge Worktree Convergence Audit (Fail-Open)
+if [ -x "$SCRIPT_DIR/fm-jev-worktree-sync.sh" ]; then
+  printf 'jev-worktree-sync: auditing active worktrees for %s...\n' "${PR_REPO:-fleet}"
+  "$SCRIPT_DIR/fm-jev-worktree-sync.sh" --repo-name "${PR_REPO:-}" 2>&1 || true
+fi

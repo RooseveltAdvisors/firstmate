@@ -54,4 +54,8 @@ print("PASS: Test 3 - Worktree git inspection verified")
 "${FM_ROOT}/bin/fm-jev-worktree-sync.sh" --worktree /home/jon/git/wt-portal-visual-qa
 echo "PASS: Test 4 - Live audit on wt-portal-visual-qa verified"
 
-echo "=== All 4/4 fm-jev-worktree-sync tests PASSED (100%) ==="
+# Test 5: Live audit with --repo-name filtering
+"${FM_ROOT}/bin/fm-jev-worktree-sync.sh" --repo-name tutti
+echo "PASS: Test 5 - Repo filtering audit verified"
+
+echo "=== All 5/5 fm-jev-worktree-sync tests PASSED (100%) ==="
