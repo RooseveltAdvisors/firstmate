@@ -2209,9 +2209,10 @@ crew_gate_awaits_human_decision() {  # <id> -> <run-id> on stdout
 #
 # Deliberately narrower than crew_absorb_class's `working` token, which covers
 # every active run step and a busy pane alike: only the `ci` step is external in
-# this sense. A run that is `running` or `fixing`, or a verdict sourced from the
-# pane, is work the crew is doing HERE, so a silent pane during one stays a wedge
-# suspect on the unchanged schedule.
+# this sense. Local validation, fixing, or a verdict sourced from the pane is
+# work the crew is doing HERE, so a silent pane during one stays a wedge suspect
+# on the unchanged schedule. The classifier resolves the effective step even
+# when the run's top-level status is `running`.
 #
 # Matched on the exact current-state line rather than re-derived, so this reads
 # the one authoritative classifier instead of becoming a second one. Trailing
