@@ -33,7 +33,13 @@ ok "json output format verified"
 
 printf '4. Verify --auto-divert flag on exhausted harness...\n'
 divert_out=$("$PROBER" --harness pi --model zai-general/glm-5.3-flash --auto-divert) || fail "auto-divert failed"
-echo "$divert_out" | grep -q "harness=cursor model=cursor-grok-4.6-high" || fail "failed to divert dry zai bundle"
-ok "auto-divert safely redirects to cursor grok"
+echo "$divert_out" | grep -q "harness=cursor model=composer-2.5" || fail "failed to divert dry zai bundle"
+ok "auto-divert safely redirects to cursor Composer"
+
+printf '5. Verify auto-divert never targets Grok...\n'
+if printf '%s\n' "$divert_out" | grep -qi "grok"; then
+  fail "auto-divert target must never contain grok"
+fi
+ok "auto-divert target excludes Grok"
 
 printf 'ok - all fm-jev-quota-prober tests passed\n'

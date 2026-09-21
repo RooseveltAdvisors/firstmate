@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 
 DEFAULT_SAFE_HARNESS = "cursor"
-DEFAULT_SAFE_MODEL = "cursor-grok-4.6-high"
+DEFAULT_SAFE_MODEL = "composer-2.5"
 
 
 def query_quota_axi(providers: list[str] | None = None) -> dict:
