@@ -2561,6 +2561,15 @@ while :; do
     fi
   fi
 
+  # Pattern 35: Jev Cross-Seat Idle SSH & Persistent Tunnel Health Watchdog
+  if [ "${FM_DISABLE_JEV_TUNNEL_WATCHDOG:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-tunnel-watchdog.sh" ]; then
+    _tunnel_wd_marker="$STATE/.jev-tunnel-watchdog-last"
+    if [ ! -f "$_tunnel_wd_marker" ] || [ "$(age_of "$_tunnel_wd_marker")" -ge 1800 ]; then
+      touch "$_tunnel_wd_marker"
+      "$SCRIPT_DIR/fm-jev-tunnel-watchdog.sh" --json > "$STATE/.jev-tunnel-watchdog-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
 
 
 
