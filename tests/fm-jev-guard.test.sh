@@ -49,6 +49,10 @@ for command in (
     "cat payload.sh\nbash payload.sh",
     "echo $(touch output)",
     "true_mutation",
+    "rg --pre /tmp/mutate pattern file",
+    "rg --pre=/tmp/mutate pattern file",
+    "git branch -D feature",
+    "git diff --output=app.py",
 ):
     assert not mod.is_whitelisted_command(command), command
 for command in ("cat state/file | grep ready", "sed -n '1,20p' app.py", "echo ready"):

@@ -76,3 +76,5 @@ assert "done" in candidates[0]["reason"]
 ok "unit tests passed for candidate detection"
 
 printf 'ok - all fm-jev-seat-reconciler tests passed\n'
+
+python3 "$(dirname "${BASH_SOURCE[0]}")/jev-safety-fixtures.py" seat-reconciler

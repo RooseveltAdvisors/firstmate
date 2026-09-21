@@ -173,7 +173,7 @@ JS
 case "\$*" in
   *comm=*) printf '%s\n' 'MainThread'; exit 0 ;;
 esac
-exec "$PS_BIN" "\$@"
+exec "\$PS_BIN" "\$@"
 SH
   chmod +x "$fakebin/ps"
   out=$(FM_HARNESS_BIN="$HARNESS" PS_BIN="$real_ps" PATH="$fakebin:$PATH" node "$dir/gemini" 2>/dev/null | tr -d '\n')

@@ -34,7 +34,7 @@ def parse_meta_file(meta_path: Path) -> dict:
     return data
 
 
-def get_live_panes(session: str = "firstmate") -> set[str]:
+def get_live_panes(session: str = "firstmate") -> set[str] | None:
     """Get all live pane IDs in sub-second time via herdr pane list."""
     try:
         res = subprocess.run(
@@ -46,16 +46,19 @@ def get_live_panes(session: str = "firstmate") -> set[str]:
         )
         if res.returncode == 0:
             data = json.loads(res.stdout)
-            panes = data.get("result", {}).get("panes", [])
+            panes = data["result"]["panes"]
+            if not isinstance(panes, list) or any(not isinstance(p, dict) or not p.get("pane_id") for p in panes):
+                raise ValueError("Invalid pane list")
             return {p.get("pane_id") for p in panes if p.get("pane_id")}
-    except Exception:
-        pass
-    return set()
+        print(f"Pane inspection failed for {session}: {res.stderr.strip()}", file=sys.stderr)
+    except Exception as exc:
+        print(f"Pane inspection failed for {session}: {exc}", file=sys.stderr)
+    return None
 
 
 def scan_dead_workers(state_dirs: list[Path], target_id: str | None = None) -> list[dict]:
     dead_workers = []
-    live_panes = get_live_panes("firstmate")
+    live_sessions = {}
     now = time.time()
 
     for s_dir in state_dirs:
@@ -95,6 +98,12 @@ def scan_dead_workers(state_dirs: list[Path], target_id: str | None = None) -> l
             harness = meta.get("harness")
 
             if not pane_id or not wt:
+                continue
+
+            if session not in live_sessions:
+                live_sessions[session] = get_live_panes(session)
+            live_panes = live_sessions[session]
+            if live_panes is None:
                 continue
 
             # If pane_id is not in live_panes, the pane is dead/closed
@@ -185,8 +194,13 @@ def reap_worker(worker: dict) -> dict:
                 check=False,
             )
             actions_taken.append(f"teardown_rc_{res.returncode}")
+            if res.returncode != 0:
+                return {"task_id": task_id, "actions": actions_taken, "reclaimed": False}
         except Exception as e:
             actions_taken.append(f"teardown_error: {e}")
+            return {"task_id": task_id, "actions": actions_taken, "reclaimed": False}
+    else:
+        return {"task_id": task_id, "actions": ["teardown_missing"], "reclaimed": False}
 
     # 2. Close Herdr pane
     try:
@@ -198,8 +212,11 @@ def reap_worker(worker: dict) -> dict:
             check=False,
         )
         actions_taken.append(f"pane_close_rc_{res.returncode}")
+        if res.returncode != 0:
+            return {"task_id": task_id, "actions": actions_taken, "reclaimed": False}
     except Exception as e:
         actions_taken.append(f"pane_close_error: {e}")
+        return {"task_id": task_id, "actions": actions_taken, "reclaimed": False}
 
     # 3. Clean up stale meta if worktree is gone
     meta_path = Path(worker["meta_path"])
@@ -238,13 +255,14 @@ def main() -> int:
 
     if args.reap:
         results = [reap_worker(w) for w in dead_workers]
+        reclaimed = sum(r["reclaimed"] for r in results)
         if args.json:
-            print(json.dumps({"reaped": results, "count": len(results)}, indent=2))
+            print(json.dumps({"reaped": results, "count": reclaimed}, indent=2))
         else:
-            print(f"Reaped {len(results)} dead worker(s) and reclaimed endpoints.")
+            print(f"Reaped {reclaimed} dead worker(s) and reclaimed endpoints.")
             for r in results:
                 print(f"  ✓ {r['task_id']}: {', '.join(r['actions'])}")
-        return 0
+        return 0 if reclaimed == len(results) else 1
 
     if args.json:
         print(json.dumps({"dead_workers": dead_workers, "count": len(dead_workers)}, indent=2))

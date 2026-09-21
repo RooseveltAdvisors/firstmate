@@ -50,7 +50,7 @@ def check_github_pr_state(pr_number: str, repo: str = "kunchenguid/firstmate") -
     if not os.path.exists(gh_bin):
         return None
 
-    cmd = [gh_bin, "pr", "view", pr_number, "--repo", repo, "--json", "state,merged,title"]
+    cmd = [gh_bin, "pr", "view", pr_number, "--repo", repo, "--json", "state,title"]
     try:
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=5, check=False)
         if res.returncode == 0:

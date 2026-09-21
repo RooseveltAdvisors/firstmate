@@ -2125,6 +2125,50 @@ case "$ARG3" in
   ;;
 esac
 
+# config/secondmate-harness may carry optional model/effort tokens alongside the
+# harness ("<harness> [<model>] [<effort>]"). They apply only when this is a
+# --secondmate spawn and no explicit per-spawn harness/raw launch was supplied, so
+# the harness itself came from the secondmate config fallback chain. Resolving
+# here on every spawn makes the pin durable across respawns. Precedence: explicit
+# --model/--effort flags still win over the file's tokens.
+if [ "$KIND" = secondmate ] && [ -z "$ARG3" ]; then
+  if [ "$MODEL_SET" -eq 0 ]; then
+    SM_MODEL=$("$SCRIPT_DIR/fm-harness.sh" secondmate-model)
+    [ -z "$SM_MODEL" ] || MODEL=$SM_MODEL
+  fi
+  if [ "$EFFORT_SET" -eq 0 ]; then
+    SM_EFFORT=$("$SCRIPT_DIR/fm-harness.sh" secondmate-effort)
+    if [ -n "$SM_EFFORT" ]; then
+      case "$SM_EFFORT" in
+      low | medium | high | xhigh | max | ultra) EFFORT=$SM_EFFORT ;;
+      *) echo "warning: config/secondmate-harness effort token '$SM_EFFORT' is not one of low, medium, high, xhigh, max, ultra; ignoring" >&2 ;;
+      esac
+    fi
+  fi
+fi
+JEV_QUOTA_PROBER=${FM_TEST_JEV_PROBER_PATH:-$SCRIPT_DIR/fm-jev-quota-prober.sh}
+if [ "${FM_TEST_DISABLE_JEV_PROBER:-0}" != 1 ] && [ -x "$JEV_QUOTA_PROBER" ]; then
+  _pre_divert_harness=$HARNESS
+  if ! "$JEV_QUOTA_PROBER" --harness "$HARNESS" ${MODEL:+--model "$MODEL"} >/dev/null 2>&1; then
+    _divert=$("$JEV_QUOTA_PROBER" --harness "$HARNESS" ${MODEL:+--model "$MODEL"} --auto-divert 2>/dev/null || true)
+    if [ -n "$_divert" ]; then
+      eval "$_divert"
+      if [ -n "${harness:-}" ] && [ -n "${model:-}" ]; then
+        echo "jev-quota-prober: automatically diverted $HARNESS${MODEL:+:$MODEL} to viable lane $harness:$model" >&2
+        HARNESS="$harness"
+        MODEL="$model"
+        if [ "$HARNESS" != "$_pre_divert_harness" ]; then
+          LAUNCH=$(launch_template "$HARNESS" "$KIND") || {
+            echo "error: no launch template for diverted harness '$HARNESS'" >&2
+            exit 1
+          }
+          RAW_LAUNCH=0
+        fi
+      fi
+    fi
+  fi
+fi
+
 # muse, gemini, and agy are verified as CREWMATE/SCOUT adapters only. A secondmate is
 # a firstmate instance, so it needs a primary supervision protocol.
 # gemini has none: docs/supervision-protocols/ carries no gemini wake protocol
@@ -2199,27 +2243,6 @@ agy)
   ;;
 esac
 
-# config/secondmate-harness may carry optional model/effort tokens alongside the
-# harness ("<harness> [<model>] [<effort>]"). They apply only when this is a
-# --secondmate spawn and no explicit per-spawn harness/raw launch was supplied, so
-# the harness itself came from the secondmate config fallback chain. Resolving
-# here on every spawn makes the pin durable across respawns. Precedence: explicit
-# --model/--effort flags still win over the file's tokens.
-if [ "$KIND" = secondmate ] && [ -z "$ARG3" ]; then
-  if [ "$MODEL_SET" -eq 0 ]; then
-    SM_MODEL=$("$SCRIPT_DIR/fm-harness.sh" secondmate-model)
-    [ -z "$SM_MODEL" ] || MODEL=$SM_MODEL
-  fi
-  if [ "$EFFORT_SET" -eq 0 ]; then
-    SM_EFFORT=$("$SCRIPT_DIR/fm-harness.sh" secondmate-effort)
-    if [ -n "$SM_EFFORT" ]; then
-      case "$SM_EFFORT" in
-      low | medium | high | xhigh | max | ultra) EFFORT=$SM_EFFORT ;;
-      *) echo "warning: config/secondmate-harness effort token '$SM_EFFORT' is not one of low, medium, high, xhigh, max, ultra; ignoring" >&2 ;;
-      esac
-    fi
-  fi
-fi
 # Ultra is an explicit native capability, never a Pi thinking-level alias.
 # Validate the fully resolved profile before worktree or endpoint provisioning.
 if [ "$EFFORT" = ultra ]; then
@@ -2234,49 +2257,6 @@ if [ "$HARNESS" = omp ]; then
 fi
 if [ "$HARNESS" = agy ]; then
   agy_model_validate "$AGY_BIN" "$MODEL" || exit 1
-fi
-
-# Jev Pattern 9: Pre-flight runway and token health prober
-JEV_QUOTA_PROBER=${FM_TEST_JEV_PROBER_PATH:-$SCRIPT_DIR/fm-jev-quota-prober.sh}
-if [ "${FM_TEST_DISABLE_JEV_PROBER:-0}" != 1 ] && [ -x "$JEV_QUOTA_PROBER" ]; then
-  _pre_divert_harness=$HARNESS
-  if ! "$JEV_QUOTA_PROBER" --harness "$HARNESS" ${MODEL:+--model "$MODEL"} >/dev/null 2>&1; then
-    _divert=$("$JEV_QUOTA_PROBER" --harness "$HARNESS" ${MODEL:+--model "$MODEL"} --auto-divert 2>/dev/null || true)
-    if [ -n "$_divert" ]; then
-      eval "$_divert"
-      if [ -n "${harness:-}" ] && [ -n "${model:-}" ]; then
-        echo "jev-quota-prober: automatically diverted $HARNESS${MODEL:+:$MODEL} to viable lane $harness:$model" >&2
-        HARNESS="$harness"
-        MODEL="$model"
-        if [ "$HARNESS" != "$_pre_divert_harness" ]; then
-          # The launch template and per-harness resolution above were chosen
-          # for the original harness. A cross-harness divert must rebuild both,
-          # or the __PIBIN__ substitution below reads PI_BIN unbound under
-          # set -u and every diverted-to-pi spawn dies before launch. Divert
-          # targets are the prober's DEFAULT_SAFE lane (pi) only; another
-          # target harness needs its own resolution case added here.
-          LAUNCH=$(launch_template "$HARNESS" "$KIND") || {
-            echo "error: no launch template for diverted harness '$HARNESS'" >&2
-            exit 1
-          }
-          case "$HARNESS" in
-          pi | pi-signed)
-            PI_BIN=$(resolve_pi_executable "$HARNESS") || {
-              echo "error: $HARNESS executable not found on PATH; install it or select a different verified harness" >&2
-              exit 1
-            }
-            PI_TUI_MODE=
-            if pi_supports_tui_mode "$PI_BIN"; then
-              PI_TUI_MODE=' --tui-mode regular'
-            fi
-            LAUNCH=${LAUNCH//__PITUIMODE__/$PI_TUI_MODE}
-            LAUNCH="FM_PI_HARNESS=$HARNESS $LAUNCH"
-            ;;
-          esac
-        fi
-      fi
-    fi
-  fi
 fi
 
 # Jev Pattern 11: Auto-reconcile dormant completed babysitter seats

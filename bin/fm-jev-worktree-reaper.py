@@ -184,14 +184,23 @@ def reap_worktrees(
             else:
                 # Check if branch was squash-merged via gh pr view
                 gh_res = subprocess.run(
-                    ["gh", "pr", "view", branch_name, "--json", "state", "-q", ".state"],
+                    ["gh", "pr", "view", branch_name, "--json", "state,headRefOid,mergeCommit"],
                     cwd=path,
                     capture_output=True,
                     text=True,
                     check=False,
                 )
-                if gh_res.returncode == 0 and gh_res.stdout.strip().upper() == "MERGED":
-                    is_merged = True
+                if gh_res.returncode == 0:
+                    try:
+                        pr = json.loads(gh_res.stdout)
+                        merge_sha = (pr.get("mergeCommit") or {}).get("oid")
+                        is_merged = bool(
+                            pr.get("state") == "MERGED"
+                            and head_sha and pr.get("headRefOid") == head_sha
+                            and merge_sha and is_ancestor(merge_sha, base_branch, repo_path)
+                        )
+                    except (ValueError, AttributeError) as exc:
+                        print(f"Invalid PR merge evidence: {exc}", file=sys.stderr)
 
         if not is_merged:
             report["unmerged_preserved"] += 1

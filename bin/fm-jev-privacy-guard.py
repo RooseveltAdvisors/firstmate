@@ -14,6 +14,7 @@ import argparse
 import json
 import os
 import re
+import tempfile
 import shutil
 import subprocess
 import sys
@@ -109,8 +110,9 @@ def execute_quarantine(
         quarantine_dir.mkdir(parents=True, exist_ok=True)
         ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
+        record_dir = Path(tempfile.mkdtemp(prefix=f"{ts}_", dir=quarantine_dir))
         if file_path and file_path.exists():
-            target_dest = quarantine_dir / f"{ts}_{file_path.name}"
+            target_dest = record_dir / f"{ts}_{file_path.name}"
             shutil.copy2(str(file_path), str(target_dest))
             meta = {
                 "source_path": str(file_path.resolve()),
@@ -119,17 +121,17 @@ def execute_quarantine(
                 "reason": reason,
                 "tier": tier,
             }
-            (quarantine_dir / f"{ts}_{file_path.name}.meta.json").write_text(
+            (record_dir / f"{ts}_{file_path.name}.meta.json").write_text(
                 json.dumps(meta, indent=2), encoding="utf-8"
             )
             # Remove original to protect disk / workspace
             try:
                 file_path.unlink()
-            except Exception:
-                pass
+            except Exception as exc:
+                print(f"Unable to remove quarantined source: {exc}", file=sys.stderr)
             return target_dest
         elif text_content:
-            target_dest = quarantine_dir / f"quarantine_{ts}.txt"
+            target_dest = record_dir / f"quarantine_{ts}.txt"
             target_dest.write_text(text_content, encoding="utf-8")
             meta = {
                 "source": "text",
@@ -138,12 +140,12 @@ def execute_quarantine(
                 "reason": reason,
                 "tier": tier,
             }
-            (quarantine_dir / f"quarantine_{ts}.meta.json").write_text(
+            (record_dir / f"quarantine_{ts}.meta.json").write_text(
                 json.dumps(meta, indent=2), encoding="utf-8"
             )
             return target_dest
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"Quarantine failed: {exc}", file=sys.stderr)
     return None
 
 

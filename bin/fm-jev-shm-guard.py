@@ -45,7 +45,7 @@ def get_shm_disk_usage() -> Tuple[int, int, float]:
         return 0, 0, 0.0
 
 
-def is_file_open(file_path: str) -> bool:
+def is_file_open(file_path: str) -> bool | None:
     """Checks if any active process holds an open file descriptor to the file."""
     try:
         res = subprocess.run(
@@ -55,9 +55,14 @@ def is_file_open(file_path: str) -> bool:
             check=False,
             timeout=1.0,
         )
-        return res.returncode == 0
-    except Exception:
-        return False
+        if res.returncode == 0:
+            return True
+        if res.returncode == 1 and not res.stderr.strip():
+            return False
+        print(f"Ownership probe failed for {file_path}: {res.stderr.strip()}", file=sys.stderr)
+    except Exception as exc:
+        print(f"Ownership probe unavailable: {exc}", file=sys.stderr)
+    return None
 
 
 def get_sysv_ipc_counts() -> Tuple[int, int]:
@@ -113,7 +118,7 @@ def audit_shm(
                     age = now - stat.st_mtime
                     if age >= stale_age_sec:
                         open_by_proc = is_file_open(full_path)
-                        is_safe = not open_by_proc
+                        is_safe = open_by_proc is False
 
                         if is_safe and sweep:
                             try:
