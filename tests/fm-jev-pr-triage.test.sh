@@ -10,6 +10,17 @@ TRIAGE="$FM_ROOT/bin/fm-jev-pr-triage.sh"
 fail() { printf 'FAIL: %s\n' "$1" >&2; exit 1; }
 ok() { printf 'ok - %s\n' "$1"; }
 
+TDIR=$(mktemp -d)
+trap 'rm -rf "$TDIR"' EXIT
+cat > "$TDIR/gh" <<'SH'
+#!/usr/bin/env bash
+set -eu
+[ "$*" = "pr view 1 --json statusCheckRollup,title,state,mergeable,headRefOid,url --repo fixture/repo" ] || exit 1
+printf '%s\n' '{"title":"Fixture PR","state":"OPEN","mergeable":"MERGEABLE","headRefOid":"abc123","url":"https://github.com/fixture/repo/pull/1","statusCheckRollup":[{"name":"Tests","status":"COMPLETED","conclusion":"SUCCESS"},{"name":"Build","status":"IN_PROGRESS","conclusion":""}]}'
+SH
+chmod +x "$TDIR/gh"
+export PATH="$TDIR:$PATH"
+
 printf '1. Verify help flag...\n'
 "$TRIAGE" --help >/dev/null 2>&1 || fail "triage --help failed"
 ok "help flag works"
@@ -59,20 +70,20 @@ assert res4["action"] == "PROCEED_TO_MERGE"
 ' || fail "classification unit tests failed"
 ok "check classification unit tests passed"
 
-printf '3. Verify live triage on Portal PR #1780...\n'
-out=$("$TRIAGE" --pr 1780 --repo ArcsHealth/Portal --json) || fail "live triage on PR 1780 failed"
+printf '3. Verify fixture triage...\n'
+out=$("$TRIAGE" --pr 1 --repo fixture/repo --json) || fail "fixture triage failed"
 echo "$out" | python3 -c '
 import json, sys
 data = json.load(sys.stdin)
 assert "pr" in data
 assert "triage" in data
-assert data["triage"]["counts"]["total"] >= 10
-assert data["triage"]["verdict"] in ("IN_FLIGHT", "BLOCKED_ON_BOT_GATE", "CODE_REGRESSION", "ALL_GREEN")
+assert data["triage"]["counts"]["total"] == 2
+assert data["triage"]["verdict"] == "IN_FLIGHT"
 ' || fail "malformed triage JSON"
-ok "live PR #1780 triaged successfully"
+ok "fixture PR triaged successfully"
 
 printf '4. Verify Markdown formatting...\n'
-md_out=$("$TRIAGE" --pr 1780 --repo ArcsHealth/Portal --format markdown)
+md_out=$("$TRIAGE" --pr 1 --repo fixture/repo --format markdown)
 echo "$md_out" | grep -q "Jev PR Root-Cause Triage Report" || fail "missing header in markdown"
 ok "markdown report format verified"
 

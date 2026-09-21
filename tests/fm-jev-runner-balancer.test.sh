@@ -24,7 +24,7 @@ else
 fi
 
 # Setup mock data for unit testing
-TEST_TMP=$(mktemp -d "/tmp/fm-jev-runner-test.XXXXXX")
+TEST_TMP=$(mktemp -d "${TMPDIR:-/tmp}/fm-jev-runner-test.XXXXXX")
 trap 'rm -rf "$TEST_TMP"' EXIT
 
 MOCK_DATA="$TEST_TMP/mock-ci.json"
@@ -91,6 +91,19 @@ cat <<'EOF' > "$MOCK_DATA"
   ]
 }
 EOF
+
+python3 - "$MOCK_DATA" <<'PYTEST'
+import json
+import sys
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+path = Path(sys.argv[1])
+data = json.loads(path.read_text())
+now = datetime.now(timezone.utc)
+for job, minutes in zip(data["jobs"], (5, 40)):
+    job["startedAt"] = (now - timedelta(minutes=minutes)).isoformat()
+path.write_text(json.dumps(data))
+PYTEST
 
 # Test 3: Scan mock runners and jobs, verifying schema compliance
 OUTPUT=$("$BALANCER_SH" --mock-data "$MOCK_DATA" --json)

@@ -142,14 +142,14 @@ def split_compound_commands(cmd: str) -> list[str]:
         parts = []
         current = []
         for tok in lexer:
-            if tok in (";", "&&", "||", "\n"):
+            if tok in (";", "&&", "||", "|", "|&", "&", "\n"):
                 if current:
-                    parts.append(" ".join(current))
+                    parts.append(shlex.join(current))
                     current = []
             else:
                 current.append(tok)
         if current:
-            parts.append(" ".join(current))
+            parts.append(shlex.join(current))
         return parts if parts else [cmd]
     except Exception:
         # Fallback: simple line/semicolon split if lexer encounters syntax errors
@@ -174,6 +174,8 @@ def clean_subcommand(subcmd: str) -> str:
 
 def is_fast_pass_supervisor(subcmd: str) -> bool:
     """Check if an individual subcommand is unequivocally an allowed supervisor operation."""
+    if any(char in subcmd for char in (">", "<", "$", "`", "\n")):
+        return False
     clean = clean_subcommand(subcmd)
     if not clean:
         return True
@@ -202,8 +204,17 @@ def is_fast_pass_supervisor(subcmd: str) -> bool:
         return False
 
     # 5. Safe file inspection / shell utilities
-    if clean.startswith(SAFE_READ_TOOLS):
-        # Disallow reading remote or dangerous paths if specified
+    try:
+        words = shlex.split(clean)
+    except ValueError:
+        return False
+    if words and words[0] in {tool.strip() for tool in SAFE_READ_TOOLS}:
+        if words[0] == "awk":
+            return False
+        if words[0] == "sed":
+            return (len(words) >= 3 and words[1] == "-n"
+                    and re.fullmatch(r"\d+(?:,\d+)?p", words[2]) is not None
+                    and all(not arg.startswith("-") for arg in words[3:]))
         return True
 
     return False
@@ -211,6 +222,12 @@ def is_fast_pass_supervisor(subcmd: str) -> bool:
 
 def is_whitelisted_command(cmd: str) -> bool:
     """Tier 1: Check if all components of the command belong to the supervisor whitelist."""
+    if any(char in cmd for char in (">", "<", "$", "`", "\n")):
+        return False
+    try:
+        shlex.split(cmd)
+    except ValueError:
+        return False
     subcmds = split_compound_commands(cmd)
     if not subcmds:
         return True

@@ -73,6 +73,7 @@ def main() -> None:
     run_env.pop("AGENT_VAULT_OPERATOR_TOKEN", None)
     run_env["TYPESAFE_API_KEY"] = key
     key = ""
+    os.initgroups(consumer.pw_name, consumer.pw_gid)
     os.setgid(consumer.pw_gid)
     os.setuid(consumer.pw_uid)
     os.execvpe(args[0], args, run_env)

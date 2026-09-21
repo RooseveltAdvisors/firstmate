@@ -31,6 +31,30 @@ printf '' | "$GUARD_SH" || fail "empty stdin failed to allow open"
 printf '{bad json' | "$GUARD_SH" || fail "malformed json failed to allow open"
 "$GUARD_SH" --command "" || fail "empty command failed to allow open"
 
+python3 - "$GUARD_PY" <<'PYTEST'
+import importlib.util
+import sys
+spec = importlib.util.spec_from_file_location("guard", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+for command in (
+    "sed -i s/old/new/ app.py",
+    "sed -n '1w output' app.py",
+    "awk 'BEGIN {system(\"touch output\")}'",
+    "echo replacement > app.py",
+    "printf replacement >> app.py",
+    "cat payload.sh | bash",
+    "cat payload.sh |& bash",
+    "cat payload.sh & bash payload.sh",
+    "cat payload.sh\nbash payload.sh",
+    "echo $(touch output)",
+    "true_mutation",
+):
+    assert not mod.is_whitelisted_command(command), command
+for command in ("cat state/file | grep ready", "sed -n '1,20p' app.py", "echo ready"):
+    assert mod.is_whitelisted_command(command), command
+PYTEST
+
 # 4. Live classification if TYPESAFE_API_KEY is available
 if sudo -n /opt/ra/firstmate/bin/jev-typesafe-run.py -- env | grep -q "TYPESAFE_API_KEY"; then
   # Direct remote SSH must be denied

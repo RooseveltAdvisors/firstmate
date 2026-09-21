@@ -34,7 +34,7 @@ def run_git(args: List[str], cwd: Path) -> Tuple[int, str, str]:
     except Exception as e:
         return 1, "", str(e)
 
-def find_default_branch(worktree: Path) -> str:
+def find_default_branch(worktree: Path) -> Optional[str]:
     # Check origin/main, then origin/master
     rc, _, _ = run_git(["rev-parse", "--verify", "origin/main"], worktree)
     if rc == 0:
@@ -42,7 +42,7 @@ def find_default_branch(worktree: Path) -> str:
     rc, _, _ = run_git(["rev-parse", "--verify", "origin/master"], worktree)
     if rc == 0:
         return "origin/master"
-    return "origin/main"
+    return None
 
 def get_worktree_repo(worktree: Path) -> str:
     rc, url, _ = run_git(["remote", "get-url", "origin"], worktree)
@@ -61,6 +61,7 @@ def inspect_worktree(worktree: Path, auto_sync: bool = False) -> Dict[str, Any]:
         return {
             "path": str(worktree),
             "status": "NOT_A_GIT_REPO",
+            "state": "UNKNOWN",
             "error": "No .git directory or file found",
         }
 
@@ -76,21 +77,31 @@ def inspect_worktree(worktree: Path, auto_sync: bool = False) -> Dict[str, Any]:
 
     # 3. Base branch & remote fetch
     base_ref = find_default_branch(worktree)
-    base_name = base_ref.split("/", 1)[1] if "/" in base_ref else base_ref
-    run_git(["fetch", "origin", base_name, "--quiet"], worktree)
 
-    # 4. Ahead / behind counts
-    rc, counts, _ = run_git(["rev-list", "--left-right", "--count", f"HEAD...{base_ref}"], worktree)
-    ahead = 0
-    behind = 0
-    if rc == 0 and counts:
-        parts = counts.split()
-        if len(parts) >= 2:
-            try:
-                ahead = int(parts[0])
-                behind = int(parts[1])
-            except ValueError:
-                pass
+    def unknown(reason: str) -> Dict[str, Any]:
+        return {
+            "worktree": str(worktree), "branch": branch, "base_ref": base_ref,
+            "ahead": None, "behind": None, "is_clean": is_clean,
+            "state": "UNKNOWN", "error": reason, "recommendation": reason,
+            "synced": False,
+        }
+
+    if base_ref is None:
+        return unknown("No origin/main or origin/master reference found")
+    base_name = base_ref.split("/", 1)[1]
+    rc, _, err = run_git(["fetch", "origin", base_name, "--quiet"], worktree)
+    if rc != 0:
+        return unknown(f"Upstream fetch failed: {err}")
+
+    rc, counts, err = run_git(["rev-list", "--left-right", "--count", f"HEAD...{base_ref}"], worktree)
+    if rc != 0:
+        return unknown(f"Upstream comparison failed: {err}")
+    try:
+        ahead, behind = map(int, counts.split())
+        if ahead < 0 or behind < 0:
+            raise ValueError("negative commit count")
+    except ValueError as exc:
+        return unknown(f"Invalid upstream comparison: {exc}")
 
     # 5. Classify state
     rebased = False
@@ -224,8 +235,7 @@ def main() -> int:
     else:
         print(format_summary(results, repo_filter=args.repo_name))
 
-    # Exit 1 only if there are dirty behind worktrees or conflicts
-    diverged_count = sum(1 for r in results if "CONFLICT" in r.get("state", ""))
+    diverged_count = sum(1 for r in results if "CONFLICT" in r.get("state", "") or "error" in r)
     return 1 if diverged_count > 0 else 0
 
 if __name__ == "__main__":
