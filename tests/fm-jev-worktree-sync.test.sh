@@ -41,21 +41,38 @@ with tempfile.TemporaryDirectory() as td:
     subprocess.run(["git", "add", "."], cwd=str(p), check=True)
     subprocess.run(["git", "commit", "-m", "initial commit"], cwd=str(p), check=True, stdout=subprocess.DEVNULL)
     
-    # Test cleanliness
     res = ws.inspect_worktree(p)
-    assert res["is_clean"] is True, "Expected clean worktree"
-    branch = res["branch"]
-    assert branch == "main", f"Expected main, got {branch}"
+    assert res["is_clean"] is True
+    assert res["branch"] == "main"
+    assert res["state"] == "UNKNOWN"
+    assert res["ahead"] is None and res["behind"] is None
+    cli = subprocess.run([sys.executable, str(ws.__file__), "--worktree", str(p), "--json"], capture_output=True, text=True)
+    assert cli.returncode == 1
 
-print("PASS: Test 3 - Worktree git inspection verified")
+    remote = p / "remote.git"
+    subprocess.run(["git", "init", "--bare", str(remote)], check=True, stdout=subprocess.DEVNULL)
+    subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=p, check=True)
+    subprocess.run(["git", "push", "-u", "origin", "main"], cwd=p, check=True, capture_output=True)
+    res = ws.inspect_worktree(p)
+    assert res["state"] == "CONVERGED"
+    assert res["ahead"] == 0 and res["behind"] == 0
+
+    from unittest.mock import patch
+    real_run_git = ws.run_git
+    def failed_comparison(args, cwd):
+        if args[0] == "rev-list":
+            return 1, "", "comparison unavailable"
+        return real_run_git(args, cwd)
+    with patch.object(ws, "run_git", side_effect=failed_comparison):
+        res = ws.inspect_worktree(p, auto_sync=True)
+        assert res["state"] == "UNKNOWN" and not res["synced"]
+
+    subprocess.run(["git", "remote", "set-url", "origin", str(p / "missing.git")], cwd=p, check=True)
+    res = ws.inspect_worktree(p, auto_sync=True)
+    assert res["state"] == "UNKNOWN" and not res["synced"]
+    assert "fetch failed" in res["error"]
+    cli = subprocess.run([sys.executable, str(ws.__file__), "--worktree", str(p), "--json"], capture_output=True, text=True)
+    assert cli.returncode == 1
+
+print("PASS: Worktree convergence and unknown states verified")
 '
-
-# Test 4: Live audit on wt-portal-visual-qa
-"${FM_ROOT}/bin/fm-jev-worktree-sync.sh" --worktree /home/jon/git/wt-portal-visual-qa
-echo "PASS: Test 4 - Live audit on wt-portal-visual-qa verified"
-
-# Test 5: Live audit with --repo-name filtering
-"${FM_ROOT}/bin/fm-jev-worktree-sync.sh" --repo-name tutti
-echo "PASS: Test 5 - Repo filtering audit verified"
-
-echo "=== All 5/5 fm-jev-worktree-sync tests PASSED (100%) ==="

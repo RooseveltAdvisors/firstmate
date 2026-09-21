@@ -87,6 +87,8 @@ def analyze_sections(content: str) -> List[Dict[str, Any]]:
 
 def audit_repository(repo_path: Path, max_tokens: int = DEFAULT_MAX_TOKENS) -> Dict[str, Any]:
     """Audits a repository root for AGENTS.md / CLAUDE.md and skill descriptions."""
+    if not repo_path.is_dir():
+        return {"repo": str(repo_path), "error": "Repository path is not an existing directory"}
     agents_file: Optional[Path] = None
     for candidate in ("AGENTS.md", "CLAUDE.md"):
         p = repo_path / candidate
@@ -210,7 +212,7 @@ def main() -> int:
     else:
         print(format_summary(results))
 
-    over_budget_count = sum(1 for r in results if r.get("status") == "OVER_BUDGET")
+    over_budget_count = sum(1 for r in results if r.get("status") == "OVER_BUDGET" or "error" in r)
     return 1 if over_budget_count > 0 else 0
 
 if __name__ == "__main__":

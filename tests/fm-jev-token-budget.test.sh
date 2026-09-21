@@ -65,12 +65,24 @@ description: Comprehensive guide for testing skills.
 print("PASS: Test 3 - Unit tests verified")
 '
 
-# Test 4: Live audit on compliant repository (wt-uiq-fk)
-"${FM_ROOT}/bin/fm-jev-token-budget.sh" --repo-path /home/jon/git/wt-uiq-fk
-echo "PASS: Test 4 - Live audit on wt-uiq-fk verified compliant"
-
-# Test 5: JSON schema and output validation
-"${FM_ROOT}/bin/fm-jev-token-budget.sh" --repo-path /home/jon/git/wt-uiq-fk --json | grep -q '"status": "COMPLIANT"'
-echo "PASS: Test 5 - JSON output verified"
-
-echo "=== All 5/5 fm-jev-token-budget tests PASSED (100%) ==="
+TDIR=$(mktemp -d)
+trap 'rm -rf "$TDIR"' EXIT
+mkdir "$TDIR/repo"
+printf '# Fixture instructions\nUse deterministic tests.\n' > "$TDIR/repo/AGENTS.md"
+"${FM_ROOT}/bin/fm-jev-token-budget.sh" --repo-path "$TDIR/repo"
+"${FM_ROOT}/bin/fm-jev-token-budget.sh" --repo-path "$TDIR/repo" --json | python3 -c '
+import json, sys
+result = json.load(sys.stdin)[0]
+assert result["status"] == "COMPLIANT"
+assert result["agents_tokens"] > 0
+'
+if "${FM_ROOT}/bin/fm-jev-token-budget.sh" --repo-path "$TDIR/missing" --json > "$TDIR/error.json"; then
+  echo "FAIL: missing repository passed" >&2
+  exit 1
+fi
+python3 - "$TDIR/error.json" <<'PYTEST'
+import json, sys
+with open(sys.argv[1]) as stream:
+    assert "error" in json.load(stream)[0]
+PYTEST
+echo "PASS: fixture audits reject missing repositories"

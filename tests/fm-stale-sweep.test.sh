@@ -627,6 +627,35 @@ test_apply_refuses_a_row_with_a_pending_completion_replay() {
   pass "a row with a pending completion replay is refused until the replay lands"
 }
 
+test_apply_refuses_unreadable_full_row() {
+  require_tasks_axi_beads "full row read failure" || return 0
+  local rec out before rc
+  rec=$(make_fixture fullread)
+  read_fixture "$rec"
+  before=$(row_body fm-dead-row)
+  export FM_TEST_REAL_TASKS_AXI
+  FM_TEST_REAL_TASKS_AXI=$(command -v tasks-axi)
+  cat > "$FAKEBIN/tasks-axi" <<'SH'
+#!/usr/bin/env bash
+set -eu
+if [ "${1:-}" = show ] && [ "${2:-}" = fm-dead-row ] && [ "${3:-}" = --full ]; then
+  printf 'fixture full read failure\n' >&2
+  exit 1
+fi
+exec "$FM_TEST_REAL_TASKS_AXI" "$@"
+SH
+  chmod +x "$FAKEBIN/tasks-axi"
+  out=$(run_sweep --apply)
+  rc=$?
+  expect_code 1 "$rc" "failed full read must fail reclamation"
+  assert_contains "$out" "full row unreadable" "full read failure is reported"
+  [ "$(row_body fm-dead-row)" = "$before" ] || fail "failed full read changed the body"
+  [ "$(row_state fm-dead-row)" = in_flight ] || fail "failed full read reopened the task"
+  pass "unreadable full row preserves task state and body"
+}
+
+test_apply_refuses_unreadable_full_row
+
 test_age_column_is_true_age_and_threshold_gates_selection
 test_orphan_columns_and_apply_orphans_guards
 test_dry_run_lists_verdicts_and_reclaims_nothing

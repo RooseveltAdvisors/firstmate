@@ -470,7 +470,11 @@ fm_stale_reclaim_locked() {  # <home> <id> <actor>
   fi
   date=$(date +%F)
   note="reclaimed $date: endpoint dead, previous claim by $actor"
-  body=$(fm_stale_axi "$home" show "$id" --full | sed -n 's/^  body: //p' | head -1)
+  out=$(fm_stale_axi "$home" show "$id" --full) || {
+    printf 'full row unreadable'
+    return 1
+  }
+  body=$(printf '%s\n' "$out" | sed -n 's/^  body: //p' | head -1)
   if [ -n "$body" ] && ! body=$(fm_stale_decode_body "$body"); then
     printf 'body undecodable'
     return 1

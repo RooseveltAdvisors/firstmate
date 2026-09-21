@@ -105,6 +105,7 @@ def main() -> int:
     path_results = audit_credential_paths(extra_paths)
 
     missing_env_count = sum(1 for v in env_results.values() if v["status"] == "missing")
+    empty_env_count = sum(1 for v in env_results.values() if v["status"] == "empty")
     missing_path_count = sum(1 for p in path_results.values() if p["status"] == "missing")
 
     telemetry = {
@@ -114,7 +115,8 @@ def main() -> int:
             "missing_vars": missing_env_count,
             "total_paths_audited": len(path_results),
             "missing_paths": missing_path_count,
-            "healthy": (missing_env_count == 0),
+            "empty_vars": empty_env_count,
+            "healthy": (missing_env_count == 0 and empty_env_count == 0),
         },
         "environment": env_results,
         "credentials": path_results,

@@ -50,4 +50,7 @@ if echo "$json_out" | grep -q "present_secret_value"; then
 fi
 pass "zero secret value egress invariant holds"
 
+json_out=$(FM_HOME="$TDIR" HOME="$TDIR" USER=test SHELL=/bin/bash TEST_EMPTY=' ' "$VALIDATOR_SH" --vars TEST_EMPTY --json)
+echo "$json_out" | jq -e '.environment.TEST_EMPTY.status == "empty" and .summary.missing_vars == 0 and .summary.empty_vars == 1 and .summary.healthy == false' >/dev/null || fail "empty variable reported healthy"
+
 pass "all Pattern 28 environment validator tests passed"
