@@ -34,6 +34,10 @@ git -C "${REPO}" commit -m "init"
 git -C "${REPO}" branch merged-feature
 WT1="${TEST_TMP}/wt-merged"
 git -C "${REPO}" worktree add "${WT1}" merged-feature
+echo "feature" > "${WT1}/feature.txt"
+git -C "${WT1}" add feature.txt
+git -C "${WT1}" commit -m "feature commit"
+git -C "${REPO}" merge --no-ff merged-feature -m "merge feature"
 
 # Create worktree 2: dirty worktree
 git -C "${REPO}" branch dirty-feature
