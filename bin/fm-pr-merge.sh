@@ -1260,3 +1260,10 @@ if [ -x "$SCRIPT_DIR/fm-jev-worktree-reaper.sh" ] && [ "${FM_DISABLE_JEV_WORKTRE
   printf 'jev-worktree-reaper: scanning for clean merged worktrees for %s...\n' "${PR_REPO:-fleet}"
   "$SCRIPT_DIR/fm-jev-worktree-reaper.sh" --repo-name "${PR_REPO:-}" 2>&1 || true
 fi
+
+# Pattern 21: Jev Post-Merge Asset & Artifact Cache De-Duplicator (Fail-Open)
+if [ -x "$SCRIPT_DIR/fm-jev-artifact-dedup.sh" ] && [ "${FM_DISABLE_JEV_ARTIFACT_DEDUP:-0}" != 1 ]; then
+  printf 'jev-artifact-dedup: deduplicating score & artifact caches...\n'
+  "$SCRIPT_DIR/fm-jev-artifact-dedup.sh" 2>&1 || true
+fi
+

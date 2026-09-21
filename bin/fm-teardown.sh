@@ -3514,6 +3514,11 @@ if [ -x "$SCRIPT_DIR/fm-jev-pane-reaper.sh" ] && [ "${FM_DISABLE_JEV_PANE_REAPER
   "$SCRIPT_DIR/fm-jev-pane-reaper.sh" --dry-run >&2 || true
 fi
 
+# Pattern 21: Jev Cross-Seat Asset & Artifact Cache De-Duplicator (Fail-Open)
+if [ -x "$SCRIPT_DIR/fm-jev-artifact-dedup.sh" ] && [ "${FM_DISABLE_JEV_ARTIFACT_DEDUP:-0}" != 1 ]; then
+  "$SCRIPT_DIR/fm-jev-artifact-dedup.sh" --dry-run >&2 || true
+fi
+
 # Best-effort: drop the local task branch so the shared repo does not accumulate refs.
 if [ "$BACKEND" = orca ] && [ "$KIND" != secondmate ]; then
   if [ "$ORCA_PATH_MATCH_VERIFIED" != 1 ]; then
