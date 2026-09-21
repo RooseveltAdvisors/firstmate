@@ -2698,6 +2698,15 @@ arm_parked_gate() {  # <case-dir>
   : > "$1/config/wedge-defer-parked-gate"
 }
 
+# Arm the ci-defer marker a lane receives when stale-since is started at
+# provably-working absorb. wedge_threshold_fixture pre-arms the stale hash (and
+# sometimes the timer) without that absorb, so ci-step cases must call this.
+arm_ci_defer_marker() {  # <case-dir>
+  local key
+  key=$(printf '%s' "test:fm-wedge" | tr ':/.' '___')
+  : > "$1/state/.wedge-ci-defer-$key"
+}
+
 wedge_stale_wakes() {  # <state> <window>
   awk -F '\t' -v w="$2" '$3 == "stale" && $4 == w { n++ } END { print n + 0 }' \
     "$1/.wake-queue" 2>/dev/null || echo 0
@@ -3297,6 +3306,7 @@ test_wedge_threshold_defers_to_a_ci_step() {
   # line an ordinary non-captain-relevant `working:` append - no declaration of
   # any kind - and nothing but the run step to explain the quiet.
   dir=$(wedge_threshold_fixture ci-step-quiet 'working: implementation committed' 0)
+  arm_ci_defer_marker "$dir"
   state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"; capture="$dir/pane.txt"
   n=1
   while [ "$n" -le 4 ]; do
@@ -3319,6 +3329,7 @@ test_wedge_threshold_defers_to_a_ci_step() {
   # clears them - asking the captain to confirm or release a wait would point them
   # at an action that does not exist here.
   dir=$(wedge_threshold_fixture ci-step-aged 'working: implementation committed' 2000)
+  arm_ci_defer_marker "$dir"
   state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"; capture="$dir/pane.txt"
   FM_TEST_PAUSE_RESURFACE=240 wedge_threshold_round "$state" "$fakebin" "$out" "$capture" "$window" "$ci" exit \
     || fail "a ci-step lane quieter than the recheck cadence was never rechecked: $(cat "$out")"
@@ -3346,6 +3357,7 @@ test_wedge_threshold_defers_to_a_ci_step() {
   # Trailing detail segments (the run id, a superseded status-log clause) are part
   # of the same authoritative line and must not defeat the match.
   dir=$(wedge_threshold_fixture ci-step-run-id 'working: implementation committed' 0)
+  arm_ci_defer_marker "$dir"
   state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"; capture="$dir/pane.txt"
   wedge_threshold_round "$state" "$fakebin" "$out" "$capture" "$window" "$ci_with_run" absorb \
     || fail "a ci-step lane carrying a run id wedge-escalated: $(cat "$out")"
