@@ -221,6 +221,29 @@ test_ship_modes_generate_clean_briefs() {
   pass "fm-brief.sh: no-mistakes/direct-PR/local-only briefs generate cleanly"
 }
 
+test_ship_and_scout_activate_caveman_full() {
+  local home kind brief
+  home="$TMP_ROOT/caveman-activation-home"
+  mkdir -p "$home/data"
+  for kind in ship scout; do
+    if [ "$kind" = scout ]; then
+      FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "caveman-$kind" some-proj --scout >/dev/null 2>&1 \
+        || fail "$kind scaffold failed"
+    else
+      FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "caveman-$kind" some-proj --mode no-mistakes >/dev/null 2>&1 \
+        || fail "$kind scaffold failed"
+    fi
+    brief="$home/data/caveman-$kind/brief.md"
+    # shellcheck disable=SC2016 # Literal scaffold text must stay unexpanded.
+    assert_grep '$HOME/.agents/skills/caveman/SKILL.md' "$brief" \
+      "$kind scaffold omitted the canonical caveman skill path"
+    # shellcheck disable=SC2016 # Literal scaffold text must stay unexpanded.
+    assert_grep 'skill at `full`' "$brief" \
+      "$kind scaffold omitted caveman full activation"
+  done
+  pass "fm-brief.sh: ship and scout scaffolds activate canonical caveman full"
+}
+
 # A ship task's delivery mode is firstmate's per-task decision, so a missing or
 # unusable value must stop the scaffold instead of silently defaulting. The
 # no-mistakes-prod-only row is the conditional registry policy: it is never a task
@@ -1065,6 +1088,7 @@ test_script_parses
 test_no_heredoc_in_command_substitution
 test_help_includes_entire_header
 test_ship_modes_generate_clean_briefs
+test_ship_and_scout_activate_caveman_full
 test_ship_mode_is_required_and_closed_set
 test_ship_mode_is_explicit_not_registry
 test_delivery_flags_are_refused_where_they_do_not_apply

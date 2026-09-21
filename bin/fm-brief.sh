@@ -420,6 +420,7 @@ The worktree is your laboratory - install, run, edit, and make scratch commits f
 The report is the only thing that survives, so anything worth keeping must be in it.
 
 # Rules
+Load and keep active the \`caveman\` skill at \`full\` from \`\$HOME/.agents/skills/caveman/SKILL.md\`; compression is chat-only - code, comments, commits, docs, PR text, memory files, third-party messages, and safety-critical explanations stay full English.
 1. Never push to any remote and never open a PR.
 2. Stay inside this worktree; the only files you may write outside it are the report and the status file below.
 3. Use gh-axi for GitHub operations and chrome-devtools-axi for browser operations.
@@ -509,6 +510,7 @@ If the top-level path is the primary checkout or not the worktree you were launc
 1. First action: create your branch: \`git checkout -b fm/$ID\`$SETUP2
 
 # Rules
+Load and keep active the \`caveman\` skill at \`full\` from \`\$HOME/.agents/skills/caveman/SKILL.md\`; compression is chat-only - code, comments, commits, docs, PR text, memory files, third-party messages, and safety-critical explanations stay full English.
 $RULE1
 2. Stay inside this worktree; modify nothing outside it.
 3. Use gh-axi for GitHub operations and chrome-devtools-axi for browser operations.
