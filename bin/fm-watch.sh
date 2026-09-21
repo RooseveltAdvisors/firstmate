@@ -39,25 +39,10 @@
 #                          also carries a "demand-deep-inspection" marker so the
 #                          wake payload itself, not just repetition, forces a
 #                          closer look instead of another routine supervision
-#                          resume. Unless afk is active. A pane about to escalate
-#                          that can account for its quiet - a `paused:` external
-#                          wait or a verified `captain-held` transfer its worker
-#                          declared, or, where config/wedge-defer-parked-gate
-#                          arms it, a validation gate of its own awaiting a
-#                          supervisor decision nobody has answered yet - is
-#                          deferred to that same long recheck cadence instead
-#                          (wedge_wait_evidence), and a pane whose own task
-#                          worktree was written during the quiet window is
-#                          deferred rather than escalated (wedge_defer_writing),
-#                          because files appearing there are liveness the pane and
-#                          the run step cannot show; that deferral still
-#                          re-surfaces once per PAUSE_RESURFACE_SECS, and a pane
-#                          that writes nothing keeps the unchanged schedule.
-#                          A pane whose recorded endpoint holds no agent at all is
-#                          not a wedge and is reported ONCE instead of escalating
-#                          on that cadence forever (wedge_dead_record); only the
-#                          two recovery-grade verdicts license it, and every other
-#                          verdict escalates unchanged.
+#                          resume. Unless afk is active. The threshold probes and
+#                          their deferrals are owned by wedge_timer_check below;
+#                          docs/architecture.md owns the wait-evidence and
+#                          dead-endpoint reporting contract.
 #                          A genuinely busy pane
 #                          (window_is_busy true) is exempt from the above, but
 #                          only up to BUSY_TURN_MAX_SECS with no completed turn
@@ -2748,8 +2733,8 @@ EOF
           # Decided once per distinct stale hash (the costly state reads run only
           # on first sight, never every poll) via pause_state_class, which returns:
           #   - working: an actively-running pipeline legitimately sits on a static
-          #     pane (e.g. waiting on CI), so absorb and start the wedge timer so a
-          #     genuinely frozen run still escalates past STALE_ESCALATE_SECS;
+          #     pane, so absorb and start the shared wedge timer;
+          #     wedge_timer_check owns its threshold probes and deferrals;
           #   - paused: a declared wait pause_state_class admits (its header owns which
           #     liveness evidence each kind of crew must supply), so absorb on the long
           #     PAUSE_RESURFACE_SECS cadence instead of wedge-escalating;
