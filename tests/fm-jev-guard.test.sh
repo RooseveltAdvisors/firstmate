@@ -12,6 +12,7 @@ GUARD_PY="$ROOT/bin/fm-jev-guard.py"
 [ -x "$GUARD_PY" ] || fail "bin/fm-jev-guard.py missing or not executable"
 
 TDIR=$(fm_test_tmproot fm-jev-guard-test)
+export FM_TEST_PRIMARY=1
 
 # 1. Help flag works
 help_out=$("$GUARD_SH" --help 2>&1 || true)
@@ -88,7 +89,7 @@ cp "$GUARD_SH" "$MOCK_WT/bin/fm-jev-guard.sh"
 cp "$GUARD_PY" "$MOCK_WT/bin/fm-jev-guard.py"
 
 # In the linked worktree, even ssh should exit 0 immediately
-wt_out=$(FM_ROOT_OVERRIDE="$MOCK_WT" "$MOCK_WT/bin/fm-jev-guard.sh" --command "ssh srv 'sudo rm -rf /'" 2>&1) || fail "guard was not inert inside linked worktree"
+wt_out=$(FM_TEST_PRIMARY=0 FM_ROOT_OVERRIDE="$MOCK_WT" "$MOCK_WT/bin/fm-jev-guard.sh" --command "ssh srv 'sudo rm -rf /'" 2>&1) || fail "guard was not inert inside linked worktree"
 [ -z "$wt_out" ] || fail "guard emitted output inside linked worktree: $wt_out"
 
 pass "all fm-jev-guard tests passed"
