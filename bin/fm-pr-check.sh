@@ -108,6 +108,11 @@ if [ -x "$FM_ROOT/bin/fm-jev-pr-triage.sh" ] && command -v gh >/dev/null 2>&1; t
   "$FM_ROOT/bin/fm-jev-pr-triage.sh" --pr "$URL" --json > "$STATE/pr-$ID.triage.json" 2>/dev/null || true
 fi
 
+# Pattern 13: Jev Flake vs Regression Disambiguator & Auto-Rerun Gatekeeper
+if [ -x "$FM_ROOT/bin/fm-jev-flake-detector.sh" ] && command -v gh >/dev/null 2>&1; then
+  "$FM_ROOT/bin/fm-jev-flake-detector.sh" --pr "$URL" --json > "$STATE/pr-$ID.flake.json" 2>/dev/null || true
+fi
+
 META_TMP=
 META_LOCK=
 META_LOCK_HELD=0

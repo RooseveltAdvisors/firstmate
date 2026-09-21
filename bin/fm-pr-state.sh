@@ -157,3 +157,9 @@ if [ "${FM_DISABLE_JEV_TRIAGE:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-pr-triage.
   printf '\n--- Jev Root-Cause Triage ---\n'
   "$SCRIPT_DIR/fm-jev-pr-triage.sh" --pr "$NUMBER" --repo "$PATH_PART" 2>/dev/null || true
 fi
+
+# Pattern 13: Jev Flake vs Regression Disambiguator
+if [ "${FM_DISABLE_JEV_TRIAGE:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-flake-detector.sh" ] && [ -n "${REQUIRED:-}" ]; then
+  printf '\n--- Jev Flake vs Regression Analysis ---\n'
+  "$SCRIPT_DIR/fm-jev-flake-detector.sh" --pr "$NUMBER" --repo "$PATH_PART" 2>/dev/null || true
+fi
