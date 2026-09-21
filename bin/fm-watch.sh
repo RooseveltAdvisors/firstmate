@@ -1090,7 +1090,7 @@ wedge_wait_evidence() {  # <task> -> one wait_record on stdout
 # demand-inspection history it had already earned.
 wedge_defer_wait() {  # <window> <since-file> <triage-label> <idle-age> <wait-record>
   local win=$1 since_file=$2 label=$3 age=$4 record=$5
-  local kind subject whom action anchor key mtime wage min_age waited wlabel us ok
+  local kind subject whom action anchor key mtime wage min_age waited us ok
   us=$(printf '\037')
   IFS=$us read -r kind subject whom action anchor <<EOF
 $record
@@ -1122,10 +1122,6 @@ EOF
     triage_log "absorbed $label ($kind, never rechecked while the away-posture record exists): $win"
     return 0
   fi
-  wlabel=waiting
-  case "$kind" in
-    'ci running'*|'ci running,'*) wlabel=quiet ;;
-  esac
   mtime=''
   [ -n "$anchor" ] && mtime=$(stat_mtime "$anchor")
   case "$mtime" in
@@ -1141,7 +1137,7 @@ EOF
     *)
       wage=$(( $(date +%s) - mtime ))
       [ "$wage" -ge 0 ] || wage=0
-      min_age=$PAUSE_RESURFACE_SECS; waited=", ${wlabel} ${wage}s"
+      min_age=$PAUSE_RESURFACE_SECS; waited=", waiting ${wage}s"
       ;;
   esac
   clear_write_tracking "$key"
@@ -1159,18 +1155,6 @@ EOF
 clear_write_tracking() {  # <window-key>
   local key=$1
   rm -f "$STATE/.writing-since-$key" "$STATE/.writing-resurfaced-$key"
-}
-
-# Record whether this quiet stretch was classified as an external `ci` run-step at
-# the one moment stale-since was armed, so wedge_timer_check can re-check that
-# step at threshold without spending a crew-state read on lanes that never were ci.
-wedge_sync_ci_defer_marker() {  # <task> <window-key>
-  local task=$1 key=$2 marker="$STATE/.wedge-ci-defer-$key"
-  if crew_is_ci_waiting "$task"; then
-    : > "$marker"
-  else
-    rm -f "$marker"
-  fi
 }
 
 # The question the wedge timer never asked before it alarmed: is there still an
@@ -1291,16 +1275,11 @@ wedge_timer_check() {  # <window> <since-file> <triage-label> <escalation-count-
         if wedge_dead_record "$win" "$since_file" "$label" "$age" "$hash" "$task"; then
           return 0
         fi
-        key=$(window_key "$win")
-        if [ -e "$STATE/.wedge-ci-defer-$key" ]; then
-          if crew_is_ci_waiting "$task"; then
-            evidence=$(wait_record 'ci running, awaiting the forge checks - external pipeline step' \
-              'awaiting the forge checks' external 'confirm the checks are still running' \
-              "$STATE/$task.status")
-            wedge_defer_wait "$win" "$since_file" "$label" "$age" "$evidence"
-            return 0
-          fi
-          rm -f "$STATE/.wedge-ci-defer-$key"
+        if crew_is_ci_waiting "$task"; then
+          evidence=$(wait_record 'ci running, awaiting the forge checks - external pipeline step' \
+            'awaiting the forge checks' external 'confirm the checks are still running' '')
+          wedge_defer_wait "$win" "$since_file" "$label" "$age" "$evidence"
+          return 0
         fi
         n=$(( $(cat "$escalation_file" 2>/dev/null || echo 0) + 1 ))
         echo "$n" > "$escalation_file"
@@ -1475,7 +1454,7 @@ clear_stale_hash_tracking() {  # <window-key>
   local key=$1
   clear_write_tracking "$key"
   rm -f "$STATE/.stale-$key" "$STATE/.stale-since-$key" "$STATE/.wedge-escalations-$key" \
-    "$STATE/.waiting-resurfaced-$key" "$STATE/.wedge-ci-defer-$key"
+    "$STATE/.waiting-resurfaced-$key"
 }
 
 clear_pause_tracking() {  # <window-key>
@@ -2725,7 +2704,6 @@ EOF
             if crew_is_provably_working "$(window_to_task "$w" "$STATE")"; then
               printf '%s' "$h" > "$sf"
               date +%s > "$ssf"
-              wedge_sync_ci_defer_marker "$task" "$key"
               clear_write_tracking "$key"
               triage_log "absorbed stale (provably working, overriding a stale captain-relevant status): $w"
             elif captain_call_stale_bound "$key" "$task"; then
@@ -2787,7 +2765,6 @@ EOF
                 clear_pause_tracking "$key"
                 printf '%s' "$h" > "$sf"
                 date +%s > "$ssf"
-                wedge_sync_ci_defer_marker "$task" "$key"
                 triage_log "absorbed non-terminal stale (provably working): $w"
                 ;;
               paused)
@@ -2804,7 +2781,6 @@ EOF
                 paused)  handle_paused_stale "$w" "$task" "$h" ;;
                 working) clear_pause_state "$key"
                          printf '%s' "$h" > "$sf"
-                         wedge_sync_ci_defer_marker "$task" "$key"
                          wedge_timer_check "$w" "$ssf" "non-terminal stale (provably working after a declared pause)" "$ewf" "$task" "$h"
                          triage_log "absorbed non-terminal stale (provably working): $w" ;;
                 *)       handle_paused_stale "$w" "$task" "$h" ;;

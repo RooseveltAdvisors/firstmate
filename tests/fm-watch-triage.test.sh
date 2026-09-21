@@ -2698,15 +2698,6 @@ arm_parked_gate() {  # <case-dir>
   : > "$1/config/wedge-defer-parked-gate"
 }
 
-# Arm the ci-defer marker a lane receives when stale-since is started at
-# provably-working absorb. wedge_threshold_fixture pre-arms the stale hash (and
-# sometimes the timer) without that absorb, so ci-step cases must call this.
-arm_ci_defer_marker() {  # <case-dir>
-  local key
-  key=$(printf '%s' "test:fm-wedge" | tr ':/.' '___')
-  : > "$1/state/.wedge-ci-defer-$key"
-}
-
 wedge_stale_wakes() {  # <state> <window>
   awk -F '\t' -v w="$2" '$3 == "stale" && $4 == w { n++ } END { print n + 0 }' \
     "$1/.wake-queue" 2>/dev/null || echo 0
@@ -3306,12 +3297,17 @@ test_wedge_threshold_defers_to_a_ci_step() {
   # line an ordinary non-captain-relevant `working:` append - no declaration of
   # any kind - and nothing but the run step to explain the quiet.
   dir=$(wedge_threshold_fixture ci-step-quiet 'working: implementation committed' 0)
-  arm_ci_defer_marker "$dir"
   state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"; capture="$dir/pane.txt"
   n=1
   while [ "$n" -le 4 ]; do
-    wedge_threshold_round "$state" "$fakebin" "$out" "$capture" "$window" "$ci" absorb \
-      || fail "a ci-step lane wedge-escalated at threshold $n: $(cat "$out")"
+    if [ "$n" -eq 1 ]; then
+      wedge_threshold_round "$state" "$fakebin" "$out" "$capture" "$window" "$ci" exit \
+        || fail "a ci-step lane did not emit its initial recheck"
+      ack_stopped_cycle "$state" || fail "could not acknowledge the initial ci recheck"
+    else
+      wedge_threshold_round "$state" "$fakebin" "$out" "$capture" "$window" "$ci" absorb \
+        || fail "a ci-step lane woke inside the recheck cadence: $(cat "$out")"
+    fi
     n=$((n + 1))
   done
   [ "$(wedge_stale_wakes "$state" "$window")" -eq 0 ] \
@@ -3329,7 +3325,6 @@ test_wedge_threshold_defers_to_a_ci_step() {
   # clears them - asking the captain to confirm or release a wait would point them
   # at an action that does not exist here.
   dir=$(wedge_threshold_fixture ci-step-aged 'working: implementation committed' 2000)
-  arm_ci_defer_marker "$dir"
   state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"; capture="$dir/pane.txt"
   FM_TEST_PAUSE_RESURFACE=240 wedge_threshold_round "$state" "$fakebin" "$out" "$capture" "$window" "$ci" exit \
     || fail "a ci-step lane quieter than the recheck cadence was never rechecked: $(cat "$out")"
@@ -3345,11 +3340,9 @@ test_wedge_threshold_defers_to_a_ci_step() {
     && fail "the ci recheck borrowed the captain-held wording: $(cat "$out")"
   grep -F 'confirm the wait still holds' "$out" >/dev/null \
     && fail "the ci recheck borrowed the declared-wait action: $(cat "$out")"
-  # It publishes how long the lane has been QUIET, not a claim about how long CI
-  # has been running, which the status file cannot date.
   reported=$(sed -n 's/.*quiet \([0-9][0-9]*\)s.*/\1/p' "$out" | head -1)
-  [ -n "$reported" ] && [ "$reported" -ge 1900 ] \
-    || fail "the ci recheck reported '${reported}'s rather than the age of the quiet: $(cat "$out")"
+  [ -z "$reported" ] \
+    || fail "the ci recheck invented a quiet duration from the status age: $(cat "$out")"
   [ -z "$(wedge_reported_wait_secs "$out")" ] \
     || fail "the ci recheck published its age as a wait on CI, which the status file cannot date: $(cat "$out")"
   ack_stopped_cycle "$state" || fail "could not acknowledge the ci recheck"
@@ -3357,9 +3350,8 @@ test_wedge_threshold_defers_to_a_ci_step() {
   # Trailing detail segments (the run id, a superseded status-log clause) are part
   # of the same authoritative line and must not defeat the match.
   dir=$(wedge_threshold_fixture ci-step-run-id 'working: implementation committed' 0)
-  arm_ci_defer_marker "$dir"
   state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"; capture="$dir/pane.txt"
-  wedge_threshold_round "$state" "$fakebin" "$out" "$capture" "$window" "$ci_with_run" absorb \
+  wedge_threshold_round "$state" "$fakebin" "$out" "$capture" "$window" "$ci_with_run" exit \
     || fail "a ci-step lane carrying a run id wedge-escalated: $(cat "$out")"
   grep -F 'possible wedge' "$out" >/dev/null \
     && fail "a ci-step lane carrying a run id was reported as a possible wedge: $(cat "$out")"
@@ -3381,6 +3373,42 @@ test_wedge_threshold_defers_to_a_ci_step() {
   grep -F 'demand-deep-inspection: same pane has wedge-escalated 3 times in a row' "$out" >/dev/null \
     || fail "a locally-working lane lost the demand-deep-inspection wording: $(cat "$out")"
   pass "a lane parked at the ci step is rechecked on the long cadence instead of wedge-escalating, while a locally-working lane keeps the unchanged ladder"
+}
+
+test_ci_transition_at_shared_wedge_boundary() {
+  local scenario dir state fakebin out capture window key
+  local local_step='state: working · source: run-step · validating (running)'
+  local ci='state: working · source: run-step · ci running'
+  window='test:fm-wedge'; key=test_fm-wedge
+  for scenario in ordinary terminal busy; do
+    dir=$(wedge_threshold_fixture "ci-transition-$scenario" 'working: implementation committed' 7200)
+    state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"; capture="$dir/pane.txt"
+    rm -f "$state/.stale-$key"
+    if [ "$scenario" = terminal ]; then
+      printf 'done: implementation committed\n' > "$state/wedge.status"
+      printf '%s' "$(seen_sig "$state/wedge.status")" > "$state/.seen-wedge_status"
+    elif [ "$scenario" = busy ]; then
+      printf 'window=%s\nkind=ship\nharness=pi\nbackend=tmux\n' "$window" > "$state/wedge.meta"
+      record_pi_busy "$state" wedge
+      set_mtime "$(( $(date +%s) - 7200 ))" "$state/wedge.meta"
+      export FM_BUSY_TURN_MAX_SECS=1
+    fi
+    FM_TEST_STALE_ESCALATE=999 wedge_threshold_round "$state" "$fakebin" "$out" "$capture" "$window" "$local_step" absorb \
+      || fail "$scenario lane failed to start its local-work idle window"
+    [ -s "$state/.stale-since-$key" ] || fail "$scenario lane never armed its timer"
+    ack_stopped_cycle "$state" || fail "could not acknowledge the local-work stop"
+    printf '%s\n' "$(( $(date +%s) - 500 ))" > "$state/.stale-since-$key"
+    wedge_threshold_round "$state" "$fakebin" "$out" "$capture" "$window" "$ci" exit \
+      || fail "$scenario transition into ci never rechecked"
+    grep -F 'ci running, awaiting the forge checks' "$out" >/dev/null \
+      || fail "$scenario transition into ci missed the external wait: $(cat "$out")"
+    [ ! -e "$state/.wedge-escalations-$key" ] || fail "$scenario transition into ci escalated"
+    ack_stopped_cycle "$state" || fail "could not acknowledge the transition recheck"
+    wedge_threshold_round "$state" "$fakebin" "$out" "$capture" "$window" "$ci" absorb \
+      || fail "$scenario ci wait ignored the recheck throttle"
+    unset FM_BUSY_TURN_MAX_SECS
+  done
+  pass "unchanged ordinary, terminal, and busy panes detect a transition into ci at threshold"
 }
 
 # The ordering guarantee behind reading the run step LAST. A `ci` step is a fact
@@ -6214,6 +6242,7 @@ test_wedge_threshold_parked_gate_is_off_until_armed
 test_wedge_defer_refuses_a_half_filled_wait_record
 test_wedge_threshold_defers_to_a_ci_step
 test_ci_step_does_not_hide_a_gone_endpoint
+test_ci_transition_at_shared_wedge_boundary
 test_open_captain_call_bounds_stale_churn
 test_stale_churn_without_a_captain_call_still_alarms
 test_failed_wake_append_does_not_arm_the_captain_hold_throttle
