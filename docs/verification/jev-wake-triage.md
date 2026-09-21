@@ -1,7 +1,5 @@
 # Jev stale-escalation triage verification
 
-Audience: maintainer verification.
-
 This record supports the default-on Jev classifier owned by [`../configuration.md`](../configuration.md) ("Jev stale-escalation triage") and hooked from `bin/fm-watch.sh`'s at-threshold wedge path.
 It records only facts that must be re-established when the typesafe.ai System One API or the watcher's stale-escalation probes change.
 Incident chronology stays in the private task report.

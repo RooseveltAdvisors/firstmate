@@ -9,7 +9,7 @@ metadata:
 
 # firstmate-coding-guidelines
 
-Load this before changing firstmate's shared, tracked material: `AGENTS.md`, `README.md`, `CONTRIBUTING.md`, `.tasks.toml`, `.github/workflows/`, `bin/`, `.agents/skills/`, and public `skills/`.
+Load this before changing firstmate's shared, tracked material: `AGENTS.md`, `README.md`, `CONTRIBUTING.md`, `.tasks.toml.example`, `.github/workflows/`, `bin/`, `.agents/skills/`, and public `skills/`.
 `AGENTS.md` section 1 owns the write/delegate boundary for that material.
 It exists because `AGENTS.md` grew from 585 to 958 lines between its last two restructures, entirely from conditional detail added inline instead of routed to its right home.
 Applying the rules below on every change is what keeps that from happening again.

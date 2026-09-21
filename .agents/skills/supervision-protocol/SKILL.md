@@ -56,4 +56,4 @@ Queued wakes must be presented before other action and acknowledged only after h
 The spawn assertion and generated ship brief must both enforce that project work starts in an isolated disposable worktree, never the primary checkout.
 
 Away and quiet mode stay owned by the `AGENTS.md` section 8 stub plus `/afk` and `/quiet`.
-For the full `stuck-crewmate-recovery` trigger, including a live worker claiming its no-mistakes pipeline is dead, unreachable, or timed out, follow `AGENTS.md` section 13.
+For the full `stuck-crewmate-recovery` trigger, including a live worker claiming its no-mistakes pipeline is dead, unreachable, or timed out, follow `AGENTS.md` section 8.
