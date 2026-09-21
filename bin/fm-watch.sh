@@ -2507,6 +2507,15 @@ while :; do
     fi
   fi
 
+  # Pattern 29: Jev Multi-Agent Memory & DB/Redis Leaked Connection Watchdog
+  if [ "${FM_DISABLE_JEV_REDIS_WATCHDOG:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-redis-watchdog.sh" ]; then
+    _redis_wd_marker="$STATE/.jev-redis-watchdog-last"
+    if [ ! -f "$_redis_wd_marker" ] || [ "$(age_of "$_redis_wd_marker")" -ge 3600 ]; then
+      touch "$_redis_wd_marker"
+      "$SCRIPT_DIR/fm-jev-redis-watchdog.sh" --json > "$STATE/.jev-redis-watchdog-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
 
 
 
