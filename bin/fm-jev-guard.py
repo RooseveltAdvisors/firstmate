@@ -368,6 +368,23 @@ def _evaluate_command_inner(cmd: str, fm_root: Path | None = None) -> dict:
     if not cmd_clean:
         return {"decision": "allow", "code": "empty_cmd", "reason": "empty command"}
 
+    # Secondmate inertia: a secondmate home is not the supervisor workspace
+    if fm_root and (fm_root / ".fm-secondmate-home").exists():
+        return {
+            "decision": "allow",
+            "code": "secondmate_charter_scope",
+            "reason": "Secondmate executing on its own host/charter scope",
+            "tier": 1,
+        }
+    fm_home_env = os.environ.get("FM_HOME")
+    if fm_home_env and (Path(fm_home_env) / ".fm-secondmate-home").exists():
+        return {
+            "decision": "allow",
+            "code": "secondmate_charter_scope",
+            "reason": "Secondmate executing on its own host/charter scope",
+            "tier": 1,
+        }
+
     # Tier 1: Fast-path whitelist
     if is_whitelisted_command(cmd_clean):
         return {
