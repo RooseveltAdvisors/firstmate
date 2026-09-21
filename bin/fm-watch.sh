@@ -2588,6 +2588,15 @@ while :; do
     fi
   fi
 
+  # Pattern 38: Jev Multi-Agent SSL/TLS Certificate Expiration Prober
+  if [ "${FM_DISABLE_JEV_CERT_PROBER:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-cert-prober.sh" ]; then
+    _cert_probe_marker="$STATE/.jev-cert-prober-last"
+    if [ ! -f "$_cert_probe_marker" ] || [ "$(age_of "$_cert_probe_marker")" -ge 1800 ]; then
+      touch "$_cert_probe_marker"
+      "$SCRIPT_DIR/fm-jev-cert-prober.sh" --json > "$STATE/.jev-cert-prober-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
 
 
 
