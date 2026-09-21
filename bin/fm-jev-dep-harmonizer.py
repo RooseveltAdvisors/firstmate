@@ -62,14 +62,17 @@ def parse_pyproject_toml(path: Path) -> Dict[str, str]:
         content = path.read_text(encoding="utf-8")
         # Match dependencies = [ ... ] or [project.dependencies]
         for line in content.splitlines():
-            line = line.strip()
+            line = line.split("#")[0].strip()
+            if not line:
+                continue
+            line = line.rstrip(",").strip(" '\"")
             # Match lines like "pytest>=8.0.0", "pydantic>=2.7.0"
-            m = re.match(r'^["\']?([a-zA-Z0-9_\-]+)\s*([><=~!^].*?)?["\']?,?$', line)
+            m = re.match(r"^([a-zA-Z0-9_\-]+)\s*([><=~!^].*)?$", line)
             if m:
                 pkg = m.group(1).lower()
-                ver = m.group(2) or "any"
+                ver = (m.group(2) or "any").strip(" '\",")
                 if pkg in TRACKED_PACKAGES:
-                    deps[pkg] = ver.strip("'\", ")
+                    deps[pkg] = ver
     except Exception:
         pass
     return deps
@@ -80,15 +83,16 @@ def parse_requirements_txt(path: Path) -> Dict[str, str]:
     try:
         content = path.read_text(encoding="utf-8")
         for line in content.splitlines():
-            line = line.strip()
-            if not line or line.startswith("#"):
+            line = line.split("#")[0].strip()
+            if not line:
                 continue
+            line = line.rstrip(",").strip(" '\"")
             m = re.match(r"^([a-zA-Z0-9_\-]+)\s*([><=~!^].*)?$", line)
             if m:
                 pkg = m.group(1).lower()
-                ver = m.group(2) or "any"
+                ver = (m.group(2) or "any").strip(" '\",")
                 if pkg in TRACKED_PACKAGES:
-                    deps[pkg] = ver.strip()
+                    deps[pkg] = ver
     except Exception:
         pass
     return deps
