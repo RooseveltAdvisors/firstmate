@@ -1,0 +1,10 @@
+Before/after regression check for the caveman activation line
+Pattern: 'Load and keep active the .caveman. skill at .full.'
+
+Base commit aec043c7 (git archive bin, real scaffold invocation):
+  demo-ship brief: activation line ABSENT (new test fails before fix)
+  demo-scout brief: activation line ABSENT (new test fails before fix)
+
+Target commit 1f513671 (real scaffold invocation):
+  demo-ship brief: activation line PRESENT (first # Rules line)
+  demo-scout brief: activation line PRESENT (first # Rules line)
