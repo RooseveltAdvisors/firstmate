@@ -2498,6 +2498,15 @@ while :; do
     fi
   fi
 
+  # Pattern 28: Jev Cross-Seat Environment Variable & Credential Drift Validator
+  if [ "${FM_DISABLE_JEV_ENV_VALIDATOR:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-env-validator.sh" ]; then
+    _env_val_marker="$STATE/.jev-env-validator-last"
+    if [ ! -f "$_env_val_marker" ] || [ "$(age_of "$_env_val_marker")" -ge 3600 ]; then
+      touch "$_env_val_marker"
+      "$SCRIPT_DIR/fm-jev-env-validator.sh" --json > "$STATE/.jev-env-validator-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
 
 
 
