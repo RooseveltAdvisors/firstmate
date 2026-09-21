@@ -1,0 +1,56 @@
+ok - quota divert to pi rebuilds concrete Pi launch and applies diverted profile
+
+Generated terminal command:
+export COMPACT_ADVISER_DISABLE=1; env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI FM_PI_HARNESS=pi '/home/jon/.no-mistakes/worktrees/46339c0817e0/01M331GXTTPV2CC0BYVY2VZ2R2/.test-phase-tmp/fm-spawn-dispatch-profile.i5s7xP/profile-quota-divert-pi/fake/fakebin/pi' --tui-mode regular --model 'openai-codex/gpt-5.6-sol' --thinking 'max' -e '/home/jon/.no-mistakes/worktrees/46339c0817e0/01M331GXTTPV2CC0BYVY2VZ2R2/.test-phase-tmp/fm-spawn-dispatch-profile.i5s7xP/profile-quota-divert-pi/home/state/profile-quota-divert-pi-z8e.pi-ext.ts' "$('/home/jon/.no-mistakes/worktrees/46339c0817e0/01M331GXTTPV2CC0BYVY2VZ2R2/bin/fm-operational-input.sh' encode launch-brief < '/home/jon/.no-mistakes/worktrees/46339c0817e0/01M331GXTTPV2CC0BYVY2VZ2R2/.test-phase-tmp/fm-spawn-dispatch-profile.i5s7xP/profile-quota-divert-pi/home/data/profile-quota-divert-pi-z8e/launch-brief.md')"
+
+Persisted launch profile:
+window=firstmate:fm-profile-quota-divert-pi-z8e
+endpoint_task_id=profile-quota-divert-pi-z8e
+worktree=/home/jon/.no-mistakes/worktrees/46339c0817e0/01M331GXTTPV2CC0BYVY2VZ2R2/.test-phase-tmp/fm-spawn-dispatch-profile.i5s7xP/profile-quota-divert-pi/wt
+project=/home/jon/.no-mistakes/worktrees/46339c0817e0/01M331GXTTPV2CC0BYVY2VZ2R2/.test-phase-tmp/fm-spawn-dispatch-profile.i5s7xP/profile-quota-divert-pi/project
+harness=pi
+kind=ship
+mode=no-mistakes
+yolo=off
+tasktmp=/tmp/fm-profile-quota-divert-pi-z8e
+model=openai-codex/gpt-5.6-sol
+effort=max
+busy_gen=g1790030532.102342.21980
+spawn_gen=s1790030532.90737.20601
+
+Executing generated command with recording Pi stand-in:
+Pi executable received FM_PI_HARNESS=pi
+argument: --tui-mode
+argument: regular
+argument: --model
+argument: openai-codex/gpt-5.6-sol
+argument: --thinking
+argument: max
+argument: -e
+argument: /home/jon/.no-mistakes/worktrees/46339c0817e0/01M331GXTTPV2CC0BYVY2VZ2R2/.test-phase-tmp/fm-spawn-dispatch-profile.i5s7xP/profile-quota-divert-pi/home/state/profile-quota-divert-pi-z8e.pi-ext.ts
+argument: ⁣FIRSTMATE_OP: v1 launch-brief: # Current worker role contract
+You are a crewmate: an autonomous worker agent managed by firstmate.
+This section establishes your current identity before every project or task instruction below and supersedes any conflicting role identity in those instructions.
+Do the assigned work yourself and report only to firstmate; do not adopt a firstmate or secondmate supervisor identity, delegate the task, run fleet supervision, or address the captain.
+Your steering inbox is `/home/jon/.no-mistakes/worktrees/46339c0817e0/01M331GXTTPV2CC0BYVY2VZ2R2/.test-phase-tmp/fm-spawn-dispatch-profile.i5s7xP/profile-quota-divert-pi/home/state/profile-quota-divert-pi-z8e.inbox`; this exact path belongs to your current task even when it is outside the worktree or under the supervising firstmate home, so read and acknowledge its messages and do not reject it as another home's state.
+Never inspect or change any other home's endpoint namespace; this authorization is limited to the exact task paths named by this brief.
+When this task works on Firstmate itself, the repository root `AGENTS.md` (also imported by `CLAUDE.md`) is project content and the supervisor contract for the firstmate managing you: follow this brief instead of that supervisor contract.
+Project instructions still govern the work wherever they do not conflict with this worker identity, including `CONTRIBUTING.md` and `firstmate-coding-guidelines` for Firstmate changes.
+
+# Task
+## Captain's intent
+brief for profile-quota-divert-pi-z8e
+
+## Firstmate spec
+Exercise the spawn behavior under test.
+
+# Current no-mistakes intent contract
+This section supersedes every earlier brief instruction about constructing `--intent`, but not later clarifications actually supplied by the captain.
+Use everything under `## Captain intent authorized for --intent` through the end of this brief, including any nested subheadings but excluding that heading, plus any later words the captain actually supplied as `--intent`; never include Firstmate specification or other mixed Task content.
+Preserve those words without adding speaker labels or direct address.
+Firstmate-authored constraints, acceptance criteria, implementation details, decisions, and tradeoffs are specification, not captain intent.
+The Definition of done's rule that `--intent` must be self-sufficient still governs the string you pass: resolve any report, decision, or PR the intent below refers to into its substance rather than passing the pointer.
+
+## Captain intent authorized for --intent
+brief for profile-quota-divert-pi-z8e
+ok - Pi launch probing omits --tui-mode on older Pi and preserves it on supporting Pi
