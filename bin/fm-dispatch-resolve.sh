@@ -284,6 +284,10 @@ RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg non
     (bare($m)) as $bare |
     [rows($p; $lane)[] | select(
       .scope == "all_models" or .scope == "all_products" or
+      ($p == "agy" and (
+        (.scope == "gemini" and ($bare == "" or $bare == "default" or ($bare | startswith("gemini")))) or
+        (.scope == "claude_gpt" and (($bare | startswith("claude")) or ($bare | startswith("gpt"))))
+      )) or
       ($m != "" and (.scope == ("model:" + $bare) or .scope == ("product:" + $bare)))
     )];
   def floor_state($f; $p; $lane):
