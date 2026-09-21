@@ -666,6 +666,12 @@ EOF
   fi
   printf 'verified: %s is open and mergeable, with every required check green at head %s\n' \
     "$URL" "$live_head" >&2
+  # Pattern 10: Jev Zero-CI & Workflow Landing Gate Verifier hook
+  if [ -x "$SCRIPT_DIR/fm-jev-ci-workflow-guard.sh" ]; then
+    "$SCRIPT_DIR/fm-jev-ci-workflow-guard.sh" --pr "$PR_NUMBER" --repo "$PR_OWNER/$PR_REPO" 2>&1 | while IFS= read -r guard_line; do
+      printf 'jev-ci-guard: %s\n' "$guard_line" >&2
+    done || true
+  fi
   FM_PR_MERGE_HEAD=$live_head
   FM_PR_GITHUB_BASE=$base
 }

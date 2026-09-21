@@ -80,6 +80,11 @@ if [ "$PROVIDER" = github ] && [ -n "$WT" ] && [ -d "$WT" ] && command -v gh >/d
   fi
 fi
 
+# Pattern 10: Jev Zero-CI & Workflow Landing Gate Verifier
+if [ -x "$FM_ROOT/bin/fm-jev-ci-workflow-guard.sh" ] && [ -n "$WT" ] && [ -d "$WT" ]; then
+  "$FM_ROOT/bin/fm-jev-ci-workflow-guard.sh" --repo-dir "$WT" --pr "$URL" --json > "$STATE/pr-$ID.ci-guard.json" 2>/dev/null || true
+fi
+
 META_TMP=
 META_LOCK=
 META_LOCK_HELD=0
