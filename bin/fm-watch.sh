@@ -2489,6 +2489,15 @@ while :; do
     fi
   fi
 
+  # Pattern 27: Jev Cross-Seat Idle Branch & Stale Worktree Pruning Harmonizer
+  if [ "${FM_DISABLE_JEV_WORKTREE_PRUNER:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-worktree-pruner.sh" ]; then
+    _wt_pruner_marker="$STATE/.jev-worktree-pruner-last"
+    if [ ! -f "$_wt_pruner_marker" ] || [ "$(age_of "$_wt_pruner_marker")" -ge 3600 ]; then
+      touch "$_wt_pruner_marker"
+      "$SCRIPT_DIR/fm-jev-worktree-pruner.sh" --json > "$STATE/.jev-worktree-pruner-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
 
 
 
