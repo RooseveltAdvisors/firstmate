@@ -100,6 +100,11 @@ if [ -x "$FM_ROOT/bin/fm-jev-token-budget.sh" ] && [ -n "$WT" ] && [ -d "$WT" ];
   "$FM_ROOT/bin/fm-jev-token-budget.sh" --repo-path "$WT" --json > "$STATE/pr-$ID.token-budget.json" 2>/dev/null || true
 fi
 
+# Pattern 17: Jev Continuous Test Flake Quarantine & Auto-Bisect
+if [ -x "$FM_ROOT/bin/fm-jev-quarantine.sh" ] && command -v gh >/dev/null 2>&1; then
+  "$FM_ROOT/bin/fm-jev-quarantine.sh" --pr "$URL" --json > "$STATE/pr-$ID.quarantine.json" 2>/dev/null || true
+fi
+
 META_TMP=
 META_LOCK=
 META_LOCK_HELD=0

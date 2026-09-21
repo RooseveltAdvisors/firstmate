@@ -171,3 +171,9 @@ if [ "${FM_DISABLE_JEV_TRIAGE:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-token-budg
     "$SCRIPT_DIR/fm-jev-token-budget.sh" --repo-path . 2>/dev/null || true
   fi
 fi
+
+# Pattern 17: Jev Continuous Test Flake Quarantine & Auto-Bisect
+if [ "${FM_DISABLE_JEV_TRIAGE:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-quarantine.sh" ] && [ -n "${REQUIRED:-}" ]; then
+  printf '\n--- Jev Test Flake Quarantine Analysis ---\n'
+  "$SCRIPT_DIR/fm-jev-quarantine.sh" --pr "$NUMBER" --repo "$PATH_PART" 2>/dev/null || true
+fi
