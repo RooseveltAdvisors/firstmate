@@ -1027,6 +1027,7 @@ _fm_composer_titled_bottom_ok() {  # <family> <bottom-inner> <top-spaces>
     *) return 1 ;;
   esac
   spaces=${inner//"$dash"/ }
+  local middot; printf -v middot '%b' '\302\267'; spaces=${spaces//"$middot"/ }
   spaces=$(printf '%s' "$spaces" | LC_ALL=C sed 's/[!-~]/ /g')
   case "$spaces" in
     *[![:space:]]*) return 1 ;;
@@ -1044,6 +1045,7 @@ _fm_composer_titled_bottom_ok() {  # <family> <bottom-inner> <top-spaces>
   [ "$spaces" = "$expected$overhang" ] || return 1
   title=${inner//"$dash"/}
   fm_composer_normalize_trim_var title
+  case "$title" in *"$middot"*) title=${title%%"$middot"*} ; fm_composer_normalize_trim_var title ;; esac
   case "$title" in
     'Grok '*\ \(low\)) effort=low ;;
     'Grok '*\ \(medium\)) effort=medium ;;
