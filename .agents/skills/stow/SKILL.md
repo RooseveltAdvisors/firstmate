@@ -212,9 +212,15 @@ A local skill exists only in this home, so offloading an entry out of `data/capt
 
 1. **Sweep the session for uncaptured durable knowledge.**
    Look for operational learnings, captain preferences expressed in passing, project-intrinsic facts, standing decisions, and undone next steps.
-2. **Route each finding using AGENTS.md's knowledge-routing table.**
-   AGENTS.md section 6 is the source of truth for destinations.
-   Do not re-derive or duplicate that mapping here.
+2. **Route each finding using this skill's knowledge-routing table.**
+   This skill is the source of truth for destinations:
+   - Home-domain captain preferences and working style belong in `data/captain.md` after inspect-then-update.
+   - Captain preferences shared across secondmate domains belong in the primary home's `data/captain-shared.md` under the `secondmate-provisioning` contract.
+   - Fleet-local operational facts belong in curated, home-local `data/learnings.md`.
+   - Task-scoped notes belong with the backlog item, and investigation findings belong in the scout report.
+   - Knowledge useful to almost every contributor to one project belongs in that project's committed `AGENTS.md`.
+   - Knowledge general to every firstmate user belongs in this repo's shared tracked surface.
+   Do not re-derive a second mapping in `AGENTS.md`.
 3. **Write within the existing boundaries.**
    - Captain preferences and fleet-local operational facts belong in the destination selected by AGENTS.md after the required whole-file curation pass.
      Create `data/learnings.md` only for a genuinely new local learning with no stronger owner.
