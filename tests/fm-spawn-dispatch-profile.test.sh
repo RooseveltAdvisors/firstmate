@@ -6,6 +6,7 @@
 # literal launch command sent with `tmux send-keys -l`, so assertions pin the
 # command firstmate would run without starting any real harness.
 set -u
+export FM_TEST_DISABLE_JEV_PROBER=1
 
 # shellcheck source=tests/fixtures.sh
 . "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"

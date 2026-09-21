@@ -2233,6 +2233,22 @@ if [ "$HARNESS" = agy ]; then
   agy_model_validate "$AGY_BIN" "$MODEL" || exit 1
 fi
 
+# Jev Pattern 9: Pre-flight runway and token health prober
+if [ "${FM_TEST_DISABLE_JEV_PROBER:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-quota-prober.sh" ]; then
+  if ! "$SCRIPT_DIR/fm-jev-quota-prober.sh" --harness "$HARNESS" ${MODEL:+--model "$MODEL"} >/dev/null 2>&1; then
+    _divert=$("$SCRIPT_DIR/fm-jev-quota-prober.sh" --harness "$HARNESS" ${MODEL:+--model "$MODEL"} --auto-divert 2>/dev/null || true)
+    if [ -n "$_divert" ]; then
+      eval "$_divert"
+      if [ -n "${harness:-}" ] && [ -n "${model:-}" ]; then
+        echo "jev-quota-prober: automatically diverted $HARNESS${MODEL:+:$MODEL} to viable lane $harness:$model" >&2
+        HARNESS="$harness"
+        MODEL="$model"
+      fi
+    fi
+  fi
+fi
+
+
 secondmate_registry_value() {
   secondmate_registry_field "$DATA/secondmates.md" "$1" "$2"
 }
