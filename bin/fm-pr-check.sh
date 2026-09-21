@@ -105,6 +105,12 @@ if [ -x "$FM_ROOT/bin/fm-jev-quarantine.sh" ] && command -v gh >/dev/null 2>&1; 
   "$FM_ROOT/bin/fm-jev-quarantine.sh" --pr "$URL" --json > "$STATE/pr-$ID.quarantine.json" 2>/dev/null || true
 fi
 
+# Pattern 23: Jev Autonomous CI Runner Health & Shard Load Balancer
+if [ "$PROVIDER" = github ] && [ -x "$FM_ROOT/bin/fm-jev-runner-balancer.sh" ] && command -v gh >/dev/null 2>&1; then
+  "$FM_ROOT/bin/fm-jev-runner-balancer.sh" --repo "$PROJECT_PATH" --json > "$STATE/pr-$ID.runner-balancer.json" 2>/dev/null || true
+fi
+
+
 META_TMP=
 META_LOCK=
 META_LOCK_HELD=0
