@@ -2248,6 +2248,11 @@ if [ "${FM_TEST_DISABLE_JEV_PROBER:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-quota
   fi
 fi
 
+# Jev Pattern 11: Auto-reconcile dormant completed babysitter seats
+if [ "${FM_TEST_DISABLE_JEV_RECONCILER:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-seat-reconciler.sh" ]; then
+  "$SCRIPT_DIR/fm-jev-seat-reconciler.sh" --reconcile >/dev/null 2>&1 || true
+fi
+
 
 secondmate_registry_value() {
   secondmate_registry_field "$DATA/secondmates.md" "$1" "$2"
