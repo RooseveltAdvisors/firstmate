@@ -2444,6 +2444,16 @@ while :; do
     fi
   fi
 
+  # Pattern 22: Jev Model Context & Prompt Cache Degradation Watchdog
+  if [ "${FM_DISABLE_JEV_CACHE_WATCHDOG:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-cache-watchdog.sh" ]; then
+    _cache_watchdog_marker="$STATE/.jev-cache-watchdog-last"
+    if [ ! -f "$_cache_watchdog_marker" ] || [ "$(age_of "$_cache_watchdog_marker")" -ge 900 ]; then
+      touch "$_cache_watchdog_marker"
+      "$SCRIPT_DIR/fm-jev-cache-watchdog.sh" --json > "$STATE/.jev-cache-watchdog-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
+
   # The existing poll loop also owns the bounded inactive-outcome cadence.
   # This is mechanical and silent unless a durable terminal-outcome obligation
   # was created, so quiet cycles never wake firstmate or consume model tokens.
