@@ -2525,6 +2525,16 @@ while :; do
     fi
   fi
 
+  # Pattern 31: Jev Multi-Agent Database Connection Pool Health Probe
+  if [ "${FM_DISABLE_JEV_DB_POOL_PROBE:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-db-pool-probe.sh" ]; then
+    _db_pool_marker="$STATE/.jev-db-pool-probe-last"
+    if [ ! -f "$_db_pool_marker" ] || [ "$(age_of "$_db_pool_marker")" -ge 1800 ]; then
+      touch "$_db_pool_marker"
+      "$SCRIPT_DIR/fm-jev-db-pool-probe.sh" --json > "$STATE/.jev-db-pool-probe-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
+
 
 
 
