@@ -1,0 +1,28 @@
+
+CASE ci-step-aged
+stale: test:fm-wedge (idle 1s - ci running, awaiting the forge checks - external pipeline step, awaiting the forge checks, rechecked on a long cadence not a wedge; confirm the checks are still running)
+
+CASE ci-step-control
+stale: test:fm-wedge (idle 2s, possible wedge, escalation 1)
+stale: test:fm-wedge (idle 1s, possible wedge, escalation 2)
+stale: test:fm-wedge (idle 2s, possible wedge, escalation 3, demand-deep-inspection: same pane has wedge-escalated 3 times in a row - do not re-absorb on the run-step/pane state alone)
+
+CASE ci-step-gone
+stale: test:fm-wedge (idle 1s, agent dead - the endpoint is still there with no agent running in it, so this is not a wedge; reported once and not re-escalated while it stays that way - reconcile this record, and check for unlanded work before any cleanup)
+
+CASE ci-step-quiet
+stale: test:fm-wedge (idle 1s - ci running, awaiting the forge checks - external pipeline step, awaiting the forge checks, rechecked on a long cadence not a wedge; confirm the checks are still running)
+
+CASE ci-step-run-id
+stale: test:fm-wedge (idle 1s - ci running, awaiting the forge checks - external pipeline step, awaiting the forge checks, rechecked on a long cadence not a wedge; confirm the checks are still running)
+
+CASE ci-transition-busy
+stale: test:fm-wedge (idle 500s - ci running, awaiting the forge checks - external pipeline step, awaiting the forge checks, rechecked on a long cadence not a wedge; confirm the checks are still running)
+
+CASE ci-transition-ordinary
+stale: test:fm-wedge (idle 500s - ci running, awaiting the forge checks - external pipeline step, awaiting the forge checks, rechecked on a long cadence not a wedge; confirm the checks are still running)
+
+CASE ci-transition-terminal
+stale: test:fm-wedge (idle 501s - ci running, awaiting the forge checks - external pipeline step, awaiting the forge checks, rechecked on a long cadence not a wedge; confirm the checks are still running)
+
+CASE ci-waiting-class

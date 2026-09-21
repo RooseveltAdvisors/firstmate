@@ -1,0 +1,17 @@
+
+SCENARIO run_ci_monitoring
+run:
+  id: "01RUN"
+  branch: fm/wedge
+  status: running
+  head: "bfaa56a149316ff0f21a1bd9bf31c2efa9727a07"
+  pr: "https://github.com/o/r/pull/2"
+  findings: none
+  steps[4]{step,status,findings,duration_ms}:
+    intent,completed,0,0
+    review,completed,0,0
+    push,completed,0,0
+    ci,running,0,0
+state: working · source: run-step · ci running
+stale: test:fm-wedge (idle 1s, possible wedge, escalation 1)
+not ok - CI not deferred

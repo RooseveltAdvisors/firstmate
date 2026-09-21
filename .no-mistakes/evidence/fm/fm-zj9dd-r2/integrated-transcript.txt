@@ -1,0 +1,70 @@
+
+SCENARIO run_ci_monitoring
+run:
+  id: "01RUN"
+  branch: fm/wedge
+  status: running
+  head: "2e431baf8ea3654bb4c835429d8870a4634b8b56"
+  pr: "https://github.com/o/r/pull/2"
+  findings: none
+  steps[4]{step,status,findings,duration_ms}:
+    intent,completed,0,0
+    review,completed,0,0
+    push,completed,0,0
+    ci,running,0,0
+state: working · source: run-step · ci running
+stale: test:fm-wedge (idle 1s - ci running, awaiting the forge checks - external pipeline step, awaiting the forge checks, rechecked on a long cadence not a wedge; confirm the checks are still running)
+Persisted wake queue:
+1790031058	1	stale	test:fm-wedge	stale: test:fm-wedge (idle 1s - ci running, awaiting the forge checks - external pipeline step, awaiting the forge checks, rechecked on a long cadence not a wedge; confirm the checks are still running)
+
+SCENARIO run_running
+run:
+  id: "01RUN"
+  branch: fm/wedge
+  status: running
+  head: "19053ef4120070e78a669abc0ca80fe2c0634632"
+  pr: ""
+  findings: none
+  steps[2]{step,status,findings,duration_ms}:
+    intent,completed,0,0
+    review,running,0,0
+state: working · source: run-step · validating (running)
+stale: test:fm-wedge (idle 1s, possible wedge, escalation 1)
+Persisted wake queue:
+1790031060	1	stale	test:fm-wedge	stale: test:fm-wedge (idle 1s, possible wedge, escalation 1)
+
+SCENARIO run_fixing_ci_running
+run:
+  id: "01RUN"
+  branch: fm/wedge
+  status: fixing
+  head: "f403e0c6d16965b8135117b33cdee0e528872237"
+  pr: "https://github.com/o/r/pull/2"
+  findings: none
+  steps[4]{step,status,findings,duration_ms}:
+    intent,completed,0,0
+    review,completed,0,0
+    push,completed,0,0
+    ci,running,0,0
+state: working · source: run-step · validating (fixing)
+stale: test:fm-wedge (idle 1s, possible wedge, escalation 1)
+Persisted wake queue:
+1790031062	1	stale	test:fm-wedge	stale: test:fm-wedge (idle 1s, possible wedge, escalation 1)
+
+SCENARIO run_ci_fixing
+run:
+  id: "01RUN"
+  branch: fm/wedge
+  status: fixing
+  head: "83b66b6fe509fa2d2ca553f287b7db685f341e08"
+  pr: "https://github.com/o/r/pull/2"
+  findings: none
+  steps[4]{step,status,findings,duration_ms}:
+    intent,completed,0,0
+    review,completed,0,0
+    push,completed,0,0
+    ci,fixing,0,0
+state: working · source: run-step · validating (fixing)
+stale: test:fm-wedge (idle 1s, possible wedge, escalation 1)
+Persisted wake queue:
+1790031064	1	stale	test:fm-wedge	stale: test:fm-wedge (idle 1s, possible wedge, escalation 1)
