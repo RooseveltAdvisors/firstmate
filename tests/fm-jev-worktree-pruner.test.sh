@@ -34,6 +34,7 @@ git -C "$MOCK_REPO" config user.name "Test User"
 echo "init" > "$MOCK_REPO/README.md"
 git -C "$MOCK_REPO" add README.md
 git -C "$MOCK_REPO" commit -m "initial commit" >/dev/null 2>&1
+git -C "$MOCK_REPO" update-ref refs/remotes/origin/main HEAD
 
 # Create merged branch and worktree
 git -C "$MOCK_REPO" branch feature-merged
@@ -56,3 +57,5 @@ dirty=$(echo "$json_out" | jq '.summary.uncommitted_dirty')
 pass "correctly identified 1 merged/clean worktree and protected dirty worktree"
 
 pass "all Pattern 27 worktree pruner tests passed"
+
+python3 "$(dirname "${BASH_SOURCE[0]}")/jev-safety-fixtures.py" worktree-pruner

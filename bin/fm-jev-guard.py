@@ -192,7 +192,14 @@ def is_fast_pass_supervisor(subcmd: str) -> bool:
     # 3. Read-only git queries in Firstmate home
     if clean.startswith("git "):
         git_args = clean[4:].strip()
-        if re.match(r"^(status|log|diff|rev-parse|show\s+origin/main|branch)\b", git_args):
+        words = shlex.split(git_args)
+        if not words:
+            return False
+        if words[0] == "branch":
+            return len(words) == 1 or words[1:] == ["--show-current"] or words[1:] == ["--list"]
+        if words[0] in ("log", "diff", "show"):
+            return not any(arg in ("--ext-diff", "--textconv", "--output") or arg.startswith("--output=") for arg in words[1:])
+        if words[0] in ("status", "rev-parse"):
             return True
         return False
 
@@ -209,6 +216,8 @@ def is_fast_pass_supervisor(subcmd: str) -> bool:
     except ValueError:
         return False
     if words and words[0] in {tool.strip() for tool in SAFE_READ_TOOLS}:
+        if words[0] == "rg" and any(arg == "--pre" or arg.startswith("--pre=") for arg in words[1:]):
+            return False
         if words[0] == "awk":
             return False
         if words[0] == "sed":

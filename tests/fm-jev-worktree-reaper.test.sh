@@ -71,3 +71,5 @@ python3 -c "import json; d = json.loads('''${JSON_OUTPUT}'''); assert 'dirty_pre
 echo "PASS: Test 5 - JSON telemetry output validated"
 
 echo "=== All 5 fm-jev-worktree-reaper tests passed successfully! ==="
+
+python3 "$(dirname "${BASH_SOURCE[0]}")/jev-safety-fixtures.py" worktree-reaper

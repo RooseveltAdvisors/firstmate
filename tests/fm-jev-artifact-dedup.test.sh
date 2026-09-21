@@ -49,18 +49,23 @@ if [ "${INODE2}" -ne "${INODE2_AFTER_DRY}" ]; then
 fi
 echo "PASS: Test 3 - Dry run correctly identifies duplicate and preserves files"
 
-# Test 4: Live deduplication links files to identical inode
+# Test 4: Live deduplication preserves independent writes
 LIVE_OUT=$("${DEDUP_WRAPPER}" --roots "${TEST_TMP}" --min-size 100)
 echo "${LIVE_OUT}" | grep -q "\[APPLIED\]"
 INODE1_FINAL=$(stat -c '%i' "${DIR1}/page1.svg")
 INODE2_FINAL=$(stat -c '%i' "${DIR2}/page1.svg")
-if [ "${INODE1_FINAL}" -ne "${INODE2_FINAL}" ]; then
-  echo "FAIL: Files do not share same inode after live deduplication" >&2
+if [ "${INODE1_FINAL}" -eq "${INODE2_FINAL}" ]; then
+  echo "FAIL: Files share writable storage after live deduplication" >&2
   exit 1
 fi
 # Content verify
 cmp "${DIR1}/page1.svg" "${DIR2}/page1.svg"
-echo "PASS: Test 4 - Live deduplication successfully hardlinked identical artifacts"
+printf 'changed' > "${DIR2}/page1.svg"
+if cmp -s "${DIR1}/page1.svg" "${DIR2}/page1.svg"; then
+  echo "FAIL: modifying one artifact changed the other" >&2
+  exit 1
+fi
+echo "PASS: independent writes remain isolated"
 
 # Test 5: JSON output telemetry schema
 JSON_OUT=$("${DEDUP_WRAPPER}" --roots "${TEST_TMP}" --min-size 100 --dry-run --json)

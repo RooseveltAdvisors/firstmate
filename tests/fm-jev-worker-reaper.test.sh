@@ -24,3 +24,5 @@ echo "3. Verify --check runs without error..."
 echo "ok - check scan completed"
 
 echo "ok - all fm-jev-worker-reaper tests passed"
+
+python3 "$(dirname "${BASH_SOURCE[0]}")/jev-safety-fixtures.py" worker-reaper

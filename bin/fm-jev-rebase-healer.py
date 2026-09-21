@@ -30,7 +30,7 @@ DEFAULT_SEARCH_PATHS = [
 DEFAULT_STALE_AGE_SEC = 120.0
 
 
-def is_lock_held_by_process(lock_path: str) -> bool:
+def is_lock_held_by_process(lock_path: str) -> bool | None:
     """Checks if any active process has the lock file open."""
     try:
         res = subprocess.run(
@@ -39,11 +39,14 @@ def is_lock_held_by_process(lock_path: str) -> bool:
             text=True,
             check=False,
         )
-        # fuser returns exit code 0 if at least one process has the file open
-        return res.returncode == 0
-    except Exception:
-        # If fuser is missing or errors, fail safe: assume lock might be held
-        return False
+        if res.returncode == 0:
+            return True
+        if res.returncode == 1 and not res.stderr.strip():
+            return False
+        print(f"Ownership probe failed for {lock_path}: {res.stderr.strip()}", file=sys.stderr)
+    except Exception as exc:
+        print(f"Ownership probe unavailable: {exc}", file=sys.stderr)
+    return None
 
 
 def find_git_repos(search_dirs: List[str], max_depth: int = 3) -> List[str]:
@@ -97,7 +100,7 @@ def inspect_git_repo(repo_path: str, stale_age_sec: float) -> Optional[Dict[str,
             stat = os.stat(index_lock)
             age = now - stat.st_mtime
             is_held = is_lock_held_by_process(index_lock)
-            is_stale = age > stale_age_sec and not is_held
+            is_stale = age > stale_age_sec and is_held is False
 
             issues.append({
                 "type": "index.lock",

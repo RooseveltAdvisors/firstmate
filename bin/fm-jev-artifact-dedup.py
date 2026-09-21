@@ -4,14 +4,14 @@ fm-jev-artifact-dedup.py - Jev Cross-Seat Asset & Artifact Cache De-Duplicator (
 
 Scans asset directories (MusicXML scores, Verovio SVGs, timemaps) across treehouse
 worktrees and workspace roots, detects identical artifacts across worktrees, and safely
-deduplicates them via hardlinks (os.link) to reclaim storage, reduce inode pressure,
+deduplicates them via copy-on-write clones where supported to reclaim storage,
 and optimize disk caching without altering git status.
 
 Safety invariants:
-- NEVER links across different filesystem devices (st_dev check).
+- Preserves independent writable files across worktrees.
 - NEVER replaces dirty or uncommitted files with untracked edits.
 - Only deduplicates exact SHA-256 content matches above min_size threshold.
-- Uses atomic replacement (link to temp name in same directory, then os.replace).
+- Uses atomic replacement from a temporary copy in the same directory.
 - Fails open gracefully on any OS or permission error.
 - Fully supports dry-run preview and JSON telemetry.
 """
@@ -21,6 +21,9 @@ import hashlib
 import json
 import os
 import sys
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 from typing import Dict, List, Any, Tuple
 
@@ -111,12 +114,7 @@ def deduplicate_assets(
         primary_path, primary_ino, file_size = files[0]
 
         for dup_path, dup_ino, size in files[1:]:
-            # If already hardlinked to same inode, skip
-            if dup_ino == primary_ino:
-                continue
-
             report["duplicate_instances"] += 1
-            report["bytes_reclaimed"] += size
             pair_record = {
                 "primary": primary_path,
                 "duplicate": dup_path,
@@ -126,19 +124,27 @@ def deduplicate_assets(
             report["deduplicated_pairs"].append(pair_record)
 
             if not dry_run:
+                temp_path = None
                 try:
-                    # Atomic hardlink replace
-                    temp_link = f"{dup_path}.jev_tmp_{os.getpid()}"
-                    os.link(primary_path, temp_link)
-                    os.replace(temp_link, dup_path)
-                    pair_record["status"] = "hardlinked"
-                except Exception as e:
-                    pair_record["status"] = f"error: {str(e)}"
-                    if os.path.exists(temp_link):
-                        try:
-                            os.unlink(temp_link)
-                        except Exception:
-                            pass
+                    fd, temp_path = tempfile.mkstemp(prefix=".jev-copy-", dir=os.path.dirname(dup_path))
+                    os.close(fd)
+                    clone = subprocess.run(
+                        ["cp", "--reflink=always", primary_path, temp_path],
+                        capture_output=True, text=True, check=False,
+                    )
+                    if clone.returncode != 0:
+                        shutil.copyfile(primary_path, temp_path)
+                    shutil.copystat(dup_path, temp_path)
+                    os.replace(temp_path, dup_path)
+                    pair_record["status"] = "cloned" if clone.returncode == 0 else "copied"
+                    if clone.returncode == 0 and dup_ino != primary_ino:
+                        report["bytes_reclaimed"] += size
+                except Exception as exc:
+                    pair_record["status"] = f"error: {exc}"
+                    print(f"Artifact deduplication failed: {exc}", file=sys.stderr)
+                finally:
+                    if temp_path and os.path.exists(temp_path):
+                        os.unlink(temp_path)
 
     return report
 

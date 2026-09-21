@@ -46,8 +46,4 @@ with tempfile.TemporaryDirectory() as td:
 print("PASS: Test 3 - Worktree mtime prober verified")
 '
 
-# Test 4: Live seat probing on websites
-"${FM_ROOT}/bin/fm-jev-stall-guard.sh" --seat websites --worktree /home/jon/.treehouse/tutti-2b1be6/7/tutti
-echo "PASS: Test 4 - Live seat probe on websites verified"
-
-echo "=== All 4/4 fm-jev-stall-guard tests PASSED (100%) ==="
+python3 "$(dirname "${BASH_SOURCE[0]}")/jev-safety-fixtures.py" stall-guard

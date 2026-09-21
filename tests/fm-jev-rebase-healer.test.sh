@@ -54,3 +54,5 @@ pass "healed stale lock file ($healed_count healed)"
 pass "stale lock file safely removed in heal mode"
 
 pass "all Pattern 33 git lock healer tests passed"
+
+python3 "$(dirname "${BASH_SOURCE[0]}")/jev-safety-fixtures.py" rebase-healer

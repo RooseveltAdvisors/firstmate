@@ -106,3 +106,5 @@ assert_contains "$telem_content" "ssn_detected" "telemetry recorded ssn_detected
 assert_contains "$telem_content" "allow" "telemetry recorded allow"
 
 pass "all fm-jev-privacy-guard tests passed"
+
+python3 "$(dirname "${BASH_SOURCE[0]}")/jev-safety-fixtures.py" privacy-guard

@@ -73,8 +73,14 @@ def is_worktree_busy(wt_path: Path) -> bool:
 
 
 def get_merged_branches(repo_dir: Path) -> set:
-    """Gets list of local branches merged into HEAD/main."""
-    out = run_cmd(["git", "branch", "--merged"], cwd=repo_dir)
+    """Gets local branches merged into the default upstream branch."""
+    base = run_cmd(["git", "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"], cwd=repo_dir)
+    candidates = [base] if base else ["origin/main", "origin/master"]
+    base = next((ref for ref in candidates if run_cmd(
+        ["git", "rev-parse", "--verify", ref + "^{commit}"], cwd=repo_dir)), None)
+    if base is None:
+        return set()
+    out = run_cmd(["git", "branch", "--merged", base], cwd=repo_dir)
     if not out:
         return set()
     branches = set()

@@ -78,19 +78,29 @@ def find_worktree_for_seat(seat: str, fm_home: Path) -> Optional[Path]:
 
 def check_process_activity(seat: str, worktree: Optional[Path]) -> List[str]:
     active_procs = []
-    rc, stdout, _ = run_cmd(["ps", "-eo", "pid,args"])
+    rc, stdout, _ = run_cmd(["ps", "-eo", "pid,ppid,args"])
     if rc != 0 or not stdout:
         return active_procs
 
-    wt_str = str(worktree) if worktree else ""
+    processes = {}
     for line in stdout.splitlines():
-        line_l = line.lower()
-        # Match if process pattern is present AND (matches seat name or worktree path)
-        for pattern in BUSY_PROCESS_PATTERNS:
-            if pattern in line_l:
-                if (seat and seat in line_l) or (wt_str and wt_str in line):
-                    active_procs.append(line.strip())
-                    break
+        fields = line.strip().split(None, 2)
+        if len(fields) == 3 and fields[0].isdigit() and fields[1].isdigit():
+            processes[int(fields[0])] = (int(fields[1]), fields[2])
+    excluded = set()
+    pid = os.getpid()
+    while pid and pid not in excluded:
+        excluded.add(pid)
+        pid = processes.get(pid, (0, ""))[0]
+    excluded.add(os.getppid())
+    wt_str = str(worktree) if worktree else ""
+    for pid, (_, command) in processes.items():
+        if pid in excluded:
+            continue
+        line_l = command.lower()
+        if any(pattern in line_l for pattern in BUSY_PROCESS_PATTERNS):
+            if (seat and seat.lower() in line_l) or (wt_str and wt_str in command):
+                active_procs.append(f"{pid} {command}")
     return active_procs
 
 def check_worktree_mtime(worktree: Path, max_age_seconds: int = 600) -> List[str]:
