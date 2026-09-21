@@ -2126,11 +2126,12 @@ if [ "$KIND" = secondmate ] && [ "$HARNESS" = rovo ]; then
   exit 1
 fi
 
-case "$HARNESS" in
-pi | pi-signed)
+# pi launch prep runs once for a direct pi spawn and again after a Jev divert
+# lands on pi, so it lives in this one function (see the divert block below).
+resolve_pi_harness_launch() {
   PI_BIN=$(resolve_pi_executable "$HARNESS") || {
     echo "error: $HARNESS executable not found on PATH; install it or select a different verified harness" >&2
-    exit 1
+    return 1
   }
   PI_TUI_MODE=
   if pi_supports_tui_mode "$PI_BIN"; then
@@ -2138,6 +2139,11 @@ pi | pi-signed)
   fi
   LAUNCH=${LAUNCH//__PITUIMODE__/$PI_TUI_MODE}
   LAUNCH="FM_PI_HARNESS=$HARNESS $LAUNCH"
+}
+
+case "$HARNESS" in
+pi | pi-signed)
+  resolve_pi_harness_launch || exit 1
   ;;
 cursor)
   # `cursor` is not the CLI name, and the legacy alias `agent` is far too
@@ -2213,6 +2219,7 @@ fi
 
 # Jev Pattern 9: Pre-flight runway and token health prober
 if [ "${FM_TEST_DISABLE_JEV_PROBER:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-quota-prober.sh" ]; then
+  _pre_divert_harness=$HARNESS
   if ! "$SCRIPT_DIR/fm-jev-quota-prober.sh" --harness "$HARNESS" ${MODEL:+--model "$MODEL"} >/dev/null 2>&1; then
     _divert=$("$SCRIPT_DIR/fm-jev-quota-prober.sh" --harness "$HARNESS" ${MODEL:+--model "$MODEL"} --auto-divert 2>/dev/null || true)
     if [ -n "$_divert" ]; then
@@ -2221,6 +2228,21 @@ if [ "${FM_TEST_DISABLE_JEV_PROBER:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-quota
         echo "jev-quota-prober: automatically diverted $HARNESS${MODEL:+:$MODEL} to viable lane $harness:$model" >&2
         HARNESS="$harness"
         MODEL="$model"
+        if [ "$HARNESS" != "$_pre_divert_harness" ]; then
+          # The launch template and per-harness resolution above were chosen
+          # for the original harness. A cross-harness divert must rebuild both,
+          # or the __PIBIN__ substitution below reads PI_BIN unbound under
+          # set -u and every diverted-to-pi spawn dies before launch. Divert
+          # targets are the prober's DEFAULT_SAFE lane (pi) only; another
+          # target harness needs its own resolution case added here.
+          LAUNCH=$(launch_template "$HARNESS" "$KIND") || {
+            echo "error: no launch template for diverted harness '$HARNESS'" >&2
+            exit 1
+          }
+          case "$HARNESS" in
+          pi | pi-signed) resolve_pi_harness_launch || exit 1 ;;
+          esac
+        fi
       fi
     fi
   fi
