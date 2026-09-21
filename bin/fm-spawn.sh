@@ -4076,6 +4076,7 @@ esac
 # can plant or swap a file in it. The staged launch command lives in a sibling
 # directory namespaced by home identity, not in this shared per-id root.
 TASK_TMP="/tmp/fm-$ID"
+[ -x "$SCRIPT_DIR/fm-jev-temp-sanitizer.sh" ] && "$SCRIPT_DIR/fm-jev-temp-sanitizer.sh" --target "$ID" --sanitize >/dev/null 2>&1 || true
 if ! (umask 077 && mkdir "$TASK_TMP") 2>/dev/null; then
   if [ -L "$TASK_TMP" ] || [ ! -d "$TASK_TMP" ] || [ ! -O "$TASK_TMP" ] ||
     [ -n "$(find "$TASK_TMP" -prune \( -perm -g=w -o -perm -o=w \) -print 2>/dev/null)" ] ||
