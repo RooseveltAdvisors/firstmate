@@ -2,7 +2,8 @@
 
 # Global agent may be antigravity during subscription failover; firstmate requires a
 # gate agent with verified AGENTS.md neutralization (codex, claude, or pi only).
-agent: pi
+# Codex subscription healthy again as of 2026-09-21.
+agent: codex
 
 # firstmate is an agent-orchestration repo: its AGENTS.md installs a fleet-captain
 # identity. Disable project-level agent settings/instructions for gate agents so a
