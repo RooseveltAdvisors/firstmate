@@ -3050,7 +3050,7 @@ working: still parked at that gate'
   pass "a gate awaiting firstmate's decision for its own run is rechecked on the long cadence in either posture, while a crewmate-owed gate, an unrelated open decision and a runless verdict keep the unchanged ladder"
 }
 
-# --- an unconfigured home behaves exactly as it did before this evidence -----
+# --- an unconfigured home keeps the parked-gate escalation ladder ------------
 # The parked-gate record is the one wait here that is not the worker's own
 # declaration about its own silence: it is derived from a pipeline's gate state,
 # so a home decides for itself whether a lane may give up the escalation ladder
@@ -3058,8 +3058,9 @@ working: still parked at that gate'
 # otherwise defers - human-owed gate, open decision keyed to that run, every
 # signal the armed cases assert on - must escalate on the unchanged schedule
 # with the unchanged reason and demand-deep-inspection wording, and the evidence
-# arm must not even be reached: no current-state read is spent and no recheck
-# throttle is written. The fixture is byte-identical to the armed case above
+# arm must not even be reached: only the independent CI-step probe spends a
+# current-state read per threshold, and no recheck throttle is written.
+# The fixture is byte-identical to the armed case above
 # except for the flag, so the difference is attributable to the flag alone.
 test_wedge_threshold_parked_gate_is_off_until_armed() {
   local dir state fakebin out capture window key n unarmed_probes armed_probes
@@ -3092,13 +3093,12 @@ working: still parked at that gate'
   unarmed_probes=$(wc -l < "$FM_FAKE_CREW_STATE_LOG" | tr -d ' ')
   unset FM_FAKE_CREW_STATE_LOG
 
-  [ "$unarmed_probes" -eq 0 ] \
-    || fail "an unarmed home spent $unarmed_probes current-state read(s) on a parked gate over three thresholds"
+  [ "$unarmed_probes" -eq 3 ] \
+    || fail "an unarmed home spent $unarmed_probes current-state read(s) over three thresholds; expected one CI-step probe per threshold"
 
-  # The same fixture with only the flag added, counted the same way, so the
-  # zero above is the flag's doing rather than a fixture that could never have
-  # reached the reader: one armed threshold must spend a read. A guard placed
-  # after the consult instead of before it would make both counts nonzero.
+  # With only the flag added, one parked-gate read defers the lane before the
+  # CI-step probe. The unarmed case above would spend two reads per threshold
+  # if the parked-gate guard moved after its consult.
   dir=$(wedge_threshold_fixture parked-gate-armed-probe-count "$escalated" 2000)
   arm_parked_gate "$dir"
   state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"; capture="$dir/pane.txt"
@@ -3109,9 +3109,9 @@ working: still parked at that gate'
   ack_stopped_cycle "$state" || fail "could not acknowledge the armed control recheck"
   armed_probes=$(wc -l < "$FM_FAKE_CREW_STATE_LOG" | tr -d ' ')
   unset FM_FAKE_CREW_STATE_LOG
-  [ "$armed_probes" -gt 0 ] \
-    || fail "the armed control spent no current-state read, so the probe count proves nothing"
-  pass "with config/wedge-defer-parked-gate absent a parked gate keeps the unchanged ladder, wording and reads"
+  [ "$armed_probes" -eq 1 ] \
+    || fail "the armed control spent $armed_probes current-state read(s); expected one parked-gate probe"
+  pass "with config/wedge-defer-parked-gate absent a parked gate keeps the unchanged ladder and wording with one CI-step probe per threshold"
 }
 
 # --- a parked human-owed gate also needs the human to still owe an answer ----
