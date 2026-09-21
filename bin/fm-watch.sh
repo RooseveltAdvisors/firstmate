@@ -2597,6 +2597,15 @@ while :; do
     fi
   fi
 
+  # Pattern 39: Jev Multi-Agent JSON-RPC & Subagent Message Buffer Leak Guard
+  if [ "${FM_DISABLE_JEV_RPC_BUFFER_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-rpc-buffer-guard.sh" ]; then
+    _rpc_buf_marker="$STATE/.jev-rpc-buffer-guard-last"
+    if [ ! -f "$_rpc_buf_marker" ] || [ "$(age_of "$_rpc_buf_marker")" -ge 1800 ]; then
+      touch "$_rpc_buf_marker"
+      "$SCRIPT_DIR/fm-jev-rpc-buffer-guard.sh" --json > "$STATE/.jev-rpc-buffer-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
 
 
 
