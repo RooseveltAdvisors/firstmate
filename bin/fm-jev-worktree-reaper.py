@@ -136,9 +136,13 @@ def reap_worktrees(
     if base_check.returncode != 0:
         # Fallback to main or master
         for fallback in ["main", "origin/master", "master"]:
-            if run_git(["rev-parse", "--verify", fallback], cwd=repo_path).returncode == 0:
+            fallback_res = run_git(["rev-parse", "--verify", fallback], cwd=repo_path)
+            if fallback_res.returncode == 0:
                 base_branch = fallback
+                base_check = fallback_res
                 break
+
+    base_sha = base_check.stdout.strip() if base_check.returncode == 0 else ""
 
     for wt in worktrees:
         path = os.path.realpath(wt["path"])
@@ -163,10 +167,31 @@ def reap_worktrees(
         branch_name = wt.get("branch")
         is_detached = wt.get("detached", False)
 
-        # Check if landed on base_branch
+        # Invariant 3: never reap newly created or aligned active feature branches
+        # If head_sha equals base_sha on a named branch, work is just starting or synchronized!
+        if branch_name and head_sha and base_sha and head_sha == base_sha:
+            report["active_preserved"] += 1
+            continue
+
+        # Invariant 4: check if landed on base_branch
         is_merged = False
-        if head_sha and is_ancestor(head_sha, base_branch, repo_path):
-            is_merged = True
+        if is_detached:
+            if head_sha and is_ancestor(head_sha, base_branch, repo_path):
+                is_merged = True
+        elif branch_name:
+            if head_sha and is_ancestor(head_sha, base_branch, repo_path):
+                is_merged = True
+            else:
+                # Check if branch was squash-merged via gh pr view
+                gh_res = subprocess.run(
+                    ["gh", "pr", "view", branch_name, "--json", "state", "-q", ".state"],
+                    cwd=path,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                if gh_res.returncode == 0 and gh_res.stdout.strip().upper() == "MERGED":
+                    is_merged = True
 
         if not is_merged:
             report["unmerged_preserved"] += 1
