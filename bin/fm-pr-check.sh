@@ -103,6 +103,11 @@ if [ -x "$FM_ROOT/bin/fm-jev-ci-workflow-guard.sh" ] && [ -n "$WT" ] && [ -d "$W
   "$FM_ROOT/bin/fm-jev-ci-workflow-guard.sh" --repo-dir "$WT" --pr "$URL" --json > "$STATE/pr-$ID.ci-guard.json" 2>/dev/null || true
 fi
 
+# Pattern 12: Jev PR Failure Classifier & Root-Cause Triage Engine
+if [ -x "$FM_ROOT/bin/fm-jev-pr-triage.sh" ] && command -v gh >/dev/null 2>&1; then
+  "$FM_ROOT/bin/fm-jev-pr-triage.sh" --pr "$URL" --json > "$STATE/pr-$ID.triage.json" 2>/dev/null || true
+fi
+
 META_TMP=
 META_LOCK=
 META_LOCK_HELD=0
