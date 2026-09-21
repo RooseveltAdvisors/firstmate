@@ -1,0 +1,31 @@
+ok - quota divert to pi rebuilds concrete Pi launch and applies diverted profile
+
+Pi terminal launch command:
+export COMPACT_ADVISER_DISABLE=1; env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI FM_PI_HARNESS=pi '/home/jon/.no-mistakes/worktrees/46339c0817e0/01M331GXTTPV2CC0BYVY2VZ2R2/.test-tmp/fm-spawn-dispatch-profile.ke7zee/profile-quota-divert-pi/fake/fakebin/pi' --tui-mode regular --model 'openai-codex/gpt-5.6-sol' --thinking 'max' -e '/home/jon/.no-mistakes/worktrees/46339c0817e0/01M331GXTTPV2CC0BYVY2VZ2R2/.test-tmp/fm-spawn-dispatch-profile.ke7zee/profile-quota-divert-pi/home/state/profile-quota-divert-pi-z8e.pi-ext.ts' "$('/home/jon/.no-mistakes/worktrees/46339c0817e0/01M331GXTTPV2CC0BYVY2VZ2R2/bin/fm-operational-input.sh' encode launch-brief < '/home/jon/.no-mistakes/worktrees/46339c0817e0/01M331GXTTPV2CC0BYVY2VZ2R2/.test-tmp/fm-spawn-dispatch-profile.ke7zee/profile-quota-divert-pi/home/data/profile-quota-divert-pi-z8e/launch-brief.md')"
+
+Persisted Pi profile:
+window=firstmate:fm-profile-quota-divert-pi-z8e
+endpoint_task_id=profile-quota-divert-pi-z8e
+worktree=/home/jon/.no-mistakes/worktrees/46339c0817e0/01M331GXTTPV2CC0BYVY2VZ2R2/.test-tmp/fm-spawn-dispatch-profile.ke7zee/profile-quota-divert-pi/wt
+project=/home/jon/.no-mistakes/worktrees/46339c0817e0/01M331GXTTPV2CC0BYVY2VZ2R2/.test-tmp/fm-spawn-dispatch-profile.ke7zee/profile-quota-divert-pi/project
+harness=pi
+kind=ship
+mode=no-mistakes
+yolo=off
+tasktmp=/tmp/fm-profile-quota-divert-pi-z8e
+model=openai-codex/gpt-5.6-sol
+effort=max
+busy_gen=g1790033260.3692437.15498
+spawn_gen=s1790033260.3682407.14359
+Pi executable received: FM_PI_HARNESS=pi
+Arguments: --tui-mode regular --model openai-codex/gpt-5.6-sol --thinking max
+Generated extension received: /home/jon/.no-mistakes/worktrees/46339c0817e0/01M331GXTTPV2CC0BYVY2VZ2R2/.test-tmp/fm-spawn-dispatch-profile.ke7zee/profile-quota-divert-pi/home/state/profile-quota-divert-pi-z8e.pi-ext.ts
+Initial instruction received (2572 bytes): ⁣FIRSTMATE_OP: v1 launch-brief: # Current worker role contract
+You are a crewmate: an autonomous worker agent managed by firstmate.
+This section establishes your current identity before every projec
+ok - quota diversion resolves Cursor through canonical setup
+
+Cursor terminal launch command:
+export COMPACT_ADVISER_DISABLE=1; env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS -u GEMINI_CLI -u CURSOR_INVOKED_AS '/home/jon/.no-mistakes/worktrees/46339c0817e0/01M331GXTTPV2CC0BYVY2VZ2R2/.test-tmp/fm-spawn-dispatch-profile.ke7zee/profile-quota-divert-cursor/fake/fakebin/cursor-agent' --trust --yolo --model 'cursor-grok-4.5-high' --workspace '/home/jon/.no-mistakes/worktrees/46339c0817e0/01M331GXTTPV2CC0BYVY2VZ2R2/.test-tmp/fm-spawn-dispatch-profile.ke7zee/profile-quota-divert-cursor/wt' "$('/home/jon/.no-mistakes/worktrees/46339c0817e0/01M331GXTTPV2CC0BYVY2VZ2R2/bin/fm-operational-input.sh' encode launch-brief < '/home/jon/.no-mistakes/worktrees/46339c0817e0/01M331GXTTPV2CC0BYVY2VZ2R2/.test-tmp/fm-spawn-dispatch-profile.ke7zee/profile-quota-divert-cursor/home/data/profile-quota-divert-cursor-z8e/launch-brief.md')"
+ok - pi receives --model and --thinking max profile flags
+ok - Pi launch probing omits --tui-mode on older Pi and preserves it on supporting Pi
