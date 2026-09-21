@@ -2365,6 +2365,49 @@ fi
 if [ "$HARNESS" = agy ]; then
   agy_model_validate "$AGY_BIN" "$MODEL" || exit 1
 fi
+
+# Jev Pattern 9: Pre-flight runway and token health prober
+JEV_QUOTA_PROBER=${FM_TEST_JEV_PROBER_PATH:-$SCRIPT_DIR/fm-jev-quota-prober.sh}
+if [ "${FM_TEST_DISABLE_JEV_PROBER:-0}" != 1 ] && [ -x "$JEV_QUOTA_PROBER" ]; then
+  _pre_divert_harness=$HARNESS
+  if ! "$JEV_QUOTA_PROBER" --harness "$HARNESS" ${MODEL:+--model "$MODEL"} >/dev/null 2>&1; then
+    _divert=$("$JEV_QUOTA_PROBER" --harness "$HARNESS" ${MODEL:+--model "$MODEL"} --auto-divert 2>/dev/null || true)
+    if [ -n "$_divert" ]; then
+      eval "$_divert"
+      if [ -n "${harness:-}" ] && [ -n "${model:-}" ]; then
+        echo "jev-quota-prober: automatically diverted $HARNESS${MODEL:+:$MODEL} to viable lane $harness:$model" >&2
+        HARNESS="$harness"
+        MODEL="$model"
+        if [ "$HARNESS" != "$_pre_divert_harness" ]; then
+          # The launch template and per-harness resolution above were chosen
+          # for the original harness. A cross-harness divert must rebuild both,
+          # or the __PIBIN__ substitution below reads PI_BIN unbound under
+          # set -u and every diverted-to-pi spawn dies before launch. Divert
+          # targets are the prober's DEFAULT_SAFE lane (pi) only; another
+          # target harness needs its own resolution case added here.
+          LAUNCH=$(launch_template "$HARNESS" "$KIND") || {
+            echo "error: no launch template for diverted harness '$HARNESS'" >&2
+            exit 1
+          }
+          case "$HARNESS" in
+          pi | pi-signed)
+            PI_BIN=$(resolve_pi_executable "$HARNESS") || {
+              echo "error: $HARNESS executable not found on PATH; install it or select a different verified harness" >&2
+              exit 1
+            }
+            PI_TUI_MODE=
+            if pi_supports_tui_mode "$PI_BIN"; then
+              PI_TUI_MODE=' --tui-mode regular'
+            fi
+            LAUNCH=${LAUNCH//__PITUIMODE__/$PI_TUI_MODE}
+            LAUNCH="FM_PI_HARNESS=$HARNESS $LAUNCH"
+            ;;
+          esac
+        fi
+      fi
+    fi
+  fi
+fi
 # Worker account pin (header above): resolved before any endpoint, worktree, or
 # record exists. An absent pin selects nothing and leaves every later launch
 # step exactly as it was. A pinned Claude root is exported here as well, so the
