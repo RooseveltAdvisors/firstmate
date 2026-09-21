@@ -2480,6 +2480,15 @@ while :; do
     fi
   fi
 
+  # Pattern 26: Jev Autonomous Worktree Disk Hygiene & Compaction Reaper
+  if [ "${FM_DISABLE_JEV_DISK_REAPER:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-disk-reaper.sh" ]; then
+    _disk_reaper_marker="$STATE/.jev-disk-reaper-last"
+    if [ ! -f "$_disk_reaper_marker" ] || [ "$(age_of "$_disk_reaper_marker")" -ge 7200 ]; then
+      touch "$_disk_reaper_marker"
+      "$SCRIPT_DIR/fm-jev-disk-reaper.sh" --max-age-hours 4 --json > "$STATE/.jev-disk-reaper-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
 
 
 
