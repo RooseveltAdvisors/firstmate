@@ -2435,6 +2435,15 @@ while :; do
     fi
   fi
 
+  # Pattern 21: Jev Cross-Seat Asset & Artifact Cache De-Duplicator
+  if [ "${FM_DISABLE_JEV_ARTIFACT_DEDUP:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-artifact-dedup.sh" ]; then
+    _artifact_dedup_marker="$STATE/.jev-artifact-dedup-last"
+    if [ ! -f "$_artifact_dedup_marker" ] || [ "$(age_of "$_artifact_dedup_marker")" -ge 1800 ]; then
+      touch "$_artifact_dedup_marker"
+      "$SCRIPT_DIR/fm-jev-artifact-dedup.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
   # The existing poll loop also owns the bounded inactive-outcome cadence.
   # This is mechanical and silent unless a durable terminal-outcome obligation
   # was created, so quiet cycles never wake firstmate or consume model tokens.
