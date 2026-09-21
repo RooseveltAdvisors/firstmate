@@ -165,6 +165,34 @@ def evaluate_with_jev(state: dict, key: str) -> dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
+def local_heuristic_evaluate(state: dict) -> dict:
+    """Deterministic local fallback evaluation when remote Typesafe API is unavailable."""
+    q_depth = state.get("queue_depth", 0)
+    has_worker_errors = any("429" in err or "balance" in err for err in state.get("worker_errors", []))
+    if has_worker_errors:
+        bottleneck = "harness_quota_exhaustion"
+        remediation = "auto_reconcile_dormant_seats"
+        health = 0.25
+    elif q_depth > 10:
+        bottleneck = "stale_bookkeeping_noise"
+        remediation = "auto_reconcile_dormant_seats"
+        health = 0.50
+    else:
+        bottleneck = "healthy_stable"
+        remediation = "maintain_steady_state"
+        health = 0.85
+
+    return {
+        "model": "jev-local-fallback",
+        "answers": {
+            "primary_bottleneck": {"choice": bottleneck, "confidence": 0.95},
+            "remediation_strategy": {"choice": remediation, "confidence": 0.95},
+            "fleet_health_noul": {"noul": health},
+        },
+        "usage": {"input": 0, "output": 0, "note": "local_fallback"},
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Jev Fleet Telemetry & Harness Fallback Evaluator")
     parser.add_argument("--json", action="store_true", help="Output raw JSON")
@@ -180,8 +208,8 @@ def main() -> int:
     try:
         eval_result = evaluate_with_jev(state, key)
     except Exception as e:
-        print(f"error: Jev evaluation failed: {e}", file=sys.stderr)
-        return 2
+        print(f"warning: Jev API evaluation gateway unavailable ({e}), using local deterministic evaluator", file=sys.stderr)
+        eval_result = local_heuristic_evaluate(state)
 
     answers = eval_result.get("answers", {})
     bottleneck = answers.get("primary_bottleneck", {}).get("choice", "unknown")
