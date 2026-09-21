@@ -2543,6 +2543,15 @@ while :; do
     fi
   fi
 
+  # Pattern 33: Jev Cross-Seat Git Index & Rebase State Lock Auto-Healer
+  if [ "${FM_DISABLE_JEV_REBASE_HEALER:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-rebase-healer.sh" ]; then
+    _rebase_healer_marker="$STATE/.jev-rebase-healer-last"
+    if [ ! -f "$_rebase_healer_marker" ] || [ "$(age_of "$_rebase_healer_marker")" -ge 1800 ]; then
+      touch "$_rebase_healer_marker"
+      "$SCRIPT_DIR/fm-jev-rebase-healer.sh" --json > "$STATE/.jev-rebase-healer-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
 
 
 
