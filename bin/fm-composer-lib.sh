@@ -1038,8 +1038,12 @@ _fm_composer_titled_bottom_ok() {  # <family> <bottom-inner> <top-spaces>
   # columns wider than the otherwise aligned top and content rows (issue
   # #3436; see the constant's definition for provenance and caveats). Accept
   # only that exact overhang and only the typed Grok model/effort title
-  # shape. This keeps arbitrary malformed bottoms ambiguous while preserving
-  # the complete-box proof around a genuinely idle or pending Grok composer.
+  # shape, optionally followed by a U+00B7 footer suffix (grok launched with
+  # --always-approve renders 'Grok <model> (<effort>) · always-approve'): the
+  # middle dot counts as whitespace geometry above, and everything after the
+  # first one is dropped before effort parsing. This keeps arbitrary
+  # malformed bottoms ambiguous while preserving the complete-box proof
+  # around a genuinely idle or pending Grok composer.
   local overhang
   overhang=$(printf '%*s' "$FM_COMPOSER_GROK_TITLE_OVERHANG" '')
   [ "$spaces" = "$expected$overhang" ] || return 1
