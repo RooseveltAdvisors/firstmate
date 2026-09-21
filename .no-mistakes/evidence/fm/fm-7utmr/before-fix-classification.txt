@@ -1,0 +1,5 @@
+=== BEFORE fix (base aec043c) ===
+capture bottom row:   ╰────────────────────────────────────────── Grok 4.6 (high) · always-approve ─╯
+tmux  (cursor anchor, row 1): unknown
+herdr (styled, no cursor):    unknown
+plain (cmux/orca):            unknown

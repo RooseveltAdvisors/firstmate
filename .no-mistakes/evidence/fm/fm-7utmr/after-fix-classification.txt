@@ -1,0 +1,5 @@
+=== AFTER fix (target 4904b73) ===
+capture bottom row:   ╰────────────────────────────────────────── Grok 4.6 (high) · always-approve ─╯
+tmux  (cursor anchor, row 1): empty
+herdr (styled, no cursor):    empty
+plain (cmux/orca):            empty
