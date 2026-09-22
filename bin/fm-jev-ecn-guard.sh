@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# fm-jev-ecn-guard.sh - Wrapper for Jev Multi-Agent Host Network TCP ECN Guard (Pattern 114)
+# bin/fm-jev-ecn-guard.sh - Wrapper for Host Network TCP ECN Guard (Pattern 159)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
