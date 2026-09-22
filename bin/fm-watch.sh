@@ -2823,6 +2823,14 @@ while :; do
       "$SCRIPT_DIR/fm-jev-thp-guard.sh" --json > "$STATE/.jev-thp-guard-telemetry.json" 2>/dev/null || true
     fi
   fi
+  # Pattern 65: Jev Multi-Agent POSIX & System V IPC Message Queue Guard
+  if [ "${FM_DISABLE_JEV_MQUEUE_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-mqueue-guard.sh" ]; then
+    _mqueue_guard_marker="$STATE/.jev-mqueue-guard-last"
+    if [ ! -f "$_mqueue_guard_marker" ] || [ "$(age_of "$_mqueue_guard_marker")" -ge 1800 ]; then
+      touch "$_mqueue_guard_marker"
+      "$SCRIPT_DIR/fm-jev-mqueue-guard.sh" --json > "$STATE/.jev-mqueue-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
 
 
 
