@@ -2799,6 +2799,14 @@ while :; do
       "$SCRIPT_DIR/fm-jev-clock-guard.sh" --json > "$STATE/.jev-clock-guard-telemetry.json" 2>/dev/null || true
     fi
   fi
+  # Pattern 62: Jev Multi-Agent Memory-Mapped (mmap) Arena & VMA Guard
+  if [ "${FM_DISABLE_JEV_MMAP_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-mmap-guard.sh" ]; then
+    _mmap_guard_marker="$STATE/.jev-mmap-guard-last"
+    if [ ! -f "$_mmap_guard_marker" ] || [ "$(age_of "$_mmap_guard_marker")" -ge 1800 ]; then
+      touch "$_mmap_guard_marker"
+      "$SCRIPT_DIR/fm-jev-mmap-guard.sh" --json > "$STATE/.jev-mmap-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
 
 
 
