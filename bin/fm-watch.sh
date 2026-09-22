@@ -2669,6 +2669,15 @@ while :; do
     fi
   fi
 
+  # Pattern 47: Jev Multi-Agent PTY/TTY Allocation & Pseudoterminal Exhaustion Guard
+  if [ "${FM_DISABLE_JEV_PTY_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-pty-guard.sh" ]; then
+    _pty_guard_marker="$STATE/.jev-pty-guard-last"
+    if [ ! -f "$_pty_guard_marker" ] || [ "$(age_of "$_pty_guard_marker")" -ge 1800 ]; then
+      touch "$_pty_guard_marker"
+      "$SCRIPT_DIR/fm-jev-pty-guard.sh" --json > "$STATE/.jev-pty-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
 
 
 
