@@ -2959,6 +2959,23 @@ while :; do
       "$SCRIPT_DIR/fm-jev-entropy-guard.sh" --json > "$STATE/.jev-entropy-guard-telemetry.json" 2>/dev/null || true
     fi
   fi
+  # Pattern 82: Jev Multi-Agent Linux Process Namespace & Lingering Sandboxed Environment Guard
+  if [ "${FM_DISABLE_JEV_NAMESPACE_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-namespace-guard.sh" ]; then
+    _ns_marker="$STATE/.jev-namespace-guard-last"
+    if [ ! -f "$_ns_marker" ] || [ "$(age_of "$_ns_marker")" -ge 1800 ]; then
+      touch "$_ns_marker"
+      "$SCRIPT_DIR/fm-jev-namespace-guard.sh" --json > "$STATE/.jev-namespace-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+  # Pattern 226: Jev Terminal Inactive-Outcome Auto-Reconciliation & Wake Guard
+  if [ "${FM_DISABLE_JEV_INACTIVE_RECONCILER:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-inactive-outcome-reconciler.sh" ]; then
+    _inact_marker="$STATE/.jev-inactive-reconciler-last"
+    if [ ! -f "$_inact_marker" ] || [ "$(age_of "$_inact_marker")" -ge 900 ]; then
+      touch "$_inact_marker"
+      "$SCRIPT_DIR/fm-jev-inactive-outcome-reconciler.sh" --json > "$STATE/.jev-inactive-reconciler-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
 
 
 
