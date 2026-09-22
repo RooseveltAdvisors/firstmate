@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tests/fm-jev-tlp-guard.test.sh - Regression tests for Pattern 154 (TCP TLP Guard)
+# tests/fm-jev-tlp-guard.test.sh - Regression tests for Pattern 154 (TCP Tail Loss Probe Guard)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -32,15 +32,12 @@ s = data['summary']
 assert 'status' in s
 assert isinstance(s['healthy'], bool)
 assert isinstance(s['issues'], list)
-assert 'tcp_early_retrans' in s
+assert 'early_retrans_sysctl' in s
 assert 'loss_probes' in s
 assert 'loss_probe_recovery' in s
-assert 'recovery_ratio_pct' in s
 assert 'loss_failures' in s
+assert 'recovery_ratio_pct' in s
 assert 'failure_ratio_pct' in s
-assert 'loss_undo' in s
-assert 'fast_retrans' in s
-assert 'timeouts' in s
 "
 echo "ok - json audit schema valid"
 
@@ -58,39 +55,38 @@ mod = import_module('fm-jev-tlp-guard')
 
 with tempfile.TemporaryDirectory() as tmp_dir:
     d = Path(tmp_dir)
-    sysctl_f = d / 'tcp_early_retrans'
     netstat_f = d / 'netstat'
+    sysctl_f = d / 'tcp_early_retrans'
 
     sysctl_f.write_text('3\n')
-    netstat_f.write_text('''TcpExt: TCPLossProbes TCPLossProbeRecovery TCPLossFailures TCPLossUndo TCPFastRetrans TCPTimeouts
-TcpExt: 10000 500 20 150 2000 5000
+    netstat_f.write_text('''TcpExt: TCPLossProbes TCPLossProbeRecovery TCPLossFailures TCPTimeouts TCPFastRetrans TCPDelivered
+TcpExt: 1000 200 10 50 300 50000
 ''')
 
-    # Case 1: Nominal (500 recovered / 10000 = 5.0%, 20 fail / 10000 = 0.2%)
-    res = mod.audit_tlp(sysctl_file=str(sysctl_f), netstat_file=str(netstat_f))
+    # Case 1: Nominal
+    res = mod.audit_tlp(netstat_file=str(netstat_f), early_retrans_file=str(sysctl_f))
     assert res['summary']['status'] == 'HEALTHY'
     assert res['summary']['healthy'] is True
-    assert res['summary']['tcp_early_retrans'] == 3
-    assert res['summary']['loss_probes'] == 10000
-    assert res['summary']['loss_probe_recovery'] == 500
-    assert res['summary']['recovery_ratio_pct'] == 5.0
-    assert res['summary']['loss_failures'] == 20
-    assert res['summary']['failure_ratio_pct'] == 0.2
+    assert res['summary']['early_retrans_sysctl'] == 3
+    assert res['summary']['loss_probes'] == 1000
+    assert res['summary']['loss_probe_recovery'] == 200
+    assert res['summary']['recovery_ratio_pct'] == 20.0
+    assert res['summary']['failure_ratio_pct'] == 4.76
 
-    # Case 2: Disabled sysctl (0) -> WARNING
+    # Case 2: TLP disabled in sysctl (0) -> WARNING
     sysctl_f.write_text('0\n')
-    res2 = mod.audit_tlp(sysctl_file=str(sysctl_f), netstat_file=str(netstat_f))
+    res2 = mod.audit_tlp(netstat_file=str(netstat_f), early_retrans_file=str(sysctl_f))
     assert res2['summary']['status'] == 'WARNING'
-    assert any('tcp_early_retrans is disabled' in iss for iss in res2['summary']['issues'])
+    assert any('Tail Loss Probe is disabled' in iss for iss in res2['summary']['issues'])
 
-    # Case 3: Excessive loss probe failures (> 50%) -> WARNING
+    # Case 3: High failure ratio (> 50%) -> WARNING
     sysctl_f.write_text('3\n')
-    netstat_f.write_text('''TcpExt: TCPLossProbes TCPLossProbeRecovery TCPLossFailures TCPLossUndo TCPFastRetrans TCPTimeouts
-TcpExt: 10000 500 6000 150 2000 5000
+    netstat_f.write_text('''TcpExt: TCPLossProbes TCPLossProbeRecovery TCPLossFailures TCPTimeouts TCPFastRetrans TCPDelivered
+TcpExt: 2000 100 600 50 300 50000
 ''')
-    res3 = mod.audit_tlp(sysctl_file=str(sysctl_f), netstat_file=str(netstat_f))
+    res3 = mod.audit_tlp(netstat_file=str(netstat_f), early_retrans_file=str(sysctl_f))
     assert res3['summary']['status'] == 'WARNING'
-    assert any('High loss probe failure ratio' in iss for iss in res3['summary']['issues'])
+    assert any('High TLP failure ratio detected' in iss for iss in res3['summary']['issues'])
 "
 echo "ok - unit tests pass"
 

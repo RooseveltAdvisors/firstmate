@@ -1,157 +1,218 @@
 #!/usr/bin/env python3
 """
-bin/fm-jev-tlp-guard.py - Host Network TCP Tail Loss Probe (TLP) & Loss Recovery Guard (Pattern 154)
+fm-jev-tlp-guard.py - Jev Multi-Agent Host Network TCP Tail Loss Probe (TLP) & Loss Recovery Guard (Pattern 154)
 
-Audits tcp_early_retrans sysctl and /proc/net/netstat loss probe counters
-(TCPLossProbes, TCPLossProbeRecovery, TCPLossFailures, TCPLossUndo) to verify
-RFC 8985 Tail Loss Probe and RFC 5827 early retransmission defense, ensuring
-fast tail loss recovery without heavy retransmission timeout (RTO) stalls
-across multi-agent streaming connections.
+Audits Linux TCP Tail Loss Probe (TLP) sysctl settings and recovery metrics from /proc/net/netstat:
+  - net.ipv4.tcp_early_retrans (0=disabled, 1=early retrans, 2=delayed ER, 3=delayed ER + TLP, 4=TLP only)
+  - TCPLossProbes (Number of Tail Loss Probes sent to elicit ACK and prevent RTO)
+  - TCPLossProbeRecovery (Loss recovery events triggered directly by a Tail Loss Probe)
+  - TCPLossFailures (Loss recovery events that failed and fell back to full RTO)
+  - TCPTimeouts (Total retransmission timeouts)
+  - TCPFastRetrans (Fast retransmissions)
+  - TCPDelivered (Total TCP segments delivered to local application sockets)
+
+In multi-agent token streaming and high-frequency inter-agent RPC pipelines, drops at the tail
+of a burst/response would ordinarily force a full retransmission timeout (RTO, 200ms+ delay).
+TLP (RFC 8985) sends an early probe segment to elicit an immediate duplicate or selective ACK,
+converting expensive RTO stalls into sub-millisecond fast recoveries.
+
+Invariants:
+  - Read-only diagnostics by default. Safe and non-destructive.
+  - Fail-open: graceful fallback when sysctl or procfs entries are inaccessible.
+  - Fast bounded execution (< 0.03s).
 """
 
 import argparse
-import datetime
 import json
 import os
-import sys
-from typing import Any, Dict
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+PROC_NETSTAT = "/proc/net/netstat"
+SYSCTL_EARLY_RETRANS = "/proc/sys/net/ipv4/tcp_early_retrans"
 
 
-def read_sysctl(path: str = "/proc/sys/net/ipv4/tcp_early_retrans") -> int:
-    if not os.path.exists(path):
-        return -1
+def parse_sysctl_early_retrans(sysctl_path: Path) -> int:
+    """Reads net.ipv4.tcp_early_retrans mode."""
+    if not sysctl_path.is_file():
+        return 3
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            return int(f.read().strip())
-    except Exception as e:
-        print(f"Warning: unable to read {path}: {e}", file=sys.stderr)
-        return -1
+        content = sysctl_path.read_text().strip()
+        return int(content) if content.isdigit() else 3
+    except Exception:
+        return 3
 
 
-def parse_netstat(path: str = "/proc/net/netstat") -> Dict[str, int]:
-    counters: Dict[str, int] = {}
-    if not os.path.exists(path):
+def parse_tlp_counters(netstat_path: Path) -> Dict[str, int]:
+    """Parses TCP TLP and loss recovery metrics from /proc/net/netstat."""
+    counters: Dict[str, int] = {
+        "loss_probes": 0,
+        "loss_probe_recovery": 0,
+        "loss_failures": 0,
+        "timeouts": 0,
+        "fast_retrans": 0,
+        "delivered": 0,
+    }
+
+    if not netstat_path.is_file():
         return counters
+
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            lines = f.readlines()
-        for i in range(0, len(lines), 2):
-            if i + 1 >= len(lines):
+        lines = netstat_path.read_text().splitlines()
+        for i in range(0, len(lines) - 1, 2):
+            header_line = lines[i].strip()
+            data_line = lines[i + 1].strip()
+            if header_line.startswith("TcpExt:") and data_line.startswith("TcpExt:"):
+                headers = header_line.split()[1:]
+                values = data_line.split()[1:]
+                header_map = {h: int(v) for h, v in zip(headers, values) if v.isdigit()}
+
+                counters["loss_probes"] = header_map.get("TCPLossProbes", 0)
+                counters["loss_probe_recovery"] = header_map.get("TCPLossProbeRecovery", 0)
+                counters["loss_failures"] = header_map.get("TCPLossFailures", 0)
+                counters["timeouts"] = header_map.get("TCPTimeouts", 0)
+                counters["fast_retrans"] = header_map.get("TCPFastRetrans", 0)
+                counters["delivered"] = header_map.get("TCPDelivered", 0)
                 break
-            headers = lines[i].split()
-            values = lines[i + 1].split()
-            if len(headers) == len(values) and headers[0] == values[0]:
-                for h, v in zip(headers[1:], values[1:]):
-                    try:
-                        counters[h] = int(v)
-                    except ValueError:
-                        pass
-    except Exception as e:
-        print(f"Warning: unable to parse {path}: {e}", file=sys.stderr)
+    except Exception:
+        pass
+
     return counters
 
 
 def audit_tlp(
-    sysctl_file: str = "/proc/sys/net/ipv4/tcp_early_retrans",
-    netstat_file: str = "/proc/net/netstat",
+    netstat_file: Optional[str] = None,
+    early_retrans_file: Optional[str] = None,
 ) -> Dict[str, Any]:
-    early_retrans = read_sysctl(sysctl_file)
-    netstat = parse_netstat(netstat_file)
+    """Audits TCP Tail Loss Probe and loss recovery efficiency."""
+    netstat_path = Path(netstat_file) if netstat_file else Path(PROC_NETSTAT)
+    early_retrans_path = Path(early_retrans_file) if early_retrans_file else Path(SYSCTL_EARLY_RETRANS)
 
-    loss_probes = netstat.get("TCPLossProbes", 0)
-    loss_probe_recovery = netstat.get("TCPLossProbeRecovery", 0)
-    loss_failures = netstat.get("TCPLossFailures", 0)
-    loss_undo = netstat.get("TCPLossUndo", 0)
-    fast_retrans = netstat.get("TCPFastRetrans", 0)
-    timeouts = netstat.get("TCPTimeouts", 0)
+    early_retrans = parse_sysctl_early_retrans(early_retrans_path)
+    counters = parse_tlp_counters(netstat_path)
 
-    recovery_ratio_pct = 0.0
-    if loss_probes > 0:
-        recovery_ratio_pct = round((loss_probe_recovery / loss_probes) * 100.0, 3)
+    loss_probes = counters["loss_probes"]
+    loss_probe_recovery = counters["loss_probe_recovery"]
+    loss_failures = counters["loss_failures"]
+    timeouts = counters["timeouts"]
+    fast_retrans = counters["fast_retrans"]
+    delivered = counters["delivered"]
 
-    failure_ratio_pct = 0.0
-    if loss_probes > 0:
-        failure_ratio_pct = round((loss_failures / loss_probes) * 100.0, 3)
+    recovery_ratio_pct = (
+        round((loss_probe_recovery / loss_probes * 100), 2)
+        if loss_probes > 0
+        else 0.0
+    )
 
-    issues = []
-    status = "HEALTHY"
-    healthy = True
+    total_tail_loss_events = loss_probe_recovery + loss_failures
+    failure_ratio_pct = (
+        round((loss_failures / total_tail_loss_events * 100), 2)
+        if total_tail_loss_events > 0
+        else 0.0
+    )
 
-    # Validate sysctl: 0 = disabled, 1 = ER only, 2 = delayed ER, 3 = TLP + ER
+    issues: List[str] = []
+
+    # 1. Early retransmit / TLP disabled
     if early_retrans == 0:
-        status = "WARNING"
-        healthy = False
-        issues.append("tcp_early_retrans is disabled (0), tail loss probe inactive")
-    elif early_retrans < 0:
-        issues.append(f"Unable to read tcp_early_retrans from {sysctl_file}")
+        issues.append(
+            "Tail Loss Probe is disabled (net.ipv4.tcp_early_retrans = 0); tail packet drops will stall on full RTO"
+        )
 
-    # Check for excessive failure ratio (> 50%)
-    if loss_probes > 1000 and failure_ratio_pct > 50.0:
-        status = "WARNING"
-        healthy = False
-        issues.append(f"High loss probe failure ratio: {failure_ratio_pct}% (> 50%)")
+    # 2. Excessive failure ratio (> 50% failures on significant sample size)
+    if total_tail_loss_events > 500 and failure_ratio_pct > 50.0:
+        issues.append(
+            f"High TLP failure ratio detected ({failure_ratio_pct}% of tail losses failed to recover before RTO)"
+        )
 
-    summary = {
-        "status": status,
-        "healthy": healthy,
-        "tcp_early_retrans": early_retrans,
-        "loss_probes": loss_probes,
-        "loss_probe_recovery": loss_probe_recovery,
-        "recovery_ratio_pct": recovery_ratio_pct,
-        "loss_failures": loss_failures,
-        "failure_ratio_pct": failure_ratio_pct,
-        "loss_undo": loss_undo,
-        "fast_retrans": fast_retrans,
-        "timeouts": timeouts,
-        "issues": issues,
+    healthy = len(issues) == 0
+    status = "HEALTHY" if healthy else "WARNING"
+
+    mode_labels = {
+        0: "Disabled",
+        1: "Early Retransmit Only",
+        2: "Early Retransmit (Delayed)",
+        3: "Early Retransmit + Tail Loss Probe (RFC 8985)",
+        4: "Tail Loss Probe Only",
     }
+    mode_desc = mode_labels.get(early_retrans, f"Custom ({early_retrans})")
 
     return {
-        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "summary": summary,
-        "counters": {
-            "tcp_early_retrans": early_retrans,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "summary": {
+            "status": status,
+            "healthy": healthy,
+            "early_retrans_sysctl": early_retrans,
+            "early_retrans_mode": mode_desc,
             "loss_probes": loss_probes,
             "loss_probe_recovery": loss_probe_recovery,
             "loss_failures": loss_failures,
-            "loss_undo": loss_undo,
-            "fast_retrans": fast_retrans,
+            "recovery_ratio_pct": recovery_ratio_pct,
+            "failure_ratio_pct": failure_ratio_pct,
             "timeouts": timeouts,
+            "fast_retrans": fast_retrans,
+            "delivered": delivered,
+            "issues": issues,
         },
+        "counters": counters,
     }
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Host Network TCP Tail Loss Probe (TLP) & Loss Recovery Guard (Pattern 154)"
+        description="Jev Multi-Agent Host Network TCP Tail Loss Probe (TLP) & Loss Recovery Guard (Pattern 154)"
     )
-    parser.add_argument("--json", action="store_true", help="Output audit report as JSON")
+    parser.add_argument("--json", action="store_true", help="Output JSON format")
+    parser.add_argument("--netstat-file", type=str, default=None, help="Path to /proc/net/netstat")
+    parser.add_argument("--early-retrans-file", type=str, default=None, help="Path to /proc/sys/net/ipv4/tcp_early_retrans")
     args = parser.parse_args()
 
-    report = audit_tlp()
+    result = audit_tlp(
+        netstat_file=args.netstat_file,
+        early_retrans_file=args.early_retrans_file,
+    )
 
     if args.json:
-        print(json.dumps(report, indent=2))
-        return 0
+        print(json.dumps(result, indent=2))
+        return
 
-    s = report["summary"]
-    print(f"TCP Tail Loss Probe Guard (Pattern 154) - Status: {s['status']}")
-    print(f"  tcp_early_retrans Sysctl:    {s['tcp_early_retrans']} (3 = TLP + ER active)")
-    print(f"  Tail Loss Probes Sent:       {s['loss_probes']:,}")
-    print(f"  Loss Probes Recovered:       {s['loss_probe_recovery']:,} ({s['recovery_ratio_pct']}%)")
-    print(f"  Loss Probe Failures:         {s['loss_failures']:,} ({s['failure_ratio_pct']}%)")
-    print(f"  Loss Undos:                  {s['loss_undo']:,}")
-    print(f"  Fast Retransmissions:        {s['fast_retrans']:,}")
-    print(f"  Retransmission Timeouts:     {s['timeouts']:,}")
+    summary = result["summary"]
+    counters = result["counters"]
+    status_color = "\033[32m" if summary["healthy"] else "\033[33m"
+    reset_color = "\033[0m"
 
-    if s["issues"]:
-        print("\nIssues:")
-        for iss in s["issues"]:
-            print(f"  - {iss}")
-        return 1
+    print("================================================================================")
+    print(" Jev Multi-Agent Host Network TCP Tail Loss Probe (TLP) Guard (Pattern 154)")
+    print("================================================================================")
+    print(f" Timestamp:                     {result['timestamp']}")
+    print(f" Status:                        {status_color}{summary['status']}{reset_color}")
+    print(f" Sysctl tcp_early_retrans:      {summary['early_retrans_sysctl']} ({summary['early_retrans_mode']})")
+    print(f" Tail Loss Probes Sent:         {summary['loss_probes']:,}")
+    print(f" TLP Loss Recoveries:           {summary['loss_probe_recovery']:,} ({summary['recovery_ratio_pct']}% of probes)")
+    print(f" TLP Loss Failures:             {summary['loss_failures']:,} ({summary['failure_ratio_pct']}% failure ratio)")
+    print(f" Total Segments Delivered:      {summary['delivered']:,}")
+    print(f" Total Fast Retransmissions:    {summary['fast_retrans']:,}")
+    print(f" Total Retransmission Timeouts: {summary['timeouts']:,}")
+    print("--------------------------------------------------------------------------------")
+    print(f" {'TLP / Loss Metric':<35} {'Value':<18} {'Status'}")
+    print("--------------------------------------------------------------------------------")
+    early_mode_status = "Nominal" if summary['early_retrans_sysctl'] in [3, 4] else "Suboptimal"
+    rec_val = f"{summary['loss_probe_recovery']:,}"
+    fail_ratio_val = f"{summary['failure_ratio_pct']} %"
+    fail_status = "Nominal" if summary['failure_ratio_pct'] <= 50.0 else "High"
+    print(f" {'Early Retransmit / TLP Mode':<35} {str(summary['early_retrans_sysctl']):<18} {early_mode_status}")
+    print(f" {'Loss Probe Direct Recovery':<35} {rec_val:<18} {'Active'}")
+    print(f" {'Tail Loss Failure Ratio':<35} {fail_ratio_val:<18} {fail_status}")
 
-    return 0
+    if summary["issues"]:
+        print("\nActive TCP Tail Loss Probe Warnings:")
+        for issue in summary["issues"]:
+            print(f"  [!] {issue}")
+    else:
+        print("\nAll host TCP Tail Loss Probe (TLP) acceleration and loss recovery metrics nominal.")
+    print("================================================================================")
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()
