@@ -1,13 +1,8 @@
 #!/usr/bin/env bash
-# fm-jev-skbuff-guard.sh - Pattern 100: Jev Multi-Agent Host Protocol Memory Pressure & sk_buff Guard
+# bin/fm-jev-skbuff-guard.sh - Wrapper for Socket Buffer Auto-Tuning & Protocol Memory Guard (Pattern 208)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PYTHON_EXEC="python3"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
 
-if ! command -v "$PYTHON_EXEC" >/dev/null 2>&1; then
-    echo "ERROR: python3 required for fm-jev-skbuff-guard" >&2
-    exit 1
-fi
-
-exec "$PYTHON_EXEC" "$SCRIPT_DIR/fm-jev-skbuff-guard.py" "$@"
+exec "$PYTHON_BIN" "$SCRIPT_DIR/fm-jev-skbuff-guard.py" "$@"

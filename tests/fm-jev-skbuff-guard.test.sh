@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# tests/fm-jev-skbuff-guard.test.sh - Regression tests for Centennial Pattern 100 (Protocol Memory Pressure Guard)
+# tests/fm-jev-skbuff-guard.test.sh - Regression tests for Pattern 208 (Socket Buffer Auto-Tuning Guard)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GUARD_SH="$SCRIPT_DIR/../bin/fm-jev-skbuff-guard.sh"
 GUARD_PY="$SCRIPT_DIR/../bin/fm-jev-skbuff-guard.py"
 
-echo "Running Pattern 100 regression tests..."
+echo "Running Pattern 208 regression tests..."
 
 # 1. ShellCheck
 shellcheck "$GUARD_SH"
@@ -27,19 +27,24 @@ import json, sys
 data = json.loads('''$json_out''')
 assert 'timestamp' in data
 assert 'summary' in data
-assert 'active_protocols' in data
 s = data['summary']
 assert 'status' in s
 assert isinstance(s['healthy'], bool)
+assert isinstance(s['total_sockets'], int)
+assert isinstance(s['total_protocols'], int)
+assert isinstance(s['tcp_sockets'], int)
+assert isinstance(s['udp_sockets'], int)
+assert isinstance(s['unix_sockets'], int)
+assert isinstance(s['pressured_protocols'], list)
+assert isinstance(s['rmem_max_bytes'], int)
+assert isinstance(s['wmem_max_bytes'], int)
+assert isinstance(s['optmem_max_bytes'], int)
+assert isinstance(s['tcp_rmem_max_bytes'], int)
+assert isinstance(s['tcp_wmem_max_bytes'], int)
+assert isinstance(s['tcp_moderate_rcvbuf'], int)
+assert isinstance(s['tcp_window_scaling'], int)
 assert isinstance(s['issues'], list)
-assert 'total_sockets' in s
-assert 'active_protocol_count' in s
-assert 'pressured_protocols' in s
-for p in data['active_protocols']:
-    assert 'protocol' in p
-    assert 'sockets' in p
-    assert 'memory_pages' in p
-    assert 'memory_pressure' in p
+assert isinstance(s['recommendation'], str)
 "
 echo "ok - json audit schema valid"
 
@@ -47,7 +52,7 @@ echo "ok - json audit schema valid"
 "$GUARD_SH" >/dev/null || true
 echo "ok - text mode runs cleanly"
 
-# 6. Unit tests with mocked protocols and mem files
+# 6. Unit tests with mocked sysfs / procfs files
 python3 -c "
 import sys, tempfile, os
 from pathlib import Path
@@ -57,48 +62,60 @@ mod = import_module('fm-jev-skbuff-guard')
 
 with tempfile.TemporaryDirectory() as tmp_dir:
     d = Path(tmp_dir)
-    proto_path = d / 'protocols'
-    tcp_mem_path = d / 'tcp_mem'
-    udp_mem_path = d / 'udp_mem'
+    core_dir = d / 'core'
+    core_dir.mkdir()
+    ipv4_dir = d / 'ipv4'
+    ipv4_dir.mkdir()
+    proto_f = d / 'protocols'
 
-    tcp_mem_path.write_text('10000 20000 30000\n')
-    udp_mem_path.write_text('5000 10000 15000\n')
+    (core_dir / 'rmem_default').write_text('212992\n')
+    (core_dir / 'rmem_max').write_text('212992\n')
+    (core_dir / 'wmem_default').write_text('212992\n')
+    (core_dir / 'wmem_max').write_text('212992\n')
+    (core_dir / 'optmem_max').write_text('131072\n')
 
-    mock_protocols_nominal = '''protocol  size sockets  memory press maxhdr  slab module     cl co di ac io in de sh ss gs se re bi br ha uh gp em
-TCP       2560     100     500   no     320   yes  kernel      y  y  y  y  y  y  y  y  y  y  y  y  n  y  y  y  y  y
-UDP       1408      20     100   NI       0   yes  kernel      y  y  y  n  y  y  y  n  y  y  y  y  n  n  y  y  y  n
-UNIX-STREAM 1152   300      -1   NI       0   yes  kernel      y  n  n  n  n  n  n  n  n  n  n  n  n  n  n  n  n  n
-'''
-    proto_path.write_text(mock_protocols_nominal)
+    (ipv4_dir / 'tcp_rmem').write_text('4096 131072 33554432\n')
+    (ipv4_dir / 'tcp_wmem').write_text('4096 16384 4194304\n')
+    (ipv4_dir / 'tcp_moderate_rcvbuf').write_text('1\n')
+    (ipv4_dir / 'tcp_window_scaling').write_text('1\n')
 
-    # Case 1: Healthy configuration and low memory usage
-    res = mod.audit_protocol_memory(
-        protocols_file=str(proto_path),
-        tcp_mem_file=str(tcp_mem_path),
-        udp_mem_file=str(udp_mem_path),
+    proto_f.write_text(
+        'protocol  size sockets  memory press maxhdr  slab module     cl co di ac io in de sh ss gs se re bi br ha uh gp em\n'
+        'TCP       2368     100       0   no     320   yes  kernel      y  y  y  y  y  y  y  y  y  y  y  y  n  y  y  y  y  y\n'
+        'UDP       1216      20    3912   NI       0   yes  kernel      y  y  y  n  y  y  y  n  y  y  y  y  n  n  y  y  y  n\n'
+        'UNIX      1152      50      -1   NI       0   yes  kernel      y  n  n  n  n  n  n  n  n  n  n  n  n  n  n  n  n  n\n'
     )
-    assert res['summary']['status'] == 'HEALTHY'
-    assert res['summary']['healthy'] is True
-    assert res['summary']['total_sockets'] == 420
-    assert len(res['summary']['pressured_protocols']) == 0
-    assert res['summary']['tcp_memory_pages'] == 500
 
-    # Case 2: Memory pressure asserted triggers warning
-    mock_protocols_pressure = '''protocol  size sockets  memory press maxhdr  slab module     cl co di ac io in de sh ss gs se re bi br ha uh gp em
-TCP       2560     500   28000  yes     320   yes  kernel      y  y  y  y  y  y  y  y  y  y  y  y  n  y  y  y  y  y
-UDP       1408      20     100   NI       0   yes  kernel      y  y  y  n  y  y  y  n  y  y  y  y  n  n  y  y  y  n
-'''
-    proto_path.write_text(mock_protocols_pressure)
-    res_press = mod.audit_protocol_memory(
-        protocols_file=str(proto_path),
-        tcp_mem_file=str(tcp_mem_path),
-        udp_mem_file=str(udp_mem_path),
+    rep = mod.audit_skbuff_guard(proc_protocols=str(proto_f), proc_sys_core=str(core_dir), proc_sys_ipv4=str(ipv4_dir))
+    s = rep['summary']
+    assert s['status'] == 'HEALTHY'
+    assert s['healthy'] is True
+    assert s['total_sockets'] == 170
+    assert s['tcp_sockets'] == 100
+    assert s['udp_sockets'] == 20
+    assert s['unix_sockets'] == 50
+    assert len(s['pressured_protocols']) == 0
+
+    # Mock Critical condition: protocol memory pressure flag
+    proto_f.write_text(
+        'protocol  size sockets  memory press maxhdr  slab module     cl co di ac io in de sh ss gs se re bi br ha uh gp em\n'
+        'TCP       2368    4500  1000000  yes    320   yes  kernel      y  y  y  y  y  y  y  y  y  y  y  y  n  y  y  y  y  y\n'
     )
-    assert res_press['summary']['status'] == 'WARNING'
-    assert 'TCP' in res_press['summary']['pressured_protocols']
-    assert any('protocol memory pressure actively asserted' in iss for iss in res_press['summary']['issues'])
-    assert any('High TCP buffer memory usage' in iss for iss in res_press['summary']['issues'])
+    rep_crit = mod.audit_skbuff_guard(proc_protocols=str(proto_f), proc_sys_core=str(core_dir), proc_sys_ipv4=str(ipv4_dir))
+    assert rep_crit['summary']['status'] == 'CRITICAL'
+    assert rep_crit['summary']['healthy'] is False
+    assert 'TCP' in rep_crit['summary']['pressured_protocols']
+
+    # Mock Critical condition: window scaling disabled
+    (ipv4_dir / 'tcp_window_scaling').write_text('0\n')
+    proto_f.write_text(
+        'protocol  size sockets  memory press maxhdr  slab module     cl co di ac io in de sh ss gs se re bi br ha uh gp em\n'
+        'TCP       2368     100       0   no     320   yes  kernel      y  y  y  y  y  y  y  y  y  y  y  y  n  y  y  y  y  y\n'
+    )
+    rep_scale = mod.audit_skbuff_guard(proc_protocols=str(proto_f), proc_sys_core=str(core_dir), proc_sys_ipv4=str(ipv4_dir))
+    assert rep_scale['summary']['status'] == 'CRITICAL'
+    assert any('tcp_window_scaling' in iss for iss in rep_scale['summary']['issues'])
 "
-echo "ok - unit tests and mock audit pass"
+echo "ok - mocked unit tests pass"
 
-echo "All Pattern 100 tests passed!"
+echo "All Pattern 208 tests passed successfully."
