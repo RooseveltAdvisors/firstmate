@@ -2831,6 +2831,14 @@ while :; do
       "$SCRIPT_DIR/fm-jev-mqueue-guard.sh" --json > "$STATE/.jev-mqueue-guard-telemetry.json" 2>/dev/null || true
     fi
   fi
+  # Pattern 66: Jev Multi-Agent Host Hardware Thermal & CPU Core Frequency Throttling Guard
+  if [ "${FM_DISABLE_JEV_THERMAL_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-thermal-guard.sh" ]; then
+    _thermal_guard_marker="$STATE/.jev-thermal-guard-last"
+    if [ ! -f "$_thermal_guard_marker" ] || [ "$(age_of "$_thermal_guard_marker")" -ge 1800 ]; then
+      touch "$_thermal_guard_marker"
+      "$SCRIPT_DIR/fm-jev-thermal-guard.sh" --json > "$STATE/.jev-thermal-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
 
 
 
