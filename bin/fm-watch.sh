@@ -2783,6 +2783,14 @@ while :; do
       "$SCRIPT_DIR/fm-jev-pip-cache-guard.sh" --json > "$STATE/.jev-pip-cache-guard-telemetry.json" 2>/dev/null || true
     fi
   fi
+  # Pattern 60: Jev Multi-Agent Host Network Interface Packet Drop & MTU Mismatch Guard
+  if [ "${FM_DISABLE_JEV_NET_DROP_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-net-drop-guard.sh" ]; then
+    _net_drop_guard_marker="$STATE/.jev-net-drop-guard-last"
+    if [ ! -f "$_net_drop_guard_marker" ] || [ "$(age_of "$_net_drop_guard_marker")" -ge 1800 ]; then
+      touch "$_net_drop_guard_marker"
+      "$SCRIPT_DIR/fm-jev-net-drop-guard.sh" --json > "$STATE/.jev-net-drop-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
 
 
 
