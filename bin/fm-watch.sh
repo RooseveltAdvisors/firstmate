@@ -2759,6 +2759,16 @@ while :; do
     fi
   fi
 
+  # Pattern 57: Jev Multi-Agent node_modules Bloat & Worktree Duplication Guard
+  if [ "${FM_DISABLE_JEV_NODE_MODULES_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-node-modules-guard.sh" ]; then
+    _node_modules_guard_marker="$STATE/.jev-node-modules-guard-last"
+    if [ ! -f "$_node_modules_guard_marker" ] || [ "$(age_of "$_node_modules_guard_marker")" -ge 1800 ]; then
+      touch "$_node_modules_guard_marker"
+      "$SCRIPT_DIR/fm-jev-node-modules-guard.sh" --json > "$STATE/.jev-node-modules-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
+
 
 
 
