@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# tests/fm-jev-paws-guard.test.sh - Regression tests for Pattern 109 (TCP TIME-WAIT & PAWS Guard)
+# tests/fm-jev-paws-guard.test.sh - Regression tests for Pattern 142 (TCP PAWS Guard)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GUARD_SH="$SCRIPT_DIR/../bin/fm-jev-paws-guard.sh"
 GUARD_PY="$SCRIPT_DIR/../bin/fm-jev-paws-guard.py"
 
-echo "Running Pattern 109 regression tests..."
+echo "Running Pattern 142 regression tests..."
 
 # 1. ShellCheck
 shellcheck "$GUARD_SH"
@@ -32,10 +32,10 @@ s = data['summary']
 assert 'status' in s
 assert isinstance(s['healthy'], bool)
 assert isinstance(s['issues'], list)
-assert 'tcp_tw_reuse' in s
 assert 'tcp_timestamps' in s
-assert 'paws_estab_drops' in s
-assert 'tw_overflow_events' in s
+assert 'tcp_rfc1337' in s
+assert 'total_paws_drops' in s
+assert 'paws_drop_ratio_pct' in s
 "
 echo "ok - json audit schema valid"
 
@@ -53,76 +53,74 @@ mod = import_module('fm-jev-paws-guard')
 
 with tempfile.TemporaryDirectory() as tmp_dir:
     d = Path(tmp_dir)
-    tw_reuse_file = d / 'tcp_tw_reuse'
-    timestamps_file = d / 'tcp_timestamps'
-    rfc1337_file = d / 'tcp_rfc1337'
-    max_tw_buckets_file = d / 'tcp_max_tw_buckets'
-    netstat_file = d / 'netstat'
+    ts_f = d / 'tcp_timestamps'
+    rfc_f = d / 'tcp_rfc1337'
+    netstat_f = d / 'netstat'
 
-    tw_reuse_file.write_text('2\n')
-    timestamps_file.write_text('1\n')
-    rfc1337_file.write_text('0\n')
-    max_tw_buckets_file.write_text('262144\n')
+    ts_f.write_text('1\n')
+    rfc_f.write_text('0\n')
+    netstat_f.write_text('''TcpExt: PAWSActive PAWSEstab PAWSOldAck PAWSTimewait TSEcrRejected TCPDelivered
+TcpExt: 0 4000 400 50 0 1000000000
+''')
 
-    mock_netstat = '''TcpExt: SyncookiesSent TW TWRecycled TWKilled PAWSActive PAWSEstab PAWSOldAck PAWSTimewait TCPACKSkippedPAWS TCPTimeWaitOverflow
-TcpExt: 0 1000 50 0 0 10 2 0 5 0
-'''
-    netstat_file.write_text(mock_netstat)
-
-    # Case 1: Nominal
-    res = mod.audit_paws(
-        tw_reuse_file=str(tw_reuse_file),
-        timestamps_file=str(timestamps_file),
-        rfc1337_file=str(rfc1337_file),
-        max_tw_buckets_file=str(max_tw_buckets_file),
-        netstat_file=str(netstat_file),
+    # Case 1: Nominal healthy state
+    res = mod.audit_paws_guard(
+        timestamps_file=str(ts_f),
+        rfc1337_file=str(rfc_f),
+        netstat_file=str(netstat_f),
     )
     assert res['summary']['status'] == 'HEALTHY'
     assert res['summary']['healthy'] is True
-    assert res['summary']['tcp_tw_reuse'] == 2
-    assert res['summary']['tcp_timestamps'] is True
-    assert res['summary']['paws_estab_drops'] == 10
-    assert res['summary']['tw_overflow_events'] == 0
+    assert res['summary']['tcp_timestamps'] == 1
+    assert res['summary']['paws_estab'] == 4000
+    assert res['summary']['total_paws_drops'] == 4450
 
-    # Case 2: Inconsistent config (reuse enabled, timestamps disabled)
-    timestamps_file.write_text('0\n')
-    res2 = mod.audit_paws(
-        tw_reuse_file=str(tw_reuse_file),
-        timestamps_file=str(timestamps_file),
-        rfc1337_file=str(rfc1337_file),
-        max_tw_buckets_file=str(max_tw_buckets_file),
-        netstat_file=str(netstat_file),
+    # Case 2: Timestamps disabled -> CRITICAL
+    ts_f.write_text('0\n')
+    res2 = mod.audit_paws_guard(
+        timestamps_file=str(ts_f),
+        rfc1337_file=str(rfc_f),
+        netstat_file=str(netstat_f),
     )
-    assert res2['summary']['status'] == 'WARNING'
-    assert any('Inconsistent TCP configuration' in iss for iss in res2['summary']['issues'])
-    timestamps_file.write_text('1\n')
+    assert res2['summary']['status'] == 'CRITICAL'
+    assert res2['summary']['healthy'] is False
+    assert any('TCP timestamps are disabled' in iss for iss in res2['summary']['issues'])
+    ts_f.write_text('1\n')
 
-    # Case 3: TIME-WAIT Overflow warning
-    overflow_netstat = mock_netstat.replace(' 0 1000 50 0 0 10 2 0 5 0', ' 0 1000 50 0 0 10 2 0 5 42')
-    netstat_file.write_text(overflow_netstat)
-    res3 = mod.audit_paws(
-        tw_reuse_file=str(tw_reuse_file),
-        timestamps_file=str(timestamps_file),
-        rfc1337_file=str(rfc1337_file),
-        max_tw_buckets_file=str(max_tw_buckets_file),
-        netstat_file=str(netstat_file),
+    # Case 3: High PAWS drops -> CRITICAL
+    netstat_f.write_text('''TcpExt: PAWSActive PAWSEstab PAWSOldAck PAWSTimewait TSEcrRejected TCPDelivered
+TcpExt: 10000 50000 5000 1000 0 10000000
+''')
+    res3 = mod.audit_paws_guard(
+        timestamps_file=str(ts_f),
+        rfc1337_file=str(rfc_f),
+        netstat_file=str(netstat_f),
     )
-    assert res3['summary']['status'] == 'WARNING'
-    assert any('TIME-WAIT table overflows' in iss for iss in res3['summary']['issues'])
+    assert res3['summary']['status'] == 'CRITICAL'
+    assert any('Severe PAWS packet drop ratio' in iss for iss in res3['summary']['issues'])
 
-    # Case 4: Excessive PAWS Established drops warning
-    paws_netstat = mock_netstat.replace(' 0 1000 50 0 0 10 2 0 5 0', ' 0 1000 50 0 0 60000 2 0 5 0')
-    netstat_file.write_text(paws_netstat)
-    res4 = mod.audit_paws(
-        tw_reuse_file=str(tw_reuse_file),
-        timestamps_file=str(timestamps_file),
-        rfc1337_file=str(rfc1337_file),
-        max_tw_buckets_file=str(max_tw_buckets_file),
-        netstat_file=str(netstat_file),
+    # Case 4: High TSEcrRejected -> WARNING
+    netstat_f.write_text('''TcpExt: PAWSActive PAWSEstab PAWSOldAck PAWSTimewait TSEcrRejected TCPDelivered
+TcpExt: 0 0 0 0 2000 1000000000
+''')
+    res4 = mod.audit_paws_guard(
+        timestamps_file=str(ts_f),
+        rfc1337_file=str(rfc_f),
+        netstat_file=str(netstat_f),
     )
     assert res4['summary']['status'] == 'WARNING'
-    assert any('Elevated PAWS drops' in iss for iss in res4['summary']['issues'])
-"
-echo "ok - mocked sysctl and netstat unit tests pass"
+    assert any('echoed timestamp rejections' in iss for iss in res4['summary']['issues'])
 
-echo "All Pattern 109 tests passed successfully!"
+    # Case 5: Missing files fallback (fail-open)
+    res5 = mod.audit_paws_guard(
+        timestamps_file='/nonexistent/ts',
+        rfc1337_file='/nonexistent/rfc',
+        netstat_file='/nonexistent/netstat',
+    )
+    assert res5['summary']['status'] == 'HEALTHY'
+    assert res5['summary']['tcp_timestamps'] == 1
+    assert res5['summary']['total_paws_drops'] == 0
+"
+echo "ok - unit tests pass"
+
+echo "All Pattern 142 regression tests passed!"

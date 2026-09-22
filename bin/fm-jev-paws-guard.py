@@ -1,18 +1,25 @@
 #!/usr/bin/env python3
 """
-fm-jev-paws-guard.py - Jev Multi-Agent Host Network TCP TIME-WAIT Recycling & PAWS Failure Guard (Pattern 109)
+fm-jev-paws-guard.py - Jev Multi-Agent Host Network TCP Timestamp Space & PAWS Clock Drift Guard (Pattern 142)
 
-Audits Linux TCP TIME-WAIT recycling sysctl settings and Protection Against Wrapped Sequence Numbers (PAWS)
-drop counters from /proc/sys/net/ipv4/tcp_tw_reuse, /proc/sys/net/ipv4/tcp_timestamps,
-/proc/sys/net/ipv4/tcp_rfc1337, /proc/sys/net/ipv4/tcp_max_tw_buckets, and /proc/net/netstat (TcpExt:
-PAWSEstab, PAWSTimewait, PAWSOldAck, PAWSActive, TCPACKSkippedPAWS, TW, TWRecycled, TWKilled, TCPTimeWaitOverflow).
+Audits Linux TCP timestamp configuration (/proc/sys/net/ipv4/tcp_timestamps,
+/proc/sys/net/ipv4/tcp_rfc1337) and Protection Against Wrapped Sequence Numbers (PAWS)
+rejection counters from /proc/net/netstat (PAWSActive, PAWSEstab, PAWSOldAck, PAWSTimewait,
+TSEcrRejected, TCPDelivered).
 
-Detects silent packet drops caused by timestamp regressions behind NAT/cloud proxies, ineffective socket reuse
-due to disabled timestamps, and TIME-WAIT table overflows during burst multi-agent fleet traffic.
+In multi-agent architectures where high-throughput token streams, file synchronizations, and
+continuous RPC connections generate gigabytes of network traffic, TCP sequence numbers
+wrap around rapidly. RFC 7323 TCP Timestamps and PAWS prevent old duplicate segments from
+corrupting live connections. If peer clocks drift or timestamps become desynchronized,
+the kernel may discard valid segments (PAWSEstab / TSEcrRejected), triggering packet drops
+and spurious retransmission loops.
+
+This guard monitors timestamp health, PAWS drop ratios, and RFC 1337 TIME-WAIT protections,
+ensuring multi-agent streaming links maintain high throughput without desynchronization stalls.
 
 Invariants:
   - Read-only diagnostics by default. Safe and non-destructive.
-  - Fail-open: graceful fallback when sysfs/procfs files are missing or restricted.
+  - Fail-open: graceful fallback when sysctl or procfs entries are inaccessible.
   - Fast bounded execution (< 0.03s).
 """
 
@@ -23,10 +30,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-SYSCTL_TW_REUSE = "/proc/sys/net/ipv4/tcp_tw_reuse"
-SYSCTL_TIMESTAMPS = "/proc/sys/net/ipv4/tcp_timestamps"
-SYSCTL_RFC1337 = "/proc/sys/net/ipv4/tcp_rfc1337"
-SYSCTL_MAX_TW_BUCKETS = "/proc/sys/net/ipv4/tcp_max_tw_buckets"
+SYSCTL_TCP_TIMESTAMPS = "/proc/sys/net/ipv4/tcp_timestamps"
+SYSCTL_TCP_RFC1337 = "/proc/sys/net/ipv4/tcp_rfc1337"
 PROC_NETSTAT = "/proc/net/netstat"
 
 
@@ -40,134 +45,134 @@ def read_int_file(path: Path) -> Optional[int]:
         return None
 
 
-def parse_tcpext_netstat(path: Path) -> Dict[str, int]:
-    """Parses TcpExt key-value metrics from /proc/net/netstat."""
+def parse_proc_pairs(path: Path, section_name: str) -> Dict[str, int]:
+    """Parses paired header/metric lines from /proc/net/netstat."""
     if not path.is_file():
         return {}
 
     metrics: Dict[str, int] = {}
     try:
         lines = path.read_text().splitlines()
-        for i in range(len(lines) - 1):
-            if lines[i].startswith("TcpExt:") and lines[i + 1].startswith("TcpExt:"):
-                keys = lines[i].split()[1:]
-                vals = lines[i + 1].split()[1:]
-                for k, v in zip(keys, vals):
-                    try:
-                        metrics[k] = int(v)
-                    except ValueError:
-                        continue
+        for i in range(0, len(lines) - 1):
+            line = lines[i]
+            if line.startswith(f"{section_name}:"):
+                keys = line.split()[1:]
+                next_line = lines[i + 1]
+                if next_line.startswith(f"{section_name}:"):
+                    vals = next_line.split()[1:]
+                    for k, v in zip(keys, vals):
+                        try:
+                            metrics[k] = int(v)
+                        except ValueError:
+                            continue
                 break
     except Exception:
         pass
-
     return metrics
 
 
-def audit_paws(
-    tw_reuse_file: Optional[str] = None,
+def audit_paws_guard(
     timestamps_file: Optional[str] = None,
     rfc1337_file: Optional[str] = None,
-    max_tw_buckets_file: Optional[str] = None,
     netstat_file: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Audits TIME-WAIT reuse settings, RFC 1337 protection, and PAWS drop counters."""
-    tw_reuse_path = Path(tw_reuse_file) if tw_reuse_file else Path(SYSCTL_TW_REUSE)
-    timestamps_path = Path(timestamps_file) if timestamps_file else Path(SYSCTL_TIMESTAMPS)
-    rfc1337_path = Path(rfc1337_file) if rfc1337_file else Path(SYSCTL_RFC1337)
-    max_tw_buckets_path = Path(max_tw_buckets_file) if max_tw_buckets_file else Path(SYSCTL_MAX_TW_BUCKETS)
-    netstat_path = Path(netstat_file) if netstat_file else Path(PROC_NETSTAT)
+    """Audits TCP timestamps, PAWS drops, and timestamp rejection metrics."""
+    ts_path = Path(timestamps_file or SYSCTL_TCP_TIMESTAMPS)
+    rfc_path = Path(rfc1337_file or SYSCTL_TCP_RFC1337)
+    netstat_path = Path(netstat_file or PROC_NETSTAT)
 
-    tw_reuse = read_int_file(tw_reuse_path)
-    timestamps = read_int_file(timestamps_path)
-    rfc1337 = read_int_file(rfc1337_path)
-    max_tw_buckets = read_int_file(max_tw_buckets_path)
+    tcp_timestamps = read_int_file(ts_path)
+    if tcp_timestamps is None:
+        tcp_timestamps = 1  # Standard Linux default
 
-    tcpext = parse_tcpext_netstat(netstat_path)
+    tcp_rfc1337 = read_int_file(rfc_path)
+    if tcp_rfc1337 is None:
+        tcp_rfc1337 = 0
 
-    paws_estab = tcpext.get("PAWSEstab", 0)
-    paws_timewait = tcpext.get("PAWSTimewait", 0)
-    paws_old_ack = tcpext.get("PAWSOldAck", 0)
-    paws_active = tcpext.get("PAWSActive", 0)
-    ack_skipped_paws = tcpext.get("TCPACKSkippedPAWS", 0)
-    tw_count = tcpext.get("TW", 0)
-    tw_recycled = tcpext.get("TWRecycled", 0)
-    tw_killed = tcpext.get("TWKilled", 0)
-    tw_overflow = tcpext.get("TCPTimeWaitOverflow", 0)
+    netstat_metrics = parse_proc_pairs(netstat_path, "TcpExt")
 
-    # Human-readable mode for tcp_tw_reuse
-    reuse_desc = "Unknown"
-    if tw_reuse == 0:
-        reuse_desc = "Disabled"
-    elif tw_reuse == 1:
-        reuse_desc = "Global enabled (safe client reuse)"
-    elif tw_reuse == 2:
-        reuse_desc = "Loopback only enabled (Linux 4.x+ default)"
+    paws_active = netstat_metrics.get("PAWSActive", 0)
+    paws_estab = netstat_metrics.get("PAWSEstab", 0)
+    paws_old_ack = netstat_metrics.get("PAWSOldAck", 0)
+    paws_timewait = netstat_metrics.get("PAWSTimewait", 0)
+    tsecr_rejected = netstat_metrics.get("TSEcrRejected", 0)
+    delivered = netstat_metrics.get("TCPDelivered", 0)
 
-    issues: List[str] = []
-
-    if tw_reuse is not None and tw_reuse > 0 and timestamps == 0:
-        issues.append(f"Inconsistent TCP configuration: tcp_tw_reuse is {tw_reuse} but tcp_timestamps is disabled (0)")
-
-    if tw_overflow > 0:
-        issues.append(f"TCP TIME-WAIT table overflows detected ({tw_overflow} events): exceeding tcp_max_tw_buckets ({max_tw_buckets})")
-
-    if tw_killed > 0:
-        issues.append(f"TCP TIME-WAIT sockets prematurely killed ({tw_killed} events): possible memory pressure or bucket limit")
-
-    if paws_estab > 50000:
-        issues.append(f"Elevated PAWS drops on established sockets ({paws_estab} events): potential NAT timestamp collision")
+    total_paws_drops = paws_active + paws_estab + paws_old_ack + paws_timewait + tsecr_rejected
+    base_delivered = max(delivered, 1)
+    paws_drop_ratio_pct = round((total_paws_drops / base_delivered) * 100, 6)
 
     status = "HEALTHY"
-    if issues:
-        status = "WARNING"
+    issues: List[str] = []
+    recommendations: List[str] = []
+
+    # Evaluation Rules
+    if tcp_timestamps == 0:
+        status = "CRITICAL"
+        issues.append("TCP timestamps are disabled (net.ipv4.tcp_timestamps=0)")
+        recommendations.append("Enable TCP timestamps: sysctl -w net.ipv4.tcp_timestamps=1 to enable PAWS and RTTM")
+
+    if paws_drop_ratio_pct > 0.5 and total_paws_drops > 50000:
+        status = "CRITICAL"
+        issues.append(f"Severe PAWS packet drop ratio ({total_paws_drops:,} drops, {paws_drop_ratio_pct}%)")
+        recommendations.append("Investigate peer clock drift or asymmetric routing timestamp clobbering")
+    elif paws_drop_ratio_pct > 0.05 and total_paws_drops > 10000:
+        if status != "CRITICAL":
+            status = "WARNING"
+        issues.append(f"Elevated PAWS packet drops ({total_paws_drops:,} drops, {paws_drop_ratio_pct}%)")
+        recommendations.append("Inspect NAT device timestamp rewrites or NTP clock synchronization")
+
+    if tsecr_rejected > 1000:
+        if status != "CRITICAL":
+            status = "WARNING"
+        issues.append(f"Elevated echoed timestamp rejections (TSEcrRejected={tsecr_rejected:,})")
+        recommendations.append("Verify proxy and tunnel middleware timestamp pass-through behavior")
+
+    if not recommendations:
+        recommendations.append("TCP timestamps, PAWS sequence wrapping protection, and clock spacing operating nominally")
 
     return {
-        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "summary": {
             "status": status,
             "healthy": status == "HEALTHY",
-            "tcp_tw_reuse": tw_reuse,
-            "tcp_tw_reuse_mode": reuse_desc,
-            "tcp_timestamps": timestamps == 1 if timestamps is not None else None,
-            "tcp_rfc1337": rfc1337 == 1 if rfc1337 is not None else None,
-            "tcp_max_tw_buckets": max_tw_buckets,
-            "paws_estab_drops": paws_estab,
-            "tw_overflow_events": tw_overflow,
-            "tw_killed_events": tw_killed,
+            "tcp_timestamps": tcp_timestamps,
+            "tcp_rfc1337": tcp_rfc1337,
+            "paws_active": paws_active,
+            "paws_estab": paws_estab,
+            "paws_old_ack": paws_old_ack,
+            "paws_timewait": paws_timewait,
+            "tsecr_rejected": tsecr_rejected,
+            "total_paws_drops": total_paws_drops,
+            "paws_drop_ratio_pct": paws_drop_ratio_pct,
             "issues": issues,
+            "recommendations": recommendations,
         },
         "counters": {
-            "paws_estab": paws_estab,
-            "paws_timewait": paws_timewait,
-            "paws_old_ack": paws_old_ack,
             "paws_active": paws_active,
-            "ack_skipped_paws": ack_skipped_paws,
-            "tw_total": tw_count,
-            "tw_recycled": tw_recycled,
-            "tw_killed": tw_killed,
-            "tw_overflow": tw_overflow,
+            "paws_estab": paws_estab,
+            "paws_old_ack": paws_old_ack,
+            "paws_timewait": paws_timewait,
+            "tsecr_rejected": tsecr_rejected,
+            "tcp_delivered": delivered,
         },
     }
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Jev Multi-Agent Host Network TCP TIME-WAIT Recycling & PAWS Failure Guard (Pattern 109)"
+        description="Jev Multi-Agent Host Network TCP PAWS & Timestamp Guard (Pattern 142)"
     )
-    parser.add_argument("--json", action="store_true", help="Output JSON format")
-    parser.add_argument("--tw-reuse-file", type=str, default=None, help="Path to tcp_tw_reuse")
-    parser.add_argument("--timestamps-file", type=str, default=None, help="Path to tcp_timestamps")
-    parser.add_argument("--rfc1337-file", type=str, default=None, help="Path to tcp_rfc1337")
-    parser.add_argument("--max-tw-buckets-file", type=str, default=None, help="Path to tcp_max_tw_buckets")
-    parser.add_argument("--netstat-file", type=str, default=None, help="Path to /proc/net/netstat")
+    parser.add_argument("--json", action="store_true", help="Output audit results in JSON format")
+    parser.add_argument("--timestamps-file", type=str, help="Override path to tcp_timestamps sysctl")
+    parser.add_argument("--rfc1337-file", type=str, help="Override path to tcp_rfc1337 sysctl")
+    parser.add_argument("--netstat-file", type=str, help="Override path to /proc/net/netstat")
+
     args = parser.parse_args()
 
-    result = audit_paws(
-        tw_reuse_file=args.tw_reuse_file,
+    result = audit_paws_guard(
         timestamps_file=args.timestamps_file,
         rfc1337_file=args.rfc1337_file,
-        max_tw_buckets_file=args.max_tw_buckets_file,
         netstat_file=args.netstat_file,
     )
 
@@ -175,39 +180,28 @@ def main() -> None:
         print(json.dumps(result, indent=2))
         return
 
-    summary = result["summary"]
-    counters = result["counters"]
-    status_color = "\033[32m" if summary["healthy"] else "\033[33m"
-    reset_color = "\033[0m"
+    s = result["summary"]
+    c = result["counters"]
 
-    print("================================================================================")
-    print(" Jev Multi-Agent Host Network TCP TIME-WAIT & PAWS Guard (Pattern 109)")
-    print("================================================================================")
-    print(f" Timestamp:                     {result['timestamp']}")
-    print(f" Status:                        {status_color}{summary['status']}{reset_color}")
-    print(f" TCP TW Reuse:                  {summary['tcp_tw_reuse']} ({summary['tcp_tw_reuse_mode']})")
-    print(f" TCP Timestamps:                {'Enabled' if summary['tcp_timestamps'] else 'Disabled'}")
-    print(f" RFC 1337 Protect:              {'Enabled' if summary['tcp_rfc1337'] else 'Disabled'}")
-    print(f" Max TIME-WAIT Buckets:         {summary['tcp_max_tw_buckets']:,}")
-    print("--------------------------------------------------------------------------------")
-    print(f" {'PAWS / TIME-WAIT Metric':<30} {'Count':<15} {'Status'}")
-    print("--------------------------------------------------------------------------------")
-    print(f" {'PAWS Drops (Established)':<30} {counters['paws_estab']:<15} {'Nominal' if counters['paws_estab'] < 50000 else 'WARNING'}")
-    print(f" {'PAWS Drops (TIME-WAIT)':<30} {counters['paws_timewait']:<15} Nominal")
-    print(f" {'PAWS Old ACKs Rejected':<30} {counters['paws_old_ack']:<15} Nominal")
-    print(f" {'PAWS Skipped ACKs':<30} {counters['ack_skipped_paws']:<15} Nominal")
-    print(f" {'TIME-WAIT Total Created':<30} {counters['tw_total']:<15} Nominal")
-    print(f" {'TIME-WAIT Recycled':<30} {counters['tw_recycled']:<15} Nominal")
-    print(f" {'TIME-WAIT Overflow':<30} {counters['tw_overflow']:<15} {'Nominal' if counters['tw_overflow'] == 0 else 'WARNING'}")
-    print(f" {'TIME-WAIT Killed':<30} {counters['tw_killed']:<15} {'Nominal' if counters['tw_killed'] == 0 else 'WARNING'}")
+    print("=== Jev Host Network TCP PAWS & Timestamp Guard (Pattern 142) ===")
+    print(f"Status:                    {s['status']}")
+    print(f"TCP Timestamps:            {'Enabled (1)' if s['tcp_timestamps'] == 1 else ('Reflected (2)' if s['tcp_timestamps'] == 2 else 'Disabled (0)')}")
+    print(f"RFC 1337 TIME-WAIT Protect:{' Enabled (1)' if s['tcp_rfc1337'] == 1 else ' Disabled (0)'}")
+    print(f"PAWS Established Drops:    {c['paws_estab']:,}")
+    print(f"PAWS Old ACK Drops:        {c['paws_old_ack']:,}")
+    print(f"PAWS TIME-WAIT Drops:      {c['paws_timewait']:,}")
+    print(f"Echoed TS Rejected:        {c['tsecr_rejected']:,}")
+    print(f"Total PAWS Drops:          {s['total_paws_drops']:,} ({s['paws_drop_ratio_pct']}%)")
+    print(f"Total Segments Delivered:  {c['tcp_delivered']:,}")
 
-    if summary["issues"]:
-        print("\nActive TCP PAWS / TIME-WAIT Warnings:")
-        for issue in summary["issues"]:
-            print(f"  [!] {issue}")
-    else:
-        print("\nAll host TCP TIME-WAIT reuse settings and PAWS drop metrics nominal.")
-    print("================================================================================")
+    if s["issues"]:
+        print("\nIssues Identified:")
+        for issue in s["issues"]:
+            print(f"  - [!] {issue}")
+
+    print("\nRecommendations:")
+    for rec in s["recommendations"]:
+        print(f"  - {rec}")
 
 
 if __name__ == "__main__":
