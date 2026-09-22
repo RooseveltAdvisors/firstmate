@@ -2598,6 +2598,16 @@ while :; do
     fi
   fi
 
+  # Pattern 89: Jev Multi-Agent Host Kernel SLUB/SLAB Memory Object & Allocator Fragmentation Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_SLAB_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-slab-guard.sh" ]; then
+    _slab_guard_marker="$STATE/.jev-slab-guard-last"
+    if [ ! -f "$_slab_guard_marker" ] || [ "$(age_of "$_slab_guard_marker")" -ge 1800 ]; then
+      touch "$_slab_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-slab-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
   # Pattern 35: Jev Cross-Seat Idle SSH & Persistent Tunnel Health Watchdog
   if [ "${FM_DISABLE_JEV_TUNNEL_WATCHDOG:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-tunnel-watchdog.sh" ]; then
     _tunnel_wd_marker="$STATE/.jev-tunnel-watchdog-last"
