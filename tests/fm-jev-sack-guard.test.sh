@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# tests/fm-jev-sack-guard.test.sh - Regression tests for Pattern 102 (TCP Window Scale & SACK Guard)
+# tests/fm-jev-sack-guard.test.sh - Regression tests for Pattern 210 (TCP SACK Guard)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GUARD_SH="$SCRIPT_DIR/../bin/fm-jev-sack-guard.sh"
 GUARD_PY="$SCRIPT_DIR/../bin/fm-jev-sack-guard.py"
 
-echo "Running Pattern 102 regression tests..."
+echo "Running Pattern 210 regression tests..."
 
 # 1. ShellCheck
 shellcheck "$GUARD_SH"
@@ -27,17 +27,17 @@ import json, sys
 data = json.loads('''$json_out''')
 assert 'timestamp' in data
 assert 'summary' in data
-assert 'counters' in data
 s = data['summary']
 assert 'status' in s
 assert isinstance(s['healthy'], bool)
+assert isinstance(s['tcp_sack_enabled'], bool)
+assert isinstance(s['tcp_dsack_enabled'], bool)
+assert isinstance(s['ofo_queued_packets'], int)
+assert isinstance(s['ofo_dropped_packets'], int)
+assert isinstance(s['sack_recoveries'], int)
+assert isinstance(s['sack_failures'], int)
 assert isinstance(s['issues'], list)
-assert 'tcp_sack_enabled' in s
-assert 'tcp_window_scaling_enabled' in s
-assert 'tcp_dsack_enabled' in s
-assert 'sack_recovery_events' in s
-assert 'sack_reneging_events' in s
-assert 'sack_failures' in s
+assert isinstance(s['recommendation'], str)
 "
 echo "ok - json audit schema valid"
 
@@ -45,9 +45,9 @@ echo "ok - json audit schema valid"
 "$GUARD_SH" >/dev/null || true
 echo "ok - text mode runs cleanly"
 
-# 6. Unit tests with mocked sysctls and /proc/net/netstat
+# 6. Unit tests with mocked procfs / sysfs files
 python3 -c "
-import sys, tempfile, os
+import sys, tempfile
 from pathlib import Path
 sys.path.insert(0, '$SCRIPT_DIR/../bin')
 from importlib import import_module
@@ -55,83 +55,49 @@ mod = import_module('fm-jev-sack-guard')
 
 with tempfile.TemporaryDirectory() as tmp_dir:
     d = Path(tmp_dir)
-    sack_file = d / 'tcp_sack'
-    scaling_file = d / 'tcp_window_scaling'
-    dsack_file = d / 'tcp_dsack'
-    rmem_file = d / 'tcp_rmem'
-    wmem_file = d / 'tcp_wmem'
-    netstat_file = d / 'netstat'
+    ipv4_dir = d / 'ipv4'
+    ipv4_dir.mkdir()
+    netstat_f = d / 'netstat'
 
-    sack_file.write_text('1\n')
-    scaling_file.write_text('1\n')
-    dsack_file.write_text('1\n')
-    rmem_file.write_text('4096 131072 6291456\n')
-    wmem_file.write_text('4096 16384 4194304\n')
+    (ipv4_dir / 'tcp_sack').write_text('1\n')
+    (ipv4_dir / 'tcp_dsack').write_text('1\n')
+    (ipv4_dir / 'tcp_reordering').write_text('3\n')
+    (ipv4_dir / 'tcp_recovery').write_text('1\n')
 
-    mock_netstat = '''TcpExt: SyncookiesSent SyncookiesRecv SyncookiesFailed EmbryonicRsts PruneCalled RcvPruned OfoPruned OutOfWindowIcmds LockDroppedIcmds ArpFilter TW TWRecycled TWKilled PAWSPassive PAWSActive PAWSEstabl DelayedACKs DelayedACKLocked DelayedACKLost ListenOverflows ListenDrops TCPSACKReneging TCPReordering TCPSACKReorder TCPSlowStartRetrans TCPFastRetrans TCPSackRecovery TCPSackFailures TCPAutoMetric TCPAbortOnSyn TCPAbortOnData TCPAbortOnClose TCPAbortOnMemory TCPAbortOnTimeout TCPAbortFailed TCPMemoryPressures TCPMemoryPressuresChg TCPSACKDiscard TCPDSACKIgnoredOld TCPDSACKIgnoredNoUndo TCPSpuriousRTOs TCPMD5NotFound TCPMD5Unexpected TCPSackShifted TCPSackMerged TCPSackShiftFallback TCPBacklogDrop PFMemallocDrop TCPMinTTLDrop TCPOFOQueue TCPOFOMerge TCPChallengeACK TCPSYNChallenge TCPSpuriousRtxHost TCPDSACKRecv TCPDSACKOldSent
-TcpExt: 0 0 0 0 0 0 0 0 0 0 100 0 0 0 0 0 500 0 0 0 0 0 10 5 0 20 100 2 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 50 10
-'''
-    netstat_file.write_text(mock_netstat)
-
-    # Case 1: Nominal
-    res = mod.audit_sack_scaling(
-        sack_file=str(sack_file),
-        scaling_file=str(scaling_file),
-        dsack_file=str(dsack_file),
-        rmem_file=str(rmem_file),
-        wmem_file=str(wmem_file),
-        netstat_file=str(netstat_file),
+    # Mock clean netstat
+    netstat_f.write_text(
+        'TcpExt: SyncookiesSent SyncookiesRecv SyncookiesFailed TCPOFOQueue TCPOFODrop TCPOFOMerge TCPSackRecovery TCPSackFailures TCPSACKReorder TCPLostRetransmit TCPRetransFail\n'
+        'TcpExt: 0 0 0 10000 1 500 5000 10 1000 5 1\n'
     )
-    assert res['summary']['status'] == 'HEALTHY'
-    assert res['summary']['healthy'] is True
-    assert res['summary']['tcp_sack_enabled'] is True
-    assert res['summary']['tcp_window_scaling_enabled'] is True
-    assert res['summary']['sack_recovery_events'] == 100
-    assert res['summary']['sack_failures'] == 2
-    assert res['summary']['sack_reneging_events'] == 0
 
-    # Case 2: Disabled SACK
-    sack_file.write_text('0\n')
-    res2 = mod.audit_sack_scaling(
-        sack_file=str(sack_file),
-        scaling_file=str(scaling_file),
-        dsack_file=str(dsack_file),
-        rmem_file=str(rmem_file),
-        wmem_file=str(wmem_file),
-        netstat_file=str(netstat_file),
-    )
-    assert res2['summary']['status'] == 'WARNING'
-    assert any('tcp_sack=0' in iss for iss in res2['summary']['issues'])
-    sack_file.write_text('1\n')
+    rep = mod.audit_sack_guard(proc_netstat=str(netstat_f), proc_sys_ipv4=str(ipv4_dir))
+    s = rep['summary']
+    assert s['status'] == 'HEALTHY'
+    assert s['healthy'] is True
+    assert s['tcp_sack_enabled'] is True
+    assert s['ofo_queued_packets'] == 10000
+    assert s['ofo_dropped_packets'] == 1
+    assert s['sack_recoveries'] == 5000
+    assert s['sack_failures'] == 10
 
-    # Case 3: Disabled Window Scaling
-    scaling_file.write_text('0\n')
-    res3 = mod.audit_sack_scaling(
-        sack_file=str(sack_file),
-        scaling_file=str(scaling_file),
-        dsack_file=str(dsack_file),
-        rmem_file=str(rmem_file),
-        wmem_file=str(wmem_file),
-        netstat_file=str(netstat_file),
-    )
-    assert res3['summary']['status'] == 'WARNING'
-    assert any('tcp_window_scaling=0' in iss for iss in res3['summary']['issues'])
-    scaling_file.write_text('1\n')
+    # Mock Critical condition: tcp_sack disabled
+    (ipv4_dir / 'tcp_sack').write_text('0\n')
+    rep_crit = mod.audit_sack_guard(proc_netstat=str(netstat_f), proc_sys_ipv4=str(ipv4_dir))
+    assert rep_crit['summary']['status'] == 'CRITICAL'
+    assert rep_crit['summary']['healthy'] is False
+    assert any('tcp_sack is disabled' in iss for iss in rep_crit['summary']['issues'])
 
-    # Case 4: SACK reneging
-    bad_netstat = mock_netstat.replace(' 0 10 5 0 20 100 2 ', ' 15 10 5 0 20 100 2 ')
-    netstat_file.write_text(bad_netstat)
-    res4 = mod.audit_sack_scaling(
-        sack_file=str(sack_file),
-        scaling_file=str(scaling_file),
-        dsack_file=str(dsack_file),
-        rmem_file=str(rmem_file),
-        wmem_file=str(wmem_file),
-        netstat_file=str(netstat_file),
+    # Mock Warning condition: high OFO drop ratio
+    (ipv4_dir / 'tcp_sack').write_text('1\n')
+    netstat_f.write_text(
+        'TcpExt: SyncookiesSent SyncookiesRecv SyncookiesFailed TCPOFOQueue TCPOFODrop TCPOFOMerge TCPSackRecovery TCPSackFailures TCPSACKReorder TCPLostRetransmit TCPRetransFail\n'
+        'TcpExt: 0 0 0 2000 200 500 5000 10 1000 5 1\n'
     )
-    assert res4['summary']['status'] == 'WARNING'
-    assert any('TCP SACK reneging' in iss for iss in res4['summary']['issues'])
+    rep_warn = mod.audit_sack_guard(proc_netstat=str(netstat_f), proc_sys_ipv4=str(ipv4_dir))
+    assert rep_warn['summary']['status'] == 'WARNING'
+    assert rep_warn['summary']['healthy'] is False
+    assert any('Out-Of-Order queue drop ratio' in iss for iss in rep_warn['summary']['issues'])
 "
-echo "ok - unit tests and mock audit pass"
+echo "ok - mocked unit tests pass"
 
-echo "All Pattern 102 tests passed!"
+echo "All Pattern 210 tests passed successfully."
