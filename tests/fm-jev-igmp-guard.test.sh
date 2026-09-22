@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# tests/fm-jev-igmp-guard.test.sh - Regression tests for Pattern 122 (IP Multicast Group Membership & IGMP Guard)
+# tests/fm-jev-igmp-guard.test.sh - Regression tests for Pattern 211 (IP Multicast & IGMP Guard)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GUARD_SH="$SCRIPT_DIR/../bin/fm-jev-igmp-guard.sh"
 GUARD_PY="$SCRIPT_DIR/../bin/fm-jev-igmp-guard.py"
 
-echo "Running Pattern 122 regression tests..."
+echo "Running Pattern 211 regression tests..."
 
 # 1. ShellCheck
 shellcheck "$GUARD_SH"
@@ -26,23 +26,20 @@ python3 -c "
 import json, sys
 data = json.loads('''$json_out''')
 assert 'timestamp' in data
-assert 'healthy' in data
-assert 'status' in data
-assert 'pattern' in data
-assert data['pattern'] == 122
-assert 'name' in data
-assert 'issues' in data
-assert 'config' in data
-assert 'multicast_interfaces' in data
-assert 'telemetry' in data
-assert isinstance(data['healthy'], bool)
-assert isinstance(data['issues'], list)
-assert isinstance(data['multicast_interfaces'], list)
-telem = data['telemetry']
-assert 'total_interfaces_monitored' in telem
-assert 'total_multicast_groups_joined' in telem
-assert 'in_mcast_pkts' in telem
-assert 'out_mcast_pkts' in telem
+assert 'summary' in data
+s = data['summary']
+assert 'status' in s
+assert isinstance(s['healthy'], bool)
+assert isinstance(s['total_v4_groups'], int)
+assert isinstance(s['total_v6_groups'], int)
+assert isinstance(s['max_v4_per_iface'], int)
+assert isinstance(s['igmp_max_memberships'], int)
+assert isinstance(s['saturation_ratio'], float)
+assert isinstance(s['force_igmp_version'], int)
+assert isinstance(s['in_mcast_pkts_v6'], int)
+assert isinstance(s['out_mcast_pkts_v6'], int)
+assert isinstance(s['issues'], list)
+assert isinstance(s['recommendation'], str)
 "
 echo "ok - json audit schema valid"
 
@@ -50,9 +47,9 @@ echo "ok - json audit schema valid"
 "$GUARD_SH" >/dev/null || true
 echo "ok - text mode runs cleanly"
 
-# 6. Unit tests with mocked proc files
+# 6. Unit tests with mocked procfs / sysfs files
 python3 -c "
-import sys, tempfile, os
+import sys, tempfile
 from pathlib import Path
 sys.path.insert(0, '$SCRIPT_DIR/../bin')
 from importlib import import_module
@@ -60,74 +57,75 @@ mod = import_module('fm-jev-igmp-guard')
 
 with tempfile.TemporaryDirectory() as tmp_dir:
     d = Path(tmp_dir)
-    igmp_file = d / 'igmp'
+    ipv4_dir = d / 'ipv4'
+    ipv4_dir.mkdir()
+    conf_all = ipv4_dir / 'conf' / 'all'
+    conf_all.mkdir(parents=True)
+
+    igmp_f = d / 'igmp'
+    igmp6_f = d / 'igmp6'
+    snmp6_f = d / 'snmp6'
+
+    # Scenario A: Nominal condition
+    (ipv4_dir / 'igmp_max_memberships').write_text('20\n')
+    (ipv4_dir / 'igmp_max_msf').write_text('10\n')
+    (ipv4_dir / 'igmp_qrv').write_text('2\n')
+    (conf_all / 'force_igmp_version').write_text('0\n')
+
     igmp_content = '''Idx\tDevice    : Count Querier\tGroup    Users Timer\tReporter
 1\tlo        :     2      V3
 \t\t\t\tFB0000E0     1 0:00000000\t\t0
 \t\t\t\t010000E0     1 0:00000000\t\t0
-2\tenp7s0    :     2      V3
-\t\t\t\tFB0000E0     1 0:00000000\t\t0
+2\tenp0      :     1      V3
 \t\t\t\t010000E0     1 0:00000000\t\t0
 '''
-    igmp_file.write_text(igmp_content)
+    igmp_f.write_text(igmp_content)
 
-    netstat_file = d / 'netstat'
-    netstat_content = '''IpExt: InNoRoutes InTruncatedPkts InMcastPkts OutMcastPkts InBcastPkts OutBcastPkts InOctets OutOctets InMcastOctets OutMcastOctets InBcastOctets OutBcastOctets InCsumErrors InNoECTPkts InECT1Pkts InECT0Pkts InCEPkts ReasmOverlaps
-IpExt: 0 0 1000 200 5000 0 100000 50000 20000 5000 10000 0 0 0 0 0 0 0
+    igmp6_content = '''1    lo              ff0200000000000000000000000000fb     1 00000004 0
+1    lo              ff020000000000000000000000000001     1 0000000C 0
 '''
-    netstat_file.write_text(netstat_content)
+    igmp6_f.write_text(igmp6_content)
 
-    conf_dir = d / 'conf'
-    conf_dir.mkdir()
-    (conf_dir / 'all').mkdir()
-    (conf_dir / 'all' / 'force_igmp_version').write_text('0\n')
-    (conf_dir / 'enp7s0').mkdir()
-    (conf_dir / 'enp7s0' / 'force_igmp_version').write_text('0\n')
+    snmp6_content = '''Ip6InMcastPkts                  \t500
+Ip6OutMcastPkts                 \t600
+'''
+    snmp6_f.write_text(snmp6_content)
 
-    max_memb_file = d / 'igmp_max_memberships'
-    max_memb_file.write_text('20\n')
-
-    max_msf_file = d / 'igmp_max_msf'
-    max_msf_file.write_text('10\n')
-
-    # Test healthy scenario
-    res = mod.audit_igmp(
-        proc_igmp=str(igmp_file),
-        conf_dir=str(conf_dir),
-        netstat_file=str(netstat_file),
-        max_memberships_file=str(max_memb_file),
-        max_msf_file=str(max_msf_file),
+    res = mod.audit_igmp_guard(
+        proc_igmp=str(igmp_f),
+        proc_igmp6=str(igmp6_f),
+        proc_snmp6=str(snmp6_f),
+        proc_sys_ipv4=str(ipv4_dir),
     )
-    assert res['healthy'] is True
-    assert len(res['issues']) == 0
-    assert res['telemetry']['total_multicast_groups_joined'] == 4
-    assert res['telemetry']['in_mcast_pkts'] == 1000
-    assert res['telemetry']['out_mcast_pkts'] == 200
+    assert res['summary']['status'] == 'HEALTHY', f'Expected HEALTHY, got {res[\"summary\"][\"status\"]}'
+    assert res['summary']['total_v4_groups'] == 3
+    assert res['summary']['total_v6_groups'] == 2
+    assert res['summary']['max_v4_per_iface'] == 2
+    assert res['summary']['saturation_ratio'] == 0.1
 
-    # Test saturation scenario
-    max_memb_file.write_text('2\n')  # 2 groups joined = saturation
-    res_sat = mod.audit_igmp(
-        proc_igmp=str(igmp_file),
-        conf_dir=str(conf_dir),
-        netstat_file=str(netstat_file),
-        max_memberships_file=str(max_memb_file),
-        max_msf_file=str(max_msf_file),
+    # Scenario B: CRITICAL when groups reach igmp_max_memberships
+    (ipv4_dir / 'igmp_max_memberships').write_text('2\n')
+    res_crit = mod.audit_igmp_guard(
+        proc_igmp=str(igmp_f),
+        proc_igmp6=str(igmp6_f),
+        proc_snmp6=str(snmp6_f),
+        proc_sys_ipv4=str(ipv4_dir),
     )
-    assert res_sat['healthy'] is False
-    assert any('igmp_max_memberships' in issue for issue in res_sat['issues'])
+    assert res_crit['summary']['status'] == 'CRITICAL', f'Expected CRITICAL, got {res_crit[\"summary\"][\"status\"]}'
+    assert any('CRITICAL' in issue for issue in res_crit['summary']['issues'])
 
-    # Test legacy IGMP force version scenario
-    (conf_dir / 'enp7s0' / 'force_igmp_version').write_text('2\n')
-    res_ver = mod.audit_igmp(
-        proc_igmp=str(igmp_file),
-        conf_dir=str(conf_dir),
-        netstat_file=str(netstat_file),
-        max_memberships_file=str(max_memb_file),
-        max_msf_file=str(max_msf_file),
+    # Scenario C: WARNING on forced IGMP version
+    (ipv4_dir / 'igmp_max_memberships').write_text('20\n')
+    (conf_all / 'force_igmp_version').write_text('2\n')
+    res_warn = mod.audit_igmp_guard(
+        proc_igmp=str(igmp_f),
+        proc_igmp6=str(igmp6_f),
+        proc_snmp6=str(snmp6_f),
+        proc_sys_ipv4=str(ipv4_dir),
     )
-    assert res_ver['healthy'] is False
-    assert any('forced legacy IGMP' in issue for issue in res_ver['issues'])
+    assert res_warn['summary']['status'] == 'WARNING', f'Expected WARNING, got {res_warn[\"summary\"][\"status\"]}'
+    assert any('force_igmp_version=2' in issue for issue in res_warn['summary']['issues'])
 "
-echo "ok - mocked igmp, conf, and netstat unit tests pass"
+echo "ok - unit tests with mock procfs pass"
 
-echo "All Pattern 122 tests passed successfully!"
+echo "All 6/6 tests passed successfully!"
