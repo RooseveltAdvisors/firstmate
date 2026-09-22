@@ -97,16 +97,21 @@ def availability_exhausted(provider: dict, model: str) -> bool:
 
 
 def availability_confirmed(provider: dict, model: str) -> bool:
+    state = provider.get("state", {})
     semantics = provider.get("quotaSemantics", {})
     rows = applicable_availability(provider, model)
     return (
-        semantics.get("status") in {"known", "partial"}
+        state.get("status") == "fresh"
+        and state.get("stale") is False
+        and not state.get("error")
+        and semantics.get("status") in {"known", "partial"}
         and bool(rows)
         and all(
             row.get("status") == "known"
             and isinstance(row.get("effectivePercentRemaining"), (int, float))
             and row["effectivePercentRemaining"] > 0
-            and row.get("runway", {}).get("status") != "exhausted_now"
+            and row.get("runway", {}).get("status")
+            in {"through_reset", "projected_exhaustion"}
             for row in rows
         )
     )

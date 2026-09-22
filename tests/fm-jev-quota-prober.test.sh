@@ -17,6 +17,7 @@ cat > "$FAKEBIN/quota-axi" <<'SH'
 #!/usr/bin/env bash
 cursor_remaining=50
 cursor_runway=through_reset
+cursor_stale=false
 codex_remaining=50
 codex_runway=through_reset
 codex_model_remaining=50
@@ -24,6 +25,12 @@ codex_model_runway=through_reset
 if [ "${CURSOR_EXHAUSTED:-0}" = 1 ]; then
   cursor_remaining=0
   cursor_runway=exhausted_now
+fi
+if [ "${CURSOR_STALE:-0}" = 1 ]; then
+  cursor_stale=true
+fi
+if [ "${CURSOR_UNKNOWN_RUNWAY:-0}" = 1 ]; then
+  cursor_runway=unknown
 fi
 if [ "${CODEX_EXHAUSTED:-0}" = 1 ]; then
   codex_remaining=0
@@ -33,8 +40,8 @@ if [ "${CODEX_MODEL_EXHAUSTED:-0}" = 1 ]; then
   codex_model_remaining=0
   codex_model_runway=exhausted_now
 fi
-printf '{"schemaVersion":5,"providers":[{"provider":"cursor","quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":%s,"runway":{"status":"%s"}}]}},{"provider":"codex","state":{"status":"fresh","stale":false},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":%s,"runway":{"status":"%s"}},{"scope":"model:gpt-5.6-luna","status":"known","effectivePercentRemaining":%s,"runway":{"status":"%s"}}]}}]}\n' \
-  "$cursor_remaining" "$cursor_runway" "$codex_remaining" "$codex_runway" "$codex_model_remaining" "$codex_model_runway"
+printf '{"schemaVersion":5,"providers":[{"provider":"cursor","state":{"status":"fresh","stale":%s},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":%s,"runway":{"status":"%s"}}]}},{"provider":"codex","state":{"status":"fresh","stale":false},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":%s,"runway":{"status":"%s"}},{"scope":"model:gpt-5.6-luna","status":"known","effectivePercentRemaining":%s,"runway":{"status":"%s"}}]}}]}\n' \
+  "$cursor_stale" "$cursor_remaining" "$cursor_runway" "$codex_remaining" "$codex_runway" "$codex_model_remaining" "$codex_model_runway"
 SH
 chmod +x "$FAKEBIN/quota-axi"
 export PATH="$FAKEBIN:$PATH"
@@ -108,5 +115,19 @@ assert data["healthy"] is False
 assert data["status"] == "forbidden"
 ' || fail "Grok prohibition result was malformed"
 ok "direct Grok launch is forbidden"
+
+printf '9. Verify stale destination evidence is refused...\n'
+if divert_out=$(CURSOR_STALE=1 "$PROBER" --harness pi --model zai-general/glm-5.3-flash --auto-divert); then
+  fail "auto-divert accepted stale destination evidence"
+fi
+[ -z "$divert_out" ] || fail "stale destination emitted a launch profile"
+ok "auto-divert refuses stale destination evidence"
+
+printf '10. Verify unknown destination runway is refused...\n'
+if divert_out=$(CURSOR_UNKNOWN_RUNWAY=1 "$PROBER" --harness pi --model zai-general/glm-5.3-flash --auto-divert); then
+  fail "auto-divert accepted unknown destination runway"
+fi
+[ -z "$divert_out" ] || fail "unknown destination runway emitted a launch profile"
+ok "auto-divert refuses unknown destination runway"
 
 printf 'ok - all fm-jev-quota-prober tests passed\n'
