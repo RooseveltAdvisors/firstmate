@@ -2648,6 +2648,16 @@ while :; do
     fi
   fi
 
+  # Pattern 99: Jev Multi-Agent Host Network UDP Datagram Buffer & Socket Drop Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_UDP_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-udp-guard.sh" ]; then
+    _udp_guard_marker="$STATE/.jev-udp-guard-last"
+    if [ ! -f "$_udp_guard_marker" ] || [ "$(age_of "$_udp_guard_marker")" -ge 1800 ]; then
+      touch "$_udp_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-udp-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
   # Pattern 94: Jev Multi-Agent Host Network Routing Table Bloat & Nexthop Guard
   # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
   if [ "${FM_DISABLE_JEV_ROUTE_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-route-guard.sh" ]; then
