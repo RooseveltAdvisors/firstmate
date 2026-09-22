@@ -2791,6 +2791,14 @@ while :; do
       "$SCRIPT_DIR/fm-jev-net-drop-guard.sh" --json > "$STATE/.jev-net-drop-guard-telemetry.json" 2>/dev/null || true
     fi
   fi
+  # Pattern 61: Jev Multi-Agent Host Clock Drift & NTP Synchronization Guard
+  if [ "${FM_DISABLE_JEV_CLOCK_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-clock-guard.sh" ]; then
+    _clock_guard_marker="$STATE/.jev-clock-guard-last"
+    if [ ! -f "$_clock_guard_marker" ] || [ "$(age_of "$_clock_guard_marker")" -ge 1800 ]; then
+      touch "$_clock_guard_marker"
+      "$SCRIPT_DIR/fm-jev-clock-guard.sh" --json > "$STATE/.jev-clock-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
 
 
 
