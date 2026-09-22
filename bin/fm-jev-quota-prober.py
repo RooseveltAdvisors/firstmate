@@ -4,7 +4,7 @@ fm-jev-quota-prober.py - Jev System One Pre-Flight Quota & Token Health Prober.
 
 Performs sub-second runway and credential probes before worker launch to prevent
 429 quota exhaustion and revoked-token stalls. Automatically diverts doomed
-worker spawns to viable high-runway lanes (e.g. Cursor Grok 4.6 High).
+worker spawns only to a permitted lane with confirmed runway.
 
 Usage:
   bin/fm-jev-quota-prober.py --harness <harness> [--model <model>] [--auto-divert] [--json]
@@ -72,6 +72,66 @@ def is_zai_bundle_dry() -> bool:
     return True  # Default to dry given confirmed 2026-09-21 spend fact
 
 
+def applicable_availability(provider: dict, model: str) -> list[dict]:
+    bare_model = model.rsplit("/", 1)[-1]
+    scopes = {"all_models", "all_products"}
+    if bare_model:
+        scopes.update({f"model:{bare_model}", f"product:{bare_model}"})
+    return [
+        row
+        for row in provider.get("quotaSemantics", {}).get("effectiveAvailability", [])
+        if row.get("scope") in scopes
+    ]
+
+
+def availability_exhausted(provider: dict, model: str) -> bool:
+    return any(
+        row.get("runway", {}).get("status") == "exhausted_now"
+        or (
+            row.get("status") == "known"
+            and isinstance(row.get("effectivePercentRemaining"), (int, float))
+            and row["effectivePercentRemaining"] <= 0
+        )
+        for row in applicable_availability(provider, model)
+    )
+
+
+def availability_confirmed(provider: dict, model: str) -> bool:
+    semantics = provider.get("quotaSemantics", {})
+    rows = applicable_availability(provider, model)
+    return (
+        semantics.get("status") in {"known", "partial"}
+        and bool(rows)
+        and all(
+            row.get("status") == "known"
+            and isinstance(row.get("effectivePercentRemaining"), (int, float))
+            and row["effectivePercentRemaining"] > 0
+            and row.get("runway", {}).get("status") != "exhausted_now"
+            for row in rows
+        )
+    )
+
+
+def unhealthy_result(
+    harness: str,
+    model: str,
+    status: str,
+    reason: str,
+    providers: dict[str, dict],
+) -> dict:
+    cursor_info = providers.get(DEFAULT_SAFE_HARNESS, {})
+    has_safe_diversion = availability_confirmed(cursor_info, DEFAULT_SAFE_MODEL)
+    return {
+        "harness": harness,
+        "model": model,
+        "status": status,
+        "healthy": False,
+        "reason": reason,
+        "divert_harness": DEFAULT_SAFE_HARNESS if has_safe_diversion else "",
+        "divert_model": DEFAULT_SAFE_MODEL if has_safe_diversion else "",
+    }
+
+
 def probe_harness(harness: str, model: str | None = None) -> dict:
     """
     Probe a specific harness and model combination.
@@ -80,84 +140,63 @@ def probe_harness(harness: str, model: str | None = None) -> dict:
     harness = harness.lower().strip()
     model = (model or "").lower().strip()
 
-    quota_data = query_quota_axi([harness] if harness in ["claude", "codex", "cursor", "zai"] else None)
+    quota_data = query_quota_axi()
     providers = {p.get("provider"): p for p in quota_data.get("providers", [])}
+
+    if harness == "grok" or "grok" in model:
+        return unhealthy_result(
+            harness,
+            model,
+            "forbidden",
+            "Grok is reserved for Firstmate and cannot run crew work",
+            providers,
+        )
 
     # 1. Codex Probe
     if harness == "codex":
         codex_info = providers.get("codex", {})
         state = codex_info.get("state", {})
         if state.get("error") or state.get("stale"):
-            return {
-                "harness": harness,
-                "model": model,
-                "status": "revoked_or_unavailable",
-                "healthy": False,
-                "reason": state.get("error") or "Codex credentials unavailable or revoked",
-                "divert_harness": DEFAULT_SAFE_HARNESS,
-                "divert_model": DEFAULT_SAFE_MODEL,
-            }
+            return unhealthy_result(
+                harness,
+                model,
+                "revoked_or_unavailable",
+                state.get("error") or "Codex credentials unavailable or revoked",
+                providers,
+            )
         credits = codex_info.get("credits", {}).get("remaining", 1)
-        if credits <= 0:
-            return {
-                "harness": harness,
-                "model": model,
-                "status": "exhausted",
-                "healthy": False,
-                "reason": "Codex balance zero / exhausted",
-                "divert_harness": DEFAULT_SAFE_HARNESS,
-                "divert_model": DEFAULT_SAFE_MODEL,
-            }
+        if credits <= 0 or availability_exhausted(codex_info, model):
+            return unhealthy_result(
+                harness,
+                model,
+                "exhausted",
+                "Codex quota exhausted",
+                providers,
+            )
 
     # 2. Pi / Zai Probe
     elif harness == "pi":
         if "zai-general" in model or "glm" in model:
             if is_zai_bundle_dry():
-                return {
-                    "harness": harness,
-                    "model": model,
-                    "status": "exhausted",
-                    "healthy": False,
-                    "reason": "zai-general bundle is DRY (spend fact: insufficient balance)",
-                    "divert_harness": DEFAULT_SAFE_HARNESS,
-                    "divert_model": DEFAULT_SAFE_MODEL,
-                }
+                return unhealthy_result(
+                    harness,
+                    model,
+                    "exhausted",
+                    "zai-general bundle is DRY (spend fact: insufficient balance)",
+                    providers,
+                )
 
     # 3. Cursor Probe
     elif harness == "cursor":
         cursor_info = providers.get("cursor", {})
-        scopes = {
-            s.get("scope"): s
-            for s in cursor_info.get("quotaSemantics", {}).get("effectiveAvailability", [])
-        }
-
-        # If requesting Grok specifically
-        if "grok" in model:
-            grok_scope = scopes.get("grok_bot", {})
-            rem = grok_scope.get("effectivePercentRemaining", 0)
-            if rem > 10:
-                return {
-                    "harness": harness,
-                    "model": model,
-                    "status": "healthy",
-                    "healthy": True,
-                    "reason": f"Grok runway confirmed ({rem}% remaining)",
-                    "divert_harness": harness,
-                    "divert_model": model,
-                }
-
-        # For general Cursor models, check all_models
-        all_models = scopes.get("all_models", {})
-        if all_models.get("runway", {}).get("status") == "exhausted_now" or all_models.get("effectivePercentRemaining", 1) == 0:
-            return {
-                "harness": harness,
-                "model": model,
-                "status": "exhausted",
-                "healthy": False,
-                "reason": "Cursor generic quota exhausted; Grok Bot pool available",
-                "divert_harness": DEFAULT_SAFE_HARNESS,
-                "divert_model": DEFAULT_SAFE_MODEL,
-            }
+        if availability_exhausted(cursor_info, model):
+            return unhealthy_result(
+                harness,
+                model,
+                "exhausted",
+                "Cursor generic quota exhausted",
+                providers,
+            )
 
     return {
         "harness": harness,
@@ -193,7 +232,7 @@ def main() -> int:
             print("Fleet Pre-Flight Harness Runway:")
             for r in results:
                 icon = "✓" if r["healthy"] else "✗"
-                div = f" -> divert to {r['divert_harness']}:{r['divert_model']}" if not r["healthy"] else ""
+                div = f" -> divert to {r['divert_harness']}:{r['divert_model']}" if r["divert_harness"] else ""
                 print(f"  {icon} {r['harness']} ({r['model']}): {r['status']} ({r['reason']}){div}")
         return 0
 
@@ -208,14 +247,24 @@ def main() -> int:
         return 0 if res["healthy"] else 1
 
     if args.auto_divert:
-        print(f"harness={res['divert_harness']} model={res['divert_model']} healthy={1 if res['healthy'] else 0}")
-        return 0
+        if res["healthy"]:
+            print(f"harness={res['harness']} model={res['model']} healthy=1")
+            return 0
+        if res["divert_harness"] and res["divert_model"]:
+            print(f"harness={res['divert_harness']} model={res['divert_model']} healthy=0")
+            return 0
+        return 1
 
     if res["healthy"]:
         print(f"ok: {res['harness']} ({res['model']}) is healthy: {res['reason']}")
         return 0
     else:
-        print(f"blocked: {res['harness']} ({res['model']}) unhealthy: {res['reason']} (recommended: {res['divert_harness']} {res['divert_model']})", file=sys.stderr)
+        recommendation = (
+            f" (recommended: {res['divert_harness']} {res['divert_model']})"
+            if res["divert_harness"]
+            else " (no permitted diversion has confirmed runway)"
+        )
+        print(f"blocked: {res['harness']} ({res['model']}) unhealthy: {res['reason']}{recommendation}", file=sys.stderr)
         return 1
 
 
