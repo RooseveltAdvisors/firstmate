@@ -55,4 +55,19 @@ pass "sweep mode safely reclaimed candidates ($reclaimed files)"
 [ ! -f "$MOCK_LOG" ] || fail "log file still exists after sweep"
 pass "candidates safely unlinked"
 
+# 4. Test stale state temporary file vacuuming (wiseman-fjl)
+MOCK_WAKE_ROWS="$TDIR/.wake-rows.consume.123456"
+touch -d "2 days ago" "$MOCK_WAKE_ROWS"
+
+MOCK_FRESH_WAKE="$TDIR/.wake-rows.consume.fresh"
+touch "$MOCK_FRESH_WAKE"
+
+json_state_sweep=$("$SWEEPER_SH" --dirs "$TDIR" --sweep --json)
+reclaimed_state=$(echo "$json_state_sweep" | jq -r '.summary.reclaimed_count')
+[ "$reclaimed_state" -eq 1 ] || fail "expected 1 stale state tmp reclaimed, got $reclaimed_state"
+[ ! -f "$MOCK_WAKE_ROWS" ] || fail "stale wake rows still exists after sweep"
+[ -f "$MOCK_FRESH_WAKE" ] || fail "fresh wake rows erroneously deleted!"
+pass "stale state tmp vacuumed while preserving fresh files (wiseman-fjl)"
+
 pass "all Pattern 34 dump sweeper tests passed"
+

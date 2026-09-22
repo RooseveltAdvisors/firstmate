@@ -20,6 +20,10 @@ if [ -z "${FM_ROOT_OVERRIDE:-}" ]; then
   export FM_ROOT_OVERRIDE
 fi
 
+# Disable heavy Jev artifact-dedup in test harnesses (wiseman-vwr)
+export FM_DISABLE_JEV_ARTIFACT_DEDUP=1
+
+
 # Wedge-alarm notifier recorder (safety seam). The away-mode wedge alarm fires a
 # real OS-level desktop notification by default. Point its FM_WEDGE_ALARM_EXEC
 # seam at a recorder for every

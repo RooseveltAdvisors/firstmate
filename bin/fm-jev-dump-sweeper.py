@@ -34,7 +34,16 @@ CORE_PATTERNS = [
     "*.core",
     "hs_err_pid*.log",
 ]
+STATE_TMP_PATTERNS = [
+    ".wake-rows.*",
+    ".wake-queue.*.tmp.*",
+    ".home-summary.json.*",
+    ".home-summary-error.*",
+    ".main-eligible-rows.tmp.*",
+    ".status-presentation.prepared.*",
+]
 MAX_LOG_SIZE_MB = 50.0
+
 
 
 def is_file_open(file_path: str) -> bool:
@@ -87,12 +96,14 @@ def scan_dumps_and_logs(
                         stat = os.stat(full_path)
                         size_bytes = stat.st_size
                         is_oversized_log = f.endswith((".log", ".err", ".txt")) and (size_bytes > max_bytes)
+                        is_stale_state_tmp = any(fnmatch.fnmatch(f, p) for p in STATE_TMP_PATTERNS) and (time.time() - stat.st_mtime > 86400)
 
-                        if is_core or is_oversized_log:
-                            is_open = is_file_open(full_path)
+                        if is_core or is_oversized_log or is_stale_state_tmp:
+                            is_open = False if is_stale_state_tmp else is_file_open(full_path)
+                            c_type = "core_dump" if is_core else ("stale_state_tmp" if is_stale_state_tmp else "oversized_log")
                             candidates.append({
                                 "path": full_path,
-                                "type": "core_dump" if is_core else "oversized_log",
+                                "type": c_type,
                                 "size_bytes": size_bytes,
                                 "size_mb": round(size_bytes / (1024.0 * 1024.0), 2),
                                 "is_open": is_open,
