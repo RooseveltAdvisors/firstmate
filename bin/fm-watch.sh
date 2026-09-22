@@ -2687,6 +2687,15 @@ while :; do
     fi
   fi
 
+  # Pattern 49: Jev Multi-Agent Upstream Service Endpoint & Latency Guard
+  if [ "${FM_DISABLE_JEV_ENDPOINT_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-endpoint-guard.sh" ]; then
+    _endpoint_guard_marker="$STATE/.jev-endpoint-guard-last"
+    if [ ! -f "$_endpoint_guard_marker" ] || [ "$(age_of "$_endpoint_guard_marker")" -ge 1800 ]; then
+      touch "$_endpoint_guard_marker"
+      "$SCRIPT_DIR/fm-jev-endpoint-guard.sh" --json > "$STATE/.jev-endpoint-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
 
 
 
