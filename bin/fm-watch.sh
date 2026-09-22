@@ -2732,6 +2732,15 @@ while :; do
     fi
   fi
 
+  # Pattern 54: Jev Multi-Agent Core Dump & Crash Artifact Hygiene Guard
+  if [ "${FM_DISABLE_JEV_COREDUMP_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-coredump-guard.sh" ]; then
+    _coredump_guard_marker="$STATE/.jev-coredump-guard-last"
+    if [ ! -f "$_coredump_guard_marker" ] || [ "$(age_of "$_coredump_guard_marker")" -ge 1800 ]; then
+      touch "$_coredump_guard_marker"
+      "$SCRIPT_DIR/fm-jev-coredump-guard.sh" --json > "$STATE/.jev-coredump-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
 
 
 
