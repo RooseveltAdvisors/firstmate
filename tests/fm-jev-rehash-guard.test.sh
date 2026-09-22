@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tests/fm-jev-rehash-guard.test.sh - Regression tests for Pattern 163 (TCP Route Rehashing Guard)
+# tests/fm-jev-rehash-guard.test.sh - Regression tests for Pattern 163 (TCP Timeout Path Rehashing Guard)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -28,14 +28,16 @@ data = json.loads('''$json_out''')
 assert 'timestamp' in data
 assert 'summary' in data
 assert 'counters' in data
-assert 'sysctls' in data
 s = data['summary']
 assert 'status' in s
 assert isinstance(s['healthy'], bool)
 assert isinstance(s['issues'], list)
 assert 'timeout_rehash' in s
-assert 'tcp_plb_enabled' in s
 assert 'rehash_ratio_pct' in s
+assert 'duplicate_data_rehash' in s
+assert 'plb_rehash' in s
+assert 'plb_rehash_rounds' in s
+assert 'plb_idle_rehash_rounds' in s
 "
 echo "ok - json audit schema valid"
 
@@ -54,29 +56,38 @@ mod = import_module('fm-jev-rehash-guard')
 with tempfile.TemporaryDirectory() as tmp_dir:
     d = Path(tmp_dir)
     netstat_f = d / 'netstat'
-    plb_en_f = d / 'tcp_plb_enabled'
-    plb_cg_f = d / 'tcp_plb_cong_thresh'
-    plb_rh_f = d / 'tcp_plb_rehash_rounds'
+    plb_f = d / 'tcp_plb_rehash_rounds'
+    plb_idle_f = d / 'tcp_plb_idle_rehash_rounds'
 
-    plb_en_f.write_text('0\n')
-    plb_cg_f.write_text('128\n')
-    plb_rh_f.write_text('12\n')
-    netstat_f.write_text('''TcpExt: TcpTimeoutRehash TcpDuplicateDataRehash TCPPLBRehash TCPTimeouts
-TcpExt: 700000 0 0 720000
+    plb_f.write_text('12\n')
+    plb_idle_f.write_text('3\n')
+    netstat_f.write_text('''TcpExt: TcpTimeoutRehash TcpDuplicateDataRehash TCPPLBRehash TCPTimeouts TCPDelivered
+TcpExt: 900 10 5 1000 50000
 ''')
 
-    # Case 1: Nominal
+    # Case 1: Nominal (900 / 1000 = 90.0% rehash ratio)
     res = mod.audit_rehash(
         netstat_file=str(netstat_f),
-        plb_enabled_file=str(plb_en_f),
-        plb_cong_thresh_file=str(plb_cg_f),
-        plb_rehash_rounds_file=str(plb_rh_f),
+        plb_rounds_file=str(plb_f),
+        plb_idle_rounds_file=str(plb_idle_f),
     )
     assert res['summary']['status'] == 'HEALTHY'
     assert res['summary']['healthy'] is True
-    assert res['summary']['timeout_rehash'] == 700000
-    assert res['summary']['tcp_timeouts'] == 720000
-    assert res['summary']['rehash_ratio_pct'] == 97.22
+    assert res['summary']['timeout_rehash'] == 900
+    assert res['summary']['rehash_ratio_pct'] == 90.0
+    assert res['summary']['plb_rehash_rounds'] == 12
+
+    # Case 2: Zero rehash with high timeouts (>1000) -> WARNING
+    netstat_f.write_text('''TcpExt: TcpTimeoutRehash TcpDuplicateDataRehash TCPPLBRehash TCPTimeouts TCPDelivered
+TcpExt: 0 0 0 5000 50000
+''')
+    res2 = mod.audit_rehash(
+        netstat_file=str(netstat_f),
+        plb_rounds_file=str(plb_f),
+        plb_idle_rounds_file=str(plb_idle_f),
+    )
+    assert res2['summary']['status'] == 'WARNING'
+    assert any('Zero TCP timeout path rehashes detected' in iss for iss in res2['summary']['issues'])
 "
 echo "ok - unit tests pass"
 

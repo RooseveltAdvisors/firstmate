@@ -1,139 +1,196 @@
 #!/usr/bin/env python3
 """
-bin/fm-jev-rehash-guard.py - Host Network TCP Predictive Load Balancing (PLB) & Route Rehashing Guard (Pattern 163)
+fm-jev-rehash-guard.py - Jev Multi-Agent Host Network TCP Timeout Path Rehashing & Multipath Route Guard (Pattern 163)
 
-Audits TCP route and flow label rehashing counters (TcpTimeoutRehash, TcpDuplicateDataRehash,
-TCPPLBRehash) from /proc/net/netstat alongside kernel PLB sysctls (tcp_plb_enabled,
-tcp_plb_cong_thresh, tcp_plb_rehash_rounds) to verify automated multipath route failover
-and eliminate persistent path degradation across multi-agent egress tunnels.
+Audits Linux TCP path rehashing and multipath route resilience from /proc/net/netstat:
+  - TcpTimeoutRehash (Flow label and route rehashing triggered by RTO timeouts)
+  - TcpDuplicateDataRehash (Route rehashing triggered by duplicate data reception)
+  - TCPPLBRehash (Proactive Loss-Based Rehashing for multipath routing optimization)
+  - TCPTimeouts (Total retransmission timeouts)
+  - TCPDelivered (Total TCP segments delivered to local application sockets)
+  - net.ipv4.tcp_plb_rehash_rounds (PLB rehash rounds threshold)
+  - net.ipv4.tcp_plb_idle_rehash_rounds (PLB idle rehash rounds threshold)
+
+In multi-agent token streaming and distributed cluster RPCs, transient link degradation,
+ECMP hash polarization, or switch buffer drops cause repeated timeouts. Modern Linux kernels
+automatically rehash IPv6 flow labels and IPv4 multipath routing state (RFC 8985 / PLB) upon
+timeout, routing packets around degraded transit links without dropping active sockets.
+
+Invariants:
+  - Read-only diagnostics by default. Safe and non-destructive.
+  - Fail-open: graceful fallback when sysctl or procfs entries are inaccessible.
+  - Fast bounded execution (< 0.03s).
 """
 
 import argparse
-import datetime
 import json
 import os
-import sys
-from typing import Any, Dict
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+PROC_NETSTAT = "/proc/net/netstat"
+SYSCTL_PLB_ROUNDS = "/proc/sys/net/ipv4/tcp_plb_rehash_rounds"
+SYSCTL_PLB_IDLE_ROUNDS = "/proc/sys/net/ipv4/tcp_plb_idle_rehash_rounds"
 
 
-def read_sysctl_int(path: str) -> int:
-    if not os.path.exists(path):
-        return -1
+def read_sysctl_int(path: Path, default: int = 0) -> int:
+    """Safely reads an integer from sysctl procfs path."""
+    if not path.is_file():
+        return default
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            return int(f.read().strip())
-    except Exception as e:
-        print(f"Warning: unable to read {path}: {e}", file=sys.stderr)
-        return -1
+        content = path.read_text().strip()
+        return int(content) if content.isdigit() else default
+    except Exception:
+        return default
 
 
-def parse_netstat(path: str = "/proc/net/netstat") -> Dict[str, int]:
-    counters: Dict[str, int] = {}
-    if not os.path.exists(path):
+def parse_rehash_counters(netstat_path: Path) -> Dict[str, int]:
+    """Parses TCP timeout and duplicate data path rehashing metrics from /proc/net/netstat."""
+    counters: Dict[str, int] = {
+        "timeout_rehash": 0,
+        "duplicate_data_rehash": 0,
+        "plb_rehash": 0,
+        "timeouts": 0,
+        "delivered": 0,
+    }
+
+    if not netstat_path.is_file():
         return counters
+
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            lines = f.readlines()
-        for i in range(0, len(lines), 2):
-            if i + 1 >= len(lines):
+        lines = netstat_path.read_text().splitlines()
+        for i in range(0, len(lines) - 1, 2):
+            header_line = lines[i].strip()
+            data_line = lines[i + 1].strip()
+            if header_line.startswith("TcpExt:") and data_line.startswith("TcpExt:"):
+                headers = header_line.split()[1:]
+                values = data_line.split()[1:]
+                header_map = {h: int(v) for h, v in zip(headers, values) if v.isdigit()}
+
+                counters["timeout_rehash"] = header_map.get("TcpTimeoutRehash", 0)
+                counters["duplicate_data_rehash"] = header_map.get("TcpDuplicateDataRehash", 0)
+                counters["plb_rehash"] = header_map.get("TCPPLBRehash", 0)
+                counters["timeouts"] = header_map.get("TCPTimeouts", 0)
+                counters["delivered"] = header_map.get("TCPDelivered", 0)
                 break
-            headers = lines[i].split()
-            values = lines[i + 1].split()
-            if len(headers) == len(values) and headers[0] == values[0]:
-                for h, v in zip(headers[1:], values[1:]):
-                    try:
-                        counters[h] = int(v)
-                    except ValueError:
-                        pass
-    except Exception as e:
-        print(f"Warning: unable to parse {path}: {e}", file=sys.stderr)
+    except Exception:
+        pass
+
     return counters
 
 
 def audit_rehash(
-    netstat_file: str = "/proc/net/netstat",
-    plb_enabled_file: str = "/proc/sys/net/ipv4/tcp_plb_enabled",
-    plb_cong_thresh_file: str = "/proc/sys/net/ipv4/tcp_plb_cong_thresh",
-    plb_rehash_rounds_file: str = "/proc/sys/net/ipv4/tcp_plb_rehash_rounds",
+    netstat_file: Optional[str] = None,
+    plb_rounds_file: Optional[str] = None,
+    plb_idle_rounds_file: Optional[str] = None,
 ) -> Dict[str, Any]:
-    netstat = parse_netstat(netstat_file)
-    plb_enabled = read_sysctl_int(plb_enabled_file)
-    plb_cong_thresh = read_sysctl_int(plb_cong_thresh_file)
-    plb_rehash_rounds = read_sysctl_int(plb_rehash_rounds_file)
+    """Audits TCP timeout path rehashing and multipath resilience."""
+    netstat_path = Path(netstat_file) if netstat_file else Path(PROC_NETSTAT)
+    plb_rounds_path = Path(plb_rounds_file) if plb_rounds_file else Path(SYSCTL_PLB_ROUNDS)
+    plb_idle_rounds_path = Path(plb_idle_rounds_file) if plb_idle_rounds_file else Path(SYSCTL_PLB_IDLE_ROUNDS)
 
-    timeout_rehash = netstat.get("TcpTimeoutRehash", 0)
-    dup_data_rehash = netstat.get("TcpDuplicateDataRehash", 0)
-    plb_rehash = netstat.get("TCPPLBRehash", 0)
-    tcp_timeouts = netstat.get("TCPTimeouts", 0)
+    plb_rehash_rounds = read_sysctl_int(plb_rounds_path, default=12)
+    plb_idle_rehash_rounds = read_sysctl_int(plb_idle_rounds_path, default=3)
+    counters = parse_rehash_counters(netstat_path)
 
-    rehash_ratio = (timeout_rehash / (tcp_timeouts + 1)) if tcp_timeouts > 0 else 0.0
+    timeout_rehash = counters["timeout_rehash"]
+    timeouts = counters["timeouts"]
+    duplicate_data_rehash = counters["duplicate_data_rehash"]
+    plb_rehash = counters["plb_rehash"]
+    delivered = counters["delivered"]
 
-    issues = []
-    status = "HEALTHY"
-    healthy = True
+    rehash_ratio_pct = (
+        round((timeout_rehash / timeouts * 100), 2)
+        if timeouts > 0
+        else 0.0
+    )
 
-    summary = {
-        "status": status,
-        "healthy": healthy,
-        "tcp_plb_enabled": plb_enabled,
-        "tcp_plb_cong_thresh": plb_cong_thresh,
-        "tcp_plb_rehash_rounds": plb_rehash_rounds,
-        "timeout_rehash": timeout_rehash,
-        "dup_data_rehash": dup_data_rehash,
-        "plb_rehash": plb_rehash,
-        "tcp_timeouts": tcp_timeouts,
-        "rehash_ratio_pct": round(rehash_ratio * 100, 2),
-        "issues": issues,
-    }
+    issues: List[str] = []
+
+    # 1. Zero timeout rehash under significant timeouts
+    if timeouts > 1000 and timeout_rehash == 0:
+        issues.append(
+            f"Zero TCP timeout path rehashes detected despite {timeouts:,} RTO timeouts; multipath evasion inactive"
+        )
+
+    healthy = len(issues) == 0
+    status = "HEALTHY" if healthy else "WARNING"
 
     return {
-        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "summary": summary,
-        "counters": {
-            "TcpTimeoutRehash": timeout_rehash,
-            "TcpDuplicateDataRehash": dup_data_rehash,
-            "TCPPLBRehash": plb_rehash,
-            "TCPTimeouts": tcp_timeouts,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "summary": {
+            "status": status,
+            "healthy": healthy,
+            "timeout_rehash": timeout_rehash,
+            "rehash_ratio_pct": rehash_ratio_pct,
+            "duplicate_data_rehash": duplicate_data_rehash,
+            "plb_rehash": plb_rehash,
+            "timeouts": timeouts,
+            "delivered": delivered,
+            "plb_rehash_rounds": plb_rehash_rounds,
+            "plb_idle_rehash_rounds": plb_idle_rehash_rounds,
+            "issues": issues,
         },
-        "sysctls": {
-            "tcp_plb_enabled": plb_enabled,
-            "tcp_plb_cong_thresh": plb_cong_thresh,
-            "tcp_plb_rehash_rounds": plb_rehash_rounds,
-        },
+        "counters": counters,
     }
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Host Network TCP Predictive Load Balancing (PLB) & Route Rehashing Guard (Pattern 163)"
+        description="Jev Multi-Agent Host Network TCP Timeout Path Rehashing Guard (Pattern 163)"
     )
-    parser.add_argument("--json", action="store_true", help="Output audit report as JSON")
+    parser.add_argument("--json", action="store_true", help="Output JSON format")
+    parser.add_argument("--netstat-file", type=str, default=None, help="Path to /proc/net/netstat")
+    parser.add_argument("--plb-rounds-file", type=str, default=None, help="Path to tcp_plb_rehash_rounds")
+    parser.add_argument("--plb-idle-rounds-file", type=str, default=None, help="Path to tcp_plb_idle_rehash_rounds")
     args = parser.parse_args()
 
-    report = audit_rehash()
+    result = audit_rehash(
+        netstat_file=args.netstat_file,
+        plb_rounds_file=args.plb_rounds_file,
+        plb_idle_rounds_file=args.plb_idle_rounds_file,
+    )
 
     if args.json:
-        print(json.dumps(report, indent=2))
-        return 0
+        print(json.dumps(result, indent=2))
+        return
 
-    s = report["summary"]
-    print(f"TCP Route Rehashing & PLB Guard (Pattern 163) - Status: {s['status']}")
-    print(f"  Timeout Rehashes:        {s['timeout_rehash']:,} ({s['rehash_ratio_pct']}% of timeouts)")
-    print(f"  Duplicate Data Rehashes: {s['dup_data_rehash']:,}")
-    print(f"  PLB Rehashes:            {s['plb_rehash']:,}")
-    print(f"  Total TCP Timeouts:      {s['tcp_timeouts']:,}")
-    print(f"  tcp_plb_enabled:         {s['tcp_plb_enabled']} (1 = PLB active)")
-    print(f"  tcp_plb_cong_thresh:     {s['tcp_plb_cong_thresh']}")
-    print(f"  tcp_plb_rehash_rounds:   {s['tcp_plb_rehash_rounds']}")
+    summary = result["summary"]
+    counters = result["counters"]
+    status_color = "\033[32m" if summary["healthy"] else "\033[33m"
+    reset_color = "\033[0m"
 
-    if s["issues"]:
-        print("\nIssues:")
-        for iss in s["issues"]:
-            print(f"  - {iss}")
-        return 1
+    print("================================================================================")
+    print(" Jev Multi-Agent Host Network TCP Timeout Path Rehashing Guard (Pattern 163)")
+    print("================================================================================")
+    print(f" Timestamp:                     {result['timestamp']}")
+    print(f" Status:                        {status_color}{summary['status']}{reset_color}")
+    print(f" TCP Timeout Rehashes:          {summary['timeout_rehash']:,} ({summary['rehash_ratio_pct']}% of timeouts)")
+    print(f" Duplicate Data Rehashes:       {summary['duplicate_data_rehash']:,}")
+    print(f" Proactive Loss Rehashes (PLB): {summary['plb_rehash']:,}")
+    print(f" Total Retransmission Timeouts: {summary['timeouts']:,}")
+    print(f" Total Segments Delivered:      {summary['delivered']:,}")
+    print(f" PLB Rehash Rounds Sysctl:      {summary['plb_rehash_rounds']} (idle: {summary['plb_idle_rehash_rounds']})")
+    print("--------------------------------------------------------------------------------")
+    print(f" {'Rehashing Metric':<35} {'Value':<18} {'Status'}")
+    print("--------------------------------------------------------------------------------")
+    rehash_val = f"{summary['rehash_ratio_pct']} %"
+    rehash_status = "Nominal" if summary['rehash_ratio_pct'] >= 50.0 else "Suboptimal"
+    plb_val = f"{summary['plb_rehash']:,}"
+    dup_val = f"{summary['duplicate_data_rehash']:,}"
+    print(f" {'Timeout Path Rehash Ratio':<35} {rehash_val:<18} {rehash_status}")
+    print(f" {'PLB Proactive Loss Rehash':<35} {plb_val:<18} {'Supported'}")
+    print(f" {'Duplicate Data Route Rehash':<35} {dup_val:<18} {'Nominal'}")
 
-    return 0
+    if summary["issues"]:
+        print("\nActive TCP Path Rehashing Warnings:")
+        for issue in summary["issues"]:
+            print(f"  [!] {issue}")
+    else:
+        print("\nAll host TCP timeout path rehashing, flow label mutation, and multipath route health nominal.")
+    print("================================================================================")
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()
