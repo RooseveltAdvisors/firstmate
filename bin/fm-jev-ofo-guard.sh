@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# fm-jev-ofo-guard.sh - Wrapper for Jev Multi-Agent Host Network TCP Out-of-Order Queue & Memory Collapse Guard (Pattern 119)
+# bin/fm-jev-ofo-guard.sh - Wrapper for Host Network TCP OFO Queue Guard (Pattern 161)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

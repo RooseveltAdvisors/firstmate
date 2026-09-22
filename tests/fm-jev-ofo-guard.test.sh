@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# tests/fm-jev-ofo-guard.test.sh - Regression tests for Pattern 119 (TCP Out-of-Order Queue & Memory Collapse Guard)
+# tests/fm-jev-ofo-guard.test.sh - Regression tests for Pattern 161 (TCP OFO Queue Guard)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GUARD_SH="$SCRIPT_DIR/../bin/fm-jev-ofo-guard.sh"
 GUARD_PY="$SCRIPT_DIR/../bin/fm-jev-ofo-guard.py"
 
-echo "Running Pattern 119 regression tests..."
+echo "Running Pattern 161 regression tests..."
 
 # 1. ShellCheck
 shellcheck "$GUARD_SH"
@@ -32,14 +32,11 @@ s = data['summary']
 assert 'status' in s
 assert isinstance(s['healthy'], bool)
 assert isinstance(s['issues'], list)
-assert 'tcp_rmem_min' in s
-assert 'tcp_rmem_default' in s
-assert 'tcp_rmem_max' in s
-assert 'tcp_retrans_collapse' in s
 assert 'ofo_queue' in s
 assert 'ofo_drop' in s
 assert 'ofo_merge' in s
-assert 'rcv_collapsed' in s
+assert 'ofo_pruned' in s
+assert 'rcv_pruned' in s
 "
 echo "ok - json audit schema valid"
 
@@ -47,7 +44,7 @@ echo "ok - json audit schema valid"
 "$GUARD_SH" >/dev/null || true
 echo "ok - text mode runs cleanly"
 
-# 6. Unit tests with mocked sysctl and /proc/net/netstat files
+# 6. Unit tests with mocked files
 python3 -c "
 import sys, tempfile, os
 from pathlib import Path
@@ -57,74 +54,38 @@ mod = import_module('fm-jev-ofo-guard')
 
 with tempfile.TemporaryDirectory() as tmp_dir:
     d = Path(tmp_dir)
-    rmem_file = d / 'tcp_rmem'
-    retrans_file = d / 'tcp_retrans_collapse'
-    netstat_file = d / 'netstat'
+    netstat_f = d / 'netstat'
 
-    rmem_file.write_text('4096 131072 33554432\n')
-    retrans_file.write_text('1\n')
-
-    mock_netstat = '''TcpExt: TCPOFOQueue TCPOFODrop TCPOFOMerge TCPRcvCollapsed TCPRcvCoalesce TCPBacklogCoalesce TCPBacklogDrop TCPMemoryPressures
-TcpExt: 1000 0 10 500 5000 200 0 0
-'''
-    netstat_file.write_text(mock_netstat)
+    netstat_f.write_text('''TcpExt: TCPOFOQueue TCPOFODrop TCPOFOMerge OfoPruned RcvPruned
+TcpExt: 1000000 10 5000 1 100
+''')
 
     # Case 1: Nominal
-    res = mod.audit_ofo(
-        rmem_file=str(rmem_file),
-        retrans_file=str(retrans_file),
-        netstat_file=str(netstat_file),
-    )
+    res = mod.audit_ofo(netstat_file=str(netstat_f))
     assert res['summary']['status'] == 'HEALTHY'
     assert res['summary']['healthy'] is True
-    assert res['summary']['tcp_retrans_collapse'] == 1
-    assert res['summary']['tcp_rmem_max'] == 33554432
-    assert res['summary']['ofo_drop'] == 0
+    assert res['summary']['ofo_queue'] == 1000000
+    assert res['summary']['ofo_drop'] == 10
+    assert res['summary']['ofo_merge'] == 5000
+    assert res['summary']['ofo_pruned'] == 1
+    assert res['summary']['rcv_pruned'] == 100
 
-    # Case 2: Disabled retrans_collapse warning
-    retrans_file.write_text('0\n')
-    res2 = mod.audit_ofo(
-        rmem_file=str(rmem_file),
-        retrans_file=str(retrans_file),
-        netstat_file=str(netstat_file),
-    )
+    # Case 2: High drop count and ratio -> WARNING
+    netstat_f.write_text('''TcpExt: TCPOFOQueue TCPOFODrop TCPOFOMerge OfoPruned RcvPruned
+TcpExt: 10000 500 100 0 100
+''')
+    res2 = mod.audit_ofo(netstat_file=str(netstat_f))
     assert res2['summary']['status'] == 'WARNING'
-    assert any('tcp_retrans_collapse is disabled' in iss for iss in res2['summary']['issues'])
-    retrans_file.write_text('1\n')
+    assert any('OFO packet drops' in iss for iss in res2['summary']['issues'])
 
-    # Case 3: Low rmem max limit warning
-    rmem_file.write_text('4096 87380 8388608\n')
-    res3 = mod.audit_ofo(
-        rmem_file=str(rmem_file),
-        retrans_file=str(retrans_file),
-        netstat_file=str(netstat_file),
-    )
+    # Case 3: High pruned count -> WARNING
+    netstat_f.write_text('''TcpExt: TCPOFOQueue TCPOFODrop TCPOFOMerge OfoPruned RcvPruned
+TcpExt: 1000000 1 100 600 1000
+''')
+    res3 = mod.audit_ofo(netstat_file=str(netstat_f))
     assert res3['summary']['status'] == 'WARNING'
-    assert any('tcp_rmem max limit is low' in iss for iss in res3['summary']['issues'])
-    rmem_file.write_text('4096 131072 33554432\n')
-
-    # Case 4: Elevated OFO drops warning
-    drop_netstat = mock_netstat.replace(' 1000 0 10 500 5000 200 0 0', ' 1000 250 10 500 5000 200 0 0')
-    netstat_file.write_text(drop_netstat)
-    res4 = mod.audit_ofo(
-        rmem_file=str(rmem_file),
-        retrans_file=str(retrans_file),
-        netstat_file=str(netstat_file),
-    )
-    assert res4['summary']['status'] == 'WARNING'
-    assert any('Elevated out-of-order packet drops' in iss for iss in res4['summary']['issues'])
-
-    # Case 5: Socket backlog drops warning
-    backlog_netstat = mock_netstat.replace(' 1000 0 10 500 5000 200 0 0', ' 1000 0 10 500 5000 200 15 0')
-    netstat_file.write_text(backlog_netstat)
-    res5 = mod.audit_ofo(
-        rmem_file=str(rmem_file),
-        retrans_file=str(retrans_file),
-        netstat_file=str(netstat_file),
-    )
-    assert res5['summary']['status'] == 'WARNING'
-    assert any('TCP socket backlog drops detected' in iss for iss in res5['summary']['issues'])
+    assert any('buffer pruning' in iss for iss in res3['summary']['issues'])
 "
-echo "ok - mocked sysctl and netstat unit tests pass"
+echo "ok - unit tests pass"
 
-echo "All Pattern 119 tests passed successfully!"
+echo "All Pattern 161 regression tests passed!"
