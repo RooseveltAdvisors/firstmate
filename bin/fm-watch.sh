@@ -2628,6 +2628,16 @@ while :; do
     fi
   fi
 
+  # Pattern 93: Jev Multi-Agent Host Network IP Neighbor & ARP Table Saturation Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_ARP_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-arp-guard.sh" ]; then
+    _arp_guard_marker="$STATE/.jev-arp-guard-last"
+    if [ ! -f "$_arp_guard_marker" ] || [ "$(age_of "$_arp_guard_marker")" -ge 1800 ]; then
+      touch "$_arp_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-arp-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
   # Pattern 89: Jev Multi-Agent Host Kernel SLUB/SLAB Memory Object & Allocator Fragmentation Guard
   # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
   if [ "${FM_DISABLE_JEV_SLAB_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-slab-guard.sh" ]; then
