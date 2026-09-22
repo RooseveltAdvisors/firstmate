@@ -1,13 +1,8 @@
 #!/usr/bin/env bash
-# fm-jev-icmp-guard.sh - Pattern 94: Jev Multi-Agent Host Network Protocol Error & ICMP Blackhole Guard
+# bin/fm-jev-icmp-guard.sh - Wrapper for ICMP Rate Limiting & Error Message Storm Guard (Pattern 205)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PYTHON_EXEC="python3"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
 
-if ! command -v "$PYTHON_EXEC" >/dev/null 2>&1; then
-    echo "ERROR: python3 required for fm-jev-icmp-guard" >&2
-    exit 1
-fi
-
-exec "$PYTHON_EXEC" "$SCRIPT_DIR/fm-jev-icmp-guard.py" "$@"
+exec "$PYTHON_BIN" "$SCRIPT_DIR/fm-jev-icmp-guard.py" "$@"

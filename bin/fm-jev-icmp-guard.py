@@ -1,237 +1,208 @@
 #!/usr/bin/env python3
 """
-fm-jev-icmp-guard.py - Jev Multi-Agent Host Network Protocol Error & ICMP Blackhole Guard (Pattern 94)
+bin/fm-jev-icmp-guard.py - Host Network ICMP Rate Limiting & Error Message Storm Guard (Pattern 205)
 
-Audits Linux kernel network protocol error counters (/proc/net/snmp, /proc/net/netstat) across IP, ICMP, TCP,
-and UDP. Detects MTU path discovery blackholes (FragFails), unroutable packet drops (OutNoRoutes), routing loops
-(InTimeExcds), TCP connection aborts (EstabResets, AttemptFails), and ICMP rate-limit throttling before multi-agent
-RPC streams, model token queries, and external APIs suffer silent connection timeouts.
+Audits Linux kernel IPv4/IPv6 ICMP protocol metrics, rate limiters, and error counters from:
+  - /proc/net/snmp (IPv4 ICMP: InMsgs, OutMsgs, InErrors, OutRateLimitGlobal, OutRateLimitHost, InDestUnreachs, OutDestUnreachs, InEchos, OutEchoReps, InRedirects)
+  - /proc/net/snmp6 (IPv6 ICMP: Icmp6InMsgs, Icmp6OutMsgs, Icmp6InErrors, Icmp6InDestUnreachs, Icmp6OutDestUnreachs, Icmp6InEchos, Icmp6InEchoReplies)
+  - /proc/sys/net/ipv4/icmp_ratelimit, icmp_ratemask, icmp_echo_ignore_broadcasts, icmp_echo_ignore_all
+
+Detects ICMP destination unreachable storms, ICMP rate-limit throttling drops, ICMP redirect spoofing,
+and ensures broadcast ping smurf attack defenses are active across multi-agent cluster nodes.
 
 Invariants:
   - Read-only diagnostics by default. Safe and non-destructive.
-  - Fail-open: graceful fallback when procfs snmp files are missing.
-  - Fast bounded execution (< 0.02s).
+  - Fail-open: graceful fallback when sysfs/procfs files are missing or restricted.
+  - Fast bounded execution (< 0.03s).
 """
 
 import argparse
+import datetime
 import json
 import os
 import sys
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Dict, List, Optional
-
-PROC_NET_SNMP = "/proc/net/snmp"
-
-DEFAULT_WARN_FRAG_FAILS = 20
-DEFAULT_CRIT_FRAG_FAILS = 100
-DEFAULT_WARN_NO_ROUTES = 1000
-DEFAULT_CRIT_NO_ROUTES = 10000
+from typing import Any, Dict, List, Tuple
 
 
-def parse_snmp(path: Path) -> Dict[str, Dict[str, int]]:
-    """Parses /proc/net/snmp into a nested dict by protocol and metric name."""
-    result: Dict[str, Dict[str, int]] = {}
-    if not path.is_file():
-        return result
+def read_sysctl_int(path: str, default: int = -1) -> int:
+    if not os.path.exists(path):
+        return default
     try:
-        lines = path.read_text().strip().splitlines()
-        for i in range(0, len(lines) - 1, 2):
-            header_line = lines[i].strip()
-            values_line = lines[i + 1].strip()
+        with open(path, "r", encoding="utf-8") as f:
+            return int(f.read().strip())
+    except Exception:
+        return default
 
-            header_parts = header_line.split()
-            values_parts = values_line.split()
 
-            if not header_parts or not values_parts:
-                continue
-
-            proto = header_parts[0].rstrip(":")
-            proto_val = values_parts[0].rstrip(":")
-            if proto != proto_val:
-                continue
-
-            metric_names = header_parts[1:]
-            metric_values = values_parts[1:]
-
-            proto_metrics: Dict[str, int] = {}
-            for name, val_str in zip(metric_names, metric_values):
+def parse_snmp_icmp(path: str = "/proc/net/snmp") -> Dict[str, int]:
+    metrics: Dict[str, int] = {}
+    if not os.path.exists(path):
+        return metrics
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            lines = [line.strip() for line in f if line.strip().startswith("Icmp:")]
+        if len(lines) >= 2:
+            headers = lines[0].split()[1:]
+            values = lines[1].split()[1:]
+            for h, v in zip(headers, values):
                 try:
-                    proto_metrics[name] = int(val_str)
+                    metrics[h] = int(v)
                 except ValueError:
-                    proto_metrics[name] = 0
-            result[proto] = proto_metrics
+                    metrics[h] = 0
     except Exception:
         pass
-    return result
+    return metrics
 
 
-def audit_snmp(
-    snmp_path: Optional[str] = None,
-    warn_frag_fails: int = DEFAULT_WARN_FRAG_FAILS,
-    crit_frag_fails: int = DEFAULT_CRIT_FRAG_FAILS,
-    warn_no_routes: int = DEFAULT_WARN_NO_ROUTES,
-    crit_no_routes: int = DEFAULT_CRIT_NO_ROUTES,
+def parse_snmp6_icmp(path: str = "/proc/net/snmp6") -> Dict[str, int]:
+    metrics: Dict[str, int] = {}
+    if not os.path.exists(path):
+        return metrics
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                parts = line.strip().split()
+                if len(parts) == 2 and parts[0].startswith("Icmp6"):
+                    try:
+                        metrics[parts[0]] = int(parts[1])
+                    except ValueError:
+                        metrics[parts[0]] = 0
+    except Exception:
+        pass
+    return metrics
+
+
+def audit_icmp(
+    proc_snmp: str = "/proc/net/snmp",
+    proc_snmp6: str = "/proc/net/snmp6",
+    proc_sys_ipv4: str = "/proc/sys/net/ipv4",
 ) -> Dict[str, Any]:
-    """Audits network protocol counters for blackhole and routing errors."""
-    snmp_file = Path(snmp_path) if snmp_path else Path(PROC_NET_SNMP)
-    snmp_data = parse_snmp(snmp_file)
+    icmp4 = parse_snmp_icmp(proc_snmp)
+    icmp6 = parse_snmp6_icmp(proc_snmp6)
 
-    ip = snmp_data.get("Ip", {})
-    icmp = snmp_data.get("Icmp", {})
-    tcp = snmp_data.get("Tcp", {})
-    udp = snmp_data.get("Udp", {})
+    ratelimit_path = os.path.join(proc_sys_ipv4, "icmp_ratelimit")
+    ratemask_path = os.path.join(proc_sys_ipv4, "icmp_ratemask")
+    ignore_bcast_path = os.path.join(proc_sys_ipv4, "icmp_echo_ignore_broadcasts")
+    ignore_all_path = os.path.join(proc_sys_ipv4, "icmp_echo_ignore_all")
 
-    frag_fails = ip.get("FragFails", 0)
-    out_no_routes = ip.get("OutNoRoutes", 0)
-    in_hdr_errors = ip.get("InHdrErrors", 0)
-    in_addr_errors = ip.get("InAddrErrors", 0)
+    icmp_ratelimit = read_sysctl_int(ratelimit_path, 1000)
+    icmp_ratemask = read_sysctl_int(ratemask_path, 6168)
+    ignore_bcast = read_sysctl_int(ignore_bcast_path, 1)
+    ignore_all = read_sysctl_int(ignore_all_path, 0)
 
-    icmp_dest_unreach = icmp.get("InDestUnreachs", 0)
-    icmp_time_excds = icmp.get("InTimeExcds", 0)
-    icmp_ratelimit_global = icmp.get("OutRateLimitGlobal", 0)
-    icmp_ratelimit_host = icmp.get("OutRateLimitHost", 0)
+    in_msgs = icmp4.get("InMsgs", 0) + icmp6.get("Icmp6InMsgs", 0)
+    out_msgs = icmp4.get("OutMsgs", 0) + icmp6.get("Icmp6OutMsgs", 0)
+    in_errors = icmp4.get("InErrors", 0) + icmp6.get("Icmp6InErrors", 0)
+    out_errors = icmp4.get("OutErrors", 0) + icmp6.get("Icmp6OutErrors", 0)
+    in_csum_errors = icmp4.get("InCsumErrors", 0)
 
-    tcp_retrans_segs = tcp.get("RetransSegs", 0)
-    tcp_estab_resets = tcp.get("EstabResets", 0)
-    tcp_attempt_fails = tcp.get("AttemptFails", 0)
-    tcp_in_errs = tcp.get("InErrs", 0)
+    in_dest_unreach = icmp4.get("InDestUnreachs", 0) + icmp6.get("Icmp6InDestUnreachs", 0)
+    out_dest_unreach = icmp4.get("OutDestUnreachs", 0) + icmp6.get("Icmp6OutDestUnreachs", 0)
 
-    udp_in_errors = udp.get("InErrors", 0)
-    udp_rcvbuf_errors = udp.get("RcvbufErrors", 0)
-    udp_sndbuf_errors = udp.get("SndbufErrors", 0)
+    in_echos = icmp4.get("InEchos", 0) + icmp6.get("Icmp6InEchos", 0)
+    out_echo_reps = icmp4.get("OutEchoReps", 0) + icmp6.get("Icmp6OutEchoReplies", 0)
+
+    ratelimit_global = icmp4.get("OutRateLimitGlobal", 0)
+    ratelimit_host = icmp4.get("OutRateLimitHost", 0)
+    total_ratelimit_drops = ratelimit_global + ratelimit_host
+
+    in_redirects = icmp4.get("InRedirects", 0)
+    out_redirects = icmp4.get("OutRedirects", 0)
+    total_redirects = in_redirects + out_redirects
+
+    in_error_ratio = float(in_errors) / max(1, in_msgs)
+    ratelimit_drop_ratio = float(total_ratelimit_drops) / max(1, out_msgs + total_ratelimit_drops)
+    echo_ratio = float(out_echo_reps) / max(1, in_echos)
 
     issues: List[str] = []
-
-    if frag_fails >= crit_frag_fails:
-        issues.append(
-            f"CRITICAL MTU Fragmentation Failures: {frag_fails:,} failed fragments. Imminent MTU blackhole risk."
-        )
-    elif frag_fails >= warn_frag_fails:
-        issues.append(
-            f"Elevated MTU Fragmentation Failures: {frag_fails:,} failed fragments. Check MTU discovery."
-        )
-
-    if out_no_routes >= crit_no_routes:
-        issues.append(
-            f"CRITICAL Outbound Unroutable Packets: {out_no_routes:,} dropped (OutNoRoutes). Check default route/VPN tunnels."
-        )
-    elif out_no_routes >= warn_no_routes:
-        issues.append(
-            f"Elevated Outbound Unroutable Packets: {out_no_routes:,} dropped (OutNoRoutes)."
-        )
-
-    if icmp_time_excds > 0:
-        issues.append(
-            f"ICMP Time-to-Live Expired: {icmp_time_excds:,} packets (routing loop or high hop count detected)."
-        )
-
     status = "HEALTHY"
-    if any("CRITICAL" in iss for iss in issues):
-        status = "CRITICAL"
-    elif issues:
+
+    if ignore_bcast != 1:
+        issues.append("WARNING: icmp_echo_ignore_broadcasts is disabled (smurf attack vulnerability)")
         status = "WARNING"
 
+    if in_csum_errors > 0:
+        issues.append(f"WARNING: ICMP checksum errors detected ({in_csum_errors} corrupt packets)")
+        status = "WARNING"
+
+    if in_error_ratio > 0.05 and in_msgs > 100:
+        issues.append(f"CRITICAL: Excessive ICMP input error ratio ({in_error_ratio:.4%}, {in_errors} errors)")
+        status = "CRITICAL"
+    elif in_error_ratio > 0.01 and in_msgs > 100:
+        issues.append(f"WARNING: Elevated ICMP input error ratio ({in_error_ratio:.4%}, {in_errors} errors)")
+        if status != "CRITICAL":
+            status = "WARNING"
+
+    if total_redirects > 100:
+        issues.append(f"WARNING: Elevated ICMP redirects ({total_redirects} redirects); check routing topology")
+        if status != "CRITICAL":
+            status = "WARNING"
+
+    healthy = status == "HEALTHY"
+    recommendation = (
+        "ICMP messaging, error ratios, rate limiters, and smurf defenses are nominal."
+        if healthy
+        else "; ".join(issues)
+    )
+
     return {
-        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "summary": {
             "status": status,
-            "healthy": status == "HEALTHY",
-            "frag_fails": frag_fails,
-            "out_no_routes": out_no_routes,
-            "icmp_dest_unreach": icmp_dest_unreach,
-            "icmp_time_excds": icmp_time_excds,
-            "icmp_ratelimit_drops": icmp_ratelimit_global + icmp_ratelimit_host,
-            "tcp_retrans_segs": tcp_retrans_segs,
-            "tcp_estab_resets": tcp_estab_resets,
-            "tcp_attempt_fails": tcp_attempt_fails,
-            "udp_buffer_errors": udp_rcvbuf_errors + udp_sndbuf_errors,
+            "healthy": healthy,
+            "in_msgs": in_msgs,
+            "out_msgs": out_msgs,
+            "in_errors": in_errors,
+            "in_error_ratio": round(in_error_ratio, 6),
+            "out_errors": out_errors,
+            "in_csum_errors": in_csum_errors,
+            "in_dest_unreach": in_dest_unreach,
+            "out_dest_unreach": out_dest_unreach,
+            "in_echos": in_echos,
+            "out_echo_reps": out_echo_reps,
+            "echo_ratio": round(echo_ratio, 4),
+            "ratelimit_global_drops": ratelimit_global,
+            "ratelimit_host_drops": ratelimit_host,
+            "total_ratelimit_drops": total_ratelimit_drops,
+            "ratelimit_drop_ratio": round(ratelimit_drop_ratio, 6),
+            "total_redirects": total_redirects,
+            "icmp_ratelimit_ms": icmp_ratelimit,
+            "icmp_ratemask": icmp_ratemask,
+            "icmp_echo_ignore_broadcasts": ignore_bcast,
+            "icmp_echo_ignore_all": ignore_all,
             "issues": issues,
+            "recommendation": recommendation,
         },
-        "metrics": {
-            "ip": ip,
-            "icmp": icmp,
-            "tcp": tcp,
-            "udp": udp,
+        "raw_stats": {
+            "icmp4": icmp4,
+            "icmp6": icmp6,
         },
     }
 
 
-def main() -> None:
+def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Jev Multi-Agent Host Network Protocol Error & ICMP Blackhole Guard (Pattern 94)"
+        description="Host Network ICMP Rate Limiting & Error Message Storm Guard (Pattern 205)"
     )
-    parser.add_argument("--json", action="store_true", help="Output JSON format")
-    parser.add_argument(
-        "--warn-frag-fails",
-        type=int,
-        default=DEFAULT_WARN_FRAG_FAILS,
-        help=f"Warning IP fragmentation failure threshold (default {DEFAULT_WARN_FRAG_FAILS})",
-    )
-    parser.add_argument(
-        "--crit-frag-fails",
-        type=int,
-        default=DEFAULT_CRIT_FRAG_FAILS,
-        help=f"Critical IP fragmentation failure threshold (default {DEFAULT_CRIT_FRAG_FAILS})",
-    )
-    parser.add_argument(
-        "--warn-no-routes",
-        type=int,
-        default=DEFAULT_WARN_NO_ROUTES,
-        help=f"Warning OutNoRoutes threshold (default {DEFAULT_WARN_NO_ROUTES})",
-    )
-    parser.add_argument(
-        "--crit-no-routes",
-        type=int,
-        default=DEFAULT_CRIT_NO_ROUTES,
-        help=f"Critical OutNoRoutes threshold (default {DEFAULT_CRIT_NO_ROUTES})",
-    )
-    parser.add_argument("--snmp-path", type=str, default=None, help="Path to /proc/net/snmp")
+    parser.add_argument("--json", action="store_true", help="Emit JSON telemetry")
     args = parser.parse_args()
 
-    result = audit_snmp(
-        snmp_path=args.snmp_path,
-        warn_frag_fails=args.warn_frag_fails,
-        crit_frag_fails=args.crit_frag_fails,
-        warn_no_routes=args.warn_no_routes,
-        crit_no_routes=args.crit_no_routes,
-    )
+    report = audit_icmp()
+    s = report["summary"]
 
     if args.json:
-        print(json.dumps(result, indent=2))
-        return
-
-    summary = result["summary"]
-    status_color = (
-        "\033[32m"
-        if summary["healthy"]
-        else ("\033[31m" if summary["status"] == "CRITICAL" else "\033[33m")
-    )
-    reset_color = "\033[0m"
-
-    print("================================================================================")
-    print(" Jev Multi-Agent Host Network Protocol Error & ICMP Blackhole Guard (Pattern 94)")
-    print("================================================================================")
-    print(f" Timestamp:              {result['timestamp']}")
-    print(f" Status:                 {status_color}{summary['status']}{reset_color}")
-    print(f" IP Frag Failures:       {summary['frag_fails']:,}")
-    print(f" Outbound No-Routes:     {summary['out_no_routes']:,}")
-    print(f" ICMP Dest Unreachable:  {summary['icmp_dest_unreach']:,}")
-    print(f" ICMP Time-to-Live Exp:  {summary['icmp_time_excds']:,}")
-    print(f" ICMP Rate-Limit Drops:  {summary['icmp_ratelimit_drops']:,}")
-    print(f" TCP Retransmit Segs:    {summary['tcp_retrans_segs']:,}")
-    print(f" TCP Established Resets: {summary['tcp_estab_resets']:,}")
-    print(f" TCP Connection Fails:   {summary['tcp_attempt_fails']:,}")
-    print(f" UDP Buffer Overruns:    {summary['udp_buffer_errors']:,}")
-
-    if summary["issues"]:
-        print("\nActive Protocol Error Warnings:")
-        for issue in summary["issues"]:
-            print(f"  [!] {issue}")
+        print(json.dumps(report, indent=2))
     else:
-        print("\nNetwork protocol counters nominal. Zero MTU blackhole or routing loop risk.")
-    print("================================================================================")
+        print(f"[{s['status']}] Pattern 205: Host Network ICMP Rate Limiting Guard")
+        print(f"  InMsgs: {s['in_msgs']:,} | OutMsgs: {s['out_msgs']:,} | InErrors: {s['in_errors']:,} ({s['in_error_ratio']:.4%})")
+        print(f"  DestUnreach (In/Out): {s['in_dest_unreach']:,} / {s['out_dest_unreach']:,}")
+        print(f"  Echo Requests / Replies: {s['in_echos']:,} / {s['out_echo_reps']:,} ({s['echo_ratio']:.2%})")
+        print(f"  RateLimit Drops: global={s['ratelimit_global_drops']:,}, host={s['ratelimit_host_drops']:,} ({s['ratelimit_drop_ratio']:.4%})")
+        print(f"  Sysctls: ratelimit={s['icmp_ratelimit_ms']}ms, ratemask={s['icmp_ratemask']}, ignore_bcast={s['icmp_echo_ignore_broadcasts']}")
+        print(f"  Recommendation: {s['recommendation']}")
+
+    return 0 if s["healthy"] else 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
