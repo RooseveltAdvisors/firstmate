@@ -2815,6 +2815,14 @@ while :; do
       "$SCRIPT_DIR/fm-jev-futex-guard.sh" --json > "$STATE/.jev-futex-guard-telemetry.json" 2>/dev/null || true
     fi
   fi
+  # Pattern 64: Jev Multi-Agent Transparent Huge Pages (THP) & Memory Compaction Stall Guard
+  if [ "${FM_DISABLE_JEV_THP_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-thp-guard.sh" ]; then
+    _thp_guard_marker="$STATE/.jev-thp-guard-last"
+    if [ ! -f "$_thp_guard_marker" ] || [ "$(age_of "$_thp_guard_marker")" -ge 1800 ]; then
+      touch "$_thp_guard_marker"
+      "$SCRIPT_DIR/fm-jev-thp-guard.sh" --json > "$STATE/.jev-thp-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
 
 
 
