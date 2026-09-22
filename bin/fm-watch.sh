@@ -2651,6 +2651,15 @@ while :; do
     fi
   fi
 
+  # Pattern 45: Jev Multi-Agent Subprocess Zombie & Defunct PPID Leak Guard
+  if [ "${FM_DISABLE_JEV_ZOMBIE_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-zombie-guard.sh" ]; then
+    _zombie_guard_marker="$STATE/.jev-zombie-guard-last"
+    if [ ! -f "$_zombie_guard_marker" ] || [ "$(age_of "$_zombie_guard_marker")" -ge 1800 ]; then
+      touch "$_zombie_guard_marker"
+      "$SCRIPT_DIR/fm-jev-zombie-guard.sh" --json > "$STATE/.jev-zombie-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
 
 
 
