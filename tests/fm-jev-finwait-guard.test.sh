@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# tests/fm-jev-finwait-guard.test.sh - Regression tests for Pattern 108 (TCP FIN-WAIT-2 Guard)
+# tests/fm-jev-finwait-guard.test.sh - Regression tests for Pattern 149 (TCP FIN-WAIT-2 Guard)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GUARD_SH="$SCRIPT_DIR/../bin/fm-jev-finwait-guard.sh"
 GUARD_PY="$SCRIPT_DIR/../bin/fm-jev-finwait-guard.py"
 
-echo "Running Pattern 108 regression tests..."
+echo "Running Pattern 149 regression tests..."
 
 # 1. ShellCheck
 shellcheck "$GUARD_SH"
@@ -27,15 +27,16 @@ import json, sys
 data = json.loads('''$json_out''')
 assert 'timestamp' in data
 assert 'summary' in data
-assert 'states' in data
+assert 'sockstat' in data
 s = data['summary']
 assert 'status' in s
 assert isinstance(s['healthy'], bool)
 assert isinstance(s['issues'], list)
 assert 'tcp_fin_timeout_sec' in s
 assert 'tcp_max_orphans' in s
-assert 'orphan_sockets' in s
+assert 'orphan_count' in s
 assert 'fin_wait2_sockets' in s
+assert 'close_wait_sockets' in s
 "
 echo "ok - json audit schema valid"
 
@@ -43,7 +44,7 @@ echo "ok - json audit schema valid"
 "$GUARD_SH" >/dev/null || true
 echo "ok - text mode runs cleanly"
 
-# 6. Unit tests with mocked sysctl and /proc/net/ files
+# 6. Unit tests with mocked files
 python3 -c "
 import sys, tempfile, os
 from pathlib import Path
@@ -53,71 +54,64 @@ mod = import_module('fm-jev-finwait-guard')
 
 with tempfile.TemporaryDirectory() as tmp_dir:
     d = Path(tmp_dir)
-    fin_file = d / 'tcp_fin_timeout'
-    orphans_file = d / 'tcp_max_orphans'
-    sockstat_file = d / 'sockstat'
-    tcp_file = d / 'tcp'
-    tcp6_file = d / 'tcp6'
+    tcp_f = d / 'tcp'
+    tcp6_f = d / 'tcp6'
+    sockstat_f = d / 'sockstat'
+    timeout_f = d / 'timeout'
+    orphans_f = d / 'orphans'
 
-    fin_file.write_text('60\n')
-    orphans_file.write_text('262144\n')
-
-    mock_sockstat = '''sockets: used 500
-TCP: inuse 100 orphan 5 tw 20 alloc 120 mem 0
-'''
-    sockstat_file.write_text(mock_sockstat)
-
-    mock_tcp = '''  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
-   0: 0100007F:1538 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 12345 1 0000000000000000 100 0 0 10 0
-   1: 0100007F:1539 0100007F:1538 05 00000000:00000000 00:00000000 00000000  1000        0 12346 1 0000000000000000 100 0 0 10 0
-   2: 0100007F:1540 0100007F:1538 04 00000000:00000000 00:00000000 00000000  1000        0 12347 1 0000000000000000 100 0 0 10 0
-'''
-    tcp_file.write_text(mock_tcp)
-    tcp6_file.write_text('  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n')
+    timeout_f.write_text('60\n')
+    orphans_f.write_text('1000\n')
+    sockstat_f.write_text('''sockets: used 500
+TCP: inuse 100 orphan 10 tw 50 alloc 120 mem 0
+''')
+    tcp6_f.write_text('  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n')
+    tcp_f.write_text('''  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+   0: 0100007F:7A69 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 776589420 1 0000000000000000 100 0 0 10 0
+   1: 0100007F:1F90 0100007F:8A34 05 00000000:00000000 00:00000000 00000000  1000        0 776589421 1 0000000000000000 100 0 0 10 0
+''')
 
     # Case 1: Nominal
     res = mod.audit_finwait(
-        fin_timeout_file=str(fin_file),
-        max_orphans_file=str(orphans_file),
-        sockstat_file=str(sockstat_file),
-        tcp_file=str(tcp_file),
-        tcp6_file=str(tcp6_file),
+        tcp_file=str(tcp_f),
+        tcp6_file=str(tcp6_f),
+        sockstat_file=str(sockstat_f),
+        fin_timeout_file=str(timeout_f),
+        max_orphans_file=str(orphans_f),
     )
     assert res['summary']['status'] == 'HEALTHY'
     assert res['summary']['healthy'] is True
-    assert res['summary']['tcp_fin_timeout_sec'] == 60
-    assert res['summary']['orphan_sockets'] == 5
     assert res['summary']['fin_wait2_sockets'] == 1
-    assert res['states']['fin_wait1'] == 1
+    assert res['summary']['orphan_count'] == 10
+    assert res['summary']['orphan_util_pct'] == 1.0
 
-    # Case 2: Excessive FIN timeout warning
-    fin_file.write_text('120\n')
+    # Case 2: Excessive timeout (> 120s) -> WARNING
+    timeout_f.write_text('180\n')
     res2 = mod.audit_finwait(
-        fin_timeout_file=str(fin_file),
-        max_orphans_file=str(orphans_file),
-        sockstat_file=str(sockstat_file),
-        tcp_file=str(tcp_file),
-        tcp6_file=str(tcp6_file),
+        tcp_file=str(tcp_f),
+        tcp6_file=str(tcp6_f),
+        sockstat_file=str(sockstat_f),
+        fin_timeout_file=str(timeout_f),
+        max_orphans_file=str(orphans_f),
     )
     assert res2['summary']['status'] == 'WARNING'
-    assert any('High tcp_fin_timeout' in iss for iss in res2['summary']['issues'])
-    fin_file.write_text('60\n')
+    assert any('Excessive tcp_fin_timeout' in iss for iss in res2['summary']['issues'])
 
-    # Case 3: High orphan socket warning
-    bad_sockstat = '''sockets: used 500
-TCP: inuse 100 orphan 2000 tw 20 alloc 120 mem 0
-'''
-    sockstat_file.write_text(bad_sockstat)
+    # Case 3: High orphan utilization (> 50%) -> WARNING
+    timeout_f.write_text('60\n')
+    sockstat_f.write_text('''sockets: used 500
+TCP: inuse 100 orphan 600 tw 50 alloc 120 mem 0
+''')
     res3 = mod.audit_finwait(
-        fin_timeout_file=str(fin_file),
-        max_orphans_file=str(orphans_file),
-        sockstat_file=str(sockstat_file),
-        tcp_file=str(tcp_file),
-        tcp6_file=str(tcp6_file),
+        tcp_file=str(tcp_f),
+        tcp6_file=str(tcp6_f),
+        sockstat_file=str(sockstat_f),
+        fin_timeout_file=str(timeout_f),
+        max_orphans_file=str(orphans_f),
     )
     assert res3['summary']['status'] == 'WARNING'
-    assert any('High orphan TCP sockets' in iss for iss in res3['summary']['issues'])
+    assert any('High orphan socket saturation' in iss for iss in res3['summary']['issues'])
 "
-echo "ok - unit tests and mock audit pass"
+echo "ok - unit tests pass"
 
-echo "All Pattern 108 tests passed!"
+echo "All Pattern 149 regression tests passed!"

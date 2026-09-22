@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
 """
-fm-jev-finwait-guard.py - Jev Multi-Agent Host Network TCP FIN-WAIT-2 & Orphan Socket Guard (Pattern 108)
+fm-jev-finwait-guard.py - Jev Multi-Agent Host Network TCP FIN-WAIT-2 Orphan & Lingering Socket Guard (Pattern 149)
 
-Audits Linux TCP FIN-WAIT-2 teardown states, orphan socket capacity, and fin_timeout limits from
-/proc/sys/net/ipv4/tcp_fin_timeout, tcp_max_orphans, /proc/net/sockstat, and /proc/net/tcp / tcp6.
+Audits Linux TCP FIN-WAIT-2 sockets, orphan sockets, and closing connection hygiene:
+  - /proc/sys/net/ipv4/tcp_fin_timeout (seconds before dropping socket in FIN-WAIT-2 state)
+  - /proc/sys/net/ipv4/tcp_max_orphans (maximum permitted unattached orphan sockets)
+  - /proc/net/sockstat TCP orphan count and socket allocation
+  - Active FIN_WAIT1 (04) and FIN_WAIT2 (05) socket counts from /proc/net/tcp and /proc/net/tcp6
+  - CLOSE_WAIT (08) socket counts (sockets waiting for local application close)
 
-Detects lingering half-closed sockets, unresponsive peer teardown hangs, orphan socket accumulation,
-and descriptor exhaustion across high-churn multi-agent RPC lifecycles, HTTP client streams, and API gateways.
+In high-concurrency multi-agent microservice meshes, ungraceful remote disconnections can accumulate
+orphaned FIN-WAIT-2 sockets, consuming kernel socket memory structures if tcp_fin_timeout is unconstrained.
+Similarly, lingering CLOSE_WAIT sockets signal local agent applications failing to invoke close() on EOF.
 
 Invariants:
   - Read-only diagnostics by default. Safe and non-destructive.
-  - Fail-open: graceful fallback when sysfs/procfs files are missing or restricted.
+  - Fail-open: graceful fallback when sysctl or procfs entries are inaccessible.
   - Fast bounded execution (< 0.03s).
 """
 
@@ -19,15 +24,15 @@ import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
+PROC_NET_TCP = "/proc/net/tcp"
+PROC_NET_TCP6 = "/proc/net/tcp6"
+PROC_SOCKSTAT = "/proc/net/sockstat"
 SYSCTL_FIN_TIMEOUT = "/proc/sys/net/ipv4/tcp_fin_timeout"
 SYSCTL_MAX_ORPHANS = "/proc/sys/net/ipv4/tcp_max_orphans"
-PROC_SOCKSTAT = "/proc/net/sockstat"
-PROC_TCP = "/proc/net/tcp"
-PROC_TCP6 = "/proc/net/tcp6"
 
-TCP_STATE_MAP = {
+STATE_MAP = {
     "01": "ESTABLISHED",
     "02": "SYN_SENT",
     "03": "SYN_RECV",
@@ -42,156 +47,155 @@ TCP_STATE_MAP = {
 }
 
 
-def read_int_file(path: Path) -> Optional[int]:
-    """Reads an integer from a sysfs/procfs file."""
+def read_int_file(path: Path, default: int = 0) -> int:
+    """Safely reads an integer from a sysctl file."""
     if not path.is_file():
-        return None
+        return default
     try:
         return int(path.read_text().strip())
     except Exception:
-        return None
+        return default
 
 
-def parse_sockstat(path: Path) -> Dict[str, int]:
-    """Parses TCP section inuse, orphan, tw, alloc, mem from /proc/net/sockstat."""
-    if not path.is_file():
-        return {}
+def parse_sockstat_orphans(sockstat_path: Path) -> Dict[str, int]:
+    """Parses orphan and inuse counts from /proc/net/sockstat."""
+    metrics = {"inuse": 0, "orphan": 0, "tw": 0, "alloc": 0}
+    if not sockstat_path.is_file():
+        return metrics
 
-    metrics: Dict[str, int] = {}
     try:
-        for line in path.read_text().splitlines():
+        lines = sockstat_path.read_text().splitlines()
+        for line in lines:
             if line.startswith("TCP:"):
                 parts = line.split()
-                # e.g. TCP: inuse 499 orphan 0 tw 227 alloc 522 mem 0
-                for i in range(1, len(parts) - 1, 2):
-                    try:
-                        metrics[parts[i]] = int(parts[i + 1])
-                    except (ValueError, IndexError):
-                        continue
+                for idx, part in enumerate(parts):
+                    if part == "inuse" and idx + 1 < len(parts):
+                        metrics["inuse"] = int(parts[idx + 1])
+                    elif part == "orphan" and idx + 1 < len(parts):
+                        metrics["orphan"] = int(parts[idx + 1])
+                    elif part == "tw" and idx + 1 < len(parts):
+                        metrics["tw"] = int(parts[idx + 1])
+                    elif part == "alloc" and idx + 1 < len(parts):
+                        metrics["alloc"] = int(parts[idx + 1])
                 break
     except Exception:
         pass
-
     return metrics
 
 
-def count_tcp_teardown_states(paths: List[Path]) -> Dict[str, int]:
-    """Parses /proc/net/tcp and /proc/net/tcp6 for connection states."""
-    counts = {
-        "FIN_WAIT1": 0,
-        "FIN_WAIT2": 0,
-        "CLOSING": 0,
-        "LAST_ACK": 0,
-        "TOTAL_SOCKS": 0,
-    }
+def parse_tcp_states(tcp_path: Path) -> Dict[str, int]:
+    """Parses socket state counts from /proc/net/tcp or tcp6."""
+    state_counts: Dict[str, int] = {name: 0 for name in STATE_MAP.values()}
+    state_counts["TOTAL"] = 0
+    if not tcp_path.is_file():
+        return state_counts
 
-    for p in paths:
-        if not p.is_file():
-            continue
-        try:
-            lines = p.read_text().splitlines()
-            for line in lines[1:]:  # skip header
-                parts = line.split()
-                if len(parts) >= 4:
-                    counts["TOTAL_SOCKS"] += 1
-                    hex_state = parts[3]
-                    state_name = TCP_STATE_MAP.get(hex_state)
-                    if state_name in counts:
-                        counts[state_name] += 1
-        except Exception:
-            pass
-
-    return counts
+    try:
+        lines = tcp_path.read_text().splitlines()[1:]
+        for line in lines:
+            parts = line.split()
+            if len(parts) > 3:
+                state_counts["TOTAL"] += 1
+                st = parts[3].upper()
+                name = STATE_MAP.get(st, "UNKNOWN")
+                if name in state_counts:
+                    state_counts[name] += 1
+    except Exception:
+        pass
+    return state_counts
 
 
 def audit_finwait(
-    fin_timeout_file: Optional[str] = None,
-    max_orphans_file: Optional[str] = None,
-    sockstat_file: Optional[str] = None,
     tcp_file: Optional[str] = None,
     tcp6_file: Optional[str] = None,
+    sockstat_file: Optional[str] = None,
+    fin_timeout_file: Optional[str] = None,
+    max_orphans_file: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Audits TCP FIN-WAIT-2 state, orphan sockets, and fin_timeout."""
-    fin_path = Path(fin_timeout_file) if fin_timeout_file else Path(SYSCTL_FIN_TIMEOUT)
+    """Audits TCP FIN-WAIT-2 sockets, orphans, and close states."""
+    t_file = Path(tcp_file) if tcp_file else Path(PROC_NET_TCP)
+    t6_file = Path(tcp6_file) if tcp6_file else Path(PROC_NET_TCP6)
+    s_file = Path(sockstat_file) if sockstat_file else Path(PROC_SOCKSTAT)
+
+    timeout_path = Path(fin_timeout_file) if fin_timeout_file else Path(SYSCTL_FIN_TIMEOUT)
     orphans_path = Path(max_orphans_file) if max_orphans_file else Path(SYSCTL_MAX_ORPHANS)
-    sockstat_path = Path(sockstat_file) if sockstat_file else Path(PROC_SOCKSTAT)
-    tcp_path = Path(tcp_file) if tcp_file else Path(PROC_TCP)
-    tcp6_path = Path(tcp6_file) if tcp6_file else Path(PROC_TCP6)
 
-    fin_timeout = read_int_file(fin_path)
-    max_orphans = read_int_file(orphans_path)
+    fin_timeout = read_int_file(timeout_path, default=60)
+    max_orphans = read_int_file(orphans_path, default=262144)
 
-    sockstat = parse_sockstat(sockstat_path)
-    orphan_count = sockstat.get("orphan", 0)
-    inuse_count = sockstat.get("inuse", 0)
-    alloc_count = sockstat.get("alloc", 0)
+    sockstat = parse_sockstat_orphans(s_file)
+    states4 = parse_tcp_states(t_file)
+    states6 = parse_tcp_states(t6_file)
 
-    teardown_states = count_tcp_teardown_states([tcp_path, tcp6_path])
+    fin_wait1 = states4.get("FIN_WAIT1", 0) + states6.get("FIN_WAIT1", 0)
+    fin_wait2 = states4.get("FIN_WAIT2", 0) + states6.get("FIN_WAIT2", 0)
+    close_wait = states4.get("CLOSE_WAIT", 0) + states6.get("CLOSE_WAIT", 0)
+    closing = states4.get("CLOSING", 0) + states6.get("CLOSING", 0)
+    last_ack = states4.get("LAST_ACK", 0) + states6.get("LAST_ACK", 0)
 
-    fin_wait2_count = teardown_states["FIN_WAIT2"]
-    fin_wait1_count = teardown_states["FIN_WAIT1"]
-    closing_count = teardown_states["CLOSING"]
-    last_ack_count = teardown_states["LAST_ACK"]
-
-    orphan_util_pct = (orphan_count / max_orphans * 100.0) if max_orphans and max_orphans > 0 else 0.0
+    orphan_count = sockstat["orphan"]
+    orphan_util_pct = round((orphan_count / max_orphans * 100), 2) if max_orphans > 0 else 0.0
 
     issues: List[str] = []
 
-    if fin_wait2_count > 200:
-        issues.append(f"Elevated FIN-WAIT-2 socket accumulation ({fin_wait2_count} sockets): dead peers failing to send FIN")
+    # 1. FIN timeout excessive (> 120s)
+    if fin_timeout > 120:
+        issues.append(f"Excessive tcp_fin_timeout ({fin_timeout}s > 120s); lingering FIN-WAIT-2 memory overhead")
 
-    if orphan_count > 1000 or orphan_util_pct > 10.0:
-        issues.append(f"High orphan TCP sockets ({orphan_count} / {max_orphans}, {orphan_util_pct:.1f}%): risk of kernel socket reset drops")
+    # 2. Orphan sockets approaching capacity (> 50%)
+    if orphan_util_pct > 50.0:
+        issues.append(f"High orphan socket saturation ({orphan_count:,} / {max_orphans:,}, {orphan_util_pct}%)")
 
-    if fin_timeout is not None and fin_timeout > 90:
-        issues.append(f"High tcp_fin_timeout ({fin_timeout}s > 90s): half-closed sockets linger excessively before destruction")
+    # 3. Massive accumulation of FIN-WAIT-2 (> 2000)
+    if fin_wait2 > 2000:
+        issues.append(f"Excessive lingering FIN-WAIT-2 sockets ({fin_wait2:,} sockets)")
 
-    status = "HEALTHY"
-    if issues:
-        status = "WARNING"
+    # 4. Massive accumulation of CLOSE-WAIT (> 500)
+    if close_wait > 500:
+        issues.append(f"Elevated CLOSE-WAIT sockets ({close_wait:,} sockets); local process socket descriptor leak")
+
+    healthy = len(issues) == 0
+    status = "HEALTHY" if healthy else "WARNING"
 
     return {
-        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "summary": {
             "status": status,
-            "healthy": status == "HEALTHY",
+            "healthy": healthy,
             "tcp_fin_timeout_sec": fin_timeout,
             "tcp_max_orphans": max_orphans,
-            "orphan_sockets": orphan_count,
-            "orphan_utilization_pct": round(orphan_util_pct, 2),
-            "fin_wait2_sockets": fin_wait2_count,
-            "total_teardown_sockets": fin_wait1_count + fin_wait2_count + closing_count + last_ack_count,
+            "orphan_count": orphan_count,
+            "orphan_util_pct": orphan_util_pct,
+            "fin_wait1_sockets": fin_wait1,
+            "fin_wait2_sockets": fin_wait2,
+            "close_wait_sockets": close_wait,
+            "closing_sockets": closing,
+            "last_ack_sockets": last_ack,
+            "total_tcp_inuse": sockstat["inuse"],
             "issues": issues,
         },
-        "states": {
-            "fin_wait1": fin_wait1_count,
-            "fin_wait2": fin_wait2_count,
-            "closing": closing_count,
-            "last_ack": last_ack_count,
-            "tcp_inuse": inuse_count,
-            "tcp_alloc": alloc_count,
-        },
+        "sockstat": sockstat,
     }
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Jev Multi-Agent Host Network TCP FIN-WAIT-2 & Orphan Socket Guard (Pattern 108)"
+        description="Jev Multi-Agent Host Network TCP FIN-WAIT-2 Orphan & Lingering Socket Guard (Pattern 149)"
     )
     parser.add_argument("--json", action="store_true", help="Output JSON format")
-    parser.add_argument("--fin-timeout-file", type=str, default=None, help="Path to tcp_fin_timeout")
-    parser.add_argument("--max-orphans-file", type=str, default=None, help="Path to tcp_max_orphans")
-    parser.add_argument("--sockstat-file", type=str, default=None, help="Path to /proc/net/sockstat")
     parser.add_argument("--tcp-file", type=str, default=None, help="Path to /proc/net/tcp")
     parser.add_argument("--tcp6-file", type=str, default=None, help="Path to /proc/net/tcp6")
+    parser.add_argument("--sockstat-file", type=str, default=None, help="Path to /proc/net/sockstat")
+    parser.add_argument("--timeout-file", type=str, default=None, help="Path to tcp_fin_timeout")
+    parser.add_argument("--max-orphans-file", type=str, default=None, help="Path to tcp_max_orphans")
     args = parser.parse_args()
 
     result = audit_finwait(
-        fin_timeout_file=args.fin_timeout_file,
-        max_orphans_file=args.max_orphans_file,
-        sockstat_file=args.sockstat_file,
         tcp_file=args.tcp_file,
         tcp6_file=args.tcp6_file,
+        sockstat_file=args.sockstat_file,
+        fin_timeout_file=args.timeout_file,
+        max_orphans_file=args.max_orphans_file,
     )
 
     if args.json:
@@ -199,34 +203,38 @@ def main() -> None:
         return
 
     summary = result["summary"]
-    states = result["states"]
     status_color = "\033[32m" if summary["healthy"] else "\033[33m"
     reset_color = "\033[0m"
 
     print("================================================================================")
-    print(" Jev Multi-Agent Host Network TCP FIN-WAIT-2 & Orphan Guard (Pattern 108)")
+    print(" Jev Multi-Agent Host Network TCP FIN-WAIT-2 & Orphan Socket Guard (Pattern 149)")
     print("================================================================================")
     print(f" Timestamp:                     {result['timestamp']}")
     print(f" Status:                        {status_color}{summary['status']}{reset_color}")
-    print(f" TCP FIN Timeout:               {summary['tcp_fin_timeout_sec']}s")
-    print(f" Max Orphans Capacity:          {summary['tcp_max_orphans']}")
-    print(f" Orphan Sockets:                {summary['orphan_sockets']} ({summary['orphan_utilization_pct']}% utilization)")
-    print(f" Total Teardown Sockets:        {summary['total_teardown_sockets']}")
+    print(f" tcp_fin_timeout:               {summary['tcp_fin_timeout_sec']}s")
+    print(f" tcp_max_orphans:               {summary['tcp_max_orphans']:,}")
+    print(f" Active Orphan Sockets:         {summary['orphan_count']:,} ({summary['orphan_util_pct']}% utilization)")
+    print(f" Sockets in FIN_WAIT1:          {summary['fin_wait1_sockets']:,}")
+    print(f" Sockets in FIN_WAIT2:          {summary['fin_wait2_sockets']:,}")
+    print(f" Sockets in CLOSE_WAIT:         {summary['close_wait_sockets']:,}")
+    print(f" Sockets in CLOSING / LAST_ACK: {summary['closing_sockets'] + summary['last_ack_sockets']:,}")
+    print(f" Total TCP In-Use Sockets:      {summary['total_tcp_inuse']:,}")
     print("--------------------------------------------------------------------------------")
-    print(f" {'Socket Teardown State':<30} {'Count':<15} {'Status'}")
+    print(f" {'Socket State / Parameter':<35} {'Count / Value':<15} {'Status'}")
     print("--------------------------------------------------------------------------------")
-    print(f" {'FIN_WAIT_2 Sockets':<30} {states['fin_wait2']:<15} {'Nominal' if states['fin_wait2'] <= 200 else 'WARNING'}")
-    print(f" {'FIN_WAIT_1 Sockets':<30} {states['fin_wait1']:<15} Nominal")
-    print(f" {'CLOSING Sockets':<30} {states['closing']:<15} Nominal")
-    print(f" {'LAST_ACK Sockets':<30} {states['last_ack']:<15} Nominal")
-    print(f" {'Total TCP In-Use':<30} {states['tcp_inuse']:<15} Nominal")
+    timeout_str = f"{summary['tcp_fin_timeout_sec']}s"
+    orphan_str = f"{summary['orphan_util_pct']}%"
+    print(f" {'FIN-WAIT-2 Timeout':<35} {timeout_str:<15} {'Nominal' if summary['tcp_fin_timeout_sec'] <= 120 else 'WARNING'}")
+    print(f" {'Orphan Socket Saturation':<35} {orphan_str:<15} {'Nominal' if summary['orphan_util_pct'] <= 50.0 else 'WARNING'}")
+    print(f" {'FIN_WAIT2 Sockets':<35} {summary['fin_wait2_sockets']:<15} {'Nominal' if summary['fin_wait2_sockets'] <= 2000 else 'WARNING'}")
+    print(f" {'CLOSE_WAIT Sockets':<35} {summary['close_wait_sockets']:<15} {'Nominal' if summary['close_wait_sockets'] <= 500 else 'WARNING'}")
 
     if summary["issues"]:
-        print("\nActive FIN-WAIT / Orphan Socket Warnings:")
+        print("\nActive TCP FIN-WAIT / Orphan Socket Warnings:")
         for issue in summary["issues"]:
             print(f"  [!] {issue}")
     else:
-        print("\nAll host TCP FIN-WAIT-2, teardown states, and orphan socket parameters nominal.")
+        print("\nAll host TCP FIN-WAIT-2 timeouts, orphan sockets, and closing connection states nominal.")
     print("================================================================================")
 
 
