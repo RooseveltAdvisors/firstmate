@@ -1,18 +1,23 @@
 #!/usr/bin/env python3
 """
-fm-jev-abort-guard.py - Jev Multi-Agent Host Network TCP Connection Abort & Unread Data Reset Guard (Pattern 120)
+fm-jev-abort-guard.py - Jev Multi-Agent Host Network TCP Connection Abort & Socket Reset Guard (Pattern 146)
 
-Audits Linux TCP connection abort mechanisms, unread receive data resets, and abort-on-overflow settings from
-/proc/sys/net/ipv4/tcp_abort_on_overflow, tcp_retries1, tcp_retries2, and /proc/net/netstat
-(TcpExt: TCPAbortOnData, TCPAbortOnClose, TCPAbortOnMemory, TCPAbortOnTimeout, TCPAbortOnLinger,
-TCPAbortFailed, EmbryonicRsts).
+Audits Linux TCP connection aborts, unread data socket resets, and memory exhaustion from /proc/net/netstat and /proc/net/snmp:
+  - TCPAbortOnData (RST sent on close because unread data remained in the receive buffer)
+  - TCPAbortOnClose (RST sent on close when socket option SO_LINGER is configured or connection reset)
+  - TCPAbortOnTimeout (Connection aborted due to retransmission timeouts, tcp_retries2 exceeded)
+  - TCPAbortOnMemory (Connection aborted because kernel ran out of TCP socket memory)
+  - TCPAbortFailed (Kernel failed to allocate or transmit abort RST frame)
+  - TCPBacklogDrop (Packets dropped because socket backlog was full)
+  - EstabResets (Established connections reset by incoming RST)
 
-Detects unconsumed socket data before close (triggering abrupt RST packets and breaking HTTP/RPC connection pooling),
-listen backlog overflow RST spikes, dead peer timeout aborts, and memory-induced connection drops across multi-agent processes.
+In multi-agent microservice networks and high-throughput streaming pipelines, excessive TCPAbortOnData
+indicates application clients terminating connections without draining responses, creating unexpected TCP RSTs
+that break upstream reverse proxy keepalive connection pools. TCPAbortOnMemory indicates critical kernel network buffer exhaustion.
 
 Invariants:
   - Read-only diagnostics by default. Safe and non-destructive.
-  - Fail-open: graceful fallback when sysfs/procfs files are missing or restricted.
+  - Fail-open: graceful fallback when sysctl or procfs entries are inaccessible.
   - Fast bounded execution (< 0.03s).
 """
 
@@ -23,103 +28,96 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-SYSCTL_ABORT_OVERFLOW = "/proc/sys/net/ipv4/tcp_abort_on_overflow"
-SYSCTL_RETRIES1 = "/proc/sys/net/ipv4/tcp_retries1"
-SYSCTL_RETRIES2 = "/proc/sys/net/ipv4/tcp_retries2"
 PROC_NETSTAT = "/proc/net/netstat"
+PROC_SNMP = "/proc/net/snmp"
 
 
-def read_int_file(path: Path) -> Optional[int]:
-    """Reads an integer from a sysfs/procfs file."""
-    if not path.is_file():
-        return None
-    try:
-        return int(path.read_text().strip())
-    except Exception:
-        return None
+def parse_abort_counters(netstat_path: Path, snmp_path: Path) -> Dict[str, int]:
+    """Parses TCP abort and reset counters from /proc/net/netstat and /proc/net/snmp."""
+    counters: Dict[str, int] = {
+        "abort_on_data": 0,
+        "abort_on_close": 0,
+        "abort_on_timeout": 0,
+        "abort_on_memory": 0,
+        "abort_failed": 0,
+        "backlog_drop": 0,
+        "estab_resets": 0,
+        "active_opens": 0,
+        "passive_opens": 0,
+    }
+
+    if netstat_path.is_file():
+        try:
+            lines = netstat_path.read_text().splitlines()
+            for i in range(0, len(lines) - 1, 2):
+                header_line = lines[i].strip()
+                data_line = lines[i + 1].strip()
+                if header_line.startswith("TcpExt:") and data_line.startswith("TcpExt:"):
+                    headers = header_line.split()[1:]
+                    values = data_line.split()[1:]
+                    header_map = {h: int(v) for h, v in zip(headers, values) if v.isdigit()}
+
+                    counters["abort_on_data"] = header_map.get("TCPAbortOnData", 0)
+                    counters["abort_on_close"] = header_map.get("TCPAbortOnClose", 0)
+                    counters["abort_on_timeout"] = header_map.get("TCPAbortOnTimeout", 0)
+                    counters["abort_on_memory"] = header_map.get("TCPAbortOnMemory", 0)
+                    counters["abort_failed"] = header_map.get("TCPAbortFailed", 0)
+                    counters["backlog_drop"] = header_map.get("TCPBacklogDrop", 0)
+                    break
+        except Exception:
+            pass
+
+    if snmp_path.is_file():
+        try:
+            lines = snmp_path.read_text().splitlines()
+            for i in range(0, len(lines) - 1, 2):
+                header_line = lines[i].strip()
+                data_line = lines[i + 1].strip()
+                if header_line.startswith("Tcp:") and data_line.startswith("Tcp:"):
+                    headers = header_line.split()[1:]
+                    values = data_line.split()[1:]
+                    header_map = {h: int(v) for h, v in zip(headers, values) if v.isdigit()}
+
+                    counters["estab_resets"] = header_map.get("EstabResets", 0)
+                    counters["active_opens"] = header_map.get("ActiveOpens", 0)
+                    counters["passive_opens"] = header_map.get("PassiveOpens", 0)
+                    break
+        except Exception:
+            pass
+
+    return counters
 
 
-def parse_tcpext_netstat(path: Path) -> Dict[str, int]:
-    """Parses TcpExt key-value metrics from /proc/net/netstat."""
-    if not path.is_file():
-        return {}
+def audit_tcp_aborts(netstat_file: Optional[str] = None, snmp_file: Optional[str] = None) -> Dict[str, Any]:
+    """Audits TCP connection aborts and reset rates across the host."""
+    netstat_path = Path(netstat_file) if netstat_file else Path(PROC_NETSTAT)
+    snmp_path = Path(snmp_file) if snmp_file else Path(PROC_SNMP)
 
-    metrics: Dict[str, int] = {}
-    try:
-        lines = path.read_text().splitlines()
-        for i in range(len(lines) - 1):
-            if lines[i].startswith("TcpExt:") and lines[i + 1].startswith("TcpExt:"):
-                keys = lines[i].split()[1:]
-                vals_raw = lines[i + 1].split()[1:]
-                for k, v in zip(keys, vals_raw):
-                    try:
-                        metrics[k] = int(v)
-                    except ValueError:
-                        continue
-                break
-    except Exception:
-        return {}
+    counters = parse_abort_counters(netstat_path, snmp_path)
+    total_connections = counters["active_opens"] + counters["passive_opens"]
+    abort_on_data = counters["abort_on_data"]
+    abort_on_memory = counters["abort_on_memory"]
+    abort_on_timeout = counters["abort_on_timeout"]
+    abort_failed = counters["abort_failed"]
+    backlog_drop = counters["backlog_drop"]
 
-    return metrics
-
-
-def audit_abort(
-    overflow_file: Optional[str] = None,
-    retries1_file: Optional[str] = None,
-    retries2_file: Optional[str] = None,
-    netstat_file: Optional[str] = None,
-) -> Dict[str, Any]:
-    """Audits host TCP connection abort parameters and counters."""
-    overflow_p = Path(overflow_file or SYSCTL_ABORT_OVERFLOW)
-    retries1_p = Path(retries1_file or SYSCTL_RETRIES1)
-    retries2_p = Path(retries2_file or SYSCTL_RETRIES2)
-    netstat_p = Path(netstat_file or PROC_NETSTAT)
-
-    tcp_abort_on_overflow = read_int_file(overflow_p)
-    if tcp_abort_on_overflow is None:
-        tcp_abort_on_overflow = 0
-
-    tcp_retries1 = read_int_file(retries1_p)
-    if tcp_retries1 is None:
-        tcp_retries1 = 3
-
-    tcp_retries2 = read_int_file(retries2_p)
-    if tcp_retries2 is None:
-        tcp_retries2 = 15
-
-    tcpext = parse_tcpext_netstat(netstat_p)
-
-    abort_on_data = tcpext.get("TCPAbortOnData", 0)
-    abort_on_close = tcpext.get("TCPAbortOnClose", 0)
-    abort_on_memory = tcpext.get("TCPAbortOnMemory", 0)
-    abort_on_timeout = tcpext.get("TCPAbortOnTimeout", 0)
-    abort_on_linger = tcpext.get("TCPAbortOnLinger", 0)
-    abort_failed = tcpext.get("TCPAbortFailed", 0)
-    embryonic_rsts = tcpext.get("EmbryonicRsts", 0)
+    abort_on_data_pct = round((abort_on_data / total_connections * 100), 2) if total_connections > 0 else 0.0
 
     issues: List[str] = []
-    healthy = True
 
-    if tcp_abort_on_overflow == 1:
-        healthy = False
-        issues.append("tcp_abort_on_overflow is enabled (1). Backlog saturation sends immediate connection RST instead of SYN retransmission smoothing.")
-
-    if tcp_retries2 < 5:
-        healthy = False
-        issues.append(f"tcp_retries2 is low ({tcp_retries2} < 5). Connections may abort prematurely under transient network jitter.")
-
+    # 1. Critical: Abort on memory > 0
     if abort_on_memory > 0:
-        healthy = False
-        issues.append(f"TCP connections aborted due to kernel memory exhaustion ({abort_on_memory:,} events).")
+        issues.append(f"Critical: {abort_on_memory:,} TCP connections aborted due to kernel memory exhaustion")
 
-    if abort_failed > 100:
-        healthy = False
-        issues.append(f"Elevated failed connection abort transmissions ({abort_failed:,} failed RST sends).")
+    # 2. Abort failed > 1000
+    if abort_failed > 1000:
+        issues.append(f"Elevated TCP abort failures ({abort_failed:,} failed abort RST frames)")
 
-    if abort_on_timeout > 50000:
-        healthy = False
-        issues.append(f"Elevated TCP connection abort timeouts ({abort_on_timeout:,} timeouts). Persistent peer unreachability or blackholes.")
+    # 3. Socket backlog drops > 500
+    if backlog_drop > 500:
+        issues.append(f"Socket backlog drops detected ({backlog_drop:,} packets dropped)")
 
+    healthy = len(issues) == 0
     status = "HEALTHY" if healthy else "WARNING"
 
     return {
@@ -127,47 +125,31 @@ def audit_abort(
         "summary": {
             "status": status,
             "healthy": healthy,
-            "tcp_abort_on_overflow": tcp_abort_on_overflow,
-            "tcp_retries1": tcp_retries1,
-            "tcp_retries2": tcp_retries2,
+            "total_connections": total_connections,
             "abort_on_data": abort_on_data,
-            "abort_on_close": abort_on_close,
-            "abort_on_memory": abort_on_memory,
+            "abort_on_data_pct": abort_on_data_pct,
+            "abort_on_close": counters["abort_on_close"],
             "abort_on_timeout": abort_on_timeout,
-            "abort_on_linger": abort_on_linger,
+            "abort_on_memory": abort_on_memory,
             "abort_failed": abort_failed,
-            "embryonic_rsts": embryonic_rsts,
+            "backlog_drop": backlog_drop,
+            "estab_resets": counters["estab_resets"],
             "issues": issues,
         },
-        "counters": {
-            "abort_on_data": abort_on_data,
-            "abort_on_close": abort_on_close,
-            "abort_on_memory": abort_on_memory,
-            "abort_on_timeout": abort_on_timeout,
-            "abort_on_linger": abort_on_linger,
-            "abort_failed": abort_failed,
-            "embryonic_rsts": embryonic_rsts,
-        },
+        "counters": counters,
     }
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Jev Multi-Agent Host Network TCP Connection Abort & Unread Data Reset Guard (Pattern 120)"
+        description="Jev Multi-Agent Host Network TCP Connection Abort & Socket Reset Guard (Pattern 146)"
     )
     parser.add_argument("--json", action="store_true", help="Output JSON format")
-    parser.add_argument("--overflow-file", type=str, default=None, help="Path to tcp_abort_on_overflow")
-    parser.add_argument("--retries1-file", type=str, default=None, help="Path to tcp_retries1")
-    parser.add_argument("--retries2-file", type=str, default=None, help="Path to tcp_retries2")
     parser.add_argument("--netstat-file", type=str, default=None, help="Path to /proc/net/netstat")
+    parser.add_argument("--snmp-file", type=str, default=None, help="Path to /proc/net/snmp")
     args = parser.parse_args()
 
-    result = audit_abort(
-        overflow_file=args.overflow_file,
-        retries1_file=args.retries1_file,
-        retries2_file=args.retries2_file,
-        netstat_file=args.netstat_file,
-    )
+    result = audit_tcp_aborts(netstat_file=args.netstat_file, snmp_file=args.snmp_file)
 
     if args.json:
         print(json.dumps(result, indent=2))
@@ -179,34 +161,31 @@ def main() -> None:
     reset_color = "\033[0m"
 
     print("================================================================================")
-    print(" Jev Multi-Agent Host Network TCP Connection Abort & Reset Guard (Pattern 120)")
+    print(" Jev Multi-Agent Host Network TCP Connection Abort Guard (Pattern 146)")
     print("================================================================================")
     print(f" Timestamp:                     {result['timestamp']}")
     print(f" Status:                        {status_color}{summary['status']}{reset_color}")
-    print(f" Abort on Overflow:             {summary['tcp_abort_on_overflow']} ({'Enabled (RST on full backlog)' if summary['tcp_abort_on_overflow'] == 1 else 'Disabled (SYN drop retry smoothing)'})")
-    print(f" TCP Retries Limit:             retries1={summary['tcp_retries1']} retries2={summary['tcp_retries2']}")
-    print(f" Abort on Unread Data (RST):    {summary['abort_on_data']:,}")
-    print(f" Abort on Close:                {summary['abort_on_close']:,}")
-    print(f" Abort on Retransmit Timeout:   {summary['abort_on_timeout']:,}")
-    print(f" Abort on Memory Exhaustion:    {summary['abort_on_memory']:,}")
-    print(f" Failed Abort Transmissions:    {summary['abort_failed']:,}")
-    print(f" Embryonic (SYN-RECV) RSTs:     {summary['embryonic_rsts']:,}")
+    print(f" Total Connections Opened:      {summary['total_connections']:,} ({counters['active_opens']:,} act / {counters['passive_opens']:,} pas)")
+    print(f" TCP Abort on Unread Data:      {summary['abort_on_data']:,} ({summary['abort_on_data_pct']}% of conn)")
+    print(f" TCP Abort on Close:            {summary['abort_on_close']:,}")
+    print(f" TCP Abort on Retrans Timeout:  {summary['abort_on_timeout']:,}")
+    print(f" TCP Abort on Memory Exhaust:   {summary['abort_on_memory']:,}")
+    print(f" TCP Abort Transmit Failures:   {summary['abort_failed']:,}")
+    print(f" TCP Socket Backlog Drops:      {summary['backlog_drop']:,}")
+    print(f" Established Connection Resets: {summary['estab_resets']:,}")
     print("--------------------------------------------------------------------------------")
-    print(f" {'Connection Abort Metric':<35} {'Count':<15} {'Status'}")
+    print(f" {'Abort / Reset Metric':<35} {'Count / Value':<15} {'Status'}")
     print("--------------------------------------------------------------------------------")
-    print(f" {'Abort on Unread Data':<35} {counters['abort_on_data']:<15} Nominal")
-    print(f" {'Abort on Close':<35} {counters['abort_on_close']:<15} Nominal")
-    print(f" {'Abort on Retransmit Timeout':<35} {counters['abort_on_timeout']:<15} {'Nominal' if counters['abort_on_timeout'] <= 50000 else 'WARNING'}")
-    print(f" {'Abort on Memory Exhaustion':<35} {counters['abort_on_memory']:<15} {'Nominal' if counters['abort_on_memory'] == 0 else 'WARNING'}")
-    print(f" {'Failed Abort Transmissions':<35} {counters['abort_failed']:<15} {'Nominal' if counters['abort_failed'] <= 100 else 'WARNING'}")
-    print(f" {'Embryonic SYN-RECV RSTs':<35} {counters['embryonic_rsts']:<15} Nominal")
+    print(f" {'Abort on Memory Exhaustion':<35} {summary['abort_on_memory']:<15} {'Nominal' if summary['abort_on_memory'] == 0 else 'CRITICAL'}")
+    print(f" {'Abort Failed Count':<35} {summary['abort_failed']:<15} {'Nominal' if summary['abort_failed'] <= 1000 else 'WARNING'}")
+    print(f" {'Backlog Packet Drops':<35} {summary['backlog_drop']:<15} {'Nominal' if summary['backlog_drop'] <= 500 else 'WARNING'}")
 
     if summary["issues"]:
-        print("\nActive TCP Connection Abort Warnings:")
+        print("\nActive TCP Abort / Connection Reset Warnings:")
         for issue in summary["issues"]:
             print(f"  [!] {issue}")
     else:
-        print("\nAll host TCP connection abort and reset parameters nominal.")
+        print("\nAll host TCP connection aborts, unread data resets, and socket memory nominal.")
     print("================================================================================")
 
 
