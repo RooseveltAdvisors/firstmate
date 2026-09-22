@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+cursor_state=fresh
+cursor_stale=false
+cursor_remaining=50
+cursor_runway=through_reset
+codex_model_remaining=50
+codex_model_runway=through_reset
+case "${EVIDENCE_CASE:-fresh}" in
+  stale) cursor_stale=true ;;
+  unknown) cursor_runway=unknown ;;
+  exhausted) cursor_remaining=0; cursor_runway=exhausted_now ;;
+  codex_model_exhausted) codex_model_remaining=0; codex_model_runway=exhausted_now ;;
+esac
+printf '{"schemaVersion":5,"providers":[{"provider":"cursor","state":{"status":"%s","stale":%s},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":%s,"runway":{"status":"%s"}}]}},{"provider":"codex","state":{"status":"fresh","stale":false},"credits":{"remaining":1},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":50,"runway":{"status":"through_reset"}},{"scope":"model:gpt-5.6-luna","status":"known","effectivePercentRemaining":%s,"runway":{"status":"%s"}}]}}]}' "$cursor_state" "$cursor_stale" "$cursor_remaining" "$cursor_runway" "$codex_model_remaining" "$codex_model_runway"
