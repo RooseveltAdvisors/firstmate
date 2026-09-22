@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# bin/fm-jev-udp-guard.sh - Wrapper for UDP Datagram Buffer & Raw Socket Snooping Guard (Pattern 203)
+# bin/fm-jev-udp-guard.sh - Host Network UDP Datagram Buffer & Socket Drop Guard (Pattern 215)
+# Audits Linux kernel UDP datagram queues, socket drops, buffer memory, and protocol errors.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PYTHON_BIN="${PYTHON_BIN:-python3}"
-
-exec "$PYTHON_BIN" "$SCRIPT_DIR/fm-jev-udp-guard.py" "$@"
+exec python3 "${SCRIPT_DIR}/fm-jev-udp-guard.py" "$@"
