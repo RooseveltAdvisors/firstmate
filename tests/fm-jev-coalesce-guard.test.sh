@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tests/fm-jev-coalesce-guard.test.sh - Regression tests for Pattern 153 (TCP Coalesce Guard)
+# tests/fm-jev-coalesce-guard.test.sh - Regression tests for Pattern 153 (TCP Packet Coalescing Guard)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -32,12 +32,9 @@ s = data['summary']
 assert 'status' in s
 assert isinstance(s['healthy'], bool)
 assert isinstance(s['issues'], list)
-assert 'in_segs' in s
-assert 'rcv_coalesce' in s
-assert 'backlog_coalesce' in s
 assert 'total_coalesced' in s
 assert 'coalesce_ratio_pct' in s
-assert 'autocorking' in s
+assert 'delivered' in s
 "
 echo "ok - json audit schema valid"
 
@@ -56,31 +53,25 @@ mod = import_module('fm-jev-coalesce-guard')
 with tempfile.TemporaryDirectory() as tmp_dir:
     d = Path(tmp_dir)
     netstat_f = d / 'netstat'
-    snmp_f = d / 'snmp'
 
-    netstat_f.write_text('''TcpExt: TCPRcvCoalesce TCPBacklogCoalesce TCPAutoCorking
-TcpExt: 50000 2500 70000
-''')
-    snmp_f.write_text('''Tcp: RtoAlgorithm RtoMin RtoMax MaxConn ActiveOpens PassiveOpens AttemptFails EstabResets CurrEstab InSegs OutSegs RetransSegs InErrs OutRsts InCsumErrors
-Tcp: 1 200 120000 -1 18000000 3000000 1500000 600000 350 1000000 1500000 300000 0 14000000 0
+    netstat_f.write_text('''TcpExt: TCPRcvCoalesce TCPBacklogCoalesce TCPDelivered TCPRcvCollapsed TCPPruneDrop
+TcpExt: 5000 500 100000 20 0
 ''')
 
-    # Case 1: Nominal coalescing (52,500 / 1,000,000 = 5.25%)
-    res = mod.audit_coalesce(netstat_file=str(netstat_f), snmp_file=str(snmp_f))
+    # Case 1: Nominal (5500 coalesced / 100000 delivered = 5.5%)
+    res = mod.audit_coalesce(netstat_file=str(netstat_f))
     assert res['summary']['status'] == 'HEALTHY'
     assert res['summary']['healthy'] is True
-    assert res['summary']['rcv_coalesce'] == 50000
-    assert res['summary']['backlog_coalesce'] == 2500
-    assert res['summary']['total_coalesced'] == 52500
-    assert res['summary']['coalesce_ratio_pct'] == 5.25
+    assert res['summary']['total_coalesced'] == 5500
+    assert res['summary']['coalesce_ratio_pct'] == 5.5
 
-    # Case 2: High traffic but zero coalescing -> WARNING
-    netstat_f.write_text('''TcpExt: TCPRcvCoalesce TCPBacklogCoalesce TCPAutoCorking
-TcpExt: 0 0 0
+    # Case 2: Prune drop > 0 -> WARNING
+    netstat_f.write_text('''TcpExt: TCPRcvCoalesce TCPBacklogCoalesce TCPDelivered TCPRcvCollapsed TCPPruneDrop
+TcpExt: 5000 500 100000 20 15
 ''')
-    res2 = mod.audit_coalesce(netstat_file=str(netstat_f), snmp_file=str(snmp_f))
+    res2 = mod.audit_coalesce(netstat_file=str(netstat_f))
     assert res2['summary']['status'] == 'WARNING'
-    assert any('Zero TCP packet coalescing' in iss for iss in res2['summary']['issues'])
+    assert any('Receive queue prune drops detected' in iss for iss in res2['summary']['issues'])
 "
 echo "ok - unit tests pass"
 
