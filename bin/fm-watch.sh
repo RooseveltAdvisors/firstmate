@@ -2648,6 +2648,16 @@ while :; do
     fi
   fi
 
+  # Pattern 95: Jev Multi-Agent Host Network ICMP Rate Limiting & Message Storm Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_ICMP_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-icmp-guard.sh" ]; then
+    _icmp_guard_marker="$STATE/.jev-icmp-guard-last"
+    if [ ! -f "$_icmp_guard_marker" ] || [ "$(age_of "$_icmp_guard_marker")" -ge 1800 ]; then
+      touch "$_icmp_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-icmp-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
   # Pattern 89: Jev Multi-Agent Host Kernel SLUB/SLAB Memory Object & Allocator Fragmentation Guard
   # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
   if [ "${FM_DISABLE_JEV_SLAB_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-slab-guard.sh" ]; then
