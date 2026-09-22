@@ -4,7 +4,7 @@ fm-jev-quota-prober.py - Jev System One Pre-Flight Quota & Token Health Prober.
 
 Performs sub-second runway and credential probes before worker launch to prevent
 429 quota exhaustion and revoked-token stalls. Automatically diverts doomed
-worker spawns to viable high-runway lanes (e.g. Cursor Grok 4.6 High).
+worker spawns to viable high-runway lanes (never Grok — firstmate-only).
 
 Usage:
   bin/fm-jev-quota-prober.py --harness <harness> [--model <model>] [--auto-divert] [--json]
@@ -21,8 +21,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-DEFAULT_SAFE_HARNESS = "cursor"
-DEFAULT_SAFE_MODEL = "cursor-grok-4.6-high"
+# Captain 2026-09-21: Grok is firstmate-only. Never divert crews/no-mistakes to Grok.
+DEFAULT_SAFE_HARNESS = "pi"
+DEFAULT_SAFE_MODEL = "opencode-go/glm-5.3-flash"
 
 
 def query_quota_axi(providers: list[str] | None = None) -> dict:
@@ -111,7 +112,7 @@ def probe_harness(harness: str, model: str | None = None) -> dict:
 
     # 2. Pi / Zai Probe
     elif harness == "pi":
-        if "zai-general" in model or "glm" in model:
+        if ("zai" in model or "zai-general" in model) and "opencode" not in model:
             if is_zai_bundle_dry():
                 return {
                     "harness": harness,
@@ -182,10 +183,11 @@ def main() -> int:
 
     if args.check_all:
         results = [
-            probe_harness("cursor", "cursor-grok-4.6-high"),
+            probe_harness("cursor", "gpt-5.6-luna-high"),
             probe_harness("cursor", "cursor-small"),
             probe_harness("codex", "gpt-5.6-luna"),
-            probe_harness("pi", "zai-general/glm-5.3-flash"),
+            probe_harness("pi", "opencode-go/glm-5.3-flash"),
+            probe_harness("agy", "gemini-3.8-flash-high"),
         ]
         if args.json:
             print(json.dumps(results, indent=2))
