@@ -2975,6 +2975,15 @@ while :; do
       "$SCRIPT_DIR/fm-jev-inactive-outcome-reconciler.sh" --json > "$STATE/.jev-inactive-reconciler-telemetry.json" 2>/dev/null || true
     fi
   fi
+  # Pattern 228: Jev Multi-Agent Fleet Worker Inbox Stale Backlog & Dead Endpoint Drain Guard
+  if [ "${FM_DISABLE_JEV_STALE_INBOX_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-stale-inbox-guard.sh" ]; then
+    _inbox_marker="$STATE/.jev-stale-inbox-guard-last"
+    if [ ! -f "$_inbox_marker" ] || [ "$(age_of "$_inbox_marker")" -ge 1800 ]; then
+      touch "$_inbox_marker"
+      "$SCRIPT_DIR/fm-jev-stale-inbox-guard.sh" --drain-dead --json > "$STATE/.jev-stale-inbox-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
 
 
 
