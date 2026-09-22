@@ -2919,6 +2919,14 @@ while :; do
       "$SCRIPT_DIR/fm-jev-cgroup-guard.sh" --json > "$STATE/.jev-cgroup-guard-telemetry.json" 2>/dev/null || true
     fi
   fi
+  # Pattern 77: Jev Multi-Agent Ephemeral Port & Local Socket Bind Exhaustion Guard
+  if [ "${FM_DISABLE_JEV_PORT_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-port-guard.sh" ]; then
+    _port_marker="$STATE/.jev-port-guard-last"
+    if [ ! -f "$_port_marker" ] || [ "$(age_of "$_port_marker")" -ge 1800 ]; then
+      touch "$_port_marker"
+      "$SCRIPT_DIR/fm-jev-port-guard.sh" --json > "$STATE/.jev-port-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
 
 
 
