@@ -2977,6 +2977,14 @@ while :; do
       "$SCRIPT_DIR/fm-jev-numa-guard.sh" --json > "$STATE/.jev-numa-guard-telemetry.json" 2>/dev/null || true
     fi
   fi
+  # Pattern 84: Jev Multi-Agent Kernel OOM Score & Process Priority Bias Guard
+  if [ "${FM_DISABLE_JEV_OOM_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-oom-guard.sh" ]; then
+    _oom_marker="$STATE/.jev-oom-guard-last"
+    if [ ! -f "$_oom_marker" ] || [ "$(age_of "$_oom_marker")" -ge 1800 ]; then
+      touch "$_oom_marker"
+      "$SCRIPT_DIR/fm-jev-oom-guard.sh" --json > "$STATE/.jev-oom-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
 
   # Pattern 226: Jev Terminal Inactive-Outcome Auto-Reconciliation & Wake Guard
   if [ "${FM_DISABLE_JEV_INACTIVE_RECONCILER:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-inactive-outcome-reconciler.sh" ]; then
