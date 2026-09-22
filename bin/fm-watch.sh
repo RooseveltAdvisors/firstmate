@@ -2887,6 +2887,14 @@ while :; do
       "$SCRIPT_DIR/fm-jev-tw-guard.sh" --json > "$STATE/.jev-tw-guard-telemetry.json" 2>/dev/null || true
     fi
   fi
+  # Pattern 73: Jev Multi-Agent System V IPC Shared Memory & Semaphore Array Leak Guard
+  if [ "${FM_DISABLE_JEV_SYSVIPC_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-sysvipc-guard.sh" ]; then
+    _sysvipc_marker="$STATE/.jev-sysvipc-guard-last"
+    if [ ! -f "$_sysvipc_marker" ] || [ "$(age_of "$_sysvipc_marker")" -ge 1800 ]; then
+      touch "$_sysvipc_marker"
+      "$SCRIPT_DIR/fm-jev-sysvipc-guard.sh" --json > "$STATE/.jev-sysvipc-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
 
 
 
