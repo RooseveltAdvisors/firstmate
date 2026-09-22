@@ -2895,6 +2895,14 @@ while :; do
       "$SCRIPT_DIR/fm-jev-sysvipc-guard.sh" --json > "$STATE/.jev-sysvipc-guard-telemetry.json" 2>/dev/null || true
     fi
   fi
+  # Pattern 74: Jev Multi-Agent Unix Domain Socket & Abstract Namespace Leak Guard
+  if [ "${FM_DISABLE_JEV_UNIX_SOCKET_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-unix-socket-guard.sh" ]; then
+    _unix_socket_marker="$STATE/.jev-unix-socket-guard-last"
+    if [ ! -f "$_unix_socket_marker" ] || [ "$(age_of "$_unix_socket_marker")" -ge 1800 ]; then
+      touch "$_unix_socket_marker"
+      "$SCRIPT_DIR/fm-jev-unix-socket-guard.sh" --json > "$STATE/.jev-unix-socket-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
 
 
 
