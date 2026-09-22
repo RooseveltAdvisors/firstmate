@@ -194,6 +194,26 @@ def is_fast_pass_supervisor(subcmd: str) -> bool:
     clean = clean_subcommand(subcmd)
     if not clean:
         return True
+    # Unwrap bash / sh wrappers around approved tools
+    unwrapped = re.sub(r"^(?:bash|sh)\s+", "", clean).strip()
+
+    # 0. Supervisor delegation and task messaging tools are always fast-path
+    # (Their message payloads may legitimately instruct Second Mates to run systemctl, journalctl, docker, etc.)
+    delegation_prefixes = (
+        "bin/fm-send.sh",
+        "/opt/ra/firstmate/bin/fm-send.sh",
+        "bd ",
+        "bd",
+        "tasks-axi",
+        "bin/fm-tasks-axi.sh",
+        "/opt/ra/firstmate/bin/fm-tasks-axi.sh",
+        "bin/fm-brief.sh",
+        "/opt/ra/firstmate/bin/fm-brief.sh",
+        "bin/fm-spawn.sh",
+        "/opt/ra/firstmate/bin/fm-spawn.sh",
+    )
+    if clean.startswith(delegation_prefixes) or unwrapped.startswith(delegation_prefixes):
+        return True
 
     # 1. Immediate disallow for remote ssh or systemd/package mutations
     if any(k in clean for k in ("ssh ", "ssh\t", "sudo ", "apt-get", "apt ", "systemctl", "journalctl", "docker ")):
