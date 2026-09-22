@@ -1,13 +1,8 @@
 #!/usr/bin/env bash
-# fm-jev-epoll-guard.sh - Pattern 85: Jev Multi-Agent Kernel Epoll & Eventfd Descriptor Saturation Guard
+# fm-jev-epoll-guard.sh - Wrapper for Jev Host Network TCP Epoll Wait Guard (Pattern 139)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PYTHON_EXEC="python3"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
 
-if ! command -v "$PYTHON_EXEC" >/dev/null 2>&1; then
-    echo "ERROR: python3 required for fm-jev-epoll-guard" >&2
-    exit 1
-fi
-
-exec "$PYTHON_EXEC" "$SCRIPT_DIR/fm-jev-epoll-guard.py" "$@"
+exec "$PYTHON_BIN" "$SCRIPT_DIR/fm-jev-epoll-guard.py" "$@"
