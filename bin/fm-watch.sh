@@ -2417,6 +2417,9 @@ while :; do
   # generic recovery reason, so give that owner first refusal.
   resurface_after_downtime
 
+  # The deterministic behavior suite exercises each Jev owner directly. Keep
+  # periodic host housekeeping out of unrelated watcher fixtures.
+  if [ -z "${FM_TEST_LIB_SOURCED:-}" ]; then
   # Pattern 18: Jev Cross-Seat Doorbell & Stale Notification Vacuum
   if [ "${FM_DISABLE_JEV_DOORBELL_VACUUM:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-doorbell-vacuum.sh" ]; then
     _vacuum_marker="$STATE/.jev-doorbell-vacuum-last"
@@ -2559,6 +2562,7 @@ while :; do
       touch "$_dump_sweeper_marker"
       "$SCRIPT_DIR/fm-jev-dump-sweeper.sh" --json > "$STATE/.jev-dump-sweeper-telemetry.json" 2>/dev/null || true
     fi
+  fi
   fi
 
 

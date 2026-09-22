@@ -1080,7 +1080,7 @@ spawn_remote_secondmate() {
   fm_lock_release "$remote_lock" || true
   fm_lock_release "$registry_lock" || true
   fm_lock_release "$SPAWN_TASK_LOCK" || true
-  "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
+  [ -n "${FM_TEST_LIB_SOURCED:-}" ] || "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
   if ! "$SCRIPT_DIR/fm-procevent-remote-reply.sh" arm "$id" >/dev/null; then
     echo "error: remote secondmate $id launched, but its reply source could not be armed; endpoint metadata is preserved" >&2
     return 1
@@ -2261,7 +2261,8 @@ if [ "$HARNESS" = agy ]; then
 fi
 
 # Jev Pattern 11: Auto-reconcile dormant completed babysitter seats
-if [ "${FM_TEST_DISABLE_JEV_RECONCILER:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-seat-reconciler.sh" ]; then
+if [ -z "${FM_TEST_LIB_SOURCED:-}" ] && [ "${FM_TEST_DISABLE_JEV_RECONCILER:-0}" != 1 ] &&
+  [ -x "$SCRIPT_DIR/fm-jev-seat-reconciler.sh" ]; then
   "$SCRIPT_DIR/fm-jev-seat-reconciler.sh" --reconcile >/dev/null 2>&1 || true
 fi
 
@@ -3194,16 +3195,17 @@ fi
 W="fm-$ID"
 HERDR_TASK_LABEL=$W
 if [ "$BACKEND" = herdr ]; then
+  HERDR_LABEL_BRIEF=${SOURCE_BRIEF:-$BRIEF}
   HERDR_TASK_TITLE=${FM_BACKLOG_ROW_TITLE:-}
   if [ -z "$HERDR_TASK_TITLE" ]; then
     HERDR_TASK_TITLE=$(awk '
       /^# Task[[:space:]]*$/ { in_task=1; next }
       in_task && /^#/ { exit }
       in_task && NF { print; exit }
-    ' "$BRIEF")
+    ' "$HERDR_LABEL_BRIEF")
   fi
   if [ -z "$HERDR_TASK_TITLE" ]; then
-    HERDR_TASK_TITLE=$(awk '!/^#/ && NF { print; exit }' "$BRIEF")
+    HERDR_TASK_TITLE=$(awk '!/^#/ && NF { print; exit }' "$HERDR_LABEL_BRIEF")
   fi
   HERDR_TASK_LABEL=$(fm_backend_herdr_task_label "$HERDR_TASK_TITLE" "$ID")
 fi
@@ -4109,7 +4111,6 @@ esac
 # can plant or swap a file in it. The staged launch command lives in a sibling
 # directory namespaced by home identity, not in this shared per-id root.
 TASK_TMP="/tmp/fm-$ID"
-[ -x "$SCRIPT_DIR/fm-jev-temp-sanitizer.sh" ] && "$SCRIPT_DIR/fm-jev-temp-sanitizer.sh" --target "$ID" --sanitize >/dev/null 2>&1 || true
 if ! (umask 077 && mkdir "$TASK_TMP") 2>/dev/null; then
   if [ -L "$TASK_TMP" ] || [ ! -d "$TASK_TMP" ] || [ ! -O "$TASK_TMP" ] ||
     [ -n "$(find "$TASK_TMP" -prune \( -perm -g=w -o -perm -o=w \) -print 2>/dev/null)" ] ||
@@ -4118,6 +4119,8 @@ if ! (umask 077 && mkdir "$TASK_TMP") 2>/dev/null; then
     exit 1
   fi
 fi
+[ -z "${FM_TEST_LIB_SOURCED:-}" ] && [ -x "$SCRIPT_DIR/fm-jev-temp-sanitizer.sh" ] &&
+  "$SCRIPT_DIR/fm-jev-temp-sanitizer.sh" --target "$ID" --sanitize >/dev/null 2>&1 || true
 mkdir -p "$TASK_TMP/gotmp"
 
 # Per-harness turn-end hook where enabled: a file that touches
@@ -4724,7 +4727,7 @@ if [ "$SPAWN_TASK_SET_LOCK_HELD" = 1 ]; then
   SPAWN_TASK_SET_LOCK_HELD=0
   fm_lock_release "$SPAWN_TASK_SET_LOCK"
 fi
-"$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
+[ -n "${FM_TEST_LIB_SOURCED:-}" ] || "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
 [ "$BACKEND" = orca ] && ORCA_ABORT_CLEANUP=0
 
 sq_brief=$(shell_quote "$BRIEF")

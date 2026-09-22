@@ -296,7 +296,8 @@ fm_backlog_source_present() {  # <data-dir> <authorized-data-dir> [root authoriz
     fm_backlog_record_present "$file" "backlog file" "$authorized_data"
     return $?
   fi
-  fm_backlog_record_parent_authorized "$file" "backlog data directory" "$authorized_data" parent-only
+  fm_backlog_record_parent_authorized "$data/.backlog-data-boundary" \
+    "backlog data directory" "$authorized_data" parent-only
 }
 
 # Resolve how the owning home's backlog is addressed, for reads and mutations
@@ -516,17 +517,15 @@ fm_backlog_row_list() {  # <resolved-data-dir> [flag...]
 
 fm_backlog_row_probe() {  # <data-dir> <id>
   local data authorized_data=$1 id=$2 out state held blocked hold_kind command_status source_status
-  if ! data=$(fm_backlog_data_absolute "$1"); then
-    FM_BACKLOG_ROW_RESULT=error
-    FM_BACKLOG_ROW_STATE=
-    FM_BACKLOG_ROW_ERROR="data directory cannot be resolved: $1"
-    return 1
-  fi
   FM_BACKLOG_ROW_RESULT=error
   FM_BACKLOG_ROW_STATE=
   FM_BACKLOG_ROW_TITLE=
   FM_BACKLOG_ROW_HOLD_KIND=
   FM_BACKLOG_ROW_ERROR=
+  if ! data=$(fm_backlog_data_absolute "$1"); then
+    FM_BACKLOG_ROW_ERROR="data directory cannot be resolved: $1"
+    return 1
+  fi
   fm_backlog_source_present "$data" "$authorized_data"
   source_status=$?
   if [ "$source_status" -ne 0 ]; then

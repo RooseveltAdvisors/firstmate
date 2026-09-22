@@ -17,12 +17,13 @@ shellcheck "${FM_ROOT}/bin/fm-jev-quarantine.sh"
 echo "PASS: Test 2 - ShellCheck clean on wrapper"
 
 # Test 3: Unit test quarantine classification logic
-python3 -c '
+QUARANTINE_ENGINE="$QUARANTINE_ENGINE" FM_ROOT="$FM_ROOT" python3 <<'PY'
+import os
 import sys
 from pathlib import Path
-sys.path.insert(0, "'"${FM_ROOT}"'/bin")
+sys.path.insert(0, str(Path(os.environ["FM_ROOT"]) / "bin"))
 import importlib.util
-spec = importlib.util.spec_from_file_location("jq", "'"${QUARANTINE_ENGINE}"'")
+spec = importlib.util.spec_from_file_location("jq", os.environ["QUARANTINE_ENGINE"])
 jq = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(jq)
 
@@ -42,7 +43,7 @@ assert res["safe_to_rerun_or_waive"] is True, "Expected safe to rerun"
 assert res["findings"][0]["verdict"] == "QUARANTINE_ELIGIBLE_FLAKE"
 
 print("PASS: Test 3 - Quarantine classification logic verified")
-'
+PY
 
 # Test 4: Live quarantine analysis on Portal PR #1783
 "${FM_ROOT}/bin/fm-jev-quarantine.sh" --pr 1783 --repo ArcsHealth/Portal

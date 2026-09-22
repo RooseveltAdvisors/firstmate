@@ -1661,12 +1661,12 @@ test_spawn_relaunch_refuses_a_pending_authoritative_close() {
   pass "fm-spawn --relaunch: pending closes refuse before replacement begins"
 }
 
-# make_herdr_stub <case-dir>: a canned Herdr CLI for the relaunch path. The
+# make_herdr_projection_stub <case-dir>: a canned Herdr CLI for the relaunch path. The
 # recorded pane is present and agent-free (a valid relaunch candidate), its
 # shell reports the worktree recorded in $FM_FAKE_DIR/cwd (mirroring the tmux
 # stub's cwd contract), and every invocation is logged to herdr-log so a test
 # can assert the adapter never relabeled the adopted endpoint's tab.
-make_herdr_stub() {
+make_herdr_projection_stub() {
   cat > "$1/fakebin/herdr" <<'SH'
 #!/usr/bin/env bash
 set -u
@@ -1733,7 +1733,7 @@ test_spawn_relaunch_preserves_the_recorded_herdr_task_label() {
   local dir wt out rc
   dir=$(new_case herdr-label rl50)
   add_ship_task "$dir" rl50 claude
-  make_herdr_stub "$dir"
+  make_herdr_projection_stub "$dir"
   wt=$(meta_field "$dir" rl50 worktree)
   cat > "$dir/home/state/rl50.meta" <<EOF
 window=fake-herdr-session:pane-rl50
