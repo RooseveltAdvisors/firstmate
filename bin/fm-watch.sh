@@ -2951,6 +2951,14 @@ while :; do
       "$SCRIPT_DIR/fm-jev-filelock-guard.sh" --json > "$STATE/.jev-filelock-guard-telemetry.json" 2>/dev/null || true
     fi
   fi
+  # Pattern 81: Jev Multi-Agent Kernel Entropy Pool & Hardware RNG Depletion Guard
+  if [ "${FM_DISABLE_JEV_ENTROPY_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-entropy-guard.sh" ]; then
+    _entropy_marker="$STATE/.jev-entropy-guard-last"
+    if [ ! -f "$_entropy_marker" ] || [ "$(age_of "$_entropy_marker")" -ge 1800 ]; then
+      touch "$_entropy_marker"
+      "$SCRIPT_DIR/fm-jev-entropy-guard.sh" --json > "$STATE/.jev-entropy-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
 
 
 
