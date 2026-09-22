@@ -1,204 +1,202 @@
 #!/usr/bin/env python3
 """
-fm-jev-conntrack-guard.py - Jev Multi-Agent Host Network Connection Tracking (Conntrack) Guard (Pattern 90)
+bin/fm-jev-conntrack-guard.py - Host Network Netfilter Connection Tracking & Routing Cache Guard (Pattern 207)
 
-Audits Linux netfilter connection tracking table capacity (/proc/sys/net/netfilter/nf_conntrack_count, nf_conntrack_max).
-Detects conntrack table exhaustion before the kernel drops inbound/outbound packets ("nf_conntrack: table full"),
-preventing connection timeouts and dropped socket streams across multi-agent RPCs, API calls, and database connections.
+Audits Linux kernel Netfilter connection tracking (nf_conntrack) and IP routing cache (rt_cache) statistics:
+  - /proc/sys/net/netfilter/nf_conntrack_count (active bidirectional flows tracked in kernel table)
+  - /proc/sys/net/netfilter/nf_conntrack_max (maximum capacity before kernel drops packets)
+  - /proc/sys/net/netfilter/nf_conntrack_buckets (hash table bucket count)
+  - /proc/sys/net/netfilter/nf_conntrack_tcp_timeout_established (flow expiration timeout)
+  - /proc/net/stat/rt_cache (per-CPU routing cache, martian packets, destination cache overflows)
+
+Detects connection tracking table saturation, bucket collision chain bloat, unroutable packet storms,
+and destination cache overflow stalls across multi-agent RPC tunnels, containers, and web scrapers.
 
 Invariants:
   - Read-only diagnostics by default. Safe and non-destructive.
-  - Fail-open: graceful fallback when conntrack is not loaded or procfs files are missing.
-  - Fast bounded execution (< 0.02s).
+  - Fail-open: graceful fallback when sysfs/procfs files are missing or restricted.
+  - Fast bounded execution (< 0.03s).
 """
 
 import argparse
+import datetime
 import json
 import os
 import sys
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
-
-PRIMARY_COUNT_PATH = "/proc/sys/net/netfilter/nf_conntrack_count"
-FALLBACK_COUNT_PATH = "/proc/sys/net/ipv4/netfilter/ip_conntrack_count"
-PRIMARY_MAX_PATH = "/proc/sys/net/netfilter/nf_conntrack_max"
-FALLBACK_MAX_PATH = "/proc/sys/net/ipv4/netfilter/ip_conntrack_max"
-
-DEFAULT_WARN_SATURATION_PCT = 70.0
-DEFAULT_CRIT_SATURATION_PCT = 85.0
+from typing import Any, Dict, List, Tuple
 
 
-def read_int_file(path: str) -> Optional[int]:
-    """Reads a single integer from a procfs file."""
+def read_sysctl_int(path: str, default: int = -1) -> int:
     if not os.path.exists(path):
-        return None
+        return default
     try:
-        with open(path, "r") as f:
+        with open(path, "r", encoding="utf-8") as f:
             return int(f.read().strip())
     except Exception:
-        return None
+        return default
+
+
+def parse_rt_cache_stats(path: str = "/proc/net/stat/rt_cache") -> Dict[str, int]:
+    totals = {
+        "entries": 0,
+        "in_hit": 0,
+        "in_slow_tot": 0,
+        "in_no_route": 0,
+        "in_martian_dst": 0,
+        "in_martian_src": 0,
+        "out_hit": 0,
+        "out_slow_tot": 0,
+        "gc_total": 0,
+        "gc_dst_overflow": 0,
+    }
+    if not os.path.exists(path):
+        return totals
+
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            lines = [line.strip() for line in f if line.strip()]
+        if len(lines) <= 1:
+            return totals
+
+        header = lines[0].split()
+        col_map = {name: idx for idx, name in enumerate(header)}
+
+        for line in lines[1:]:
+            parts = line.split()
+            if len(parts) != len(header):
+                continue
+            for key in totals.keys():
+                if key in col_map and col_map[key] < len(parts):
+                    try:
+                        totals[key] += int(parts[col_map[key]], 16)
+                    except ValueError:
+                        pass
+    except Exception:
+        pass
+
+    return totals
 
 
 def audit_conntrack(
-    count_path: Optional[str] = None,
-    max_path: Optional[str] = None,
-    warn_sat_pct: float = DEFAULT_WARN_SATURATION_PCT,
-    crit_sat_pct: float = DEFAULT_CRIT_SATURATION_PCT,
+    proc_sys_netfilter: str = "/proc/sys/net/netfilter",
+    proc_rt_cache: str = "/proc/net/stat/rt_cache",
 ) -> Dict[str, Any]:
-    """Audits Linux netfilter conntrack table saturation."""
-    # Resolve count path
-    count_file = count_path
-    if count_file is None:
-        if os.path.exists(PRIMARY_COUNT_PATH):
-            count_file = PRIMARY_COUNT_PATH
-        elif os.path.exists(FALLBACK_COUNT_PATH):
-            count_file = FALLBACK_COUNT_PATH
+    count = read_sysctl_int(os.path.join(proc_sys_netfilter, "nf_conntrack_count"), -1)
+    max_entries = read_sysctl_int(os.path.join(proc_sys_netfilter, "nf_conntrack_max"), -1)
+    buckets = read_sysctl_int(os.path.join(proc_sys_netfilter, "nf_conntrack_buckets"), -1)
+    tcp_established = read_sysctl_int(
+        os.path.join(proc_sys_netfilter, "nf_conntrack_tcp_timeout_established"), -1
+    )
+    tcp_close_wait = read_sysctl_int(
+        os.path.join(proc_sys_netfilter, "nf_conntrack_tcp_timeout_close_wait"), -1
+    )
+    tcp_time_wait = read_sysctl_int(
+        os.path.join(proc_sys_netfilter, "nf_conntrack_tcp_timeout_time_wait"), -1
+    )
 
-    # Resolve max path
-    max_file = max_path
-    if max_file is None:
-        if os.path.exists(PRIMARY_MAX_PATH):
-            max_file = PRIMARY_MAX_PATH
-        elif os.path.exists(FALLBACK_MAX_PATH):
-            max_file = FALLBACK_MAX_PATH
-
-    count_val = read_int_file(count_file) if count_file else None
-    max_val = read_int_file(max_file) if max_file else None
+    rt_stats = parse_rt_cache_stats(proc_rt_cache)
 
     issues: List[str] = []
-
-    # Fail-open if conntrack is not loaded on host
-    if count_val is None or max_val is None:
-        return {
-            "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "summary": {
-                "status": "HEALTHY",
-                "healthy": True,
-                "conntrack_count": 0,
-                "conntrack_max": 0,
-                "saturation_pct": 0.0,
-                "available_entries": 0,
-                "conntrack_active": False,
-                "issues": ["Conntrack subsystem not loaded or not in use; fail-open."],
-            },
-            "metrics": {
-                "count_file": count_file,
-                "max_file": max_file,
-            },
-        }
-
-    saturation_pct = round((count_val / max_val) * 100.0, 2) if max_val > 0 else 0.0
-    available_entries = max_val - count_val
-
-    if saturation_pct >= crit_sat_pct:
-        issues.append(
-            f"Critical conntrack saturation: {saturation_pct}% ({count_val:,} / {max_val:,} entries). Imminent packet drop risk."
-        )
-    elif saturation_pct >= warn_sat_pct:
-        issues.append(
-            f"Elevated conntrack saturation: {saturation_pct}% ({count_val:,} / {max_val:,} entries)."
-        )
-
     status = "HEALTHY"
-    if any("Critical" in iss for iss in issues):
+
+    sat_ratio = 0.0
+    if count >= 0 and max_entries > 0:
+        sat_ratio = round(count / max_entries, 6)
+        if sat_ratio >= 0.85:
+            issues.append(
+                f"CRITICAL: Netfilter conntrack table critically saturated ({count:,}/{max_entries:,}, {sat_ratio * 100:.2f}%); imminent packet dropping"
+            )
+            status = "CRITICAL"
+        elif sat_ratio >= 0.65:
+            issues.append(
+                f"WARNING: Netfilter conntrack table elevated ({count:,}/{max_entries:,}, {sat_ratio * 100:.2f}%)"
+            )
+            status = "WARNING"
+
+    chain_ratio = 0.0
+    if count >= 0 and buckets > 0:
+        chain_ratio = round(count / buckets, 4)
+        if chain_ratio >= 2.5:
+            issues.append(
+                f"WARNING: Conntrack hash chain depth high ({count:,} entries across {buckets:,} buckets, avg chain {chain_ratio:.2f})"
+            )
+            if status != "CRITICAL":
+                status = "WARNING"
+
+    if rt_stats["gc_dst_overflow"] > 0:
+        issues.append(
+            f"CRITICAL: Routing destination cache overflow detected ({rt_stats['gc_dst_overflow']} overflows)"
+        )
         status = "CRITICAL"
-    elif issues:
-        status = "WARNING"
+
+    if rt_stats["in_no_route"] > 50_000_000:
+        issues.append(
+            f"WARNING: High volume of unroutable ingress packets ({rt_stats['in_no_route']:,} no-route events)"
+        )
+        if status != "CRITICAL":
+            status = "WARNING"
+
+    healthy = status == "HEALTHY"
+    recommendation = (
+        "Netfilter connection tracking capacity, hash buckets, and routing cache are nominal."
+        if healthy
+        else "; ".join(issues)
+    )
 
     return {
-        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "summary": {
             "status": status,
-            "healthy": status == "HEALTHY",
-            "conntrack_count": count_val,
-            "conntrack_max": max_val,
-            "saturation_pct": saturation_pct,
-            "available_entries": available_entries,
-            "conntrack_active": True,
+            "healthy": healthy,
+            "conntrack_count": count,
+            "conntrack_max": max_entries,
+            "conntrack_buckets": buckets,
+            "saturation_ratio": sat_ratio,
+            "bucket_chain_ratio": chain_ratio,
+            "tcp_timeout_established_sec": tcp_established,
+            "tcp_timeout_close_wait_sec": tcp_close_wait,
+            "tcp_timeout_time_wait_sec": tcp_time_wait,
+            "rt_cache_entries": rt_stats["entries"],
+            "rt_in_no_route": rt_stats["in_no_route"],
+            "rt_in_martian_dst": rt_stats["in_martian_dst"],
+            "rt_in_martian_src": rt_stats["in_martian_src"],
+            "rt_gc_dst_overflow": rt_stats["gc_dst_overflow"],
             "issues": issues,
-        },
-        "metrics": {
-            "count_file": count_file,
-            "max_file": max_file,
-            "count": count_val,
-            "max": max_val,
-            "available": available_entries,
-            "saturation_pct": saturation_pct,
+            "recommendation": recommendation,
         },
     }
 
 
-def main() -> None:
+def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Jev Multi-Agent Host Network Connection Tracking (Conntrack) Guard (Pattern 90)"
+        description="Host Network Netfilter Connection Tracking & Routing Cache Guard (Pattern 207)"
     )
-    parser.add_argument("--json", action="store_true", help="Output JSON format")
-    parser.add_argument(
-        "--warn-saturation-pct",
-        type=float,
-        default=DEFAULT_WARN_SATURATION_PCT,
-        help=f"Warning conntrack saturation percentage (default {DEFAULT_WARN_SATURATION_PCT}%%)",
-    )
-    parser.add_argument(
-        "--crit-saturation-pct",
-        type=float,
-        default=DEFAULT_CRIT_SATURATION_PCT,
-        help=f"Critical conntrack saturation percentage (default {DEFAULT_CRIT_SATURATION_PCT}%%)",
-    )
-    parser.add_argument(
-        "--count-path",
-        type=str,
-        default=None,
-        help="Path to nf_conntrack_count file",
-    )
-    parser.add_argument(
-        "--max-path",
-        type=str,
-        default=None,
-        help="Path to nf_conntrack_max file",
-    )
-
+    parser.add_argument("--json", action="store_true", help="Emit JSON telemetry")
     args = parser.parse_args()
 
-    result = audit_conntrack(
-        count_path=args.count_path,
-        max_path=args.max_path,
-        warn_sat_pct=args.warn_saturation_pct,
-        crit_sat_pct=args.crit_saturation_pct,
-    )
+    report = audit_conntrack()
+    s = report["summary"]
 
     if args.json:
-        print(json.dumps(result, indent=2))
-        return
-
-    summary = result["summary"]
-    status_color = (
-        "\033[32m"
-        if summary["healthy"]
-        else ("\033[31m" if summary["status"] == "CRITICAL" else "\033[33m")
-    )
-    reset_color = "\033[0m"
-
-    print("================================================================================")
-    print(" Jev Multi-Agent Network Connection Tracking Guard (Pattern 90)")
-    print("================================================================================")
-    print(f" Timestamp:              {result['timestamp']}")
-    print(f" Status:                 {status_color}{summary['status']}{reset_color}")
-    if summary["conntrack_active"]:
-        print(f" Tracked Connections:   {summary['conntrack_count']:,} / {summary['conntrack_max']:,} entries")
-        print(f" Table Saturation:       {summary['saturation_pct']}% of limit")
-        print(f" Headroom Available:     {summary['available_entries']:,} entries")
+        print(json.dumps(report, indent=2))
     else:
-        print(" Conntrack Subsystem:    Inactive / Not Loaded (fail-open)")
+        print(f"[{s['status']}] Pattern 207: Host Network Netfilter Conntrack & Routing Cache Guard")
+        print(
+            f"  Conntrack Capacity: {s['conntrack_count']:,} / {s['conntrack_max']:,} entries "
+            f"({s['saturation_ratio'] * 100:.2f}% saturation, buckets: {s['conntrack_buckets']:,}, avg chain: {s['bucket_chain_ratio']})"
+        )
+        print(
+            f"  Timeouts: established={s['tcp_timeout_established_sec']}s, "
+            f"close_wait={s['tcp_timeout_close_wait_sec']}s, time_wait={s['tcp_timeout_time_wait_sec']}s"
+        )
+        print(
+            f"  Routing Cache: in_no_route={s['rt_in_no_route']:,}, "
+            f"martian_dst={s['rt_in_martian_dst']:,}, dst_overflow={s['rt_gc_dst_overflow']:,}"
+        )
+        print(f"  Recommendation: {s['recommendation']}")
 
-    if summary["issues"]:
-        print("\nActive Conntrack Warnings:")
-        for issue in summary["issues"]:
-            print(f"  [!] {issue}")
-    else:
-        print("\nNetfilter connection tracking table nominal. Zero packet drop risk detected.")
-    print("================================================================================")
+    return 0 if s["healthy"] else 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
