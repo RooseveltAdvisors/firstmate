@@ -2807,6 +2807,14 @@ while :; do
       "$SCRIPT_DIR/fm-jev-mmap-guard.sh" --json > "$STATE/.jev-mmap-guard-telemetry.json" 2>/dev/null || true
     fi
   fi
+  # Pattern 63: Jev Multi-Agent Futex Contention & Thread Stargate Guard
+  if [ "${FM_DISABLE_JEV_FUTEX_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-futex-guard.sh" ]; then
+    _futex_guard_marker="$STATE/.jev-futex-guard-last"
+    if [ ! -f "$_futex_guard_marker" ] || [ "$(age_of "$_futex_guard_marker")" -ge 1800 ]; then
+      touch "$_futex_guard_marker"
+      "$SCRIPT_DIR/fm-jev-futex-guard.sh" --json > "$STATE/.jev-futex-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
 
 
 
