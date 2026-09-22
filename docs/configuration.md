@@ -342,7 +342,8 @@ The full cmux home label also includes a short hash of the resolved `FM_ROOT` pa
 
 ## Harness support
 
-claude, codex, opencode, pi, pi-signed, grok, kimi, cursor, and omp are empirically verified for crewmate and secondmate launches; gemini is verified for crewmate and scout launches only, and [README requirements](../README.md#requirements) own the set supported for the primary session.
+claude, codex, opencode, pi, pi-signed, kimi, cursor, and omp are empirically verified for crewmate and secondmate launches; gemini is verified for crewmate and scout launches only, and [README requirements](../README.md#requirements) own the set supported for the primary session.
+Grok is reserved for the primary Firstmate session: the spawn quota preflight refuses the standalone `grok` harness and every model whose id contains `grok` before creating a crewmate, scout, or secondmate, and it offers Cursor Composer only when fresh quota evidence confirms positive usable runway.
 `fm-spawn.sh` refuses kimi on cmux and Orca at preflight, because answering Kimi's folder-trust dialog needs a verified viewport-only capture those backends lack; [its adapter reference](../.agents/skills/harness-adapters/references/harness/kimi.md#readiness-gated-start) owns the trust-dialog handling.
 A cursor secondmate or primary runs the tracked project-scope `.cursor/hooks.json` in its own home and must be launched with `--trust`, or no project hook loads; [`docs/supervision-protocols/cursor.md`](supervision-protocols/cursor.md) owns its supervision protocol.
 Cursor typed-submit confirmation is verified on tmux and Herdr only.
@@ -378,7 +379,6 @@ When `config/crew-dispatch.json` exists, crewmate and scout spawns require an ex
 The inherited-local-material contract is owned by [`secondmate-provisioning`](../.agents/skills/secondmate-provisioning/SKILL.md); its harness-relevant consequence is that a secondmate's own crewmates use the primary's dispatch profiles and static harness value.
 Those inherited values are defaults and rules only; `fm-spawn` still permits a consciously chosen explicit runtime outside the config.
 `config/secondmate-harness` is not inherited because secondmates do not launch secondmates.
-For grok, `fm-spawn.sh` installs one firstmate-owned global turn-end hook under `$GROK_HOME/hooks/`, or `~/.grok/hooks/` when `GROK_HOME` is unset, and drops a per-task `.fm-grok-turnend` pointer in the worktree, with teardown removing the task token and pointer.
 For Kimi crews, `fm-spawn.sh` runs `fm-kimi-turnend-hook.sh install`, drops a per-task `.fm-kimi-turnend` pointer in the worktree, and records the matching private registry token for teardown.
 Kimi continues to use the captain's normal Kimi home, including the existing config, skills, and memory; Firstmate does not create an isolated Kimi home.
 The Kimi installer requires an existing regular non-symlink `~/.kimi-code/config.toml`, `python3` with `tomllib`, and `jq`; it validates but never serializes the captain's TOML and refuses before writing when the config is missing, malformed, or surprising or when either tool requirement is unavailable.
