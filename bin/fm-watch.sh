@@ -2847,6 +2847,14 @@ while :; do
       "$SCRIPT_DIR/fm-jev-buddy-guard.sh" --json > "$STATE/.jev-buddy-guard-telemetry.json" 2>/dev/null || true
     fi
   fi
+  # Pattern 68: Jev Multi-Agent Proactive Memory Compaction & Fragmentation Healer
+  if [ "${FM_DISABLE_JEV_COMPACTION_HEALER:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-compaction-healer.sh" ]; then
+    _compaction_marker="$STATE/.jev-compaction-healer-last"
+    if [ ! -f "$_compaction_marker" ] || [ "$(age_of "$_compaction_marker")" -ge 1800 ]; then
+      touch "$_compaction_marker"
+      "$SCRIPT_DIR/fm-jev-compaction-healer.sh" --json > "$STATE/.jev-compaction-healer-telemetry.json" 2>/dev/null || true
+    fi
+  fi
 
 
 
