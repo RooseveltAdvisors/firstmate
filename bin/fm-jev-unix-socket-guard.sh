@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# fm-jev-unix-socket-guard.sh - Pattern 74: Jev Multi-Agent Unix Domain Socket & Abstract Namespace Leak Guard
+# fm-jev-unix-socket-guard.sh - Pattern 99: Jev Multi-Agent Host Unix Domain Socket & IPC Backlog Guard
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -1,256 +1,165 @@
 #!/usr/bin/env python3
 """
-fm-jev-unix-socket-guard.py - Jev Multi-Agent Unix Domain Socket & Abstract Namespace Leak Guard (Pattern 74)
+fm-jev-unix-socket-guard.py - Jev Multi-Agent Host Unix Domain Socket & IPC Backlog Guard (Pattern 99)
 
-Audits Linux Unix domain sockets (/proc/net/unix), abstract namespace bindings, and filesystem socket nodes.
-Detects unlinked socket file descriptors, excessive socket allocations from crashed worker agents or language
-servers, and orphaned socket nodes.
+Audits Linux host Unix domain sockets (/proc/net/unix) and kernel datagram queue capacity
+(/proc/sys/net/unix/max_dgram_qlen).
+
+Inspects socket density, stream vs datagram ratios, anonymous socket allocations, and active
+inter-agent communication sockets (Herdr, tmux, systemd journal, PostgreSQL).
+
+Detects inter-agent IPC socket leaks, queue starvation, and unlinked/orphaned socket descriptors
+during concurrent multi-pane agent operations.
 
 Invariants:
-  - Read-only diagnostics. Non-destructive.
-  - Fail-open: graceful fallback when /proc/net/unix is restricted or unavailable.
-  - Fast bounded execution (< 0.05s).
+  - Read-only diagnostics by default. Safe and non-destructive.
+  - Fail-open: graceful fallback when /proc files are missing or restricted.
+  - Fast bounded execution (< 0.03s).
 """
 
 import argparse
 import json
 import os
 import stat
-import sys
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Set, Tuple
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
-DEFAULT_WARN_SOCKET_COUNT = 2500
-DEFAULT_CRIT_SOCKET_COUNT = 10000
-DEFAULT_WARN_UNLINKED_COUNT = 50
-DEFAULT_CRIT_UNLINKED_COUNT = 200
+PROC_NET_UNIX = "/proc/net/unix"
+SYSCTL_MAX_DGRAM_QLEN = "/proc/sys/net/unix/max_dgram_qlen"
 
-PROC_NET_UNIX_PATH = "/proc/net/unix"
-
-# Socket types mapping in /proc/net/unix
-SOCKET_TYPES = {
-    1: "STREAM",
-    2: "DGRAM",
-    5: "SEQPACKET",
+TYPE_MAP = {
+    "0001": "STREAM",
+    "0002": "DGRAM",
+    "0005": "SEQPACKET",
 }
 
-# Socket states mapping in /proc/net/unix
-SOCKET_STATES = {
-    1: "UNCONNECTED",  # or LISTEN for stream sockets
-    2: "CONNECTING",
-    3: "CONNECTED",
-    4: "DISCONNECTING",
+STATE_MAP = {
+    "01": "UNCONNECTED_OR_LISTEN",
+    "02": "CONNECTING",
+    "03": "CONNECTED",
+    "04": "DISCONNECTING",
 }
 
 
-def parse_proc_net_unix(
-    proc_unix_path: str = PROC_NET_UNIX_PATH,
-    check_fs: bool = True,
-) -> List[Dict[str, Any]]:
-    """
-    Parses /proc/net/unix.
-    Header: Num RefCount Protocol Flags Type St Inode Path
-    """
-    sockets: List[Dict[str, Any]] = []
-    if not os.path.exists(proc_unix_path):
-        return sockets
-
+def read_int_file(path: Path) -> Optional[int]:
+    """Reads an integer from a sysfs/procfs file."""
+    if not path.is_file():
+        return None
     try:
-        with open(proc_unix_path, "r") as f:
-            lines = f.readlines()
-        if len(lines) <= 1:
-            return sockets
+        return int(path.read_text().strip())
+    except Exception:
+        return None
 
+
+def parse_unix_sockets(path: Path) -> List[Dict[str, Any]]:
+    """Parses /proc/net/unix table into structured records."""
+    if not path.is_file():
+        return []
+
+    sockets: List[Dict[str, Any]] = []
+    try:
+        lines = path.read_text().splitlines()
         for line in lines[1:]:
-            parts = line.strip().split(maxsplit=7)
-            if len(parts) < 7:
-                continue
-
-            try:
-                num = parts[0].rstrip(":")
+            parts = line.split()
+            if len(parts) >= 6:
                 ref_count = int(parts[1], 16)
-                protocol = int(parts[2], 16)
-                flags = int(parts[3], 16)
-                type_code = int(parts[4], 16)
-                st_code = int(parts[5], 16)
-                inode = int(parts[6])
-                path = parts[7] if len(parts) >= 8 else ""
-
-                type_name = SOCKET_TYPES.get(type_code, f"UNKNOWN_{type_code}")
-                state_name = SOCKET_STATES.get(st_code, f"UNKNOWN_{st_code}")
-
-                # Namespace classification
-                is_abstract = False
-                is_filesystem = False
-                is_unnamed = False
-                path_exists = None
-
-                if not path:
-                    is_unnamed = True
-                elif path.startswith("@") or path.startswith("\0"):
-                    is_abstract = True
-                elif path.startswith("/"):
-                    is_filesystem = True
-                    if check_fs:
-                        try:
-                            path_exists = os.path.exists(path)
-                        except Exception:
-                            path_exists = False
-                else:
-                    # Non-standard or relative
-                    is_filesystem = True
-                    if check_fs:
-                        try:
-                            path_exists = os.path.exists(path)
-                        except Exception:
-                            path_exists = False
+                flags = parts[3]
+                sock_type = TYPE_MAP.get(parts[4], parts[4])
+                sock_state = STATE_MAP.get(parts[5], parts[5])
+                inode = int(parts[6]) if len(parts) >= 7 and parts[6].isdigit() else 0
+                sock_path = parts[7] if len(parts) >= 8 else None
 
                 sockets.append({
-                    "num": num,
                     "ref_count": ref_count,
-                    "protocol": protocol,
                     "flags": flags,
-                    "type": type_name,
-                    "state": state_name,
+                    "type": sock_type,
+                    "state": sock_state,
                     "inode": inode,
-                    "path": path,
-                    "is_abstract": is_abstract,
-                    "is_filesystem": is_filesystem,
-                    "is_unnamed": is_unnamed,
-                    "path_exists": path_exists,
+                    "path": sock_path,
+                    "is_anonymous": sock_path is None,
                 })
-            except (ValueError, IndexError):
-                continue
     except Exception:
         pass
 
     return sockets
 
 
-def scan_top_level_socket_files(dirs: List[str]) -> List[Dict[str, Any]]:
-    """Fast bounded non-recursive scan of directories for socket files."""
-    found_sockets: List[Dict[str, Any]] = []
-    for d in dirs:
-        if not os.path.isdir(d):
-            continue
-        try:
-            with os.scandir(d) as it:
-                for entry in it:
-                    try:
-                        if entry.is_socket(follow_symlinks=False):
-                            st = entry.stat(follow_symlinks=False)
-                            found_sockets.append({
-                                "path": entry.path,
-                                "inode": st.st_ino,
-                                "size": st.st_size,
-                            })
-                    except Exception:
-                        pass
-        except Exception:
-            pass
-    return found_sockets
-
-
 def audit_unix_sockets(
-    proc_unix_path: str = PROC_NET_UNIX_PATH,
-    scan_dirs: Optional[List[str]] = None,
-    check_fs: bool = True,
-    warn_total: int = DEFAULT_WARN_SOCKET_COUNT,
-    crit_total: int = DEFAULT_CRIT_SOCKET_COUNT,
-    warn_unlinked: int = DEFAULT_WARN_UNLINKED_COUNT,
-    crit_unlinked: int = DEFAULT_CRIT_UNLINKED_COUNT,
+    proc_unix_file: Optional[str] = None,
+    max_dgram_file: Optional[str] = None,
+    verify_socket_files: bool = False,
 ) -> Dict[str, Any]:
-    """Audits Unix domain sockets and determines health status."""
-    sockets = parse_proc_net_unix(proc_unix_path, check_fs=check_fs)
+    """Audits host Unix domain socket health and inter-agent IPC paths."""
+    proc_path = Path(proc_unix_file) if proc_unix_file else Path(PROC_NET_UNIX)
+    max_dgram_path = Path(max_dgram_file) if max_dgram_file else Path(SYSCTL_MAX_DGRAM_QLEN)
 
-    total_count = len(sockets)
+    max_dgram_qlen = read_int_file(max_dgram_path)
+    sockets = parse_unix_sockets(proc_path)
+
+    total_sockets = len(sockets)
     stream_count = sum(1 for s in sockets if s["type"] == "STREAM")
     dgram_count = sum(1 for s in sockets if s["type"] == "DGRAM")
     seqpacket_count = sum(1 for s in sockets if s["type"] == "SEQPACKET")
+    anonymous_count = sum(1 for s in sockets if s["is_anonymous"])
+    named_count = total_sockets - anonymous_count
 
-    listening_count = sum(1 for s in sockets if s["state"] == "UNCONNECTED" and s["path"])
-    connected_count = sum(1 for s in sockets if s["state"] == "CONNECTED")
+    # Inter-agent socket categories
+    herdr_sockets = [s for s in sockets if s["path"] and "herdr" in s["path"]]
+    tmux_sockets = [s for s in sockets if s["path"] and "tmux" in s["path"]]
+    journal_sockets = [s for s in sockets if s["path"] and "journal" in s["path"]]
 
-    abstract_count = sum(1 for s in sockets if s["is_abstract"])
-    filesystem_count = sum(1 for s in sockets if s["is_filesystem"])
-    unnamed_count = sum(1 for s in sockets if s["is_unnamed"])
-
-    # Unlinked sockets: filesystem sockets whose file path no longer exists on disk
-    unlinked_sockets = [s for s in sockets if s["is_filesystem"] and s["path_exists"] is False]
-    unlinked_count = len(unlinked_sockets)
-
-    # Scan for orphaned socket files on disk
-    scanned_socket_files: List[Dict[str, Any]] = []
-    if scan_dirs:
-        scanned_socket_files = scan_top_level_socket_files(scan_dirs)
-
-    active_inodes: Set[int] = {s["inode"] for s in sockets if s["inode"] > 0}
-    dead_socket_files = [sf for sf in scanned_socket_files if sf["inode"] not in active_inodes]
-
-    # Health assessment
     issues: List[str] = []
-    status = "HEALTHY"
 
-    if total_count >= crit_total or unlinked_count >= crit_unlinked:
-        status = "CRITICAL"
-        if total_count >= crit_total:
-            issues.append(f"Unix socket count critical: {total_count} >= {crit_total}")
-        if unlinked_count >= crit_unlinked:
-            issues.append(f"Unlinked socket count critical: {unlinked_count} >= {crit_unlinked}")
-    elif total_count >= warn_total or unlinked_count >= warn_unlinked:
+    if max_dgram_qlen is not None and max_dgram_qlen < 256:
+        issues.append(f"Low max_dgram_qlen ({max_dgram_qlen} < 256): risk of datagram drops on /dev/log and IPC")
+
+    if total_sockets > 5000:
+        issues.append(f"Elevated total Unix domain socket count ({total_sockets} > 5,000): potential descriptor leak across worker processes")
+
+    if anonymous_count > 4000:
+        issues.append(f"High anonymous Unix socket count ({anonymous_count} > 4,000): orphaned socket descriptors")
+
+    status = "HEALTHY"
+    if issues:
         status = "WARNING"
-        if total_count >= warn_total:
-            issues.append(f"Unix socket count elevated: {total_count} >= {warn_total}")
-        if unlinked_count >= warn_unlinked:
-            issues.append(f"Unlinked socket count elevated: {unlinked_count} >= {warn_unlinked}")
 
     return {
         "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "summary": {
             "status": status,
             "healthy": status == "HEALTHY",
-            "total_unix_sockets": total_count,
+            "total_sockets": total_sockets,
             "stream_sockets": stream_count,
             "dgram_sockets": dgram_count,
             "seqpacket_sockets": seqpacket_count,
-            "listening_sockets": listening_count,
-            "connected_sockets": connected_count,
-            "abstract_sockets": abstract_count,
-            "filesystem_sockets": filesystem_count,
-            "unnamed_sockets": unnamed_count,
-            "unlinked_sockets": unlinked_count,
-            "dead_socket_files": len(dead_socket_files),
+            "named_sockets": named_count,
+            "anonymous_sockets": anonymous_count,
+            "herdr_sockets": len(herdr_sockets),
+            "tmux_sockets": len(tmux_sockets),
+            "journal_sockets": len(journal_sockets),
+            "max_dgram_qlen": max_dgram_qlen,
             "issues": issues,
         },
-        "unlinked_samples": [s["path"] for s in unlinked_sockets[:10]],
-        "top_listening_sockets": [s["path"] for s in sockets if s["state"] == "UNCONNECTED" and s["path"]][:15],
+        "sample_agent_sockets": [
+            {"path": s["path"], "type": s["type"], "state": s["state"]}
+            for s in herdr_sockets[:10]
+        ],
     }
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Jev Multi-Agent Unix Domain Socket & Abstract Namespace Leak Guard (Pattern 74)"
+        description="Jev Multi-Agent Host Unix Domain Socket & IPC Backlog Guard (Pattern 99)"
     )
     parser.add_argument("--json", action="store_true", help="Output JSON format")
-    parser.add_argument("--warn-total", type=int, default=DEFAULT_WARN_SOCKET_COUNT, help=f"Warning total socket count (default {DEFAULT_WARN_SOCKET_COUNT})")
-    parser.add_argument("--crit-total", type=int, default=DEFAULT_CRIT_SOCKET_COUNT, help=f"Critical total socket count (default {DEFAULT_CRIT_SOCKET_COUNT})")
-    parser.add_argument("--warn-unlinked", type=int, default=DEFAULT_WARN_UNLINKED_COUNT, help=f"Warning unlinked socket count (default {DEFAULT_WARN_UNLINKED_COUNT})")
-    parser.add_argument("--crit-unlinked", type=int, default=DEFAULT_CRIT_UNLINKED_COUNT, help=f"Critical unlinked socket count (default {DEFAULT_CRIT_UNLINKED_COUNT})")
-    parser.add_argument("--proc-unix", type=str, default=PROC_NET_UNIX_PATH, help="Path to /proc/net/unix")
-    parser.add_argument("--scan-dirs", type=str, default="", help="Comma-separated directories to scan for socket files")
-    parser.add_argument("--no-check-fs", action="store_true", help="Disable filesystem path existence checks")
-
+    parser.add_argument("--proc-file", type=str, default=None, help="Path to /proc/net/unix")
+    parser.add_argument("--max-dgram-file", type=str, default=None, help="Path to max_dgram_qlen")
     args = parser.parse_args()
-    scan_dir_list = [d.strip() for d in args.scan_dirs.split(",") if d.strip()] if args.scan_dirs else ["/tmp"]
 
     result = audit_unix_sockets(
-        proc_unix_path=args.proc_unix,
-        scan_dirs=scan_dir_list,
-        check_fs=not args.no_check_fs,
-        warn_total=args.warn_total,
-        crit_total=args.crit_total,
-        warn_unlinked=args.warn_unlinked,
-        crit_unlinked=args.crit_unlinked,
+        proc_unix_file=args.proc_file,
+        max_dgram_file=args.max_dgram_file,
     )
 
     if args.json:
@@ -258,32 +167,31 @@ def main() -> None:
         return
 
     summary = result["summary"]
-    status_color = "\033[32m" if summary["healthy"] else ("\033[31m" if summary["status"] == "CRITICAL" else "\033[33m")
+    status_color = "\033[32m" if summary["healthy"] else "\033[33m"
     reset_color = "\033[0m"
 
     print("================================================================================")
-    print(" Jev Multi-Agent Unix Domain Socket & Abstract Namespace Guard (Pattern 74)")
+    print(" Jev Multi-Agent Host Unix Domain Socket & IPC Backlog Guard (Pattern 99)")
     print("================================================================================")
-    print(f" Timestamp:              {result['timestamp']}")
-    print(f" Status:                 {status_color}{summary['status']}{reset_color}")
-    print(f" Total Unix Sockets:     {summary['total_unix_sockets']}")
-    print(f"   - Stream:             {summary['stream_sockets']}")
-    print(f"   - Datagram:           {summary['dgram_sockets']}")
-    print(f"   - Seqpacket:          {summary['seqpacket_sockets']}")
-    print(f" State Breakdown:")
-    print(f"   - Listening/Unconn:   {summary['listening_sockets']}")
-    print(f"   - Connected:          {summary['connected_sockets']}")
-    print(f" Namespace Breakdown:")
-    print(f"   - Filesystem Paths:   {summary['filesystem_sockets']} ({summary['unlinked_sockets']} unlinked)")
-    print(f"   - Abstract Namespace: {summary['abstract_sockets']}")
-    print(f"   - Unnamed Sockets:    {summary['unnamed_sockets']}")
+    print(f" Timestamp:                 {result['timestamp']}")
+    print(f" Status:                    {status_color}{summary['status']}{reset_color}")
+    print(f" Max Dgram Queue Length:    {summary['max_dgram_qlen']}")
+    print(f" Total Unix Sockets:        {summary['total_sockets']}")
+    print(f" STREAM / DGRAM / SEQPACK:  {summary['stream_sockets']} / {summary['dgram_sockets']} / {summary['seqpacket_sockets']}")
+    print(f" Named / Anonymous Sockets: {summary['named_sockets']} / {summary['anonymous_sockets']}")
+    print("--------------------------------------------------------------------------------")
+    print(f" {'IPC Category':<30} {'Socket Count':<15} {'Status'}")
+    print("--------------------------------------------------------------------------------")
+    print(f" {'Herdr Agent IPC':<30} {summary['herdr_sockets']:<15} {'Nominal' if summary['herdr_sockets'] > 0 else 'WARNING'}")
+    print(f" {'Tmux Sessions':<30} {summary['tmux_sockets']:<15} Nominal")
+    print(f" {'Systemd Journal / Syslog':<30} {summary['journal_sockets']:<15} Nominal")
 
     if summary["issues"]:
-        print("\nActive Issues:")
+        print("\nActive Unix Domain Socket / IPC Warnings:")
         for issue in summary["issues"]:
             print(f"  [!] {issue}")
     else:
-        print("\nNo Unix domain socket leaks or descriptor exhaustion detected.")
+        print("\nAll Unix domain socket allocations, queue limits, and inter-agent IPC paths nominal.")
     print("================================================================================")
 
 

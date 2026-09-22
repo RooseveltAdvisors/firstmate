@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# tests/fm-jev-unix-socket-guard.test.sh - Regression tests for Pattern 74 (Unix Socket Guard)
+# tests/fm-jev-unix-socket-guard.test.sh - Regression tests for Pattern 99 (Unix Domain Socket Guard)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GUARD_SH="$SCRIPT_DIR/../bin/fm-jev-unix-socket-guard.sh"
 GUARD_PY="$SCRIPT_DIR/../bin/fm-jev-unix-socket-guard.py"
 
-echo "Running Pattern 74 regression tests..."
+echo "Running Pattern 99 regression tests..."
 
 # 1. ShellCheck
 shellcheck "$GUARD_SH"
@@ -27,20 +27,16 @@ import json, sys
 data = json.loads('''$json_out''')
 assert 'timestamp' in data
 assert 'summary' in data
-assert 'unlinked_samples' in data
-assert 'top_listening_sockets' in data
 s = data['summary']
 assert 'status' in s
 assert isinstance(s['healthy'], bool)
-assert 'total_unix_sockets' in s
+assert isinstance(s['issues'], list)
+assert 'total_sockets' in s
 assert 'stream_sockets' in s
 assert 'dgram_sockets' in s
-assert 'listening_sockets' in s
-assert 'connected_sockets' in s
-assert 'abstract_sockets' in s
-assert 'filesystem_sockets' in s
-assert 'unlinked_sockets' in s
-assert isinstance(s['issues'], list)
+assert 'named_sockets' in s
+assert 'anonymous_sockets' in s
+assert 'herdr_sockets' in s
 "
 echo "ok - json audit schema valid"
 
@@ -48,73 +44,53 @@ echo "ok - json audit schema valid"
 "$GUARD_SH" >/dev/null || true
 echo "ok - text mode runs cleanly"
 
-# 6. Unit tests with mocked /proc/net/unix and temp directories
+# 6. Unit tests with mocked proc net unix and max_dgram_qlen files
 python3 -c "
 import sys, tempfile, os
+from pathlib import Path
 sys.path.insert(0, '$SCRIPT_DIR/../bin')
 from importlib import import_module
 mod = import_module('fm-jev-unix-socket-guard')
 
 with tempfile.TemporaryDirectory() as tmp_dir:
-    mock_unix = os.path.join(tmp_dir, 'unix')
-    real_sock = os.path.join(tmp_dir, 'real.sock')
-    with open(real_sock, 'w') as f:
-        f.write('') # create dummy file representing existing socket path
+    d = Path(tmp_dir)
+    proc_unix_path = d / 'unix'
+    max_dgram_path = d / 'max_dgram_qlen'
 
-    mock_header = 'Num       RefCount Protocol Flags    Type St Inode Path\n'
-    # Socket 1: STREAM, LISTEN (01), existing file path
-    line1 = f'0000000000000001: 00000002 00000000 00010000 0001 01 10001 {real_sock}\n'
-    # Socket 2: STREAM, CONNECTED (03), missing file path -> UNLINKED
-    line2 = f'0000000000000002: 00000002 00000000 00010000 0001 03 10002 /tmp/nonexistent_socket_123.sock\n'
-    # Socket 3: DGRAM, CONNECTED (03), abstract namespace
-    line3 = f'0000000000000003: 00000002 00000000 00000000 0002 03 10003 @abstract_test\n'
-    # Socket 4: STREAM, CONNECTED (03), unnamed socketpair
-    line4 = f'0000000000000004: 00000003 00000000 00000000 0001 03 10004\n'
+    max_dgram_path.write_text('512\n')
 
-    with open(mock_unix, 'w') as f:
-        f.write(mock_header + line1 + line2 + line3 + line4)
+    # Mock unix table
+    mock_unix = '''Num       RefCount Protocol Flags    Type St Inode Path
+0000000000000000: 00000003 00000000 00000000 0001 03 12345 /run/systemd/journal/stdout
+0000000000000000: 00000002 00000000 00000000 0002 01 12346 /run/systemd/journal/syslog
+0000000000000000: 00000003 00000000 00000000 0001 03 12347 /home/jon/.config/herdr/sessions/firstmate/herdr-client.sock
+0000000000000000: 00000002 00000000 00000000 0001 03 12348
+'''
+    proc_unix_path.write_text(mock_unix)
 
-    # Audit under normal thresholds
+    # Case 1: Healthy configuration
     res = mod.audit_unix_sockets(
-        proc_unix_path=mock_unix,
-        scan_dirs=[tmp_dir],
-        check_fs=True,
-        warn_total=10,
-        crit_total=20,
-        warn_unlinked=5,
-        crit_unlinked=10,
+        proc_unix_file=str(proc_unix_path),
+        max_dgram_file=str(max_dgram_path),
     )
-    s = res['summary']
-    assert s['total_unix_sockets'] == 4
-    assert s['stream_sockets'] == 3
-    assert s['dgram_sockets'] == 1
-    assert s['listening_sockets'] == 1
-    assert s['connected_sockets'] == 3
-    assert s['abstract_sockets'] == 1
-    assert s['filesystem_sockets'] == 2
-    assert s['unnamed_sockets'] == 1
-    assert s['unlinked_sockets'] == 1
-    assert s['status'] == 'HEALTHY'
+    assert res['summary']['status'] == 'HEALTHY'
+    assert res['summary']['healthy'] is True
+    assert res['summary']['total_sockets'] == 4
+    assert res['summary']['stream_sockets'] == 3
+    assert res['summary']['dgram_sockets'] == 1
+    assert res['summary']['herdr_sockets'] == 1
+    assert res['summary']['named_sockets'] == 3
+    assert res['summary']['anonymous_sockets'] == 1
 
-    # Test WARNING on low unlinked threshold
-    res_warn = mod.audit_unix_sockets(
-        proc_unix_path=mock_unix,
-        scan_dirs=[tmp_dir],
-        check_fs=True,
-        warn_unlinked=1, # 1 >= 1 -> WARNING
+    # Case 2: Low max_dgram_qlen triggers warning
+    max_dgram_path.write_text('128\n')
+    res_low_q = mod.audit_unix_sockets(
+        proc_unix_file=str(proc_unix_path),
+        max_dgram_file=str(max_dgram_path),
     )
-    assert res_warn['summary']['status'] == 'WARNING'
-    assert len(res_warn['summary']['issues']) > 0
-
-    # Test CRITICAL on low total socket threshold
-    res_crit = mod.audit_unix_sockets(
-        proc_unix_path=mock_unix,
-        scan_dirs=[tmp_dir],
-        check_fs=True,
-        crit_total=3, # 4 >= 3 -> CRITICAL
-    )
-    assert res_crit['summary']['status'] == 'CRITICAL'
+    assert res_low_q['summary']['status'] == 'WARNING'
+    assert any('Low max_dgram_qlen' in iss for iss in res_low_q['summary']['issues'])
 "
 echo "ok - unit tests and mock audit pass"
 
-echo "All Pattern 74 tests passed!"
+echo "All Pattern 99 tests passed!"
