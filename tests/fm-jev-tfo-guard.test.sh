@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# tests/fm-jev-tfo-guard.test.sh - Regression tests for Pattern 105 (TCP Fast Open Guard)
+# tests/fm-jev-tfo-guard.test.sh - Regression tests for Pattern 150 (TCP Fast Open Guard)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GUARD_SH="$SCRIPT_DIR/../bin/fm-jev-tfo-guard.sh"
 GUARD_PY="$SCRIPT_DIR/../bin/fm-jev-tfo-guard.py"
 
-echo "Running Pattern 105 regression tests..."
+echo "Running Pattern 150 regression tests..."
 
 # 1. ShellCheck
 shellcheck "$GUARD_SH"
@@ -27,17 +27,16 @@ import json, sys
 data = json.loads('''$json_out''')
 assert 'timestamp' in data
 assert 'summary' in data
-assert 'bitmask' in data
 assert 'counters' in data
 s = data['summary']
 assert 'status' in s
 assert isinstance(s['healthy'], bool)
 assert isinstance(s['issues'], list)
-assert 'tcp_fastopen_raw' in s
-assert 'client_tfo_enabled' in s
-assert 'server_tfo_enabled' in s
-assert 'blackholes_detected' in s
-assert 'listen_overflows' in s
+assert 'tcp_fastopen_mode' in s
+assert 'client_enabled' in s
+assert 'server_enabled' in s
+assert 'active_tfo' in s
+assert 'blackhole_events' in s
 "
 echo "ok - json audit schema valid"
 
@@ -45,7 +44,7 @@ echo "ok - json audit schema valid"
 "$GUARD_SH" >/dev/null || true
 echo "ok - text mode runs cleanly"
 
-# 6. Unit tests with mocked sysctl and /proc/net/netstat files
+# 6. Unit tests with mocked files
 python3 -c "
 import sys, tempfile, os
 from pathlib import Path
@@ -55,53 +54,38 @@ mod = import_module('fm-jev-tfo-guard')
 
 with tempfile.TemporaryDirectory() as tmp_dir:
     d = Path(tmp_dir)
-    fastopen_file = d / 'tcp_fastopen'
-    timeout_file = d / 'tcp_fastopen_blackhole_timeout_sec'
-    netstat_file = d / 'netstat'
+    netstat_f = d / 'netstat'
+    fastopen_f = d / 'fastopen'
 
-    fastopen_file.write_text('3\n')  # 0x1 | 0x2 -> client and server enabled
-    timeout_file.write_text('3600\n')
-
-    mock_netstat = '''TcpExt: SyncookiesSent TCPFastOpenActive TCPFastOpenActiveFail TCPFastOpenPassive TCPFastOpenPassiveFail TCPFastOpenListenOverflow TCPFastOpenCookieReqd TCPFastOpenBlackholeDetected
-TcpExt: 0 100 2 50 0 0 10 0
-'''
-    netstat_file.write_text(mock_netstat)
+    fastopen_f.write_text('3\n')
+    netstat_f.write_text('''TcpExt: TCPFastOpenActive TCPFastOpenActiveFail TCPFastOpenPassive TCPFastOpenPassiveFail TCPFastOpenListenOverflow TCPFastOpenCookieReqd TCPFastOpenBlackhole TCPFastOpenPassiveAltKey
+TcpExt: 100 2 50 1 0 10 0 0
+''')
 
     # Case 1: Nominal
-    res = mod.audit_tfo(
-        fastopen_file=str(fastopen_file),
-        blackhole_timeout_file=str(timeout_file),
-        netstat_file=str(netstat_file),
-    )
+    res = mod.audit_tfo(netstat_file=str(netstat_f), fastopen_file=str(fastopen_f))
     assert res['summary']['status'] == 'HEALTHY'
     assert res['summary']['healthy'] is True
-    assert res['summary']['client_tfo_enabled'] is True
-    assert res['summary']['server_tfo_enabled'] is True
-    assert res['summary']['blackholes_detected'] == 0
-    assert res['summary']['listen_overflows'] == 0
+    assert res['summary']['client_enabled'] is True
+    assert res['summary']['server_enabled'] is True
+    assert res['summary']['active_tfo'] == 100
+    assert res['summary']['blackhole_events'] == 0
 
-    # Case 2: Blackhole detected warning
-    bh_netstat = mock_netstat.replace(' 0 100 2 50 0 0 10 0', ' 0 100 2 50 0 0 10 1')
-    netstat_file.write_text(bh_netstat)
-    res2 = mod.audit_tfo(
-        fastopen_file=str(fastopen_file),
-        blackhole_timeout_file=str(timeout_file),
-        netstat_file=str(netstat_file),
-    )
+    # Case 2: TFO disabled (0) -> WARNING
+    fastopen_f.write_text('0\n')
+    res2 = mod.audit_tfo(netstat_file=str(netstat_f), fastopen_file=str(fastopen_f))
     assert res2['summary']['status'] == 'WARNING'
-    assert any('blackholes detected' in iss for iss in res2['summary']['issues'])
+    assert any('disabled' in iss for iss in res2['summary']['issues'])
 
-    # Case 3: High listen queue overflow
-    ovf_netstat = mock_netstat.replace(' 0 100 2 50 0 0 10 0', ' 0 100 2 50 0 25 10 0')
-    netstat_file.write_text(ovf_netstat)
-    res3 = mod.audit_tfo(
-        fastopen_file=str(fastopen_file),
-        blackhole_timeout_file=str(timeout_file),
-        netstat_file=str(netstat_file),
-    )
+    # Case 3: Blackhole events detected -> WARNING
+    fastopen_f.write_text('1\n')
+    netstat_f.write_text('''TcpExt: TCPFastOpenActive TCPFastOpenActiveFail TCPFastOpenPassive TCPFastOpenPassiveFail TCPFastOpenListenOverflow TCPFastOpenCookieReqd TCPFastOpenBlackhole TCPFastOpenPassiveAltKey
+TcpExt: 100 2 50 1 0 10 5 0
+''')
+    res3 = mod.audit_tfo(netstat_file=str(netstat_f), fastopen_file=str(fastopen_f))
     assert res3['summary']['status'] == 'WARNING'
-    assert any('listen queue overflow' in iss for iss in res3['summary']['issues'])
+    assert any('blackhole detected' in iss for iss in res3['summary']['issues'])
 "
-echo "ok - unit tests and mock audit pass"
+echo "ok - unit tests pass"
 
-echo "All Pattern 105 tests passed!"
+echo "All Pattern 150 regression tests passed!"
