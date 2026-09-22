@@ -2588,6 +2588,16 @@ while :; do
     fi
   fi
 
+  # Pattern 88: Jev Multi-Agent Host Kernel Dirty Memory Page Writeback & Throttling Stall Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_DIRTY_WRITEBACK_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-dirty-writeback-guard.sh" ]; then
+    _dirty_writeback_guard_marker="$STATE/.jev-dirty-writeback-guard-last"
+    if [ ! -f "$_dirty_writeback_guard_marker" ] || [ "$(age_of "$_dirty_writeback_guard_marker")" -ge 1800 ]; then
+      touch "$_dirty_writeback_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-dirty-writeback-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
   # Pattern 35: Jev Cross-Seat Idle SSH & Persistent Tunnel Health Watchdog
   if [ "${FM_DISABLE_JEV_TUNNEL_WATCHDOG:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-tunnel-watchdog.sh" ]; then
     _tunnel_wd_marker="$STATE/.jev-tunnel-watchdog-last"
