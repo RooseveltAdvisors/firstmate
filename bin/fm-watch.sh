@@ -2436,11 +2436,13 @@ while :; do
   fi
 
   # Pattern 21: Jev Cross-Seat Asset & Artifact Cache De-Duplicator
+  # timeout: a dedup pass must never stall the watch loop (wiseman-vwr) -
+  # the marker cadence makes the next pass pick up any slack.
   if [ "${FM_DISABLE_JEV_ARTIFACT_DEDUP:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-artifact-dedup.sh" ]; then
     _artifact_dedup_marker="$STATE/.jev-artifact-dedup-last"
     if [ ! -f "$_artifact_dedup_marker" ] || [ "$(age_of "$_artifact_dedup_marker")" -ge 1800 ]; then
       touch "$_artifact_dedup_marker"
-      "$SCRIPT_DIR/fm-jev-artifact-dedup.sh" >/dev/null 2>&1 || true
+      timeout 30 "$SCRIPT_DIR/fm-jev-artifact-dedup.sh" >/dev/null 2>&1 || true
     fi
   fi
 
@@ -2967,6 +2969,15 @@ while :; do
       "$SCRIPT_DIR/fm-jev-namespace-guard.sh" --json > "$STATE/.jev-namespace-guard-telemetry.json" 2>/dev/null || true
     fi
   fi
+  # Pattern 83: Jev Multi-Agent Core CPU Affinity & NUMA Node Memory Allocation Guard
+  if [ "${FM_DISABLE_JEV_NUMA_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-numa-guard.sh" ]; then
+    _numa_marker="$STATE/.jev-numa-guard-last"
+    if [ ! -f "$_numa_marker" ] || [ "$(age_of "$_numa_marker")" -ge 1800 ]; then
+      touch "$_numa_marker"
+      "$SCRIPT_DIR/fm-jev-numa-guard.sh" --json > "$STATE/.jev-numa-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
   # Pattern 226: Jev Terminal Inactive-Outcome Auto-Reconciliation & Wake Guard
   if [ "${FM_DISABLE_JEV_INACTIVE_RECONCILER:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-inactive-outcome-reconciler.sh" ]; then
     _inact_marker="$STATE/.jev-inactive-reconciler-last"
