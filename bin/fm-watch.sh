@@ -2775,6 +2775,14 @@ while :; do
       "$SCRIPT_DIR/fm-jev-container-guard.sh" --json > "$STATE/.jev-container-guard-telemetry.json" 2>/dev/null || true
     fi
   fi
+  # Pattern 59: Jev Multi-Agent Pip / Virtualenv Cache & Wheel Orphan Reaper
+  if [ "${FM_DISABLE_JEV_PIP_CACHE_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-pip-cache-guard.sh" ]; then
+    _pip_cache_guard_marker="$STATE/.jev-pip-cache-guard-last"
+    if [ ! -f "$_pip_cache_guard_marker" ] || [ "$(age_of "$_pip_cache_guard_marker")" -ge 1800 ]; then
+      touch "$_pip_cache_guard_marker"
+      "$SCRIPT_DIR/fm-jev-pip-cache-guard.sh" --json > "$STATE/.jev-pip-cache-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
 
 
 
