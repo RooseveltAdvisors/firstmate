@@ -2608,6 +2608,16 @@ while :; do
     fi
   fi
 
+  # Pattern 91: Jev Multi-Agent Host Network TCP Socket Buffer Auto-Tuning & Memory Pressure Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_TCP_MEM_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-tcp-mem-guard.sh" ]; then
+    _tcp_mem_guard_marker="$STATE/.jev-tcp-mem-guard-last"
+    if [ ! -f "$_tcp_mem_guard_marker" ] || [ "$(age_of "$_tcp_mem_guard_marker")" -ge 1800 ]; then
+      touch "$_tcp_mem_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-tcp-mem-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
   # Pattern 89: Jev Multi-Agent Host Kernel SLUB/SLAB Memory Object & Allocator Fragmentation Guard
   # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
   if [ "${FM_DISABLE_JEV_SLAB_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-slab-guard.sh" ]; then
