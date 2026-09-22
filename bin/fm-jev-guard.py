@@ -63,6 +63,9 @@ SUPERVISOR_TOOL_PREFIXES = (
     "bin/fm-check-register.sh",
     "bin/fm-session",
     "bin/fm-jev-",
+    "tests/fm-jev-",
+    "/opt/ra/firstmate/bin/fm-jev-",
+    "/opt/ra/firstmate/tests/fm-jev-",
     "herdr",
 )
 
@@ -196,9 +199,19 @@ def is_fast_pass_supervisor(subcmd: str) -> bool:
     if any(k in clean for k in ("ssh ", "ssh\t", "sudo ", "apt-get", "apt ", "systemctl", "journalctl", "docker ")):
         return False
 
+    # Unwrap bash / sh wrappers around approved tools
+    unwrapped = re.sub(r"^(?:bash|sh)\s+", "", clean).strip()
+
     # 2. Approved supervisor tools (beads, tasks, routing, wake drain, etc.)
     #    plus the supervisor lifecycle scripts (control/merge/teardown/lease/state/watch).
-    if clean.startswith(SUPERVISOR_TOOL_PREFIXES) or clean.startswith(SUPERVISOR_LIFECYCLE_PREFIXES) or clean == "bd" or clean == "tasks-axi":
+    if (
+        clean.startswith(SUPERVISOR_TOOL_PREFIXES)
+        or unwrapped.startswith(SUPERVISOR_TOOL_PREFIXES)
+        or clean.startswith(SUPERVISOR_LIFECYCLE_PREFIXES)
+        or unwrapped.startswith(SUPERVISOR_LIFECYCLE_PREFIXES)
+        or clean == "bd"
+        or clean == "tasks-axi"
+    ):
         return True
 
     # 3. Read-only or Firstmate-home git queries
