@@ -1,178 +1,170 @@
 #!/usr/bin/env python3
 """
-fm-jev-reorder-guard.py - Jev Multi-Agent Host Network TCP Packet Reordering & Spurious Fast Retransmit Guard (Pattern 151)
+bin/fm-jev-reorder-guard.py - Host Network TCP Packet Reordering Metric & Out-of-Order Queue Guard (Pattern 188)
 
-Audits Linux TCP packet reordering detection, duplicate ACK thresholds, and spurious retransmission prevention:
-  - /proc/sys/net/ipv4/tcp_reordering (initial duplicate ACK threshold, default 3)
-  - /proc/net/netstat metrics:
-      - TCPSACKReorder (Packet reordering detected via SACK blocks)
-      - TCPTSReorder (Packet reordering detected via TCP Timestamps)
-      - TCPRenoReorder (Packet reordering detected in Reno recovery)
-      - TCPFastRetrans (Total Fast Retransmissions)
-      - TCPFullUndo (CWND full rollbacks following false loss detection)
-      - TCPDeliveredCE (Delivered packets marked with ECN Congestion Experienced)
-
-In cloud agent mesh networks with multi-path ECMP routing and asymmetric link latencies,
-packet reordering frequently exceeds standard 3-packet thresholds. Linux TCP dynamic reordering
-auto-tunes the reorder threshold to prevent devastating spurious fast retransmits and CWND collapse.
-
-Invariants:
-  - Read-only diagnostics by default. Safe and non-destructive.
-  - Fail-open: graceful fallback when sysctl or procfs entries are inaccessible.
-  - Fast bounded execution (< 0.03s).
+Audits kernel TCP packet reordering threshold (tcp_reordering), maximum reordering metric (tcp_max_reordering),
+and netstat out-of-order queue counters (TCPOFOQueue, TCPOFODrop, TCPOFOMerge, TCPSACKReorder, TCPTSReorder).
+Verifies adaptive TCP reordering detection, ensures out-of-order packet queues remain uncorrupted without drops,
+and prevents spurious fast retransmits or throughput collapses across multi-agent multipath and VPN tunnels.
 """
 
 import argparse
+import datetime
 import json
 import os
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Dict, List, Optional
-
-PROC_NETSTAT = "/proc/net/netstat"
-SYSCTL_REORDERING = "/proc/sys/net/ipv4/tcp_reordering"
+import sys
+from typing import Any, Dict
 
 
-def read_int_file(path: Path, default: int = 0) -> int:
-    """Safely reads an integer from a sysctl file."""
-    if not path.is_file():
-        return default
+def read_sysctl_int(path: str) -> int:
+    if not os.path.exists(path):
+        return -1
     try:
-        return int(path.read_text().strip())
-    except Exception:
-        return default
+        with open(path, "r", encoding="utf-8") as f:
+            return int(f.read().strip())
+    except Exception as e:
+        print(f"Warning: unable to read {path}: {e}", file=sys.stderr)
+        return -1
 
 
-def parse_reorder_counters(netstat_path: Path) -> Dict[str, int]:
-    """Parses TCP packet reordering metrics from /proc/net/netstat."""
-    counters: Dict[str, int] = {
-        "sack_reorder": 0,
-        "ts_reorder": 0,
-        "reno_reorder": 0,
-        "fast_retrans": 0,
-        "full_undo": 0,
-        "delivered_ce": 0,
-    }
-
-    if not netstat_path.is_file():
+def parse_netstat(path: str = "/proc/net/netstat") -> Dict[str, int]:
+    counters: Dict[str, int] = {}
+    if not os.path.exists(path):
         return counters
-
     try:
-        lines = netstat_path.read_text().splitlines()
-        for i in range(0, len(lines) - 1, 2):
-            header_line = lines[i].strip()
-            data_line = lines[i + 1].strip()
-            if header_line.startswith("TcpExt:") and data_line.startswith("TcpExt:"):
-                headers = header_line.split()[1:]
-                values = data_line.split()[1:]
-                header_map = {h: int(v) for h, v in zip(headers, values) if v.isdigit()}
-
-                counters["sack_reorder"] = header_map.get("TCPSACKReorder", 0)
-                counters["ts_reorder"] = header_map.get("TCPTSReorder", 0)
-                counters["reno_reorder"] = header_map.get("TCPRenoReorder", 0)
-                counters["fast_retrans"] = header_map.get("TCPFastRetrans", 0)
-                counters["full_undo"] = header_map.get("TCPFullUndo", 0)
-                counters["delivered_ce"] = header_map.get("TCPDeliveredCE", 0)
+        with open(path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        for i in range(0, len(lines), 2):
+            if i + 1 >= len(lines):
                 break
-    except Exception:
-        pass
-
+            headers = lines[i].split()
+            values = lines[i + 1].split()
+            if len(headers) == len(values) and headers[0] == values[0]:
+                for h, v in zip(headers[1:], values[1:]):
+                    try:
+                        counters[h] = int(v)
+                    except ValueError:
+                        pass
+    except Exception as e:
+        print(f"Warning: unable to parse netstat {path}: {e}", file=sys.stderr)
     return counters
 
 
-def audit_reorder(
-    netstat_file: Optional[str] = None,
-    reorder_file: Optional[str] = None,
+def audit_reordering(
+    reordering_file: str = "/proc/sys/net/ipv4/tcp_reordering",
+    max_reordering_file: str = "/proc/sys/net/ipv4/tcp_max_reordering",
+    netstat_file: str = "/proc/net/netstat",
 ) -> Dict[str, Any]:
-    """Audits TCP packet reordering parameters and detection metrics."""
-    netstat_path = Path(netstat_file) if netstat_file else Path(PROC_NETSTAT)
-    reorder_path = Path(reorder_file) if reorder_file else Path(SYSCTL_REORDERING)
+    reordering = read_sysctl_int(reordering_file)
+    max_reordering = read_sysctl_int(max_reordering_file)
 
-    reorder_thresh = read_int_file(reorder_path, default=3)
-    counters = parse_reorder_counters(netstat_path)
+    netstat = parse_netstat(netstat_file)
 
-    total_reorders = (
-        counters["sack_reorder"]
-        + counters["ts_reorder"]
-        + counters["reno_reorder"]
-    )
-    fast_retrans = counters["fast_retrans"]
+    ofo_queue = netstat.get("TCPOFOQueue", 0)
+    ofo_drop = netstat.get("TCPOFODrop", 0)
+    ofo_merge = netstat.get("TCPOFOMerge", 0)
+    sack_reorder = netstat.get("TCPSACKReorder", 0)
+    reno_reorder = netstat.get("TCPRenoReorder", 0)
+    ts_reorder = netstat.get("TCPTSReorder", 0)
 
-    issues: List[str] = []
+    issues = []
+    status = "HEALTHY"
+    healthy = True
 
-    # 1. tcp_reordering threshold under-configured (< 3)
-    if reorder_thresh < 3:
-        issues.append(f"tcp_reordering threshold is under-configured ({reorder_thresh} < 3); highly sensitive to spurious fast retransmits")
+    if reordering == -1:
+        status = "WARNING"
+        healthy = False
+        issues.append("Unable to read net.ipv4.tcp_reordering sysctl")
+    elif reordering < 3:
+        status = "WARNING"
+        healthy = False
+        issues.append(f"TCP reordering threshold is sub-optimal: {reordering} (< 3 causes spurious fast retransmits)")
+    elif reordering > 100:
+        status = "WARNING"
+        healthy = False
+        issues.append(f"TCP reordering threshold is excessively high: {reordering} (> 100 delays packet loss detection)")
 
-    healthy = len(issues) == 0
-    status = "HEALTHY" if healthy else "WARNING"
+    if max_reordering == -1:
+        status = "WARNING"
+        healthy = False
+        issues.append("Unable to read net.ipv4.tcp_max_reordering sysctl")
+    elif max_reordering < reordering and reordering != -1:
+        status = "WARNING"
+        healthy = False
+        issues.append(f"tcp_max_reordering ({max_reordering}) is less than tcp_reordering ({reordering})")
+    elif max_reordering > 1000:
+        status = "WARNING"
+        healthy = False
+        issues.append(f"tcp_max_reordering is excessively high: {max_reordering} (> 1000)")
+
+    if ofo_drop > 100:
+        status = "WARNING"
+        healthy = False
+        issues.append(f"High TCP out-of-order queue packet drops detected: {ofo_drop}")
+
+    summary = {
+        "status": status,
+        "healthy": healthy,
+        "tcp_reordering": reordering,
+        "tcp_max_reordering": max_reordering,
+        "ofo_queue": ofo_queue,
+        "ofo_drop": ofo_drop,
+        "ofo_merge": ofo_merge,
+        "sack_reorder": sack_reorder,
+        "reno_reorder": reno_reorder,
+        "ts_reorder": ts_reorder,
+        "issues": issues,
+    }
 
     return {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "summary": {
-            "status": status,
-            "healthy": healthy,
-            "tcp_reordering_threshold": reorder_thresh,
-            "total_reorder_events": total_reorders,
-            "sack_reorder": counters["sack_reorder"],
-            "ts_reorder": counters["ts_reorder"],
-            "reno_reorder": counters["reno_reorder"],
-            "fast_retrans": fast_retrans,
-            "full_undo": counters["full_undo"],
-            "delivered_ce": counters["delivered_ce"],
-            "issues": issues,
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "summary": summary,
+        "sysctls": {
+            "tcp_reordering": reordering,
+            "tcp_max_reordering": max_reordering,
         },
-        "counters": counters,
+        "counters": {
+            "TCPOFOQueue": ofo_queue,
+            "TCPOFODrop": ofo_drop,
+            "TCPOFOMerge": ofo_merge,
+            "TCPSACKReorder": sack_reorder,
+            "TCPRenoReorder": reno_reorder,
+            "TCPTSReorder": ts_reorder,
+        },
     }
 
 
-def main() -> None:
+def main():
     parser = argparse.ArgumentParser(
-        description="Jev Multi-Agent Host Network TCP Packet Reordering & Spurious Fast Retransmit Guard (Pattern 151)"
+        description="Host Network TCP Packet Reordering Metric & Out-of-Order Queue Guard (Pattern 188)"
     )
-    parser.add_argument("--json", action="store_true", help="Output JSON format")
-    parser.add_argument("--netstat-file", type=str, default=None, help="Path to /proc/net/netstat")
-    parser.add_argument("--reorder-file", type=str, default=None, help="Path to tcp_reordering")
+    parser.add_argument("--json", action="store_true", help="Output audit report as JSON")
     args = parser.parse_args()
 
-    result = audit_reorder(netstat_file=args.netstat_file, reorder_file=args.reorder_file)
+    report = audit_reordering()
 
     if args.json:
-        print(json.dumps(result, indent=2))
-        return
+        print(json.dumps(report, indent=2))
+        return 0
 
-    summary = result["summary"]
-    status_color = "\033[32m" if summary["healthy"] else "\033[33m"
-    reset_color = "\033[0m"
+    s = report["summary"]
+    print(f"TCP Packet Reordering Guard (Pattern 188) - Status: {s['status']}")
+    print(f"  tcp_reordering:        {s['tcp_reordering']} packets (initial threshold)")
+    print(f"  tcp_max_reordering:    {s['tcp_max_reordering']} packets (ceiling)")
+    print(f"  Out-of-Order Packets:  {s['ofo_queue']}")
+    print(f"  Out-of-Order Drops:    {s['ofo_drop']}")
+    print(f"  Out-of-Order Merges:   {s['ofo_merge']}")
+    print(f"  SACK Reorder Events:   {s['sack_reorder']}")
+    print(f"  TS Reorder Events:     {s['ts_reorder']}")
 
-    print("================================================================================")
-    print(" Jev Multi-Agent Host Network TCP Packet Reordering Guard (Pattern 151)")
-    print("================================================================================")
-    print(f" Timestamp:                     {result['timestamp']}")
-    print(f" Status:                        {status_color}{summary['status']}{reset_color}")
-    print(f" tcp_reordering Threshold:      {summary['tcp_reordering_threshold']} duplicate ACKs")
-    print(f" Total Reordering Events:       {summary['total_reorder_events']:,}")
-    print(f"   - SACK Detected Reorders:    {summary['sack_reorder']:,}")
-    print(f"   - Timestamp (TS) Reorders:   {summary['ts_reorder']:,}")
-    print(f"   - Reno Detected Reorders:    {summary['reno_reorder']:,}")
-    print(f" Fast Retransmissions:          {summary['fast_retrans']:,}")
-    print(f" Full CWND Loss Undos:          {summary['full_undo']:,}")
-    print(f" ECN Delivered CE Marks:        {summary['delivered_ce']:,}")
-    print("--------------------------------------------------------------------------------")
-    print(f" {'Reordering Metric / Sysctl':<35} {'Value':<15} {'Status'}")
-    print("--------------------------------------------------------------------------------")
-    print(f" {'Initial DupACK Threshold':<35} {summary['tcp_reordering_threshold']:<15} {'Nominal' if summary['tcp_reordering_threshold'] >= 3 else 'WARNING'}")
-    print(f" {'SACK Reordering Defense':<35} {summary['sack_reorder']:<15} {'Nominal'}")
-    print(f" {'Timestamp Reordering Defense':<35} {summary['ts_reorder']:<15} {'Nominal'}")
+    if s["issues"]:
+        print("\nIssues:")
+        for iss in s["issues"]:
+            print(f"  - {iss}")
+        return 1
 
-    if summary["issues"]:
-        print("\nActive TCP Packet Reordering Warnings:")
-        for issue in summary["issues"]:
-            print(f"  [!] {issue}")
-    else:
-        print("\nAll host TCP packet reordering parameters, SACK detection, and recovery metrics nominal.")
-    print("================================================================================")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
