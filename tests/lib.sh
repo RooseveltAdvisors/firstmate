@@ -24,7 +24,7 @@
 if [ -n "${FM_TEST_LIB_SOURCED:-}" ]; then
   return 0
 fi
-FM_TEST_LIB_SOURCED=1
+export FM_TEST_LIB_SOURCED=1
 
 # Pin the fixture umask. Firstmate's state-root and process-event contracts
 # refuse group- or world-writable state directories, and a permissive ambient

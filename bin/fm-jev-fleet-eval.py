@@ -199,17 +199,16 @@ def main() -> int:
     parser.add_argument("--remedy", action="store_true", help="Emit actionable remediation command")
     args = parser.parse_args()
 
+    state = collect_fleet_state()
     key = get_api_key()
     if not key:
-        print("error: TYPESAFE_API_KEY not available", file=sys.stderr)
-        return 1
-
-    state = collect_fleet_state()
-    try:
-        eval_result = evaluate_with_jev(state, key)
-    except Exception as e:
-        print(f"warning: Jev API evaluation gateway unavailable ({e}), using local deterministic evaluator", file=sys.stderr)
         eval_result = local_heuristic_evaluate(state)
+    else:
+        try:
+            eval_result = evaluate_with_jev(state, key)
+        except Exception as e:
+            print(f"warning: Jev API evaluation gateway unavailable ({e}), using local deterministic evaluator", file=sys.stderr)
+            eval_result = local_heuristic_evaluate(state)
 
     answers = eval_result.get("answers", {})
     bottleneck = answers.get("primary_bottleneck", {}).get("choice", "unknown")
