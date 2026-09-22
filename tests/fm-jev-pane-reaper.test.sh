@@ -61,4 +61,15 @@ assert data['dry_run'] == True, 'dry_run must be True'
 "
 echo "PASS: Test 5 - JSON telemetry schema validated"
 
-echo "=== All 5 fm-jev-pane-reaper tests passed successfully! ==="
+# Test 6: Herdr is optional on portable CI hosts. The executable interface must
+# still return an empty dry-run report when no Herdr executable can be resolved.
+NO_HERDR_OUT=$(PATH=/usr/bin:/bin /usr/bin/python3 "${REAPER_ENGINE}" --dry-run --json 2>/dev/null)
+python3 -c "
+import json
+data = json.loads('''${NO_HERDR_OUT}''')
+assert data['total_panes'] == 0, 'missing Herdr must produce an empty pane inventory'
+assert data['reaped_panes'] == [], 'missing Herdr must never report a reap'
+"
+echo "PASS: Test 6 - missing Herdr degrades to an empty dry-run report"
+
+echo "=== All 6 fm-jev-pane-reaper tests passed successfully! ==="
