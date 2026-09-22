@@ -422,6 +422,75 @@ test_ladder_writes_ignore_vanished_inbox() {
   pass "inbox: ladder bookkeeping ignores a concurrently removed inbox"
 }
 
+test_follow_up_delivery_mode_header_roundtrip() {
+  local state rec mode
+  state="$TMP_ROOT/follow-up-mode/state"; mkdir -p "$state"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "non-urgent re-read" follow-up)
+  mode=$(inbox_lib "$state" fm_task_inbox_delivery_mode "$rec")
+  [ "$mode" = follow-up ] || fail "a follow-up record lost its delivery header: got '$mode'"
+  if inbox_lib "$state" fm_task_inbox_is_fire_and_forget "$rec"; then
+    fail "a follow-up record must not classify as fire-and-forget"
+  fi
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "one-shot steer" fire-and-forget)
+  mode=$(inbox_lib "$state" fm_task_inbox_delivery_mode "$rec")
+  [ "$mode" = fire-and-forget ] || fail "a fire-and-forget record lost its delivery header: got '$mode'"
+  inbox_lib "$state" fm_task_inbox_is_fire_and_forget "$rec" \
+    || fail "a fire-and-forget record must classify as fire-and-forget"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "urgent steer")
+  if inbox_lib "$state" fm_task_inbox_delivery_mode "$rec" 2>/dev/null; then
+    fail "a default steer record must carry no delivery header"
+  fi
+  pass "inbox: delivery-mode header round-trips (follow-up, fire-and-forget, default steer)"
+}
+
+test_follow_up_defers_while_agent_working() {
+  local dir state rec_follow rec_steer log rc
+  dir="$TMP_ROOT/follow-up-defer"
+  state="$dir/state"
+  mkdir -p "$state"
+  make_watch_stubs "$dir" >/dev/null
+  rec_follow=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "non-urgent" follow-up)
+  rec_steer=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "urgent")
+  log="$dir/send.log"
+
+  # When fm_backend_agent_state answers 'working', follow-up must defer (rc=1, no typing)
+  rc=0
+  PATH="$dir/fakebin:$PATH" FM_SEND_LOG="$log" \
+    FM_STATE_OVERRIDE="$state" bash -c '
+      . "$1"
+      fm_backend_agent_state() { printf "working"; }
+      fm_task_inbox_ring tmux sess:fm-t1 "$2" fm-t1
+    ' _ "$ROOT/bin/fm-task-inbox-lib.sh" "$rec_follow" || rc=$?
+  [ "$rc" -eq 1 ] || fail "a follow-up record must defer (rc=1) while agent is working, got: $rc"
+  [ ! -s "$log" ] || fail "a deferred follow-up typed into the pane:"$'\n'"$(cat "$log")"
+
+  # Steer mode must not defer while agent is working (rc=0, doorbell typed)
+  rc=0
+  : > "$log"
+  PATH="$dir/fakebin:$PATH" FM_SEND_LOG="$log" \
+    FM_STATE_OVERRIDE="$state" bash -c '
+      . "$1"
+      fm_backend_agent_state() { printf "working"; }
+      fm_task_inbox_ring tmux sess:fm-t1 "$2" fm-t1
+    ' _ "$ROOT/bin/fm-task-inbox-lib.sh" "$rec_steer" || rc=$?
+  [ "$rc" -eq 0 ] || fail "a steer record must not defer while agent is working, got: $rc"
+  grep -qF 'Firstmate instruction waiting' "$log" || fail "steer mode did not ring when agent was working"
+
+  # When agent is alive/idle, follow-up rings normally (rc=0, doorbell typed)
+  rc=0
+  : > "$log"
+  PATH="$dir/fakebin:$PATH" FM_SEND_LOG="$log" \
+    FM_STATE_OVERRIDE="$state" bash -c '
+      . "$1"
+      fm_backend_agent_state() { printf "alive"; }
+      fm_task_inbox_ring tmux sess:fm-t1 "$2" fm-t1
+    ' _ "$ROOT/bin/fm-task-inbox-lib.sh" "$rec_follow" || rc=$?
+  [ "$rc" -eq 0 ] || fail "a follow-up record must ring when agent is alive/idle, got: $rc"
+  grep -qF 'Firstmate instruction waiting' "$log" || fail "follow-up did not ring when agent was idle"
+
+  pass "inbox: follow-up delivery defers while agent is working; steer does not defer"
+}
+
 test_fire_and_forget_records_never_enter_the_ladder() {
   local state fire tracked action
   state="$TMP_ROOT/fire-and-forget/state"; mkdir -p "$state"
@@ -480,11 +549,17 @@ test_ring_ladder_policy() {
 }
 
 setup_watch_case() {  # <name> -> echoes case dir; state in <dir>/state
-  local name=$1 dir
+  local name=$1 dir f b
   dir="$TMP_ROOT/$name"
   mkdir -p "$dir/state"
   make_watch_stubs "$dir" >/dev/null
   fm_write_meta "$dir/state/t1.meta" "window=sess:fm-t1" "kind=ship" "harness=grok"
+  for f in "$ROOT"/bin/fm-jev-*.sh; do
+    [ -e "$f" ] || continue
+    b=${f##*/}
+    b=${b%.sh}
+    touch "$dir/state/.${b#fm-}-last"
+  done
   printf '%s\n' "$dir"
 }
 
@@ -702,6 +777,8 @@ test_handled_mv_dedups_by_sequence
 test_concurrent_writers_never_clobber
 test_writer_retries_after_a_vanished_lock_collision
 test_ladder_writes_ignore_vanished_inbox
+test_follow_up_delivery_mode_header_roundtrip
+test_follow_up_defers_while_agent_working
 test_fire_and_forget_records_never_enter_the_ladder
 test_ring_ladder_policy
 test_watcher_rerings_idle_pane_quietly

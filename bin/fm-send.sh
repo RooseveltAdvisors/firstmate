@@ -465,6 +465,7 @@ fi
 # message exactly as before, so ordinary sends are byte-identical.
 RESOLVE_KEYS=
 FIRE_AND_FORGET_ID=
+DELIVERY_MODE=
 fm_send_add_resolve_key() { # <key>
   local k=$1
   case "$k" in
@@ -515,9 +516,39 @@ while :; do
     FIRE_AND_FORGET_ID=${1#--fire-and-forget=}
     shift
     ;;
+  --delivery)
+    [ $# -ge 2 ] || {
+      echo "error: --delivery requires a mode (follow-up|steer)" >&2
+      exit 1
+    }
+    DELIVERY_MODE=$2
+    shift 2
+    ;;
+  --delivery=*)
+    DELIVERY_MODE=${1#--delivery=}
+    shift
+    ;;
   *) break ;;
   esac
 done
+
+case "${DELIVERY_MODE:-}" in
+'' | steer | follow-up) ;;
+*)
+  echo "error: invalid --delivery mode '$DELIVERY_MODE' (expected follow-up or steer)" >&2
+  exit 1
+  ;;
+esac
+
+# Delivery mode for the inbox record: fire-and-forget keeps its exclusive
+# semantics; --delivery follow-up marks the record non-interrupting
+# (hold-until-idle in the ring ladder, wiseman-kq7); default is empty = steer.
+INBOX_DELIVERY_MODE=""
+if [ -n "$FIRE_AND_FORGET_ID" ]; then
+  INBOX_DELIVERY_MODE=fire-and-forget
+elif [ "$DELIVERY_MODE" = follow-up ]; then
+  INBOX_DELIVERY_MODE=follow-up
+fi
 
 if [ "$TARGET_BACKEND" != remote ]; then
   fm_backend_validate "$TARGET_BACKEND" || exit 1
@@ -1036,10 +1067,10 @@ else
     fi
     if [ "${FM_SEND_IDEMPOTENT:-0}" = 1 ]; then
       INBOX_RECORD=$(fm_task_inbox_write_idempotent "$STATE" "$INBOX_TASK_ID" "$MESSAGE" \
-        "${FIRE_AND_FORGET_ID:+fire-and-forget}") || inbox_write_rc=$?
+        "$INBOX_DELIVERY_MODE") || inbox_write_rc=$?
     else
       INBOX_RECORD=$(fm_task_inbox_write "$STATE" "$INBOX_TASK_ID" "$MESSAGE" \
-        "${FIRE_AND_FORGET_ID:+fire-and-forget}") || inbox_write_rc=$?
+        "$INBOX_DELIVERY_MODE") || inbox_write_rc=$?
     fi
     if [ "${inbox_write_rc:-0}" -ne 0 ]; then
       fm_lock_release "$INBOX_META_LOCK"
