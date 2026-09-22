@@ -2714,6 +2714,15 @@ while :; do
     fi
   fi
 
+  # Pattern 52: Jev Multi-Agent Broken Symlink & Dangling Worktree Link Guard
+  if [ "${FM_DISABLE_JEV_SYMLINK_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-symlink-guard.sh" ]; then
+    _symlink_guard_marker="$STATE/.jev-symlink-guard-last"
+    if [ ! -f "$_symlink_guard_marker" ] || [ "$(age_of "$_symlink_guard_marker")" -ge 1800 ]; then
+      touch "$_symlink_guard_marker"
+      "$SCRIPT_DIR/fm-jev-symlink-guard.sh" --json > "$STATE/.jev-symlink-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
 
 
 
