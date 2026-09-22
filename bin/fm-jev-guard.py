@@ -67,7 +67,8 @@ SUPERVISOR_TOOL_PREFIXES = (
 )
 
 # Supervisor lifecycle scripts (AGENTS.md sections 4/7/8): seat relaunch/interrupt,
-# task PR merge and check, teardown, lease claim, current-state reads, fleet view.
+# task PR merge and check, teardown, lease claim, current-state reads, fleet view,
+# watcher arm/restart, and local guard/sweep maintenance.
 # These are firstmate-owned supervision actions, never hands-on project work.
 SUPERVISOR_LIFECYCLE_PREFIXES = (
     "bin/fm-control.sh",
@@ -77,6 +78,13 @@ SUPERVISOR_LIFECYCLE_PREFIXES = (
     "bin/fm-lease.sh",
     "bin/fm-crew-state.sh",
     "bin/fm-fleet-view.sh",
+    "bin/fm-watch-arm.sh",
+    "bin/fm-watch.sh",
+    "bin/fm-watch-checkpoint.sh",
+    "bin/fm-guard.sh",
+    "bin/fm-stale-sweep.sh",
+    "bin/fm-update.sh",
+    "bin/fm-lint.sh",
 )
 
 SAFE_READ_TOOLS = (
@@ -98,6 +106,7 @@ SAFE_READ_TOOLS = (
     "false",
     "test ",
     "[ ",
+    "jq ",
 )
 
 
@@ -133,14 +142,14 @@ def get_api_key(fm_root: Path | None = None) -> str | None:
 
 
 def split_compound_commands(cmd: str) -> list[str]:
-    """Split compound bash commands (;, &&, ||, newlines) while preserving quoted strings."""
+    """Split compound bash commands (;, &&, ||, newlines, pipes) while preserving quoted strings."""
     try:
         lexer = shlex.shlex(cmd, posix=True, punctuation_chars=";&|")
         lexer.whitespace_split = True
         parts = []
         current = []
         for tok in lexer:
-            if tok in (";", "&&", "||", "\n"):
+            if tok in (";", "&&", "||", "\n", "|"):
                 if current:
                     parts.append(" ".join(current))
                     current = []
@@ -150,13 +159,13 @@ def split_compound_commands(cmd: str) -> list[str]:
             parts.append(" ".join(current))
         return parts if parts else [cmd]
     except Exception:
-        # Fallback: simple line/semicolon split if lexer encounters syntax errors
-        raw_parts = [p.strip() for p in re.split(r"[;\n]|&&|\|\|", cmd) if p.strip()]
+        # Fallback: simple line/semicolon/pipe split if lexer encounters syntax errors
+        raw_parts = [p.strip() for p in re.split(r"[;\n|]|&&|\|\|", cmd) if p.strip()]
         return raw_parts if raw_parts else [cmd]
 
 
 def clean_subcommand(subcmd: str) -> str:
-    """Strip leading variable assignments and comments from a subcommand."""
+    """Strip leading variable assignments, redirects, and comments from a subcommand."""
     s = subcmd.strip()
     # Strip leading shell comments
     s = re.sub(r"^#[^\n]*\n?", "", s).strip()
@@ -167,6 +176,8 @@ def clean_subcommand(subcmd: str) -> str:
             s = s[m.end():].strip()
         else:
             break
+    # Strip redirects (e.g. 2>&1, 2> & 1, >/dev/null)
+    s = re.sub(r"\s*(?:[0-9]*>\s*&\s*[0-9]+|[0-9]*>\s*\S+)+\s*$", "", s).strip()
     return s
 
 
@@ -181,15 +192,19 @@ def is_fast_pass_supervisor(subcmd: str) -> bool:
         return False
 
     # 2. Approved supervisor tools (beads, tasks, routing, wake drain, etc.)
-    #    plus the supervisor lifecycle scripts (control/merge/teardown/lease/state).
+    #    plus the supervisor lifecycle scripts (control/merge/teardown/lease/state/watch).
     if clean.startswith(SUPERVISOR_TOOL_PREFIXES) or clean.startswith(SUPERVISOR_LIFECYCLE_PREFIXES) or clean == "bd" or clean == "tasks-axi":
         return True
 
-    # 3. Read-only git queries in Firstmate home
-    if clean.startswith("git "):
-        git_args = clean[4:].strip()
-        if re.match(r"^(status|log|diff|rev-parse|show\s+origin/main|branch)\b", git_args):
+    # 3. Read-only or Firstmate-home git queries
+    if clean.startswith("git ") or clean == "git":
+        git_clean = re.sub(r"^git(?:\s+(?:-C\s+\S+|--no-pager\b|--git-dir=\S+|--work-tree=\S+))*\s*", "", clean).strip()
+        if re.match(r"^(status|log|diff|rev-parse|show|branch|remote)\b", git_clean):
             return True
+        # Allow Firstmate repository commits and pushes to fork (never projects/)
+        if not re.search(r"\bprojects/\S+", clean):
+            if re.match(r"^(add\s+bin/|commit|push\s+fork)\b", git_clean):
+                return True
         return False
 
     # 4. Read-only GitHub PR queries
