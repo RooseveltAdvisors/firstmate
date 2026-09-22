@@ -2863,6 +2863,14 @@ while :; do
       "$SCRIPT_DIR/fm-jev-sockstat-guard.sh" --json > "$STATE/.jev-sockstat-guard-telemetry.json" 2>/dev/null || true
     fi
   fi
+  # Pattern 70: Jev Multi-Agent Network Softirq & Packet Processing Backlog Guard
+  if [ "${FM_DISABLE_JEV_SOFTNET_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-softnet-guard.sh" ]; then
+    _softnet_marker="$STATE/.jev-softnet-guard-last"
+    if [ ! -f "$_softnet_marker" ] || [ "$(age_of "$_softnet_marker")" -ge 1800 ]; then
+      touch "$_softnet_marker"
+      "$SCRIPT_DIR/fm-jev-softnet-guard.sh" --json > "$STATE/.jev-softnet-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
 
 
 
