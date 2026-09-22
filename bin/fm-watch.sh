@@ -2879,6 +2879,14 @@ while :; do
       "$SCRIPT_DIR/fm-jev-dentry-guard.sh" --json > "$STATE/.jev-dentry-guard-telemetry.json" 2>/dev/null || true
     fi
   fi
+  # Pattern 72: Jev Multi-Agent TCP TIME_WAIT Bucket & Socket Port Reuse Guard
+  if [ "${FM_DISABLE_JEV_TW_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-tw-guard.sh" ]; then
+    _tw_marker="$STATE/.jev-tw-guard-last"
+    if [ ! -f "$_tw_marker" ] || [ "$(age_of "$_tw_marker")" -ge 1800 ]; then
+      touch "$_tw_marker"
+      "$SCRIPT_DIR/fm-jev-tw-guard.sh" --json > "$STATE/.jev-tw-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
 
 
 
