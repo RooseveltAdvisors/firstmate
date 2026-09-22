@@ -92,6 +92,8 @@ SAFE_READ_TOOLS = (
     "head ",
     "tail ",
     "grep ",
+    "pgrep ",
+    "pgrep",
     "rg ",
     "sed ",
     "awk ",
@@ -142,14 +144,17 @@ def get_api_key(fm_root: Path | None = None) -> str | None:
 
 
 def split_compound_commands(cmd: str) -> list[str]:
-    """Split compound bash commands (;, &&, ||, newlines, pipes) while preserving quoted strings."""
+    """Split compound bash commands (;, &&, ||, newlines, pipes) while preserving quoted strings and subshells."""
     try:
         lexer = shlex.shlex(cmd, posix=True, punctuation_chars=";&|")
         lexer.whitespace_split = True
         parts = []
         current = []
+        paren_depth = 0
         for tok in lexer:
-            if tok in (";", "&&", "||", "\n", "|"):
+            paren_depth += tok.count("(") - tok.count(")")
+            if paren_depth <= 0 and tok in (";", "&&", "||", "\n", "|"):
+                paren_depth = 0
                 if current:
                     parts.append(" ".join(current))
                     current = []
@@ -169,9 +174,9 @@ def clean_subcommand(subcmd: str) -> str:
     s = subcmd.strip()
     # Strip leading shell comments
     s = re.sub(r"^#[^\n]*\n?", "", s).strip()
-    # Strip leading env assignments like export FOO=bar or FOO=bar
+    # Strip leading env assignments like export FOO=bar, FOO=bar, or FOO=$(...)
     while True:
-        m = re.match(r"^(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*=(?:'[^']*'|\"[^\"]*\"|\S+)\s*", s)
+        m = re.match(r"^(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*=(?:\$\([^\)]*\)|'[^']*'|\"[^\"]*\"|\S+)\s*", s)
         if m:
             s = s[m.end():].strip()
         else:

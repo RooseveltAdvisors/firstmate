@@ -26,6 +26,7 @@ assert_contains "$help_out" "Usage: fm-jev-guard.sh" "shell wrapper emits usage"
 "$GUARD_SH" --command "git status --porcelain" || fail "git status denied unexpectedly"
 "$GUARD_SH" --command "git -C /opt/ra/firstmate status -sb | head -8" || fail "git -C status with pipe denied unexpectedly"
 "$GUARD_SH" --command "FM_HOME=/opt/ra/firstmate bin/fm-watch-arm.sh --restart 2>&1 | tail -3" || fail "fm-watch-arm --restart denied unexpectedly"
+"$GUARD_SH" --command "OLD=\$(pgrep -f '/opt/ra/firstmate/bin/fm-watch.sh' | head -1); FM_HOME=/opt/ra/firstmate bin/fm-watch-arm.sh --restart 2>&1 | tail -2; sleep 5; NEW=\$(pgrep -f '/opt/ra/firstmate/bin/fm-watch.sh' | head -1); echo watcher" || fail "compound subshell watcher restart denied unexpectedly"
 "$GUARD_SH" --command "git -C /opt/ra/firstmate add bin/fm-watch.sh && git -C /opt/ra/firstmate commit -m 'feat(watch): update'" || fail "firstmate self-repo commit denied unexpectedly"
 "$GUARD_SH" --command "cat state/websites.status | grep needs-decision" || fail "cat/grep state denied unexpectedly"
 
