@@ -237,6 +237,12 @@ def is_fast_pass_supervisor(subcmd: str) -> bool:
         # Disallow reading remote or dangerous paths if specified
         return True
 
+    # 6. Syntax validation and temp scratch copies for verification
+    if re.match(r"^(?:bash|sh)\s+-n\b", clean):
+        return True
+    if clean.startswith("cp ") and "/tmp/" in clean:
+        return True
+
     return False
 
 
