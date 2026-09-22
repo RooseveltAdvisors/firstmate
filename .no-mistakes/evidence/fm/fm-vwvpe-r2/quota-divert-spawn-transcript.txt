@@ -1,0 +1,10 @@
+EVIDENCE: quota divert to Pi
+operator output: jev-quota-prober: automatically diverted codex:codex/gpt-5 to viable lane pi:openai-codex/gpt-5.6-sol
+spawned profile-quota-divert-pi-z8e harness=pi kind=ship mode=no-mistakes yolo=off window=firstmate:fm-profile-quota-divert-pi-z8e worktree=/tmp/fm-spawn-dispatch-profile.Qfmwgb/profile-quota-divert-pi/wt
+captured worker launch: export COMPACT_ADVISER_DISABLE=1; env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI FM_PI_HARNESS=pi '/tmp/fm-spawn-dispatch-profile.Qfmwgb/profile-quota-divert-pi/fake/fakebin/pi' --tui-mode regular --model 'openai-codex/gpt-5.6-sol' --thinking 'max' -e '/tmp/fm-spawn-dispatch-profile.Qfmwgb/profile-quota-divert-pi/home/state/profile-quota-divert-pi-z8e.pi-ext.ts' "$('/home/jon/.no-mistakes/worktrees/46339c0817e0/01M339CS5N28X4GJ5QME5VHDGZ/bin/fm-operational-input.sh' encode launch-brief < '/tmp/fm-spawn-dispatch-profile.Qfmwgb/profile-quota-divert-pi/home/data/profile-quota-divert-pi-z8e/launch-brief.md')"
+ok - quota divert to pi rebuilds concrete Pi launch and applies diverted profile
+EVIDENCE: quota divert to Cursor
+operator output: jev-quota-prober: automatically diverted pi:openai-codex/gpt-5.6-sol to viable lane cursor:cursor-grok-4.5-high
+spawned profile-quota-divert-cursor-z8f harness=cursor kind=ship mode=no-mistakes yolo=off window=firstmate:fm-profile-quota-divert-cursor-z8f worktree=/tmp/fm-spawn-dispatch-profile.Qfmwgb/profile-quota-divert-cursor/wt
+captured worker launch: export COMPACT_ADVISER_DISABLE=1; env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS -u GEMINI_CLI -u CURSOR_INVOKED_AS '/tmp/fm-spawn-dispatch-profile.Qfmwgb/profile-quota-divert-cursor/fake/fakebin/cursor-agent' --trust --yolo --model 'cursor-grok-4.5-high' --workspace '/tmp/fm-spawn-dispatch-profile.Qfmwgb/profile-quota-divert-cursor/wt' "$('/home/jon/.no-mistakes/worktrees/46339c0817e0/01M339CS5N28X4GJ5QME5VHDGZ/bin/fm-operational-input.sh' encode launch-brief < '/tmp/fm-spawn-dispatch-profile.Qfmwgb/profile-quota-divert-cursor/home/data/profile-quota-divert-cursor-z8f/launch-brief.md')"
+ok - quota divert to cursor rebuilds concrete Cursor launch
