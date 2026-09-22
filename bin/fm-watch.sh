@@ -2624,6 +2624,15 @@ while :; do
     fi
   fi
 
+  # Pattern 42: Jev Multi-Agent POSIX Shared Memory & Semaphore Leak Guard
+  if [ "${FM_DISABLE_JEV_SHM_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-shm-guard.sh" ]; then
+    _shm_marker="$STATE/.jev-shm-guard-last"
+    if [ ! -f "$_shm_marker" ] || [ "$(age_of "$_shm_marker")" -ge 1800 ]; then
+      touch "$_shm_marker"
+      "$SCRIPT_DIR/fm-jev-shm-guard.sh" --json > "$STATE/.jev-shm-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
 
 
 
