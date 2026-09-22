@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# tests/fm-jev-ecn-guard.test.sh - Regression tests for Pattern 159 (TCP ECN Guard)
+# tests/fm-jev-ecn-guard.test.sh - Regression tests for Pattern 191 (TCP ECN & CE Mark Guard)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GUARD_SH="$SCRIPT_DIR/../bin/fm-jev-ecn-guard.sh"
 GUARD_PY="$SCRIPT_DIR/../bin/fm-jev-ecn-guard.py"
 
-echo "Running Pattern 159 regression tests..."
+echo "Running Pattern 191 regression tests..."
 
 # 1. ShellCheck
 shellcheck "$GUARD_SH"
@@ -27,15 +27,17 @@ import json, sys
 data = json.loads('''$json_out''')
 assert 'timestamp' in data
 assert 'summary' in data
-assert 'counters' in data
+assert 'sysctls' in data
+assert 'netstat_counters' in data
 s = data['summary']
 assert 'status' in s
 assert isinstance(s['healthy'], bool)
 assert isinstance(s['issues'], list)
 assert 'tcp_ecn' in s
 assert 'tcp_ecn_fallback' in s
-assert 'delivered_ce' in s
-assert 'in_ce_pkts' in s
+assert 'delivered_segments' in s
+assert 'delivered_ce_marks' in s
+assert 'ce_ratio_pct' in s
 "
 echo "ok - json audit schema valid"
 
@@ -59,44 +61,59 @@ with tempfile.TemporaryDirectory() as tmp_dir:
 
     ecn_f.write_text('2\n')
     fallback_f.write_text('1\n')
-    netstat_f.write_text('''TcpExt: TCPDeliveredCE InCEPkts
-TcpExt: 118 2510
+    netstat_f.write_text('''TcpExt: TCPDelivered TCPDeliveredCE TCPHystartTrainDetect TCPHystartDelayDetect TCPHystartTrainCwnd TCPHystartDelayCwnd
+TcpExt: 1000000 10 500 200 10000 20000
 ''')
 
-    # Case 1: Nominal
+    # Case 1: Nominal (server-only with fallback)
     res = mod.audit_ecn(
-        ecn_file=str(ecn_f),
-        fallback_file=str(fallback_f),
+        tcp_ecn_file=str(ecn_f),
+        tcp_ecn_fallback_file=str(fallback_f),
         netstat_file=str(netstat_f),
     )
     assert res['summary']['status'] == 'HEALTHY'
     assert res['summary']['healthy'] is True
     assert res['summary']['tcp_ecn'] == 2
     assert res['summary']['tcp_ecn_fallback'] == 1
-    assert res['summary']['delivered_ce'] == 118
-    assert res['summary']['in_ce_pkts'] == 2510
+    assert res['summary']['delivered_segments'] == 1000000
+    assert res['summary']['delivered_ce_marks'] == 10
 
-    # Case 2: Disabled ECN -> WARNING
-    ecn_f.write_text('0\n')
+    # Case 2: Full ECN (1) with fallback disabled (0) -> CRITICAL
+    ecn_f.write_text('1\n')
+    fallback_f.write_text('0\n')
     res2 = mod.audit_ecn(
-        ecn_file=str(ecn_f),
-        fallback_file=str(fallback_f),
+        tcp_ecn_file=str(ecn_f),
+        tcp_ecn_fallback_file=str(fallback_f),
         netstat_file=str(netstat_f),
     )
-    assert res2['summary']['status'] == 'WARNING'
-    assert any('tcp_ecn is disabled' in iss for iss in res2['summary']['issues'])
+    assert res2['summary']['status'] == 'CRITICAL'
+    assert res2['summary']['healthy'] is False
+    assert any('blackhole' in iss for iss in res2['summary']['issues'])
 
-    # Case 3: Disabled ECN fallback -> WARNING
-    ecn_f.write_text('2\n')
-    fallback_f.write_text('0\n')
+    # Case 3: ECN completely disabled (0) -> WARNING
+    ecn_f.write_text('0\n')
+    fallback_f.write_text('1\n')
     res3 = mod.audit_ecn(
-        ecn_file=str(ecn_f),
-        fallback_file=str(fallback_f),
+        tcp_ecn_file=str(ecn_f),
+        tcp_ecn_fallback_file=str(fallback_f),
         netstat_file=str(netstat_f),
     )
     assert res3['summary']['status'] == 'WARNING'
-    assert any('tcp_ecn_fallback is disabled' in iss for iss in res3['summary']['issues'])
+    assert any('disabled' in iss for iss in res3['summary']['issues'])
+
+    # Case 4: Excessive CE marks (>= 5%) -> WARNING
+    ecn_f.write_text('2\n')
+    netstat_f.write_text('''TcpExt: TCPDelivered TCPDeliveredCE TCPHystartTrainDetect TCPHystartDelayDetect TCPHystartTrainCwnd TCPHystartDelayCwnd
+TcpExt: 100000 6000 500 200 10000 20000
+''')
+    res4 = mod.audit_ecn(
+        tcp_ecn_file=str(ecn_f),
+        tcp_ecn_fallback_file=str(fallback_f),
+        netstat_file=str(netstat_f),
+    )
+    assert res4['summary']['status'] == 'WARNING'
+    assert any('bufferbloat' in iss for iss in res4['summary']['issues'])
 "
 echo "ok - unit tests pass"
 
-echo "All Pattern 159 regression tests passed!"
+echo "Pattern 191 regression tests passed: 6/6 tests ok"
