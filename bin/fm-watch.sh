@@ -2839,6 +2839,14 @@ while :; do
       "$SCRIPT_DIR/fm-jev-thermal-guard.sh" --json > "$STATE/.jev-thermal-guard-telemetry.json" 2>/dev/null || true
     fi
   fi
+  # Pattern 67: Jev Multi-Agent Kernel Buddy Allocator & High-Order Page Fragmentation Guard
+  if [ "${FM_DISABLE_JEV_BUDDY_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-buddy-guard.sh" ]; then
+    _buddy_guard_marker="$STATE/.jev-buddy-guard-last"
+    if [ ! -f "$_buddy_guard_marker" ] || [ "$(age_of "$_buddy_guard_marker")" -ge 1800 ]; then
+      touch "$_buddy_guard_marker"
+      "$SCRIPT_DIR/fm-jev-buddy-guard.sh" --json > "$STATE/.jev-buddy-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
 
 
 
