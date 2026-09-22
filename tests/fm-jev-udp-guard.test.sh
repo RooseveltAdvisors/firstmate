@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# tests/fm-jev-udp-guard.test.sh - Regression tests for Pattern 98 (UDP Buffer Overflow Guard)
+# tests/fm-jev-udp-guard.test.sh - Regression tests for Pattern 203 (UDP Datagram Buffer Guard)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GUARD_SH="$SCRIPT_DIR/../bin/fm-jev-udp-guard.sh"
 GUARD_PY="$SCRIPT_DIR/../bin/fm-jev-udp-guard.py"
 
-echo "Running Pattern 98 regression tests..."
+echo "Running Pattern 203 regression tests..."
 
 # 1. ShellCheck
 shellcheck "$GUARD_SH"
@@ -27,20 +27,16 @@ import json, sys
 data = json.loads('''$json_out''')
 assert 'timestamp' in data
 assert 'summary' in data
-assert 'counters' in data
 s = data['summary']
 assert 'status' in s
 assert isinstance(s['healthy'], bool)
+assert isinstance(s['in_datagrams'], int)
+assert isinstance(s['rcvbuf_errors'], int)
+assert isinstance(s['sndbuf_errors'], int)
+assert isinstance(s['mem_errors'], int)
+assert isinstance(s['raw_sockets_total'], int)
+assert isinstance(s['udp_sockets_active'], int)
 assert isinstance(s['issues'], list)
-assert 'in_datagrams' in s
-assert 'rcvbuf_errors' in s
-assert 'rcv_drop_pct' in s
-c = data['counters']
-assert 'in_datagrams' in c
-assert 'out_datagrams' in c
-assert 'rcvbuf_errors' in c
-assert 'sndbuf_errors' in c
-assert 'mem_errors' in c
 "
 echo "ok - json audit schema valid"
 
@@ -48,7 +44,7 @@ echo "ok - json audit schema valid"
 "$GUARD_SH" >/dev/null || true
 echo "ok - text mode runs cleanly"
 
-# 6. Unit tests with mocked sysctl and snmp files
+# 6. Unit tests with mocked files
 python3 -c "
 import sys, tempfile, os
 from pathlib import Path
@@ -58,74 +54,92 @@ mod = import_module('fm-jev-udp-guard')
 
 with tempfile.TemporaryDirectory() as tmp_dir:
     d = Path(tmp_dir)
-    snmp_path = d / 'snmp'
-    rmem_def_path = d / 'rmem_default'
-    rmem_max_path = d / 'rmem_max'
-    wmem_def_path = d / 'wmem_default'
-    wmem_max_path = d / 'wmem_max'
-    udp_mem_path = d / 'udp_mem'
+    sys_dir = d / 'ipv4'
+    sys_dir.mkdir()
+    snmp_f = d / 'snmp'
+    snmp6_f = d / 'snmp6'
+    raw_f = d / 'raw'
+    raw6_f = d / 'raw6'
+    udp_f = d / 'udp'
+    udp6_f = d / 'udp6'
 
-    rmem_def_path.write_text('212992\n')
-    rmem_max_path.write_text('212992\n')
-    wmem_def_path.write_text('212992\n')
-    wmem_max_path.write_text('212992\n')
-    udp_mem_path.write_text('1525479 2033974 3050958\n')
+    (sys_dir / 'udp_mem').write_text('1000 2000 3000\n')
+    (sys_dir / 'udp_rmem_min').write_text('4096\n')
+    (sys_dir / 'udp_wmem_min').write_text('4096\n')
 
-    # Nominal snmp
-    snmp_nominal = '''Udp: InDatagrams NoPorts InErrors OutDatagrams RcvbufErrors SndbufErrors InCsumErrors IgnoredMulti MemErrors
-Udp: 1000000 100 50 800000 50 10 0 5000 0
-'''
-    snmp_path.write_text(snmp_nominal)
-
-    # Case 1: Healthy configuration and low drop rate (50 / 1000000 = 0.005%)
-    res = mod.audit_udp_buffers(
-        snmp_file=str(snmp_path),
-        rmem_default_file=str(rmem_def_path),
-        rmem_max_file=str(rmem_max_path),
-        wmem_default_file=str(wmem_def_path),
-        wmem_max_file=str(wmem_max_path),
-        udp_mem_file=str(udp_mem_path),
+    # Mock snmp
+    snmp_f.write_text(
+        'Udp: InDatagrams NoPorts InErrors OutDatagrams RcvbufErrors SndbufErrors InCsumErrors IgnoredMulti MemErrors\n'
+        'Udp: 10000 10 5 9000 5 0 0 100 0\n'
     )
-    assert res['summary']['status'] == 'HEALTHY'
-    assert res['summary']['healthy'] is True
-    assert len(res['summary']['issues']) == 0
-    assert res['summary']['rcv_drop_pct'] == 0.005
-
-    # Case 2: High drop rate (>1.0%) triggers warning
-    snmp_high_drop = '''Udp: InDatagrams NoPorts InErrors OutDatagrams RcvbufErrors SndbufErrors InCsumErrors IgnoredMulti MemErrors
-Udp: 10000 10 500 8000 250 10 0 50 0
-'''
-    snmp_path.write_text(snmp_high_drop)
-    res_drop = mod.audit_udp_buffers(
-        snmp_file=str(snmp_path),
-        rmem_default_file=str(rmem_def_path),
-        rmem_max_file=str(rmem_max_path),
-        wmem_default_file=str(wmem_def_path),
-        wmem_max_file=str(wmem_max_path),
-        udp_mem_file=str(udp_mem_path),
+    snmp6_f.write_text(
+        'Udp6InDatagrams\t500\n'
+        'Udp6NoPorts\t0\n'
+        'Udp6InErrors\t0\n'
+        'Udp6OutDatagrams\t500\n'
+        'Udp6RcvbufErrors\t0\n'
+        'Udp6SndbufErrors\t0\n'
+        'Udp6InCsumErrors\t0\n'
+        'Udp6IgnoredMulti\t0\n'
+        'Udp6MemErrors\t0\n'
     )
-    assert res_drop['summary']['status'] == 'WARNING'
-    assert res_drop['summary']['rcv_drop_pct'] == 2.5
-    assert any('receive buffer drop rate' in iss for iss in res_drop['summary']['issues'])
+    raw_f.write_text('  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n')
+    raw6_f.write_text('  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n')
+    udp_f.write_text('  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n  0: 00000000:0035 ...\n')
+    udp6_f.write_text('  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n')
 
-    # Case 3: Memory errors and low buffer size trigger warnings
-    rmem_def_path.write_text('32768\n')
-    snmp_mem_err = '''Udp: InDatagrams NoPorts InErrors OutDatagrams RcvbufErrors SndbufErrors InCsumErrors IgnoredMulti MemErrors
-Udp: 10000 10 500 8000 10 10 0 50 12
-'''
-    snmp_path.write_text(snmp_mem_err)
-    res_mem = mod.audit_udp_buffers(
-        snmp_file=str(snmp_path),
-        rmem_default_file=str(rmem_def_path),
-        rmem_max_file=str(rmem_max_path),
-        wmem_default_file=str(wmem_def_path),
-        wmem_max_file=str(wmem_max_path),
-        udp_mem_file=str(udp_mem_path),
+    rep = mod.audit_udp(
+        proc_snmp=str(snmp_f),
+        proc_snmp6=str(snmp6_f),
+        proc_sys_ipv4=str(sys_dir),
+        proc_raw=str(raw_f),
+        proc_raw6=str(raw6_f),
+        proc_udp=str(udp_f),
+        proc_udp6=str(udp6_f)
     )
-    assert res_mem['summary']['status'] == 'WARNING'
-    assert any('UDP memory errors detected' in iss for iss in res_mem['summary']['issues'])
-    assert any('Low core rmem_default' in iss for iss in res_mem['summary']['issues'])
+    s = rep['summary']
+    assert s['status'] == 'HEALTHY'
+    assert s['healthy'] is True
+    assert s['in_datagrams'] == 10500
+    assert s['out_datagrams'] == 9500
+    assert s['rcvbuf_errors'] == 5
+    assert s['mem_errors'] == 0
+    assert s['raw_sockets_total'] == 0
+    assert s['udp_sockets_active'] == 1
+
+    # Test MemErrors -> CRITICAL
+    snmp_f.write_text(
+        'Udp: InDatagrams NoPorts InErrors OutDatagrams RcvbufErrors SndbufErrors InCsumErrors IgnoredMulti MemErrors\n'
+        'Udp: 10000 10 5 9000 5 0 0 100 2\n'
+    )
+    rep2 = mod.audit_udp(
+        proc_snmp=str(snmp_f),
+        proc_snmp6=str(snmp6_f),
+        proc_sys_ipv4=str(sys_dir),
+        proc_raw=str(raw_f),
+        proc_raw6=str(raw6_f),
+        proc_udp=str(udp_f),
+        proc_udp6=str(udp6_f)
+    )
+    assert rep2['summary']['status'] == 'CRITICAL'
+    assert rep2['summary']['healthy'] is False
+    assert rep2['summary']['mem_errors'] == 2
+
+    # Test Raw Sockets > 5 -> CRITICAL
+    raw_lines = ['  sl  local_address ...'] + [f'  {i}: 00000000:0000 ...' for i in range(6)]
+    raw_f.write_text('\n'.join(raw_lines) + '\n')
+    rep3 = mod.audit_udp(
+        proc_snmp=str(snmp_f),
+        proc_snmp6=str(snmp6_f),
+        proc_sys_ipv4=str(sys_dir),
+        proc_raw=str(raw_f),
+        proc_raw6=str(raw6_f),
+        proc_udp=str(udp_f),
+        proc_udp6=str(udp6_f)
+    )
+    assert rep3['summary']['status'] == 'CRITICAL'
+    assert rep3['summary']['raw_sockets_total'] == 6
 "
-echo "ok - unit tests and mock audit pass"
+echo "ok - mocked unit tests pass"
 
-echo "All Pattern 98 tests passed!"
+echo "All Pattern 203 tests passed successfully."
