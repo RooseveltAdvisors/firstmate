@@ -1,13 +1,8 @@
 #!/usr/bin/env bash
-# fm-jev-keepalive-guard.sh - Pattern 101: Jev Multi-Agent Host Network TCP Keepalive & Dead Peer Detection Guard
+# bin/fm-jev-keepalive-guard.sh - Wrapper for Pattern 148
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PYTHON_EXEC="python3"
+PYTHON_BIN="$(which python3 || echo "python3")"
 
-if ! command -v "$PYTHON_EXEC" >/dev/null 2>&1; then
-    echo "ERROR: python3 required for fm-jev-keepalive-guard" >&2
-    exit 1
-fi
-
-exec "$PYTHON_EXEC" "$SCRIPT_DIR/fm-jev-keepalive-guard.py" "$@"
+exec "$PYTHON_BIN" "$SCRIPT_DIR/fm-jev-keepalive-guard.py" "$@"
