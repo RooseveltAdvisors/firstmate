@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# tests/fm-jev-challenge-ack-guard.test.sh - Regression tests for Pattern 115 (TCP Challenge ACK Guard)
+# tests/fm-jev-challenge-ack-guard.test.sh - Regression tests for Pattern 134 (TCP Challenge ACK Guard)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GUARD_SH="$SCRIPT_DIR/../bin/fm-jev-challenge-ack-guard.sh"
 GUARD_PY="$SCRIPT_DIR/../bin/fm-jev-challenge-ack-guard.py"
 
-echo "Running Pattern 115 regression tests..."
+echo "Running Pattern 134 regression tests..."
 
 # 1. ShellCheck
 shellcheck "$GUARD_SH"
@@ -34,8 +34,8 @@ assert isinstance(s['healthy'], bool)
 assert isinstance(s['issues'], list)
 assert 'tcp_challenge_ack_limit' in s
 assert 'challenge_acks_sent' in s
-assert 'syn_challenges_sent' in s
-assert 'skipped_challenges' in s
+assert 'challenges_skipped' in s
+assert 'skip_ratio_pct' in s
 "
 echo "ok - json audit schema valid"
 
@@ -53,48 +53,58 @@ mod = import_module('fm-jev-challenge-ack-guard')
 
 with tempfile.TemporaryDirectory() as tmp_dir:
     d = Path(tmp_dir)
-    limit_file = d / 'tcp_challenge_ack_limit'
-    netstat_file = d / 'netstat'
+    limit_f = d / 'tcp_challenge_ack_limit'
+    netstat_f = d / 'netstat'
 
-    limit_file.write_text('2147483647\n')
+    limit_f.write_text('1000\n')
+    netstat_f.write_text('''TcpExt: TCPChallengeACK TCPSYNChallenge TCPACKSkippedChallenge TCPDelivered
+TcpExt: 500 450 0 1000000
+''')
 
-    mock_netstat = '''TcpExt: SyncookiesSent TCPChallengeACK TCPSYNChallenge TCPACKSkippedChallenge
-TcpExt: 0 100 80 0
-'''
-    netstat_file.write_text(mock_netstat)
-
-    # Case 1: Nominal
+    # Case 1: Nominal healthy state
     res = mod.audit_challenge_ack(
-        limit_file=str(limit_file),
-        netstat_file=str(netstat_file),
+        challenge_ack_limit_file=str(limit_f),
+        netstat_file=str(netstat_f),
     )
     assert res['summary']['status'] == 'HEALTHY'
     assert res['summary']['healthy'] is True
-    assert res['summary']['tcp_challenge_ack_limit'] == 2147483647
-    assert res['summary']['challenge_acks_sent'] == 100
-    assert res['summary']['syn_challenges_sent'] == 80
-    assert res['summary']['skipped_challenges'] == 0
+    assert res['summary']['tcp_challenge_ack_limit'] == 1000
+    assert res['summary']['challenge_acks_sent'] == 500
+    assert res['summary']['syn_challenges_sent'] == 450
+    assert res['summary']['challenges_skipped'] == 0
+    assert res['summary']['skip_ratio_pct'] == 0.0
 
-    # Case 2: Low challenge ACK limit warning
-    limit_file.write_text('100\n')
+    # Case 2: Overly restrictive rate limit (< 100/s) -> WARNING
+    limit_f.write_text('50\n')
     res2 = mod.audit_challenge_ack(
-        limit_file=str(limit_file),
-        netstat_file=str(netstat_file),
+        challenge_ack_limit_file=str(limit_f),
+        netstat_file=str(netstat_f),
     )
     assert res2['summary']['status'] == 'WARNING'
-    assert any('Low tcp_challenge_ack_limit' in iss for iss in res2['summary']['issues'])
-    limit_file.write_text('2147483647\n')
+    assert any('overly restrictive' in iss for iss in res2['summary']['issues'])
+    limit_f.write_text('1000\n')
 
-    # Case 3: Elevated skipped challenges warning
-    skipped_netstat = mock_netstat.replace(' 0 100 80 0', ' 0 100 80 150')
-    netstat_file.write_text(skipped_netstat)
+    # Case 3: Completely disabled (limit == 0) -> CRITICAL
+    limit_f.write_text('0\n')
     res3 = mod.audit_challenge_ack(
-        limit_file=str(limit_file),
-        netstat_file=str(netstat_file),
+        challenge_ack_limit_file=str(limit_f),
+        netstat_file=str(netstat_f),
     )
-    assert res3['summary']['status'] == 'WARNING'
-    assert any('Elevated TCPACKSkippedChallenge' in iss for iss in res3['summary']['issues'])
-"
-echo "ok - mocked sysctl and netstat unit tests pass"
+    assert res3['summary']['status'] == 'CRITICAL'
+    assert any('completely disabled' in iss for iss in res3['summary']['issues'])
+    limit_f.write_text('1000\n')
 
-echo "All Pattern 115 tests passed successfully!"
+    # Case 4: High skipped challenge ACKs (> 10% and > 100 dropped) -> WARNING
+    netstat_f.write_text('''TcpExt: TCPChallengeACK TCPSYNChallenge TCPACKSkippedChallenge TCPDelivered
+TcpExt: 500 450 150 1000000
+''')
+    res4 = mod.audit_challenge_ack(
+        challenge_ack_limit_file=str(limit_f),
+        netstat_file=str(netstat_f),
+    )
+    assert res4['summary']['status'] == 'WARNING'
+    assert any('Elevated Challenge ACK drops' in iss for iss in res4['summary']['issues'])
+"
+echo "ok - unit tests pass"
+
+echo "All Pattern 134 regression tests passed!"

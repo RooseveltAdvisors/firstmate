@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# fm-jev-challenge-ack-guard.sh - Wrapper for Jev Multi-Agent Host Network TCP Challenge ACK Guard (Pattern 115)
+# fm-jev-challenge-ack-guard.sh - Wrapper for Jev Host Network TCP Challenge ACK Guard (Pattern 134)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
