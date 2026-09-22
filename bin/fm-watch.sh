@@ -2927,6 +2927,14 @@ while :; do
       "$SCRIPT_DIR/fm-jev-port-guard.sh" --json > "$STATE/.jev-port-guard-telemetry.json" 2>/dev/null || true
     fi
   fi
+  # Pattern 78: Jev Multi-Agent Page Cache Writeback & Dirty Page Throttling Guard
+  if [ "${FM_DISABLE_JEV_DIRTY_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-dirty-guard.sh" ]; then
+    _dirty_marker="$STATE/.jev-dirty-guard-last"
+    if [ ! -f "$_dirty_marker" ] || [ "$(age_of "$_dirty_marker")" -ge 1800 ]; then
+      touch "$_dirty_marker"
+      "$SCRIPT_DIR/fm-jev-dirty-guard.sh" --json > "$STATE/.jev-dirty-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
 
 
 
