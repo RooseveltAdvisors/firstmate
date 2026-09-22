@@ -3111,7 +3111,7 @@ EOF
                   done_verify_out=$("$FM_ROOT/bin/fm-jev-done-verify.sh" --task "$task" --status-line "$last_status" 2>&1) || done_verify_rc=$?
                   if [ "$done_verify_rc" -ne 0 ]; then
                     triage_log "fake-done detected by Jev for $task: $done_verify_out"
-                    fm_wake_append fake-done "$w" "fake-done: $w ($done_verify_out)" || exit 1
+                    fm_wake_append signal "$w" "fake-done: $w ($done_verify_out)" || exit 1
                     stale_wait_record "$key"
                     printf '%s' "$h" > "$sf"
                     rm -f "$ssf"
