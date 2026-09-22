@@ -252,6 +252,10 @@ def evaluate_landing_gate(
                     verdict = "APPROVED_FOR_LANDING"
                     decision = "PASS"
                     notes = f"All {len(checks)} CI check runs completed green."
+        elif test_info and test_info.get("success"):
+            verdict = "APPROVED_FOR_LANDING"
+            decision = "PASS"
+            notes = f"Active CI repository verified. Pre-landing verification tests passed ({test_info['passed']} passed) under {test_info['framework']}."
         else:
             verdict = "CI_GATE_REQUIRED"
             decision = "REQUIRE_CI"

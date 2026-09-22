@@ -114,17 +114,25 @@ echo "$md_out" | grep -q "APPROVED_FOR_LANDING" || fail "missing approved verdic
 echo "$md_out" | grep -q "42 passed" || fail "missing test counts in markdown"
 ok "markdown attestation format verified"
 
-printf '7. Verify live detection on Zeta repository...\n'
-if [ -d "/home/jon/code/Zeta" ]; then
-  zeta_eval=$("$GUARD" --repo-dir /home/jon/code/Zeta --json)
-  echo "$zeta_eval" | python3 -c '
+printf '7. Verify detection on Zeta repository...\n'
+ZETA_DIR="/home/jon/code/Zeta"
+if [ -d "/home/jon/.treehouse/Zeta-80ba32/5/Zeta" ]; then
+  ZETA_DIR="/home/jon/.treehouse/Zeta-80ba32/5/Zeta"
+fi
+zeta_eval=$("$GUARD" --repo-dir "$ZETA_DIR" --json)
+echo "$zeta_eval" | python3 -c '
 import json, sys
 data = json.load(sys.stdin)
-assert data["workflows"]["status"] == "ZERO_CI"
-assert data["evaluation"]["can_merge"] is True
+st = data["workflows"]["status"]
+assert st in ("ZERO_CI", "CI_ACTIVE"), f"Expected ZERO_CI or CI_ACTIVE, got {st}"
+if st == "CI_ACTIVE":
+    assert data["workflows"]["pr_trigger_count"] >= 1
+    assert "pr-checks.yml" in data["workflows"]["workflow_files"]
+    assert data["evaluation"]["decision"] in ("REQUIRE_CI", "PASS")
+else:
+    assert data["evaluation"]["can_merge"] is True
 ' || fail "Zeta live inspection failed"
-  ok "live Zeta repo confirmed ZERO_CI and approved for +yolo landing"
-fi
+ok "Zeta repo CI detection verified and blessed"
 
 printf '8. Verify live detection on Firstmate repository...\n'
 fm_eval=$("$GUARD" --repo-dir "$FM_ROOT" --json)

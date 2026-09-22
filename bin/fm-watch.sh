@@ -2855,6 +2855,14 @@ while :; do
       "$SCRIPT_DIR/fm-jev-compaction-healer.sh" --json > "$STATE/.jev-compaction-healer-telemetry.json" 2>/dev/null || true
     fi
   fi
+  # Pattern 69: Jev Multi-Agent TCP/UDP Socket Buffer & Orphan Connection Guard
+  if [ "${FM_DISABLE_JEV_SOCKSTAT_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-sockstat-guard.sh" ]; then
+    _sockstat_marker="$STATE/.jev-sockstat-guard-last"
+    if [ ! -f "$_sockstat_marker" ] || [ "$(age_of "$_sockstat_marker")" -ge 1800 ]; then
+      touch "$_sockstat_marker"
+      "$SCRIPT_DIR/fm-jev-sockstat-guard.sh" --json > "$STATE/.jev-sockstat-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
 
 
 
