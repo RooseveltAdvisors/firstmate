@@ -2633,6 +2633,15 @@ while :; do
     fi
   fi
 
+  # Pattern 43: Jev Multi-Agent Alert Storm & Webhook Throttler
+  if [ "${FM_DISABLE_JEV_ALERT_SILENCER:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-alert-silencer.sh" ]; then
+    _alert_silencer_marker="$STATE/.jev-alert-silencer-last"
+    if [ ! -f "$_alert_silencer_marker" ] || [ "$(age_of "$_alert_silencer_marker")" -ge 1800 ]; then
+      touch "$_alert_silencer_marker"
+      "$SCRIPT_DIR/fm-jev-alert-silencer.sh" --audit --json > "$STATE/.jev-alert-silencer-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
 
 
 
