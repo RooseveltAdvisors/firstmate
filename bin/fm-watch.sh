@@ -2767,10 +2767,14 @@ while :; do
       "$SCRIPT_DIR/fm-jev-node-modules-guard.sh" --json > "$STATE/.jev-node-modules-guard-telemetry.json" 2>/dev/null || true
     fi
   fi
-
-
-
-
+  # Pattern 58: Jev Multi-Agent Docker & Podman Container / Volume Orphan Reaper
+  if [ "${FM_DISABLE_JEV_CONTAINER_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-container-guard.sh" ]; then
+    _container_guard_marker="$STATE/.jev-container-guard-last"
+    if [ ! -f "$_container_guard_marker" ] || [ "$(age_of "$_container_guard_marker")" -ge 1800 ]; then
+      touch "$_container_guard_marker"
+      "$SCRIPT_DIR/fm-jev-container-guard.sh" --json > "$STATE/.jev-container-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
 
 
 
