@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tests/fm-jev-dualstack-guard.test.sh - Regression tests for Pattern 124 (Dual-Stack Socket Guard)
+# tests/fm-jev-dualstack-guard.test.sh - Regression tests for Pattern 124 (IPv4/IPv6 Dual-Stack Guard)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -26,22 +26,17 @@ python3 -c "
 import json, sys
 data = json.loads('''$json_out''')
 assert 'timestamp' in data
-assert 'healthy' in data
-assert 'status' in data
-assert 'pattern' in data
-assert data['pattern'] == 124
-assert 'name' in data
-assert 'issues' in data
-assert 'config' in data
-assert 'listening_sockets' in data
-assert 'telemetry' in data
-assert isinstance(data['healthy'], bool)
-assert isinstance(data['issues'], list)
-assert 'bindv6only' in data['config']
-assert 'dual_stack_default' in data['config']
-telem = data['telemetry']
-assert 'ip6_in_receives' in telem
-assert 'ip6_in_discards' in telem
+assert 'summary' in data
+assert 'counters' in data
+s = data['summary']
+assert 'status' in s
+assert isinstance(s['healthy'], bool)
+assert isinstance(s['issues'], list)
+assert 'bindv6only' in s
+assert 'disable_ipv6' in s
+assert 'in_receives' in s
+assert 'in_discards' in s
+assert 'in_no_routes' in s
 "
 echo "ok - json audit schema valid"
 
@@ -49,7 +44,7 @@ echo "ok - json audit schema valid"
 "$GUARD_SH" >/dev/null || true
 echo "ok - text mode runs cleanly"
 
-# 6. Unit tests with mocked files
+# 6. Unit tests with mocked sysctl and /proc/net/snmp6 files
 python3 -c "
 import sys, tempfile, os
 from pathlib import Path
@@ -59,72 +54,54 @@ mod = import_module('fm-jev-dualstack-guard')
 
 with tempfile.TemporaryDirectory() as tmp_dir:
     d = Path(tmp_dir)
-
     bindv6_file = d / 'bindv6only'
-    bindv6_file.write_text('0\n')
-
-    tcp6_file = d / 'tcp6'
-    tcp6_content = '''  sl  local_address                         remote_address                        st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
-   0: 00000000000000000000000001000000:0277 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 174915588 1 0000000000000000 100 0 0 10 0
-   1: 00000000000000000000000000000000:10DD 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 1592963124 1 0000000000000000 100 0 0 10 0
-'''
-    tcp6_file.write_text(tcp6_content)
-
+    disable_file = d / 'disable_ipv6'
     snmp6_file = d / 'snmp6'
-    snmp6_content = '''Ip6InReceives                   10000
-Ip6InDiscards                   10
-Ip6InNoRoutes                   0
-Ip6OutRequests                  8000
+
+    bindv6_file.write_text('0\n')
+    disable_file.write_text('0\n')
+
+    mock_snmp6 = '''Ip6InReceives 1000
+Ip6InNoRoutes 0
+Ip6InDiscards 10
+Ip6OutDiscards 0
 '''
-    snmp6_file.write_text(snmp6_content)
+    snmp6_file.write_text(mock_snmp6)
 
-    conf_dir = d / 'conf'
-    conf_dir.mkdir()
-    (conf_dir / 'all').mkdir()
-    (conf_dir / 'all' / 'disable_ipv6').write_text('0\n')
-
-    # Test healthy dual-stack scenario
+    # Case 1: Nominal
     res = mod.audit_dualstack(
         bindv6only_file=str(bindv6_file),
-        conf_dir=str(conf_dir),
-        tcp6_file=str(tcp6_file),
+        disable_ipv6_file=str(disable_file),
         snmp6_file=str(snmp6_file),
     )
-    assert res['healthy'] is True
-    assert len(res['issues']) == 0
-    assert res['config']['bindv6only'] == 0
-    assert res['config']['dual_stack_default'] is True
-    assert res['listening_sockets']['total_tcp6_listeners'] == 2
-    assert res['listening_sockets']['wildcard_listeners'] == 1
+    assert res['summary']['status'] == 'HEALTHY'
+    assert res['summary']['healthy'] is True
+    assert res['summary']['bindv6only'] == 0
+    assert res['summary']['disable_ipv6'] == 0
+    assert res['summary']['in_discards'] == 10
 
-    # Test bindv6only strict mode issue scenario
+    # Case 2: Strict bindv6only warning
     bindv6_file.write_text('1\n')
-    res_b6 = mod.audit_dualstack(
+    res2 = mod.audit_dualstack(
         bindv6only_file=str(bindv6_file),
-        conf_dir=str(conf_dir),
-        tcp6_file=str(tcp6_file),
+        disable_ipv6_file=str(disable_file),
         snmp6_file=str(snmp6_file),
     )
-    assert res_b6['healthy'] is False
-    assert any('bindv6only is enabled' in issue for issue in res_b6['issues'])
-
-    # Test high discard rate scenario
+    assert res2['summary']['status'] == 'WARNING'
+    assert any('bindv6only is enabled' in iss for iss in res2['summary']['issues'])
     bindv6_file.write_text('0\n')
-    snmp6_bad = '''Ip6InReceives                   1000
-Ip6InDiscards                   200
-Ip6InNoRoutes                   0
-Ip6OutRequests                  800
-'''
-    snmp6_file.write_text(snmp6_bad)
-    res_disc = mod.audit_dualstack(
+
+    # Case 3: Elevated no-routes warning
+    noroute_snmp6 = mock_snmp6.replace('Ip6InNoRoutes 0', 'Ip6InNoRoutes 2500')
+    snmp6_file.write_text(noroute_snmp6)
+    res3 = mod.audit_dualstack(
         bindv6only_file=str(bindv6_file),
-        conf_dir=str(conf_dir),
-        tcp6_file=str(tcp6_file),
+        disable_ipv6_file=str(disable_file),
         snmp6_file=str(snmp6_file),
     )
-    assert res_disc['healthy'] is False
-    assert any('Elevated IPv6 inbound discard rate' in issue for issue in res_disc['issues'])
+    assert res3['summary']['status'] == 'WARNING'
+    assert any('Elevated IPv6 no-route discards' in iss for iss in res3['summary']['issues'])
 "
-echo "ok - mocked dualstack unit tests pass"
+echo "ok - mocked sysctl unit tests pass"
 
 echo "All Pattern 124 tests passed successfully!"

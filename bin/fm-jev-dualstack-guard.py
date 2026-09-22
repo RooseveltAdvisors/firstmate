@@ -1,30 +1,29 @@
 #!/usr/bin/env python3
 """
-fm-jev-dualstack-guard.py - Jev Multi-Agent Host Network Dual-Stack Socket & IPv6 Fallback Guard (Pattern 124)
+fm-jev-dualstack-guard.py - Jev Multi-Agent Host Network IPv4/IPv6 Dual-Stack Guard (Pattern 124)
 
-Audits Linux IPv6 dual-stack socket binding semantics (/proc/sys/net/ipv6/bindv6only),
-per-interface IPv6 enablement (/proc/sys/net/ipv6/conf/*/disable_ipv6), active listening IPv6
-sockets (/proc/net/tcp6), and IPv6 packet discard statistics from /proc/net/snmp6.
+Audits Linux IPv6 socket dual-stack binding policy (/proc/sys/net/ipv6/bindv6only),
+global IPv6 enablement (/proc/sys/net/ipv6/conf/all/disable_ipv6), and SNMP6 routing/drop counters
+from /proc/net/snmp6 (Ip6InReceives, Ip6InNoRoutes, Ip6InDiscards, Ip6OutDiscards).
 
-Detects silent bind collisions and connection drops when dual-stack listeners fail to receive
-IPv4-mapped connections or when IPv6 routing discards packets during inter-agent cluster mesh.
+Detects strict IPv6-only socket locking (bindv6only=1) that blocks IPv4-mapped connections on wildcard listeners,
+IPv6 protocol stack disabling, and IPv6 routing discard spikes across multi-agent RPC and local web servers.
 
 Invariants:
   - Read-only diagnostics by default. Safe and non-destructive.
-  - Fail-open: graceful fallback when sysfs/procfs files are missing or restricted.
+  - Fail-open: graceful fallback when IPv6 is disabled in kernel or procfs files missing.
   - Fast bounded execution (< 0.03s).
 """
 
 import argparse
 import json
-import sys
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-BINDV6ONLY_FILE = "/proc/sys/net/ipv6/bindv6only"
-CONF_DIR = "/proc/sys/net/ipv6/conf"
-PROC_TCP6 = "/proc/net/tcp6"
+SYSCTL_BINDV6ONLY = "/proc/sys/net/ipv6/bindv6only"
+SYSCTL_DISABLE_IPV6 = "/proc/sys/net/ipv6/conf/all/disable_ipv6"
 PROC_SNMP6 = "/proc/net/snmp6"
 
 
@@ -38,39 +37,8 @@ def read_int_file(path: Path) -> Optional[int]:
         return None
 
 
-def parse_tcp6_listening(path: Path) -> List[Dict[str, Any]]:
-    """Parses listening sockets from /proc/net/tcp6."""
-    if not path.is_file():
-        return []
-
-    listeners: List[Dict[str, Any]] = []
-    try:
-        lines = path.read_text().splitlines()
-        for line in lines[1:]:  # Skip header
-            tokens = line.strip().split()
-            if len(tokens) >= 4:
-                state = tokens[3]
-                # '0A' is TCP_LISTEN
-                if state == "0A":
-                    local_addr = tokens[1]
-                    parts = local_addr.split(":")
-                    port = int(parts[1], 16) if len(parts) > 1 else 0
-                    inode = tokens[9] if len(tokens) > 9 else "0"
-                    is_wildcard = parts[0] == "00000000000000000000000000000000"
-                    listeners.append({
-                        "local_raw": local_addr,
-                        "port": port,
-                        "is_wildcard": is_wildcard,
-                        "inode": inode,
-                    })
-    except Exception:
-        return listeners
-
-    return listeners
-
-
 def parse_snmp6(path: Path) -> Dict[str, int]:
-    """Parses key-value IPv6 statistics from /proc/net/snmp6."""
+    """Parses key-value metrics from /proc/net/snmp6."""
     if not path.is_file():
         return {}
 
@@ -78,10 +46,10 @@ def parse_snmp6(path: Path) -> Dict[str, int]:
     try:
         lines = path.read_text().splitlines()
         for line in lines:
-            tokens = line.strip().split()
-            if len(tokens) >= 2:
+            parts = line.split()
+            if len(parts) >= 2:
                 try:
-                    metrics[tokens[0]] = int(tokens[1])
+                    metrics[parts[0]] = int(parts[1])
                 except ValueError:
                     continue
     except Exception:
@@ -92,126 +60,122 @@ def parse_snmp6(path: Path) -> Dict[str, int]:
 
 def audit_dualstack(
     bindv6only_file: Optional[str] = None,
-    conf_dir: Optional[str] = None,
-    tcp6_file: Optional[str] = None,
+    disable_ipv6_file: Optional[str] = None,
     snmp6_file: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Audits IPv6 dual-stack socket binding configuration and runtime state."""
-    b6_p = Path(bindv6only_file or BINDV6ONLY_FILE)
-    conf_p = Path(conf_dir or CONF_DIR)
-    tcp6_p = Path(tcp6_file or PROC_TCP6)
+    """Audits host IPv4/IPv6 dual-stack socket policy and drop counters."""
+    bindv6_p = Path(bindv6only_file or SYSCTL_BINDV6ONLY)
+    disable_p = Path(disable_ipv6_file or SYSCTL_DISABLE_IPV6)
     snmp6_p = Path(snmp6_file or PROC_SNMP6)
 
-    bindv6only = read_int_file(b6_p)
+    bindv6only = read_int_file(bindv6_p)
     if bindv6only is None:
         bindv6only = 0
 
-    disabled_ifaces: Dict[str, int] = {}
-    if conf_p.is_dir():
-        for p in sorted(conf_p.glob("*/disable_ipv6")):
-            val = read_int_file(p)
-            if val is not None:
-                disabled_ifaces[p.parent.name] = val
+    disable_ipv6 = read_int_file(disable_p)
+    if disable_ipv6 is None:
+        disable_ipv6 = 0
 
-    listeners = parse_tcp6_listening(tcp6_p)
     snmp6 = parse_snmp6(snmp6_p)
-
-    ip6_in_receives = snmp6.get("Ip6InReceives", 0)
-    ip6_in_discards = snmp6.get("Ip6InDiscards", 0)
-    ip6_in_no_routes = snmp6.get("Ip6InNoRoutes", 0)
-    ip6_out_requests = snmp6.get("Ip6OutRequests", 0)
+    in_receives = snmp6.get("Ip6InReceives", 0)
+    in_no_routes = snmp6.get("Ip6InNoRoutes", 0)
+    in_discards = snmp6.get("Ip6InDiscards", 0)
+    out_discards = snmp6.get("Ip6OutDiscards", 0)
 
     issues: List[str] = []
     healthy = True
 
-    # Check bindv6only
     if bindv6only == 1:
-        # Strict IPv6-only mode: wildcards do NOT listen on IPv4-mapped addresses
-        wildcards = [l for l in listeners if l["is_wildcard"]]
-        if wildcards:
-            healthy = False
-            issues.append(
-                f"net.ipv6.bindv6only is enabled (1). {len(wildcards)} wildcard listeners (::) will NOT "
-                "accept IPv4 connections unless IPV6_V6ONLY=0 is explicitly set per socket."
-            )
+        healthy = False
+        issues.append("bindv6only is enabled (1). Dual-stack sockets cannot accept IPv4-mapped traffic on wildcard listeners.")
 
-    # Check IPv6 discards
-    if ip6_in_receives > 0 and ip6_in_discards > 0:
-        discard_rate = ip6_in_discards / ip6_in_receives
-        if discard_rate > 0.05:  # > 5% discard
-            healthy = False
-            issues.append(
-                f"Elevated IPv6 inbound discard rate: {discard_rate:.2%} ({ip6_in_discards:,} / {ip6_in_receives:,})."
-            )
+    if disable_ipv6 == 1:
+        issues.append("IPv6 is globally disabled (conf/all/disable_ipv6 = 1). AF_INET6 socket creation will fail with EAFNOSUPPORT.")
+
+    if in_no_routes > 1000:
+        healthy = False
+        issues.append(f"Elevated IPv6 no-route discards ({in_no_routes:,} packets). Missing IPv6 default gateway or route flapping.")
+
+    if in_discards > 50000:
+        healthy = False
+        issues.append(f"Elevated IPv6 input packet discards ({in_discards:,} packets). Buffer exhaustion or malformed headers.")
+
+    status = "HEALTHY" if healthy else "WARNING"
 
     return {
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "healthy": healthy,
-        "status": "HEALTHY" if healthy else "WARNING",
-        "pattern": 124,
-        "name": "Host Network Dual-Stack Socket & IPv6 Fallback Guard",
-        "issues": issues,
-        "config": {
+        "summary": {
+            "status": status,
+            "healthy": healthy,
             "bindv6only": bindv6only,
-            "dual_stack_default": bindv6only == 0,
-            "disabled_interfaces": disabled_ifaces,
+            "disable_ipv6": disable_ipv6,
+            "in_receives": in_receives,
+            "in_no_routes": in_no_routes,
+            "in_discards": in_discards,
+            "out_discards": out_discards,
+            "issues": issues,
         },
-        "listening_sockets": {
-            "total_tcp6_listeners": len(listeners),
-            "wildcard_listeners": len([l for l in listeners if l["is_wildcard"]]),
-            "listeners": listeners[:10],
-        },
-        "telemetry": {
-            "ip6_in_receives": ip6_in_receives,
-            "ip6_in_discards": ip6_in_discards,
-            "ip6_in_no_routes": ip6_in_no_routes,
-            "ip6_out_requests": ip6_out_requests,
+        "counters": {
+            "in_receives": in_receives,
+            "in_no_routes": in_no_routes,
+            "in_discards": in_discards,
+            "out_discards": out_discards,
         },
     }
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Jev Multi-Agent Host Network Dual-Stack Socket & IPv6 Fallback Guard (Pattern 124)"
+        description="Jev Multi-Agent Host Network IPv4/IPv6 Dual-Stack Guard (Pattern 124)"
     )
-    parser.add_argument("--json", action="store_true", help="Output audit results in JSON format")
-    parser.add_argument("--bindv6only-file", type=str, default=None, help="Override bindv6only file path")
-    parser.add_argument("--conf-dir", type=str, default=None, help="Override /proc/sys/net/ipv6/conf directory")
-    parser.add_argument("--tcp6-file", type=str, default=None, help="Override /proc/net/tcp6 path")
-    parser.add_argument("--snmp6-file", type=str, default=None, help="Override /proc/net/snmp6 path")
-    parser.add_argument("--warn-only", action="store_true", help="Always exit 0 even if issues detected")
-
+    parser.add_argument("--json", action="store_true", help="Output JSON format")
+    parser.add_argument("--bindv6only-file", type=str, default=None, help="Path to bindv6only")
+    parser.add_argument("--disable-ipv6-file", type=str, default=None, help="Path to disable_ipv6")
+    parser.add_argument("--snmp6-file", type=str, default=None, help="Path to /proc/net/snmp6")
     args = parser.parse_args()
 
-    audit = audit_dualstack(
+    result = audit_dualstack(
         bindv6only_file=args.bindv6only_file,
-        conf_dir=args.conf_dir,
-        tcp6_file=args.tcp6_file,
+        disable_ipv6_file=args.disable_ipv6_file,
         snmp6_file=args.snmp6_file,
     )
 
     if args.json:
-        print(json.dumps(audit, indent=2))
+        print(json.dumps(result, indent=2))
+        return
+
+    summary = result["summary"]
+    counters = result["counters"]
+    status_color = "\033[32m" if summary["healthy"] else "\033[33m"
+    reset_color = "\033[0m"
+
+    print("================================================================================")
+    print(" Jev Multi-Agent Host Network IPv4/IPv6 Dual-Stack Guard (Pattern 124)")
+    print("================================================================================")
+    print(f" Timestamp:                     {result['timestamp']}")
+    print(f" Status:                        {status_color}{summary['status']}{reset_color}")
+    print(f" Dual-Stack Policy (bindv6only): {summary['bindv6only']} ({'Dual-Stack Default (IPv4-Mapped Allowed)' if summary['bindv6only'] == 0 else 'Strict IPv6 Only'})")
+    print(f" Global IPv6 Status:            {'Enabled (0)' if summary['disable_ipv6'] == 0 else 'Disabled (1)'}")
+    print(f" IPv6 Ingress Packets:          {summary['in_receives']:,}")
+    print(f" IPv6 Ingress Discards:         {summary['in_discards']:,}")
+    print(f" IPv6 Ingress No-Routes:        {summary['in_no_routes']:,}")
+    print(f" IPv6 Egress Discards:          {summary['out_discards']:,}")
+    print("--------------------------------------------------------------------------------")
+    print(f" {'IPv6 Dual-Stack Metric':<35} {'Count / Value':<15} {'Status'}")
+    print("--------------------------------------------------------------------------------")
+    print(f" {'bindv6only':<35} {summary['bindv6only']:<15} {'Nominal' if summary['bindv6only'] == 0 else 'WARNING'}")
+    print(f" {'disable_ipv6':<35} {summary['disable_ipv6']:<15} Nominal")
+    print(f" {'IPv6 Ingress Packets':<35} {counters['in_receives']:<15} Nominal")
+    print(f" {'IPv6 Ingress Discards':<35} {counters['in_discards']:<15} {'Nominal' if counters['in_discards'] <= 50000 else 'WARNING'}")
+    print(f" {'IPv6 Ingress No-Routes':<35} {counters['in_no_routes']:<15} {'Nominal' if counters['in_no_routes'] <= 1000 else 'WARNING'}")
+
+    if summary["issues"]:
+        print("\nActive IPv6 Dual-Stack Warnings:")
+        for issue in summary["issues"]:
+            print(f"  [!] {issue}")
     else:
-        print(f"Pattern 124: {audit['name']}")
-        print(f"Status: {audit['status']}")
-        cfg = audit["config"]
-        print(f"bindv6only: {cfg['bindv6only']} (Dual-stack default: {cfg['dual_stack_default']})")
-        sock = audit["listening_sockets"]
-        print(f"TCP6 Listeners: {sock['total_tcp6_listeners']} (Wildcard: {sock['wildcard_listeners']})")
-        telem = audit["telemetry"]
-        print(f"IPv6 Ingress/Egress: In={telem['ip6_in_receives']:,}, Out={telem['ip6_out_requests']:,}, Discards={telem['ip6_in_discards']:,}")
-
-        if audit["issues"]:
-            print("\nIssues Identified:")
-            for issue in audit["issues"]:
-                print(f"  [!] {issue}")
-        else:
-            print("\nAll host IPv6 dual-stack socket configurations and interfaces are healthy.")
-
-    if not audit["healthy"] and not args.warn_only:
-        sys.exit(1)
-    sys.exit(0)
+        print("\nAll host IPv4/IPv6 dual-stack socket parameters and SNMP6 counters nominal.")
+    print("================================================================================")
 
 
 if __name__ == "__main__":
