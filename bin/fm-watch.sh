@@ -2903,6 +2903,14 @@ while :; do
       "$SCRIPT_DIR/fm-jev-unix-socket-guard.sh" --json > "$STATE/.jev-unix-socket-guard-telemetry.json" 2>/dev/null || true
     fi
   fi
+  # Pattern 75: Jev Multi-Agent eBPF Map & BPF Program Limit Exhaustion Guard
+  if [ "${FM_DISABLE_JEV_BPF_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-bpf-guard.sh" ]; then
+    _bpf_marker="$STATE/.jev-bpf-guard-last"
+    if [ ! -f "$_bpf_marker" ] || [ "$(age_of "$_bpf_marker")" -ge 1800 ]; then
+      touch "$_bpf_marker"
+      "$SCRIPT_DIR/fm-jev-bpf-guard.sh" --json > "$STATE/.jev-bpf-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
 
 
 
