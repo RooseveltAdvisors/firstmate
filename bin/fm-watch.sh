@@ -2696,6 +2696,15 @@ while :; do
     fi
   fi
 
+  # Pattern 50: Jev Multi-Agent Worktree Detached HEAD & Git Ref Drift Guard
+  if [ "${FM_DISABLE_JEV_DRIFT_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-drift-guard.sh" ]; then
+    _drift_guard_marker="$STATE/.jev-drift-guard-last"
+    if [ ! -f "$_drift_guard_marker" ] || [ "$(age_of "$_drift_guard_marker")" -ge 1800 ]; then
+      touch "$_drift_guard_marker"
+      "$SCRIPT_DIR/fm-jev-drift-guard.sh" --json > "$STATE/.jev-drift-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
 
 
 
