@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# tests/fm-jev-tw-guard.test.sh - Regression tests for Pattern 72 (TCP TIME_WAIT Guard)
+# tests/fm-jev-tw-guard.test.sh - Regression tests for Pattern 97 (TCP Time-Wait & Ephemeral Port Range Guard)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GUARD_SH="$SCRIPT_DIR/../bin/fm-jev-tw-guard.sh"
 GUARD_PY="$SCRIPT_DIR/../bin/fm-jev-tw-guard.py"
 
-echo "Running Pattern 72 regression tests..."
+echo "Running Pattern 97 regression tests..."
 
 # 1. ShellCheck
 shellcheck "$GUARD_SH"
@@ -20,92 +20,98 @@ echo "ok - python syntax clean"
 "$GUARD_SH" --help >/dev/null
 echo "ok - --help works"
 
-# 4. JSON schema validation on audit
+# 4. JSON schema validation on host audit
 json_out="$("$GUARD_SH" --json || true)"
 python3 -c "
 import json, sys
 data = json.loads('''$json_out''')
 assert 'timestamp' in data
 assert 'summary' in data
-assert 'tcp_stat' in data
+assert 'sockets' in data
 s = data['summary']
 assert 'status' in s
 assert isinstance(s['healthy'], bool)
-assert 'tcp_tw_count' in s
-assert 'tcp_max_tw_buckets' in s
-assert 'tw_saturation_ratio' in s
-assert 'tcp_tw_reuse' in s
+assert isinstance(s['issues'], list)
+assert 'ephemeral_ports_total' in s
+assert 'tw_sockets' in s
+assert 'tw_port_utilization_pct' in s
+sock = data['sockets']
+assert 'tcp_tw' in sock
+assert 'tcp_orphan' in sock
+assert 'sockets_used' in sock
 "
 echo "ok - json audit schema valid"
 
-# 5. Check mode runs cleanly on host
+# 5. Text mode runs cleanly on host
 "$GUARD_SH" >/dev/null || true
 echo "ok - text mode runs cleanly"
 
-# 6. Unit test on threshold logic and mocking
+# 6. Unit tests with mocked sysctl and sockstat files
 python3 -c "
 import sys, tempfile, os
+from pathlib import Path
 sys.path.insert(0, '$SCRIPT_DIR/../bin')
 from importlib import import_module
 mod = import_module('fm-jev-tw-guard')
 
 with tempfile.TemporaryDirectory() as tmp_dir:
-    mock_stat = os.path.join(tmp_dir, 'sockstat')
-    mock_max = os.path.join(tmp_dir, 'tcp_max_tw_buckets')
-    mock_reuse = os.path.join(tmp_dir, 'tcp_tw_reuse')
-    mock_fin = os.path.join(tmp_dir, 'tcp_fin_timeout')
+    d = Path(tmp_dir)
+    sockstat_path = d / 'sockstat'
+    port_range_path = d / 'ip_local_port_range'
+    tw_reuse_path = d / 'tcp_tw_reuse'
+    max_tw_buckets_path = d / 'tcp_max_tw_buckets'
+    fin_timeout_path = d / 'tcp_fin_timeout'
 
-    with open(mock_max, 'w') as f:
-        f.write('10000\n')
-    with open(mock_reuse, 'w') as f:
-        f.write('2\n')
-    with open(mock_fin, 'w') as f:
-        f.write('60\n')
+    port_range_path.write_text('32768 60999\n')
+    tw_reuse_path.write_text('2\n')
+    max_tw_buckets_path.write_text('262144\n')
+    fin_timeout_path.write_text('60\n')
 
-    # Test 1: Healthy scenario
-    with open(mock_stat, 'w') as f:
-        f.write('TCP: inuse 100 orphan 0 tw 50 alloc 110 mem 0\n')
-
-    res = mod.audit_tw_buckets(
-        sockstat_path=mock_stat,
-        max_tw_path=mock_max,
-        tw_reuse_path=mock_reuse,
-        fin_timeout_path=mock_fin,
+    # Case 1: Nominal sockstat
+    sockstat_path.write_text('''sockets: used 1500
+TCP: inuse 400 orphan 0 tw 250 alloc 450 mem 0
+UDP: inuse 20 mem 3000
+''')
+    res = mod.audit_tw_sockets(
+        sockstat_file=str(sockstat_path),
+        port_range_file=str(port_range_path),
+        tw_reuse_file=str(tw_reuse_path),
+        max_tw_buckets_file=str(max_tw_buckets_path),
+        fin_timeout_file=str(fin_timeout_path),
     )
-    assert res['summary']['healthy'] is True
     assert res['summary']['status'] == 'HEALTHY'
-    assert res['summary']['tcp_tw_count'] == 50
+    assert res['summary']['healthy'] is True
+    assert res['summary']['tw_sockets'] == 250
+    assert len(res['summary']['issues']) == 0
 
-    # Test 2: Warning on elevated TIME_WAIT
-    with open(mock_stat, 'w') as f:
-        f.write('TCP: inuse 100 orphan 0 tw 3000 alloc 110 mem 0\n')
-
-    res_warn = mod.audit_tw_buckets(
-        sockstat_path=mock_stat,
-        max_tw_path=mock_max,
-        tw_reuse_path=mock_reuse,
-        fin_timeout_path=mock_fin,
-        warn_sat_ratio=0.20,
+    # Case 2: TIME_WAIT explosion (>70% of ephemeral ports) triggers warning
+    sockstat_path.write_text('''sockets: used 25000
+TCP: inuse 1000 orphan 5 tw 22000 alloc 23000 mem 100
+''')
+    res_tw_high = mod.audit_tw_sockets(
+        sockstat_file=str(sockstat_path),
+        port_range_file=str(port_range_path),
+        tw_reuse_file=str(tw_reuse_path),
+        max_tw_buckets_file=str(max_tw_buckets_path),
+        fin_timeout_file=str(fin_timeout_path),
     )
-    assert res_warn['summary']['healthy'] is False
-    assert res_warn['summary']['status'] == 'WARNING'
-    assert 'Elevated TIME_WAIT sockets' in res_warn['summary']['recommendation']
+    assert res_tw_high['summary']['status'] == 'WARNING'
+    assert any('High TIME_WAIT saturation' in iss for iss in res_tw_high['summary']['issues'])
 
-    # Test 3: Critical on TIME_WAIT saturation
-    with open(mock_stat, 'w') as f:
-        f.write('TCP: inuse 100 orphan 0 tw 9000 alloc 110 mem 0\n')
-
-    res_crit = mod.audit_tw_buckets(
-        sockstat_path=mock_stat,
-        max_tw_path=mock_max,
-        tw_reuse_path=mock_reuse,
-        fin_timeout_path=mock_fin,
-        crit_sat_ratio=0.80,
+    # Case 3: Elevated orphan TCP sockets triggers warning
+    sockstat_path.write_text('''sockets: used 2000
+TCP: inuse 500 orphan 350 tw 500 alloc 850 mem 50
+''')
+    res_orphan = mod.audit_tw_sockets(
+        sockstat_file=str(sockstat_path),
+        port_range_file=str(port_range_path),
+        tw_reuse_file=str(tw_reuse_path),
+        max_tw_buckets_file=str(max_tw_buckets_path),
+        fin_timeout_file=str(fin_timeout_path),
     )
-    assert res_crit['summary']['healthy'] is False
-    assert res_crit['summary']['status'] == 'CRITICAL'
-    assert 'TCP TIME_WAIT bucket saturation is critical' in res_crit['summary']['recommendation']
+    assert res_orphan['summary']['status'] == 'WARNING'
+    assert any('Elevated orphan TCP sockets' in iss for iss in res_orphan['summary']['issues'])
 "
-echo "ok - unit tests on threshold logic and simulated sockstat passed"
+echo "ok - unit tests and mock audit pass"
 
-echo "ok - all Pattern 72 TCP TIME_WAIT guard tests passed"
+echo "All Pattern 97 tests passed!"

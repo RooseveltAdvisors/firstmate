@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# fm-jev-tw-guard.sh - Pattern 72: Jev Multi-Agent TCP TIME_WAIT Bucket & Socket Port Reuse Guard
+# fm-jev-tw-guard.sh - Pattern 97: Jev Multi-Agent Host Network TCP Time-Wait & Ephemeral Port Range Guard
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

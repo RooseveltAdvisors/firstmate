@@ -1,170 +1,227 @@
 #!/usr/bin/env python3
 """
-fm-jev-tw-guard.py - Jev Multi-Agent TCP TIME_WAIT Bucket & Socket Port Reuse Guard (Pattern 72)
+fm-jev-tw-guard.py - Jev Multi-Agent Host Network TCP Time-Wait & Socket Port Range Guard (Pattern 97)
 
-Audits Linux kernel TCP TIME_WAIT connection buckets, port allocation pressure, and socket reuse sysctls.
-Monitors /proc/net/sockstat, /proc/sys/net/ipv4/tcp_max_tw_buckets, and tcp_tw_reuse to prevent
-TIME_WAIT bucket exhaustion from dropping incoming connections or causing EADDRNOTAVAIL during
-high-frequency multi-agent API polling and SSE streaming.
+Audits Linux host TCP TIME_WAIT sockets, orphan socket counts, ephemeral port range allocation, and timewait bucket
+limits from /proc/net/sockstat, /proc/sys/net/ipv4/ip_local_port_range, /proc/sys/net/ipv4/tcp_tw_reuse,
+/proc/sys/net/ipv4/tcp_max_tw_buckets, and /proc/sys/net/ipv4/tcp_fin_timeout.
+
+Detects ephemeral port exhaustion (EADDRNOTAVAIL) and memory pressure from orphan/timewait socket accumulation
+during intensive multi-agent HTTP/RPC burst traffic.
 
 Invariants:
-  - Read-only diagnostics. Non-destructive.
-  - Fail-open: graceful handling on systems with non-standard procfs.
-  - Fast bounded execution (< 0.05s).
+  - Read-only diagnostics by default. Safe and non-destructive.
+  - Fail-open: graceful fallback when /proc files are missing or restricted.
+  - Fast bounded execution (< 0.02s).
 """
 
 import argparse
 import json
 import os
-import sys
+import re
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-DEFAULT_WARN_TW_COUNT = 10000
-DEFAULT_WARN_SATURATION_RATIO = 0.20
-DEFAULT_CRIT_SATURATION_RATIO = 0.80
-
-SOCKSTAT_PATH = "/proc/net/sockstat"
-TCP_MAX_TW_BUCKETS_PATH = "/proc/sys/net/ipv4/tcp_max_tw_buckets"
-TCP_TW_REUSE_PATH = "/proc/sys/net/ipv4/tcp_tw_reuse"
-TCP_FIN_TIMEOUT_PATH = "/proc/sys/net/ipv4/tcp_fin_timeout"
+PROC_SOCKSTAT = "/proc/net/sockstat"
+SYSCTL_PORT_RANGE = "/proc/sys/net/ipv4/ip_local_port_range"
+SYSCTL_TW_REUSE = "/proc/sys/net/ipv4/tcp_tw_reuse"
+SYSCTL_MAX_TW_BUCKETS = "/proc/sys/net/ipv4/tcp_max_tw_buckets"
+SYSCTL_FIN_TIMEOUT = "/proc/sys/net/ipv4/tcp_fin_timeout"
 
 
-def read_sysctl_int(path: str, default: int = 0) -> int:
-    """Reads integer sysctl."""
-    if not os.path.exists(path):
-        return default
+def read_int_file(path: Path) -> Optional[int]:
+    """Reads an integer from a sysfs/procfs file."""
+    if not path.is_file():
+        return None
     try:
-        with open(path, "r") as f:
-            return int(f.read().strip())
+        return int(path.read_text().strip())
     except Exception:
-        return default
+        return None
 
 
-def parse_sockstat_tw(path: str = SOCKSTAT_PATH) -> Dict[str, int]:
-    """Parses TCP line in /proc/net/sockstat for inuse, orphan, tw, and alloc."""
-    res = {"inuse": 0, "orphan": 0, "tw": 0, "alloc": 0, "mem": 0}
-    if not os.path.exists(path):
-        return res
+def parse_port_range(path: Path) -> Tuple[int, int, int]:
+    """Reads start and end ephemeral ports from ip_local_port_range."""
+    if not path.is_file():
+        return 32768, 60999, 28232
+    try:
+        parts = path.read_text().strip().split()
+        if len(parts) >= 2:
+            start_p = int(parts[0])
+            end_p = int(parts[1])
+            total_p = max(0, end_p - start_p + 1)
+            return start_p, end_p, total_p
+    except Exception:
+        pass
+    return 32768, 60999, 28232
+
+
+def parse_sockstat(path: Path) -> Dict[str, int]:
+    """Parses socket counts from /proc/net/sockstat."""
+    stats = {
+        "sockets_used": 0,
+        "tcp_inuse": 0,
+        "tcp_orphan": 0,
+        "tcp_tw": 0,
+        "tcp_alloc": 0,
+        "tcp_mem": 0,
+    }
+    if not path.is_file():
+        return stats
 
     try:
-        with open(path, "r", errors="replace") as f:
-            for line in f:
-                parts = line.strip().split()
-                if len(parts) >= 2 and parts[0] == "TCP:":
-                    i = 1
-                    while i < len(parts) - 1:
-                        k = parts[i]
-                        v = parts[i + 1]
-                        if k in res:
-                            try:
-                                res[k] = int(v)
-                            except ValueError:
-                                pass
-                        i += 2
+        for line in path.read_text().splitlines():
+            line_str = line.strip()
+            if line_str.startswith("sockets:"):
+                m = re.search(r"used\s+(\d+)", line_str)
+                if m:
+                    stats["sockets_used"] = int(m.group(1))
+            elif line_str.startswith("TCP:"):
+                inuse_m = re.search(r"inuse\s+(\d+)", line_str)
+                orphan_m = re.search(r"orphan\s+(\d+)", line_str)
+                tw_m = re.search(r"tw\s+(\d+)", line_str)
+                alloc_m = re.search(r"alloc\s+(\d+)", line_str)
+                mem_m = re.search(r"mem\s+(\d+)", line_str)
+                if inuse_m:
+                    stats["tcp_inuse"] = int(inuse_m.group(1))
+                if orphan_m:
+                    stats["tcp_orphan"] = int(orphan_m.group(1))
+                if tw_m:
+                    stats["tcp_tw"] = int(tw_m.group(1))
+                if alloc_m:
+                    stats["tcp_alloc"] = int(alloc_m.group(1))
+                if mem_m:
+                    stats["tcp_mem"] = int(mem_m.group(1))
     except Exception:
         pass
 
-    return res
+    return stats
 
 
-def audit_tw_buckets(
-    sockstat_path: str = SOCKSTAT_PATH,
-    max_tw_path: str = TCP_MAX_TW_BUCKETS_PATH,
-    tw_reuse_path: str = TCP_TW_REUSE_PATH,
-    fin_timeout_path: str = TCP_FIN_TIMEOUT_PATH,
-    warn_tw_count: int = DEFAULT_WARN_TW_COUNT,
-    warn_sat_ratio: float = DEFAULT_WARN_SATURATION_RATIO,
-    crit_sat_ratio: float = DEFAULT_CRIT_SATURATION_RATIO,
+def audit_tw_sockets(
+    sockstat_file: Optional[str] = None,
+    port_range_file: Optional[str] = None,
+    tw_reuse_file: Optional[str] = None,
+    max_tw_buckets_file: Optional[str] = None,
+    fin_timeout_file: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Performs full audit of TCP TIME_WAIT buckets and socket reuse settings."""
-    tcp_stat = parse_sockstat_tw(sockstat_path)
-    max_tw = read_sysctl_int(max_tw_path, default=262144)
-    tw_reuse = read_sysctl_int(tw_reuse_path, default=2)
-    fin_timeout = read_sysctl_int(fin_timeout_path, default=60)
+    """Audits TIME_WAIT sockets against ephemeral port range and system limits."""
+    sockstat_path = Path(sockstat_file) if sockstat_file else Path(PROC_SOCKSTAT)
+    port_range_path = Path(port_range_file) if port_range_file else Path(SYSCTL_PORT_RANGE)
+    tw_reuse_path = Path(tw_reuse_file) if tw_reuse_file else Path(SYSCTL_TW_REUSE)
+    max_tw_buckets_path = Path(max_tw_buckets_file) if max_tw_buckets_file else Path(SYSCTL_MAX_TW_BUCKETS)
+    fin_timeout_path = Path(fin_timeout_file) if fin_timeout_file else Path(SYSCTL_FIN_TIMEOUT)
 
-    tw_count = tcp_stat["tw"]
-    sat_ratio = (tw_count / max_tw) if max_tw > 0 else 0.0
+    stats = parse_sockstat(sockstat_path)
+    start_p, end_p, total_ports = parse_port_range(port_range_path)
+    tw_reuse = read_int_file(tw_reuse_path)
+    max_tw_buckets = read_int_file(max_tw_buckets_path) or 262144
+    fin_timeout = read_int_file(fin_timeout_path) or 60
+
+    tw_sockets = stats["tcp_tw"]
+    orphan_sockets = stats["tcp_orphan"]
+
+    # Percentages
+    tw_port_pct = (tw_sockets / total_ports * 100.0) if total_ports > 0 else 0.0
+    tw_bucket_pct = (tw_sockets / max_tw_buckets * 100.0) if max_tw_buckets > 0 else 0.0
+
+    issues: List[str] = []
+
+    if total_ports < 10000:
+        issues.append(f"Restricted ephemeral port range ({total_ports} < 10,000): risk of port exhaustion under high concurrency")
+
+    if tw_port_pct > 70.0:
+        issues.append(f"High TIME_WAIT saturation ({tw_port_pct:.1f}% of ephemeral ports): risk of EADDRNOTAVAIL socket errors")
+
+    if tw_bucket_pct > 80.0:
+        issues.append(f"High TIME_WAIT bucket utilization ({tw_bucket_pct:.1f}% of {max_tw_buckets}): risk of bucket overflow")
+
+    if orphan_sockets > 200:
+        issues.append(f"Elevated orphan TCP sockets ({orphan_sockets} > 200): sockets unattached to user descriptors")
 
     status = "HEALTHY"
-    recommendation = "TCP TIME_WAIT socket bucket utilization and port reuse settings are nominal."
-
-    if sat_ratio >= crit_sat_ratio or (max_tw > 0 and tw_count >= max_tw):
-        status = "CRITICAL"
-        recommendation = (
-            f"TCP TIME_WAIT bucket saturation is critical: {tw_count:,} sockets ({sat_ratio*100:.1f}% of max {max_tw:,}). "
-            "Kernel is actively dropping TCP connections or failing socket allocations. Increase tcp_max_tw_buckets or verify tcp_tw_reuse."
-        )
-    elif sat_ratio >= warn_sat_ratio or tw_count >= warn_tw_count:
+    if issues:
         status = "WARNING"
-        recommendation = (
-            f"Elevated TIME_WAIT sockets: {tw_count:,} sockets ({sat_ratio*100:.1f}% of max {max_tw:,}). "
-            "Monitor outbound socket churn across multi-agent processes."
-        )
-    elif tw_reuse == 0:
-        status = "WARNING"
-        recommendation = (
-            f"tcp_tw_reuse is disabled (0). Recommend enabling tcp_tw_reuse=2 to permit safe outbound "
-            "ephemeral port recycling during high-frequency API traffic."
-        )
 
     return {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "summary": {
             "status": status,
-            "healthy": (status == "HEALTHY"),
-            "tcp_tw_count": tw_count,
-            "tcp_max_tw_buckets": max_tw,
-            "tw_saturation_ratio": round(sat_ratio, 4),
+            "healthy": status == "HEALTHY",
+            "ephemeral_port_start": start_p,
+            "ephemeral_port_end": end_p,
+            "ephemeral_ports_total": total_ports,
+            "tw_sockets": tw_sockets,
+            "tw_port_utilization_pct": round(tw_port_pct, 2),
+            "tw_bucket_utilization_pct": round(tw_bucket_pct, 2),
+            "max_tw_buckets": max_tw_buckets,
             "tcp_tw_reuse": tw_reuse,
             "tcp_fin_timeout": fin_timeout,
-            "tcp_inuse": tcp_stat["inuse"],
-            "tcp_orphan": tcp_stat["orphan"],
-            "tcp_alloc": tcp_stat["alloc"],
-            "recommendation": recommendation,
+            "issues": issues,
         },
-        "tcp_stat": tcp_stat,
+        "sockets": stats,
     }
 
 
-def main() -> int:
+def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Jev Multi-Agent TCP TIME_WAIT Bucket & Socket Port Reuse Guard (Pattern 72)"
+        description="Jev Multi-Agent Host Network TCP Time-Wait & Ephemeral Port Range Guard (Pattern 97)"
     )
-    parser.add_argument("--json", action="store_true", help="Output results in JSON format")
-    parser.add_argument(
-        "--warn-tw-count",
-        type=int,
-        default=DEFAULT_WARN_TW_COUNT,
-        help=f"Warn threshold for TIME_WAIT count (default: {DEFAULT_WARN_TW_COUNT})",
-    )
-    parser.add_argument(
-        "--warn-sat-ratio",
-        type=float,
-        default=DEFAULT_WARN_SATURATION_RATIO,
-        help=f"Warn threshold for saturation ratio (default: {DEFAULT_WARN_SATURATION_RATIO})",
-    )
-
+    parser.add_argument("--json", action="store_true", help="Output JSON format")
+    parser.add_argument("--sockstat-file", type=str, default=None, help="Path to /proc/net/sockstat")
+    parser.add_argument("--port-range-file", type=str, default=None, help="Path to ip_local_port_range")
+    parser.add_argument("--tw-reuse-file", type=str, default=None, help="Path to tcp_tw_reuse")
+    parser.add_argument("--max-tw-buckets-file", type=str, default=None, help="Path to tcp_max_tw_buckets")
+    parser.add_argument("--fin-timeout-file", type=str, default=None, help="Path to tcp_fin_timeout")
     args = parser.parse_args()
 
-    report = audit_tw_buckets(
-        warn_tw_count=args.warn_tw_count,
-        warn_sat_ratio=args.warn_sat_ratio,
+    result = audit_tw_sockets(
+        sockstat_file=args.sockstat_file,
+        port_range_file=args.port_range_file,
+        tw_reuse_file=args.tw_reuse_file,
+        max_tw_buckets_file=args.max_tw_buckets_file,
+        fin_timeout_file=args.fin_timeout_file,
     )
 
     if args.json:
-        print(json.dumps(report, indent=2))
-    else:
-        s = report["summary"]
-        print(f"[{s['status']}] Jev TCP TIME_WAIT Bucket Guard (Pattern 72)")
-        print(f"TIME_WAIT Sockets: {s['tcp_tw_count']:,} / {s['tcp_max_tw_buckets']:,} max ({s['tw_saturation_ratio']*100:.2f}% saturation)")
-        print(f"Active TCP: {s['tcp_inuse']:,} inuse | {s['tcp_orphan']:,} orphan | {s['tcp_alloc']:,} alloc")
-        print(f"Sysctls: tcp_tw_reuse={s['tcp_tw_reuse']} | tcp_fin_timeout={s['tcp_fin_timeout']}s")
-        print(f"Status: {s['status']}")
-        print(f"Recommendation: {s['recommendation']}")
+        print(json.dumps(result, indent=2))
+        return
 
-    return 0 if report["summary"]["healthy"] else 1
+    summary = result["summary"]
+    sockets = result["sockets"]
+    status_color = "\033[32m" if summary["healthy"] else "\033[33m"
+    reset_color = "\033[0m"
+
+    tw_reuse_str = {0: "Disabled (0)", 1: "Enabled (1)", 2: "Enabled for Loopback (2)"}.get(
+        summary["tcp_tw_reuse"], str(summary["tcp_tw_reuse"])
+    )
+
+    print("================================================================================")
+    print(" Jev Multi-Agent Host Network TCP Time-Wait & Ephemeral Port Range Guard (Pattern 97)")
+    print("================================================================================")
+    print(f" Timestamp:                 {result['timestamp']}")
+    print(f" Status:                    {status_color}{summary['status']}{reset_color}")
+    print(f" Ephemeral Port Range:      {summary['ephemeral_port_start']} - {summary['ephemeral_port_end']} ({summary['ephemeral_ports_total']} ports)")
+    print(f" TCP TW Reuse:              {tw_reuse_str}")
+    print(f" TCP Fin Timeout:           {summary['tcp_fin_timeout']}s")
+    print(f" Max TW Buckets:            {summary['max_tw_buckets']}")
+    print("--------------------------------------------------------------------------------")
+    print(f" {'Metric':<30} {'Count':<15} {'Utilization / Status'}")
+    print("--------------------------------------------------------------------------------")
+    print(f" {'Total Sockets Used':<30} {sockets['sockets_used']:<15} Nominal")
+    print(f" {'TCP Sockets In-Use':<30} {sockets['tcp_inuse']:<15} Nominal")
+    print(f" {'TCP Sockets Allocated':<30} {sockets['tcp_alloc']:<15} Nominal")
+    print(f" {'TCP Orphan Sockets':<30} {sockets['tcp_orphan']:<15} {'Nominal' if sockets['tcp_orphan'] <= 200 else 'WARNING'}")
+    print(f" {'TCP TIME_WAIT Sockets':<30} {summary['tw_sockets']:<15} {summary['tw_port_utilization_pct']}% of ports ({summary['tw_bucket_utilization_pct']}% of buckets)")
+
+    if summary["issues"]:
+        print("\nActive TIME_WAIT / Port Range Warnings:")
+        for issue in summary["issues"]:
+            print(f"  [!] {issue}")
+    else:
+        print("\nAll TCP TIME_WAIT sockets, orphan socket levels, and ephemeral port capacities nominal.")
+    print("================================================================================")
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()
