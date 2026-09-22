@@ -2638,6 +2638,16 @@ while :; do
     fi
   fi
 
+  # Pattern 94: Jev Multi-Agent Host Network Routing Table Bloat & Nexthop Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_ROUTE_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-route-guard.sh" ]; then
+    _route_guard_marker="$STATE/.jev-route-guard-last"
+    if [ ! -f "$_route_guard_marker" ] || [ "$(age_of "$_route_guard_marker")" -ge 1800 ]; then
+      touch "$_route_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-route-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
   # Pattern 89: Jev Multi-Agent Host Kernel SLUB/SLAB Memory Object & Allocator Fragmentation Guard
   # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
   if [ "${FM_DISABLE_JEV_SLAB_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-slab-guard.sh" ]; then
