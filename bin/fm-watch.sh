@@ -2935,6 +2935,14 @@ while :; do
       "$SCRIPT_DIR/fm-jev-dirty-guard.sh" --json > "$STATE/.jev-dirty-guard-telemetry.json" 2>/dev/null || true
     fi
   fi
+  # Pattern 79: Jev Multi-Agent Network Socket Backlog & SYN Queue Overflow Guard
+  if [ "${FM_DISABLE_JEV_TCP_BACKLOG_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-tcp-backlog-guard.sh" ]; then
+    _backlog_marker="$STATE/.jev-tcp-backlog-guard-last"
+    if [ ! -f "$_backlog_marker" ] || [ "$(age_of "$_backlog_marker")" -ge 1800 ]; then
+      touch "$_backlog_marker"
+      "$SCRIPT_DIR/fm-jev-tcp-backlog-guard.sh" --json > "$STATE/.jev-tcp-backlog-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
 
 
 
