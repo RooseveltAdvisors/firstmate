@@ -211,7 +211,7 @@ ack_stopped_cycle() {
 }
 
 wait_poll_cycle() {
-  local state=$1 pid=$2 limit=${3:-300} beat first now i=0
+  local state=$1 pid=$2 limit=${3:-600} beat first now i=0
   beat="$state/.last-watcher-beat"
   rm -f "$beat"
   first=""

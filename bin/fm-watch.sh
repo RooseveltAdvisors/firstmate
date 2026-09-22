@@ -1262,17 +1262,22 @@ wedge_jev_enabled() {
 
 wedge_jev_triage() {  # <window> <task> <age> <escalation-count> <since-file> <triage-label>
   # 0 = suppress; 1 = escalate (including fail-open).
-  local win=$1 task=$2 age=$3 n=$4 since_file=$5 label=$6 kind bin out action choice runner=()
+  local win=$1 task=$2 age=$3 n=$4 since_file=$5 label=$6 kind out action choice
   wedge_jev_enabled || return 1
-  bin=${FM_JEV_WAKE_TRIAGE_BIN:-$SCRIPT_DIR/fm-jev-wake-triage.sh}
-  [ -e "$bin" ] || return 1
-  if [ -z "${TYPESAFE_API_KEY:-}" ] && [ -x "$SCRIPT_DIR/jev-typesafe-run.py" ] && [ -z "${FM_TEST_LIB_SOURCED:-}" ]; then
-    runner=(sudo -n "$SCRIPT_DIR/jev-typesafe-run.py" --)
-  fi
   kind=$(window_kind "$win")
   case "$kind" in ship|scout|secondmate) ;; *) kind=unknown ;; esac
-  out=$("${runner[@]}" bash "$bin" --class "$kind" --age "$age" --escalation-count "$n" \
-    --task "$task" --status-file "$STATE/$task.status" 2>/dev/null) || out='action=unavailable'
+  if [ -n "${FM_JEV_WAKE_TRIAGE_BIN:-}" ]; then
+    out=$(bash "$FM_JEV_WAKE_TRIAGE_BIN" --class "$kind" --age "$age" --escalation-count "$n" \
+      --task "$task" --status-file "$STATE/$task.status" 2>/dev/null) || out='action=unavailable'
+  elif command -v jev >/dev/null 2>&1; then
+    out=$(jev triage --class "$kind" --age "$age" --escalation-count "$n" \
+      --task "$task" --status-file "$STATE/$task.status" 2>/dev/null) || out='action=unavailable'
+  elif [ -e "$SCRIPT_DIR/fm-jev-wake-triage.sh" ]; then
+    out=$(bash "$SCRIPT_DIR/fm-jev-wake-triage.sh" --class "$kind" --age "$age" --escalation-count "$n" \
+      --task "$task" --status-file "$STATE/$task.status" 2>/dev/null) || out='action=unavailable'
+  else
+    return 1
+  fi
   action=$(printf '%s\n' "$out" | awk -F= '/^action=/{print $2; exit}')
   case "$action" in
     suppress)
@@ -2983,6 +2988,14 @@ while :; do
     if [ ! -f "$_oom_marker" ] || [ "$(age_of "$_oom_marker")" -ge 1800 ]; then
       touch "$_oom_marker"
       "$SCRIPT_DIR/fm-jev-oom-guard.sh" --json > "$STATE/.jev-oom-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+  # Pattern 85: Jev Multi-Agent Kernel Epoll & Eventfd Descriptor Saturation Guard
+  if [ "${FM_DISABLE_JEV_EPOLL_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-epoll-guard.sh" ]; then
+    _epoll_marker="$STATE/.jev-epoll-guard-last"
+    if [ ! -f "$_epoll_marker" ] || [ "$(age_of "$_epoll_marker")" -ge 1800 ]; then
+      touch "$_epoll_marker"
+      "$SCRIPT_DIR/fm-jev-epoll-guard.sh" --json > "$STATE/.jev-epoll-guard-telemetry.json" 2>/dev/null || true
     fi
   fi
 

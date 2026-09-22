@@ -57,15 +57,20 @@ PRIVATE_KEY_RE = re.compile(
 
 
 def get_api_key() -> str | None:
-    key = os.environ.get("TYPESAFE_API_KEY", "").strip()
-    if key:
-        return key
+    # 1. Resolve directly from Agent Vault via Jev service (Strict Invariant)
+    try:
+        sys.path.insert(0, "/opt/ra/firstmate/projects/jev/src")
+        from jev.vault import get_typesafe_api_key
+        return get_typesafe_api_key()
+    except Exception:
+        pass
 
-    run_py = Path("/opt/ra/firstmate/bin/jev-typesafe-run.py")
-    if run_py.exists():
+    # 2. Try Jev service CLI runner if available
+    jev_bin = Path("/opt/ra/firstmate/projects/jev/bin/jev")
+    if jev_bin.exists():
         try:
             res = subprocess.run(
-                ["sudo", "-n", str(run_py), "--", "env"],
+                [str(jev_bin), "run", "--", "env"],
                 capture_output=True,
                 text=True,
                 timeout=3,
