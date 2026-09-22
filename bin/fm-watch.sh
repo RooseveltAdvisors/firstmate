@@ -2911,6 +2911,14 @@ while :; do
       "$SCRIPT_DIR/fm-jev-bpf-guard.sh" --json > "$STATE/.jev-bpf-guard-telemetry.json" 2>/dev/null || true
     fi
   fi
+  # Pattern 76: Jev Multi-Agent Kernel Cgroup v2 Memory & PID Controller Throttling Guard
+  if [ "${FM_DISABLE_JEV_CGROUP_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-cgroup-guard.sh" ]; then
+    _cgroup_marker="$STATE/.jev-cgroup-guard-last"
+    if [ ! -f "$_cgroup_marker" ] || [ "$(age_of "$_cgroup_marker")" -ge 1800 ]; then
+      touch "$_cgroup_marker"
+      "$SCRIPT_DIR/fm-jev-cgroup-guard.sh" --json > "$STATE/.jev-cgroup-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
 
 
 
