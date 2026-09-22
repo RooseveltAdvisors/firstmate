@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# tests/fm-jev-autocork-guard.test.sh - Regression tests for Pattern 135 (TCP Auto Corking Guard)
+# tests/fm-jev-autocork-guard.test.sh - Regression tests for Pattern 194 (TCP Autocorking Guard)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GUARD_SH="$SCRIPT_DIR/../bin/fm-jev-autocork-guard.sh"
 GUARD_PY="$SCRIPT_DIR/../bin/fm-jev-autocork-guard.py"
 
-echo "Running Pattern 135 regression tests..."
+echo "Running Pattern 194 regression tests..."
 
 # 1. ShellCheck
 shellcheck "$GUARD_SH"
@@ -27,15 +27,18 @@ import json, sys
 data = json.loads('''$json_out''')
 assert 'timestamp' in data
 assert 'summary' in data
-assert 'counters' in data
+assert 'sysctls' in data
+assert 'netstat_counters' in data
 s = data['summary']
 assert 'status' in s
 assert isinstance(s['healthy'], bool)
 assert isinstance(s['issues'], list)
 assert 'tcp_autocorking' in s
-assert 'autocork_events' in s
+assert 'autocorked_segments' in s
 assert 'orig_data_sent' in s
-assert 'coalesce_ratio_pct' in s
+assert 'autocork_ratio_pct' in s
+assert 'backlog_coalesce' in s
+assert 'rcv_coalesce' in s
 "
 echo "ok - json audit schema valid"
 
@@ -43,7 +46,7 @@ echo "ok - json audit schema valid"
 "$GUARD_SH" >/dev/null || true
 echo "ok - text mode runs cleanly"
 
-# 6. Unit tests with mocked sysctl and /proc/net/netstat files
+# 6. Unit tests with mocked files
 python3 -c "
 import sys, tempfile, os
 from pathlib import Path
@@ -54,46 +57,63 @@ mod = import_module('fm-jev-autocork-guard')
 with tempfile.TemporaryDirectory() as tmp_dir:
     d = Path(tmp_dir)
     cork_f = d / 'tcp_autocorking'
+    notsent_f = d / 'tcp_notsent_lowat'
     netstat_f = d / 'netstat'
 
     cork_f.write_text('1\n')
-    netstat_f.write_text('''TcpExt: TCPAutoCorking TCPOrigDataSent TCPDelivered
-TcpExt: 70000 10000000 9500000
+    notsent_f.write_text('4294967295\n')
+    netstat_f.write_text('''TcpExt: TCPAutoCorking TCPOrigDataSent TCPBacklogCoalesce TCPRcvCoalesce
+TcpExt: 1000 100000 500 2000
 ''')
 
-    # Case 1: Nominal healthy state
-    res = mod.audit_autocork(
-        autocorking_file=str(cork_f),
+    # Case 1: Nominal
+    res = mod.audit_autocorking(
+        tcp_autocorking_file=str(cork_f),
+        tcp_notsent_lowat_file=str(notsent_f),
         netstat_file=str(netstat_f),
     )
     assert res['summary']['status'] == 'HEALTHY'
     assert res['summary']['healthy'] is True
     assert res['summary']['tcp_autocorking'] == 1
-    assert res['summary']['autocork_events'] == 70000
-    assert res['summary']['orig_data_sent'] == 10000000
-    assert res['summary']['coalesce_ratio_pct'] == 0.7
-    assert res['counters']['tcp_autocorking'] == 70000
+    assert res['summary']['autocorked_segments'] == 1000
+    assert res['summary']['orig_data_sent'] == 100000
+    assert res['summary']['autocork_ratio_pct'] == 1.0
 
-    # Case 2: Auto-corking disabled -> WARNING
+    # Case 2: Autocorking disabled and notsent_lowat 0 -> CRITICAL
     cork_f.write_text('0\n')
-    res2 = mod.audit_autocork(
-        autocorking_file=str(cork_f),
+    notsent_f.write_text('0\n')
+    res2 = mod.audit_autocorking(
+        tcp_autocorking_file=str(cork_f),
+        tcp_notsent_lowat_file=str(notsent_f),
         netstat_file=str(netstat_f),
     )
-    assert res2['summary']['status'] == 'WARNING'
+    assert res2['summary']['status'] == 'CRITICAL'
     assert res2['summary']['healthy'] is False
-    assert any('TCP auto-corking is disabled' in iss for iss in res2['summary']['issues'])
-    cork_f.write_text('1\n')
+    assert any('fragmentation' in iss for iss in res2['summary']['issues'])
 
-    # Case 3: Missing files fallback (fail-open)
-    res3 = mod.audit_autocork(
-        autocorking_file='/nonexistent/tcp_autocorking',
-        netstat_file='/nonexistent/netstat',
+    # Case 3: Autocorking disabled but standard notsent_lowat -> WARNING
+    notsent_f.write_text('4294967295\n')
+    res3 = mod.audit_autocorking(
+        tcp_autocorking_file=str(cork_f),
+        tcp_notsent_lowat_file=str(notsent_f),
+        netstat_file=str(netstat_f),
     )
-    assert res3['summary']['status'] == 'HEALTHY'
-    assert res3['summary']['tcp_autocorking'] == 1
-    assert res3['summary']['autocork_events'] == 0
+    assert res3['summary']['status'] == 'WARNING'
+    assert any('sub-MSS' in iss for iss in res3['summary']['issues'])
+
+    # Case 4: Excessive autocork ratio (>= 25%) -> WARNING
+    cork_f.write_text('1\n')
+    netstat_f.write_text('''TcpExt: TCPAutoCorking TCPOrigDataSent TCPBacklogCoalesce TCPRcvCoalesce
+TcpExt: 30000 100000 500 2000
+''')
+    res4 = mod.audit_autocorking(
+        tcp_autocorking_file=str(cork_f),
+        tcp_notsent_lowat_file=str(notsent_f),
+        netstat_file=str(netstat_f),
+    )
+    assert res4['summary']['status'] == 'WARNING'
+    assert any('excessive write buffering' in iss for iss in res4['summary']['issues'])
 "
 echo "ok - unit tests pass"
 
-echo "All Pattern 135 regression tests passed!"
+echo "Pattern 194 regression tests passed: 6/6 tests ok"

@@ -1,163 +1,150 @@
 #!/usr/bin/env python3
 """
-fm-jev-autocork-guard.py - Jev Multi-Agent Host Network TCP Auto Corking & Packet Coalescing Guard (Pattern 135)
+bin/fm-jev-autocork-guard.py - Host Network TCP Autocorking & Coalescence Guard (Pattern 194)
 
-Audits Linux TCP auto-corking policy (/proc/sys/net/ipv4/tcp_autocorking) and socket write
-coalescing efficiency counters from /proc/net/netstat (TCPAutoCorking, TCPOrigDataSent).
-
-When applications perform consecutive small write() or sendmsg() calls (common in LLM token streaming,
-JSON-RPC serialization, and chat telemetry streams), TCP auto-corking automatically coalesces
-sub-MSS chunks into full frames if prior packets are still traversing device or qdisc queues.
-If disabled (tcp_autocorking=0), every micro-write generates redundant 40-60 byte IP/TCP headers,
-saturating host softirq CPU and degrading throughput across multi-agent connections.
-
-Invariants:
-  - Read-only diagnostics by default. Safe and non-destructive.
-  - Fail-open: graceful fallback when sysctl or procfs entries are inaccessible.
-  - Fast bounded execution (< 0.03s).
+Audits kernel TCP write request coalescing configuration (tcp_autocorking, tcp_notsent_lowat)
+and packet coalescing telemetry from /proc/net/netstat (TCPAutoCorking, TCPOrigDataSent,
+TCPBacklogCoalesce, TCPRcvCoalesce). Verifies intelligent sub-MSS packet batching to maximize
+network device throughput and minimize CPU softirq overhead without introducing latency delays
+into small interactive JSON-RPC agent messages.
 """
 
 import argparse
+import datetime
 import json
 import os
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Dict, List, Optional
-
-SYSCTL_AUTOCORKING = "/proc/sys/net/ipv4/tcp_autocorking"
-PROC_NETSTAT = "/proc/net/netstat"
+import sys
+from typing import Any, Dict, List
 
 
-def read_int_file(path: Path) -> Optional[int]:
-    """Reads an integer from a sysfs/procfs file."""
-    if not path.is_file():
-        return None
+def read_sysctl_int(path: str) -> int:
+    if not os.path.exists(path):
+        return -1
     try:
-        return int(path.read_text().strip())
-    except Exception:
-        return None
+        with open(path, "r", encoding="utf-8") as f:
+            return int(f.read().strip())
+    except Exception as e:
+        print(f"Warning: unable to read {path}: {e}", file=sys.stderr)
+        return -1
 
 
-def parse_proc_pairs(path: Path, section_name: str) -> Dict[str, int]:
-    """Parses paired header/metric lines from /proc/net/netstat."""
-    if not path.is_file():
-        return {}
-
-    metrics: Dict[str, int] = {}
+def parse_netstat_ext(path: str = "/proc/net/netstat") -> Dict[str, int]:
+    counters: Dict[str, int] = {}
+    if not os.path.exists(path):
+        return counters
     try:
-        lines = path.read_text().splitlines()
-        for i in range(0, len(lines) - 1):
-            line = lines[i]
-            if line.startswith(f"{section_name}:"):
-                keys = line.split()[1:]
-                next_line = lines[i + 1]
-                if next_line.startswith(f"{section_name}:"):
-                    vals = next_line.split()[1:]
-                    for k, v in zip(keys, vals):
-                        try:
-                            metrics[k] = int(v)
-                        except ValueError:
-                            continue
-                    break
-    except Exception:
-        return {}
-
-    return metrics
+        with open(path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        for i in range(0, len(lines), 2):
+            if i + 1 >= len(lines):
+                break
+            headers = lines[i].split()
+            values = lines[i + 1].split()
+            if len(headers) == len(values) and headers[0] == "TcpExt:" and values[0] == "TcpExt:":
+                for h, v in zip(headers[1:], values[1:]):
+                    try:
+                        counters[h] = int(v)
+                    except ValueError:
+                        continue
+    except Exception as e:
+        print(f"Warning: unable to parse netstat {path}: {e}", file=sys.stderr)
+    return counters
 
 
-def audit_autocork(
-    autocorking_file: Optional[str] = None,
-    netstat_file: Optional[str] = None,
+def audit_autocorking(
+    tcp_autocorking_file: str = "/proc/sys/net/ipv4/tcp_autocorking",
+    tcp_notsent_lowat_file: str = "/proc/sys/net/ipv4/tcp_notsent_lowat",
+    netstat_file: str = "/proc/net/netstat",
 ) -> Dict[str, Any]:
-    """Audits host TCP auto-corking configuration and write coalescing metrics."""
-    cork_p = Path(autocorking_file or SYSCTL_AUTOCORKING)
-    netstat_p = Path(netstat_file or PROC_NETSTAT)
+    autocorking = read_sysctl_int(tcp_autocorking_file)
+    notsent_lowat = read_sysctl_int(tcp_notsent_lowat_file)
 
-    autocorking = read_int_file(cork_p)
-    if autocorking is None:
-        autocorking = 1  # Standard Linux default (1 = enabled)
+    netstat = parse_netstat_ext(netstat_file)
 
-    tcpext = parse_proc_pairs(netstat_p, "TcpExt")
-    autocork_events = tcpext.get("TCPAutoCorking", 0)
-    orig_data_sent = tcpext.get("TCPOrigDataSent", 0)
-    delivered = tcpext.get("TCPDelivered", 0)
+    autocork_segs = netstat.get("TCPAutoCorking", 0)
+    orig_data_sent = netstat.get("TCPOrigDataSent", 0)
+    backlog_coalesce = netstat.get("TCPBacklogCoalesce", 0)
+    rcv_coalesce = netstat.get("TCPRcvCoalesce", 0)
 
-    coalesce_ratio_pct = (
-        round((autocork_events / orig_data_sent * 100.0), 3) if orig_data_sent > 0 else 0.0
-    )
+    autocork_ratio = round((autocork_segs / orig_data_sent * 100.0), 4) if orig_data_sent > 0 else 0.0
 
     issues: List[str] = []
     status = "HEALTHY"
 
-    if autocorking == 0:
-        issues.append("TCP auto-corking is disabled (tcp_autocorking=0); small writes will not be coalesced into MSS frames")
-        status = "WARNING"
+    # Critical conditions
+    if autocorking == 0 and notsent_lowat == 0:
+        issues.append("tcp_autocorking is disabled and tcp_notsent_lowat is 0: severe fragmentation of consecutive write requests")
+        status = "CRITICAL"
 
-    recommendations: List[str] = []
-    if autocorking == 0:
-        recommendations.append("Enable TCP auto-corking: sysctl -w net.ipv4.tcp_autocorking=1")
-    else:
-        recommendations.append("TCP auto-corking and socket write coalescing operating within optimal envelope")
+    # Warning conditions
+    if status != "CRITICAL":
+        if autocorking == 0:
+            issues.append("tcp_autocorking is 0 (disabled): sub-MSS write requests sent immediately rather than batched")
+            status = "WARNING"
+        if autocork_ratio >= 25.0:
+            issues.append(f"Auto-corking ratio ({autocork_ratio}%) exceeds 25.0% warning threshold: excessive write buffering")
+            status = "WARNING"
+
+    summary = {
+        "status": status,
+        "healthy": (status == "HEALTHY"),
+        "tcp_autocorking": autocorking,
+        "tcp_notsent_lowat": notsent_lowat,
+        "autocorked_segments": autocork_segs,
+        "orig_data_sent": orig_data_sent,
+        "autocork_ratio_pct": autocork_ratio,
+        "backlog_coalesce": backlog_coalesce,
+        "rcv_coalesce": rcv_coalesce,
+        "issues": issues,
+    }
 
     return {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "summary": {
-            "status": status,
-            "healthy": status == "HEALTHY",
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "summary": summary,
+        "sysctls": {
             "tcp_autocorking": autocorking,
-            "autocork_events": autocork_events,
-            "orig_data_sent": orig_data_sent,
-            "coalesce_ratio_pct": coalesce_ratio_pct,
-            "issues": issues,
-            "recommendations": recommendations,
+            "tcp_notsent_lowat": notsent_lowat,
         },
-        "counters": {
-            "tcp_autocorking": autocork_events,
-            "tcp_orig_data_sent": orig_data_sent,
-            "tcp_delivered": delivered,
+        "netstat_counters": {
+            "TCPAutoCorking": autocork_segs,
+            "TCPOrigDataSent": orig_data_sent,
+            "TCPBacklogCoalesce": backlog_coalesce,
+            "TCPRcvCoalesce": rcv_coalesce,
         },
     }
 
 
-def main() -> None:
+def main():
     parser = argparse.ArgumentParser(
-        description="Jev Multi-Agent Host Network TCP Auto Corking & Coalescing Guard (Pattern 135)"
+        description="Host Network TCP Autocorking & Coalescence Guard (Pattern 194)"
     )
-    parser.add_argument("--json", action="store_true", help="Output audit results in JSON format")
-    parser.add_argument("--autocorking-file", type=str, help="Override path to tcp_autocorking sysctl")
-    parser.add_argument("--netstat-file", type=str, help="Override path to /proc/net/netstat")
-
+    parser.add_argument("--json", action="store_true", help="Output audit report as JSON")
     args = parser.parse_args()
 
-    result = audit_autocork(
-        autocorking_file=args.autocorking_file,
-        netstat_file=args.netstat_file,
-    )
+    report = audit_autocorking()
 
     if args.json:
-        print(json.dumps(result, indent=2))
-        return
+        print(json.dumps(report, indent=2))
+        return 0
 
-    s = result["summary"]
-    c = result["counters"]
-
-    print("=== Jev Host Network TCP Auto Corking Guard (Pattern 135) ===")
-    print(f"Status:                 {s['status']}")
-    print(f"TCP Auto Corking:       {s['tcp_autocorking']} ({'Enabled' if s['tcp_autocorking'] == 1 else 'Disabled'})")
-    print(f"Auto Corking Events:    {s['autocork_events']:,}")
-    print(f"Original Data Sent:     {s['orig_data_sent']:,} segments")
-    print(f"Write Coalesce Ratio:   {s['coalesce_ratio_pct']}%")
-    print(f"Segments Delivered:     {c['tcp_delivered']:,}")
+    s = report["summary"]
+    print(f"TCP Autocorking & Coalescence Guard (Pattern 194) - Status: {s['status']}")
+    print(f"  tcp_autocorking:       {s['tcp_autocorking']} ({'enabled' if s['tcp_autocorking'] == 1 else 'disabled'})")
+    print(f"  tcp_notsent_lowat:     {s['tcp_notsent_lowat']:,} bytes")
+    print(f"  Auto-Corked Segments:  {s['autocorked_segments']:,}")
+    print(f"  Original Data Sent:    {s['orig_data_sent']:,}")
+    print(f"  Auto-Corking Ratio:    {s['autocork_ratio_pct']}%")
+    print(f"  Backlog Coalesced:     {s['backlog_coalesce']:,}")
+    print(f"  Receive Coalesced:     {s['rcv_coalesce']:,}")
 
     if s["issues"]:
-        print("\nIssues Identified:")
-        for issue in s["issues"]:
-            print(f"  - [!] {issue}")
+        print("\nIssues:")
+        for iss in s["issues"]:
+            print(f"  - {iss}")
+        return 1
 
-    print("\nRecommendations:")
-    for rec in s["recommendations"]:
-        print(f"  - {rec}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
