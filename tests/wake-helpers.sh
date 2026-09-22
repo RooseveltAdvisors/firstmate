@@ -20,8 +20,11 @@ if [ -z "${FM_ROOT_OVERRIDE:-}" ]; then
   export FM_ROOT_OVERRIDE
 fi
 
-# Disable heavy Jev artifact-dedup in test harnesses (wiseman-vwr)
-export FM_DISABLE_JEV_ARTIFACT_DEDUP=1
+# Disable heavy background Jev sweeps in test harnesses
+for _var in $(grep 'FM_DISABLE_JEV_' "$ROOT/bin/fm-watch.sh" 2>/dev/null | sed -n 's/.*FM_DISABLE_JEV_\([A-Z0-9_]*\).*/FM_DISABLE_JEV_\1/p' | sort -u); do
+  export "$_var=1"
+done
+unset _var
 
 
 # Wedge-alarm notifier recorder (safety seam). The away-mode wedge alarm fires a

@@ -32,7 +32,7 @@ assert_contains "$out_tsv" "test-task" "task identifier present"
 assert_contains "$out_tsv" "pending-reply-abc123" "key present"
 
 # 3. Live classification if key is available
-if sudo -n /opt/ra/firstmate/bin/jev-typesafe-run.py -- env | grep -q "TYPESAFE_API_KEY"; then
+if jev key >/dev/null 2>&1; then
   # Live run on TSV
   live_out=$(python3 "$DECISION_PY" --input "$TSV")
   assert_contains "$live_out" "stale_historical" "pending-reply classified as stale_historical"

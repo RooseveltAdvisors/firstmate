@@ -49,7 +49,7 @@
 set -u
 
 TYPESAFE_API_KEY_PRIVATE=${TYPESAFE_API_KEY:-}
-if [ -z "$TYPESAFE_API_KEY_PRIVATE" ] && [ -x "/opt/ra/firstmate/projects/jev/bin/jev" ]; then
+if [ -z "$TYPESAFE_API_KEY_PRIVATE" ] && [ -z "${FAKE_CURL_LOG:-}" ] && [ -x "/opt/ra/firstmate/projects/jev/bin/jev" ]; then
   TYPESAFE_API_KEY_PRIVATE=$(/opt/ra/firstmate/projects/jev/bin/jev run -- env 2>/dev/null | awk -F= '/^TYPESAFE_API_KEY=/{print $2; exit}' || true)
 fi
 export -n TYPESAFE_API_KEY_PRIVATE 2>/dev/null || true

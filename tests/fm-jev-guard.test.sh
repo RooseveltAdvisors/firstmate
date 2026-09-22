@@ -32,7 +32,7 @@ printf '{bad json' | "$GUARD_SH" || fail "malformed json failed to allow open"
 "$GUARD_SH" --command "" || fail "empty command failed to allow open"
 
 # 4. Live classification if TYPESAFE_API_KEY is available
-if sudo -n /opt/ra/firstmate/bin/jev-typesafe-run.py -- env | grep -q "TYPESAFE_API_KEY"; then
+if jev key >/dev/null 2>&1; then
   # Direct remote SSH must be denied
   set +e
   deny_stderr=$(mktemp)

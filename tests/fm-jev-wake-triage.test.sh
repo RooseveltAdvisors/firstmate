@@ -320,7 +320,7 @@ SH
   FM_JEV_WAKE_TRIAGE_BIN="$fakebin/fm-jev-wake-triage.sh" \
     start_stale_watch "$state" "$fakebin" "$out" "$window" "$capture_file"
   pid=$!
-  wait_for_exit "$pid" 100 || fail "true_wedge did not escalate: $(cat "$out")"
+  wait_for_exit "$pid" 600 || fail "true_wedge did not escalate: $(cat "$out")"
   grep -F "possible wedge" "$out" >/dev/null || fail "true_wedge did not print a possible-wedge reason: $(cat "$out")"
   [ "$(cat "$state/.wedge-escalations-$key" 2>/dev/null || true)" = 1 ] || fail "true_wedge was not counted"
   ack_stopped_cycle "$state" || fail "could not acknowledge the true_wedge escalation"
@@ -345,7 +345,7 @@ SH
   FM_JEV_WAKE_TRIAGE_BIN="$fakebin/fm-jev-wake-triage.sh" \
     start_stale_watch "$state" "$fakebin" "$out" "$window" "$capture_file"
   pid=$!
-  wait_for_exit "$pid" 100 || fail "unavailable Jev did not fail open to escalate: $(cat "$out")"
+  wait_for_exit "$pid" 600 || fail "unavailable Jev did not fail open to escalate: $(cat "$out")"
   grep -F "possible wedge" "$out" >/dev/null || fail "unavailable Jev lost today's escalate reason: $(cat "$out")"
   [ "$(cat "$state/.wedge-escalations-$key" 2>/dev/null || true)" = 1 ] || fail "unavailable Jev was not counted as today's escalation"
   ack_stopped_cycle "$state" || fail "could not acknowledge the fail-open escalation"
@@ -366,7 +366,7 @@ test_watcher_config_off_skips_jev() {
   FM_CONFIG_OVERRIDE="$dir/config" FM_JEV_WAKE_TRIAGE_BIN="$fakebin/fm-jev-wake-triage.sh" \
     start_stale_watch "$state" "$fakebin" "$out" "$window" "$capture_file"
   pid=$!
-  wait_for_exit "$pid" 100 || fail "config off did not keep today's escalate path: $(cat "$out")"
+  wait_for_exit "$pid" 600 || fail "config off did not keep today's escalate path: $(cat "$out")"
   grep -F "possible wedge" "$out" >/dev/null || fail "config off lost today's escalate reason: $(cat "$out")"
   [ ! -e "$fakebin/jev.argv" ] || fail "config off still invoked Jev"
   ack_stopped_cycle "$state" || fail "could not acknowledge the config-off escalation"

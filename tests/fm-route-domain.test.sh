@@ -32,7 +32,7 @@ out=$(env TYPESAFE_API_KEY="" python3 "$ROOT/bin/fm-route-domain.py" --task "Tes
 assert_contains "$out" "action=" "router emits action field"
 
 # 3. Live call: known domain (seller-outreach)
-if sudo -n /opt/ra/firstmate/bin/jev-typesafe-run.py -- env | grep -q "TYPESAFE_API_KEY"; then
+if jev key >/dev/null 2>&1; then
   out=$(python3 "$ROOT/bin/fm-route-domain.py" --task "Urgent care acquisition seller email outreach campaign" --registry "$REG")
   assert_contains "$out" "action=dispatch" "known domain emits dispatch action"
   assert_contains "$out" "route=seller-outreach" "known domain routes to seller-outreach"
