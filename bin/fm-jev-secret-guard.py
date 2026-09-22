@@ -25,7 +25,6 @@ from typing import Any, Dict, List, Optional, Pattern, Tuple
 DEFAULT_AUDIT_PATHS = [
     "/opt/ra/firstmate/scratch",
     "/home/jon/git/jev/scratch",
-    "/tmp",
 ]
 
 SECRET_RULES: List[Tuple[str, Pattern[str]]] = [
