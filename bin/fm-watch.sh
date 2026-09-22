@@ -2871,6 +2871,14 @@ while :; do
       "$SCRIPT_DIR/fm-jev-softnet-guard.sh" --json > "$STATE/.jev-softnet-guard-telemetry.json" 2>/dev/null || true
     fi
   fi
+  # Pattern 71: Jev Multi-Agent VFS Inode & Dentry Slab Cache Bloat Guard
+  if [ "${FM_DISABLE_JEV_DENTRY_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-dentry-guard.sh" ]; then
+    _dentry_marker="$STATE/.jev-dentry-guard-last"
+    if [ ! -f "$_dentry_marker" ] || [ "$(age_of "$_dentry_marker")" -ge 1800 ]; then
+      touch "$_dentry_marker"
+      "$SCRIPT_DIR/fm-jev-dentry-guard.sh" --json > "$STATE/.jev-dentry-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
 
 
 
