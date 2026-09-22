@@ -2750,6 +2750,16 @@ while :; do
     fi
   fi
 
+  # Pattern 56: Jev Multi-Agent Secret & API Token Exposure Guard
+  if [ "${FM_DISABLE_JEV_SECRET_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-secret-guard.sh" ]; then
+    _secret_guard_marker="$STATE/.jev-secret-guard-last"
+    if [ ! -f "$_secret_guard_marker" ] || [ "$(age_of "$_secret_guard_marker")" -ge 1800 ]; then
+      touch "$_secret_guard_marker"
+      "$SCRIPT_DIR/fm-jev-secret-guard.sh" --json > "$STATE/.jev-secret-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
+
 
 
 
