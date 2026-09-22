@@ -2618,6 +2618,16 @@ while :; do
     fi
   fi
 
+  # Pattern 92: Jev Multi-Agent Host Network Transmit Queue & Interface Overrun Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_TXQ_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-txq-guard.sh" ]; then
+    _txq_guard_marker="$STATE/.jev-txq-guard-last"
+    if [ ! -f "$_txq_guard_marker" ] || [ "$(age_of "$_txq_guard_marker")" -ge 1800 ]; then
+      touch "$_txq_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-txq-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
   # Pattern 89: Jev Multi-Agent Host Kernel SLUB/SLAB Memory Object & Allocator Fragmentation Guard
   # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
   if [ "${FM_DISABLE_JEV_SLAB_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-slab-guard.sh" ]; then
