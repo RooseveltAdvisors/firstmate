@@ -371,7 +371,9 @@ A bare `<harness>` preserves the previous behavior: harness only, with no model 
 When the harness token is absent or `default`, secondmate launch falls back through `config/crew-harness` and then the primary's own harness, and no model or effort is read from that file.
 `fm-harness.sh secondmate-model` and `fm-harness.sh secondmate-effort` expose only the optional tokens from `config/secondmate-harness`; `config/crew-harness` remains a bare adapter-name file.
 Changing this pin affects the next secondmate spawn or control-plane relaunch; the relaunch profile rules are owned by [`docs/agent-control.md`](agent-control.md#transactional-relaunch).
-An explicit harness argument to `fm-spawn.sh` still overrides either config file for that spawn only.
+An explicit harness argument to `fm-spawn.sh` overrides either config file when selecting the initial launch profile for that spawn.
+Before creating the worker, `fm-spawn.sh` runs the pre-flight quota prober and may divert an unhealthy supported harness and model to the prober's viable lane, including across harnesses; the diverted harness receives its own executable resolution, validation, and launch setup rather than retaining the original harness's setup.
+[`fm-jev-quota-prober.py`](../bin/fm-jev-quota-prober.py) owns the health checks and diversion target, while [`fm-spawn.sh`](../bin/fm-spawn.sh) owns applying that result to the launch.
 An explicit `--model` or `--effort` overrides the matching token from `config/secondmate-harness`; for a local route, an explicit harness or raw launch command starts with clean model and effort defaults unless those flags are also passed.
 Remote secondmate routes accept verified harness adapters only and reject raw launch commands.
 When `config/crew-dispatch.json` exists, crewmate and scout spawns require an explicit resolved harness instead of automatically falling back to `config/crew-harness`.
