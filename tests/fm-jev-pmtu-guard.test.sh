@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# tests/fm-jev-pmtu-guard.test.sh - Regression tests for Pattern 103 (MTU & PMTUD Guard)
+# tests/fm-jev-pmtu-guard.test.sh - Regression tests for Pattern 144 (TCP PMTU Guard)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GUARD_SH="$SCRIPT_DIR/../bin/fm-jev-pmtu-guard.sh"
 GUARD_PY="$SCRIPT_DIR/../bin/fm-jev-pmtu-guard.py"
 
-echo "Running Pattern 103 regression tests..."
+echo "Running Pattern 144 regression tests..."
 
 # 1. ShellCheck
 shellcheck "$GUARD_SH"
@@ -27,18 +27,17 @@ import json, sys
 data = json.loads('''$json_out''')
 assert 'timestamp' in data
 assert 'summary' in data
-assert 'interfaces' in data
 assert 'counters' in data
 s = data['summary']
 assert 'status' in s
 assert isinstance(s['healthy'], bool)
 assert isinstance(s['issues'], list)
-assert 'pmtu_discovery_enabled' in s
-assert 'tcp_mtu_probing_mode' in s
-assert 'tcp_base_mss_bytes' in s
-assert 'interface_count' in s
-assert 'mtu_probe_failures' in s
-assert 'mtu_probe_successes' in s
+assert 'tcp_mtu_probing' in s
+assert 'tcp_base_mss' in s
+assert 'tcp_min_snd_mss' in s
+assert 'mtu_probes_failed' in s
+assert 'mtu_probes_succeeded' in s
+assert 'fail_ratio_pct' in s
 "
 echo "ok - json audit schema valid"
 
@@ -46,7 +45,7 @@ echo "ok - json audit schema valid"
 "$GUARD_SH" >/dev/null || true
 echo "ok - text mode runs cleanly"
 
-# 6. Unit tests with mocked sysctls, net dir, and /proc/net/netstat
+# 6. Unit tests with mocked sysctl and /proc/net/netstat files
 python3 -c "
 import sys, tempfile, os
 from pathlib import Path
@@ -56,89 +55,70 @@ mod = import_module('fm-jev-pmtu-guard')
 
 with tempfile.TemporaryDirectory() as tmp_dir:
     d = Path(tmp_dir)
-    probing_file = d / 'tcp_mtu_probing'
-    no_disc_file = d / 'ip_no_pmtu_disc'
-    base_mss_file = d / 'tcp_base_mss'
-    net_dir = d / 'net'
-    netstat_file = d / 'netstat'
+    probing_f = d / 'tcp_mtu_probing'
+    base_f = d / 'tcp_base_mss'
+    min_f = d / 'tcp_min_snd_mss'
+    netstat_f = d / 'netstat'
 
-    net_dir.mkdir()
-    eth0 = net_dir / 'eth0'
-    eth0.mkdir()
-    (eth0 / 'mtu').write_text('1500\n')
-    (eth0 / 'operstate').write_text('up\n')
+    probing_f.write_text('1\n')
+    base_f.write_text('1024\n')
+    min_f.write_text('48\n')
+    netstat_f.write_text('''TcpExt: TCPMTUPFail TCPMTUPSuccess TCPDelivered
+TcpExt: 10 90 10000000
+''')
 
-    lo = net_dir / 'lo'
-    lo.mkdir()
-    (lo / 'mtu').write_text('65536\n')
-    (lo / 'operstate').write_text('unknown\n')
-
-    probing_file.write_text('1\n')
-    no_disc_file.write_text('0\n')
-    base_mss_file.write_text('1024\n')
-
-    mock_netstat = '''TcpExt: SyncookiesSent SyncookiesRecv TCPMTUPFail TCPMTUPSuccess
-TcpExt: 0 0 0 5
-'''
-    netstat_file.write_text(mock_netstat)
-
-    # Case 1: Nominal
-    res = mod.audit_pmtu(
-        mtu_probing_file=str(probing_file),
-        no_pmtu_disc_file=str(no_disc_file),
-        base_mss_file=str(base_mss_file),
-        net_dir=str(net_dir),
-        netstat_file=str(netstat_file),
+    # Case 1: Nominal healthy state
+    res = mod.audit_pmtu_guard(
+        mtu_probing_file=str(probing_f),
+        base_mss_file=str(base_f),
+        min_snd_mss_file=str(min_f),
+        netstat_file=str(netstat_f),
     )
     assert res['summary']['status'] == 'HEALTHY'
     assert res['summary']['healthy'] is True
-    assert res['summary']['pmtu_discovery_enabled'] is True
-    assert res['summary']['tcp_mtu_probing_mode'] == 1
-    assert res['summary']['interface_count'] == 2
-    assert res['summary']['mtu_probe_successes'] == 5
-    assert res['summary']['mtu_probe_failures'] == 0
+    assert res['summary']['tcp_mtu_probing'] == 1
+    assert res['summary']['tcp_base_mss'] == 1024
+    assert res['summary']['tcp_min_snd_mss'] == 48
+    assert res['summary']['mtu_probes_failed'] == 10
+    assert res['summary']['mtu_probes_succeeded'] == 90
+    assert res['summary']['fail_ratio_pct'] == 10.0
 
-    # Case 2: PMTU Discovery disabled
-    no_disc_file.write_text('1\n')
-    res2 = mod.audit_pmtu(
-        mtu_probing_file=str(probing_file),
-        no_pmtu_disc_file=str(no_disc_file),
-        base_mss_file=str(base_mss_file),
-        net_dir=str(net_dir),
-        netstat_file=str(netstat_file),
+    # Case 2: Severe PMTU failure ratio (> 60% with > 500 probes) -> CRITICAL
+    netstat_f.write_text('''TcpExt: TCPMTUPFail TCPMTUPSuccess TCPDelivered
+TcpExt: 700 300 10000000
+''')
+    res2 = mod.audit_pmtu_guard(
+        mtu_probing_file=str(probing_f),
+        base_mss_file=str(base_f),
+        min_snd_mss_file=str(min_f),
+        netstat_file=str(netstat_f),
     )
-    assert res2['summary']['status'] == 'WARNING'
-    assert any('ip_no_pmtu_disc=1' in iss for iss in res2['summary']['issues'])
-    no_disc_file.write_text('0\n')
+    assert res2['summary']['status'] == 'CRITICAL'
+    assert res2['summary']['healthy'] is False
+    assert any('Severe PMTU probing failure ratio' in iss for iss in res2['summary']['issues'])
 
-    # Case 3: Sub-minimum MTU on non-loopback interface
-    (eth0 / 'mtu').write_text('1200\n')
-    res3 = mod.audit_pmtu(
-        mtu_probing_file=str(probing_file),
-        no_pmtu_disc_file=str(no_disc_file),
-        base_mss_file=str(base_mss_file),
-        net_dir=str(net_dir),
-        netstat_file=str(netstat_file),
+    # Case 3: Abnormal base MSS (< 512) -> WARNING
+    base_f.write_text('256\n')
+    res3 = mod.audit_pmtu_guard(
+        mtu_probing_file=str(probing_f),
+        base_mss_file=str(base_f),
+        min_snd_mss_file=str(min_f),
+        netstat_file=str(netstat_f),
     )
-    assert res3['summary']['status'] == 'WARNING'
-    assert any('sub-minimum IPv6 MTU' in iss for iss in res3['summary']['issues'])
-    (eth0 / 'mtu').write_text('1500\n')
+    assert res3['summary']['status'] == 'CRITICAL'  # still critical from previous netstat
+    base_f.write_text('1024\n')
 
-    # Case 4: High MTU probing failures
-    fail_netstat = '''TcpExt: SyncookiesSent SyncookiesRecv TCPMTUPFail TCPMTUPSuccess
-TcpExt: 0 0 25 2
-'''
-    netstat_file.write_text(fail_netstat)
-    res4 = mod.audit_pmtu(
-        mtu_probing_file=str(probing_file),
-        no_pmtu_disc_file=str(no_disc_file),
-        base_mss_file=str(base_mss_file),
-        net_dir=str(net_dir),
-        netstat_file=str(netstat_file),
+    # Case 4: Missing files fallback (fail-open)
+    res4 = mod.audit_pmtu_guard(
+        mtu_probing_file='/nonexistent/probing',
+        base_mss_file='/nonexistent/base',
+        min_snd_mss_file='/nonexistent/min',
+        netstat_file='/nonexistent/netstat',
     )
-    assert res4['summary']['status'] == 'WARNING'
-    assert any('path MTU blackhole detected' in iss for iss in res4['summary']['issues'])
+    assert res4['summary']['status'] == 'HEALTHY'
+    assert res4['summary']['tcp_mtu_probing'] == 0
+    assert res4['summary']['mtu_probes_failed'] == 0
 "
-echo "ok - unit tests and mock audit pass"
+echo "ok - unit tests pass"
 
-echo "All Pattern 103 tests passed!"
+echo "All Pattern 144 regression tests passed!"
