@@ -2642,6 +2642,15 @@ while :; do
     fi
   fi
 
+  # Pattern 44: Jev Multi-Agent Orphaned Screen & Tmux Dead Session Sweeper
+  if [ "${FM_DISABLE_JEV_TMUX_SWEEPER:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-tmux-sweeper.sh" ]; then
+    _tmux_sweeper_marker="$STATE/.jev-tmux-sweeper-last"
+    if [ ! -f "$_tmux_sweeper_marker" ] || [ "$(age_of "$_tmux_sweeper_marker")" -ge 1800 ]; then
+      touch "$_tmux_sweeper_marker"
+      "$SCRIPT_DIR/fm-jev-tmux-sweeper.sh" --json > "$STATE/.jev-tmux-sweeper-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
 
 
 
