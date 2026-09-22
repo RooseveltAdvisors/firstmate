@@ -2,22 +2,13 @@
 """
 fm-jev-prune-guard.py - Jev Multi-Agent Host Network TCP Receive Queue Pruning & Buffer Collapse Guard (Pattern 138)
 
-Audits Linux TCP receive buffer allocation policy (/proc/sys/net/ipv4/tcp_rmem,
-/proc/sys/net/ipv4/tcp_mem, /proc/sys/net/ipv4/tcp_moderate_rcvbuf) and receive queue
-exhaustion / buffer collapse counters from /proc/net/netstat (PruneCalled, RcvPruned,
-OfoPruned, TCPMemoryPressures, TCPRcvCollapsed, TCPRcvQDrop, TCPZeroWindowDrop).
+Audits Linux TCP receive buffer autotuning policy (/proc/sys/net/ipv4/tcp_moderate_rcvbuf),
+receive buffer limits (/proc/sys/net/ipv4/tcp_rmem), and receive buffer pruning / collapse
+counters from /proc/net/netstat (PruneCalled, RcvPruned, OfoPruned, TCPRcvCollapsed, TCPMemoryPressures).
 
-In multi-agent architectures where high-concurrency LLM streaming sessions, tool call
-subprocesses, and high-frequency RPC connections share host network buffers, socket
-receive queues can become overwhelmed if an agent process is momentarily busy parsing JSON
-or executing tools. When receive buffers fill:
-  1. The kernel attempts `tcp_collapse()` to defragment SKBs and recover overhead (TCPRcvCollapsed).
-  2. If memory remains exhausted, the kernel calls `tcp_prune_queue()` (PruneCalled), shedding
-     out-of-order packets (OfoPruned) or even in-sequence packets (RcvPruned), forcing retransmits.
-  3. If global TCP memory limits are exceeded, the stack enters memory pressure (TCPMemoryPressures).
-
-This guard monitors buffer collapse efficiency, pruning rates, and memory pressure triggers,
-ensuring multi-agent streaming connections never silently stall from socket starvation.
+In distributed agent environments where processes stream heavy JSON-RPC responses, large git diffs,
+and diagnostic bundles, receive buffer exhaustion causes the Linux TCP stack to invoke receive queue
+pruning (dropping unread or out-of-order packets) and buffer collapsing (coalescing sk_buffs under CPU penalty).
 
 Invariants:
   - Read-only diagnostics by default. Safe and non-destructive.
@@ -32,9 +23,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-SYSCTL_TCP_RMEM = "/proc/sys/net/ipv4/tcp_rmem"
-SYSCTL_TCP_MEM = "/proc/sys/net/ipv4/tcp_mem"
-SYSCTL_TCP_MODERATE_RCVBUF = "/proc/sys/net/ipv4/tcp_moderate_rcvbuf"
+SYSCTL_MODERATE_RCVBUF = "/proc/sys/net/ipv4/tcp_moderate_rcvbuf"
+SYSCTL_RMEM = "/proc/sys/net/ipv4/tcp_rmem"
+
 PROC_NETSTAT = "/proc/net/netstat"
 
 
@@ -48,168 +39,122 @@ def read_int_file(path: Path) -> Optional[int]:
         return None
 
 
-def read_int_tuple(path: Path) -> Optional[Tuple[int, int, int]]:
-    """Reads a tuple of 3 integers (min, default, max) from a sysfs/procfs file."""
+def read_rmem_file(path: Path) -> Tuple[int, int, int]:
+    """Reads the 3 rmem values (min, default, max) in bytes."""
     if not path.is_file():
-        return None
+        return (4096, 131072, 33554432)
     try:
-        parts = path.read_text().split()
+        parts = path.read_text().strip().split()
         if len(parts) >= 3:
-            return int(parts[0]), int(parts[1]), int(parts[2])
+            return (int(parts[0]), int(parts[1]), int(parts[2]))
     except Exception:
         pass
-    return None
+    return (4096, 131072, 33554432)
 
 
-def parse_proc_pairs(path: Path, section_name: str) -> Dict[str, int]:
-    """Parses paired header/metric lines from /proc/net/netstat."""
-    if not path.is_file():
-        return {}
+def parse_netstat_prune_counters(netstat_path: Path) -> Dict[str, int]:
+    """Parses receive prune and memory collapse counters from /proc/net/netstat."""
+    counters: Dict[str, int] = {
+        "prune_called": 0,
+        "rcv_pruned": 0,
+        "ofo_pruned": 0,
+        "rcv_collapsed": 0,
+        "memory_pressures": 0,
+        "memory_pressures_chrono": 0,
+    }
+    if not netstat_path.is_file():
+        return counters
 
-    metrics: Dict[str, int] = {}
     try:
-        lines = path.read_text().splitlines()
-        for i in range(0, len(lines) - 1):
-            line = lines[i]
-            if line.startswith(f"{section_name}:"):
-                keys = line.split()[1:]
-                next_line = lines[i + 1]
-                if next_line.startswith(f"{section_name}:"):
-                    vals = next_line.split()[1:]
-                    for k, v in zip(keys, vals):
-                        try:
-                            metrics[k] = int(v)
-                        except ValueError:
-                            continue
+        lines = netstat_path.read_text().splitlines()
+        for i in range(0, len(lines) - 1, 2):
+            header_line = lines[i].strip()
+            data_line = lines[i + 1].strip()
+            if header_line.startswith("TcpExt:") and data_line.startswith("TcpExt:"):
+                headers = header_line.split()[1:]
+                values = data_line.split()[1:]
+                header_map = {h: int(v) for h, v in zip(headers, values) if v.isdigit()}
+
+                counters["prune_called"] = header_map.get("PruneCalled", 0)
+                counters["rcv_pruned"] = header_map.get("RcvPruned", 0)
+                counters["ofo_pruned"] = header_map.get("OfoPruned", 0)
+                counters["rcv_collapsed"] = header_map.get("TCPRcvCollapsed", 0)
+                counters["memory_pressures"] = header_map.get("TCPMemoryPressures", 0)
+                counters["memory_pressures_chrono"] = header_map.get("TCPMemoryPressuresChrono", 0)
                 break
     except Exception:
         pass
-    return metrics
+
+    return counters
 
 
-def audit_prune_guard(
-    rmem_file: Optional[str] = None,
-    mem_file: Optional[str] = None,
+def audit_prune(
     moderate_rcvbuf_file: Optional[str] = None,
+    rmem_file: Optional[str] = None,
     netstat_file: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Audits TCP receive queue pruning, buffer collapse, and memory pressure metrics."""
-    r_path = Path(rmem_file or SYSCTL_TCP_RMEM)
-    m_path = Path(mem_file or SYSCTL_TCP_MEM)
-    mod_path = Path(moderate_rcvbuf_file or SYSCTL_TCP_MODERATE_RCVBUF)
-    netstat_path = Path(netstat_file or PROC_NETSTAT)
+    """Audits TCP receive buffer tuning and pruning counters."""
+    mod_path = Path(moderate_rcvbuf_file) if moderate_rcvbuf_file else Path(SYSCTL_MODERATE_RCVBUF)
+    rmem_path = Path(rmem_file) if rmem_file else Path(SYSCTL_RMEM)
+    netstat_path = Path(netstat_file) if netstat_file else Path(PROC_NETSTAT)
 
-    rmem = read_int_tuple(r_path) or (4096, 131072, 6291456)
-    tcp_mem = read_int_tuple(m_path) or (187398, 249866, 374796)
-    moderate_rcvbuf = read_int_file(mod_path) if mod_path.is_file() else 1
+    moderate_rcvbuf = read_int_file(mod_path)
     if moderate_rcvbuf is None:
         moderate_rcvbuf = 1
 
-    netstat_metrics = parse_proc_pairs(netstat_path, "TcpExt")
-
-    prune_called = netstat_metrics.get("PruneCalled", 0)
-    rcv_pruned = netstat_metrics.get("RcvPruned", 0)
-    ofo_pruned = netstat_metrics.get("OfoPruned", 0)
-    memory_pressures = netstat_metrics.get("TCPMemoryPressures", 0)
-    rcv_collapsed = netstat_metrics.get("TCPRcvCollapsed", 0)
-    rcv_q_drop = netstat_metrics.get("TCPRcvQDrop", 0)
-    zero_window_drop = netstat_metrics.get("TCPZeroWindowDrop", 0)
-    delivered = netstat_metrics.get("TCPDelivered", 0)
-
-    # Calculate collapse and pruning rates
-    base_delivered = max(delivered, 1)
-    collapse_ratio_pct = round((rcv_collapsed / base_delivered) * 100, 4)
-    total_pruned_packets = rcv_pruned + rcv_q_drop
-    prune_ratio_pct = round((total_pruned_packets / base_delivered) * 100, 4)
+    rmem_min, rmem_default, rmem_max = read_rmem_file(rmem_path)
+    counters = parse_netstat_prune_counters(netstat_path)
 
     issues: List[str] = []
-    recommendations: List[str] = []
-    status = "HEALTHY"
 
-    # Evaluation Rules
-    if memory_pressures > 5:
-        status = "CRITICAL"
-        issues.append(f"Host TCP subsystem entered global memory pressure {memory_pressures} times")
-        recommendations.append("Increase net.ipv4.tcp_mem pages or investigate memory-heavy streaming sockets")
-    elif memory_pressures > 0:
-        if status != "CRITICAL":
-            status = "WARNING"
-        issues.append(f"Host TCP subsystem experienced {memory_pressures} memory pressure events")
-        recommendations.append("Monitor socket buffer consumption and check net.ipv4.tcp_mem limits")
+    if moderate_rcvbuf == 0:
+        issues.append("tcp_moderate_rcvbuf is disabled (0); receive window autotuning is inactive")
 
-    if moderate_rcvbuf != 1:
-        if status != "CRITICAL":
-            status = "WARNING"
-        issues.append(f"TCP receive buffer auto-tuning is disabled (tcp_moderate_rcvbuf={moderate_rcvbuf})")
-        recommendations.append("Enable receive buffer auto-tuning: sysctl -w net.ipv4.tcp_moderate_rcvbuf=1")
+    if rmem_max < 4194304:  # Less than 4MB
+        issues.append(f"tcp_rmem max ({rmem_max} bytes) is below recommended 4MB floor")
 
-    # Check maximum receive buffer size (should be at least 2MB for high-throughput streaming)
-    if rmem[2] < 2097152:
-        if status != "CRITICAL":
-            status = "WARNING"
-        issues.append(f"Maximum TCP receive buffer is low ({rmem[2]} bytes < 2MiB)")
-        recommendations.append("Increase net.ipv4.tcp_rmem max limit to at least 4194304 or 8388608 bytes")
+    if counters["memory_pressures"] > 0:
+        issues.append(
+            f"Host TCP stack experienced {counters['memory_pressures']} global memory pressure episodes"
+        )
 
-    if prune_ratio_pct > 0.1 and total_pruned_packets > 10000:
-        if status != "CRITICAL":
-            status = "WARNING"
-        issues.append(f"Significant receive queue packet loss from buffer pruning ({total_pruned_packets:,} packets, {prune_ratio_pct}%)")
-        recommendations.append("Increase socket receive buffer ceilings to avoid drop-induced stalls")
+    if counters["rcv_pruned"] > 50000:
+        issues.append(
+            f"High receive queue prune events detected ({counters['rcv_pruned']} packets dropped from receive window)"
+        )
 
-    if not recommendations:
-        recommendations.append("TCP receive buffer auto-tuning, collapse recovery, and memory envelope operating nominally")
+    healthy = len(issues) == 0
+    status = "HEALTHY" if healthy else "WARNING"
 
     return {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "summary": {
             "status": status,
-            "healthy": status == "HEALTHY",
+            "healthy": healthy,
             "tcp_moderate_rcvbuf": moderate_rcvbuf,
-            "tcp_rmem_min": rmem[0],
-            "tcp_rmem_default": rmem[1],
-            "tcp_rmem_max": rmem[2],
-            "tcp_mem_min_pages": tcp_mem[0],
-            "tcp_mem_pressure_pages": tcp_mem[1],
-            "tcp_mem_max_pages": tcp_mem[2],
-            "prune_called": prune_called,
-            "rcv_pruned": rcv_pruned,
-            "ofo_pruned": ofo_pruned,
-            "tcp_rcv_collapsed": rcv_collapsed,
-            "tcp_memory_pressures": memory_pressures,
-            "collapse_ratio_pct": collapse_ratio_pct,
-            "prune_ratio_pct": prune_ratio_pct,
+            "tcp_rmem_min_bytes": rmem_min,
+            "tcp_rmem_default_bytes": rmem_default,
+            "tcp_rmem_max_bytes": rmem_max,
+            "tcp_rmem_max_mb": round(rmem_max / (1024 * 1024), 2),
             "issues": issues,
-            "recommendations": recommendations,
         },
-        "counters": {
-            "prune_called": prune_called,
-            "rcv_pruned": rcv_pruned,
-            "ofo_pruned": ofo_pruned,
-            "rcv_collapsed": rcv_collapsed,
-            "memory_pressures": memory_pressures,
-            "rcv_q_drop": rcv_q_drop,
-            "zero_window_drop": zero_window_drop,
-            "tcp_delivered": delivered,
-        },
+        "counters": counters,
     }
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Jev Multi-Agent Host Network TCP Receive Queue Pruning Guard (Pattern 138)"
+        description="Jev Multi-Agent Host Network TCP Receive Queue Pruning & Buffer Collapse Guard (Pattern 138)"
     )
-    parser.add_argument("--json", action="store_true", help="Output audit results in JSON format")
-    parser.add_argument("--rmem-file", type=str, help="Override path to tcp_rmem sysctl")
-    parser.add_argument("--mem-file", type=str, help="Override path to tcp_mem sysctl")
-    parser.add_argument("--moderate-rcvbuf-file", type=str, help="Override path to tcp_moderate_rcvbuf sysctl")
-    parser.add_argument("--netstat-file", type=str, help="Override path to /proc/net/netstat")
-
+    parser.add_argument("--json", action="store_true", help="Output JSON format")
+    parser.add_argument("--moderate-rcvbuf-file", type=str, default=None, help="Path to tcp_moderate_rcvbuf")
+    parser.add_argument("--rmem-file", type=str, default=None, help="Path to tcp_rmem")
+    parser.add_argument("--netstat-file", type=str, default=None, help="Path to /proc/net/netstat")
     args = parser.parse_args()
 
-    result = audit_prune_guard(
-        rmem_file=args.rmem_file,
-        mem_file=args.mem_file,
+    result = audit_prune(
         moderate_rcvbuf_file=args.moderate_rcvbuf_file,
+        rmem_file=args.rmem_file,
         netstat_file=args.netstat_file,
     )
 
@@ -217,30 +162,38 @@ def main() -> None:
         print(json.dumps(result, indent=2))
         return
 
-    s = result["summary"]
-    c = result["counters"]
+    summary = result["summary"]
+    counters = result["counters"]
+    status_color = "\033[32m" if summary["healthy"] else "\033[33m"
+    reset_color = "\033[0m"
 
-    print("=== Jev Host Network TCP Receive Queue Pruning Guard (Pattern 138) ===")
-    print(f"Status:                    {s['status']}")
-    print(f"Receive Buffer Auto-Tuning:{' Enabled' if s['tcp_moderate_rcvbuf'] == 1 else ' Disabled'}")
-    print(f"TCP Rcv Buffer Limits:     min={s['tcp_rmem_min']} default={s['tcp_rmem_default']} max={s['tcp_rmem_max']:,} bytes")
-    print(f"TCP Memory Limits (pages): min={s['tcp_mem_min_pages']} pressure={s['tcp_mem_pressure_pages']} max={s['tcp_mem_max_pages']}")
-    print(f"Buffer Collapse Events:    {s['tcp_rcv_collapsed']:,} ({s['collapse_ratio_pct']}%)")
-    print(f"Prune Calls (Buffer Full): {s['prune_called']:,}")
-    print(f"Receive Queue Pruned:      {s['rcv_pruned']:,} packets")
-    print(f"Out-of-Order Pruned:       {s['ofo_pruned']:,} packets")
-    print(f"Memory Pressure Events:    {s['tcp_memory_pressures']:,}")
-    print(f"Receive Queue Drops:       {c['rcv_q_drop']:,}")
-    print(f"Total Segments Delivered:  {c['tcp_delivered']:,}")
+    print("================================================================================")
+    print(" Jev Multi-Agent Host Network TCP Receive Prune & Collapse Guard (Pattern 138)")
+    print("================================================================================")
+    print(f" Timestamp:                     {result['timestamp']}")
+    print(f" Status:                        {status_color}{summary['status']}{reset_color}")
+    print(f" Receive Autotuning:            {'Enabled (1)' if summary['tcp_moderate_rcvbuf'] == 1 else 'Disabled (0)'} (tcp_moderate_rcvbuf)")
+    print(f" Receive Buffer Limits (rmem):  Min: {summary['tcp_rmem_min_bytes']}B | Def: {summary['tcp_rmem_default_bytes']}B | Max: {summary['tcp_rmem_max_mb']}MB")
+    print(f" Prune Invocations:             {counters['prune_called']:,}")
+    print(f" Receive Window Packets Pruned: {counters['rcv_pruned']:,}")
+    print(f" Out-of-Order Packets Pruned:   {counters['ofo_pruned']:,}")
+    print(f" TCP Receive Buffer Collapses:  {counters['rcv_collapsed']:,}")
+    print(f" Global TCP Memory Pressures:   {counters['memory_pressures']:,} ({counters['memory_pressures_chrono']:,} ticks)")
+    print("--------------------------------------------------------------------------------")
+    print(f" {'Receive Buffer Pruning Metric':<35} {'Count / Value':<15} {'Status'}")
+    print("--------------------------------------------------------------------------------")
+    print(f" {'tcp_moderate_rcvbuf':<35} {summary['tcp_moderate_rcvbuf']:<15} {'Nominal' if summary['tcp_moderate_rcvbuf'] == 1 else 'WARNING'}")
+    print(f" {'tcp_rmem_max':<35} {str(summary['tcp_rmem_max_mb']) + ' MB':<15} {'Nominal' if summary['tcp_rmem_max_mb'] >= 4.0 else 'WARNING'}")
+    print(f" {'Global Memory Pressures':<35} {counters['memory_pressures']:<15} {'Nominal' if counters['memory_pressures'] == 0 else 'WARNING'}")
+    print(f" {'Rcv Window Pruned Packets':<35} {counters['rcv_pruned']:<15} {'Nominal' if counters['rcv_pruned'] <= 50000 else 'WARNING'}")
 
-    if s["issues"]:
-        print("\nIssues Identified:")
-        for issue in s["issues"]:
-            print(f"  - [!] {issue}")
-
-    print("\nRecommendations:")
-    for rec in s["recommendations"]:
-        print(f"  - {rec}")
+    if summary["issues"]:
+        print("\nActive TCP Receive Queue / Memory Pressure Warnings:")
+        for issue in summary["issues"]:
+            print(f"  [!] {issue}")
+    else:
+        print("\nAll host TCP receive buffer autotuning, buffer collapse, and queue prune metrics nominal.")
+    print("================================================================================")
 
 
 if __name__ == "__main__":
