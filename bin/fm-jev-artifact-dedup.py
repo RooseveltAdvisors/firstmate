@@ -150,11 +150,12 @@ def main() -> int:
     parser.add_argument(
         "--roots",
         nargs="+",
-        default=[
-            str(Path.home() / ".treehouse"),
-            "/home/jon/git",
-        ],
-        help="Root directories to scan for duplicate score and SVG artifacts",
+        default=None,
+        help="Root directories to scan for duplicate score and SVG artifacts "
+        "(default: the firstmate home's data/ and state/ artifact surfaces; "
+        "pass --roots explicitly for lanes with assets elsewhere - e.g. music "
+        "lanes under treehouse homes. Broad /home/jon/git sweeps are opt-in "
+        "because they block the watch loop for 10-30s; see wiseman-vwr)",
     )
     parser.add_argument(
         "--min-size",
@@ -174,6 +175,13 @@ def main() -> int:
     )
 
     args = parser.parse_args()
+
+    # Targeted default roots (wiseman-vwr): the firstmate home's artifact
+    # surfaces only. The old /home/jon/git + ~/.treehouse default swept tens of
+    # thousands of files and blocked the watch loop for 10-30s per pass.
+    if not args.roots:
+        fm_root = os.environ.get("FM_ROOT", "/opt/ra/firstmate")
+        args.roots = [fm_root + "/data", fm_root + "/state"]
 
     report = deduplicate_assets(
         roots=args.roots,
