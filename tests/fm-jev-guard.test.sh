@@ -31,6 +31,8 @@ assert_contains "$help_out" "Usage: fm-jev-guard.sh" "shell wrapper emits usage"
 "$GUARD_SH" --command "cp /opt/ra/firstmate/bin/fm-watch.sh /tmp/fmw-check5.sh; bash -n /tmp/fmw-check5.sh && echo WATCH_SYNTAX_OK; bash /opt/ra/firstmate/tests/fm-jev-sockbuf-guard.test.sh 2>&1 | tail -5" || fail "syntax check pipeline denied unexpectedly"
 "$GUARD_SH" --command "git -C /opt/ra/firstmate add bin/fm-watch.sh && git -C /opt/ra/firstmate commit -m 'feat(watch): update'" || fail "firstmate self-repo commit denied unexpectedly"
 "$GUARD_SH" --command "cat state/websites.status | grep needs-decision" || fail "cat/grep state denied unexpectedly"
+"$GUARD_SH" --command "FM_HOME=/opt/ra/firstmate bash -c 'cd /opt/ra/firstmate && bd create \"fm-zeta-runner-gpu: register runner\"'" || fail "wrapped bd create in bash -c denied unexpectedly"
+"$GUARD_SH" --command "FM_HOME=/opt/ra/firstmate bash -c 'cd /opt/ra/firstmate && bd list --status all --json 2>/dev/null | python3 -c \" import json,sys; sys.exit(0)\"'" || fail "wrapped bd list with python filter denied unexpectedly"
 
 # 3. Fail-open on empty or malformed inputs
 printf '' | "$GUARD_SH" || fail "empty stdin failed to allow open"

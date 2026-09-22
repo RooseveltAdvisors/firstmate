@@ -199,6 +199,25 @@ def is_fast_pass_supervisor(subcmd: str) -> bool:
     if any(k in clean for k in ("ssh ", "ssh\t", "sudo ", "apt-get", "apt ", "systemctl", "journalctl", "docker ")):
         return False
 
+    # 1a. Safe shell navigation (cd)
+    if clean == "cd" or clean.startswith("cd "):
+        return True
+
+    # 1b. Unwrap bash -c / sh -c subshells
+    if re.match(r"^(?:bash|sh)\s+-c\b", clean):
+        cmd_arg = re.sub(r"^(?:bash|sh)\s+-c\s*", "", clean).strip()
+        if (cmd_arg.startswith("'") and cmd_arg.endswith("'")) or (cmd_arg.startswith('"') and cmd_arg.endswith('"')):
+            inner_cmd = cmd_arg[1:-1].strip()
+        else:
+            inner_cmd = cmd_arg
+        if inner_cmd:
+            return is_whitelisted_command(inner_cmd)
+        return True
+
+    # 1c. Safe stream JSON / text processing with python -c
+    if re.match(r"^(?:python3|python)\s+-c\s+['\"]?\s*import\s+(?:json|sys|re)\b", clean):
+        return True
+
     # Unwrap bash / sh wrappers around approved tools
     unwrapped = re.sub(r"^(?:bash|sh)\s+", "", clean).strip()
 
