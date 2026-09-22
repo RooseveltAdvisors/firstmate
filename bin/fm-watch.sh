@@ -2741,6 +2741,16 @@ while :; do
     fi
   fi
 
+  # Pattern 55: Jev Multi-Agent Python .pyc Bytecode & __pycache__ Invalidation Guard
+  if [ "${FM_DISABLE_JEV_PYCACHE_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-pycache-guard.sh" ]; then
+    _pycache_guard_marker="$STATE/.jev-pycache-guard-last"
+    if [ ! -f "$_pycache_guard_marker" ] || [ "$(age_of "$_pycache_guard_marker")" -ge 1800 ]; then
+      touch "$_pycache_guard_marker"
+      "$SCRIPT_DIR/fm-jev-pycache-guard.sh" --json > "$STATE/.jev-pycache-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
+
 
 
 
