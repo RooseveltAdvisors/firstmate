@@ -2678,6 +2678,16 @@ while :; do
     fi
   fi
 
+  # Pattern 48: Jev Multi-Agent Host Inode Exhaustion & Orphan Tempfile Accumulator Guard
+  if [ "${FM_DISABLE_JEV_INODE_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-inode-guard.sh" ]; then
+    _inode_guard_marker="$STATE/.jev-inode-guard-last"
+    if [ ! -f "$_inode_guard_marker" ] || [ "$(age_of "$_inode_guard_marker")" -ge 1800 ]; then
+      touch "$_inode_guard_marker"
+      "$SCRIPT_DIR/fm-jev-inode-guard.sh" --json > "$STATE/.jev-inode-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
+
 
 
 
