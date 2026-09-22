@@ -2660,6 +2660,15 @@ while :; do
     fi
   fi
 
+  # Pattern 46: Jev Multi-Agent Memory RSS & Swap Thrashing Guard
+  if [ "${FM_DISABLE_JEV_MEM_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-mem-guard.sh" ]; then
+    _mem_guard_marker="$STATE/.jev-mem-guard-last"
+    if [ ! -f "$_mem_guard_marker" ] || [ "$(age_of "$_mem_guard_marker")" -ge 1800 ]; then
+      touch "$_mem_guard_marker"
+      "$SCRIPT_DIR/fm-jev-mem-guard.sh" --json > "$STATE/.jev-mem-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
 
 
 
