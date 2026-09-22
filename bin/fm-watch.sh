@@ -2705,6 +2705,15 @@ while :; do
     fi
   fi
 
+  # Pattern 51: Jev Multi-Agent Load Derivative & CPU Saturation Burst Dampener
+  if [ "${FM_DISABLE_JEV_CPU_BURST_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-cpu-burst-guard.sh" ]; then
+    _cpu_burst_guard_marker="$STATE/.jev-cpu-burst-guard-last"
+    if [ ! -f "$_cpu_burst_guard_marker" ] || [ "$(age_of "$_cpu_burst_guard_marker")" -ge 600 ]; then
+      touch "$_cpu_burst_guard_marker"
+      "$SCRIPT_DIR/fm-jev-cpu-burst-guard.sh" --json > "$STATE/.jev-cpu-burst-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
 
 
 
