@@ -2943,6 +2943,15 @@ while :; do
       "$SCRIPT_DIR/fm-jev-tcp-backlog-guard.sh" --json > "$STATE/.jev-tcp-backlog-guard-telemetry.json" 2>/dev/null || true
     fi
   fi
+  # Pattern 80: Jev Multi-Agent POSIX File Lock & Kernel flock/fcntl Contention Guard
+  if [ "${FM_DISABLE_JEV_FILELOCK_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-filelock-guard.sh" ]; then
+    _filelock_marker="$STATE/.jev-filelock-guard-last"
+    if [ ! -f "$_filelock_marker" ] || [ "$(age_of "$_filelock_marker")" -ge 1800 ]; then
+      touch "$_filelock_marker"
+      "$SCRIPT_DIR/fm-jev-filelock-guard.sh" --json > "$STATE/.jev-filelock-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
 
 
 
