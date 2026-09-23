@@ -2678,6 +2678,16 @@ while :; do
     fi
   fi
 
+  # Pattern 102: Jev Multi-Agent Host Network Netfilter Connection Tracking Table Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_CONNTRACK_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-conntrack-guard.sh" ]; then
+    _conntrack_guard_marker="$STATE/.jev-conntrack-guard-last"
+    if [ ! -f "$_conntrack_guard_marker" ] || [ "$(age_of "$_conntrack_guard_marker")" -ge 1800 ]; then
+      touch "$_conntrack_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-conntrack-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
   # Pattern 94: Jev Multi-Agent Host Network Routing Table Bloat & Nexthop Guard
   # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
   if [ "${FM_DISABLE_JEV_ROUTE_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-route-guard.sh" ]; then
