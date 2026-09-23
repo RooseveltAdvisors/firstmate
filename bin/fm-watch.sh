@@ -2708,6 +2708,56 @@ while :; do
     fi
   fi
 
+  # Pattern 111: Jev Multi-Agent Host Network TCP RTO / RACK Loss Recovery Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_RTO_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-rto-guard.sh" ]; then
+    _rto_guard_marker="$STATE/.jev-rto-guard-last"
+    if [ ! -f "$_rto_guard_marker" ] || [ "$(age_of "$_rto_guard_marker")" -ge 1800 ]; then
+      touch "$_rto_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-rto-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 112: Jev Multi-Agent Host Network TCP Packet Reordering & OFO Queue Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_REORDER_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-reorder-guard.sh" ]; then
+    _reorder_guard_marker="$STATE/.jev-reorder-guard-last"
+    if [ ! -f "$_reorder_guard_marker" ] || [ "$(age_of "$_reorder_guard_marker")" -ge 1800 ]; then
+      touch "$_reorder_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-reorder-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 113: Jev Multi-Agent Host Network TCP ACK Compression & Delayed ACK Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_ACK_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-ack-guard.sh" ]; then
+    _ack_guard_marker="$STATE/.jev-ack-guard-last"
+    if [ ! -f "$_ack_guard_marker" ] || [ "$(age_of "$_ack_guard_marker")" -ge 1800 ]; then
+      touch "$_ack_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-ack-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 103: Jev Multi-Agent Host Network TCP Retransmission, Checksum Error & Loss Recovery Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_TCP_RETRANS_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-tcp-retrans-guard.sh" ]; then
+    _tcp_retrans_guard_marker="$STATE/.jev-tcp-retrans-guard-last"
+    if [ ! -f "$_tcp_retrans_guard_marker" ] || [ "$(age_of "$_tcp_retrans_guard_marker")" -ge 1800 ]; then
+      touch "$_tcp_retrans_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-tcp-retrans-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 104: Jev Multi-Agent Host Network TCP Selective ACK, Out-of-Order Queue & Loss Recovery Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_SACK_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-sack-guard.sh" ]; then
+    _sack_guard_marker="$STATE/.jev-sack-guard-last"
+    if [ ! -f "$_sack_guard_marker" ] || [ "$(age_of "$_sack_guard_marker")" -ge 1800 ]; then
+      touch "$_sack_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-sack-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
   # Pattern 105: Jev Multi-Agent Host Network TCP Keepalive & Dead Peer Detection Guard
   # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
   if [ "${FM_DISABLE_JEV_KEEPALIVE_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-keepalive-guard.sh" ]; then
