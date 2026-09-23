@@ -2748,6 +2748,16 @@ while :; do
     fi
   fi
 
+  # Pattern 116: Jev Multi-Agent Host Network TCP Slow-Start Restart & Buffer Auto-Tuning Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_SSR_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-ssr-guard.sh" ]; then
+    _ssr_guard_marker="$STATE/.jev-ssr-guard-last"
+    if [ ! -f "$_ssr_guard_marker" ] || [ "$(age_of "$_ssr_guard_marker")" -ge 1800 ]; then
+      touch "$_ssr_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-ssr-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
   # Pattern 103: Jev Multi-Agent Host Network TCP Retransmission, Checksum Error & Loss Recovery Guard
   # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
   if [ "${FM_DISABLE_JEV_TCP_RETRANS_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-tcp-retrans-guard.sh" ]; then
