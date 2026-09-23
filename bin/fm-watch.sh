@@ -2768,6 +2768,26 @@ while :; do
     fi
   fi
 
+  # Pattern 118: Jev Multi-Agent Host Network TCP SYN Cookie Watermark & Flood Drop Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_SYNCOOKIE_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-syncookie-guard.sh" ]; then
+    _syncookie_guard_marker="$STATE/.jev-syncookie-guard-last"
+    if [ ! -f "$_syncookie_guard_marker" ] || [ "$(age_of "$_syncookie_guard_marker")" -ge 1800 ]; then
+      touch "$_syncookie_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-syncookie-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 119: Jev Multi-Agent Host Network TCP Out-of-Order Queue & Memory Collapse Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_OFO_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-ofo-guard.sh" ]; then
+    _ofo_guard_marker="$STATE/.jev-ofo-guard-last"
+    if [ ! -f "$_ofo_guard_marker" ] || [ "$(age_of "$_ofo_guard_marker")" -ge 1800 ]; then
+      touch "$_ofo_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-ofo-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
   # Pattern 103: Jev Multi-Agent Host Network TCP Retransmission, Checksum Error & Loss Recovery Guard
   # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
   if [ "${FM_DISABLE_JEV_TCP_RETRANS_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-tcp-retrans-guard.sh" ]; then
