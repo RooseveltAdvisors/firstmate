@@ -2728,13 +2728,13 @@ while :; do
     fi
   fi
 
-  # Pattern 106: Jev Multi-Agent Host Network TCP Zero-Window & Flow Control Stall Guard
+  # Pattern 107: Jev Multi-Agent Host Network TCP Path MTU Discovery, MSS & Blackhole Guard
   # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
-  if [ "${FM_DISABLE_JEV_ZEROWIN_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-zerowin-guard.sh" ]; then
-    _zerowin_guard_marker="$STATE/.jev-zerowin-guard-last"
-    if [ ! -f "$_zerowin_guard_marker" ] || [ "$(age_of "$_zerowin_guard_marker")" -ge 1800 ]; then
-      touch "$_zerowin_guard_marker"
-      timeout 30 "$SCRIPT_DIR/fm-jev-zerowin-guard.sh" >/dev/null 2>&1 || true
+  if [ "${FM_DISABLE_JEV_PMTU_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-pmtu-guard.sh" ]; then
+    _pmtu_guard_marker="$STATE/.jev-pmtu-guard-last"
+    if [ ! -f "$_pmtu_guard_marker" ] || [ "$(age_of "$_pmtu_guard_marker")" -ge 1800 ]; then
+      touch "$_pmtu_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-pmtu-guard.sh" >/dev/null 2>&1 || true
     fi
   fi
 
