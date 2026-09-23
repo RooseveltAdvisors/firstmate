@@ -2788,6 +2788,36 @@ while :; do
     fi
   fi
 
+  # Pattern 120: Jev Multi-Agent Host Network TCP Abort Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_ABORT_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-abort-guard.sh" ]; then
+    _abort_guard_marker="$STATE/.jev-abort-guard-last"
+    if [ ! -f "$_abort_guard_marker" ] || [ "$(age_of "$_abort_guard_marker")" -ge 1800 ]; then
+      touch "$_abort_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-abort-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 121: Jev Multi-Agent Host Network IP Reverse Path Filtering & Source Spoofing Drop Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_RPFILTER_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-rpfilter-guard.sh" ]; then
+    _rpfilter_guard_marker="$STATE/.jev-rpfilter-guard-last"
+    if [ ! -f "$_rpfilter_guard_marker" ] || [ "$(age_of "$_rpfilter_guard_marker")" -ge 1800 ]; then
+      touch "$_rpfilter_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-rpfilter-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 119: Jev Multi-Agent Host Network TCP Out-of-Order Queue & Memory Collapse Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_OFO_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-ofo-guard.sh" ]; then
+    _ofo_guard_marker="$STATE/.jev-ofo-guard-last"
+    if [ ! -f "$_ofo_guard_marker" ] || [ "$(age_of "$_ofo_guard_marker")" -ge 1800 ]; then
+      touch "$_ofo_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-ofo-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
   # Pattern 103: Jev Multi-Agent Host Network TCP Retransmission, Checksum Error & Loss Recovery Guard
   # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
   if [ "${FM_DISABLE_JEV_TCP_RETRANS_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-tcp-retrans-guard.sh" ]; then
