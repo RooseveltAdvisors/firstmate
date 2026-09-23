@@ -2798,6 +2798,16 @@ while :; do
     fi
   fi
 
+  # Pattern 122: Jev Multi-Agent Host Network Multicast Group Membership Guard (IGMP)
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_IGMP_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-igmp-guard.sh" ]; then
+    _igmp_guard_marker="$STATE/.jev-igmp-guard-last"
+    if [ ! -f "$_igmp_guard_marker" ] || [ "$(age_of "$_igmp_guard_marker")" -ge 1800 ]; then
+      touch "$_igmp_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-igmp-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
   # Pattern 121: Jev Multi-Agent Host Network IP Reverse Path Filtering & Source Spoofing Drop Guard
   # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
   if [ "${FM_DISABLE_JEV_RPFILTER_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-rpfilter-guard.sh" ]; then
