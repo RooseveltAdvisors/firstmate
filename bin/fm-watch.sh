@@ -2738,6 +2738,16 @@ while :; do
     fi
   fi
 
+  # Pattern 115: Jev Multi-Agent Host Network TCP Challenge ACK & Reset Protection Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_CHALLENGE_ACK_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-challenge-ack-guard.sh" ]; then
+    _challenge_ack_guard_marker="$STATE/.jev-challenge-ack-guard-last"
+    if [ ! -f "$_challenge_ack_guard_marker" ] || [ "$(age_of "$_challenge_ack_guard_marker")" -ge 1800 ]; then
+      touch "$_challenge_ack_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-challenge-ack-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
   # Pattern 103: Jev Multi-Agent Host Network TCP Retransmission, Checksum Error & Loss Recovery Guard
   # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
   if [ "${FM_DISABLE_JEV_TCP_RETRANS_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-tcp-retrans-guard.sh" ]; then
