@@ -2738,6 +2738,16 @@ while :; do
     fi
   fi
 
+  # Pattern 108: Jev Multi-Agent Host Network TCP Fast Open RFC 7413 Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_TFO_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-tfo-guard.sh" ]; then
+    _tfo_guard_marker="$STATE/.jev-tfo-guard-last"
+    if [ ! -f "$_tfo_guard_marker" ] || [ "$(age_of "$_tfo_guard_marker")" -ge 1800 ]; then
+      touch "$_tfo_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-tfo-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
   # Pattern 94: Jev Multi-Agent Host Network Routing Table Bloat & Nexthop Guard
   # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
   if [ "${FM_DISABLE_JEV_ROUTE_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-route-guard.sh" ]; then
