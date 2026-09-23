@@ -2658,7 +2658,7 @@ while :; do
     fi
   fi
 
-  # Pattern 100: Jev Multi-Agent Host Network Unix Domain Socket & Inter-Agent IPC Backlog Guard
+  # Pattern 110: Jev Multi-Agent Host Network Unix Domain Socket & Inter-Agent IPC Backlog Guard
   # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
   if [ "${FM_DISABLE_JEV_UNIX_SOCKET_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-unix-socket-guard.sh" ]; then
     _unix_socket_guard_marker="$STATE/.jev-unix-socket-guard-last"
@@ -2745,6 +2745,16 @@ while :; do
     if [ ! -f "$_tfo_guard_marker" ] || [ "$(age_of "$_tfo_guard_marker")" -ge 1800 ]; then
       touch "$_tfo_guard_marker"
       timeout 30 "$SCRIPT_DIR/fm-jev-tfo-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 109: Jev Multi-Agent Host Network TCP Protection Against Wrapped Sequence Numbers PAWS Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_PAWS_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-paws-guard.sh" ]; then
+    _paws_guard_marker="$STATE/.jev-paws-guard-last"
+    if [ ! -f "$_paws_guard_marker" ] || [ "$(age_of "$_paws_guard_marker")" -ge 1800 ]; then
+      touch "$_paws_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-paws-guard.sh" >/dev/null 2>&1 || true
     fi
   fi
 
