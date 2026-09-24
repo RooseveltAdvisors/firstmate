@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# tests/fm-jev-synflood-guard.test.sh - Regression tests for Pattern 139 (TCP SYN-Flood Guard)
+# tests/fm-jev-synflood-guard.test.sh - Regression tests for Pattern 233 (TCP SYN-Flood Guard)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GUARD_SH="$SCRIPT_DIR/../bin/fm-jev-synflood-guard.sh"
 GUARD_PY="$SCRIPT_DIR/../bin/fm-jev-synflood-guard.py"
 
-echo "Running Pattern 139 regression tests..."
+echo "Running Pattern 233 regression tests..."
 
 # 1. ShellCheck
 shellcheck "$GUARD_SH"
@@ -104,4 +104,4 @@ TcpExt: 50 15 100 10 50 45 0
 "
 echo "ok - unit tests pass"
 
-echo "All Pattern 139 regression tests passed!"
+echo "All Pattern 233 regression tests passed!"

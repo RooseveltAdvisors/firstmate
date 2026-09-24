@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-fm-jev-synflood-guard.py - Jev Multi-Agent Host Network TCP SYN-Flood Drop & Request Queue Eviction Guard (Pattern 139)
+fm-jev-synflood-guard.py - Jev Multi-Agent Host Network TCP SYN-Flood Drop & Request Queue Eviction Guard (Pattern 233)
 
 Audits Linux TCP SYN queue capacity (/proc/sys/net/ipv4/tcp_max_syn_backlog),
 SYN cookie fallback protection (/proc/sys/net/ipv4/tcp_syncookies),
@@ -168,7 +168,7 @@ def main() -> None:
     reset_color = "\033[0m"
 
     print("================================================================================")
-    print(" Jev Multi-Agent Host Network TCP SYN-Flood & Request Queue Guard (Pattern 139)")
+    print(" Jev Multi-Agent Host Network TCP SYN-Flood & Request Queue Guard (Pattern 233)")
     print("================================================================================")
     print(f" Timestamp:                     {result['timestamp']}")
     print(f" Status:                        {status_color}{summary['status']}{reset_color}")
