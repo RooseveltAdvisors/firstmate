@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-fm-jev-net-drop-guard.py - Jev Multi-Agent Host Network Interface Packet Drop Guard (Pattern 60)
+fm-jev-net-drop-guard.py - Jev Multi-Agent Host Network Interface Packet Drop Guard (Pattern 234)
 
 Audits host network interfaces (/sys/class/net/*) for RX/TX packet drops, transmission errors,
 and MTU misconfigurations across developer seats, bridges, and tunnels.
@@ -132,7 +132,7 @@ def audit_fleet_net_drops(
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Jev Multi-Agent Host Network Interface Packet Drop Guard (Pattern 60)"
+        description="Jev Multi-Agent Host Network Interface Packet Drop Guard (Pattern 234)"
     )
     parser.add_argument(
         "--sysfs",
@@ -163,7 +163,7 @@ def main() -> int:
         return 0 if results["summary"]["healthy"] else 1
 
     summary = results["summary"]
-    print(f"Jev Network Packet Drop Guard (Pattern 60) - {results['timestamp']}")
+    print(f"Jev Network Packet Drop Guard (Pattern 234) - {results['timestamp']}")
     print(f"Audited {summary['interfaces_count']} interfaces ({summary['up_interfaces_count']} up)")
     print(f"Health Status:  {summary['status']}")
     print(f"Recommendation: {summary['recommendation']}")

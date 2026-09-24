@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# tests/fm-jev-net-drop-guard.test.sh - Regression tests for Pattern 60 (Jev Network Drop Guard)
+# tests/fm-jev-net-drop-guard.test.sh - Regression tests for Pattern 234 (Jev Network Drop Guard)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GUARD_SH="$SCRIPT_DIR/../bin/fm-jev-net-drop-guard.sh"
 GUARD_PY="$SCRIPT_DIR/../bin/fm-jev-net-drop-guard.py"
 
-echo "Running Pattern 60 regression tests..."
+echo "Running Pattern 234 regression tests..."
 
 # 1. ShellCheck
 shellcheck "$GUARD_SH"
@@ -73,4 +73,4 @@ assert 'eth0' in res_warn['summary']['warning_interfaces']
 rm -rf "$TEST_DIR"
 echo "ok - unit audit on mock sysfs network passed"
 
-echo "ok - all Pattern 60 network drop guard tests passed"
+echo "ok - all Pattern 234 network drop guard tests passed"
