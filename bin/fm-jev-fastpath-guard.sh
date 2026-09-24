@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# bin/fm-jev-fastpath-guard.sh - Wrapper for Host Network TCP Fast-Path Header Prediction & Pure ACK Guard (Pattern 197)
+# bin/fm-jev-fastpath-guard.sh - Wrapper for Host Network TCP Fast-Path Header Prediction & Pure ACK Guard (Pattern 237)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-bin/fm-jev-fastpath-guard.py - Host Network TCP Fast-Path Header Prediction & Pure ACK Guard (Pattern 233)
+bin/fm-jev-fastpath-guard.py - Host Network TCP Fast-Path Header Prediction & Pure ACK Guard (Pattern 237)
 
 Audits kernel TCP fast-path header prediction execution and ACK processing counters from
 /proc/net/netstat (TCPHPHits, TCPHPAcks, TCPPureAcks, TCPAckCompressed, TCPDelivered).
@@ -107,7 +107,7 @@ def main():
         return 0
 
     s = report["summary"]
-    print(f"TCP Fast-Path & ACK Guard (Pattern 233) - Status: {s['status']}")
+    print(f"TCP Fast-Path & ACK Guard (Pattern 237) - Status: {s['status']}")
     print(f"  Header Prediction Hits:  {s['header_prediction_hits']:,}")
     print(f"  Fast-Path ACKs:          {s['fastpath_acks']:,}")
     print(f"  Pure ACKs:               {s['pure_acks']:,}")

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# tests/fm-jev-fastpath-guard.test.sh - Regression tests for Pattern 233 (TCP Fast-Path Guard)
+# tests/fm-jev-fastpath-guard.test.sh - Regression tests for Pattern 237 (TCP Fast-Path Guard)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GUARD_SH="$SCRIPT_DIR/../bin/fm-jev-fastpath-guard.sh"
 GUARD_PY="$SCRIPT_DIR/../bin/fm-jev-fastpath-guard.py"
 
-echo "Running Pattern 233 regression tests..."
+echo "Running Pattern 237 regression tests..."
 
 # 1. ShellCheck
 shellcheck "$GUARD_SH"
@@ -88,4 +88,4 @@ TcpExt: 100 1000 9000 0 50000
 "
 echo "ok - unit tests pass"
 
-echo "Pattern 233 regression tests passed: 6/6 tests ok"
+echo "Pattern 237 regression tests passed: 6/6 tests ok"
