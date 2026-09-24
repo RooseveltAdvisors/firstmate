@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-bin/fm-jev-neigh-stat-guard.py - Host Network Neighbor Cache Table Stats & Resolution Stasis Guard (Pattern 212)
+bin/fm-jev-neigh-stat-guard.py - Host Network Neighbor Cache Table Stats & Resolution Stasis Guard (Pattern 232)
 
 Audits Linux kernel IPv4 ARP and IPv6 Neighbor Discovery (ND) cache statistics across all CPU cores:
   - /proc/net/stat/arp_cache (IPv4 ARP per-CPU lookups, hits, res_failed, forced_gc_runs, table_fulls)
@@ -203,7 +203,7 @@ def audit_neigh_stat_guard(
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Host Network Neighbor Cache Table Stats & Resolution Stasis Guard (Pattern 212)"
+        description="Host Network Neighbor Cache Table Stats & Resolution Stasis Guard (Pattern 232)"
     )
     parser.add_argument("--json", action="store_true", help="Output audit results as JSON")
     parser.add_argument("--verbose", "-v", action="store_true", help="Print verbose metrics")
@@ -230,7 +230,7 @@ def main() -> int:
     color_code = "\033[32m" if status == "HEALTHY" else ("\033[33m" if status == "WARNING" else "\033[31m")
     reset_code = "\033[0m"
 
-    print(f"[{color_code}{status}{reset_code}] Host Neighbor Table Cache Stats Guard (Pattern 212)")
+    print(f"[{color_code}{status}{reset_code}] Host Neighbor Table Cache Stats Guard (Pattern 232)")
     print(f"  IPv4 ARP Table Entries   : {summary['arp_entries']:,} / {summary['gc_thresh3']} limit ({summary['arp_saturation_ratio'] * 100:.1f}% saturation)")
     print(f"  IPv6 ND Table Entries    : {summary['ndisc_entries']:,}")
     print(f"  ARP Lookups / Hits       : {summary['arp_lookups']:,} lookups, {summary['arp_hits']:,} hits ({summary['arp_hit_ratio'] * 100:.1f}% hit ratio)")

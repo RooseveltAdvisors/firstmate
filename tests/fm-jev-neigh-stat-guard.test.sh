@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# tests/fm-jev-neigh-stat-guard.test.sh - Regression tests for Pattern 212 (Neighbor Table Stats Guard)
+# tests/fm-jev-neigh-stat-guard.test.sh - Regression tests for Pattern 232 (Neighbor Table Stats Guard)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GUARD_SH="$SCRIPT_DIR/../bin/fm-jev-neigh-stat-guard.sh"
 GUARD_PY="$SCRIPT_DIR/../bin/fm-jev-neigh-stat-guard.py"
 
-echo "Running Pattern 212 regression tests..."
+echo "Running Pattern 232 regression tests..."
 
 # 1. ShellCheck
 shellcheck "$GUARD_SH"
