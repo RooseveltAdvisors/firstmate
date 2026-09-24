@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# bin/fm-jev-fib-guard.sh - Wrapper for FIB Trie Architecture & Lookup Depth Guard (Pattern 209)
+# bin/fm-jev-fib-guard.sh - Wrapper for FIB Trie Architecture & Lookup Depth Guard (Pattern 238)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

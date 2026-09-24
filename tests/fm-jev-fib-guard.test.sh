@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# tests/fm-jev-fib-guard.test.sh - Regression tests for Pattern 209 (FIB Trie Guard)
+# tests/fm-jev-fib-guard.test.sh - Regression tests for Pattern 238 (FIB Trie Guard)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GUARD_SH="$SCRIPT_DIR/../bin/fm-jev-fib-guard.sh"
 GUARD_PY="$SCRIPT_DIR/../bin/fm-jev-fib-guard.py"
 
-echo "Running Pattern 209 regression tests..."
+echo "Running Pattern 238 regression tests..."
 
 # 1. ShellCheck
 shellcheck "$GUARD_SH"
@@ -113,4 +113,4 @@ with tempfile.TemporaryDirectory() as tmp_dir:
 "
 echo "ok - mocked unit tests pass"
 
-echo "All Pattern 209 tests passed successfully."
+echo "All Pattern 238 tests passed successfully."

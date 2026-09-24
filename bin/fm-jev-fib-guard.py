@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-bin/fm-jev-fib-guard.py - Host Network FIB Trie Architecture & Route Lookup Depth Guard (Pattern 209)
+bin/fm-jev-fib-guard.py - Host Network FIB Trie Architecture & Route Lookup Depth Guard (Pattern 238)
 
 Audits Linux kernel Forwarding Information Base (FIB) trie statistics from /proc/net/fib_triestat:
   - Table trie depth (average depth, maximum lookup depth) across Main, Local, and custom VRFs
@@ -196,7 +196,7 @@ def audit_fib_guard(path: str = "/proc/net/fib_triestat") -> Dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Host Network FIB Trie Architecture & Route Lookup Depth Guard (Pattern 209)"
+        description="Host Network FIB Trie Architecture & Route Lookup Depth Guard (Pattern 238)"
     )
     parser.add_argument("--json", action="store_true", help="Emit JSON telemetry")
     args = parser.parse_args()
@@ -207,7 +207,7 @@ def main() -> int:
     if args.json:
         print(json.dumps(report, indent=2))
     else:
-        print(f"[{s['status']}] Pattern 209: Host Network FIB Trie Architecture Guard")
+        print(f"[{s['status']}] Pattern 238: Host Network FIB Trie Architecture Guard")
         print(
             f"  FIB Tables: {s['total_tables']} tables, {s['total_prefixes']} prefixes, "
             f"{s['total_leaves']} leaves, max_depth={s['max_depth_overall']} (overhead: {s['total_size_kb']} kB)"
