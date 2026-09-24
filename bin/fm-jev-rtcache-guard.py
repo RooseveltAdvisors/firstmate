@@ -115,7 +115,7 @@ def audit_rt_cache(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Host Network Routing Cache Exception & Martian Packet Drop Guard (Pattern 202)"
+        description="Host Network Routing Cache Exception & Martian Packet Drop Guard (Pattern 236)"
     )
     parser.add_argument("--json", action="store_true", help="Output audit report as JSON")
     args = parser.parse_args()
