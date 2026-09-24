@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# tests/fm-jev-rtcache-guard.test.sh - Regression tests for Pattern 202 (Routing Cache Exception Guard)
+# tests/fm-jev-rtcache-guard.test.sh - Regression tests for Pattern 236 (Routing Cache Exception Guard)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GUARD_SH="$SCRIPT_DIR/../bin/fm-jev-rtcache-guard.sh"
 GUARD_PY="$SCRIPT_DIR/../bin/fm-jev-rtcache-guard.py"
 
-echo "Running Pattern 202 regression tests..."
+echo "Running Pattern 236 regression tests..."
 
 # 1. ShellCheck
 shellcheck "$GUARD_SH"
@@ -93,4 +93,4 @@ with tempfile.TemporaryDirectory() as tmp_dir:
 "
 echo "ok - mocked unit tests pass"
 
-echo "All Pattern 202 tests passed successfully."
+echo "All Pattern 236 tests passed successfully."

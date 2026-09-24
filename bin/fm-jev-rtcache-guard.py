@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-bin/fm-jev-rtcache-guard.py - Host Network Routing Cache Exception & Martian Packet Drop Guard (Pattern 202)
+bin/fm-jev-rtcache-guard.py - Host Network Routing Cache Exception & Martian Packet Drop Guard (Pattern 236)
 
 Audits Linux kernel IPv4 routing cache, exception table, and garbage collection metrics from:
   - /proc/net/stat/rt_cache (per-CPU routing cache stats: entries, in_no_route, in_martian_src, in_martian_dst, gc_total, gc_dst_overflow)
@@ -127,7 +127,7 @@ def main():
         return 0 if report["summary"]["healthy"] else 1
 
     s = report["summary"]
-    print("Routing Cache Exception & Martian Packet Guard (Pattern 202)")
+    print("Routing Cache Exception & Martian Packet Guard (Pattern 236)")
     print(f"  Status:                 {s['status']}")
     print(f"  Active Route Entries:   {s['entries']:,}")
     print(f"  GC Overflow Drops:      {s['gc_dst_overflow']}")

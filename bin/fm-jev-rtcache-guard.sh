@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# bin/fm-jev-rtcache-guard.sh - Wrapper for Routing Cache Exception & Martian Packet Drop Guard (Pattern 202)
+# bin/fm-jev-rtcache-guard.sh - Wrapper for Routing Cache Exception & Martian Packet Drop Guard (Pattern 236)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
