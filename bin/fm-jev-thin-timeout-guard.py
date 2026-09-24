@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-bin/fm-jev-thin-timeout-guard.py - Host Network TCP Thin-Stream Linear Timeout & Latency Optimization Guard (Pattern 155)
+bin/fm-jev-thin-timeout-guard.py - Host Network TCP Thin-Stream Linear Timeout & Latency Optimization Guard (Pattern 235)
 
 Audits tcp_thin_linear_timeouts and tcp_syn_linear_timeouts sysctls and
 retransmission timeout metrics (TCPTimeouts, TCPSpuriousRTOs, TCPLossFailures)
@@ -110,7 +110,7 @@ def audit_thin_timeouts(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Host Network TCP Thin-Stream Linear Timeout & Latency Optimization Guard (Pattern 155)"
+        description="Host Network TCP Thin-Stream Linear Timeout & Latency Optimization Guard (Pattern 235)"
     )
     parser.add_argument("--json", action="store_true", help="Output audit report as JSON")
     args = parser.parse_args()
@@ -122,7 +122,7 @@ def main():
         return 0
 
     s = report["summary"]
-    print(f"TCP Thin-Stream Timeout Guard (Pattern 155) - Status: {s['status']}")
+    print(f"TCP Thin-Stream Timeout Guard (Pattern 235) - Status: {s['status']}")
     print(f"  tcp_thin_linear_timeouts:  {s['tcp_thin_linear_timeouts']} (0 = per-socket, 1 = global)")
     print(f"  tcp_syn_linear_timeouts:   {s['tcp_syn_linear_timeouts']} (linear timeouts before backoff)")
     print(f"  Total RTO Timeouts:        {s['timeouts']:,}")

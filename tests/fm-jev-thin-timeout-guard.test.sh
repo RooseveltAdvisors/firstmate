@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# tests/fm-jev-thin-timeout-guard.test.sh - Regression tests for Pattern 155 (TCP Thin Timeout Guard)
+# tests/fm-jev-thin-timeout-guard.test.sh - Regression tests for Pattern 235 (TCP Thin Timeout Guard)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GUARD_SH="$SCRIPT_DIR/../bin/fm-jev-thin-timeout-guard.sh"
 GUARD_PY="$SCRIPT_DIR/../bin/fm-jev-thin-timeout-guard.py"
 
-echo "Running Pattern 155 regression tests..."
+echo "Running Pattern 235 regression tests..."
 
 # 1. ShellCheck
 shellcheck "$GUARD_SH"
@@ -92,4 +92,4 @@ TcpExt: 10000 3000 15
 "
 echo "ok - unit tests pass"
 
-echo "All Pattern 155 regression tests passed!"
+echo "All Pattern 235 regression tests passed!"
