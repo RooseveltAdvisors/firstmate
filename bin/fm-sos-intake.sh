@@ -60,6 +60,8 @@
 #
 # State (all under $FM_HOME/state/): fm-sos-intake.cursor (bridge event id),
 # fm-sos-intake.log (append-only ledger of handled effects),
+# .fm-sos-intake.lock (single-writer lock) and .fm-sos-intake.err (a tasks-axi
+# diagnostic, removed as soon as it is read),
 # when/when-sos-<n>.* (close watches).
 set -euo pipefail
 
@@ -81,6 +83,10 @@ WHEN="${FM_SOS_WHEN:-$BIN/fm-procevent-when.sh}"
 STATE_DIR="$FM_HOME/state"
 CURSOR_FILE="$STATE_DIR/fm-sos-intake.cursor"
 LEDGER="$STATE_DIR/fm-sos-intake.log"
+INTAKE_LOCK="$STATE_DIR/.fm-sos-intake.lock"
+
+# shellcheck source=bin/fm-wake-lib.sh
+. "$BIN/fm-wake-lib.sh"
 
 TRANSITIONS="dispatched repro-confirmed fix-up deployed verified captain-closed"
 
@@ -91,6 +97,27 @@ log_line() {
 
 ledger_has() {
   [ -f "$LEDGER" ] && grep -qF "$1" "$LEDGER"
+}
+
+# lock_intake: take the single-writer lock over the ledger and its guards for
+# this process; the EXIT trap releases it on every path.
+lock_intake() {
+  mkdir -p "$STATE_DIR"
+  fm_lock_acquire_wait "$INTAKE_LOCK" || die "cannot lock the intake"
+  trap 'fm_lock_release "$INTAKE_LOCK" || true' EXIT
+}
+
+# redact_secrets: read text on stdin and print it as one line with
+# credential-shaped substrings masked.
+redact_secrets() {
+  python3 -c '
+import re, sys
+text = " ".join(sys.stdin.read().split())
+text = re.sub(r"\bgh[pousr]_[A-Za-z0-9]{16,}\b", "<redacted>", text)
+text = re.sub(r"(?i)\b(token|secret|passwd|password|apikey|api_key|credential|authorization|bearer)\b[=: ]*\S*", r"\1=<redacted>", text)
+text = re.sub(r"[A-Za-z0-9+/_=.]{32,}", "<redacted>", text)
+sys.stdout.write(text)
+'
 }
 
 die() {
@@ -172,10 +199,11 @@ tasks_axi() {
 }
 
 # task_ensure <key> <issue> <url>: create the row if missing; prints
-# new|existing|failed. A failed ensure leaves the ticket owed for the next
-# pass (and the GH heal path), never silently skipped.
+# new|existing|failed (a failed line carries tasks-axi's own diagnostic,
+# redacted). A failed ensure leaves the ticket owed for the next pass (and
+# the GH heal path), never silently skipped.
 task_ensure() {
-  local key="$1" issue="$2" url="$3" id short out
+  local key="$1" issue="$2" url="$3" id short out errf detail
   id=$(task_id_for_key "$key")
   short="${key%%-*}"
   case "$key" in
@@ -190,9 +218,16 @@ GitHub issue: ${url:-https://github.com/$GH_REPO/issues/$issue}
 Site: see the GitHub issue (kept out of this graph on purpose).
 The captain closes the GitHub issue after verification; the loop never does."
   )
-  if ! out=$(tasks_axi "${args[@]}" --json 2>/dev/null); then
+  mkdir -p "$STATE_DIR"
+  errf="$STATE_DIR/.fm-sos-intake.err"
+  (umask 077; : >"$errf") || die "cannot stage the tasks-axi error capture"
+  if ! out=$(tasks_axi "${args[@]}" --json 2>"$errf"); then
+    detail=$(redact_secrets <"$errf" 2>/dev/null || true)
+    rm -f "$errf"
+    printf 'failed: %s\n' "${detail:-tasks-axi add failed with no diagnostic}"
     return 1
   fi
+  rm -f "$errf"
   case "$(printf '%s' "$out" | python3 -c 'import json,sys
 try:
     print("yes" if json.load(sys.stdin).get("already") else "no")
@@ -202,11 +237,6 @@ except Exception:
     yes) echo existing ;;
     *) echo failed ;;
   esac
-}
-
-task_state() {
-  tasks_axi show "$(task_id_for_key "$1")" 2>/dev/null \
-    | sed -n 's/^  state: //p' | head -1
 }
 
 # --- candidate folding ------------------------------------------------------
@@ -348,6 +378,7 @@ cmd_watch_fire() {
   local issue="${1:-}" key="${2:-}"
   [ -n "$issue" ] || die "watch-fire requires <issue-number> <sos-key>"
   [ -n "$key" ] || die "watch-fire requires <sos-key>"
+  lock_intake
   if ledger_has "closed key=$key issue=$issue"; then
     echo "already-closed-recorded: $issue"
     return 0
@@ -359,16 +390,18 @@ cmd_watch_fire() {
   if tasks_axi "done" "$(task_id_for_key "$key")" \
       --note "captain verified and closed GitHub issue #$issue" >/dev/null 2>&1; then
     log_line "task-closed key=$key issue=$issue"
-  elif tasks_axi show "$(task_id_for_key "$key")" >/dev/null 2>&1; then
-    echo "warn: task row still open for key=$key; the close stays owed" >&2
+    # The handoff marker the reporter-notification leg reads: the close is now
+    # known and announced on the issue the reporter's ticket view renders.
+    log_line "closed key=$key issue=$issue"
+    echo "captain-closed: $issue"
     return 0
-  else
-    echo "warn: task row not closed for key=$key (may not exist)" >&2
   fi
-  # The handoff marker the reporter-notification leg reads: the close is now
-  # known and announced on the issue the reporter's ticket view renders.
-  log_line "closed key=$key issue=$issue"
-  echo "captain-closed: $issue"
+  if tasks_axi show "$(task_id_for_key "$key")" >/dev/null 2>&1; then
+    echo "failed: task row still open for key=$key; the close stays owed" >&2
+  else
+    echo "failed: task row for key=$key was not closed (row missing or backlog unavailable); the close stays owed" >&2
+  fi
+  return 1
 }
 
 # --- reconcile --------------------------------------------------------------
@@ -399,13 +432,14 @@ cmd_reconcile() {
   while [ $# -gt 0 ]; do
     case "$1" in
       --no-dispatch) do_dispatch=0; shift ;;
-      --dispatch) do_dispatch=1; shift ;;
       --dry-run) dry_run=1; shift ;;
       --mode) [ $# -ge 2 ] || die "--mode requires a value"; MODE="$2"; shift 2 ;;
       --yolo) [ $# -ge 2 ] || die "--yolo requires a value"; YOLO="$2"; shift 2 ;;
       *) die "unknown argument: $1" ;;
     esac
   done
+
+  lock_intake
 
   local cursor events_json gh_json
   cursor=$(read_cursor)
@@ -442,10 +476,10 @@ cmd_reconcile() {
       continue
     fi
 
-    ensured_state=$(task_ensure "$key" "$issue" "$url") || ensured_state=failed
+    ensured_state=$(task_ensure "$key" "$issue" "$url") || ensured_state="${ensured_state:-failed}"
     case "$ensured_state" in
-      failed)
-        echo "failed: task ensure sos:$key" >&2
+      failed*)
+        echo "failed: task ensure sos:$key${ensured_state#failed}" >&2
         cursor_blocked=1
         continue
         ;;

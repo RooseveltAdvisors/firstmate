@@ -440,7 +440,7 @@ test_reconcile_rearms_a_close_watch_that_reached_its_terminal_outcome() {
 }
 
 test_watch_fire_owes_the_close_until_the_row_closes() {
-  local parts fd out
+  local parts fd out rc
   parts=$(setup_case closeowed)
   fd=${parts##*|}
   run_intake "$parts" reconcile >/dev/null || fail "setup reconcile failed"
@@ -454,10 +454,11 @@ exec "$TASKS_AXI" "\$@"
 SH
   chmod +x "$fd/tasks-flaky"
 
-  out=$(FM_SOS_TASKS_OVERRIDE="$fd/tasks-flaky" run_intake "$parts" watch-fire "$GH_ISSUE" "$SOS_UUID" 2>&1) \
-    || fail "watch-fire must tolerate a failed row close: $out"
+  out=$(FM_SOS_TASKS_OVERRIDE="$fd/tasks-flaky" run_intake "$parts" watch-fire "$GH_ISSUE" "$SOS_UUID" 2>&1)
+  rc=$?
+  expect_code 1 "$rc" "an owed close must exit non-zero so the runner reports action-failed: $out"
   assert_equals "queued" "$(task_state_of "$parts")" "the row must still be open"
-  assert_contains "$out" "warn" "watch-fire must report the owed close: $out"
+  assert_contains "$out" "close stays owed" "watch-fire must report the owed close: $out"
 
   # The close is still owed: the next run must finish it, not no-op.
   out=$(run_intake "$parts" watch-fire "$GH_ISSUE" "$SOS_UUID") || fail "re-run failed: $out"
@@ -483,6 +484,74 @@ test_reconcile_exits_nonzero_when_a_pass_leaves_work_owed() {
   pass "a blocked reconcile pass exits non-zero"
 }
 
+test_reconcile_surfaces_the_task_ensure_failure() {
+  local parts fd out rc
+  parts=$(setup_case ensurefail)
+  fd=${parts##*|}
+
+  cat > "$fd/tasks-broken" <<SH
+#!/usr/bin/env bash
+case "\${1:-}" in
+  add)
+    echo 'error: "--priority 1 requires --why <one line>"' >&2
+    echo 'retry with Authorization: Bearer abcdef0123456789abcdef0123456789abcdef01' >&2
+    exit 2 ;;
+esac
+exec "$TASKS_AXI" "\$@"
+SH
+  chmod +x "$fd/tasks-broken"
+
+  out=$(FM_SOS_TASKS_OVERRIDE="$fd/tasks-broken" run_intake "$parts" reconcile 2>&1)
+  rc=$?
+  expect_code 1 "$rc" "a pass whose ensure failed must exit non-zero: $out"
+  assert_contains "$out" "requires --why" "the tasks-axi cause must reach the operator: $out"
+  assert_contains "$out" "<redacted>" "tool diagnostics must be redacted: $out"
+  assert_not_contains "$out" "abcdef0123456789abcdef0123456789abcdef01" \
+    "no token-like text may reach the operator line: $out"
+  pass "a failed task ensure surfaces its redacted cause"
+}
+
+test_reconcile_rejects_the_removed_dispatch_alias() {
+  local parts out rc
+  parts=$(setup_case dispatchflag)
+  out=$(run_intake "$parts" reconcile --dispatch 2>&1)
+  rc=$?
+  [ "$rc" -ne 0 ] || fail "--dispatch is absent from the usage contract and must be refused: $out"
+  assert_contains "$out" "unknown argument: --dispatch" "the refusal must name the flag: $out"
+  if task_present "$parts"; then fail "a refused pass must change nothing"; fi
+  pass "reconcile refuses the removed --dispatch alias"
+}
+
+test_overlapping_reconcile_passes_serialize() {
+  local parts fd fb a_pid
+  parts=$(setup_case overlap)
+  fd=${parts##*|}
+  fb=$(printf '%s' "$parts" | cut -d'|' -f2)
+
+  # A spawn slow enough for a second pass to start inside its guard window.
+  cat > "$fb/fm-spawn" <<SH
+#!/usr/bin/env bash
+set -u
+FAKE="\${FM_SOS_FAKE_DIR:?}"
+echo "fm-spawn \$*" >> "\$FAKE/spawn.log"
+sleep 3
+exit 0
+SH
+  chmod +x "$fb/fm-spawn"
+
+  (run_intake "$parts" reconcile >"$fd/pass-a.out" 2>&1) &
+  a_pid=$!
+  sleep 0.5
+  run_intake "$parts" reconcile >"$fd/pass-b.out" 2>&1
+  wait "$a_pid"
+
+  assert_equals "1" "$(count_of 'fm-spawn' "$fd/spawn.log")" \
+    "overlapping passes must dispatch one crewmate: $(cat "$fd/spawn.log" 2>/dev/null)"
+  assert_equals "1" "$(count_of 'SOS dispatch' "$fd/comments.log")" \
+    "overlapping passes must post one dispatched comment: $(cat "$fd/comments.log" 2>/dev/null)"
+  pass "overlapping reconcile passes serialize on the intake lock"
+}
+
 test_reconcile_creates_one_task_comment_watch_and_dispatch
 test_reconcile_is_idempotent_across_replays_and_lost_cursors
 test_lost_event_is_healed_from_github
@@ -497,3 +566,6 @@ test_status_reports_rows_and_live_watches
 test_reconcile_rearms_a_close_watch_that_reached_its_terminal_outcome
 test_watch_fire_owes_the_close_until_the_row_closes
 test_reconcile_exits_nonzero_when_a_pass_leaves_work_owed
+test_reconcile_surfaces_the_task_ensure_failure
+test_reconcile_rejects_the_removed_dispatch_alias
+test_overlapping_reconcile_passes_serialize
