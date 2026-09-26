@@ -24,7 +24,7 @@ lifecycle comment thread on the issue, and one close watch.
 
 - Run `bin/fm-sos-intake.sh reconcile` on an SOS wake, and periodically when
   tickets are outstanding.
-  It is idempotent end to end: the task row id is `sos-<SOS UUID>`, so replays
+  It is idempotent end to end: the task row id is `fm-sos-<SOS UUID>`, so replays
   and lost cursors can never double-dispatch.
 - Auto-dispatch is every SOS: no confidence gate, no triage, no hold.
   `--mode`/`--yolo` (or `FM_SOS_MODE`/`FM_SOS_YOLO`) set the spawned task's
