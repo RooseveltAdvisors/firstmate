@@ -1376,6 +1376,74 @@ Arm the check once per home with `bin/fm-tool-update-check.sh arm`.
 - So a budget larger than that timeout allows is cut down to what fits instead of being refused, and the cut is reported in the report line.
 - A budget that is not a whole number from 1 to 120 is still refused outright.
 
+## Response lanes (config/response-lanes.conf)
+
+`config/response-lanes.conf` is an optional local, gitignored list of this fleet's response lanes and the thresholds their liveness is judged against.
+When it is present, [`bin/fm-lane-liveness.sh`](../bin/fm-lane-liveness.sh) reads every named lane and publishes a deterministic verdict of `dead`, `degraded`, `alive`, or `unknown` for each.
+When it is absent the rail is inert, and no mode of it reports anything.
+
+The rail exists because a response lane can stop answering without producing any alarm of its own.
+Every signal a supervisor already has measures whether a problem was detected, not whether anything answered it, so a lane whose worker is gone keeps reading as healthy routing.
+The rail measures the responder instead, and it is read-only: it never writes, moves, or deletes a lane's inbox, its messages, its status log, its metadata, or any other lane state.
+
+Two properties are load-bearing and neither is optional.
+
+The rail runs centrally, in the home that supervises the lanes, and never inside a monitored home.
+A rail deployed inside a lane stops when that lane stops, which is precisely when its reading was needed.
+
+The rail also watches itself.
+`bin/fm-lane-liveness.sh check` writes its heartbeat only after a whole sweep finishes, and `bin/fm-lane-liveness.sh selfcheck` reports a heartbeat that has gone stale.
+A sweep the watcher ends on its per-check timeout therefore leaves no heartbeat, and the silence is reported rather than mistaken for quiet.
+Without that second check, a rail that stopped reporting would look exactly like a fleet with nothing to report, which is the same failure one level up.
+
+`bin/fm-lane-liveness.sh arm` writes and registers both checks, and `disarm` retires them and removes the rail's own records.
+The script's own header and `--help` own its modes and mechanics.
+
+This section is the single owner of the config schema.
+
+```
+# Thresholds in seconds; an omitted line keeps the script's default.
+W=900
+D=1800
+E=600
+M=50
+SELF=900
+SSH_TIMEOUT=10
+CAPTURE_TIMEOUT=8
+
+# One per lane.
+lane <name> [inbox-path]
+```
+
+**Thresholds, and why each default is what it is**
+
+- `W=900` is the supervision beat age at which a lane's own supervision counts as stopped. A healthy home beats every 20 to 180 seconds, so 900 is several missed beats rather than one slow poll. A beat older than half of `W` but under it reads `degraded` instead of `dead`.
+- `D=1800` is how long the oldest unhandled message may sit in a lane that has never handled anything before that lane counts as dead. Half an hour outlasts any normal turn, so a busy worker is not called dead, while a lane that has taken nothing in days is unambiguous.
+- `E=600` is how long a transport or budget error class must hold before it counts as dead rather than a passing blip. Ten minutes outlasts a provider retry window and a rate-limit cooldown.
+- `M=50` is the percentage of a lane's tracked requests that may stand unanswered before the lane reads `degraded` while its agent is still alive. Above half means the lane receives more than it answers.
+- `SELF=900` is how long the rail may go without completing a sweep before rail silence is reported. It matches `W` because a rail that stopped reporting is as serious as a lane whose supervision stopped.
+- `SSH_TIMEOUT=10` bounds one remote lane read, and `CAPTURE_TIMEOUT=8` bounds one pane read. The watcher allows 30 seconds per check, so both stay small enough that one unreachable host cannot consume a whole sweep.
+
+These are response-lane health thresholds only.
+They are entirely separate from the monitoring product's own severity and paging configuration, which this rail never reads or changes.
+
+**Lane records**
+
+`<name>` is the lane's own record name in this home's state, so the rail reads that lane's home, host, and endpoint from `state/<name>.meta` rather than repeating them in config.
+The inbox path is optional, and needed only when a lane's inbox is not where its record implies.
+A local lane defaults to `state/<name>.inbox`.
+A lane whose record carries `remote_host=` is read over that host at `<its home>/state/parent-route/<name>.inbox`, because no local inbox directory exists for it.
+
+A lane with no local inbox directory is not a lane with an empty inbox.
+An inbox the rail cannot read is reported `unknown` with every count as `-`, never as zero, because a zero-depth reading for an inbox that lives somewhere else is the exact false-health signal the rail exists to catch.
+
+**Generated state**
+
+The rail writes only three records, all under this home's own `state/`: `.lane-liveness-beat` is the heartbeat, `.lane-liveness-lanes` carries how long each lane's error class has held and what its handled count was last sweep, and `.lane-liveness-reported` holds the last verdict reported for each lane so an unchanged verdict does not wake the supervisor again.
+All three are safe to delete; the next sweep rebuilds them, and the first sweep after deleting `.lane-liveness-reported` reports every currently unhealthy lane once more.
+
+See [`docs/examples/response-lanes.conf`](examples/response-lanes.conf) for a starting point to copy into local `config/response-lanes.conf`.
+
 ## Mail plane (.env)
 
 The mail plane (bin/fm-mail.sh) reads unseen IMAP messages and sends one SMTP message.

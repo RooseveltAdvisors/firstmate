@@ -1,0 +1,258 @@
+#!/usr/bin/env bash
+# Behavior tests for bin/fm-lane-liveness.sh: the deterministic liveness verdict
+# at each threshold boundary the contract names, the drained-while-error rule
+# that keeps a moving inbox from reading as health, and the routing-verification
+# classification of a delivered claim with and without processing evidence.
+#
+# Every case drives the real script through its command line against a fixture
+# home, so the verdicts asserted here are the ones a watcher would publish.
+set -u
+
+# shellcheck source=tests/lib.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
+TMP=$(fm_test_tmproot fm-lane-liveness)
+RAIL="$ROOT/bin/fm-lane-liveness.sh"
+NOW=$(date +%s)
+
+# lane_fixture <home-root> <lane> : a lane record plus its own supervision home.
+lane_fixture() {
+  local root=$1 lane=$2
+  mkdir -p "$root/lanes/$lane/state" "$root/state/$lane.inbox/handled"
+  fm_write_secondmate_meta "$root/state/$lane.meta" "$root/lanes/$lane" \
+    "firstmate:$lane"
+  : > "$root/lanes/$lane/state/.last-watcher-beat"
+}
+
+# home_fixture <name> : a central rail home with config, and nothing else.
+home_fixture() {
+  local root="$TMP/$1"
+  mkdir -p "$root/state" "$root/config"
+  printf '%s\n' '# fixture' > "$root/config/response-lanes.conf"
+  printf '%s\n' "$root"
+}
+
+conf_add() {  # <root> <line>
+  printf '%s\n' "$2" >> "$1/config/response-lanes.conf"
+}
+
+rail() {  # <root> <mode...>
+  local root=$1
+  shift
+  FM_HOME="$root" FM_STATE_OVERRIDE="$root/state" FM_CONFIG_OVERRIDE="$root/config" \
+    "$RAIL" "$@" 2>&1
+}
+
+# verdict_of <output> <lane>
+verdict_of() {
+  printf '%s\n' "$1" | awk -v l="lane=$2" '$1==l {for (i=1;i<=NF;i++) if ($i ~ /^verdict=/) {sub(/^verdict=/,"",$i); print $i; exit}}'
+}
+
+field_of() {  # <output> <lane> <field>
+  printf '%s\n' "$1" | awk -v l="lane=$2" -v f="$3=" \
+    '$1==l {for (i=1;i<=NF;i++) if (index($i,f)==1) {print substr($i,length(f)+1); exit}}'
+}
+
+# --- a healthy lane reads alive ---------------------------------------------
+ROOT_A=$(home_fixture alive)
+lane_fixture "$ROOT_A" quiet
+conf_add "$ROOT_A" 'lane quiet'
+OUT=$(rail "$ROOT_A" read)
+assert_equals alive "$(verdict_of "$OUT" quiet)" 'a fresh lane with a drained inbox reads alive'
+
+# --- W: the supervision beat boundary ---------------------------------------
+# Under W stays out of dead; over W is dead. The band above half of W and under
+# W is the elevated reading the contract calls degraded. The margins are wider
+# than one second on purpose: these ages come from a wall clock the fixture and
+# the script each read separately, so a to-the-second assertion would be flaky
+# rather than strict.
+ROOT_W=$(home_fixture beat)
+for lane in under_w over_w elevated; do
+  lane_fixture "$ROOT_W" "$lane"
+  conf_add "$ROOT_W" "lane $lane"
+done
+fm_touch_epoch "$(( NOW - 840 ))" "$ROOT_W/lanes/under_w/state/.last-watcher-beat"
+fm_touch_epoch "$(( NOW - 960 ))" "$ROOT_W/lanes/over_w/state/.last-watcher-beat"
+fm_touch_epoch "$(( NOW - 600 ))" "$ROOT_W/lanes/elevated/state/.last-watcher-beat"
+OUT=$(rail "$ROOT_W" read)
+assert_not_equals dead "$(verdict_of "$OUT" under_w)" 'a beat under W is not dead'
+assert_equals dead "$(verdict_of "$OUT" over_w)" 'a beat over W is dead'
+assert_equals degraded "$(verdict_of "$OUT" elevated)" 'a beat over half of W but under W is degraded'
+assert_contains "$(printf '%s\n' "$OUT" | grep '^lane=over_w')" 'over W=900s' \
+  'the dead verdict names the threshold it crossed'
+
+# --- D: pending with nothing ever handled -----------------------------------
+ROOT_D=$(home_fixture drain)
+for lane in fresh_pending stale_pending drained_pending; do
+  lane_fixture "$ROOT_D" "$lane"
+  conf_add "$ROOT_D" "lane $lane"
+done
+printf 'x\n' > "$ROOT_D/state/fresh_pending.inbox/001.msg"
+fm_touch_epoch "$(( NOW - 1740 ))" "$ROOT_D/state/fresh_pending.inbox/001.msg"
+printf 'x\n' > "$ROOT_D/state/stale_pending.inbox/001.msg"
+fm_touch_epoch "$(( NOW - 1860 ))" "$ROOT_D/state/stale_pending.inbox/001.msg"
+# Same age, but this lane has handled something before, so the rule does not fire.
+printf 'x\n' > "$ROOT_D/state/drained_pending.inbox/001.msg"
+fm_touch_epoch "$(( NOW - 1860 ))" "$ROOT_D/state/drained_pending.inbox/001.msg"
+printf 'x\n' > "$ROOT_D/state/drained_pending.inbox/handled/000.msg"
+OUT=$(rail "$ROOT_D" read)
+assert_not_equals dead "$(verdict_of "$OUT" fresh_pending)" \
+  'pending under D is not dead'
+assert_equals dead "$(verdict_of "$OUT" stale_pending)" \
+  'pending over D with nothing ever handled is dead'
+assert_not_equals dead "$(verdict_of "$OUT" drained_pending)" \
+  'the D rule needs handled_count to be zero, not just pending to be old'
+assert_contains "$(printf '%s\n' "$OUT" | grep '^lane=stale_pending')" 'over D=1800s' \
+  'the dead verdict names the drain threshold it crossed'
+
+# --- E: a sustained transport or budget error class --------------------------
+ROOT_E=$(home_fixture error)
+for lane in fresh_err sustained_err; do
+  lane_fixture "$ROOT_E" "$lane"
+  conf_add "$ROOT_E" "lane $lane"
+done
+printf '429 Account budget exceeded\n' > "$ROOT_E/state/fresh_err.pane"
+printf '429 Account budget exceeded\n' > "$ROOT_E/state/sustained_err.pane"
+# The journal carries how long the class has held. One second under E, and over.
+printf '%s\n' "fresh_err budget_exceeded $(( NOW - 540 )) 0" \
+  > "$ROOT_E/state/.lane-liveness-lanes"
+printf '%s\n' "sustained_err budget_exceeded $(( NOW - 660 )) 0" \
+  >> "$ROOT_E/state/.lane-liveness-lanes"
+OUT=$(rail "$ROOT_E" read)
+assert_equals budget_exceeded "$(field_of "$OUT" sustained_err error_signature_class)" \
+  'the error class is matched by its exact string'
+assert_not_equals dead "$(verdict_of "$OUT" fresh_err)" \
+  'an error class under E is not yet dead'
+assert_equals dead "$(verdict_of "$OUT" sustained_err)" \
+  'an error class sustained over E is dead'
+
+# --- a pane that cannot be read is unknown, never none ----------------------
+ROOT_U=$(home_fixture unknown_pane)
+lane_fixture "$ROOT_U" no_pane
+conf_add "$ROOT_U" 'lane no_pane'
+OUT=$(rail "$ROOT_U" read)
+assert_equals unknown "$(field_of "$OUT" no_pane error_signature_class)" \
+  'an unreadable pane is unknown rather than a clean none'
+
+# --- an absent inbox is unknown with no counts, never a zero reading --------
+ROOT_M=$(home_fixture missing_inbox)
+lane_fixture "$ROOT_M" gone
+rm -rf "$ROOT_M/state/gone.inbox"
+conf_add "$ROOT_M" 'lane gone'
+OUT=$(rail "$ROOT_M" read)
+assert_equals unknown "$(verdict_of "$OUT" gone)" 'an absent inbox reads unknown'
+assert_equals '-' "$(field_of "$OUT" gone pending_count)" \
+  'an absent inbox reports no pending count rather than zero'
+assert_contains "$OUT" 'unread rather than zero' \
+  'the reading says why the absent inbox is not a zero-depth reading'
+
+# --- 2.2: drained while an error class is active stays degraded --------------
+ROOT_P=$(home_fixture drained_on_error)
+lane_fixture "$ROOT_P" mover
+conf_add "$ROOT_P" 'lane mover'
+printf '429 Account budget exceeded\n' > "$ROOT_P/state/mover.pane"
+printf 'x\n' > "$ROOT_P/state/mover.inbox/handled/001.msg"
+# The journal recorded one fewer handled record, so handled_count has moved, and
+# the class was first seen just now so the E rule cannot reach dead.
+printf '%s\n' "mover budget_exceeded $NOW 0" > "$ROOT_P/state/.lane-liveness-lanes"
+OUT=$(rail "$ROOT_P" read)
+assert_equals degraded "$(verdict_of "$OUT" mover)" \
+  'handled_count moving while an error class is active stays degraded, never alive'
+assert_equals yes "$(field_of "$OUT" mover drained_while_error_active)" \
+  'the reading records that the drain happened under an active error class'
+assert_contains "$OUT" 'not proof of work' \
+  'the verdict says the drain is not evidence that work happened'
+assert_not_equals '-' "$(field_of "$OUT" mover mover)" \
+  'the mover is recorded when the filesystem can name it'
+
+# The same lane with no error class is alive, so the rule is what made the
+# difference and the case above is not vacuous.
+ROOT_P2=$(home_fixture drained_no_error)
+lane_fixture "$ROOT_P2" clean_mover
+conf_add "$ROOT_P2" 'lane clean_mover'
+printf 'nothing interesting here\n' > "$ROOT_P2/state/clean_mover.pane"
+printf 'x\n' > "$ROOT_P2/state/clean_mover.inbox/handled/001.msg"
+printf '%s\n' "clean_mover none $NOW 0" > "$ROOT_P2/state/.lane-liveness-lanes"
+OUT=$(rail "$ROOT_P2" read)
+assert_equals alive "$(verdict_of "$OUT" clean_mover)" \
+  'the same drain with no active error class is alive'
+
+# --- section 4: routed versus routed_unverified -----------------------------
+ROOT_R=$(home_fixture routes)
+lane_fixture "$ROOT_R" claims
+conf_add "$ROOT_R" 'lane claims'
+# Handled: processing evidence by the record's own location.
+printf 'corr=aaa111\n' > "$ROOT_R/state/claims.inbox/handled/001.msg"
+# Pending, but a status line carries the same corr token firstmate embedded.
+printf 'corr=bbb222\n' > "$ROOT_R/state/claims.inbox/002.msg"
+# Pending with a corr token that appears nowhere.
+printf 'corr=ccc333\n' > "$ROOT_R/state/claims.inbox/003.msg"
+# Pending with no corr token at all.
+printf 'no token here\n' > "$ROOT_R/state/claims.inbox/004.msg"
+printf '%s\n' 'working [at=1]: acknowledged corr=bbb222' > "$ROOT_R/state/claims.status"
+OUT=$(rail "$ROOT_R" routes)
+assert_contains "$OUT" 'lane lane=claims claims=4 routed=2 routed_unverified=2' \
+  'handled and corr-correlated claims count as routed, the rest do not'
+assert_contains "$OUT" 'routing-verification claims=4 routed=2 routed_unverified=2 unverified_rate=2/4 (50%)' \
+  'the measurement reports the unverified rate with its denominator'
+assert_contains "$OUT" 'record=003.msg corr=ccc333 verdict=routed_unverified' \
+  'each unverified claim is named with its own reason'
+assert_contains "$OUT" 'record=004.msg corr=- verdict=routed_unverified' \
+  'a delivered claim with no corr token is unverified too'
+assert_not_contains "$OUT" 'record=002.msg' \
+  'a claim with processing evidence is not reported as unverified'
+
+# The measurement is reproducible: the same fixture gives the same bytes.
+OUT2=$(rail "$ROOT_R" routes)
+assert_equals "$OUT" "$OUT2" 'the same input produces the same output'
+
+# --- the rail reports its own silence ---------------------------------------
+ROOT_S=$(home_fixture selfcheck)
+lane_fixture "$ROOT_S" watched
+conf_add "$ROOT_S" 'lane watched'
+OUT=$(rail "$ROOT_S" selfcheck)
+assert_contains "$OUT" 'never completed a sweep' \
+  'a configured rail with no heartbeat reports that it has never run'
+rail "$ROOT_S" check > /dev/null
+OUT=$(rail "$ROOT_S" selfcheck)
+assert_equals '' "$OUT" 'a rail that just swept is silent'
+fm_touch_epoch "$(( NOW - 960 ))" "$ROOT_S/state/.lane-liveness-beat"
+OUT=$(rail "$ROOT_S" selfcheck)
+assert_contains "$OUT" 'over SELF=900s' 'a stale heartbeat reports rail silence'
+
+# --- check mode wakes on a change, then stays quiet -------------------------
+ROOT_C=$(home_fixture changes)
+lane_fixture "$ROOT_C" flapper
+conf_add "$ROOT_C" 'lane flapper'
+fm_touch_epoch "$(( NOW - 4000 ))" "$ROOT_C/lanes/flapper/state/.last-watcher-beat"
+OUT=$(rail "$ROOT_C" check)
+assert_contains "$OUT" 'lane-liveness: lane=flapper' 'a newly dead lane wakes the supervisor'
+OUT=$(rail "$ROOT_C" check)
+assert_equals '' "$OUT" 'the same verdict does not wake the supervisor again'
+: > "$ROOT_C/lanes/flapper/state/.last-watcher-beat"
+OUT=$(rail "$ROOT_C" check)
+assert_contains "$OUT" 'flapper recovered to alive' 'a recovery is reported once'
+
+# --- malformed config is an actionable error, not a silent pass -------------
+ROOT_BAD=$(home_fixture badconf)
+conf_add "$ROOT_BAD" 'W=soon'
+OUT=$(rail "$ROOT_BAD" read)
+expect_code 2 $? 'a non-numeric threshold refuses rather than defaulting'
+assert_contains "$OUT" 'needs a whole number' 'the refusal names the malformed setting'
+
+ROOT_BAD2=$(home_fixture badconf2)
+conf_add "$ROOT_BAD2" 'lane ../escape'
+OUT=$(rail "$ROOT_BAD2" read)
+expect_code 2 $? 'a lane name that is not path safe is refused'
+
+# --- an unconfigured home is inert -----------------------------------------
+ROOT_OFF="$TMP/off"
+mkdir -p "$ROOT_OFF/state" "$ROOT_OFF/config"
+OUT=$(rail "$ROOT_OFF" read)
+assert_contains "$OUT" 'not configured' 'an unconfigured home says so and does nothing'
+OUT=$(rail "$ROOT_OFF" selfcheck)
+assert_equals '' "$OUT" 'an unconfigured home reports no rail silence'
+assert_absent "$ROOT_OFF/state/.lane-liveness-beat" \
+  'an unconfigured home writes no heartbeat'
+
+pass 'fm-lane-liveness.sh: liveness verdicts, the drained-while-error rule, routing verification, and rail self-reporting'
