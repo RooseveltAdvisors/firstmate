@@ -181,6 +181,9 @@ The captain closes the GitHub issue after verification; the loop never does."
   case "$PRIORITY" in
     0|1) args+=(--why "staff SOS report awaiting fix") ;;
   esac
+  case "$PRIORITY" in
+    0|1) args+=(--why "staff SOS report awaiting fix") ;;
+  esac
   if ! out=$(tasks_axi "${args[@]}" --json 2>/dev/null); then
     return 1
   fi
