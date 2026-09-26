@@ -155,6 +155,18 @@ task_id_for_key() {
   printf 'fm-sos-%s\n' "$1"
 }
 
+# key_for_issue <issue> <derived-key>: print the key the ledger recorded for
+# this issue's task row, else the derived key when no row is recorded.
+key_for_issue() {
+  local issue="$1" derived="$2" known=""
+  if [ -f "$LEDGER" ]; then
+    known=$(awk -v want="$issue" \
+      '$1 == "task" && $2 ~ /^key=/ && $3 == "issue=" want { print substr($2, 5); exit }' \
+      "$LEDGER") || known=""
+  fi
+  printf '%s\n' "${known:-$derived}"
+}
+
 tasks_axi() {
   FM_HOME="$FM_HOME" "$TASKS" "$@"
 }
@@ -204,60 +216,72 @@ task_state() {
 # never dispatching a live ticket is worse than a non-UUID idempotency key.
 
 collect_candidates_py() {
-  local events_json="$1"
-  local gh_json="$2"
+  local events_file="$1"
+  local gh_file="$2"
   # shellcheck disable=SC2016  # single quotes are deliberate: the python script expands nothing.
   python3 -c '
 import json, re, sys
 
 try:
-    events = json.loads(sys.argv[1]).get("events", []) or []
+    events = json.load(open(sys.argv[1])).get("events", []) or []
 except Exception:
     events = []
 try:
-    gh = json.loads(sys.argv[2]) if sys.argv[2] else []
+    gh = json.load(open(sys.argv[2]))
+    if not isinstance(gh, list):
+        gh = []
 except Exception:
     gh = []
 
 SOS_ID_RE = re.compile(r"SOS ID:\**\s*`([0-9a-fA-F-]{8,64})`")
 FALLBACK = "gh-issue-{}"
 
-cands = {}
+def norm(value):
+    return str(value or "").strip().lower()
+
+by_issue = {}
 order = []
 
-def ensure(key, issue, url, event_id):
-    if not key or not issue:
+def ensure(issue, url, event_id, body_uuid="", event_key="", fallback=""):
+    if not issue:
         return
-    if key not in cands:
-        cands[key] = {"key": key, "issue": issue, "url": url, "event_id": event_id}
-        order.append(key)
-    else:
-        c = cands[key]
-        c["issue"] = c["issue"] or issue
-        c["url"] = c["url"] or url
-        if c["event_id"] == "-":
-            c["event_id"] = event_id
+    entry = by_issue.get(issue)
+    if entry is None:
+        entry = by_issue[issue] = {"body": "", "event": "", "fallback": "", "url": "", "event_id": "-"}
+        order.append(issue)
+    for field, value in (("body", body_uuid), ("event", event_key), ("fallback", fallback)):
+        if value and not entry[field]:
+            entry[field] = value
+    if url and not entry["url"]:
+        entry["url"] = url
+    if entry["event_id"] == "-" and event_id != "-":
+        entry["event_id"] = event_id
 
 for ev in events:
     payload = ev.get("payload") or {}
     issue = payload.get("gh_issue")
     ensure(
-        str(ev.get("dedupeKey") or ""),
         int(issue) if isinstance(issue, int) or (isinstance(issue, str) and str(issue).isdigit()) else None,
         str(payload.get("gh_issue_url") or ""),
         str(ev.get("id")),
+        event_key=norm(ev.get("dedupeKey")),
     )
 
 for item in gh:
-    body = item.get("body") or ""
-    m = SOS_ID_RE.search(body)
-    key = m.group(1).lower() if m else FALLBACK.format(item.get("number"))
-    ensure(key, int(item.get("number") or 0), str(item.get("url") or ""), "-")
+    m = SOS_ID_RE.search(item.get("body") or "")
+    ensure(
+        int(item.get("number") or 0),
+        str(item.get("url") or ""),
+        "-",
+        body_uuid=norm(m.group(1)) if m else "",
+        fallback=FALLBACK.format(item.get("number")),
+    )
 
-for k in order:
-    c = cands[k]
-    print("\t".join([c["key"], str(c["issue"]), c["url"], c["event_id"]]))
-' "$events_json" "$gh_json"
+for issue in order:
+    entry = by_issue[issue]
+    key = entry["body"] or entry["event"] or entry["fallback"] or FALLBACK.format(issue)
+    print("\t".join([key, str(issue), entry["url"], entry["event_id"]]))
+' "$events_file" "$gh_file"
 }
 
 # --- canonical comments -----------------------------------------------------
@@ -300,7 +324,7 @@ cmd_comment() {
     *) die "unknown transition '$transition' (want one of: $TRANSITIONS)" ;;
   esac
   local key body
-  key="gh-issue-$issue"
+  key=$(key_for_issue "$issue" "gh-issue-$issue")
   body=$(comment_body "$transition" "$key" "$issue" "$note" "")
   [ -n "$body" ] || die "empty comment body"
   gh_comment "$issue" "$body"
@@ -328,13 +352,18 @@ cmd_watch_fire() {
     echo "already-closed-recorded: $issue"
     return 0
   fi
-  gh_comment "$issue" "$(comment_body captain-closed "$key" "$issue" "" "")"
-  log_line "comment key=$key issue=$issue transition=captain-closed"
-  if ! tasks_axi "done" "$(task_id_for_key "$key")" \
+  if ! ledger_has "issue=$issue transition=captain-closed"; then
+    gh_comment "$issue" "$(comment_body captain-closed "$key" "$issue" "" "")"
+    log_line "comment key=$key issue=$issue transition=captain-closed"
+  fi
+  if tasks_axi "done" "$(task_id_for_key "$key")" \
       --note "captain verified and closed GitHub issue #$issue" >/dev/null 2>&1; then
-    echo "warn: task row not closed for key=$key (may not exist)" >&2
-  else
     log_line "task-closed key=$key issue=$issue"
+  elif tasks_axi show "$(task_id_for_key "$key")" >/dev/null 2>&1; then
+    echo "warn: task row still open for key=$key; the close stays owed" >&2
+    return 0
+  else
+    echo "warn: task row not closed for key=$key (may not exist)" >&2
   fi
   # The handoff marker the reporter-notification leg reads: the close is now
   # known and announced on the issue the reporter's ticket view renders.
@@ -352,11 +381,16 @@ cmd_status() {
   echo "repo:   $GH_REPO"
   echo "ledger: $LEDGER"
   echo "sos task rows:"
-  tasks_axi list 2>/dev/null | grep -E '^  sos-' || true
+  tasks_axi list 2>/dev/null | grep -E '^[[:space:]]+fm-sos-' || true
   echo "armed close watches:"
-  local f
+  local f name
   for f in "$STATE_DIR"/when/when-sos-*.spec; do
-    [ -e "$f" ] && echo "  $(basename "$f" .spec)"
+    if [ -e "$f" ]; then
+      name=$(basename "$f" .spec)
+      if [ -f "$STATE_DIR/procevent/$name.source" ]; then
+        echo "  $name"
+      fi
+    fi
   done
 }
 
@@ -381,7 +415,9 @@ cmd_reconcile() {
   gh_json=$(gh_open_sos_issues)
 
   local candidates
-  candidates=$(collect_candidates_py "$events_json" "$gh_json")
+  candidates=$(collect_candidates_py \
+    <(printf '%s' "$events_json") \
+    <(printf '%s' "$gh_json"))
 
   local new_cursor="$cursor" cursor_blocked=0
   local created=0 dispatched=0 ensured=0
@@ -395,6 +431,7 @@ cmd_reconcile() {
   while IFS=$'\t' read -r key issue url event_id; do
     [ -n "$key" ] || continue
     [ -n "$issue" ] || { echo "skip: key=$key carries no GitHub issue" >&2; continue; }
+    key=$(key_for_issue "$issue" "$key")
 
     if [ "$dry_run" -eq 1 ]; then
       if tasks_axi show "$(task_id_for_key "$key")" >/dev/null 2>&1; then
@@ -419,13 +456,18 @@ cmd_reconcile() {
     esac
     ensured=$((ensured + 1))
 
-    if ! ledger_has "comment key=$key issue=$issue transition=dispatched"; then
+    if ! ledger_has "issue=$issue transition=dispatched"; then
       gh_comment "$issue" "$(comment_body dispatched "$key" "$issue" "" "$(task_id_for_key "$key")")" \
         || { echo "failed: dispatched comment on #$issue" >&2; cursor_blocked=1; continue; }
       log_line "comment key=$key issue=$issue transition=dispatched"
     fi
 
-    if [ ! -f "$STATE_DIR/when/when-sos-$issue.spec" ]; then
+    if [ ! -f "$STATE_DIR/procevent/when-sos-$issue.source" ]; then
+      if [ -e "$STATE_DIR/when/when-sos-$issue.spec" ] \
+        || [ -e "$STATE_DIR/when/when-sos-$issue.trust" ] \
+        || [ -e "$STATE_DIR/when/when-sos-$issue.fired" ]; then
+        FM_HOME="$FM_HOME" "$WHEN" retire "sos-$issue" >/dev/null 2>&1 || true
+      fi
       FM_HOME="$FM_HOME" "$WHEN" arm "sos-$issue" \
         --condition "$BIN/fm-sos-intake.sh" watch-condition "$issue" \
         --action "$BIN/fm-sos-intake.sh" watch-fire "$issue" "$key" >/dev/null \
@@ -450,6 +492,9 @@ cmd_reconcile() {
     write_cursor "$new_cursor"
   fi
   echo "reconcile: ensured=$ensured task_created=$created dispatched=$dispatched cursor=$cursor->$new_cursor"
+  if [ "$cursor_blocked" -ne 0 ]; then
+    return 1
+  fi
 }
 
 dispatch_ticket() {

@@ -1,7 +1,7 @@
 ---
 name: sos-dispatch-loop
 description: >-
-  Load on any `procevent when sos-* <sequence>` wake, before running bin/fm-sos-intake.sh,
+  Load on any `procevent when when-sos-* <sequence>` wake, before running bin/fm-sos-intake.sh,
   and when an ops-hq SOS ticket or a stack-monitor sos event needs dispatch.
   Owns the operating contract for the SOS dispatch loop: intake, auto-dispatch,
   lifecycle comments, and the captain-close watch.
@@ -40,7 +40,7 @@ lifecycle comment thread on the issue, and one close watch.
 
 ## Close-watch wakes
 
-`procevent when sos-<issue> <sequence>` outcomes classify through
+`procevent when when-sos-<issue> <sequence>` outcomes classify through
 `bin/fm-procevent-when.sh classify`:
 
 - `fired`: the captain closed the issue; the action already posted the

@@ -125,7 +125,7 @@ run_intake() { # <case-parts> <args...>
   FM_HOME="$home" \
   FM_SOS_FAKE_DIR="$fd" \
   FM_SOS_BRIDGE_URL="http://bridge.invalid:8791" \
-  FM_SOS_TASKS="$TASKS_AXI" \
+  FM_SOS_TASKS="${FM_SOS_TASKS_OVERRIDE:-$TASKS_AXI}" \
   FM_SOS_SPAWN="$fb/fm-spawn" \
   FM_SOS_BRIEF="$ROOT/bin/fm-brief.sh" \
   FM_SOS_WHEN="$ROOT/bin/fm-procevent-when.sh" \
@@ -334,6 +334,155 @@ test_dry_run_changes_nothing() {
   pass "dry-run reports the plan and changes nothing"
 }
 
+test_reconcile_folds_one_ticket_to_one_key() {
+  local parts fd out upper
+  parts=$(setup_case fold)
+  fd=${parts##*|}
+  upper=$(printf '%s' "$SOS_UUID" | tr '[:lower:]' '[:upper:]')
+
+  # The bridge dedupe key and the body's SOS ID are one message id in two
+  # cases: one ticket must still yield one row, one comment, one dispatch.
+  set_bridge_events "$fd" 1 "$upper" "$GH_ISSUE"
+  out=$(run_intake "$parts" reconcile) || fail "reconcile failed: $out"
+  assert_contains "$out" "task_created=1" "one ticket must fold to one row: $out"
+  task_present "$parts" || fail "the SOS-keyed row is missing"
+  if task_present "$parts" "fm-sos-$upper"; then
+    fail "case divergence between the event key and the body key minted a second row"
+  fi
+  assert_equals "1" "$(count_of 'SOS dispatch' "$fd/comments.log")" \
+    "one ticket must post one dispatched comment: $(cat "$fd/comments.log" 2>/dev/null)"
+  assert_equals "1" "$(count_of 'fm-spawn' "$fd/spawn.log")" "one ticket must dispatch one crewmate"
+  pass "one ticket folds to one key across the event and the issue body"
+}
+
+test_ticket_keeps_one_key_across_passes() {
+  local parts fd out
+  parts=$(setup_case stablekey)
+  fd=${parts##*|}
+
+  # The body no longer parses (marker edited away or format drift) while the
+  # bridge event is unconsumed: the fallback key must not fork the ticket.
+  cat > "$fd/gh-list.json" <<EOF
+[{"number":$GH_ISSUE,"url":"https://github.com/ArcsHealth/Portal/issues/$GH_ISSUE","title":"SOS: reported problem","body":"### SOS Voice Ticket\\nreport text with no id marker\\n"}]
+EOF
+  out=$(run_intake "$parts" reconcile) || fail "reconcile failed: $out"
+  assert_contains "$out" "task_created=1" "the ticket must fold to one row: $out"
+  task_present "$parts" || fail "the event's SOS row is missing"
+  if task_present "$parts" "fm-sos-gh-issue-$GH_ISSUE"; then
+    fail "the fallback key minted a second row for one ticket"
+  fi
+
+  # The event is drained now: the marker-less issue alone must land on the
+  # row, comment, and dispatch the first pass already recorded.
+  set_bridge_empty "$fd"
+  out=$(run_intake "$parts" reconcile) || fail "second reconcile failed: $out"
+  assert_contains "$out" "task_created=0" "a later pass must not mint a second row: $out"
+  assert_contains "$out" "dispatched=0" "a later pass must not re-dispatch: $out"
+  if task_present "$parts" "fm-sos-gh-issue-$GH_ISSUE"; then
+    fail "the fallback key forked the ticket on a later pass"
+  fi
+  assert_equals "1" "$(count_of 'SOS dispatch' "$fd/comments.log")" "the ticket must stay one comment"
+  assert_equals "1" "$(count_of 'fm-spawn' "$fd/spawn.log")" "the ticket must stay one dispatch"
+  pass "a ticket keeps one key across passes even when its marker is gone"
+}
+
+test_reconcile_survives_a_pile_up_of_large_reports() {
+  local parts fd out big
+  parts=$(setup_case bigbodies)
+  fd=${parts##*|}
+
+  # One open report larger than a single argv string: the fold must still see
+  # it (Linux caps one argv string at 128KiB).
+  big=$(head -c 300000 /dev/zero | tr '\0' 'x')
+  cat > "$fd/gh-list.json" <<EOF
+[{"number":$GH_ISSUE,"url":"https://github.com/ArcsHealth/Portal/issues/$GH_ISSUE","title":"SOS: reported problem","body":"### SOS Voice Ticket\n- **SOS ID:** \`$SOS_UUID\`\n$big"}]
+EOF
+  out=$(run_intake "$parts" reconcile) || fail "reconcile failed on a large report: $out"
+  assert_contains "$out" "task_created=1" "a large report must still be picked up: $out"
+  assert_contains "$out" "dispatched=1" "a large report must still dispatch: $out"
+  pass "reconcile survives a pile-up of large open reports"
+}
+
+test_status_reports_rows_and_live_watches() {
+  local parts home out
+  parts=$(setup_case status)
+  home=${parts%%|*}
+  run_intake "$parts" reconcile >/dev/null || fail "setup reconcile failed"
+
+  out=$(run_intake "$parts" status) || fail "status failed: $out"
+  assert_contains "$out" "fm-sos-$SOS_UUID" "status must list the sos task rows: $out"
+  assert_contains "$out" "when-sos-$GH_ISSUE" "status must list the armed close watch: $out"
+
+  # A watch that reached its terminal outcome keeps its spec but loses its
+  # registration: status must not report it as armed.
+  rm -f "$home/state/procevent/when-sos-$GH_ISSUE.source"
+  out=$(run_intake "$parts" status) || fail "status failed: $out"
+  assert_not_contains "$out" "when-sos-$GH_ISSUE" \
+    "status must not report a retired watch as armed: $out"
+  pass "status reports the sos rows and only live close watches"
+}
+
+test_reconcile_rearms_a_close_watch_that_reached_its_terminal_outcome() {
+  local parts home out
+  parts=$(setup_case rearms)
+  home=${parts%%|*}
+  run_intake "$parts" reconcile >/dev/null || fail "setup reconcile failed"
+  assert_present "$home/state/procevent/when-sos-$GH_ISSUE.source" "the close watch must register"
+
+  # Any terminal outcome retires the registration while spec/trust/fired stay.
+  rm -f "$home/state/procevent/when-sos-$GH_ISSUE.source"
+  out=$(run_intake "$parts" reconcile) || fail "reconcile failed: $out"
+  assert_present "$home/state/procevent/when-sos-$GH_ISSUE.source" \
+    "reconcile must re-arm the watch while the issue is open: $out"
+  assert_equals "1" "$(count_of 'fm-spawn' "${parts##*|}/spawn.log")" \
+    "re-arming a watch must not dispatch again"
+  pass "reconcile re-arms a close watch whose registration is gone"
+}
+
+test_watch_fire_owes_the_close_until_the_row_closes() {
+  local parts fd out
+  parts=$(setup_case closeowed)
+  fd=${parts##*|}
+  run_intake "$parts" reconcile >/dev/null || fail "setup reconcile failed"
+
+  cat > "$fd/tasks-flaky" <<SH
+#!/usr/bin/env bash
+case "\${1:-}" in
+  done) exit 1 ;;
+esac
+exec "$TASKS_AXI" "\$@"
+SH
+  chmod +x "$fd/tasks-flaky"
+
+  out=$(FM_SOS_TASKS_OVERRIDE="$fd/tasks-flaky" run_intake "$parts" watch-fire "$GH_ISSUE" "$SOS_UUID" 2>&1) \
+    || fail "watch-fire must tolerate a failed row close: $out"
+  assert_equals "queued" "$(task_state_of "$parts")" "the row must still be open"
+  assert_contains "$out" "warn" "watch-fire must report the owed close: $out"
+
+  # The close is still owed: the next run must finish it, not no-op.
+  out=$(run_intake "$parts" watch-fire "$GH_ISSUE" "$SOS_UUID") || fail "re-run failed: $out"
+  assert_contains "$out" "captain-closed" "the owed close must complete: $out"
+  assert_equals "done" "$(task_state_of "$parts")" "the row must close once the tool recovers"
+  assert_equals "1" "$(count_of 'Closed by the captain' "$fd/comments.log")" \
+    "the close comment must post exactly once across both runs"
+  pass "watch-fire records the close only after the row actually closes"
+}
+
+test_reconcile_exits_nonzero_when_a_pass_leaves_work_owed() {
+  local parts fd out rc
+  parts=$(setup_case blocked)
+  fd=${parts##*|}
+  touch "$fd/gh-broken"
+
+  out=$(run_intake "$parts" reconcile 2>&1)
+  rc=$?
+  expect_code 1 "$rc" "a pass that left work owed must exit non-zero (output: $out)"
+  task_present "$parts" || fail "the owed row must still be ensured"
+  assert_equals "0" "$(count_of 'SOS dispatch' "$fd/comments.log")" \
+    "the owed comment must not be posted by a failed pass"
+  pass "a blocked reconcile pass exits non-zero"
+}
+
 test_reconcile_creates_one_task_comment_watch_and_dispatch
 test_reconcile_is_idempotent_across_replays_and_lost_cursors
 test_lost_event_is_healed_from_github
@@ -341,3 +490,10 @@ test_watch_condition_never_reads_a_failure_as_closed
 test_watch_fire_comments_closes_the_task_and_never_the_issue
 test_comment_transitions_are_canonical_and_bounded
 test_dry_run_changes_nothing
+test_reconcile_folds_one_ticket_to_one_key
+test_ticket_keeps_one_key_across_passes
+test_reconcile_survives_a_pile_up_of_large_reports
+test_status_reports_rows_and_live_watches
+test_reconcile_rearms_a_close_watch_that_reached_its_terminal_outcome
+test_watch_fire_owes_the_close_until_the_row_closes
+test_reconcile_exits_nonzero_when_a_pass_leaves_work_owed
