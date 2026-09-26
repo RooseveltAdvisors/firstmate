@@ -24,7 +24,7 @@
 #               "dispatched" lifecycle comment, arms the close watch, and -
 #               unless --no-dispatch - scaffolds the brief and spawns the
 #               crewmate. The TASK ROW ID is the idempotency record: it is
-#               exactly `sos-<SOS message UUID>`, and tasks-axi's add is
+#               exactly `fm-sos-<SOS message UUID>`, and tasks-axi's add is
 #               idempotent on the id, so a replayed event can never mint a
 #               second row. The cursor is only a fast-path over the bridge.
 #               Auto-dispatch is every SOS: there is no confidence gate, no
@@ -147,12 +147,12 @@ gh_open_sos_issues() {
 
 # --- task rows (beads on a beads backend) -----------------------------------
 #
-# The row id IS the idempotency key: `sos-<SOS message UUID>`.
+# The row id IS the idempotency key: `fm-sos-<SOS message UUID>`.
 # tasks-axi's add is idempotent on the id and never reopens a closed row, so
 # replay safety does not depend on any side table.
 
 task_id_for_key() {
-  printf 'sos-%s\n' "$1"
+  printf 'fm-sos-%s\n' "$1"
 }
 
 tasks_axi() {

@@ -16,7 +16,7 @@ command -v python3 >/dev/null 2>&1 || { echo "skip: python3 not found"; exit 0; 
 INTAKE="$ROOT/bin/fm-sos-intake.sh"
 TASKS_AXI="$ROOT/bin/fm-tasks-axi.sh"
 SOS_UUID="7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f"
-TASK_ID="sos-$SOS_UUID"
+TASK_ID="fm-sos-$SOS_UUID"
 GH_ISSUE=1921
 
 TMP_ROOT=$(fm_test_tmproot fm-sos-intake)
