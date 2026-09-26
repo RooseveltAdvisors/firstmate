@@ -14,9 +14,9 @@
 # tests/fm-harness-liveness-drift-live-e2e.test.sh keep them honest.
 
 # shellcheck source=bin/fm-session-lock-lib.sh
-. "$(dirname -- "${BASH_SOURCE[0]}")/fm-session-lock-lib.sh"
+. "$(dirname -- "${BASH_SOURCE[0]:-$0}")/fm-session-lock-lib.sh"
 # shellcheck source=bin/fm-gemini-lib.sh
-. "$(dirname -- "${BASH_SOURCE[0]}")/fm-gemini-lib.sh"
+. "$(dirname -- "${BASH_SOURCE[0]:-$0}")/fm-gemini-lib.sh"
 
 # fm_agent_process_classify_name: the single owner of the process-name
 # vocabulary shared by every liveness signal - `agent` for a verified harness,
@@ -44,8 +44,10 @@ fm_agent_process_classify_name() {  # <path> [argv0] -> agent|shell|other
     # agy (Antigravity CLI) is anchored for the same reason as muse and omp: its
     # live process name is the bare word `agy` (verified, agy 1.2.0: a Go-compiled
     # single binary, comm=agy with argv[0]=agy), and a glob would claim
-    # unrelated commands containing that fragment.
-    agy) printf 'agent' ;;
+    # unrelated commands containing that fragment. devin is anchored the same
+    # way (verified, devin 3000.11.1: comm=devin), so a `*devin*` glob never
+    # claims an unrelated command.
+    agy|devin) printf 'agent' ;;
     zsh|bash|sh|dash|ash|ksh|mksh|tcsh|csh|fish) printf 'shell' ;;
     *)
       if fm_harness_path_name "$path" >/dev/null || fm_harness_path_name "$argv0" >/dev/null; then

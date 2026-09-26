@@ -65,6 +65,7 @@ Load `project-management` before adding, creating, removing, or initializing a p
 Load `secondmate-provisioning` before any secondmate-home lifecycle action or `data/secondmates.md` edit.
 At intake, classify with `bin/fm-route-domain.sh --task` or `bin/fm-route-dispatch.sh`; never spawn project workers in `w1`; if no scope fits or Jev says `create_secondmate`, charter a secondmate rather than doing that work in the main home.
 Keep `local-only` work in the main home; secondmates are idle by default; an empty queue never authorizes a survey; do not reconstruct a secondmate's child tree; firstmate never writes a project's `AGENTS.md` directly.
+A crewmate edits a project's `AGENTS.md` or `CLAUDE.md` only to correct factually wrong text, never to add missing knowledge and never through `bin/fm-ensure-agents-md.sh`; additions are a deliberate human choice.
 `bin/fm-jev-guard.sh` denies primary-console project implementation (`require_delegation`).
 Load `stow` when filing durable knowledge or on `/stow`.
 
@@ -72,7 +73,7 @@ Load `stow` when filing durable knowledge or on `/stow`.
 
 Load `task-lifecycle` before ship or scout intake, spawn, steer, validate, merge, promote, or teardown.
 Evidence is not authorization to change code.
-Never merge a red PR unless a current explicit captain instruction names the single GitHub check waived through `fm-pr-merge.sh --allow-red`; standing `yolo` cannot authorize a red merge.
+Never merge a red PR, or one with a required check that has not reported, under either setting unless a current explicit captain instruction names the GitHub check to waive; `bin/fm-pr-merge.sh`'s header owns the attended-only waiver mechanics and remaining guards, and standing `yolo` cannot authorize a red merge.
 Load `ask-user-authority` before any ask-user finding; the implementation worker never answers its own finding.
 Spawn only through `bin/fm-spawn.sh` into an isolated task worktree; never force teardown without explicit discard authority.
 
@@ -85,9 +86,9 @@ No turn ends blind while work is under way; never `pkill -f bin/fm-watch.sh`; pr
 
 Load `/afk` or `/quiet` at the triggers in those skills' descriptions.
 
-- Injection uses the `away-supervisor` kind from `bin/fm-operational-input.sh` after `FM_OPERATIONAL_PREFIX` (U+2063 INVISIBLE SEPARATOR followed by `FIRSTMATE_OP: `); `/afk` owns legacy bare-marker compatibility.
-- Write `state/.afk-contract` only after the captain confirms the read-back of their away words; entry is hold-for-return only.
-- While `state/.afk` exists the daemon owns supervision (never on Pi: ordinary supervision, main parked); do not arm a separate watcher; marked messages do not exit; a leading `/afk` or `/quiet` refreshes; any other unmarked message is away return (load `/afk`, run the return owner, wait for the catch-up gate) or quiet-mode chat until `/quiet off`.
+- Injection uses the `away-supervisor` kind from `bin/fm-operational-input.sh` after `FM_OPERATIONAL_PREFIX` (U+2063 INVISIBLE SEPARATOR followed by `FIRSTMATE_OP: `), except that a Claude Code primary, which strips U+2063, gets that owner's record-backed doorbell and counts as marked only when `bin/fm-operational-input.sh open <path>` verifies its record; `/afk` owns legacy bare-marker compatibility.
+- `state/.afk-contract` is the away posture, written in the same turn as `/afk` before any other work because `/afk` is itself the go - no read-back gates entry; entry is hold-for-return only, and the away session acts on those words by its own judgment through the guarded scripts under standing authority, holding for the return on doubt.
+- While `state/.afk` exists the daemon owns supervision (never on Pi: ordinary supervision, main parked; a non-Pi home with `config/supervision-host` uses the supervision host as that branch, and a wake it hands back is never the captain's return); do not arm a separate watcher; marked messages do not exit; a leading `/afk` or `/quiet` refreshes; any other unmarked message is away return (load `/afk`, run the return owner, wait for the catch-up gate) or quiet-mode chat until `/quiet off`.
 - Away and quiet mode never expand approval authority for merges, ask-user findings, or destructive, irreversible, or security-sensitive choices; bias ambiguous input toward exit.
 
 Load `stuck-crewmate-recovery` when a live worker claims its no-mistakes pipeline is dead, unreachable, or timed out.

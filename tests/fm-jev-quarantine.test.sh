@@ -36,8 +36,8 @@ mock_checks = [
 mock_diff = {"src/ui/header.tsx", "styles/theme.css"}
 
 res = jq.analyze_failures("9999", repo="test/repo", custom_checks=mock_checks, custom_diff_files=mock_diff)
-assert res["quarantined_flakes_count"] == 1, f"Expected 1 quarantined flake, got {res['quarantined_flakes_count']}"
-assert res["real_regressions_count"] == 0, f"Expected 0 regressions, got {res['real_regressions_count']}"
+assert res["quarantined_flakes_count"] == 1, "Expected 1 quarantined flake, got %s" % res["quarantined_flakes_count"]
+assert res["real_regressions_count"] == 0, "Expected 0 regressions, got %s" % res["real_regressions_count"]
 assert res["safe_to_rerun_or_waive"] is True, "Expected safe to rerun"
 assert res["findings"][0]["verdict"] == "QUARANTINE_ELIGIBLE_FLAKE"
 

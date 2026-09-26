@@ -38,6 +38,7 @@ Load `diagnostic-reasoning` before scoping a reported bug and before acting on a
 Resolve every ship task's concrete delivery mode and `yolo` merge posture at intake.
 Pass the mode explicitly to the brief, and pass both values explicitly to the spawn and any scout promotion; each command refuses to guess the values it consumes.
 A current explicit captain instruction wins; otherwise the project's registry entry is the captain's standing posture, and dropping below its rigor needs a reason you can state.
+Resolve the project's registered ship-branch prefix the same way, via `bin/fm-project-mode.sh --branch-prefix <project>`, and pass it explicitly to the brief, ship spawn, and scout promotion as `--branch-prefix` (default `fm/` needs no flag).
 On a `no-mistakes-prod-only` project, internal-only tooling, automation, contributor or operator process, and release or submission work ships `direct-PR`; product-facing, mixed, and uncertain work ships `no-mistakes`; never infer internal-only from file location or project name.
 An unregistered project or absent registry resolves to `no-mistakes` with yolo off, and the registration gap goes to the captain.
 Record the resulting mode, `yolo` merge posture, and the one-line reason for any deviation in the backlog item note.
@@ -79,7 +80,7 @@ Never hold work outside no-mistakes for a manual clean verdict or infer a review
 
 Delivery mode and `yolo` are orthogonal.
 `yolo` governs merge authority only: with it off, the captain approves every PR merge and every local-only landing; with it on, firstmate merges green, in-scope work itself.
-Never merge a red PR under either setting unless a current explicit captain instruction names the single GitHub check waived through `fm-pr-merge.sh --allow-red`; that attended-only waiver still requires every other check green.
+Never merge a red PR, or one with a required check that has not reported, under either setting unless a current explicit captain instruction names the GitHub check to waive; `bin/fm-pr-merge.sh`'s header owns the attended-only waiver mechanics and remaining guards.
 Destructive, irreversible, and security-sensitive merges still escalate.
 Standing `yolo` cannot authorize a red merge.
 Load `ask-user-authority` before deciding any ask-user finding; the implementation worker never answers its own finding.
@@ -95,13 +96,16 @@ When the captain adds or changes an ask mid-task, append the captain's words wit
 Once validation starts, prefer routing new requirements to follow-up work unless a current explicit captain instruction completely invalidates the work.
 That worker then cancels through no-mistakes axi's supported abort, confirms the run has stopped, follows `branch_sync.next_action` from structured axi status, and validates exactly once against the final non-obsolete head.
 An ask-user finding returns as `needs-decision`; send the same worker one exact decision with `--resolve-key`, require the matching `resolved` event, and forbid `--yes`.
-Judge validation by the currently attributed run step through `bin/fm-crew-state.sh`, not by shell liveness or the last status event.
+Judge validation by the resolved state line from [`bin/fm-crew-state.sh`](../../../bin/fm-crew-state.sh), whose header owns outcome mappings and CI-monitor/daemon exceptions, never by shell liveness, the last status event, or a raw run record.
+Workers parked at approval or fix-review must follow the active gate help.
 The worker reports the PR when CI first becomes green.
 
 ## Landing, teardown, scout close
 
-For PR-based ship tasks, `no-mistakes` reports `done [at=<epoch>]: PR <url> checks green` after CI is green, while `direct-PR` reports `done [at=<epoch>]: PR <url>` after opening the PR.
-Run `bin/fm-pr-check.sh <id> <PR url>` with the URL copied from that ready signal, and tell the captain that same full URL.
+For PR-based ship tasks, `no-mistakes` reports `done [at=<epoch>]: PR <url> checks green` after CI is green, while `direct-PR` reports `done [at=<epoch>]: PR <url>` after opening the PR, each only for a non-draft PR; a lane that deliberately holds a draft declares a wait instead, and `bin/fm-pr-check.sh` refuses to arm merge monitoring on a draft.
+Run `bin/fm-pr-check.sh <id> <PR url>` with the URL copied from that ready signal or the resolved checks-green `fm-crew-state.sh` line, and tell the captain that same full URL.
+`bin/fm-dod-lib.sh` owns the named-head gate on that ready signal: a ship `done:` whose named head exists only in the worker's disposable copy is not ready, so steer the worker on the commit the refusal names.
+A direct-PR worker pushes that commit to its PR branch, a local-only worker commits it on its ship branch, and a no-mistakes worker re-validates it with /no-mistakes so the pipeline stays the one publisher; the earlier `done [at=<epoch>]: {summary}` is the pipeline handoff and is not gated.
 A captain instruction to merge is explicit authority; `yolo` is the only standing routine merge authority.
 Custom slow polls are owned by `bin/fm-check-register.sh` and `bin/fm-check-unregister.sh`.
 Tear down a ship task only after landing is confirmed; a teardown refusal for uncommitted or unlanded work is a stop-and-investigate result.
@@ -112,4 +116,5 @@ A secondmate is persistent and an empty queue is healthy; retire one only after 
 A completed scout must leave a self-contained report before its scratch worktree can be discarded.
 A report may recommend implementation but does not authorize it.
 Before treating the investigation or any visual review as complete, load `captain-hold-lifecycle`.
+When a scout's deliverable is a visual artifact the captain will iterate on, keep it alive and follow the crew-hosted Lavish board contract in [`docs/configuration.md`](../../../docs/configuration.md) rather than arming or polling the board from firstmate.
 When implementation is separately authorized, promote the existing scout through `bin/fm-promote.sh` rather than creating a duplicate task.
