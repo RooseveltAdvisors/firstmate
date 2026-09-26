@@ -5,6 +5,7 @@
 # Usage:
 #   fm-lane-liveness.sh read        one reading line per lane, with its verdict
 #   fm-lane-liveness.sh routes      routing-verification measurement
+#   fm-lane-liveness.sh classes     the error-signature class vocabulary this rail emits
 #   fm-lane-liveness.sh check       watcher poll: report a lane whose verdict changed
 #   fm-lane-liveness.sh selfcheck   watcher poll: report rail silence
 #   fm-lane-liveness.sh arm         write and register both check shims
@@ -48,6 +49,13 @@
 #   stream_disconnected  "stream disconnected before completion"
 #   transport_dead       "Connection refused", "connection refused", "ECONNREFUSED"
 # A pane that cannot be read is `unknown`, which is deliberately not `none`.
+#
+# That class list is DATA THIS RAIL OWNS, and `classes` prints it so a consumer
+# never carries its own copy to drift out of date. Each row says whether the
+# class represents a provider error the rail actually matched (`matched=yes`) or
+# the absence of one (`matched=no`), which is the only distinction a consumer
+# needs to tell a provider fault from a clean or unread pane. What to DO about a
+# matched class is the consumer's policy, not this rail's.
 # Under FM_TEST_SEAM only, state/<lane>.pane substitutes for that capture so the
 # suite can drive each class deterministically; without the seam the file is
 # inert and the real pane is always the source.
@@ -98,6 +106,7 @@ fm-lane-liveness.sh - read-only liveness rail for firstmate response lanes.
 
   read        one reading line per lane, with its verdict
   routes      routing-verification measurement (routed vs routed_unverified)
+  classes     the error-signature class vocabulary this rail emits
   check       watcher poll: report a lane whose verdict changed
   selfcheck   watcher poll: report rail silence
   arm         write and register both check shims
@@ -163,6 +172,15 @@ config_load() {
       *=*)
         key=${line%%=*}
         value=${line#*=}
+        # Keys of the recovery ladder, which shares this one config file and
+        # validates them itself (bin/fm-lane-recover.sh). Skipped rather than
+        # rejected here, so one subsystem keeps one config surface while an
+        # actual typo in a rail key still refuses below.
+        case "$key" in
+          RECOVERY|ATTEMPT_CEILING|COOLDOWN|RELAUNCH_TIMEOUT|PERSIST_TIMEOUT|SWITCH_MODEL|SWITCH_HARNESS)
+            continue
+            ;;
+        esac
         is_int "$value" \
           || die "response-lanes.conf line $lineno: $key needs a whole number"
         case "$key" in
@@ -263,6 +281,19 @@ error_class() {  # <pane-text>
     *'Connection refused'*|*'connection refused'*|*ECONNREFUSED*) printf 'transport_dead' ;;
     *) printf 'none' ;;
   esac
+}
+
+# The vocabulary error_class can return, and whether each one means the rail
+# matched a provider error string. Kept immediately beside error_class so the
+# published list and the matcher cannot drift apart.
+action_classes() {
+  printf 'class %s matched=%s\n' \
+    none no \
+    unknown no \
+    budget_exceeded yes \
+    rate_limited yes \
+    stream_disconnected yes \
+    transport_dead yes
 }
 
 pending_reply_counts() {  # <status-file>; prints "<outstanding-missed> <resolved>"
@@ -615,6 +646,7 @@ NOW=$(date +%s)
 case "${1:-read}" in
   read) action_read ;;
   routes) action_routes ;;
+  classes) action_classes ;;
   check) action_check ;;
   selfcheck) action_selfcheck ;;
   arm) action_arm ;;

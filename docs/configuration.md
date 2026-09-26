@@ -1442,6 +1442,28 @@ An inbox the rail cannot read is reported `unknown` with every count as `-`, nev
 The rail writes only three records, all under this home's own `state/`: `.lane-liveness-beat` is the heartbeat, `.lane-liveness-lanes` carries how long each lane's error class has held and what its handled count was last sweep, and `.lane-liveness-reported` holds the last verdict reported for each lane so an unchanged verdict does not wake the supervisor again.
 All three are safe to delete; the next sweep rebuilds them, and the first sweep after deleting `.lane-liveness-reported` reports every currently unhealthy lane once more.
 
+**Recovery ladder (same file)**
+
+[`bin/fm-lane-recover.sh`](../bin/fm-lane-recover.sh) reads this same file, so one subsystem keeps one config surface.
+It asks the rail for each lane's verdict and for the error-signature class vocabulary, and owns only the response to them.
+Each reader validates its own keys and skips the other's, so a typo in either half still refuses rather than being silently ignored.
+
+The ladder is strictly ordered and stops at the first rung that applies: restart a proven dead endpoint, switch the profile of a lane whose error class the rail matched as a provider error, redispatch the work orders a recovered lane never claimed, then escalate and park.
+It reimplements nothing: endpoint probing and the guarded relaunch are [`bin/fm-secondmate-liveness-lib.sh`](../bin/fm-secondmate-liveness-lib.sh), and replacing a live agent onto a new profile is [`bin/fm-control.sh`](../bin/fm-control.sh)'s `relaunch` verb, whose contract already owns that case in the same local copy.
+
+Two orderings in it are deliberate and easy to get wrong.
+Endpoint liveness is an input to the decision and never a terminal answer, because a lane that is process-alive but provider-dead would otherwise stop at "the endpoint is alive" before its error class was ever consulted, which is a silent no-op on the exact case the ladder exists for.
+An unhealthy verdict the ladder cannot remedy ends at the escalation rung carrying its evidence, never at "nothing to do", because reporting nothing to do about a dead lane reports success while doing nothing.
+
+- `RECOVERY` is the off-switch and defaults to `off`. `off` and `dry-run` both print the plan and change nothing; only `acting` permits a rung to run. A run invoked below `acting` refuses and prints the plan instead.
+- `ATTEMPT_CEILING=2` is the per-rung, per-lane attempt ceiling, and `COOLDOWN=3600` is the window those attempts are counted in. Together they are why a permanently broken lane escalates once with its evidence instead of flapping.
+- `PERSIST_TIMEOUT=30` bounds the request that a live lane record the open work it holds only in conversation, before its agent is replaced. A lane looping a provider error cannot answer that request by definition, so an unbounded wait would hang on exactly the lanes the switch rung targets. On timeout the ladder records `persist_impossible` with its justification and proceeds: an agent that cannot reach its provider cannot have landed work, and the relaunch verb preserves the local copy and its uncommitted work by construction.
+- `RELAUNCH_TIMEOUT=300` bounds one guarded relaunch.
+- `SWITCH_MODEL` and `SWITCH_HARNESS` name what the switch rung moves a provider-faulted lane onto. With neither set, a lane that needs a switch escalates instead, so the ladder never invents a target.
+
+A lane parked at the escalation rung stays out of automatic recovery until `bin/fm-lane-recover.sh clear <lane>` releases it, because recovery must not fight a decision a person already made.
+Its ladder log is `state/.lane-recovery-<lane>`, one row per rung tried with its outcome, readable with `bin/fm-lane-recover.sh log <lane>`.
+
 See [`docs/examples/response-lanes.conf`](examples/response-lanes.conf) for a starting point to copy into local `config/response-lanes.conf`.
 
 ## Mail plane (.env)
