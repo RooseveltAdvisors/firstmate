@@ -1,8 +1,34 @@
 # House main ↔ upstream PR map
 
-House `main` is `origin/main` plus **one commit per unmerged feature**,
-each labeled with its upstream PR. Content matches the pre-split residue
-tip; only history is structured for tracking.
+## Status 2026-09-26
+
+The residue model below ("`origin/main` plus one commit per unmerged
+feature") describes the **PR-backed subset only**, as structured on
+2026-09-16. It is no longer the whole story:
+
+```
+house main  8c27c8cb == fork/main (RooseveltAdvisors/firstmate)
+upstream    e9a6675e  (kunchenguid/firstmate; remote `origin` == `upstream`)
+behind 0 / ahead 492 = 6 PR-backed residue commits (table below)
+                    + ~480 Jev/Pattern guard commits (893 new files, no upstream PRs)
+```
+
+- **Daily converge:** `fm-upstream-sync.timer` (every 24h) fetches upstream,
+  additive-merges it into house main, and asserts every merged PR of ours is an
+  ancestor of local main. Log: `~/.local/state/firstmate/upstream-sync.log`.
+  Merge, never rebase - house main is published as `fork/main`.
+- **2026-09-26 converge:** `7f83e85d` (108 upstream commits, 22 conflicts),
+  then `51f42209` + fix `8c27c8cb`; pushed to `fork` only, `kunchenguid/firstmate`
+  untouched. Parked WIP: `fm/wip-parked-20260926-pre-upstream-converge`.
+- **Host follow-up:** `fm-tasks-axi-upgrade` - the merged tree floors at
+  tasks-axi 0.2.6 while the host fork is 0.2.5 (11 suites red host-as-is).
+- Vault mirror: `1. Projects/Zeta — Firstmate Agent Stack/2026-09-26 House
+  main ↔ upstream daily converge (watch + delegation).md`.
+
+## Ahead commits (bottom → tip)
+
+The table below is the **PR-backed residue** (still true as of 2026-09-26:
+all six PRs remain open or closed-unmerged). It is not the full ahead count.
 
 When a PR merges to `origin/main`, drop the matching house commit
 (rebase house main onto new `origin/main`, or rebuild residue without
