@@ -1466,6 +1466,39 @@ Its ladder log is `state/.lane-recovery-<lane>`, one row per rung tried with its
 
 See [`docs/examples/response-lanes.conf`](examples/response-lanes.conf) for a starting point to copy into local `config/response-lanes.conf`.
 
+## Alert ownership routing and seat state advice (.env TYPESAFE_API_KEY)
+
+Two tools consult typesafe.ai's System One model (Jev) as a second opinion on top of a deterministic answer, and both are opt-in on the same `TYPESAFE_API_KEY` that [Typed dispatch resolution](#typed-dispatch-resolution-env-typesafe_api_key) uses.
+[`bin/fm-jev-lib.sh`](../bin/fm-jev-lib.sh) is the single owner of the shape they share and names every member of the family, so the set is inspectable rather than found by grep.
+`bin/fm-dispatch-resolve.sh` is the family's precedent and predates that library; it carries its own client and is deliberately left as it is rather than refactored underneath a working tool.
+
+Four properties hold for every member, and they are the reason this is a family rather than three scripts.
+
+- **Deterministic first, always.** The model is asked only about what the deterministic layer could not answer, and it never re-decides something already settled. A question answered deterministically makes no network call at all.
+- **Fail-open, in each tool's own safe direction.** Every failure, including an absent key, is an answer rather than an error: no key, no network, a timeout, a non-200, or a malformed reply all produce a usable verdict and exit 0. Exit 2 is reserved for a usage error, which is actionable rather than worked around.
+- **The key never reaches a process argument.** It lives in one shell variable and is handed to `curl` through a file descriptor, and nothing logs or writes it.
+- **Coarse telemetry and bounded calibration.** Each member appends one summary line per decision to `state/.<tool>-telemetry`, and one JSON line per decision to `state/.<tool>-calibration.jsonl` until that file reaches its cap. Neither carries a task id, a lane or seat name, an alert name, or any content the model was shown: they exist to show whether the tool is working, not what it was asked about. Both are safe to delete.
+
+**Alert ownership routing** ([`bin/fm-alert-route.sh`](../bin/fm-alert-route.sh)) names the seat that owns an alert, so a monitoring rail whose name maps to no charter reaches someone instead of going unattended.
+An alert nobody owns is otherwise indistinguishable from an alert nobody needed, because every existing signal measures whether the alert fired rather than whether it reached a seat.
+
+The deterministic layer matches the alert name against the scopes in `data/secondmates.md`: a scope claims a namespace by writing it with a trailing dot or star, as `gpu.*` or `monitor.` do, and the longest claimed prefix wins.
+Prose that merely mentions the word does not claim it, and two seats claiming the same prefix is a genuine ambiguity rather than a match, so it falls through to the model instead of silently routing to whichever appears first.
+
+Here fail-open means toward paging, never toward silence: every failure ends at `status: escalate` or `status: unavailable` naming the fallback owner, `FM_ALERT_FALLBACK_OWNER` (default `captain`).
+A confident model answer routes; one below the shared confidence floor escalates carrying its ranking as evidence.
+No path through the tool drops an alert.
+
+**Seat state advice** ([`bin/fm-seat-state-advise.sh`](../bin/fm-seat-state-advise.sh)) answers whether a seat whose endpoint could not be classified is waiting on something or genuinely stuck, distinguishing `pipeline_wait`, `true_wedge`, and `healthy_idle`.
+The deterministic signals for this are each individually correct and jointly inconclusive, which is exactly what a second opinion is for.
+
+It is advisory only and holds no lever that touches a seat.
+Only a proven dead or missing endpoint authorizes a relaunch, and this tool never produces one: a `true_wedge` answer is evidence for a person or for an escalation, never permission to replace an agent, because acting on a semantic guess about an endpoint that could not be classified is how uncommitted work gets destroyed.
+Its fail-open direction is therefore toward leaving the seat alone, including for an answer below the confidence floor, since a false stuck verdict invites disturbing a seat that is working while a delayed one costs only time.
+
+It sends structured signals only: the probe's own state and fixed reason phrase, the busy-state word, and the ages of the turn-end, activity, and status records.
+No terminal text, status text, instructions, or message content leaves the host, so an inconclusive seat cannot leak what it was working on.
+
 ## Mail plane (.env)
 
 The mail plane (bin/fm-mail.sh) reads unseen IMAP messages and sends one SMTP message.
