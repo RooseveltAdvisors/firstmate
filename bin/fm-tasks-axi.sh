@@ -12,10 +12,11 @@
 # is made absolute against the caller's working directory, because tasks-axi
 # starts from the backlog root instead. `--report` stays as given: tasks-axi
 # stores it verbatim as a link, which lifecycle transitions record relative to
-# that same root. The other is `--due`: it passes through only for a beads home
-# whose installed tasks-axi takes the flag - a markdown home stores no due, and
-# a tasks-axi without the flag rejects it - so a caller may always state a due
-# without breaking either.
+# that same root. The other gates the optional add flags `--due` and `--why`
+# behind one probe of `tasks-axi add --help`: `--due` additionally passes only
+# for a beads home (a markdown home stores no due), and anything the installed
+# tool does not accept is dropped, so a caller may always state either flag
+# without meeting a tasks-axi that rejects unknown flags.
 #
 # Why it exists: a bare `tasks-axi` resolves the tracked `.tasks.toml` paths
 # against its working directory, so from the code root it forks the queue
@@ -90,6 +91,23 @@ absolute_from_caller() {  # <path-value>
   esac
 }
 
+# strip_flag_from_args <flag>: drop the flag and its value from ARGS.
+strip_flag_from_args() {
+  local filtered=() skip_value=0 arg
+  for arg in ${ARGS[@]+"${ARGS[@]}"}; do
+    if [ "$skip_value" = 1 ]; then
+      skip_value=0
+      continue
+    fi
+    case "$arg" in
+      "$1") skip_value=1 ;;
+      "$1"=*) ;;
+      *) filtered+=("$arg") ;;
+    esac
+  done
+  ARGS=("${filtered[@]+"${filtered[@]}"}")
+}
+
 ARGS=()
 path_value_next=0
 for arg in "$@"; do
@@ -139,38 +157,38 @@ else
   unset TASKS_AXI_FILE
 fi
 
-due_arg=0
+has_due=0
+has_why=0
 for arg in ${ARGS[@]+"${ARGS[@]}"}; do
   case "$arg" in
-    --due|--due=*) due_arg=1 ;;
+    --due|--due=*) has_due=1 ;;
+    --why|--why=*) has_why=1 ;;
   esac
 done
-if [ "$due_arg" = 1 ]; then
+if [ "$has_due" = 1 ] || [ "$has_why" = 1 ]; then
+  opt_help=$(tasks-axi add --help 2>&1 || true)
   strip_due=0
-  if [ "$(fm_tasks_axi_backend "$FM_BACKLOG_AXI_ROOT" 2>/dev/null || true)" != beads ]; then
-    strip_due=1
-  fi
-  if [ "$strip_due" = 0 ]; then
-    case "$(tasks-axi add --help 2>&1 || true)" in
+  strip_why=0
+  if [ "$has_due" = 1 ]; then
+    if [ "$(fm_tasks_axi_backend "$FM_BACKLOG_AXI_ROOT" 2>/dev/null || true)" != beads ]; then
+      strip_due=1
+    fi
+    case "$opt_help" in
       *--due*) ;;
       *) strip_due=1 ;;
     esac
   fi
+  if [ "$has_why" = 1 ]; then
+    case "$opt_help" in
+      *--why*) ;;
+      *) strip_why=1 ;;
+    esac
+  fi
   if [ "$strip_due" = 1 ]; then
-    filtered=()
-    skip_due_value=0
-    for arg in ${ARGS[@]+"${ARGS[@]}"}; do
-      if [ "$skip_due_value" = 1 ]; then
-        skip_due_value=0
-        continue
-      fi
-      case "$arg" in
-        --due) skip_due_value=1 ;;
-        --due=*) ;;
-        *) filtered+=("$arg") ;;
-      esac
-    done
-    ARGS=("${filtered[@]+"${filtered[@]}"}")
+    strip_flag_from_args --due
+  fi
+  if [ "$strip_why" = 1 ]; then
+    strip_flag_from_args --why
   fi
 fi
 

@@ -1036,6 +1036,57 @@ EOF
   pass "a reopened-after-terminal ticket is loud once, listed, and never re-dispatched"
 }
 
+test_reopened_without_a_dispatch_still_launches_nothing() {
+  local parts home fd fb out rc ledger
+  parts=$(setup_case reopennever)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  fb=$(printf '%s' "$parts" | cut -d'|' -f2)
+  ledger="$home/state/fm-sos-intake.log"
+
+  # First pass: the spawn fails, so no dispatch is ever recorded.
+  cat > "$fb/fm-spawn" <<SH
+#!/usr/bin/env bash
+set -u
+FAKE="\${FM_SOS_FAKE_DIR:?}"
+if [ -f "\$FAKE/spawn-broken" ]; then
+  echo "error: spawn cannot start" >&2
+  exit 1
+fi
+echo "fm-spawn \$*" >> "\$FAKE/spawn.log"
+exit 0
+SH
+  chmod +x "$fb/fm-spawn"
+  touch "$fd/spawn-broken"
+  out=$(run_intake "$parts" reconcile 2>&1)
+  rc=$?
+  expect_code 1 "$rc" "a failed spawn must leave the pass owed: $out"
+  assert_equals "0" "$(count_of 'dispatch key=' "$ledger")" \
+    "a failed spawn must not record a dispatch"
+
+  # The captain closes it anyway: the row closes and the fired verdict lands.
+  out=$(run_intake "$parts" watch-fire "$GH_ISSUE" "$SOS_UUID" 2>&1) \
+    || fail "watch-fire failed: $out"
+  mkdir -p "$home/state/procevent-inbox"
+  cat > "$home/state/procevent-inbox/when-sos-$GH_ISSUE.1.result" <<EOF
+when: when-sos-$GH_ISSUE
+status: fired
+detail: captain closed the issue
+EOF
+  rm -f "$home/state/procevent/when-sos-$GH_ISSUE.source"
+  rm -f "$fd/spawn-broken"
+
+  out=$(run_intake "$parts" reconcile 2>&1) || fail "reopened pass failed: $out"
+  assert_contains "$out" "reopened-after-terminal key=$SOS_UUID issue=$GH_ISSUE" \
+    "the reopen must be logged: $out"
+  assert_contains "$out" "dispatched=0" "the reopened ticket must not be dispatched: $out"
+  assert_equals "0" "$(count_of 'dispatch key=' "$ledger")" \
+    "with no dispatch recorded, only the reopened guard can hold it back"
+  assert_equals "0" "$(count_of 'fm-spawn' "$fd/spawn.log")" \
+    "no crewmate may launch for a reopened-after-terminal ticket"
+  pass "a never-dispatched reopened ticket still launches nothing"
+}
+
 test_reconcile_creates_one_task_comment_watch_and_dispatch
 test_reconcile_is_idempotent_across_replays_and_lost_cursors
 test_lost_event_is_healed_from_github
@@ -1065,3 +1116,4 @@ test_intake_creates_a_row_on_a_due_required_beads_home
 test_tool_flags_are_capability_gated_per_run
 test_tool_flags_pass_through_when_the_tool_and_backend_allow_them
 test_reopened_issue_after_terminal_is_loud_once
+test_reopened_without_a_dispatch_still_launches_nothing

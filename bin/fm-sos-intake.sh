@@ -75,7 +75,6 @@ MODE="${FM_SOS_MODE:-no-mistakes}"
 YOLO="${FM_SOS_YOLO:-on}"
 PRIORITY="${FM_SOS_PRIORITY:-1}"
 DUE="${FM_SOS_DUE:-+2w}"
-WHY_FLAG=""
 GH="${FM_SOS_GH:-gh}"
 CURL="${FM_SOS_CURL:-curl}"
 TASKS="${FM_SOS_TASKS:-$BIN/fm-tasks-axi.sh}"
@@ -201,18 +200,6 @@ tasks_axi() {
   FM_HOME="$FM_HOME" "$TASKS" "$@"
 }
 
-# tasks_axi_accepts_why: probe the installed tasks-axi once per run and cache
-# whether its add takes --why.
-tasks_axi_accepts_why() {
-  if [ -z "$WHY_FLAG" ]; then
-    case "$("$TASKS" add --help 2>&1 || true)" in
-      *--why*) WHY_FLAG=1 ;;
-      *) WHY_FLAG=0 ;;
-    esac
-  fi
-  [ "$WHY_FLAG" = 1 ]
-}
-
 # task_ensure <key> <issue> <url>: create the row if missing; prints
 # new|existing|failed (a failed line carries tasks-axi's own diagnostic,
 # redacted). A failed ensure leaves the ticket owed for the next pass (and
@@ -234,11 +221,7 @@ Site: see the GitHub issue (kept out of this graph on purpose).
 The captain closes the GitHub issue after verification; the loop never does."
   )
   case "$PRIORITY" in
-    0|1)
-      if tasks_axi_accepts_why; then
-        args+=(--why "staff SOS report awaiting fix")
-      fi
-      ;;
+    0|1) args+=(--why "staff SOS report awaiting fix") ;;
   esac
   mkdir -p "$STATE_DIR"
   errf="$STATE_DIR/.fm-sos-intake.err"
@@ -390,38 +373,35 @@ cmd_comment() {
 
 # --- close watch ------------------------------------------------------------
 
+# watch_verdicts <issue>: print the classify result of every captured verdict
+# for this issue's close watch, one per line.
+watch_verdicts() {
+  local result status
+  for result in "$STATE_DIR/procevent-inbox/when-sos-$1".*.result; do
+    if [ -e "$result" ]; then
+      status=$(FM_HOME="$FM_HOME" "$WHEN" classify "$result" 2>/dev/null) || status=unknown
+      printf '%s\n' "$status"
+    fi
+  done
+  return 0
+}
+
 # watch_blocks_rearm <issue>: this issue's close watch already captured an
 # outcome whose run completed (fired, action-failed, never-true, ambiguous),
 # so no new watch may be armed for it. A verdict from a run that died before
 # completing (condition-error, rejected) still allows one.
 watch_blocks_rearm() {
-  local result status
-  for result in "$STATE_DIR/procevent-inbox/when-sos-$1".*.result; do
-    [ -e "$result" ] || continue
-    status=$(FM_HOME="$FM_HOME" "$WHEN" classify "$result" 2>/dev/null) || status=unknown
-    case "$status" in
-      fired|action-failed|never-true|ambiguous) return 0 ;;
-    esac
-  done
-  return 1
+  watch_verdicts "$1" | grep -E '^(fired|action-failed|never-true|ambiguous)$' >/dev/null
 }
 
 # reopened_after_terminal <key> <issue>: the row is closed and this issue's
 # close watch captured a fired verdict.
 reopened_after_terminal() {
-  local key="$1" issue="$2" state result status
+  local key="$1" issue="$2" state
   ledger_has "task-closed key=$key issue=$issue" || return 1
   state=$(tasks_axi show "$(task_id_for_key "$key")" 2>/dev/null | sed -n 's/^  state: //p' | head -1)
   [ "$state" = "done" ] || return 1
-  for result in "$STATE_DIR/procevent-inbox/when-sos-$issue".*.result; do
-    if [ -e "$result" ]; then
-      status=$(FM_HOME="$FM_HOME" "$WHEN" classify "$result" 2>/dev/null) || status=unknown
-      if [ "$status" = fired ]; then
-        return 0
-      fi
-    fi
-  done
-  return 1
+  watch_verdicts "$issue" | grep -x fired >/dev/null
 }
 
 cmd_watch_condition() {
@@ -521,8 +501,6 @@ cmd_reconcile() {
     echo "reconcile: no open SOS work (cursor=$cursor)"
     return 0
   fi
-
-  tasks_axi_accepts_why || true
 
   local key issue url event_id listed issue_open reopened ensured_state
   while IFS=$'\t' read -r key issue url event_id listed; do
