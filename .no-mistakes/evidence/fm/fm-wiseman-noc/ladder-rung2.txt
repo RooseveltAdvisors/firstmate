@@ -1,0 +1,5 @@
+### rung 2: dead verdict (stale supervision beat) + budget_exceeded fault + LIVE endpoint (claude)
+lane=providerlive verdict=dead rung=switch_model_or_harness action=would-run cmd=/home/jon/.no-mistakes/worktrees/46339c0817e0/01M3HEDKMYGNTE385DDQYCZK72/bin/fm-control.sh providerlive relaunch --model glm-lab-test reason=rail matched provider error class budget_exceeded, so the provider is the suspect (endpoint alive, switch attempt 1 of 1) note=endpoint is alive, so persist is attempted for 30s first and persist_impossible is recorded on timeout
+
+### ladder log still only the pre-seeded parked row
+/tmp/fm-lab.ZNTGGM/state/.lane-recovery-stall

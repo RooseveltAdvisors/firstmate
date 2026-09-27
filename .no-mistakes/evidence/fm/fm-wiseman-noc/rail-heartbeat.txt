@@ -1,0 +1,19 @@
+### selfcheck with no heartbeat (config present, never swept)
+lane-liveness-self: the response-lane rail has never completed a sweep
+rc=0
+
+### check: full sweep writes the heartbeat, reports changed verdicts once
+rc=0
+5
+-rw------- 1 jon jon 0 Sep 27 15:13 /tmp/fm-lab.ZNTGGM/state/.lane-liveness-beat
+heartbeat present
+
+### second check: unchanged verdicts are silent (repeat suppression)
+rc=0 lines=0
+
+### selfcheck with fresh heartbeat -> silent
+rc=0 (empty above = healthy)
+
+### selfcheck with stale heartbeat -> rail silence reported
+lane-liveness-self: no response-lane sweep completed for 1000s, over SELF=900s
+rc=0

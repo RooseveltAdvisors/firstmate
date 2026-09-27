@@ -1,0 +1,23 @@
+### arm: writes and registers both check shims
+armed: state/lane-liveness.check.sh state/lane-liveness-self.check.sh
+rc=0
+-rwx------ 1 jon jon 234 Sep 27 15:13 /tmp/fm-lab.ZNTGGM/state/lane-liveness.check.sh
+-rw------- 1 jon jon  84 Sep 27 15:13 /tmp/fm-lab.ZNTGGM/state/lane-liveness.check-trust
+-rwx------ 1 jon jon 238 Sep 27 15:13 /tmp/fm-lab.ZNTGGM/state/lane-liveness-self.check.sh
+-rw------- 1 jon jon  84 Sep 27 15:13 /tmp/fm-lab.ZNTGGM/state/lane-liveness-self.check-trust
+
+### armed shims actually run (watcher-facing entrypoints)
+lane-liveness-self: no response-lane sweep completed for 1008s, over SELF=900s
+selfcheck shim rc=0
+check shim rc=0 reported=1
+
+### disarm: retires both shims and the rail records
+disarmed: lane-liveness lane-liveness-self
+rc=0
+ls: cannot access '/tmp/fm-lab.ZNTGGM/state/lane-liveness.check.sh': No such file or directory
+ls: cannot access '/tmp/fm-lab.ZNTGGM/state/lane-liveness-self.check.sh': No such file or directory
+ls: cannot access '/tmp/fm-lab.ZNTGGM/state/lane-liveness.check-trust': No such file or directory
+ls: cannot access '/tmp/fm-lab.ZNTGGM/state/lane-liveness-self.check-trust': No such file or directory
+ls: cannot access '/tmp/fm-lab.ZNTGGM/state/.lane-liveness-beat': No such file or directory
+ls: cannot access '/tmp/fm-lab.ZNTGGM/state/.lane-liveness-lanes': No such file or directory
+ls: cannot access '/tmp/fm-lab.ZNTGGM/state/.lane-liveness-reported': No such file or directory

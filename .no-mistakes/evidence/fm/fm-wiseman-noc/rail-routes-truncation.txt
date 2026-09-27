@@ -1,0 +1,6 @@
+### routes mode, same config (lane svc-ops followed by lane nohost at the time):
+### the nohost lane line is missing; the summary follows svc-ops directly.
+### From rail-routes.txt:
+lane lane=svc-ops claims=81 routed=0 routed_unverified=81
+routing-verification claims=88 routed=4 routed_unverified=84 unverified_rate=84/88 (95%)
+### (no `lane lane=nohost` line ever printed -> same stdin-consumption truncation in routes mode)

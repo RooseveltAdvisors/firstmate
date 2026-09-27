@@ -1,0 +1,27 @@
+### (1) alert namespaced under a seat id -> clear/exact, no model, exit 0
+alert-route:
+  status: clear
+  owner: gpu-ops
+  source: exact
+rc=0
+
+### (2) scope claiming a namespace places gpu.repo_drift WITHOUT a model call,
+    including the token AFTER parentheses in scope (seat-scope-paren fix)
+alert-route:
+  status: clear
+  owner: gpu-ops
+  source: exact
+rc=0
+
+### (3) unowned alert, no key -> fail open to captain, never dropped, exit 0
+alert-route: off (TYPESAFE_API_KEY absent from the environment and /tmp/fm-lab.ZNTGGM/alert-a/.env)
+alert-route:
+  status: escalate
+  owner: captain
+  source: fallback
+  reason: no charter matched by name and the model half is off, so this escalates rather than going unattended
+rc=0
+
+### (4) malformed alert name -> exit 2 usage error
+error: alert name has characters an alert name does not carry
+rc=2

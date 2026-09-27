@@ -1,0 +1,22 @@
+### (7) model reachable but rejects the key (http != 200) -> status unavailable,
+### owner captain, exit 0: an unreachable model never drops the alert
+alert-route:
+  status: unavailable
+  owner: captain
+  source: fallback
+  latency_ms: 109
+  reason: http 401 after 109 ms, so this escalates to the fallback owner
+rc=0
+
+### (8) seat advisor, inconclusive probe + rejected key -> fail-open healthy_idle, exit 0
+seat-state-advise:
+  status: unavailable
+  advice: healthy_idle
+  probe: ambiguous
+  source: fail-open
+  reason: http 401 after 129 ms, so the seat is left alone
+  latency_ms: 129
+  authority: advisory only; never authorizes a relaunch
+rc=0
+
+### telemetry (coarse, no alert name, no task id)

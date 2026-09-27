@@ -1,0 +1,101 @@
+lane lane=quiet claims=0 routed=0 routed_unverified=0
+claim lane=stall record=001.msg corr=FEEDFACE00000001 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+lane lane=stall claims=1 routed=0 routed_unverified=1
+lane lane=beatdead claims=0 routed=0 routed_unverified=0
+lane lane=tired claims=0 routed=0 routed_unverified=0
+lane lane=budget claims=0 routed=0 routed_unverified=0
+lane lane=drained claims=1 routed=1 routed_unverified=0
+lane lane=mystery claims=1 routed=1 routed_unverified=0
+lane lane=wedge claims=0 routed=0 routed_unverified=0
+lane lane=budgetswitch claims=0 routed=0 routed_unverified=0
+lane lane=supervisor claims=0 routed=0 routed_unverified=0
+claim lane=verified record=002.msg corr=EEEEFFFF00001111 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+lane lane=verified claims=3 routed=2 routed_unverified=1
+claim lane=nocorr record=001.msg corr=- verdict=routed_unverified reason=delivered, never handled, and carries no corr token to correlate
+lane lane=nocorr claims=1 routed=0 routed_unverified=1
+lane lane=slowreply claims=0 routed=0 routed_unverified=0
+lane lane=ghost claims=- reason=no lane record in this home
+lane lane=nobox claims=- reason=the configured inbox /tmp/fm-lab.ZNTGGM/state/nobox.inbox is absent, so its depth is unread rather than zero
+claim lane=svc-ops record=001.msg corr=4d34561446e875d6 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=002.msg corr=4d34561446e875d6 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=003.msg corr=0b3bd0baef5f3c7c verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=004.msg corr=0b3bd0baef5f3c7c verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=005.msg corr=7a66729b8460754c verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=006.msg corr=947183c1f963cc7a verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=007.msg corr=46999cf0044ce386 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=008.msg corr=25afd39e1f348b2d verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=009.msg corr=46999cf0044ce386 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=010.msg corr=7a66729b8460754c verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=011.msg corr=947183c1f963cc7a verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=012.msg corr=25afd39e1f348b2d verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=013.msg corr=a67d67656eb84097 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=014.msg corr=736b90fa2d36380c verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=015.msg corr=a67d67656eb84097 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=016.msg corr=736b90fa2d36380c verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=017.msg corr=6138116985d84905 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=018.msg corr=6138116985d84905 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=019.msg corr=- verdict=routed_unverified reason=delivered, never handled, and carries no corr token to correlate
+claim lane=svc-ops record=020.msg corr=2d99bf73f223f925 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=021.msg corr=2d99bf73f223f925 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=022.msg corr=8d9f131c5a9fae77 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=023.msg corr=8d9f131c5a9fae77 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=024.msg corr=75c867afee72145d verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=025.msg corr=75c867afee72145d verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=026.msg corr=6f28a52963b14b09 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=027.msg corr=6f28a52963b14b09 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=028.msg corr=6d5ad17797e2fbea verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=029.msg corr=6d5ad17797e2fbea verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=030.msg corr=df95848507f94b3b verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=031.msg corr=df95848507f94b3b verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=032.msg corr=52ea149b74250496 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=033.msg corr=52ea149b74250496 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=034.msg corr=46aca40c4905e110 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=035.msg corr=8070ce282b5adf89 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=036.msg corr=0430ae62bbc960b6 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=037.msg corr=28b0abfdf58fcb7c verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=038.msg corr=46aca40c4905e110 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=039.msg corr=0430ae62bbc960b6 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=040.msg corr=28b0abfdf58fcb7c verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=041.msg corr=8070ce282b5adf89 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=042.msg corr=a8d1bbc5b616d4dc verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=043.msg corr=a8d1bbc5b616d4dc verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=044.msg corr=5f9e6b7c833bed7d verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=045.msg corr=5f9e6b7c833bed7d verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=046.msg corr=1bcdc04fdb6e83eb verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=047.msg corr=1bcdc04fdb6e83eb verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=048.msg corr=919b5e47e7db5df4 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=049.msg corr=919b5e47e7db5df4 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=050.msg corr=59478612e4b9d16e verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=051.msg corr=59478612e4b9d16e verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=052.msg corr=c2c443db451fcd11 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=053.msg corr=c2c443db451fcd11 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=054.msg corr=677908fdd5c3f060 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=055.msg corr=677908fdd5c3f060 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=056.msg corr=7dc7b7c6a82980a1 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=057.msg corr=7dc7b7c6a82980a1 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=058.msg corr=3e06b0bdb6a1d20d verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=059.msg corr=3e06b0bdb6a1d20d verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=060.msg corr=647bc95662b15005 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=061.msg corr=85b8bfc77bcc4a33 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=062.msg corr=395cebeb8aeb1baa verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=063.msg corr=3fdacd2155fc4ced verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=064.msg corr=647bc95662b15005 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=065.msg corr=395cebeb8aeb1baa verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=066.msg corr=3fdacd2155fc4ced verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=067.msg corr=85b8bfc77bcc4a33 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=068.msg corr=5056d2a199965367 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=069.msg corr=ee82a268f890dcb0 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=070.msg corr=3ed24605ee7b44be verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=071.msg corr=d09e27fe03e7382f verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=072.msg corr=acafe8b68cf3db1d verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=073.msg corr=d632d5da2d4da73c verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=074.msg corr=3ed24605ee7b44be verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=075.msg corr=5056d2a199965367 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=076.msg corr=acafe8b68cf3db1d verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=077.msg corr=d09e27fe03e7382f verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=078.msg corr=d632d5da2d4da73c verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=079.msg corr=ee82a268f890dcb0 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=080.msg corr=4033b20217672e2b verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svc-ops record=081.msg corr=4033b20217672e2b verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+lane lane=svc-ops claims=81 routed=0 routed_unverified=81
+routing-verification claims=88 routed=4 routed_unverified=84 unverified_rate=84/88 (95%)

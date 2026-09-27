@@ -1,0 +1,12 @@
+### rung 2: provider fault on a LIVE endpoint (persist-first note, switch cmd)
+### parked lane stays out of automatic recovery
+### unhealthy lane with inconclusive probe escalates carrying probe state (not rung=none, not switch)
+lane=stall verdict=dead rung=none action=nothing reason=lane is parked at the escalation rung and stays out of automatic recovery until it is cleared
+lane=budgetswitch verdict=dead rung=escalate_captain action=would-park reason=error class budget_exceeded with an endpoint probe the liveness library reports as inconclusive (status skipped, state ambiguous), so no rung may replace an agent it could not read
+lane=supervisor verdict=alive rung=refused action=nothing reason=target resolves to THE-FM itself, which the ladder never restarts or recreates
+lane=ghost verdict=unknown rung=refused action=nothing reason=no lane record in this home, so nothing proves it is a response lane
+lane=nobox verdict=unknown rung=none action=nothing reason=the rail could not read this lane, and unread is not dead
+lane=svc-ops verdict=dead rung=escalate_captain action=would-park reason=rail verdict dead with no provider fault and an endpoint this ladder may not relaunch (state unknown): remote endpoint probe unreadable on svc; watcher_beat_age_s=- is the supervision evidence this reading carries, because a beat that could never be established is a home with no supervision to weigh against the verdict
+
+### plan still writes no ladder log for any lane
+/tmp/fm-lab.ZNTGGM/state/.lane-recovery-stall

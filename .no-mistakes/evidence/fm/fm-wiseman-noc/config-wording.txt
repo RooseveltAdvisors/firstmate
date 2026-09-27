@@ -1,0 +1,17 @@
+### config present but names no lane -> 'names no lane', not 'absent' (read)
+response lanes are not configured (/tmp/nolane/config/response-lanes.conf names no lane)
+rc=0
+### same, routes
+response lanes are not configured (/tmp/nolane/config/response-lanes.conf names no lane)
+rc=0
+### same, ladder plan
+response lanes are not configured (/tmp/nolane/config/response-lanes.conf names no lane)
+rc=0
+### same, ladder run
+error: /tmp/nolane/config/response-lanes.conf names no lane, so there is nothing to recover
+rc=2
+### absent config -> 'is absent' / inert
+response lanes are not configured (/tmp/absentcfg/config/response-lanes.conf is absent)
+rc=0
+response lanes are not configured (/tmp/absentcfg/config/response-lanes.conf is absent)
+rc=0

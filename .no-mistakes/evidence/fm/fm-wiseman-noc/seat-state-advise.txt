@@ -1,0 +1,33 @@
+### (b1) conclusive alive probe -> deterministic answer, no model, authority line
+seat-state-advise:
+  status: clear
+  advice: healthy_idle
+  probe: alive
+  source: deterministic
+  authority: advisory only; never authorizes a relaunch
+rc=0
+
+### (b2) conclusive dead probe -> deterministic, notes recovery needs no advice
+seat-state-advise:
+  status: clear
+  advice: true_wedge
+  probe: dead
+  source: deterministic
+  note: the deterministic probe already proves no agent is running, so recovery needs no advice from this tool
+  authority: advisory only; never authorizes a relaunch
+rc=0
+
+### (b3) inconclusive probe (ambiguous) + no key -> fail-open healthy_idle, exit 0
+seat-state-advise: off (TYPESAFE_API_KEY absent from the environment and /tmp/fm-lab.ZNTGGM/.env)
+seat-state-advise:
+  status: unavailable
+  advice: healthy_idle
+  probe: ambiguous
+  source: fail-open
+  reason: the model half is off, and an unclassifiable endpoint is left alone rather than guessed at
+  authority: advisory only; never authorizes a relaunch
+rc=0
+
+### (b4) unknown seat -> exit 2
+error: no record for seat no-such-seat in this home
+rc=2

@@ -1,0 +1,8 @@
+### BEFORE (unmodified product): lanes after the remote lane are silently dropped
+lane=svc-ops
+
+### CAUSAL PROOF: same run with an ssh that closes stdin (< /dev/null)
+### (the only change is ssh can no longer consume the config loop's stdin)
+lane=svc-ops
+lane=quiet
+lane=nohost

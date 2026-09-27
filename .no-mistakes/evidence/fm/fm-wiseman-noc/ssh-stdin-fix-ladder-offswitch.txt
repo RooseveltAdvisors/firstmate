@@ -1,0 +1,19 @@
+### bin/fm-lane-recover.sh run with RECOVERY=off (adversarial: tries to make the ladder act)
+### must refuse to act, print the plan, and write no ladder logs
+rc=0
+--- stderr:
+refusing to act: RECOVERY=off in /tmp/fm-lab.4oFmpd/config/response-lanes.conf. The ladder acts only at RECOVERY=acting; this is the off-switch.
+Printing the plan instead, which changes nothing.
+--- stdout:
+recovery=off ceiling=2 cooldown=3600s mode=dry-run
+lane=quietbefore verdict=alive rung=none action=nothing reason=lane is alive, so the ladder has nothing to do
+lane=nohost verdict=unknown rung=none action=nothing reason=the rail could not read this lane, and unread is not dead
+lane=svc-ops verdict=dead rung=escalate_captain action=would-park reason=rail verdict dead with no provider fault and an endpoint this ladder may not relaunch (state unknown): remote endpoint probe unreadable on svc; watcher_beat_age_s=- is the supervision evidence this reading carries, because a beat that could never be established is a home with no supervision to weigh against the verdict
+lane=svcops-echo verdict=unknown rung=none action=nothing reason=the rail could not read this lane, and unread is not dead
+lane=quietafter verdict=alive rung=none action=nothing reason=lane is alive, so the ladder has nothing to do
+lane=beatdead verdict=dead rung=escalate_captain action=would-park reason=rail verdict dead with no provider fault and an endpoint this ladder may not relaunch (state unverified-harness): recorded harness 'echo' is unverified for recovery (backend=tmux); supervision beat age 1105s is the evidence, and rearming another home's watcher has no scriptable primitive (fm_watch_arm_pi and fm_watch_arm_omp are in-harness tools of that home), so this escalates rather than pretending to repair it
+lane=stalleddrain verdict=dead rung=escalate_captain action=would-park reason=rail verdict dead with no provider fault and an endpoint this ladder may not relaunch (state unverified-harness): recorded harness 'echo' is unverified for recovery (backend=tmux); supervision beat age 145s is the evidence, and rearming another home's watcher has no scriptable primitive (fm_watch_arm_pi and fm_watch_arm_omp are in-harness tools of that home), so this escalates rather than pretending to repair it
+lane=sustainerr verdict=dead rung=escalate_captain action=would-park reason=error class transport_dead with an endpoint probe the liveness library reports as inconclusive (status skipped, state ambiguous), so no rung may replace an agent it could not read
+lane=drainederr verdict=alive rung=none action=nothing reason=lane is alive, so the ladder has nothing to do
+lane=claims verdict=alive rung=none action=nothing reason=lane is alive, so the ladder has nothing to do
+lane=lastlane verdict=alive rung=none action=nothing reason=lane is alive, so the ladder has nothing to do

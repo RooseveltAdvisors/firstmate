@@ -1,0 +1,10 @@
+### (5) no seat registry at all -> escalate to captain, model never consulted, exit 0
+alert-route:
+  status: escalate
+  owner: captain
+  source: fallback
+  reason: no seat registry at /tmp/fm-lab.ZNTGGM/alert-b/data/secondmates.md, so no charter can be named and this must not go unattended
+rc=0
+
+### telemetry written for each decision, coarse only
+1790536501	alert-route	status=escalate source=fallback reason=no_registry

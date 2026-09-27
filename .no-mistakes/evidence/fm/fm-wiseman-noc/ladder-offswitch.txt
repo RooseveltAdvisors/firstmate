@@ -1,0 +1,19 @@
+### run with RECOVERY=off (the off-switch) must refuse to act and only print the plan
+rc=0
+--- stderr ---
+refusing to act: RECOVERY=off in /tmp/fm-lab.ZNTGGM/config/response-lanes.conf. The ladder acts only at RECOVERY=acting; this is the off-switch.
+Printing the plan instead, which changes nothing.
+--- stdout head ---
+recovery=off ceiling=2 cooldown=3600s mode=dry-run
+lane=quiet verdict=alive rung=none action=nothing reason=lane is alive, so the ladder has nothing to do
+lane=stall verdict=dead rung=restart_lane_agent action=would-run cmd=fm_secondmate_liveness_relaunch /tmp/fm-lab.ZNTGGM/state/stall.meta stall 300 reason=endpoint is dead (confirmed agent absence on existing endpoint), attempt 1 of 2
+lane=beatdead verdict=dead rung=restart_lane_agent action=would-run cmd=fm_secondmate_liveness_relaunch /tmp/fm-lab.ZNTGGM/state/beatdead.meta beatdead 300 reason=endpoint is dead (confirmed agent absence on existing endpoint), attempt 1 of 2
+ladder logs after refused run: 0 (must be 0)
+
+### clear on a lane that is not parked -> refuses
+error: lane quiet is not parked
+rc=2
+
+### log for a lane with no ladder log
+no ladder log for quiet
+rc=0

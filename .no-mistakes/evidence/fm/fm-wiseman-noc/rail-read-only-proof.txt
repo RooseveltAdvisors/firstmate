@@ -1,0 +1,10 @@
+### Read-only guarantee: sha256 of every lane-state file (excluding the rail's
+### own three records and ladder logs) taken before and after running
+### `bin/fm-lane-liveness.sh read` then `routes` against the lab home.
+### Command:
+###   snap() { find "$LAB/state" "$LAB/lanes" -type f ! -name '.lane-liveness-*' ! -name '.lane-recovery-*' -exec sha256sum {} + | sort; }
+###   snap > /tmp/snap-before.txt; rail bin/fm-lane-liveness.sh read >/dev/null; rail bin/fm-lane-liveness.sh routes >/dev/null; snap > /tmp/snap-after.txt
+###   diff /tmp/snap-before.txt /tmp/snap-after.txt
+### Observed output:
+READ-ONLY-OK: lane state byte-identical after read+routes
+### (empty diff; no inbox, meta, status, or beat file changed)

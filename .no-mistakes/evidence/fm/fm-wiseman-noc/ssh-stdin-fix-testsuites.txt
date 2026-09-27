@@ -1,0 +1,7 @@
+### tests/fm-lane-liveness.test.sh (includes the new: every lane after a reachable remote lane gets a reading, read/routes/check)
+ok - fm-lane-liveness.sh: liveness verdicts, the drained-while-error rule, routing verification, and rail self-reporting
+rc=0
+
+### tests/fm-lane-recover.test.sh
+ok - fm-lane-recover.sh: refusals, rung ordering that does not short-circuit on probe liveness, no silent no-op on a dead lane, and a planning mode that changes nothing
+rc=0

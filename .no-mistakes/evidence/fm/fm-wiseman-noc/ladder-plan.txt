@@ -1,0 +1,17 @@
+recovery=off ceiling=2 cooldown=3600s mode=dry-run
+lane=quiet verdict=alive rung=none action=nothing reason=lane is alive, so the ladder has nothing to do
+lane=stall verdict=dead rung=restart_lane_agent action=would-run cmd=fm_secondmate_liveness_relaunch /tmp/fm-lab.ZNTGGM/state/stall.meta stall 300 reason=endpoint is dead (confirmed agent absence on existing endpoint), attempt 1 of 2
+lane=beatdead verdict=dead rung=restart_lane_agent action=would-run cmd=fm_secondmate_liveness_relaunch /tmp/fm-lab.ZNTGGM/state/beatdead.meta beatdead 300 reason=endpoint is dead (confirmed agent absence on existing endpoint), attempt 1 of 2
+lane=tired verdict=degraded rung=restart_lane_agent action=would-run cmd=fm_secondmate_liveness_relaunch /tmp/fm-lab.ZNTGGM/state/tired.meta tired 300 reason=endpoint is dead (confirmed agent absence on existing endpoint), attempt 1 of 2
+lane=budget verdict=dead rung=restart_lane_agent action=would-run cmd=fm_secondmate_liveness_relaunch /tmp/fm-lab.ZNTGGM/state/budget.meta budget 300 reason=endpoint is dead (confirmed agent absence on existing endpoint), attempt 1 of 2
+lane=drained verdict=alive rung=none action=nothing reason=lane is alive, so the ladder has nothing to do
+lane=mystery verdict=alive rung=none action=nothing reason=lane is alive, so the ladder has nothing to do
+lane=wedge verdict=dead rung=escalate_captain action=would-park reason=rail verdict dead with no provider fault and an endpoint this ladder may not relaunch (state ambiguous): existing endpoint has ambiguous agent process (backend=tmux); supervision beat age 1147s is the evidence, and rearming another home's watcher has no scriptable primitive (fm_watch_arm_pi and fm_watch_arm_omp are in-harness tools of that home), so this escalates rather than pretending to repair it
+lane=budgetswitch verdict=dead rung=escalate_captain action=would-park reason=error class budget_exceeded with an endpoint probe the liveness library reports as inconclusive (status skipped, state ambiguous), so no rung may replace an agent it could not read
+lane=supervisor verdict=alive rung=refused action=nothing reason=target resolves to THE-FM itself, which the ladder never restarts or recreates
+lane=verified verdict=alive rung=none action=nothing reason=lane is alive, so the ladder has nothing to do
+lane=nocorr verdict=alive rung=none action=nothing reason=lane is alive, so the ladder has nothing to do
+lane=slowreply verdict=degraded rung=escalate_captain action=would-park reason=rail verdict degraded with no provider fault and an endpoint this ladder may not relaunch (state alive): no relaunch authority; supervision beat age 147s is the evidence, and rearming another home's watcher has no scriptable primitive (fm_watch_arm_pi and fm_watch_arm_omp are in-harness tools of that home), so this escalates rather than pretending to repair it
+lane=ghost verdict=unknown rung=refused action=nothing reason=no lane record in this home, so nothing proves it is a response lane
+lane=nobox verdict=unknown rung=none action=nothing reason=the rail could not read this lane, and unread is not dead
+lane=svc-ops verdict=dead rung=escalate_captain action=would-park reason=rail verdict dead with no provider fault and an endpoint this ladder may not relaunch (state unknown): remote endpoint probe unreadable on svc; watcher_beat_age_s=- is the supervision evidence this reading carries, because a beat that could never be established is a home with no supervision to weigh against the verdict

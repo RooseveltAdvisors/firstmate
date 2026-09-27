@@ -1,0 +1,4 @@
+### without FM_TEST_SEAM the pane file is inert (real pane decides the class)
+error_signature_class=none
+### with FM_TEST_SEAM the seam substitutes (suite-only surface)
+error_signature_class=budget_exceeded

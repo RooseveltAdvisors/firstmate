@@ -1,0 +1,6 @@
+class none matched=no
+class unknown matched=no
+class budget_exceeded matched=yes
+class rate_limited matched=yes
+class stream_disconnected matched=yes
+class transport_dead matched=yes

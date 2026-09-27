@@ -1,0 +1,4 @@
+### sha256 of every lane-state file under state/ and lanes/ (excluding only the rail's own .lane-liveness-* records and .lane-recovery-* ladder logs),
+### snapshot taken immediately before and after driving: read, routes, check, selfcheck, and fm-lane-recover.sh run (off-switch plan).
+### Only product commands ran between the two snapshots; no fixture file was touched.
+READ-ONLY-OK: lane state byte-identical after read, routes, check, selfcheck, and the ladder plan

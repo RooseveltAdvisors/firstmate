@@ -1,0 +1,4 @@
+### Does the ladder's own per-lane loop survive a remote lane (ssh inside probe)?
+### Stub rail prints a remote lane row then a local lane row; both must appear in plan output.
+lane=svc-ops verdict=dead rung=escalate_captain action=would-park reason=rail verdict dead with no provider fault and an endpoint this ladder may not relaunch (state unknown): remote endpoint probe unreadable on svc; watcher_beat_age_s=- is the supervision evidence this reading carries, because a beat that could never be established is a home with no supervision to weigh against the verdict
+lane=quiet verdict=dead rung=restart_lane_agent action=would-run cmd=fm_secondmate_liveness_relaunch /tmp/fm-lab.ZNTGGM/state/quiet.meta quiet 300 reason=endpoint is dead (confirmed agent absence on existing endpoint), attempt 1 of 2

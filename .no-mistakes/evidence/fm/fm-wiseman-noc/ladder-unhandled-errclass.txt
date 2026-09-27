@@ -1,0 +1,1 @@
+lane=tired verdict=dead rung=escalate_captain action=would-park note=unhandled_errclass reason=unhandled_errclass: the rail reported class 'brand_new_class', which its published vocabulary does not contain, so no rung may assume what it means

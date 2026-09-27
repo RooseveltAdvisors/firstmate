@@ -1,0 +1,8 @@
+### clear releases a parked lane (stall was pre-parked)
+cleared: stall is re-armed for automatic recovery
+rc=0
+epoch	rung	outcome	detail
+1790536000	escalate_captain	parked	previously parked by a captain decision
+1790537165	escalate_captain	cleared	released by hand
+### after clear, plan treats it as re-armed
+lane=stall verdict=dead rung=restart_lane_agent action=would-run cmd=fm_secondmate_liveness_relaunch /tmp/fm-lab.ZNTGGM/state/stall.meta stall 300 reason=endpoint is dead (confirmed agent absence on existing endpoint), attempt 1 of 2

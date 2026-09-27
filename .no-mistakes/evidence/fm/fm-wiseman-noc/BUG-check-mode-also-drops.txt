@@ -1,0 +1,5 @@
+### check mode: same config (svc-ops before quiet/nohost)
+lane-liveness: lane=svc-ops
+### lanes reported above; quiet and nohost must be missing (silent partial sweep)
+### heartbeat nevertheless written -> truncated sweep reports as complete:
+-rw------- 1 jon jon 0 Sep 27 15:24 /tmp/fm-lab.ZNTGGM/state/.lane-liveness-beat

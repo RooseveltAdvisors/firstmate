@@ -1,0 +1,2 @@
+### routes run that observes a new handled record while budget_exceeded is active (real pane), lane drainederr
+lane lane=drainederr claims=2 routed=2 routed_unverified=0 drained_while_error_active=yes mover=jon
