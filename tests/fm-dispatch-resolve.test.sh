@@ -309,22 +309,38 @@ cat > "$RESPONSE" <<'JSON'
 JSON
 reset_log
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
-assert_contains "$out" 'candidate: agy:-  provider=agy  scope=gemini  remaining=41%  spendPriority=0.2  runway=through_reset  ' "model-less agy ranks on the gemini scope through its resolver-only quota provider"
+assert_contains "$out" 'candidate: agy:-  provider=agy  scope=gemini  remaining=41%  spendPriority=0.2  runway=through_reset  bounds=all_models:64%/through_reset,gemini:41%/through_reset,claude_gpt:55%/through_reset  -> eligible' "a model-less agy profile consults both family rows and ranks on the gemini scope"
 assert_contains "$out" "  profile: --harness 'agy'" "provider-less agy rule resolves"
+
+AGY_CLAUDE_GPT_EXHAUSTED="$TMP_ROOT/agy-claude-gpt-exhausted.json"
+jq '(.providers[] | select(.provider == "agy") | .quotaSemantics.effectiveAvailability[] | select(.scope == "claude_gpt")) |= (.effectivePercentRemaining = 0 | .runway.status = "exhausted_now")' "$QUOTA" > "$AGY_CLAUDE_GPT_EXHAUSTED"
+reset_log
+TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$AGY_CLAUDE_GPT_EXHAUSTED" run code out err "$BRIEF"
+assert_contains "$out" 'candidate: agy:-  provider=agy  scope=claude_gpt  remaining=0%  spendPriority=-  runway=exhausted_now  bounds=all_models:64%/through_reset,gemini:41%/through_reset,claude_gpt:0%/exhausted_now  -> not eligible: runway exhausted_now at claude_gpt' "a model-less agy launch is vetoed by an exhausted claude_gpt family row"
 
 AGY_GEMINI_RULE="$TMP_ROOT/agy-gemini-rule.json"
 printf '%s\n' '{"rules":[{"when":"Agy gemini work.","use":{"harness":"agy","model":"gemini-3.8-flash-low"}}]}' > "$AGY_GEMINI_RULE"
 cp "$AGY_GEMINI_RULE" "$RULES"
 reset_log
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
-assert_contains "$out" 'candidate: agy:gemini-3.8-flash-low  provider=agy  scope=gemini  remaining=41%  spendPriority=0.2  runway=through_reset  ' "pinned agy gemini model ranks on the gemini scope"
+assert_contains "$out" 'candidate: agy:gemini-3.8-flash-low  provider=agy  scope=gemini  remaining=41%  spendPriority=0.2  runway=through_reset  bounds=all_models:64%/through_reset,gemini:41%/through_reset  -> eligible' "a gemini-pinned agy model stays scoped to the gemini family row"
 
 AGY_CLAUDE_RULE="$TMP_ROOT/agy-claude-rule.json"
 printf '%s\n' '{"rules":[{"when":"Agy claude work.","use":{"harness":"agy","model":"claude-opus-4-6"}}]}' > "$AGY_CLAUDE_RULE"
 cp "$AGY_CLAUDE_RULE" "$RULES"
 reset_log
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
-assert_contains "$out" 'candidate: agy:claude-opus-4-6  provider=agy  scope=claude_gpt  remaining=55%  spendPriority=0.3  runway=through_reset  ' "pinned agy claude model ranks on the claude_gpt scope"
+assert_contains "$out" 'candidate: agy:claude-opus-4-6  provider=agy  scope=claude_gpt  remaining=55%  spendPriority=0.3  runway=through_reset  bounds=all_models:64%/through_reset,claude_gpt:55%/through_reset  -> eligible' "a claude-pinned agy model stays scoped to the claude_gpt family row"
+
+AGY_OTHER_RULE="$TMP_ROOT/agy-other-rule.json"
+printf '%s\n' '{"rules":[{"when":"Agy other work.","use":{"harness":"agy","model":"grok-4.6"}}]}' > "$AGY_OTHER_RULE"
+cp "$AGY_OTHER_RULE" "$RULES"
+reset_log
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
+assert_contains "$out" 'candidate: agy:grok-4.6  provider=agy  scope=gemini  remaining=41%  spendPriority=0.2  runway=through_reset  bounds=all_models:64%/through_reset,gemini:41%/through_reset,claude_gpt:55%/through_reset  -> eligible' "an agy pin matching neither family falls back to both family rows"
+reset_log
+TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$AGY_CLAUDE_GPT_EXHAUSTED" run code out err "$BRIEF"
+assert_contains "$out" 'candidate: agy:grok-4.6  provider=agy  scope=claude_gpt  remaining=0%  spendPriority=-  runway=exhausted_now  bounds=all_models:64%/through_reset,gemini:41%/through_reset,claude_gpt:0%/exhausted_now  -> not eligible: runway exhausted_now at claude_gpt' "a non-family agy pin is vetoed by an exhausted claude_gpt family row"
 
 GEMINI_RULE="$TMP_ROOT/gemini-rule.json"
 printf '%s\n' '{"rules":[{"when":"Gemini work.","use":{"harness":"gemini","model":"gemini-3.8-flash-high","provider":"google"}}]}' > "$GEMINI_RULE"

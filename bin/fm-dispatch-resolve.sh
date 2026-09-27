@@ -318,8 +318,10 @@ RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg non
     [rows($p; $lane)[] | select(
       .scope == "all_models" or .scope == "all_products" or
       ($p == "agy" and (
-        (.scope == "gemini" and ($bare == "" or $bare == "default" or ($bare | startswith("gemini")))) or
-        (.scope == "claude_gpt" and (($bare | startswith("claude")) or ($bare | startswith("gpt"))))
+        if ($bare | startswith("claude")) or ($bare | startswith("gpt")) then .scope == "claude_gpt"
+        elif ($bare | startswith("gemini")) then .scope == "gemini"
+        else (.scope == "gemini" or .scope == "claude_gpt")
+        end
       )) or
       ($m != "" and (.scope == ("model:" + $bare) or .scope == ("product:" + $bare)))
     )];

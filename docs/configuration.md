@@ -1123,7 +1123,7 @@ After the answer, code applies all remaining checks and ranking:
 - Every applicable quota row from one `quota-axi --json` snapshot.
 - The numeric `spendPriority` argmax over candidates, using each candidate's limiting row.
 
-Applicable rows are the account-wide `all_models` and `all_products` scopes and the pinned `model:` and `product:` scopes; for provider `agy`, its `gemini` scope additionally applies when the profile omits the model, sets it to `default`, or pins a `gemini` model, and its `claude_gpt` scope when it pins a `claude` or `gpt` model.
+Applicable rows are the account-wide `all_models` and `all_products` scopes and the pinned `model:` and `product:` scopes; for provider `agy`, a `gemini` pin adds its `gemini` scope and a `claude` or `gpt` pin adds its `claude_gpt` scope, while an omitted model, `default`, or a pin matching neither family consults both family rows because the launch can land on either family.
 
 The [shared quota library](../bin/fm-quota-axi-lib.sh) accepts schema 5 and schema 6 and implements the [account-matching contract](../.agents/skills/quota-array-dispatch/SKILL.md#1-eligibility).
 
