@@ -357,6 +357,7 @@ for _teardown_source in \
   fm-cursor-lib.sh \
   fm-nm-run-lib.sh \
   fm-wake-lib.sh \
+  fm-path-lib.sh \
   fm-lease-lib.sh
 do
   teardown_require_source "$SCRIPT_DIR/$_teardown_source"
@@ -603,6 +604,9 @@ elif [ "$RETIRE_AUTH_GIVEN" = 1 ]; then
   echo "That mismatch means the target was selected wrong; re-check it with bin/fm-fleet-view.sh --cleanup-candidates." >&2
   exit 1
 fi
+# Retiring a persistent secondmate is main's alone in both postures; the kind
+# is read under the metadata lock (role partition: bin/fm-lease-lib.sh).
+[ "$TEARDOWN_META_KIND" != secondmate ] || fm_lease_forbid_branch "secondmate retirement (fm-teardown)"
 # A secondmate's endpoint-liveness episodes (bin/fm-secondmate-liveness-lib.sh)
 # serialize on this lock; retirement holds it to the end so no probe or relaunch
 # can act on the route mid-teardown, and its relaunch ledger and park marker are
