@@ -560,15 +560,22 @@ SH
   pass "a failed task ensure surfaces its redacted cause and intake continues"
 }
 
-test_reconcile_rejects_the_removed_dispatch_alias() {
+test_reconcile_rejects_the_removed_dispatch_flags() {
   local parts out rc
   parts=$(setup_case dispatchflag)
+
   out=$(run_intake "$parts" reconcile --dispatch 2>&1)
   rc=$?
   [ "$rc" -ne 0 ] || fail "--dispatch is absent from the usage contract and must be refused: $out"
   assert_contains "$out" "unknown argument: --dispatch" "the refusal must name the flag: $out"
+
+  out=$(run_intake "$parts" reconcile --no-dispatch 2>&1)
+  rc=$?
+  [ "$rc" -ne 0 ] || fail "--no-dispatch is absent from the usage contract and must be refused: $out"
+  assert_contains "$out" "unknown argument: --no-dispatch" "the refusal must name the flag: $out"
+
   if task_present "$parts"; then fail "a refused pass must change nothing"; fi
-  pass "reconcile refuses the removed --dispatch alias"
+  pass "reconcile refuses the removed dispatch flags"
 }
 
 test_overlapping_reconcile_passes_serialize() {
@@ -989,7 +996,7 @@ test_reconcile_rearms_a_dead_watch_with_no_captured_verdict
 test_watch_fire_owes_the_close_until_the_row_closes
 test_reconcile_exits_nonzero_when_a_pass_leaves_work_owed
 test_reconcile_surfaces_the_task_ensure_failure
-test_reconcile_rejects_the_removed_dispatch_alias
+test_reconcile_rejects_the_removed_dispatch_flags
 test_overlapping_reconcile_passes_serialize
 test_reconcile_does_not_rearm_after_a_terminal_verdict
 test_reconcile_rearms_after_a_run_that_did_not_complete
