@@ -197,13 +197,13 @@ add_skill_source() {  # <group> <skills-dir> <records-file> <seen-file>
   # An unreadable source directory yields no glob matches at all, so without this
   # every skill inside it would vanish with nothing reported.
   if [ ! -r "$source_dir" ] || [ ! -x "$source_dir" ]; then
-    printf 'SKILL_MAP: skipped unreadable skill source directory: %s\n' "$source_dir" >&2
+    printf 'SKILL_MAP: skipped unreadable skill source directory: %q\n' "$source_dir" >&2
     SKIPPED=$((SKIPPED + 1))
     return 0
   fi
   for skill_dir in "$source_dir"/*; do
     if [ ! -d "$skill_dir" ] && [ -L "$skill_dir" ]; then
-      printf 'SKILL_MAP: skipped skill folder symlink that does not resolve: %s\n' \
+      printf 'SKILL_MAP: skipped skill folder symlink that does not resolve: %q\n' \
         "$skill_dir" >&2
       SKIPPED=$((SKIPPED + 1))
       continue
@@ -215,17 +215,19 @@ add_skill_source() {  # <group> <skills-dir> <records-file> <seen-file>
     # disappearing. The regular-file test also keeps the parser off a FIFO, which
     # would otherwise block the whole refresh waiting for a writer.
     if [ ! -x "$skill_dir" ] || ! skill_real=$(canonical_dir "$skill_dir"); then
-      printf 'SKILL_MAP: skipped unreadable skill folder: %s\n' "$skill_dir" >&2
+      printf 'SKILL_MAP: skipped unreadable skill folder: %q\n' "$skill_dir" >&2
       SKIPPED=$((SKIPPED + 1))
       continue
     fi
-    # The path is emitted raw and is also the dedupe key, so a folder name
-    # carrying a record or field delimiter must be refused before it reaches
+    # The path is emitted raw into a tab-separated record and is also the dedupe
+    # key, so a tab or a newline in a folder name must be refused before it reaches
     # either. A newline is the dangerous one: grep -F reads it as a pattern
     # separator, so such a path would match, and seed, unrelated seen entries and
-    # silently erase a real skill that shares its pre-newline prefix.
+    # silently erase a real skill that shares its pre-newline prefix. An em dash is
+    # NOT refused here: the reader takes everything after the second separator, so
+    # one inside the path stays part of the path.
     case "$skill_real" in
-      *$'\t'*|*$'\n'*|*"$MAP_SEPARATOR_DASH"*)
+      *$'\t'*|*$'\n'*)
         # Quote it: printing the raw path would render its own newline and make
         # the line read as the innocent prefix plus a stray line of its own.
         printf 'SKILL_MAP: skipped skill folder whose path breaks the map record: %q\n' \
@@ -242,7 +244,7 @@ add_skill_source() {  # <group> <skills-dir> <records-file> <seen-file>
     if [ ! -f "$skill_real/SKILL.md" ] \
       || ! front=$(extract_frontmatter "$skill_real/SKILL.md" 2>/dev/null) \
       || [ -z "$front" ]; then
-      printf 'SKILL_MAP: skipped unreadable, unclosed, or unusably named skill frontmatter: %s\n' \
+      printf 'SKILL_MAP: skipped unreadable, unclosed, or unusably named skill frontmatter: %q\n' \
         "$skill_real/SKILL.md" >&2
       SKIPPED=$((SKIPPED + 1))
       continue

@@ -278,15 +278,18 @@ compose_exit() {
     rm -f "$file" 2>/dev/null || true
   done
   release_compose_lock
-  if [ "$status" -ne 0 ] && [ "${#COMPOSE_CREATED_LEVELS[@]}" -gt 0 ]; then
-    # A refusal must leave a home that had no composition state with none. Only
-    # levels absent before this run are attempted, innermost first, and rmdir
-    # removes nothing that is not already empty, so inherited or populated
-    # directories and a symlinked level are all left alone.
-    for file in "${COMPOSE_CREATED_LEVELS[@]}"; do
+  # A run that created managed levels and left nothing in them must take them
+  # back, whether it refused or simply had nothing to do. Only levels absent
+  # before this run are attempted, innermost first, and rmdir removes nothing that
+  # is not already empty, so inherited and populated directories are left alone.
+  # Each level is re-checked for being a symlink first: rmdir works on the path,
+  # so without that it would delete through the very link the layout check refuses
+  # and reach outside the target home.
+  for file in "${COMPOSE_CREATED_LEVELS[@]}"; do
+    if [ ! -L "$file" ]; then
       rmdir "$file" 2>/dev/null || true
-    done
-  fi
+    fi
+  done
   return "$status"
 }
 
