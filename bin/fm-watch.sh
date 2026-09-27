@@ -33,8 +33,9 @@
 #                          applies does the log's latest recognized status event decide:
 #                          terminal (captain-relevant) or non-terminal (no verb),
 #                          both surfaced at once. A provably-working stale past the
-#                          wedge threshold also surfaces, with an "escalation N"
-#                          count in the reason; at FM_WEDGE_DEMAND_INSPECT_COUNT
+#                          wedge threshold that its threshold probes do not defer
+#                          surfaces with an "escalation N" count in the reason; at
+#                          FM_WEDGE_DEMAND_INSPECT_COUNT
 #                          consecutive escalations on the SAME pane, the reason
 #                          also carries a "demand-deep-inspection" marker so the
 #                          wake payload itself, not just repetition, forces a
@@ -54,11 +55,12 @@
 #                          plain reason once per declaration, while captain-held
 #                          work stays silent until return
 #                          (busy_turn_bound_check owns that split);
-#                          every other pane goes through the same wedge timer,
-#                          the dead-record probe above included, and surfaces
-#                          with the identical "stale: ..." reason, escalation
-#                          count, and demand-deep-inspection marker for a live
-#                          agent, for human inspection only - never an automatic
+#                          every other pane goes through the same wedge timer
+#                          and its threshold probes - the dead-record probe
+#                          above included - and one that none of them defer
+#                          surfaces with the identical "stale: ..." reason,
+#                          escalation count, and demand-deep-inspection marker,
+#                          for human inspection only - never an automatic
 #                          interrupt, signal, or restart of the worker or its
 #                          tool process.
 #   stale: <window> (unread firstmate instruction: ...)
@@ -309,7 +311,7 @@ TURNEND_CHURN_ABSORB_SECS=${FM_TURNEND_CHURN_ABSORB_SECS:-900}  # longest a task
 # (fm-classify-lib.sh) backs the away-mode daemon; while state/.afk exists the
 # daemon owns triage, so this watcher reverts to one-shot (enqueue + exit on every
 # wake) and never double-triages - and never runs the costly provably-working read.
-STALE_ESCALATE_SECS=${FM_STALE_ESCALATE_SECS:-240}  # idle secs before a provably-working stale escalates as a possible wedge
+STALE_ESCALATE_SECS=${FM_STALE_ESCALATE_SECS:-240}  # idle secs before a provably-working stale reaches the wedge_timer_check probes
 # A busy pane is unconditional proof of liveness with no built-in duration bound,
 # so a hung foreground call can remain hidden even while its rendered busy
 # footer changes every poll. BUSY_TURN_MAX_SECS bounds how long any busy pane
@@ -318,10 +320,11 @@ STALE_ESCALATE_SECS=${FM_STALE_ESCALATE_SECS:-240}  # idle secs before a provabl
 # is crossed, busy_turn_over_age routes the pane through
 # busy_turn_bound_check, which hands a crossed bound to the same
 # STALE_ESCALATE_SECS-paced wedge_timer_check used for a provably-working
-# non-busy stale - so it escalates via the existing stale reason, escalation
-# counter, and demand-deep-inspection marker for human inspection only, never an
-# automatic interrupt, signal, or restart - unless the crew declared the wait
-# itself, which takes the long pause cadence instead. Set generously above
+# non-busy stale - so its threshold probes decide, and a pane none of them defer
+# escalates via the existing stale reason, escalation counter, and
+# demand-deep-inspection marker for human inspection only, never an automatic
+# interrupt, signal, or restart - unless the crew declared the wait itself, which
+# takes the long pause cadence instead. Set generously above
 # any legitimate interval without observable progress, including silent long
 # tool calls, builds, or test runs.
 BUSY_TURN_MAX_SECS=${FM_BUSY_TURN_MAX_SECS:-3600}
@@ -1201,22 +1204,22 @@ wait_record() {  # <kind> <subject> <whom> <action> <age-record>
 #
 # A declared clearing time that has ALREADY passed (`paused: ... until <t>`) is
 # not evidence: the wait the worker described is over, so it no longer explains
-# the silence, and the pane keeps the unchanged schedule. The records are read in
-# this order rather than pooled because the routing already guarantees it is the
-# right one: a pane whose last line is `paused:` or `captain-held:` reaches this
-# timer only through pause_state_class answering `working`, so its crew state is
-# a running step, never a parked gate.
+# the silence, and the lane continues through the remaining threshold probes. The
+# records are read in this order rather than pooled because the routing already
+# guarantees it is the right one: a pane whose last line is `paused:` or
+# `captain-held:` reaches this timer only through pause_state_class answering
+# `working`, so its crew state is a running step, never a parked gate.
 #
 # The second record is OFF unless the home creates config/wedge-defer-parked-gate,
 # and that one guard is what makes an unconfigured home's behaviour identical to
 # having no second record at all: it is read before the fold, so no fold or
 # crew-state read is spent, no wait record exists to defer on, no recheck wording
-# is reachable, and the lane keeps the unchanged escalation schedule, reason and
-# demand-deep-inspection wording. Unlike the status line, which is the worker's
-# own declaration about its own silence, this record is derived from a pipeline's
-# gate state, so which lanes lose the ladder for it is a home's choice to make
-# rather than a default every fleet inherits - the same reason
-# config/turnend-churn-absorb gates its own widened absorb.
+# is reachable, and the lane continues through the remaining threshold probes.
+# Unlike the status line, which is the worker's own declaration about its own
+# silence, this record is derived from a pipeline's gate state, so which lanes
+# lose the ladder for it is a home's choice to make rather than a default every
+# fleet inherits - the same reason config/turnend-churn-absorb gates its own
+# widened absorb.
 #
 # The second record takes TWO signals, and needs both. The crew's authoritative
 # current state must be a no-mistakes gate whose answer is owed by a HUMAN
@@ -1400,9 +1403,10 @@ clear_write_tracking() {  # <window-key>
 #
 # fm_backend_agent_state (bin/fm-backend.sh) owns the vocabulary and the
 # process-level proof behind it. Every verdict short of proof - `alive`,
-# `ambiguous`, `unreadable`, `unverified`, or a read that failed outright - keeps
-# the unchanged escalation schedule, reason and count, so this narrows WHICH panes
-# escalate and never how loudly the ones that still do.
+# `ambiguous`, `unreadable`, `unverified`, or a read that failed outright -
+# continues to the CI probe with the escalation schedule, reason and count
+# intact, so this narrows WHICH panes escalate and never how loudly the ones
+# that still do.
 #
 # Deliberately NOT a deferral like the two above it. They restart the idle timer
 # because the pane might still be working; this is terminal for as long as the

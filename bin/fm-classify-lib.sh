@@ -2560,9 +2560,9 @@ FM_WORKTREE_WRITE_MAXDEPTH=${FM_WORKTREE_WRITE_MAXDEPTH:-6}
 # root ITSELF sits on a hung network or container mount; unbounded, such a walk
 # would wedge the very supervisor that exists to notice a wedge, stalling its
 # heartbeat instead of escalating. Hitting the bound is a negative outcome like
-# every other: it reads as no evidence, so the caller's escalation schedule is
-# untouched and a stall that writes nothing still escalates on the existing
-# schedule. A value that is not a positive integer is not a bound at all (`timeout
+# every other: it reads as no evidence, so the caller continues to the endpoint
+# and CI probes before escalation, exactly as for a walk that completed and found
+# nothing. A value that is not a positive integer is not a bound at all (`timeout
 # 0` and the perl fallback's `alarm 0` both disable the deadline), so the default
 # applies instead; the check lives at the point of use so an in-process override
 # gets it too.
@@ -2578,8 +2578,8 @@ FM_WORKTREE_WRITE_TIMEOUT=${FM_WORKTREE_WRITE_TIMEOUT:-10}
 #
 # 1 for every other outcome, including an id with no recorded worktree, a worktree
 # that is gone, a missing anchor, and a walk that fails or finds nothing. Absence of
-# evidence therefore always leaves the caller's existing escalation schedule
-# untouched, so a crew that writes nothing still escalates exactly as before.
+# evidence therefore never defers by itself: the caller continues to the endpoint
+# and CI probes before escalation.
 #
 # A kind=secondmate task records a provisioned firstmate home, not a code tree, and
 # such a home runs its OWN supervision inside it: its state/ directory churns a

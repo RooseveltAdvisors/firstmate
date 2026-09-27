@@ -8,9 +8,11 @@
 # captain-relevant events plus bounded declared-wait rechecks. This is the
 # token-efficient replacement for the prior always-inject daemon: routine
 # signal/stale/heartbeat wakes cost zero firstmate context; only done/
-# needs-decision/blocked/failed/persistent-wedge/check-output events and a
-# declared-wait recheck reach the LLM, and even then as one pre-read digest per
-# batch window. That digest is byte-bounded (see escalate_flush); when it cuts
+# needs-decision/blocked/failed/persistent-wedge/check-output events, a
+# declared-wait recheck, and the stale recheck's CI deferral (`still waiting on
+# CI`, plus its once-only gone-endpoint report) reach the LLM, and even then as
+# one pre-read digest per batch window. That digest is byte-bounded (see
+# escalate_flush); when it cuts
 # or omits anything it names a state/.subsuper-digests/ file holding every
 # buffered event verbatim.
 #
@@ -50,8 +52,14 @@
 #     routine is escalated.
 #   - Bounded wedge latency: a stale pane without a declared wait is escalated
 #     only after it has been idle for STALE_ESCALATE_SECS
-#     (configurable), rechecked once. A wedged crewmate is therefore detected
-#     within STALE_ESCALATE_SECS + a tick, never lost. A declared wait - either a
+#     (configurable), rechecked once - except while the crew's no-mistakes `ci`
+#     step is active: housekeeping restarts that lane's window instead and
+#     re-surfaces it as one `still waiting on CI` recheck per
+#     PAUSE_RESURFACE_SECS, and a ci-parked lane whose endpoint is proven gone
+#     or agent-free is reported once rather than held behind the step. A wedged
+#     crewmate that is not waiting on an active `ci` step is therefore detected
+#     within STALE_ESCALATE_SECS + a tick, never lost (docs/architecture.md
+#     owns that wait-evidence contract). A declared wait - either a
 #     paused: external wait or a verified captain-held transfer, per
 #     fm-classify-lib.sh's combined predicate - instead gets its own longer
 #     PAUSE_RESURFACE_SECS recheck, never a wedge escalation, whether its pane
@@ -100,8 +108,10 @@
 #                                   disables. Use sparingly: it overrides the
 #                                   captain-relevant escalation for matching
 #                                   kinds.
-#          FM_STALE_ESCALATE_SECS   idle seconds before a stale pane escalates
-#                                   as a possible wedge (default 240)
+#          FM_STALE_ESCALATE_SECS   idle seconds before a stale pane reaches the
+#                                   wedge probes (default 240;
+#                                   docs/architecture.md owns escalation and
+#                                   deferral)
 #          FM_PAUSE_RESURFACE_SECS  seconds a declared wait stays declared,
 #                                   idle or busy, before it re-surfaces as a
 #                                   recheck (default 14400, four hours); an
