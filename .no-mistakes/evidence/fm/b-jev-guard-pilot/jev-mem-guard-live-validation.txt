@@ -1,0 +1,155 @@
+# Jev memory guard (Pattern 46) live validation transcript
+# commit: 08c41a4b4b94e3d048956493ff3c5cb7fbb9641e  base: fba81cb236e46ab78d645a3425f6b0280375eadb
+# host: Linux 6.17.0-35-generic, swap on this host is 100% used (host state deliberately NOT consulted by the test)
+
+== 1. Repo behavioral test through the documented runner: bin/fm-test-run.sh tests/fm-jev-mem-guard.test.sh ==
+Running Pattern 46 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - --check exits 0 with pass-forcing thresholds
+ok - --check exits 1 with fail-forcing thresholds
+ok - text mode runs cleanly
+ok - all Pattern 46 memory guard tests passed
+FM_TEST_END 2026-09-27T13:50:41Z tests/fm-jev-mem-guard.test.sh exit=0 duration_ms=316 gate_skip=false
+FM_TEST_SUMMARY total=1 failed=0 skipped_gate=0 duration_ms=351
+
+== 2. Text-mode audit (product default run) ==
+fm-jev-mem-guard — 2026-09-27T13:50:41Z
+  • RAM: 52.5% used (29.6 GB available / 62.35 GB total)
+  • Swap: 99.6% used (31.87 GB used / 32.0 GB total)
+  • Status: CRITICAL
+  • Recommendation: Memory or swap utilization is at or above a critical threshold; this host condition can explain worker silence while it holds.
+
+  Top 10 RSS Processes:
+    - PID 2369009 (agy): 1139.1 MB
+    - PID 1511011 (agy): 600.8 MB
+    - PID 3943219 (MainThread): 552.9 MB
+    - PID 3352278 (pi): 533.9 MB
+    - PID 3064426 (agy): 418.6 MB
+    - PID 1596280 (claude): 399.6 MB
+    - PID 3219373 (claude): 385.7 MB
+    - PID 3965341 (pi): 384.9 MB
+    - PID 4121057 (claude): 379.2 MB
+    - PID 269837 (claude): 362.8 MB
+exit=0
+
+== 3. Structured --json output ==
+keys: ['checked_at', 'name', 'reason', 'recommendation', 'status', 'summary', 'top_processes']
+status: CRITICAL | mem_used_pct: 52.5 | swap_used_pct: 99.6 | top_processes: 10
+JSON contract ok
+
+== 4. --check exit-code contract both ways ==
+pass-forcing (1000%) exit=0 (want 0)
+fail-forcing (0%) exit=1 (want exactly 1)
+stderr bytes: 0 (0 = no traceback)
+-- warning band --
+  • Swap: 99.6% used (31.87 GB used / 32.0 GB total)
+  • Status: WARNING
+warning-band --check exit=1 (want 1)
+-- default thresholds on this host (swap 100% used) --
+default --check exit=1 (host genuinely critical; test does not rely on this)
+
+== 5. Adversarial fail-open: LD_PRELOAD fault injection denies /proc/meminfo ==
+status: UNKNOWN | reason: meminfo-unavailable | mem_used_pct: None
+fail-open UNKNOWN ok, stderr bytes: 0
+UNKNOWN + fail-forcing --check exit=0 (want 0, fail-open never alarms)
+
+== 6. Adversarial non-UTF-8 stdout: PYTHONIOENCODING=ascii text mode ==
+text exit=0 stderr bytes=0 (want 0, no UnicodeEncodeError)
+  ? RAM: 52.5% used (29.6 GB available / 62.35 GB total)
+  ? Status: CRITICAL
+  ? Recommendation: Memory or swap utilization is at or above a critical threshold; this host condition can explain worker silence while it holds.
+ascii + pass-forcing --check exit=0 (want 0 - healthy host must not become a false alarm)
+
+== 7. Wrapper resolves its own dir; --help shows single-sourced defaults ==
+usage: fm-jev-mem-guard.py [-h] [--warn-mem-pct WARN_MEM_PCT]
+                           [--crit-mem-pct CRIT_MEM_PCT]
+                           [--warn-swap-pct WARN_SWAP_PCT]
+                           [--crit-swap-pct CRIT_SWAP_PCT] [--json] [--check]
+
+Jev Multi-Agent Memory RSS & Swap Thrashing Guard (Pattern 46)
+
+options:
+  -h, --help            show this help message and exit
+  --warn-mem-pct WARN_MEM_PCT
+                        Warning threshold for memory utilization % (default:
+                        90.0)
+  --crit-mem-pct CRIT_MEM_PCT
+                        Critical threshold for memory utilization % (default:
+                        95.0)
+  --warn-swap-pct WARN_SWAP_PCT
+                        Warning threshold for swap utilization % (default:
+                        85.0)
+  --crit-swap-pct CRIT_SWAP_PCT
+                        Critical threshold for swap utilization % (default:
+                        95.0)
+  --json                Emit structured JSON telemetry to stdout
+  --check               Exit 0 for OK or unknown (fail-open), exit 1 for
+                        WARNING or CRITICAL
+exit=0
+
+== 8. Bounded sub-second run ==
+run 1: 49 ms
+run 2: 52 ms
+run 3: 54 ms
+
+== 9. Read-only invariant (strace file-modifying syscalls) ==
+write-capable file opens (excluding python /dev/tty isatty probe): 0 (want 0)
+mutating syscalls: 0
+
+== 10. Recommendation is prose, never a command ==
+ok: Memory or swap utilization is at or above a critical threshold; this host condition can explain worker silence while it holds.
+
+== 11. Docs/audience consumer for docs/jev-guards.md ==
+fm-doc-audience-check: ok surfaces=117 local_links=677
+exit=0
+documentation audience test ok-lines: 4
+
+== 12. Change scope and ceiling ==
+ bin/fm-jev-mem-guard.py           | 260 ++++++++++++++++++++++++++++++++++++++
+ bin/fm-jev-mem-guard.sh           |   7 +
+ docs/documentation-audiences.json |   4 +
+ docs/jev-guards.md                |  33 +++++
+ tests/fm-jev-mem-guard.test.sh    | 101 +++++++++++++++
+ 5 files changed, 405 insertions(+)
+total added: 405 (ceiling 500 incl. tests) deleted: 0
+commits base..target: 8
+
+== Appendix: fault-injection source used for scenario 5 (compiled to /tmp/meminfo_fault.so, removed after run) ==
+#define _GNU_SOURCE
+#include <fcntl.h>
+#include <stdarg.h>
+#include <string.h>
+#include <errno.h>
+#include <dlfcn.h>
+static int is_target(const char *p){ return p && strcmp(p, "/proc/meminfo")==0; }
+int open(const char *p, int f, ...){
+  static int (*real)(const char*, int, ...)=0;
+  if(!real) real = dlsym(RTLD_NEXT, "open");
+  if(is_target(p)){ errno=EACCES; return -1; }
+  mode_t m=0; if(f & O_CREAT){ va_list a; va_start(a,f); m=va_arg(a, mode_t); va_end(a);}
+  return real(p,f,m);
+}
+int open64(const char *p, int f, ...){
+  static int (*real)(const char*, int, ...)=0;
+  if(!real) real = dlsym(RTLD_NEXT, "open64");
+  if(is_target(p)){ errno=EACCES; return -1; }
+  mode_t m=0; if(f & O_CREAT){ va_list a; va_start(a,f); m=va_arg(a, mode_t); va_end(a);}
+  return real(p,f,m);
+}
+int openat(int d, const char *p, int f, ...){
+  static int (*real)(int,const char*, int, ...)=0;
+  if(!real) real = dlsym(RTLD_NEXT, "openat");
+  if(is_target(p)){ errno=EACCES; return -1; }
+  mode_t m=0; if(f & O_CREAT){ va_list a; va_start(a,f); m=va_arg(a, mode_t); va_end(a);}
+  return real(d,p,f,m);
+}
+int openat64(int d, const char *p, int f, ...){
+  static int (*real)(int,const char*, int, ...)=0;
+  if(!real) real = dlsym(RTLD_NEXT, "openat64");
+  if(is_target(p)){ errno=EACCES; return -1; }
+  mode_t m=0; if(f & O_CREAT){ va_list a; va_start(a,f); m=va_arg(a, mode_t); va_end(a);}
+  return real(d,p,f,m);
+}
