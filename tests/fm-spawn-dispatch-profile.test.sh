@@ -1774,7 +1774,7 @@ test_isolation_seam_suppresses_spawn_sweep_in_child() {
   rec=$(make_seam_spawn_case profile-seam-off "$id")
   read_case_record "$rec"
 
-  out=$(FM_TEST_LIB_SOURCED= run_ship_spawn \
+  out=$(FM_TEST_LIB_SOURCED='' run_ship_spawn \
     "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
   status=$?
   expect_code 0 "$status" "unseamed spawn should succeed: $out"
