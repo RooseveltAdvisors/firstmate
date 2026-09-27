@@ -1,0 +1,14 @@
+$ mv data/secondmates.md aside  # a home with no seat registry at all
+alert-route:
+  status: escalate
+  owner: captain
+  source: fallback
+  reason: no seat registry at /tmp/fm-lab.RaB72E/data/secondmates.md, so no charter can be named and this must not go unattended
+exit=0
+
+=== telemetry written by these runs (coarse, no alert names, no content):
+1790484956  alert-route  status=clear     source=exact     
+1790484956  alert-route  status=clear     source=exact     
+1790484956  alert-route  status=escalate  source=fallback  reason=off
+1790484956  alert-route  status=escalate  source=fallback  reason=off
+1790484964  alert-route  status=escalate  source=fallback  reason=no_registry

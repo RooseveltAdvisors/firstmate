@@ -1,0 +1,8 @@
+=== lane inbox bytes unchanged by read (diff of md5 manifests):
+NO DIFF: every inbox record byte-identical after a full read sweep
+
+=== lane meta records unchanged:
+NO DIFF: no lane record rewritten
+
+=== files the rail itself owns (its only writes):
+-rw-------  1 jon jon  277 1790484570 .lane-liveness-lanes

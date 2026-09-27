@@ -1,0 +1,26 @@
+=== sweep 1 journal (baseline the sweep just advanced, pane unread for lane frozen):
+healthy none 1790481545 1
+stalled none 1790482145 1
+providerdead budget_exceeded 1790483845 1
+beatstale none 1790481545 0
+neveranswers none 1790481545 0
+movesundererror budget_exceeded 1790484515 1
+frozen none 1790482145 7
+gonewindow none 1790481545 0
+claims none 1790481545 0
+
+$ bin/fm-lane-liveness.sh read   # sweep 2, lane frozen still has no readable pane
+thresholds W=900s D=1800s E=600s M=50% SELF=900s
+lane=frozen source=local verdict=dead pending_count=1 handled_count=7 inbox_drain_age_s=1918 pending_reply_missed=- pending_reply_resolved=- error_signature_class=unknown watcher_beat_age_s=55 agent_status=unreadable route_evidence_count=7 drained_while_error_active=no mover=- reason=1 pending with oldest 1918s over D=1800s and no movement to handled since the last sweep
+exit=0
+
+=== sweep 2 journal:
+healthy none 1790481545 1
+stalled none 1790482145 1
+providerdead budget_exceeded 1790483845 1
+beatstale none 1790481545 0
+neveranswers none 1790481545 0
+movesundererror budget_exceeded 1790484515 1
+frozen none 1790482145 7
+gonewindow none 1790481545 0
+claims none 1790481545 0

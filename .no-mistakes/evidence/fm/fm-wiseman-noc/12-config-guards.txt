@@ -1,0 +1,31 @@
+$ bin/fm-lane-liveness.sh classes   # the vocabulary the ladder consumes from the rail
+class none matched=no
+class unknown matched=no
+class budget_exceeded matched=yes
+class rate_limited matched=yes
+class stream_disconnected matched=yes
+class transport_dead matched=yes
+exit=0
+
+=== a malformed threshold refuses with an actionable error (exit 2):
+error: response-lanes.conf line 1: W needs a whole number
+exit=2
+
+=== a lane name that is not path safe is refused:
+error: response-lanes.conf line 1: invalid lane name
+exit=2
+
+=== the shipped example config (docs/examples/response-lanes.conf) parses:
+thresholds W=900s D=1800s E=600s M=50% SELF=900s
+lane=gpu-ops source=- verdict=unknown pending_count=- handled_count=- inbox_drain_age_s=- pending_reply_missed=- pending_reply_resolved=- error_signature_class=unknown watcher_beat_age_s=- agent_status=unverified route_evidence_count=- drained_while_error_active=no mover=- reason=no lane record in this home
+lane=stack-monitor source=- verdict=unknown pending_count=- handled_count=- inbox_drain_age_s=- pending_reply_missed=- pending_reply_resolved=- error_signature_class=unknown watcher_beat_age_s=- agent_status=unverified route_evidence_count=- drained_while_error_active=no mover=- reason=no lane record in this home
+lane=monitor-sre source=- verdict=unknown pending_count=- handled_count=- inbox_drain_age_s=- pending_reply_missed=- pending_reply_resolved=- error_signature_class=unknown watcher_beat_age_s=- agent_status=unverified route_evidence_count=- drained_while_error_active=no mover=- reason=no lane record in this home
+lane=portal-ops source=- verdict=unknown pending_count=- handled_count=- inbox_drain_age_s=- pending_reply_missed=- pending_reply_resolved=- error_signature_class=unknown watcher_beat_age_s=- agent_status=unverified route_evidence_count=- drained_while_error_active=no mover=- reason=no lane record in this home
+lane=svc-ops source=- verdict=unknown pending_count=- handled_count=- inbox_drain_age_s=- pending_reply_missed=- pending_reply_resolved=- error_signature_class=unknown watcher_beat_age_s=- agent_status=unverified route_evidence_count=- drained_while_error_active=no mover=- reason=no lane record in this home
+exit=0
+
+=== an unconfigured home is inert:
+response lanes are not configured (/tmp/fm-empty-1027308/config/response-lanes.conf is absent)
+exit=0
+selfcheck exit=0 (no line: nothing to page)
+   OK: no heartbeat file created in an unconfigured home

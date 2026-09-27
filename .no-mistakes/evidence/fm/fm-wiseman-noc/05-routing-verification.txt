@@ -1,0 +1,51 @@
+# Item 2: routing-verification measurement over the durable inbox records.
+# claims lane: 001 handled (processing evidence), 002 correlated in status,
+# 003 and 004 delivered but never processed.
+
+$ bin/fm-lane-liveness.sh routes
+lane lane=healthy claims=1 routed=1 routed_unverified=0
+claim lane=stalled record=001.msg corr=- verdict=routed_unverified reason=delivered, never handled, and carries no corr token to correlate
+lane lane=stalled claims=2 routed=1 routed_unverified=1
+lane lane=providerdead claims=1 routed=1 routed_unverified=0
+lane lane=beatstale claims=0 routed=0 routed_unverified=0
+lane lane=neveranswers claims=0 routed=0 routed_unverified=0
+lane lane=movesundererror claims=1 routed=1 routed_unverified=0
+lane lane=noinbox claims=- reason=the configured inbox /tmp/fm-lab.RaB72E/state/noinbox.inbox is absent, so its depth is unread rather than zero
+claim lane=frozen record=001.msg corr=- verdict=routed_unverified reason=delivered, never handled, and carries no corr token to correlate
+lane lane=frozen claims=8 routed=7 routed_unverified=1
+claim lane=gonewindow record=001.msg corr=- verdict=routed_unverified reason=delivered, never handled, and carries no corr token to correlate
+lane lane=gonewindow claims=1 routed=0 routed_unverified=1
+claim lane=claims record=003.msg corr=ccc333 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=claims record=004.msg corr=- verdict=routed_unverified reason=delivered, never handled, and carries no corr token to correlate
+lane lane=claims claims=4 routed=2 routed_unverified=2
+lane lane=itself claims=- reason=the configured inbox /tmp/fm-lab.RaB72E/state/itself.inbox is absent, so its depth is unread rather than zero
+lane lane=bystander claims=- reason=the configured inbox /tmp/fm-lab.RaB72E/state/bystander.inbox is absent, so its depth is unread rather than zero
+claim lane=svcops record=001.msg corr=bbbb0001 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svcops record=002.msg corr=bbbb0002 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+lane lane=svcops claims=3 routed=1 routed_unverified=2
+routing-verification claims=21 routed=14 routed_unverified=7 unverified_rate=7/21 (33%)
+exit=0
+
+$ bin/fm-lane-liveness.sh routes   # reproducibility: same input, same bytes
+lane lane=healthy claims=1 routed=1 routed_unverified=0
+claim lane=stalled record=001.msg corr=- verdict=routed_unverified reason=delivered, never handled, and carries no corr token to correlate
+lane lane=stalled claims=2 routed=1 routed_unverified=1
+lane lane=providerdead claims=1 routed=1 routed_unverified=0
+lane lane=beatstale claims=0 routed=0 routed_unverified=0
+lane lane=neveranswers claims=0 routed=0 routed_unverified=0
+lane lane=movesundererror claims=1 routed=1 routed_unverified=0
+lane lane=noinbox claims=- reason=the configured inbox /tmp/fm-lab.RaB72E/state/noinbox.inbox is absent, so its depth is unread rather than zero
+claim lane=frozen record=001.msg corr=- verdict=routed_unverified reason=delivered, never handled, and carries no corr token to correlate
+lane lane=frozen claims=8 routed=7 routed_unverified=1
+claim lane=gonewindow record=001.msg corr=- verdict=routed_unverified reason=delivered, never handled, and carries no corr token to correlate
+lane lane=gonewindow claims=1 routed=0 routed_unverified=1
+claim lane=claims record=003.msg corr=ccc333 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=claims record=004.msg corr=- verdict=routed_unverified reason=delivered, never handled, and carries no corr token to correlate
+lane lane=claims claims=4 routed=2 routed_unverified=2
+lane lane=itself claims=- reason=the configured inbox /tmp/fm-lab.RaB72E/state/itself.inbox is absent, so its depth is unread rather than zero
+lane lane=bystander claims=- reason=the configured inbox /tmp/fm-lab.RaB72E/state/bystander.inbox is absent, so its depth is unread rather than zero
+claim lane=svcops record=001.msg corr=bbbb0001 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+claim lane=svcops record=002.msg corr=bbbb0002 verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+lane lane=svcops claims=3 routed=1 routed_unverified=2
+routing-verification claims=21 routed=14 routed_unverified=7 unverified_rate=7/21 (33%)
+exit=0

@@ -1,0 +1,35 @@
+1) selfcheck with no sweep ever completed:
+lane-liveness-self: the response-lane rail has never completed a sweep
+   exit=0
+
+2) a completed read leaves the heartbeat absent (only check certifies completion):
+   OK: state/.lane-liveness-beat absent after a completed read
+
+3) the completing check writes the heartbeat and reports every changed verdict once:
+lane-liveness: lane=stalled source=local verdict=dead pending_count=1 handled_count=1 inbox_drain_age_s=1973 pending_reply_missed=- pending_reply_resolved=- error_signature_class=none watcher_beat_age_s=110 agent_status=alive route_evidence_count=1 drained_while_error_active=no mover=- reason=1 pending with oldest 1973s over D=1800s and no movement to handled since the last sweep
+lane-liveness: lane=providerdead source=local verdict=dead pending_count=0 handled_count=1 inbox_drain_age_s=- pending_reply_missed=- pending_reply_resolved=- error_signature_class=budget_exceeded watcher_beat_age_s=110 agent_status=alive route_evidence_count=1 drained_while_error_active=no mover=- reason=budget_exceeded sustained 813s over E=600s
+lane-liveness: lane=beatstale source=local verdict=dead pending_count=0 handled_count=0 inbox_drain_age_s=- pending_reply_missed=- pending_reply_resolved=- error_signature_class=none watcher_beat_age_s=4113 agent_status=alive route_evidence_count=0 drained_while_error_active=no mover=- reason=supervision beat age 4113s over W=900s
+lane-liveness: lane=neveranswers source=local verdict=degraded pending_count=0 handled_count=0 inbox_drain_age_s=- pending_reply_missed=5 pending_reply_resolved=1 error_signature_class=none watcher_beat_age_s=110 agent_status=alive route_evidence_count=0 drained_while_error_active=no mover=- reason=83% of tracked requests unanswered (5 of 6), over M=50%
+lane-liveness: lane=noinbox source=local verdict=unknown pending_count=- handled_count=- inbox_drain_age_s=- pending_reply_missed=- pending_reply_resolved=- error_signature_class=unknown watcher_beat_age_s=110 agent_status=unverified route_evidence_count=- drained_while_error_active=no mover=- reason=the configured inbox /tmp/fm-lab.RaB72E/state/noinbox.inbox is absent, so its depth is unread rather than zero
+lane-liveness: lane=frozen source=local verdict=dead pending_count=1 handled_count=7 inbox_drain_age_s=1973 pending_reply_missed=- pending_reply_resolved=- error_signature_class=unknown watcher_beat_age_s=110 agent_status=unreadable route_evidence_count=7 drained_while_error_active=no mover=- reason=1 pending with oldest 1973s over D=1800s and no movement to handled since the last sweep
+lane-liveness: lane=gonewindow source=local verdict=dead pending_count=1 handled_count=0 inbox_drain_age_s=1973 pending_reply_missed=- pending_reply_resolved=- error_signature_class=unknown watcher_beat_age_s=110 agent_status=missing route_evidence_count=0 drained_while_error_active=no mover=- reason=1 pending with oldest 1973s over D=1800s and no movement to handled since the last sweep
+lane-liveness: lane=itself source=local verdict=unknown pending_count=- handled_count=- inbox_drain_age_s=- pending_reply_missed=- pending_reply_resolved=- error_signature_class=unknown watcher_beat_age_s=- agent_status=unverified route_evidence_count=- drained_while_error_active=no mover=- reason=the configured inbox /tmp/fm-lab.RaB72E/state/itself.inbox is absent, so its depth is unread rather than zero
+lane-liveness: lane=bystander source=local verdict=unknown pending_count=- handled_count=- inbox_drain_age_s=- pending_reply_missed=- pending_reply_resolved=- error_signature_class=unknown watcher_beat_age_s=- agent_status=unverified route_evidence_count=- drained_while_error_active=no mover=- reason=the configured inbox /tmp/fm-lab.RaB72E/state/bystander.inbox is absent, so its depth is unread rather than zero
+lane-liveness: lane=svcops source=remote:localhost verdict=dead pending_count=2 handled_count=1 inbox_drain_age_s=2113 pending_reply_missed=- pending_reply_resolved=- error_signature_class=unknown watcher_beat_age_s=110 agent_status=unverified route_evidence_count=1 drained_while_error_active=no mover=- reason=2 pending with oldest 2113s over D=1800s and no movement to handled since the last sweep
+   exit=0
+   OK: beat present, mtime=2026-09-27 00:51:07.735946613 -0400
+
+4) a second check on unchanged verdicts is silent:
+   OK: no repeat report (verdict-change suppression)
+
+5) a beat staled past SELF pages:
+lane-liveness-self: no response-lane sweep completed for 960s, over SELF=900s
+   exit=0
+
+6) a completed read between sweeps does NOT refresh the beat (rail silence stays visible):
+lane-liveness-self: no response-lane sweep completed for 969s, over SELF=900s
+   exit=0
+   beat mtime after read: 2026-09-27 00:35:18.000000000 -0400
+
+7) the next completing check refreshes the beat and selfcheck goes silent:
+   OK: silent after a fresh completed sweep

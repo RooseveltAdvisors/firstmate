@@ -1,0 +1,271 @@
+lab home: /tmp/fm-lab.FIuUxe
+/tmp/fm-lab.FIuUxe
+
+===== setup: the lab tmux server really hosts the lane windows
+stalebeat
+freshbeat
+stalled
+router
+--- pane of sess:stalled (readable pane: an interactive shell prompt)
+01M3G30814BNJEZTBE1P25ZC4J ➜
+
+
+--- pane of sess:stalled via bin/fm-peek.sh (the rail pane reader)
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  4 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e /home/jon/.no-mistakes/worktrees/46339c0817e0/01M3G30814BNJEZTBE1P25ZC4J/.pi/extensions/fm-primary-turnend-guard.ts -e /home/jon/.no-mistakes/worktrees/46339c0817e0/01M3G30814BNJEZTBE1P25ZC4J/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+01M3G30814BNJEZTBE1P25ZC4J ➜
+
+
+########## Scenario: heartbeat is written only by check ##########
+
+===== selfcheck before any sweep
+$ FM_HOME=<lab> TMUX_TMPDIR=<lab>/tmux bin/fm-lane-liveness.sh selfcheck
+lane-liveness-self: the response-lane rail has never completed a sweep
+(exit 0)
+ASSERT PASS: a configured rail with no completed sweep reports it (selfcheck)
+
+===== read sweep 1
+$ FM_HOME=<lab> TMUX_TMPDIR=<lab>/tmux bin/fm-lane-liveness.sh read
+thresholds W=900s D=1800s E=600s M=50% SELF=900s
+lane=stalebeat source=local verdict=dead pending_count=0 handled_count=0 inbox_drain_age_s=- pending_reply_missed=- pending_reply_resolved=- error_signature_class=unknown watcher_beat_age_s=4003 agent_status=ambiguous route_evidence_count=0 drained_while_error_active=no mover=- reason=supervision beat age 4003s over W=900s
+lane=freshbeat source=local verdict=alive pending_count=0 handled_count=0 inbox_drain_age_s=- pending_reply_missed=- pending_reply_resolved=- error_signature_class=unknown watcher_beat_age_s=3 agent_status=ambiguous route_evidence_count=0 drained_while_error_active=no mover=-
+lane=stalled source=local verdict=dead pending_count=1 handled_count=5 inbox_drain_age_s=4003 pending_reply_missed=- pending_reply_resolved=- error_signature_class=none watcher_beat_age_s=3 agent_status=dead route_evidence_count=5 drained_while_error_active=no mover=- reason=1 pending with oldest 4003s over D=1800s and no movement to handled since the last sweep
+lane=router source=local verdict=alive pending_count=2 handled_count=1 inbox_drain_age_s=3 pending_reply_missed=0 pending_reply_resolved=0 error_signature_class=unknown watcher_beat_age_s=3 agent_status=ambiguous route_evidence_count=2 drained_while_error_active=no mover=-
+(exit 0)
+ASSERT PASS: a completed read does NOT write the heartbeat
+ASSERT PASS: selfcheck still reports no sweep after a completed read (read does not mask silence)
+
+===== check sweep
+$ FM_HOME=<lab> TMUX_TMPDIR=<lab>/tmux bin/fm-lane-liveness.sh check
+lane-liveness: lane=stalebeat source=local verdict=dead pending_count=0 handled_count=0 inbox_drain_age_s=- pending_reply_missed=- pending_reply_resolved=- error_signature_class=unknown watcher_beat_age_s=4008 agent_status=ambiguous route_evidence_count=0 drained_while_error_active=no mover=- reason=supervision beat age 4008s over W=900s
+lane-liveness: lane=stalled source=local verdict=dead pending_count=1 handled_count=5 inbox_drain_age_s=4008 pending_reply_missed=- pending_reply_resolved=- error_signature_class=none watcher_beat_age_s=8 agent_status=dead route_evidence_count=5 drained_while_error_active=no mover=- reason=1 pending with oldest 4008s over D=1800s and no movement to handled since the last sweep
+(exit 0)
+ASSERT PASS: a completed check writes the heartbeat
+ASSERT PASS: selfcheck goes silent once check has written the heartbeat
+
+===== selfcheck with a stale heartbeat
+$ FM_HOME=<lab> TMUX_TMPDIR=<lab>/tmux bin/fm-lane-liveness.sh selfcheck
+lane-liveness-self: no response-lane sweep completed for 960s, over SELF=900s
+(exit 0)
+ASSERT PASS: a heartbeat older than SELF=900s is reported as rail silence
+ASSERT PASS: read leaves the stale heartbeat untouched (it is check's completion signal)
+ASSERT PASS: rail silence is still reported after another completed read (no masking)
+
+########## Scenario: rail read emits the section-2 reading ##########
+stalebeat row: lane=stalebeat source=local verdict=dead pending_count=0 handled_count=0 inbox_drain_age_s=- pending_reply_missed=- pending_reply_resolved=- error_signature_class=unknown watcher_beat_age_s=4003 agent_status=ambiguous route_evidence_count=0 drained_while_error_active=no mover=- reason=supervision beat age 4003s over W=900s
+ASSERT PASS: stalebeat (beat 4000s old) reads verdict=dead
+ASSERT PASS: the dead verdict names the stale supervision beat and the W threshold
+freshbeat row: lane=freshbeat source=local verdict=alive pending_count=0 handled_count=0 inbox_drain_age_s=- pending_reply_missed=- pending_reply_resolved=- error_signature_class=unknown watcher_beat_age_s=3 agent_status=ambiguous route_evidence_count=0 drained_while_error_active=no mover=-
+ASSERT PASS: freshbeat (fresh beat, drained inbox) reads verdict=alive
+ASSERT PASS: every lane line carries the section-2 field inbox_drain_age_s
+ASSERT PASS: every lane line carries the section-2 field pending_count
+ASSERT PASS: every lane line carries the section-2 field handled_count
+ASSERT PASS: every lane line carries the section-2 field pending_reply_missed
+ASSERT PASS: every lane line carries the section-2 field pending_reply_resolved
+ASSERT PASS: every lane line carries the section-2 field error_signature_class
+ASSERT PASS: every lane line carries the section-2 field watcher_beat_age_s
+ASSERT PASS: every lane line carries the section-2 field agent_status
+ASSERT PASS: every lane line carries the section-2 field route_evidence_count
+ASSERT PASS: stalebeat probe reports the real ambiguous tmux endpoint state
+ASSERT PASS: the sweep 1 journal recorded the pane-read class and handled baseline
+journal after sweep 1: stalled none 1790488483 5
+
+########## Scenario: unread pane cannot let a stalled lane read alive ##########
+--- pane of sess:stalled after the transition (blank => error class unknown)
+0000000  \n  \n  \n
+0000003
+
+===== read sweep 2 (pane now unreadable, handled moved 5 -> 7)
+$ FM_HOME=<lab> TMUX_TMPDIR=<lab>/tmux bin/fm-lane-liveness.sh read
+thresholds W=900s D=1800s E=600s M=50% SELF=900s
+lane=stalebeat source=local verdict=dead pending_count=0 handled_count=0 inbox_drain_age_s=- pending_reply_missed=- pending_reply_resolved=- error_signature_class=unknown watcher_beat_age_s=4020 agent_status=ambiguous route_evidence_count=0 drained_while_error_active=no mover=- reason=supervision beat age 4020s over W=900s
+lane=freshbeat source=local verdict=alive pending_count=0 handled_count=0 inbox_drain_age_s=- pending_reply_missed=- pending_reply_resolved=- error_signature_class=unknown watcher_beat_age_s=0 agent_status=ambiguous route_evidence_count=0 drained_while_error_active=no mover=-
+lane=stalled source=local verdict=alive pending_count=1 handled_count=7 inbox_drain_age_s=4020 pending_reply_missed=- pending_reply_resolved=- error_signature_class=unknown watcher_beat_age_s=0 agent_status=ambiguous route_evidence_count=7 drained_while_error_active=no mover=-
+lane=router source=local verdict=alive pending_count=2 handled_count=1 inbox_drain_age_s=20 pending_reply_missed=0 pending_reply_resolved=0 error_signature_class=unknown watcher_beat_age_s=0 agent_status=ambiguous route_evidence_count=2 drained_while_error_active=no mover=-
+(exit 0)
+ASSERT PASS: sweep 2 advanced the handled baseline to 7 even though the pane was unread
+journal after sweep 2: stalled none 1790488483 7
+stalled row (sweep 2): lane=stalled source=local verdict=alive pending_count=1 handled_count=7 inbox_drain_age_s=4020 pending_reply_missed=- pending_reply_resolved=- error_signature_class=unknown watcher_beat_age_s=0 agent_status=ambiguous route_evidence_count=7 drained_while_error_active=no mover=-
+
+===== read sweep 3 (pane still unreadable, pending still over D, nothing moved)
+$ FM_HOME=<lab> TMUX_TMPDIR=<lab>/tmux bin/fm-lane-liveness.sh read
+thresholds W=900s D=1800s E=600s M=50% SELF=900s
+lane=stalebeat source=local verdict=dead pending_count=0 handled_count=0 inbox_drain_age_s=- pending_reply_missed=- pending_reply_resolved=- error_signature_class=unknown watcher_beat_age_s=4025 agent_status=ambiguous route_evidence_count=0 drained_while_error_active=no mover=- reason=supervision beat age 4025s over W=900s
+lane=freshbeat source=local verdict=alive pending_count=0 handled_count=0 inbox_drain_age_s=- pending_reply_missed=- pending_reply_resolved=- error_signature_class=unknown watcher_beat_age_s=0 agent_status=ambiguous route_evidence_count=0 drained_while_error_active=no mover=-
+lane=stalled source=local verdict=dead pending_count=1 handled_count=7 inbox_drain_age_s=4025 pending_reply_missed=- pending_reply_resolved=- error_signature_class=unknown watcher_beat_age_s=0 agent_status=ambiguous route_evidence_count=7 drained_while_error_active=no mover=- reason=1 pending with oldest 4025s over D=1800s and no movement to handled since the last sweep
+lane=router source=local verdict=alive pending_count=2 handled_count=1 inbox_drain_age_s=25 pending_reply_missed=0 pending_reply_resolved=0 error_signature_class=unknown watcher_beat_age_s=0 agent_status=ambiguous route_evidence_count=2 drained_while_error_active=no mover=-
+(exit 0)
+stalled row (sweep 3): lane=stalled source=local verdict=dead pending_count=1 handled_count=7 inbox_drain_age_s=4025 pending_reply_missed=- pending_reply_resolved=- error_signature_class=unknown watcher_beat_age_s=0 agent_status=ambiguous route_evidence_count=7 drained_while_error_active=no mover=- reason=1 pending with oldest 4025s over D=1800s and no movement to handled since the last sweep
+ASSERT PASS: a stalled lane with an unreadable pane reads verdict=dead, never alive
+ASSERT PASS: the dead verdict comes from the movement rule (no movement to handled)
+
+########## Scenario: escalate_captain names the stale beat as evidence ##########
+
+===== ladder plan
+$ FM_HOME=<lab> TMUX_TMPDIR=<lab>/tmux bin/fm-lane-recover.sh plan
+recovery=off ceiling=2 cooldown=3600s mode=dry-run
+lane=stalebeat verdict=dead rung=escalate_captain action=would-park reason=rail verdict dead with no provider fault and an endpoint this ladder may not relaunch (state ambiguous): existing endpoint has ambiguous agent process (backend=tmux); supervision beat age 4030s is the evidence, and rearming another home's watcher has no scriptable primitive (fm_watch_arm_pi and fm_watch_arm_omp are in-harness tools of that home), so this escalates rather than pretending to repair it
+lane=freshbeat verdict=alive rung=none action=nothing reason=lane is alive, so the ladder has nothing to do
+lane=stalled verdict=dead rung=escalate_captain action=would-park reason=rail verdict dead with no provider fault and an endpoint this ladder may not relaunch (state ambiguous): existing endpoint has ambiguous agent process (backend=tmux); supervision beat age 5s is the evidence, and rearming another home's watcher has no scriptable primitive (fm_watch_arm_pi and fm_watch_arm_omp are in-harness tools of that home), so this escalates rather than pretending to repair it
+lane=router verdict=alive rung=none action=nothing reason=lane is alive, so the ladder has nothing to do
+(exit 0)
+stalebeat escalation row:
+lane=stalebeat verdict=dead rung=escalate_captain action=would-park reason=rail verdict dead with no provider fault and an endpoint this ladder may not relaunch (state ambiguous): existing endpoint has ambiguous agent process (backend=tmux); supervision beat age 4030s is the evidence, and rearming another home's watcher has no scriptable primitive (fm_watch_arm_pi and fm_watch_arm_omp are in-harness tools of that home), so this escalates rather than pretending to repair it
+ASSERT PASS: the plan banner labels the sweep a dry run
+ASSERT PASS: the stale-beat lane escalates rather than reporting nothing to do
+ASSERT PASS: the escalation reason names the supervision beat age
+ASSERT PASS: the escalation reason says the beat age IS THE EVIDENCE
+ASSERT PASS: the escalation carries the live probe state of the endpoint
+
+########## Scenario: RECOVERY=off refuses to act ##########
+
+===== ladder run with RECOVERY=off
+$ FM_HOME=<lab> TMUX_TMPDIR=<lab>/tmux bin/fm-lane-recover.sh run
+refusing to act: RECOVERY=off in /tmp/fm-lab.FIuUxe/config/response-lanes.conf. The ladder acts only at RECOVERY=acting; this is the off-switch.
+Printing the plan instead, which changes nothing.
+recovery=off ceiling=2 cooldown=3600s mode=dry-run
+lane=stalebeat verdict=dead rung=escalate_captain action=would-park reason=rail verdict dead with no provider fault and an endpoint this ladder may not relaunch (state ambiguous): existing endpoint has ambiguous agent process (backend=tmux); supervision beat age 4036s is the evidence, and rearming another home's watcher has no scriptable primitive (fm_watch_arm_pi and fm_watch_arm_omp are in-harness tools of that home), so this escalates rather than pretending to repair it
+lane=freshbeat verdict=alive rung=none action=nothing reason=lane is alive, so the ladder has nothing to do
+lane=stalled verdict=dead rung=escalate_captain action=would-park reason=rail verdict dead with no provider fault and an endpoint this ladder may not relaunch (state ambiguous): existing endpoint has ambiguous agent process (backend=tmux); supervision beat age 11s is the evidence, and rearming another home's watcher has no scriptable primitive (fm_watch_arm_pi and fm_watch_arm_omp are in-harness tools of that home), so this escalates rather than pretending to repair it
+lane=router verdict=alive rung=none action=nothing reason=lane is alive, so the ladder has nothing to do
+(exit 0)
+ASSERT PASS: run refuses while the off-switch is off
+ASSERT PASS: a refused run degrades to printing the plan
+ASSERT PASS: a refused run wrote no ladder log
+ASSERT PASS: a refused run consumed no relaunch budget
+state dir after the refused run:
+freshbeat.inbox
+freshbeat.meta
+.guard-watcher-stale-banner
+.lane-liveness-beat
+.lane-liveness-lanes
+.lane-liveness-reported
+router.inbox
+router.meta
+router.status
+stalebeat.inbox
+stalebeat.meta
+stalled.inbox
+stalled.meta
+
+########## Scenario: routing verification (item 2) ##########
+
+===== rail routes
+$ FM_HOME=<lab> TMUX_TMPDIR=<lab>/tmux bin/fm-lane-liveness.sh routes
+lane lane=stalebeat claims=0 routed=0 routed_unverified=0
+lane lane=freshbeat claims=0 routed=0 routed_unverified=0
+claim lane=stalled record=001.msg corr=- verdict=routed_unverified reason=delivered, never handled, and carries no corr token to correlate
+lane lane=stalled claims=8 routed=7 routed_unverified=1
+claim lane=router record=003.msg corr=deadbeefdeadbeef verdict=routed_unverified reason=delivered and never handled, and no status line carries its corr token
+lane lane=router claims=3 routed=2 routed_unverified=1
+routing-verification claims=11 routed=9 routed_unverified=2 unverified_rate=2/11 (18%)
+(exit 0)
+ASSERT PASS: the router lane reports 3 claims: 2 routed, 1 routed_unverified
+ASSERT PASS: the sweep-wide measurement reports the routed_unverified rate
+ASSERT PASS: the unverified claim is named with its record and corr token
+
+########## Scenario: remote lane inbox read over the sanctioned ssh path ##########
+ASSERT PASS: no local svc-ops.inbox exists in the lab (a local reading would be meaningless)
+remote inbox facts (direct readdir over ssh) before the rail read: pending=81 handled=0
+
+thresholds W=900s D=1800s E=600s M=50% SELF=900s
+lane=svc-ops source=remote:svc verdict=dead pending_count=81 handled_count=0 inbox_drain_age_s=1170147 pending_reply_missed=- pending_reply_resolved=- error_signature_class=unknown watcher_beat_age_s=- agent_status=unverified route_evidence_count=0 drained_while_error_active=no mover=- reason=the supervision beat is unestablished (watcher_beat_age_s=-), and an unknown reading is never a fresh beat
+remote inbox facts after the rail read: pending=81 handled=0
+svc-ops remote row:
+lane=svc-ops source=remote:svc verdict=dead pending_count=81 handled_count=0 inbox_drain_age_s=1170147 pending_reply_missed=- pending_reply_resolved=- error_signature_class=unknown watcher_beat_age_s=- agent_status=unverified route_evidence_count=0 drained_while_error_active=no mover=- reason=the supervision beat is unestablished (watcher_beat_age_s=-), and an unknown reading is never a fresh beat
+ASSERT PASS: the remote lane is read over ssh, not from a local inbox
+ASSERT PASS: the rail's pending depth is bracketed by two direct remote counts (81 <= 81 <= 81)
+ASSERT PASS: the rail's handled depth is bracketed by two direct remote counts (0 <= 0 <= 0)
+ASSERT PASS: the remote reading is a real non-zero backlog, not a false zero (81 >= 75)
+ASSERT PASS: the remote lane reaches a real verdict, not unknown (verdict=dead)
+ASSERT PASS: the remote verdict names the unestablished supervision beat it found
+
+########## Scenario: Jev alert routing and seat-state advice ##########
+
+===== alert-route with an exact namespace match
+$ FM_HOME=<lab> TMUX_TMPDIR=<lab>/tmux bin/fm-alert-route.sh monitor.public_url
+alert-route:
+  status: clear
+  owner: monitor-sre
+  source: exact
+(exit 0)
+ASSERT PASS: an exactly matched alert routes clear with no model call
+ASSERT PASS: the exact match names the owning charter
+ASSERT PASS: the exact answer is attributed to exact matching
+
+===== alert-route with an unplaceable alert and no model key
+$ FM_HOME=<lab> TMUX_TMPDIR=<lab>/tmux bin/fm-alert-route.sh zzz.nobody.cares
+alert-route: off (TYPESAFE_API_KEY absent from the environment and /tmp/fm-lab.FIuUxe/.env)
+alert-route:
+  status: escalate
+  owner: captain
+  source: fallback
+  reason: no charter matched by name and the model half is off, so this escalates rather than going unattended
+(exit 0)
+ASSERT PASS: an unowned alert escalates instead of being dropped (fail open toward paging)
+ASSERT PASS: the escalation names the fallback owner
+
+===== seat-state-advise on an ambiguous endpoint with no model key
+$ FM_HOME=<lab> TMUX_TMPDIR=<lab>/tmux bin/fm-seat-state-advise.sh freshbeat
+seat-state-advise: off (TYPESAFE_API_KEY absent from the environment and /tmp/fm-lab.FIuUxe/.env)
+seat-state-advise:
+  status: unavailable
+  advice: healthy_idle
+  probe: ambiguous
+  source: fail-open
+  reason: the model half is off, and an unclassifiable endpoint is left alone rather than guessed at
+  authority: advisory only; never authorizes a relaunch
+(exit 0)
+ASSERT PASS: an inconclusive endpoint with the model off fails open toward waiting
+ASSERT PASS: the advice declares its source fail-open
+ASSERT PASS: the advice is advisory only
+
+########## Scenario: arm/disarm wires the heartbeat and silence shims ##########
+
+===== rail arm
+$ FM_HOME=<lab> TMUX_TMPDIR=<lab>/tmux bin/fm-lane-liveness.sh arm
+armed: state/lane-liveness.check.sh state/lane-liveness-self.check.sh
+(exit 0)
+ASSERT PASS: arm registers the verdict-change check shim
+ASSERT PASS: arm registers the rail-silence check shim
+
+--- running the registered rail-silence shim while the heartbeat is stale
+lane-liveness-self: no response-lane sweep completed for 993s, over SELF=900s
+ASSERT PASS: the registered silence shim pages while the heartbeat is stale
+
+--- running the registered verdict-change shim (completes a sweep)
+
+ASSERT PASS: the registered check shim completes a sweep and advances the heartbeat
+ASSERT PASS: the silence shim goes quiet once the check shim has beaten
+
+===== rail disarm
+$ FM_HOME=<lab> TMUX_TMPDIR=<lab>/tmux bin/fm-lane-liveness.sh disarm
+disarmed: lane-liveness lane-liveness-self
+(exit 0)
+ASSERT PASS: disarm retires the verdict-change shim
+ASSERT PASS: disarm retires the rail-silence shim
+
+===== teardown
+lab home contents before removal:
+.alert-route-telemetry
+freshbeat.inbox
+freshbeat.meta
+.guard-watcher-stale-banner
+router.inbox
+router.meta
+router.status
+.seat-state-advise-telemetry
+stalebeat.inbox
+stalebeat.meta
+stalled.inbox
+stalled.meta
+lab home removed: /tmp/fm-lab.FIuUxe
+remote-lane lab home removed: /tmp/fm-lab.wMtb9H
+
+ASSERTIONS: total=59 fail=0

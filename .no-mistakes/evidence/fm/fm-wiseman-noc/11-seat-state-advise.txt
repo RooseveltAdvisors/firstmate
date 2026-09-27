@@ -1,0 +1,42 @@
+# item (b): is an inconclusive seat waiting, or wedged?
+
+$ bin/fm-seat-state-advise.sh healthy    # conclusive probe: no model call, no 'off' notice
+seat-state-advise:
+  status: clear
+  advice: healthy_idle
+  probe: alive
+  source: deterministic
+  authority: advisory only; never authorizes a relaunch
+exit=0
+
+$ bin/fm-seat-state-advise.sh itself     # endpoint not recorded: conclusive for provisioning
+seat-state-advise:
+  status: clear
+  advice: healthy_idle
+  probe: silent
+  source: deterministic
+  note: the record names no endpoint, which provisioning owns rather than liveness
+  authority: advisory only; never authorizes a relaunch
+exit=0
+
+$ bin/fm-seat-state-advise.sh ambi       # probe inconclusive, model half off: fail-open toward waiting
+seat-state-advise: off (TYPESAFE_API_KEY absent from the environment and /tmp/fm-lab.RaB72E/.env)
+seat-state-advise:
+  status: unavailable
+  advice: healthy_idle
+  probe: ambiguous
+  source: fail-open
+  reason: the model half is off, and an unclassifiable endpoint is left alone rather than guessed at
+  authority: advisory only; never authorizes a relaunch
+exit=0
+
+$ bin/fm-seat-state-advise.sh nosuchseat # usage errors are the only non-zero exit
+error: no record for seat nosuchseat in this home
+exit=2
+error: fm-seat-state-advise.sh needs a seat id
+exit=2
+
+=== telemetry from these runs:
+1790484973  seat-state-advise  status=clear        source=deterministic  probe=alive      
+1790484973  seat-state-advise  status=clear        source=deterministic  probe=silent     
+1790484973  seat-state-advise  status=unavailable  source=fail-open      probe=ambiguous  reason=off

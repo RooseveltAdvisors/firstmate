@@ -1,0 +1,16 @@
+$ FM_HOME=/tmp/fm-lab.RaB72E bin/fm-lane-recover.sh plan    # dry run: changes nothing
+recovery=off ceiling=2 cooldown=3600s mode=dry-run
+lane=healthy verdict=alive rung=none action=nothing reason=lane is alive, so the ladder has nothing to do
+lane=stalled verdict=dead rung=redispatch action=would-run cmd=re-send 1 unclaimed work order(s) once with fresh correlation ids through bin/fm-send.sh reason=endpoint probes alive again and the lane still holds 1 unclaimed work order(s), so rung 3 re-sends them once before the escalation this lane was headed for
+lane=providerdead verdict=dead rung=switch_model_or_harness action=would-run cmd=fm-control.sh providerdead relaunch --model glm-5.3-flash reason=rail matched provider error class budget_exceeded, so the provider is the suspect (endpoint alive, switch attempt 1 of 1) note=endpoint is alive, so persist is attempted for 30s first and persist_impossible is recorded on timeout
+lane=beatstale verdict=dead rung=escalate_captain action=would-park reason=rail verdict dead with no provider fault and an endpoint this ladder may not relaunch (state alive): no relaunch authority; supervision beat age 4276s is the evidence, and rearming another home's watcher has no scriptable primitive (fm_watch_arm_pi and fm_watch_arm_omp are in-harness tools of that home), so this escalates rather than pretending to repair it
+lane=neveranswers verdict=degraded rung=escalate_captain action=would-park reason=rail verdict degraded with no provider fault and an endpoint this ladder may not relaunch (state alive): no relaunch authority; supervision beat age 273s is the evidence, and rearming another home's watcher has no scriptable primitive (fm_watch_arm_pi and fm_watch_arm_omp are in-harness tools of that home), so this escalates rather than pretending to repair it
+lane=movesundererror verdict=alive rung=none action=nothing reason=lane is alive, so the ladder has nothing to do
+lane=noinbox verdict=unknown rung=none action=nothing reason=the rail could not read this lane, and unread is not dead
+lane=frozen verdict=dead rung=refused action=nothing reason=record names no endpoint, which secondmate provisioning owns rather than the ladder
+lane=gonewindow verdict=dead rung=restart_lane_agent action=would-run cmd=fm_secondmate_liveness_relaunch gonewindow reason=endpoint is missing (recorded endpoint confidently missing), attempt 1 of 2
+lane=claims verdict=alive rung=none action=nothing reason=lane is alive, so the ladder has nothing to do
+lane=itself verdict=unknown rung=refused action=nothing reason=target resolves to THE-FM itself, which the ladder never restarts or recreates
+lane=bystander verdict=unknown rung=refused action=nothing reason=record is kind=firstmate rather than a response lane
+lane=svcops verdict=dead rung=escalate_captain action=would-park reason=rail verdict dead with no provider fault and an endpoint this ladder may not relaunch (state unknown): remote endpoint probe unreadable on localhost; supervision beat age 273s is the evidence, and rearming another home's watcher has no scriptable primitive (fm_watch_arm_pi and fm_watch_arm_omp are in-harness tools of that home), so this escalates rather than pretending to repair it
+exit=0

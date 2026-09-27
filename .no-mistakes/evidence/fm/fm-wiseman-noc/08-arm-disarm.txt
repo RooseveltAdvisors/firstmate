@@ -1,0 +1,23 @@
+$ bin/fm-lane-liveness.sh arm     # write and register both watcher check shims
+armed: state/lane-liveness.check.sh state/lane-liveness-self.check.sh
+exit=0
+-rwx------ 1 jon jon  234 Sep 27 00:55 lane-liveness.check.sh
+-rw------- 1 jon jon   84 Sep 27 00:55 lane-liveness.check-trust
+-rwx------ 1 jon jon  238 Sep 27 00:55 lane-liveness-self.check.sh
+-rw------- 1 jon jon   84 Sep 27 00:55 lane-liveness-self.check-trust
+
+=== watcher runs the registered check shim (as the watcher cycle would):
+exit=0
+   OK: check shim wrote the heartbeat (2026-09-27 00:55:10.556445505 -0400)
+
+=== rail silence: stale the beat, the self-check shim must page:
+lane-liveness-self: no response-lane sweep completed for 960s, over SELF=900s
+exit=0
+
+=== the completing check shim clears the silence:
+   self-check exit=0 (silent, no line above)
+
+$ bin/fm-lane-liveness.sh disarm   # retire both shims and their records
+disarmed: lane-liveness lane-liveness-self
+exit=0
+   OK: beat/journal/reported records removed

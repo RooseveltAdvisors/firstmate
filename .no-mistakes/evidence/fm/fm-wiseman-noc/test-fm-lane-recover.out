@@ -1,0 +1,1 @@
+ok - fm-lane-recover.sh: refusals, rung ordering that does not short-circuit on probe liveness, no silent no-op on a dead lane, and a planning mode that changes nothing

@@ -1,0 +1,37 @@
+# item (a): which seat charter owns an unowned alert
+
+$ bin/fm-alert-route.sh monitor.public_url    # exact namespace match
+alert-route:
+  status: clear
+  owner: monitor-sre
+  source: exact
+exit=0
+
+$ bin/fm-alert-route.sh gpu.repo_drift        # the design's own example alert
+alert-route:
+  status: clear
+  owner: gpu-ops
+  source: exact
+exit=0
+
+$ bin/fm-alert-route.sh net.link_down         # two seats contest the namespace; model half is off
+alert-route: off (TYPESAFE_API_KEY absent from the environment and /tmp/fm-lab.RaB72E/.env)
+alert-route:
+  status: escalate
+  owner: captain
+  source: fallback
+  reason: no charter matched by name and the model half is off, so this escalates rather than going unattended
+exit=0
+
+$ bin/fm-alert-route.sh volume.quota_alert    # no charter claims it; model half is off
+alert-route: off (TYPESAFE_API_KEY absent from the environment and /tmp/fm-lab.RaB72E/.env)
+alert-route:
+  status: escalate
+  owner: captain
+  source: fallback
+  reason: no charter matched by name and the model half is off, so this escalates rather than going unattended
+exit=0
+
+$ bin/fm-alert-route.sh 'bad name!'           # usage error, the one non-zero exit
+error: alert name has characters an alert name does not carry
+exit=2

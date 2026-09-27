@@ -1,0 +1,17 @@
+=== committed behavior tests for this change (drive the real scripts end to end):
+ok - fm-lane-liveness.sh: liveness verdicts, the drained-while-error rule, routing verification, and rail self-reporting
+ok - fm-lane-recover.sh: refusals, rung ordering that does not short-circuit on probe liveness, no silent no-op on a dead lane, and a planning mode that changes nothing
+ok - fm-jev-family: deterministic first, no call when off, key off argv, fail-open in each tool own safe direction, bounded calibration, and no relaunch authority
+
+=== files this change touches (nothing outside the intended surface):
+bin/fm-alert-route.sh
+bin/fm-jev-lib.sh
+bin/fm-lane-liveness.sh
+bin/fm-lane-recover.sh
+bin/fm-seat-state-advise.sh
+docs/configuration.md
+docs/documentation-audiences.json
+docs/examples/response-lanes.conf
+tests/fm-jev-family.test.sh
+tests/fm-lane-liveness.test.sh
+tests/fm-lane-recover.test.sh
