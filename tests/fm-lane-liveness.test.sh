@@ -336,6 +336,45 @@ OUT=$(rail "$ROOT_J" read)
 assert_equals dead "$(verdict_of "$OUT" flaky)" \
   'an unreadable pane did not end the error, so the sustained clock survives it'
 
+# --- an unreadable pane cannot freeze the movement baseline ------------------
+# The handled column of the journal is an inbox fact, so it advances even while
+# the pane cannot be read. A baseline frozen behind a failed pane capture would
+# keep the movement rule seeing movement forever and let a stalled lane read
+# alive, which is the direction detection must never fail in.
+ROOT_F=$(home_fixture frozenpane)
+lane_fixture "$ROOT_F" stalled
+conf_add "$ROOT_F" 'lane stalled'
+for i in 1 2 3 4 5 6 7; do
+  printf 'x\n' > "$ROOT_F/state/stalled.inbox/handled/$i.msg"
+done
+printf 'x\n' > "$ROOT_F/state/stalled.inbox/001.msg"
+fm_touch_epoch "$(( NOW - 1860 ))" "$ROOT_F/state/stalled.inbox/001.msg"
+printf '%s\n' "stalled none $(( NOW - 2400 )) 5" > "$ROOT_F/state/.lane-liveness-lanes"
+: > "$ROOT_F/state/stalled.pane"
+rail "$ROOT_F" read > /dev/null
+OUT=$(rail "$ROOT_F" read)
+assert_equals dead "$(verdict_of "$OUT" stalled)" \
+  'an unreadable pane must not let a stalled lane read alive'
+assert_contains "$(printf '%s\n' "$OUT" | grep '^lane=stalled')" 'no movement to handled' \
+  'the dead verdict comes from the movement rule whose baseline the pane cannot freeze'
+
+# The same baseline through a pane-skipping run: routes reads the inbox, so it
+# advances the handled column while still leaving class and clock untouched.
+ROOT_F2=$(home_fixture frozenroutes)
+lane_fixture "$ROOT_F2" stalled2
+conf_add "$ROOT_F2" 'lane stalled2'
+for i in 1 2 3 4 5 6 7; do
+  printf 'x\n' > "$ROOT_F2/state/stalled2.inbox/handled/$i.msg"
+done
+printf 'x\n' > "$ROOT_F2/state/stalled2.inbox/001.msg"
+fm_touch_epoch "$(( NOW - 1860 ))" "$ROOT_F2/state/stalled2.inbox/001.msg"
+printf 'nothing interesting here\n' > "$ROOT_F2/state/stalled2.pane"
+printf '%s\n' "stalled2 none $(( NOW - 2400 )) 5" > "$ROOT_F2/state/.lane-liveness-lanes"
+rail "$ROOT_F2" routes > /dev/null
+OUT=$(rail "$ROOT_F2" read)
+assert_equals dead "$(verdict_of "$OUT" stalled2)" \
+  'a pane-skipping routes run must not freeze the baseline a stalled lane reads against'
+
 # --- section 4: routed versus routed_unverified -----------------------------
 ROOT_R=$(home_fixture routes)
 lane_fixture "$ROOT_R" claims
@@ -401,6 +440,22 @@ assert_contains "$OUT" 'over SELF=900s' \
   'a config that will not load falls back to the default threshold'
 assert_not_contains "$OUT" 'error:' \
   'the lenient load does not surface the config error in the silence report'
+
+# --- only the completing check writes the heartbeat --------------------------
+ROOT_HB=$(home_fixture heartbeat)
+lane_fixture "$ROOT_HB" beatless
+conf_add "$ROOT_HB" 'lane beatless'
+rail "$ROOT_HB" read > /dev/null
+assert_absent "$ROOT_HB/state/.lane-liveness-beat" \
+  'a completed read does not write the heartbeat only check certifies'
+rail "$ROOT_HB" check > /dev/null
+assert_present "$ROOT_HB/state/.lane-liveness-beat" \
+  'the completing check writes the heartbeat'
+fm_touch_epoch "$(( NOW - 960 ))" "$ROOT_HB/state/.lane-liveness-beat"
+rail "$ROOT_HB" read > /dev/null
+OUT=$(rail "$ROOT_HB" selfcheck)
+assert_contains "$OUT" 'over SELF=900s' \
+  'a read between sweeps cannot mask rail silence'
 
 # --- check mode wakes on a change, then stays quiet -------------------------
 ROOT_C=$(home_fixture changes)

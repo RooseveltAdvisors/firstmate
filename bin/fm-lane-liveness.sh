@@ -467,6 +467,8 @@ EOF
   esac
   if [ -z "$SKIP_PANE" ] && [ "$LANE_ERRCLASS" != unknown ]; then
     record_replace "$JOURNAL" "$lane" "$lane $LANE_ERRCLASS $since $LANE_HANDLED"
+  elif is_int "$jsince"; then
+    record_replace "$JOURNAL" "$lane" "$lane $jclass $jsince $LANE_HANDLED"
   fi
 
   sustained=$(( NOW - since ))
@@ -576,7 +578,6 @@ action_read() {
   done <<EOF
 $LANES
 EOF
-  touch "$BEAT" 2>/dev/null || true
 }
 
 action_routes() {

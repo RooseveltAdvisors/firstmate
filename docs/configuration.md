@@ -1446,8 +1446,9 @@ An inbox the rail cannot read is reported `unknown` with every count as `-`, nev
 **Generated state**
 
 The rail writes only three records, all under this home's own `state/`: `.lane-liveness-beat` is the heartbeat, `.lane-liveness-lanes` carries how long each lane's error class has held and what its handled count was last sweep, which is the movement baseline the dead rule reads, and `.lane-liveness-reported` holds the last verdict reported for each lane so an unchanged verdict does not wake the supervisor again.
-Only a sweep that read a pane writes `.lane-liveness-lanes`, so `routes`, which never reads one, cannot restate a class it never observed.
-A pane that cannot be read leaves the established class and its clock in place too, because an unreadable pane is not evidence that the error ended.
+The error class and its clock in `.lane-liveness-lanes` are written only by a sweep that read a pane.
+`routes`, which never reads one, and a sweep whose pane could not be read both leave the established class and its clock in place, because an unreadable pane is not evidence that the error ended.
+The handled count in that same record comes from the inbox rather than the pane, so it advances on every reading, and a baseline frozen behind an unread pane would let a stalled lane read as healthy.
 All three are safe to delete; the next sweep rebuilds them, and the first sweep after deleting `.lane-liveness-reported` reports every currently unhealthy lane once more.
 
 **Recovery ladder (same file)**
