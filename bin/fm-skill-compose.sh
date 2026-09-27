@@ -116,8 +116,13 @@ COMPOSE_ROOT="$COMPOSE_PARENT/$SET_NAME"
 SKILLS_DIR="$COMPOSE_ROOT/.claude/skills"
 COMPOSE_LOCK=
 COMPOSE_LOCK_HELD=0
-COMPOSE_PARENT_PREEXISTED=1
-[ -d "$COMPOSE_PARENT" ] || COMPOSE_PARENT_PREEXISTED=0
+# Record which managed levels this home already had, innermost first, so a failed
+# run can remove only what it created itself and never a level it inherited.
+COMPOSE_CREATED_LEVELS=()
+for _level in "$COMPOSE_PARENT" "$TARGET_HOME/config/skill-compose" "$TARGET_HOME/config"; do
+  [ -e "$_level" ] || [ -L "$_level" ] || COMPOSE_CREATED_LEVELS+=("$_level")
+done
+unset _level
 COMPOSE_TEMP_FILES=()
 
 if [ "$PRINT_ADD_DIR" -eq 1 ] && [ "$MODE" = compose ] && [ "${#SKILLS[@]}" -eq 0 ]; then
@@ -273,12 +278,14 @@ compose_exit() {
     rm -f "$file" 2>/dev/null || true
   done
   release_compose_lock
-  if [ "$status" -ne 0 ] && [ "$COMPOSE_PARENT_PREEXISTED" -eq 0 ]; then
+  if [ "$status" -ne 0 ] && [ "${#COMPOSE_CREATED_LEVELS[@]}" -gt 0 ]; then
     # A refusal must leave a home that had no composition state with none. Only
-    # the levels this run could have created are attempted, and rmdir removes
-    # nothing that is not already empty.
-    rmdir "$COMPOSE_PARENT" "$TARGET_HOME/config/skill-compose" "$TARGET_HOME/config" \
-      2>/dev/null || true
+    # levels absent before this run are attempted, innermost first, and rmdir
+    # removes nothing that is not already empty, so inherited or populated
+    # directories and a symlinked level are all left alone.
+    for file in "${COMPOSE_CREATED_LEVELS[@]}"; do
+      rmdir "$file" 2>/dev/null || true
+    done
   fi
   return "$status"
 }

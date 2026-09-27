@@ -257,6 +257,27 @@ EOF
   [ ! -e "$cold/config" ] && [ ! -L "$cold/config" ] \
     || fail "a missing explicit map left managed state in a cold target home: $(find "$cold")"
 
+  # The refusal cleanup must never take a level the home already had, whether it
+  # holds real settings or is merely an empty inherited directory.
+  local warm="$TMP_ROOT/prevalidation-warm"
+  mkdir -p "$warm/config"
+  printf '%s\n' claude > "$warm/config/crew-harness"
+  if FM_HOME="$home" "$COMPOSE" --target-home "$warm" --set later nosuchskill >/dev/null 2>&1; then
+    fail "compose resolved a skill name that is not in the map"
+  fi
+  [ -f "$warm/config/crew-harness" ] \
+    || fail "the refusal cleanup removed real configuration from the target home"
+  [ ! -e "$warm/config/skill-compose" ] \
+    || fail "the refusal left its own managed level behind in a warm target home"
+
+  local empty="$TMP_ROOT/prevalidation-empty"
+  mkdir -p "$empty/config"
+  if FM_HOME="$home" "$COMPOSE" --target-home "$empty" --set later nosuchskill >/dev/null 2>&1; then
+    fail "compose resolved a skill name that is not in the map"
+  fi
+  [ -d "$empty/config" ] \
+    || fail "the refusal cleanup removed an inherited empty config directory"
+
   # Removing from a set that was never composed must not create the very tree
   # --clear exists to collapse.
   FM_HOME="$home" "$COMPOSE" --target-home "$cold" --set later --remove alpha >/dev/null \
