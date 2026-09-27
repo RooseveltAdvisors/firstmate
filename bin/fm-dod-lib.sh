@@ -640,8 +640,8 @@ fm_dod_named_head_reachable_outside_worktree() {  # <worktree> <project> <mode> 
 # names its own absolute paths.
 FM_VERIFY_TIMEOUT=${FM_VERIFY_TIMEOUT:-30}
 case $FM_VERIFY_TIMEOUT in '' | 0* | *[!0-9]*) FM_VERIFY_TIMEOUT=30 ;; esac
-FM_VERIFY_PASS_TIMEOUT=${FM_VERIFY_PASS_TIMEOUT:-10}
-case $FM_VERIFY_PASS_TIMEOUT in '' | 0* | *[!0-9]*) FM_VERIFY_PASS_TIMEOUT=10 ;; esac
+FM_VERIFY_PASS_TIMEOUT=${FM_VERIFY_PASS_TIMEOUT:-5}
+case $FM_VERIFY_PASS_TIMEOUT in '' | 0* | *[!0-9]*) FM_VERIFY_PASS_TIMEOUT=5 ;; esac
 
 # Run <command> under <bound> seconds. Captures nothing; only the status matters.
 fm_dod_verify_run() {  # <bound> <command>
@@ -650,20 +650,48 @@ fm_dod_verify_run() {  # <bound> <command>
 
 # 0 when every check declared for <id> passes. 1 when one fails or the
 # declaration itself cannot be trusted; stdout then holds a one-line reason.
+# The verdict is memoized per declaration content, so one orchestrator process
+# evaluates a given declaration at most once.
 fm_dod_verify_declared_checks_pass() {  # <state> <id>
-  local state=$1 id=$2 spec device line verb rest target want body code
-  local deadline remaining check_bound started bound_name rc
+  local state=$1 id=$2 spec device content key reason
   [ -n "$state" ] && [ -n "$id" ] || return 0
   spec="$state/$id.verify"
   [ -e "$spec" ] || [ -L "$spec" ] || return 0
   device=$(fm_pr_file_device "$state") || {
-    printf '%s\n' "declared verification cannot be read: $state is not readable"
+    FM_DOD_VERIFY_REASON="declared verification cannot be read: $state is not readable"
+    printf '%s\n' "$FM_DOD_VERIFY_REASON"
     return 1
   }
   fm_pr_private_file_valid "$spec" 600 "$device" || {
-    printf '%s\n' "declared verification is not a firstmate-private file: $spec"
+    FM_DOD_VERIFY_REASON="declared verification is not a firstmate-private file: $spec"
+    printf '%s\n' "$FM_DOD_VERIFY_REASON"
     return 1
   }
+  content=$(<"$spec")
+  key="$state"$'\x1f'"$id"$'\x1f'"$content"
+  if [ "$key" = "${FM_DOD_VERIFY_KEY:-}" ]; then
+    [ "${FM_DOD_VERIFY_FAILED:-0}" = 0 ] || {
+      printf '%s\n' "${FM_DOD_VERIFY_REASON:-}"
+      return 1
+    }
+    return 0
+  fi
+  if reason=$(fm_dod_verify_spec_checks "$spec"); then
+    FM_DOD_VERIFY_KEY=$key
+    FM_DOD_VERIFY_FAILED=0
+    FM_DOD_VERIFY_REASON=
+    return 0
+  fi
+  FM_DOD_VERIFY_KEY=$key
+  FM_DOD_VERIFY_FAILED=1
+  FM_DOD_VERIFY_REASON=$reason
+  printf '%s\n' "$reason"
+  return 1
+}
+
+fm_dod_verify_spec_checks() {  # <spec>
+  local line verb rest target want body code
+  local deadline remaining check_bound started bound_name rc
   deadline=$(( $(date +%s) + FM_VERIFY_PASS_TIMEOUT ))
   while IFS= read -r line || [ -n "$line" ]; do
     case ${line#"${line%%[![:space:]]*}"} in '' | '#'*) continue ;; esac
@@ -752,7 +780,7 @@ fm_dod_verify_declared_checks_pass() {  # <state> <id>
         return 1
         ;;
     esac
-  done < "$spec"
+  done < "$1"
 }
 # Every gated ship done: first passes the task's declared mechanical verification
 # (fm_dod_verify_declared_checks_pass), so a structurally perfect claim whose

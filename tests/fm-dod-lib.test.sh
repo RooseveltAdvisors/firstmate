@@ -436,8 +436,8 @@ test_declared_http_check_decides_a_structurally_perfect_done() {
   port=$SERVE_PORT
 
   declare_checks "$state" httpgate "http: http://127.0.0.1:$port/ 200 the live fix is deployed"
-  accept_done ship no-mistakes "$WT" "$REPO" "$DONE_CI_READY" "$state" httpgate "$state/httpgate.meta" \
-    || fail "a done: whose declared live check passes must be accepted"
+  reason=$(accept_done ship no-mistakes "$WT" "$REPO" "$DONE_CI_READY" "$state" httpgate "$state/httpgate.meta") \
+    || fail "a done: whose declared live check passes must be accepted: $reason"
 
   kill "$SERVE_PID" 2>/dev/null
   wait "$SERVE_PID" 2>/dev/null
@@ -594,25 +594,27 @@ test_check_killed_at_the_bound_is_reported_distinctly() {
   pass "a bound expiry is reported distinctly from an instant nonzero exit"
 }
 
-# A 124 that comes from the bound mechanism failing before the command ran is
-# not evidence the command timed out, so it keeps the plain failure wording.
+# A bound status (124) that the bound mechanism produces before the command
+# runs is not evidence the command timed out, so it keeps the plain failure
+# wording on every host, whatever mechanism fm-timeout-lib.sh selects there.
 test_bound_mechanism_failure_is_not_reported_as_a_timeout() {
-  local state reason rc saved_tmpdir
+  local state reason rc
   landed_ship tmpbroken
   state="$TMP_ROOT/tmpbroken-state"
   declare_checks "$state" tmpbroken 'run: true'
-  saved_tmpdir=${TMPDIR:-}
-  TMPDIR="$TMP_ROOT/no-such-tmpdir-$$"
-  reason=$(accept_done ship no-mistakes "$WT" "$REPO" "$DONE_CI_READY" "$state" tmpbroken "$state/tmpbroken.meta")
+  reason=$(
+    # shellcheck disable=SC2329  # reached indirectly through fm_dod_verify_run
+    fm_run_timed() { return 124; }
+    accept_done ship no-mistakes "$WT" "$REPO" "$DONE_CI_READY" "$state" tmpbroken "$state/tmpbroken.meta"
+  )
   rc=$?
-  if [ -n "$saved_tmpdir" ]; then TMPDIR=$saved_tmpdir; else unset TMPDIR; fi
-  [ "$rc" -eq 1 ] || fail "a check whose bound mechanism could not start was accepted (exit $rc)"
+  [ "$rc" -eq 1 ] || fail "a check whose bound mechanism failed before running was accepted (exit $rc)"
   case "$reason" in
-    *"check bound"* | *"pass bound"*) fail "a broken bound mechanism was reported as a timeout: $reason" ;;
+    *"check bound"* | *"pass bound"*) fail "a fast bound-mechanism failure was reported as a timeout: $reason" ;;
     *"run: true exited nonzero"*) ;;
-    *) fail "the broken-mechanism refusal lost its wording: $reason" ;;
+    *) fail "the bound-mechanism refusal lost its wording: $reason" ;;
   esac
-  pass "a bound mechanism failure is not reported as the command timing out"
+  pass "a bound mechanism failure before the command runs is not reported as a timeout"
 }
 
 test_absent_declaration_leaves_the_done_ungated() {

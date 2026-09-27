@@ -55,13 +55,15 @@ A task that declares no verification still behaves exactly as before at every on
 ```
 bash tests/fm-crew-state.test.sh     # test_declared_verification_decides_a_pushed_ship_done and test_terminal_run_step_done_refuses_a_failing_declaration
 bash tests/fm-pr-check-security.test.sh  # test_failed_declared_verification_refuses_registration
-bash tests/fm-dod-lib.test.sh        # the seven declared-verification cases
+bash tests/fm-dod-lib.test.sh        # all declared-verification cases
+bash tests/fm-fleet-snapshot-view.test.sh  # the blackholing declared check reads blocked at the snapshot boundary
 ```
 
-All three ran green on the date above.
+All four ran green on the date above.
 `tests/fm-crew-state.test.sh` drives the demonstration above end to end through `bin/fm-crew-state.sh` over a real throwaway git repo and a real local HTTP server, with no harness and no model, and its run-step case drives a terminal attributed run whose passing declaration reads `done` and whose failing declaration reads `blocked`.
 `tests/fm-pr-check-security.test.sh` covers the newly covered registration shape: a non-empty forge head whose named-head proof passes still refuses because the declared check fails, recording no `pr=` and arming no merge poll.
-`tests/fm-dod-lib.test.sh` covers the library directly: the live/dead pair, a reachable site serving the wrong content and the wrong status, `run:` and `file:` in both directions, a stdin-reading `run:` that cannot consume the checks after it, an absent declaration gating nothing, a declaration that is not a firstmate-private file, and a malformed or unknown check.
+`tests/fm-fleet-snapshot-view.test.sh` runs a full snapshot over a declared `http:` target that accepts the connection and never answers, and asserts the task reads `blocked` with the declared-verification refusal rather than `unknown` under the snapshot's real crew-state bound.
+`tests/fm-dod-lib.test.sh` covers the library directly: the live/dead pair, a reachable site serving the wrong content and the wrong status, `run:` and `file:` in both directions, a stdin-reading `run:` that cannot consume the checks after it, the pass and per-check bounds with their distinct refusal wording, a bound mechanism that fails before the command runs, an absent declaration gating nothing, a declaration that is not a firstmate-private file, and a malformed or unknown check.
 
 ## Mutation evidence
 
