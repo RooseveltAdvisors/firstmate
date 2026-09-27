@@ -2400,6 +2400,35 @@ test_declared_verification_decides_a_pushed_ship_done() {
   pass "declared verification decides a structurally perfect ship done: in both directions"
 }
 
+# The run-step ready decision enforces the declaration as well: a terminal
+# attributed run that reads done while the declared check fails must report
+# blocked with the refusal reason, not done.
+test_terminal_run_step_done_refuses_a_failing_declaration() {
+  reset_fakes
+  local d out
+  d=$(new_case declared-verify-run-step)
+  make_repo_on_branch "$d/wt" fm/feat-verify-runstep
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-verify-runstep.meta" \
+    "window=fm:fm-feat-verify-runstep" "worktree=$d/wt" "kind=ship"
+  FM_FAKE_AXI_STATUS="$(run_passed fm/feat-verify-runstep)"
+  printf '%s\n' 'run: test 1 = 1' > "$d/state/feat-verify-runstep.verify"
+  chmod 600 "$d/state/feat-verify-runstep.verify"
+  out=$(run_crew_state "$d" feat-verify-runstep)
+  assert_contains "$out" "state: done" "a terminal attributed run-step with a passing declaration reads done"
+  assert_contains "$out" "source: run-step" "the passing read comes from the run-step path"
+  printf '%s\n' "file: $d/shipped-artifact.txt the live fix is deployed" \
+    > "$d/state/feat-verify-runstep.verify"
+  chmod 600 "$d/state/feat-verify-runstep.verify"
+  out=$(run_crew_state "$d" feat-verify-runstep)
+  assert_contains "$out" "state: blocked" "a terminal attributed run-step with a failing declaration must read blocked"
+  assert_contains "$out" "source: run-step" "the refusal stays on the run-step source"
+  assert_contains "$out" "declared verification failed: file: $d/shipped-artifact.txt is not a file" \
+    "the refusal must carry the declared-verification reason"
+  assert_not_contains "$out" "state: done" "a failing declaration must not leave the run-step done"
+  pass "a terminal attributed run-step done refuses on a failing declared verification"
+}
+
 # A ship done: whose named head lives only in the disposable copy is not
 # current-state done (issue 4768). The worker's claim stays a blocked
 # preservation failure rather than finished-and-safe.
@@ -5634,6 +5663,7 @@ test_coarse_run_does_not_probe_other_branch_ci_log_for_ready_status
 test_other_branch_run_ignored
 test_unpushed_ship_done_is_blocked
 test_declared_verification_decides_a_pushed_ship_done
+test_terminal_run_step_done_refuses_a_failing_declaration
 test_merged_pr_reads_done_under_captured_meta
 test_no_mistakes_prevalidation_done_stays_done
 test_moved_remote_branch_without_named_head_is_blocked

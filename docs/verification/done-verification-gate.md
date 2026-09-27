@@ -42,16 +42,26 @@ state: blocked · source: status-log · declared verification failed: http: http
 
 The worker that reported `done:` evaluates neither read.
 
+## Where the ready decision enforces it
+
+Declared verification runs at every ready decision that reads a ship `done:`, through the one shared refusal in `fm_dod_verify_declared_checks_pass`.
+`bin/fm-pr-check.sh` runs it unconditionally before its named-head skip arm, so a registration whose forge-reported head already proves reachability still refuses a failing declared check.
+`bin/fm-crew-state.sh` runs it before emitting a terminal ship run-step `done` and on its status-log `done:` read, so a completed attributed run with a failing declaration reads `blocked` with the refusal reason.
+`bin/fm-inactive-reconcile.sh` runs it on the secondmate ledger publish, so an unreported terminal `done:` is not published past a failing declared check.
+A task that declares no verification still behaves exactly as before at every one of them.
+
 ## Refreshing this record
 
 ```
-bash tests/fm-crew-state.test.sh     # test_declared_verification_decides_a_pushed_ship_done
-bash tests/fm-dod-lib.test.sh        # the six declared-verification cases
+bash tests/fm-crew-state.test.sh     # test_declared_verification_decides_a_pushed_ship_done and test_terminal_run_step_done_refuses_a_failing_declaration
+bash tests/fm-pr-check-security.test.sh  # test_failed_declared_verification_refuses_registration
+bash tests/fm-dod-lib.test.sh        # the seven declared-verification cases
 ```
 
-Both ran green on the date above.
-`tests/fm-crew-state.test.sh` drives the demonstration above end to end through `bin/fm-crew-state.sh` over a real throwaway git repo and a real local HTTP server, with no harness and no model.
-`tests/fm-dod-lib.test.sh` covers the library directly: the live/dead pair, a reachable site serving the wrong content and the wrong status, `run:` and `file:` in both directions, an absent declaration gating nothing, a declaration that is not a firstmate-private file, and a malformed or unknown check.
+All three ran green on the date above.
+`tests/fm-crew-state.test.sh` drives the demonstration above end to end through `bin/fm-crew-state.sh` over a real throwaway git repo and a real local HTTP server, with no harness and no model, and its run-step case drives a terminal attributed run whose passing declaration reads `done` and whose failing declaration reads `blocked`.
+`tests/fm-pr-check-security.test.sh` covers the newly covered registration shape: a non-empty forge head whose named-head proof passes still refuses because the declared check fails, recording no `pr=` and arming no merge poll.
+`tests/fm-dod-lib.test.sh` covers the library directly: the live/dead pair, a reachable site serving the wrong content and the wrong status, `run:` and `file:` in both directions, a stdin-reading `run:` that cannot consume the checks after it, an absent declaration gating nothing, a declaration that is not a firstmate-private file, and a malformed or unknown check.
 
 ## Mutation evidence
 
@@ -67,6 +77,6 @@ The checks are load-bearing rather than decorative: on 2026-09-27 three independ
 
 A declaration is optional, and an absent one gates nothing, so this pilot says nothing about tasks that declare no checks.
 No mechanism decides which tasks should declare which checks; that is firstmate's judgment at dispatch.
-The pilot exercises `http:` end to end through the orchestrator and `run:` and `file:` at the library, over a local server only; it establishes nothing about a remote host, TLS, redirects beyond curl's own `-L`, or authenticated fetches.
+The pilot exercises `http:` end to end through the orchestrator, `run:` and `file:` through the orchestrator's run-step read as well as directly at the library, over a local server only; it establishes nothing about a remote host, TLS, redirects beyond curl's own `-L`, or authenticated fetches.
 A target ends at the first space, so a path or URL containing one is outside `file:` and `http:` and needs `run:`; nothing in the pilot exercises that case.
 The only fail-open path is a declaration that was never written, which firstmate knows because firstmate writes it; a declaration present but untrusted or malformed refuses the claim.

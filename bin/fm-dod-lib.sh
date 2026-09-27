@@ -640,14 +640,11 @@ fm_dod_named_head_reachable_outside_worktree() {  # <worktree> <project> <mode> 
 # command inherits the orchestrator's environment and working directory, so it
 # names its own absolute paths.
 FM_VERIFY_TIMEOUT=${FM_VERIFY_TIMEOUT:-30}
+case $FM_VERIFY_TIMEOUT in '' | 0* | *[!0-9]*) FM_VERIFY_TIMEOUT=30 ;; esac
 
 # Run <command> under the check timeout. Captures nothing; only the status matters.
 fm_dod_verify_run() {  # <command>
-  if command -v timeout >/dev/null 2>&1; then
-    timeout "$FM_VERIFY_TIMEOUT" bash -c "$1" >/dev/null 2>&1
-  else
-    bash -c "$1" >/dev/null 2>&1
-  fi
+  fm_run_timed "$FM_VERIFY_TIMEOUT" bash -c "$1" </dev/null >/dev/null 2>&1
 }
 
 # 0 when every check declared for <id> passes. 1 when one fails or the

@@ -735,6 +735,30 @@ test_direct_pr_unpushed_commit_refuses_registration() {
   pass "fm-pr-check refuses a direct-PR registration while a later commit is only in the copy"
 }
 
+# The forge-reported head proves the named-head property, but nothing else
+# proves a live check: a failing declared verification must refuse registration
+# even when the head proof passes, recording and arming nothing.
+test_failed_declared_verification_refuses_registration() {
+  local dir
+  dir=$(make_case declared-verify-refused)
+  write_task_meta "$dir"
+  cp "$dir/home/state/task-a.meta" "$dir/meta.before"
+  printf '%s\n' 'run: exit 1' > "$dir/home/state/task-a.verify"
+  chmod 600 "$dir/home/state/task-a.verify"
+  run_check_entry "$dir" task-a https://github.com/o/r/pull/9 \
+    > "$dir/stdout" 2> "$dir/stderr" && fail "a failing declared verification was registered"
+  grep -qF 'error: declared verification failed: run: exit 1 exited nonzero' "$dir/stderr" \
+    || fail "refusal did not name the declared verification failure: $(cat "$dir/stderr")"
+  grep -q 'headRefOid' "$dir/gh.log" \
+    || fail "the forge head was never read, so the named-head skip arm was not in play"
+  cmp -s "$dir/meta.before" "$dir/home/state/task-a.meta" \
+    || fail "a refused declaration changed the task metadata"
+  ! grep -q '^pr=' "$dir/home/state/task-a.meta" || fail "a refused declaration still recorded pr="
+  [ ! -e "$dir/home/state/task-a.check.sh" ] || fail "a refused declaration armed a merge poll"
+  [ ! -e "$dir/home/state/task-a.pr-poll" ] || fail "a refused declaration wrote a poll sidecar"
+  pass "fm-pr-check refuses registration on a failing declared verification despite a proven forge head"
+}
+
 test_valid_recording_and_merge_derivation() {
   local dir expected sidecar count rc
   dir=$(make_case valid-recording)
@@ -3468,6 +3492,7 @@ test_draft_pull_request_is_not_armed
 test_secondmate_record_refuses_a_pr_watch
 test_unpushed_named_head_refuses_registration
 test_direct_pr_unpushed_commit_refuses_registration
+test_failed_declared_verification_refuses_registration
 test_valid_recording_and_merge_derivation
 test_rejected_metacharacter_bytes_are_inert
 test_static_poll_contract

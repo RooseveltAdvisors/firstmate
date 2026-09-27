@@ -523,6 +523,27 @@ test_declared_run_and_file_checks_decide_the_done() {
   pass "declared run: and file: checks decide the done: in both directions"
 }
 
+# A run: command gets no declaration bytes on its stdin: one stdin-reading
+# check must not consume the lines that follow it out of the declaration.
+test_stdin_reading_run_check_does_not_skip_later_checks() {
+  local state reason rc
+  landed_ship stdinread
+  state="$TMP_ROOT/stdinread-state"
+  printf 'artifact content\n' > "$TMP_ROOT/stdinread-artifact"
+  declare_checks "$state" stdinread \
+    'run: cat' \
+    "run: grep -q artifact < $TMP_ROOT/stdinread-artifact" \
+    'run: exit 7'
+  reason=$(accept_done ship no-mistakes "$WT" "$REPO" "$DONE_CI_READY" "$state" stdinread "$state/stdinread.meta")
+  rc=$?
+  [ "$rc" -eq 1 ] || fail "a stdin-reading run: consumed the checks after it and accepted the done: (exit $rc)"
+  case "$reason" in
+    *"run: exit 7 exited nonzero") ;;
+    *) fail "a check after the stdin-reading run: never executed: $reason" ;;
+  esac
+  pass "a stdin-reading run: check cannot consume the declaration's later checks"
+}
+
 test_absent_declaration_leaves_the_done_ungated() {
   local state
   landed_ship nodecl
@@ -608,6 +629,7 @@ test_pr_based_dod_draft_check_uses_gh_axi
 test_declared_http_check_decides_a_structurally_perfect_done
 test_declared_http_check_refuses_preview_only_content
 test_declared_run_and_file_checks_decide_the_done
+test_stdin_reading_run_check_does_not_skip_later_checks
 test_absent_declaration_leaves_the_done_ungated
 test_untrusted_or_unreadable_declaration_is_refused
 test_malformed_declared_check_is_refused
