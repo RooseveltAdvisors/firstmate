@@ -70,8 +70,7 @@
 #          tasks-axi and quota-axi are essential bootstrap tools.
 #          A compatible tasks-axi default backend is silent.
 #          quota-axi is required for the agent-owned dispatch-profile array
-#          procedure in AGENTS.md section 4 and
-#          .agents/skills/quota-array-dispatch/SKILL.md.
+#          procedure owned by .agents/skills/quota-array-dispatch/SKILL.md.
 #          The locked mutable path copies the tracked .tasks.toml.example into
 #          this home as .tasks.toml when the home has none, so a home that never
 #          customized its backlog config still addresses data/backlog.md instead

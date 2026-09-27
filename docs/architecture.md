@@ -309,7 +309,7 @@ The refusal library's header owns the gate detection, lab-home exception, test-h
 ## Two task shapes
 
 Ship tasks change projects and ship by project mode (`no-mistakes`, `direct-PR`, or `local-only`); scout tasks leave standalone investigation reports at `data/<id>/report.md` and never push.
-The intake and authority contract in `AGENTS.md` owns when separate scout research is warranted.
+The intake and authority rules in [`task-lifecycle`](../.agents/skills/task-lifecycle/SKILL.md) own when separate scout research is warranted.
 
 ## Dispatch profiles
 
@@ -468,13 +468,13 @@ The [Relay configuration reference](configuration.md#promised-public-replies-sta
 
 ## Project memory belongs to projects
 
-Project-memory ownership and the crewmate corrections-only boundary are defined in [`AGENTS.md` section 6](../AGENTS.md#6-project-and-knowledge-management); `data/projects.md` stays a thin private registry.
+Project-memory ownership is defined in [`AGENTS.md` section 6](../AGENTS.md#6-project-and-knowledge-management), the crewmate corrections-only boundary is carried by every ship brief's project-memory section and stated in the [`stow` skill](../.agents/skills/stow/SKILL.md), and `data/projects.md` stays a thin private registry.
 For manual project initialization, [`bin/fm-ensure-agents-md.sh`](../bin/fm-ensure-agents-md.sh) owns the `CLAUDE.md` pointer, self-governance insertion, and case-variant file refusal; its header and help document the explicit mark for equivalent project-owned guidance.
 
 ## Operational memory routing
 
 `/stow` sweeps the current session for durable knowledge that only exists in conversation and routes each finding to the most specific disk home.
-The destination for each kind of knowledge, including project-intrinsic knowledge, is owned by [`AGENTS.md` section 6](../AGENTS.md#6-project-and-knowledge-management).
+The destination for each kind of knowledge, including project-intrinsic knowledge, is owned by the [`stow` skill](../.agents/skills/stow/SKILL.md).
 Memory writes use inspect-then-update rather than blind append; the internal [`stow` skill](../.agents/skills/stow/SKILL.md) owns tier markers, decay, cold archival, and offload.
 The same pass also persists open-work record state the session is holding - filing a thread that was never recorded and correcting one the session knows went stale - bounded to the open work that session is actually holding.
 It is deliberately not a reconciliation of durable records against repository or PR reality: its input is the volatile context, so it can only preserve what the session still knows, and no reconciliation that outlives a session exists today.

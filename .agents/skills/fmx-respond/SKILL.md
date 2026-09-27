@@ -78,8 +78,8 @@ Normal reversible work - filing backlog, a scout investigation, gated code chang
 ## The reply is public. Treat it as such.
 
 The answer is posted publicly through the relay under a **shared** bot identity.
-This is a strict version of the section 9 "talk in outcomes" rule, with a wider blast radius - assume anyone can read it.
-It supplements `AGENTS.md` section 9; apply both, and this public-channel rule wins wherever it is stricter.
+This is a strict version of `captain-etiquette`'s "talk in outcomes" rule, with a wider blast radius - assume anyone can read it.
+It supplements `captain-etiquette`; apply both, and this public-channel rule wins wherever it is stricter.
 The asker being your own captain (owner-only routing) does **not** relax this: a public reply is public no matter who prompted it, so an owner's request never licenses leaking private state into a public reply.
 
 Never include, in any form:
@@ -227,7 +227,7 @@ A non-final dry-run follow-up increments `x_followups` and keeps the link while 
 ## Completion follow-up (posted on milestone and done wakes, not this turn)
 
 When an actionable request spawned a task and you linked it (step 2c), progress and the **outcome** are delivered later as follow-up replies, not in this turn.
-This skill is the sole owner of the completion-follow-up procedure below; AGENTS.md §13 declares the load trigger for Relay-linked milestone or terminal wakes, and AGENTS.md §8 reinforces the terminal final-follow-up step before teardown.
+This skill is the sole owner of the completion-follow-up procedure below; AGENTS.md §14 declares the Relay load trigger and the promised-final durability rule.
 This skill's own responsibility during the mention-handling turn is linking the task in step 2c; the full completion path is:
 
 - Firstmate has **up to three** follow-ups per mention, within a 7-day window, chained in the same thread - it spends them only on genuine milestones the captain would want surfaced (e.g. investigation done and a build started, work shipped or ready, or the task failing), never on routine internal churn.

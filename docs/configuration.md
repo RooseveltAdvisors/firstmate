@@ -118,7 +118,7 @@ Untracked files and directories whose names begin with `scratchpad` are also git
 
 - `docs/sessionstart-nudge.md` owns the native session-open adapter tiers that run or nudge the digest command, and the source routing between them.
 
-- `AGENTS.md` retains the run-once and read-once operator rules, lock-refusal safety, installation consent, and direct-report recovery boundaries because those facts apply at every session start.
+- `AGENTS.md` retains the run-once trigger, the lock-refusal read-only boundary, and the recovery load trigger because those facts apply at every session start; [`session-start`](../.agents/skills/session-start/SKILL.md) owns the runbook behind that trigger, including the read-once digest rules and installation consent.
 
 - Ordinary dead-direct-report recovery is owned by `stuck-crewmate-recovery`, while persistent-secondmate recovery is owned by `secondmate-provisioning`.
 
@@ -186,7 +186,7 @@ These are the bounds set by the captain-approved architecture.
 Every existing captain gate remains unchanged in either posture.
 Homes on other primary harnesses do not load the Pi branch extension; shared per-task lease behavior is owned by `bin/fm-lease-lib.sh`.
 
-`AGENTS.md`'s `state/` inventory routes the branch's runtime files to their format and lifecycle owners.
+The [`operational-home-layout`](../.agents/skills/operational-home-layout/SKILL.md) skill's `state/` inventory routes the branch's runtime files to their format and lifecycle owners.
 
 ### Outcome delivery and acknowledgement
 
