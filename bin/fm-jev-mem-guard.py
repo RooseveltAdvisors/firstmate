@@ -70,11 +70,11 @@ def get_top_rss_processes(top_n: int = 10) -> List[Dict[str, Any]]:
         try:
             with open(f"/proc/{pid}/statm", "r") as f:
                 parts = f.read().strip().split()
-                if len(parts) >= 2 and parts[1].isdigit():
-                    rss_pages = int(parts[1])
-                    rss_kb = rss_pages * page_size_kb
-                    if rss_kb < 10240:  # Skip procs using < 10MB
-                        continue
+            if len(parts) < 2 or not parts[1].isdigit():
+                continue
+            rss_kb = int(parts[1]) * page_size_kb
+            if rss_kb < 10240:  # Skip procs using < 10MB
+                continue
 
             comm = f"pid_{pid}"
             try:
@@ -105,7 +105,7 @@ def audit_memory(
     """Audits system memory and swap usage, failing open to status UNKNOWN when unmeasurable."""
     mem = read_meminfo()
     mem_total_kb = mem.get("MemTotal")
-    mem_avail_kb = mem.get("MemAvailable", mem.get("MemFree"))
+    mem_avail_kb = mem.get("MemAvailable")
     swap_total_kb = mem.get("SwapTotal")
     swap_free_kb = mem.get("SwapFree")
 

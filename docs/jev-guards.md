@@ -14,10 +14,10 @@ Each family ships as a pair plus its tests.
 ## Engine contract
 
 - Read-only diagnostics: a guard never writes to the system it measures and never mutates agent, session, or repository state.
-- Fail-open: permission errors, missing pseudo-files, and virtualized-environment gaps degrade to a graceful `unknown` verdict with a reason, never a crash and never a false alarm.
-- Bounded: one run finishes in well under a second on a healthy host; a guard that cannot answer in its budget reports `unknown` rather than blocking its caller.
+- Fail-open: permission errors, missing pseudo-files, and virtualized-environment gaps degrade to a graceful `UNKNOWN` verdict with a reason, never a crash and never a false alarm.
+- Bounded: one run finishes in well under a second on a healthy host; a guard that cannot answer in its budget reports `UNKNOWN` rather than blocking its caller.
 - Structured output: `--json` prints one JSON object with `name`, `checked_at`, `status`, `recommendation`, and the family's own measured fields; human output is a short table of the same facts.
-- Deterministic classification: `status` is `OK`, `WARNING`, or `CRITICAL`; thresholds live in the engine and are named in its header so a reader can audit the verdict.
+- Deterministic classification: `status` is one of `OK`, `WARNING`, `CRITICAL`, or `UNKNOWN` — the last only when fail-open withholds the verdict; thresholds live in the engine and are named in its header so a reader can audit the verdict.
 
 ## Verdict semantics
 

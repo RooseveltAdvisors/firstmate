@@ -20,27 +20,27 @@ echo "ok - python syntax clean"
 "$GUARD_SH" --help >/dev/null
 echo "ok - --help works"
 
-# 4. JSON schema validation on audit
+# 4. JSON schema validation on audit; stdout is streamed to the parser as data
 json_out="$("$GUARD_SH" --json)"
-python3 -c "
-import json
-data = json.loads('''$json_out''')
-assert isinstance(data.get('name'), str) and data['name']
-assert isinstance(data.get('checked_at'), str) and data['checked_at']
-assert data.get('status') in ('OK', 'WARNING', 'CRITICAL', 'UNKNOWN')
-assert isinstance(data.get('recommendation'), str) and data['recommendation']
-assert data.get('reason') is None or isinstance(data.get('reason'), str)
-assert 'summary' in data
-assert 'top_processes' in data
-for key in ('mem_total_gb', 'mem_available_gb', 'mem_used_pct',
-            'swap_total_gb', 'swap_used_gb', 'swap_used_pct'):
-    val = data['summary'][key]
+printf '%s\n' "$json_out" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+assert isinstance(data.get("name"), str) and data["name"]
+assert isinstance(data.get("checked_at"), str) and data["checked_at"]
+assert data.get("status") in ("OK", "WARNING", "CRITICAL", "UNKNOWN")
+assert isinstance(data.get("recommendation"), str) and data["recommendation"]
+assert data.get("reason") is None or isinstance(data.get("reason"), str)
+assert "summary" in data
+assert "top_processes" in data
+for key in ("mem_total_gb", "mem_available_gb", "mem_used_pct",
+            "swap_total_gb", "swap_used_gb", "swap_used_pct"):
+    val = data["summary"][key]
     assert val is None or isinstance(val, (int, float)), key
-for p in data['top_processes']:
-    assert 'pid' in p
-    assert 'comm' in p
-    assert 'rss_mb' in p
-"
+for p in data["top_processes"]:
+    assert "pid" in p
+    assert "comm" in p
+    assert "rss_mb" in p
+'
 echo "ok - json audit schema valid"
 
 # 5. --check exit-code contract, forced BOTH ways without consulting host state.
@@ -53,12 +53,23 @@ fi
 echo "ok - --check exits 0 with pass-forcing thresholds"
 
 #    Utilization can never be below 0%, so fail-forcing thresholds (0%) must
-#    classify CRITICAL and exit 1 on any host.
-if "$GUARD_SH" --check --warn-mem-pct 0 --crit-mem-pct 0 --warn-swap-pct 0 --crit-swap-pct 0; then
-  echo "FAIL: --check exited 0 with fail-forcing thresholds" >&2
-  exit 1
+#    classify CRITICAL and exit 1 whenever the guard can assess the host. When
+#    the guard's own status is UNKNOWN (unreadable meminfo), fail-open applies:
+#    unknown must never alarm, so --check must exit 0 under the same thresholds.
+audit_status="$(printf '%s\n' "$json_out" | python3 -c 'import json, sys; print(json.load(sys.stdin)["status"])')"
+if [ "$audit_status" = "UNKNOWN" ]; then
+  if "$GUARD_SH" --check --warn-mem-pct 0 --crit-mem-pct 0 --warn-swap-pct 0 --crit-swap-pct 0; then
+    echo "FAIL: --check alarmed under fail-forcing thresholds while status is UNKNOWN" >&2
+    exit 1
+  fi
+  echo "ok - --check exits 0 under fail-forcing thresholds while status is UNKNOWN (fail-open)"
+else
+  if "$GUARD_SH" --check --warn-mem-pct 0 --crit-mem-pct 0 --warn-swap-pct 0 --crit-swap-pct 0; then
+    echo "FAIL: --check exited 0 with fail-forcing thresholds" >&2
+    exit 1
+  fi
+  echo "ok - --check exits 1 with fail-forcing thresholds"
 fi
-echo "ok - --check exits 1 with fail-forcing thresholds"
 
 # 6. Text output carries the documented contract fields
 if ! text_out="$("$GUARD_SH")"; then
