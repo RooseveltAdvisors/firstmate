@@ -581,9 +581,16 @@ reconcile_pause_tracking() {  # <window> <state> <last-status-line>
   if status_is_paused_or_captain_held "$last"; then
     stale_marker_remove "$win" "$state"
     pause_marker_record "$win" "$state"
-  elif [ -e "$marker" ] || [ -e "$state/.paused-$watcher_key" ]; then
+    return 0
+  fi
+  if [ -e "$state/.subsuper-stale-$key" ] \
+    && ! status_is_captain_relevant "$(last_status_line "$state/$task.status")"; then
+    return 0
+  fi
+  if [ -e "$marker" ] || [ -e "$state/.paused-$watcher_key" ]; then
     clear_pause_tracking "$win" "$state"
   fi
+  return 0
 }
 
 migrate_watcher_pause_markers() {  # <state>
@@ -1187,8 +1194,9 @@ _oldest_line_age() {  # <buf> -> seconds since the oldest buffered item first ar
 #  3) heartbeat scan: every HEARTBEAT_SCAN_SECS, grep state/*.status for a
 #     captain-relevant line the per-wake classifier missed and escalate it.
 housekeeping() {  # <state>
-  local state=$1 now due f key task win marker age last max_defer oldest pause_secs marker_epoch until bounded_until pause_reason agent_state detail id gen
+  local state=$1 now due f key task win marker age last max_defer oldest pause_secs marker_epoch until bounded_until pause_reason agent_state detail id gen pause_age
   now=$(_now)
+  pause_secs=${FM_PAUSE_RESURFACE_SECS:-$FM_PAUSE_RESURFACE_SECS_DEFAULT}
   migrate_watcher_pause_markers "$state"
 
   # (1) batch flush
@@ -1253,6 +1261,15 @@ housekeeping() {  # <state>
             missing) detail='the recorded endpoint is gone' ;;
             *)
               rm -f "$state/.subsuper-dead-reported-$key"
+              pause_marker_record "$win" "$state"
+              marker_epoch=$(cat "$state/.subsuper-paused-$key" 2>/dev/null || echo "$now")
+              case "$marker_epoch" in ''|*[!0-9]*) marker_epoch=$now ;; esac
+              pause_age=$(( now - marker_epoch ))
+              if [ "$pause_age" -ge "$pause_secs" ]; then
+                if escalate_add "$state" "still waiting on CI ${pause_age}s (awaiting the forge checks, recheck on a long cadence; confirm the checks are still running): $win"; then
+                  _now > "$state/.subsuper-paused-$key"
+                fi
+              fi
               continue
               ;;
           esac
@@ -1290,7 +1307,6 @@ housekeeping() {  # <state>
   # exactly the declaration that needs it. The crew's own latest status line is the
   # authority, and the loop head above already drops the marker the moment that line
   # stops declaring the wait.
-  pause_secs=${FM_PAUSE_RESURFACE_SECS:-$FM_PAUSE_RESURFACE_SECS_DEFAULT}
   for marker in "$state"/.subsuper-paused-*; do
     [ -e "$marker" ] || continue
     key="${marker##*.subsuper-paused-}"
