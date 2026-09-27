@@ -178,6 +178,9 @@ GitHub issue: ${url:-https://github.com/$GH_REPO/issues/$issue}
 Site: see the GitHub issue (kept out of this graph on purpose).
 The captain closes the GitHub issue after verification; the loop never does."
   )
+  case "$PRIORITY" in
+    0|1) args+=(--why "staff SOS report awaiting fix") ;;
+  esac
   if ! out=$(tasks_axi "${args[@]}" --json 2>/dev/null); then
     return 1
   fi
