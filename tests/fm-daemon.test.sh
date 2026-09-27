@@ -864,16 +864,18 @@ test_enriched_wedge_under_declared_wait_uses_pause_cadence() {
 # takes - in both readings of that step, checks running and checks green while the
 # same step monitors for merge/close - and restart its window instead of wording
 # the lane a possible wedge. A lane on a local step keeps the unchanged ladder.
+# The fixture's endpoint reads `alive`, so what is under test here is the deferral
+# itself; test_stale_persistence_reports_a_gone_endpoint_before_deferring_ci owns
+# the ordering between that deferral and a proven-gone endpoint.
 test_stale_persistence_defers_a_ci_waiting_lane() {
   local dir state fakebin task win pane key verdict i
-  dir=$(make_supercase stale-ci-wait)
+  dir=$(make_case stale-ci-wait)
   state="$dir/state"; fakebin="$dir/fakebin"
   task=ci-wait-w1; win="sess:fm-$task"; pane="$dir/pane.txt"
   key=$(printf '%s' "$task" | tr ':/.' '___')
   fm_write_meta "$state/$task.meta" "window=$win" "backend=tmux"
   printf 'working: implementation committed\n' > "$state/$task.status"
   printf 'idle prompt $\n' > "$pane"
-  make_fake_crew_state "$fakebin" >/dev/null
 
   for verdict in \
     'state: working · source: run-step · ci running · run: 01RUN' \
@@ -883,6 +885,7 @@ test_stale_persistence_defers_a_ci_waiting_lane() {
       echo $(( $(date +%s) - 500 )) > "$state/.subsuper-stale-$key"
       FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_FAKE_CREW_STATE="$verdict" \
         PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$win" FM_FAKE_TMUX_CAPTURE="$pane" \
+        FM_FAKE_TMUX_CURRENT_COMMAND=grok \
         FM_STATE_OVERRIDE="$state" FM_ESCALATE_BATCH_SECS=999999 housekeeping "$state"
       [ ! -s "$state/.subsuper-escalations" ] \
         || fail "a ci-waiting lane escalated as a possible wedge: $(cat "$state/.subsuper-escalations")"
@@ -903,6 +906,54 @@ test_stale_persistence_defers_a_ci_waiting_lane() {
   [ ! -e "$state/.subsuper-stale-$key" ] \
     || fail "a locally-working lane kept its wedge marker after escalating"
   pass "the stale persistence recheck defers a ci-waiting lane and keeps the wedge ladder for a local step"
+}
+
+# The watcher orders the recovery-grade endpoint probe ahead of the CI deferral so a
+# `ci` step still pending in the ledger cannot hide an agent that is gone, and pins
+# both gone verdicts (tests/fm-watch-triage.test.sh,
+# test_ci_step_does_not_hide_a_gone_endpoint). Away mode has no watcher dead-record
+# path to fall back on - the afk watcher hands stale panes over as plain wake
+# identities - so the daemon's own recheck carries the same beat: a ci-parked lane
+# whose endpoint reads `dead` or `missing` is reported once instead of restarting its
+# window for the whole merge wait, the report never repeats while the verdict stays
+# the same, and the lane keeps its stale tracking so the next crossing can decide.
+test_stale_persistence_reports_a_gone_endpoint_before_deferring_ci() {
+  local dir state fakebin task win pane key verdict inventory i lines
+  for verdict in dead missing; do
+    dir=$(make_case "stale-ci-gone-$verdict")
+    state="$dir/state"; fakebin="$dir/fakebin"
+    task="ci-gone-$verdict"; win="sess:fm-$task"; pane="$dir/pane.txt"
+    key=$(printf '%s' "$task" | tr ':/.' '___')
+    fm_write_meta "$state/$task.meta" "window=$win" "backend=tmux"
+    printf 'working: implementation committed\n' > "$state/$task.status"
+    printf 'idle prompt $\n' > "$pane"
+    inventory=
+    [ "$verdict" != missing ] || inventory=fm-someone-else
+    i=0
+    while [ "$i" -lt 3 ]; do
+      echo $(( $(date +%s) - 500 )) > "$state/.subsuper-stale-$key"
+      FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+        FM_FAKE_CREW_STATE='state: working · source: run-step · ci running · run: 01RUN' \
+        PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$win" FM_FAKE_TMUX_WINDOWS="$inventory" \
+        FM_FAKE_TMUX_CURRENT_COMMAND=bash FM_FAKE_TMUX_CAPTURE="$pane" \
+        FM_STATE_OVERRIDE="$state" FM_ESCALATE_BATCH_SECS=999999 housekeeping "$state"
+      i=$((i + 1))
+    done
+    lines=0
+    [ ! -s "$state/.subsuper-escalations" ] \
+      || lines=$(wc -l < "$state/.subsuper-escalations" | tr -d ' ')
+    [ "$lines" = 1 ] \
+      || fail "a $verdict endpoint under a ci step produced $lines report(s): $(cat "$state/.subsuper-escalations" 2>/dev/null)"
+    grep -F "agent $verdict" "$state/.subsuper-escalations" >/dev/null \
+      || fail "the $verdict endpoint under a ci step was not reported as itself: $(cat "$state/.subsuper-escalations")"
+    grep -F 'possible wedge' "$state/.subsuper-escalations" >/dev/null \
+      && fail "a $verdict endpoint under a ci step was worded a possible wedge"
+    [ -e "$state/.subsuper-stale-$key" ] \
+      || fail "the $verdict report dropped the lane's stale tracking"
+    [ $(( $(date +%s) - $(cat "$state/.subsuper-stale-$key") )) -lt 60 ] \
+      || fail "the $verdict report did not restart the lane's window"
+  done
+  pass "a ci-parked lane with a proven-gone endpoint is reported once instead of deferred or wedged"
 }
 
 test_stale_terminal_escalates() {
@@ -3175,6 +3226,7 @@ test_stale_transient_self_records_marker
 test_stale_diagnostic_wedge_survives_busy_housekeeping
 test_enriched_wedge_under_declared_wait_uses_pause_cadence
 test_stale_persistence_defers_a_ci_waiting_lane
+test_stale_persistence_reports_a_gone_endpoint_before_deferring_ci
 test_stale_terminal_escalates
 test_stale_actionable_wait_escalates_and_keeps_pause_cadence
 test_stale_paused_classifies_pause

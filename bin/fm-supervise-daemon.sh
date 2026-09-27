@@ -1187,7 +1187,7 @@ _oldest_line_age() {  # <buf> -> seconds since the oldest buffered item first ar
 #  3) heartbeat scan: every HEARTBEAT_SCAN_SECS, grep state/*.status for a
 #     captain-relevant line the per-wake classifier missed and escalate it.
 housekeeping() {  # <state>
-  local state=$1 now due f key task win marker age last max_defer oldest pause_secs marker_epoch until bounded_until pause_reason
+  local state=$1 now due f key task win marker age last max_defer oldest pause_secs marker_epoch until bounded_until pause_reason agent_state detail id gen
   now=$(_now)
   migrate_watcher_pause_markers "$state"
 
@@ -1247,6 +1247,25 @@ housekeeping() {  # <state>
       *)
         if crew_is_ci_waiting "$task"; then
           _now > "$marker"
+          agent_state=$(fm_backend_agent_state "$(task_window_backend "$win" "$state")" "$win" 2>/dev/null)
+          case "$agent_state" in
+            dead) detail='the endpoint is still there with no agent running in it' ;;
+            missing) detail='the recorded endpoint is gone' ;;
+            *)
+              rm -f "$state/.subsuper-dead-reported-$key"
+              continue
+              ;;
+          esac
+          id=$key
+          if gen=$(fm_busy_current_gen "$state" "$task"); then
+            id=$gen
+          fi
+          if [ "$(cat "$state/.subsuper-dead-reported-$key" 2>/dev/null || true)" = "$agent_state $id" ]; then
+            continue
+          fi
+          if escalate_add "$state" "agent $agent_state ${age}s idle ($detail; not a wedge - reported once and not repeated while it stays that way; reconcile this record and check for unlanded work before any cleanup): $win"; then
+            printf '%s %s' "$agent_state" "$id" > "$state/.subsuper-dead-reported-$key"
+          fi
           continue
         fi
         if escalate_add "$state" "stale persisted ${age}s (possible wedge): $win"; then
