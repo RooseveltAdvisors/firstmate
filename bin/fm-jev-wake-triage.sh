@@ -140,7 +140,7 @@ stamp_telemetry() {  # <suppress|escalate|unavailable>
     escalate) counter=escalated ;;
   esac
   mkdir -p "$STATE" 2>/dev/null || return 0
-  printf 'jev_triage.%s\t%s\n' "$counter" "$CLASS" >> "$TELEMETRY" 2>/dev/null || true
+  printf 'jev_triage.%s\t%s\t%s\n' "$counter" "$CLASS" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$TELEMETRY" 2>/dev/null || true
 }
 
 calibration_count() {

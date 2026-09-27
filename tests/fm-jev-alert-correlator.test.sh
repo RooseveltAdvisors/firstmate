@@ -43,4 +43,17 @@ telem_content=$(cat "$MOCK_STATE/.jev-alert-telemetry")
 assert_contains "$telem_content" "absorb" "telemetry contains absorb"
 assert_contains "$telem_content" "escalate" "telemetry contains escalate"
 
+# 4. Fingerprint dampening: the same condition with only counter changes must
+#    absorb on the 3rd sighting inside the hour (raw-text hashing never matched).
+set +e
+r1=$(FM_STATE_OVERRIDE="$MOCK_STATE" "$CORRELATOR_SH" --alert "worker health critical: open=3 status=down" >/dev/null 2>&1; echo $?)
+r2=$(FM_STATE_OVERRIDE="$MOCK_STATE" "$CORRELATOR_SH" --alert "worker health critical: open=7 status=down" >/dev/null 2>&1; echo $?)
+r3=$(FM_STATE_OVERRIDE="$MOCK_STATE" "$CORRELATOR_SH" --alert "worker health critical: open=12 status=down" 2>&1; echo $?)
+set -e
+[ "$r1" -eq 2 ] || fail "first sighting should escalate (rc=$r1)"
+# 2nd sighting: either Jev absorbs it semantically or it escalates again; both are valid.
+{ [ "$r2" -eq 0 ] || [ "$r2" -eq 2 ]; } || fail "second sighting rc invalid ($r2)"
+assert_contains "$r3" "absorb [repeat_fingerprint_dampened]" "third normalized repeat absorbed"
+assert_contains "$(cat "$MOCK_STATE/.jev-alert-telemetry")" "repeat_fingerprint_dampened" "telemetry records fingerprint dampening"
+
 pass "all fm-jev-alert-correlator tests passed"

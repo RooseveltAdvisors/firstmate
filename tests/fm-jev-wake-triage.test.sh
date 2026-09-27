@@ -138,6 +138,11 @@ TYPESAFE_API_KEY=$KEY run_tool code out --class ship --age 500 --escalation-coun
 assert_contains "$out" 'action=suppress' "pipeline_wait suppresses"
 assert_contains "$(cat "$HOME_DIR/state/.jev-triage-telemetry")" 'jev_triage.suppressed	ship' \
   "pipeline_wait stamps suppressed telemetry"
+last_line=$(tail -n1 "$HOME_DIR/state/.jev-triage-telemetry")
+assert_equals "3" "$(printf '%s' "$last_line" | awk -F'\t' '{print NF}')" \
+  "telemetry line carries a third column"
+printf '%s' "$last_line" | grep -Eq $'\t[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' \
+  || fail "telemetry timestamp is not ISO UTC: $last_line"
 assert_contains "$(cat "$HOME_DIR/state/.jev-triage-calibration.jsonl")" '"outcome":"pending"' \
   "a suppress is logged as pending outcome for later audit"
 pass "pipeline_wait suppresses and stamps suppressed telemetry"
