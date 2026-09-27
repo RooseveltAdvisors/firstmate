@@ -760,8 +760,9 @@ test_failed_declared_verification_refuses_registration() {
 }
 
 # The merge-time re-record is not a ready decision, so FM_PR_CHECK_MERGE=1 gets
-# past declared verification even with a failing declaration, records pr=, and
-# reaches the forge.
+# past declared verification in every shape where the named-head gate arm
+# actually fires - a non-github provider and direct-PR mode - while ordinary
+# registration with the same failing declaration still refuses.
 test_merge_time_re_record_skips_declared_verification() {
   local dir
   dir=$(make_case merge-re-record-skips-verify)
@@ -779,7 +780,55 @@ test_merge_time_re_record_skips_declared_verification() {
     || fail "the merge-time re-record never reached the forge"
   [ -f "$dir/home/state/task-a.check.sh" ] \
     || fail "the merge-time re-record did not arm the merge poll"
-  pass "FM_PR_CHECK_MERGE=1 proceeds past declared verification, recording and reaching the forge"
+
+  dir=$(make_case merge-re-record-gitlab)
+  write_task_meta "$dir"
+  printf '%s\n' 'run: exit 1' > "$dir/home/state/task-a.verify"
+  chmod 600 "$dir/home/state/task-a.verify"
+  run_check_entry "$dir" task-a https://gitlab.com/g/p/-/merge_requests/9 \
+    > "$dir/stdout" 2> "$dir/stderr" \
+    && fail "gitlab registration with a failing declared verification was accepted"
+  grep -qF 'declared verification failed: run: exit 1 exited nonzero' "$dir/stderr" \
+    || fail "gitlab registration refusal did not name the declared verification failure: $(cat "$dir/stderr")"
+  ! grep -q '^pr=' "$dir/home/state/task-a.meta" \
+    || fail "refused gitlab registration still recorded pr="
+  FM_PR_CHECK_MERGE=1 run_check_entry "$dir" task-a https://gitlab.com/g/p/-/merge_requests/9 \
+    > "$dir/stdout" 2> "$dir/stderr" \
+    || fail "the gitlab merge-time re-record was refused: $(cat "$dir/stderr")"
+  ! grep -q 'declared verification' "$dir/stderr" \
+    || fail "the gitlab merge-time re-record reported a declared-verification refusal: $(cat "$dir/stderr")"
+  grep -qxF 'pr=https://gitlab.com/g/p/-/merge_requests/9' "$dir/home/state/task-a.meta" \
+    || fail "the gitlab merge-time re-record did not record pr="
+  [ -f "$dir/home/state/task-a.check.sh" ] \
+    || fail "the gitlab merge-time re-record did not arm the merge poll"
+
+  dir=$(make_case merge-re-record-directpr)
+  fm_write_meta "$dir/home/state/task-a.meta" \
+    "window=firstmate:fm-task-a" "endpoint_task_id=task-a" "worktree=$dir/wt" \
+    "project=$dir/project" "kind=ship" "mode=direct-PR"
+  printf '%s\n' 'run: exit 1' > "$dir/home/state/task-a.verify"
+  chmod 600 "$dir/home/state/task-a.verify"
+  run_check_entry "$dir" task-a https://github.com/o/r/pull/9 \
+    > "$dir/stdout" 2> "$dir/stderr" \
+    && fail "direct-PR registration with a failing declared verification was accepted"
+  grep -qF 'declared verification failed: run: exit 1 exited nonzero' "$dir/stderr" \
+    || fail "direct-PR registration refusal did not name the declared verification failure: $(cat "$dir/stderr")"
+  ! grep -q '^pr=' "$dir/home/state/task-a.meta" \
+    || fail "refused direct-PR registration still recorded pr="
+  : > "$dir/gh.log"
+  FM_PR_CHECK_MERGE=1 run_check_entry "$dir" task-a https://github.com/o/r/pull/9 \
+    > "$dir/stdout" 2> "$dir/stderr" \
+    || fail "the direct-PR merge-time re-record was refused: $(cat "$dir/stderr")"
+  ! grep -q 'declared verification' "$dir/stderr" \
+    || fail "the direct-PR merge-time re-record reported a declared-verification refusal: $(cat "$dir/stderr")"
+  grep -qxF 'pr=https://github.com/o/r/pull/9' "$dir/home/state/task-a.meta" \
+    || fail "the direct-PR merge-time re-record did not record pr="
+  grep -q 'headRefOid' "$dir/gh.log" \
+    || fail "the direct-PR merge-time re-record never reached the forge"
+  [ -f "$dir/home/state/task-a.check.sh" ] \
+    || fail "the direct-PR merge-time re-record did not arm the merge poll"
+
+  pass "FM_PR_CHECK_MERGE=1 skips declared verification in every shape while registration still refuses"
 }
 
 test_valid_recording_and_merge_derivation() {

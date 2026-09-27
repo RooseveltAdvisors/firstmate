@@ -638,6 +638,10 @@ fm_dod_named_head_reachable_outside_worktree() {  # <worktree> <project> <mode> 
 # containing a space needs `run: test -f "/a b/c"` instead of `file:`. A `run:`
 # command inherits the orchestrator's environment and working directory, so it
 # names its own absolute paths.
+# FM_DOD_SKIP_DECLARED_VERIFICATION=1, set by the caller only around
+# fm_dod_accept_ship_done, applies the named-head gate while skipping declared
+# verification; bin/fm-pr-check.sh sets it only for its FM_PR_CHECK_MERGE=1
+# merge-time re-record, which is not a ready decision.
 FM_VERIFY_TIMEOUT=${FM_VERIFY_TIMEOUT:-30}
 case $FM_VERIFY_TIMEOUT in '' | 0* | *[!0-9]*) FM_VERIFY_TIMEOUT=30 ;; esac
 FM_VERIFY_PASS_TIMEOUT=${FM_VERIFY_PASS_TIMEOUT:-5}
@@ -799,7 +803,8 @@ fm_dod_verify_spec_checks() {  # <spec>
   done < "$1"
 }
 # Every gated ship done: first passes the task's declared mechanical verification
-# (fm_dod_verify_declared_checks_pass), so a structurally perfect claim whose
+# (fm_dod_verify_declared_checks_pass) unless the caller set
+# FM_DOD_SKIP_DECLARED_VERIFICATION=1, so a structurally perfect claim whose
 # declared check fails is still refused.
 # 0 when <line> is not a ship done: to gate, when it names the task's recorded
 # PR whose head the forge holds, when it names a Gerrit change whose current
@@ -815,7 +820,9 @@ fm_dod_verify_spec_checks() {  # <spec>
 fm_dod_accept_ship_done() {  # <kind> <mode> <worktree> <project> <line> [<state> <id> <meta>]
   local kind=$1 mode=$2 wt=$3 project=$4 line=$5 state=${6:-} id=${7:-} meta=${8:-} url sha gerrit
   fm_dod_should_gate_ship_done "$kind" "$mode" "$line" || return 0
-  fm_dod_verify_declared_checks_pass "$state" "$id" || return 1
+  if [ "${FM_DOD_SKIP_DECLARED_VERIFICATION:-}" != 1 ]; then
+    fm_dod_verify_declared_checks_pass "$state" "$id" || return 1
+  fi
   if url=$(fm_dod_pr_url_from_done_note "$(status_line_note "$line")") \
     && fm_dod_recorded_pr_on_forge "$state" "$id" "$meta" "$mode" "$url"; then
     return 0
