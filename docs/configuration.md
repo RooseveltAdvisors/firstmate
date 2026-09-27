@@ -186,7 +186,7 @@ These are the bounds set by the captain-approved architecture.
 Every existing captain gate remains unchanged in either posture.
 Homes on other primary harnesses do not load the Pi branch extension; shared per-task lease behavior is owned by `bin/fm-lease-lib.sh`.
 
-`AGENTS.md`'s `state/` inventory routes the branch's runtime files to their format and lifecycle owners.
+The [`operational-home-layout`](../.agents/skills/operational-home-layout/SKILL.md) skill's `state/` inventory routes the branch's runtime files to their format and lifecycle owners.
 
 ### Outcome delivery and acknowledgement
 
@@ -443,7 +443,7 @@ Any value other than `tmux`, `herdr`, `zellij`, `orca`, or `cmux` is rejected un
 
 ### Liveness classification
 
-The session-start secondmate liveness sweep and the watcher's secondmate liveness tick use the recovery-grade `fm_backend_agent_state` classifier where verified.
+The session-start secondmate liveness sweep, the watcher's secondmate liveness tick, and the response-lane rail, ladder, and seat-state advice use the recovery-grade `fm_backend_agent_state` classifier where verified.
 The comment above that function in `bin/fm-backend.sh` is the single owner of its detailed state contract and recovery authorization.
 
 The compatibility helper `fm_backend_agent_alive` continues to collapse those detailed results to `alive`, `dead`, or `unknown` for older callers.
@@ -1385,6 +1385,9 @@ When it is absent the rail is inert, and no mode of it reads a lane or publishes
 The rail exists because a response lane can stop answering without producing any alarm of its own.
 Every signal a supervisor already has measures whether a problem was detected, not whether anything answered it, so a lane whose worker is gone keeps reading as healthy routing.
 The rail measures the responder instead, and it is read-only: it never writes, moves, or deletes a lane's inbox, its messages, its status log, its metadata, or any other lane state.
+
+Routing verification is the rail's second reading, run with `bin/fm-lane-liveness.sh routes` and just as read-only against every lane: each lane's routing claims are classified under the delivery-and-processing rule, a claim missing either half is recorded as `routed_unverified` instead of `routed`, and the mode reports the fleet's unverified rate, which is how much routing is claimed rather than proven handled.
+The script header owns the exact evidence rule and the mode's output lines; this section owns only what the measurement is for.
 
 Two properties are load-bearing and neither is optional.
 
