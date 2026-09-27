@@ -234,6 +234,7 @@ lane_reset() {
   LANE_SOURCE=- LANE_PENDING=- LANE_HANDLED=- LANE_DRAIN=- LANE_MISSED=-
   LANE_RESOLVED=- LANE_ERRCLASS=unknown LANE_BEAT=- LANE_AGENT=unverified
   LANE_ROUTE_EVIDENCE=- LANE_DRAINED_ON_ERROR=no LANE_MOVER=- LANE_VERDICT=unknown
+  LANE_HANDLED_MOVED=no
   LANE_REASON=''
   LANE_RECORDS=''
 }
@@ -341,7 +342,7 @@ EOF
 
 lane_read() {  # <lane> <inbox-override>
   local lane=$1 override=$2 meta home host inbox probe oldest
-  local tag kind name mtime corr beat_remote=- counts pane
+  local tag kind name mtime corr beat_remote=- counts pane remote_agent
   local jclass jsince jhandled since sustained
   lane_reset
   meta="$STATE/$lane.meta"
@@ -425,6 +426,19 @@ EOF
     LANE_AGENT=$(fm_backend_agent_state "$(fm_backend_of_meta "$meta")" \
       "$(fm_meta_get "$meta" window)" 2>/dev/null) || LANE_AGENT=unverified
     [ -n "$LANE_AGENT" ] || LANE_AGENT=unverified
+  else
+    # A remote lane's agent state comes from the remote control state verb the
+    # supervision library polls, bounded like this sweep's other remote read.
+    LANE_AGENT=unverified
+    # shellcheck disable=SC2016  # the single-quoted program expands in the child shell
+    remote_agent=$(fm_run_timed "$SSH_TIMEOUT" env FM_HOME="$FM_HOME" bash -c '
+      . "$1/fm-secondmate-liveness-lib.sh" || exit 1
+      fm_secondmate_liveness_probe "$2" "$3" poll || exit 1
+      printf %s "$FM_SM_LIVE_STATE"
+    ' _ "$SCRIPT_DIR" "$meta" "$lane" 2>/dev/null) || remote_agent=
+    case "$remote_agent" in
+      alive|dead|missing|ambiguous|unreadable|unverified) LANE_AGENT=$remote_agent ;;
+    esac
   fi
 
   jclass=-
@@ -440,10 +454,12 @@ EOF
   else
     since=$NOW
   fi
+  LANE_HANDLED_MOVED=no
+  gt "$LANE_HANDLED" "$jhandled" && LANE_HANDLED_MOVED=yes
   case "$LANE_ERRCLASS" in
     none|unknown) ;;
     *)
-      if gt "$LANE_HANDLED" "$jhandled"; then
+      if [ "$LANE_HANDLED_MOVED" = yes ]; then
         LANE_DRAINED_ON_ERROR=yes
         LANE_MOVER=$(handled_mover "$host" "$inbox")
       fi
@@ -491,9 +507,9 @@ lane_verdict() {  # <error-class-sustained-seconds>
     LANE_REASON="supervision beat age ${LANE_BEAT}s over W=${W}s"
     return 0
   fi
-  if gt "$LANE_PENDING" 0 && [ "$LANE_HANDLED" = 0 ] && gt "$LANE_DRAIN" "$D"; then
+  if gt "$LANE_PENDING" 0 && gt "$LANE_DRAIN" "$D" && [ "$LANE_HANDLED_MOVED" = no ]; then
     LANE_VERDICT=dead
-    LANE_REASON="$LANE_PENDING pending, nothing ever handled, oldest ${LANE_DRAIN}s over D=${D}s"
+    LANE_REASON="$LANE_PENDING pending with oldest ${LANE_DRAIN}s over D=${D}s and no movement to handled since the last sweep"
     return 0
   fi
   case "$LANE_AGENT" in
@@ -612,7 +628,7 @@ EOF
 }
 
 action_selfcheck() {
-  local age
+  local age self=$SELF configured
   if [ ! -f "$BEAT" ]; then
     [ ! -f "$CONFIG" ] \
       || printf 'lane-liveness-self: the response-lane rail has never completed a sweep\n'
@@ -623,9 +639,14 @@ action_selfcheck() {
     printf 'lane-liveness-self: the response-lane rail heartbeat is unreadable\n'
     return 0
   fi
-  if [ "$age" -gt "$SELF" ]; then
+  # The configured SELF is the one enforced, but leniently: a config that will
+  # not load leaves the default in place rather than silencing the check that
+  # exists to report silence.
+  configured=$(config_load 2>/dev/null; printf '%s' "$SELF")
+  is_int "$configured" && self=$configured
+  if [ "$age" -gt "$self" ]; then
     printf 'lane-liveness-self: no response-lane sweep completed for %ss, over SELF=%ss\n' \
-      "$age" "$SELF"
+      "$age" "$self"
   fi
 }
 

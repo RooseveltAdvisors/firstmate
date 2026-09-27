@@ -71,11 +71,12 @@ conf_add() {  # <root> <line>
   printf '%s\n' "$2" >> "$1/config/response-lanes.conf"
 }
 
-rail() {  # <root> <mode...>  (FM_TEST_AGENT_STATE selects the probe answer)
+rail() {  # <root> <mode...>  (FM_TEST_AGENT_STATE picks the probe answer,
+           # FM_TEST_EXTRA_PATH prepends fixture tools such as a fake ssh)
   local root=$1 fb
   shift
   fb=$(fake_tmux "$root" "${FM_TEST_AGENT_STATE:-alive}")
-  PATH="$fb:$BASE_PATH" \
+  PATH="$fb${FM_TEST_EXTRA_PATH:+:$FM_TEST_EXTRA_PATH}:$BASE_PATH" \
     FM_HOME="$root" FM_STATE_OVERRIDE="$root/state" FM_CONFIG_OVERRIDE="$root/config" \
     "$RAIL" "$@" 2>&1
 }
@@ -118,9 +119,9 @@ assert_equals degraded "$(verdict_of "$OUT" elevated)" 'a beat over half of W bu
 assert_contains "$(printf '%s\n' "$OUT" | grep '^lane=over_w')" 'over W=900s' \
   'the dead verdict names the threshold it crossed'
 
-# --- D: pending with nothing ever handled -----------------------------------
+# --- D: pending that stops moving to handled --------------------------------
 ROOT_D=$(home_fixture drain)
-for lane in fresh_pending stale_pending drained_pending; do
+for lane in fresh_pending stale_pending drained_pending drained_moved; do
   lane_fixture "$ROOT_D" "$lane"
   conf_add "$ROOT_D" "lane $lane"
 done
@@ -128,17 +129,26 @@ printf 'x\n' > "$ROOT_D/state/fresh_pending.inbox/001.msg"
 fm_touch_epoch "$(( NOW - 1740 ))" "$ROOT_D/state/fresh_pending.inbox/001.msg"
 printf 'x\n' > "$ROOT_D/state/stale_pending.inbox/001.msg"
 fm_touch_epoch "$(( NOW - 1860 ))" "$ROOT_D/state/stale_pending.inbox/001.msg"
-# Same age, but this lane has handled something before, so the rule does not fire.
+# Same age, and this lane has handled work before, but the journal shows no
+# movement since the last sweep, which is what the rule measures now.
 printf 'x\n' > "$ROOT_D/state/drained_pending.inbox/001.msg"
 fm_touch_epoch "$(( NOW - 1860 ))" "$ROOT_D/state/drained_pending.inbox/001.msg"
 printf 'x\n' > "$ROOT_D/state/drained_pending.inbox/handled/000.msg"
+# Same age and history, but the journal's handled count is behind the inbox:
+# the lane moved work to handled since the last sweep, so it is working.
+printf 'x\n' > "$ROOT_D/state/drained_moved.inbox/001.msg"
+fm_touch_epoch "$(( NOW - 1860 ))" "$ROOT_D/state/drained_moved.inbox/001.msg"
+printf 'x\n' > "$ROOT_D/state/drained_moved.inbox/handled/000.msg"
+printf '%s\n' "drained_moved none $NOW 0" > "$ROOT_D/state/.lane-liveness-lanes"
 OUT=$(rail "$ROOT_D" read)
 assert_not_equals dead "$(verdict_of "$OUT" fresh_pending)" \
   'pending under D is not dead'
 assert_equals dead "$(verdict_of "$OUT" stale_pending)" \
-  'pending over D with nothing ever handled is dead'
-assert_not_equals dead "$(verdict_of "$OUT" drained_pending)" \
-  'the D rule needs handled_count to be zero, not just pending to be old'
+  'pending over D with no movement to handled is dead'
+assert_equals dead "$(verdict_of "$OUT" drained_pending)" \
+  'handled history no longer shields a lane whose pending aged past D with no movement'
+assert_equals alive "$(verdict_of "$OUT" drained_moved)" \
+  'a handled count that moved since the last sweep keeps the lane out of the D rule'
 assert_contains "$(printf '%s\n' "$OUT" | grep '^lane=stale_pending')" 'over D=1800s' \
   'the dead verdict names the drain threshold it crossed'
 
@@ -217,6 +227,49 @@ assert_contains "$(printf '%s\n' "$OUT" | grep '^lane=unsupervised')" 'unestabli
 OUT=$(rail "$ROOT_NB" check)
 assert_contains "$OUT" 'lane-liveness: lane=unsupervised' \
   'the check that pages the supervisor sees the same verdict'
+
+# --- a remote lane reads its agent state from the remote control ------------
+# The remote control's state verb, the same one the supervision library polls,
+# answers for the remote lane, so agent_status is a real state word and the
+# missed-ratio rule can fire remotely instead of being shielded forever by
+# unverified.
+ROOT_RM=$(home_fixture remotestate)
+mkdir -p "$ROOT_RM/data"
+fm_write_meta "$ROOT_RM/state/remotequiet.meta" \
+  'window=remote:remotequiet' 'kind=secondmate' 'harness=claude' \
+  'remote_host=lab-host' 'home=/remote/remotequiet-home'
+printf '%s\n' \
+  '- remotequiet - Remote lane (host: lab-host; root: /remote/root; home: /remote/remotequiet-home; scope: remote work; projects: alpha; added 2026-01-01)' \
+  > "$ROOT_RM/data/secondmates.md"
+conf_add "$ROOT_RM" 'lane remotequiet'
+printf 'nothing interesting here\n' > "$ROOT_RM/state/remotequiet.pane"
+for i in 1 2 3 4 5; do
+  printf '%s\n' "pending-reply-missed: pending-reply-id=miss$i" >> "$ROOT_RM/state/remotequiet.status"
+done
+printf '%s\n' 'pending-reply-resolved: pending-reply-id=done1' >> "$ROOT_RM/state/remotequiet.status"
+FAKE_SSH=$(fm_fakebin "$ROOT_RM/fake-ssh")
+cat > "$FAKE_SSH/ssh" <<'SH'
+#!/usr/bin/env bash
+case " $* " in
+  *' sh -s '*)
+    printf 'beat %s\ninbox ok\n' "$(date +%s)"
+    ;;
+  *)
+    printf '%s\n' "${FM_FAKE_STATE:-alive}"
+    ;;
+esac
+SH
+chmod +x "$FAKE_SSH/ssh"
+OUT=$(FM_TEST_EXTRA_PATH="$FAKE_SSH" rail "$ROOT_RM" read)
+assert_equals alive "$(field_of "$OUT" remotequiet agent_status)" \
+  'a remote lane reports its agent state from the remote state verb, not a permanent unverified'
+assert_equals degraded "$(verdict_of "$OUT" remotequiet)" \
+  'a remote lane with a heavily missed reply record and a live agent reads degraded'
+assert_contains "$(printf '%s\n' "$OUT" | grep '^lane=remotequiet')" 'unanswered' \
+  'the missed-ratio rule is the rule that fired'
+OUT=$(FM_FAKE_STATE=dead FM_TEST_EXTRA_PATH="$FAKE_SSH" rail "$ROOT_RM" read)
+assert_equals dead "$(field_of "$OUT" remotequiet agent_status)" \
+  'a remote lane whose state verb reports a dead agent carries that word'
 
 # --- an absent inbox is unknown with no counts, never a zero reading --------
 ROOT_M=$(home_fixture missing_inbox)
@@ -325,6 +378,29 @@ assert_equals '' "$OUT" 'a rail that just swept is silent'
 fm_touch_epoch "$(( NOW - 960 ))" "$ROOT_S/state/.lane-liveness-beat"
 OUT=$(rail "$ROOT_S" selfcheck)
 assert_contains "$OUT" 'over SELF=900s' 'a stale heartbeat reports rail silence'
+
+# --- selfcheck enforces the configured SELF ---------------------------------
+ROOT_SC=$(home_fixture selfconf)
+lane_fixture "$ROOT_SC" watchful
+conf_add "$ROOT_SC" 'lane watchful'
+conf_add "$ROOT_SC" 'SELF=120'
+rail "$ROOT_SC" check > /dev/null
+fm_touch_epoch "$(( NOW - 300 ))" "$ROOT_SC/state/.lane-liveness-beat"
+OUT=$(rail "$ROOT_SC" selfcheck)
+assert_contains "$OUT" 'over SELF=120s' \
+  'the armed silence check enforces the configured SELF, not the default'
+
+# A config that will not load must not silence the check: it falls back to the
+# default threshold and still reports.
+ROOT_SB=$(home_fixture selfbad)
+conf_add "$ROOT_SB" 'W=soon'
+fm_touch_epoch "$(( NOW - 960 ))" "$ROOT_SB/state/.lane-liveness-beat"
+OUT=$(rail "$ROOT_SB" selfcheck)
+expect_code 0 $? 'a malformed config still lets selfcheck report'
+assert_contains "$OUT" 'over SELF=900s' \
+  'a config that will not load falls back to the default threshold'
+assert_not_contains "$OUT" 'error:' \
+  'the lenient load does not surface the config error in the silence report'
 
 # --- check mode wakes on a change, then stays quiet -------------------------
 ROOT_C=$(home_fixture changes)

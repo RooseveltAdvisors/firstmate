@@ -1420,8 +1420,9 @@ lane <name> [inbox-path]
 - `W=900` is the supervision beat age at which a lane's own supervision counts as stopped. A healthy home beats every 20 to 180 seconds, so 900 is several missed beats rather than one slow poll.
   A beat older than half of `W` but under it reads `degraded` instead of `dead`.
   A supervision beat that cannot be established at all, reported as `watcher_beat_age_s=-`, counts as stopped rather than fresh, because unknown is never zero and the rail applies that same rule to supervision that it applies to inboxes.
-- `D=1800` is how long the oldest unhandled message may sit in a lane that has never handled anything before that lane counts as dead. Half an hour outlasts any normal turn, so a busy worker is not called dead, while a lane that has taken nothing in days is unambiguous.
-  The same drain counts as dead when the lane's agent is proven absent (`agent_status=dead` or `missing`), whatever its handled history, because a proven-absent agent will never move those messages to `handled/`.
+- `D=1800` is how long the oldest pending message may sit in a lane whose handled count has not moved since the previous sweep before that lane counts as dead. Half an hour outlasts any normal turn, so a busy worker is not called dead, while a lane that has taken nothing in days is unambiguous.
+  The rule reads the previous handled count the rail already keeps in its own journal, so a lane that handled work in the past but has stopped moving new messages to `handled/` reads dead too, instead of being shielded by its history.
+  The same drain also counts as dead when the lane's agent is proven absent (`agent_status=dead` or `missing`), whatever its handled history, because a proven-absent agent will never move those messages to `handled/`.
 - `E=600` is how long a transport or budget error class must hold before it counts as dead rather than a passing blip. Ten minutes outlasts a provider retry window and a rate-limit cooldown.
 - `M=50` is the percentage of a lane's tracked requests that may stand unanswered before the lane reads `degraded` while its agent is still alive. Above half means the lane receives more than it answers.
 - `SELF=900` is how long the rail may go without completing a sweep before rail silence is reported. It matches `W` because a rail that stopped reporting is as serious as a lane whose supervision stopped.
@@ -1436,13 +1437,15 @@ They are entirely separate from the monitoring product's own severity and paging
 The inbox path is optional, and needed only when a lane's inbox is not where its record implies.
 A local lane defaults to `state/<name>.inbox`.
 A lane whose record carries `remote_host=` is read over that host at `<its home>/state/parent-route/<name>.inbox`, because no local inbox directory exists for it.
+The ladder's redispatch honors the same override, so the rail counts and the ladder re-sends from one inbox for a lane that moved it.
+A remote lane's `agent_status` comes from the same remote control state verb the supervision library polls, bounded like the inbox read, so a remote lane reports its agent's real state instead of a permanent `unverified`.
 
 A lane with no local inbox directory is not a lane with an empty inbox.
 An inbox the rail cannot read is reported `unknown` with every count as `-`, never as zero, because a zero-depth reading for an inbox that lives somewhere else is the exact false-health signal the rail exists to catch.
 
 **Generated state**
 
-The rail writes only three records, all under this home's own `state/`: `.lane-liveness-beat` is the heartbeat, `.lane-liveness-lanes` carries how long each lane's error class has held and what its handled count was last sweep, and `.lane-liveness-reported` holds the last verdict reported for each lane so an unchanged verdict does not wake the supervisor again.
+The rail writes only three records, all under this home's own `state/`: `.lane-liveness-beat` is the heartbeat, `.lane-liveness-lanes` carries how long each lane's error class has held and what its handled count was last sweep, which is the movement baseline the dead rule reads, and `.lane-liveness-reported` holds the last verdict reported for each lane so an unchanged verdict does not wake the supervisor again.
 Only a sweep that read a pane writes `.lane-liveness-lanes`, so `routes`, which never reads one, cannot restate a class it never observed.
 A pane that cannot be read leaves the established class and its clock in place too, because an unreadable pane is not evidence that the error ended.
 All three are safe to delete; the next sweep rebuilds them, and the first sweep after deleting `.lane-liveness-reported` reports every currently unhealthy lane once more.
@@ -1463,7 +1466,8 @@ Endpoint liveness is an input to the decision and never a terminal answer, becau
 An unhealthy verdict the ladder cannot remedy ends at the escalation rung carrying its evidence, never at "nothing to do", because reporting nothing to do about a dead lane reports success while doing nothing.
 
 - `RECOVERY` is the off-switch and defaults to `off`. `off` and `dry-run` both print the plan and change nothing; only `acting` permits a rung to run. A run invoked below `acting` refuses and prints the plan instead.
-- `ATTEMPT_CEILING=2` is the per-rung, per-lane attempt ceiling, and `COOLDOWN=3600` is the window those attempts are counted in. Together they are why a permanently broken lane escalates once with its evidence instead of flapping.
+- `ATTEMPT_CEILING=2` is the per-lane attempt ceiling for the restart rung, and `COOLDOWN=3600` is the window those attempts are counted in. Together they are why a permanently broken lane escalates once with its evidence instead of flapping.
+  The switch rung admits one model switch per lane and the redispatch rung one re-send per lane, held in code rather than config, so the worst case stays two restarts, one model switch, one redispatch, then a page.
 - `PERSIST_TIMEOUT=30` bounds the request that a live lane record the open work it holds only in conversation, before its agent is replaced. A lane looping a provider error cannot answer that request by definition, so an unbounded wait would hang on exactly the lanes the switch rung targets. On timeout the ladder records `persist_impossible` with its justification and proceeds: an agent that cannot reach its provider cannot have landed work, and the relaunch verb preserves the local copy and its uncommitted work by construction.
 - `RELAUNCH_TIMEOUT=300` bounds one guarded relaunch.
 - `SWITCH_MODEL` and `SWITCH_HARNESS` name what the switch rung moves a provider-faulted lane onto. With neither set, a lane that needs a switch escalates instead, so the ladder never invents a target.

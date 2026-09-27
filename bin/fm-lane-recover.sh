@@ -114,12 +114,17 @@ RAIL="${FM_LANE_RAIL:-$SCRIPT_DIR/fm-lane-liveness.sh}"
 
 RECOVERY=off
 ATTEMPT_CEILING=2
+# Rung 2 admits one model switch per lane, whatever ATTEMPT_CEILING says: the
+# design's worst case is two restarts, one model switch, one redispatch, then a
+# page, and that specific envelope overrides the generic default.
+SWITCH_CEILING=1
 COOLDOWN=3600
 SWITCH_MODEL=
 SWITCH_HARNESS=
 RELAUNCH_TIMEOUT=300
 PERSIST_TIMEOUT=30
 SSH_TIMEOUT=10
+LANE_INBOXES=
 
 ACTING=
 NOW=
@@ -152,11 +157,24 @@ is_int() {
 }
 
 config_load() {
-  local line key value lineno=0
+  local line key value name inbox lineno=0
   [ -f "$CONFIG" ] || return 1
   while IFS= read -r line || [ -n "$line" ]; do
     lineno=$(( lineno + 1 ))
-    case "$line" in ''|'#'*|'lane '*) continue ;; esac
+    case "$line" in
+      ''|'#'*) continue ;;
+      'lane '*)
+        # shellcheck disable=SC2086  # deliberate split of a whitespace record
+        set -- $line
+        name=${2:-}
+        inbox=${3:-}
+        fm_pr_task_id_valid "$name" \
+          || die "response-lanes.conf line $lineno: invalid lane name"
+        LANE_INBOXES="$LANE_INBOXES$name	$inbox
+"
+        continue
+        ;;
+    esac
     case "$line" in
       *=*)
         key=${line%%=*}
@@ -357,9 +375,9 @@ rung_decide() {  # <lane> <verdict> <errclass> <pending> <beatage>
       rung_escalate "$lane" "$pending" "error class $errclass needs a profile switch, and no SWITCH_MODEL or SWITCH_HARNESS is configured to move it onto"
       return 0
     fi
-    if [ "$switches" -lt "$ATTEMPT_CEILING" ]; then
+    if [ "$switches" -lt "$SWITCH_CEILING" ]; then
       RUNG=switch_model_or_harness
-      RUNG_WHY="rail matched provider error class $errclass, so the provider is the suspect (endpoint $FM_SM_LIVE_STATE, switch attempt $(( switches + 1 )) of $ATTEMPT_CEILING)"
+      RUNG_WHY="rail matched provider error class $errclass, so the provider is the suspect (endpoint $FM_SM_LIVE_STATE, switch attempt $(( switches + 1 )) of $SWITCH_CEILING)"
       RUNG_CMD="fm-control.sh $lane relaunch${SWITCH_HARNESS:+ --harness $SWITCH_HARNESS}${SWITCH_MODEL:+ --model $SWITCH_MODEL}"
       [ "$FM_SM_LIVE_STATUS" = alive ] \
         && RUNG_NOTE="endpoint is alive, so persist is attempted for ${PERSIST_TIMEOUT}s first and persist_impossible is recorded on timeout"
@@ -429,16 +447,20 @@ redispatch_frame() {  # <record-path>
 }
 
 # redispatch_frames <lane>: every unclaimed record of the lane's own inbox,
-# read at the same place the rail counts that inbox: a remote lane over ssh
-# from this home, a local lane from this home's state.
+# read at the same place the rail counts that inbox: the config's per-lane
+# override when one is written, otherwise a remote lane over ssh from this
+# home or a local lane from this home's state.
 redispatch_frames() {  # <lane>
-  local lane=$1 meta home host f
+  local lane=$1 meta home host inbox f override
   meta="$STATE/$lane.meta"
   home=$(fm_meta_get "$meta" home)
   host=$(fm_meta_get "$meta" remote_host)
+  override=$(printf '%s' "$LANE_INBOXES" \
+    | awk -F '\t' -v l="$lane" '$1 == l { print $2; exit }')
   if [ -n "$host" ]; then
+    inbox=${override:-$home/state/parent-route/$lane.inbox}
     fm_run_timed "$SSH_TIMEOUT" ssh -o BatchMode=yes -o ConnectTimeout="$SSH_TIMEOUT" \
-      "$host" sh -s -- "$home/state/parent-route/$lane.inbox" <<'REMOTE'
+      "$host" sh -s -- "$inbox" <<'REMOTE'
 d=$1
 [ -d "$d" ] || exit 0
 for f in "$d"/*.msg; do
@@ -449,7 +471,8 @@ for f in "$d"/*.msg; do
 done
 REMOTE
   else
-    for f in "$STATE/$lane.inbox"/*.msg; do
+    inbox=${override:-$STATE/$lane.inbox}
+    for f in "$inbox"/*.msg; do
       [ -f "$f" ] || continue
       redispatch_frame "$f"
     done
@@ -510,8 +533,23 @@ sweep() {
     errclass=$(printf '%s\n' "$line" | sed -n 's/.* error_signature_class=\([^ ]*\).*/\1/p')
     pending=$(printf '%s\n' "$line" | sed -n 's/.* pending_count=\([^ ]*\).*/\1/p')
     beatage=$(printf '%s\n' "$line" | sed -n 's/.* watcher_beat_age_s=\([^ ]*\).*/\1/p')
-    rung_decide "$lane" "$verdict" "$errclass" "$pending" "$beatage"
-    lane_act "$lane" "$verdict" "$errclass"
+    # Acting holds the lane's own liveness lock across probe, decision, and
+    # act, so the endpoint state the verdict rests on is the endpoint state
+    # acted on and a concurrent supervisor cannot observe this replacement
+    # mid-flight and classify the endpoint as dead. A lane whose lock is busy
+    # is skipped whole; a plan never locks because it never acts.
+    if [ -n "$ACTING" ]; then
+      if fm_secondmate_liveness_lock "$lane"; then
+        rung_decide "$lane" "$verdict" "$errclass" "$pending" "$beatage"
+        lane_act "$lane" "$verdict" "$errclass"
+        fm_secondmate_liveness_unlock "$lane"
+      else
+        printf 'lane=%s action=skipped reason=another supervisor holds this lane\n' "$lane"
+      fi
+    else
+      rung_decide "$lane" "$verdict" "$errclass" "$pending" "$beatage"
+      lane_act "$lane" "$verdict" "$errclass"
+    fi
   done
 }
 
@@ -562,16 +600,9 @@ lane_act() {  # <lane> <verdict> <errclass>
     return 0
   fi
 
-  # Acting. The lane's own liveness lock is held across the whole episode so a
-  # concurrent supervisor cannot observe this replacement mid-flight and
-  # classify the endpoint as dead.
-  if ! fm_secondmate_liveness_lock "$lane"; then
-    printf 'lane=%s verdict=%s rung=%s action=skipped reason=another supervisor holds this lane\n' \
-      "$lane" "$verdict" "$RUNG"
-    return 0
-  fi
+  # Acting. The caller holds this lane's liveness lock across the whole
+  # episode (see sweep in this file), from probe through this act.
   if ! ladder_record "$lane" "$RUNG" attempt "$RUNG_WHY"; then
-    fm_secondmate_liveness_unlock "$lane"
     printf 'lane=%s verdict=%s rung=%s action=skipped reason=ladder log unwritable, so nothing was tried\n' \
       "$lane" "$verdict" "$RUNG"
     return 0
@@ -601,7 +632,6 @@ lane_act() {  # <lane> <verdict> <errclass>
       redispatch_do "$lane" || rc=$?
       ;;
   esac
-  fm_secondmate_liveness_unlock "$lane"
   if [ "$rc" -eq 0 ]; then
     detail='replaced through the existing owner of this case'
     [ "$RUNG" != redispatch ] \

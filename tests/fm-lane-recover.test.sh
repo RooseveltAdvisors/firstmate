@@ -81,6 +81,12 @@ lane() {  # <root> <lane> [beat-age] [harness]
 
 conf() { printf '%s\n' "$2" >> "$1/config/response-lanes.conf"; }
 pane() { printf '%s\n' "$3" > "$1/state/$2.pane"; }
+seed_row() {  # <log> <rung> <outcome>: a durable ladder-log row, the state the counters read
+  printf '%s\t%s\t%s\t%s\n' "$NOW" "$2" "$3" 'fixture' >> "$1"
+}
+attempt_count() {  # <log> <rung>: how many attempt rows that rung has
+  awk -F '\t' -v r="$2" '$2 == r && $3 == "attempt" { n++ } END { print n + 0 }' "$1"
+}
 
 # ladder <root> <probe-state> <window> <mode...>
 ladder() {
@@ -263,6 +269,106 @@ assert_equals escalate_captain "$(field "$ROW" rung)" \
 assert_contains "$ROW" 'action=parked' 'the escalation parks the lane for a person'
 assert_grep "$(printf 'escalate_captain\tparked')" "$R/state/.lane-recovery-reloaded" \
   'the ladder log carries the escalation that followed the re-send'
+
+# --- the worst case itself: 2 restarts, 1 switch, 1 redispatch, then a page --
+# Every counter state is driven through the ladder own decisions, each seeded
+# as the durable attempt rows those decisions read, and the final page is
+# executed. A third restart, a second switch, or a second re-send at any step
+# would have to appear as a decision this walk makes.
+R=$(home worstcase)
+lane "$R" doomed 4000
+pane "$R" doomed 'stream disconnected before completion'
+conf "$R" 'SWITCH_MODEL=some-other-model'
+printf 'schema=1\nat=now\n--\nwork order\n' > "$R/state/doomed.inbox/001.msg"
+LOG="$R/state/.lane-recovery-doomed"
+OUT=$(ladder "$R" dead sess:doomed plan)
+ROW=$(row "$OUT" doomed)
+assert_equals restart_lane_agent "$(field "$ROW" rung)" 'the walk starts at the restart rung'
+assert_contains "$ROW" 'attempt 1 of 2' 'the restart rung allows two attempts'
+seed_row "$LOG" restart_lane_agent attempt
+OUT=$(ladder "$R" dead sess:doomed plan)
+assert_contains "$(row "$OUT" doomed)" 'attempt 2 of 2' 'the second restart attempt is the last one'
+seed_row "$LOG" restart_lane_agent attempt
+OUT=$(ladder "$R" dead sess:doomed plan)
+ROW=$(row "$OUT" doomed)
+assert_equals switch_model_or_harness "$(field "$ROW" rung)" \
+  'a provider fault after two restarts reaches the switch rung'
+assert_contains "$ROW" 'attempt 1 of 1' 'the switch rung admits one model switch per lane'
+seed_row "$LOG" switch_model_or_harness attempt
+OUT=$(ladder "$R" dead sess:doomed plan)
+ROW=$(row "$OUT" doomed)
+assert_equals escalate_captain "$(field "$ROW" rung)" \
+  'a second model switch is never offered'
+assert_contains "$ROW" 'ceilings are spent' 'the escalation says both ceilings are spent'
+OUT=$(ladder "$R" alive sess:doomed plan)
+ROW=$(row "$OUT" doomed)
+assert_equals redispatch "$(field "$ROW" rung)" \
+  'a recovered lane that still holds pending work re-sends before the page'
+seed_row "$LOG" redispatch attempt
+OUT=$(ladder "$R" alive sess:doomed plan)
+assert_equals escalate_captain "$(field "$(row "$OUT" doomed)" rung)" \
+  'a second re-send is never offered'
+conf "$R" 'RECOVERY=acting'
+OUT=$(ladder "$R" alive sess:doomed run)
+assert_contains "$(row "$OUT" doomed)" 'action=parked' \
+  'exhaustion ends in the page, not in another rung'
+assert_equals 2 "$(attempt_count "$LOG" restart_lane_agent)" \
+  'at most two restarts were produced'
+assert_equals 1 "$(attempt_count "$LOG" switch_model_or_harness)" \
+  'at most one model switch was produced'
+assert_equals 1 "$(attempt_count "$LOG" redispatch)" \
+  'at most one re-send was produced'
+assert_grep "$(printf 'escalate_captain\tparked')" "$LOG" \
+  'the page is the last thing the ladder produced'
+
+# --- probe, decide and act happen under the lane's liveness lock ------------
+R=$(home locked)
+lane "$R" heldup 4000
+pane "$R" heldup 'nothing interesting'
+printf 'schema=1\nat=now\n--\nwork order\n' > "$R/state/heldup.inbox/001.msg"
+conf "$R" 'RECOVERY=acting'
+LOCK="$R/state/.secondmate-liveness-heldup.lock"
+( . "$ROOT/bin/fm-wake-lib.sh" && fm_lock_try_acquire "$LOCK" && sleep 30 ) &
+# shellcheck disable=SC2031 # The background PID is captured immediately in this shell.
+HOLDER=$!
+sleep 1
+OUT=$(ladder "$R" alive sess:heldup run)
+assert_contains "$OUT" 'action=skipped' 'a lane whose lock is busy is skipped'
+assert_contains "$OUT" 'another supervisor holds this lane' \
+  'the skip says who holds the lane'
+assert_absent "$R/state/.lane-recovery-heldup" \
+  'nothing was decided or acted while another supervisor held the lock'
+kill "$HOLDER" 2>/dev/null || true
+wait "$HOLDER" 2>/dev/null || true
+OUT=$(ladder "$R" alive sess:heldup run)
+assert_contains "$OUT" 'rung=redispatch action=done' \
+  'once the lock is free the probe, decision, and act all proceed'
+assert_grep "$(printf 'redispatch\tattempt')" "$R/state/.lane-recovery-heldup" \
+  'the acted rung wrote its attempt row'
+
+# --- redispatch honors the config inbox override ----------------------------
+R=$(home overridelane)
+lane "$R" shifted 4000
+pane "$R" shifted 'nothing interesting'
+CONF="$R/config/response-lanes.conf"
+grep -v '^lane shifted$' "$CONF" > "$CONF.tmp" && mv "$CONF.tmp" "$CONF"
+mkdir -p "$R/alt"
+printf 'schema=1\nat=now\n--\nwork order from the overridden inbox\n' > "$R/alt/001.msg"
+conf "$R" "lane shifted $R/alt"
+OUT=$(ladder "$R" alive sess:shifted plan)
+ROW=$(row "$OUT" shifted)
+assert_equals redispatch "$(field "$ROW" rung)" \
+  'the rail counts the overridden inbox, so the rung applies'
+assert_contains "$ROW" 're-send 1' 'the plan counts the record in the overridden inbox'
+conf "$R" 'RECOVERY=acting'
+OUT=$(ladder "$R" alive sess:shifted run)
+ROW=$(row "$OUT" shifted)
+assert_contains "$ROW" 'rung=redispatch action=done sent=1' \
+  'the re-send read the overridden inbox, not the default one'
+assert_present "$R/state/shifted.inbox/001.msg" \
+  'the re-sent record lands where fm-send writes'
+assert_present "$R/alt/001.msg" \
+  'the original record in the overridden inbox is never touched'
 
 # --- no unhealthy lane ever ends at rung=none -------------------------------
 # The invariant, asserted directly across every endpoint state: a dead verdict
