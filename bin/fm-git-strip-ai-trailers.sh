@@ -21,9 +21,16 @@
 #       would find this directory again and never run the repository's own
 #       hook - a skipped pre-push guard. An empty core.hooksPath means no
 #       repository hook, as in plain git; any other failed lookup exits
-#       nonzero rather than skipping the repository's hook. Does not touch the
-#       project's git config; the caller prefixes the pane with
-#       GIT_CONFIG_COUNT / GIT_CONFIG_KEY_0 / GIT_CONFIG_VALUE_0.
+#       nonzero rather than skipping the repository's hook. Also binds that hooksPath to <worktree> alone, via
+#       git's worktree-scoped config, so a commit written by a process that
+#       never inherited the pane environment still runs the strip; the caller
+#       additionally prefixes the pane with GIT_CONFIG_COUNT /
+#       GIT_CONFIG_KEY_0 / GIT_CONFIG_VALUE_0.
+#   fm-git-strip-ai-trailers.sh unbind <worktree>
+#       Drop that worktree-scoped binding. Teardown calls this when it removes
+#       the hooks directory, so a reused pool worktree does not keep pointing
+#       core.hooksPath at a deleted directory and silently lose the project's
+#       own hooks.
 #
 # WHY THIS EXISTS. Claude launches already carry attribution-off in their
 # per-launch --settings JSON. Cursor and other non-Claude runtimes inject a
@@ -38,6 +45,18 @@
 # the layer that sees the assembled message before the commit object is written.
 # Human Co-Authored-By trailers are left untouched. Author identity is not
 # rewritten.
+#
+# WHY THE BINDING IS NOT ENOUGH ON THE PANE ALONE. GIT_CONFIG_* reaches only
+# processes descended from the launch. The no-mistakes pipeline commits from a
+# long-lived shared daemon started outside any pane, whose environment carries
+# no GIT_CONFIG_* at all, so every `no-mistakes(review|document|ci):` commit
+# bypassed the pane override and carried its typed trailer into the pushed
+# branch. Verified live 2026-09-26 against the running daemon's environment and
+# against Portal branches whose pipeline commits kept
+# `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. Worktree-scoped
+# config is read by every git invocation in that worktree whatever launched it,
+# and it is isolated: the primary checkout and sibling worktrees keep resolving
+# their own hooks.
 #
 # ACCEPTED RESIDUAL, ruled 2026-09-17. git commit --no-verify skips every hook,
 # so a worker that passes it still lands the trailer, as would a runtime that
@@ -65,6 +84,7 @@ usage() {
 usage:
   fm-git-strip-ai-trailers.sh <msgfile>
   fm-git-strip-ai-trailers.sh install <hooks-dir> <worktree>
+  fm-git-strip-ai-trailers.sh unbind <worktree>
 EOF
   exit 2
 }
@@ -155,23 +175,42 @@ write_executable() {
 # core.hooksPath; only the repository's config files name its own hooks. Skip
 # when the lookup still names this launch's own hooks dir, meaning those files
 # point here, so the wrapper cannot recurse into itself. An empty
-# core.hooksPath makes that lookup fail, but plain git reads it as "no hooks",
-# so the wrapper runs none; any other failure reruns the lookup to show git's
-# error and refuses.
+# core.hooksPath means "no hooks" in plain git, so the wrapper runs none; any
+# other lookup failure refuses rather than skipping the repository's hook.
+#
+# install writes its binding in git's worktree scope, which outranks every
+# other scope, so asking git for the effective core.hooksPath here would just
+# return this launch's own directory and chaining would stop. The scopes below
+# the binding are read instead, highest precedence first, and git's default is
+# used when none of them sets one - which is what the repository would resolve
+# had this launch never bound anything. A husky or lefthook directory that only
+# appears after npm install lands in local scope, so it is still found.
 runtime_chain_body() {
   local ours=$1
   cat <<EOF
 unset GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0
 ours=$(quote_for_hook "$ours")
 name=\${0##*/}
-orig=\$(unset GIT_CONFIG_PARAMETERS; git rev-parse --path-format=absolute --git-path hooks 2>/dev/null) || {
-  if hooks_path=\$(unset GIT_CONFIG_PARAMETERS; git config --get --type=path core.hooksPath 2>/dev/null) && [ -z "\$hooks_path" ]; then
-    exit 0
-  fi
-  (unset GIT_CONFIG_PARAMETERS; git rev-parse --path-format=absolute --git-path hooks >/dev/null)
+refuse() {
   echo "fm-git-strip-ai-trailers: cannot resolve this repository's hooks directory; refusing to skip its \$name hook" >&2
   exit 1
 }
+proj=
+for scope in --local --global --system; do
+  if proj=\$(unset GIT_CONFIG_PARAMETERS; git config "\$scope" --get core.hooksPath); then
+    [ -n "\$proj" ] || exit 0
+    break
+  elif [ \$? -ne 1 ]; then
+    refuse
+  fi
+  proj=
+done
+if [ -n "\$proj" ]; then
+  orig=\$(unset GIT_CONFIG_PARAMETERS; git -c core.hooksPath="\$proj" rev-parse --path-format=absolute --git-path hooks) || refuse
+else
+  orig=\$(unset GIT_CONFIG_PARAMETERS; git rev-parse --path-format=absolute --git-common-dir) || refuse
+  orig=\$orig/hooks
+fi
 if [ "\$orig" = "\$ours" ]; then
   exit 0
 fi
@@ -241,6 +280,30 @@ $(runtime_chain_body "$hooks_dir")
 EOF
   done
   chmod 500 "$hooks_dir"
+
+  # Bind the same path to this worktree so a commit written outside the pane
+  # environment still strips. extensions.worktreeConfig is repository-wide but
+  # inert on its own: it only tells git to read a config.worktree that no other
+  # worktree has. Written only when it is not already set, because that file is
+  # shared by every worktree of the project and concurrent spawns would
+  # otherwise contend for its lock on a value that never changes. Fails closed,
+  # because a launch that cannot strip is the leak this exists to close.
+  if [ "$(git -C "$wt" config --get extensions.worktreeConfig 2>/dev/null)" != true ]; then
+    git -C "$wt" config extensions.worktreeConfig true || {
+      echo "error: could not enable worktree config in: $wt" >&2
+      return 1
+    }
+  fi
+  git -C "$wt" config --worktree core.hooksPath "$hooks_dir" || {
+    echo "error: could not bind the strip hooks to: $wt" >&2
+    return 1
+  }
+}
+
+unbind_hooks() {
+  local wt=$1
+  [ -n "$wt" ] || usage
+  git -C "$wt" config --worktree --unset core.hooksPath 2>/dev/null || true
 }
 
 CMD=${1:-}
@@ -248,6 +311,10 @@ case "$CMD" in
 install)
   [ "$#" -eq 3 ] || usage
   install_hooks "$2" "$3"
+  ;;
+unbind)
+  [ "$#" -eq 2 ] || usage
+  unbind_hooks "$2"
   ;;
 -h | --help)
   usage

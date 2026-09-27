@@ -356,6 +356,100 @@ test_strip_msgfile_alone_does_not_rewrite_author_fields() {
   pass "commit-msg file mode strips the trailer and keeps the subject"
 }
 
+# The pane-side GIT_CONFIG_* override reaches only processes descended from the
+# launch. The no-mistakes pipeline commits from a shared daemon started outside
+# any pane, so these cases deliberately run git with no GIT_CONFIG_* at all and
+# still require a clean commit object.
+test_commit_outside_the_pane_environment_is_still_stripped() {
+  local repo wt hooks body
+  repo="$TMP_ROOT/daemon-repo"
+  wt="$TMP_ROOT/daemon-wt"
+  hooks="$TMP_ROOT/hooks-daemon"
+  make_repo "$repo"
+  git -C "$repo" worktree add -q "$wt" -b task
+  "$STRIP" install "$hooks" "$wt" || fail "install should succeed on a linked worktree"
+  printf 'note\n' >>"$wt/README.md"
+  git -C "$wt" add README.md
+  git -C "$wt" commit -q --trailer 'Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>' \
+    -m 'no-mistakes(review): pipeline fix'
+  body=$(git -C "$wt" log -1 --format=%B)
+  assert_not_contains "$body" "noreply@anthropic.com" "a commit made without the pane environment kept the AI trailer"
+  pass "a commit made without the pane environment is still stripped"
+}
+
+test_full_branch_history_carries_no_ai_trailer() {
+  local repo wt hooks found
+  repo="$TMP_ROOT/history-repo"
+  wt="$TMP_ROOT/history-wt"
+  hooks="$TMP_ROOT/hooks-history"
+  make_repo "$repo"
+  git -C "$repo" worktree add -q "$wt" -b task
+  "$STRIP" install "$hooks" "$wt" || fail "install should succeed"
+  # Thirteen commits, alternating the two casings and both launch paths, so the
+  # assertion below is a full-history scan rather than a shallow tip check.
+  for i in 1 2 3 4 5 6 7 8 9 10 11 12 13; do
+    printf 'line %s\n' "$i" >>"$wt/README.md"
+    git -C "$wt" add README.md
+    if [ $((i % 2)) -eq 0 ]; then
+      with_hooks_env "$hooks" git -C "$wt" commit -q \
+        --trailer 'Co-authored-by: Cursor <cursoragent@cursor.com>' -m "feat: pane commit $i"
+    else
+      git -C "$wt" commit -q \
+        --trailer 'Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>' -m "no-mistakes(review): daemon commit $i"
+    fi
+  done
+  assert_equals 13 "$(git -C "$wt" rev-list --count main..task)" "the fixture should carry thirteen branch commits"
+  found=$(git -C "$wt" log --format=%B main..task | grep -ci 'co-authored-by' || true)
+  assert_equals 0 "$found" "the pushed branch history still carries an AI trailer"
+  pass "no AI trailer survives anywhere in the branch history"
+}
+
+test_binding_does_not_reach_the_primary_checkout() {
+  local repo wt hooks body
+  repo="$TMP_ROOT/isolation-repo"
+  wt="$TMP_ROOT/isolation-wt"
+  hooks="$TMP_ROOT/hooks-isolation"
+  make_repo "$repo"
+  git -C "$repo" worktree add -q "$wt" -b task
+  "$STRIP" install "$hooks" "$wt" || fail "install should succeed"
+  assert_equals "" "$(git -C "$repo" config --get core.hooksPath)" "the task binding leaked into the primary checkout"
+  printf 'primary\n' >>"$repo/README.md"
+  git -C "$repo" add README.md
+  git -C "$repo" commit -q --trailer 'Co-authored-by: Mike Sewell <maikunari@protonmail.com>' -m 'fix: primary work'
+  body=$(git -C "$repo" log -1 --format=%B)
+  assert_contains "$body" "maikunari@protonmail.com" "the primary checkout lost a human co-author"
+  pass "the worktree binding does not reach the primary checkout"
+}
+
+test_unbind_releases_the_worktree_binding() {
+  local repo wt hooks
+  repo="$TMP_ROOT/unbind-repo"
+  wt="$TMP_ROOT/unbind-wt"
+  hooks="$TMP_ROOT/hooks-unbind"
+  make_repo "$repo"
+  git -C "$repo" worktree add -q "$wt" -b task
+  "$STRIP" install "$hooks" "$wt" || fail "install should succeed"
+  assert_equals "$hooks" "$(git -C "$wt" config --get core.hooksPath)" "install did not bind the worktree"
+  "$STRIP" unbind "$wt" || fail "unbind should succeed"
+  assert_equals "" "$(git -C "$wt" config --get core.hooksPath)" "unbind left the worktree pointing at the strip directory"
+  "$STRIP" unbind "$wt" || fail "unbind should be idempotent"
+  pass "unbind releases the worktree binding and is idempotent"
+}
+
+test_plain_clone_worktree_is_bound_too() {
+  local repo hooks body
+  repo="$TMP_ROOT/clone-repo"
+  hooks="$TMP_ROOT/hooks-clone"
+  make_repo "$repo"
+  "$STRIP" install "$hooks" "$repo" || fail "install should succeed on a main worktree"
+  printf 'note\n' >>"$repo/README.md"
+  git -C "$repo" add README.md
+  git -C "$repo" commit -q --trailer 'Co-authored-by: Cursor <cursoragent@cursor.com>' -m 'fix: secondmate home commit'
+  body=$(git -C "$repo" log -1 --format=%B)
+  assert_not_contains "$body" "cursoragent@cursor.com" "a secondmate home clone kept the AI trailer"
+  pass "a plain clone is bound the same way a linked worktree is"
+}
+
 test_cursor_trailer_does_not_reach_the_commit_object
 test_human_coauthor_is_kept
 test_human_at_a_vendor_domain_is_kept
@@ -372,5 +466,10 @@ test_valueless_project_hookspath_still_refuses
 test_repository_pre_push_runs_on_every_override_channel
 test_git_c_override_still_strips_and_chains_commit_hooks
 test_strip_msgfile_alone_does_not_rewrite_author_fields
+test_commit_outside_the_pane_environment_is_still_stripped
+test_full_branch_history_carries_no_ai_trailer
+test_binding_does_not_reach_the_primary_checkout
+test_unbind_releases_the_worktree_binding
+test_plain_clone_worktree_is_bound_too
 
 echo "# all fm-git-strip-ai-trailers tests passed"

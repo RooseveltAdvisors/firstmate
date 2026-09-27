@@ -3787,7 +3787,11 @@ rm -f "$STATE/$ID.turn-ended" "$STATE/$ID.progress" \
 # retired endpoint; teardown only runs after landing is confirmed, so any
 # leftover unhandled steer here is moot rather than unlanded work.
 # state/<id>.git-hooks is the spawn-owned commit-msg strip directory, left
-# read-only by its installer.
+# read-only by its installer. Its worktree-scoped core.hooksPath binding goes
+# with it, so a reused pool worktree does not point at a deleted directory and
+# silently lose the project's own hooks until the next spawn rebinds.
+[ -n "$WT" ] && [ -d "$WT" ] &&
+  "$FM_ROOT/bin/fm-git-strip-ai-trailers.sh" unbind "$WT" 2>/dev/null || true
 chmod u+w "$STATE/$ID.git-hooks" 2>/dev/null || true
 rm -rf "$STATE/$ID.inbox" "$STATE/$ID.git-hooks"
 # A presentation journal the close path left behind is orphaned once the
