@@ -174,6 +174,18 @@ if [ "\${1:-}" = add ] && [ "\${2:-}" = --help ]; then
 fi
 if [ "\${1:-}" = add ]; then
   printf '%s\\n' "\$*" >> "\$FAKE/tasks.log"
+  due=""
+  prev=""
+  for a in "\$@"; do
+    case "\$prev" in
+      --due) due="\$a" ;;
+    esac
+    case "\$a" in
+      --due=*) due="\${a#--due=}" ;;
+    esac
+    prev="\$a"
+  done
+  printf '{"id":"%s","due":"%s"}\\n' "\$2" "\$due" > "\$FAKE/row.json"
   printf '{"ok":true,"action":"add","already":false}\\n'
   exit 0
 fi
@@ -191,6 +203,12 @@ backend = "beads"
 path = ".beads"
 prefix = "fm"
 EOF
+}
+
+# stub_row_due <fakedir>: the due the stub's row record carries.
+stub_row_due() {
+  python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("due") or "")' \
+    "$1/row.json" 2>/dev/null || true
 }
 
 test_reconcile_creates_one_task_comment_watch_and_dispatch() {
@@ -948,6 +966,9 @@ test_tool_flags_are_capability_gated_per_run() {
   argv=$(cat "$fd/tasks.log" 2>/dev/null)
   assert_not_contains "$argv" "--why" "a tool whose help omits --why must never receive it"
   assert_not_contains "$argv" "--due" "a tool whose help omits --due must never receive it"
+  assert_contains "$out" \
+    "fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)" \
+    "a stripped due must never look like success"
   pass "a tool without --why or --due receives neither flag"
 }
 
@@ -986,6 +1007,14 @@ test_tool_flags_pass_through_when_the_tool_and_backend_allow_them() {
     "the why must reach a fork-like tool"
   assert_contains "$argv" "--due +2w" \
     "the due must reach a beads store whose tool takes it"
+  assert_equals "+2w" "$(stub_row_due "$fd")" "the row's due must equal FM_SOS_DUE"
+  assert_not_contains "$out" "fm-tasks-axi: stripping" \
+    "a tool that accepts the flags must not be warned about"
+
+  out=$(FM_SOS_DUE=+5d run_intake "$parts" reconcile 2>&1) \
+    || fail "FM_SOS_DUE pass failed: $out"
+  assert_equals "+5d" "$(stub_row_due "$fd")" \
+    "an operator-set FM_SOS_DUE must reach the row"
   pass "flags pass through only for a tool and a backend that accept them"
 }
 

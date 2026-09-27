@@ -232,6 +232,9 @@ The captain closes the GitHub issue after verification; the loop never does."
     printf 'failed: %s\n' "${detail:-tasks-axi add failed with no diagnostic}"
     return 1
   fi
+  if [ -s "$errf" ]; then
+    printf '%s\n' "$(redact_secrets <"$errf")" >&2
+  fi
   rm -f "$errf"
   case "$(printf '%s' "$out" | python3 -c 'import json,sys
 try:

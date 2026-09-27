@@ -169,20 +169,24 @@ if [ "$has_due" = 1 ] || [ "$has_why" = 1 ]; then
   opt_help=$(tasks-axi add --help 2>&1 || true)
   strip_due=0
   strip_why=0
+  tool_rejects=0
   if [ "$has_due" = 1 ]; then
     if [ "$(fm_tasks_axi_backend "$FM_BACKLOG_AXI_ROOT" 2>/dev/null || true)" != beads ]; then
       strip_due=1
     fi
     case "$opt_help" in
       *--due*) ;;
-      *) strip_due=1 ;;
+      *) strip_due=1; tool_rejects=1 ;;
     esac
   fi
   if [ "$has_why" = 1 ]; then
     case "$opt_help" in
       *--why*) ;;
-      *) strip_why=1 ;;
+      *) strip_why=1; tool_rejects=1 ;;
     esac
+  fi
+  if [ "$tool_rejects" = 1 ]; then
+    printf 'fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)\n' >&2
   fi
   if [ "$strip_due" = 1 ]; then
     strip_flag_from_args --due
