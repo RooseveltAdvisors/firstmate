@@ -3184,7 +3184,7 @@ test_wedge_threshold_defers_to_a_declared_wait_under_a_working_verdict() {
 # is the retraction that does.
 test_wedge_threshold_keeps_a_wait_past_a_default_key_answer() {
   local dir state fakebin out capture window key n
-  local working='state: working · source: run-step · ci running'
+  local working='state: working · source: run-step · validating (running)'
 
   dir=$(wedge_threshold_fixture default-answer-after-wait \
     "$(printf 'needs-decision: which color\npaused: waiting on the vendor release\nresolved [key=default]: answered: blue')" 0)
