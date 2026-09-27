@@ -17,24 +17,30 @@ stack-monitor's typed event bridge (`docs/ops/sos-dispatch-loop.md` in
 ArcsHealth/Portal owns the whole loop and its rationale).
 `bin/fm-issue-intake.sh` turns that event - or an open `sos`-labeled GitHub
 issue, which heals lost events - into durable work keyed on the SOS message
-UUID: one task row (a bead on a beads backend), one dispatched crewmate, one
-lifecycle comment thread on the issue, and one close watch.
+UUID: one task row (a bead on a beads backend), one lifecycle comment thread
+on the issue, one close watch, and - for a ticket the worth-supporting gate
+supports - one dispatched crewmate.
 
 ## Operating contract
 
 - Run `bin/fm-issue-intake.sh reconcile` on an SOS wake, and periodically when
   tickets are outstanding.
-  It is idempotent end to end: the task row id is `fm-sos-<SOS UUID>`, so replays
-  and lost cursors can never double-dispatch.
-- Auto-dispatch is every SOS: no confidence gate, no triage, no hold.
-  `--mode`/`--yolo` (or `FM_ISSUE_MODE`/`FM_ISSUE_YOLO`) set the spawned task's
-  delivery contract; they are posture, not selection.
+  It is idempotent end to end: the task row id is `fm-iss-<key>` - the SOS
+  message UUID, or `gh-issue-<n>` when the body carries no marker (pre-rename
+  `fm-sos-<key>` rows still resolve) - so replays and lost cursors can never
+  double-dispatch.
+- Every candidate passes the worth-supporting verdict gate (`jev verdict`)
+  first: `supported_bug` dispatches automatically - no manual triage step -
+  `not_supported` is declined and closed by intake, and `captain_review` is
+  held for the captain with no spawn. `--no-verdict` bypasses the gate for an
+  ops run. `--mode`/`--yolo` (or `FM_ISSUE_MODE`/`FM_ISSUE_YOLO`) set the
+  spawned task's delivery contract; they are posture, not selection.
 - Transition comments only through `bin/fm-issue-intake.sh comment <issue>
-  <transition> "<one line>"` (dispatched, repro-confirmed, fix-up, deployed,
-  verified, captain-closed).
-- THE LOOP NEVER CLOSES A GITHUB ISSUE.
-  The captain closes it after verification; the close watch fires only
-  because the captain already closed it.
+  <transition> "<one line>"` (dispatched, declined, repro-confirmed, fix-up,
+  deployed, verified, captain-closed).
+- THE LOOP CLOSES A GITHUB ISSUE ONLY FOR A `not_supported` DECLINE, at intake.
+  The captain closes every other issue after verification; the close watch
+  fires only because the captain already closed it.
 - The GitHub issue body is the working report and may contain clinical
   speech: keep it out of commits, logs, and task rows.
 

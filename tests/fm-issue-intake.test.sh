@@ -4,7 +4,8 @@
 # comment per transition, one close watch per ticket, one dispatched crewmate
 # per new ticket - and never a second of any of them across retries, replayed
 # events, or lost cursors. Also pins the loop's hard invariant: intake and the
-# close watch never close a GitHub issue; only the captain does.
+# close watch close a GitHub issue only for a not-supported decline; every
+# other close belongs to the captain.
 set -u
 
 command -v tasks-axi >/dev/null 2>&1 || { echo "skip: tasks-axi not found"; exit 0; }
@@ -78,7 +79,7 @@ case "${1:-}" in
       close)
         echo "CLOSE-ATTEMPTED" >> "$FAKE/gh.log"
         # The loop closes an issue only on a decline; every other path must
-        # fail here, which is what pins "the loop never closes an issue".
+        # fail here, which pins every close to that one carve-out.
         [ -f "$FAKE/allow-close" ] && exit 0
         exit 97 ;;
       *) exit 1 ;;
@@ -181,6 +182,139 @@ count_of() {
   local n
   n=$(grep -cF -- "$1" "$2" 2>/dev/null) || true
   echo "${n:-0}"
+}
+
+test_decline_comments_once_even_when_the_close_fails() {
+  local parts home fd out
+  parts=$(setup_case decline-retry)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  printf 'not_supported\n' > "$fd/jev-verdict"
+
+  out=$(run_intake "$parts" reconcile 2>&1) || fail "first reconcile failed: $out"
+  assert_contains "$out" "failed: decline" "a failing close must be reported: $out"
+  assert_equals "1" "$(count_of '**Not supported**' "$fd/comments.log")" \
+    "the first pass posts exactly one decline comment"
+  assert_equals "1" "$(count_of 'CLOSE-ATTEMPTED' "$fd/gh.log")" \
+    "the first pass attempts the close once"
+
+  out=$(run_intake "$parts" reconcile 2>&1) || fail "retry reconcile failed: $out"
+  assert_equals "1" "$(count_of '**Not supported**' "$fd/comments.log")" \
+    "a retry after a failed close must not re-comment: $(cat "$fd/comments.log" 2>/dev/null)"
+  assert_equals "2" "$(count_of 'CLOSE-ATTEMPTED' "$fd/gh.log")" \
+    "a retry must re-attempt only the close"
+
+  : > "$fd/allow-close"
+  out=$(run_intake "$parts" reconcile) || fail "closing reconcile failed: $out"
+  assert_contains "$out" "declined=1" "the decline must complete: $out"
+  assert_equals "1" "$(count_of '**Not supported**' "$fd/comments.log")" \
+    "the completing pass adds no comment"
+  assert_equals "done" "$(task_state_of "$parts")" "the declined row must close"
+
+  out=$(run_intake "$parts" reconcile) || fail "post-decline replay failed: $out"
+  assert_contains "$out" "declined=1" "the decided decline replays as handled: $out"
+  assert_equals "1" "$(count_of '**Not supported**' "$fd/comments.log")" \
+    "a post-decline replay adds no comment"
+  assert_equals "3" "$(count_of 'CLOSE-ATTEMPTED' "$fd/gh.log")" \
+    "a completed decline is never closed again"
+  pass "a decline comments once and a failed close retries only the close"
+}
+
+test_event_without_a_url_keeps_row_and_cursor_aligned() {
+  local parts home fd out
+  parts=$(setup_case no-url)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  cat > "$fd/bridge.json" <<EOF
+{"events":[{"id":1,"kind":"sos","dedupeKey":"$SOS_UUID","at":"2026-09-26T12:00:00.000Z","receivedAt":"2026-09-26T12:00:01.000Z","site":"covenant","payload":{"ticket":"${SOS_UUID%%-*}","gh_issue":$GH_ISSUE}}],"cursor":1,"backlog":0}
+EOF
+  printf '[]\n' > "$fd/gh-list.json"
+
+  out=$(run_intake "$parts" reconcile) || fail "reconcile failed: $out"
+  assert_contains "$out" "task_created=1" \
+    "a url-less event must still create its row: $out"
+  assert_equals "1" "$(cat "$home/state/fm-issue-intake.cursor")" \
+    "the cursor must land on the event id, never reset"
+  assert_contains "$(FM_HOME="$home" "$TASKS_AXI" show "$TASK_ID" 2>/dev/null)" \
+    "GitHub issue: https://github.com/ArcsHealth/Portal/issues/$GH_ISSUE" \
+    "an empty url must fall back to the canonical issue URL"
+  assert_equals "1" "$(count_of 'fm-spawn' "$fd/spawn.log")" \
+    "the url-less event must dispatch exactly once"
+  pass "an event without a url keeps the row body and cursor aligned"
+}
+
+test_one_github_issue_is_never_two_candidates() {
+  local parts home fd out upper
+  upper=$(printf '%s' "$SOS_UUID" | tr '[:lower:]' '[:upper:]')
+
+  # (a) an uppercased bridge dedupeKey against the lowercase body marker.
+  parts=$(setup_case keycase)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  set_bridge_events "$fd" 1 "$upper" "$GH_ISSUE"
+  out=$(run_intake "$parts" reconcile) || fail "case reconcile failed: $out"
+  assert_contains "$out" "task_created=1" \
+    "an uppercased dedupeKey must merge with the lowercase marker: $out"
+  assert_equals "1" "$(count_of 'Issue intake' "$fd/comments.log")" \
+    "one ticket must get exactly one dispatched comment"
+  assert_equals "1" "$(count_of 'fm-spawn' "$fd/spawn.log")" \
+    "one ticket must spawn exactly once"
+  if FM_HOME="$home" "$TASKS_AXI" show "fm-iss-$upper" >/dev/null 2>&1; then
+    fail "the uppercase key minted a second row for one ticket"
+  fi
+  task_present "$parts" || fail "the lowercase row must own the ticket"
+
+  # (b) a bridge event plus an open sos issue whose body carries no marker.
+  parts=$(setup_case no-marker)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  cat > "$fd/gh-list.json" <<EOF
+[{"number":$GH_ISSUE,"url":"https://github.com/ArcsHealth/Portal/issues/$GH_ISSUE","title":"SOS: reported problem","body":"### SOS Voice Ticket\ntranscribed report with no SOS marker"}]
+EOF
+  out=$(run_intake "$parts" reconcile) || fail "marker-less reconcile failed: $out"
+  assert_contains "$out" "task_created=1" \
+    "an event plus a marker-less issue is one ticket: $out"
+  assert_equals "1" "$(count_of 'Issue intake' "$fd/comments.log")" \
+    "the merged ticket must get exactly one dispatched comment"
+  assert_equals "1" "$(count_of 'fm-spawn' "$fd/spawn.log")" \
+    "the merged ticket must spawn exactly once"
+  if FM_HOME="$home" "$TASKS_AXI" show "fm-iss-gh-issue-$GH_ISSUE" >/dev/null 2>&1; then
+    fail "the fallback key minted a second row for one ticket"
+  fi
+  pass "one GitHub issue is never split into two candidates"
+}
+
+test_stale_pre_rename_watch_is_retired_and_rearmed() {
+  local parts home fd out
+  parts=$(setup_case stale-watch)
+  home=${parts%%|*}
+  fd=${parts##*|}
+
+  cat > "$fd/fm-sos-intake.sh" <<'SH'
+#!/usr/bin/env bash
+exit 1
+SH
+  chmod +x "$fd/fm-sos-intake.sh"
+  FM_HOME="$home" "$ROOT/bin/fm-procevent-when.sh" arm "sos-$GH_ISSUE" \
+    --condition "$fd/fm-sos-intake.sh" watch-condition "$GH_ISSUE" \
+    --action "$fd/fm-sos-intake.sh" watch-fire "$GH_ISSUE" "$SOS_UUID" >/dev/null \
+    || fail "fixture arm of the pre-rename watch failed"
+  # The spec is the watch's persisted, hash-bound state; a pre-rename one
+  # names the retired script in its argv.
+  assert_grep "fm-sos-intake.sh" "$home/state/when/when-sos-$GH_ISSUE.spec" \
+    "fixture must start from a spec bound to the retired script"
+
+  out=$(run_intake "$parts" reconcile) || fail "reconcile failed: $out"
+  assert_present "$home/state/when/when-sos-$GH_ISSUE.spec" "the watch must stay armed"
+  assert_grep "fm-issue-intake.sh" "$home/state/when/when-sos-$GH_ISSUE.spec" \
+    "reconcile must re-arm the watch against the renamed script"
+  assert_no_grep "fm-sos-intake.sh" "$home/state/when/when-sos-$GH_ISSUE.spec" \
+    "the retired script path must be gone from the watch"
+  assert_equals "1" "$(count_of 'Issue intake' "$fd/comments.log")" \
+    "the ordinary dispatch path still comments once"
+  assert_equals "1" "$(count_of 'fm-spawn' "$fd/spawn.log")" \
+    "the ordinary dispatch path still spawns once"
+  pass "a stale pre-rename watch is retired and re-armed against the renamed script"
 }
 
 test_reconcile_creates_one_task_comment_watch_and_dispatch() {
@@ -470,3 +604,7 @@ test_verdict_declines_a_by_design_request
 test_verdict_holds_uncertain_tickets_for_the_captain
 test_verdict_failure_fails_open_not_closed
 test_verdict_is_decided_once
+test_decline_comments_once_even_when_the_close_fails
+test_event_without_a_url_keeps_row_and_cursor_aligned
+test_one_github_issue_is_never_two_candidates
+test_stale_pre_rename_watch_is_retired_and_rearmed

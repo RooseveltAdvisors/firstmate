@@ -36,10 +36,10 @@
 #               delivery contract (defaults FM_ISSUE_MODE=no-mistakes,
 #               FM_ISSUE_YOLO=on); they are posture, not selection.
 # comment       Post one canonical lifecycle comment on the GitHub issue.
-#               Transitions: dispatched, repro-confirmed, fix-up, deployed,
-#               verified, captain-closed. Dispatched workers use this at each
-#               transition so the reporter-facing thread reads the same way
-#               for every ticket.
+#               Transitions: dispatched, declined, repro-confirmed, fix-up,
+#               deployed, verified, captain-closed. Dispatched workers use
+#               this at each transition so the reporter-facing thread reads
+#               the same way for every ticket.
 # watch-condition   Exit 0 iff the issue is CLOSED (for fm-procevent-when.sh).
 #               Any GitHub failure exits 2: a failure is NEVER a close.
 # watch-fire    The close watch's action: post the captain-closed comment,
@@ -48,8 +48,9 @@
 #               fm-procevent-when.sh claims a durable fired marker before the
 #               action - and the ledger line makes manual re-runs safe too.
 #
-# THE LOOP NEVER CLOSES A GITHUB ISSUE. The captain closes it after
-# verification; watch-fire fires only because the captain already closed it.
+# THE LOOP CLOSES A GITHUB ISSUE ONLY FOR A NOT_SUPPORTED DECLINE, at intake.
+# The captain closes every other issue after verification; watch-fire fires
+# only because the captain already closed it.
 #
 # Backlog writes go through bin/fm-tasks-axi.sh like every other core script
 # (fm-lint.sh's backend-purity check rejects direct Beads CLI calls in bin/),
@@ -197,7 +198,7 @@ task_ensure() {
     --body "SOS key: $key
 GitHub issue: ${url:-https://github.com/$GH_REPO/issues/$issue}
 Site: see the GitHub issue (kept out of this graph on purpose).
-The captain closes the GitHub issue after verification; the loop never does."
+The captain closes the GitHub issue after verification; dispatch never closes it - only a not-supported decline does."
   )
   case "$PRIORITY" in
     0|1) args+=(--why "staff SOS report awaiting fix") ;;
@@ -231,15 +232,15 @@ collect_candidates_py() {
   local events_json="$1"
   local gh_json="$2"
   # shellcheck disable=SC2016  # single quotes are deliberate: the python script expands nothing.
-  python3 -c '
-import json, re, sys
+  FM_CAND_EVENTS_JSON="$events_json" FM_CAND_GH_JSON="$gh_json" python3 -c '
+import json, os, re
 
 try:
-    events = json.loads(sys.argv[1]).get("events", []) or []
+    events = json.loads(os.environ.get("FM_CAND_EVENTS_JSON") or "").get("events", []) or []
 except Exception:
     events = []
 try:
-    gh = json.loads(sys.argv[2]) if sys.argv[2] else []
+    gh = json.loads(os.environ.get("FM_CAND_GH_JSON") or "") or []
 except Exception:
     gh = []
 
@@ -248,10 +249,16 @@ FALLBACK = "gh-issue-{}"
 
 cands = {}
 order = []
+issue_keys = {}
 
 def ensure(key, issue, url, event_id):
     if not key or not issue:
         return
+    key = key.lower()
+    if issue in issue_keys:
+        key = issue_keys[issue]
+    else:
+        issue_keys[issue] = key
     if key not in cands:
         cands[key] = {"key": key, "issue": issue, "url": url, "event_id": event_id}
         order.append(key)
@@ -275,13 +282,13 @@ for ev in events:
 for item in gh:
     body = item.get("body") or ""
     m = SOS_ID_RE.search(body)
-    key = m.group(1).lower() if m else FALLBACK.format(item.get("number"))
+    key = m.group(1) if m else FALLBACK.format(item.get("number"))
     ensure(key, int(item.get("number") or 0), str(item.get("url") or ""), "-")
 
 for k in order:
     c = cands[k]
-    print("\t".join([c["key"], str(c["issue"]), c["url"], c["event_id"]]))
-' "$events_json" "$gh_json"
+    print("\t".join([c["key"], str(c["issue"]), c["url"] or "-", c["event_id"]]))
+'
 }
 
 # --- canonical comments -----------------------------------------------------
@@ -369,12 +376,21 @@ except Exception:
     body=$(printf '%s\n' "$parsed" | sed -n 2p)
     labels=$(printf '%s\n' "$parsed" | sed -n 3p)
   fi
+  mkdir -p "$STATE_DIR" 2>/dev/null || true
+  local body_file
+  if ! body_file=$(umask 077; mktemp "$STATE_DIR/.issue-body.XXXXXX" 2>/dev/null); then
+    echo captain_review
+    return 0
+  fi
+  printf '%s' "$body" > "$body_file"
   local -a vargs=(verdict --repo "$GH_REPO" --issue "$issue" --title "$title"
-                  --body "$body" --labels "$labels" --json)
+                  --body-file "$body_file" --labels "$labels" --json)
   if [ -f "$INTENT" ]; then
     vargs+=(--intent-file "$INTENT")
   fi
-  printf '%s' "$("$JEV" "${vargs[@]}" 2>/dev/null || true)" \
+  out=$("$JEV" "${vargs[@]}" 2>/dev/null || true)
+  rm -f "$body_file"
+  printf '%s' "$out" \
     | python3 -c 'import json, sys
 try:
     print(json.load(sys.stdin).get("verdict") or "captain_review")
@@ -384,8 +400,11 @@ except Exception:
 
 apply_decline() {  # <key> <issue> -> 0 only when the whole decline landed
   local key="$1" issue="$2"
-  gh_comment "$issue" "$(comment_body declined "$key" "$issue" "" "$(task_id_for_key "$key")")" \
-    || return 1
+  if ! ledger_has "comment key=$key issue=$issue transition=declined"; then
+    gh_comment "$issue" "$(comment_body declined "$key" "$issue" "" "$(task_id_for_key "$key")")" \
+      || return 1
+    log_line "comment key=$key issue=$issue transition=declined"
+  fi
   "$GH" issue edit "$issue" --repo "$GH_REPO" --add-label "$DECLINE_LABEL" >/dev/null 2>&1 || true
   "$GH" issue close "$issue" --repo "$GH_REPO" >/dev/null 2>&1 || return 1
   if ! tasks_axi "done" "$(task_id_for_key "$key")" \
@@ -454,9 +473,7 @@ cmd_reconcile() {
   while [ $# -gt 0 ]; do
     case "$1" in
       --no-dispatch) do_dispatch=0; shift ;;
-      --dispatch) do_dispatch=1; shift ;;
       --no-verdict) do_verdict=0; shift ;;
-      --verdict) do_verdict=1; shift ;;
       --dry-run) dry_run=1; shift ;;
       --mode) [ $# -ge 2 ] || die "--mode requires a value"; MODE="$2"; shift 2 ;;
       --yolo) [ $# -ge 2 ] || die "--yolo requires a value"; YOLO="$2"; shift 2 ;;
@@ -482,10 +499,11 @@ cmd_reconcile() {
     return 0
   fi
 
-  local key issue url event_id ensured_state verdict
+  local key issue url event_id ensured_state verdict watch_spec
   while IFS=$'\t' read -r key issue url event_id; do
     [ -n "$key" ] || continue
     [ -n "$issue" ] || { echo "skip: key=$key carries no GitHub issue" >&2; continue; }
+    if [ "$url" = "-" ]; then url=""; fi
 
     if [ "$dry_run" -eq 1 ]; then
       if tasks_axi show "$(task_id_for_key "$key")" >/dev/null 2>&1; then
@@ -552,7 +570,15 @@ cmd_reconcile() {
       log_line "comment key=$key issue=$issue transition=dispatched"
     fi
 
-    if [ ! -f "$STATE_DIR/when/when-sos-$issue.spec" ]; then
+    watch_spec="$STATE_DIR/when/when-sos-$issue.spec"
+    if [ -f "$watch_spec" ] && grep -q "fm-sos-intake.sh" "$watch_spec"; then
+      if ! FM_HOME="$FM_HOME" "$WHEN" retire "sos-$issue" >/dev/null; then
+        echo "failed: retire pre-rename watch for #$issue" >&2
+        cursor_blocked=1
+        continue
+      fi
+    fi
+    if [ ! -f "$watch_spec" ]; then
       FM_HOME="$FM_HOME" "$WHEN" arm "sos-$issue" \
         --condition "$BIN/fm-issue-intake.sh" watch-condition "$issue" \
         --action "$BIN/fm-issue-intake.sh" watch-fire "$issue" "$key" >/dev/null \
