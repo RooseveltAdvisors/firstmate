@@ -31,9 +31,10 @@
 # reported regardless of what this tool said.
 #
 # WHAT IT SENDS. Structured signals only: the probe's own state and fixed reason
-# phrase, the busy-state word, and the ages of the turn-end, activity, and status
-# records. No pane text, no status text, no brief, no message content ever leaves
-# this host, so an inconclusive seat cannot leak what it was working on.
+# phrase, the busy-state word, the leading verb of the last status line, and the
+# ages of the turn-end, activity, and status records. No pane text, no status
+# line beyond that one verb, no brief, no message content ever leaves this host,
+# so an inconclusive seat cannot leak what it was working on.
 #
 # Output (stdout, a TOON-style block), always exit 0:
 #   seat-state-advise:

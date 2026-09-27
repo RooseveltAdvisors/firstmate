@@ -140,9 +140,10 @@ fm-lane-recover.sh - bounded recovery ladder for an unhealthy response lane.
   --help          print this help
 
 bin/fm-lane-liveness.sh owns the verdict; this script owns only the response.
-Rungs 1 and 2 use the one guarded relaunch path in
-bin/fm-secondmate-liveness-lib.sh. Only a proven dead or missing endpoint is
-ever relaunched, THE-FM is never a target, and no rung discards unlanded work.
+Rung 1 relaunches only a proven dead or missing endpoint, through the guarded
+path in bin/fm-secondmate-liveness-lib.sh; rung 2 switches a provider-faulted
+lane onto the configured profile through bin/fm-control.sh's relaunch verb.
+THE-FM is never a target, and no rung discards unlanded work.
 docs/configuration.md "Response lanes" owns the config schema.
 USAGE
 }

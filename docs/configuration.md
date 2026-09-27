@@ -1380,7 +1380,7 @@ Arm the check once per home with `bin/fm-tool-update-check.sh arm`.
 
 `config/response-lanes.conf` is an optional local, gitignored list of this fleet's response lanes and the thresholds their liveness is judged against.
 When it is present, [`bin/fm-lane-liveness.sh`](../bin/fm-lane-liveness.sh) reads every named lane and publishes a deterministic verdict of `dead`, `degraded`, `alive`, or `unknown` for each.
-When it is absent the rail is inert, and no mode of it reports anything.
+When it is absent the rail is inert, and no mode of it reads a lane or publishes a verdict.
 
 The rail exists because a response lane can stop answering without producing any alarm of its own.
 Every signal a supervisor already has measures whether a problem was detected, not whether anything answered it, so a lane whose worker is gone keeps reading as healthy routing.
@@ -1484,12 +1484,12 @@ Two tools consult typesafe.ai's System One model (Jev) as a second opinion on to
 [`bin/fm-jev-lib.sh`](../bin/fm-jev-lib.sh) is the single owner of the shape they share and names every member of the family, so the set is inspectable rather than found by grep.
 `bin/fm-dispatch-resolve.sh` is the family's precedent and predates that library; it carries its own client and is deliberately left as it is rather than refactored underneath a working tool.
 
-Four properties hold for every member, and they are the reason this is a family rather than three scripts.
+Four properties hold for every member built on this library, and they are the reason this is a family rather than three scripts.
 
 - **Deterministic first, always.** The model is asked only about what the deterministic layer could not answer, and it never re-decides something already settled. A question answered deterministically makes no network call at all.
 - **Fail-open, in each tool's own safe direction.** Every failure, including an absent key, is an answer rather than an error: no key, no network, a timeout, a non-200, or a malformed reply all produce a usable verdict and exit 0. Exit 2 is reserved for a usage error, which is actionable rather than worked around.
 - **The key never reaches a process argument.** It lives in one shell variable and is handed to `curl` through a file descriptor, and nothing logs or writes it.
-- **Coarse telemetry and bounded calibration.** Each member appends one summary line per decision to `state/.<tool>-telemetry`, and one JSON line per decision to `state/.<tool>-calibration.jsonl` until that file reaches its cap.
+- **Coarse telemetry and bounded calibration.** Each of them appends one summary line per decision to `state/.<tool>-telemetry`, and one JSON line for each decision it asked the model to `state/.<tool>-calibration.jsonl` until that file reaches its cap.
   Neither carries a task id, a lane name, PHI, message content, or an alert name: they exist to show whether the tool is working, not what it was asked about.
   The calibration line records the candidate and chosen option keys by design (seat ids for alert routing), because calibration exists to compare the model's confidence against the option it picked, and a seat id is neither a task id nor PHI.
   Both are safe to delete.
@@ -1511,8 +1511,8 @@ It is advisory only and holds no lever that touches a seat.
 Only a proven dead or missing endpoint authorizes a relaunch, and this tool never produces one: a `true_wedge` answer is evidence for a person or for an escalation, never permission to replace an agent, because acting on a semantic guess about an endpoint that could not be classified is how uncommitted work gets destroyed.
 Its fail-open direction is therefore toward leaving the seat alone, including for an answer below the confidence floor, since a false stuck verdict invites disturbing a seat that is working while a delayed one costs only time.
 
-It sends structured signals only: the probe's own state and fixed reason phrase, the busy-state word, and the ages of the turn-end, activity, and status records.
-No terminal text, status text, instructions, or message content leaves the host, so an inconclusive seat cannot leak what it was working on.
+It sends structured signals only: the probe's own state and fixed reason phrase, the busy-state word, the leading verb of the last status line, and the ages of the turn-end, activity, and status records.
+No terminal text, no status line beyond that one verb, no instructions, and no message content leave the host, so an inconclusive seat cannot leak what it was working on.
 
 ## Mail plane (.env)
 
@@ -2439,7 +2439,7 @@ FMX_RELAY_URL=https://myfirstmate.io   # optional Relay endpoint override, mainl
 FMX_ENV_FILE=           # optional alternate .env file for direct Relay client invocations; bootstrap still checks $FM_HOME/.env
 FMX_DRY_RUN=            # truthy previews Relay replies and dismissals to state/x-outbox/ without posting or requiring a token
 FMX_X_REPLY_MAX_CHARS=280   # X reply per-message split budget; values below 50 clamp to 50
-TYPESAFE_API_KEY=       # typed dispatch resolution opt-in, from the environment or .env; absent means bin/fm-dispatch-resolve.sh is off (docs/configuration.md "Typed dispatch resolution")
+TYPESAFE_API_KEY=       # the Jev model key for typed dispatch resolution and the second-opinion tools, from the environment or .env; absent means bin/fm-dispatch-resolve.sh is off and the alert-routing and seat-state model halves stay off (docs/configuration.md "Typed dispatch resolution", "Alert ownership routing and seat state advice")
 FMX_DISCORD_REPLY_MAX_CHARS=1900   # Discord reply per-message split budget; values below 50 clamp to 50, values above 2000 reset to 1900
 FMX_X_THREAD_MAX=25     # maximum messages in one auto-split reply thread
 FMX_FOLLOWUP_MAX_AGE_SECS=604800   # local window for posting Relay completion follow-ups (7 days)
