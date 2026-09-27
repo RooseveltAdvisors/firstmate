@@ -62,21 +62,12 @@ fi
 if [ -n "$REGISTRY" ]; then
   EXTRA_ARGS+=(--registry "$REGISTRY")
 fi
-ROUTER_JSON=$(python3 "$SCRIPT_DIR/fm-route-domain.py" --json --task "$TASK_INPUT" "${EXTRA_ARGS[@]}")
-AUTO_CHARTER_ERROR=$(printf '%s' "$ROUTER_JSON" | jq -r '
-  .auto_charter as $ac
-  | ($ac.error // "") as $err
-  | ($ac.scaffold_error // "") as $serr
-  | (($ac.home // "unknown") | tostring) as $home
-  | if ($err | length) > 0 then $err
-    elif (($ac.chartered // false) | not) then ""
-    elif (($ac.scaffolded // false) != true) or (($serr | length) > 0) then
-      if ($serr | length) > 0
-      then "home scaffold failed for \($home): \($serr)"
-      else "home was not scaffolded"
-      end
-    else ""
-    end')
+ROUTER_RC=0
+ROUTER_JSON=$(python3 "$SCRIPT_DIR/fm-route-domain.py" --json --task "$TASK_INPUT" "${EXTRA_ARGS[@]}") || ROUTER_RC=$?
+if [ "$ROUTER_RC" -ne 0 ] && [ -z "$ROUTER_JSON" ]; then
+  exit "$ROUTER_RC"
+fi
+AUTO_CHARTER_ERROR=$(printf '%s' "$ROUTER_JSON" | jq -r '.auto_charter.failure // ""')
 
 if [ "$AS_JSON" -eq 1 ]; then
   printf '%s\n' "$ROUTER_JSON"

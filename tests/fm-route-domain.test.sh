@@ -215,6 +215,36 @@ else
   pass "a charter-write failure is reported and fails on every front-door path"
 fi
 
+# The producer owns the verdict: its own CLI must fail a partial scaffold on
+# both output formats, and dispatch only relays that verdict.
+REG_PRODUCER="$TDIR/reg-producer.md"
+cp "$REG" "$REG_PRODUCER"
+write_jev_response "new_domain" 0.95
+rc=0
+producer_out=$(PYTHONPATH="$FAKE_TS${PYTHONPATH:+:$PYTHONPATH}" \
+  FM_TEST_JEV_RESPONSE="$TDIR/jev-response.json" \
+  TYPESAFE_API_KEY=fake-key \
+  FM_SECONDMATE_HOMES_DIR="$HOMES_AS_FILE" \
+  "$ROUTER" --auto-charter --registry "$REG_PRODUCER" \
+  --task "Quantum computing cryptographic lattice simulation engine in Haskell" 2>&1) || rc=$?
+expect_code 1 "$rc" "the router CLI must exit non-zero on a partial scaffold: $producer_out"
+assert_contains "$producer_out" "home scaffold failed" \
+  "the router CLI did not report the scaffold error"
+
+rc=0
+producer_json=$(PYTHONPATH="$FAKE_TS${PYTHONPATH:+:$PYTHONPATH}" \
+  FM_TEST_JEV_RESPONSE="$TDIR/jev-response.json" \
+  TYPESAFE_API_KEY=fake-key \
+  FM_SECONDMATE_HOMES_DIR="$HOMES_AS_FILE" \
+  "$ROUTER" --auto-charter --json --registry "$REG_PRODUCER" \
+  --task "Quantum computing cryptographic lattice simulation engine in Haskell" 2>/dev/null) || rc=$?
+expect_code 1 "$rc" "the router CLI --json must exit non-zero on a partial scaffold: $producer_json"
+printf '%s' "$producer_json" | jq -e '
+  .action == "create_secondmate"
+  and ((.auto_charter.failure // "") | contains("home scaffold failed"))
+' >/dev/null || fail "the router CLI --json payload did not carry the failure verdict: $producer_json"
+pass "the router CLI reports a partial scaffold as failure on every output format"
+
 # 3. Live call: known domain (seller-outreach)
 if sudo -n /opt/ra/firstmate/bin/jev-typesafe-run.py -- env | grep -q "TYPESAFE_API_KEY"; then
   out=$(python3 "$ROOT/bin/fm-route-domain.py" --task "Urgent care acquisition seller email outreach campaign" --registry "$REG")

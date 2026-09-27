@@ -169,6 +169,20 @@ def perform_auto_charter(
     }
 
 
+def auto_charter_failure(auto_charter: dict) -> str:
+    err = str(auto_charter.get("error") or "")
+    if err:
+        return err
+    if not auto_charter.get("chartered"):
+        return ""
+    scaffold_error = str(auto_charter.get("scaffold_error") or "")
+    if auto_charter.get("scaffolded") is True and not scaffold_error:
+        return ""
+    if scaffold_error:
+        return f"home scaffold failed for {auto_charter.get('home') or 'unknown'}: {scaffold_error}"
+    return "home was not scaffolded"
+
+
 def emit_result(
     action: str,
     route: str,
@@ -184,6 +198,9 @@ def emit_result(
 ) -> None:
     seat_wall = seat_wall or {"walled": False}
     auto_charter = auto_charter or {"chartered": False}
+    failure = auto_charter_failure(auto_charter)
+    if failure and not exit_code:
+        exit_code = 1
 
     if as_json:
         payload = {
@@ -194,7 +211,7 @@ def emit_result(
             "probabilities": probabilities or {},
             "reason": reason,
             "seat_wall": seat_wall,
-            "auto_charter": auto_charter,
+            "auto_charter": dict(auto_charter, failure=failure),
         }
         print(json.dumps(payload, indent=2))
         sys.exit(exit_code)
@@ -215,6 +232,9 @@ def emit_result(
     if auto_charter.get("chartered"):
         print(f"chartered_domain={auto_charter.get('domain', '')}")
         print(f"chartered_home={auto_charter.get('home', '')}")
+
+    if failure:
+        print(f"error=auto-charter failed: {failure}")
 
     if action == "dispatch" and route and route not in ("new_domain", "captain_direct"):
         escaped_task = task_text.replace('"', '\\"').replace("\n", " ")[:200]
