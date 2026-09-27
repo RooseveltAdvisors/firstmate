@@ -243,22 +243,9 @@ EOF
   [ ! -e "$cold/config" ] && [ ! -L "$cold/config" ] \
     || fail "a refused remove created managed state in a cold target home: $(find "$cold")"
 
-  # A resolve-class refusal happens after the lock's own mkdir, so it must clean
-  # the chain back up rather than leaving a home that had none holding one.
-  if FM_HOME="$home" "$COMPOSE" --target-home "$cold" --set later nosuchskill >/dev/null 2>&1; then
-    fail "compose resolved a skill name that is not in the map"
-  fi
-  [ ! -e "$cold/config" ] && [ ! -L "$cold/config" ] \
-    || fail "an unresolvable name left managed state in a cold target home: $(find "$cold")"
-  if FM_HOME="$home" "$COMPOSE" --target-home "$cold" --set later \
-    --map "$TMP_ROOT/no-such-map.md" alpha >/dev/null 2>&1; then
-    fail "compose accepted a map path that does not exist"
-  fi
-  [ ! -e "$cold/config" ] && [ ! -L "$cold/config" ] \
-    || fail "a missing explicit map left managed state in a cold target home: $(find "$cold")"
-
-  # The refusal cleanup must never take a level the home already had, whether it
-  # holds real settings or is merely an empty inherited directory.
+  # A resolve-class refusal happens after the lock's own mkdir, so the parent
+  # levels may exist afterwards. What must hold is that it created no SET and
+  # disturbed nothing the home already had.
   local warm="$TMP_ROOT/prevalidation-warm"
   mkdir -p "$warm/config"
   printf '%s\n' claude > "$warm/config/crew-harness"
@@ -266,17 +253,9 @@ EOF
     fail "compose resolved a skill name that is not in the map"
   fi
   [ -f "$warm/config/crew-harness" ] \
-    || fail "the refusal cleanup removed real configuration from the target home"
-  [ ! -e "$warm/config/skill-compose" ] \
-    || fail "the refusal left its own managed level behind in a warm target home"
-
-  local empty="$TMP_ROOT/prevalidation-empty"
-  mkdir -p "$empty/config"
-  if FM_HOME="$home" "$COMPOSE" --target-home "$empty" --set later nosuchskill >/dev/null 2>&1; then
-    fail "compose resolved a skill name that is not in the map"
-  fi
-  [ -d "$empty/config" ] \
-    || fail "the refusal cleanup removed an inherited empty config directory"
+    || fail "a refused compose removed real configuration from the target home"
+  [ ! -e "$warm/config/skill-compose/claude/later" ] \
+    || fail "a refused compose created its set in the target home: $(find "$warm")"
 
   # Removing from a set that was never composed must not create the very tree
   # --clear exists to collapse.
@@ -496,7 +475,10 @@ EOF
 #!/usr/bin/env bash
 if [ -n "\${FM_TEST_AWK_GATE:-}" ] && /bin/mkdir "\$FM_TEST_AWK_GATE.owner" 2>/dev/null; then
   /usr/bin/touch "\$FM_TEST_AWK_GATE.entered"
-  while [ ! -e "\$FM_TEST_AWK_GATE.release" ]; do sleep 0.02; done
+  for _ in \$(seq 1 1500); do
+    [ -e "\$FM_TEST_AWK_GATE.release" ] && break
+    sleep 0.02
+  done
 fi
 exec "$real_awk" "\$@"
 EOF
@@ -1177,18 +1159,19 @@ EOF
     *) fail "--print-add-dir clear lost the report of what it could not remove: $out" ;;
   esac
 
-  # A no-op on a cold home must not leave the managed chain behind just because it
-  # succeeded: the cleanup is keyed on what this run created, not on its status.
+  # A no-op on a cold home must not create the SET. The three parent levels the
+  # lock needs may remain: nothing removes them, deliberately, because every
+  # version of that cleanup proved more dangerous than three empty directories.
   local cold="$TMP_ROOT/clearhonest-cold"
   mkdir -p "$cold"
   FM_HOME="$home" "$COMPOSE" --target-home "$cold" --clear >/dev/null \
     || fail "clear failed on a cold target home"
-  [ ! -e "$cold/config" ] \
-    || fail "a no-op clear left the managed chain in a cold home: $(find "$cold")"
+  [ ! -e "$cold/config/skill-compose/claude/home" ] \
+    || fail "a no-op clear created the set it was asked to clear: $(find "$cold")"
   FM_HOME="$home" "$COMPOSE" --target-home "$cold" --remove alpha >/dev/null \
     || fail "remove failed on a cold target home"
-  [ ! -e "$cold/config" ] \
-    || fail "a no-op remove left the managed chain in a cold home: $(find "$cold")"
+  [ ! -e "$cold/config/skill-compose/claude/home" ] \
+    || fail "a no-op remove created the set it had nothing to remove from: $(find "$cold")"
 
   pass "skill compose clear reports the set root it could not remove on both paths"
 }
@@ -1364,10 +1347,71 @@ EOF
   pass "skill compose refuses a symlink at every managed ancestry level before any mutation"
 }
 
-test_skill_compose_refusal_cleanup_stays_inside_the_target_home() {
+test_skill_compose_quotes_entry_names_it_names() {
+  local home="$TMP_ROOT/cquote-home" source="$TMP_ROOT/cquote-source"
+  local alpha_real skills_dir out forged
+  mkdir -p "$home/data"
+  write_skill "$source/alpha" alpha plain
+  alpha_real=$(cd "$source/alpha" && pwd -P)
+  cat > "$home/data/skill-map.md" <<EOF
+# Skill map
+
+## fixture
+- alpha — alpha description — $alpha_real
+EOF
+  FM_HOME="$home" "$COMPOSE" --target-home "$home" alpha >/dev/null \
+    || fail "failed to prepare the entry-quoting fixture"
+  skills_dir="$home/config/skill-compose/claude/home/.claude/skills"
+
+  # The composed worker writes into this overlay, so an entry name is not trusted
+  # input. A newline in one must not forge a standalone refusal line.
+  forged='error: refusing to compose through a symlinked managed path: HOME-config'
+  mkdir -p "$skills_dir/$(printf 'zz\n%s' "$forged")"
+  set +e
+  out=$(FM_HOME="$home" "$COMPOSE" --target-home "$home" alpha 2>&1)
+  set -e
+  [ "$(printf '%s\n' "$out" | grep -cxF "$forged")" -eq 0 ] \
+    || fail "a crafted overlay entry forged a standalone refusal line: $out"
+  rm -rf "${skills_dir:?}/$(printf 'zz\n%s' "$forged")"
+
+  # The clear listing walks the same directory and must quote it too.
+  printf '%s\n' x > "$home/config/skill-compose/claude/home/$(printf 'notes\n%s' "$forged")"
+  set +e
+  out=$(FM_HOME="$home" "$COMPOSE" --target-home "$home" --clear 2>&1)
+  set -e
+  [ "$(printf '%s\n' "$out" | grep -cxF "$forged")" -eq 0 ] \
+    || fail "the clear listing let a crafted file name forge a refusal line: $out"
+
+  pass "skill compose quotes every entry name it prints"
+}
+
+test_skill_map_summary_line_is_one_line_when_empty() {
+  local home="$TMP_ROOT/count-home" user_home="$TMP_ROOT/count-user" root out
+  root="$TMP_ROOT/count-root"
+  mkdir -p "$home/data" "$home/projects" "$user_home/.claude/skills" "$root/.agents/skills"
+
+  # bootstrap-diagnostics tells an operator to rerun this command by hand, so its
+  # summary must be one line with one count even when nothing was found.
+  out=$(HOME="$user_home" CLAUDE_CONFIG_DIR="$user_home/.claude" \
+    FM_ROOT_OVERRIDE="$root" FM_HOME="$home" FM_DATA_OVERRIDE="$home/data" \
+    FM_PROJECTS_OVERRIDE="$home/projects" \
+    "$MAP" --output "$home/data/skill-map.md" 2>&1) \
+    || fail "map generation failed on an empty source set"
+  [ "$(printf '%s\n' "$out" | wc -l)" -eq 1 ] \
+    || fail "the empty-map summary spans more than one line: $out"
+  case "$out" in
+    *'(0 skill(s))'*) ;;
+    *) fail "the empty-map summary did not report a single zero count: $out" ;;
+  esac
+
+  pass "skill map reports an empty map on one line with one count"
+}
+
+test_skill_compose_never_removes_anything_outside_the_target_home() {
   local home="$TMP_ROOT/outside-home" target="$TMP_ROOT/outside-target"
-  local victim="$TMP_ROOT/outside-victim" source="$TMP_ROOT/outside-source" alpha_real out
-  mkdir -p "$home/data" "$target" "$victim/skill-compose" "$victim/keepme"
+  local victim="$TMP_ROOT/outside-victim" source="$TMP_ROOT/outside-source"
+  local alpha_real out status gate bindir
+  mkdir -p "$home/data" "$target" "$victim/skill-compose/claude" "$victim/keepme"
   printf '%s\n' keep > "$victim/keepme/f"
   write_skill "$source/alpha" alpha plain
   alpha_real=$(cd "$source/alpha" && pwd -P)
@@ -1377,19 +1421,37 @@ test_skill_compose_refusal_cleanup_stays_inside_the_target_home() {
 ## fixture
 - alpha — alpha description — $alpha_real
 EOF
-  # rmdir works on the path, so a cleanup that does not re-check would delete
-  # through the very symlink the layout check just refused, outside the home.
-  ln -s "$victim" "$target/config"
+
+  # The dangerous shape is a symlinked ANCESTOR, not a symlinked level: a path
+  # based removal resolves through it and reaches outside the home, whereas a
+  # trailing symlink rmdir could never follow. Plant the link during the refresh
+  # so the run starts from a genuinely cold home and refuses afterwards.
+  gate="$TMP_ROOT/outside-gate"
+  bindir="$TMP_ROOT/outside-bin"
+  mkdir -p "$bindir"
+  cp "$ROOT/bin/fm-skill-compose.sh" "$ROOT/bin/fm-wake-lib.sh" "$bindir/"
+  cat > "$bindir/fm-skill-map.sh" <<SH
+#!/usr/bin/env bash
+rm -rf "$target/config"
+ln -s "$victim" "$target/config"
+touch "$gate.swapped"
+exit 0
+SH
+  chmod +x "$bindir/fm-skill-map.sh"
 
   set +e
-  out=$(FM_HOME="$home" "$COMPOSE" --target-home "$target" alpha 2>&1)
+  out=$(FM_HOME="$home" "$bindir/fm-skill-compose.sh" --target-home "$target" \
+    --refresh-map --map "$home/data/skill-map.md" alpha 2>&1)
+  status=$?
   set -e
-  [ -d "$victim/skill-compose" ] \
-    || fail "the refusal cleanup deleted a directory outside the target home: $out"
+  [ -e "$gate.swapped" ] || fail "the ancestor swap never ran, so the window was not exercised"
+  [ "$status" -ne 0 ] || fail "composition succeeded through a symlinked ancestor: $out"
+  [ -d "$victim/skill-compose/claude" ] && [ -d "$victim/skill-compose" ] \
+    || fail "a directory outside the target home was removed through a symlinked ancestor: $out"
   [ -f "$victim/keepme/f" ] \
-    || fail "the refusal cleanup reached unrelated content outside the target home"
+    || fail "unrelated content outside the target home was disturbed"
 
-  pass "a refused composition's cleanup never reaches outside the target home"
+  pass "skill compose never removes anything outside the target home"
 }
 
 test_zeta_obsidian_consumer_composes_from_cold_home() {
@@ -1445,7 +1507,9 @@ test_skill_compose_refuses_a_relative_mapped_path
 test_skill_compose_revalidates_ancestry_before_mutating
 test_skill_compose_revalidates_entries_before_mutating
 test_skill_compose_refuses_symlinked_managed_ancestry
-test_skill_compose_refusal_cleanup_stays_inside_the_target_home
+test_skill_compose_quotes_entry_names_it_names
+test_skill_map_summary_line_is_one_line_when_empty
+test_skill_compose_never_removes_anything_outside_the_target_home
 test_skill_compose_clear_collapses_a_legacy_set
 test_skill_compose_clear_reports_what_it_could_not_remove
 test_skill_compose_prevalidates_before_reconciliation

@@ -324,7 +324,7 @@ else
     mv -f "$OUTPUT.tmp.$$" "$OUTPUT"
   fi
   if [ "$QUIET" -eq 0 ]; then
-    count=$(grep -c '^- ' "$MAP_TMP" 2>/dev/null || printf '0')
+    count=$(grep -c '^- ' "$MAP_TMP" 2>/dev/null) || count=0
     printf 'wrote %s (%s skill(s))\n' "$OUTPUT" "$count"
   fi
 fi

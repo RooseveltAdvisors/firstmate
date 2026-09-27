@@ -116,13 +116,6 @@ COMPOSE_ROOT="$COMPOSE_PARENT/$SET_NAME"
 SKILLS_DIR="$COMPOSE_ROOT/.claude/skills"
 COMPOSE_LOCK=
 COMPOSE_LOCK_HELD=0
-# Record which managed levels this home already had, innermost first, so a failed
-# run can remove only what it created itself and never a level it inherited.
-COMPOSE_CREATED_LEVELS=()
-for _level in "$COMPOSE_PARENT" "$TARGET_HOME/config/skill-compose" "$TARGET_HOME/config"; do
-  [ -e "$_level" ] || [ -L "$_level" ] || COMPOSE_CREATED_LEVELS+=("$_level")
-done
-unset _level
 COMPOSE_TEMP_FILES=()
 
 if [ "$PRINT_ADD_DIR" -eq 1 ] && [ "$MODE" = compose ] && [ "${#SKILLS[@]}" -eq 0 ]; then
@@ -255,12 +248,12 @@ validate_existing_skill_entries() {  # <compose|remove|clear>
     name=$(basename "$entry")
     if skill_requested "$name"; then
       case "$context" in
-        compose) printf 'error: refusing to replace non-symlink entry: %s\n' "$entry" >&2 ;;
-        remove) printf 'error: refusing to remove non-symlink entry: %s\n' "$entry" >&2 ;;
-        *) printf 'error: non-symlink entry in managed skill set: %s\n' "$entry" >&2 ;;
+        compose) printf 'error: refusing to replace non-symlink entry: %q\n' "$entry" >&2 ;;
+        remove) printf 'error: refusing to remove non-symlink entry: %q\n' "$entry" >&2 ;;
+        *) printf 'error: non-symlink entry in managed skill set: %q\n' "$entry" >&2 ;;
       esac
     else
-      printf 'error: non-symlink entry in managed skill set: %s\n' "$entry" >&2
+      printf 'error: non-symlink entry in managed skill set: %q\n' "$entry" >&2
     fi
     return 1
   done
@@ -278,18 +271,6 @@ compose_exit() {
     rm -f "$file" 2>/dev/null || true
   done
   release_compose_lock
-  # A run that created managed levels and left nothing in them must take them
-  # back, whether it refused or simply had nothing to do. Only levels absent
-  # before this run are attempted, innermost first, and rmdir removes nothing that
-  # is not already empty, so inherited and populated directories are left alone.
-  # Each level is re-checked for being a symlink first: rmdir works on the path,
-  # so without that it would delete through the very link the layout check refuses
-  # and reach outside the target home.
-  for file in "${COMPOSE_CREATED_LEVELS[@]}"; do
-    if [ ! -L "$file" ]; then
-      rmdir "$file" 2>/dev/null || true
-    fi
-  done
   return "$status"
 }
 
@@ -350,7 +331,9 @@ clear_set() {
     # to stderr so --print-add-dir's stdout stays the bare path its callers parse.
     {
       printf 'cleared the composed skills in %s; it still holds:\n' "$COMPOSE_ROOT"
-      find "$COMPOSE_ROOT" -mindepth 1 -maxdepth 2
+      # Quote each entry: the composed worker writes into this directory, so a
+      # name carrying a newline would otherwise get a line of its own here.
+      find "$COMPOSE_ROOT" -mindepth 1 -maxdepth 2 -exec printf '  %q\n' {} \;
     } >&2
     if [ "$PRINT_ADD_DIR" -eq 1 ]; then
       printf '%s\n' "$COMPOSE_ROOT"

@@ -56,7 +56,10 @@ It never clones a repository.
 It never writes through the symlink target.
 Every managed path from the target home's `config/` directory down to the set's `.claude/skills` directory must be a real directory.
 A symlink anywhere in that ancestry is refused before any mutation, so composition can never reconcile through one into a tracked `.agents/skills` tree.
-The ancestry is re-checked immediately before the first mutation, because resolving names and refreshing the map in between takes long enough for that ancestry to change.
+The ancestry and the existing entries are both re-checked immediately before the first mutation, because resolving names and refreshing the map in between takes long enough for either to change.
+Nothing removes the managed directories above a set, so a refused or no-op run can leave them behind in a home that had none.
+That is deliberate: a path-based removal resolves through a symlinked ancestor and would reach outside the target home, and removing a shared parent races a concurrent run composing a different set.
+Every entry name a refusal prints is quoted, because the composed worker itself writes into that overlay.
 
 The scanner reads one level of each source directory, so a skill nested deeper than `<source>/<skill>/SKILL.md` is not discovered.
 Claude Code's own `skills/synced/<id>/<skill>/` layout is nested that way and is therefore not mapped.
