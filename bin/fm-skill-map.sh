@@ -6,6 +6,12 @@
 #   - every registered project clone's .claude/skills/ and .agents/skills/
 #   - the Claude user skill directory, ${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills
 #
+# Only the first MAX_FRONTMATTER_BYTES of a SKILL.md are read, and a skill whose
+# frontmatter is never closed, cannot be read, or carries no name is skipped with
+# a named SKILL_MAP: line on stderr and a final exit status of 3. The map itself
+# is still written, so one bad skill degrades to a reported gap, never a silent
+# one and never an unbounded read of the skill body.
+#
 # The output is a flat, regenerated registry at data/skill-map.md by default.
 # It is private operational state, not a committed artifact. The map is for
 # discovery and for fm-skill-compose.sh name resolution; the skill folders stay
@@ -28,6 +34,9 @@ PROJECTS="${FM_PROJECTS_OVERRIDE:-$FM_HOME/projects}"
 OUTPUT="$DATA/skill-map.md"
 STDOUT=0
 QUIET=0
+SKIPPED=0
+# Frontmatter is a handful of short lines; anything past this is skill body.
+MAX_FRONTMATTER_BYTES=65536
 
 usage() { sed -n '2,/^set -eu$/p' "$0" | sed 's/^# \{0,1\}//; $d'; }
 
@@ -79,7 +88,7 @@ sanitize_description() {
 }
 
 extract_frontmatter() {  # <SKILL.md>; prints name<TAB>description
-  local file=$1 line value name='' desc='' desc_block=0 first=1
+  local file=$1 line value name='' desc='' desc_block=0 first=1 closed=0
   while IFS= read -r line || [ -n "$line" ]; do
     line=${line%$'\r'}
     if [ "$first" -eq 1 ]; then
@@ -87,7 +96,7 @@ extract_frontmatter() {  # <SKILL.md>; prints name<TAB>description
       [ "$line" = '---' ] || return 1
       continue
     fi
-    [ "$line" = '---' ] && break
+    [ "$line" = '---' ] && { closed=1; break; }
     case "$line" in
       name:*)
         value=${line#name:}
@@ -123,7 +132,8 @@ extract_frontmatter() {  # <SKILL.md>; prints name<TAB>description
         desc_block=0
         ;;
     esac
-  done < "$file"
+  done < <(head -c "$MAX_FRONTMATTER_BYTES" "$file" 2>/dev/null)
+  [ "$closed" -eq 1 ] || return 1
   name=$(collapse_ws "$name")
   desc=$(sanitize_description "$desc")
   [ -n "$name" ] || return 1
@@ -134,24 +144,8 @@ canonical_dir() {  # <dir>
   (cd "$1" 2>/dev/null && pwd -P)
 }
 
-skill_repo_label() {  # <skill-dir> <fallback-group>
-  local dir=$1 fallback=$2 top remote base
-  top=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null || true)
-  if [ -n "$top" ]; then
-    remote=$(git -C "$top" remote get-url origin 2>/dev/null || true)
-    if [ -n "$remote" ]; then
-      base=${remote##*/}
-      base=${base%.git}
-      [ -n "$base" ] && { printf '%s\n' "$base"; return 0; }
-    fi
-    basename "$top"
-    return 0
-  fi
-  printf '%s\n' "$fallback"
-}
-
 add_skill_source() {  # <group> <skills-dir> <records-file> <seen-file>
-  local group=$1 source_dir=$2 records=$3 seen=$4 skill_dir skill_real front name desc repo_label
+  local group=$1 source_dir=$2 records=$3 seen=$4 skill_dir skill_real front name desc
   [ -d "$source_dir" ] || return 0
   for skill_dir in "$source_dir"/*; do
     [ -d "$skill_dir" ] || continue
@@ -161,12 +155,15 @@ add_skill_source() {  # <group> <skills-dir> <records-file> <seen-file>
       continue
     fi
     printf '%s\n' "$skill_real" >> "$seen"
-    front=$(extract_frontmatter "$skill_real/SKILL.md" 2>/dev/null || true)
-    [ -n "$front" ] || continue
+    if ! front=$(extract_frontmatter "$skill_real/SKILL.md" 2>/dev/null) || [ -z "$front" ]; then
+      printf 'SKILL_MAP: skipped unreadable or unclosed skill frontmatter: %s\n' \
+        "$skill_real/SKILL.md" >&2
+      SKIPPED=$((SKIPPED + 1))
+      continue
+    fi
     name=${front%%$'\t'*}
     desc=${front#*$'\t'}
-    repo_label=$(skill_repo_label "$skill_real" "$group")
-    printf '%s\t%s\t%s\t%s\n' "$repo_label" "$name" "$desc" "$skill_real" >> "$records"
+    printf '%s\t%s\t%s\t%s\n' "$group" "$name" "$desc" "$skill_real" >> "$records"
   done
 }
 
@@ -189,16 +186,17 @@ add_skill_source firstmate "$FM_ROOT/.agents/skills" "$RECORDS" "$SEEN"
 
 while IFS= read -r project; do
   [ -n "$project" ] || continue
-  case "$project" in */*|.*|'') continue ;; esac
+  case "$project" in */*|''|.|..) continue ;; esac
   add_skill_source "projects/$project" "$PROJECTS/$project/.claude/skills" "$RECORDS" "$SEEN"
   add_skill_source "projects/$project" "$PROJECTS/$project/.agents/skills" "$RECORDS" "$SEEN"
 done <<EOF
 $(project_names)
 EOF
 
-if [ -n "${HOME:-}" ]; then
-  CLAUDE_USER_ROOT="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-  add_skill_source user "$CLAUDE_USER_ROOT/skills" "$RECORDS" "$SEEN"
+if [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
+  add_skill_source user "$CLAUDE_CONFIG_DIR/skills" "$RECORDS" "$SEEN"
+elif [ -n "${HOME:-}" ]; then
+  add_skill_source user "$HOME/.claude/skills" "$RECORDS" "$SEEN"
 fi
 
 MAP_TMP="$TMP/skill-map.md"
@@ -238,4 +236,9 @@ else
     count=$(grep -c '^- ' "$MAP_TMP" 2>/dev/null || printf '0')
     printf 'wrote %s (%s skill(s))\n' "$OUTPUT" "$count"
   fi
+fi
+
+if [ "$SKIPPED" -gt 0 ]; then
+  printf 'SKILL_MAP: %s skill(s) skipped; the map above omits them\n' "$SKIPPED" >&2
+  exit 3
 fi

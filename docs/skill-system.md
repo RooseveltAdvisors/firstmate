@@ -10,15 +10,20 @@ Firstmate uses a two-part skill system for cross-repo skill reuse.
 The map is a flat, regenerated index.
 It is private operational state and is not committed.
 It scans only `SKILL.md` frontmatter so refresh stays cheap.
-It does not read skill bodies.
+It does not read skill bodies, and it stops reading a `SKILL.md` at a bounded prefix, so an unclosed frontmatter block cannot pull a whole skill body into the map.
 It records the skill name, one-line description, source group, and absolute canonical skill-folder path.
 Each canonical skill-folder path appears at most once, even when symlinked source trees discover it more than once.
+
+A skill whose frontmatter is unreadable, never closed, or carries no name is skipped.
+Every skip names its `SKILL.md` on stderr, and the generator exits non-zero after still writing the map for the skills that did parse.
+The `fm-skill-map.sh` header owns that exit status.
+Composition treats a reported skip as a gap rather than a refresh failure, so the skills that did parse still compose, and a skipped name is refused by name when it is requested.
 
 The scanner reads these sources:
 
 - This Firstmate repo's `.agents/skills/` directory.
-- Each registered project clone's `.claude/skills/` and `.agents/skills/` directories under the active home's `projects/` directory.
-- The Claude user skill directory at `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills`.
+- Each registered project clone's `.claude/skills/` and `.agents/skills/` directories under the active home's `projects/` directory, including a project whose name begins with a dot.
+- The Claude user skill directory at `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills`, which is scanned from `CLAUDE_CONFIG_DIR` alone when `HOME` is unset.
 
 Regenerate it with:
 
@@ -41,6 +46,8 @@ Composition symlinks selected skill folders from their canonical locations into 
 It never copies a skill folder.
 It never clones a repository.
 It never writes through the symlink target.
+Every managed path from the target home's `config/` directory down to the set's `.claude/skills` directory must be a real directory.
+A symlink anywhere in that ancestry is refused before any mutation, so composition can never reconcile through one into a tracked `.agents/skills` tree.
 
 Compose a curated set with:
 

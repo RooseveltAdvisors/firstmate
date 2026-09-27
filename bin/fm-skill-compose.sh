@@ -17,6 +17,11 @@
 # symlinks are created or updated, and stale symlinks in the set directory are
 # removed. Non-symlink entries are refused instead of clobbered.
 #
+# Every managed path from <target-home>/config down to the set's .claude/skills
+# directory must be a real directory. A symlink anywhere in that ancestry is
+# refused before any mutation, so composition can never reconcile through one
+# into a tracked .agents/skills tree.
+#
 # Usage:
 #   fm-skill-compose.sh --target-home <home> [--set <name>] [--map <path>] <skill>...
 #   fm-skill-compose.sh --target-home <home> [--set <name>] --remove <skill>...
@@ -109,7 +114,6 @@ TARGET_HOME=$(cd "$TARGET_HOME" && pwd -P)
 COMPOSE_PARENT="$TARGET_HOME/config/skill-compose/claude"
 COMPOSE_ROOT="$COMPOSE_PARENT/$SET_NAME"
 SKILLS_DIR="$COMPOSE_ROOT/.claude/skills"
-MANIFEST="$COMPOSE_ROOT/manifest.tsv"
 COMPOSE_LOCK=
 COMPOSE_LOCK_HELD=0
 COMPOSE_TEMP_FILES=()
@@ -128,19 +132,30 @@ safe_skill_name() {  # <name>
 
 canonical_dir() { (cd "$1" 2>/dev/null && pwd -P); }
 
+# fm-skill-map.sh exits 3 when it wrote the map but skipped a malformed or
+# unreadable skill. That is a reported gap, not a refresh failure: composing the
+# skills that did parse must still work, and an unresolvable name is refused by
+# resolve_skill with the exact name it could not find.
+refresh_map() {
+  local status=0
+  if [ "$MAP_EXPLICIT" -eq 1 ]; then
+    "$SCRIPT_DIR/fm-skill-map.sh" --output "$MAP" --quiet || status=$?
+  else
+    "$SCRIPT_DIR/fm-skill-map.sh" --quiet || status=$?
+  fi
+  [ "$status" -eq 0 ] || [ "$status" -eq 3 ] \
+    || { printf 'error: skill map refresh failed with status %s\n' "$status" >&2; exit 1; }
+}
+
 ensure_map() {
   if [ "$REFRESH_MAP" -eq 1 ]; then
-    if [ "$MAP_EXPLICIT" -eq 1 ]; then
-      "$SCRIPT_DIR/fm-skill-map.sh" --output "$MAP" --quiet
-    else
-      "$SCRIPT_DIR/fm-skill-map.sh" --quiet
-    fi
+    refresh_map
   elif [ ! -f "$MAP" ]; then
     if [ "$MAP_EXPLICIT" -eq 1 ]; then
       printf 'error: skill map does not exist: %s\n' "$MAP" >&2
       exit 1
     fi
-    "$SCRIPT_DIR/fm-skill-map.sh" --quiet
+    refresh_map
   fi
   [ -f "$MAP" ] || { printf 'error: skill map does not exist after refresh: %s\n' "$MAP" >&2; exit 1; }
 }
@@ -209,15 +224,15 @@ validate_managed_layout() {
     "$COMPOSE_ROOT" \
     "$COMPOSE_ROOT/.claude" \
     "$SKILLS_DIR"; do
-    if { [ -e "$path" ] || [ -L "$path" ]; } && [ ! -d "$path" ]; then
+    if [ -L "$path" ]; then
+      printf 'error: refusing to compose through a symlinked managed path: %s\n' "$path" >&2
+      return 1
+    fi
+    if [ -e "$path" ] && [ ! -d "$path" ]; then
       printf 'error: managed composition path is not a directory: %s\n' "$path" >&2
       return 1
     fi
   done
-  if [ -d "$MANIFEST" ]; then
-    printf 'error: managed composition manifest is a directory: %s\n' "$MANIFEST" >&2
-    return 1
-  fi
 }
 
 validate_existing_skill_entries() {  # <compose|remove|clear>
@@ -292,29 +307,6 @@ prevalidate_mode() {
   esac
 }
 
-write_manifest_from_symlinks() {
-  local tmp entry name target
-  mkdir -p "$COMPOSE_ROOT"
-  tmp="$MANIFEST.tmp.$$"
-  : > "$tmp"
-  if [ -d "$SKILLS_DIR" ]; then
-    for entry in "$SKILLS_DIR"/*; do
-      [ -e "$entry" ] || [ -L "$entry" ] || continue
-      name=$(basename "$entry")
-      if [ -L "$entry" ]; then
-        target=$(link_target_real "$entry" 2>/dev/null || readlink "$entry" || true)
-        printf '%s\t%s\n' "$name" "$target" >> "$tmp"
-      else
-        rm -f "$tmp"
-        printf 'error: non-symlink entry in managed skill set: %s\n' "$entry" >&2
-        return 1
-      fi
-    done
-  fi
-  sort -f "$tmp" -o "$tmp"
-  mv -f "$tmp" "$MANIFEST"
-}
-
 clear_set() {
   local entry
   validate_managed_layout
@@ -325,7 +317,6 @@ clear_set() {
       rm -f -- "$entry"
     done
   fi
-  rm -f "$MANIFEST"
   rmdir "$SKILLS_DIR" "$COMPOSE_ROOT/.claude" "$COMPOSE_ROOT" 2>/dev/null || true
   [ "$PRINT_ADD_DIR" -eq 1 ] && printf '%s\n' "$COMPOSE_ROOT" || printf 'cleared %s\n' "$COMPOSE_ROOT"
 }
@@ -341,7 +332,6 @@ remove_skills() {
       rm -f -- "$entry"
     fi
   done
-  write_manifest_from_symlinks
   [ "$PRINT_ADD_DIR" -eq 1 ] && printf '%s\n' "$COMPOSE_ROOT" || printf 'updated %s\n' "$COMPOSE_ROOT"
 }
 
@@ -386,8 +376,6 @@ compose_exact() {
     fi
   done < "$wanted"
 
-  sort -f "$wanted" > "$MANIFEST.tmp.$$"
-  mv -f "$MANIFEST.tmp.$$" "$MANIFEST"
   if [ "$PRINT_ADD_DIR" -eq 1 ]; then
     printf '%s\n' "$COMPOSE_ROOT"
   else

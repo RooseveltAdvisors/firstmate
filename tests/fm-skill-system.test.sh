@@ -286,8 +286,6 @@ EOF
   fi
   [ -L "$home/config/skill-compose/claude/clear/.claude/skills/alpha" ] \
     || fail "failed clear deleted a skill before validating the full set"
-  [ -f "$home/config/skill-compose/claude/clear/manifest.tsv" ] \
-    || fail "failed clear removed the manifest before validating the full set"
 
   pass "skill compose prevalidates failures before mutating managed sets"
 }
@@ -421,16 +419,168 @@ EOF
   [ -L "$skills_dir/beta" ] || fail "second serialized composition did not publish its requested set"
   [ ! -e "$skills_dir/alpha" ] && [ ! -L "$skills_dir/alpha" ] \
     || fail "serialized reconciliation left a stale skill from the first request"
-  assert_file_contains "$home/config/skill-compose/claude/home/manifest.tsv" "$beta_real" \
-    "serialized reconciliation manifest does not describe the final set"
+  [ "$(readlink_real "$skills_dir/beta")" = "$beta_real" ] \
+    || fail "serialized reconciliation published beta with the wrong canonical target"
 
   pass "skill compose serializes concurrent reconciliation of one set"
 }
 
+test_skill_map_bounds_frontmatter_and_reports_skips() {
+  local home="$TMP_ROOT/loud-home" user_home="$TMP_ROOT/loud-user" skills out status
+  skills="$home/projects/alpha/.claude/skills"
+  mkdir -p "$home/data" "$skills" "$user_home/.claude/skills"
+  printf '%s\n' '- alpha [no-mistakes] - fixture project' > "$home/data/projects.md"
+  write_skill "$skills/valid-skill" valid-skill plain
+
+  # Frontmatter opened and never closed, followed by megabytes of body whose own
+  # `description:` line the parser must never reach.
+  mkdir -p "$skills/unterminated"
+  {
+    printf '%s\n' '---' 'name: unterminated' 'description: header description'
+    yes 'padding line that belongs to the skill body' | head -n 80000
+    printf '%s\n' 'description: BODY_WAS_PARSED'
+  } > "$skills/unterminated/SKILL.md"
+
+  mkdir -p "$skills/unreadable"
+  write_skill "$skills/unreadable" unreadable plain
+  chmod 000 "$skills/unreadable/SKILL.md"
+
+  set +e
+  out=$(HOME="$user_home" CLAUDE_CONFIG_DIR="$user_home/.claude" \
+    FM_HOME="$home" FM_DATA_OVERRIDE="$home/data" FM_PROJECTS_OVERRIDE="$home/projects" \
+    "$MAP" --output "$home/data/skill-map.md" --quiet 2>&1)
+  status=$?
+  set -e
+  chmod 644 "$skills/unreadable/SKILL.md"
+
+  [ "$status" -ne 0 ] \
+    || fail "map generation stayed silent about malformed and unreadable skills"
+  case "$out" in
+    *"$skills/unterminated/SKILL.md"*) ;;
+    *) fail "map generation did not name the unterminated skill it skipped: $out" ;;
+  esac
+  case "$out" in
+    *"$skills/unreadable/SKILL.md"*) ;;
+    *) fail "map generation did not name the unreadable skill it skipped: $out" ;;
+  esac
+  assert_file_not_contains "$home/data/skill-map.md" 'BODY_WAS_PARSED' \
+    "unterminated frontmatter was read through the skill body"
+  assert_file_not_contains "$home/data/skill-map.md" '- unterminated — ' \
+    "a skill whose frontmatter is never closed was mapped anyway"
+  assert_file_contains "$home/data/skill-map.md" '- valid-skill — ' \
+    "a valid sibling skill was dropped along with the malformed ones"
+
+  chmod 000 "$skills/unreadable/SKILL.md"
+  set +e
+  out=$(HOME="$user_home" CLAUDE_CONFIG_DIR="$user_home/.claude" \
+    FM_HOME="$home" FM_DATA_OVERRIDE="$home/data" FM_PROJECTS_OVERRIDE="$home/projects" \
+    "$COMPOSE" --target-home "$home" --refresh-map valid-skill 2>&1)
+  status=$?
+  set -e
+  chmod 644 "$skills/unreadable/SKILL.md"
+  [ "$status" -eq 0 ] \
+    || fail "a reported skill skip blocked composition of the skills that did parse: $out"
+  [ -L "$home/config/skill-compose/claude/home/.claude/skills/valid-skill" ] \
+    || fail "composition alongside a reported skip did not publish the valid skill"
+
+  pass "skill map is closed-delimiter bound, names every skipped skill, and still composes"
+}
+
+test_skill_map_scans_hidden_projects_and_config_dir_without_home() {
+  local home="$TMP_ROOT/discovery-home" user_home="$TMP_ROOT/discovery-user"
+  mkdir -p "$home/data" "$home/projects/.hidden/.claude/skills" "$user_home/.claude/skills"
+  printf '%s\n' '- .hidden [no-mistakes] - registered dot-prefixed project' > "$home/data/projects.md"
+  write_skill "$home/projects/.hidden/.claude/skills/hidden-skill" hidden-skill plain
+  write_skill "$user_home/.claude/skills/config-dir-skill" config-dir-skill plain
+
+  env -u HOME CLAUDE_CONFIG_DIR="$user_home/.claude" \
+    FM_HOME="$home" FM_DATA_OVERRIDE="$home/data" FM_PROJECTS_OVERRIDE="$home/projects" \
+    "$MAP" --output "$home/data/skill-map.md" --quiet \
+    || fail "skill map generation failed with HOME unset"
+
+  assert_file_contains "$home/data/skill-map.md" '- hidden-skill — ' \
+    "a registered dot-prefixed project was not scanned"
+  assert_file_contains "$home/data/skill-map.md" '- config-dir-skill — ' \
+    "CLAUDE_CONFIG_DIR skills were skipped because HOME was unset"
+
+  pass "skill map scans registered dot-prefixed projects and honors CLAUDE_CONFIG_DIR without HOME"
+}
+
+test_skill_compose_refuses_symlinked_managed_ancestry() {
+  local home="$TMP_ROOT/escape-home" target="$TMP_ROOT/escape-target"
+  local source="$TMP_ROOT/escape-source" alpha_real tracked out status
+  mkdir -p "$home/data" "$target/config/skill-compose/claude/home/.claude"
+  write_skill "$source/alpha" alpha plain
+  alpha_real=$(cd "$source/alpha" && pwd -P)
+  cat > "$home/data/skill-map.md" <<EOF
+# Skill map
+
+## fixture
+- alpha — alpha description — $alpha_real
+EOF
+  # The tracked tree holds only symlinks, exactly like a real .agents/skills set,
+  # so nothing but the ancestry check itself can refuse this composition.
+  tracked="$target/.agents/skills"
+  mkdir -p "$tracked"
+  write_skill "$source/keep" keep plain
+  ln -s "$(cd "$source/keep" && pwd -P)" "$tracked/keep"
+  ln -s "$tracked" "$target/config/skill-compose/claude/home/.claude/skills"
+
+  set +e
+  out=$(FM_HOME="$home" "$COMPOSE" --target-home "$target" alpha 2>&1)
+  status=$?
+  set -e
+  [ "$status" -ne 0 ] \
+    || fail "composition followed a symlinked managed path instead of refusing: $out"
+  case "$out" in
+    *'refusing to compose through a symlinked managed path'*) ;;
+    *) fail "refusal did not name the symlinked managed path: $out" ;;
+  esac
+  [ -L "$tracked/keep" ] \
+    || fail "refused composition deleted an unrelated skill from the tracked tree"
+  [ ! -e "$tracked/alpha" ] && [ ! -L "$tracked/alpha" ] \
+    || fail "refused composition wrote a composed link into the tracked tree"
+
+  pass "skill compose refuses a symlinked managed ancestry before any mutation"
+}
+
+test_zeta_obsidian_consumer_composes_from_cold_home() {
+  local home="$TMP_ROOT/zeta-home" user_home="$TMP_ROOT/zeta-user"
+  local target="$TMP_ROOT/zeta-target" skills_dir name
+  mkdir -p "$home/data" "$home/projects/.zeta/.claude/skills" "$user_home/.claude/skills" "$target"
+  printf '%s\n' '- .zeta [no-mistakes] - Zeta distribution clone' > "$home/data/projects.md"
+  write_skill "$home/projects/.zeta/.claude/skills/verify" verify plain
+  for name in obsidian-cli obsidian-bases obsidian-markdown; do
+    write_skill "$user_home/.claude/skills/$name" "$name" plain
+  done
+
+  env -u HOME CLAUDE_CONFIG_DIR="$user_home/.claude" \
+    FM_HOME="$home" FM_DATA_OVERRIDE="$home/data" FM_PROJECTS_OVERRIDE="$home/projects" \
+    "$MAP" --output "$home/data/skill-map.md" --quiet \
+    || fail "cold-home map generation failed for the Zeta and Obsidian consumer"
+
+  FM_HOME="$home" "$COMPOSE" --target-home "$target" --map "$home/data/skill-map.md" \
+    verify obsidian-cli obsidian-bases obsidian-markdown >/dev/null \
+    || fail "the Zeta and Obsidian skill set did not compose"
+
+  skills_dir="$target/config/skill-compose/claude/home/.claude/skills"
+  for name in verify obsidian-cli obsidian-bases obsidian-markdown; do
+    [ -L "$skills_dir/$name" ] || fail "$name was not composed as a symlink"
+    [ -f "$skills_dir/$name/SKILL.md" ] \
+      || fail "$name is not loadable through the composed overlay"
+  done
+
+  pass "the Zeta project skill and Obsidian user skills compose into one loadable cold-home overlay"
+}
+
 test_skill_map_generates_flat_deduped_registry
+test_skill_map_bounds_frontmatter_and_reports_skips
+test_skill_map_scans_hidden_projects_and_config_dir_without_home
+test_zeta_obsidian_consumer_composes_from_cold_home
 test_skill_compose_reconciles_symlink_set_and_removes
 test_skill_compose_accepts_internal_double_dots_without_traversal
 test_skill_compose_refuses_non_symlink_collision
+test_skill_compose_refuses_symlinked_managed_ancestry
 test_skill_compose_prevalidates_before_reconciliation
 test_skill_compose_refuses_unverified_harnesses
 test_locked_session_start_refreshes_map_and_read_only_skips

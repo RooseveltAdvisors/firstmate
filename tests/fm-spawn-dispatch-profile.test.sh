@@ -1266,7 +1266,7 @@ test_claude_missing_skill_refuses_before_endpoint_or_metadata() {
 }
 
 test_duplicate_claude_spawn_preserves_live_skill_overlay() {
-  local rec id out status alpha_dir beta_dir skills_dir alpha_target manifest_before
+  local rec id out status alpha_dir beta_dir skills_dir alpha_target
   id=profile-claude-skills-duplicate-z22
   rec=$(make_spawn_case profile-claude-skills-duplicate claude "$id")
   read_case_record "$rec"
@@ -1295,7 +1295,6 @@ EOF
   skills_dir="$HOME_DIR/config/skill-compose/claude/task-$id/.claude/skills"
   [ -L "$skills_dir/alpha-skill" ] || fail "initial spawn did not publish alpha skill"
   alpha_target=$(readlink "$skills_dir/alpha-skill")
-  manifest_before=$(cat "$HOME_DIR/config/skill-compose/claude/task-$id/manifest.tsv")
 
   out=$(FM_FAKE_DUPLICATE_WINDOW="fm-$id" FM_TEST_CLAUDE_CONFIG_DIR="$HOME_DIR/claude-config" \
     run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
@@ -1309,8 +1308,6 @@ EOF
     || fail "duplicate spawn retargeted the live alpha skill"
   [ ! -e "$skills_dir/beta-skill" ] && [ ! -L "$skills_dir/beta-skill" ] \
     || fail "duplicate spawn added beta to the live skill overlay"
-  [ "$(cat "$HOME_DIR/config/skill-compose/claude/task-$id/manifest.tsv")" = "$manifest_before" ] \
-    || fail "duplicate spawn rewrote the live skill manifest"
 
   pass "duplicate claude spawn preserves the live skill overlay"
 }
