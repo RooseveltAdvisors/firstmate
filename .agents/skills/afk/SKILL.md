@@ -182,6 +182,7 @@ Classify each wake this way:
   Nonterminal progress remains transient even when its prose contains a legacy free-text token or its seen-status marker already matches, so record a marker and self-handle.
   If the pane is still idle past `FM_STALE_ESCALATE_SECS` (default 240s), housekeeping escalates it as a possible wedge, except while the crew's no-mistakes `ci` step is still active: that lane is waiting on the forge, so housekeeping restarts its window instead of escalating and re-surfaces it as one `still waiting on CI` recheck per `FM_PAUSE_RESURFACE_SECS`, and a ci-parked lane whose endpoint is proven gone or agent-free is reported once rather than held behind the step.
   A plain `stale:` wake refreshes that lane's wedge marker without restarting its recheck window, so pane-hash churn cannot push the `still waiting on CI` recheck out.
+  That recheck covers only a lane the wedge tracker follows: a ci-parked lane whose status tip is captain-relevant (a leftover `done:`, `needs-decision:`, or `blocked:` line) is self-handled by its own wake as an event already reported, so it keeps that pre-existing behavior instead of a `still waiting on CI` recheck.
   This bounds wedge-detection latency to the threshold plus a tick for every lane that is not waiting on an active `ci` step: a delay, never a loss.
   Healthy crewmates are autonomous and do not wait on firstmate mid-task.
 - `heartbeat` -> self-handle.

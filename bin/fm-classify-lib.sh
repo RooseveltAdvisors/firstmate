@@ -2521,7 +2521,12 @@ crew_gate_awaits_human_decision() {  # <id> -> <run-id> on stdout
 # detail segments (the run id, a superseded status-log clause) are allowed after
 # it, and the green reading carries the run's PR url inline after its own fixed
 # text. NOT a pure read for the same reason crew_absorb_class is not: it may make
-# a bounded no-mistakes call, so callers run it only where they already budget one.
+# a bounded no-mistakes call, so every caller carries its own budget. The two
+# threshold probes do: the watcher's at-threshold probe and the daemon's stale
+# persistence recheck each take it at most once per FM_STALE_ESCALATE_SECS per
+# window. The daemon's transient-stale pause-marker wipe guard does not - it takes
+# the read once per distinct-pane-hash stale wake that finds an open recheck
+# window, with no bound across a churning display.
 crew_is_ci_waiting() {  # <id>
   local id=$1 line
   [ -n "$id" ] || return 1
