@@ -1,0 +1,3 @@
+$ bin/fm-doc-audience-check.sh   # the real consumer of docs/documentation-audiences.json
+fm-doc-audience-check: ok surfaces=110 local_links=658
+rc=0

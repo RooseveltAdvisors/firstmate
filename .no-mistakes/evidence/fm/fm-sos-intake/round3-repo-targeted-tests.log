@@ -1,0 +1,98 @@
+$ env -u NO_MISTAKES_GATE ... bin/fm-test-run.sh tests/fm-sos-intake.test.sh tests/fm-tasks-axi.test.sh tests/fm-documentation-audiences.test.sh tests/fm-session-lock-ancestry.test.sh
+FM_TEST_BEGIN 2026-09-27T20:43:50Z tests/fm-session-lock-ancestry.test.sh family=watcher-wake-lock expected_gate_skip=none
+ok - session-lock: a version-named Claude Code session is identified from its install path and argv[0]
+ok - session-lock: a harness that is pid 1 of its own namespace is examined, not skipped
+ok - session-lock: ordinary script paths under a harness directory are not harness processes
+ok - session-lock: ownership stops at the first non-harness gap above the contiguous run
+ok - session-lock: a live version-named session holding the lock is not mistaken for a stale owner
+ok - session-lock: a trusted same-session id keeps owning a recycled background chain, and nothing weaker does
+ok - session-lock: a trusted id anchors the lock on the model-loop process, anything else on the outermost pid
+ok - session-lock e2e: a version-named session claims the home and arms supervision
+ok - session-lock e2e: a session parented by a harness-named daemon claims the home and arms supervision
+ok - session-lock e2e: a version-named session under a harness-named daemon keeps its own lock
+ok - session-lock e2e: a background session keeps its lock and its supervision across a recycled helper chain
+ok - session-lock: a same-session confirmation waits for the claim lock and refreshes a re-keyed id
+ok - session-lock: a waiting confirmation does not steal another session's lock
+ok - session-lock: a failed lock write restores the previous sidecar
+ok - session-lock: a failed lock write removes a newly created sidecar
+ok - session-lock: a verified reclaim keeps the new sidecar beside the new pid
+FM_TEST_END 2026-09-27T20:45:59Z tests/fm-session-lock-ancestry.test.sh exit=0 duration_ms=128973 gate_skip=false
+FM_TEST_BEGIN 2026-09-27T20:45:59Z tests/fm-documentation-audiences.test.sh family=pure-contract-unit expected_gate_skip=none
+ok - documentation inventory classifies every maintained prose surface exactly once
+ok - classification, setup routing, and maintained-prose scope fail safely
+ok - required documentation owner pointers cannot silently disappear
+ok - local links resolve while dates, versions, commands, and incident prose remain semantically reviewed
+FM_TEST_END 2026-09-27T20:46:00Z tests/fm-documentation-audiences.test.sh exit=0 duration_ms=812 gate_skip=false
+FM_TEST_BEGIN 2026-09-27T20:46:00Z tests/fm-sos-intake.test.sh family=unclassified expected_gate_skip=none
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+ok - reconcile creates one task row, comment, watch, and dispatch
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+ok - reconcile is idempotent across replays and lost cursors
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+ok - a lost bridge event is healed from GitHub and never double-dispatches
+ok - watch-condition is closed-only and fails closed
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+ok - watch-fire comments once, closes the task row, and never the issue
+error: unknown transition 'nonsense' (want one of: dispatched repro-confirmed fix-up deployed verified captain-closed)
+ok - transition comments are canonical, bounded, and never close the issue
+ok - dry-run reports the plan and changes nothing
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+ok - one ticket folds to one key across the event and the issue body
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+ok - a ticket keeps one key across passes even when its marker is gone
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+ok - reconcile survives a pile-up of large open reports
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+ok - status reports the sos rows and only live close watches
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+ok - reconcile re-arms a dead close watch that captured no verdict
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+ok - watch-fire records the close only after the row actually closes
+ok - a blocked reconcile pass exits non-zero
+ok - a failed task ensure surfaces its redacted cause and intake continues
+ok - reconcile refuses the removed dispatch flags
+ok - overlapping reconcile passes serialize on the intake lock
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+ok - reconcile does not re-arm a close watch that already reached a terminal verdict
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+ok - reconcile re-arms a close watch whose run died before completing
+ok - a failed dispatch stays owed and is retried on the next pass
+ok - dispatch re-scaffolds a brief recorded for another delivery mode
+ok - the issue key stabilizes before the first successful ensure
+ok - a bridge event for a closed ticket keeps its row and watch but no dispatch
+ok - a replay across the heal and event paths is exactly one dispatch
+ok - a candidate with no url keeps every column
+ok - intake creates a row on a due-required beads home
+ok - a tool without --why or --due receives neither flag
+ok - flags pass through only for a tool and a backend that accept them
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+ok - a reopened-after-terminal ticket is loud once, listed, and never re-dispatched
+ok - a never-dispatched reopened ticket still launches nothing
+FM_TEST_END 2026-09-27T20:46:25Z tests/fm-sos-intake.test.sh exit=0 duration_ms=25083 gate_skip=false
+FM_TEST_BEGIN 2026-09-27T20:46:25Z tests/fm-tasks-axi.test.sh family=unclassified expected_gate_skip=none
+ok - bootstrap reports a regular code-root backlog and stays silent for a link into the home or no copy
+ok - bootstrap reports a code-root backlog linked elsewhere and a forked archive
+ok - bootstrap stays silent when the code root is the home
+ok - bare tasks-axi replaced the code-root link and bootstrap reported the fork
+ok - fm-tasks-axi.sh writes, holds, archives, and reads relative body files through to the home from the code root
+ok - fm-tasks-axi.sh pins the home's backlog over an ambient TASKS_AXI_FILE and serves the dashboard
+ok - fm-tasks-axi.sh refuses caller --file, a symlinked home backlog, and an unresolvable home
+ok - fm-tasks-axi.sh refuses add --start while plain add and start <id> pass through
+ok - fm-tasks-axi.sh keeps the single-home layout addressing its own code-root backlog
+FM_TEST_END 2026-09-27T20:46:26Z tests/fm-tasks-axi.test.sh exit=0 duration_ms=1387 gate_skip=false
+FM_TEST_SUMMARY total=4 failed=0 skipped_gate=0 duration_ms=156417
+FM_TEST_SUMMARY_FAMILY family=pure-contract-unit count=1 duration_ms=812 failed=0
+FM_TEST_SUMMARY_FAMILY family=unclassified count=2 duration_ms=26470 failed=0
+FM_TEST_SUMMARY_FAMILY family=watcher-wake-lock count=1 duration_ms=128973 failed=0
+FM_TEST_SLOWEST rank=1 script=tests/fm-session-lock-ancestry.test.sh duration_ms=128973
+FM_TEST_SLOWEST rank=2 script=tests/fm-sos-intake.test.sh duration_ms=25083
+FM_TEST_SLOWEST rank=3 script=tests/fm-tasks-axi.test.sh duration_ms=1387
+FM_TEST_SLOWEST rank=4 script=tests/fm-documentation-audiences.test.sh duration_ms=812
+EXIT=0

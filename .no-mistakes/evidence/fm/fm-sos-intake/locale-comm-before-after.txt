@@ -1,0 +1,36 @@
+$ locale | head -1 ; LC_ALL=en_US.UTF-8 bin/fm-test-run.sh --check-coverage   # AFTER (target commit)
+LANG=en_US.UTF-8
+FM_TEST_COVERAGE ok total=236 parallel=24 parallel_max_ms=417163 parallel_imbalance_ms=2894 parallel_unhinted=0 serial=196 serial_shards=9 serial_unhinted=15 herdr=16
+AFTER rc=0
+
+$ git show 503ba82:bin/fm-test-run.sh > /tmp/fm-test-run.base.sh ; LC_ALL=en_US.UTF-8 /tmp/fm-test-run.base.sh --check-coverage   # BEFORE (base commit)
+fm-test-run: lane 'portable-serial' selected no tests
+BEFORE rc=2
+$ LC_ALL=C git show 503ba82:bin/fm-test-run.sh >/tmp/base.sh; LC_ALL=C /tmp/base.sh --check-coverage   # BEFORE in C locale (control)
+fm-test-run: lane 'portable-serial' selected no tests
+base+C rc=2
+
+$ LC_ALL=en_AG.utf8 bin/fm-test-run.sh --check-coverage   # AFTER in another non-C locale
+FM_TEST_COVERAGE ok total=236 parallel=24 parallel_max_ms=417163 parallel_imbalance_ms=2894 parallel_unhinted=0 serial=196 serial_shards=9 serial_unhinted=15 herdr=16
+after+en_AG rc=0
+
+$ LC_ALL=en_AG.utf8 /tmp/base.sh --check-coverage   # BEFORE in another non-C locale
+fm-test-run: lane 'portable-serial' selected no tests
+base+en_AG rc=2
+=== coverage guard BEFORE (base commit 503ba82 tree) vs AFTER (target), by locale ===
+$ LC_ALL=C            /tmp/fm-base-tree.6CJ5VY/bin/fm-test-run.sh --check-coverage
+FM_TEST_COVERAGE ok total=235 parallel=24 parallel_max_ms=417163 parallel_imbalance_ms=2894 parallel_unhinted=0 serial=195 serial_shards=9 serial_unhinted=14 herdr=16
+base+C rc=0
+
+$ LC_ALL=en_US.UTF-8  /tmp/fm-base-tree.6CJ5VY/bin/fm-test-run.sh --check-coverage
+comm: file 2 is not in sorted order
+comm: input is not in sorted order
+base+en_US rc=1
+
+$ LC_ALL=en_US.UTF-8  bin/fm-test-run.sh --check-coverage   (target, this worktree)
+FM_TEST_COVERAGE ok total=236 parallel=24 parallel_max_ms=417163 parallel_imbalance_ms=2894 parallel_unhinted=0 serial=196 serial_shards=9 serial_unhinted=15 herdr=16
+target+en_US rc=0
+
+$ LC_ALL=C             bin/fm-test-run.sh --check-coverage   (target, this worktree)
+FM_TEST_COVERAGE ok total=236 parallel=24 parallel_max_ms=417163 parallel_imbalance_ms=2894 parallel_unhinted=0 serial=196 serial_shards=9 serial_unhinted=15 herdr=16
+target+C rc=0

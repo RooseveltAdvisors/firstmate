@@ -1,0 +1,12 @@
+$ LC_ALL=en_US.UTF-8 bin/fm-test-run.sh --check-coverage
+FM_TEST_COVERAGE ok total=236 parallel=24 parallel_max_ms=417163 parallel_imbalance_ms=2894 parallel_unhinted=0 serial=196 serial_shards=9 serial_unhinted=15 herdr=16
+EXIT=0
+
+$ bin/fm-test-run.sh --list --lane portable-serial-1of4 | head
+fm-test-run: lane 'portable-serial-1of4' asks for 4 portable serial shards but this runner is configured for 9 (see --list-lanes)
+EXIT=0
+$ LC_ALL=en_US.UTF-8 bin/fm-test-run.sh --list --lane portable-serial-1of9 | wc -l
+1
+
+$ for i in 1..9: LC_ALL=en_US.UTF-8 bin/fm-test-run.sh --list --lane portable-serial-${i}of9 | wc -l  (partition check)
+shard sizes: 1 24 23 25 25 23 25 25 25 = sum 196 == portable-serial lane count 196

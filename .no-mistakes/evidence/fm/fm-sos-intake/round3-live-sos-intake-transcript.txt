@@ -1,0 +1,209 @@
+$ env -u NO_MISTAKES_GATE -u FM_GATE_REFUSE_BYPASS -u FM_ROOT_OVERRIDE -u FM_STATE_OVERRIDE -u FM_DATA_OVERRIDE -u FM_CONFIG_OVERRIDE -u FM_PROJECTS_OVERRIDE bash /home/jon/.no-mistakes/evidence/01M3FT3W77PM32HSQ23M6W0HCX/round3-live-sos-intake-drive.sh
+=== lab: /tmp/fm-sos-live3.Zxsew0
+=== real tasks-axi: /home/jon/.pi/agent/bin/tasks-axi (0.2.6)
+=== real curl: /home/linuxbrew/.linuxbrew/bin/curl
+=== real bd: /home/jon/.local/bin/bd (bd version 1.3.1 (dev))
+
+########## A. Idempotent pickup of one bridge event over REAL HTTP (markdown home, real tasks-axi)
+=== bridge up at http://127.0.0.1:44927 (pid 2444230) for /tmp/fm-sos-live3.Zxsew0/pickled/fake
+--- pass 1 output:
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+dispatched: fm-sos-7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f (GH #1921)
+reconcile: ensured=1 task_created=1 dispatched=1 cursor=0->1
+ok - pass 1 exits 0
+ok - pass 1 creates the task row
+ok - pass 1 dispatches one crewmate
+ok - the intake really polled the bridge over HTTP
+ok - the row fm-sos-<uuid> exists in the real backlog
+ok - a fresh row sits queued
+ok - no fallback-key row was minted for the same ticket
+ok - exactly one dispatched comment posted
+ok - the comment names the task row
+ok - the comment states the never-closes rule
+ok - exactly one crewmate spawned
+ok - spawn carries the delivery mode
+ok - close-watch spec armed
+ok - close-watch trust record armed
+ok - cursor advanced to event id 1
+ok - the loop never closed the GitHub issue
+ok - brief scaffolded with the ticket intent
+ok - brief carries no unfilled placeholders
+--- strip warning seen on pass 1:
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+ok - a stripped --due is reported loudly, not silently
+--- argv the real tasks-axi received:
+tasks-axi add fm-sos-7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f SOS ticket 7f3c1a52 - GH #1921 --kind ship --repo portal --priority 1 --body SOS key: 7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f
+GitHub issue: https://github.com/ArcsHealth/Portal/issues/1921
+Site: see the GitHub issue (kept out of this graph on purpose).
+The captain closes the GitHub issue after verification; the loop never does. --why staff SOS report awaiting fix --json
+ok - the rejected --due never reached the real tasks-axi
+ok - the accepted --why did reach the real tasks-axi
+ok - row carries the P1 why from the tool
+
+--- pass 2 (bridge drained):
+--- pass 2 output:
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+reconcile: ensured=1 task_created=0 dispatched=0 cursor=1->1
+ok - pass 2 exits 0
+ok - pass 2 creates no second row
+ok - pass 2 does not re-dispatch
+ok - still exactly one comment after pass 2
+ok - still exactly one spawn after pass 2
+
+--- pass 3 (lost cursor + replayed event over real HTTP):
+--- pass 3 output:
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+reconcile: ensured=1 task_created=0 dispatched=0 cursor=0->1
+ok - replay pass exits 0
+ok - the replay really re-polled the bridge from cursor 0
+ok - replay creates no second row
+ok - replay does not re-dispatch
+ok - still exactly one dispatched comment after replay
+ok - still exactly one spawn after replay
+ok - cursor re-consumed to event id 1
+ok - ledger records exactly one dispatch
+
+########## B. watch-fire: closes the row once, never the GitHub issue
+--- watch-fire 1:
+captain-closed: 1921
+ok - watch-fire exits 0
+ok - watch-fire reports the close
+ok - the task row closed
+ok - captain-closed comment posted once
+ok - watch-fire never closed the GitHub issue
+--- watch-fire 2:
+already-closed-recorded: 1921
+ok - a re-run is a recorded no-op
+ok - the close comment still posted exactly once
+
+########## C. GitHub heal path: the event never arrives (bridge down), then the event shows up - exactly one dispatch across both paths
+=== bridge up at http://127.0.0.1:40365 (pid 2454280) for /tmp/fm-sos-live3.Zxsew0/healed/fake
+--- healed pass (bridge down, issue listed):
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+dispatched: fm-sos-7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f (GH #1921)
+reconcile: ensured=1 task_created=1 dispatched=1 cursor=0->0
+ok - the heal pass exits 0 under a bridge outage
+ok - the listed open issue is dispatched without any event
+ok - the bridge really answered 500 on that poll
+--- event arrives later:
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+reconcile: ensured=1 task_created=0 dispatched=0 cursor=0->1
+ok - the follow-up pass exits 0
+ok - the late event does not re-dispatch
+ok - exactly one comment across heal + event
+ok - exactly one spawn across heal + event
+ok - exactly one dispatch in the ledger across heal + event
+
+########## D. Adversarial: a failing spawn stays owed, then retries exactly once
+=== bridge up at http://127.0.0.1:34591 (pid 2458607) for /tmp/fm-sos-live3.Zxsew0/spawnfail/fake
+--- failing pass:
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+error: spawn cannot start
+failed: dispatch for #1921
+reconcile: ensured=1 task_created=1 dispatched=0 cursor=0->0
+ok - a failed spawn fails the pass (rc=1)
+ok - the spawn failure reaches the operator
+ok - no dispatch guard recorded for the failed spawn
+ok - no crewmate launched
+--- retry pass:
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+dispatched: fm-sos-7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f (GH #1921)
+reconcile: ensured=1 task_created=0 dispatched=1 cursor=0->1
+ok - the retry pass succeeds
+ok - the owed dispatch runs on the retry
+ok - exactly one crewmate across both passes
+ok - a third pass still launches nothing
+
+########## E. Adversarial: an event for a captain-closed issue keeps the row but no comment/dispatch
+=== bridge up at http://127.0.0.1:35753 (pid 2464496) for /tmp/fm-sos-live3.Zxsew0/closed/fake
+--- pass:
+skip: #1921 is closed; no dispatched comment or crewmate
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+reconcile: ensured=1 task_created=1 dispatched=0 cursor=0->1
+ok - the pass succeeds
+ok - the closed ticket is reported skipped
+ok - the row is still ensured
+ok - the close watch is still armed
+ok - no dispatched comment on a closed ticket
+ok - no crewmate for a closed ticket
+ok - the intake never closed the GitHub issue itself
+ok - the event is still consumed
+
+########## F. Adversarial: watch-condition never reads a failure as closed
+=== bridge up at http://127.0.0.1:38163 (pid 2467829) for /tmp/fm-sos-live3.Zxsew0/cond/fake
+OPEN issue rc=1
+ok - open issue is a clean false (rc=1)
+CLOSED issue rc=0
+ok - closed issue is a clean true (rc=0)
+gh outage rc=2
+ok - a gh outage fails closed (rc=2)
+garbage rc=2
+ok - an unparseable answer fails closed (rc=2)
+
+########## G. fm-tasks-axi.sh capability gate against the REAL installed tool (0.2.6: help has --why, no --due)
+=== bridge up at http://127.0.0.1:45345 (pid 2468827) for /tmp/fm-sos-live3.Zxsew0/gate/fake
+--- wrapper add rc=0, stderr:
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+ok - wrapper add with both flags succeeds on the real tool
+ok - the strip warning accompanies the add
+--- full tasks-axi argv log for this case:
+tasks-axi add --help
+tasks-axi add fm-gate-probe probe row --kind ship --repo portal --priority 1 --why probe reason --json
+ok - --due was dropped before exec
+ok - --why was passed through
+ok - the probe row exists
+ok - a plain read emits no strip warning
+
+########## H. Fork-like tool (help advertises --due/--why): both flags pass through and FM_SOS_DUE reaches the row
+=== bridge up at http://127.0.0.1:38217 (pid 2470489) for /tmp/fm-sos-live3.Zxsew0/forkish/fake
+--- fork-like pass (default FM_SOS_DUE=+2w):
+dispatched: fm-sos-7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f (GH #1921)
+reconcile: ensured=1 task_created=1 dispatched=1 cursor=0->1
+ok - intake succeeds against a tool that accepts the flags
+ok - no strip warning when the tool advertises the flags
+ok - the due reached the fork-like tool
+ok - the why reached the fork-like tool
+ok - the row's due equals the default FM_SOS_DUE (+2w)
+=== bridge up at http://127.0.0.1:46055 (pid 2472335) for /tmp/fm-sos-live3.Zxsew0/forkish-due/fake
+--- fork-like pass with operator FM_SOS_DUE=+5d:
+dispatched: fm-sos-7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f (GH #1921)
+reconcile: ensured=1 task_created=1 dispatched=1 cursor=0->1
+ok - intake succeeds with FM_SOS_DUE=+5d
+ok - the operator's due reached the tool
+ok - the row's due equals the operator-set FM_SOS_DUE (+5d)
+
+########## I. Beads home with due governance: row created, due from the ladder, strip loud
+=== bridge up at http://127.0.0.1:40951 (pid 2495638) for /tmp/fm-sos-live3.Zxsew0/beads/fake
+--- beads pass:
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+dispatched: fm-sos-7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f (GH #1921)
+reconcile: ensured=1 task_created=1 dispatched=1 cursor=0->1
+ok - intake succeeds on a due-required beads home
+ok - the beads row was created
+ok - the row carries a due under due governance (2026-09-30T20:49:05Z)
+ok - the stripped --due is reported loudly on beads too
+
+########## J. dry-run reports the plan with no side effects; comment transitions are bounded
+=== bridge up at http://127.0.0.1:45099 (pid 2504988) for /tmp/fm-sos-live3.Zxsew0/misc/fake
+--- dry-run:
+would-create: task fm-sos-7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f (GH #1921)
+reconcile: ensured=0 task_created=0 dispatched=0 cursor=0->0
+ok - dry-run exits 0
+ok - dry-run reports the plan
+ok - dry-run creates no row
+ok - dry-run does not move the cursor
+ok - dry-run posts no comment
+ok - dry-run spawns nothing
+--- comment fix-up:
+commented: 1921 fix-up
+ok - a valid transition comment posts
+ok - the canonical label is used
+--- comment nonsense:
+error: unknown transition 'nonsense' (want one of: dispatched repro-confirmed fix-up deployed verified captain-closed)
+ok - an unknown transition is refused
+ok - the refused transition posted nothing
+ok - status exits 0
+
+==========================================================
+DRIVE RESULT: passed=99 failed=0
+EXIT=0
