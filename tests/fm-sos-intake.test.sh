@@ -496,7 +496,7 @@ FAKE="\${FM_SOS_FAKE_DIR:?}"
 echo "\$*" >> "\$FAKE/tasks.log"
 case "\${1:-}" in
   add)
-    echo 'error: due date is required for task' >&2
+    echo 'error: backlog backend unavailable' >&2
     echo 'retry with Authorization: Bearer abcdef0123456789abcdef0123456789abcdef01' >&2
     exit 2 ;;
 esac
@@ -507,12 +507,14 @@ SH
   out=$(FM_SOS_TASKS_OVERRIDE="$fd/tasks-broken" run_intake "$parts" reconcile 2>&1)
   rc=$?
   expect_code 1 "$rc" "a pass whose ensure failed must exit non-zero: $out"
-  assert_contains "$out" "due date is required" "the tasks-axi cause must reach the operator: $out"
+  assert_contains "$out" "backlog backend unavailable" "the tasks-axi cause must reach the operator: $out"
   assert_contains "$out" "<redacted>" "tool diagnostics must be redacted: $out"
   assert_not_contains "$out" "abcdef0123456789abcdef0123456789abcdef01" \
     "no token-like text may reach the operator line: $out"
-  assert_contains "$(cat "$fd/tasks.log" 2>/dev/null)" "--priority 2" \
-    "the row must be created with the priority the deploy backend accepts"
+  assert_contains "$(cat "$fd/tasks.log" 2>/dev/null)" "--priority 1" \
+    "the row must be created at the P0/P1 priority the deploy backend accepts"
+  assert_contains "$(cat "$fd/tasks.log" 2>/dev/null)" "--why staff SOS report awaiting fix" \
+    "a P0/P1 row must carry its one-line reason"
   assert_equals "1" "$(count_of 'SOS dispatch' "$fd/comments.log")" \
     "an ensure failure must not stop the dispatched comment: $(cat "$fd/comments.log" 2>/dev/null)"
   assert_equals "1" "$(count_of 'fm-spawn' "$fd/spawn.log")" \
@@ -832,6 +834,48 @@ EOF
   pass "a candidate with no url keeps every column"
 }
 
+test_intake_creates_a_row_on_a_due_required_beads_home() {
+  local parts home out due desc
+  command -v bd >/dev/null 2>&1 || { echo "skip: bd not found (beads backend coverage)"; return 0; }
+
+  parts=$(setup_case beads)
+  home=${parts%%|*}
+
+  # The deploy home's shape: a beads store whose due governance is on.
+  cat > "$home/.tasks.toml" <<'EOF'
+backend = "beads"
+
+[beads]
+path = ".beads"
+prefix = "fm"
+EOF
+  (cd "$home" && bd init --prefix fm >/dev/null 2>&1) || fail "bd init failed in the fixture home"
+  printf '\ndue:\n    required: true\n' >> "$home/.beads/config.yaml"
+  if (cd "$home" && bd create "due governance probe" --id fm-due-probe --type task --json >/dev/null 2>&1); then
+    fail "the fixture store must reject a create that carries no due"
+  fi
+
+  out=$(run_intake "$parts" reconcile 2>&1) || fail "reconcile failed on the beads home: $out"
+  task_present "$parts" || fail "intake must create a row on a due-required beads home: $out"
+  due=$(cd "$home" && bd show "$TASK_ID" --json 2>/dev/null | python3 -c 'import json,sys
+d = json.load(sys.stdin)
+d = d[0] if isinstance(d, list) else d
+print(d.get("due_at") or "")' 2>/dev/null) || due=""
+  [ -n "$due" ] || fail "the created row must carry a due under due governance: $out"
+  desc=$(cd "$home" && bd show "$TASK_ID" --json 2>/dev/null | python3 -c 'import json,sys
+d = json.load(sys.stdin)
+d = d[0] if isinstance(d, list) else d
+print(d.get("description") or "")' 2>/dev/null) || desc=""
+  assert_contains "$desc" "priority-why: staff SOS report awaiting fix" \
+    "the P0/P1 reason must reach the beads record"
+
+  if FM_HOME="$home" "$TASKS_AXI" add fm-p1-no-reason "no reason" --kind ship --repo portal \
+      --priority 1 --json >/dev/null 2>&1; then
+    fail "priority 1 must still require --why on a beads home"
+  fi
+  pass "intake creates a row on a due-required beads home"
+}
+
 test_reconcile_creates_one_task_comment_watch_and_dispatch
 test_reconcile_is_idempotent_across_replays_and_lost_cursors
 test_lost_event_is_healed_from_github
@@ -857,3 +901,4 @@ test_ticket_key_stabilizes_before_the_first_successful_ensure
 test_event_for_a_closed_issue_gets_no_comment_or_crewmate
 test_replay_across_heal_and_event_is_exactly_one_dispatch
 test_event_without_a_url_keeps_every_column
+test_intake_creates_a_row_on_a_due_required_beads_home

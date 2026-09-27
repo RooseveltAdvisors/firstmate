@@ -54,7 +54,7 @@
 # Env: FM_HOME (default /opt/ra/firstmate), FM_SOS_BRIDGE_URL (default
 # http://127.0.0.1:8791), FM_SOS_GH_REPO (default ArcsHealth/Portal),
 # FM_SOS_PROJECT (default $FM_HOME/projects/portal), FM_SOS_MODE, FM_SOS_YOLO,
-# FM_SOS_PRIORITY (default 2), FM_SOS_GH (gh command), FM_SOS_CURL (curl),
+# FM_SOS_PRIORITY (default 1), FM_SOS_GH (gh command), FM_SOS_CURL (curl),
 # FM_SOS_TASKS / FM_SOS_SPAWN / FM_SOS_BRIEF / FM_SOS_WHEN (the sibling
 # firstmate commands, overridable so tests can substitute a stub).
 #
@@ -72,7 +72,7 @@ GH_REPO="${FM_SOS_GH_REPO:-ArcsHealth/Portal}"
 PROJECT_DIR="${FM_SOS_PROJECT:-$FM_HOME/projects/portal}"
 MODE="${FM_SOS_MODE:-no-mistakes}"
 YOLO="${FM_SOS_YOLO:-on}"
-PRIORITY="${FM_SOS_PRIORITY:-2}"
+PRIORITY="${FM_SOS_PRIORITY:-1}"
 GH="${FM_SOS_GH:-gh}"
 CURL="${FM_SOS_CURL:-curl}"
 TASKS="${FM_SOS_TASKS:-$BIN/fm-tasks-axi.sh}"
@@ -218,6 +218,9 @@ GitHub issue: ${url:-https://github.com/$GH_REPO/issues/$issue}
 Site: see the GitHub issue (kept out of this graph on purpose).
 The captain closes the GitHub issue after verification; the loop never does."
   )
+  case "$PRIORITY" in
+    0|1) args+=(--why "staff SOS report awaiting fix") ;;
+  esac
   mkdir -p "$STATE_DIR"
   errf="$STATE_DIR/.fm-sos-intake.err"
   (umask 077; : >"$errf") || die "cannot stage the tasks-axi error capture"
