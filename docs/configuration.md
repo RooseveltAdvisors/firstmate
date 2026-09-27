@@ -1515,7 +1515,7 @@ The deterministic layer matches the alert name against the seat registry in `dat
 Prose that merely mentions the word does not claim it, and two seats matching equally strongly at the same strength is a genuine ambiguity rather than a match, so it falls through to the model instead of silently routing to whichever appears first.
 
 Here fail-open means toward paging, never toward silence: every failure ends at `status: escalate` or `status: unavailable` naming the fallback owner, `captain`.
-A confident model answer routes; one below the shared confidence floor escalates carrying its ranking as evidence.
+A confident model answer routes; one below the shared confidence floor ends at `status: ambiguous`, carrying its ranking as evidence rather than routing on a guess.
 No path through the tool drops an alert.
 
 **Seat state advice** ([`bin/fm-seat-state-advise.sh`](../bin/fm-seat-state-advise.sh)) answers whether a seat whose endpoint could not be classified is waiting on something or genuinely stuck, distinguishing `pipeline_wait`, `true_wedge`, and `healthy_idle`.

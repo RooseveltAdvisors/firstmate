@@ -21,10 +21,15 @@
 # same registered charters. The model never re-decides a name that matched.
 #
 # FAIL-OPEN MEANS TOWARD PAGING, NEVER TOWARD SILENCE. In alert context the safe
-# default is that a human hears about it. So every failure - no key, no charter
-# registry, no confident charter, an unreachable or malformed model answer -
-# ends at `status: escalate` naming the fallback owner. Unowned never means
-# unattended, and there is no path through this tool that drops an alert.
+# default is that a human hears about it. So every failure and every untrusted
+# answer names the fallback owner rather than dropping the alert: a missing key,
+# a missing charter registry, or a registry with no charters ends at
+# `status: escalate` with the model never consulted; a request that cannot be
+# built or a model answer that cannot be reached or parsed ends at
+# `status: unavailable`; and an answer below the confidence floor ends at
+# `status: ambiguous`, answered without confidence and carrying its ranking as
+# evidence instead of routing on a guess. Unowned never means unattended, and
+# there is no path through this tool that drops an alert.
 #
 # Output (stdout, a TOON-style block), always exit 0:
 #   alert-route:
