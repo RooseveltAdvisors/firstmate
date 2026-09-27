@@ -633,24 +633,26 @@ fm_dod_named_head_reachable_outside_worktree() {  # <worktree> <project> <mode> 
 # An absent declaration is no gate, so every task that declares nothing behaves
 # exactly as before. A declaration that is present but is not a firstmate-private
 # regular file, names an unknown verb, or carries no target is refused rather
-# than skipped. Each check is bounded by FM_VERIFY_TIMEOUT seconds (default 30)
-# so a hung command cannot wedge supervision.
+# than skipped. The bounds that govern a declaration and its idempotency contract live in docs/configuration.md.
 # A target is the rest of the line up to the first space, so a path or URL
 # containing a space needs `run: test -f "/a b/c"` instead of `file:`. A `run:`
 # command inherits the orchestrator's environment and working directory, so it
 # names its own absolute paths.
 FM_VERIFY_TIMEOUT=${FM_VERIFY_TIMEOUT:-30}
 case $FM_VERIFY_TIMEOUT in '' | 0* | *[!0-9]*) FM_VERIFY_TIMEOUT=30 ;; esac
+FM_VERIFY_PASS_TIMEOUT=${FM_VERIFY_PASS_TIMEOUT:-10}
+case $FM_VERIFY_PASS_TIMEOUT in '' | 0* | *[!0-9]*) FM_VERIFY_PASS_TIMEOUT=10 ;; esac
 
-# Run <command> under the check timeout. Captures nothing; only the status matters.
-fm_dod_verify_run() {  # <command>
-  fm_run_timed "$FM_VERIFY_TIMEOUT" bash -c "$1" </dev/null >/dev/null 2>&1
+# Run <command> under <bound> seconds. Captures nothing; only the status matters.
+fm_dod_verify_run() {  # <bound> <command>
+  fm_run_timed "$1" bash -c "$2" </dev/null >/dev/null 2>&1
 }
 
 # 0 when every check declared for <id> passes. 1 when one fails or the
 # declaration itself cannot be trusted; stdout then holds a one-line reason.
 fm_dod_verify_declared_checks_pass() {  # <state> <id>
   local state=$1 id=$2 spec device line verb rest target want body code
+  local deadline remaining check_bound started bound_name rc
   [ -n "$state" ] && [ -n "$id" ] || return 0
   spec="$state/$id.verify"
   [ -e "$spec" ] || [ -L "$spec" ] || return 0
@@ -662,6 +664,7 @@ fm_dod_verify_declared_checks_pass() {  # <state> <id>
     printf '%s\n' "declared verification is not a firstmate-private file: $spec"
     return 1
   }
+  deadline=$(( $(date +%s) + FM_VERIFY_PASS_TIMEOUT ))
   while IFS= read -r line || [ -n "$line" ]; do
     case ${line#"${line%%[![:space:]]*}"} in '' | '#'*) continue ;; esac
     verb=${line%%:*}
@@ -672,10 +675,29 @@ fm_dod_verify_declared_checks_pass() {  # <state> <id>
       printf '%s\n' "declared verification line names no target: $line"
       return 1
     }
+    remaining=$(( deadline - $(date +%s) ))
+    [ "$remaining" -gt 0 ] || {
+      printf '%s\n' "declared verification failed: the FM_VERIFY_PASS_TIMEOUT pass bound (${FM_VERIFY_PASS_TIMEOUT}s) expired"
+      return 1
+    }
+    check_bound=$FM_VERIFY_TIMEOUT
+    [ "$check_bound" -le "$remaining" ] || check_bound=$remaining
+    if [ "$check_bound" -lt "$FM_VERIFY_TIMEOUT" ]; then
+      bound_name="the FM_VERIFY_PASS_TIMEOUT pass bound (${FM_VERIFY_PASS_TIMEOUT}s)"
+    else
+      bound_name="the ${FM_VERIFY_TIMEOUT}s check bound"
+    fi
     case $verb in
       run)
-        fm_dod_verify_run "$rest" || {
-          printf '%s\n' "declared verification failed: run: $rest exited nonzero"
+        started=$(date +%s)
+        rc=0
+        fm_dod_verify_run "$check_bound" "$rest" || rc=$?
+        [ "$rc" -eq 0 ] || {
+          if fm_timed_out "$rc" && [ "$(( $(date +%s) - started ))" -ge "$check_bound" ]; then
+            printf '%s\n' "declared verification failed: run: $rest hit $bound_name"
+          else
+            printf '%s\n' "declared verification failed: run: $rest exited nonzero"
+          fi
           return 1
         }
         ;;
@@ -688,8 +710,14 @@ fm_dod_verify_declared_checks_pass() {  # <state> <id>
           printf '%s\n' "declared verification line names no expected status: $line"
           return 1
         }
-        body=$(curl -sS -L --max-time "$FM_VERIFY_TIMEOUT" -w '\n%{http_code}' "$target" 2>/dev/null) || {
-          printf '%s\n' "declared verification failed: http: $target could not be fetched"
+        rc=0
+        body=$(curl -sS -L --max-time "$check_bound" -w '\n%{http_code}' "$target" 2>/dev/null) || rc=$?
+        [ "$rc" -eq 0 ] || {
+          if [ "$rc" -eq 28 ]; then
+            printf '%s\n' "declared verification failed: http: $target hit $bound_name"
+          else
+            printf '%s\n' "declared verification failed: http: $target could not be fetched"
+          fi
           return 1
         }
         [ "${body##*$'\n'}" = "$code" ] || {

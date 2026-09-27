@@ -79,4 +79,6 @@ A declaration is optional, and an absent one gates nothing, so this pilot says n
 No mechanism decides which tasks should declare which checks; that is firstmate's judgment at dispatch.
 The pilot exercises `http:` end to end through the orchestrator, `run:` and `file:` through the orchestrator's run-step read as well as directly at the library, over a local server only; it establishes nothing about a remote host, TLS, redirects beyond curl's own `-L`, or authenticated fetches.
 A target ends at the first space, so a path or URL containing one is outside `file:` and `http:` and needs `run:`; nothing in the pilot exercises that case.
-The only fail-open path is a declaration that was never written, which firstmate knows because firstmate writes it; a declaration present but untrusted or malformed refuses the claim.
+Guaranteed: a declaration that exists and fails refuses the `done:` claim at every enforcement point: `bin/fm-pr-check.sh` registration, the `bin/fm-crew-state.sh` run-step emit, `fm_dod_accept_ship_done`'s status-log path, and the secondmate ledger publish; a declaration present but untrusted or malformed refuses the same way.
+Not guaranteed: every record under `state/` is same-uid, this declaration included, so the gate detects an honest false-done and does not defeat a same-uid worker that removes or rewrites its own declaration.
+A written-then-deleted declaration is indistinguishable from one that was never written.

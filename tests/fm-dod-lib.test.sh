@@ -544,6 +544,77 @@ test_stdin_reading_run_check_does_not_skip_later_checks() {
   pass "a stdin-reading run: check cannot consume the declaration's later checks"
 }
 
+# The whole pass carries its own bound under the tightest consumer's read
+# budget: a check that hangs past FM_VERIFY_PASS_TIMEOUT refuses the claim with
+# a reason naming that bound instead of passing or stalling the read.
+test_verification_pass_bound_refuses_a_hanging_check() {
+  local state reason rc saved
+  landed_ship passbound
+  state="$TMP_ROOT/passbound-state"
+  saved=$FM_VERIFY_PASS_TIMEOUT
+  FM_VERIFY_PASS_TIMEOUT=2
+  declare_checks "$state" passbound 'run: sleep 30'
+  reason=$(accept_done ship no-mistakes "$WT" "$REPO" "$DONE_CI_READY" "$state" passbound "$state/passbound.meta")
+  rc=$?
+  FM_VERIFY_PASS_TIMEOUT=$saved
+  [ "$rc" -eq 1 ] || fail "a check hanging past the pass bound was accepted (exit $rc)"
+  case "$reason" in
+    *FM_VERIFY_PASS_TIMEOUT*) ;;
+    *) fail "the refusal did not name the pass bound: $reason" ;;
+  esac
+  pass "the verification pass bound refuses a hanging check, naming the bound"
+}
+
+# A check killed at its bound is reported as a bound expiry, distinct from a
+# command that failed on its own.
+test_check_killed_at_the_bound_is_reported_distinctly() {
+  local state reason rc saved
+  landed_ship checkbound
+  state="$TMP_ROOT/checkbound-state"
+  saved=$FM_VERIFY_TIMEOUT
+  FM_VERIFY_TIMEOUT=2
+  declare_checks "$state" checkbound 'run: sleep 30'
+  reason=$(accept_done ship no-mistakes "$WT" "$REPO" "$DONE_CI_READY" "$state" checkbound "$state/checkbound.meta")
+  rc=$?
+  [ "$rc" -eq 1 ] || fail "a check killed at the bound was accepted (exit $rc)"
+  case "$reason" in
+    *"check bound"*) ;;
+    *) fail "a check killed at the bound was not reported as a bound expiry: $reason" ;;
+  esac
+
+  declare_checks "$state" checkbound 'run: exit 7'
+  reason=$(accept_done ship no-mistakes "$WT" "$REPO" "$DONE_CI_READY" "$state" checkbound "$state/checkbound.meta")
+  rc=$?
+  FM_VERIFY_TIMEOUT=$saved
+  [ "$rc" -eq 1 ] || fail "a failing run: check was accepted (exit $rc)"
+  case "$reason" in
+    *"exited nonzero"*) ;;
+    *) fail "an instant nonzero exit lost its wording: $reason" ;;
+  esac
+  pass "a bound expiry is reported distinctly from an instant nonzero exit"
+}
+
+# A 124 that comes from the bound mechanism failing before the command ran is
+# not evidence the command timed out, so it keeps the plain failure wording.
+test_bound_mechanism_failure_is_not_reported_as_a_timeout() {
+  local state reason rc saved_tmpdir
+  landed_ship tmpbroken
+  state="$TMP_ROOT/tmpbroken-state"
+  declare_checks "$state" tmpbroken 'run: true'
+  saved_tmpdir=${TMPDIR:-}
+  TMPDIR="$TMP_ROOT/no-such-tmpdir-$$"
+  reason=$(accept_done ship no-mistakes "$WT" "$REPO" "$DONE_CI_READY" "$state" tmpbroken "$state/tmpbroken.meta")
+  rc=$?
+  if [ -n "$saved_tmpdir" ]; then TMPDIR=$saved_tmpdir; else unset TMPDIR; fi
+  [ "$rc" -eq 1 ] || fail "a check whose bound mechanism could not start was accepted (exit $rc)"
+  case "$reason" in
+    *"check bound"* | *"pass bound"*) fail "a broken bound mechanism was reported as a timeout: $reason" ;;
+    *"run: true exited nonzero"*) ;;
+    *) fail "the broken-mechanism refusal lost its wording: $reason" ;;
+  esac
+  pass "a bound mechanism failure is not reported as the command timing out"
+}
+
 test_absent_declaration_leaves_the_done_ungated() {
   local state
   landed_ship nodecl
@@ -630,6 +701,9 @@ test_declared_http_check_decides_a_structurally_perfect_done
 test_declared_http_check_refuses_preview_only_content
 test_declared_run_and_file_checks_decide_the_done
 test_stdin_reading_run_check_does_not_skip_later_checks
+test_verification_pass_bound_refuses_a_hanging_check
+test_check_killed_at_the_bound_is_reported_distinctly
+test_bound_mechanism_failure_is_not_reported_as_a_timeout
 test_absent_declaration_leaves_the_done_ungated
 test_untrusted_or_unreadable_declaration_is_refused
 test_malformed_declared_check_is_refused
