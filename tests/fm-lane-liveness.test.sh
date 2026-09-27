@@ -261,9 +261,10 @@ cat > "$FAKE_SSH/ssh" <<'SH'
 #!/usr/bin/env bash
 # A stand-in with ssh own contract: drop the options and the host alias, join
 # what remains with spaces, and hand that string to a shell, exactly what a
-# remote login shell receives. The bounded runner it is invoked under carries
-# no stdin contract, so the stand-in offers none either: anything the remote
-# program needs must cross in the joined command itself.
+# remote login shell receives. Like the real client it drains its own stdin to
+# forward it, so a caller that feeds its per-lane loop over stdin and does not
+# close that pipe for this call loses every lane configured after this one,
+# just as it would against OpenSSH.
 while [ "$#" -gt 0 ]; do
   case "$1" in
     -o) shift 2 ;;
@@ -272,9 +273,10 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 joined=$*
+cat > /dev/null
 case "$joined" in
   fm-remote-entrypoint.sh*) printf '%s\n' "${FM_FAKE_STATE:-alive}" ;;
-  *) exec sh -c "$joined" < /dev/null ;;
+  *) exec sh -c "$joined" ;;
 esac
 SH
 chmod +x "$FAKE_SSH/ssh"
@@ -294,6 +296,29 @@ assert_not_equals '-' "$(field_of "$OUT" remotequiet watcher_beat_age_s)" \
 OUT=$(FM_FAKE_STATE=dead FM_TEST_EXTRA_PATH="$FAKE_SSH" rail "$ROOT_RM" read)
 assert_equals dead "$(field_of "$OUT" remotequiet agent_status)" \
   'a remote lane whose state verb reports a dead agent carries that word'
+
+# The remote read runs inside the per-lane config loop, so it must not consume
+# the loop's stdin. Every lane configured after the reachable remote lane still
+# gets its reading in each of the three sweep modes, and check still reports the
+# verdict change of a lane that sits behind the remote one.
+lane_fixture "$ROOT_RM" quietafter
+lane_fixture "$ROOT_RM" nohostafter
+conf_add "$ROOT_RM" 'lane quietafter'
+conf_add "$ROOT_RM" 'lane nohostafter'
+fm_touch_epoch "$(( NOW - 960 ))" "$ROOT_RM/lanes/nohostafter/state/.last-watcher-beat"
+OUT=$(FM_TEST_EXTRA_PATH="$FAKE_SSH" rail "$ROOT_RM" read)
+assert_equals alive "$(verdict_of "$OUT" quietafter)" \
+  'a local lane configured after the reachable remote lane still gets its reading'
+assert_equals dead "$(verdict_of "$OUT" nohostafter)" \
+  'every lane after the remote one is read, not only the first of them'
+OUT=$(FM_TEST_EXTRA_PATH="$FAKE_SSH" rail "$ROOT_RM" routes)
+assert_contains "$OUT" 'lane lane=quietafter' \
+  'routes reports the lane configured after the reachable remote lane'
+assert_contains "$OUT" 'lane lane=nohostafter' \
+  'routes reaches the last lane in the config, past the remote read'
+OUT=$(FM_TEST_EXTRA_PATH="$FAKE_SSH" rail "$ROOT_RM" check)
+assert_contains "$OUT" 'lane-liveness: lane=nohostafter' \
+  'check reports the verdict change of a lane configured after the remote one'
 
 # --- an absent inbox is unknown with no counts, never a zero reading --------
 ROOT_M=$(home_fixture missing_inbox)

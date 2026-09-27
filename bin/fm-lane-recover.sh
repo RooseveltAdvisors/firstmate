@@ -489,8 +489,10 @@ done
 REMOTE
 )
       remote="sh -c $(shell_quote "$program") sh $(shell_quote "$inbox")"
+      # stdin closed: this runs inside redispatch_do's frame loop, and a real
+      # ssh drains its stdin, which would consume the loop's remaining lines.
       fm_run_timed "$SSH_TIMEOUT" ssh -o BatchMode=yes -o ConnectTimeout="$SSH_TIMEOUT" \
-        "$host" "$remote"
+        "$host" "$remote" < /dev/null
       ;;
     *)
       for f in "$inbox"/*.msg; do

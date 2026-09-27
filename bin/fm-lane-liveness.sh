@@ -276,8 +276,10 @@ emit "$d/handled" handled
 REMOTE
 )
   remote="sh -c $(shell_quote "$program") sh $(shell_quote "$2") $(shell_quote "$3")"
+  # stdin closed: this call runs inside the per-lane config loop, and a real
+  # ssh drains its stdin, which would consume the loop's remaining lane lines.
   fm_run_timed "$SSH_TIMEOUT" ssh -o BatchMode=yes -o ConnectTimeout="$SSH_TIMEOUT" \
-    "$1" "$remote"
+    "$1" "$remote" < /dev/null
 }
 
 local_probe() {  # <inbox>
