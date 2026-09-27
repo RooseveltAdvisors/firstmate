@@ -155,6 +155,22 @@ for state in ambiguous unreadable; do
     "an $state endpoint on a dead lane escalates rather than reporting nothing to do"
 done
 
+# --- an escalation names the stale beat as its evidence ---------------------
+# A lane whose defect is a stale supervision beat must be paged with that beat
+# age named as the evidence, not with a bare report that a defect was found.
+# The second count changes every run, so the phrasing is what is asserted.
+R=$(home beatstale)
+lane "$R" stalebeat 4000
+pane "$R" stalebeat 'nothing interesting'
+OUT=$(ladder "$R" ambiguous sess:stalebeat plan)
+ROW=$(row "$OUT" stalebeat)
+assert_equals escalate_captain "$(field "$ROW" rung)" \
+  'a lane whose supervision beat is stale escalates rather than reporting nothing to do'
+assert_contains "$ROW" 'supervision beat age' \
+  'the escalation reason names the beat age'
+assert_contains "$ROW" 'is the evidence' \
+  'the escalation reason says the beat age is the evidence'
+
 # --- a proven dead endpoint reaches rung 1 ----------------------------------
 R=$(home rung1)
 lane "$R" downed 4000
