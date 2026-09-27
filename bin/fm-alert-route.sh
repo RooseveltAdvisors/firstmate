@@ -11,12 +11,14 @@
 # existing signal measures whether the alert fired, not whether it reached a
 # seat. An alert nobody owns is indistinguishable from an alert nobody needed.
 #
-# DETERMINISTIC FIRST, ALWAYS. The alert's name is matched against each
-# registered seat's scope text in data/secondmates.md by exact token, longest
-# prefix first, so `gpu.repo_drift` is placed by the seat whose scope names
-# `gpu.` without any model involved. Only an alert that exact matching cannot
-# place is shown to Jev, and only as a choice among those same registered
-# charters. The model never re-decides a name that matched.
+# DETERMINISTIC FIRST, ALWAYS. The alert's name is matched against the seat
+# registry in data/secondmates.md before anything else: first for a seat whose
+# id equals the alert name, then for an alert namespaced under a seat id (as
+# `gpu-ops.thermal` under `gpu-ops`), then against each seat's scope text by
+# exact token, longest prefix first, so `gpu.repo_drift` is placed by the seat
+# whose scope names `gpu.` without any model involved. Only an alert that exact
+# matching could not place is shown to Jev, and only as a choice among those
+# same registered charters. The model never re-decides a name that matched.
 #
 # FAIL-OPEN MEANS TOWARD PAGING, NEVER TOWARD SILENCE. In alert context the safe
 # default is that a human hears about it. So every failure - no key, no charter
@@ -62,10 +64,11 @@ fm-alert-route.sh - name the seat charter that owns an alert.
 
   fm-alert-route.sh <alert-name> [<alert-text>]
 
-Matches the alert name against registered seat scopes deterministically, and
-asks Jev only about a name exact matching cannot place. Every failure escalates
-to the fallback owner rather than dropping the alert. Always exits 0 except on a
-usage error. docs/configuration.md "Alert ownership routing" owns the contract.
+Matches the alert name against the registered seats first by id and then by
+scope claim, and asks Jev only about a name exact matching cannot place. Every
+failure escalates to the fallback owner rather than dropping the alert. Always
+exits 0 except on a usage error. docs/configuration.md "Alert ownership
+routing" owns the contract.
 USAGE
 }
 
@@ -107,45 +110,73 @@ seats() {
     }' "$REGISTRY" 2>/dev/null
 }
 
-# exact_owner: the ONE seat whose scope explicitly claims the longest namespace
-# prefix of this alert name. A scope claims a namespace by writing it with a
-# trailing dot or star, as `gpu.*` or `monitor.` do; prose that merely contains
-# the word does not claim it, which is why a bare substring search is wrong here.
+# exact_owner: the ONE seat this alert name names outright, or failing that the
+# ONE seat whose scope explicitly claims the longest namespace prefix of it.
+# The strengths, strongest first: an alert name equal to a registered seat id;
+# an alert namespaced under a seat id, as `gpu-ops.thermal` under `gpu-ops`;
+# then a scope that claims a namespace by writing it with a trailing dot or
+# star, as `gpu.*` or `monitor.` do; prose that merely contains the word does
+# not claim it, which is why a bare substring search is wrong here.
 #
-# Two seats claiming the same prefix is NOT an exact answer. It is a genuine
-# ambiguity, and returning either one would silently route an alert to the wrong
-# seat while skipping the model that exists to break exactly this tie. So a tie
-# fails, and the caller falls through.
+# Two seats matching at the same strength is NOT an exact answer. It is a
+# genuine ambiguity, and returning either one would silently route an alert to
+# the wrong seat while skipping the model that exists to break exactly this
+# tie. So a tie fails, and the caller falls through.
 exact_owner() {
-  local name scope best='' best_len=0 ties=0 probe len
+  local name scope best='' best_strength=0 best_len=0 ties=0 probe len strength
   while IFS=$'\t' read -r name scope; do
     [ -n "$name" ] || continue
-    probe=$ALERT
-    while [ -n "$probe" ]; do
-      case "$scope" in
-        *"$probe".*|*"$probe"\**)
-          len=${#probe}
-          if [ "$len" -gt "$best_len" ]; then
-            best=$name
-            best_len=$len
-            ties=1
-          elif [ "$len" -eq "$best_len" ] && [ "$name" != "$best" ]; then
-            ties=$(( ties + 1 ))
-          fi
-          break
+    strength=0
+    len=0
+    if [ "$ALERT" = "$name" ]; then
+      strength=3
+      len=${#ALERT}
+    else
+      case "$ALERT" in
+        "$name".*|"$name":*)
+          strength=2
+          len=${#name}
           ;;
       esac
-      case "$probe" in
-        *[.:]*) probe=${probe%[.:]*} ;;
-        *) probe='' ;;
-      esac
-    done
+    fi
+    if [ "$strength" -eq 0 ]; then
+      probe=$ALERT
+      while [ -n "$probe" ]; do
+        case "$scope" in
+          *"$probe".*|*"$probe"\**)
+            # A one or two character coincidence is not a claim of ownership.
+            [ "${#probe}" -ge 3 ] || break
+            strength=1
+            len=${#probe}
+            break
+            ;;
+        esac
+        case "$probe" in
+          *[.:]*) probe=${probe%[.:]*} ;;
+          *) probe='' ;;
+        esac
+      done
+    fi
+    [ "$strength" -gt 0 ] || continue
+    if [ "$strength" -gt "$best_strength" ]; then
+      best=$name
+      best_strength=$strength
+      best_len=$len
+      ties=1
+    elif [ "$strength" -eq "$best_strength" ]; then
+      if [ "$len" -gt "$best_len" ]; then
+        best=$name
+        best_len=$len
+        ties=1
+      elif [ "$len" -eq "$best_len" ] && [ "$name" != "$best" ]; then
+        ties=$(( ties + 1 ))
+      fi
+    fi
   done <<EOF
 $(seats)
 EOF
-  # A one or two character coincidence is not a claim of ownership, and a
-  # contested prefix is not an exact answer.
-  [ "$best_len" -ge 3 ] || return 1
+  # A contested match is not an exact answer.
+  [ "$best_strength" -gt 0 ] || return 1
   [ "$ties" -eq 1 ] || return 1
   printf '%s' "$best"
 }

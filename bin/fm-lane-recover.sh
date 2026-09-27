@@ -187,13 +187,20 @@ config_load() {
               *) die "response-lanes.conf line $lineno: RECOVERY must be off, dry-run, or acting" ;;
             esac
             ;;
-          ATTEMPT_CEILING|COOLDOWN|RELAUNCH_TIMEOUT|PERSIST_TIMEOUT|SSH_TIMEOUT)
+          ATTEMPT_CEILING|PERSIST_TIMEOUT)
             is_int "$value" || die "response-lanes.conf line $lineno: $key needs a whole number"
             case "$key" in
               ATTEMPT_CEILING) ATTEMPT_CEILING=$value ;;
+              PERSIST_TIMEOUT) PERSIST_TIMEOUT=$value ;;
+            esac
+            ;;
+          COOLDOWN|RELAUNCH_TIMEOUT|SSH_TIMEOUT)
+            is_int "$value" || die "response-lanes.conf line $lineno: $key needs a whole number"
+            [ "$value" -gt 0 ] \
+              || die "response-lanes.conf line $lineno: $key must be a positive whole number, because a zero bound disables the bound instead of applying it"
+            case "$key" in
               COOLDOWN) COOLDOWN=$value ;;
               RELAUNCH_TIMEOUT) RELAUNCH_TIMEOUT=$value ;;
-              PERSIST_TIMEOUT) PERSIST_TIMEOUT=$value ;;
               SSH_TIMEOUT) SSH_TIMEOUT=$value ;;
             esac
             ;;
@@ -361,7 +368,7 @@ rung_decide() {  # <lane> <verdict> <errclass> <pending> <beatage>
   if [ "$FM_SM_LIVE_STATUS" = relaunchable ] && [ "$restarts" -lt "$ATTEMPT_CEILING" ]; then
     RUNG=restart_lane_agent
     RUNG_WHY="endpoint is $FM_SM_LIVE_STATE ($FM_SM_LIVE_CAUSE), attempt $(( restarts + 1 )) of $ATTEMPT_CEILING"
-    RUNG_CMD="fm_secondmate_liveness_relaunch $lane"
+    RUNG_CMD="fm_secondmate_liveness_relaunch $STATE/$lane.meta $lane $RELAUNCH_TIMEOUT"
     return 0
   fi
 
@@ -379,7 +386,7 @@ rung_decide() {  # <lane> <verdict> <errclass> <pending> <beatage>
     if [ "$switches" -lt "$SWITCH_CEILING" ]; then
       RUNG=switch_model_or_harness
       RUNG_WHY="rail matched provider error class $errclass, so the provider is the suspect (endpoint $FM_SM_LIVE_STATE, switch attempt $(( switches + 1 )) of $SWITCH_CEILING)"
-      RUNG_CMD="fm-control.sh $lane relaunch${SWITCH_HARNESS:+ --harness $SWITCH_HARNESS}${SWITCH_MODEL:+ --model $SWITCH_MODEL}"
+      RUNG_CMD="$SCRIPT_DIR/fm-control.sh $lane relaunch${SWITCH_HARNESS:+ --harness $SWITCH_HARNESS}${SWITCH_MODEL:+ --model $SWITCH_MODEL}"
       [ "$FM_SM_LIVE_STATUS" = alive ] \
         && RUNG_NOTE="endpoint is alive, so persist is attempted for ${PERSIST_TIMEOUT}s first and persist_impossible is recorded on timeout"
       return 0
@@ -419,19 +426,18 @@ rung_decide() {  # <lane> <verdict> <errclass> <pending> <beatage>
 # claimed is re-sent that work once instead of being paged, and the attempt
 # row the re-send writes makes the once-only cap at this rung reachable.
 
-redispatch_plan() {  # <lane> <pending>
+redispatch_applies() {  # <lane> <pending>
   local lane=$1 pending=$2
   is_int "$pending" && [ "$pending" -gt 0 ] || return 1
   [ "$(ladder_attempts "$lane" redispatch)" -lt 1 ] || return 1
-  printf 're-send %s unclaimed work order(s) once with fresh correlation ids through bin/fm-send.sh' "$pending"
 }
 
 rung_escalate() {  # <lane> <pending> <why>
   RUNG_WHY=$3
-  if [ "$FM_SM_LIVE_STATUS" = alive ] && redispatch_plan "$1" "$2" >/dev/null; then
+  if [ "$FM_SM_LIVE_STATUS" = alive ] && redispatch_applies "$1" "$2"; then
     RUNG=redispatch
-    RUNG_CMD=$(redispatch_plan "$1" "$2")
-    RUNG_WHY="endpoint probes alive again and the lane still holds $2 unclaimed work order(s), so rung 3 re-sends them once before the escalation this lane was headed for"
+    RUNG_CMD="redispatch_do $1"
+    RUNG_WHY="endpoint probes alive again and the lane still holds $2 unclaimed work order(s), so rung 3 re-sends them once with fresh correlation ids so duplicates stay detectable, before the escalation this lane was headed for"
     return 0
   fi
   RUNG=escalate_captain

@@ -180,6 +180,8 @@ ROW=$(row "$OUT" downed)
 assert_equals restart_lane_agent "$(field "$ROW" rung)" 'a proven dead endpoint reaches the restart rung'
 assert_contains "$ROW" 'attempt 1 of 2' 'the rung records which attempt this would be'
 assert_contains "$ROW" 'action=would-run' 'planning only says what it would run'
+assert_contains "$ROW" "cmd=fm_secondmate_liveness_relaunch $R/state/downed.meta downed 300" \
+  'the plan prints the exact relaunch invocation, meta path, lane, and timeout, run would execute'
 
 # --- probe-alive must not short-circuit the error class ----------------------
 # The regression this ordering exists for: process alive, provider dead. Before
@@ -194,6 +196,8 @@ assert_equals switch_model_or_harness "$(field "$ROW" rung)" \
   'a live endpoint with a matched provider error reaches the switch rung'
 assert_contains "$ROW" 'stream_disconnected' 'the rung names the class that justified it'
 assert_contains "$ROW" 'fm-control.sh' 'the switch uses the existing owner of replacing a running agent'
+assert_contains "$ROW" "cmd=$ROOT/bin/fm-control.sh stalled relaunch --model some-other-model" \
+  'the plan prints the exact switch invocation, path, and flags, run would execute'
 assert_contains "$ROW" 'some-other-model' 'the configured switch target is the one that would be used'
 assert_contains "$ROW" 'persist is attempted' 'a live endpoint is asked to persist first, bounded'
 assert_not_contains "$ROW" 'endpoint probes alive' \
@@ -257,6 +261,7 @@ ROW=$(row "$OUT" reloaded)
 assert_equals redispatch "$(field "$ROW" rung)" \
   'an alive endpoint on a lane that still holds unclaimed work reaches rung 3 before the page'
 assert_contains "$ROW" 'action=would-run' 'planning says what rung 3 would run'
+assert_contains "$ROW" 'cmd=redispatch_do reloaded' 'the plan prints the exact call the acting run makes'
 assert_contains "$ROW" 'fresh correlation ids' 'the plan names the re-send contract'
 assert_absent "$R/state/.lane-recovery-reloaded" 'planning the re-send writes no ladder log'
 OUT=$(ladder "$R" alive sess:reloaded run)
@@ -375,7 +380,7 @@ OUT=$(ladder "$R" alive sess:shifted plan)
 ROW=$(row "$OUT" shifted)
 assert_equals redispatch "$(field "$ROW" rung)" \
   'the rail counts the overridden inbox, so the rung applies'
-assert_contains "$ROW" 're-send 1' 'the plan counts the record in the overridden inbox'
+assert_contains "$ROW" 'holds 1 unclaimed work order' 'the plan counts the record in the overridden inbox'
 conf "$R" 'RECOVERY=acting'
 OUT=$(ladder "$R" alive sess:shifted run)
 ROW=$(row "$OUT" shifted)
@@ -435,6 +440,22 @@ assert_contains "$OUT" 're-armed' 'clear reports that the lane is re-armed'
 OUT=$(ladder "$R" dead sess:held plan)
 assert_not_equals none "$(field "$(row "$OUT" held)" rung)" \
   'a cleared lane is considered by the ladder again'
+
+# --- a zero bound refuses instead of disabling the machinery -----------------
+R=$(home zerobound)
+lane "$R" downed 4000
+pane "$R" downed 'nothing interesting'
+conf "$R" 'COOLDOWN=0'
+OUT=$(ladder "$R" dead sess:downed plan)
+expect_code 2 $? 'a zero cooldown refuses rather than emptying the attempt window'
+assert_contains "$OUT" 'positive whole number' 'the refusal says the bound must be positive'
+R=$(home zerotimeout)
+lane "$R" downed 4000
+pane "$R" downed 'nothing interesting'
+conf "$R" 'SSH_TIMEOUT=0'
+OUT=$(ladder "$R" dead sess:downed plan)
+expect_code 2 $? 'a zero ssh timeout refuses rather than removing the bound'
+assert_contains "$OUT" 'SSH_TIMEOUT' 'the refusal names the offending key'
 
 # --- an unconfigured home is inert -----------------------------------------
 R="$TMP/off"

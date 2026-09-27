@@ -1428,6 +1428,9 @@ lane <name> [inbox-path]
 - `SELF=900` is how long the rail may go without completing a sweep before rail silence is reported. It matches `W` because a rail that stopped reporting is as serious as a lane whose supervision stopped.
 - `SSH_TIMEOUT=10` bounds one remote lane read, in the rail and in the ladder's redispatch read of a remote inbox alike, and `CAPTURE_TIMEOUT=8` bounds one pane read. The watcher allows 30 seconds per check, so both stay small enough that one unreachable host cannot consume a whole sweep.
 
+`SSH_TIMEOUT`, `CAPTURE_TIMEOUT`, `COOLDOWN`, and `RELAUNCH_TIMEOUT` must each be a whole number greater than zero, and a zero is refused as a configuration error, because zero would disable the bound instead of applying it.
+`ATTEMPT_CEILING` and `PERSIST_TIMEOUT` still accept zero, which deliberately disables the restart rung or skips the bounded persist wait.
+
 These are response-lane health thresholds only.
 They are entirely separate from the monitoring product's own severity and paging configuration, which this rail never reads or changes.
 
@@ -1497,8 +1500,8 @@ Four properties hold for every member built on this library, and they are the re
 **Alert ownership routing** ([`bin/fm-alert-route.sh`](../bin/fm-alert-route.sh)) names the seat that owns an alert, so a monitoring rail whose name maps to no charter reaches someone instead of going unattended.
 An alert nobody owns is otherwise indistinguishable from an alert nobody needed, because every existing signal measures whether the alert fired rather than whether it reached a seat.
 
-The deterministic layer matches the alert name against the scopes in `data/secondmates.md`: a scope claims a namespace by writing it with a trailing dot or star, as `gpu.*` or `monitor.` do, and the longest claimed prefix wins.
-Prose that merely mentions the word does not claim it, and two seats claiming the same prefix is a genuine ambiguity rather than a match, so it falls through to the model instead of silently routing to whichever appears first.
+The deterministic layer matches the alert name against the seat registry in `data/secondmates.md`, strongest signal first: a seat whose id equals the alert name, then an alert namespaced under a seat id as `gpu-ops.thermal` under seat `gpu-ops`, then a scope that claims a namespace by writing it with a trailing dot or star, as `gpu.*` or `monitor.` do, where the longest claimed prefix wins.
+Prose that merely mentions the word does not claim it, and two seats matching equally strongly at the same strength is a genuine ambiguity rather than a match, so it falls through to the model instead of silently routing to whichever appears first.
 
 Here fail-open means toward paging, never toward silence: every failure ends at `status: escalate` or `status: unavailable` naming the fallback owner, `captain`.
 A confident model answer routes; one below the shared confidence floor escalates carrying its ranking as evidence.

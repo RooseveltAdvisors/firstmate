@@ -482,6 +482,18 @@ conf_add "$ROOT_BAD2" 'lane ../escape'
 OUT=$(rail "$ROOT_BAD2" read)
 expect_code 2 $? 'a lane name that is not path safe is refused'
 
+ROOT_BAD3=$(home_fixture badconf3)
+conf_add "$ROOT_BAD3" 'SSH_TIMEOUT=0'
+OUT=$(rail "$ROOT_BAD3" read)
+expect_code 2 $? 'a zero timeout refuses rather than disabling the bound'
+assert_contains "$OUT" 'positive whole number' 'the refusal says the bound must be positive'
+
+ROOT_BAD4=$(home_fixture badconf4)
+conf_add "$ROOT_BAD4" 'CAPTURE_TIMEOUT=0'
+OUT=$(rail "$ROOT_BAD4" read)
+expect_code 2 $? 'a zero capture bound refuses rather than disabling it'
+assert_contains "$OUT" 'CAPTURE_TIMEOUT' 'the refusal names the offending key'
+
 # --- an unconfigured home is inert -----------------------------------------
 ROOT_OFF="$TMP/off"
 mkdir -p "$ROOT_OFF/state" "$ROOT_OFF/config"

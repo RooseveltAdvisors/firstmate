@@ -86,6 +86,48 @@ assert_contains "$(command cat "$A/c1/log/header")" "Authorization: Bearer $KEY"
   'the key reaches curl on the file descriptor header'
 assert_not_contains "$(command cat "$A/c1/log/argv")" "$KEY" 'the key never appears on argv'
 
+# --- item (a): names are matched before scopes -------------------------------
+# This registry is contract conforming: each scope is the natural-language
+# responsibility with no dotted or starred namespace token, so only the name
+# matching can place these alerts.
+D=$(mktemp -d "$TMP/names.XXXXXX")
+mkdir -p "$D/data" "$D/state"
+cat > "$D/data/secondmates.md" <<'REG'
+- gpu-ops - Owns the GPU host. (home: /nope; scope: owns the GPU host and every rail reporting on its thermals; projects: gpu; added 2026-01-01)
+- monitor-sre - Owns monitoring. (home: /nope; scope: owns the monitoring rails and the on-call rotation; projects: monitoring; added 2026-01-01)
+REG
+FB4=$(fake_curl "$D/c4" 200 "$(answer charter gpu-ops 0.9 '{"monitor-sre":0.02,"gpu-ops":0.98}')")
+OUT=$(PATH="$FB4:$BASE_PATH" TYPESAFE_API_KEY="$KEY" FM_HOME="$D" \
+  FM_STATE_OVERRIDE="$D/state" FM_DATA_OVERRIDE="$D/data" "$ROUTE" gpu-ops 2>&1)
+expect_code 0 $? 'an alert named for a seat exits 0'
+assert_contains "$OUT" 'status: clear' 'an alert equal to a seat id is a clear answer'
+assert_contains "$OUT" 'owner: gpu-ops' 'the seat whose id equals the alert name owns it'
+assert_contains "$OUT" 'source: exact' 'a name match is attributed to exact matching'
+assert_absent "$D/c4/log/argv" 'an alert equal to a seat id exact-matches with no model call'
+
+OUT=$(PATH="$FB4:$BASE_PATH" TYPESAFE_API_KEY="$KEY" FM_HOME="$D" \
+  FM_STATE_OVERRIDE="$D/state" FM_DATA_OVERRIDE="$D/data" "$ROUTE" gpu-ops.thermal 2>&1)
+expect_code 0 $? 'an alert namespaced under a seat exits 0'
+assert_contains "$OUT" 'status: clear' 'an alert namespaced under a seat id is a clear answer'
+assert_contains "$OUT" 'owner: gpu-ops' 'the seat whose id namespaces the alert owns it'
+assert_contains "$OUT" 'source: exact' 'a namespaced match is attributed to exact matching'
+assert_absent "$D/c4/log/argv" 'an alert namespaced under a seat id exact-matches with no model call'
+
+OUT=$(PATH="$FB4:$BASE_PATH" TYPESAFE_API_KEY="$KEY" FM_HOME="$D" \
+  FM_STATE_OVERRIDE="$D/state" FM_DATA_OVERRIDE="$D/data" "$ROUTE" billing.overage 2>&1)
+expect_code 0 $? 'an unplaceable alert exits 0'
+assert_contains "$OUT" 'source: model' 'an unplaceable alert is attributed to the model'
+assert_contains "$OUT" 'owner: gpu-ops' 'a confident model answer routes the unplaceable alert'
+assert_present "$D/c4/log/argv" 'an alert exact matching cannot place still reaches the model'
+
+FB5=$(fake_curl "$D/c5" 500 'upstream is unhappy')
+OUT=$(PATH="$FB5:$BASE_PATH" TYPESAFE_API_KEY="$KEY" FM_HOME="$D" \
+  FM_STATE_OVERRIDE="$D/state" FM_DATA_OVERRIDE="$D/data" "$ROUTE" billing.overage 2>&1)
+expect_code 0 "$?" 'a model failure over an unplaceable alert still exits 0'
+assert_contains "$OUT" 'status: unavailable' 'a model failure fails open to an unavailable answer'
+assert_contains "$OUT" 'owner: captain' 'the failure escalates to the fallback owner'
+assert_present "$D/c5/log/argv" 'the failing case reached the model first'
+
 # --- off means no call, and still an owner ----------------------------------
 B=$(mktemp -d "$TMP/off.XXXXXX")
 mkdir -p "$B/data" "$B/state"

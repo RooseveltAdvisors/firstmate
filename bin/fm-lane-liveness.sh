@@ -186,6 +186,12 @@ config_load() {
         is_int "$value" \
           || die "response-lanes.conf line $lineno: $key needs a whole number"
         case "$key" in
+          SSH_TIMEOUT|CAPTURE_TIMEOUT)
+            [ "$value" -gt 0 ] \
+              || die "response-lanes.conf line $lineno: $key must be a positive whole number, because a zero bound disables the bound instead of applying it"
+            ;;
+        esac
+        case "$key" in
           W) W=$value ;; D) D=$value ;; E) E=$value ;; M) M=$value ;;
           SELF) SELF=$value ;; SSH_TIMEOUT) SSH_TIMEOUT=$value ;;
           CAPTURE_TIMEOUT) CAPTURE_TIMEOUT=$value ;;
