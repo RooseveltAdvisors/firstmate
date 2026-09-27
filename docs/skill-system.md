@@ -17,6 +17,9 @@ Each canonical skill-folder path appears at most once, even when symlinked sourc
 A skill is skipped when its folder or `SKILL.md` cannot be read, its frontmatter never closes within the bound, it carries no usable name, or its name contains the map's own field separator.
 A closing delimiter is trusted only on a complete line, so the byte bound cannot truncate a longer run of dashes into the delimiter it is supposed to require.
 A name carrying the field separator is refused rather than written, because reading such a record back would shadow or redirect another skill.
+The recorded path is refused the same way when a skill folder's own name carries a field or record delimiter, since that would reframe the record and point a trusted name at a different folder.
+The scanner reads each `SKILL.md` exactly once, so a file that changes between reads cannot be parsed as if it had not been truncated.
+Trailing whitespace on a frontmatter delimiter is accepted.
 Every skip names the offending path on stderr, and the generator exits non-zero after still writing the map for the skills that did parse.
 The `fm-skill-map.sh` header owns that exit status.
 Composition treats a reported skip as a gap rather than a refresh failure, so the skills that did parse still compose, and a skipped name is refused by name when it is requested.
@@ -50,6 +53,10 @@ It never clones a repository.
 It never writes through the symlink target.
 Every managed path from the target home's `config/` directory down to the set's `.claude/skills` directory must be a real directory.
 A symlink anywhere in that ancestry is refused before any mutation, so composition can never reconcile through one into a tracked `.agents/skills` tree.
+The ancestry is re-checked immediately before the first mutation, because resolving names and refreshing the map in between takes long enough for that ancestry to change.
+
+The scanner reads one level of each source directory, so a skill nested deeper than `<source>/<skill>/SKILL.md` is not discovered.
+Claude Code's own `skills/synced/<id>/<skill>/` layout is nested that way and is therefore not mapped.
 
 Compose a curated set with:
 

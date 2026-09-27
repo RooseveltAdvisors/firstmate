@@ -106,19 +106,27 @@ sanitize_description() {
 }
 
 extract_frontmatter() {  # <SKILL.md>; prints name<TAB>description
-  local file=$1 line value name='' desc='' desc_block=0 first=1 closed=0 unterminated=0
-  local bytes truncated=0
-  bytes=$(wc -c < "$file" 2>/dev/null | tr -d ' ') || return 1
+  local file=$1 line delim value name='' desc='' desc_block=0 first=1 closed=0 unterminated=0
+  local prefix bytes truncated=0
+  # Read the bounded prefix exactly once. Reading the size separately let a file
+  # that grew between the two reads be parsed as if it had not been truncated.
+  prefix="$TMP/frontmatter.$$"
+  head -c "$((MAX_FRONTMATTER_BYTES + 1))" "$file" > "$prefix" 2>/dev/null || return 1
+  bytes=$(wc -c < "$prefix" | tr -d ' ')
   case "$bytes" in ''|*[!0-9]*) return 1 ;; esac
   [ "$bytes" -le "$MAX_FRONTMATTER_BYTES" ] || truncated=1
   while IFS= read -r line || { [ -n "$line" ] && unterminated=1; }; do
     line=${line%$'\r'}
+    # Compare delimiters against a trailing-whitespace-trimmed copy; the raw line
+    # still drives the block-scalar continuation case, which keys on indentation.
+    delim=${line%%[[:space:]]}
+    while [ "$delim" != "${delim%[[:space:]]}" ]; do delim=${delim%[[:space:]]}; done
     if [ "$first" -eq 1 ]; then
       first=0
-      [ "$line" = '---' ] || return 1
+      [ "$delim" = '---' ] || return 1
       continue
     fi
-    if [ "$line" = '---' ]; then
+    if [ "$delim" = '---' ]; then
       # A delimiter at a real end of file is genuine; only distrust an
       # unterminated final line when the bound actually cut the file short.
       if [ "$unterminated" -eq 0 ] || [ "$truncated" -eq 0 ]; then
@@ -166,7 +174,8 @@ extract_frontmatter() {  # <SKILL.md>; prints name<TAB>description
         desc_block=0
         ;;
     esac
-  done < <(head -c "$MAX_FRONTMATTER_BYTES" "$file" 2>/dev/null)
+  done < "$prefix"
+  rm -f "$prefix"
   [ "$closed" -eq 1 ] || return 1
   name=$(collapse_ws "$name")
   desc=$(sanitize_description "$desc")
@@ -192,6 +201,12 @@ add_skill_source() {  # <group> <skills-dir> <records-file> <seen-file>
     return 0
   fi
   for skill_dir in "$source_dir"/*; do
+    if [ ! -d "$skill_dir" ] && [ -L "$skill_dir" ]; then
+      printf 'SKILL_MAP: skipped skill folder symlink that does not resolve: %s\n' \
+        "$skill_dir" >&2
+      SKIPPED=$((SKIPPED + 1))
+      continue
+    fi
     [ -d "$skill_dir" ] || continue
     # A folder with no SKILL.md at all is not a skill, so it is not reported. A
     # folder whose SKILL.md exists but is not a readable regular file IS a skill
@@ -218,6 +233,17 @@ add_skill_source() {  # <group> <skills-dir> <records-file> <seen-file>
     fi
     name=${front%%$'\t'*}
     desc=${front#*$'\t'}
+    # The path is emitted raw, so a folder name carrying a record or field
+    # delimiter would reframe the record and point a trusted name at another
+    # folder entirely. Refuse it rather than writing a record that lies.
+    case "$skill_real" in
+      *$'\t'*|*$'\n'*|*"$MAP_SEPARATOR_DASH"*)
+        printf 'SKILL_MAP: skipped skill folder whose path breaks the map record: %s\n' \
+          "$skill_real" >&2
+        SKIPPED=$((SKIPPED + 1))
+        continue
+        ;;
+    esac
     printf '%s\t%s\t%s\t%s\n' "$group" "$name" "$desc" "$skill_real" >> "$records"
   done
 }

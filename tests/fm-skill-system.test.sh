@@ -212,7 +212,7 @@ EOF
 }
 
 test_skill_compose_prevalidates_before_reconciliation() {
-  local home="$TMP_ROOT/prevalidation-home" source="$TMP_ROOT/prevalidation-source" alpha_real beta_real mode skills_dir overlong
+  local home="$TMP_ROOT/prevalidation-home" source="$TMP_ROOT/prevalidation-source" alpha_real beta_real mode skills_dir overlong cold
   mkdir -p "$home/data"
   write_skill "$source/alpha" alpha plain
   write_skill "$source/beta" beta plain
@@ -227,6 +227,21 @@ test_skill_compose_prevalidates_before_reconciliation() {
 - beta — beta description — $beta_real
 - $overlong — overlong description — $alpha_real
 EOF
+
+  # A refused invocation must leave a previously cold target home untouched: the
+  # lock's own mkdir -p would otherwise materialize the managed parent chain.
+  cold="$TMP_ROOT/prevalidation-cold"
+  mkdir -p "$cold"
+  if FM_HOME="$home" "$COMPOSE" --target-home "$cold" --set invalid alpha bad..name >/dev/null 2>&1; then
+    fail "compose accepted an unsafe skill name"
+  fi
+  [ ! -e "$cold/config" ] && [ ! -L "$cold/config" ] \
+    || fail "a refused compose created managed state in a cold target home: $(find "$cold")"
+  if FM_HOME="$home" "$COMPOSE" --target-home "$cold" --set invalid --remove bad..name >/dev/null 2>&1; then
+    fail "remove accepted an unsafe skill name"
+  fi
+  [ ! -e "$cold/config" ] && [ ! -L "$cold/config" ] \
+    || fail "a refused remove created managed state in a cold target home: $(find "$cold")"
 
   if FM_HOME="$home" "$COMPOSE" --target-home "$home" --set invalid alpha bad..name >/dev/null 2>&1; then
     fail "compose accepted an unsafe skill name"
@@ -288,6 +303,29 @@ EOF
     || fail "failed clear deleted a skill before validating the full set"
 
   pass "skill compose prevalidates failures before mutating managed sets"
+}
+
+test_skill_compose_generates_the_default_map_when_absent() {
+  local home="$TMP_ROOT/coldmap-home" user_home="$TMP_ROOT/coldmap-user"
+  local target="$TMP_ROOT/coldmap-target" skills
+  skills="$home/projects/alpha/.claude/skills"
+  mkdir -p "$home/data" "$skills" "$user_home/.claude/skills" "$target"
+  printf '%s\n' '- alpha [no-mistakes] - fixture project' > "$home/data/projects.md"
+  write_skill "$skills/cold-skill" cold-skill plain
+  [ ! -e "$home/data/skill-map.md" ] || fail "the cold-map fixture already has a map"
+
+  # No --map and no existing map: composition must generate the default map
+  # itself. This is the path fm-spawn --skills takes on a home's first spawn.
+  HOME="$user_home" CLAUDE_CONFIG_DIR="$user_home/.claude" \
+    FM_HOME="$home" FM_DATA_OVERRIDE="$home/data" FM_PROJECTS_OVERRIDE="$home/projects" \
+    "$COMPOSE" --target-home "$target" cold-skill >/dev/null \
+    || fail "composition did not generate the default skill map when it was absent"
+  [ -f "$home/data/skill-map.md" ] \
+    || fail "composition composed without leaving the generated default map behind"
+  [ -L "$target/config/skill-compose/claude/home/.claude/skills/cold-skill" ] \
+    || fail "the cold-home composition did not publish its requested skill"
+
+  pass "skill compose generates the default map when a cold home has none"
 }
 
 test_skill_compose_refuses_unverified_harnesses() {
@@ -703,6 +741,105 @@ test_skill_map_refuses_unusable_skill_names() {
   pass "skill map refuses every skill name that could form the record separator"
 }
 
+test_skill_map_refuses_a_skill_folder_that_breaks_the_record() {
+  local home="$TMP_ROOT/pathframe-home" user_home="$TMP_ROOT/pathframe-user" skills out status
+  skills="$home/projects/alpha/.claude/skills"
+  mkdir -p "$home/data" "$skills" "$user_home/.claude/skills"
+  printf '%s\n' '- alpha [no-mistakes] - fixture project' > "$home/data/projects.md"
+  write_skill "$skills/good" good plain
+
+  # The path is the one field written raw. A folder name carrying a field or
+  # record delimiter reframes the record, so a later lookup of the crafted name
+  # resolves to the prefix of that path, which is a real and different skill.
+  mkdir -p "$skills/$(printf 'good\tshadow')"
+  printf -- '---\nname: tabbed\ndescription: tab folder\n---\nbody\n' \
+    > "$skills/$(printf 'good\tshadow')/SKILL.md"
+  mkdir -p "$skills/$(printf 'nl\ninjected')"
+  printf -- '---\nname: newlined\ndescription: nl folder\n---\nbody\n' \
+    > "$skills/$(printf 'nl\ninjected')/SKILL.md"
+
+  set +e
+  out=$(HOME="$user_home" CLAUDE_CONFIG_DIR="$user_home/.claude" \
+    FM_HOME="$home" FM_DATA_OVERRIDE="$home/data" FM_PROJECTS_OVERRIDE="$home/projects" \
+    "$MAP" --output "$home/data/skill-map.md" --quiet 2>&1)
+  status=$?
+  set -e
+
+  [ "$status" -ne 0 ] || fail "skill folders that break the map record were accepted: $out"
+  assert_file_not_contains "$home/data/skill-map.md" '- tabbed ' \
+    "a folder name carrying a tab produced a map record"
+  assert_file_not_contains "$home/data/skill-map.md" '- newlined ' \
+    "a folder name carrying a newline produced a map record"
+  # Every surviving record must still split into exactly three fields.
+  awk -F ' — ' '/^- /{ if (NF != 3) exit 1 }' "$home/data/skill-map.md" \
+    || fail "a record in the generated map does not split into exactly three fields"
+  assert_file_contains "$home/data/skill-map.md" '- good — good description — ' \
+    "the legitimate skill was lost along with the record-breaking folders"
+
+  # And the crafted name must not resolve at all, least of all to good's folder.
+  if FM_HOME="$home" "$COMPOSE" --target-home "$home" --map "$home/data/skill-map.md" tabbed \
+    >/dev/null 2>&1; then
+    fail "a name from a record-breaking folder resolved and composed"
+  fi
+
+  pass "skill map refuses a skill folder whose path would break the record"
+}
+
+test_skill_map_reports_an_unresolvable_skill_folder_symlink() {
+  local home="$TMP_ROOT/dangdir-home" user_home="$TMP_ROOT/dangdir-user" skills out status
+  skills="$home/projects/alpha/.claude/skills"
+  mkdir -p "$home/data" "$skills" "$user_home/.claude/skills"
+  printf '%s\n' '- alpha [no-mistakes] - fixture project' > "$home/data/projects.md"
+  write_skill "$skills/good" good plain
+  # A skill folder that is a symlink going nowhere is as present to a human as a
+  # dangling SKILL.md, which is already reported.
+  ln -s /nonexistent/skill-target "$skills/dangling-folder"
+  ln -s loop-folder "$skills/loop-folder"
+
+  set +e
+  out=$(HOME="$user_home" CLAUDE_CONFIG_DIR="$user_home/.claude" \
+    FM_HOME="$home" FM_DATA_OVERRIDE="$home/data" FM_PROJECTS_OVERRIDE="$home/projects" \
+    "$MAP" --output "$home/data/skill-map.md" --quiet 2>&1)
+  status=$?
+  set -e
+
+  [ "$status" -ne 0 ] \
+    || fail "an unresolvable skill folder symlink was dropped silently: $out"
+  case "$out" in
+    *"$skills/dangling-folder"*) ;;
+    *) fail "the dangling skill folder symlink was not named: $out" ;;
+  esac
+  case "$out" in
+    *"$skills/loop-folder"*) ;;
+    *) fail "the looping skill folder symlink was not named: $out" ;;
+  esac
+  assert_file_contains "$home/data/skill-map.md" '- good — ' \
+    "the valid sibling skill was dropped alongside the unresolvable symlinks"
+
+  pass "skill map names a skill folder symlink that does not resolve"
+}
+
+test_skill_map_accepts_trailing_space_on_the_closing_delimiter() {
+  local home="$TMP_ROOT/closews-home" user_home="$TMP_ROOT/closews-user" skills
+  skills="$home/projects/alpha/.claude/skills"
+  mkdir -p "$home/data" "$skills" "$user_home/.claude/skills"
+  printf '%s\n' '- alpha [no-mistakes] - fixture project' > "$home/data/projects.md"
+  # Trailing whitespace on a delimiter is an ordinary editor artifact and the
+  # frontmatter is closed, so requiring the close must not refuse it.
+  mkdir -p "$skills/closews"
+  printf -- '---\nname: closews\ndescription: an ordinary skill\n--- \nbody\n' \
+    > "$skills/closews/SKILL.md"
+
+  HOME="$user_home" CLAUDE_CONFIG_DIR="$user_home/.claude" \
+    FM_HOME="$home" FM_DATA_OVERRIDE="$home/data" FM_PROJECTS_OVERRIDE="$home/projects" \
+    "$MAP" --output "$home/data/skill-map.md" --quiet \
+    || fail "trailing whitespace on the closing delimiter was refused as unclosed"
+  assert_file_contains "$home/data/skill-map.md" '- closews — an ordinary skill — ' \
+    "frontmatter closed by a delimiter with trailing whitespace was not mapped"
+
+  pass "skill map accepts trailing whitespace on a frontmatter delimiter"
+}
+
 test_skill_map_keeps_em_dash_descriptions_out_of_the_separator() {
   local home="$TMP_ROOT/desc-home" user_home="$TMP_ROOT/desc-user" skills
   skills="$home/projects/alpha/.claude/skills"
@@ -858,7 +995,7 @@ EOF
   # the added directory, keeps the set root alive after every link is gone.
   printf '%s\n' '{}' > "$add_dir/settings.local.json"
 
-  out=$(FM_HOME="$home" "$COMPOSE" --target-home "$home" --clear) \
+  out=$(FM_HOME="$home" "$COMPOSE" --target-home "$home" --clear 2>&1) \
     || fail "clear failed with an unowned file in the set root"
   [ ! -e "$skills_dir/alpha" ] && [ ! -L "$skills_dir/alpha" ] \
     || fail "clear left a composed skill link behind"
@@ -872,7 +1009,18 @@ EOF
   esac
   [ -d "$alpha_real" ] || fail "clear removed the canonical skill source"
 
-  pass "skill compose clear reports the set root it could not remove"
+  # --print-add-dir must keep its bare-path stdout contract and still report the
+  # leftover, rather than losing the report on the machine-consumed path.
+  out=$(FM_HOME="$home" "$COMPOSE" --target-home "$home" --clear --print-add-dir 2>/dev/null)
+  [ "$out" = "$add_dir" ] \
+    || fail "--print-add-dir clear did not print the bare overlay path: $out"
+  out=$(FM_HOME="$home" "$COMPOSE" --target-home "$home" --clear --print-add-dir 2>&1 >/dev/null)
+  case "$out" in
+    *'still holds'*) ;;
+    *) fail "--print-add-dir clear lost the report of what it could not remove: $out" ;;
+  esac
+
+  pass "skill compose clear reports the set root it could not remove on both paths"
 }
 
 test_skill_map_scans_hidden_projects_and_config_dir_without_home() {
@@ -893,6 +1041,57 @@ test_skill_map_scans_hidden_projects_and_config_dir_without_home() {
     "CLAUDE_CONFIG_DIR skills were skipped because HOME was unset"
 
   pass "skill map scans registered dot-prefixed projects and honors CLAUDE_CONFIG_DIR without HOME"
+}
+
+test_skill_compose_revalidates_ancestry_before_mutating() {
+  local home="$TMP_ROOT/window-home" target="$TMP_ROOT/window-target"
+  local source="$TMP_ROOT/window-source" alpha_real tracked out status gate bindir
+  mkdir -p "$home/data" "$target/config/skill-compose/claude/home/.claude/skills"
+  write_skill "$source/alpha" alpha plain
+  alpha_real=$(cd "$source/alpha" && pwd -P)
+  cat > "$home/data/skill-map.md" <<EOF
+# Skill map
+
+## fixture
+- alpha — alpha description — $alpha_real
+EOF
+  tracked="$target/.agents/skills"
+  mkdir -p "$tracked"
+  write_skill "$source/keep" keep plain
+  ln -s "$(cd "$source/keep" && pwd -P)" "$tracked/keep"
+
+  # The refresh between the ancestry check and the first mutation takes seconds on
+  # a real tree, and every fm-spawn --skills launch walks it. Stand in for a slow
+  # refresh with one that swaps the validated ancestry for a symlink into the
+  # tracked tree, using a copied bin/ so no test hook is needed in the script.
+  gate="$TMP_ROOT/window-gate"
+  bindir="$TMP_ROOT/window-bin"
+  mkdir -p "$bindir"
+  cp "$ROOT/bin/fm-skill-compose.sh" "$ROOT/bin/fm-wake-lib.sh" "$bindir/"
+  cat > "$bindir/fm-skill-map.sh" <<SH
+#!/usr/bin/env bash
+rm -rf "$target/config/skill-compose/claude/home/.claude"
+ln -s "$tracked" "$target/config/skill-compose/claude/home/.claude"
+touch "$gate.swapped"
+exit 0
+SH
+  chmod +x "$bindir/fm-skill-map.sh"
+
+  set +e
+  out=$(FM_HOME="$home" "$bindir/fm-skill-compose.sh" --target-home "$target" \
+    --refresh-map --map "$home/data/skill-map.md" alpha 2>&1)
+  status=$?
+  set -e
+  [ -e "$gate.swapped" ] \
+    || fail "the ancestry swap never ran, so the pre-mutation window was not exercised"
+  [ "$status" -ne 0 ] \
+    || fail "composition mutated through an ancestry symlink planted during the refresh: $out"
+  [ ! -e "$tracked/alpha" ] && [ ! -L "$tracked/alpha" ] \
+    || fail "composition wrote into the tracked tree through the swapped ancestry"
+  [ -L "$tracked/keep" ] \
+    || fail "composition removed a tracked entry through the swapped ancestry"
+
+  pass "skill compose re-checks the managed ancestry before it mutates"
 }
 
 test_skill_compose_refuses_symlinked_managed_ancestry() {
@@ -982,6 +1181,9 @@ test_skill_map_reports_unreadable_skill_md_kinds
 test_skill_map_stops_reading_at_its_frontmatter_bound
 test_skill_map_refuses_a_delimiter_manufactured_by_the_bound
 test_skill_map_refuses_unusable_skill_names
+test_skill_map_refuses_a_skill_folder_that_breaks_the_record
+test_skill_map_reports_an_unresolvable_skill_folder_symlink
+test_skill_map_accepts_trailing_space_on_the_closing_delimiter
 test_skill_map_keeps_em_dash_descriptions_out_of_the_separator
 test_skill_map_reports_an_unreadable_source_directory
 test_skill_map_accepts_a_delimiter_at_end_of_file
@@ -991,10 +1193,12 @@ test_skill_compose_reconciles_symlink_set_and_removes
 test_skill_compose_accepts_internal_double_dots_without_traversal
 test_skill_compose_refuses_non_symlink_collision
 test_skill_compose_refuses_a_relative_mapped_path
+test_skill_compose_revalidates_ancestry_before_mutating
 test_skill_compose_refuses_symlinked_managed_ancestry
 test_skill_compose_clear_collapses_a_legacy_set
 test_skill_compose_clear_reports_what_it_could_not_remove
 test_skill_compose_prevalidates_before_reconciliation
+test_skill_compose_generates_the_default_map_when_absent
 test_skill_compose_refuses_unverified_harnesses
 test_locked_session_start_refreshes_map_and_read_only_skips
 test_skill_compose_serializes_same_set_reconciliation

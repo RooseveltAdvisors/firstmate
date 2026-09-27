@@ -325,13 +325,19 @@ clear_set() {
   # keep the set root alive forever while this clear reported success.
   rm -f "$COMPOSE_ROOT/manifest.tsv"
   rmdir "$SKILLS_DIR" "$COMPOSE_ROOT/.claude" "$COMPOSE_ROOT" 2>/dev/null || true
-  if [ "$PRINT_ADD_DIR" -eq 1 ]; then
-    printf '%s\n' "$COMPOSE_ROOT"
-  elif [ -e "$COMPOSE_ROOT" ] || [ -L "$COMPOSE_ROOT" ]; then
+  if [ -e "$COMPOSE_ROOT" ] || [ -L "$COMPOSE_ROOT" ]; then
     # Every composed symlink is gone, but something else in the set root kept it
-    # alive. Name that rather than reporting a clear that did not happen.
-    printf 'cleared the composed skills in %s; it still holds:\n' "$COMPOSE_ROOT"
-    find "$COMPOSE_ROOT" -mindepth 1 -maxdepth 2
+    # alive. Name that rather than reporting a clear that did not happen. It goes
+    # to stderr so --print-add-dir's stdout stays the bare path its callers parse.
+    {
+      printf 'cleared the composed skills in %s; it still holds:\n' "$COMPOSE_ROOT"
+      find "$COMPOSE_ROOT" -mindepth 1 -maxdepth 2
+    } >&2
+    if [ "$PRINT_ADD_DIR" -eq 1 ]; then
+      printf '%s\n' "$COMPOSE_ROOT"
+    fi
+  elif [ "$PRINT_ADD_DIR" -eq 1 ]; then
+    printf '%s\n' "$COMPOSE_ROOT"
   else
     printf 'cleared %s\n' "$COMPOSE_ROOT"
   fi
@@ -372,6 +378,11 @@ compose_exact() {
     requested=$((requested + 1))
   done
 
+  # The map refresh and name resolution above take seconds on a real tree, so the
+  # ancestry is re-checked here, immediately before the first mutation, rather
+  # than only before that work started.
+  validate_managed_layout
+  validate_existing_skill_entries compose
   mkdir -p "$SKILLS_DIR"
   for existing in "$SKILLS_DIR"/*; do
     [ -e "$existing" ] || [ -L "$existing" ] || continue
