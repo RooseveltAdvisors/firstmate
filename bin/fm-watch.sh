@@ -128,12 +128,48 @@
 #                          while the mate was not in an active turn (a busy mate
 #                          is exempt only until the queue has been frozen for
 #                          BUSY_TURN_MAX_SECS); declared external-wait pause
-#                          rows do not feed this escalation, observation is
-#                          read-only, and one parent notification covers each
-#                          no-progress episode
+#                          rows do not feed this escalation; a mate whose
+#                          semantic busy class is exactly idle, whose agent is
+#                          alive, and whose composer is not pending is rung
+#                          once so its own home can drain, and the parent
+#                          notification is withheld until that same row stays
+#                          frozen for another stall interval; unknown or
+#                          ring-unsafe panes keep the parent alarm; empty
+#                          inbox and a fresh child beacon are not idle proof;
+#                          the foreign queue itself stays read-only, and one
+#                          parent notification covers each no-progress episode
+#   check: secondmate <id> auto-relaunched after <cause> (<where>)
+#                          the liveness tick probed a registered secondmate's
+#                          recorded endpoint, got the recovery-grade `dead` or
+#                          `missing` verdict, and relaunched it through the
+#                          same guarded fm-spawn.sh --secondmate path the
+#                          session-start sweep uses; one wake per relaunch, and
+#                          state/.secondmate-relaunch-<id> keeps the durable
+#                          per-mate count (bin/fm-secondmate-liveness-lib.sh)
+#   check: secondmate <id> auto-relaunch failed after <cause>: <detail>
+#                          the same verdict authorized recovery but the
+#                          relaunch itself failed; the attempt is ledgered and
+#                          counts toward the bound below
+#   check: secondmate <id> auto-relaunch paused after <n> attempts in <s>s; ...
+#                          a mate that kept dying exceeded its bounded relaunch
+#                          budget and is parked until a probe reads it live
+#                          again (FM_SECONDMATE_LIVENESS_MAX_ATTEMPTS and
+#                          FM_SECONDMATE_LIVENESS_WINDOW_SECS)
 # For normal supervision, resume the session-start primary-harness protocol
 # after each printed reason. Direct duplicate invocations of this script still
-# no-op through the watcher singleton lock.
+# no-op through the watcher singleton lock. A live holder whose beacon is stale
+# past the grace (FM_WATCHER_STALE_GRACE, default max(300, FM_POLL+60)) is
+# refused with "lock held by live pid ... but heartbeat is stale"; one stale past
+# the hard bound FM_WATCHER_STALL_BOUND (default 3x that grace) is instead
+# evicted with TERM after its recorded identity is re-verified, and this arm
+# starts in its place, printing "watcher: replaced stalled pid <N> (...)". A
+# holder that survives TERM keeps the refusal and the nonzero exit.
+# Once per poll the watcher also checks that its home (when it existed at
+# start), its state directory, and its own bin directory still exist; when one
+# is gone it logs "watcher: exiting - <what> no longer exists: <path>" to stderr
+# and exits 1, so a watcher whose temporary home or disposable checkout was
+# deleted stops itself instead of running on as an orphan. That check is scoped
+# to this process alone and never signals another watcher.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -142,13 +178,17 @@ FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 mkdir -p "$STATE"
+# A home that never existed (a state-only test fixture) is not a home that
+# disappeared, so the per-poll home-gone exit below applies only when it did.
+WATCH_HOME_EXISTED=0
+[ ! -d "$FM_HOME" ] || WATCH_HOME_EXISTED=1
 
 # The native event fast-path and only its true dependencies have one narrow
 # production owner. The Herdr event-wait smoke test consumes this same owner
 # without sourcing the entire watcher graph.
 # The shared transition owner is a canonical lint root itself. Stop duplicate
 # source-graph expansion here: following its backend graph from this large
-# runtime can exceed the bounded CI lint worker while adding no uncovered file.
+# runtime needlessly spends per-root CI lint memory while adding no uncovered file.
 # shellcheck source=/dev/null
 . "$SCRIPT_DIR/fm-push-transition-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
@@ -164,8 +204,8 @@ mkdir -p "$STATE"
 # This library is a canonical lint root in its own right, and it reaches the
 # wake queue, PR identity, and secondmate parent libraries. Keep it an analysis
 # boundary here for the same reason as the transition and inbox owners above and
-# below: following its graph from this large runtime exceeds the bounded CI lint
-# worker while adding no uncovered file.
+# below: following its graph from this large runtime needlessly spends per-root
+# CI lint memory while adding no uncovered file.
 # shellcheck source=/dev/null
 . "$SCRIPT_DIR/fm-merge-outcome-lib.sh"
 # The durable merge-authority owner is shared with bin/fm-pr-merge.sh. The
@@ -194,6 +234,13 @@ mkdir -p "$STATE"
 # watcher reads only its presence (afk_record_present below).
 # shellcheck source=bin/fm-afk-contract.sh
 . "$SCRIPT_DIR/fm-afk-contract.sh"
+# Persistent-secondmate endpoint liveness: the shared probe/relaunch library is
+# the same one bin/fm-bootstrap.sh's session-start sweep drives, so ordinary
+# supervision recovers a positively dead or missing mate through the identical
+# guarded path. The watcher contributes only the cadence, the relaunch bound,
+# and wake emission (secondmate_liveness_tick below).
+# shellcheck source=/dev/null # Analyzed separately as a canonical lint root.
+. "$SCRIPT_DIR/fm-secondmate-liveness-lib.sh"
 
 WATCH_LOCK="$STATE/.watch.lock"
 WATCH_PATH="$SCRIPT_DIR/fm-watch.sh"
@@ -233,6 +280,11 @@ POLL=${FM_POLL:-15}                   # seconds between cycles
 # This recomputes the library default above now that the real configured
 # POLL is known.
 WATCHER_STALE_GRACE=${FM_WATCHER_STALE_GRACE:-${FM_GUARD_GRACE:-$(fm_poll_derived_grace "$POLL")}}
+# Hard bound on a live holder's beacon age. Under it a re-arm refuses and asks
+# for inspection (the grace above); at or past it the re-arm evicts the holder
+# instead, because a watcher whose beacon has stalled that long is not polling
+# and nothing else would ever replace it (evict_stalled_holder below).
+WATCHER_STALL_BOUND=${FM_WATCHER_STALL_BOUND:-$((WATCHER_STALE_GRACE * 3))}
 HEARTBEAT=${FM_HEARTBEAT:-600}        # base seconds between heartbeat scans
 HEARTBEAT_MAX=${FM_HEARTBEAT_MAX:-7200}  # heartbeat backoff cap
 CHECK_INTERVAL=${FM_CHECK_INTERVAL:-300}  # seconds between *.check.sh sweeps
@@ -244,6 +296,15 @@ esac
 SIGNAL_GRACE=${FM_SIGNAL_GRACE:-30}   # seconds to linger after a signal so trailing
                                       # signals (a status write, then the same turn's
                                       # turn-end hook) coalesce into one wake
+CLEANUP_LOCK_BOUND=${FM_WATCHER_CLEANUP_LOCK_BOUND:-2}  # seconds EXIT cleanup may
+                                      # wait on the downtime-marker lock; a live
+                                      # foreign holder must not strand a TERM'd
+                                      # watcher inside its own trap
+case "$CLEANUP_LOCK_BOUND" in
+  ''|*[!0-9]*) CLEANUP_LOCK_BOUND=2 ;;
+  *) CLEANUP_LOCK_BOUND=$((10#$CLEANUP_LOCK_BOUND)) ;;
+esac
+[ "$CLEANUP_LOCK_BOUND" -gt 0 ] || CLEANUP_LOCK_BOUND=2
 TURNEND_CHURN_ABSORB_SECS=${FM_TURNEND_CHURN_ABSORB_SECS:-900}  # longest a task's
                                       # bare turn-ends may be deferred on pane-churn
                                       # evidence alone (signal_turnend_panes_churned)
@@ -292,6 +353,25 @@ BUSY_TURN_MAX_SECS=${FM_BUSY_TURN_MAX_SECS:-3600}
 # secondmate_wake_stall_tick, never a substitute for it.
 SECONDMATE_WAKE_STALL_SECS=${FM_SECONDMATE_WAKE_STALL_SECS:-}
 case "$SECONDMATE_WAKE_STALL_SECS" in ''|*[!0-9]*|0) SECONDMATE_WAKE_STALL_SECS=180 ;; esac
+# Secondmate ENDPOINT liveness (distinct from the wake-loop stall observation
+# above): on this cadence the watcher probes each registered mate's recorded
+# endpoint through fm-secondmate-liveness-lib.sh and relaunches only on the
+# same recovery-grade `dead` or `missing` verdicts the session-start sweep
+# uses. The cadence survives watcher restarts via a state marker's mtime, so a
+# relaunch wake cannot restart the probe into a tight loop.
+SECONDMATE_LIVENESS_SECS=${FM_SECONDMATE_LIVENESS_SECS:-}
+case "$SECONDMATE_LIVENESS_SECS" in ''|*[!0-9]*|0) SECONDMATE_LIVENESS_SECS=60 ;; esac
+# Per-relaunch wall-clock bound, so a wedged spawn cannot stall the poll.
+SECONDMATE_LIVENESS_TIMEOUT=${FM_SECONDMATE_LIVENESS_TIMEOUT:-}
+case "$SECONDMATE_LIVENESS_TIMEOUT" in ''|*[!0-9]*|0) SECONDMATE_LIVENESS_TIMEOUT=120 ;; esac
+# Relaunch bound: at most this many automatic attempts per window per mate,
+# counted from the durable attempt ledger the shared library appends to. A mate
+# that keeps dying past the bound wakes once and is parked until a probe reads
+# it alive again, so a flapping endpoint cannot relaunch forever unseen.
+SECONDMATE_LIVENESS_MAX_ATTEMPTS=${FM_SECONDMATE_LIVENESS_MAX_ATTEMPTS:-}
+case "$SECONDMATE_LIVENESS_MAX_ATTEMPTS" in ''|*[!0-9]*|0) SECONDMATE_LIVENESS_MAX_ATTEMPTS=3 ;; esac
+SECONDMATE_LIVENESS_WINDOW_SECS=${FM_SECONDMATE_LIVENESS_WINDOW_SECS:-}
+case "$SECONDMATE_LIVENESS_WINDOW_SECS" in ''|*[!0-9]*|0) SECONDMATE_LIVENESS_WINDOW_SECS=3600 ;; esac
 # A crew that declared a pause is idling on a known external wait, so its stale
 # pane is absorbed rather than wedge-escalated.
 # A captain-held or paused crew whose agent has confidently exited uses the same
@@ -351,8 +431,10 @@ hash_pane() {
 # verdict returns 0: idle, unknown, and dead all return 1, so a converted
 # adapter whose semantic state is missing, malformed, stale, or unverified is
 # treated as not-provably-working and surfaces rather than being absorbed.
-# <tail40> is the same bounded capture already read for hashing and is
-# consumed only by the Grok-scoped fallback inside the contract.
+# <tail40> is the same bounded capture already read for hashing and is passed
+# into the contract's harness-scoped rendered-text checks: the Grok/Rovo/AGY
+# busy fallbacks and the launch-prompt backstop that keeps a launch pinned at
+# its fm-spawn seed from reading as provably working.
 window_is_busy() {  # <window> <tail40>
   local w=$1 tail40=$2 task meta verdict
   task=$(window_to_task "$w" "$STATE")
@@ -774,6 +856,60 @@ secondmate_in_active_turn() {  # <window> <idle>
   window_is_busy "$w" "$tail40"
 }
 
+# First token of the semantic busy classification for <window>: busy, idle,
+# unknown, or dead. Capture failure and a missing window are unknown, never
+# idle. Empty inbox and a fresh watcher beacon are not consulted.
+secondmate_busy_class() {  # <window>
+  local w=$1 task meta tail40 verdict
+  task=$(window_to_task "$w" "$STATE")
+  meta="$STATE/$task.meta"
+  if [ -z "$w" ] || [ -z "$task" ] || [ ! -f "$meta" ]; then
+    printf 'unknown'
+    return 0
+  fi
+  tail40=$(fm_backend_capture "$(window_backend "$w")" "$w" 40 "$(window_label "$w")" 2>/dev/null) || {
+    printf 'unknown'
+    return 0
+  }
+  verdict=$(fm_busy_classify_meta "$meta" "$task" "$STATE" "$tail40")
+  printf '%s' "${verdict%% *}"
+}
+
+# 0 iff a child ring is authorized: exact idle, a live agent, and a composer
+# that is not proven pending. Busy, unknown, dead, missing, and pending
+# composer all refuse, so a Kimi or Claude pane without an exact idle
+# verdict is never typed into.
+secondmate_idle_ring_safe() {  # <window>
+  local w=$1 backend agent_state cstate
+  [ -n "$w" ] || return 1
+  [ "$(secondmate_busy_class "$w")" = idle ] || return 1
+  backend=$(window_backend "$w")
+  agent_state=$(fm_backend_agent_state "$backend" "$w" 2>/dev/null || true)
+  [ "$agent_state" = alive ] || return 1
+  cstate=$(fm_backend_composer_state "$backend" "$w" "$(window_label "$w")" 2>/dev/null) || cstate=unknown
+  [ "$cstate" != pending ] || return 1
+  return 0
+}
+
+# Write one fire-and-forget drain steer and ring the child's doorbell. The
+# steer carries the same from-firstmate fire-and-forget carrier fm-send uses
+# for a secondmate (marker, then delivery=<16-hex-id>, then the text), so the
+# mate reads it as a parent request that expects no reply, never as captain
+# intervention. The worker's ordinary wake-handling turn drains its own home's
+# wake queue; this parent never rewrites that foreign queue. 0 iff the ring
+# call returned 0.
+secondmate_ring_to_drain() {  # <task> <window>
+  local task=$1 w=$2 rec backend delivery_id
+  backend=$(window_backend "$w")
+  delivery_id=$(LC_ALL=C od -An -v -tx1 -N 8 /dev/urandom 2>/dev/null | tr -d ' \n') || return 1
+  case "$delivery_id" in ''|*[!0-9a-f]*) return 1 ;; esac
+  [ "${#delivery_id}" -eq 16 ] || return 1
+  rec=$(fm_task_inbox_write "$STATE" "$task" \
+    "${FM_FROMFIRST_MARK}delivery=${delivery_id} Drain pending rows in this home's wake queue, then resume idle supervision." \
+    fire-and-forget) || return 1
+  fm_task_inbox_ring "$backend" "$w" "$rec" "$(window_label "$w")"
+}
+
 # Surface one durable parent check when the foreign queue's drain position has
 # not moved for the bounded interval. The progress marker records that position
 # as the same epoch-sequence row identity the stall receipts use, so the timer
@@ -786,12 +922,17 @@ secondmate_in_active_turn() {  # <window> <idle>
 # a later genuine freeze remains visible. A mate demonstrably inside an active
 # turn defers its escalation, but only while this same interval is under
 # BUSY_TURN_MAX_SECS, so a turn that never ends cannot hide a frozen queue.
+# A mate whose busy class is exactly idle, whose agent is alive, and whose
+# composer is not pending is rung once so its own home can drain, and the
+# parent notification is withheld until that same row stays frozen for another
+# stall interval. Unknown, busy-over-bound, and ring-unsafe panes keep the
+# parent alarm. Empty inbox and a fresh child beacon are not idle proof.
 # Receipts close the append-before-marker crash window without changing the
 # foreign queue.
 secondmate_wake_stall_tick() {
   local now=$(( $(date +%s) )) threshold=$SECONDMATE_WAKE_STALL_SECS
-  local meta task kind remote_host home queue row epoch seq row_key marker progress_marker progress observed_at observed_key
-  local receipt receipt_dir notify_key queued idle reason episode_alerted
+  local meta task kind remote_host home queue row epoch seq row_key marker progress_marker ring_marker progress observed_at observed_key
+  local receipt receipt_dir notify_key queued idle reason episode_alerted already_rung w
   # Endpoint metadata admits this queue-loop check; secondmate-liveness owns registered mates whose endpoint is missing or dead.
   for meta in "$STATE"/*.meta; do
     [ -e "$meta" ] || continue
@@ -810,9 +951,10 @@ secondmate_wake_stall_tick() {
     row=$(secondmate_oldest_queue_row "$queue")
     marker="$STATE/.secondmate-wake-stall-$task"
     progress_marker="$STATE/.secondmate-wake-progress-$task"
+    ring_marker="$STATE/.secondmate-wake-ring-$task"
     receipt_dir="$STATE/.secondmate-wake-stall-receipts/$task"
     if [ -z "$row" ]; then
-      rm -f "$marker" "$progress_marker"
+      rm -f "$marker" "$progress_marker" "$ring_marker"
       if [ -e "$receipt_dir" ] || [ -L "$receipt_dir" ]; then
         [ -d "$receipt_dir" ] && [ ! -L "$receipt_dir" ] || return 1
         rm -rf -- "$receipt_dir" || return 1
@@ -844,16 +986,30 @@ EOF
       || [ "$now" -lt "$observed_at" ] || [ "$row_key" != "$observed_key" ]; then
       fm_wake_secondmate_progress_marker_write "$task" "$now" "$row_key" || return 1
       [ "$episode_alerted" -eq 0 ] || rm -f "$marker" || return 1
+      rm -f "$ring_marker" || return 1
       continue
     fi
     [ "$episode_alerted" -eq 0 ] || continue
     idle=$((now - observed_at))
     [ "$idle" -ge "$threshold" ] || continue
-    ! secondmate_in_active_turn "$(fm_backend_target_of_meta "$meta")" "$idle" || continue
+    w=$(fm_backend_target_of_meta "$meta")
+    ! secondmate_in_active_turn "$w" "$idle" || continue
     # Pattern 14: Jev Long-Run Task Activity Prober & Fake-Stall Dampener
     if [ "${FM_DISABLE_JEV_STALL_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-stall-guard.sh" ]; then
       if "$SCRIPT_DIR/fm-jev-stall-guard.sh" --seat "$task" --suppress >/dev/null 2>&1; then
         triage_log "dampened fake stall for active seat $task (idle ${idle}s)" 2>/dev/null || true
+        continue
+      fi
+    fi
+    already_rung=0
+    if [ -e "$ring_marker" ] || [ -L "$ring_marker" ]; then
+      [ -f "$ring_marker" ] && [ ! -L "$ring_marker" ] || return 1
+      [ "$(cat "$ring_marker" 2>/dev/null || true)" = "$row_key" ] && already_rung=1
+    fi
+    if [ "$already_rung" -eq 0 ] && secondmate_idle_ring_safe "$w"; then
+      if secondmate_ring_to_drain "$task" "$w"; then
+        fm_wake_secondmate_ring_marker_write "$task" "$row_key" || return 1
+        fm_wake_secondmate_progress_marker_write "$task" "$now" "$row_key" || return 1
         continue
       fi
     fi
@@ -873,6 +1029,98 @@ EOF
     wake "$reason"
   done
   return 0
+}
+
+# The ordinary-supervision half of the secondmate liveness guarantee, paired
+# with bin/fm-bootstrap.sh's session-start sweep over the shared library in
+# bin/fm-secondmate-liveness-lib.sh (which owns the state contract, the remote
+# probe rules, the kill ordering, and the guarded relaunch). On a bounded
+# cadence each registered mate's recorded endpoint is probed once; only a
+# recovery-grade `dead` or `missing` verdict relaunches, every relaunch
+# (success or failure) becomes exactly one durable `check` wake row, and every
+# other verdict lands only in the triage log. The tick finishes every mate
+# before it wakes once on the first outcome, so one dead mate never delays
+# another's recovery; the drain surfaces every queued row. A mate that keeps
+# dying is parked after SECONDMATE_LIVENESS_MAX_ATTEMPTS ledgered attempts
+# inside SECONDMATE_LIVENESS_WINDOW_SECS: the bound marker wakes once, further
+# probes stay silent, and a later live probe ledgers a `rearmed` row and clears
+# the marker so a manually recovered mate rejoins the guarantee with a full
+# budget. The per-mate liveness lock serializes this tick against a concurrent
+# session-start sweep, so neither side can kill or re-probe an endpoint the
+# other is mid-relaunch on.
+secondmate_liveness_tick() {
+  local tick_marker="$STATE/.secondmate-liveness-tick"
+  [ "$(age_of "$tick_marker")" -ge "$SECONDMATE_LIVENESS_SECS" ] || return 0
+  touch "$tick_marker" || return 1
+  local now=$(( $(date +%s) )) meta id kind
+  local bound_marker attempts notify_key reason queued err first_reason='' failed=0
+  for meta in "$STATE"/*.meta; do
+    [ -e "$meta" ] || continue
+    kind=$(fm_meta_get "$meta" kind 2>/dev/null || true)
+    [ "$kind" = secondmate ] || continue
+    id=${meta##*/}
+    id=${id%.meta}
+    case "$id" in ''|*[!A-Za-z0-9._-]*) continue ;; esac
+    fm_secondmate_liveness_lock "$id" || continue
+    fm_secondmate_liveness_probe "$meta" "$id" poll
+    bound_marker="$STATE/.secondmate-relaunch-bound-$id"
+    reason='' notify_key='' err=''
+    case "$FM_SM_LIVE_STATUS" in
+      relaunchable)
+        if [ -e "$bound_marker" ] || [ -L "$bound_marker" ]; then
+          :
+        elif ! attempts=$(fm_secondmate_liveness_recent_attempts "$id" "$SECONDMATE_LIVENESS_WINDOW_SECS"); then
+          err="relaunch ledger is unreadable; endpoint left $FM_SM_LIVE_STATE"
+        elif [ "$attempts" -ge "$SECONDMATE_LIVENESS_MAX_ATTEMPTS" ]; then
+          if printf '%s\t%s\n' "$now" "$FM_SM_LIVE_STATE" > "$bound_marker"; then
+            reason="check: secondmate $id auto-relaunch paused after $SECONDMATE_LIVENESS_MAX_ATTEMPTS attempts in ${SECONDMATE_LIVENESS_WINDOW_SECS}s; endpoint still $FM_SM_LIVE_STATE - relaunch it manually or retire the route"
+            notify_key="secondmate-relaunch-bound-$id"
+          else
+            err="relaunch park marker could not be written; endpoint left $FM_SM_LIVE_STATE"
+          fi
+        elif fm_secondmate_liveness_relaunch "$meta" "$id" "$SECONDMATE_LIVENESS_TIMEOUT"; then
+          reason="check: secondmate $id auto-relaunched after $FM_SM_LIVE_CAUSE ($FM_SM_LIVE_WHERE)"
+          notify_key="secondmate-relaunch-$id-$now"
+        elif [ "$FM_SM_LIVE_STATUS" = skipped ]; then
+          err=$FM_SM_LIVE_REASON
+        else
+          reason="check: secondmate $id auto-relaunch failed after $FM_SM_LIVE_CAUSE: $(fm_sm_live_first_line "$FM_SM_LIVE_OUT")"
+          notify_key="secondmate-relaunch-failed-$id-$now"
+        fi
+        ;;
+      alive)
+        if [ -e "$bound_marker" ] || [ -L "$bound_marker" ]; then
+          if ! fm_secondmate_liveness_ledger_add "$id" rearmed; then
+            err="relaunch ledger is unwritable; auto-relaunch stays paused"
+          elif ! rm -f "$bound_marker"; then
+            err="relaunch park marker could not be cleared; auto-relaunch stays paused"
+          else
+            triage_log "secondmate $id live again; auto-relaunch pause cleared"
+          fi
+        fi
+        ;;
+      skipped)
+        triage_log "secondmate $id liveness: $FM_SM_LIVE_REASON"
+        ;;
+    esac
+    if [ -n "$reason" ]; then
+      queued=$(fm_wake_queued_keys check)
+      if printf '%s\n' "$queued" | grep -Fx "$notify_key" >/dev/null 2>&1 \
+        || fm_wake_append check "$notify_key" "$reason"; then
+        [ -n "$first_reason" ] || first_reason=$reason
+      else
+        err="check wake row could not be queued: $reason"
+      fi
+    fi
+    fm_secondmate_liveness_unlock "$id"
+    if [ -n "$err" ]; then
+      echo "watcher: secondmate $id liveness: $err" >&2
+      triage_log "secondmate $id liveness error: $err" || true
+      failed=1
+    fi
+  done
+  [ -z "$first_reason" ] || wake "$first_reason"
+  [ "$failed" -eq 0 ]
 }
 
 # Consecutive wedge-escalation count for a window past FM_WEDGE_DEMAND_INSPECT_COUNT
@@ -1040,7 +1288,7 @@ wedge_wait_evidence() {  # <task> -> one wait_record on stdout
   local task=$1 last until statusf run
   [ -n "$task" ] || return 1
   statusf="$STATE/$task.status"
-  last=$(last_status_line "$statusf")
+  last=$(status_declared_wait_line "$statusf")
   if status_is_captain_held "$last"; then
     wait_record 'captain-held' 'awaiting the captain - verified hold transfer' \
       captain 'answer the held decision or release the hold' "$statusf"
@@ -1262,17 +1510,22 @@ wedge_jev_enabled() {
 
 wedge_jev_triage() {  # <window> <task> <age> <escalation-count> <since-file> <triage-label>
   # 0 = suppress; 1 = escalate (including fail-open).
-  local win=$1 task=$2 age=$3 n=$4 since_file=$5 label=$6 kind bin out action choice runner=()
+  local win=$1 task=$2 age=$3 n=$4 since_file=$5 label=$6 kind out action choice
   wedge_jev_enabled || return 1
-  bin=${FM_JEV_WAKE_TRIAGE_BIN:-$SCRIPT_DIR/fm-jev-wake-triage.sh}
-  [ -e "$bin" ] || return 1
-  if [ -z "${TYPESAFE_API_KEY:-}" ] && [ -x "$SCRIPT_DIR/jev-typesafe-run.py" ] && [ -z "${FM_TEST_LIB_SOURCED:-}" ]; then
-    runner=(sudo -n "$SCRIPT_DIR/jev-typesafe-run.py" --)
-  fi
   kind=$(window_kind "$win")
   case "$kind" in ship|scout|secondmate) ;; *) kind=unknown ;; esac
-  out=$("${runner[@]}" bash "$bin" --class "$kind" --age "$age" --escalation-count "$n" \
-    --task "$task" --status-file "$STATE/$task.status" 2>/dev/null) || out='action=unavailable'
+  if [ -n "${FM_JEV_WAKE_TRIAGE_BIN:-}" ]; then
+    out=$(bash "$FM_JEV_WAKE_TRIAGE_BIN" --class "$kind" --age "$age" --escalation-count "$n" \
+      --task "$task" --status-file "$STATE/$task.status" 2>/dev/null) || out='action=unavailable'
+  elif command -v jev >/dev/null 2>&1; then
+    out=$(jev triage --class "$kind" --age "$age" --escalation-count "$n" \
+      --task "$task" --status-file "$STATE/$task.status" 2>/dev/null) || out='action=unavailable'
+  elif [ -e "$SCRIPT_DIR/fm-jev-wake-triage.sh" ]; then
+    out=$(bash "$SCRIPT_DIR/fm-jev-wake-triage.sh" --class "$kind" --age "$age" --escalation-count "$n" \
+      --task "$task" --status-file "$STATE/$task.status" 2>/dev/null) || out='action=unavailable'
+  else
+    return 1
+  fi
   action=$(printf '%s\n' "$out" | awk -F= '/^action=/{print $2; exit}')
   case "$action" in
     suppress)
@@ -1379,8 +1632,8 @@ busy_turn_over_age() {  # <task>
 # above, throttled by this window's own .paused-resurfaced-<key> marker. Advances
 # the stale suppressor to <hash> and flags the key paused.
 #
-# The recheck names WHICH human the declared wait is on, because that is the whole
-# point of a recheck the captain reads: an external dependency for paused:, and the
+# The recheck distinguishes the declared dependency from a captain decision:
+# the legacy external-wait wording for paused: (bin/fm-classify-lib.sh), and the
 # captain themself for a verified hold. Only the captain-held verb takes the second
 # wording; a caller that reached the bounded cadence off pause tracking alone, with
 # no declaring verb left on the log, keeps the external-wait wording it always had.
@@ -1396,7 +1649,7 @@ handle_paused_stale() {  # <window> <task> <hash>
   case "$mtime" in ''|*[!0-9]*) mtime=$(date +%s) ;; esac
   now=$(date +%s)
   age=$(( now - mtime ))
-  last=$(last_status_line "$statusf")
+  last=$(status_declared_wait_line "$statusf")
   min_age=$PAUSE_RESURFACE_SECS
   declaration="declared:$(fm_wake_signal_sig "$statusf" || true)"
   if status_is_captain_held "$last"; then
@@ -1454,7 +1707,7 @@ handle_paused_stale() {  # <window> <task> <hash>
 busy_turn_bound_check() {  # <window> <task> <hash> <since-file> <escalation-file>
   local win=$1 task=$2 h=$3 since_file=$4 escalation_file=$5 key statusf declared
   statusf="$STATE/$task.status"
-  if status_is_paused_or_captain_held "$(last_status_line "$statusf")"; then
+  if status_is_paused_or_captain_held "$(status_declared_wait_line "$statusf")"; then
     if afk_present; then
       # Away mode is daemon-owned, so this bound hands off the PLAIN wake identity
       # and lets the daemon classify the declaration itself - the undecorated
@@ -1479,7 +1732,7 @@ busy_turn_bound_check() {  # <window> <task> <hash> <since-file> <escalation-fil
       rm -f "$since_file" "$escalation_file"
       clear_write_tracking "$key"
       declared="declared:$(fm_wake_signal_sig "$statusf" || true)"
-      if captain_held_silenced "$(last_status_line "$statusf")"; then
+      if captain_held_silenced "$(status_declared_wait_line "$statusf")"; then
         printf '%s' "$declared" > "$STATE/.stale-$key"
         triage_log "absorbed busy over-age pane (captain-held, never rechecked while the away-posture record exists): $win"
         return 0
@@ -1528,7 +1781,7 @@ clear_pause_tracking() {  # <window-key>
 pause_state_class() {  # <window> <task>
   local win=$1 task=$2 key last recheck_file class agent_alive kind
   key=$(window_key "$win")
-  last=$(last_status_line "$STATE/$task.status")
+  last=$(status_declared_wait_line "$STATE/$task.status")
   recheck_file="$STATE/.paused-rechecked-$key"
   if ! status_is_paused_or_captain_held "$last"; then
     rm -f "$recheck_file"
@@ -1701,7 +1954,7 @@ surface_nonterminal_stale() {  # <window> <hash>
   local win=$1 h=$2 key task last declared=1 bounded=1 throttled=1 until now
   key=$(window_key "$win")
   task=$(window_to_task "$win" "$STATE")
-  last=$(last_status_line "$STATE/$task.status")
+  last=$(status_declared_wait_line "$STATE/$task.status")
   STALE_WAIT_DECLARATION=
   if status_is_paused "$last"; then
     declared=0
@@ -1779,6 +2032,10 @@ age_of() {  # seconds since file mtime; "due immediately" if missing
 # -nt comparison.
 # Status signatures include observable file and readability state, while turn-end
 # markers retain their size-and-mtime signature.
+# A status file is asked the wider wake question instead, so it also stays quiet
+# when the only bytes it grew past the classified offset are this home's own
+# bookkeeping appends; fm_wake_signal_seen_current (bin/fm-wake-lib.sh) owns that
+# rule and every other signature change still reads as unreported.
 # Pure read: prints one "<seen-file>\t<sig>\t<file>" line per changed file.
 # The caller records reported state only after surfacing or intentional absorption,
 # and commits a status classification position only after a successful span read.
@@ -1921,6 +2178,20 @@ fm_active_check_stop() {
   FM_ACTIVE_CHECK_PGID=
 }
 
+# Stop-signal dispositions, installed with the EXIT trap below. HUP and TERM
+# keep bash's native fatal-signal handling, which runs watcher_cleanup through
+# the EXIT trap and then exits on every supported bash. A trap body such as
+# 'exit 1' is not reliable for them: bash 5.2 runs a pending trap inside the
+# parse of the next command substitution, the body then fails to parse ("trap:
+# line 2: unexpected EOF while looking for matching `)'", or nothing at all),
+# and the signal is consumed, so a stop request could leave this watcher
+# polling forever while its stopper waits (fixed upstream in bash 5.3). INT
+# keeps its trap because bash ignores a direct SIGINT while a child runs.
+watcher_stop_signals() {
+  trap - HUP TERM
+  trap 'exit 1' INT
+}
+
 run_check_capture() {
   local pgid
   fm_check_output_cleanup
@@ -1928,20 +2199,23 @@ run_check_capture() {
   FM_CHECK_OUTPUT=$(mktemp "$STATE/.fm-check-output.XXXXXX") || return 1
   chmod 0600 "$FM_CHECK_OUTPUT" || { fm_check_output_cleanup; return 1; }
   FM_CHECK_SIGNAL_PENDING=
+  # Defer stop signals only until the check's process group is recorded for
+  # watcher_cleanup. Keep command substitutions out of this window: bash 5.2
+  # can drop a trap that is pending when one is parsed (watcher_stop_signals).
   trap 'FM_CHECK_SIGNAL_PENDING=1' HUP INT TERM
   set -m
   ( FM_CHECK_OWNED_GROUP=1 run_check_process "$@" ) > "$FM_CHECK_OUTPUT" 2>/dev/null &
   FM_ACTIVE_CHECK_PID=$!
   FM_ACTIVE_CHECK_PGID=$FM_ACTIVE_CHECK_PID
   set +m
+  watcher_stop_signals
+  [ -z "$FM_CHECK_SIGNAL_PENDING" ] || exit 1
   pgid=$(ps -o pgid= -p "$FM_ACTIVE_CHECK_PID" 2>/dev/null | tr -d '[:space:]')
-  trap 'exit 1' HUP INT TERM
   if [ -n "$pgid" ] && [ "$pgid" != "$FM_ACTIVE_CHECK_PGID" ]; then
     fm_active_check_stop || true
     fm_check_output_cleanup
     return 1
   fi
-  [ -z "$FM_CHECK_SIGNAL_PENDING" ] || exit 1
   wait "$FM_ACTIVE_CHECK_PID" 2>/dev/null || true
   FM_ACTIVE_CHECK_PID=
   fm_active_check_stop || return 1
@@ -2156,12 +2430,40 @@ if ! fm_procevent_launch_confirm_seconds >/dev/null; then
   exit 1
 fi
 
-if ! fm_lock_try_acquire "$WATCH_LOCK"; then
-  BEAT="$STATE/.last-watcher-beat"
+# evict_stalled_holder <pid>: retire a live lock holder whose beacon stalled past
+# WATCHER_STALL_BOUND. The pid is signalled only while it still proves the
+# lock's own recorded identity (fm_watcher_lock_matches_pid: this home, this
+# script, and the starttime+cmdline proof the lock carries), so a recycled pid
+# is never touched; TERM only, never KILL, and never a name or pattern match.
+# Succeeds only once the holder has exited within the bounded wait.
+evict_stalled_holder() {
+  local pid=$1 i=0
+  fm_watcher_lock_matches_pid "$STATE" "$WATCH_PATH" "$pid" "$FM_HOME" || return 1
+  kill -TERM "$pid" 2>/dev/null || return 1
+  while [ "$i" -lt 50 ] && fm_pid_alive "$pid"; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+  ! fm_pid_alive "$pid"
+}
+
+EVICTED_PID=
+EVICTED_BEAT_AGE=
+BEAT="$STATE/.last-watcher-beat"
+while ! fm_lock_try_acquire "$WATCH_LOCK"; do
   if [ -n "${FM_LOCK_HELD_PID:-}" ]; then
     if [ -e "$BEAT" ]; then
       beat_age=$(fm_path_age "$BEAT")
       if [ "$beat_age" -ge "$WATCHER_STALE_GRACE" ]; then
+        # One eviction per arm: the retry re-reads the lock and beacon, so a
+        # holder that exited leaves a dead-pid lock the normal reclaim takes,
+        # and a rival arm that won first reads as a fresh running watcher.
+        if [ -z "$EVICTED_PID" ] && [ "$beat_age" -ge "$WATCHER_STALL_BOUND" ] \
+          && evict_stalled_holder "$FM_LOCK_HELD_PID"; then
+          EVICTED_PID=$FM_LOCK_HELD_PID
+          EVICTED_BEAT_AGE=$beat_age
+          continue
+        fi
         echo "watcher: lock held by live pid $FM_LOCK_HELD_PID but heartbeat is stale for ${beat_age}s (>${WATCHER_STALE_GRACE}s); inspect or stop that watcher before re-arming." >&2
         exit 1
       fi
@@ -2174,6 +2476,9 @@ if ! fm_lock_try_acquire "$WATCH_LOCK"; then
     echo "watcher: already running"
   fi
   exit 0
+done
+if [ -n "$EVICTED_PID" ]; then
+  echo "watcher: replaced stalled pid $EVICTED_PID (beacon ${EVICTED_BEAT_AGE}s past hard bound ${WATCHER_STALL_BOUND}s)"
 fi
 WATCHER_RECOVERY_PENDING=0
 if [ -n "${FM_LOCK_RECOVERED_PID:-}" ]; then
@@ -2279,14 +2584,15 @@ watcher_cleanup() {
   fm_check_output_cleanup
   fm_custom_check_snapshot_cleanup
   if [ "$owns_lock" -eq 1 ] \
-    && ! fm_recovery_transition "$WATCHER_DOWNTIME_MARKER" "$transition" "$WATCH_LOCK" downtime; then
+    && ! fm_recovery_transition "$WATCHER_DOWNTIME_MARKER" "$transition" "$WATCH_LOCK" \
+      downtime "$CLEANUP_LOCK_BOUND"; then
     echo "watcher: recovery state could not be persisted; retaining stale lock evidence" >&2
     cleanup_status=1
   fi
   return "$cleanup_status"
 }
 trap watcher_cleanup EXIT
-trap 'exit 1' HUP INT TERM
+watcher_stop_signals
 # This watcher's own pid, as recorded in the lock by fm_lock_claim (which writes
 # ${BASHPID:-$$} from this same main shell). Read directly, never via a command
 # substitution, so it matches the stored holder pid for the self-eviction check.
@@ -2363,6 +2669,29 @@ resurface_after_downtime() {
 }
 
 while :; do
+  # Home-gone exit: a deleted home, state directory, or code root means this
+  # watcher's world is gone (a torn-down temporary home or a discarded
+  # disposable checkout). Exit with a logged reason rather than writing state
+  # into nothing, or into a live home from a checkout that no longer exists.
+  # A detached helper this watcher started (home-summary refresh, reconcile)
+  # can recreate a deleted state directory before the next poll, so a lock
+  # with no holder at all is read as the same teardown: only a fresh watcher
+  # ever recreates the lock, and that case is the self-eviction below.
+  # Scoped to this process alone: no other watcher is signalled.
+  if [ "$WATCH_HOME_EXISTED" -eq 1 ] && [ ! -d "$FM_HOME" ]; then
+    echo "watcher: exiting - home no longer exists: $FM_HOME" >&2
+    exit 1
+  elif [ ! -d "$STATE" ]; then
+    echo "watcher: exiting - state directory no longer exists: $STATE" >&2
+    exit 1
+  elif [ ! -e "$WATCH_LOCK/pid" ]; then
+    echo "watcher: exiting - state directory was torn down (singleton lock removed): $STATE" >&2
+    exit 1
+  elif [ ! -d "$SCRIPT_DIR" ]; then
+    echo "watcher: exiting - code root no longer exists: $SCRIPT_DIR" >&2
+    exit 1
+  fi
+
   # Self-eviction: if the singleton lock no longer names this process, a second
   # watcher has taken over (e.g. a transient duplicate from a racy arm). Stand
   # down so the rightful singleton continues alone. The EXIT trap's release
@@ -2376,6 +2705,10 @@ while :; do
   # Liveness beacon for fm-guard.sh: a fresh mtime here means a watcher is
   # alive. Supervision scripts warn when this goes stale with tasks in flight.
   touch "$STATE/.last-watcher-beat"
+
+  # Opt-in fleet activity ledger (docs/fleet-ledger.md): pick up newly appended
+  # status lines before this cycle can exit on a wake. Off costs one file test.
+  [ ! -e "$CONFIG/fleet-ledger" ] || FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$CONFIG "$SCRIPT_DIR/fm-fleet-ledger.sh" capture || true
 
   if [ "$(age_of "$STATE/home-summary.json")" -ge "$HOME_SUMMARY_INTERVAL" ]; then
     home_summary_refresh_detached
@@ -2393,6 +2726,16 @@ while :; do
   # repost after grace, and escalate once if the recovery turn is also missed.
   # No conversation scraping; unresolved records are never silently expired.
   fm_pending_reply_tick "$STATE" || true
+
+  # Endpoint liveness runs before queue observation: a positively dead or
+  # missing secondmate endpoint is relaunched here on a bounded cadence, which
+  # is also what unsticks that mate's foreign wake queue. The tick's single
+  # wake exits the cycle like every other wake, so its marker is stamped before
+  # any relaunch and the restarted watcher will not re-probe early.
+  secondmate_liveness_tick || {
+    echo "watcher: secondmate liveness check failed" >&2
+    exit 1
+  }
 
   # A live secondmate endpoint does not prove that its own wake loop is alive.
   # Observe the foreign queue before the rest of this cycle so an aged row wakes
@@ -2436,11 +2779,13 @@ while :; do
   fi
 
   # Pattern 21: Jev Cross-Seat Asset & Artifact Cache De-Duplicator
+  # timeout: a dedup pass must never stall the watch loop (wiseman-vwr) -
+  # the marker cadence makes the next pass pick up any slack.
   if [ "${FM_DISABLE_JEV_ARTIFACT_DEDUP:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-artifact-dedup.sh" ]; then
     _artifact_dedup_marker="$STATE/.jev-artifact-dedup-last"
     if [ ! -f "$_artifact_dedup_marker" ] || [ "$(age_of "$_artifact_dedup_marker")" -ge 1800 ]; then
       touch "$_artifact_dedup_marker"
-      "$SCRIPT_DIR/fm-jev-artifact-dedup.sh" >/dev/null 2>&1 || true
+      timeout 30 "$SCRIPT_DIR/fm-jev-artifact-dedup.sh" >/dev/null 2>&1 || true
     fi
   fi
 
@@ -2561,6 +2906,396 @@ while :; do
     fi
   fi
 
+  # Pattern 86: Jev Multi-Agent POSIX Signal Queue & Real-Time Signal Backlog Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_SIGQUEUE_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-sigqueue-guard.sh" ]; then
+    _sigqueue_guard_marker="$STATE/.jev-sigqueue-guard-last"
+    if [ ! -f "$_sigqueue_guard_marker" ] || [ "$(age_of "$_sigqueue_guard_marker")" -ge 1800 ]; then
+      touch "$_sigqueue_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-sigqueue-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 87: Jev Multi-Agent Host Block Device IOPS & Latency Stall Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_DISK_IO_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-disk-io-guard.sh" ]; then
+    _disk_io_guard_marker="$STATE/.jev-disk-io-guard-last"
+    if [ ! -f "$_disk_io_guard_marker" ] || [ "$(age_of "$_disk_io_guard_marker")" -ge 1800 ]; then
+      touch "$_disk_io_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-disk-io-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 88: Jev Multi-Agent Host Kernel Dirty Memory Page Writeback & Throttling Stall Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_DIRTY_WRITEBACK_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-dirty-writeback-guard.sh" ]; then
+    _dirty_writeback_guard_marker="$STATE/.jev-dirty-writeback-guard-last"
+    if [ ! -f "$_dirty_writeback_guard_marker" ] || [ "$(age_of "$_dirty_writeback_guard_marker")" -ge 1800 ]; then
+      touch "$_dirty_writeback_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-dirty-writeback-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 90: Jev Multi-Agent Host Network Socket Buffer & Core wmem/rmem Allocation Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_SOCKBUF_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-sockbuf-guard.sh" ]; then
+    _sockbuf_guard_marker="$STATE/.jev-sockbuf-guard-last"
+    if [ ! -f "$_sockbuf_guard_marker" ] || [ "$(age_of "$_sockbuf_guard_marker")" -ge 1800 ]; then
+      touch "$_sockbuf_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-sockbuf-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 91: Jev Multi-Agent Host Network TCP Socket Buffer Auto-Tuning & Memory Pressure Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_TCP_MEM_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-tcp-mem-guard.sh" ]; then
+    _tcp_mem_guard_marker="$STATE/.jev-tcp-mem-guard-last"
+    if [ ! -f "$_tcp_mem_guard_marker" ] || [ "$(age_of "$_tcp_mem_guard_marker")" -ge 1800 ]; then
+      touch "$_tcp_mem_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-tcp-mem-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 92: Jev Multi-Agent Host Network Transmit Queue & Interface Overrun Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_TXQ_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-txq-guard.sh" ]; then
+    _txq_guard_marker="$STATE/.jev-txq-guard-last"
+    if [ ! -f "$_txq_guard_marker" ] || [ "$(age_of "$_txq_guard_marker")" -ge 1800 ]; then
+      touch "$_txq_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-txq-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 93: Jev Multi-Agent Host Network IP Neighbor & ARP Table Saturation Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_ARP_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-arp-guard.sh" ]; then
+    _arp_guard_marker="$STATE/.jev-arp-guard-last"
+    if [ ! -f "$_arp_guard_marker" ] || [ "$(age_of "$_arp_guard_marker")" -ge 1800 ]; then
+      touch "$_arp_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-arp-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 98: Jev Multi-Agent Host Network TCP TIME_WAIT & Ephemeral Port Range Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_TW_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-tw-guard.sh" ]; then
+    _tw_guard_marker="$STATE/.jev-tw-guard-last"
+    if [ ! -f "$_tw_guard_marker" ] || [ "$(age_of "$_tw_guard_marker")" -ge 1800 ]; then
+      touch "$_tw_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-tw-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 99: Jev Multi-Agent Host Network UDP Datagram Buffer & Socket Drop Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_UDP_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-udp-guard.sh" ]; then
+    _udp_guard_marker="$STATE/.jev-udp-guard-last"
+    if [ ! -f "$_udp_guard_marker" ] || [ "$(age_of "$_udp_guard_marker")" -ge 1800 ]; then
+      touch "$_udp_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-udp-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 110: Jev Multi-Agent Host Network Unix Domain Socket & Inter-Agent IPC Backlog Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_UNIX_SOCKET_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-unix-socket-guard.sh" ]; then
+    _unix_socket_guard_marker="$STATE/.jev-unix-socket-guard-last"
+    if [ ! -f "$_unix_socket_guard_marker" ] || [ "$(age_of "$_unix_socket_guard_marker")" -ge 1800 ]; then
+      touch "$_unix_socket_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-unix-socket-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 101: Jev Multi-Agent Host Network Protocol Memory Pressure & sk_buff Allocation Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_SKBUFF_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-skbuff-guard.sh" ]; then
+    _skbuff_guard_marker="$STATE/.jev-skbuff-guard-last"
+    if [ ! -f "$_skbuff_guard_marker" ] || [ "$(age_of "$_skbuff_guard_marker")" -ge 1800 ]; then
+      touch "$_skbuff_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-skbuff-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 102: Jev Multi-Agent Host Network Netfilter Connection Tracking Table Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_CONNTRACK_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-conntrack-guard.sh" ]; then
+    _conntrack_guard_marker="$STATE/.jev-conntrack-guard-last"
+    if [ ! -f "$_conntrack_guard_marker" ] || [ "$(age_of "$_conntrack_guard_marker")" -ge 1800 ]; then
+      touch "$_conntrack_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-conntrack-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 103: Jev Multi-Agent Host Network TCP Retransmission, Checksum Error & Loss Recovery Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_TCP_RETRANS_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-tcp-retrans-guard.sh" ]; then
+    _tcp_retrans_guard_marker="$STATE/.jev-tcp-retrans-guard-last"
+    if [ ! -f "$_tcp_retrans_guard_marker" ] || [ "$(age_of "$_tcp_retrans_guard_marker")" -ge 1800 ]; then
+      touch "$_tcp_retrans_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-tcp-retrans-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 104: Jev Multi-Agent Host Network TCP Selective ACK, Out-of-Order Queue & Loss Recovery Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_SACK_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-sack-guard.sh" ]; then
+    _sack_guard_marker="$STATE/.jev-sack-guard-last"
+    if [ ! -f "$_sack_guard_marker" ] || [ "$(age_of "$_sack_guard_marker")" -ge 1800 ]; then
+      touch "$_sack_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-sack-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 111: Jev Multi-Agent Host Network TCP RTO / RACK Loss Recovery Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_RTO_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-rto-guard.sh" ]; then
+    _rto_guard_marker="$STATE/.jev-rto-guard-last"
+    if [ ! -f "$_rto_guard_marker" ] || [ "$(age_of "$_rto_guard_marker")" -ge 1800 ]; then
+      touch "$_rto_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-rto-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 112: Jev Multi-Agent Host Network TCP Packet Reordering & OFO Queue Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_REORDER_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-reorder-guard.sh" ]; then
+    _reorder_guard_marker="$STATE/.jev-reorder-guard-last"
+    if [ ! -f "$_reorder_guard_marker" ] || [ "$(age_of "$_reorder_guard_marker")" -ge 1800 ]; then
+      touch "$_reorder_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-reorder-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 113: Jev Multi-Agent Host Network TCP ACK Compression & Delayed ACK Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_ACK_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-ack-guard.sh" ]; then
+    _ack_guard_marker="$STATE/.jev-ack-guard-last"
+    if [ ! -f "$_ack_guard_marker" ] || [ "$(age_of "$_ack_guard_marker")" -ge 1800 ]; then
+      touch "$_ack_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-ack-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 115: Jev Multi-Agent Host Network TCP Challenge ACK & Reset Protection Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_CHALLENGE_ACK_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-challenge-ack-guard.sh" ]; then
+    _challenge_ack_guard_marker="$STATE/.jev-challenge-ack-guard-last"
+    if [ ! -f "$_challenge_ack_guard_marker" ] || [ "$(age_of "$_challenge_ack_guard_marker")" -ge 1800 ]; then
+      touch "$_challenge_ack_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-challenge-ack-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 116: Jev Multi-Agent Host Network TCP Slow-Start Restart & Buffer Auto-Tuning Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_SSR_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-ssr-guard.sh" ]; then
+    _ssr_guard_marker="$STATE/.jev-ssr-guard-last"
+    if [ ! -f "$_ssr_guard_marker" ] || [ "$(age_of "$_ssr_guard_marker")" -ge 1800 ]; then
+      touch "$_ssr_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-ssr-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 117: Jev Multi-Agent Host Network TCP Connection Metric Cache & Route RTT Clamping Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_NET_METRICS_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-net-metrics-guard.sh" ]; then
+    _net_metrics_guard_marker="$STATE/.jev-metrics-guard-last"
+    if [ ! -f "$_net_metrics_guard_marker" ] || [ "$(age_of "$_net_metrics_guard_marker")" -ge 1800 ]; then
+      touch "$_net_metrics_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-net-metrics-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 118: Jev Multi-Agent Host Network TCP SYN Cookie Watermark & Flood Drop Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_SYNCOOKIE_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-syncookie-guard.sh" ]; then
+    _syncookie_guard_marker="$STATE/.jev-syncookie-guard-last"
+    if [ ! -f "$_syncookie_guard_marker" ] || [ "$(age_of "$_syncookie_guard_marker")" -ge 1800 ]; then
+      touch "$_syncookie_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-syncookie-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 119: Jev Multi-Agent Host Network TCP Out-of-Order Queue & Memory Collapse Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_OFO_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-ofo-guard.sh" ]; then
+    _ofo_guard_marker="$STATE/.jev-ofo-guard-last"
+    if [ ! -f "$_ofo_guard_marker" ] || [ "$(age_of "$_ofo_guard_marker")" -ge 1800 ]; then
+      touch "$_ofo_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-ofo-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 120: Jev Multi-Agent Host Network TCP Abort Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_ABORT_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-abort-guard.sh" ]; then
+    _abort_guard_marker="$STATE/.jev-abort-guard-last"
+    if [ ! -f "$_abort_guard_marker" ] || [ "$(age_of "$_abort_guard_marker")" -ge 1800 ]; then
+      touch "$_abort_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-abort-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 122: Jev Multi-Agent Host Network Multicast Group Membership Guard (IGMP)
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_IGMP_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-igmp-guard.sh" ]; then
+    _igmp_guard_marker="$STATE/.jev-igmp-guard-last"
+    if [ ! -f "$_igmp_guard_marker" ] || [ "$(age_of "$_igmp_guard_marker")" -ge 1800 ]; then
+      touch "$_igmp_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-igmp-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 121: Jev Multi-Agent Host Network IP Reverse Path Filtering & Source Spoofing Drop Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_RPFILTER_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-rpfilter-guard.sh" ]; then
+    _rpfilter_guard_marker="$STATE/.jev-rpfilter-guard-last"
+    if [ ! -f "$_rpfilter_guard_marker" ] || [ "$(age_of "$_rpfilter_guard_marker")" -ge 1800 ]; then
+      touch "$_rpfilter_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-rpfilter-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 119: Jev Multi-Agent Host Network TCP Out-of-Order Queue & Memory Collapse Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_OFO_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-ofo-guard.sh" ]; then
+    _ofo_guard_marker="$STATE/.jev-ofo-guard-last"
+    if [ ! -f "$_ofo_guard_marker" ] || [ "$(age_of "$_ofo_guard_marker")" -ge 1800 ]; then
+      touch "$_ofo_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-ofo-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 103: Jev Multi-Agent Host Network TCP Retransmission, Checksum Error & Loss Recovery Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_TCP_RETRANS_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-tcp-retrans-guard.sh" ]; then
+    _tcp_retrans_guard_marker="$STATE/.jev-tcp-retrans-guard-last"
+    if [ ! -f "$_tcp_retrans_guard_marker" ] || [ "$(age_of "$_tcp_retrans_guard_marker")" -ge 1800 ]; then
+      touch "$_tcp_retrans_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-tcp-retrans-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 104: Jev Multi-Agent Host Network TCP Selective ACK, Out-of-Order Queue & Loss Recovery Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_SACK_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-sack-guard.sh" ]; then
+    _sack_guard_marker="$STATE/.jev-sack-guard-last"
+    if [ ! -f "$_sack_guard_marker" ] || [ "$(age_of "$_sack_guard_marker")" -ge 1800 ]; then
+      touch "$_sack_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-sack-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 105: Jev Multi-Agent Host Network TCP Keepalive & Dead Peer Detection Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_KEEPALIVE_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-keepalive-guard.sh" ]; then
+    _keepalive_guard_marker="$STATE/.jev-keepalive-guard-last"
+    if [ ! -f "$_keepalive_guard_marker" ] || [ "$(age_of "$_keepalive_guard_marker")" -ge 1800 ]; then
+      touch "$_keepalive_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-keepalive-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 106: Jev Multi-Agent Host Network TCP Zero-Window & Flow Control Stall Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_ZEROWIN_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-zerowin-guard.sh" ]; then
+    _zerowin_guard_marker="$STATE/.jev-zerowin-guard-last"
+    if [ ! -f "$_zerowin_guard_marker" ] || [ "$(age_of "$_zerowin_guard_marker")" -ge 1800 ]; then
+      touch "$_zerowin_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-zerowin-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 107: Jev Multi-Agent Host Network TCP Path MTU Discovery, MSS & Blackhole Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_PMTU_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-pmtu-guard.sh" ]; then
+    _pmtu_guard_marker="$STATE/.jev-pmtu-guard-last"
+    if [ ! -f "$_pmtu_guard_marker" ] || [ "$(age_of "$_pmtu_guard_marker")" -ge 1800 ]; then
+      touch "$_pmtu_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-pmtu-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 108: Jev Multi-Agent Host Network TCP Fast Open RFC 7413 Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_TFO_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-tfo-guard.sh" ]; then
+    _tfo_guard_marker="$STATE/.jev-tfo-guard-last"
+    if [ ! -f "$_tfo_guard_marker" ] || [ "$(age_of "$_tfo_guard_marker")" -ge 1800 ]; then
+      touch "$_tfo_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-tfo-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 109: Jev Multi-Agent Host Network TCP Protection Against Wrapped Sequence Numbers PAWS Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_PAWS_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-paws-guard.sh" ]; then
+    _paws_guard_marker="$STATE/.jev-paws-guard-last"
+    if [ ! -f "$_paws_guard_marker" ] || [ "$(age_of "$_paws_guard_marker")" -ge 1800 ]; then
+      touch "$_paws_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-paws-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 110: Jev Multi-Agent Host Network TCP Explicit Congestion Notification ECN & CE Mark Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_ECN_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-ecn-guard.sh" ]; then
+    _ecn_guard_marker="$STATE/.jev-ecn-guard-last"
+    if [ ! -f "$_ecn_guard_marker" ] || [ "$(age_of "$_ecn_guard_marker")" -ge 1800 ]; then
+      touch "$_ecn_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-ecn-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 111: Jev Multi-Agent Host Network TCP RTO / RACK Loss Recovery Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_RTO_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-rto-guard.sh" ]; then
+    _rto_guard_marker="$STATE/.jev-rto-guard-last"
+    if [ ! -f "$_rto_guard_marker" ] || [ "$(age_of "$_rto_guard_marker")" -ge 1800 ]; then
+      touch "$_rto_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-rto-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 94: Jev Multi-Agent Host Network Routing Table Bloat & Nexthop Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_ROUTE_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-route-guard.sh" ]; then
+    _route_guard_marker="$STATE/.jev-route-guard-last"
+    if [ ! -f "$_route_guard_marker" ] || [ "$(age_of "$_route_guard_marker")" -ge 1800 ]; then
+      touch "$_route_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-route-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 95: Jev Multi-Agent Host Network ICMP Rate Limiting & Message Storm Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_ICMP_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-icmp-guard.sh" ]; then
+    _icmp_guard_marker="$STATE/.jev-icmp-guard-last"
+    if [ ! -f "$_icmp_guard_marker" ] || [ "$(age_of "$_icmp_guard_marker")" -ge 1800 ]; then
+      touch "$_icmp_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-icmp-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 96: Jev Multi-Agent Host Network Interface Ring Buffer & Hardware Queue Capacity Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_RING_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-ring-guard.sh" ]; then
+    _ring_guard_marker="$STATE/.jev-ring-guard-last"
+    if [ ! -f "$_ring_guard_marker" ] || [ "$(age_of "$_ring_guard_marker")" -ge 1800 ]; then
+      touch "$_ring_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-ring-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Pattern 89: Jev Multi-Agent Host Kernel SLUB/SLAB Memory Object & Allocator Fragmentation Guard
+  # (timeout-bounded per wiseman-vwr: no guard sweep may stall the watch loop)
+  if [ "${FM_DISABLE_JEV_SLAB_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-slab-guard.sh" ]; then
+    _slab_guard_marker="$STATE/.jev-slab-guard-last"
+    if [ ! -f "$_slab_guard_marker" ] || [ "$(age_of "$_slab_guard_marker")" -ge 1800 ]; then
+      touch "$_slab_guard_marker"
+      timeout 30 "$SCRIPT_DIR/fm-jev-slab-guard.sh" >/dev/null 2>&1 || true
+    fi
+  fi
+
   # Pattern 35: Jev Cross-Seat Idle SSH & Persistent Tunnel Health Watchdog
   if [ "${FM_DISABLE_JEV_TUNNEL_WATCHDOG:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-tunnel-watchdog.sh" ]; then
     _tunnel_wd_marker="$STATE/.jev-tunnel-watchdog-last"
@@ -2569,6 +3304,450 @@ while :; do
       "$SCRIPT_DIR/fm-jev-tunnel-watchdog.sh" --json > "$STATE/.jev-tunnel-watchdog-telemetry.json" 2>/dev/null || true
     fi
   fi
+
+  # Pattern 36: Jev Multi-Agent Host Open File Descriptor & ulimit Exhaustion Guard
+  if [ "${FM_DISABLE_JEV_FD_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-fd-guard.sh" ]; then
+    _fd_guard_marker="$STATE/.jev-fd-guard-last"
+    if [ ! -f "$_fd_guard_marker" ] || [ "$(age_of "$_fd_guard_marker")" -ge 1800 ]; then
+      touch "$_fd_guard_marker"
+      "$SCRIPT_DIR/fm-jev-fd-guard.sh" --json > "$STATE/.jev-fd-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
+  # Pattern 37: Jev Multi-Agent DNS Resolution Latency & Dead Nameserver Watchdog
+  if [ "${FM_DISABLE_JEV_DNS_WATCHDOG:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-dns-watchdog.sh" ]; then
+    _dns_wd_marker="$STATE/.jev-dns-watchdog-last"
+    if [ ! -f "$_dns_wd_marker" ] || [ "$(age_of "$_dns_wd_marker")" -ge 1800 ]; then
+      touch "$_dns_wd_marker"
+      "$SCRIPT_DIR/fm-jev-dns-watchdog.sh" --json > "$STATE/.jev-dns-watchdog-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
+  # Pattern 38: Jev Multi-Agent SSL/TLS Certificate Expiration Prober
+  if [ "${FM_DISABLE_JEV_CERT_PROBER:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-cert-prober.sh" ]; then
+    _cert_probe_marker="$STATE/.jev-cert-prober-last"
+    if [ ! -f "$_cert_probe_marker" ] || [ "$(age_of "$_cert_probe_marker")" -ge 1800 ]; then
+      touch "$_cert_probe_marker"
+      "$SCRIPT_DIR/fm-jev-cert-prober.sh" --json > "$STATE/.jev-cert-prober-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
+  # Pattern 39: Jev Multi-Agent JSON-RPC & Subagent Message Buffer Leak Guard
+  if [ "${FM_DISABLE_JEV_RPC_BUFFER_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-rpc-buffer-guard.sh" ]; then
+    _rpc_buf_marker="$STATE/.jev-rpc-buffer-guard-last"
+    if [ ! -f "$_rpc_buf_marker" ] || [ "$(age_of "$_rpc_buf_marker")" -ge 1800 ]; then
+      touch "$_rpc_buf_marker"
+      "$SCRIPT_DIR/fm-jev-rpc-buffer-guard.sh" --json > "$STATE/.jev-rpc-buffer-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
+  # Pattern 40: Jev Multi-Agent Inotify Watch Limit & File Watcher Saturation Guard
+  if [ "${FM_DISABLE_JEV_INOTIFY_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-inotify-guard.sh" ]; then
+    _inotify_marker="$STATE/.jev-inotify-guard-last"
+    if [ ! -f "$_inotify_marker" ] || [ "$(age_of "$_inotify_marker")" -ge 1800 ]; then
+      touch "$_inotify_marker"
+      "$SCRIPT_DIR/fm-jev-inotify-guard.sh" --json > "$STATE/.jev-inotify-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
+  # Pattern 41: Jev Multi-Agent Ephemeral Port & Local Socket Bind Exhaustion Guard
+  if [ "${FM_DISABLE_JEV_PORT_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-port-guard.sh" ]; then
+    _port_marker="$STATE/.jev-port-guard-last"
+    if [ ! -f "$_port_marker" ] || [ "$(age_of "$_port_marker")" -ge 1800 ]; then
+      touch "$_port_marker"
+      "$SCRIPT_DIR/fm-jev-port-guard.sh" --json > "$STATE/.jev-port-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
+  # Pattern 42: Jev Multi-Agent POSIX Shared Memory & Semaphore Leak Guard
+  if [ "${FM_DISABLE_JEV_SHM_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-shm-guard.sh" ]; then
+    _shm_marker="$STATE/.jev-shm-guard-last"
+    if [ ! -f "$_shm_marker" ] || [ "$(age_of "$_shm_marker")" -ge 1800 ]; then
+      touch "$_shm_marker"
+      "$SCRIPT_DIR/fm-jev-shm-guard.sh" --json > "$STATE/.jev-shm-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
+  # Pattern 43: Jev Multi-Agent Alert Storm & Webhook Throttler
+  if [ "${FM_DISABLE_JEV_ALERT_SILENCER:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-alert-silencer.sh" ]; then
+    _alert_silencer_marker="$STATE/.jev-alert-silencer-last"
+    if [ ! -f "$_alert_silencer_marker" ] || [ "$(age_of "$_alert_silencer_marker")" -ge 1800 ]; then
+      touch "$_alert_silencer_marker"
+      "$SCRIPT_DIR/fm-jev-alert-silencer.sh" --audit --json > "$STATE/.jev-alert-silencer-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
+  # Pattern 44: Jev Multi-Agent Orphaned Screen & Tmux Dead Session Sweeper
+  if [ "${FM_DISABLE_JEV_TMUX_SWEEPER:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-tmux-sweeper.sh" ]; then
+    _tmux_sweeper_marker="$STATE/.jev-tmux-sweeper-last"
+    if [ ! -f "$_tmux_sweeper_marker" ] || [ "$(age_of "$_tmux_sweeper_marker")" -ge 1800 ]; then
+      touch "$_tmux_sweeper_marker"
+      "$SCRIPT_DIR/fm-jev-tmux-sweeper.sh" --json > "$STATE/.jev-tmux-sweeper-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
+  # Pattern 45: Jev Multi-Agent Subprocess Zombie & Defunct PPID Leak Guard
+  if [ "${FM_DISABLE_JEV_ZOMBIE_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-zombie-guard.sh" ]; then
+    _zombie_guard_marker="$STATE/.jev-zombie-guard-last"
+    if [ ! -f "$_zombie_guard_marker" ] || [ "$(age_of "$_zombie_guard_marker")" -ge 1800 ]; then
+      touch "$_zombie_guard_marker"
+      "$SCRIPT_DIR/fm-jev-zombie-guard.sh" --json > "$STATE/.jev-zombie-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
+  # Pattern 46: Jev Multi-Agent Memory RSS & Swap Thrashing Guard
+  if [ "${FM_DISABLE_JEV_MEM_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-mem-guard.sh" ]; then
+    _mem_guard_marker="$STATE/.jev-mem-guard-last"
+    if [ ! -f "$_mem_guard_marker" ] || [ "$(age_of "$_mem_guard_marker")" -ge 1800 ]; then
+      touch "$_mem_guard_marker"
+      "$SCRIPT_DIR/fm-jev-mem-guard.sh" --json > "$STATE/.jev-mem-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
+  # Pattern 47: Jev Multi-Agent PTY/TTY Allocation & Pseudoterminal Exhaustion Guard
+  if [ "${FM_DISABLE_JEV_PTY_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-pty-guard.sh" ]; then
+    _pty_guard_marker="$STATE/.jev-pty-guard-last"
+    if [ ! -f "$_pty_guard_marker" ] || [ "$(age_of "$_pty_guard_marker")" -ge 1800 ]; then
+      touch "$_pty_guard_marker"
+      "$SCRIPT_DIR/fm-jev-pty-guard.sh" --json > "$STATE/.jev-pty-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
+  # Pattern 48: Jev Multi-Agent Host Inode Exhaustion & Orphan Tempfile Accumulator Guard
+  if [ "${FM_DISABLE_JEV_INODE_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-inode-guard.sh" ]; then
+    _inode_guard_marker="$STATE/.jev-inode-guard-last"
+    if [ ! -f "$_inode_guard_marker" ] || [ "$(age_of "$_inode_guard_marker")" -ge 1800 ]; then
+      touch "$_inode_guard_marker"
+      "$SCRIPT_DIR/fm-jev-inode-guard.sh" --json > "$STATE/.jev-inode-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
+  # Pattern 49: Jev Multi-Agent Upstream Service Endpoint & Latency Guard
+  if [ "${FM_DISABLE_JEV_ENDPOINT_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-endpoint-guard.sh" ]; then
+    _endpoint_guard_marker="$STATE/.jev-endpoint-guard-last"
+    if [ ! -f "$_endpoint_guard_marker" ] || [ "$(age_of "$_endpoint_guard_marker")" -ge 1800 ]; then
+      touch "$_endpoint_guard_marker"
+      "$SCRIPT_DIR/fm-jev-endpoint-guard.sh" --json > "$STATE/.jev-endpoint-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
+  # Pattern 50: Jev Multi-Agent Worktree Detached HEAD & Git Ref Drift Guard
+  if [ "${FM_DISABLE_JEV_DRIFT_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-drift-guard.sh" ]; then
+    _drift_guard_marker="$STATE/.jev-drift-guard-last"
+    if [ ! -f "$_drift_guard_marker" ] || [ "$(age_of "$_drift_guard_marker")" -ge 1800 ]; then
+      touch "$_drift_guard_marker"
+      "$SCRIPT_DIR/fm-jev-drift-guard.sh" --json > "$STATE/.jev-drift-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
+  # Pattern 51: Jev Multi-Agent Load Derivative & CPU Saturation Burst Dampener
+  if [ "${FM_DISABLE_JEV_CPU_BURST_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-cpu-burst-guard.sh" ]; then
+    _cpu_burst_guard_marker="$STATE/.jev-cpu-burst-guard-last"
+    if [ ! -f "$_cpu_burst_guard_marker" ] || [ "$(age_of "$_cpu_burst_guard_marker")" -ge 600 ]; then
+      touch "$_cpu_burst_guard_marker"
+      "$SCRIPT_DIR/fm-jev-cpu-burst-guard.sh" --json > "$STATE/.jev-cpu-burst-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
+  # Pattern 52: Jev Multi-Agent Broken Symlink & Dangling Worktree Link Guard
+  if [ "${FM_DISABLE_JEV_SYMLINK_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-symlink-guard.sh" ]; then
+    _symlink_guard_marker="$STATE/.jev-symlink-guard-last"
+    if [ ! -f "$_symlink_guard_marker" ] || [ "$(age_of "$_symlink_guard_marker")" -ge 1800 ]; then
+      touch "$_symlink_guard_marker"
+      "$SCRIPT_DIR/fm-jev-symlink-guard.sh" --json > "$STATE/.jev-symlink-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
+  # Pattern 53: Jev Multi-Agent Orphan Git Pack & Loose Object Hygiene Guard
+  if [ "${FM_DISABLE_JEV_GIT_GC_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-git-gc-guard.sh" ]; then
+    _git_gc_guard_marker="$STATE/.jev-git-gc-guard-last"
+    if [ ! -f "$_git_gc_guard_marker" ] || [ "$(age_of "$_git_gc_guard_marker")" -ge 1800 ]; then
+      touch "$_git_gc_guard_marker"
+      "$SCRIPT_DIR/fm-jev-git-gc-guard.sh" --json > "$STATE/.jev-git-gc-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
+  # Pattern 54: Jev Multi-Agent Core Dump & Crash Artifact Hygiene Guard
+  if [ "${FM_DISABLE_JEV_COREDUMP_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-coredump-guard.sh" ]; then
+    _coredump_guard_marker="$STATE/.jev-coredump-guard-last"
+    if [ ! -f "$_coredump_guard_marker" ] || [ "$(age_of "$_coredump_guard_marker")" -ge 1800 ]; then
+      touch "$_coredump_guard_marker"
+      "$SCRIPT_DIR/fm-jev-coredump-guard.sh" --json > "$STATE/.jev-coredump-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
+  # Pattern 55: Jev Multi-Agent Python .pyc Bytecode & __pycache__ Invalidation Guard
+  if [ "${FM_DISABLE_JEV_PYCACHE_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-pycache-guard.sh" ]; then
+    _pycache_guard_marker="$STATE/.jev-pycache-guard-last"
+    if [ ! -f "$_pycache_guard_marker" ] || [ "$(age_of "$_pycache_guard_marker")" -ge 1800 ]; then
+      touch "$_pycache_guard_marker"
+      "$SCRIPT_DIR/fm-jev-pycache-guard.sh" --json > "$STATE/.jev-pycache-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
+  # Pattern 56: Jev Multi-Agent Secret & API Token Exposure Guard
+  if [ "${FM_DISABLE_JEV_SECRET_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-secret-guard.sh" ]; then
+    _secret_guard_marker="$STATE/.jev-secret-guard-last"
+    if [ ! -f "$_secret_guard_marker" ] || [ "$(age_of "$_secret_guard_marker")" -ge 1800 ]; then
+      touch "$_secret_guard_marker"
+      "$SCRIPT_DIR/fm-jev-secret-guard.sh" --json > "$STATE/.jev-secret-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
+  # Pattern 57: Jev Multi-Agent node_modules Bloat & Worktree Duplication Guard
+  if [ "${FM_DISABLE_JEV_NODE_MODULES_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-node-modules-guard.sh" ]; then
+    _node_modules_guard_marker="$STATE/.jev-node-modules-guard-last"
+    if [ ! -f "$_node_modules_guard_marker" ] || [ "$(age_of "$_node_modules_guard_marker")" -ge 1800 ]; then
+      touch "$_node_modules_guard_marker"
+      "$SCRIPT_DIR/fm-jev-node-modules-guard.sh" --json > "$STATE/.jev-node-modules-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+  # Pattern 58: Jev Multi-Agent Docker & Podman Container / Volume Orphan Reaper
+  if [ "${FM_DISABLE_JEV_CONTAINER_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-container-guard.sh" ]; then
+    _container_guard_marker="$STATE/.jev-container-guard-last"
+    if [ ! -f "$_container_guard_marker" ] || [ "$(age_of "$_container_guard_marker")" -ge 1800 ]; then
+      touch "$_container_guard_marker"
+      "$SCRIPT_DIR/fm-jev-container-guard.sh" --json > "$STATE/.jev-container-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+  # Pattern 59: Jev Multi-Agent Pip / Virtualenv Cache & Wheel Orphan Reaper
+  if [ "${FM_DISABLE_JEV_PIP_CACHE_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-pip-cache-guard.sh" ]; then
+    _pip_cache_guard_marker="$STATE/.jev-pip-cache-guard-last"
+    if [ ! -f "$_pip_cache_guard_marker" ] || [ "$(age_of "$_pip_cache_guard_marker")" -ge 1800 ]; then
+      touch "$_pip_cache_guard_marker"
+      "$SCRIPT_DIR/fm-jev-pip-cache-guard.sh" --json > "$STATE/.jev-pip-cache-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+  # Pattern 60: Jev Multi-Agent Host Network Interface Packet Drop & MTU Mismatch Guard
+  if [ "${FM_DISABLE_JEV_NET_DROP_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-net-drop-guard.sh" ]; then
+    _net_drop_guard_marker="$STATE/.jev-net-drop-guard-last"
+    if [ ! -f "$_net_drop_guard_marker" ] || [ "$(age_of "$_net_drop_guard_marker")" -ge 1800 ]; then
+      touch "$_net_drop_guard_marker"
+      "$SCRIPT_DIR/fm-jev-net-drop-guard.sh" --json > "$STATE/.jev-net-drop-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+  # Pattern 61: Jev Multi-Agent Host Clock Drift & NTP Synchronization Guard
+  if [ "${FM_DISABLE_JEV_CLOCK_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-clock-guard.sh" ]; then
+    _clock_guard_marker="$STATE/.jev-clock-guard-last"
+    if [ ! -f "$_clock_guard_marker" ] || [ "$(age_of "$_clock_guard_marker")" -ge 1800 ]; then
+      touch "$_clock_guard_marker"
+      "$SCRIPT_DIR/fm-jev-clock-guard.sh" --json > "$STATE/.jev-clock-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+  # Pattern 62: Jev Multi-Agent Memory-Mapped (mmap) Arena & VMA Guard
+  if [ "${FM_DISABLE_JEV_MMAP_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-mmap-guard.sh" ]; then
+    _mmap_guard_marker="$STATE/.jev-mmap-guard-last"
+    if [ ! -f "$_mmap_guard_marker" ] || [ "$(age_of "$_mmap_guard_marker")" -ge 1800 ]; then
+      touch "$_mmap_guard_marker"
+      "$SCRIPT_DIR/fm-jev-mmap-guard.sh" --json > "$STATE/.jev-mmap-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+  # Pattern 63: Jev Multi-Agent Futex Contention & Thread Stargate Guard
+  if [ "${FM_DISABLE_JEV_FUTEX_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-futex-guard.sh" ]; then
+    _futex_guard_marker="$STATE/.jev-futex-guard-last"
+    if [ ! -f "$_futex_guard_marker" ] || [ "$(age_of "$_futex_guard_marker")" -ge 1800 ]; then
+      touch "$_futex_guard_marker"
+      "$SCRIPT_DIR/fm-jev-futex-guard.sh" --json > "$STATE/.jev-futex-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+  # Pattern 64: Jev Multi-Agent Transparent Huge Pages (THP) & Memory Compaction Stall Guard
+  if [ "${FM_DISABLE_JEV_THP_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-thp-guard.sh" ]; then
+    _thp_guard_marker="$STATE/.jev-thp-guard-last"
+    if [ ! -f "$_thp_guard_marker" ] || [ "$(age_of "$_thp_guard_marker")" -ge 1800 ]; then
+      touch "$_thp_guard_marker"
+      "$SCRIPT_DIR/fm-jev-thp-guard.sh" --json > "$STATE/.jev-thp-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+  # Pattern 65: Jev Multi-Agent POSIX & System V IPC Message Queue Guard
+  if [ "${FM_DISABLE_JEV_MQUEUE_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-mqueue-guard.sh" ]; then
+    _mqueue_guard_marker="$STATE/.jev-mqueue-guard-last"
+    if [ ! -f "$_mqueue_guard_marker" ] || [ "$(age_of "$_mqueue_guard_marker")" -ge 1800 ]; then
+      touch "$_mqueue_guard_marker"
+      "$SCRIPT_DIR/fm-jev-mqueue-guard.sh" --json > "$STATE/.jev-mqueue-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+  # Pattern 66: Jev Multi-Agent Host Hardware Thermal & CPU Core Frequency Throttling Guard
+  if [ "${FM_DISABLE_JEV_THERMAL_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-thermal-guard.sh" ]; then
+    _thermal_guard_marker="$STATE/.jev-thermal-guard-last"
+    if [ ! -f "$_thermal_guard_marker" ] || [ "$(age_of "$_thermal_guard_marker")" -ge 1800 ]; then
+      touch "$_thermal_guard_marker"
+      "$SCRIPT_DIR/fm-jev-thermal-guard.sh" --json > "$STATE/.jev-thermal-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+  # Pattern 67: Jev Multi-Agent Kernel Buddy Allocator & High-Order Page Fragmentation Guard
+  if [ "${FM_DISABLE_JEV_BUDDY_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-buddy-guard.sh" ]; then
+    _buddy_guard_marker="$STATE/.jev-buddy-guard-last"
+    if [ ! -f "$_buddy_guard_marker" ] || [ "$(age_of "$_buddy_guard_marker")" -ge 1800 ]; then
+      touch "$_buddy_guard_marker"
+      "$SCRIPT_DIR/fm-jev-buddy-guard.sh" --json > "$STATE/.jev-buddy-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+  # Pattern 68: Jev Multi-Agent Proactive Memory Compaction & Fragmentation Healer
+  if [ "${FM_DISABLE_JEV_COMPACTION_HEALER:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-compaction-healer.sh" ]; then
+    _compaction_marker="$STATE/.jev-compaction-healer-last"
+    if [ ! -f "$_compaction_marker" ] || [ "$(age_of "$_compaction_marker")" -ge 1800 ]; then
+      touch "$_compaction_marker"
+      "$SCRIPT_DIR/fm-jev-compaction-healer.sh" --json > "$STATE/.jev-compaction-healer-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+  # Pattern 69: Jev Multi-Agent TCP/UDP Socket Buffer & Orphan Connection Guard
+  if [ "${FM_DISABLE_JEV_SOCKSTAT_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-sockstat-guard.sh" ]; then
+    _sockstat_marker="$STATE/.jev-sockstat-guard-last"
+    if [ ! -f "$_sockstat_marker" ] || [ "$(age_of "$_sockstat_marker")" -ge 1800 ]; then
+      touch "$_sockstat_marker"
+      "$SCRIPT_DIR/fm-jev-sockstat-guard.sh" --json > "$STATE/.jev-sockstat-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+  # Pattern 70: Jev Multi-Agent Network Softirq & Packet Processing Backlog Guard
+  if [ "${FM_DISABLE_JEV_SOFTNET_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-softnet-guard.sh" ]; then
+    _softnet_marker="$STATE/.jev-softnet-guard-last"
+    if [ ! -f "$_softnet_marker" ] || [ "$(age_of "$_softnet_marker")" -ge 1800 ]; then
+      touch "$_softnet_marker"
+      "$SCRIPT_DIR/fm-jev-softnet-guard.sh" --json > "$STATE/.jev-softnet-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+  # Pattern 71: Jev Multi-Agent VFS Inode & Dentry Slab Cache Bloat Guard
+  if [ "${FM_DISABLE_JEV_DENTRY_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-dentry-guard.sh" ]; then
+    _dentry_marker="$STATE/.jev-dentry-guard-last"
+    if [ ! -f "$_dentry_marker" ] || [ "$(age_of "$_dentry_marker")" -ge 1800 ]; then
+      touch "$_dentry_marker"
+      "$SCRIPT_DIR/fm-jev-dentry-guard.sh" --json > "$STATE/.jev-dentry-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+  # Pattern 72: Jev Multi-Agent TCP TIME_WAIT Bucket & Socket Port Reuse Guard
+  if [ "${FM_DISABLE_JEV_TW_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-tw-guard.sh" ]; then
+    _tw_marker="$STATE/.jev-tw-guard-last"
+    if [ ! -f "$_tw_marker" ] || [ "$(age_of "$_tw_marker")" -ge 1800 ]; then
+      touch "$_tw_marker"
+      "$SCRIPT_DIR/fm-jev-tw-guard.sh" --json > "$STATE/.jev-tw-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+  # Pattern 73: Jev Multi-Agent System V IPC Shared Memory & Semaphore Array Leak Guard
+  if [ "${FM_DISABLE_JEV_SYSVIPC_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-sysvipc-guard.sh" ]; then
+    _sysvipc_marker="$STATE/.jev-sysvipc-guard-last"
+    if [ ! -f "$_sysvipc_marker" ] || [ "$(age_of "$_sysvipc_marker")" -ge 1800 ]; then
+      touch "$_sysvipc_marker"
+      "$SCRIPT_DIR/fm-jev-sysvipc-guard.sh" --json > "$STATE/.jev-sysvipc-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+  # Pattern 74: Jev Multi-Agent Unix Domain Socket & Abstract Namespace Leak Guard
+  if [ "${FM_DISABLE_JEV_UNIX_SOCKET_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-unix-socket-guard.sh" ]; then
+    _unix_socket_marker="$STATE/.jev-unix-socket-guard-last"
+    if [ ! -f "$_unix_socket_marker" ] || [ "$(age_of "$_unix_socket_marker")" -ge 1800 ]; then
+      touch "$_unix_socket_marker"
+      "$SCRIPT_DIR/fm-jev-unix-socket-guard.sh" --json > "$STATE/.jev-unix-socket-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+  # Pattern 75: Jev Multi-Agent eBPF Map & BPF Program Limit Exhaustion Guard
+  if [ "${FM_DISABLE_JEV_BPF_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-bpf-guard.sh" ]; then
+    _bpf_marker="$STATE/.jev-bpf-guard-last"
+    if [ ! -f "$_bpf_marker" ] || [ "$(age_of "$_bpf_marker")" -ge 1800 ]; then
+      touch "$_bpf_marker"
+      "$SCRIPT_DIR/fm-jev-bpf-guard.sh" --json > "$STATE/.jev-bpf-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+  # Pattern 76: Jev Multi-Agent Kernel Cgroup v2 Memory & PID Controller Throttling Guard
+  if [ "${FM_DISABLE_JEV_CGROUP_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-cgroup-guard.sh" ]; then
+    _cgroup_marker="$STATE/.jev-cgroup-guard-last"
+    if [ ! -f "$_cgroup_marker" ] || [ "$(age_of "$_cgroup_marker")" -ge 1800 ]; then
+      touch "$_cgroup_marker"
+      "$SCRIPT_DIR/fm-jev-cgroup-guard.sh" --json > "$STATE/.jev-cgroup-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+  # Pattern 77: Jev Multi-Agent Ephemeral Port & Local Socket Bind Exhaustion Guard
+  if [ "${FM_DISABLE_JEV_PORT_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-port-guard.sh" ]; then
+    _port_marker="$STATE/.jev-port-guard-last"
+    if [ ! -f "$_port_marker" ] || [ "$(age_of "$_port_marker")" -ge 1800 ]; then
+      touch "$_port_marker"
+      "$SCRIPT_DIR/fm-jev-port-guard.sh" --json > "$STATE/.jev-port-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+  # Pattern 78: Jev Multi-Agent Page Cache Writeback & Dirty Page Throttling Guard
+  if [ "${FM_DISABLE_JEV_DIRTY_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-dirty-guard.sh" ]; then
+    _dirty_marker="$STATE/.jev-dirty-guard-last"
+    if [ ! -f "$_dirty_marker" ] || [ "$(age_of "$_dirty_marker")" -ge 1800 ]; then
+      touch "$_dirty_marker"
+      "$SCRIPT_DIR/fm-jev-dirty-guard.sh" --json > "$STATE/.jev-dirty-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+  # Pattern 79: Jev Multi-Agent Network Socket Backlog & SYN Queue Overflow Guard
+  if [ "${FM_DISABLE_JEV_TCP_BACKLOG_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-tcp-backlog-guard.sh" ]; then
+    _backlog_marker="$STATE/.jev-tcp-backlog-guard-last"
+    if [ ! -f "$_backlog_marker" ] || [ "$(age_of "$_backlog_marker")" -ge 1800 ]; then
+      touch "$_backlog_marker"
+      "$SCRIPT_DIR/fm-jev-tcp-backlog-guard.sh" --json > "$STATE/.jev-tcp-backlog-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+  # Pattern 80: Jev Multi-Agent POSIX File Lock & Kernel flock/fcntl Contention Guard
+  if [ "${FM_DISABLE_JEV_FILELOCK_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-filelock-guard.sh" ]; then
+    _filelock_marker="$STATE/.jev-filelock-guard-last"
+    if [ ! -f "$_filelock_marker" ] || [ "$(age_of "$_filelock_marker")" -ge 1800 ]; then
+      touch "$_filelock_marker"
+      "$SCRIPT_DIR/fm-jev-filelock-guard.sh" --json > "$STATE/.jev-filelock-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+  # Pattern 81: Jev Multi-Agent Kernel Entropy Pool & Hardware RNG Depletion Guard
+  if [ "${FM_DISABLE_JEV_ENTROPY_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-entropy-guard.sh" ]; then
+    _entropy_marker="$STATE/.jev-entropy-guard-last"
+    if [ ! -f "$_entropy_marker" ] || [ "$(age_of "$_entropy_marker")" -ge 1800 ]; then
+      touch "$_entropy_marker"
+      "$SCRIPT_DIR/fm-jev-entropy-guard.sh" --json > "$STATE/.jev-entropy-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+  # Pattern 82: Jev Multi-Agent Linux Process Namespace & Lingering Sandboxed Environment Guard
+  if [ "${FM_DISABLE_JEV_NAMESPACE_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-namespace-guard.sh" ]; then
+    _ns_marker="$STATE/.jev-namespace-guard-last"
+    if [ ! -f "$_ns_marker" ] || [ "$(age_of "$_ns_marker")" -ge 1800 ]; then
+      touch "$_ns_marker"
+      "$SCRIPT_DIR/fm-jev-namespace-guard.sh" --json > "$STATE/.jev-namespace-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+  # Pattern 83: Jev Multi-Agent Core CPU Affinity & NUMA Node Memory Allocation Guard
+  if [ "${FM_DISABLE_JEV_NUMA_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-numa-guard.sh" ]; then
+    _numa_marker="$STATE/.jev-numa-guard-last"
+    if [ ! -f "$_numa_marker" ] || [ "$(age_of "$_numa_marker")" -ge 1800 ]; then
+      touch "$_numa_marker"
+      "$SCRIPT_DIR/fm-jev-numa-guard.sh" --json > "$STATE/.jev-numa-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+  # Pattern 84: Jev Multi-Agent Kernel OOM Score & Process Priority Bias Guard
+  if [ "${FM_DISABLE_JEV_OOM_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-oom-guard.sh" ]; then
+    _oom_marker="$STATE/.jev-oom-guard-last"
+    if [ ! -f "$_oom_marker" ] || [ "$(age_of "$_oom_marker")" -ge 1800 ]; then
+      touch "$_oom_marker"
+      "$SCRIPT_DIR/fm-jev-oom-guard.sh" --json > "$STATE/.jev-oom-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+  # Pattern 85: Jev Multi-Agent Kernel Epoll & Eventfd Descriptor Saturation Guard
+  if [ "${FM_DISABLE_JEV_EPOLL_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-epoll-guard.sh" ]; then
+    _epoll_marker="$STATE/.jev-epoll-guard-last"
+    if [ ! -f "$_epoll_marker" ] || [ "$(age_of "$_epoll_marker")" -ge 1800 ]; then
+      touch "$_epoll_marker"
+      "$SCRIPT_DIR/fm-jev-epoll-guard.sh" --json > "$STATE/.jev-epoll-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
+  # Pattern 226: Jev Terminal Inactive-Outcome Auto-Reconciliation & Wake Guard
+  if [ "${FM_DISABLE_JEV_INACTIVE_RECONCILER:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-inactive-outcome-reconciler.sh" ]; then
+    _inact_marker="$STATE/.jev-inactive-reconciler-last"
+    if [ ! -f "$_inact_marker" ] || [ "$(age_of "$_inact_marker")" -ge 900 ]; then
+      touch "$_inact_marker"
+      "$SCRIPT_DIR/fm-jev-inactive-outcome-reconciler.sh" --json > "$STATE/.jev-inactive-reconciler-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+  # Pattern 228: Jev Multi-Agent Fleet Worker Inbox Stale Backlog & Dead Endpoint Drain Guard
+  if [ "${FM_DISABLE_JEV_STALE_INBOX_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-stale-inbox-guard.sh" ]; then
+    _inbox_marker="$STATE/.jev-stale-inbox-guard-last"
+    if [ ! -f "$_inbox_marker" ] || [ "$(age_of "$_inbox_marker")" -ge 1800 ]; then
+      touch "$_inbox_marker"
+      "$SCRIPT_DIR/fm-jev-stale-inbox-guard.sh" --drain-dead --json > "$STATE/.jev-stale-inbox-guard-telemetry.json" 2>/dev/null || true
+    fi
+  fi
+
+
+
+
+
 
 
 
@@ -2665,6 +3844,17 @@ EOF
         fi
         reason="check: $c: $out"
         if [ "$is_pr_poll" -eq 1 ] && [ "$out" = merged ]; then
+          if [ "$(fm_meta_get "$STATE/$id.meta" kind)" = secondmate ]; then
+            # A merge poll armed on a secondmate is residue: the mate is a
+            # persistent worker, never landed work, and the merge it detected
+            # belongs to a task in the mate's own home. Retire the poll with no
+            # outcome and no wake; bin/fm-pr-check.sh refuses to arm another.
+            retire_merged_pr_poll "$id"
+            pr_poll_control_release || exit 1
+            touch "$STATE/.last-check"
+            triage_log "retired a merge poll armed on secondmate $id without reporting an outcome"
+            continue
+          fi
           if ! fm_merge_authority_read "$STATE" "$id" \
               "$provider" "$host" "$path" "$number"; then
             triage_log "no matching persisted merge authority for $id; recording an external merge outcome"
@@ -2860,7 +4050,7 @@ EOF
     # exemption below, because a mate's steers land in an inbox too.
     [ -z "$task" ] || inbox_steer_check "$w" "$task"
     key=$(window_key "$w")
-    last=$(last_status_line "$STATE/$task.status")
+    last=$(status_declared_wait_line "$STATE/$task.status")
     if ! status_is_paused_or_captain_held "$last" && [ -e "$STATE/.paused-$key" ]; then
       clear_pause_tracking "$key"
     fi
@@ -2955,7 +4145,7 @@ EOF
                   done_verify_out=$("$FM_ROOT/bin/fm-jev-done-verify.sh" --task "$task" --status-line "$last_status" 2>&1) || done_verify_rc=$?
                   if [ "$done_verify_rc" -ne 0 ]; then
                     triage_log "fake-done detected by Jev for $task: $done_verify_out"
-                    fm_wake_append fake-done "$w" "fake-done: $w ($done_verify_out)" || exit 1
+                    fm_wake_append signal "$w" "fake-done: $w ($done_verify_out)" || exit 1
                     stale_wait_record "$key"
                     printf '%s' "$h" > "$sf"
                     rm -f "$ssf"
@@ -3027,7 +4217,7 @@ EOF
             esac
           else
             task=$(window_to_task "$w" "$STATE")
-            if [ -e "$pf" ] || status_is_paused_or_captain_held "$(last_status_line "$STATE/$task.status")"; then
+            if [ -e "$pf" ] || status_is_paused_or_captain_held "$(status_declared_wait_line "$STATE/$task.status")"; then
               case "$(pause_state_class "$w" "$task")" in
                 paused)  handle_paused_stale "$w" "$task" "$h" ;;
                 working) clear_pause_state "$key"
@@ -3057,7 +4247,7 @@ EOF
         # is cleared - but not in the same poll the declared-pause cadence just
         # recorded it, or the re-surface throttle it depends on would be erased and
         # the pause would re-surface every poll instead of once per long cadence.
-        if [ "$paused_bound" -ne 0 ] && [ -e "$pf" ] && { [ "$n" -ge 2 ] || ! status_is_paused_or_captain_held "$(last_status_line "$STATE/$(window_to_task "$w" "$STATE").status")"; }; then
+        if [ "$paused_bound" -ne 0 ] && [ -e "$pf" ] && { [ "$n" -ge 2 ] || ! status_is_paused_or_captain_held "$(status_declared_wait_line "$STATE/$(window_to_task "$w" "$STATE").status")"; }; then
           clear_pause_tracking "$key"
         fi
       fi
@@ -3072,7 +4262,7 @@ EOF
         clear_write_tracking "$key"
       fi
       task=$(window_to_task "$w" "$STATE")
-      if ! afk_present && status_is_paused_or_captain_held "$(last_status_line "$STATE/$task.status")" && [ "$busy_now" -ne 0 ]; then
+      if ! afk_present && status_is_paused_or_captain_held "$(status_declared_wait_line "$STATE/$task.status")" && [ "$busy_now" -ne 0 ]; then
         case "$(pause_state_class "$w" "$task")" in
           paused) handle_paused_stale "$w" "$task" "$h" ;;
           # Inconclusive, but the declared wait itself still stands, so only the
