@@ -56,8 +56,9 @@
 # FM_SOS_PROJECT (default $FM_HOME/projects/portal), FM_SOS_MODE, FM_SOS_YOLO,
 # FM_SOS_PRIORITY (default 1), FM_SOS_DUE (default +2w), FM_SOS_GH (gh
 # command), FM_SOS_CURL (curl),
-# FM_SOS_TASKS / FM_SOS_SPAWN / FM_SOS_BRIEF / FM_SOS_WHEN (the sibling
-# firstmate commands, overridable so tests can substitute a stub).
+# FM_SOS_TASKS / FM_SOS_SPAWN / FM_SOS_BRIEF / FM_SOS_WHEN /
+# FM_SOS_RESOLVE (the sibling firstmate commands, overridable so tests can
+# substitute a stub).
 #
 # State (all under $FM_HOME/state/): fm-sos-intake.cursor (bridge event id),
 # fm-sos-intake.log (append-only ledger of handled effects),
@@ -81,6 +82,7 @@ TASKS="${FM_SOS_TASKS:-$BIN/fm-tasks-axi.sh}"
 SPAWN="${FM_SOS_SPAWN:-$BIN/fm-spawn.sh}"
 BRIEF="${FM_SOS_BRIEF:-$BIN/fm-brief.sh}"
 WHEN="${FM_SOS_WHEN:-$BIN/fm-procevent-when.sh}"
+RESOLVE="${FM_SOS_RESOLVE:-$BIN/fm-dispatch-resolve.sh}"
 
 STATE_DIR="$FM_HOME/state"
 CURSOR_FILE="$STATE_DIR/fm-sos-intake.cursor"
@@ -470,6 +472,16 @@ cmd_status() {
   done
   echo "reopened tickets:"
   grep -F "reopened key=" "$LEDGER" 2>/dev/null | sed 's/^/  /' || true
+  echo "dispatch-blocked:"
+  awk '
+    $1 == "dispatch-blocked" || ($1 == "dispatch" && $2 ~ /^key=/) {
+      k = $2 SUBSEP $3
+      last[k] = $1
+      line[k] = $0
+      if (!(k in seen)) { order[++n] = k; seen[k] = 1 }
+    }
+    END { for (i = 1; i <= n; i++) { k = order[i]; if (last[k] == "dispatch-blocked") print "  " line[k] } }
+  ' "$LEDGER" 2>/dev/null || true
 }
 
 cmd_reconcile() {
@@ -575,7 +587,12 @@ cmd_reconcile() {
     fi
 
     if [ "$issue_open" -eq 1 ] && [ "$reopened" -eq 0 ] && ! ledger_has "dispatch key=$key issue=$issue"; then
-      dispatch_ticket "$key" "$issue" || { echo "failed: dispatch for #$issue" >&2; cursor_blocked=1; continue; }
+      dispatch_ticket "$key" "$issue" || {
+        echo "dispatch-blocked key=$key issue=$issue reason=${DISPATCH_BLOCKED_REASON:-failed}" >&2
+        log_line "dispatch-blocked key=$key issue=$issue reason=${DISPATCH_BLOCKED_REASON:-failed}"
+        cursor_blocked=1
+        continue
+      }
       dispatched=$((dispatched + 1))
     fi
 
@@ -598,7 +615,9 @@ cmd_reconcile() {
 
 dispatch_ticket() {
   local key="$1" issue="$2"
-  local task_id brief brief_mode
+  local task_id brief brief_mode resolve_out profile_line
+  local -a profile_args=()
+  DISPATCH_BLOCKED_REASON=""
   task_id=$(task_id_for_key "$key")
   brief="$FM_HOME/data/$task_id/brief.md"
   if [ -f "$brief" ]; then
@@ -611,8 +630,26 @@ dispatch_ticket() {
     FM_HOME="$FM_HOME" "$BRIEF" "$task_id" portal --mode "$MODE" >/dev/null || return 1
   fi
   fill_brief "$brief" "$key" "$issue" || return 1
+  if [ -f "$FM_HOME/config/crew-dispatch.json" ]; then
+    resolve_out=$("$RESOLVE" "$brief" --project portal 2>&1 || true)
+    profile_line=$(printf '%s\n' "$resolve_out" | sed -n 's/^  profile: //p' | head -n 1)
+    if [ -z "$profile_line" ]; then
+      DISPATCH_BLOCKED_REASON=$(printf '%s\n' "$resolve_out" | sed -n 's/^  status: //p' | head -n 1)
+      [ -n "$DISPATCH_BLOCKED_REASON" ] || DISPATCH_BLOCKED_REASON=resolver-off
+      return 1
+    fi
+    if ! eval "profile_args=($profile_line)"; then
+      DISPATCH_BLOCKED_REASON=profile-parse-failed
+      return 1
+    fi
+    if [ "${#profile_args[@]}" -lt 2 ] || [ "${profile_args[0]}" != "--harness" ]; then
+      DISPATCH_BLOCKED_REASON=profile-incomplete
+      return 1
+    fi
+  fi
   FM_HOME="$FM_HOME" "$SPAWN" "$task_id" "$PROJECT_DIR" \
-    --mode "$MODE" --yolo "$YOLO" >/dev/null || return 1
+    ${profile_args[@]+"${profile_args[@]}"} --mode "$MODE" --yolo "$YOLO" >/dev/null \
+    || { DISPATCH_BLOCKED_REASON=spawn-failed; return 1; }
   log_line "dispatch key=$key issue=$issue task=$task_id" || return 1
   echo "dispatched: $task_id (GH #$issue)"
 }

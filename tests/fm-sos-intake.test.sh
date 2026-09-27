@@ -714,7 +714,8 @@ SH
   out=$(run_intake "$parts" reconcile 2>&1)
   rc=$?
   expect_code 1 "$rc" "a failed spawn must leave the pass blocked: $out"
-  assert_contains "$out" "failed: dispatch" "the spawn failure must be reported: $out"
+  assert_contains "$out" "dispatch-blocked key=$SOS_UUID issue=$GH_ISSUE reason=spawn-failed" \
+    "the spawn failure must be reported as a dispatch block: $out"
   assert_no_grep "dispatch key=" "$home/state/fm-sos-intake.log" \
     "a failed spawn must not write the once-only dispatch guard"
 
@@ -1116,6 +1117,72 @@ EOF
   pass "a never-dispatched reopened ticket still launches nothing"
 }
 
+test_dispatch_consults_the_profile_and_completes() {
+  local parts home fd fb out
+  parts=$(setup_case profile)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  fb=$(printf '%s' "$parts" | cut -d'|' -f2)
+  mkdir -p "$home/config"
+  printf '%s\n' '{"rules":[{"when":"sos","profiles":[{"harness":"fleet-claude"}]}]}' \
+    > "$home/config/crew-dispatch.json"
+  cat > "$fb/fm-dispatch-resolve" <<SH
+#!/usr/bin/env bash
+printf '%s\\n' 'dispatch-resolve:' '  status: clear' '  profile: --harness fleet-claude'
+SH
+  chmod +x "$fb/fm-dispatch-resolve"
+
+  out=$(FM_SOS_RESOLVE="$fb/fm-dispatch-resolve" run_intake "$parts" reconcile 2>&1) \
+    || fail "reconcile failed: $out"
+  assert_contains "$out" "dispatched=1" "the ticket must dispatch: $out"
+  assert_contains "$(cat "$fd/spawn.log" 2>/dev/null)" "--harness fleet-claude --mode no-mistakes" \
+    "the spawn must receive the resolved profile alongside --mode"
+  assert_grep "dispatch key=" "$home/state/fm-sos-intake.log" \
+    "the dispatch must be recorded"
+  assert_equals "1" "$(cat "$home/state/fm-sos-intake.cursor")" "the cursor must advance"
+  pass "reconcile consults the dispatch profile and completes end to end"
+}
+
+test_unresolvable_profile_blocks_the_dispatch_loudly() {
+  local parts home fd fb out rc
+  parts=$(setup_case profileblocked)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  fb=$(printf '%s' "$parts" | cut -d'|' -f2)
+  mkdir -p "$home/config"
+  printf '%s\n' '{"rules":[{"when":"sos","profiles":[{"harness":"fleet-claude"}]}]}' \
+    > "$home/config/crew-dispatch.json"
+  cat > "$fb/fm-dispatch-resolve" <<SH
+#!/usr/bin/env bash
+printf '%s\\n' 'dispatch-resolve:' '  status: escalate' '  reason: approval required'
+SH
+  chmod +x "$fb/fm-dispatch-resolve"
+
+  out=$(FM_SOS_RESOLVE="$fb/fm-dispatch-resolve" run_intake "$parts" reconcile 2>&1)
+  rc=$?
+  expect_code 1 "$rc" "an unresolvable profile must fail the pass: $out"
+  assert_contains "$out" "dispatch-blocked key=$SOS_UUID issue=$GH_ISSUE reason=escalate" \
+    "the named, greppable line must appear: $out"
+  assert_grep "dispatch-blocked key=$SOS_UUID issue=$GH_ISSUE" \
+    "$home/state/fm-sos-intake.log" "the block must be durable in the ledger"
+  assert_contains "$(run_intake "$parts" status 2>&1)" \
+    "dispatch-blocked key=$SOS_UUID issue=$GH_ISSUE" "status must surface the block"
+  assert_absent "$home/state/fm-sos-intake.cursor" "the cursor must not advance"
+  assert_equals "0" "$(count_of 'fm-spawn' "$fd/spawn.log")" "no crewmate may launch"
+  pass "an unresolvable profile blocks the dispatch loudly and stays owed"
+}
+
+test_skill_documents_profile_dispatch() {
+  local skill="$ROOT/.agents/skills/sos-dispatch-loop/SKILL.md"
+  assert_grep "resolves the concrete profile" "$skill" \
+    "the SKILL must document profile-consulting dispatch"
+  assert_grep "dispatch-blocked" "$skill" \
+    "the SKILL must document the dispatch-blocked class"
+  assert_grep "surfaces it through \`bin/fm-sos-intake.sh status\`" "$skill" \
+    "the SKILL must document the status surface"
+  pass "the SKILL documents profile-consulting dispatch and its blocked class"
+}
+
 test_reconcile_creates_one_task_comment_watch_and_dispatch
 test_reconcile_is_idempotent_across_replays_and_lost_cursors
 test_lost_event_is_healed_from_github
@@ -1146,3 +1213,6 @@ test_tool_flags_are_capability_gated_per_run
 test_tool_flags_pass_through_when_the_tool_and_backend_allow_them
 test_reopened_issue_after_terminal_is_loud_once
 test_reopened_without_a_dispatch_still_launches_nothing
+test_dispatch_consults_the_profile_and_completes
+test_unresolvable_profile_blocks_the_dispatch_loudly
+test_skill_documents_profile_dispatch
