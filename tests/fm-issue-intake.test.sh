@@ -102,6 +102,7 @@ SH
 set -u
 FAKE="${FM_ISSUE_FAKE_DIR:?}"
 echo "fm-spawn $*" >> "$FAKE/spawn.log"
+[ -f "$FAKE/spawn-fail" ] && exit 1
 exit 0
 SH
 
@@ -315,6 +316,104 @@ SH
   assert_equals "1" "$(count_of 'fm-spawn' "$fd/spawn.log")" \
     "the ordinary dispatch path still spawns once"
   pass "a stale pre-rename watch is retired and re-armed against the renamed script"
+}
+
+test_two_pass_marker_less_ticket_stays_one_ticket() {
+  local parts home fd out
+  parts=$(setup_case two-pass-marker-less)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  cat > "$fd/gh-list.json" <<EOF
+[{"number":$GH_ISSUE,"url":"https://github.com/ArcsHealth/Portal/issues/$GH_ISSUE","title":"SOS: reported problem","body":"### SOS Voice Ticket\ntranscribed report with no SOS marker"}]
+EOF
+
+  # Pass 1: the bridge event and the open marker-less issue fold into one
+  # candidate keyed on the event's dedupeKey.
+  out=$(run_intake "$parts" reconcile) || fail "pass 1 failed: $out"
+  assert_contains "$out" "task_created=1" "pass 1 must create one row: $out"
+  assert_contains "$out" "dispatched=1" "pass 1 must dispatch: $out"
+
+  # Pass 2: the bridge is drained; only the GH-heal axis offers the same
+  # ticket, under the gh-issue fallback key.
+  set_bridge_empty "$fd"
+  out=$(run_intake "$parts" reconcile) || fail "pass 2 failed: $out"
+  assert_contains "$out" "task_created=0" "pass 2 must not mint a second row: $out"
+  assert_contains "$out" "dispatched=0" "pass 2 must not re-dispatch: $out"
+  assert_equals "1" "$(count_of 'Issue intake' "$fd/comments.log")" \
+    "one dispatched comment across both passes"
+  assert_equals "1" "$(count_of 'fm-spawn' "$fd/spawn.log")" \
+    "one spawn across both passes"
+  assert_equals "1" "$(count_of 'jev verdict' "$fd/jev.log")" \
+    "one verdict across both passes: $(cat "$fd/jev.log" 2>/dev/null)"
+  task_present "$parts" || fail "the uuid row must own the ticket"
+  if FM_HOME="$home" "$TASKS_AXI" show "fm-iss-gh-issue-$GH_ISSUE" >/dev/null 2>&1; then
+    fail "the heal pass must not mint a gh-issue row for the same ticket"
+  fi
+  pass "a marker-less ticket stays one ticket across the event and heal passes"
+}
+
+test_failed_spawn_is_retried_and_never_ledgered() {
+  local parts home fd out ledger
+  parts=$(setup_case spawn-fail)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  ledger="$home/state/fm-issue-intake.log"
+  touch "$fd/spawn-fail"
+
+  out=$(run_intake "$parts" reconcile 2>&1) || fail "reconcile failed: $out"
+  assert_contains "$out" "failed: dispatch" "the spawn failure must be reported: $out"
+  assert_contains "$out" "dispatched=0" "a failed spawn must not count as dispatched: $out"
+  assert_equals "0" "$(count_of 'dispatch key=' "$ledger")" \
+    "a failed spawn must never be ledgered as dispatched"
+  assert_absent "$home/state/fm-issue-intake.cursor" \
+    "the failed dispatch must block the cursor"
+  assert_equals "1" "$(count_of 'fm-spawn' "$fd/spawn.log")" \
+    "the spawn was attempted once"
+
+  rm -f "$fd/spawn-fail"
+  out=$(run_intake "$parts" reconcile 2>&1) || fail "retry failed: $out"
+  assert_contains "$out" "dispatched=1" "the ticket must dispatch on retry: $out"
+  assert_equals "1" "$(count_of 'dispatch key=' "$ledger")" \
+    "exactly one dispatch record after the retry"
+  assert_equals "2" "$(count_of 'fm-spawn' "$fd/spawn.log")" \
+    "one failed attempt plus one real spawn"
+  assert_equals "1" "$(count_of 'Issue intake' "$fd/comments.log")" \
+    "the retry must not re-comment"
+  assert_equals "1" "$(cat "$home/state/fm-issue-intake.cursor")" \
+    "the cursor must advance once the dispatch lands"
+  pass "a failed spawn is retried and never ledgered as dispatched"
+}
+
+test_watch_fire_never_captain_closes_a_declined_issue() {
+  local parts home fd out ledger
+  parts=$(setup_case decline-watch)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  ledger="$home/state/fm-issue-intake.log"
+
+  # An ops run arms the watch and dispatches; a later gate-on run declines
+  # and closes the same ticket.
+  out=$(run_intake "$parts" reconcile --no-verdict) || fail "ops pass failed: $out"
+  assert_contains "$out" "dispatched=1" "the ops pass must dispatch: $out"
+  printf 'not_supported\n' > "$fd/jev-verdict"
+  : > "$fd/allow-close"
+  out=$(run_intake "$parts" reconcile) || fail "decline pass failed: $out"
+  assert_contains "$out" "declined=1" "the decline must land: $out"
+
+  # The tolerated row-close failure leaves no task-closed record behind.
+  grep -v '^task-closed key=' "$ledger" > "$ledger.tmp"
+  mv "$ledger.tmp" "$ledger"
+
+  out=$(run_intake "$parts" watch-fire "$GH_ISSUE" "$SOS_UUID") || fail "watch-fire failed: $out"
+  assert_contains "$out" "declined-recorded" \
+    "watch-fire must recognize the decline record itself: $out"
+  assert_no_grep "Closed by the captain" "$fd/comments.log" \
+    "a declined issue must never get a captain-closed comment"
+  assert_equals "2" "$(count_of '' "$fd/comments.log")" \
+    "only the dispatched and declined comments exist"
+  assert_no_grep "closed key=" "$ledger" \
+    "the decline never authorizes the reporter handoff marker"
+  pass "watch-fire never captain-closes an issue intake declined"
 }
 
 test_reconcile_creates_one_task_comment_watch_and_dispatch() {
@@ -608,3 +707,6 @@ test_decline_comments_once_even_when_the_close_fails
 test_event_without_a_url_keeps_row_and_cursor_aligned
 test_one_github_issue_is_never_two_candidates
 test_stale_pre_rename_watch_is_retired_and_rearmed
+test_two_pass_marker_less_ticket_stays_one_ticket
+test_failed_spawn_is_retried_and_never_ledgered
+test_watch_fire_never_captain_closes_a_declined_issue

@@ -110,6 +110,15 @@ ledger_has() {
   [ -f "$LEDGER" ] && grep -qF "$1" "$LEDGER"
 }
 
+ledger_recorded() {  # <record prefix> -> 0 iff a line with exactly that prefix exists
+  [ -f "$LEDGER" ] && grep -q "^$1 at=" "$LEDGER"
+}
+
+task_key_for_issue() {  # <issue> -> the key first ledgered for this issue, else empty
+  [ -f "$LEDGER" ] || return 0
+  sed -n "s/^task key=\([^ ]*\) issue=$1 task=[^ ]* at=.*$/\1/p" "$LEDGER" | head -1
+}
+
 die() {
   echo "error: $1" >&2
   exit 1
@@ -382,6 +391,7 @@ except Exception:
     echo captain_review
     return 0
   fi
+  trap "rm -f -- $(printf '%q' "$body_file")" EXIT
   printf '%s' "$body" > "$body_file"
   local -a vargs=(verdict --repo "$GH_REPO" --issue "$issue" --title "$title"
                   --body-file "$body_file" --labels "$labels" --json)
@@ -389,7 +399,6 @@ except Exception:
     vargs+=(--intent-file "$INTENT")
   fi
   out=$("$JEV" "${vargs[@]}" 2>/dev/null || true)
-  rm -f "$body_file"
   printf '%s' "$out" \
     | python3 -c 'import json, sys
 try:
@@ -431,7 +440,11 @@ cmd_watch_fire() {
   local issue="${1:-}" key="${2:-}"
   [ -n "$issue" ] || die "watch-fire requires <issue-number> <sos-key>"
   [ -n "$key" ] || die "watch-fire requires <sos-key>"
-  if ledger_has "closed key=$key issue=$issue"; then
+  if ledger_recorded "declined key=$key issue=$issue"; then
+    echo "declined-recorded: $issue"
+    return 0
+  fi
+  if ledger_recorded "closed key=$key issue=$issue"; then
     echo "already-closed-recorded: $issue"
     return 0
   fi
@@ -499,11 +512,13 @@ cmd_reconcile() {
     return 0
   fi
 
-  local key issue url event_id ensured_state verdict watch_spec
+  local key issue url event_id ensured_state verdict watch_spec canonical_key
   while IFS=$'\t' read -r key issue url event_id; do
     [ -n "$key" ] || continue
     [ -n "$issue" ] || { echo "skip: key=$key carries no GitHub issue" >&2; continue; }
     if [ "$url" = "-" ]; then url=""; fi
+    canonical_key=$(task_key_for_issue "$issue")
+    if [ -n "$canonical_key" ]; then key="$canonical_key"; fi
 
     if [ "$dry_run" -eq 1 ]; then
       if tasks_axi show "$(task_id_for_key "$key")" >/dev/null 2>&1; then
@@ -514,6 +529,15 @@ cmd_reconcile() {
       continue
     fi
 
+    watch_spec="$STATE_DIR/when/when-sos-$issue.spec"
+    if [ -f "$watch_spec" ] && grep -q "fm-sos-intake.sh" "$watch_spec"; then
+      if ! FM_HOME="$FM_HOME" "$WHEN" retire "sos-$issue" >/dev/null; then
+        echo "failed: retire pre-rename watch for #$issue" >&2
+        cursor_blocked=1
+        continue
+      fi
+    fi
+
     ensured_state=$(task_ensure "$key" "$issue" "$url") || ensured_state=failed
     case "$ensured_state" in
       failed)
@@ -522,11 +546,13 @@ cmd_reconcile() {
         continue
         ;;
       new)
-        log_line "task key=$key issue=$issue task=$(task_id_for_key "$key")"
         created=$((created + 1))
         ;;
     esac
     ensured=$((ensured + 1))
+    if [ -z "$(task_key_for_issue "$issue")" ]; then
+      log_line "task key=$key issue=$issue task=$(task_id_for_key "$key")"
+    fi
 
     # Worth-supporting gate: decide once, act once, never re-decide on replay.
     if [ "$do_verdict" -eq 1 ]; then
@@ -570,14 +596,6 @@ cmd_reconcile() {
       log_line "comment key=$key issue=$issue transition=dispatched"
     fi
 
-    watch_spec="$STATE_DIR/when/when-sos-$issue.spec"
-    if [ -f "$watch_spec" ] && grep -q "fm-sos-intake.sh" "$watch_spec"; then
-      if ! FM_HOME="$FM_HOME" "$WHEN" retire "sos-$issue" >/dev/null; then
-        echo "failed: retire pre-rename watch for #$issue" >&2
-        cursor_blocked=1
-        continue
-      fi
-    fi
     if [ ! -f "$watch_spec" ]; then
       FM_HOME="$FM_HOME" "$WHEN" arm "sos-$issue" \
         --condition "$BIN/fm-issue-intake.sh" watch-condition "$issue" \
@@ -610,18 +628,18 @@ dispatch_ticket() {
   local task_id
   task_id=$(task_id_for_key "$key")
   if [ ! -f "$FM_HOME/data/$task_id/brief.md" ]; then
-    FM_HOME="$FM_HOME" "$BRIEF" "$task_id" portal --mode "$MODE" >/dev/null
+    FM_HOME="$FM_HOME" "$BRIEF" "$task_id" portal --mode "$MODE" >/dev/null || return 1
   fi
-  fill_brief "$FM_HOME/data/$task_id/brief.md" "$key" "$issue"
+  fill_brief "$FM_HOME/data/$task_id/brief.md" "$key" "$issue" || return 1
   FM_HOME="$FM_HOME" "$SPAWN" "$task_id" "$PROJECT_DIR" \
-    --mode "$MODE" --yolo "$YOLO" >/dev/null
+    --mode "$MODE" --yolo "$YOLO" >/dev/null || return 1
   log_line "dispatch key=$key issue=$issue task=$task_id"
   echo "dispatched: $task_id (GH #$issue)"
 }
 
 fill_brief() {
   local brief="$1" key="$2" issue="$3"
-  [ -f "$brief" ] || die "brief missing: $brief"
+  [ -f "$brief" ] || return 1
   python3 - "$brief" "$key" "$issue" "$GH_REPO" <<'PY'
 import sys
 

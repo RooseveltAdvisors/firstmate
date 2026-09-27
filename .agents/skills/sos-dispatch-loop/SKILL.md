@@ -55,9 +55,12 @@ supports - one dispatched crewmate.
 - `never-true`: the deadline passed with the issue still open.
   Surface the ticket to the captain as review work; do not re-arm blindly.
 - `action-failed` or `condition-error`: the fire or its effect is uncertain.
-  Verify manually, then run `bin/fm-issue-intake.sh reconcile`, which re-arms
-  the watch while the issue is still open (a watch that already fired is
-  never re-armed for a closed issue's work).
+  Verify manually, acknowledge the wake with `bin/fm-procevent.sh handled`,
+  and retire the dead spec with `bin/fm-procevent-when.sh retire sos-<issue>`
+  (an unacknowledged captured round blocks the retire); only then does
+  `bin/fm-issue-intake.sh reconcile` re-arm the watch, while the issue is
+  still open (a watch that already fired is never re-armed for a closed
+  issue's work).
 - A late replay after a successful fire may arm one redundant watch; the
   ledger's `closed` line makes its fire a no-op.
 
