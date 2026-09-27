@@ -183,12 +183,12 @@ task_id_for_key() {
 }
 
 # key_for_issue <issue> <derived-key>: print the key the ledger recorded for
-# this issue's task row, else the derived key when no row is recorded.
+# this issue, else the derived key when no record exists.
 key_for_issue() {
   local issue="$1" derived="$2" known=""
   if [ -f "$LEDGER" ]; then
     known=$(awk -v want="$issue" \
-      '$1 == "task" && $2 ~ /^key=/ && $3 == "issue=" want { print substr($2, 5); exit }' \
+      '$2 ~ /^key=/ && $3 == "issue=" want { print substr($2, 5); exit }' \
       "$LEDGER") || known=""
   fi
   printf '%s\n' "${known:-$derived}"
@@ -272,12 +272,12 @@ def norm(value):
 by_issue = {}
 order = []
 
-def ensure(issue, url, event_id, body_uuid="", event_key="", fallback=""):
+def ensure(issue, url, event_id, body_uuid="", event_key="", fallback="", listed=False):
     if not issue:
         return
     entry = by_issue.get(issue)
     if entry is None:
-        entry = by_issue[issue] = {"body": "", "event": "", "fallback": "", "url": "", "event_id": "-"}
+        entry = by_issue[issue] = {"body": "", "event": "", "fallback": "", "url": "", "event_id": "-", "listed": False}
         order.append(issue)
     for field, value in (("body", body_uuid), ("event", event_key), ("fallback", fallback)):
         if value and not entry[field]:
@@ -286,6 +286,8 @@ def ensure(issue, url, event_id, body_uuid="", event_key="", fallback=""):
         entry["url"] = url
     if entry["event_id"] == "-" and event_id != "-":
         entry["event_id"] = event_id
+    if listed:
+        entry["listed"] = True
 
 for ev in events:
     payload = ev.get("payload") or {}
@@ -305,12 +307,13 @@ for item in gh:
         "-",
         body_uuid=norm(m.group(1)) if m else "",
         fallback=FALLBACK.format(item.get("number")),
+        listed=True,
     )
 
 for issue in order:
     entry = by_issue[issue]
     key = entry["body"] or entry["event"] or entry["fallback"] or FALLBACK.format(issue)
-    print("\t".join([key, str(issue), entry["url"], entry["event_id"]]))
+    print("\t".join([key, str(issue), entry["url"], entry["event_id"], "open" if entry["listed"] else "-"]))
 ' "$events_file" "$gh_file"
 }
 
@@ -477,8 +480,8 @@ cmd_reconcile() {
     return 0
   fi
 
-  local key issue url event_id ensured_state
-  while IFS=$'\t' read -r key issue url event_id; do
+  local key issue url event_id listed issue_open ensured_state
+  while IFS=$'\t' read -r key issue url event_id listed; do
     [ -n "$key" ] || continue
     [ -n "$issue" ] || { echo "skip: key=$key carries no GitHub issue" >&2; continue; }
     key=$(key_for_issue "$issue" "$key")
@@ -490,6 +493,12 @@ cmd_reconcile() {
         echo "would-create: task $(task_id_for_key "$key") (GH #$issue)"
       fi
       continue
+    fi
+
+    issue_open=1
+    if [ "$listed" != open ] && gh_state "$issue"; then
+      issue_open=0
+      echo "skip: #$issue is closed; no dispatched comment or crewmate"
     fi
 
     ensured_state=$(task_ensure "$key" "$issue" "$url") || ensured_state="${ensured_state:-failed}"
@@ -508,7 +517,7 @@ cmd_reconcile() {
         ;;
     esac
 
-    if ! ledger_has "issue=$issue transition=dispatched"; then
+    if [ "$issue_open" -eq 1 ] && ! ledger_has "issue=$issue transition=dispatched"; then
       gh_comment "$issue" "$(comment_body dispatched "$key" "$issue" "" "$(task_id_for_key "$key")")" \
         || { echo "failed: dispatched comment on #$issue" >&2; cursor_blocked=1; continue; }
       log_line "comment key=$key issue=$issue transition=dispatched"
@@ -528,7 +537,7 @@ cmd_reconcile() {
       log_line "watch key=$key issue=$issue"
     fi
 
-    if [ "$do_dispatch" -eq 1 ] && ! ledger_has "dispatch key=$key issue=$issue"; then
+    if [ "$do_dispatch" -eq 1 ] && [ "$issue_open" -eq 1 ] && ! ledger_has "dispatch key=$key issue=$issue"; then
       dispatch_ticket "$key" "$issue" || { echo "failed: dispatch for #$issue" >&2; cursor_blocked=1; continue; }
       dispatched=$((dispatched + 1))
     fi

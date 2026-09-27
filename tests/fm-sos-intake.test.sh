@@ -697,6 +697,73 @@ SH
   pass "dispatch re-scaffolds a brief recorded for another delivery mode"
 }
 
+test_ticket_key_stabilizes_before_the_first_successful_ensure() {
+  local parts home fd out rc
+  parts=$(setup_case keystable)
+  home=${parts%%|*}
+  fd=${parts##*|}
+
+  # Marker-less body and no event yet: the derived key is the fallback, and
+  # the backlog backend refuses the row.
+  cat > "$fd/gh-list.json" <<EOF
+[{"number":$GH_ISSUE,"url":"https://github.com/ArcsHealth/Portal/issues/$GH_ISSUE","title":"SOS: reported problem","body":"report text with no id marker"}]
+EOF
+  set_bridge_empty "$fd"
+  cat > "$fd/tasks-broken" <<SH
+#!/usr/bin/env bash
+case "\${1:-}" in
+  add) echo 'error: backlog backend unavailable' >&2; exit 2 ;;
+esac
+exec "$TASKS_AXI" "\$@"
+SH
+  chmod +x "$fd/tasks-broken"
+
+  out=$(FM_SOS_TASKS_OVERRIDE="$fd/tasks-broken" run_intake "$parts" reconcile 2>&1)
+  rc=$?
+  expect_code 1 "$rc" "a failing ensure must leave the pass owed: $out"
+  assert_equals "1" "$(count_of 'fm-spawn' "$fd/spawn.log")" \
+    "the first pass must dispatch the marker-less ticket: $out"
+
+  # The bridge recovers: the deferred event carries the SOS uuid.
+  set_bridge_events "$fd" 1 "$SOS_UUID" "$GH_ISSUE"
+  out=$(FM_SOS_TASKS_OVERRIDE="$fd/tasks-broken" run_intake "$parts" reconcile 2>&1)
+  rc=$?
+  expect_code 1 "$rc" "the ensure is still owed: $out"
+  assert_equals "1" "$(count_of 'fm-spawn' "$fd/spawn.log")" \
+    "one ticket must never dispatch a second crewmate: $out"
+  assert_equals "1" "$(count_of 'SOS dispatch' "$fd/comments.log")" \
+    "one ticket must never post a second dispatched comment: $(cat "$fd/comments.log" 2>/dev/null)"
+  assert_grep "dispatch key=gh-issue-$GH_ISSUE issue=$GH_ISSUE" \
+    "$home/state/fm-sos-intake.log" "the first recorded key must stay the ticket's key"
+  pass "the issue key stabilizes before the first successful ensure"
+}
+
+test_event_for_a_closed_issue_gets_no_comment_or_crewmate() {
+  local parts home fd out
+  parts=$(setup_case closedevent)
+  home=${parts%%|*}
+  fd=${parts##*|}
+
+  # The event arrives after the captain closed the ticket: absent from the
+  # open list, and gh reports it closed.
+  printf '[]\n' > "$fd/gh-list.json"
+  echo '{"state":"CLOSED"}' > "$fd/gh-state-$GH_ISSUE"
+
+  out=$(run_intake "$parts" reconcile 2>&1) || fail "reconcile failed: $out"
+  assert_contains "$out" "skip: #$GH_ISSUE is closed" \
+    "the closed ticket must be reported as skipped: $out"
+  task_present "$parts" || fail "the row must still be ensured for a late-discovered closed ticket"
+  assert_present "$home/state/procevent/when-sos-$GH_ISSUE.source" \
+    "the close watch must still be armed: $out"
+  [ ! -f "$fd/comments.log" ] || \
+    fail "a closed ticket must not get the dispatched comment: $(cat "$fd/comments.log")"
+  [ ! -f "$fd/spawn.log" ] || \
+    fail "a closed ticket must not spawn a crewmate: $(cat "$fd/spawn.log")"
+  assert_equals "1" "$(cat "$home/state/fm-sos-intake.cursor")" \
+    "the event must still be consumed"
+  pass "a bridge event for a closed ticket keeps its row and watch but no dispatch"
+}
+
 test_reconcile_creates_one_task_comment_watch_and_dispatch
 test_reconcile_is_idempotent_across_replays_and_lost_cursors
 test_lost_event_is_healed_from_github
@@ -718,3 +785,5 @@ test_reconcile_does_not_rearm_after_a_terminal_verdict
 test_reconcile_rearms_after_a_run_that_did_not_complete
 test_failed_dispatch_stays_owed_and_is_retried
 test_dispatch_rescaffolds_a_brief_recorded_for_another_mode
+test_ticket_key_stabilizes_before_the_first_successful_ensure
+test_event_for_a_closed_issue_gets_no_comment_or_crewmate
