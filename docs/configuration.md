@@ -1417,12 +1417,15 @@ lane <name> [inbox-path]
 
 **Thresholds, and why each default is what it is**
 
-- `W=900` is the supervision beat age at which a lane's own supervision counts as stopped. A healthy home beats every 20 to 180 seconds, so 900 is several missed beats rather than one slow poll. A beat older than half of `W` but under it reads `degraded` instead of `dead`.
+- `W=900` is the supervision beat age at which a lane's own supervision counts as stopped. A healthy home beats every 20 to 180 seconds, so 900 is several missed beats rather than one slow poll.
+  A beat older than half of `W` but under it reads `degraded` instead of `dead`.
+  A supervision beat that cannot be established at all, reported as `watcher_beat_age_s=-`, counts as stopped rather than fresh, because unknown is never zero and the rail applies that same rule to supervision that it applies to inboxes.
 - `D=1800` is how long the oldest unhandled message may sit in a lane that has never handled anything before that lane counts as dead. Half an hour outlasts any normal turn, so a busy worker is not called dead, while a lane that has taken nothing in days is unambiguous.
+  The same drain counts as dead when the lane's agent is proven absent (`agent_status=dead` or `missing`), whatever its handled history, because a proven-absent agent will never move those messages to `handled/`.
 - `E=600` is how long a transport or budget error class must hold before it counts as dead rather than a passing blip. Ten minutes outlasts a provider retry window and a rate-limit cooldown.
 - `M=50` is the percentage of a lane's tracked requests that may stand unanswered before the lane reads `degraded` while its agent is still alive. Above half means the lane receives more than it answers.
 - `SELF=900` is how long the rail may go without completing a sweep before rail silence is reported. It matches `W` because a rail that stopped reporting is as serious as a lane whose supervision stopped.
-- `SSH_TIMEOUT=10` bounds one remote lane read, and `CAPTURE_TIMEOUT=8` bounds one pane read. The watcher allows 30 seconds per check, so both stay small enough that one unreachable host cannot consume a whole sweep.
+- `SSH_TIMEOUT=10` bounds one remote lane read, in the rail and in the ladder's redispatch read of a remote inbox alike, and `CAPTURE_TIMEOUT=8` bounds one pane read. The watcher allows 30 seconds per check, so both stay small enough that one unreachable host cannot consume a whole sweep.
 
 These are response-lane health thresholds only.
 They are entirely separate from the monitoring product's own severity and paging configuration, which this rail never reads or changes.
@@ -1440,15 +1443,19 @@ An inbox the rail cannot read is reported `unknown` with every count as `-`, nev
 **Generated state**
 
 The rail writes only three records, all under this home's own `state/`: `.lane-liveness-beat` is the heartbeat, `.lane-liveness-lanes` carries how long each lane's error class has held and what its handled count was last sweep, and `.lane-liveness-reported` holds the last verdict reported for each lane so an unchanged verdict does not wake the supervisor again.
+Only a sweep that read a pane writes `.lane-liveness-lanes`, so `routes`, which never reads one, cannot restate a class it never observed.
+A pane that cannot be read leaves the established class and its clock in place too, because an unreadable pane is not evidence that the error ended.
 All three are safe to delete; the next sweep rebuilds them, and the first sweep after deleting `.lane-liveness-reported` reports every currently unhealthy lane once more.
 
 **Recovery ladder (same file)**
 
 [`bin/fm-lane-recover.sh`](../bin/fm-lane-recover.sh) reads this same file, so one subsystem keeps one config surface.
 It asks the rail for each lane's verdict and for the error-signature class vocabulary, and owns only the response to them.
-Each reader validates its own keys and skips the other's, so a typo in either half still refuses rather than being silently ignored.
+Each reader validates the keys it consumes and skips the keys it does not, so a typo in a key either half reads still refuses rather than being silently ignored.
 
 The ladder is strictly ordered and stops at the first rung that applies: restart a proven dead endpoint, switch the profile of a lane whose error class the rail matched as a provider error, redispatch the work orders a recovered lane never claimed, then escalate and park.
+Redispatch runs only when the endpoint probes alive again and the lane still holds records it never claimed, and it re-sends each of them once through [`bin/fm-send.sh`](../bin/fm-send.sh) with a fresh correlation id, so a re-send is detectable as a duplicate of the record it repeats.
+Its attempt row in the ladder log is what makes that once-only re-send auditable before the escalation that follows it.
 It reimplements nothing: endpoint probing and the guarded relaunch are [`bin/fm-secondmate-liveness-lib.sh`](../bin/fm-secondmate-liveness-lib.sh), and replacing a live agent onto a new profile is [`bin/fm-control.sh`](../bin/fm-control.sh)'s `relaunch` verb, whose contract already owns that case in the same local copy.
 
 Two orderings in it are deliberate and easy to get wrong.
@@ -1477,7 +1484,10 @@ Four properties hold for every member, and they are the reason this is a family 
 - **Deterministic first, always.** The model is asked only about what the deterministic layer could not answer, and it never re-decides something already settled. A question answered deterministically makes no network call at all.
 - **Fail-open, in each tool's own safe direction.** Every failure, including an absent key, is an answer rather than an error: no key, no network, a timeout, a non-200, or a malformed reply all produce a usable verdict and exit 0. Exit 2 is reserved for a usage error, which is actionable rather than worked around.
 - **The key never reaches a process argument.** It lives in one shell variable and is handed to `curl` through a file descriptor, and nothing logs or writes it.
-- **Coarse telemetry and bounded calibration.** Each member appends one summary line per decision to `state/.<tool>-telemetry`, and one JSON line per decision to `state/.<tool>-calibration.jsonl` until that file reaches its cap. Neither carries a task id, a lane or seat name, an alert name, or any content the model was shown: they exist to show whether the tool is working, not what it was asked about. Both are safe to delete.
+- **Coarse telemetry and bounded calibration.** Each member appends one summary line per decision to `state/.<tool>-telemetry`, and one JSON line per decision to `state/.<tool>-calibration.jsonl` until that file reaches its cap.
+  Neither carries a task id, a lane name, PHI, message content, or an alert name: they exist to show whether the tool is working, not what it was asked about.
+  The calibration line records the candidate and chosen option keys by design (seat ids for alert routing), because calibration exists to compare the model's confidence against the option it picked, and a seat id is neither a task id nor PHI.
+  Both are safe to delete.
 
 **Alert ownership routing** ([`bin/fm-alert-route.sh`](../bin/fm-alert-route.sh)) names the seat that owns an alert, so a monitoring rail whose name maps to no charter reaches someone instead of going unattended.
 An alert nobody owns is otherwise indistinguishable from an alert nobody needed, because every existing signal measures whether the alert fired rather than whether it reached a seat.
@@ -1485,7 +1495,7 @@ An alert nobody owns is otherwise indistinguishable from an alert nobody needed,
 The deterministic layer matches the alert name against the scopes in `data/secondmates.md`: a scope claims a namespace by writing it with a trailing dot or star, as `gpu.*` or `monitor.` do, and the longest claimed prefix wins.
 Prose that merely mentions the word does not claim it, and two seats claiming the same prefix is a genuine ambiguity rather than a match, so it falls through to the model instead of silently routing to whichever appears first.
 
-Here fail-open means toward paging, never toward silence: every failure ends at `status: escalate` or `status: unavailable` naming the fallback owner, `FM_ALERT_FALLBACK_OWNER` (default `captain`).
+Here fail-open means toward paging, never toward silence: every failure ends at `status: escalate` or `status: unavailable` naming the fallback owner, `captain`.
 A confident model answer routes; one below the shared confidence floor escalates carrying its ranking as evidence.
 No path through the tool drops an alert.
 

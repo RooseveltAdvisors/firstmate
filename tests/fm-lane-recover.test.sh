@@ -224,6 +224,46 @@ assert_equals escalate_captain "$(field "$ROW" rung)" \
   'a class the rail does not publish routes to the escalation rung'
 assert_contains "$ROW" 'unhandled_errclass' 'the unhandled class is named rather than silently dropped'
 
+# --- rung 3: a recovered lane's unclaimed work is re-sent once --------------
+R=$(home rung3)
+lane "$R" reloaded 4000
+pane "$R" reloaded 'nothing interesting'
+printf 'schema=1\nat=now\n--\ncorr=0123456789abcdef original work order\n' > "$R/state/reloaded.inbox/001.msg"
+OUT=$(ladder "$R" alive sess:reloaded plan)
+assert_contains "$OUT" 'mode=dry-run' 'a plan is labeled as a dry run'
+ROW=$(row "$OUT" reloaded)
+assert_equals redispatch "$(field "$ROW" rung)" \
+  'an alive endpoint on a lane that still holds unclaimed work reaches rung 3 before the page'
+assert_contains "$ROW" 'action=would-run' 'planning says what rung 3 would run'
+assert_contains "$ROW" 'fresh correlation ids' 'the plan names the re-send contract'
+assert_absent "$R/state/.lane-recovery-reloaded" 'planning the re-send writes no ladder log'
+OUT=$(ladder "$R" alive sess:reloaded run)
+assert_contains "$OUT" 'refusing to act' 'the off-switch also holds rung 3'
+assert_absent "$R/state/.lane-recovery-reloaded" 'a refused re-send writes no ladder log'
+conf "$R" 'RECOVERY=acting'
+OUT=$(ladder "$R" alive sess:reloaded run)
+assert_contains "$OUT" 'mode=acting' 'the banner labels an acting sweep'
+assert_not_contains "$OUT" 'mode=acting1' 'the banner label is not a parameter echo'
+ROW=$(row "$OUT" reloaded)
+assert_contains "$ROW" 'rung=redispatch action=done' 'the acting run executes the re-send'
+assert_contains "$ROW" 'sent=1' 'the acting run reports what it re-sent'
+assert_grep "$(printf 'redispatch\tattempt')" "$R/state/.lane-recovery-reloaded" \
+  'the re-send writes the attempt row the once-only cap counts'
+assert_present "$R/state/reloaded.inbox/002.msg" 'the re-send left a new inbox record'
+OLD_CORR=$(LC_ALL=C grep -o 'corr=[A-Fa-f0-9]*' "$R/state/reloaded.inbox/001.msg" | head -1)
+NEW_CORR=$(LC_ALL=C grep -o 'corr=[A-Fa-f0-9]*' "$R/state/reloaded.inbox/002.msg" | head -1)
+assert_not_equals '' "$NEW_CORR" 'the re-send carries a correlation id'
+assert_not_equals "$OLD_CORR" "$NEW_CORR" \
+  'the re-send mints a fresh correlation id, so the duplicate is detectable'
+assert_present "$R/state/reloaded.inbox/001.msg" 'the original unclaimed record is never discarded'
+OUT=$(ladder "$R" alive sess:reloaded run)
+ROW=$(row "$OUT" reloaded)
+assert_equals escalate_captain "$(field "$ROW" rung)" \
+  'once the once-only cap is spent the same lane escalates instead of re-sending again'
+assert_contains "$ROW" 'action=parked' 'the escalation parks the lane for a person'
+assert_grep "$(printf 'escalate_captain\tparked')" "$R/state/.lane-recovery-reloaded" \
+  'the ladder log carries the escalation that followed the re-send'
+
 # --- no unhealthy lane ever ends at rung=none -------------------------------
 # The invariant, asserted directly across every endpoint state: a dead verdict
 # must never produce rung=none, whatever the probe said.

@@ -14,6 +14,41 @@ set -u
 TMP=$(fm_test_tmproot fm-lane-liveness)
 RAIL="$ROOT/bin/fm-lane-liveness.sh"
 NOW=$(date +%s)
+BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
+
+# A fake tmux that answers the agent-state probe for every lane window this
+# home's config names, so agent_status is a fixture value rather than whatever
+# the host tmux reports for windows that do not exist. display-message carries
+# the pane's foreground classification, list-windows answers the inventory, and
+# the `missing` state omits every window the config asks about.
+fake_tmux() {  # <root> <state>
+  local root=$1 state=$2 fakebin windows
+  windows=$(awk '/^lane /{print $2}' "$root/config/response-lanes.conf" 2>/dev/null | tr '\n' ' ')
+  fakebin=$(fm_fakebin "$root/tmux-$state")
+  cat > "$fakebin/tmux" <<SH
+#!/usr/bin/env bash
+set -u
+case "\${1:-}" in
+  display-message)
+    case '$state' in
+      alive) printf '%s\n' pi ;;
+      dead) printf '%s\n' bash ;;
+      ambiguous) printf '%s\n' node ;;
+      unreadable|missing) exit 1 ;;
+    esac
+    exit 0 ;;
+  list-windows)
+    case '$state' in
+      missing) printf '%s\n' someotherwindow ;;
+      *) [ -n "$windows" ] || exit 0; printf '%s\n' $windows ;;
+    esac
+    exit 0 ;;
+esac
+exit 0
+SH
+  chmod +x "$fakebin/tmux"
+  printf '%s\n' "$fakebin"
+}
 
 # lane_fixture <home-root> <lane> : a lane record plus its own supervision home.
 lane_fixture() {
@@ -36,10 +71,12 @@ conf_add() {  # <root> <line>
   printf '%s\n' "$2" >> "$1/config/response-lanes.conf"
 }
 
-rail() {  # <root> <mode...>
-  local root=$1
+rail() {  # <root> <mode...>  (FM_TEST_AGENT_STATE selects the probe answer)
+  local root=$1 fb
   shift
-  FM_HOME="$root" FM_STATE_OVERRIDE="$root/state" FM_CONFIG_OVERRIDE="$root/config" \
+  fb=$(fake_tmux "$root" "${FM_TEST_AGENT_STATE:-alive}")
+  PATH="$fb:$BASE_PATH" \
+    FM_HOME="$root" FM_STATE_OVERRIDE="$root/state" FM_CONFIG_OVERRIDE="$root/config" \
     "$RAIL" "$@" 2>&1
 }
 
@@ -134,6 +171,53 @@ OUT=$(rail "$ROOT_U" read)
 assert_equals unknown "$(field_of "$OUT" no_pane error_signature_class)" \
   'an unreadable pane is unknown rather than a clean none'
 
+# --- a proven-absent agent with stalled pending is never alive --------------
+# Handled history used to shield this lane: the D rule needs handled_count to
+# be zero, so a dead agent with pending past D fell through to alive.
+ROOT_AG=$(home_fixture absent_agent)
+lane_fixture "$ROOT_AG" goner
+conf_add "$ROOT_AG" 'lane goner'
+printf 'x\n' > "$ROOT_AG/state/goner.inbox/001.msg"
+fm_touch_epoch "$(( NOW - 1860 ))" "$ROOT_AG/state/goner.inbox/001.msg"
+printf 'x\n' > "$ROOT_AG/state/goner.inbox/handled/000.msg"
+OUT=$(FM_TEST_AGENT_STATE=dead rail "$ROOT_AG" read)
+assert_equals dead "$(verdict_of "$OUT" goner)" \
+  'a proven-dead agent with pending past D reads dead even with handled history'
+assert_equals dead "$(field_of "$OUT" goner agent_status)" \
+  'the reading really carries agent_status=dead'
+assert_contains "$(printf '%s\n' "$OUT" | grep '^lane=goner')" 'over D=1800s' \
+  'the verdict names the drain threshold the stalled pending crossed'
+
+# The same rule on the endpoint-gone axis: a window that no longer exists is
+# a proven-absent agent for exactly the same reason.
+ROOT_MS=$(home_fixture missing_agent)
+lane_fixture "$ROOT_MS" vanished
+conf_add "$ROOT_MS" 'lane vanished'
+printf 'x\n' > "$ROOT_MS/state/vanished.inbox/001.msg"
+fm_touch_epoch "$(( NOW - 1860 ))" "$ROOT_MS/state/vanished.inbox/001.msg"
+printf 'x\n' > "$ROOT_MS/state/vanished.inbox/handled/000.msg"
+OUT=$(FM_TEST_AGENT_STATE=missing rail "$ROOT_MS" read)
+assert_equals dead "$(verdict_of "$OUT" vanished)" \
+  'a missing endpoint with pending past D reads dead'
+assert_equals missing "$(field_of "$OUT" vanished agent_status)" \
+  'the reading carries agent_status=missing'
+
+# --- an unestablished supervision beat is never a fresh one -----------------
+ROOT_NB=$(home_fixture nobeat)
+lane_fixture "$ROOT_NB" unsupervised
+conf_add "$ROOT_NB" 'lane unsupervised'
+rm -f "$ROOT_NB/lanes/unsupervised/state/.last-watcher-beat"
+OUT=$(rail "$ROOT_NB" read)
+assert_equals dead "$(verdict_of "$OUT" unsupervised)" \
+  'a lane whose supervision beat can never be established does not read alive'
+assert_equals '-' "$(field_of "$OUT" unsupervised watcher_beat_age_s)" \
+  'the reading still reports watcher_beat_age_s=- rather than inventing an age'
+assert_contains "$(printf '%s\n' "$OUT" | grep '^lane=unsupervised')" 'unestablished' \
+  'the verdict says why an unknown beat counts as stopped'
+OUT=$(rail "$ROOT_NB" check)
+assert_contains "$OUT" 'lane-liveness: lane=unsupervised' \
+  'the check that pages the supervisor sees the same verdict'
+
 # --- an absent inbox is unknown with no counts, never a zero reading --------
 ROOT_M=$(home_fixture missing_inbox)
 lane_fixture "$ROOT_M" gone
@@ -176,6 +260,28 @@ printf '%s\n' "clean_mover none $NOW 0" > "$ROOT_P2/state/.lane-liveness-lanes"
 OUT=$(rail "$ROOT_P2" read)
 assert_equals alive "$(verdict_of "$OUT" clean_mover)" \
   'the same drain with no active error class is alive'
+
+# --- the E clock is owned by the sweep that read the pane -------------------
+ROOT_J=$(home_fixture sustain)
+lane_fixture "$ROOT_J" flaky
+conf_add "$ROOT_J" 'lane flaky'
+printf 'Connection refused\n' > "$ROOT_J/state/flaky.pane"
+printf '%s\n' "flaky transport_dead $(( NOW - 660 )) 0" > "$ROOT_J/state/.lane-liveness-lanes"
+OUT=$(rail "$ROOT_J" read)
+assert_equals dead "$(verdict_of "$OUT" flaky)" \
+  'an error sustained over E reads dead on the first sweep'
+rail "$ROOT_J" routes > /dev/null
+OUT=$(rail "$ROOT_J" read)
+assert_equals dead "$(verdict_of "$OUT" flaky)" \
+  'a routes run between sweeps does not restart the E clock'
+: > "$ROOT_J/state/flaky.pane"
+OUT=$(rail "$ROOT_J" read)
+assert_not_equals dead "$(verdict_of "$OUT" flaky)" \
+  'an unreadable pane alone never fabricates a dead verdict'
+printf 'Connection refused\n' > "$ROOT_J/state/flaky.pane"
+OUT=$(rail "$ROOT_J" read)
+assert_equals dead "$(verdict_of "$OUT" flaky)" \
+  'an unreadable pane did not end the error, so the sustained clock survives it'
 
 # --- section 4: routed versus routed_unverified -----------------------------
 ROOT_R=$(home_fixture routes)

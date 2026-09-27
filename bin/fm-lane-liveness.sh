@@ -80,6 +80,8 @@ CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}/response-lanes.conf"
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-backend.sh
 . "$SCRIPT_DIR/fm-backend.sh"
+# shellcheck source=bin/fm-timeout-lib.sh
+. "$SCRIPT_DIR/fm-timeout-lib.sh"
 
 BEAT="$STATE/.lane-liveness-beat"
 JOURNAL="$STATE/.lane-liveness-lanes"
@@ -237,7 +239,7 @@ lane_reset() {
 }
 
 remote_probe() {  # <host> <inbox> <home>
-  timeout "$SSH_TIMEOUT" ssh -o BatchMode=yes -o ConnectTimeout="$SSH_TIMEOUT" \
+  fm_run_timed "$SSH_TIMEOUT" ssh -o BatchMode=yes -o ConnectTimeout="$SSH_TIMEOUT" \
     "$1" sh -s -- "$2" "$3" <<'REMOTE'
 d=$1; h=$2
 m=$(stat -c %Y "$h/state/.last-watcher-beat" 2>/dev/null || /usr/bin/stat -f %m "$h/state/.last-watcher-beat" 2>/dev/null)
@@ -415,7 +417,7 @@ EOF
     if [ -n "${FM_TEST_SEAM:-}" ] && [ -f "$STATE/$lane.pane" ]; then
       pane=$(LC_ALL=C tr -d '\000' < "$STATE/$lane.pane" 2>/dev/null) || pane=
     else
-      pane=$(timeout "$CAPTURE_TIMEOUT" "$SCRIPT_DIR/fm-peek.sh" "$lane" 60 2>/dev/null) || pane=
+      pane=$(fm_run_timed "$CAPTURE_TIMEOUT" "$SCRIPT_DIR/fm-peek.sh" "$lane" 60 2>/dev/null) || pane=
     fi
     LANE_ERRCLASS=$(error_class "$pane")
   fi
@@ -433,6 +435,8 @@ $(journal_read "$lane")
 EOF
   if [ "$jclass" = "$LANE_ERRCLASS" ] && is_int "$jsince"; then
     since=$jsince
+  elif [ "$LANE_ERRCLASS" = unknown ] && is_int "$jsince"; then
+    since=$jsince
   else
     since=$NOW
   fi
@@ -445,7 +449,9 @@ EOF
       fi
       ;;
   esac
-  record_replace "$JOURNAL" "$lane" "$lane $LANE_ERRCLASS $since $LANE_HANDLED"
+  if [ -z "$SKIP_PANE" ] && [ "$LANE_ERRCLASS" != unknown ]; then
+    record_replace "$JOURNAL" "$lane" "$lane $LANE_ERRCLASS $since $LANE_HANDLED"
+  fi
 
   sustained=$(( NOW - since ))
   lane_verdict "$sustained"
@@ -475,6 +481,11 @@ lane_verdict() {  # <error-class-sustained-seconds>
   LANE_VERDICT=alive
   LANE_REASON=
 
+  if ! is_int "$LANE_BEAT"; then
+    LANE_VERDICT=dead
+    LANE_REASON="the supervision beat is unestablished (watcher_beat_age_s=-), and an unknown reading is never a fresh beat"
+    return 0
+  fi
   if gt "$LANE_BEAT" "$W"; then
     LANE_VERDICT=dead
     LANE_REASON="supervision beat age ${LANE_BEAT}s over W=${W}s"
@@ -485,6 +496,15 @@ lane_verdict() {  # <error-class-sustained-seconds>
     LANE_REASON="$LANE_PENDING pending, nothing ever handled, oldest ${LANE_DRAIN}s over D=${D}s"
     return 0
   fi
+  case "$LANE_AGENT" in
+    dead|missing)
+      if gt "$LANE_PENDING" 0 && gt "$LANE_DRAIN" "$D"; then
+        LANE_VERDICT=dead
+        LANE_REASON="agent_status=$LANE_AGENT with $LANE_PENDING pending and oldest ${LANE_DRAIN}s over D=${D}s, so nothing will move them to handled"
+        return 0
+      fi
+      ;;
+  esac
   case "$LANE_ERRCLASS" in
     transport_dead|budget_exceeded)
       if gt "$sustained" "$E"; then

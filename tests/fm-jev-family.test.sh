@@ -22,7 +22,6 @@ TMP=$(fm_test_tmproot fm-jev-family)
 ROUTE="$ROOT/bin/fm-alert-route.sh"
 ADVISE="$ROOT/bin/fm-seat-state-advise.sh"
 KEY=test-key-not-a-real-secret
-NOW=$(date +%s)
 
 command -v jq >/dev/null 2>&1 || { pass 'fm-jev-family: skipped, jq is not installed'; exit 0; }
 

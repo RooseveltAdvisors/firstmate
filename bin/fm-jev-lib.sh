@@ -13,8 +13,10 @@
 #     caller must handle and never a blocked decision.
 #   - Key hygiene. The key lives in one shell variable and reaches curl through
 #     a file descriptor, never on argv, and nothing logs or writes it.
-#   - Coarse telemetry and bounded calibration, both free of task ids and of
-#     any content the model was shown.
+#   - Coarse telemetry and bounded calibration, both free of task ids, of PHI,
+#     and of message content. Calibration records the candidate and chosen
+#     option keys by design (seat ids among them), because comparing the
+#     model's confidence against the option it picked is what it is for.
 #
 # bin/fm-dispatch-resolve.sh is this family's precedent and predates this
 # library; it carries its own copy of the client and is deliberately left alone
@@ -33,8 +35,8 @@ fm_jev_members() {
 }
 
 FM_JEV_MODEL_PIN=jev-latest
-FM_JEV_BASE=${FM_JEV_BASE:-https://api.typesafe.ai}
-FM_JEV_TIMEOUT=${FM_JEV_TIMEOUT:-5}
+FM_JEV_BASE=https://api.typesafe.ai
+FM_JEV_TIMEOUT=5
 FM_JEV_CONFIDENCE_FLOOR=0.6
 FM_JEV_CALIBRATION_MAX=${FM_JEV_CALIBRATION_MAX:-200}
 
@@ -133,8 +135,10 @@ fm_jev_telemetry() {
 #
 # One JSON line per decision for the first FM_JEV_CALIBRATION_MAX decisions,
 # then nothing, so an always-on tool cannot grow this file without bound. Same
-# content rule as telemetry: the deterministic verdict, the model's chosen
-# option key, its confidence and probabilities. Never free text, never an id.
+# content rule as telemetry: no task id, no PHI, no message content, and no
+# free text. What it records by design is the deterministic verdict, the
+# candidate and chosen option keys (seat ids for alert routing), and their
+# confidence and probabilities, which is the comparison calibration exists for.
 fm_jev_calibration() {
   local dir=$1 tool=$2 line=$3 f
   [ -d "$dir" ] && [ ! -L "$dir" ] || return 0

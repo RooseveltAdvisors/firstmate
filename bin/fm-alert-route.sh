@@ -45,7 +45,7 @@ FM_HOME="${FM_HOME:-$FM_ROOT}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 REGISTRY="$DATA/secondmates.md"
-FALLBACK=${FM_ALERT_FALLBACK_OWNER:-captain}
+FALLBACK=captain
 
 # shellcheck source=bin/fm-env-lib.sh
 . "$SCRIPT_DIR/fm-env-lib.sh"

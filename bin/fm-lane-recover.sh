@@ -119,6 +119,7 @@ SWITCH_MODEL=
 SWITCH_HARNESS=
 RELAUNCH_TIMEOUT=300
 PERSIST_TIMEOUT=30
+SSH_TIMEOUT=10
 
 ACTING=
 NOW=
@@ -167,13 +168,14 @@ config_load() {
               *) die "response-lanes.conf line $lineno: RECOVERY must be off, dry-run, or acting" ;;
             esac
             ;;
-          ATTEMPT_CEILING|COOLDOWN|RELAUNCH_TIMEOUT|PERSIST_TIMEOUT)
+          ATTEMPT_CEILING|COOLDOWN|RELAUNCH_TIMEOUT|PERSIST_TIMEOUT|SSH_TIMEOUT)
             is_int "$value" || die "response-lanes.conf line $lineno: $key needs a whole number"
             case "$key" in
               ATTEMPT_CEILING) ATTEMPT_CEILING=$value ;;
               COOLDOWN) COOLDOWN=$value ;;
               RELAUNCH_TIMEOUT) RELAUNCH_TIMEOUT=$value ;;
               PERSIST_TIMEOUT) PERSIST_TIMEOUT=$value ;;
+              SSH_TIMEOUT) SSH_TIMEOUT=$value ;;
             esac
             ;;
           SWITCH_MODEL) SWITCH_MODEL=$value ;;
@@ -291,7 +293,7 @@ EOF
 }
 
 rung_decide() {  # <lane> <verdict> <errclass> <pending> <beatage>
-  local lane=$1 verdict=$2 errclass=$3 pending=$4 beatage=$5 meta refusal kind restarts switches
+  local lane=$1 verdict=$2 errclass=$3 pending=$4 beatage=$5 meta refusal kind restarts switches why
   RUNG=''
   RUNG_WHY=''
   RUNG_CMD=''
@@ -348,13 +350,11 @@ rung_decide() {  # <lane> <verdict> <errclass> <pending> <beatage>
   # ceiling, because a provider fault is not cured by another restart.
   if [ "$kind" = fault ]; then
     if [ "$FM_SM_LIVE_STATE" = missing ]; then
-      RUNG=escalate_captain
-      RUNG_WHY="error class $errclass on a missing endpoint, so the provider is not the cause and rung 2 does not apply"
+      rung_escalate "$lane" "$pending" "error class $errclass on a missing endpoint, so the provider is not the cause and rung 2 does not apply"
       return 0
     fi
     if [ -z "$SWITCH_MODEL" ] && [ -z "$SWITCH_HARNESS" ]; then
-      RUNG=escalate_captain
-      RUNG_WHY="error class $errclass needs a profile switch, and no SWITCH_MODEL or SWITCH_HARNESS is configured to move it onto"
+      rung_escalate "$lane" "$pending" "error class $errclass needs a profile switch, and no SWITCH_MODEL or SWITCH_HARNESS is configured to move it onto"
       return 0
     fi
     if [ "$switches" -lt "$ATTEMPT_CEILING" ]; then
@@ -365,8 +365,7 @@ rung_decide() {  # <lane> <verdict> <errclass> <pending> <beatage>
         && RUNG_NOTE="endpoint is alive, so persist is attempted for ${PERSIST_TIMEOUT}s first and persist_impossible is recorded on timeout"
       return 0
     fi
-    RUNG=escalate_captain
-    RUNG_WHY="both the restart and the provider-switch ceilings are spent on error class $errclass"
+    rung_escalate "$lane" "$pending" "both the restart and the provider-switch ceilings are spent on error class $errclass"
     return 0
   fi
 
@@ -380,22 +379,26 @@ rung_decide() {  # <lane> <verdict> <errclass> <pending> <beatage>
   # A clean error class and no restart authority. The lane is still unhealthy, so
   # this must escalate with its evidence rather than report nothing to do.
   if [ "$FM_SM_LIVE_STATUS" = relaunchable ]; then
-    RUNG=escalate_captain
-    RUNG_WHY="restart ceiling of $ATTEMPT_CEILING reached and error class ${errclass:-unknown} is not a provider fault, so no further rung applies"
+    rung_escalate "$lane" "$pending" "restart ceiling of $ATTEMPT_CEILING reached and error class ${errclass:-unknown} is not a provider fault, so no further rung applies"
     return 0
   fi
-  RUNG=escalate_captain
-  RUNG_WHY="rail verdict $verdict with no provider fault and an endpoint this ladder may not relaunch (state $FM_SM_LIVE_STATE): ${FM_SM_LIVE_REASON:-no relaunch authority}"
+  why="rail verdict $verdict with no provider fault and an endpoint this ladder may not relaunch (state $FM_SM_LIVE_STATE): ${FM_SM_LIVE_REASON:-no relaunch authority}"
   if is_int "$beatage" && [ "$beatage" -gt 0 ]; then
-    RUNG_WHY="$RUNG_WHY; supervision beat age ${beatage}s is the evidence, and rearming another home's watcher has no scriptable primitive (fm_watch_arm_pi and fm_watch_arm_omp are in-harness tools of that home), so this escalates rather than pretending to repair it"
+    why="$why; supervision beat age ${beatage}s is the evidence, and rearming another home's watcher has no scriptable primitive (fm_watch_arm_pi and fm_watch_arm_omp are in-harness tools of that home), so this escalates rather than pretending to repair it"
+  elif [ "${beatage:-}" = - ]; then
+    why="$why; watcher_beat_age_s=- is the supervision evidence this reading carries, because a beat that could never be established is a home with no supervision to weigh against the verdict"
   fi
+  rung_escalate "$lane" "$pending" "$why"
 }
 
 # --- rung 3 -----------------------------------------------------------------
 #
-# Redispatch is deliberately separate from the decision above: it applies only
-# after a lane is alive again and still holds work it never claimed, which is a
-# post-recovery condition rather than a rung the ladder climbs to from dead.
+# Redispatch is the last rung before the page, and it applies only to a lane
+# whose endpoint probes alive again: work re-sent into an endpoint running no
+# agent is delivered to nobody. rung_escalate is how every escalation path
+# asks for it first, so a recovered lane that still holds work it never
+# claimed is re-sent that work once instead of being paged, and the attempt
+# row the re-send writes makes the once-only cap at this rung reachable.
 
 redispatch_plan() {  # <lane> <pending>
   local lane=$1 pending=$2
@@ -404,18 +407,101 @@ redispatch_plan() {  # <lane> <pending>
   printf 're-send %s unclaimed work order(s) once with fresh correlation ids through bin/fm-send.sh' "$pending"
 }
 
+rung_escalate() {  # <lane> <pending> <why>
+  RUNG_WHY=$3
+  if [ "$FM_SM_LIVE_STATUS" = alive ] && redispatch_plan "$1" "$2" >/dev/null; then
+    RUNG=redispatch
+    RUNG_CMD=$(redispatch_plan "$1" "$2")
+    RUNG_WHY="endpoint probes alive again and the lane still holds $2 unclaimed work order(s), so rung 3 re-sends them once before the escalation this lane was headed for"
+    return 0
+  fi
+  RUNG=escalate_captain
+}
+
+# redispatch_frame <record-path>: the record as a `body <name>` header plus one
+# line holding its body with backslashes doubled and each newline escaped, so a
+# multi-line record crosses as exactly two lines and `printf %b` restores its
+# bytes for the send loop.
+redispatch_frame() {  # <record-path>
+  printf 'body %s\n' "${1##*/}"
+  awk 'p{print} /^--$/{p=1}' "$1" | sed -e 's/\\/\\\\/g' -e 's/$/\\n/' | tr -d '\n'
+  printf '\n'
+}
+
+# redispatch_frames <lane>: every unclaimed record of the lane's own inbox,
+# read at the same place the rail counts that inbox: a remote lane over ssh
+# from this home, a local lane from this home's state.
+redispatch_frames() {  # <lane>
+  local lane=$1 meta home host f
+  meta="$STATE/$lane.meta"
+  home=$(fm_meta_get "$meta" home)
+  host=$(fm_meta_get "$meta" remote_host)
+  if [ -n "$host" ]; then
+    fm_run_timed "$SSH_TIMEOUT" ssh -o BatchMode=yes -o ConnectTimeout="$SSH_TIMEOUT" \
+      "$host" sh -s -- "$home/state/parent-route/$lane.inbox" <<'REMOTE'
+d=$1
+[ -d "$d" ] || exit 0
+for f in "$d"/*.msg; do
+  [ -f "$f" ] || continue
+  printf 'body %s\n' "${f##*/}"
+  awk 'p{print} /^--$/{p=1}' "$f" | sed -e 's/\\/\\\\/g' -e 's/$/\\n/' | tr -d '\n'
+  printf '\n'
+done
+REMOTE
+  else
+    for f in "$STATE/$lane.inbox"/*.msg; do
+      [ -f "$f" ] || continue
+      redispatch_frame "$f"
+    done
+  fi
+}
+
+# redispatch_do <lane>: re-send each unclaimed record once through
+# bin/fm-send.sh, and set REDISPATCH_SENT to how many were re-sent. The
+# record's own correlation is stripped first so fm-send mints a fresh one:
+# a fresh id keeps the re-send out of the remote enqueue's identical-body
+# dedup and makes the duplicate detectable against the record it duplicates.
+redispatch_do() {  # <lane>
+  local lane=$1 frames line header='' name body failed=0
+  REDISPATCH_SENT=0
+  frames=$(redispatch_frames "$lane" 2>/dev/null) || frames=
+  [ -n "$frames" ] || return 1
+  while IFS= read -r line; do
+    if [ -n "$header" ]; then
+      header=
+      body=$(printf '%b' "$line")
+      case "${body//[[:space:]]/}" in '') continue ;; esac
+      body=$(printf '%s' "$body" | sed -E 's/corr=[A-Fa-f0-9]{16}//g')
+      if FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-send.sh" "$lane" "$body" >/dev/null 2>&1; then
+        REDISPATCH_SENT=$(( REDISPATCH_SENT + 1 ))
+      else
+        printf 'redispatch: %s could not be re-sent to %s\n' "$name" "$lane" >&2
+        failed=$(( failed + 1 ))
+      fi
+      continue
+    fi
+    case "$line" in
+      'body '*) name=${line#body }; header=1 ;;
+    esac
+  done <<EOF
+$frames
+EOF
+  [ "$failed" -eq 0 ]
+}
+
 # --- modes ------------------------------------------------------------------
 
 sweep() {
-  local lane verdict errclass pending beatage line rail
+  local lane verdict errclass pending beatage line rail mode=dry-run
   rail_classes_load
   rail=$("$RAIL" read 2>/dev/null) || rail=
   if [ -z "$rail" ]; then
     printf 'error: the liveness rail produced no reading, so the ladder has no verdict to act on\n' >&2
     return 1
   fi
+  [ -z "$ACTING" ] || mode=acting
   printf 'recovery=%s ceiling=%s cooldown=%ss mode=%s\n' \
-    "$RECOVERY" "$ATTEMPT_CEILING" "$COOLDOWN" "${ACTING:+acting}${ACTING:-dry-run}"
+    "$RECOVERY" "$ATTEMPT_CEILING" "$COOLDOWN" "$mode"
   printf '%s\n' "$rail" | while IFS= read -r line; do
     case "$line" in 'lane='*) ;; *) continue ;; esac
     lane=${line#lane=}
@@ -425,7 +511,7 @@ sweep() {
     pending=$(printf '%s\n' "$line" | sed -n 's/.* pending_count=\([^ ]*\).*/\1/p')
     beatage=$(printf '%s\n' "$line" | sed -n 's/.* watcher_beat_age_s=\([^ ]*\).*/\1/p')
     rung_decide "$lane" "$verdict" "$errclass" "$pending" "$beatage"
-    lane_act "$lane" "$verdict" "$errclass" "$pending"
+    lane_act "$lane" "$verdict" "$errclass"
   done
 }
 
@@ -448,8 +534,8 @@ persist_attempt() {  # <lane>
   return 1
 }
 
-lane_act() {  # <lane> <verdict> <errclass> <pending>
-  local lane=$1 verdict=$2 errclass=$3 pending=$4 redispatch rc out
+lane_act() {  # <lane> <verdict> <errclass>
+  local lane=$1 verdict=$2 errclass=$3 rc out detail REDISPATCH_SENT=
   case "$RUNG" in
     none|refused)
       printf 'lane=%s verdict=%s rung=%s action=nothing reason=%s\n' \
@@ -473,10 +559,6 @@ lane_act() {  # <lane> <verdict> <errclass> <pending>
   if [ -z "$ACTING" ]; then
     printf 'lane=%s verdict=%s rung=%s action=would-run cmd=%s reason=%s%s\n' \
       "$lane" "$verdict" "$RUNG" "$RUNG_CMD" "$RUNG_WHY" "${RUNG_NOTE:+ note=$RUNG_NOTE}"
-    if redispatch=$(redispatch_plan "$lane" "$pending"); then
-      printf 'lane=%s verdict=%s rung=redispatch action=would-run-after-recovery cmd=%s\n' \
-        "$lane" "$verdict" "$redispatch"
-    fi
     return 0
   fi
 
@@ -515,11 +597,18 @@ lane_act() {  # <lane> <verdict> <errclass> <pending>
         ${SWITCH_HARNESS:+--harness "$SWITCH_HARNESS"} ${SWITCH_MODEL:+--model "$SWITCH_MODEL"} 2>&1) || rc=$?
       [ "$rc" -eq 0 ] || printf '%s\n' "$out" >&2
       ;;
+    redispatch)
+      redispatch_do "$lane" || rc=$?
+      ;;
   esac
   fm_secondmate_liveness_unlock "$lane"
   if [ "$rc" -eq 0 ]; then
-    ladder_record "$lane" "$RUNG" succeeded 'replaced through the existing owner of this case' || true
-    printf 'lane=%s verdict=%s rung=%s action=done reason=%s\n' "$lane" "$verdict" "$RUNG" "$RUNG_WHY"
+    detail='replaced through the existing owner of this case'
+    [ "$RUNG" != redispatch ] \
+      || detail="re-sent $REDISPATCH_SENT unclaimed record(s) through bin/fm-send.sh with fresh correlation ids"
+    ladder_record "$lane" "$RUNG" succeeded "$detail" || true
+    printf 'lane=%s verdict=%s rung=%s action=done%s reason=%s\n' \
+      "$lane" "$verdict" "$RUNG" "${REDISPATCH_SENT:+ sent=$REDISPATCH_SENT}" "$RUNG_WHY"
   else
     ladder_record "$lane" "$RUNG" failed "exited $rc" || true
     printf 'lane=%s verdict=%s rung=%s action=failed rc=%s reason=%s\n' \
