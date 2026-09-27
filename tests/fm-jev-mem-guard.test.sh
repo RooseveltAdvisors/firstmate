@@ -58,8 +58,8 @@ echo "ok - --check exits 0 with pass-forcing thresholds"
 #    unknown must never alarm, so --check must exit 0 under the same thresholds.
 audit_status="$(printf '%s\n' "$json_out" | python3 -c 'import json, sys; print(json.load(sys.stdin)["status"])')"
 if [ "$audit_status" = "UNKNOWN" ]; then
-  if "$GUARD_SH" --check --warn-mem-pct 0 --crit-mem-pct 0 --warn-swap-pct 0 --crit-swap-pct 0; then
-    echo "FAIL: --check alarmed under fail-forcing thresholds while status is UNKNOWN" >&2
+  if ! "$GUARD_SH" --check --warn-mem-pct 0 --crit-mem-pct 0 --warn-swap-pct 0 --crit-swap-pct 0; then
+    echo "FAIL: --check alarmed under fail-forcing thresholds while status is UNKNOWN (fail-open violated)" >&2
     exit 1
   fi
   echo "ok - --check exits 0 under fail-forcing thresholds while status is UNKNOWN (fail-open)"
