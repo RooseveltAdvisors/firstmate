@@ -6,11 +6,11 @@ Audits host memory availability (/proc/meminfo) and swap utilization to detect m
 starvation, swap thrashing, and out-of-control worker RSS expansion across multi-agent seats.
 Prevents catastrophic OOM killer invocations against persistent agent supervisors and tmux sessions.
 
-Thresholds (each named for the CLI flag that overrides it, default shown):
-  - --warn-mem-pct (90): memory utilization warning, percent of MemTotal not available.
-  - --crit-mem-pct (95): memory utilization critical, percent of MemTotal not available.
-  - --warn-swap-pct (85): swap utilization warning, percent of SwapTotal in use.
-  - --crit-swap-pct (95): swap utilization critical, percent of SwapTotal in use.
+Thresholds (each named for the CLI flag that carries its operational default; run --help for current values):
+  - --warn-mem-pct: memory utilization warning, percent of MemTotal not available.
+  - --crit-mem-pct: memory utilization critical, percent of MemTotal not available.
+  - --warn-swap-pct: swap utilization warning, percent of SwapTotal in use.
+  - --crit-swap-pct: swap utilization critical, percent of SwapTotal in use.
 
 Invariants:
   - Read-only diagnostics.
@@ -96,11 +96,10 @@ def get_top_rss_processes(top_n: int = 10) -> List[Dict[str, Any]]:
 
 
 def audit_memory(
-    warn_mem_pct: float = 90.0,
-    crit_mem_pct: float = 95.0,
-    warn_swap_pct: float = 85.0,
-    crit_swap_pct: float = 95.0,
-    top_n: int = 10,
+    warn_mem_pct: float,
+    crit_mem_pct: float,
+    warn_swap_pct: float,
+    crit_swap_pct: float,
 ) -> Dict[str, Any]:
     """Audits system memory and swap usage, failing open to status UNKNOWN when unmeasurable."""
     mem = read_meminfo()
@@ -165,7 +164,7 @@ def audit_memory(
                 "the caller should continue unchanged."
             )
 
-    top_procs = get_top_rss_processes(top_n=top_n)
+    top_procs = get_top_rss_processes()
 
     return {
         "name": "fm-jev-mem-guard",
@@ -193,25 +192,25 @@ def main():
         "--warn-mem-pct",
         type=float,
         default=90.0,
-        help="Warning threshold for memory utilization %% (default: 90.0)",
+        help="Warning threshold for memory utilization %% (default: %(default)s)",
     )
     parser.add_argument(
         "--crit-mem-pct",
         type=float,
         default=95.0,
-        help="Critical threshold for memory utilization %% (default: 95.0)",
+        help="Critical threshold for memory utilization %% (default: %(default)s)",
     )
     parser.add_argument(
         "--warn-swap-pct",
         type=float,
         default=85.0,
-        help="Warning threshold for swap utilization %% (default: 85.0)",
+        help="Warning threshold for swap utilization %% (default: %(default)s)",
     )
     parser.add_argument(
         "--crit-swap-pct",
         type=float,
         default=95.0,
-        help="Critical threshold for swap utilization %% (default: 95.0)",
+        help="Critical threshold for swap utilization %% (default: %(default)s)",
     )
     parser.add_argument(
         "--json",

@@ -7,7 +7,7 @@ This document owns the framework contract every guard family follows; each famil
 ## Shape
 
 Each family ships as a pair plus its tests.
-`bin/fm-jev-<name>-guard.sh` is a thin wrapper that resolves its own directory and `exec`s the family engine with `PYTHON_BIN` (default `python3`).
+`bin/fm-jev-<name>-guard.sh` is a thin wrapper that resolves its own directory and `exec`s the family engine with `python3`.
 `bin/fm-jev-<name>-guard.py` is the engine: it measures, classifies, and prints.
 `tests/fm-jev-<name>-guard.test.sh` drives the engine through its public CLI and asserts observable output, never engine source text.
 
