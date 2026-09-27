@@ -185,6 +185,7 @@ def audit_memory(
 
 
 def main():
+    sys.stdout.reconfigure(errors="replace")
     parser = argparse.ArgumentParser(
         description="Jev Multi-Agent Memory RSS & Swap Thrashing Guard (Pattern 46)"
     )
