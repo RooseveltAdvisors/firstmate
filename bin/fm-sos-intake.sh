@@ -54,7 +54,7 @@
 # Env: FM_HOME (default /opt/ra/firstmate), FM_SOS_BRIDGE_URL (default
 # http://127.0.0.1:8791), FM_SOS_GH_REPO (default ArcsHealth/Portal),
 # FM_SOS_PROJECT (default $FM_HOME/projects/portal), FM_SOS_MODE, FM_SOS_YOLO,
-# FM_SOS_PRIORITY (default 1), FM_SOS_GH (gh command), FM_SOS_CURL (curl),
+# FM_SOS_PRIORITY (default 2), FM_SOS_GH (gh command), FM_SOS_CURL (curl),
 # FM_SOS_TASKS / FM_SOS_SPAWN / FM_SOS_BRIEF / FM_SOS_WHEN (the sibling
 # firstmate commands, overridable so tests can substitute a stub).
 #
@@ -72,7 +72,7 @@ GH_REPO="${FM_SOS_GH_REPO:-ArcsHealth/Portal}"
 PROJECT_DIR="${FM_SOS_PROJECT:-$FM_HOME/projects/portal}"
 MODE="${FM_SOS_MODE:-no-mistakes}"
 YOLO="${FM_SOS_YOLO:-on}"
-PRIORITY="${FM_SOS_PRIORITY:-1}"
+PRIORITY="${FM_SOS_PRIORITY:-2}"
 GH="${FM_SOS_GH:-gh}"
 CURL="${FM_SOS_CURL:-curl}"
 TASKS="${FM_SOS_TASKS:-$BIN/fm-tasks-axi.sh}"
@@ -364,14 +364,18 @@ cmd_comment() {
 
 # --- close watch ------------------------------------------------------------
 
-# watch_verdict_recorded <issue>: the close watch for this issue has already
-# captured a terminal outcome document in the procevent inbox.
-watch_verdict_recorded() {
-  local result
+# watch_blocks_rearm <issue>: this issue's close watch already captured an
+# outcome whose run completed (fired, action-failed, never-true, ambiguous),
+# so no new watch may be armed for it. A verdict from a run that died before
+# completing (condition-error, rejected) still allows one.
+watch_blocks_rearm() {
+  local result status
   for result in "$STATE_DIR/procevent-inbox/when-sos-$1".*.result; do
-    if [ -e "$result" ]; then
-      return 0
-    fi
+    [ -e "$result" ] || continue
+    status=$(FM_HOME="$FM_HOME" "$WHEN" classify "$result" 2>/dev/null) || status=unknown
+    case "$status" in
+      fired|action-failed|never-true|ambiguous) return 0 ;;
+    esac
   done
   return 1
 }
@@ -493,14 +497,16 @@ cmd_reconcile() {
       failed*)
         echo "failed: task ensure sos:$key${ensured_state#failed}" >&2
         cursor_blocked=1
-        continue
         ;;
       new)
         log_line "task key=$key issue=$issue task=$(task_id_for_key "$key")"
         created=$((created + 1))
+        ensured=$((ensured + 1))
+        ;;
+      *)
+        ensured=$((ensured + 1))
         ;;
     esac
-    ensured=$((ensured + 1))
 
     if ! ledger_has "issue=$issue transition=dispatched"; then
       gh_comment "$issue" "$(comment_body dispatched "$key" "$issue" "" "$(task_id_for_key "$key")")" \
@@ -509,7 +515,7 @@ cmd_reconcile() {
     fi
 
     if [ ! -f "$STATE_DIR/procevent/when-sos-$issue.source" ] \
-      && ! watch_verdict_recorded "$issue"; then
+      && ! watch_blocks_rearm "$issue"; then
       if [ -e "$STATE_DIR/when/when-sos-$issue.spec" ] \
         || [ -e "$STATE_DIR/when/when-sos-$issue.trust" ] \
         || [ -e "$STATE_DIR/when/when-sos-$issue.fired" ]; then
@@ -546,21 +552,28 @@ cmd_reconcile() {
 
 dispatch_ticket() {
   local key="$1" issue="$2"
-  local task_id
+  local task_id brief brief_mode
   task_id=$(task_id_for_key "$key")
-  if [ ! -f "$FM_HOME/data/$task_id/brief.md" ]; then
-    FM_HOME="$FM_HOME" "$BRIEF" "$task_id" portal --mode "$MODE" >/dev/null
+  brief="$FM_HOME/data/$task_id/brief.md"
+  if [ -f "$brief" ]; then
+    brief_mode=$(sed -n 's/^Delivery contract: mode=\([^ ]*\).*$/\1/p' "$brief" | head -n 1)
+    if [ -n "$brief_mode" ] && [ "$brief_mode" != "$MODE" ]; then
+      rm -f "$brief" || return 1
+    fi
   fi
-  fill_brief "$FM_HOME/data/$task_id/brief.md" "$key" "$issue"
+  if [ ! -f "$brief" ]; then
+    FM_HOME="$FM_HOME" "$BRIEF" "$task_id" portal --mode "$MODE" >/dev/null || return 1
+  fi
+  fill_brief "$brief" "$key" "$issue" || return 1
   FM_HOME="$FM_HOME" "$SPAWN" "$task_id" "$PROJECT_DIR" \
-    --mode "$MODE" --yolo "$YOLO" >/dev/null
-  log_line "dispatch key=$key issue=$issue task=$task_id"
+    --mode "$MODE" --yolo "$YOLO" >/dev/null || return 1
+  log_line "dispatch key=$key issue=$issue task=$task_id" || return 1
   echo "dispatched: $task_id (GH #$issue)"
 }
 
 fill_brief() {
   local brief="$1" key="$2" issue="$3"
-  [ -f "$brief" ] || die "brief missing: $brief"
+  [ -f "$brief" ] || { echo "error: brief missing: $brief" >&2; return 1; }
   python3 - "$brief" "$key" "$issue" "$GH_REPO" <<'PY'
 import sys
 

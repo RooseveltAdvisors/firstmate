@@ -492,9 +492,11 @@ test_reconcile_surfaces_the_task_ensure_failure() {
 
   cat > "$fd/tasks-broken" <<SH
 #!/usr/bin/env bash
+FAKE="\${FM_SOS_FAKE_DIR:?}"
+echo "\$*" >> "\$FAKE/tasks.log"
 case "\${1:-}" in
   add)
-    echo 'error: "--priority 1 requires --why <one line>"' >&2
+    echo 'error: due date is required for task' >&2
     echo 'retry with Authorization: Bearer abcdef0123456789abcdef0123456789abcdef01' >&2
     exit 2 ;;
 esac
@@ -505,11 +507,17 @@ SH
   out=$(FM_SOS_TASKS_OVERRIDE="$fd/tasks-broken" run_intake "$parts" reconcile 2>&1)
   rc=$?
   expect_code 1 "$rc" "a pass whose ensure failed must exit non-zero: $out"
-  assert_contains "$out" "requires --why" "the tasks-axi cause must reach the operator: $out"
+  assert_contains "$out" "due date is required" "the tasks-axi cause must reach the operator: $out"
   assert_contains "$out" "<redacted>" "tool diagnostics must be redacted: $out"
   assert_not_contains "$out" "abcdef0123456789abcdef0123456789abcdef01" \
     "no token-like text may reach the operator line: $out"
-  pass "a failed task ensure surfaces its redacted cause"
+  assert_contains "$(cat "$fd/tasks.log" 2>/dev/null)" "--priority 2" \
+    "the row must be created with the priority the deploy backend accepts"
+  assert_equals "1" "$(count_of 'SOS dispatch' "$fd/comments.log")" \
+    "an ensure failure must not stop the dispatched comment: $(cat "$fd/comments.log" 2>/dev/null)"
+  assert_equals "1" "$(count_of 'fm-spawn' "$fd/spawn.log")" \
+    "an ensure failure must not stop intake from dispatching the ticket"
+  pass "a failed task ensure surfaces its redacted cause and intake continues"
 }
 
 test_reconcile_rejects_the_removed_dispatch_alias() {
@@ -588,6 +596,107 @@ EOF
   pass "reconcile does not re-arm a close watch that already reached a terminal verdict"
 }
 
+test_reconcile_rearms_after_a_run_that_did_not_complete() {
+  local parts home out status result
+  for status in condition-error rejected; do
+    parts=$(setup_case "rearm-$status")
+    home=${parts%%|*}
+    run_intake "$parts" reconcile >/dev/null || fail "setup reconcile failed for $status"
+    mkdir -p "$home/state/procevent-inbox"
+    result="$home/state/procevent-inbox/when-sos-$GH_ISSUE.1.result"
+    printf 'when: when-sos-%s\nstatus: %s\ndetail: fixture\n' "$GH_ISSUE" "$status" > "$result"
+    : > "$home/state/procevent-inbox/when-sos-$GH_ISSUE.1.handled"
+    assert_equals "$status" \
+      "$(FM_HOME="$home" "$ROOT/bin/fm-procevent-when.sh" classify "$result")" \
+      "the fixture must classify as $status"
+    rm -f "$home/state/procevent/when-sos-$GH_ISSUE.source"
+    out=$(run_intake "$parts" reconcile 2>&1) || fail "reconcile failed for $status: $out"
+    assert_present "$home/state/procevent/when-sos-$GH_ISSUE.source" \
+      "reconcile must re-arm after $status on a still-open issue: $out"
+  done
+  pass "reconcile re-arms a close watch whose run died before completing"
+}
+
+test_failed_dispatch_stays_owed_and_is_retried() {
+  local parts home fb fd out rc
+  parts=$(setup_case spawnfail)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  fb=$(printf '%s' "$parts" | cut -d'|' -f2)
+
+  cat > "$fb/fm-spawn" <<SH
+#!/usr/bin/env bash
+set -u
+FAKE="\${FM_SOS_FAKE_DIR:?}"
+if [ -f "\$FAKE/spawn-broken" ]; then
+  echo "error: spawn cannot start" >&2
+  exit 1
+fi
+echo "fm-spawn \$*" >> "\$FAKE/spawn.log"
+exit 0
+SH
+  chmod +x "$fb/fm-spawn"
+  touch "$fd/spawn-broken"
+
+  out=$(run_intake "$parts" reconcile 2>&1)
+  rc=$?
+  expect_code 1 "$rc" "a failed spawn must leave the pass blocked: $out"
+  assert_contains "$out" "failed: dispatch" "the spawn failure must be reported: $out"
+  assert_no_grep "dispatch key=" "$home/state/fm-sos-intake.log" \
+    "a failed spawn must not write the once-only dispatch guard"
+
+  rm -f "$fd/spawn-broken"
+  out=$(run_intake "$parts" reconcile 2>&1) || fail "retry reconcile failed: $out"
+  assert_contains "$out" "dispatched=1" "the owed dispatch must run on the retry: $out"
+  assert_equals "1" "$(count_of 'fm-spawn' "$fd/spawn.log")" "exactly one crewmate must spawn"
+  assert_grep "dispatch key=" "$home/state/fm-sos-intake.log" \
+    "the dispatch guard must be recorded for the successful spawn"
+  pass "a failed dispatch stays owed and is retried on the next pass"
+}
+
+test_dispatch_rescaffolds_a_brief_recorded_for_another_mode() {
+  local parts home fb fd out
+  parts=$(setup_case briefmode)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  fb=$(printf '%s' "$parts" | cut -d'|' -f2)
+
+  # A spawn that refuses a brief whose recorded mode disagrees, as fm-spawn does.
+  cat > "$fb/fm-spawn" <<'SH'
+#!/usr/bin/env bash
+set -u
+FAKE="${FM_SOS_FAKE_DIR:?}"
+id=$1
+shift
+mode=no-mistakes
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --mode) mode=$2; shift 2 ;;
+    *) shift ;;
+  esac
+done
+recorded=$(sed -n 's/^Delivery contract: mode=\([^ ]*\).*$/\1/p' "$FM_HOME/data/$id/brief.md" | head -n 1)
+if [ -n "$recorded" ] && [ "$recorded" != "$mode" ]; then
+  echo "error: delivery mismatch for $id: the brief says mode=$recorded but this spawn passed --mode $mode" >&2
+  exit 1
+fi
+echo "fm-spawn $*" >> "$FAKE/spawn.log"
+exit 0
+SH
+  chmod +x "$fb/fm-spawn"
+
+  mkdir -p "$home/data/$TASK_ID"
+  printf '# Brief\n\nDelivery contract: mode=direct-PR\n\n{TASK}\n{FIRSTMATE_SPEC}\n' \
+    > "$home/data/$TASK_ID/brief.md"
+
+  out=$(run_intake "$parts" reconcile 2>&1) || fail "reconcile failed: $out"
+  assert_equals "1" "$(count_of 'fm-spawn' "$fd/spawn.log")" \
+    "the dispatch must launch after the brief is corrected: $out"
+  assert_grep "Delivery contract: mode=no-mistakes" "$home/data/$TASK_ID/brief.md" \
+    "the brief must record the mode this pass spawns with"
+  pass "dispatch re-scaffolds a brief recorded for another delivery mode"
+}
+
 test_reconcile_creates_one_task_comment_watch_and_dispatch
 test_reconcile_is_idempotent_across_replays_and_lost_cursors
 test_lost_event_is_healed_from_github
@@ -606,3 +715,6 @@ test_reconcile_surfaces_the_task_ensure_failure
 test_reconcile_rejects_the_removed_dispatch_alias
 test_overlapping_reconcile_passes_serialize
 test_reconcile_does_not_rearm_after_a_terminal_verdict
+test_reconcile_rearms_after_a_run_that_did_not_complete
+test_failed_dispatch_stays_owed_and_is_retried
+test_dispatch_rescaffolds_a_brief_recorded_for_another_mode
