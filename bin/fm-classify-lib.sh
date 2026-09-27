@@ -2499,9 +2499,12 @@ crew_gate_awaits_human_decision() {  # <id> -> <run-id> on stdout
   printf '%s\n' "$run"
 }
 
-# 0 when crew <id>'s authoritative current state is an actively-running CI step:
+# 0 when crew <id>'s authoritative current state is an active CI step:
 # bin/fm-crew-state.sh reports `working`, attributed to the run step, with its
-# `ci running` detail. That step is a STRUCTURALLY external wait - the pipeline
+# `ci running` detail while the checks are still running, and `done` with the
+# `checks green: PR ready for review (still monitoring for merge/close)` detail
+# once they pass and that same still-running step waits on merge instead. Both
+# readings are the one STRUCTURALLY external wait - the pipeline
 # has handed the branch to the forge and is doing nothing locally until the
 # checks report back - so a quiet pane is the expected shape of it, for however
 # long the checks take, and no local activity exists to prove liveness with.
@@ -2516,8 +2519,9 @@ crew_gate_awaits_human_decision() {  # <id> -> <run-id> on stdout
 # Matched on the exact current-state line rather than re-derived, so this reads
 # the one authoritative classifier instead of becoming a second one. Trailing
 # detail segments (the run id, a superseded status-log clause) are allowed after
-# it. NOT a pure read for the same reason crew_absorb_class is not: it may make a
-# bounded no-mistakes call, so callers run it only where they already budget one.
+# it, and the green reading carries the run's PR url inline after its own fixed
+# text. NOT a pure read for the same reason crew_absorb_class is not: it may make
+# a bounded no-mistakes call, so callers run it only where they already budget one.
 crew_is_ci_waiting() {  # <id>
   local id=$1 line
   [ -n "$id" ] || return 1
@@ -2525,6 +2529,7 @@ crew_is_ci_waiting() {  # <id>
   case "$line" in
     "state: working · source: run-step · ci running") return 0 ;;
     "state: working · source: run-step · ci running · "*) return 0 ;;
+    "state: done · source: run-step · checks green: PR ready for review (still monitoring for merge/close)"*) return 0 ;;
   esac
   return 1
 }

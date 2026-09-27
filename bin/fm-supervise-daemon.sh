@@ -1244,9 +1244,15 @@ housekeeping() {  # <state>
     case "$?" in
       0) rm -f "$marker" ;;
       2) rm -f "$marker" ;;
-      *) if escalate_add "$state" "stale persisted ${age}s (possible wedge): $win"; then
-           stale_marker_remove "$win" "$state"
-         fi ;;
+      *)
+        if crew_is_ci_waiting "$task"; then
+          _now > "$marker"
+          continue
+        fi
+        if escalate_add "$state" "stale persisted ${age}s (possible wedge): $win"; then
+          stale_marker_remove "$win" "$state"
+        fi
+        ;;
     esac
   done
 

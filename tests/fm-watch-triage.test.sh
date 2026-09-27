@@ -643,8 +643,16 @@ test_crew_is_ci_waiting_classifier() {
   ! crew_is_ci_waiting a || fail "a local fixing step was treated as an external wait"
   FM_FAKE_CREW_STATE='state: working · source: pane · harness busy'
   ! crew_is_ci_waiting a || fail "a busy pane was treated as an external wait"
-  # A finished ci monitor reads done, not working, and must not hold the absorb open.
+  # The same ci step after its checks pass: `done` with the monitoring detail,
+  # which the run's PR url and id trail.
   FM_FAKE_CREW_STATE='state: done · source: run-step · checks green: PR ready for review (still monitoring for merge/close)'
+  crew_is_ci_waiting a || fail "a checks-green ci monitor still waiting on merge was not recognized"
+  FM_FAKE_CREW_STATE='state: done · source: run-step · checks green: PR ready for review (still monitoring for merge/close): https://github.com/o/r/pull/2 · run: 0f3a91'
+  crew_is_ci_waiting a || fail "a green ci monitor carrying its PR url and run id was not recognized"
+  # The narrower read still leaves the absorb class alone: a done verdict is not working.
+  [ "$(crew_absorb_class a)" = none ] || fail "a done verdict was classed working by the absorb class"
+  # A monitor that ENDED has no wait left behind it.
+  FM_FAKE_CREW_STATE='state: done · source: run-step · checks green: PR held for merge (ci monitor ended)'
   ! crew_is_ci_waiting a || fail "a finished ci monitor was treated as still waiting"
   FM_FAKE_CREW_STATE='state: parked · source: run-step · parked at ci'
   ! crew_is_ci_waiting a || fail "a parked gate mentioning ci was treated as an external wait"
@@ -654,7 +662,7 @@ test_crew_is_ci_waiting_classifier() {
   ! crew_is_ci_waiting a || fail "an unparseable verdict was treated as an external wait"
   ! crew_is_ci_waiting "" || fail "an empty id was treated as an external wait"
   unset FM_FAKE_CREW_STATE
-  pass "crew_is_ci_waiting: only an active run-step ci verdict matches, and it stays working for crew_absorb_class"
+  pass "crew_is_ci_waiting: the active and checks-green ci verdicts match, and neither changes crew_absorb_class"
 }
 
 # The wedge detector's third liveness input: writes inside the crew's own recorded
@@ -3704,6 +3712,7 @@ test_wedge_threshold_defers_to_a_ci_step() {
   local dir state fakebin out capture window key n reported
   local ci='state: working · source: run-step · ci running'
   local ci_with_run='state: working · source: run-step · ci running · run: 0f3a91'
+  local ci_green='state: done · source: run-step · checks green: PR ready for review (still monitoring for merge/close): https://github.com/o/r/pull/2 · run: 0f3a91'
   local local_step='state: working · source: run-step · validating (running)'
   window="test:fm-wedge"; key=$(printf '%s' "$window" | tr ':/.' '___')
 
@@ -3769,6 +3778,20 @@ test_wedge_threshold_defers_to_a_ci_step() {
     || fail "a ci-step lane carrying a run id wedge-escalated: $(cat "$out")"
   grep -F 'possible wedge' "$out" >/dev/null \
     && fail "a ci-step lane carrying a run id was reported as a possible wedge: $(cat "$out")"
+
+  # The SAME ci step once its checks read green: the run-step verdict is then
+  # `done`, outside the `working` absorb class, and the monitor still waits on
+  # merge/close, so it takes the same bounded recheck instead of the ladder.
+  dir=$(wedge_threshold_fixture ci-step-green 'working: implementation committed' 2000)
+  state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"; capture="$dir/pane.txt"
+  FM_TEST_PAUSE_RESURFACE=240 wedge_threshold_round "$state" "$fakebin" "$out" "$capture" "$window" "$ci_green" exit \
+    || fail "a checks-green ci lane never rechecked: $(cat "$out")"
+  grep -F 'ci running, awaiting the forge checks' "$out" >/dev/null \
+    || fail "a checks-green ci lane missed the external-wait recheck: $(cat "$out")"
+  grep -F 'possible wedge' "$out" >/dev/null \
+    && fail "a checks-green ci lane was reported as a possible wedge: $(cat "$out")"
+  [ ! -e "$state/.wedge-escalations-$key" ] \
+    || fail "a checks-green ci lane counted $(cat "$state/.wedge-escalations-$key") wedge escalation(s)"
 
   # The load-bearing direction. The SAME fixture, the same silent pane, the same
   # undeclared status line - but a local active step - escalates exactly as it did

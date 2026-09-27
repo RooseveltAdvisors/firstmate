@@ -857,6 +857,54 @@ test_enriched_wedge_under_declared_wait_uses_pause_cadence() {
   pass "an enriched wedge under a declared wait uses the pause cadence and restores wedge detection on resume"
 }
 
+# While the legacy afk flag is up the watcher stops wedging itself and hands stale
+# panes to this daemon, whose stale persistence recheck is the wedge detector
+# there. A lane parked at no-mistakes' ci step is waiting on the forge, not stuck,
+# so that recheck must take the same CI deferral the watcher's threshold probe
+# takes - in both readings of that step, checks running and checks green while the
+# same step monitors for merge/close - and restart its window instead of wording
+# the lane a possible wedge. A lane on a local step keeps the unchanged ladder.
+test_stale_persistence_defers_a_ci_waiting_lane() {
+  local dir state fakebin task win pane key verdict i
+  dir=$(make_supercase stale-ci-wait)
+  state="$dir/state"; fakebin="$dir/fakebin"
+  task=ci-wait-w1; win="sess:fm-$task"; pane="$dir/pane.txt"
+  key=$(printf '%s' "$task" | tr ':/.' '___')
+  fm_write_meta "$state/$task.meta" "window=$win" "backend=tmux"
+  printf 'working: implementation committed\n' > "$state/$task.status"
+  printf 'idle prompt $\n' > "$pane"
+  make_fake_crew_state "$fakebin" >/dev/null
+
+  for verdict in \
+    'state: working · source: run-step · ci running · run: 01RUN' \
+    'state: done · source: run-step · checks green: PR ready for review (still monitoring for merge/close): https://github.com/o/r/pull/2 · run: 01RUN'
+  do
+    for i in 1 2 3; do
+      echo $(( $(date +%s) - 500 )) > "$state/.subsuper-stale-$key"
+      FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_FAKE_CREW_STATE="$verdict" \
+        PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$win" FM_FAKE_TMUX_CAPTURE="$pane" \
+        FM_STATE_OVERRIDE="$state" FM_ESCALATE_BATCH_SECS=999999 housekeeping "$state"
+      [ ! -s "$state/.subsuper-escalations" ] \
+        || fail "a ci-waiting lane escalated as a possible wedge: $(cat "$state/.subsuper-escalations")"
+      [ -e "$state/.subsuper-stale-$key" ] \
+        || fail "a ci-waiting lane lost its persistence marker on the deferral"
+      [ $(( $(date +%s) - $(cat "$state/.subsuper-stale-$key") )) -lt 60 ] \
+        || fail "a ci-waiting lane's wedge window did not restart on the deferral"
+    done
+  done
+
+  echo $(( $(date +%s) - 500 )) > "$state/.subsuper-stale-$key"
+  FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_FAKE_CREW_STATE='state: working · source: run-step · validating (running)' \
+    PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$win" FM_FAKE_TMUX_CAPTURE="$pane" \
+    FM_STATE_OVERRIDE="$state" FM_ESCALATE_BATCH_SECS=999999 housekeeping "$state"
+  grep -F 'possible wedge' "$state/.subsuper-escalations" 2>/dev/null >/dev/null \
+    || fail "a locally-working lane stopped wedge-escalating at the daemon boundary: $(cat "$state/.subsuper-escalations" 2>/dev/null)"
+  [ ! -e "$state/.subsuper-stale-$key" ] \
+    || fail "a locally-working lane kept its wedge marker after escalating"
+  pass "the stale persistence recheck defers a ci-waiting lane and keeps the wedge ladder for a local step"
+}
+
 test_stale_terminal_escalates() {
   local dir state out
   dir=$(make_supercase stale-terminal)
@@ -3126,6 +3174,7 @@ test_unknown_wake_ack_failure_still_clears_delivered_digest
 test_stale_transient_self_records_marker
 test_stale_diagnostic_wedge_survives_busy_housekeeping
 test_enriched_wedge_under_declared_wait_uses_pause_cadence
+test_stale_persistence_defers_a_ci_waiting_lane
 test_stale_terminal_escalates
 test_stale_actionable_wait_escalates_and_keeps_pause_cadence
 test_stale_paused_classifies_pause

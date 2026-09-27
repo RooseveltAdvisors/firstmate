@@ -1166,6 +1166,17 @@ test_ci_wait_predicate_uses_effective_step() {
       [ "$expected" -eq 1 ] || fail "running CI step is not recognized through the real classifier"
     fi
   done
+  # The same ci step after its checks pass: the classifier reports `done` with
+  # the monitoring detail instead of `working` / `ci running`, and that is still
+  # the external wait.
+  FM_FAKE_AXI_STATUS="$(run_ci_monitoring fm/ci-wait)"
+  FM_FAKE_CI_LOGS="all CI checks passed - still monitoring until merged or closed"
+  if PATH="$d/fakebin:$PATH" FM_STATE_OVERRIDE="$d/state" FM_CREW_STATE_BIN="$CREW_STATE" crew_is_ci_waiting ci-wait; then
+    :
+  else
+    fail "a checks-green ci monitor is not recognized as an external wait through the real classifier"
+  fi
+  FM_FAKE_CI_LOGS=""
   pass "CI wait predicate uses the real classifier and preserves local-work escalation"
 }
 
