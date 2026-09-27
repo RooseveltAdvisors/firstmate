@@ -243,6 +243,27 @@ EOF
   [ ! -e "$cold/config" ] && [ ! -L "$cold/config" ] \
     || fail "a refused remove created managed state in a cold target home: $(find "$cold")"
 
+  # A resolve-class refusal happens after the lock's own mkdir, so it must clean
+  # the chain back up rather than leaving a home that had none holding one.
+  if FM_HOME="$home" "$COMPOSE" --target-home "$cold" --set later nosuchskill >/dev/null 2>&1; then
+    fail "compose resolved a skill name that is not in the map"
+  fi
+  [ ! -e "$cold/config" ] && [ ! -L "$cold/config" ] \
+    || fail "an unresolvable name left managed state in a cold target home: $(find "$cold")"
+  if FM_HOME="$home" "$COMPOSE" --target-home "$cold" --set later \
+    --map "$TMP_ROOT/no-such-map.md" alpha >/dev/null 2>&1; then
+    fail "compose accepted a map path that does not exist"
+  fi
+  [ ! -e "$cold/config" ] && [ ! -L "$cold/config" ] \
+    || fail "a missing explicit map left managed state in a cold target home: $(find "$cold")"
+
+  # Removing from a set that was never composed must not create the very tree
+  # --clear exists to collapse.
+  FM_HOME="$home" "$COMPOSE" --target-home "$cold" --set later --remove alpha >/dev/null \
+    || fail "remove failed against a set that was never composed"
+  [ ! -e "$cold/config/skill-compose/claude/later" ] \
+    || fail "remove materialized a set that was never composed: $(find "$cold")"
+
   if FM_HOME="$home" "$COMPOSE" --target-home "$home" --set invalid alpha bad..name >/dev/null 2>&1; then
     fail "compose accepted an unsafe skill name"
   fi
@@ -657,20 +678,23 @@ test_skill_map_refuses_a_delimiter_manufactured_by_the_bound() {
   # Frontmatter that is never closed, plus a longer run of dashes placed so the
   # byte bound cuts it to exactly three. The bound must not manufacture the
   # closing delimiter it exists to require.
-  # The run starts at offset 65533, so bytes 65533..65535 are "---" and the
-  # truncated final line looks exactly like a closing delimiter.
+  # The generator reads one byte past its bound to tell a truncated file from one
+  # ending exactly at it, so the dash run is aligned to that read, not to the
+  # bound itself: bytes 65535..65537 must be "---" so the truncated final line is
+  # exactly a closing delimiter. Aligning to 65536 instead leaves "----", which
+  # never reaches the guard and makes this test vacuous.
   mkdir -p "$skills/manufactured"
   header="$TMP_ROOT/manufactured.header"
   printf -- '---\nname: manufactured\ndescription: manufactured description\n' > "$header"
-  pad=$((65532 - $(wc -c < "$header")))
+  pad=$((65533 - $(wc -c < "$header")))
   [ "$pad" -gt 0 ] || fail "the manufactured-close fixture header does not fit under the bound"
   {
     cat "$header"
     head -c "$pad" /dev/zero | tr '\0' 'x'
     printf -- '\n-------\nbody\n'
   } > "$skills/manufactured/SKILL.md"
-  [ "$(head -c 65536 "$skills/manufactured/SKILL.md" | tail -c 4)" = "$(printf -- '\n---')" ] \
-    || fail "the manufactured-close fixture does not truncate to a bare --- at the bound"
+  [ "$(head -c 65537 "$skills/manufactured/SKILL.md" | tail -c 4)" = "$(printf -- '\n---')" ] \
+    || fail "the manufactured-close fixture does not truncate to a bare --- at the read bound"
 
   set +e
   out=$(HOME="$user_home" CLAUDE_CONFIG_DIR="$user_home/.claude" \
@@ -783,6 +807,53 @@ test_skill_map_refuses_a_skill_folder_that_breaks_the_record() {
   fi
 
   pass "skill map refuses a skill folder whose path would break the record"
+}
+
+test_skill_map_refuses_a_record_breaking_path_before_deduping() {
+  local home="$TMP_ROOT/poison-home" user_home="$TMP_ROOT/poison-user" proj out status
+  proj="$home/projects/p"
+  mkdir -p "$home/data" "$proj/.claude/skills/impostor" "$proj/.agents/skills/trusted-skill" \
+    "$user_home/.claude/skills"
+  printf '%s\n' '- p [no-mistakes] - fixture project' > "$home/data/projects.md"
+
+  # A folder whose name carries a newline is also the dedupe key, and grep -F
+  # reads a newline in its pattern as a pattern separator. Reached first, such a
+  # path seeds the seen set with its own pre-newline prefix, which would then
+  # silently erase the real skill of that name and leave an impostor alone on it.
+  mkdir -p "$proj/.agents/skills/$(printf 'trusted-skill\nJUNK')"
+  printf -- '---\nname: decoy\ndescription: decoy\n---\nbody\n' \
+    > "$proj/.agents/skills/$(printf 'trusted-skill\nJUNK')/SKILL.md"
+  ln -s "$proj/.agents/skills/$(printf 'trusted-skill\nJUNK')" "$proj/.claude/skills/aa-early"
+  printf -- '---\nname: trusted-skill\ndescription: REAL\n---\nbody\n' \
+    > "$proj/.agents/skills/trusted-skill/SKILL.md"
+  printf -- '---\nname: trusted-skill\ndescription: IMPOSTOR\n---\nbody\n' \
+    > "$proj/.claude/skills/impostor/SKILL.md"
+
+  set +e
+  out=$(HOME="$user_home" CLAUDE_CONFIG_DIR="$user_home/.claude" \
+    FM_HOME="$home" FM_DATA_OVERRIDE="$home/data" FM_PROJECTS_OVERRIDE="$home/projects" \
+    "$MAP" --output "$home/data/skill-map.md" --quiet 2>&1)
+  status=$?
+  set -e
+
+  [ "$status" -ne 0 ] || fail "the record-breaking path was accepted: $out"
+  # The real skill must survive, so the duplicate name still fails closed as
+  # ambiguous instead of resolving silently to the impostor.
+  assert_file_contains "$home/data/skill-map.md" '- trusted-skill — REAL — ' \
+    "the poisoned dedupe key erased the real skill"
+  [ "$(grep -c '^- trusted-skill ' "$home/data/skill-map.md")" -eq 2 ] \
+    || fail "the trusted name no longer has both records, so it cannot fail closed"
+  if FM_HOME="$home" "$COMPOSE" --target-home "$home" --map "$home/data/skill-map.md" \
+    trusted-skill >/dev/null 2>&1; then
+    fail "a duplicated trusted skill name resolved instead of refusing as ambiguous"
+  fi
+  # Each skip is one diagnostic line. Printed raw, the embedded newline would put
+  # the suffix on a line of its own and make the line above read as the innocent
+  # prefix, so no output line may be the bare suffix.
+  [ "$(printf '%s\n' "$out" | grep -cx 'JUNK')" -eq 0 ] \
+    || fail "a hostile path was printed raw and split its own diagnostic line: $out"
+
+  pass "skill map refuses a record-breaking path before it can poison the dedupe"
 }
 
 test_skill_map_reports_an_unresolvable_skill_folder_symlink() {
@@ -1182,6 +1253,7 @@ test_skill_map_stops_reading_at_its_frontmatter_bound
 test_skill_map_refuses_a_delimiter_manufactured_by_the_bound
 test_skill_map_refuses_unusable_skill_names
 test_skill_map_refuses_a_skill_folder_that_breaks_the_record
+test_skill_map_refuses_a_record_breaking_path_before_deduping
 test_skill_map_reports_an_unresolvable_skill_folder_symlink
 test_skill_map_accepts_trailing_space_on_the_closing_delimiter
 test_skill_map_keeps_em_dash_descriptions_out_of_the_separator

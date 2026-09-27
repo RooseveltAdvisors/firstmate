@@ -17,7 +17,8 @@ Each canonical skill-folder path appears at most once, even when symlinked sourc
 A skill is skipped when its folder or `SKILL.md` cannot be read, its frontmatter never closes within the bound, it carries no usable name, or its name contains the map's own field separator.
 A closing delimiter is trusted only on a complete line, so the byte bound cannot truncate a longer run of dashes into the delimiter it is supposed to require.
 A name carrying the field separator is refused rather than written, because reading such a record back would shadow or redirect another skill.
-The recorded path is refused the same way when a skill folder's own name carries a field or record delimiter, since that would reframe the record and point a trusted name at a different folder.
+The recorded path is refused the same way, before it is used for anything, when a skill folder's own name carries a field or record delimiter.
+Such a path would reframe the record and point a trusted name at a different folder, and because the path is also the de-duplication key, a newline in it would erase a real skill that shares its leading portion and leave a duplicate alone on that name.
 The scanner reads each `SKILL.md` exactly once, so a file that changes between reads cannot be parsed as if it had not been truncated.
 Trailing whitespace on a frontmatter delimiter is accepted.
 Every skip names the offending path on stderr, and the generator exits non-zero after still writing the map for the skills that did parse.

@@ -6,7 +6,8 @@
 #   - every registered project clone's .claude/skills/ and .agents/skills/
 #   - the Claude user skill directory, ${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills
 #
-# Only the first MAX_FRONTMATTER_BYTES of a SKILL.md are read. A skill is skipped,
+# A SKILL.md is read once, only as far as MAX_FRONTMATTER_BYTES (plus the one
+# byte that distinguishes a truncated file from one ending exactly at the bound). A skill is skipped,
 # with a named SKILL_MAP: line on stderr and a final exit status of 3, when its
 # folder or SKILL.md cannot be read, its frontmatter is never closed within that
 # bound, it carries no usable name, or its name contains the map's own field
@@ -218,6 +219,21 @@ add_skill_source() {  # <group> <skills-dir> <records-file> <seen-file>
       SKIPPED=$((SKIPPED + 1))
       continue
     fi
+    # The path is emitted raw and is also the dedupe key, so a folder name
+    # carrying a record or field delimiter must be refused before it reaches
+    # either. A newline is the dangerous one: grep -F reads it as a pattern
+    # separator, so such a path would match, and seed, unrelated seen entries and
+    # silently erase a real skill that shares its pre-newline prefix.
+    case "$skill_real" in
+      *$'\t'*|*$'\n'*|*"$MAP_SEPARATOR_DASH"*)
+        # Quote it: printing the raw path would render its own newline and make
+        # the line read as the innocent prefix plus a stray line of its own.
+        printf 'SKILL_MAP: skipped skill folder whose path breaks the map record: %q\n' \
+          "$skill_real" >&2
+        SKIPPED=$((SKIPPED + 1))
+        continue
+        ;;
+    esac
     [ -e "$skill_real/SKILL.md" ] || [ -L "$skill_real/SKILL.md" ] || continue
     if grep -Fx -- "$skill_real" "$seen" >/dev/null 2>&1; then
       continue
@@ -233,17 +249,6 @@ add_skill_source() {  # <group> <skills-dir> <records-file> <seen-file>
     fi
     name=${front%%$'\t'*}
     desc=${front#*$'\t'}
-    # The path is emitted raw, so a folder name carrying a record or field
-    # delimiter would reframe the record and point a trusted name at another
-    # folder entirely. Refuse it rather than writing a record that lies.
-    case "$skill_real" in
-      *$'\t'*|*$'\n'*|*"$MAP_SEPARATOR_DASH"*)
-        printf 'SKILL_MAP: skipped skill folder whose path breaks the map record: %s\n' \
-          "$skill_real" >&2
-        SKIPPED=$((SKIPPED + 1))
-        continue
-        ;;
-    esac
     printf '%s\t%s\t%s\t%s\n' "$group" "$name" "$desc" "$skill_real" >> "$records"
   done
 }

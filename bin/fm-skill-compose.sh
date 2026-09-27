@@ -116,6 +116,8 @@ COMPOSE_ROOT="$COMPOSE_PARENT/$SET_NAME"
 SKILLS_DIR="$COMPOSE_ROOT/.claude/skills"
 COMPOSE_LOCK=
 COMPOSE_LOCK_HELD=0
+COMPOSE_PARENT_PREEXISTED=1
+[ -d "$COMPOSE_PARENT" ] || COMPOSE_PARENT_PREEXISTED=0
 COMPOSE_TEMP_FILES=()
 
 if [ "$PRINT_ADD_DIR" -eq 1 ] && [ "$MODE" = compose ] && [ "${#SKILLS[@]}" -eq 0 ]; then
@@ -271,6 +273,13 @@ compose_exit() {
     rm -f "$file" 2>/dev/null || true
   done
   release_compose_lock
+  if [ "$status" -ne 0 ] && [ "$COMPOSE_PARENT_PREEXISTED" -eq 0 ]; then
+    # A refusal must leave a home that had no composition state with none. Only
+    # the levels this run could have created are attempted, and rmdir removes
+    # nothing that is not already empty.
+    rmdir "$COMPOSE_PARENT" "$TARGET_HOME/config/skill-compose" "$TARGET_HOME/config" \
+      2>/dev/null || true
+  fi
   return "$status"
 }
 
@@ -347,7 +356,16 @@ remove_skills() {
   local name entry
   validate_managed_layout
   validate_existing_skill_entries remove
-  mkdir -p "$SKILLS_DIR"
+  if [ ! -d "$SKILLS_DIR" ]; then
+    # Nothing composed means nothing to remove; creating the set here would
+    # materialize exactly the tree --clear exists to collapse.
+    if [ "$PRINT_ADD_DIR" -eq 1 ]; then
+      printf '%s\n' "$COMPOSE_ROOT"
+    else
+      printf 'no composed skills to remove in %s\n' "$COMPOSE_ROOT"
+    fi
+    return 0
+  fi
   for name in "${SKILLS[@]}"; do
     entry="$SKILLS_DIR/$name"
     if [ -e "$entry" ] || [ -L "$entry" ]; then
