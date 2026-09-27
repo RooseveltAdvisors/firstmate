@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
-# fm-sos-intake.sh - firstmate intake for the SOS dispatch loop.
+# fm-issue-intake.sh - firstmate intake for the fleet issue dispatch loop.
 #
-# The loop: Portal files an SOS ticket as a GitHub issue and fires one PHI-free
-# event at stack-monitor's typed event bridge (POST /ingest/event, kind=sos,
-# dedupe_key = the SOS message UUID). This intake turns that event - or, as a
-# heal for lost events and pre-bridge tickets, an open sos-labeled GitHub
-# issue - into durable work: one task row (a bead on a beads backend) per SOS,
-# one lifecycle comment on the GitHub issue, one close watch per issue, and
-# one dispatched crewmate per new ticket. Every step is idempotent, so a
-# retry, a replayed event, a lost cursor, or a re-armed consumer can never
-# double-dispatch.
+# The loop: a producer (today Portal's SOS ticket firing one PHI-free event at
+# stack-monitor's typed event bridge, POST /ingest/event kind=sos, dedupe_key =
+# the SOS message UUID; tomorrow the catalog watcher in step 3) hands over an
+# issue. This intake turns that event - or, as a heal for lost events and
+# pre-bridge tickets, an open sos-labeled GitHub issue - into durable work: one
+# task row (a bead on a beads backend) per ticket, one lifecycle comment on the
+# GitHub issue, one close watch per issue, and one dispatched crewmate per new
+# ticket. Every step is idempotent, so a retry, a replayed event, a lost cursor,
+# or a re-armed consumer can never double-dispatch.
 #
 # Usage:
-#   fm-sos-intake.sh reconcile [--no-dispatch] [--mode <m>] [--yolo on|off] [--dry-run]
-#   fm-sos-intake.sh comment <issue-number> <transition> [note...]
-#   fm-sos-intake.sh watch-condition <issue-number>
-#   fm-sos-intake.sh watch-fire <issue-number> <sos-key>
-#   fm-sos-intake.sh status
+#   fm-issue-intake.sh reconcile [--no-dispatch] [--mode <m>] [--yolo on|off] [--dry-run]
+#   fm-issue-intake.sh comment <issue-number> <transition> [note...]
+#   fm-issue-intake.sh watch-condition <issue-number>
+#   fm-issue-intake.sh watch-fire <issue-number> <sos-key>
+#   fm-issue-intake.sh status
 #
 # reconcile     Idempotent intake pass. Pulls bridge events past the durable
 #               cursor, folds in open sos-labeled GitHub issues (the heal
@@ -24,13 +24,14 @@
 #               "dispatched" lifecycle comment, arms the close watch, and -
 #               unless --no-dispatch - scaffolds the brief and spawns the
 #               crewmate. The TASK ROW ID is the idempotency record: it is
-#               exactly `fm-sos-<SOS message UUID>`, and tasks-axi's add is
+#               exactly `fm-iss-<SOS message UUID>` (legacy `fm-sos-` rows
+#               still resolve), and tasks-axi's add is
 #               idempotent on the id, so a replayed event can never mint a
 #               second row. The cursor is only a fast-path over the bridge.
 #               Auto-dispatch is every SOS: there is no confidence gate, no
 #               triage, and no hold. --mode/--yolo set the spawned task's
-#               delivery contract (defaults FM_SOS_MODE=no-mistakes,
-#               FM_SOS_YOLO=on); they are posture, not selection.
+#               delivery contract (defaults FM_ISSUE_MODE=no-mistakes,
+#               FM_ISSUE_YOLO=on); they are posture, not selection.
 # comment       Post one canonical lifecycle comment on the GitHub issue.
 #               Transitions: dispatched, repro-confirmed, fix-up, deployed,
 #               verified, captain-closed. Dispatched workers use this at each
@@ -51,36 +52,44 @@
 # (fm-lint.sh's backend-purity check rejects direct Beads CLI calls in bin/),
 # so a beads-configured home gets beads and a markdown home gets backlog rows.
 #
-# Env: FM_HOME (default /opt/ra/firstmate), FM_SOS_BRIDGE_URL (default
-# http://127.0.0.1:8791), FM_SOS_GH_REPO (default ArcsHealth/Portal),
-# FM_SOS_PROJECT (default $FM_HOME/projects/portal), FM_SOS_MODE, FM_SOS_YOLO,
-# FM_SOS_PRIORITY (default 1), FM_SOS_GH (gh command), FM_SOS_CURL (curl),
-# FM_SOS_TASKS / FM_SOS_SPAWN / FM_SOS_BRIEF / FM_SOS_WHEN (the sibling
+# Env: FM_HOME (default /opt/ra/firstmate), FM_ISSUE_BRIDGE_URL (default
+# http://127.0.0.1:8791), FM_ISSUE_GH_REPO (default ArcsHealth/Portal),
+# FM_ISSUE_PROJECT (default $FM_HOME/projects/portal), FM_ISSUE_MODE, FM_ISSUE_YOLO,
+# FM_ISSUE_PRIORITY (default 1), FM_ISSUE_GH (gh command), FM_ISSUE_CURL (curl),
+# FM_ISSUE_TASKS / FM_ISSUE_SPAWN / FM_ISSUE_BRIEF / FM_ISSUE_WHEN (the sibling
 # firstmate commands, overridable so tests can substitute a stub).
 #
-# State (all under $FM_HOME/state/): fm-sos-intake.cursor (bridge event id),
-# fm-sos-intake.log (append-only ledger of handled effects),
+# State (all under $FM_HOME/state/): fm-issue-intake.cursor (bridge event id),
+# fm-issue-intake.log (append-only ledger of handled effects),
 # when/when-sos-<n>.* (close watches).
 set -euo pipefail
 
 BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_HOME="${FM_HOME:-/opt/ra/firstmate}"
-BRIDGE_URL="${FM_SOS_BRIDGE_URL:-http://127.0.0.1:8791}"
-GH_REPO="${FM_SOS_GH_REPO:-ArcsHealth/Portal}"
-PROJECT_DIR="${FM_SOS_PROJECT:-$FM_HOME/projects/portal}"
-MODE="${FM_SOS_MODE:-no-mistakes}"
-YOLO="${FM_SOS_YOLO:-on}"
-PRIORITY="${FM_SOS_PRIORITY:-1}"
-GH="${FM_SOS_GH:-gh}"
-CURL="${FM_SOS_CURL:-curl}"
-TASKS="${FM_SOS_TASKS:-$BIN/fm-tasks-axi.sh}"
-SPAWN="${FM_SOS_SPAWN:-$BIN/fm-spawn.sh}"
-BRIEF="${FM_SOS_BRIEF:-$BIN/fm-brief.sh}"
-WHEN="${FM_SOS_WHEN:-$BIN/fm-procevent-when.sh}"
+BRIDGE_URL="${FM_ISSUE_BRIDGE_URL:-http://127.0.0.1:8791}"
+GH_REPO="${FM_ISSUE_GH_REPO:-ArcsHealth/Portal}"
+PROJECT_DIR="${FM_ISSUE_PROJECT:-$FM_HOME/projects/portal}"
+MODE="${FM_ISSUE_MODE:-no-mistakes}"
+YOLO="${FM_ISSUE_YOLO:-on}"
+PRIORITY="${FM_ISSUE_PRIORITY:-1}"
+GH="${FM_ISSUE_GH:-gh}"
+CURL="${FM_ISSUE_CURL:-curl}"
+TASKS="${FM_ISSUE_TASKS:-$BIN/fm-tasks-axi.sh}"
+SPAWN="${FM_ISSUE_SPAWN:-$BIN/fm-spawn.sh}"
+BRIEF="${FM_ISSUE_BRIEF:-$BIN/fm-brief.sh}"
+WHEN="${FM_ISSUE_WHEN:-$BIN/fm-procevent-when.sh}"
 
 STATE_DIR="$FM_HOME/state"
-CURSOR_FILE="$STATE_DIR/fm-sos-intake.cursor"
-LEDGER="$STATE_DIR/fm-sos-intake.log"
+CURSOR_FILE="$STATE_DIR/fm-issue-intake.cursor"
+LEDGER="$STATE_DIR/fm-issue-intake.log"
+
+# The rename kept the same bytes: adopt pre-rename state once, so a deploy
+# never resets the cursor (replay) or drops the ledger (duplicate comments).
+for legacy_part in cursor log; do
+  if [ -f "$STATE_DIR/fm-sos-intake.$legacy_part" ] && [ ! -f "$STATE_DIR/fm-issue-intake.$legacy_part" ]; then
+    mv "$STATE_DIR/fm-sos-intake.$legacy_part" "$STATE_DIR/fm-issue-intake.$legacy_part" || true
+  fi
+done
 
 TRANSITIONS="dispatched repro-confirmed fix-up deployed verified captain-closed"
 
@@ -147,12 +156,17 @@ gh_open_sos_issues() {
 
 # --- task rows (beads on a beads backend) -----------------------------------
 #
-# The row id IS the idempotency key: `fm-sos-<SOS message UUID>`.
-# tasks-axi's add is idempotent on the id and never reopens a closed row, so
-# replay safety does not depend on any side table.
-
+# The row id IS the idempotency key: `fm-iss-<key>`, where the key is the SOS
+# message UUID when the body carries it and gh-issue-<n> otherwise. Rows minted
+# before the rename stay authoritative: resolve to `fm-sos-<key>` when it exists
+# so a rename can never split one ticket across two rows.
 task_id_for_key() {
-  printf 'fm-sos-%s\n' "$1"
+  local legacy="fm-sos-$1"
+  if tasks_axi show "$legacy" >/dev/null 2>&1; then
+    printf '%s\n' "$legacy"
+    return
+  fi
+  printf 'fm-iss-%s\n' "$1"
 }
 
 tasks_axi() {
@@ -271,7 +285,7 @@ comment_body() {
   case "$transition" in
     dispatched)
       # shellcheck disable=SC2016  # single quotes hold literal markdown backticks.
-      printf ':robot: **SOS dispatch** - firstmate intake picked up ticket `%s` (task `%s`). Auto-dispatched to a crewmate; lifecycle comments (repro confirmed / fix up / deployed / verified) will follow on this issue. **The captain closes this issue after verification - the dispatch loop never closes it.**' "$key" "$task_id"
+      printf ':robot: **Issue intake** - firstmate intake picked up ticket `%s` (task `%s`). Auto-dispatched to a crewmate; lifecycle comments (repro confirmed / fix up / deployed / verified) will follow on this issue. **The captain closes this issue after verification - the dispatch loop never closes it.**' "$key" "$task_id"
       ;;
     repro-confirmed)
       printf ':mag: **Repro confirmed** - %s' "${note:-reproduced end to end before any fix.}"
@@ -430,8 +444,8 @@ cmd_reconcile() {
 
     if [ ! -f "$STATE_DIR/when/when-sos-$issue.spec" ]; then
       FM_HOME="$FM_HOME" "$WHEN" arm "sos-$issue" \
-        --condition "$BIN/fm-sos-intake.sh" watch-condition "$issue" \
-        --action "$BIN/fm-sos-intake.sh" watch-fire "$issue" "$key" >/dev/null \
+        --condition "$BIN/fm-issue-intake.sh" watch-condition "$issue" \
+        --action "$BIN/fm-issue-intake.sh" watch-fire "$issue" "$key" >/dev/null \
         || { echo "failed: arm close watch for #$issue" >&2; cursor_blocked=1; continue; }
       log_line "watch key=$key issue=$issue"
     fi
@@ -491,7 +505,7 @@ spec = (
     "2. Reproduce E2E first, aligned with how the reporter experienced it.\n"
     "3. Root-cause, fix, and add tests at the repo's usual bar.\n"
     "4. Post each transition comment from the repo root of the firstmate checkout "
-    "with `bin/fm-sos-intake.sh comment {issue} repro-confirmed|fix-up|deployed|verified \"<one line>\"`.\n"
+    "with `bin/fm-issue-intake.sh comment {issue} repro-confirmed|fix-up|deployed|verified \"<one line>\"`.\n"
     "5. NEVER run `gh issue close` - the captain closes after verification. "
     "Do not comment states you have not reached.\n"
     "6. DoD: fix validated by the canonical checks, the transition comments that "
@@ -506,7 +520,7 @@ PY
 
 main() {
   local cmd="${1:-}"
-  [ -n "$cmd" ] || die "usage: fm-sos-intake.sh reconcile|comment|watch-condition|watch-fire|status"
+  [ -n "$cmd" ] || die "usage: fm-issue-intake.sh reconcile|comment|watch-condition|watch-fire|status"
   shift || true
   case "$cmd" in
     reconcile) cmd_reconcile "$@" ;;

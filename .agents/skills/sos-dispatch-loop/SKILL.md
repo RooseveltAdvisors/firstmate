@@ -1,7 +1,7 @@
 ---
 name: sos-dispatch-loop
 description: >-
-  Load on any `procevent when sos-* <sequence>` wake, before running bin/fm-sos-intake.sh,
+  Load on any `procevent when sos-* <sequence>` wake, before running bin/fm-issue-intake.sh,
   and when an ops-hq SOS ticket or a stack-monitor sos event needs dispatch.
   Owns the operating contract for the SOS dispatch loop: intake, auto-dispatch,
   lifecycle comments, and the captain-close watch.
@@ -15,21 +15,21 @@ metadata:
 Portal files every staff SOS as a GitHub issue and fires one PHI-free event at
 stack-monitor's typed event bridge (`docs/ops/sos-dispatch-loop.md` in
 ArcsHealth/Portal owns the whole loop and its rationale).
-`bin/fm-sos-intake.sh` turns that event - or an open `sos`-labeled GitHub
+`bin/fm-issue-intake.sh` turns that event - or an open `sos`-labeled GitHub
 issue, which heals lost events - into durable work keyed on the SOS message
 UUID: one task row (a bead on a beads backend), one dispatched crewmate, one
 lifecycle comment thread on the issue, and one close watch.
 
 ## Operating contract
 
-- Run `bin/fm-sos-intake.sh reconcile` on an SOS wake, and periodically when
+- Run `bin/fm-issue-intake.sh reconcile` on an SOS wake, and periodically when
   tickets are outstanding.
   It is idempotent end to end: the task row id is `fm-sos-<SOS UUID>`, so replays
   and lost cursors can never double-dispatch.
 - Auto-dispatch is every SOS: no confidence gate, no triage, no hold.
-  `--mode`/`--yolo` (or `FM_SOS_MODE`/`FM_SOS_YOLO`) set the spawned task's
+  `--mode`/`--yolo` (or `FM_ISSUE_MODE`/`FM_ISSUE_YOLO`) set the spawned task's
   delivery contract; they are posture, not selection.
-- Transition comments only through `bin/fm-sos-intake.sh comment <issue>
+- Transition comments only through `bin/fm-issue-intake.sh comment <issue>
   <transition> "<one line>"` (dispatched, repro-confirmed, fix-up, deployed,
   verified, captain-closed).
 - THE LOOP NEVER CLOSES A GITHUB ISSUE.
@@ -49,7 +49,7 @@ lifecycle comment thread on the issue, and one close watch.
 - `never-true`: the deadline passed with the issue still open.
   Surface the ticket to the captain as review work; do not re-arm blindly.
 - `action-failed` or `condition-error`: the fire or its effect is uncertain.
-  Verify manually, then run `bin/fm-sos-intake.sh reconcile`, which re-arms
+  Verify manually, then run `bin/fm-issue-intake.sh reconcile`, which re-arms
   the watch while the issue is still open (a watch that already fired is
   never re-armed for a closed issue's work).
 - A late replay after a successful fire may arm one redundant watch; the

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tests/fm-sos-intake.test.sh - the SOS dispatch loop's intake: one task row
+# tests/fm-issue-intake.test.sh - the fleet issue dispatch loop's intake: one task row
 # (a bead on a beads backend) per SOS keyed on the SOS UUID, one lifecycle
 # comment per transition, one close watch per ticket, one dispatched crewmate
 # per new ticket - and never a second of any of them across retries, replayed
@@ -13,13 +13,13 @@ command -v python3 >/dev/null 2>&1 || { echo "skip: python3 not found"; exit 0; 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-INTAKE="$ROOT/bin/fm-sos-intake.sh"
+INTAKE="$ROOT/bin/fm-issue-intake.sh"
 TASKS_AXI="$ROOT/bin/fm-tasks-axi.sh"
 SOS_UUID="7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f"
-TASK_ID="fm-sos-$SOS_UUID"
+TASK_ID="fm-iss-$SOS_UUID"
 GH_ISSUE=1921
 
-TMP_ROOT=$(fm_test_tmproot fm-sos-intake)
+TMP_ROOT=$(fm_test_tmproot fm-issue-intake)
 
 # setup_case <name>: a fixture home with a real tasks-axi backlog (markdown
 # backend - the beads-capable backend is the fleet's, and the intake reaches
@@ -39,7 +39,7 @@ setup_case() {
   cat > "$fb/gh" <<'SH'
 #!/usr/bin/env bash
 set -u
-FAKE="${FM_SOS_FAKE_DIR:?}"
+FAKE="${FM_ISSUE_FAKE_DIR:?}"
 echo "gh $*" >> "$FAKE/gh.log"
 if [ -f "$FAKE/gh-broken" ]; then
   echo "gh: simulated outage" >&2
@@ -75,7 +75,7 @@ SH
   cat > "$fb/curl" <<'SH'
 #!/usr/bin/env bash
 set -u
-FAKE="${FM_SOS_FAKE_DIR:?}"
+FAKE="${FM_ISSUE_FAKE_DIR:?}"
 echo "curl $*" >> "$FAKE/curl.log"
 cat "$FAKE/bridge.json"
 SH
@@ -83,7 +83,7 @@ SH
   cat > "$fb/fm-spawn" <<'SH'
 #!/usr/bin/env bash
 set -u
-FAKE="${FM_SOS_FAKE_DIR:?}"
+FAKE="${FM_ISSUE_FAKE_DIR:?}"
 echo "fm-spawn $*" >> "$FAKE/spawn.log"
 exit 0
 SH
@@ -123,12 +123,12 @@ run_intake() { # <case-parts> <args...>
   fb=$(printf '%s' "$parts" | cut -d'|' -f2)
   fd=${parts##*|}
   FM_HOME="$home" \
-  FM_SOS_FAKE_DIR="$fd" \
-  FM_SOS_BRIDGE_URL="http://bridge.invalid:8791" \
-  FM_SOS_TASKS="$TASKS_AXI" \
-  FM_SOS_SPAWN="$fb/fm-spawn" \
-  FM_SOS_BRIEF="$ROOT/bin/fm-brief.sh" \
-  FM_SOS_WHEN="$ROOT/bin/fm-procevent-when.sh" \
+  FM_ISSUE_FAKE_DIR="$fd" \
+  FM_ISSUE_BRIDGE_URL="http://bridge.invalid:8791" \
+  FM_ISSUE_TASKS="$TASKS_AXI" \
+  FM_ISSUE_SPAWN="$fb/fm-spawn" \
+  FM_ISSUE_BRIEF="$ROOT/bin/fm-brief.sh" \
+  FM_ISSUE_WHEN="$ROOT/bin/fm-procevent-when.sh" \
   PATH="$fb:$PATH" \
     "$INTAKE" "$@"
 }
@@ -170,7 +170,7 @@ test_reconcile_creates_one_task_comment_watch_and_dispatch() {
   # One dispatched lifecycle comment on the GitHub issue.
   assert_equals "1" "$(count_of '' "$fd/comments.log")" \
     "expected exactly one comment, got: $(cat "$fd/comments.log" 2>/dev/null)"
-  assert_contains "$(cat "$fd/comments.log")" "SOS dispatch" "the intake's comment must identify itself"
+  assert_contains "$(cat "$fd/comments.log")" "Issue intake" "the intake's comment must identify itself"
   assert_contains "$(cat "$fd/comments.log")" "$TASK_ID" "the comment must name the task row"
   assert_contains "$(cat "$fd/comments.log")" "never closes it" "the comment must state the no-self-close rule"
 
@@ -190,7 +190,7 @@ test_reconcile_creates_one_task_comment_watch_and_dispatch() {
     "the worker brief must forbid closing the issue"
 
   # The cursor landed on the event id, and the loop never closed the issue.
-  assert_equals "1" "$(cat "$home/state/fm-sos-intake.cursor")" "cursor must advance to the event id"
+  assert_equals "1" "$(cat "$home/state/fm-issue-intake.cursor")" "cursor must advance to the event id"
   assert_no_grep "CLOSE-ATTEMPTED" "$fd/gh.log" "the intake must never close a GitHub issue"
   pass "reconcile creates one task row, comment, watch, and dispatch"
 }
@@ -208,14 +208,14 @@ test_reconcile_is_idempotent_across_replays_and_lost_cursors() {
 
   # Lose the cursor entirely and replay the same event: the SOS UUID row id is
   # the idempotency anchor, so work is never done twice.
-  rm -f "${parts%%|*}/state/fm-sos-intake.cursor"
+  rm -f "${parts%%|*}/state/fm-issue-intake.cursor"
   set_bridge_events "${parts##*|}" 1 "$SOS_UUID" "$GH_ISSUE"
   out=$(run_intake "$parts" reconcile) || fail "replay reconcile failed: $out"
   assert_contains "$out" "task_created=0" "replay must create no second row: $out"
   assert_contains "$out" "dispatched=0" "replay must not re-dispatch: $out"
 
   task_present "$parts" || fail "replay lost the task row"
-  assert_equals "1" "$(count_of 'SOS dispatch' "${parts##*|}/comments.log")" \
+  assert_equals "1" "$(count_of 'Issue intake' "${parts##*|}/comments.log")" \
     "replay must not double-comment"
   assert_equals "1" "$(count_of 'fm-spawn' "${parts##*|}/spawn.log")" \
     "replay must never double-dispatch"
@@ -233,7 +233,7 @@ test_lost_event_is_healed_from_github() {
 
   out=$(run_intake "$parts" reconcile) || fail "heal re-run failed: $out"
   assert_contains "$out" "task_created=0" "the heal path must be idempotent: $out"
-  assert_equals "1" "$(count_of 'SOS dispatch' "${parts##*|}/comments.log")" \
+  assert_equals "1" "$(count_of 'Issue intake' "${parts##*|}/comments.log")" \
     "the heal path must not double-comment"
   pass "a lost bridge event is healed from GitHub and never double-dispatches"
 }
@@ -289,7 +289,7 @@ test_watch_fire_comments_closes_the_task_and_never_the_issue() {
 
   # Regression: a replayed event after the task closed must not mint a second
   # row, and must not reopen the closed one.
-  rm -f "$home/state/fm-sos-intake.cursor"
+  rm -f "$home/state/fm-issue-intake.cursor"
   set_bridge_events "$fd" 1 "$SOS_UUID" "$GH_ISSUE"
   printf '[]\n' > "$fd/gh-list.json"
   out=$(run_intake "$parts" reconcile) || fail "post-close replay failed: $out"
@@ -328,10 +328,31 @@ test_dry_run_changes_nothing() {
   out=$(run_intake "$parts" reconcile --dry-run) || fail "dry-run failed: $out"
   assert_contains "$out" "would-create" "dry-run must report the plan: $out"
   if task_present "$parts"; then fail "dry-run must create no task row"; fi
-  assert_absent "${parts%%|*}/state/fm-sos-intake.cursor" "dry-run must not move the cursor"
+  assert_absent "${parts%%|*}/state/fm-issue-intake.cursor" "dry-run must not move the cursor"
   [ ! -f "${parts##*|}/comments.log" ] || fail "dry-run must post no comment"
   [ ! -f "${parts##*|}/spawn.log" ] || fail "dry-run must not dispatch"
   pass "dry-run reports the plan and changes nothing"
+}
+
+test_legacy_fm_sos_rows_stay_authoritative() {
+  local parts home fd out
+  parts=$(setup_case legacy)
+  home=${parts%%|*}
+  fd=${parts##*|}
+
+  # A row minted before the fm-sos -> fm-iss rename already owns this ticket.
+  FM_HOME="$home" "$TASKS_AXI" add "fm-sos-$SOS_UUID" "legacy row for the ticket" \
+    --kind ship --repo portal --priority 1 >/dev/null || fail "legacy row setup failed"
+
+  out=$(run_intake "$parts" reconcile) || fail "reconcile failed: $out"
+  assert_contains "$out" "task_created=0" "the legacy row must be reused, not duplicated: $out"
+  assert_contains "$(cat "$fd/comments.log")" "fm-sos-$SOS_UUID" \
+    "the comment must name the pre-rename row"
+  task_present "$parts" "fm-sos-$SOS_UUID" || fail "legacy row disappeared"
+  if FM_HOME="$home" "$TASKS_AXI" show "fm-iss-$SOS_UUID" >/dev/null 2>&1; then
+    fail "the rename minted a second row for one ticket"
+  fi
+  pass "legacy fm-sos rows stay authoritative across the rename"
 }
 
 test_reconcile_creates_one_task_comment_watch_and_dispatch
@@ -341,3 +362,4 @@ test_watch_condition_never_reads_a_failure_as_closed
 test_watch_fire_comments_closes_the_task_and_never_the_issue
 test_comment_transitions_are_canonical_and_bounded
 test_dry_run_changes_nothing
+test_legacy_fm_sos_rows_stay_authoritative
