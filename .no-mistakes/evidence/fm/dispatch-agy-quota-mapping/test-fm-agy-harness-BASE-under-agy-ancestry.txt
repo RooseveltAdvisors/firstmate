@@ -1,0 +1,3 @@
+ok - fm-harness.sh: ancestry detects a natively-named agy command
+ok - fm-harness.sh: ancestry rejects unrelated agy mentions
+not ok - an inherited AGENT=1 must never claim the agy identity, got 'agy'

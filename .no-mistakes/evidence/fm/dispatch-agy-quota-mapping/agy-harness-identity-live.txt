@@ -1,0 +1,20 @@
+# Live agy harness-identity drive (bin/fm-harness.sh), real process tree
+# date: 2026-09-27T08:49:34Z
+# Fixture: a real process whose comm is exactly 'agy' (copy of bash at /tmp/fm-agy-identity/agy)
+# runs a wrapper so it is a live ancestor while bin/fm-harness.sh walks upward.
+# No fake ps is used; the product's own ppid walk does the detection.
+
+## proof the ancestor's comm is exactly agy while its child runs:
+agy             /tmp/fm-agy-identity/agy -c ps -o comm=,args= -p $$ | 
+
+## (a) inherited AGENT=1 with NO agy ancestor -> must NOT claim agy (the contract tests/fm-agy-harness.test.sh pins)
+output: pi
+
+## (c) real agy-named ancestor, markers cleared -> detects agy by ancestry
+output: agy
+
+## (d) agy-named ancestor + inherited AGENT=1 -> ancestry settles it as agy
+output: agy
+
+## (g) agy-named ancestor + retained CLAUDECODE=1 -> structural agy outranks the marker
+output: agy

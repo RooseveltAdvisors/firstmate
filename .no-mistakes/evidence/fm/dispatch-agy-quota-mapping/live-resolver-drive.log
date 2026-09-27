@@ -1,0 +1,133 @@
+====================================================================
+run: 2026-09-27T08:44:10Z  label=smoke-target  resolver=bin/fm-dispatch-resolve.sh
+typesafe key in env: yes
+quota source: quota-axi --json with QUOTA_AXI_SNAPSHOT=/home/jon/.cache/quota-axi/quotas.json
+--------------------------------------------------------------------
+scenario: s1-modelless   exit=0
+dispatch-resolve:
+  status: escalate
+  model: jev-1.13.0   latency_ms: 181   tokens: 431/35
+  rule: rule_1 (Agy model-less dispatch.)   confidence: 0.96
+  probabilities: default=0.02 rule_1=0.98
+  reason: no rankable eligible candidate
+  note: rule matched
+  candidate: agy:-  provider=agy  scope=gemini  remaining=0%  spendPriority=-  runway=exhausted_now  bounds=gemini:0%/exhausted_now,claude_gpt:100%/unknown  -> not eligible: runway exhausted_now at gemini
+
+====================================================================
+run: 2026-09-27T08:44:24Z  label=target-full  resolver=/home/jon/.no-mistakes/worktrees/46339c0817e0/01M3GMRT9E4WN389SG879SDEGD/bin/fm-dispatch-resolve.sh
+typesafe key in env: yes
+quota source: quota-axi --json with QUOTA_AXI_SNAPSHOT=/home/jon/.cache/quota-axi/quotas.json
+--------------------------------------------------------------------
+scenario: s1-modelless   exit=0
+dispatch-resolve:
+  status: escalate
+  model: jev-1.13.0   latency_ms: 208   tokens: 431/35
+  rule: rule_1 (Agy model-less dispatch.)   confidence: 0.97
+  probabilities: rule_1=0.98 default=0.02
+  reason: no rankable eligible candidate
+  note: rule matched
+  candidate: agy:-  provider=agy  scope=gemini  remaining=0%  spendPriority=-  runway=exhausted_now  bounds=gemini:0%/exhausted_now,claude_gpt:100%/unknown  -> not eligible: runway exhausted_now at gemini
+
+--------------------------------------------------------------------
+scenario: s2-gemini-pin   exit=0
+dispatch-resolve:
+  status: escalate
+  model: jev-1.13.0   latency_ms: 175   tokens: 423/35
+  rule: rule_1 (Agy gemini dispatch.)   confidence: 0.97
+  probabilities: rule_1=0.99 default=0.01
+  reason: no rankable eligible candidate
+  note: rule matched
+  candidate: agy:gemini-3.8-flash-low  provider=agy  scope=gemini  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at gemini
+
+--------------------------------------------------------------------
+scenario: s3-claude-pin   exit=0
+dispatch-resolve:
+  status: escalate
+  model: jev-1.13.0   latency_ms: 215   tokens: 423/35
+  rule: rule_1 (Agy claude dispatch.)   confidence: 0.96
+  probabilities: rule_1=0.98 default=0.02
+  reason: no rankable eligible candidate
+  note: rule matched
+  candidate: agy:claude-opus-4-6  provider=agy  scope=claude_gpt  remaining=100%  spendPriority=-  runway=unknown  -> eligible, unranked: spendPriority missing or non-numeric at claude_gpt: not rankable: disclosed uncertainty
+
+--------------------------------------------------------------------
+scenario: s4-nongfamily-pin   exit=0
+dispatch-resolve:
+  status: escalate
+  model: jev-1.13.0   latency_ms: 179   tokens: 423/35
+  rule: rule_1 (Agy non-family dispatch.)   confidence: 0.97
+  probabilities: default=0.01 rule_1=0.99
+  reason: no rankable eligible candidate
+  note: rule matched
+  candidate: agy:grok-4.6  provider=agy  scope=gemini  remaining=0%  spendPriority=-  runway=exhausted_now  bounds=gemini:0%/exhausted_now,claude_gpt:100%/unknown  -> not eligible: runway exhausted_now at gemini
+
+--------------------------------------------------------------------
+scenario: s5-default-pin   exit=0
+dispatch-resolve:
+  status: escalate
+  model: jev-1.13.0   latency_ms: 174   tokens: 417/35
+  rule: rule_1 (Agy default dispatch.)   confidence: 0.89
+  probabilities: default=0.06 rule_1=0.94
+  reason: no rankable eligible candidate
+  note: rule matched
+  candidate: agy:default  provider=agy  scope=gemini  remaining=0%  spendPriority=-  runway=exhausted_now  bounds=gemini:0%/exhausted_now,claude_gpt:100%/unknown  -> not eligible: runway exhausted_now at gemini
+
+====================================================================
+run: 2026-09-27T08:44:26Z  label=base-full  resolver=/tmp/fm-live-drive/base/bin/fm-dispatch-resolve.sh
+typesafe key in env: yes
+quota source: quota-axi --json with QUOTA_AXI_SNAPSHOT=/home/jon/.cache/quota-axi/quotas.json
+--------------------------------------------------------------------
+scenario: s1-modelless   exit=0
+dispatch-resolve:
+  status: escalate
+  model: jev-1.13.0   latency_ms: 189   tokens: 431/35
+  rule: rule_1 (Agy model-less dispatch.)   confidence: 0.96
+  probabilities: rule_1=0.98 default=0.02
+  reason: no rankable eligible candidate
+  note: rule matched
+  candidate: agy:-  provider=agy  -> eligible, unranked: no applicable quota row for provider agy: disclosed uncertainty
+
+--------------------------------------------------------------------
+scenario: s2-gemini-pin   exit=0
+dispatch-resolve:
+  status: escalate
+  model: jev-1.13.0   latency_ms: 223   tokens: 423/35
+  rule: rule_1 (Agy gemini dispatch.)   confidence: 0.97
+  probabilities: rule_1=0.99 default=0.01
+  reason: no rankable eligible candidate
+  note: rule matched
+  candidate: agy:gemini-3.8-flash-low  provider=agy  -> eligible, unranked: no applicable quota row for provider agy: disclosed uncertainty
+
+--------------------------------------------------------------------
+scenario: s3-claude-pin   exit=0
+dispatch-resolve:
+  status: escalate
+  model: jev-1.13.0   latency_ms: 208   tokens: 423/35
+  rule: rule_1 (Agy claude dispatch.)   confidence: 0.96
+  probabilities: default=0.02 rule_1=0.98
+  reason: no rankable eligible candidate
+  note: rule matched
+  candidate: agy:claude-opus-4-6  provider=agy  -> eligible, unranked: no applicable quota row for provider agy: disclosed uncertainty
+
+--------------------------------------------------------------------
+scenario: s4-nongfamily-pin   exit=0
+dispatch-resolve:
+  status: escalate
+  model: jev-1.13.0   latency_ms: 169   tokens: 423/35
+  rule: rule_1 (Agy non-family dispatch.)   confidence: 0.98
+  probabilities: rule_1=0.99 default=0.01
+  reason: no rankable eligible candidate
+  note: rule matched
+  candidate: agy:grok-4.6  provider=agy  -> eligible, unranked: no applicable quota row for provider agy: disclosed uncertainty
+
+--------------------------------------------------------------------
+scenario: s5-default-pin   exit=0
+dispatch-resolve:
+  status: escalate
+  model: jev-1.13.0   latency_ms: 202   tokens: 417/35
+  rule: rule_1 (Agy default dispatch.)   confidence: 0.86
+  probabilities: rule_1=0.93 default=0.07
+  reason: no rankable eligible candidate
+  note: rule matched
+  candidate: agy:default  provider=agy  -> eligible, unranked: no applicable quota row for provider agy: disclosed uncertainty
+
