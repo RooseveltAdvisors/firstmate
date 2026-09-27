@@ -213,6 +213,8 @@ test_reconcile_creates_one_task_comment_watch_and_dispatch() {
   assert_contains "$(cat "$fd/comments.log")" "SOS dispatch" "the intake's comment must identify itself"
   assert_contains "$(cat "$fd/comments.log")" "$TASK_ID" "the comment must name the task row"
   assert_contains "$(cat "$fd/comments.log")" "never closes it" "the comment must state the no-self-close rule"
+  assert_no_grep "Auto-dispatched" "$fd/comments.log" \
+    "the comment must not claim a dispatch that has not happened"
 
   # One armed close watch (real fm-procevent-when.sh spec + trust record).
   assert_present "$home/state/when/when-sos-$GH_ISSUE.spec" "close watch spec missing"
@@ -359,6 +361,12 @@ test_comment_transitions_are_canonical_and_bounded() {
   done
   assert_equals "4" "$(count_of '' "$fd/comments.log")" "each transition posts once"
   assert_no_grep "CLOSE-ATTEMPTED" "$fd/gh.log" "comments must never close the issue"
+
+  out=$(run_intake "$parts" comment "$GH_ISSUE" dispatched) || fail "comment dispatched failed: $out"
+  assert_contains "$(cat "$fd/comments.log")" "task \`fm-sos-gh-issue-$GH_ISSUE\`" \
+    "a manual dispatched comment must name the task row"
+  assert_no_grep "Auto-dispatched" "$fd/comments.log" \
+    "a manual dispatched comment must not claim a dispatch that has not happened"
   pass "transition comments are canonical, bounded, and never close the issue"
 }
 

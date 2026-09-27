@@ -348,7 +348,7 @@ comment_body() {
   case "$transition" in
     dispatched)
       # shellcheck disable=SC2016  # single quotes hold literal markdown backticks.
-      printf ':robot: **SOS dispatch** - firstmate intake picked up ticket `%s` (task `%s`). Auto-dispatched to a crewmate; lifecycle comments (repro confirmed / fix up / deployed / verified) will follow on this issue. **The captain closes this issue after verification - the dispatch loop never closes it.**' "$key" "$task_id"
+      printf ':robot: **SOS dispatch** - firstmate intake picked up ticket `%s` (task `%s`). Lifecycle comments (repro confirmed / fix up / deployed / verified) will follow on this issue. **The captain closes this issue after verification - the dispatch loop never closes it.**' "$key" "$task_id"
       ;;
     repro-confirmed)
       printf ':mag: **Repro confirmed** - %s' "${note:-reproduced end to end before any fix.}"
@@ -381,7 +381,7 @@ cmd_comment() {
   esac
   local key body
   key=$(key_for_issue "$issue" "gh-issue-$issue")
-  body=$(comment_body "$transition" "$key" "$issue" "$note" "")
+  body=$(comment_body "$transition" "$key" "$issue" "$note" "$(task_id_for_key "$key")")
   [ -n "$body" ] || die "empty comment body"
   gh_comment "$issue" "$body"
   log_line "comment key=$key issue=$issue transition=$transition"
