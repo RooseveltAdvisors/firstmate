@@ -139,6 +139,7 @@ printf 'x\n' > "$ROOT_D/state/drained_pending.inbox/handled/000.msg"
 printf 'x\n' > "$ROOT_D/state/drained_moved.inbox/001.msg"
 fm_touch_epoch "$(( NOW - 1860 ))" "$ROOT_D/state/drained_moved.inbox/001.msg"
 printf 'x\n' > "$ROOT_D/state/drained_moved.inbox/handled/000.msg"
+printf 'nothing interesting here\n' > "$ROOT_D/state/drained_moved.pane"
 printf '%s\n' "drained_moved none $NOW 0" > "$ROOT_D/state/.lane-liveness-lanes"
 OUT=$(rail "$ROOT_D" read)
 assert_not_equals dead "$(verdict_of "$OUT" fresh_pending)" \
@@ -313,6 +314,26 @@ printf '%s\n' "clean_mover none $NOW 0" > "$ROOT_P2/state/.lane-liveness-lanes"
 OUT=$(rail "$ROOT_P2" read)
 assert_equals alive "$(verdict_of "$OUT" clean_mover)" \
   'the same drain with no active error class is alive'
+
+# The pane cannot be read, so the class is unknown rather than none, and a lane
+# moving records to handled during that window lands degraded with the mover
+# recorded, never alive.
+ROOT_UK=$(home_fixture drainedunknown)
+lane_fixture "$ROOT_UK" unpaneled
+conf_add "$ROOT_UK" 'lane unpaneled'
+printf 'x\n' > "$ROOT_UK/state/unpaneled.inbox/001.msg"
+printf 'x\n' > "$ROOT_UK/state/unpaneled.inbox/handled/001.msg"
+printf '%s\n' "unpaneled transport_dead $(( NOW - 2400 )) 0" > "$ROOT_UK/state/.lane-liveness-lanes"
+: > "$ROOT_UK/state/unpaneled.pane"
+OUT=$(rail "$ROOT_UK" read)
+assert_equals unknown "$(field_of "$OUT" unpaneled error_signature_class)" \
+  'the pane read failed, so the class is unknown rather than none'
+assert_equals degraded "$(verdict_of "$OUT" unpaneled)" \
+  'a lane drained while its class is unknown reads degraded, never alive'
+assert_equals yes "$(field_of "$OUT" unpaneled drained_while_error_active)" \
+  'the reading records the drain against the unknown class'
+assert_not_equals '-' "$(field_of "$OUT" unpaneled mover)" \
+  'the mover is recorded when the filesystem can name it'
 
 # --- the E clock is owned by the sweep that read the pane -------------------
 ROOT_J=$(home_fixture sustain)
@@ -499,9 +520,24 @@ ROOT_OFF="$TMP/off"
 mkdir -p "$ROOT_OFF/state" "$ROOT_OFF/config"
 OUT=$(rail "$ROOT_OFF" read)
 assert_contains "$OUT" 'not configured' 'an unconfigured home says so and does nothing'
+assert_contains "$OUT" 'is absent' 'a missing config file is labeled absent'
 OUT=$(rail "$ROOT_OFF" selfcheck)
 assert_equals '' "$OUT" 'an unconfigured home reports no rail silence'
 assert_absent "$ROOT_OFF/state/.lane-liveness-beat" \
   'an unconfigured home writes no heartbeat'
+
+# A config that exists but names no lane is a different fault from a missing
+# file and is reported as itself.
+ROOT_EC=$(home_fixture emptyconf)
+OUT=$(rail "$ROOT_EC" read)
+assert_contains "$OUT" 'names no lane' \
+  'a config present but naming no lane is labeled as exactly that'
+assert_not_contains "$OUT" 'is absent' \
+  'a present config is never reported as absent'
+OUT=$(rail "$ROOT_EC" routes)
+assert_contains "$OUT" 'names no lane' \
+  'routes labels a present but laneless config as itself'
+assert_not_contains "$OUT" 'is absent' \
+  'routes never reports a present config as absent'
 
 pass 'fm-lane-liveness.sh: liveness verdicts, the drained-while-error rule, routing verification, and rail self-reporting'

@@ -213,6 +213,7 @@ config_load() {
       *) ;;
     esac
   done < "$CONFIG"
+  [ -n "$LANE_INBOXES" ]
 }
 
 # --- the ladder log ----------------------------------------------------------
@@ -654,13 +655,15 @@ lane_act() {  # <lane> <verdict> <errclass>
 }
 
 action_plan() {
-  config_load || { printf 'response lanes are not configured (%s is absent)\n' "$CONFIG"; return 0; }
+  [ -f "$CONFIG" ] || { printf 'response lanes are not configured (%s is absent)\n' "$CONFIG"; return 0; }
+  config_load || { printf 'response lanes are not configured (%s names no lane)\n' "$CONFIG"; return 0; }
   ACTING=
   sweep
 }
 
 action_run() {
-  config_load || die "$CONFIG is absent, so there is nothing to recover"
+  [ -f "$CONFIG" ] || die "$CONFIG is absent, so there is nothing to recover"
+  config_load || die "$CONFIG names no lane, so there is nothing to recover"
   case "$RECOVERY" in
     acting) ACTING=1 ;;
     *)

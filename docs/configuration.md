@@ -1434,6 +1434,13 @@ lane <name> [inbox-path]
 These are response-lane health thresholds only.
 They are entirely separate from the monitoring product's own severity and paging configuration, which this rail never reads or changes.
 
+**Drained while an error class is active**
+
+A lane whose handled count moves while its error class is not `none` reads `degraded`, never `alive`: drain movement under an error proves the filesystem moved, not that a worker could do work.
+The exemption is `none` alone.
+A pane that cannot be read is `unknown`, deliberately not `none`, so a drain during an unread pane window still reads `degraded`, and the established class and its sustain clock stay in place across that window for the same reason.
+The reading carries the rule as two fields: `drained_while_error_active` is `yes` when the drain moved under a class other than `none` and `no` otherwise, and `mover` names the owner of the newest `handled/` record when the filesystem can determine it, reporting `-` for a remote lane whose records live on its own host.
+
 **Lane records**
 
 `<name>` is the lane's own record name in this home's state, so the rail reads that lane's home, host, and endpoint from `state/<name>.meta` rather than repeating them in config.

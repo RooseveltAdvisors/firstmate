@@ -128,6 +128,37 @@ assert_contains "$OUT" 'status: unavailable' 'a model failure fails open to an u
 assert_contains "$OUT" 'owner: captain' 'the failure escalates to the fallback owner'
 assert_present "$D/c5/log/argv" 'the failing case reached the model first'
 
+# --- a parenthesized scope never hides or drops its own text -----------------
+# The registry contract allows parentheses inside scope text, so the parse must
+# keep them: a claim written after an inline note still matches deterministically,
+# and a scope ending in a parenthesis reaches the model complete.
+G=$(mktemp -d "$TMP/parens.XXXXXX")
+mkdir -p "$G/data" "$G/state"
+cat > "$G/data/secondmates.md" <<'REG'
+- legacy-ops - Owns the legacy rails. (home: /nope; scope: owns legacy rails (see the runbook); rails under gpu.*; projects: x; added 2026-01-01)
+REG
+FB6=$(fake_curl "$G/c" 200 "$(answer charter legacy-ops 0.9 '{"legacy-ops":1}')")
+OUT=$(PATH="$FB6:$BASE_PATH" TYPESAFE_API_KEY="$KEY" FM_HOME="$G" \
+  FM_STATE_OVERRIDE="$G/state" FM_DATA_OVERRIDE="$G/data" "$ROUTE" gpu.repo_drift 2>&1)
+expect_code 0 $? 'an alert behind a parenthesized scope note exits 0'
+assert_contains "$OUT" 'owner: legacy-ops' 'a namespace claim written after an inline paren still claims its namespace'
+assert_contains "$OUT" 'source: exact' 'the claim is matched deterministically'
+assert_absent "$G/c/log/argv" \
+  'a note inside parentheses never hides the claim from the deterministic layer'
+
+H=$(mktemp -d "$TMP/trailing.XXXXXX")
+mkdir -p "$H/data" "$H/state"
+cat > "$H/data/secondmates.md" <<'REG'
+- pay-ops - Owns the payment rails. (home: /nope; scope: owns the payment rails (legacy); projects: x; added 2026-01-01)
+REG
+FB7=$(fake_curl "$H/c" 200 "$(answer charter pay-ops 0.9 '{"pay-ops":1}')")
+OUT=$(PATH="$FB7:$BASE_PATH" TYPESAFE_API_KEY="$KEY" FM_HOME="$H" \
+  FM_STATE_OVERRIDE="$H/state" FM_DATA_OVERRIDE="$H/data" "$ROUTE" billing.overage 2>&1)
+expect_code 0 $? 'an unplaceable alert over a parenthesized scope exits 0'
+assert_contains "$OUT" 'source: model' 'an unplaceable alert still reaches the model'
+assert_contains "$(command cat "$H/c/log/body")" 'owns the payment rails (legacy)' \
+  'the model receives the complete scope, trailing parenthesis included'
+
 # --- off means no call, and still an owner ----------------------------------
 B=$(mktemp -d "$TMP/off.XXXXXX")
 mkdir -p "$B/data" "$B/state"

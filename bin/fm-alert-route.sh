@@ -103,8 +103,11 @@ seats() {
       scope = ""
       if (match($0, /scope: /)) {
         scope = substr($0, RSTART + 7)
-        sub(/; projects:.*/, "", scope)
-        sub(/\).*$/, "", scope)
+        if (scope ~ /; projects:/) {
+          sub(/; projects:.*/, "", scope)
+        } else {
+          sub(/\)[[:space:]]*$/, "", scope)
+        }
       }
       print name "\t" scope
     }' "$REGISTRY" 2>/dev/null

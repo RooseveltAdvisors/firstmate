@@ -462,5 +462,23 @@ R="$TMP/off"
 mkdir -p "$R/state" "$R/config"
 OUT=$(FM_HOME="$R" FM_STATE_OVERRIDE="$R/state" FM_CONFIG_OVERRIDE="$R/config" "$LADDER" plan 2>&1)
 assert_contains "$OUT" 'not configured' 'an unconfigured home says so and does nothing'
+assert_contains "$OUT" 'is absent' 'a missing config file is labeled absent'
+
+# A config that exists but names no lane is a different fault from a missing
+# file and is reported as itself.
+R="$TMP/emptycfg"
+mkdir -p "$R/state" "$R/config"
+printf '%s\n' '# fixture' > "$R/config/response-lanes.conf"
+OUT=$(FM_HOME="$R" FM_STATE_OVERRIDE="$R/state" FM_CONFIG_OVERRIDE="$R/config" "$LADDER" plan 2>&1)
+assert_contains "$OUT" 'names no lane' \
+  'a config present but naming no lane is labeled as exactly that'
+assert_not_contains "$OUT" 'is absent' \
+  'a present config is never reported as absent'
+OUT=$(FM_HOME="$R" FM_STATE_OVERRIDE="$R/state" FM_CONFIG_OVERRIDE="$R/config" "$LADDER" run 2>&1)
+expect_code 2 $? 'running against a laneless config refuses'
+assert_contains "$OUT" 'names no lane, so there is nothing to recover' \
+  'the refusal names the real fault rather than a missing file'
+assert_not_contains "$OUT" 'is absent' \
+  'the refusal never reports a present config as absent'
 
 pass 'fm-lane-recover.sh: refusals, rung ordering that does not short-circuit on probe liveness, no silent no-op on a dead lane, and a planning mode that changes nothing'

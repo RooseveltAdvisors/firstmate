@@ -463,7 +463,7 @@ EOF
   LANE_HANDLED_MOVED=no
   gt "$LANE_HANDLED" "$jhandled" && LANE_HANDLED_MOVED=yes
   case "$LANE_ERRCLASS" in
-    none|unknown) ;;
+    none) ;;
     *)
       if [ "$LANE_HANDLED_MOVED" = yes ]; then
         LANE_DRAINED_ON_ERROR=yes
@@ -575,7 +575,8 @@ lane_line() {  # <lane>
 
 action_read() {
   local lane override
-  config_load || { printf 'response lanes are not configured (%s is absent)\n' "$CONFIG"; return 0; }
+  [ -f "$CONFIG" ] || { printf 'response lanes are not configured (%s is absent)\n' "$CONFIG"; return 0; }
+  config_load || { printf 'response lanes are not configured (%s names no lane)\n' "$CONFIG"; return 0; }
   printf 'thresholds W=%ss D=%ss E=%ss M=%s%% SELF=%ss\n' "$W" "$D" "$E" "$M" "$SELF"
   while IFS='	' read -r lane override; do
     [ -n "$lane" ] || continue
@@ -589,7 +590,8 @@ EOF
 action_routes() {
   local lane override routed=0 unverified=0 total pct
   SKIP_PANE=1
-  config_load || { printf 'response lanes are not configured (%s is absent)\n' "$CONFIG"; return 0; }
+  [ -f "$CONFIG" ] || { printf 'response lanes are not configured (%s is absent)\n' "$CONFIG"; return 0; }
+  config_load || { printf 'response lanes are not configured (%s names no lane)\n' "$CONFIG"; return 0; }
   while IFS='	' read -r lane override; do
     [ -n "$lane" ] || continue
     lane_read "$lane" "$override"
