@@ -59,7 +59,8 @@ A symlink anywhere in that ancestry is refused before any mutation, so compositi
 The ancestry and the existing entries are both re-checked immediately before the first mutation, because resolving names and refreshing the map in between takes long enough for either to change.
 Nothing removes the managed directories above a set, so a refused or no-op run can leave them behind in a home that had none.
 That is deliberate: a path-based removal resolves through a symlinked ancestor and would reach outside the target home, and removing a shared parent races a concurrent run composing a different set.
-Every entry name a refusal prints is quoted, because the composed worker itself writes into that overlay.
+Every entry name and every mapped path a refusal prints is quoted, because the composed worker writes into that overlay and a recorded path comes from a scanned source.
+An unquoted one could carry a control sequence that rewrites the refusal an operator reads.
 
 The scanner reads one level of each source directory, so a skill nested deeper than `<source>/<skill>/SKILL.md` is not discovered.
 Claude Code's own `skills/synced/<id>/<skill>/` layout is nested that way and is therefore not mapped.

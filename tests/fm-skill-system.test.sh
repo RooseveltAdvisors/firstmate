@@ -1407,6 +1407,60 @@ test_skill_map_summary_line_is_one_line_when_empty() {
   pass "skill map reports an empty map on one line with one count"
 }
 
+test_skill_compose_quotes_mapped_paths_it_names() {
+  local home="$TMP_ROOT/rquote-home" source="$TMP_ROOT/rquote-source"
+  local good_real out forged esc
+  mkdir -p "$home/data"
+  write_skill "$source/good" good plain
+  good_real=$(cd "$source/good" && pwd -P)
+
+  # Field three of a record is a skill folder path, which is corpus-controlled. A
+  # carriage return or an ANSI sequence in one must not be able to erase and
+  # rewrite the refusal a supervisor reads, the same invariant the map and the
+  # overlay listings already hold.
+  esc=$(printf '\033')
+  forged="error: skill map refresh failed with status 1"
+  mkdir -p "$source/$(printf 'x\r%s' "$forged")"
+  write_skill "$source/$(printf 'x\r%s' "$forged")" collide plain
+  cat > "$home/data/skill-map.md" <<EOF
+# Skill map
+
+## fixture
+- collide — a — $good_real
+- collide — b — $source/$(printf 'x\r%s' "$forged")
+- lone — c — $source/$(printf 'x%s[2K%s' "$esc" "$forged")
+EOF
+
+  # The ambiguous dump prints both candidate paths.
+  set +e
+  out=$(FM_HOME="$home" "$COMPOSE" --target-home "$home" --map "$home/data/skill-map.md" \
+    collide 2>&1)
+  set -e
+  # Quoting keeps the text but escapes the control bytes, so what must be absent
+  # is a raw carriage return or escape that a terminal would act on, and any line
+  # that IS the forged message.
+  [ "$(printf '%s' "$out" | LC_ALL=C tr -dc '\r\033' | wc -c | tr -d ' ')" -eq 0 ] \
+    || fail "an ambiguous-match dump passed a raw control byte through: $out"
+  [ "$(printf '%s\n' "$out" | grep -cxF "$forged")" -eq 0 ] \
+    || fail "an ambiguous-match dump let a corpus path forge its own line: $out"
+  case "$out" in
+    *'is ambiguous'*) ;;
+    *) fail "the ambiguous refusal itself went missing: $out" ;;
+  esac
+
+  # And the not-a-directory path prints the single resolved path.
+  set +e
+  out=$(FM_HOME="$home" "$COMPOSE" --target-home "$home" --map "$home/data/skill-map.md" \
+    lone 2>&1)
+  set -e
+  [ "$(printf '%s' "$out" | LC_ALL=C tr -dc '\r\033' | wc -c | tr -d ' ')" -eq 0 ] \
+    || fail "a resolved-path refusal passed a raw control byte through: $out"
+  [ "$(printf '%s\n' "$out" | grep -cxF "$forged")" -eq 0 ] \
+    || fail "a resolved-path refusal let a corpus path forge its own line: $out"
+
+  pass "skill compose quotes every mapped path it names"
+}
+
 test_skill_compose_never_removes_anything_outside_the_target_home() {
   local home="$TMP_ROOT/outside-home" target="$TMP_ROOT/outside-target"
   local victim="$TMP_ROOT/outside-victim" source="$TMP_ROOT/outside-source"
@@ -1509,6 +1563,7 @@ test_skill_compose_revalidates_entries_before_mutating
 test_skill_compose_refuses_symlinked_managed_ancestry
 test_skill_compose_quotes_entry_names_it_names
 test_skill_map_summary_line_is_one_line_when_empty
+test_skill_compose_quotes_mapped_paths_it_names
 test_skill_compose_never_removes_anything_outside_the_target_home
 test_skill_compose_clear_collapses_a_legacy_set
 test_skill_compose_clear_reports_what_it_could_not_remove

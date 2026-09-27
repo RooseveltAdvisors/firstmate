@@ -177,15 +177,22 @@ resolve_skill() {  # <name>; prints canonical path
   case "$count" in
     0) printf 'error: skill not found in %s: %s\n' "$MAP" "$name" >&2; return 1 ;;
     1) ;;
-    *) printf 'error: skill name is ambiguous in %s: %s\n%s\n' "$MAP" "$name" "$matches" >&2; return 1 ;;
+    *)
+      printf 'error: skill name is ambiguous in %s: %s\n' "$MAP" "$name" >&2
+      printf '%s\n' "$matches" | while IFS= read -r match; do
+        [ -n "$match" ] || continue
+        printf '  %q\n' "$match" >&2
+      done
+      return 1
+      ;;
   esac
   path=$(printf '%s\n' "$matches" | sed '/^$/d')
   case "$path" in
     /*) ;;
-    *) printf 'error: mapped skill path is not absolute for %s: %s\n' "$name" "$path" >&2; return 1 ;;
+    *) printf 'error: mapped skill path is not absolute for %s: %q\n' "$name" "$path" >&2; return 1 ;;
   esac
-  [ -d "$path" ] || { printf 'error: mapped skill path is not a directory for %s: %s\n' "$name" "$path" >&2; return 1; }
-  [ -f "$path/SKILL.md" ] || { printf 'error: mapped skill path lacks SKILL.md for %s: %s\n' "$name" "$path" >&2; return 1; }
+  [ -d "$path" ] || { printf 'error: mapped skill path is not a directory for %s: %q\n' "$name" "$path" >&2; return 1; }
+  [ -f "$path/SKILL.md" ] || { printf 'error: mapped skill path lacks SKILL.md for %s: %q\n' "$name" "$path" >&2; return 1; }
   canonical_dir "$path"
 }
 
