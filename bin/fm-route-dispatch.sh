@@ -78,6 +78,8 @@ OVERRIDE_FLAGS=$(echo "$ROUTER_JSON" | jq -r '.seat_wall.override_flags // ""')
 CHARTERED=$(echo "$ROUTER_JSON" | jq -r '.auto_charter.chartered // false')
 CHARTERED_DOMAIN=$(echo "$ROUTER_JSON" | jq -r '.auto_charter.domain // ""')
 CHARTERED_HOME=$(echo "$ROUTER_JSON" | jq -r '.auto_charter.home // ""')
+CHARTERED_SCAFFOLDED=$(echo "$ROUTER_JSON" | jq -r '.auto_charter.scaffolded // false')
+CHARTERED_SCAFFOLD_ERROR=$(echo "$ROUTER_JSON" | jq -r '.auto_charter.scaffold_error // ""')
 
 printf '=== Jev Front-Door Router ===\n'
 printf 'Action:     %s\n' "$ACTION"
@@ -95,6 +97,12 @@ case "$ACTION" in
     ;;
   create_secondmate)
     if [ "$CHARTERED" = "true" ]; then
+      if [ "$CHARTERED_SCAFFOLDED" != "true" ] || [ -n "$CHARTERED_SCAFFOLD_ERROR" ]; then
+        printf 'Status: Charter appended for "%s", but the home was not scaffolded.\n' "$CHARTERED_DOMAIN"
+        printf 'error: home scaffold failed for %s: %s\n' \
+          "${CHARTERED_HOME:-unknown}" "${CHARTERED_SCAFFOLD_ERROR:-unknown scaffold failure}" >&2
+        exit 1
+      fi
       printf 'Status: Auto-chartered new Second Mate "%s".\n' "$CHARTERED_DOMAIN"
       printf 'Home scaffolded: %s\n' "$CHARTERED_HOME"
       printf 'Ready to spawn:  bin/fm-spawn.sh %s --secondmate\n' "$CHARTERED_DOMAIN"

@@ -1735,6 +1735,127 @@ test_non_claude_harness_ignores_claude_permission_mode() {
   pass "config/claude-permission-mode changes claude launches only"
 }
 
+test_isolation_seam_reaches_child_processes() {
+  local flag loaded
+  flag=$(bash -c 'printf %s "${FM_TEST_LIB_SOURCED:-}"')
+  assert_equals "1" "$flag" "FM_TEST_LIB_SOURCED is not visible to a child process"
+  loaded=$(bash -c '. "$1" >/dev/null 2>&1 || exit 1; printf "%s|%s" "${ROOT:-}" "$(type -t fm_test_tmproot)"' _ "$ROOT/tests/lib.sh")
+  assert_equals "$ROOT|function" "$loaded" \
+    "a child sourcing tests/lib.sh with the seam exported did not load its fixtures"
+  pass "the test-isolation seam is exported to children and child fixture loading still works"
+}
+
+make_seam_spawn_case() {  # <name> <id>
+  # The suite's shared fakebin shadows `timeout`, which the home-summary sweep
+  # runs through, so the seam cases build their fakebin at the fixtures level
+  # (real timeout) and let that sweep actually succeed.
+  local name=$1 id=$2 case_dir fakebin
+  case_dir="$TMP_ROOT/$name"
+  fakebin=$(fm_test_make_spawn_fakebin "$case_dir/fake")
+  fm_test_spawn_home "$case_dir/home" claude
+  fm_git_worktree "$case_dir/project" "$case_dir/wt" "wt-$name"
+  fm_test_spawn_brief "$case_dir/home" "$id"
+  printf '%s\n' "$case_dir|$case_dir/home|$case_dir/project|$case_dir/wt|$fakebin|$case_dir/launch.log"
+}
+
+test_isolation_seam_suppresses_spawn_sweep_in_child() {
+  local rec id out status
+  id=profile-seam-on-z17
+  rec=$(make_seam_spawn_case profile-seam-on "$id")
+  read_case_record "$rec"
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  expect_code 0 "$status" "seamed spawn should succeed: $out"
+  assert_absent "$HOME_DIR/state/home-summary.json" \
+    "the isolation seam did not suppress the summary sweep in the spawn child"
+
+  id=profile-seam-off-z17
+  rec=$(make_seam_spawn_case profile-seam-off "$id")
+  read_case_record "$rec"
+
+  out=$(FM_TEST_LIB_SOURCED= run_ship_spawn \
+    "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  expect_code 0 "$status" "unseamed spawn should succeed: $out"
+  assert_present "$HOME_DIR/state/home-summary.json" \
+    "the summary sweep must still run in a child that does not carry the seam"
+  pass "the isolation seam suppresses the sweep only for seamed children"
+}
+
+test_raw_launch_divert_proposal_is_refused() {
+  local rec id out status launch prober meta
+  id=profile-raw-divert-x16
+  rec=$(make_spawn_case profile-raw-divert claude "$id")
+  read_case_record "$rec"
+  enable_dispatch_profile "$HOME_DIR"
+  prober="$CASE_DIR/jev-quota-prober"
+  cat > "$prober" <<'SH'
+#!/usr/bin/env bash
+set -u
+case " ${*} " in
+  *' --auto-divert '*)
+    printf '%s\n' 'harness=cursor' 'model=cursor-grok-4.5-high'
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+SH
+  chmod +x "$prober"
+
+  out=$(FM_TEST_DISABLE_JEV_PROBER=0 FM_TEST_JEV_PROBER_PATH="$prober" run_ship_spawn \
+    "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" "custom-agent --flag")
+  status=$?
+  expect_code 0 "$status" "raw launch spawn under a divert proposal should launch: $out"
+  assert_contains "$out" "an explicit raw launch command is never rewritten" \
+    "the refused cross-harness divert did not report the prober finding as a warning"
+  launch=$(cat "$LAUNCH_LOG")
+  [ "$launch" = "export COMPACT_ADVISER_DISABLE=1; $(ai_trailer_hooks_prefix "$HOME_DIR" "$id")custom-agent --flag" ] \
+    || fail "a divert proposal rewrote the raw launch command"$'\n'"actual: $launch"
+  meta="$HOME_DIR/state/$id.meta"
+  assert_meta_profile "$meta" custom-agent default default
+  assert_no_grep "cursor-grok" "$meta" "a refused divert leaked into task metadata"
+  assert_not_contains "$launch" "cursor-agent" "a refused divert still switched the launched binary"
+  pass "a cross-harness divert never rewrites an explicit raw launch command"
+}
+
+test_raw_launch_same_harness_model_divert_is_refused() {
+  local rec id out status launch prober meta
+  id=profile-raw-divert-same-x17
+  rec=$(make_spawn_case profile-raw-divert-same claude "$id")
+  read_case_record "$rec"
+  enable_dispatch_profile "$HOME_DIR"
+  prober="$CASE_DIR/jev-quota-prober"
+  cat > "$prober" <<'SH'
+#!/usr/bin/env bash
+set -u
+case " ${*} " in
+  *' --auto-divert '*)
+    printf '%s\n' 'harness=custom-agent' 'model=custom-diverted-model'
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+SH
+  chmod +x "$prober"
+
+  out=$(FM_TEST_DISABLE_JEV_PROBER=0 FM_TEST_JEV_PROBER_PATH="$prober" run_ship_spawn \
+    "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" "custom-agent --flag")
+  status=$?
+  expect_code 0 "$status" "raw launch spawn under a same-harness model divert should launch: $out"
+  assert_contains "$out" "an explicit raw launch command is never rewritten" \
+    "the refused same-harness divert did not report the prober finding as a warning"
+  launch=$(cat "$LAUNCH_LOG")
+  [ "$launch" = "export COMPACT_ADVISER_DISABLE=1; $(ai_trailer_hooks_prefix "$HOME_DIR" "$id")custom-agent --flag" ] \
+    || fail "a same-harness model divert changed the raw launch command"$'\n'"actual: $launch"
+  meta="$HOME_DIR/state/$id.meta"
+  assert_meta_profile "$meta" custom-agent default default
+  assert_no_grep "custom-diverted-model" "$meta" "a refused model divert reached task metadata"
+  pass "a same-harness model divert never rewrites an explicit raw launch command"
+}
+
 test_worker_launch_delivers_role_scope
 test_no_profile_keeps_claude_profile_defaults
 test_claude_launch_brief_publishes_record_doorbell
@@ -1794,5 +1915,9 @@ test_claude_long_launch_is_delivered_intact
 test_claude_crewmate_launch_carries_the_attribution_policy
 test_claude_secondmate_launch_carries_the_attribution_policy
 test_active_dispatch_profile_does_not_block_secondmate_launch
+test_isolation_seam_reaches_child_processes
+test_isolation_seam_suppresses_spawn_sweep_in_child
+test_raw_launch_divert_proposal_is_refused
+test_raw_launch_same_harness_model_divert_is_refused
 
 echo "# all fm-spawn-dispatch-profile tests passed"

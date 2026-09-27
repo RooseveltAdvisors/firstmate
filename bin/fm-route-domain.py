@@ -27,6 +27,12 @@ LOCAL_RE = re.compile(
     re.MULTILINE,
 )
 
+DOMAIN_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+
+
+def is_domain_id(value: object) -> bool:
+    return isinstance(value, str) and DOMAIN_ID_RE.fullmatch(value) is not None
+
 
 def get_api_key() -> str | None:
     # 1. Environment
@@ -105,7 +111,7 @@ def check_seat_wall_status(fm_root: Path, seat: str) -> dict:
 
 
 def generate_domain_id(choice: str, task_text: str) -> str:
-    if choice and choice != "new_domain" and choice != "captain_direct" and re.match(r"^[a-zA-Z0-9._-]+$", choice):
+    if choice and choice != "new_domain" and choice != "captain_direct" and is_domain_id(choice):
         return choice
     clean = re.sub(r"[^a-zA-Z0-9]+", " ", task_text.lower())
     stop_words = {
@@ -306,6 +312,15 @@ def main() -> None:
     choice = route_ans.get("choice", "captain_direct")
     confidence = float(route_ans.get("confidence", 0.0))
     probs = route_ans.get("probabilities", {})
+
+    if choice not in ("captain_direct", "new_domain") and not is_domain_id(choice):
+        emit_result(
+            "unavailable",
+            "captain_direct",
+            reason=f"refused unsafe route choice: {str(choice)[:80]}",
+            task_text=task_text,
+            as_json=args.json,
+        )
 
     noul_ans = answers.get("needs_new_secondmate", {})
     noul_val = float(noul_ans.get("noul", 0.0))

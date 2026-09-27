@@ -2279,15 +2279,18 @@ if [ "${FM_TEST_DISABLE_JEV_PROBER:-0}" != 1 ] && [ -x "$JEV_QUOTA_PROBER" ]; th
     if [ -n "$_divert" ]; then
       eval "$_divert"
       if [ -n "${harness:-}" ] && [ -n "${model:-}" ]; then
-        echo "jev-quota-prober: automatically diverted $HARNESS${MODEL:+:$MODEL} to viable lane $harness:$model" >&2
-        HARNESS="$harness"
-        MODEL="$model"
-        if [ "$HARNESS" != "$_pre_divert_harness" ]; then
-          LAUNCH=$(launch_template "$HARNESS" "$KIND") || {
-            echo "error: no launch template for diverted harness '$HARNESS'" >&2
-            exit 1
-          }
-          RAW_LAUNCH=0
+        if [ "$RAW_LAUNCH" = 1 ]; then
+          echo "warning: jev-quota-prober proposes divert to $harness:$model, but an explicit raw launch command is never rewritten; the quota finding was not applied" >&2
+        else
+          echo "jev-quota-prober: automatically diverted $HARNESS${MODEL:+:$MODEL} to viable lane $harness:$model" >&2
+          HARNESS="$harness"
+          MODEL="$model"
+          if [ "$HARNESS" != "$_pre_divert_harness" ]; then
+            LAUNCH=$(launch_template "$HARNESS" "$KIND") || {
+              echo "error: no launch template for diverted harness '$HARNESS'" >&2
+              exit 1
+            }
+          fi
         fi
       fi
     fi

@@ -20,11 +20,19 @@
 # Idempotent guard: behavior-area helper files (secondmate-helpers.sh,
 # wake-helpers.sh, fixtures.sh) source this library for ROOT/fail/pass, and the
 # test that includes them may also source it directly. Re-sourcing must not wipe
-# the registered-cleanup array or reset state.
-if [ -n "${FM_TEST_LIB_SOURCED:-}" ]; then
+# the registered-cleanup array or reset state. This guard is process-local: a
+# child test process that sources this library must load its fixtures even when
+# the exported isolation seam below is already in its environment.
+if [ -n "${FM_TEST_LIB_LOADED:-}" ]; then
   return 0
 fi
-FM_TEST_LIB_SOURCED=1
+FM_TEST_LIB_LOADED=1
+
+# Isolation seam: exported so executed children (bin/fm-spawn.sh,
+# bin/fm-teardown.sh, bin/fm-watch.sh) see it and keep their host sweeps out of
+# fixture state; a suite that wants the real side effect clears it on the child
+# invocation only.
+export FM_TEST_LIB_SOURCED=1
 
 # Pin the fixture umask. Firstmate's state-root and process-event contracts
 # refuse group- or world-writable state directories, and a permissive ambient

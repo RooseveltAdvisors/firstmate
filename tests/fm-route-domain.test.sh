@@ -31,6 +31,138 @@ out=$(env TYPESAFE_API_KEY="" python3 "$ROOT/bin/fm-route-domain.py" --task "Tes
 # Should emit action=unavailable if key cannot be obtained, or action=dispatch/handle_direct if key is live
 assert_contains "$out" "action=" "router emits action field"
 
+# 2b. Deterministic Jev: stub the SystemOne call at the urllib boundary so the
+# router and dispatcher run end to end with no credentials and no network, then
+# hold what they do with an unsafe route choice and with a partial scaffold.
+FAKE_TS="$TDIR/fake-ts"
+mkdir -p "$FAKE_TS"
+cat > "$FAKE_TS/sitecustomize.py" <<'PY'
+import os
+import urllib.request
+
+_real_urlopen = urllib.request.urlopen
+
+
+class _FakeResponse:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def read(self):
+        return self._payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def _fake_urlopen(req, *args, **kwargs):
+    path = os.environ.get("FM_TEST_JEV_RESPONSE")
+    if not path:
+        return _real_urlopen(req, *args, **kwargs)
+    with open(path, "rb") as handle:
+        return _FakeResponse(handle.read())
+
+
+urllib.request.urlopen = _fake_urlopen
+PY
+
+write_jev_response() {  # <choice> <noul>
+  jq -n --arg choice "$1" --argjson noul "$2" \
+    '{answers:{route:{choice:$choice,confidence:0.95},needs_new_secondmate:{noul:$noul}}}' \
+    > "$TDIR/jev-response.json"
+}
+
+run_dispatch() {  # <registry> <homes-dir> [fm-route-dispatch.sh args...]
+  local registry=$1 homes=$2
+  shift 2
+  PYTHONPATH="$FAKE_TS${PYTHONPATH:+:$PYTHONPATH}" \
+    FM_TEST_JEV_RESPONSE="$TDIR/jev-response.json" \
+    TYPESAFE_API_KEY=fake-key \
+    FM_SECONDMATE_HOMES_DIR="$homes" \
+    "$ROOT/bin/fm-route-dispatch.sh" --registry "$registry" "$@" 2>&1
+}
+
+# A Jev response of ".." must be refused before it becomes a filesystem
+# component: no charter is appended and nothing is scaffolded outside the
+# homes root.
+REG_UNSAFE="$TDIR/reg-unsafe.md"
+cp "$REG" "$REG_UNSAFE"
+REG_UNSAFE_BEFORE=$(cat "$REG_UNSAFE")
+write_jev_response ".." 0.95
+rc=0
+out=$(run_dispatch "$REG_UNSAFE" "$TDIR/homes-unsafe" --auto-charter \
+  --task "Autonomous agricultural drone autopilot navigation firmware in Rust") || rc=$?
+expect_code 0 "$rc" "an unsafe route choice should fall back without erroring: $out"
+assert_contains "$out" "refused unsafe route choice" "the router did not report the refusal"
+assert_not_contains "$out" "Auto-chartered" "an unsafe route choice claimed a charter"
+assert_equals "$REG_UNSAFE_BEFORE" "$(cat "$REG_UNSAFE")" \
+  "an unsafe route choice appended a charter line"
+assert_absent "$TDIR/data" "an unsafe route choice scaffolded data/ outside the homes root"
+assert_absent "$TDIR/state" "an unsafe route choice scaffolded state/ outside the homes root"
+assert_absent "$TDIR/.fm-secondmate-home" "an unsafe route choice planted a home marker outside the homes root"
+assert_absent "$TDIR/.fm-secondmate-parent" "an unsafe route choice planted a parent marker outside the homes root"
+
+rc=0
+json_out=$(run_dispatch "$REG_UNSAFE" "$TDIR/homes-unsafe" --json --auto-charter \
+  --task "Autonomous agricultural drone autopilot navigation firmware in Rust") || rc=$?
+expect_code 0 "$rc" "the JSON refusal should exit zero: $json_out"
+printf '%s' "$json_out" | jq -e \
+  '.action == "unavailable" and .auto_charter.chartered == false and .route == "captain_direct"' \
+  >/dev/null || fail "the refusal JSON did not fall back with no charter: $json_out"
+assert_equals "$REG_UNSAFE_BEFORE" "$(cat "$REG_UNSAFE")" \
+  "the JSON refusal appended a charter line"
+pass "a Jev response of \"..\" is refused before it reaches the filesystem"
+
+# The same refusal governs the dispatch path, where the choice would become a
+# seat status read and the fm-send route.
+write_jev_response "../../outside-seat" 0.1
+rc=0
+out=$(run_dispatch "$REG_UNSAFE" "$TDIR/homes-unsafe" \
+  --task "Urgent care acquisition seller email outreach campaign") || rc=$?
+expect_code 0 "$rc" "an unsafe dispatch route should fall back without erroring: $out"
+assert_contains "$out" "refused unsafe route choice" "the router did not report the dispatch refusal"
+assert_not_contains "$out" "Recommended dispatch command" \
+  "the router recommended dispatching to a path-significant seat"
+pass "a path-significant route choice is refused instead of dispatched"
+
+# A partial scaffold (charter appended, home scaffolding failed) must report the
+# scaffold error and exit non-zero instead of claiming success.
+REG_PARTIAL="$TDIR/reg-partial.md"
+cp "$REG" "$REG_PARTIAL"
+HOMES_AS_FILE="$TDIR/homes-is-a-file"
+: > "$HOMES_AS_FILE"
+write_jev_response "new_domain" 0.95
+rc=0
+out=$(run_dispatch "$REG_PARTIAL" "$HOMES_AS_FILE" --auto-charter \
+  --task "Quantum computing cryptographic lattice simulation engine in Haskell") || rc=$?
+expect_code 1 "$rc" "a partial scaffold must exit non-zero: $out"
+assert_contains "$out" "home scaffold failed" "the partial scaffold did not report the scaffold error"
+assert_not_contains "$out" "Home scaffolded:" "the partial scaffold still claimed a scaffolded home"
+assert_not_contains "$out" "Ready to spawn" "the partial scaffold still claimed readiness to spawn"
+assert_contains "$(cat "$REG_PARTIAL")" "Dedicated secondmate for" \
+  "the partial scaffold did not record the appended charter"
+pass "a partial scaffold reports the error and exits non-zero"
+
+# The happy path still banners success and scaffolds a real home.
+REG_OK="$TDIR/reg-ok.md"
+cp "$REG" "$REG_OK"
+HOMES_OK="$TDIR/homes-ok"
+mkdir -p "$HOMES_OK"
+write_jev_response "new_domain" 0.95
+rc=0
+out=$(run_dispatch "$REG_OK" "$HOMES_OK" --auto-charter \
+  --task "Quantum computing cryptographic lattice simulation engine in Haskell") || rc=$?
+expect_code 0 "$rc" "a full scaffold should succeed: $out"
+assert_contains "$out" "Auto-chartered new Second Mate" "the happy path lost its charter banner"
+assert_contains "$out" "Home scaffolded: $HOMES_OK/" "the happy path lost its scaffold banner"
+assert_contains "$out" "Ready to spawn" "the happy path lost its readiness banner"
+scaffold_home=$(printf '%s\n' "$out" | sed -n 's/^Home scaffolded: //p')
+[ -n "$scaffold_home" ] || fail "the success banner did not name the scaffolded home"
+assert_present "$scaffold_home/.fm-secondmate-home" "the happy path did not create the home marker"
+pass "a full auto-charter scaffold still reports success"
+
 # 3. Live call: known domain (seller-outreach)
 if sudo -n /opt/ra/firstmate/bin/jev-typesafe-run.py -- env | grep -q "TYPESAFE_API_KEY"; then
   out=$(python3 "$ROOT/bin/fm-route-domain.py" --task "Urgent care acquisition seller email outreach campaign" --registry "$REG")
