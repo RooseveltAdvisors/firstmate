@@ -51,8 +51,19 @@ case "${1:-}" in
       list) cat "$FAKE/gh-list.json" 2>/dev/null || echo "[]" ;;
       view)
         n="${3:-}"
-        if [ -f "$FAKE/gh-state-$n" ]; then cat "$FAKE/gh-state-$n"; else echo '{"state":"OPEN"}'; fi
+        case "$*" in
+          *--json*title*)
+            if [ -f "$FAKE/gh-view-$n.json" ]; then cat "$FAKE/gh-view-$n.json"
+            else echo '{"title":"SOS: reported problem","body":"body","labels":[{"name":"sos"}]}'
+            fi ;;
+          *)
+            if [ -f "$FAKE/gh-state-$n" ]; then cat "$FAKE/gh-state-$n"; else echo '{"state":"OPEN"}'; fi ;;
+        esac
         ;;
+      edit)
+        n="${3:-}"
+        echo "edit $n $*" >> "$FAKE/edit.log"
+        exit 0 ;;
       comment)
         n="${3:-}"
         shift 3
@@ -64,7 +75,12 @@ case "${1:-}" in
         printf '%s\t%s\n' "$n" "$body" >> "$FAKE/comments.log"
         echo "https://github.com/ArcsHealth/Portal/issues/$n#comment-1"
         ;;
-      close) echo "CLOSE-ATTEMPTED" >> "$FAKE/gh.log"; exit 97 ;;
+      close)
+        echo "CLOSE-ATTEMPTED" >> "$FAKE/gh.log"
+        # The loop closes an issue only on a decline; every other path must
+        # fail here, which is what pins "the loop never closes an issue".
+        [ -f "$FAKE/allow-close" ] && exit 0
+        exit 97 ;;
       *) exit 1 ;;
     esac
     ;;
@@ -88,7 +104,21 @@ echo "fm-spawn $*" >> "$FAKE/spawn.log"
 exit 0
 SH
 
-  chmod +x "$fb/gh" "$fb/curl" "$fb/fm-spawn"
+  cat > "$fb/jev" <<'SH'
+#!/usr/bin/env bash
+set -u
+FAKE="${FM_ISSUE_FAKE_DIR:?}"
+echo "jev $*" >> "$FAKE/jev.log"
+[ -f "$FAKE/jev-verdict" ] || { echo '{"verdict":"supported_bug","confidence":0.9,"fail_open":false}'; exit 0; }
+case "$(cat "$FAKE/jev-verdict")" in
+  fail) echo "jev: simulated outage" >&2; exit 1 ;;
+  garbage) echo "not json at all"; exit 0 ;;
+  v) printf '{"verdict":"%s","confidence":0.9,"fail_open":false}\n' "$(cat "$FAKE/jev-answer")" ;;
+  *) printf '{"verdict":"%s","confidence":0.9,"fail_open":false}\n' "$(cat "$FAKE/jev-verdict")" ;;
+esac
+SH
+
+  chmod +x "$fb/gh" "$fb/curl" "$fb/fm-spawn" "$fb/jev"
 
   # Default scenario: one bridge event for one open SOS ticket.
   set_bridge_events "$fd" 1 "$SOS_UUID" "$GH_ISSUE"
@@ -355,6 +385,79 @@ test_legacy_fm_sos_rows_stay_authoritative() {
   pass "legacy fm-sos rows stay authoritative across the rename"
 }
 
+test_verdict_declines_a_by_design_request() {
+  local parts home fd out
+  parts=$(setup_case decline)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  printf 'not_supported\n' > "$fd/jev-verdict"
+  : > "$fd/allow-close"
+
+  out=$(run_intake "$parts" reconcile) || fail "reconcile failed: $out"
+  assert_contains "$out" "declined=1" "the decline must be counted: $out"
+  assert_contains "$(cat "$fd/comments.log")" "**Not supported**" "the reporter must get the decline"
+  assert_contains "$(cat "$fd/gh.log")" "CLOSE-ATTEMPTED" "the decline closes the issue"
+  assert_contains "$(cat "$fd/edit.log" 2>/dev/null)" "not-supported" \
+    "the not-supported label must be applied"
+  assert_equals "done" "$(task_state_of "$parts")" "the declined row must be closed"
+  [ ! -f "$fd/spawn.log" ] || fail "a declined ticket must never spawn"
+  [ ! -f "$home/state/when/when-sos-$GH_ISSUE.spec" ] || fail "a declined ticket must not arm a watch"
+
+  # Replay: one decline, one comment, no second close attempt.
+  : > "$fd/gh.log"
+  out=$(run_intake "$parts" reconcile) || fail "replay failed: $out"
+  assert_contains "$out" "declined=1" "the replay still counts it once: $out"
+  assert_equals "1" "$(count_of "**Not supported**" "$fd/comments.log")" \
+    "replay must not re-decline: $(cat "$fd/comments.log" 2>/dev/null)"
+  assert_no_grep "CLOSE-ATTEMPTED" "$fd/gh.log" "replay must not close again"
+  pass "a by-design request is declined, closed, and never re-declined"
+}
+
+test_verdict_holds_uncertain_tickets_for_the_captain() {
+  local parts home fd out
+  parts=$(setup_case hold)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  printf 'captain_review\n' > "$fd/jev-verdict"
+
+  out=$(run_intake "$parts" reconcile) || fail "reconcile failed: $out"
+  assert_contains "$out" "review=1" "the hold must be counted: $out"
+  assert_contains "$out" "held for the captain" "the hold must be visible"
+  [ ! -f "$fd/comments.log" ] || fail "a held ticket must not comment"
+  assert_no_grep "CLOSE-ATTEMPTED" "$fd/gh.log" "a held ticket must not close"
+  [ ! -f "$fd/spawn.log" ] || fail "a held ticket must never spawn"
+  assert_equals "queued" "$(task_state_of "$parts")" "the held row stays queued for the captain"
+  pass "an uncertain ticket is held for the captain and never acted on"
+}
+
+test_verdict_failure_fails_open_not_closed() {
+  local parts fd out
+  parts=$(setup_case failopen)
+  fd=${parts##*|}
+  printf 'fail\n' > "$fd/jev-verdict"
+  : > "$fd/allow-close"
+
+  out=$(run_intake "$parts" reconcile) || fail "reconcile failed: $out"
+  assert_contains "$out" "review=1" "a broken classifier must hold, not decide: $out"
+  assert_no_grep "CLOSE-ATTEMPTED" "$fd/gh.log" "a broken classifier must never close"
+  [ ! -f "$fd/spawn.log" ] || fail "a broken classifier must never spawn"
+  pass "verdict failure fails open to captain review"
+}
+
+test_verdict_is_decided_once() {
+  local parts fd out calls
+  parts=$(setup_case once)
+  fd=${parts##*|}
+  printf 'supported_bug\n' > "$fd/jev-verdict"
+
+  out=$(run_intake "$parts" reconcile) || fail "reconcile failed: $out"
+  assert_contains "$out" "dispatched=1" "supported tickets still dispatch: $out"
+  out=$(run_intake "$parts" reconcile) || fail "replay failed: $out"
+  calls=$(count_of 'jev verdict' "$fd/jev.log")
+  assert_equals "1" "$calls" "the verdict must be decided exactly once: $(cat "$fd/jev.log" 2>/dev/null)"
+  pass "the verdict is decided once and ledgered across replays"
+}
+
 test_reconcile_creates_one_task_comment_watch_and_dispatch
 test_reconcile_is_idempotent_across_replays_and_lost_cursors
 test_lost_event_is_healed_from_github
@@ -363,3 +466,7 @@ test_watch_fire_comments_closes_the_task_and_never_the_issue
 test_comment_transitions_are_canonical_and_bounded
 test_dry_run_changes_nothing
 test_legacy_fm_sos_rows_stay_authoritative
+test_verdict_declines_a_by_design_request
+test_verdict_holds_uncertain_tickets_for_the_captain
+test_verdict_failure_fails_open_not_closed
+test_verdict_is_decided_once

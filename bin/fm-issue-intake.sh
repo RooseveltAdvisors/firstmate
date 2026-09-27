@@ -12,7 +12,7 @@
 # or a re-armed consumer can never double-dispatch.
 #
 # Usage:
-#   fm-issue-intake.sh reconcile [--no-dispatch] [--mode <m>] [--yolo on|off] [--dry-run]
+#   fm-issue-intake.sh reconcile [--no-dispatch] [--no-verdict] [--mode <m>] [--yolo on|off] [--dry-run]
 #   fm-issue-intake.sh comment <issue-number> <transition> [note...]
 #   fm-issue-intake.sh watch-condition <issue-number>
 #   fm-issue-intake.sh watch-fire <issue-number> <sos-key>
@@ -28,8 +28,11 @@
 #               still resolve), and tasks-axi's add is
 #               idempotent on the id, so a replayed event can never mint a
 #               second row. The cursor is only a fast-path over the bridge.
-#               Auto-dispatch is every SOS: there is no confidence gate, no
-#               triage, and no hold. --mode/--yolo set the spawned task's
+#               Every candidate passes the worth-supporting verdict gate
+#               (`jev verdict`) first: supported_bug dispatches as below,
+#               not_supported is declined and closed here, captain_review is
+#               held for the captain and never spawns. --no-verdict bypasses
+#               the gate for an ops run. --mode/--yolo set the spawned task's
 #               delivery contract (defaults FM_ISSUE_MODE=no-mistakes,
 #               FM_ISSUE_YOLO=on); they are posture, not selection.
 # comment       Post one canonical lifecycle comment on the GitHub issue.
@@ -78,6 +81,10 @@ TASKS="${FM_ISSUE_TASKS:-$BIN/fm-tasks-axi.sh}"
 SPAWN="${FM_ISSUE_SPAWN:-$BIN/fm-spawn.sh}"
 BRIEF="${FM_ISSUE_BRIEF:-$BIN/fm-brief.sh}"
 WHEN="${FM_ISSUE_WHEN:-$BIN/fm-procevent-when.sh}"
+JEV="${FM_ISSUE_JEV:-jev}"
+INTENT="${FM_ISSUE_INTENT:-$FM_HOME/data/issue-intent.md}"
+DECLINE_LABEL="${FM_ISSUE_DECLINE_LABEL:-not-supported}"
+VERDICT="${FM_ISSUE_VERDICT:-on}"
 
 STATE_DIR="$FM_HOME/state"
 CURSOR_FILE="$STATE_DIR/fm-issue-intake.cursor"
@@ -91,7 +98,7 @@ for legacy_part in cursor log; do
   fi
 done
 
-TRANSITIONS="dispatched repro-confirmed fix-up deployed verified captain-closed"
+TRANSITIONS="dispatched declined repro-confirmed fix-up deployed verified captain-closed"
 
 log_line() {
   mkdir -p "$STATE_DIR"
@@ -287,6 +294,9 @@ comment_body() {
       # shellcheck disable=SC2016  # single quotes hold literal markdown backticks.
       printf ':robot: **Issue intake** - firstmate intake picked up ticket `%s` (task `%s`). Auto-dispatched to a crewmate; lifecycle comments (repro confirmed / fix up / deployed / verified) will follow on this issue. **The captain closes this issue after verification - the dispatch loop never closes it.**' "$key" "$task_id"
       ;;
+    declined)
+      # shellcheck disable=SC2016  # single quotes hold literal markdown backticks.
+      printf ':information_source: **Not supported** - thanks for the report. This is working as designed and is outside what Portal intends to support, so we are closing it instead of changing the product. If it is actually breaking something for you, reply here and we will reopen it.' ;;
     repro-confirmed)
       printf ':mag: **Repro confirmed** - %s' "${note:-reproduced end to end before any fix.}"
       ;;
@@ -323,6 +333,67 @@ cmd_comment() {
   gh_comment "$issue" "$body"
   log_line "comment key=$key issue=$issue transition=$transition"
   echo "commented: $issue $transition"
+}
+
+# --- worth-supporting verdict ----------------------------------------------
+#
+# `jev verdict` answers supported_bug | not_supported | captain_review against
+# the product's stated intent. It fails open: any model, transport, or
+# confidence failure already comes back as captain_review, so a broken
+# classifier can never decline or dispatch on its own. The verdict is ledgered
+# per key, so a replay never re-decides a ticket.
+
+verdict_recorded() {  # <key> <issue> -> the ledgered verdict, or empty
+  [ -f "$LEDGER" ] || return 0
+  sed -n "s/^verdict key=$1 issue=$2 verdict=\([a-z_]*\) at=.*/\1/p" "$LEDGER" | tail -1
+}
+
+classify_issue() {  # <key> <issue> -> verdict on stdout; never fails
+  local key="$1" issue="$2" out parsed title="" body="" labels=""
+  out=$("$GH" issue view "$issue" --repo "$GH_REPO" --json title,body,labels 2>/dev/null || true)
+  if [ -n "$out" ]; then
+    parsed=$(printf '%s' "$out" | python3 -c 'import json, sys
+try:
+    d = json.load(sys.stdin)
+    print(" ".join((d.get("title") or "").split()))
+    print(" ".join((d.get("body") or "").split()))
+    print(",".join(
+        (x.get("name", "") if isinstance(x, dict) else str(x))
+        for x in (d.get("labels") or [])
+    ))
+except Exception:
+    print()
+    print()
+    print()' 2>/dev/null || true)
+    title=$(printf '%s\n' "$parsed" | sed -n 1p)
+    body=$(printf '%s\n' "$parsed" | sed -n 2p)
+    labels=$(printf '%s\n' "$parsed" | sed -n 3p)
+  fi
+  local -a vargs=(verdict --repo "$GH_REPO" --issue "$issue" --title "$title"
+                  --body "$body" --labels "$labels" --json)
+  if [ -f "$INTENT" ]; then
+    vargs+=(--intent-file "$INTENT")
+  fi
+  printf '%s' "$("$JEV" "${vargs[@]}" 2>/dev/null || true)" \
+    | python3 -c 'import json, sys
+try:
+    print(json.load(sys.stdin).get("verdict") or "captain_review")
+except Exception:
+    print("captain_review")' 2>/dev/null || echo captain_review
+}
+
+apply_decline() {  # <key> <issue> -> 0 only when the whole decline landed
+  local key="$1" issue="$2"
+  gh_comment "$issue" "$(comment_body declined "$key" "$issue" "" "$(task_id_for_key "$key")")" \
+    || return 1
+  "$GH" issue edit "$issue" --repo "$GH_REPO" --add-label "$DECLINE_LABEL" >/dev/null 2>&1 || true
+  "$GH" issue close "$issue" --repo "$GH_REPO" >/dev/null 2>&1 || return 1
+  if ! tasks_axi "done" "$(task_id_for_key "$key")" \
+      --note "declined: not supported by design (GitHub issue #$issue)" >/dev/null 2>&1; then
+    echo "warn: task row not closed for key=$key" >&2
+  else
+    log_line "task-closed key=$key issue=$issue"
+  fi
 }
 
 # --- close watch ------------------------------------------------------------
@@ -369,7 +440,7 @@ cmd_status() {
   echo "repo:   $GH_REPO"
   echo "ledger: $LEDGER"
   echo "sos task rows:"
-  tasks_axi list 2>/dev/null | grep -E '^  sos-' || true
+  tasks_axi list 2>/dev/null | grep -E '^  (fm-)?(sos|iss)-' || true
   echo "armed close watches:"
   local f
   for f in "$STATE_DIR"/when/when-sos-*.spec; do
@@ -378,11 +449,14 @@ cmd_status() {
 }
 
 cmd_reconcile() {
-  local do_dispatch=1 dry_run=0
+  local do_dispatch=1 dry_run=0 do_verdict=1
+  if [ "$VERDICT" = "off" ]; then do_verdict=0; fi
   while [ $# -gt 0 ]; do
     case "$1" in
       --no-dispatch) do_dispatch=0; shift ;;
       --dispatch) do_dispatch=1; shift ;;
+      --no-verdict) do_verdict=0; shift ;;
+      --verdict) do_verdict=1; shift ;;
       --dry-run) dry_run=1; shift ;;
       --mode) [ $# -ge 2 ] || die "--mode requires a value"; MODE="$2"; shift 2 ;;
       --yolo) [ $# -ge 2 ] || die "--yolo requires a value"; YOLO="$2"; shift 2 ;;
@@ -401,14 +475,14 @@ cmd_reconcile() {
   candidates=$(collect_candidates_py "$events_json" "$gh_json")
 
   local new_cursor="$cursor" cursor_blocked=0
-  local created=0 dispatched=0 ensured=0
+  local created=0 dispatched=0 ensured=0 declined=0 review=0
 
   if [ -z "$candidates" ]; then
     echo "reconcile: no open SOS work (cursor=$cursor)"
     return 0
   fi
 
-  local key issue url event_id ensured_state
+  local key issue url event_id ensured_state verdict
   while IFS=$'\t' read -r key issue url event_id; do
     [ -n "$key" ] || continue
     [ -n "$issue" ] || { echo "skip: key=$key carries no GitHub issue" >&2; continue; }
@@ -435,6 +509,42 @@ cmd_reconcile() {
         ;;
     esac
     ensured=$((ensured + 1))
+
+    # Worth-supporting gate: decide once, act once, never re-decide on replay.
+    if [ "$do_verdict" -eq 1 ]; then
+      verdict=$(verdict_recorded "$key" "$issue")
+      if [ -z "$verdict" ]; then
+        verdict=$(classify_issue "$key" "$issue")
+        case "$verdict" in
+          supported_bug|not_supported|captain_review) ;;
+          *) verdict=captain_review ;;
+        esac
+        log_line "verdict key=$key issue=$issue verdict=$verdict"
+      fi
+      # A decided ticket (declined or held) is handled: the cursor moves past
+      # it, or one ambiguous ticket would wedge every later event. The GH heal
+      # path keeps re-offering it as an open issue anyway.
+      if [ "$verdict" = "not_supported" ]; then
+        if ! ledger_has "declined key=$key issue=$issue"; then
+          apply_decline "$key" "$issue" \
+            || { echo "failed: decline for #$issue" >&2; cursor_blocked=1; continue; }
+          log_line "declined key=$key issue=$issue"
+        fi
+        declined=$((declined + 1))
+        if [ "$event_id" != "-" ] && [ "$cursor_blocked" -eq 0 ]; then
+          new_cursor="$event_id"
+        fi
+        continue
+      fi
+      if [ "$verdict" = "captain_review" ]; then
+        review=$((review + 1))
+        echo "review: key=$key GH #$issue held for the captain (no dispatch)"
+        if [ "$event_id" != "-" ] && [ "$cursor_blocked" -eq 0 ]; then
+          new_cursor="$event_id"
+        fi
+        continue
+      fi
+    fi
 
     if ! ledger_has "comment key=$key issue=$issue transition=dispatched"; then
       gh_comment "$issue" "$(comment_body dispatched "$key" "$issue" "" "$(task_id_for_key "$key")")" \
@@ -466,7 +576,7 @@ cmd_reconcile() {
   if [ "$dry_run" -eq 0 ] && [ "$new_cursor" != "$cursor" ]; then
     write_cursor "$new_cursor"
   fi
-  echo "reconcile: ensured=$ensured task_created=$created dispatched=$dispatched cursor=$cursor->$new_cursor"
+  echo "reconcile: ensured=$ensured task_created=$created dispatched=$dispatched declined=$declined review=$review cursor=$cursor->$new_cursor"
 }
 
 dispatch_ticket() {
