@@ -63,9 +63,27 @@ if [ -n "$REGISTRY" ]; then
   EXTRA_ARGS+=(--registry "$REGISTRY")
 fi
 ROUTER_JSON=$(python3 "$SCRIPT_DIR/fm-route-domain.py" --json --task "$TASK_INPUT" "${EXTRA_ARGS[@]}")
+AUTO_CHARTER_ERROR=$(printf '%s' "$ROUTER_JSON" | jq -r '
+  .auto_charter as $ac
+  | ($ac.error // "") as $err
+  | ($ac.scaffold_error // "") as $serr
+  | (($ac.home // "unknown") | tostring) as $home
+  | if ($err | length) > 0 then $err
+    elif (($ac.chartered // false) | not) then ""
+    elif (($ac.scaffolded // false) != true) or (($serr | length) > 0) then
+      if ($serr | length) > 0
+      then "home scaffold failed for \($home): \($serr)"
+      else "home was not scaffolded"
+      end
+    else ""
+    end')
 
 if [ "$AS_JSON" -eq 1 ]; then
   printf '%s\n' "$ROUTER_JSON"
+  if [ -n "$AUTO_CHARTER_ERROR" ]; then
+    printf 'error: auto-charter failed: %s\n' "$AUTO_CHARTER_ERROR" >&2
+    exit 1
+  fi
   exit 0
 fi
 
@@ -78,8 +96,6 @@ OVERRIDE_FLAGS=$(echo "$ROUTER_JSON" | jq -r '.seat_wall.override_flags // ""')
 CHARTERED=$(echo "$ROUTER_JSON" | jq -r '.auto_charter.chartered // false')
 CHARTERED_DOMAIN=$(echo "$ROUTER_JSON" | jq -r '.auto_charter.domain // ""')
 CHARTERED_HOME=$(echo "$ROUTER_JSON" | jq -r '.auto_charter.home // ""')
-CHARTERED_SCAFFOLDED=$(echo "$ROUTER_JSON" | jq -r '.auto_charter.scaffolded // false')
-CHARTERED_SCAFFOLD_ERROR=$(echo "$ROUTER_JSON" | jq -r '.auto_charter.scaffold_error // ""')
 
 printf '=== Jev Front-Door Router ===\n'
 printf 'Action:     %s\n' "$ACTION"
@@ -91,18 +107,18 @@ if [ "$WALLED" = "true" ]; then
 fi
 printf '=============================\n'
 
+if [ -n "$AUTO_CHARTER_ERROR" ]; then
+  printf 'Status: Auto-charter failed: %s\n' "$AUTO_CHARTER_ERROR"
+  printf 'error: auto-charter failed: %s\n' "$AUTO_CHARTER_ERROR" >&2
+  exit 1
+fi
+
 case "$ACTION" in
   handle_direct)
     printf 'Status: Direct communication for Captain / First Mate. Not dispatched.\n'
     ;;
   create_secondmate)
     if [ "$CHARTERED" = "true" ]; then
-      if [ "$CHARTERED_SCAFFOLDED" != "true" ] || [ -n "$CHARTERED_SCAFFOLD_ERROR" ]; then
-        printf 'Status: Charter appended for "%s", but the home was not scaffolded.\n' "$CHARTERED_DOMAIN"
-        printf 'error: home scaffold failed for %s: %s\n' \
-          "${CHARTERED_HOME:-unknown}" "${CHARTERED_SCAFFOLD_ERROR:-unknown scaffold failure}" >&2
-        exit 1
-      fi
       printf 'Status: Auto-chartered new Second Mate "%s".\n' "$CHARTERED_DOMAIN"
       printf 'Home scaffolded: %s\n' "$CHARTERED_HOME"
       printf 'Ready to spawn:  bin/fm-spawn.sh %s --secondmate\n' "$CHARTERED_DOMAIN"

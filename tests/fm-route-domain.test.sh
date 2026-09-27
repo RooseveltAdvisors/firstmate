@@ -81,7 +81,7 @@ run_dispatch() {  # <registry> <homes-dir> [fm-route-dispatch.sh args...]
     FM_TEST_JEV_RESPONSE="$TDIR/jev-response.json" \
     TYPESAFE_API_KEY=fake-key \
     FM_SECONDMATE_HOMES_DIR="$homes" \
-    "$ROOT/bin/fm-route-dispatch.sh" --registry "$registry" "$@" 2>&1
+    "$ROOT/bin/fm-route-dispatch.sh" --registry "$registry" "$@"
 }
 
 # A Jev response of ".." must be refused before it becomes a filesystem
@@ -93,7 +93,7 @@ REG_UNSAFE_BEFORE=$(cat "$REG_UNSAFE")
 write_jev_response ".." 0.95
 rc=0
 out=$(run_dispatch "$REG_UNSAFE" "$TDIR/homes-unsafe" --auto-charter \
-  --task "Autonomous agricultural drone autopilot navigation firmware in Rust") || rc=$?
+  --task "Autonomous agricultural drone autopilot navigation firmware in Rust" 2>&1) || rc=$?
 expect_code 0 "$rc" "an unsafe route choice should fall back without erroring: $out"
 assert_contains "$out" "refused unsafe route choice" "the router did not report the refusal"
 assert_not_contains "$out" "Auto-chartered" "an unsafe route choice claimed a charter"
@@ -120,7 +120,7 @@ pass "a Jev response of \"..\" is refused before it reaches the filesystem"
 write_jev_response "../../outside-seat" 0.1
 rc=0
 out=$(run_dispatch "$REG_UNSAFE" "$TDIR/homes-unsafe" \
-  --task "Urgent care acquisition seller email outreach campaign") || rc=$?
+  --task "Urgent care acquisition seller email outreach campaign" 2>&1) || rc=$?
 expect_code 0 "$rc" "an unsafe dispatch route should fall back without erroring: $out"
 assert_contains "$out" "refused unsafe route choice" "the router did not report the dispatch refusal"
 assert_not_contains "$out" "Recommended dispatch command" \
@@ -136,7 +136,7 @@ HOMES_AS_FILE="$TDIR/homes-is-a-file"
 write_jev_response "new_domain" 0.95
 rc=0
 out=$(run_dispatch "$REG_PARTIAL" "$HOMES_AS_FILE" --auto-charter \
-  --task "Quantum computing cryptographic lattice simulation engine in Haskell") || rc=$?
+  --task "Quantum computing cryptographic lattice simulation engine in Haskell" 2>&1) || rc=$?
 expect_code 1 "$rc" "a partial scaffold must exit non-zero: $out"
 assert_contains "$out" "home scaffold failed" "the partial scaffold did not report the scaffold error"
 assert_not_contains "$out" "Home scaffolded:" "the partial scaffold still claimed a scaffolded home"
@@ -144,6 +144,25 @@ assert_not_contains "$out" "Ready to spawn" "the partial scaffold still claimed 
 assert_contains "$(cat "$REG_PARTIAL")" "Dedicated secondmate for" \
   "the partial scaffold did not record the appended charter"
 pass "a partial scaffold reports the error and exits non-zero"
+
+# The --json path carries the same failure contract: emit the payload, then
+# exit non-zero with the error on stderr.
+REG_JSON_PARTIAL="$TDIR/reg-json-partial.md"
+cp "$REG" "$REG_JSON_PARTIAL"
+JSON_PARTIAL_ERR="$TDIR/json-partial.stderr"
+write_jev_response "new_domain" 0.95
+rc=0
+json_out=$(run_dispatch "$REG_JSON_PARTIAL" "$HOMES_AS_FILE" --json --auto-charter \
+  --task "Quantum computing cryptographic lattice simulation engine in Haskell" 2>"$JSON_PARTIAL_ERR") || rc=$?
+expect_code 1 "$rc" "a partial scaffold must exit non-zero on the --json path: $json_out"
+printf '%s' "$json_out" | jq -e '
+  .action == "create_secondmate"
+  and .auto_charter.chartered == true
+  and ((.auto_charter.scaffold_error // "") | length) > 0
+' >/dev/null || fail "the --json payload did not carry the scaffold failure: $json_out"
+assert_grep "home scaffold failed" "$JSON_PARTIAL_ERR" \
+  "the --json path did not report the scaffold error on stderr"
+pass "the --json path reports a partial scaffold and exits non-zero"
 
 # The happy path still banners success and scaffolds a real home.
 REG_OK="$TDIR/reg-ok.md"
@@ -153,7 +172,7 @@ mkdir -p "$HOMES_OK"
 write_jev_response "new_domain" 0.95
 rc=0
 out=$(run_dispatch "$REG_OK" "$HOMES_OK" --auto-charter \
-  --task "Quantum computing cryptographic lattice simulation engine in Haskell") || rc=$?
+  --task "Quantum computing cryptographic lattice simulation engine in Haskell" 2>&1) || rc=$?
 expect_code 0 "$rc" "a full scaffold should succeed: $out"
 assert_contains "$out" "Auto-chartered new Second Mate" "the happy path lost its charter banner"
 assert_contains "$out" "Home scaffolded: $HOMES_OK/" "the happy path lost its scaffold banner"
@@ -162,6 +181,39 @@ scaffold_home=$(printf '%s\n' "$out" | sed -n 's/^Home scaffolded: //p')
 [ -n "$scaffold_home" ] || fail "the success banner did not name the scaffolded home"
 assert_present "$scaffold_home/.fm-secondmate-home" "the happy path did not create the home marker"
 pass "a full auto-charter scaffold still reports success"
+
+# A charter that cannot even be appended must fail loudly instead of falling
+# back to the unmatched-domain guidance that tells the operator to pass
+# --auto-charter again.
+REG_CHARTER_FAIL="$TDIR/reg-charter-write-fail.md"
+cp "$REG" "$REG_CHARTER_FAIL"
+chmod 0444 "$REG_CHARTER_FAIL"
+if [ -w "$REG_CHARTER_FAIL" ]; then
+  pass "charter-write failure path skipped: this user can still write a mode-0444 registry"
+else
+  write_jev_response "new_domain" 0.95
+  rc=0
+  out=$(run_dispatch "$REG_CHARTER_FAIL" "$TDIR/homes-charter-fail" --auto-charter \
+    --task "Quantum computing cryptographic lattice simulation engine in Haskell" 2>&1) || rc=$?
+  expect_code 1 "$rc" "a charter-write failure must exit non-zero: $out"
+  assert_contains "$out" "Failed to write charter" "the charter-write failure was not reported"
+  assert_not_contains "$out" "(Pass --auto-charter" \
+    "a failed --auto-charter still told the operator to pass --auto-charter"
+  assert_not_contains "$out" "Home scaffolded:" \
+    "a charter-write failure claimed a scaffolded home"
+
+  CHARTER_ERR="$TDIR/charter-write.stderr"
+  rc=0
+  json_out=$(run_dispatch "$REG_CHARTER_FAIL" "$TDIR/homes-charter-fail" --json --auto-charter \
+    --task "Quantum computing cryptographic lattice simulation engine in Haskell" 2>"$CHARTER_ERR") || rc=$?
+  expect_code 1 "$rc" "a charter-write failure must exit non-zero on the --json path: $json_out"
+  printf '%s' "$json_out" | jq -e \
+    '.action == "create_secondmate" and ((.auto_charter.error // "") | length) > 0' \
+    >/dev/null || fail "the --json payload did not carry the charter-write failure: $json_out"
+  assert_grep "Failed to write charter" "$CHARTER_ERR" \
+    "the --json path did not report the charter-write failure on stderr"
+  pass "a charter-write failure is reported and fails on every front-door path"
+fi
 
 # 3. Live call: known domain (seller-outreach)
 if sudo -n /opt/ra/firstmate/bin/jev-typesafe-run.py -- env | grep -q "TYPESAFE_API_KEY"; then
