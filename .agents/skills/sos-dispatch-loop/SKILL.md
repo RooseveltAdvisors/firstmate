@@ -26,9 +26,11 @@ lifecycle comment thread on the issue, and one close watch.
   tickets are outstanding.
   It is idempotent end to end: the task row id is `fm-sos-<SOS UUID>`, so replays
   and lost cursors can never double-dispatch.
-- Auto-dispatch is every SOS: no confidence gate, no triage, no hold.
-  `--mode`/`--yolo` (or `FM_SOS_MODE`/`FM_SOS_YOLO`) set the spawned task's
-  delivery contract; they are posture, not selection.
+- Every SOS is dispatched: no confidence gate, no triage, no hold.
+  The spawn consults the dispatch profile first, exactly as AGENTS.md section 4 requires at every crewmate or scout intake: reconcile resolves the concrete profile `fm-spawn` needs and passes it alongside `--mode`/`--yolo`, so a home with an active `config/crew-dispatch.json` dispatches through its rules instead of being refused.
+  `--mode`/`--yolo` (or `FM_SOS_MODE`/`FM_SOS_YOLO`) set the spawned task's delivery contract; they are posture, not selection.
+- A ticket whose dispatch profile cannot be resolved stays owed, never skipped: reconcile fails that pass with a named, greppable dispatch-blocked line, records it durably in the ledger, surfaces it through `bin/fm-sos-intake.sh status`, and leaves the cursor unadvanced so the next pass retries the ticket.
+  Repair the dispatch profile resolution (the `config/crew-dispatch.json` rules or the resolver) and re-run reconcile; never clear the block by spawning the task yourself with an invented harness.
 - Transition comments only through `bin/fm-sos-intake.sh comment <issue>
   <transition> "<one line>"` (dispatched, repro-confirmed, fix-up, deployed,
   verified, captain-closed).
