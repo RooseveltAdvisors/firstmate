@@ -236,9 +236,17 @@ assert_contains "$OUT" 'lane-liveness: lane=unsupervised' \
 # unverified.
 ROOT_RM=$(home_fixture remotestate)
 mkdir -p "$ROOT_RM/data"
+# The lane's remote home and inbox exist at fixture paths the stand-in ssh can
+# really read, so the rail's remote program executes against them and the
+# reading that comes back is the genuine output of that program.
+RHOME="$ROOT_RM/lanes/remotequiet-remote"
+mkdir -p "$RHOME/state/parent-route/remotequiet.inbox/handled"
+: > "$RHOME/state/.last-watcher-beat"
+printf 'corr=aaa111\n' > "$RHOME/state/parent-route/remotequiet.inbox/001.msg"
+printf 'corr=bbb222\n' > "$RHOME/state/parent-route/remotequiet.inbox/handled/001.msg"
 fm_write_meta "$ROOT_RM/state/remotequiet.meta" \
   'window=remote:remotequiet' 'kind=secondmate' 'harness=claude' \
-  'remote_host=lab-host' 'home=/remote/remotequiet-home'
+  'remote_host=lab-host' "home=$RHOME"
 printf '%s\n' \
   '- remotequiet - Remote lane (host: lab-host; root: /remote/root; home: /remote/remotequiet-home; scope: remote work; projects: alpha; added 2026-01-01)' \
   > "$ROOT_RM/data/secondmates.md"
@@ -251,13 +259,22 @@ printf '%s\n' 'pending-reply-resolved: pending-reply-id=done1' >> "$ROOT_RM/stat
 FAKE_SSH=$(fm_fakebin "$ROOT_RM/fake-ssh")
 cat > "$FAKE_SSH/ssh" <<'SH'
 #!/usr/bin/env bash
-case " $* " in
-  *' sh -s '*)
-    printf 'beat %s\ninbox ok\n' "$(date +%s)"
-    ;;
-  *)
-    printf '%s\n' "${FM_FAKE_STATE:-alive}"
-    ;;
+# A stand-in with ssh own contract: drop the options and the host alias, join
+# what remains with spaces, and hand that string to a shell, exactly what a
+# remote login shell receives. The bounded runner it is invoked under carries
+# no stdin contract, so the stand-in offers none either: anything the remote
+# program needs must cross in the joined command itself.
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -o) shift 2 ;;
+    -*) shift ;;
+    *) shift; break ;;
+  esac
+done
+joined=$*
+case "$joined" in
+  fm-remote-entrypoint.sh*) printf '%s\n' "${FM_FAKE_STATE:-alive}" ;;
+  *) exec sh -c "$joined" < /dev/null ;;
 esac
 SH
 chmod +x "$FAKE_SSH/ssh"
@@ -268,6 +285,12 @@ assert_equals degraded "$(verdict_of "$OUT" remotequiet)" \
   'a remote lane with a heavily missed reply record and a live agent reads degraded'
 assert_contains "$(printf '%s\n' "$OUT" | grep '^lane=remotequiet')" 'unanswered' \
   'the missed-ratio rule is the rule that fired'
+assert_equals 1 "$(field_of "$OUT" remotequiet pending_count)" \
+  'the remote inbox depth arrives from the remote program, not from an empty read'
+assert_equals 1 "$(field_of "$OUT" remotequiet handled_count)" \
+  'the remote handled count arrives from the records the remote program listed'
+assert_not_equals '-' "$(field_of "$OUT" remotequiet watcher_beat_age_s)" \
+  'the remote beat age is read from the remote home over the same transport'
 OUT=$(FM_FAKE_STATE=dead FM_TEST_EXTRA_PATH="$FAKE_SSH" rail "$ROOT_RM" read)
 assert_equals dead "$(field_of "$OUT" remotequiet agent_status)" \
   'a remote lane whose state verb reports a dead agent carries that word'
@@ -334,6 +357,33 @@ assert_equals yes "$(field_of "$OUT" unpaneled drained_while_error_active)" \
   'the reading records the drain against the unknown class'
 assert_not_equals '-' "$(field_of "$OUT" unpaneled mover)" \
   'the mover is recorded when the filesystem can name it'
+
+# --- an observation routes makes is carried forward --------------------------
+# The sequence the emit contract exists for: a check sweep establishes the
+# journal with an active class, the lane moves records to handled while that
+# class still holds, `routes` runs between sweeps and is the sweep that sees
+# the movement, and a later reading follows. Whoever observes the drain must
+# report it, and a later reading must not erase the mover back to `-`.
+ROOT_RC=$(home_fixture routesdrain)
+lane_fixture "$ROOT_RC" moving
+conf_add "$ROOT_RC" 'lane moving'
+printf '429 Account budget exceeded\n' > "$ROOT_RC/state/moving.pane"
+rail "$ROOT_RC" check > /dev/null
+OUT=$(rail "$ROOT_RC" routes)
+assert_not_contains "$OUT" 'drained_while_error_active' \
+  'routes reports no drain before any record has moved'
+printf 'x\n' > "$ROOT_RC/state/moving.inbox/handled/001.msg"
+OUT=$(rail "$ROOT_RC" routes)
+assert_contains "$OUT" 'drained_while_error_active=yes' \
+  'the sweep that observes the drain emits it instead of discarding it'
+assert_not_equals '-' "$(field_of "$OUT" moving mover)" \
+  'the emitted observation carries the mover while it is determinable'
+OUT=$(rail "$ROOT_RC" read)
+LINE=$(printf '%s\n' "$OUT" | grep '^lane=moving')
+assert_not_contains "$LINE" 'drained_while_error_active=no mover=-' \
+  'the later reading does not erase the observation to no and dash'
+assert_not_equals '-' "$(field_of "$OUT" moving mover)" \
+  'the later reading still names the owner of the handled record'
 
 # --- the E clock is owned by the sweep that read the pane -------------------
 ROOT_J=$(home_fixture sustain)

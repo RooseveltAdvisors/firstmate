@@ -55,6 +55,8 @@ FALLBACK=captain
 . "$SCRIPT_DIR/fm-timing-lib.sh"
 # shellcheck source=bin/fm-jev-lib.sh
 . "$SCRIPT_DIR/fm-jev-lib.sh"
+# shellcheck source=bin/fm-secondmate-registry-lib.sh
+. "$SCRIPT_DIR/fm-secondmate-registry-lib.sh"
 
 TOOL=alert-route
 
@@ -93,24 +95,19 @@ emit() {  # <status> <owner> <source> <reason> [extra-line...]
 
 # --- the deterministic layer -------------------------------------------------
 #
-# One row per registered seat: "<seat>\t<scope text>". The registry's own format
-# is owned by data/secondmates.md; this reads only the seat name and its scope.
+# One row per registered seat: "<seat>\t<scope text>". The registry line grammar
+# belongs to bin/fm-secondmate-registry-lib.sh, the parser every other consumer
+# of data/secondmates.md uses, so this tool reads the same fields they read. A
+# line that parser rejects is skipped as a candidate while routing continues:
+# a malformed line is a missing charter, never a reason to drop an alert.
 seats() {
+  local line
   [ -f "$REGISTRY" ] || return 0
-  awk '
-    /^- [A-Za-z0-9._-]+ / {
-      name = $2
-      scope = ""
-      if (match($0, /scope: /)) {
-        scope = substr($0, RSTART + 7)
-        if (scope ~ /; projects:/) {
-          sub(/; projects:.*/, "", scope)
-        } else {
-          sub(/\)[[:space:]]*$/, "", scope)
-        }
-      }
-      print name "\t" scope
-    }' "$REGISTRY" 2>/dev/null
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in '- '*) ;; *) continue ;; esac
+    secondmate_registry_parse_line "$line" || continue
+    printf '%s\t%s\n' "$SECONDMATE_REGISTRY_ID" "$SECONDMATE_REGISTRY_SCOPE"
+  done < "$REGISTRY"
 }
 
 # exact_owner: the ONE seat this alert name names outright, or failing that the

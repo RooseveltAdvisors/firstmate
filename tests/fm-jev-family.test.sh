@@ -159,6 +159,46 @@ assert_contains "$OUT" 'source: model' 'an unplaceable alert still reaches the m
 assert_contains "$(command cat "$H/c/log/body")" 'owns the payment rails (legacy)' \
   'the model receives the complete scope, trailing parenthesis included'
 
+# --- the registry line grammar is the shared one, not a second copy ----------
+# A summary that itself mentions the words "scope: " shifts any parse anchored
+# on the first literal marker, and the deterministic layer then claims a
+# namespace the seat scope never wrote.
+S=$(mktemp -d "$TMP/grammar.XXXXXX")
+mkdir -p "$S/data" "$S/state"
+cat > "$S/data/secondmates.md" <<'REG'
+- monitor-sre - Tracks scope: gpu. deltas in passing. (home: /nope; scope: owns the monitoring rails and the on-call rotation; projects: monitoring; added 2026-01-01)
+REG
+OUT=$(FM_HOME="$S" FM_STATE_OVERRIDE="$S/state" FM_DATA_OVERRIDE="$S/data" "$ROUTE" gpu.repo_drift 2>&1)
+expect_code 0 $? 'an alert over a summary that mentions scope still exits 0'
+assert_contains "$OUT" 'status: escalate' \
+  'a summary mention of scope text does not become a namespace claim'
+assert_not_contains "$OUT" 'owner: monitor-sre' \
+  'a seat is never credited with a claim its own scope never made'
+
+# A line the canonical parser rejects is skipped as a candidate while routing
+# continues: it may never be offered as a charter, and it may never abort the
+# route either, because this tool fails open toward paging.
+T=$(mktemp -d "$TMP/rejects.XXXXXX")
+mkdir -p "$T/data" "$T/state"
+printf '%s\n' '- broken-ops - No generated suffix (home: /nope; scope: rails under gpu.*)' \
+  > "$T/data/secondmates.md"
+OUT=$(FM_HOME="$T" FM_STATE_OVERRIDE="$T/state" FM_DATA_OVERRIDE="$T/data" "$ROUTE" gpu.repo_drift 2>&1)
+expect_code 0 $? 'a registry line the canonical parser rejects still exits 0'
+assert_contains "$OUT" 'status: escalate' \
+  'a rejected line is never offered as a charter'
+assert_contains "$OUT" 'owner: captain' \
+  'with no charter to name the alert escalates to the fallback owner'
+printf '%s\n' \
+  '- broken-ops - No generated suffix (home: /nope; scope: rails under gpu.*)' \
+  '- gpu-ops - Owns the GPU host. (home: /nope; scope: rails under gpu.*; projects: gpu; added 2026-01-01)' \
+  > "$T/data/secondmates.md"
+OUT=$(FM_HOME="$T" FM_STATE_OVERRIDE="$T/state" FM_DATA_OVERRIDE="$T/data" "$ROUTE" gpu.repo_drift 2>&1)
+expect_code 0 $? 'routing continues past a rejected line'
+assert_contains "$OUT" 'status: clear' \
+  'a conforming seat behind a rejected line still owns the alert'
+assert_contains "$OUT" 'owner: gpu-ops' 'the conforming seat is the owner'
+assert_contains "$OUT" 'source: exact' 'the match is the deterministic one'
+
 # --- off means no call, and still an owner ----------------------------------
 B=$(mktemp -d "$TMP/off.XXXXXX")
 mkdir -p "$B/data" "$B/state"

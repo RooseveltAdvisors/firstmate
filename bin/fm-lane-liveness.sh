@@ -245,9 +245,18 @@ lane_reset() {
   LANE_RECORDS=''
 }
 
+# shell_quote <value>: the value as one shell word. ssh joins its command
+# arguments with spaces and the remote login shell parses that joined string,
+# so a multi-word program crosses intact only when it is quoted for that parse.
+shell_quote() {
+  printf "'"
+  printf '%s' "$1" | sed "s/'/'\\\\''/g"
+  printf "'"
+}
+
 remote_probe() {  # <host> <inbox> <home>
-  fm_run_timed "$SSH_TIMEOUT" ssh -o BatchMode=yes -o ConnectTimeout="$SSH_TIMEOUT" \
-    "$1" sh -s -- "$2" "$3" <<'REMOTE'
+  local program remote
+  program=$(cat <<'REMOTE'
 d=$1; h=$2
 m=$(stat -c %Y "$h/state/.last-watcher-beat" 2>/dev/null || /usr/bin/stat -f %m "$h/state/.last-watcher-beat" 2>/dev/null)
 printf 'beat %s\n' "${m:--}"
@@ -265,6 +274,10 @@ emit() {
 emit "$d" pending
 emit "$d/handled" handled
 REMOTE
+)
+  remote="sh -c $(shell_quote "$program") sh $(shell_quote "$2") $(shell_quote "$3")"
+  fm_run_timed "$SSH_TIMEOUT" ssh -o BatchMode=yes -o ConnectTimeout="$SSH_TIMEOUT" \
+    "$1" "$remote"
 }
 
 local_probe() {  # <inbox>
@@ -408,6 +421,7 @@ EOF
   if [ -n "$host" ] && is_int "$beat_remote"; then
     LANE_BEAT=$(( NOW - beat_remote ))
   fi
+  LANE_MOVER=$(handled_mover "$host" "$inbox")
 
   if [ -f "$STATE/$lane.status" ]; then
     counts=$(pending_reply_counts "$STATE/$lane.status")
@@ -465,10 +479,7 @@ EOF
   case "$LANE_ERRCLASS" in
     none) ;;
     *)
-      if [ "$LANE_HANDLED_MOVED" = yes ]; then
-        LANE_DRAINED_ON_ERROR=yes
-        LANE_MOVER=$(handled_mover "$host" "$inbox")
-      fi
+      [ "$LANE_HANDLED_MOVED" != yes ] || LANE_DRAINED_ON_ERROR=yes
       ;;
   esac
   if [ -z "$SKIP_PANE" ] && [ "$LANE_ERRCLASS" != unknown ]; then
@@ -588,7 +599,7 @@ EOF
 }
 
 action_routes() {
-  local lane override routed=0 unverified=0 total pct
+  local lane override routed=0 unverified=0 total pct extra
   SKIP_PANE=1
   [ -f "$CONFIG" ] || { printf 'response lanes are not configured (%s is absent)\n' "$CONFIG"; return 0; }
   config_load || { printf 'response lanes are not configured (%s names no lane)\n' "$CONFIG"; return 0; }
@@ -600,8 +611,12 @@ action_routes() {
       continue
     fi
     route_classify "$lane"
-    printf 'lane lane=%s claims=%s routed=%s routed_unverified=%s\n' \
-      "$lane" "$(( ROUTED + UNVERIFIED ))" "$ROUTED" "$UNVERIFIED"
+    extra=
+    if [ "$LANE_DRAINED_ON_ERROR" = yes ]; then
+      extra=" drained_while_error_active=$LANE_DRAINED_ON_ERROR mover=$LANE_MOVER"
+    fi
+    printf 'lane lane=%s claims=%s routed=%s routed_unverified=%s%s\n' \
+      "$lane" "$(( ROUTED + UNVERIFIED ))" "$ROUTED" "$UNVERIFIED" "$extra"
     routed=$(( routed + ROUTED ))
     unverified=$(( unverified + UNVERIFIED ))
   done <<EOF

@@ -1440,6 +1440,8 @@ A lane whose handled count moves while its error class is not `none` reads `degr
 The exemption is `none` alone.
 A pane that cannot be read is `unknown`, deliberately not `none`, so a drain during an unread pane window still reads `degraded`, and the established class and its sustain clock stay in place across that window for the same reason.
 The reading carries the rule as two fields: `drained_while_error_active` is `yes` when the drain moved under a class other than `none` and `no` otherwise, and `mover` names the owner of the newest `handled/` record when the filesystem can determine it, reporting `-` for a remote lane whose records live on its own host.
+`routes` prints the same two fields on the lane line of the sweep that observes such a drain, because a pane-skipping sweep still sees the inbox move.
+The ladder records them in its ladder log when its rail reading carries them, so an observation made by a sweep that prints no full reading is still reported by whoever made it.
 
 **Lane records**
 
@@ -1484,7 +1486,7 @@ An unhealthy verdict the ladder cannot remedy ends at the escalation rung carryi
 - `SWITCH_MODEL` and `SWITCH_HARNESS` name what the switch rung moves a provider-faulted lane onto. With neither set, a lane that needs a switch escalates instead, so the ladder never invents a target.
 
 A lane parked at the escalation rung stays out of automatic recovery until `bin/fm-lane-recover.sh clear <lane>` releases it, because recovery must not fight a decision a person already made.
-Its ladder log is `state/.lane-recovery-<lane>`, one row per rung tried with its outcome, readable with `bin/fm-lane-recover.sh log <lane>`.
+Its ladder log is `state/.lane-recovery-<lane>`, one row per rung tried with its outcome plus a row for any drained-while-error observation the rail reported to it, readable with `bin/fm-lane-recover.sh log <lane>`.
 
 See [`docs/examples/response-lanes.conf`](examples/response-lanes.conf) for a starting point to copy into local `config/response-lanes.conf`.
 

@@ -250,6 +250,28 @@ assert_equals escalate_captain "$(field "$ROW" rung)" \
   'a class the rail does not publish routes to the escalation rung'
 assert_contains "$ROW" 'unhandled_errclass' 'the unhandled class is named rather than silently dropped'
 
+# --- drained-while-error evidence the rail reports is recorded -------------
+# The ladder's sweep reads the whole rail line but consumes only a few fields
+# of it. An observation of a drain under an active error class must land in the
+# ladder log rather than be parsed for the verdict and dropped.
+R=$(home drainreport)
+lane "$R" moving 0
+pane "$R" moving 'Account budget exceeded'
+cat > "$R/stub-rail" <<'STUB'
+#!/usr/bin/env bash
+case "${1:-}" in
+  classes) printf 'class none matched=no\nclass budget_exceeded matched=yes\n' ;;
+  read) printf 'lane=moving source=local verdict=degraded pending_count=0 handled_count=2 inbox_drain_age_s=- pending_reply_missed=0 pending_reply_resolved=0 error_signature_class=budget_exceeded watcher_beat_age_s=1 agent_status=alive route_evidence_count=0 drained_while_error_active=yes mover=worker reason=fixture\n' ;;
+esac
+STUB
+chmod +x "$R/stub-rail"
+OUT=$(PATH="$(fake_tmux "$R/fake-moving" alive sess:moving):$BASE_PATH" FM_TEST_SEAM=1 \
+  FM_HOME="$R" FM_STATE_OVERRIDE="$R/state" FM_CONFIG_OVERRIDE="$R/config" \
+  FM_LANE_RAIL="$R/stub-rail" "$LADDER" plan 2>&1)
+assert_grep "$(printf 'rail\tdrained_while_error_active\tmover=worker')" \
+  "$R/state/.lane-recovery-moving" \
+  'the ladder log records the drained-while-error observation the rail reported'
+
 # --- rung 3: a recovered lane's unclaimed work is re-sent once --------------
 R=$(home rung3)
 lane "$R" reloaded 4000

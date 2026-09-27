@@ -454,12 +454,21 @@ redispatch_frame() {  # <record-path>
   printf '\n'
 }
 
+# shell_quote <value>: the value as one shell word. ssh joins its command
+# arguments with spaces and the remote login shell parses that joined string,
+# so a multi-word program crosses intact only when it is quoted for that parse.
+shell_quote() {
+  printf "'"
+  printf '%s' "$1" | sed "s/'/'\\\\''/g"
+  printf "'"
+}
+
 # redispatch_frames <lane>: every unclaimed record of the lane's own inbox,
 # read at the same place the rail counts that inbox: the config's per-lane
 # override when one is written, otherwise a remote lane over ssh from this
 # home or a local lane from this home's state.
 redispatch_frames() {  # <lane>
-  local lane=$1 meta home host inbox f override
+  local lane=$1 meta home host inbox f override program remote
   meta="$STATE/$lane.meta"
   home=$(fm_meta_get "$meta" home)
   host=$(fm_meta_get "$meta" remote_host)
@@ -467,8 +476,7 @@ redispatch_frames() {  # <lane>
     | awk -F '\t' -v l="$lane" '$1 == l { print $2; exit }')
   if [ -n "$host" ]; then
     inbox=${override:-$home/state/parent-route/$lane.inbox}
-    fm_run_timed "$SSH_TIMEOUT" ssh -o BatchMode=yes -o ConnectTimeout="$SSH_TIMEOUT" \
-      "$host" sh -s -- "$inbox" <<'REMOTE'
+    program=$(cat <<'REMOTE'
 d=$1
 [ -d "$d" ] || exit 0
 for f in "$d"/*.msg; do
@@ -478,6 +486,10 @@ for f in "$d"/*.msg; do
   printf '\n'
 done
 REMOTE
+)
+    remote="sh -c $(shell_quote "$program") sh $(shell_quote "$inbox")"
+    fm_run_timed "$SSH_TIMEOUT" ssh -o BatchMode=yes -o ConnectTimeout="$SSH_TIMEOUT" \
+      "$host" "$remote"
   else
     inbox=${override:-$STATE/$lane.inbox}
     for f in "$inbox"/*.msg; do
@@ -523,7 +535,7 @@ EOF
 # --- modes ------------------------------------------------------------------
 
 sweep() {
-  local lane verdict errclass pending beatage line rail mode=dry-run
+  local lane verdict errclass pending beatage line rail drained mover mode=dry-run
   rail_classes_load
   rail=$("$RAIL" read 2>/dev/null) || rail=
   if [ -z "$rail" ]; then
@@ -541,6 +553,11 @@ sweep() {
     errclass=$(printf '%s\n' "$line" | sed -n 's/.* error_signature_class=\([^ ]*\).*/\1/p')
     pending=$(printf '%s\n' "$line" | sed -n 's/.* pending_count=\([^ ]*\).*/\1/p')
     beatage=$(printf '%s\n' "$line" | sed -n 's/.* watcher_beat_age_s=\([^ ]*\).*/\1/p')
+    drained=$(printf '%s\n' "$line" | sed -n 's/.* drained_while_error_active=\([^ ]*\).*/\1/p')
+    mover=$(printf '%s\n' "$line" | sed -n 's/.* mover=\([^ ]*\).*/\1/p')
+    if [ "$drained" = yes ]; then
+      ladder_record "$lane" rail drained_while_error_active "mover=${mover:--}" || true
+    fi
     # Acting holds the lane's own liveness lock across probe, decision, and
     # act, so the endpoint state the verdict rests on is the endpoint state
     # acted on and a concurrent supervisor cannot observe this replacement
