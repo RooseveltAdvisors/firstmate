@@ -12,7 +12,7 @@
 # double-dispatch.
 #
 # Usage:
-#   fm-sos-intake.sh reconcile [--no-dispatch] [--mode <m>] [--yolo on|off] [--dry-run]
+#   fm-sos-intake.sh reconcile [--mode <m>] [--yolo on|off] [--dry-run]
 #   fm-sos-intake.sh comment <issue-number> <transition> [note...]
 #   fm-sos-intake.sh watch-condition <issue-number>
 #   fm-sos-intake.sh watch-fire <issue-number> <sos-key>
@@ -21,9 +21,9 @@
 # reconcile     Idempotent intake pass. Pulls bridge events past the durable
 #               cursor, folds in open sos-labeled GitHub issues (the heal
 #               path), and per ticket: ensures the task row, posts the one
-#               "dispatched" lifecycle comment, arms the close watch, and -
-#               unless --no-dispatch - scaffolds the brief and spawns the
-#               crewmate. The TASK ROW ID is the idempotency record: it is
+#               "dispatched" lifecycle comment, arms the close watch, then
+#               scaffolds the brief and spawns the crewmate. The TASK ROW ID
+#               is the idempotency record: it is
 #               exactly `fm-sos-<SOS message UUID>`, and tasks-axi's add is
 #               idempotent on the id, so a replayed event can never mint a
 #               second row. The cursor is only a fast-path over the bridge.
@@ -54,7 +54,8 @@
 # Env: FM_HOME (default /opt/ra/firstmate), FM_SOS_BRIDGE_URL (default
 # http://127.0.0.1:8791), FM_SOS_GH_REPO (default ArcsHealth/Portal),
 # FM_SOS_PROJECT (default $FM_HOME/projects/portal), FM_SOS_MODE, FM_SOS_YOLO,
-# FM_SOS_PRIORITY (default 1), FM_SOS_GH (gh command), FM_SOS_CURL (curl),
+# FM_SOS_PRIORITY (default 1), FM_SOS_DUE (default +2w), FM_SOS_GH (gh
+# command), FM_SOS_CURL (curl),
 # FM_SOS_TASKS / FM_SOS_SPAWN / FM_SOS_BRIEF / FM_SOS_WHEN (the sibling
 # firstmate commands, overridable so tests can substitute a stub).
 #
@@ -73,6 +74,8 @@ PROJECT_DIR="${FM_SOS_PROJECT:-$FM_HOME/projects/portal}"
 MODE="${FM_SOS_MODE:-no-mistakes}"
 YOLO="${FM_SOS_YOLO:-on}"
 PRIORITY="${FM_SOS_PRIORITY:-1}"
+DUE="${FM_SOS_DUE:-+2w}"
+WHY_FLAG=""
 GH="${FM_SOS_GH:-gh}"
 CURL="${FM_SOS_CURL:-curl}"
 TASKS="${FM_SOS_TASKS:-$BIN/fm-tasks-axi.sh}"
@@ -198,6 +201,18 @@ tasks_axi() {
   FM_HOME="$FM_HOME" "$TASKS" "$@"
 }
 
+# tasks_axi_accepts_why: probe the installed tasks-axi once per run and cache
+# whether its add takes --why.
+tasks_axi_accepts_why() {
+  if [ -z "$WHY_FLAG" ]; then
+    case "$("$TASKS" add --help 2>&1 || true)" in
+      *--why*) WHY_FLAG=1 ;;
+      *) WHY_FLAG=0 ;;
+    esac
+  fi
+  [ "$WHY_FLAG" = 1 ]
+}
+
 # task_ensure <key> <issue> <url>: create the row if missing; prints
 # new|existing|failed (a failed line carries tasks-axi's own diagnostic,
 # redacted). A failed ensure leaves the ticket owed for the next pass (and
@@ -212,14 +227,18 @@ task_ensure() {
   local -a args
   args=(
     add "$id" "SOS ticket $short - GH #$issue"
-    --kind ship --repo portal --priority "$PRIORITY"
+    --kind ship --repo portal --priority "$PRIORITY" --due "$DUE"
     --body "SOS key: $key
 GitHub issue: ${url:-https://github.com/$GH_REPO/issues/$issue}
 Site: see the GitHub issue (kept out of this graph on purpose).
 The captain closes the GitHub issue after verification; the loop never does."
   )
   case "$PRIORITY" in
-    0|1) args+=(--why "staff SOS report awaiting fix") ;;
+    0|1)
+      if tasks_axi_accepts_why; then
+        args+=(--why "staff SOS report awaiting fix")
+      fi
+      ;;
   esac
   mkdir -p "$STATE_DIR"
   errf="$STATE_DIR/.fm-sos-intake.err"
@@ -451,10 +470,9 @@ cmd_status() {
 }
 
 cmd_reconcile() {
-  local do_dispatch=1 dry_run=0
+  local dry_run=0
   while [ $# -gt 0 ]; do
     case "$1" in
-      --no-dispatch) do_dispatch=0; shift ;;
       --dry-run) dry_run=1; shift ;;
       --mode) [ $# -ge 2 ] || die "--mode requires a value"; MODE="$2"; shift 2 ;;
       --yolo) [ $# -ge 2 ] || die "--yolo requires a value"; YOLO="$2"; shift 2 ;;
@@ -483,6 +501,8 @@ cmd_reconcile() {
     echo "reconcile: no open SOS work (cursor=$cursor)"
     return 0
   fi
+
+  tasks_axi_accepts_why || true
 
   local key issue url event_id listed issue_open ensured_state
   while IFS=$'\t' read -r key issue url event_id listed; do
@@ -544,7 +564,7 @@ cmd_reconcile() {
       log_line "watch key=$key issue=$issue"
     fi
 
-    if [ "$do_dispatch" -eq 1 ] && [ "$issue_open" -eq 1 ] && ! ledger_has "dispatch key=$key issue=$issue"; then
+    if [ "$issue_open" -eq 1 ] && ! ledger_has "dispatch key=$key issue=$issue"; then
       dispatch_ticket "$key" "$issue" || { echo "failed: dispatch for #$issue" >&2; cursor_blocked=1; continue; }
       dispatched=$((dispatched + 1))
     fi

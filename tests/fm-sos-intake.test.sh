@@ -153,6 +153,46 @@ count_of() {
   echo "${n:-0}"
 }
 
+# install_tasks_axi_stub <fakebin>: put a tasks-axi on the intake's PATH whose
+# `add --help` reports whatever the fixture's tasks-with-flags marker selects,
+# whose `add` logs its argv and reports a fresh row, and which delegates every
+# other command to this environment's real tasks-axi.
+install_tasks_axi_stub() {
+  local fb=$1 real
+  real=$(command -v tasks-axi)
+  cat > "$fb/tasks-axi" <<SH
+#!/usr/bin/env bash
+set -u
+FAKE="\${FM_SOS_FAKE_DIR:?}"
+if [ "\${1:-}" = add ] && [ "\${2:-}" = --help ]; then
+  if [ -f "\$FAKE/tasks-with-flags" ]; then
+    printf '%s\\n' 'flags: --kind <k>, --repo <n>, --priority <0-4>' '  --why "<one line>"' '  --due <date>'
+  else
+    printf '%s\\n' 'flags: --kind <k>, --repo <n>, --priority <0-4>'
+  fi
+  exit 0
+fi
+if [ "\${1:-}" = add ]; then
+  printf '%s\\n' "\$*" >> "\$FAKE/tasks.log"
+  printf '{"ok":true,"action":"add","already":false}\\n'
+  exit 0
+fi
+exec "$real" "\$@"
+SH
+  chmod +x "$fb/tasks-axi"
+}
+
+# write_beads_toml <home>: point this home's backlog at a beads backend.
+write_beads_toml() {
+  cat > "$1/.tasks.toml" <<'EOF'
+backend = "beads"
+
+[beads]
+path = ".beads"
+prefix = "fm"
+EOF
+}
+
 test_reconcile_creates_one_task_comment_watch_and_dispatch() {
   local parts home fd out
   parts=$(setup_case basic)
@@ -513,8 +553,6 @@ SH
     "no token-like text may reach the operator line: $out"
   assert_contains "$(cat "$fd/tasks.log" 2>/dev/null)" "--priority 1" \
     "the row must be created at the P0/P1 priority the deploy backend accepts"
-  assert_contains "$(cat "$fd/tasks.log" 2>/dev/null)" "--why staff SOS report awaiting fix" \
-    "a P0/P1 row must carry its one-line reason"
   assert_equals "1" "$(count_of 'SOS dispatch' "$fd/comments.log")" \
     "an ensure failure must not stop the dispatched comment: $(cat "$fd/comments.log" 2>/dev/null)"
   assert_equals "1" "$(count_of 'fm-spawn' "$fd/spawn.log")" \
@@ -880,6 +918,62 @@ print(d.get("description") or "")' 2>/dev/null) || desc=""
   pass "intake creates a row on a due-required beads home"
 }
 
+test_tool_flags_are_capability_gated_per_run() {
+  local parts home fd fb out argv
+  parts=$(setup_case flagsnpm)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  fb=$(printf '%s' "$parts" | cut -d'|' -f2)
+  install_tasks_axi_stub "$fb"
+  write_beads_toml "$home"
+
+  out=$(run_intake "$parts" reconcile 2>&1) || fail "reconcile failed: $out"
+  assert_contains "$out" "task_created=1" "the row must still be created: $out"
+  assert_present "$fd/tasks.log" "the stub must have received the add"
+  argv=$(cat "$fd/tasks.log" 2>/dev/null)
+  assert_not_contains "$argv" "--why" "a tool whose help omits --why must never receive it"
+  assert_not_contains "$argv" "--due" "a tool whose help omits --due must never receive it"
+  pass "a tool without --why or --due receives neither flag"
+}
+
+test_tool_flags_pass_through_when_the_tool_and_backend_allow_them() {
+  local parts home fd fb out argv
+  # A fork-like tool on a markdown home: --why passes, --due does not apply.
+  parts=$(setup_case flagsmarkdown)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  fb=$(printf '%s' "$parts" | cut -d'|' -f2)
+  install_tasks_axi_stub "$fb"
+  touch "$fd/tasks-with-flags"
+
+  out=$(run_intake "$parts" reconcile 2>&1) || fail "markdown pass failed: $out"
+  assert_contains "$out" "task_created=1" "the row must be created: $out"
+  assert_present "$fd/tasks.log" "the stub must have received the add"
+  argv=$(cat "$fd/tasks.log" 2>/dev/null)
+  assert_contains "$argv" "--why staff SOS report awaiting fix" \
+    "a tool whose help takes --why must receive it at P1"
+  assert_not_contains "$argv" "--due" "a markdown home stores no due"
+
+  # The same tool on a beads-configured home: both flags pass through.
+  parts=$(setup_case flagsbeads)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  fb=$(printf '%s' "$parts" | cut -d'|' -f2)
+  install_tasks_axi_stub "$fb"
+  touch "$fd/tasks-with-flags"
+  write_beads_toml "$home"
+
+  out=$(run_intake "$parts" reconcile 2>&1) || fail "beads pass failed: $out"
+  assert_contains "$out" "task_created=1" "the row must be created: $out"
+  assert_present "$fd/tasks.log" "the stub must have received the add"
+  argv=$(cat "$fd/tasks.log" 2>/dev/null)
+  assert_contains "$argv" "--why staff SOS report awaiting fix" \
+    "the why must reach a fork-like tool"
+  assert_contains "$argv" "--due +2w" \
+    "the due must reach a beads store whose tool takes it"
+  pass "flags pass through only for a tool and a backend that accept them"
+}
+
 test_reconcile_creates_one_task_comment_watch_and_dispatch
 test_reconcile_is_idempotent_across_replays_and_lost_cursors
 test_lost_event_is_healed_from_github
@@ -906,3 +1000,5 @@ test_event_for_a_closed_issue_gets_no_comment_or_crewmate
 test_replay_across_heal_and_event_is_exactly_one_dispatch
 test_event_without_a_url_keeps_every_column
 test_intake_creates_a_row_on_a_due_required_beads_home
+test_tool_flags_are_capability_gated_per_run
+test_tool_flags_pass_through_when_the_tool_and_backend_allow_them

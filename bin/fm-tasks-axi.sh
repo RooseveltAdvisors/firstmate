@@ -6,13 +6,16 @@
 #
 # Every routine firstmate backlog read or mutation goes through this command
 # rather than a bare `tasks-axi`; `fm-tasks-axi.sh <command> --help` prints
-# tasks-axi's own help. Arguments reach tasks-axi as given, apart from one
-# rewrite that keeps file arguments meaning what the caller meant: a relative
+# tasks-axi's own help. Arguments reach tasks-axi as given, apart from two
+# rewrites. One keeps file arguments meaning what the caller meant: a relative
 # value of `--to` or any `--*-file` flag (`--body-file`, `--relation-file`, ...)
 # is made absolute against the caller's working directory, because tasks-axi
 # starts from the backlog root instead. `--report` stays as given: tasks-axi
 # stores it verbatim as a link, which lifecycle transitions record relative to
-# that same root.
+# that same root. The other is `--due`: it passes through only for a beads home
+# whose installed tasks-axi takes the flag - a markdown home stores no due, and
+# a tasks-axi without the flag rejects it - so a caller may always state a due
+# without breaking either.
 #
 # Why it exists: a bare `tasks-axi` resolves the tracked `.tasks.toml` paths
 # against its working directory, so from the code root it forks the queue
@@ -134,6 +137,41 @@ if [ -n "$FM_BACKLOG_AXI_FILE" ]; then
   export TASKS_AXI_FILE="$FM_BACKLOG_AXI_FILE"
 else
   unset TASKS_AXI_FILE
+fi
+
+due_arg=0
+for arg in ${ARGS[@]+"${ARGS[@]}"}; do
+  case "$arg" in
+    --due|--due=*) due_arg=1 ;;
+  esac
+done
+if [ "$due_arg" = 1 ]; then
+  strip_due=0
+  if [ "$(fm_tasks_axi_backend "$FM_BACKLOG_AXI_ROOT" 2>/dev/null || true)" != beads ]; then
+    strip_due=1
+  fi
+  if [ "$strip_due" = 0 ]; then
+    case "$(tasks-axi add --help 2>&1 || true)" in
+      *--due*) ;;
+      *) strip_due=1 ;;
+    esac
+  fi
+  if [ "$strip_due" = 1 ]; then
+    filtered=()
+    skip_due_value=0
+    for arg in ${ARGS[@]+"${ARGS[@]}"}; do
+      if [ "$skip_due_value" = 1 ]; then
+        skip_due_value=0
+        continue
+      fi
+      case "$arg" in
+        --due) skip_due_value=1 ;;
+        --due=*) ;;
+        *) filtered+=("$arg") ;;
+      esac
+    done
+    ARGS=("${filtered[@]+"${filtered[@]}"}")
+  fi
 fi
 
 cd "$FM_BACKLOG_AXI_ROOT" || fail "cannot enter the backlog root $FM_BACKLOG_AXI_ROOT"

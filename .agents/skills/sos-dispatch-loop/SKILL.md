@@ -51,7 +51,8 @@ lifecycle comment thread on the issue, and one close watch.
 - `action-failed` or `condition-error`: the fire or its effect is uncertain.
   Verify manually. For an issue the captain already closed, re-run the
   idempotent action - `bin/fm-sos-intake.sh watch-fire <issue> <sos-key>`,
-  the key is the ledger's `task key=... issue=<n>` line - which posts the
+  the key is any `key=... issue=<n>` line in the intake ledger (or the armed
+  watch's `when/when-sos-<n>.spec` action argv) - which posts the
   captain-closed comment once, records the `closed` handoff only after the
   row close succeeded, and exits non-zero while the close is still owed.
   For an issue still open, run `bin/fm-sos-intake.sh reconcile`, which
