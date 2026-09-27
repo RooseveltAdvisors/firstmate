@@ -180,6 +180,10 @@ resolve_skill() {  # <name>; prints canonical path
     *) printf 'error: skill name is ambiguous in %s: %s\n%s\n' "$MAP" "$name" "$matches" >&2; return 1 ;;
   esac
   path=$(printf '%s\n' "$matches" | sed '/^$/d')
+  case "$path" in
+    /*) ;;
+    *) printf 'error: mapped skill path is not absolute for %s: %s\n' "$name" "$path" >&2; return 1 ;;
+  esac
   [ -d "$path" ] || { printf 'error: mapped skill path is not a directory for %s: %s\n' "$name" "$path" >&2; return 1; }
   [ -f "$path/SKILL.md" ] || { printf 'error: mapped skill path lacks SKILL.md for %s: %s\n' "$name" "$path" >&2; return 1; }
   canonical_dir "$path"
@@ -321,7 +325,16 @@ clear_set() {
   # keep the set root alive forever while this clear reported success.
   rm -f "$COMPOSE_ROOT/manifest.tsv"
   rmdir "$SKILLS_DIR" "$COMPOSE_ROOT/.claude" "$COMPOSE_ROOT" 2>/dev/null || true
-  [ "$PRINT_ADD_DIR" -eq 1 ] && printf '%s\n' "$COMPOSE_ROOT" || printf 'cleared %s\n' "$COMPOSE_ROOT"
+  if [ "$PRINT_ADD_DIR" -eq 1 ]; then
+    printf '%s\n' "$COMPOSE_ROOT"
+  elif [ -e "$COMPOSE_ROOT" ] || [ -L "$COMPOSE_ROOT" ]; then
+    # Every composed symlink is gone, but something else in the set root kept it
+    # alive. Name that rather than reporting a clear that did not happen.
+    printf 'cleared the composed skills in %s; it still holds:\n' "$COMPOSE_ROOT"
+    find "$COMPOSE_ROOT" -mindepth 1 -maxdepth 2
+  else
+    printf 'cleared %s\n' "$COMPOSE_ROOT"
+  fi
 }
 
 remove_skills() {

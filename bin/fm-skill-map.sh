@@ -13,9 +13,15 @@
 # separator. The map itself is still written, so one bad skill degrades to a
 # reported gap, never a silent one and never an unbounded read of the skill body.
 #
-# A closing delimiter is only trusted on a newline-terminated line, because the
-# byte bound can truncate a longer run of dashes down to exactly three and would
-# otherwise manufacture the close it is meant to require.
+# A closing delimiter is only trusted on a newline-terminated line when the bound
+# actually truncated the file, because truncation can cut a longer run of dashes
+# down to exactly three and would otherwise manufacture the close this requires.
+# A delimiter at a real end of file needs no trailing newline.
+#
+# Neither emitted field may contain the em dash that forms the record separator:
+# a description has every one replaced, and a name carrying one is refused. A
+# name is refused rather than rewritten because a rewritten name would resolve
+# to the wrong skill, and a legitimate skill name never contains an em dash.
 #
 # The output is a flat, regenerated registry at data/skill-map.md by default.
 # It is private operational state, not a committed artifact. The map is for
@@ -40,8 +46,10 @@ OUTPUT="$DATA/skill-map.md"
 STDOUT=0
 QUIET=0
 SKIPPED=0
-# The map's own field separator; a name carrying it would corrupt the record.
-MAP_SEPARATOR=' — '
+# The em dash that forms the record separator ' — '. Neither field may contain one,
+# at any position: at a field boundary the renderer would join it with the
+# surrounding spaces into a separator the reader then splits on.
+MAP_SEPARATOR_DASH='—'
 # Frontmatter is a handful of short lines; anything past this is skill body.
 MAX_FRONTMATTER_BYTES=65536
 
@@ -89,13 +97,20 @@ collapse_ws() {
 sanitize_description() {
   local value
   value=$(collapse_ws "$1")
-  value=${value// — / - }
+  # Replace every em dash, not just a fully spaced separator: a trailing or
+  # doubled one would re-form the separator once the record is rendered.
+  value=${value//"$MAP_SEPARATOR_DASH"/-}
+  value=$(collapse_ws "$value")
   [ -n "$value" ] || value='(no description)'
   printf '%s' "$value"
 }
 
 extract_frontmatter() {  # <SKILL.md>; prints name<TAB>description
   local file=$1 line value name='' desc='' desc_block=0 first=1 closed=0 unterminated=0
+  local bytes truncated=0
+  bytes=$(wc -c < "$file" 2>/dev/null | tr -d ' ') || return 1
+  case "$bytes" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$bytes" -le "$MAX_FRONTMATTER_BYTES" ] || truncated=1
   while IFS= read -r line || { [ -n "$line" ] && unterminated=1; }; do
     line=${line%$'\r'}
     if [ "$first" -eq 1 ]; then
@@ -104,8 +119,11 @@ extract_frontmatter() {  # <SKILL.md>; prints name<TAB>description
       continue
     fi
     if [ "$line" = '---' ]; then
-      # Only a newline-terminated delimiter is real; a truncated tail is not.
-      [ "$unterminated" -eq 0 ] && closed=1
+      # A delimiter at a real end of file is genuine; only distrust an
+      # unterminated final line when the bound actually cut the file short.
+      if [ "$unterminated" -eq 0 ] || [ "$truncated" -eq 0 ]; then
+        closed=1
+      fi
       break
     fi
     case "$line" in
@@ -153,9 +171,9 @@ extract_frontmatter() {  # <SKILL.md>; prints name<TAB>description
   name=$(collapse_ws "$name")
   desc=$(sanitize_description "$desc")
   [ -n "$name" ] || return 1
-  # A name carrying the separator would shadow or redirect another skill when the
-  # map is read back, so refuse it here rather than writing a corrupt record.
-  case "$name" in *"$MAP_SEPARATOR"*) return 1 ;; esac
+  # Any em dash in the name can become a separator once the record is rendered,
+  # which would shadow or redirect another skill when the map is read back.
+  case "$name" in *"$MAP_SEPARATOR_DASH"*) return 1 ;; esac
   printf '%s\t%s\n' "$name" "$desc"
 }
 
@@ -166,6 +184,13 @@ canonical_dir() {  # <dir>
 add_skill_source() {  # <group> <skills-dir> <records-file> <seen-file>
   local group=$1 source_dir=$2 records=$3 seen=$4 skill_dir skill_real front name desc
   [ -d "$source_dir" ] || return 0
+  # An unreadable source directory yields no glob matches at all, so without this
+  # every skill inside it would vanish with nothing reported.
+  if [ ! -r "$source_dir" ] || [ ! -x "$source_dir" ]; then
+    printf 'SKILL_MAP: skipped unreadable skill source directory: %s\n' "$source_dir" >&2
+    SKIPPED=$((SKIPPED + 1))
+    return 0
+  fi
   for skill_dir in "$source_dir"/*; do
     [ -d "$skill_dir" ] || continue
     # A folder with no SKILL.md at all is not a skill, so it is not reported. A

@@ -346,6 +346,32 @@ SH
     || fail "locked session start failed while refreshing the skill map"
   assert_file_contains "$home/data/skill-map.md" '- session-skill — session-skill description — ' \
     "locked session start did not refresh the generated skill map"
+  # The map's source group is the scanned source, not a label derived from the
+  # containing git repository, even though $root is a git repo with no remote.
+  assert_file_contains "$home/data/skill-map.md" '## firstmate' \
+    "the skill map did not group this repo's skills under their source group"
+  assert_file_not_contains "$home/data/skill-map.md" '## root' \
+    "the skill map labelled a group from its containing git repository"
+
+  # A reported skip must reach the digest, naming the skill, rather than being
+  # swallowed or reduced to a blank line.
+  mkdir -p "$root/.agents/skills/broken"
+  printf -- '---\nname: broken\n' > "$root/.agents/skills/broken/SKILL.md"
+  if ! out=$(env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
+    HOME="$user_home" CLAUDE_CONFIG_DIR="$user_home/.claude" \
+    FM_HOME="$home" FM_ROOT_OVERRIDE="$root" PATH="$fakebin:$PATH" \
+    "$ROOT/bin/fm-session-start.sh"); then
+    fail "locked session start failed because one skill was skipped"
+  fi
+  case "$out" in
+    *"$root/.agents/skills/broken/SKILL.md"*) ;;
+    *) fail "the session digest did not surface the skipped skill the map reported" ;;
+  esac
+  case "$out" in
+    *'refresh failed'*) fail "the digest called a written-with-skips map a refresh failure" ;;
+    *) ;;
+  esac
+  rm -rf "$root/.agents/skills/broken"
 
   printf '%s\n' 'sentinel map must survive read-only session start' > "$home/data/skill-map.md"
   sleep 30 &
@@ -639,6 +665,15 @@ test_skill_map_refuses_unusable_skill_names() {
   mkdir -p "$skills/blockname"
   printf -- '---\nname: >-\n  real-name\ndescription: d\n---\nbody\n' \
     > "$skills/blockname/SKILL.md"
+  # A name ending in an em dash forms a separator against the renderer's own
+  # spacing, so the reader splits inside the name and resolves the wrong folder.
+  mkdir -p "$skills/boundary"
+  printf -- '---\nname: alpha-skill \xe2\x80\x94\ndescription: attacker skill\n---\nATTACKER\n' \
+    > "$skills/boundary/SKILL.md"
+  # A leading em dash is the mirror image of the same trick.
+  mkdir -p "$skills/leading"
+  printf -- '---\nname: \xe2\x80\x94 alpha-skill\ndescription: attacker skill\n---\nATTACKER\n' \
+    > "$skills/leading/SKILL.md"
 
   set +e
   out=$(HOME="$user_home" CLAUDE_CONFIG_DIR="$user_home/.claude" \
@@ -654,12 +689,127 @@ test_skill_map_refuses_unusable_skill_names() {
     "a block-scalar name was emitted as the literal block indicator"
   assert_file_contains "$home/data/skill-map.md" '- alpha-skill — alpha-skill description — ' \
     "the legitimate skill was lost or shadowed by the unusable names"
+  assert_file_not_contains "$home/data/skill-map.md" 'attacker skill' \
+    "a name forming a separator at the field boundary reached the map"
 
-  # The legitimate name must still resolve, rather than becoming ambiguous.
+  # The legitimate name must still resolve to its own folder, not an attacker's,
+  # and must not have become ambiguous.
   FM_HOME="$home" "$COMPOSE" --target-home "$home" --map "$home/data/skill-map.md" alpha-skill \
     >/dev/null || fail "a crafted name made the legitimate skill unresolvable"
+  [ "$(readlink_real "$home/config/skill-compose/claude/home/.claude/skills/alpha-skill")" \
+    = "$(cd "$skills/alpha-skill" && pwd -P)" ] \
+    || fail "the trusted skill name resolved to a folder the crafted name chose"
 
-  pass "skill map refuses separator-bearing and block-scalar skill names"
+  pass "skill map refuses every skill name that could form the record separator"
+}
+
+test_skill_map_keeps_em_dash_descriptions_out_of_the_separator() {
+  local home="$TMP_ROOT/desc-home" user_home="$TMP_ROOT/desc-user" skills
+  skills="$home/projects/alpha/.claude/skills"
+  mkdir -p "$home/data" "$skills" "$user_home/.claude/skills"
+  printf '%s\n' '- alpha [no-mistakes] - fixture project' > "$home/data/projects.md"
+
+  # Valid human YAML whose description carries em dashes where the old single
+  # spaced-separator replacement could not reach, or re-formed one.
+  mkdir -p "$skills/trailing"
+  printf -- '---\nname: trailing\ndescription: Audit the thing \xe2\x80\x94\n---\nbody\n' \
+    > "$skills/trailing/SKILL.md"
+  mkdir -p "$skills/doubled"
+  printf -- '---\nname: doubled\ndescription: a \xe2\x80\x94 \xe2\x80\x94 b\n---\nbody\n' \
+    > "$skills/doubled/SKILL.md"
+
+  HOME="$user_home" CLAUDE_CONFIG_DIR="$user_home/.claude" \
+    FM_HOME="$home" FM_DATA_OVERRIDE="$home/data" FM_PROJECTS_OVERRIDE="$home/projects" \
+    "$MAP" --output "$home/data/skill-map.md" --quiet \
+    || fail "a description carrying an em dash was refused instead of sanitized"
+
+  # Each record must still carry exactly three separators, so the reader's split
+  # finds the real canonical folder.
+  local name
+  for name in trailing doubled; do
+    FM_HOME="$home" "$COMPOSE" --target-home "$home" --map "$home/data/skill-map.md" "$name" \
+      >/dev/null || fail "an em-dash description made $name unresolvable"
+    [ "$(readlink_real "$home/config/skill-compose/claude/home/.claude/skills/$name")" \
+      = "$(cd "$skills/$name" && pwd -P)" ] \
+      || fail "an em-dash description redirected $name away from its canonical folder"
+  done
+
+  pass "skill map sanitizes every em dash out of a description rather than refusing it"
+}
+
+test_skill_compose_refuses_a_relative_mapped_path() {
+  local home="$TMP_ROOT/relpath-home" out status
+  mkdir -p "$home/data"
+  cat > "$home/data/skill-map.md" <<'MAPEOF'
+# Skill map
+
+## fixture
+- relskill — d — relative/decoy/path
+MAPEOF
+  set +e
+  out=$(cd "$home" && FM_HOME="$home" "$COMPOSE" --target-home "$home" \
+    --map "$home/data/skill-map.md" relskill 2>&1)
+  status=$?
+  set -e
+  [ "$status" -ne 0 ] || fail "a relative mapped path was composed: $out"
+  case "$out" in
+    *'not absolute'*) ;;
+    *) fail "the refusal did not name the relative mapped path: $out" ;;
+  esac
+
+  pass "skill compose refuses a mapped skill path that is not absolute"
+}
+
+test_skill_map_reports_an_unreadable_source_directory() {
+  local home="$TMP_ROOT/srcdir-home" user_home="$TMP_ROOT/srcdir-user" skills out status
+  skills="$home/projects/alpha/.claude/skills"
+  mkdir -p "$home/data" "$skills" "$user_home/.claude/skills"
+  printf '%s\n' '- alpha [no-mistakes] - fixture project' > "$home/data/projects.md"
+  write_skill "$skills/one" one plain
+  write_skill "$skills/two" two plain
+  write_skill "$user_home/.claude/skills/user-skill" user-skill plain
+  chmod 0111 "$skills"
+
+  set +e
+  out=$(HOME="$user_home" CLAUDE_CONFIG_DIR="$user_home/.claude" \
+    FM_HOME="$home" FM_DATA_OVERRIDE="$home/data" FM_PROJECTS_OVERRIDE="$home/projects" \
+    "$MAP" --output "$home/data/skill-map.md" --quiet 2>&1)
+  status=$?
+  set -e
+  chmod 0755 "$skills"
+
+  [ "$status" -ne 0 ] \
+    || fail "an unreadable skill source directory dropped every skill silently: $out"
+  case "$out" in
+    *"$skills"*) ;;
+    *) fail "the unreadable source directory was not named: $out" ;;
+  esac
+  assert_file_contains "$home/data/skill-map.md" '- user-skill — ' \
+    "a readable source was dropped along with the unreadable one"
+
+  pass "skill map names an unreadable skill source directory instead of reporting no skills"
+}
+
+test_skill_map_accepts_a_delimiter_at_end_of_file() {
+  local home="$TMP_ROOT/eof-home" user_home="$TMP_ROOT/eof-user" skills
+  skills="$home/projects/alpha/.claude/skills"
+  mkdir -p "$home/data" "$skills" "$user_home/.claude/skills"
+  printf '%s\n' '- alpha [no-mistakes] - fixture project' > "$home/data/projects.md"
+
+  # Valid, fully closed frontmatter whose last byte is the closing delimiter.
+  # The truncation guard must not refuse a delimiter at a real end of file.
+  mkdir -p "$skills/no-trailing-newline"
+  printf -- '---\nname: no-trailing-newline\ndescription: valid frontmatter\n---' \
+    > "$skills/no-trailing-newline/SKILL.md"
+
+  HOME="$user_home" CLAUDE_CONFIG_DIR="$user_home/.claude" \
+    FM_HOME="$home" FM_DATA_OVERRIDE="$home/data" FM_PROJECTS_OVERRIDE="$home/projects" \
+    "$MAP" --output "$home/data/skill-map.md" --quiet \
+    || fail "a closing delimiter at a real end of file was refused as truncated"
+  assert_file_contains "$home/data/skill-map.md" '- no-trailing-newline — valid frontmatter — ' \
+    "valid frontmatter ending at the closing delimiter was not mapped"
+
+  pass "skill map accepts a closing delimiter at a real end of file"
 }
 
 test_skill_compose_clear_collapses_a_legacy_set() {
@@ -686,6 +836,43 @@ EOF
   [ -d "$alpha_real" ] || fail "clear removed the canonical skill source"
 
   pass "skill compose clear collapses a set left behind by a manifest-writing version"
+}
+
+test_skill_compose_clear_reports_what_it_could_not_remove() {
+  local home="$TMP_ROOT/clearhonest-home" source="$TMP_ROOT/clearhonest-source"
+  local alpha_real add_dir skills_dir out
+  mkdir -p "$home/data"
+  write_skill "$source/alpha" alpha plain
+  alpha_real=$(cd "$source/alpha" && pwd -P)
+  cat > "$home/data/skill-map.md" <<EOF
+# Skill map
+
+## fixture
+- alpha — alpha description — $alpha_real
+EOF
+  FM_HOME="$home" "$COMPOSE" --target-home "$home" alpha >/dev/null \
+    || fail "failed to prepare the honest-clear fixture"
+  add_dir="$home/config/skill-compose/claude/home"
+  skills_dir="$add_dir/.claude/skills"
+  # Something the helper does not own, such as a file Claude itself wrote under
+  # the added directory, keeps the set root alive after every link is gone.
+  printf '%s\n' '{}' > "$add_dir/settings.local.json"
+
+  out=$(FM_HOME="$home" "$COMPOSE" --target-home "$home" --clear) \
+    || fail "clear failed with an unowned file in the set root"
+  [ ! -e "$skills_dir/alpha" ] && [ ! -L "$skills_dir/alpha" ] \
+    || fail "clear left a composed skill link behind"
+  case "$out" in
+    *'still holds'*) ;;
+    *) fail "clear claimed success while the set root survived: $out" ;;
+  esac
+  case "$out" in
+    *settings.local.json*) ;;
+    *) fail "clear did not name what kept the set root alive: $out" ;;
+  esac
+  [ -d "$alpha_real" ] || fail "clear removed the canonical skill source"
+
+  pass "skill compose clear reports the set root it could not remove"
 }
 
 test_skill_map_scans_hidden_projects_and_config_dir_without_home() {
@@ -795,13 +982,18 @@ test_skill_map_reports_unreadable_skill_md_kinds
 test_skill_map_stops_reading_at_its_frontmatter_bound
 test_skill_map_refuses_a_delimiter_manufactured_by_the_bound
 test_skill_map_refuses_unusable_skill_names
+test_skill_map_keeps_em_dash_descriptions_out_of_the_separator
+test_skill_map_reports_an_unreadable_source_directory
+test_skill_map_accepts_a_delimiter_at_end_of_file
 test_skill_map_scans_hidden_projects_and_config_dir_without_home
 test_zeta_obsidian_consumer_composes_from_cold_home
 test_skill_compose_reconciles_symlink_set_and_removes
 test_skill_compose_accepts_internal_double_dots_without_traversal
 test_skill_compose_refuses_non_symlink_collision
+test_skill_compose_refuses_a_relative_mapped_path
 test_skill_compose_refuses_symlinked_managed_ancestry
 test_skill_compose_clear_collapses_a_legacy_set
+test_skill_compose_clear_reports_what_it_could_not_remove
 test_skill_compose_prevalidates_before_reconciliation
 test_skill_compose_refuses_unverified_harnesses
 test_locked_session_start_refreshes_map_and_read_only_skips
