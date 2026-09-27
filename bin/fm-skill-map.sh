@@ -6,11 +6,16 @@
 #   - every registered project clone's .claude/skills/ and .agents/skills/
 #   - the Claude user skill directory, ${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills
 #
-# Only the first MAX_FRONTMATTER_BYTES of a SKILL.md are read, and a skill whose
-# frontmatter is never closed, cannot be read, or carries no name is skipped with
-# a named SKILL_MAP: line on stderr and a final exit status of 3. The map itself
-# is still written, so one bad skill degrades to a reported gap, never a silent
-# one and never an unbounded read of the skill body.
+# Only the first MAX_FRONTMATTER_BYTES of a SKILL.md are read. A skill is skipped,
+# with a named SKILL_MAP: line on stderr and a final exit status of 3, when its
+# folder or SKILL.md cannot be read, its frontmatter is never closed within that
+# bound, it carries no usable name, or its name contains the map's own field
+# separator. The map itself is still written, so one bad skill degrades to a
+# reported gap, never a silent one and never an unbounded read of the skill body.
+#
+# A closing delimiter is only trusted on a newline-terminated line, because the
+# byte bound can truncate a longer run of dashes down to exactly three and would
+# otherwise manufacture the close it is meant to require.
 #
 # The output is a flat, regenerated registry at data/skill-map.md by default.
 # It is private operational state, not a committed artifact. The map is for
@@ -35,6 +40,8 @@ OUTPUT="$DATA/skill-map.md"
 STDOUT=0
 QUIET=0
 SKIPPED=0
+# The map's own field separator; a name carrying it would corrupt the record.
+MAP_SEPARATOR=' — '
 # Frontmatter is a handful of short lines; anything past this is skill body.
 MAX_FRONTMATTER_BYTES=65536
 
@@ -88,19 +95,28 @@ sanitize_description() {
 }
 
 extract_frontmatter() {  # <SKILL.md>; prints name<TAB>description
-  local file=$1 line value name='' desc='' desc_block=0 first=1 closed=0
-  while IFS= read -r line || [ -n "$line" ]; do
+  local file=$1 line value name='' desc='' desc_block=0 first=1 closed=0 unterminated=0
+  while IFS= read -r line || { [ -n "$line" ] && unterminated=1; }; do
     line=${line%$'\r'}
     if [ "$first" -eq 1 ]; then
       first=0
       [ "$line" = '---' ] || return 1
       continue
     fi
-    [ "$line" = '---' ] && { closed=1; break; }
+    if [ "$line" = '---' ]; then
+      # Only a newline-terminated delimiter is real; a truncated tail is not.
+      [ "$unterminated" -eq 0 ] && closed=1
+      break
+    fi
     case "$line" in
       name:*)
-        value=${line#name:}
-        name=$(strip_quotes "$value")
+        value=$(strip_quotes "${line#name:}")
+        case "$value" in
+          # A multi-line name is meaningless here and the old code emitted the
+          # block indicator itself as the skill name, so refuse it instead.
+          '>'|'>-'|'>+'|\||\|-|\|+|\>*|\|*) return 1 ;;
+        esac
+        name=$value
         desc_block=0
         ;;
       description:*)
@@ -137,6 +153,9 @@ extract_frontmatter() {  # <SKILL.md>; prints name<TAB>description
   name=$(collapse_ws "$name")
   desc=$(sanitize_description "$desc")
   [ -n "$name" ] || return 1
+  # A name carrying the separator would shadow or redirect another skill when the
+  # map is read back, so refuse it here rather than writing a corrupt record.
+  case "$name" in *"$MAP_SEPARATOR"*) return 1 ;; esac
   printf '%s\t%s\n' "$name" "$desc"
 }
 
@@ -149,14 +168,25 @@ add_skill_source() {  # <group> <skills-dir> <records-file> <seen-file>
   [ -d "$source_dir" ] || return 0
   for skill_dir in "$source_dir"/*; do
     [ -d "$skill_dir" ] || continue
-    [ -f "$skill_dir/SKILL.md" ] || continue
-    skill_real=$(canonical_dir "$skill_dir") || continue
+    # A folder with no SKILL.md at all is not a skill, so it is not reported. A
+    # folder whose SKILL.md exists but is not a readable regular file IS a skill
+    # this scan cannot read, so it joins the reported-skip path below rather than
+    # disappearing. The regular-file test also keeps the parser off a FIFO, which
+    # would otherwise block the whole refresh waiting for a writer.
+    if [ ! -x "$skill_dir" ] || ! skill_real=$(canonical_dir "$skill_dir"); then
+      printf 'SKILL_MAP: skipped unreadable skill folder: %s\n' "$skill_dir" >&2
+      SKIPPED=$((SKIPPED + 1))
+      continue
+    fi
+    [ -e "$skill_real/SKILL.md" ] || [ -L "$skill_real/SKILL.md" ] || continue
     if grep -Fx -- "$skill_real" "$seen" >/dev/null 2>&1; then
       continue
     fi
     printf '%s\n' "$skill_real" >> "$seen"
-    if ! front=$(extract_frontmatter "$skill_real/SKILL.md" 2>/dev/null) || [ -z "$front" ]; then
-      printf 'SKILL_MAP: skipped unreadable or unclosed skill frontmatter: %s\n' \
+    if [ ! -f "$skill_real/SKILL.md" ] \
+      || ! front=$(extract_frontmatter "$skill_real/SKILL.md" 2>/dev/null) \
+      || [ -z "$front" ]; then
+      printf 'SKILL_MAP: skipped unreadable, unclosed, or unusably named skill frontmatter: %s\n' \
         "$skill_real/SKILL.md" >&2
       SKIPPED=$((SKIPPED + 1))
       continue
@@ -175,7 +205,10 @@ project_names() {
   ' "$DATA/projects.md" | sort -u
 }
 
-TMP=$(mktemp -d "${TMPDIR:-/tmp}/fm-skill-map.XXXXXX") || exit 1
+TMP=$(mktemp -d "${TMPDIR:-/tmp}/fm-skill-map.XXXXXX") || {
+  printf 'SKILL_MAP: cannot create a temporary directory for the refresh\n' >&2
+  exit 1
+}
 trap 'rm -rf "$TMP"' EXIT INT TERM
 RECORDS="$TMP/records.tsv"
 SEEN="$TMP/seen-paths"

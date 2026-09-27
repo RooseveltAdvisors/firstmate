@@ -317,6 +317,9 @@ clear_set() {
       rm -f -- "$entry"
     done
   fi
+  # A set composed by a version that still generated manifest.tsv would otherwise
+  # keep the set root alive forever while this clear reported success.
+  rm -f "$COMPOSE_ROOT/manifest.tsv"
   rmdir "$SKILLS_DIR" "$COMPOSE_ROOT/.claude" "$COMPOSE_ROOT" 2>/dev/null || true
   [ "$PRINT_ADD_DIR" -eq 1 ] && printf '%s\n' "$COMPOSE_ROOT" || printf 'cleared %s\n' "$COMPOSE_ROOT"
 }

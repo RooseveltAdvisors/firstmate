@@ -486,6 +486,208 @@ test_skill_map_bounds_frontmatter_and_reports_skips() {
   pass "skill map is closed-delimiter bound, names every skipped skill, and still composes"
 }
 
+test_skill_map_reports_unreadable_skill_md_kinds() {
+  local home="$TMP_ROOT/kinds-home" user_home="$TMP_ROOT/kinds-user" skills out status
+  skills="$home/projects/alpha/.claude/skills"
+  mkdir -p "$home/data" "$skills" "$user_home/.claude/skills"
+  printf '%s\n' '- alpha [no-mistakes] - fixture project' > "$home/data/projects.md"
+  write_skill "$skills/valid-skill" valid-skill plain
+
+  # A SKILL.md that exists but is not a readable regular file is a skill this scan
+  # cannot read, so each kind must be reported rather than dropped.
+  mkdir -p "$skills/dir-skill-md/SKILL.md"
+  mkdir -p "$skills/dangling"
+  ln -s /nonexistent/target "$skills/dangling/SKILL.md"
+  mkdir -p "$skills/fifo"
+  mkfifo "$skills/fifo/SKILL.md"
+  # An unsearchable skill folder hides its own SKILL.md from every stat, so the
+  # folder itself must be reported rather than vanishing.
+  mkdir -p "$skills/unsearchable"
+  write_skill "$skills/unsearchable" unsearchable plain
+  chmod 000 "$skills/unsearchable"
+  # A folder with no SKILL.md at all is not a skill and must stay unreported.
+  mkdir -p "$skills/not-a-skill-folder"
+
+  set +e
+  out=$(HOME="$user_home" CLAUDE_CONFIG_DIR="$user_home/.claude" \
+    FM_HOME="$home" FM_DATA_OVERRIDE="$home/data" FM_PROJECTS_OVERRIDE="$home/projects" \
+    "$MAP" --output "$home/data/skill-map.md" --quiet 2>&1)
+  status=$?
+  set -e
+  chmod 755 "$skills/unsearchable"
+
+  [ "$status" -ne 0 ] || fail "map generation stayed silent about unreadable SKILL.md kinds: $out"
+  case "$out" in
+    *"$skills/dir-skill-md/SKILL.md"*) ;;
+    *) fail "a SKILL.md that is a directory was skipped without being named: $out" ;;
+  esac
+  case "$out" in
+    *"$skills/dangling/SKILL.md"*) ;;
+    *) fail "a dangling SKILL.md symlink was skipped without being named: $out" ;;
+  esac
+  case "$out" in
+    *"$skills/fifo/SKILL.md"*) ;;
+    *) fail "a SKILL.md that is a FIFO was skipped without being named: $out" ;;
+  esac
+  case "$out" in
+    *"$skills/unsearchable"*) ;;
+    *) fail "an unsearchable skill folder was skipped without being named: $out" ;;
+  esac
+  case "$out" in
+    *not-a-skill-folder*) fail "a folder with no SKILL.md was reported as a skipped skill: $out" ;;
+    *) ;;
+  esac
+  case "$out" in
+    *'4 skill(s) skipped'*) ;;
+    *) fail "the skipped count did not match the four unreadable skills: $out" ;;
+  esac
+  assert_file_contains "$home/data/skill-map.md" '- valid-skill — ' \
+    "the valid sibling skill was dropped alongside the unreadable ones"
+
+  pass "skill map names every unreadable SKILL.md kind and counts each one"
+}
+
+test_skill_map_stops_reading_at_its_frontmatter_bound() {
+  local home="$TMP_ROOT/bound-home" user_home="$TMP_ROOT/bound-user" skills out status
+  skills="$home/projects/alpha/.claude/skills"
+  mkdir -p "$home/data" "$skills" "$user_home/.claude/skills"
+  printf '%s\n' '- alpha [no-mistakes] - fixture project' > "$home/data/projects.md"
+
+  # Frontmatter that IS properly closed, but whose closing delimiter sits beyond
+  # the generator's byte bound. Only the bound can refuse this one: the
+  # closed-delimiter check alone would accept it after reading the whole file.
+  mkdir -p "$skills/past-bound"
+  {
+    printf '%s\n' '---' 'name: past-bound' 'description: past-bound description'
+    yes '  padding: this indented line sits inside the frontmatter block' | head -n 2000
+    printf '%s\n' '---' 'body'
+  } > "$skills/past-bound/SKILL.md"
+  [ "$(wc -c < "$skills/past-bound/SKILL.md")" -gt 65536 ] \
+    || fail "the past-bound fixture is not larger than the generator's byte bound"
+
+  set +e
+  out=$(HOME="$user_home" CLAUDE_CONFIG_DIR="$user_home/.claude" \
+    FM_HOME="$home" FM_DATA_OVERRIDE="$home/data" FM_PROJECTS_OVERRIDE="$home/projects" \
+    "$MAP" --output "$home/data/skill-map.md" --quiet 2>&1)
+  status=$?
+  set -e
+
+  [ "$status" -ne 0 ] \
+    || fail "frontmatter closed past the byte bound was accepted, so nothing bounds the read: $out"
+  case "$out" in
+    *"$skills/past-bound/SKILL.md"*) ;;
+    *) fail "the past-bound skill was not named as skipped: $out" ;;
+  esac
+  assert_file_not_contains "$home/data/skill-map.md" '- past-bound — ' \
+    "a skill whose frontmatter closes past the byte bound was mapped anyway"
+
+  pass "skill map stops reading each SKILL.md at its frontmatter byte bound"
+}
+
+test_skill_map_refuses_a_delimiter_manufactured_by_the_bound() {
+  local home="$TMP_ROOT/trunc-home" user_home="$TMP_ROOT/trunc-user" skills out status pad header
+  skills="$home/projects/alpha/.claude/skills"
+  mkdir -p "$home/data" "$skills" "$user_home/.claude/skills"
+  printf '%s\n' '- alpha [no-mistakes] - fixture project' > "$home/data/projects.md"
+
+  # Frontmatter that is never closed, plus a longer run of dashes placed so the
+  # byte bound cuts it to exactly three. The bound must not manufacture the
+  # closing delimiter it exists to require.
+  # The run starts at offset 65533, so bytes 65533..65535 are "---" and the
+  # truncated final line looks exactly like a closing delimiter.
+  mkdir -p "$skills/manufactured"
+  header="$TMP_ROOT/manufactured.header"
+  printf -- '---\nname: manufactured\ndescription: manufactured description\n' > "$header"
+  pad=$((65532 - $(wc -c < "$header")))
+  [ "$pad" -gt 0 ] || fail "the manufactured-close fixture header does not fit under the bound"
+  {
+    cat "$header"
+    head -c "$pad" /dev/zero | tr '\0' 'x'
+    printf -- '\n-------\nbody\n'
+  } > "$skills/manufactured/SKILL.md"
+  [ "$(head -c 65536 "$skills/manufactured/SKILL.md" | tail -c 4)" = "$(printf -- '\n---')" ] \
+    || fail "the manufactured-close fixture does not truncate to a bare --- at the bound"
+
+  set +e
+  out=$(HOME="$user_home" CLAUDE_CONFIG_DIR="$user_home/.claude" \
+    FM_HOME="$home" FM_DATA_OVERRIDE="$home/data" FM_PROJECTS_OVERRIDE="$home/projects" \
+    "$MAP" --output "$home/data/skill-map.md" --quiet 2>&1)
+  status=$?
+  set -e
+
+  [ "$status" -ne 0 ] \
+    || fail "a dash run truncated by the byte bound was accepted as a closing delimiter: $out"
+  assert_file_not_contains "$home/data/skill-map.md" '- manufactured — ' \
+    "unclosed frontmatter was mapped because the bound manufactured its delimiter"
+
+  pass "skill map refuses a closing delimiter manufactured by truncation"
+}
+
+test_skill_map_refuses_unusable_skill_names() {
+  local home="$TMP_ROOT/names-home" user_home="$TMP_ROOT/names-user" skills out status
+  skills="$home/projects/alpha/.claude/skills"
+  mkdir -p "$home/data" "$skills" "$user_home/.claude/skills"
+  printf '%s\n' '- alpha [no-mistakes] - fixture project' > "$home/data/projects.md"
+  write_skill "$skills/alpha-skill" alpha-skill plain
+
+  # A name carrying the map's own separator would shadow or redirect another skill
+  # when the map is read back, so it must never reach the map.
+  mkdir -p "$skills/separator"
+  printf -- '---\nname: alpha-skill — hijacked\ndescription: d\n---\nbody\n' \
+    > "$skills/separator/SKILL.md"
+  # A block-scalar name used to be emitted as the literal block indicator.
+  mkdir -p "$skills/blockname"
+  printf -- '---\nname: >-\n  real-name\ndescription: d\n---\nbody\n' \
+    > "$skills/blockname/SKILL.md"
+
+  set +e
+  out=$(HOME="$user_home" CLAUDE_CONFIG_DIR="$user_home/.claude" \
+    FM_HOME="$home" FM_DATA_OVERRIDE="$home/data" FM_PROJECTS_OVERRIDE="$home/projects" \
+    "$MAP" --output "$home/data/skill-map.md" --quiet 2>&1)
+  status=$?
+  set -e
+
+  [ "$status" -ne 0 ] || fail "unusable skill names were accepted silently: $out"
+  assert_file_not_contains "$home/data/skill-map.md" 'hijacked' \
+    "a name carrying the map separator reached the map"
+  assert_file_not_contains "$home/data/skill-map.md" '- >- — ' \
+    "a block-scalar name was emitted as the literal block indicator"
+  assert_file_contains "$home/data/skill-map.md" '- alpha-skill — alpha-skill description — ' \
+    "the legitimate skill was lost or shadowed by the unusable names"
+
+  # The legitimate name must still resolve, rather than becoming ambiguous.
+  FM_HOME="$home" "$COMPOSE" --target-home "$home" --map "$home/data/skill-map.md" alpha-skill \
+    >/dev/null || fail "a crafted name made the legitimate skill unresolvable"
+
+  pass "skill map refuses separator-bearing and block-scalar skill names"
+}
+
+test_skill_compose_clear_collapses_a_legacy_set() {
+  local home="$TMP_ROOT/legacy-home" source="$TMP_ROOT/legacy-source" alpha_real add_dir out
+  mkdir -p "$home/data"
+  write_skill "$source/alpha" alpha plain
+  alpha_real=$(cd "$source/alpha" && pwd -P)
+  cat > "$home/data/skill-map.md" <<EOF
+# Skill map
+
+## fixture
+- alpha — alpha description — $alpha_real
+EOF
+  FM_HOME="$home" "$COMPOSE" --target-home "$home" alpha >/dev/null \
+    || fail "failed to prepare the legacy clear fixture"
+  add_dir="$home/config/skill-compose/claude/home"
+  # A set composed by a version that still generated manifest.tsv.
+  printf 'alpha\t%s\n' "$alpha_real" > "$add_dir/manifest.tsv"
+
+  out=$(FM_HOME="$home" "$COMPOSE" --target-home "$home" --clear) \
+    || fail "clear failed on a legacy set"
+  [ ! -e "$add_dir" ] \
+    || fail "clear reported success but left the legacy set root behind: $out ($(find "$add_dir"))"
+  [ -d "$alpha_real" ] || fail "clear removed the canonical skill source"
+
+  pass "skill compose clear collapses a set left behind by a manifest-writing version"
+}
+
 test_skill_map_scans_hidden_projects_and_config_dir_without_home() {
   local home="$TMP_ROOT/discovery-home" user_home="$TMP_ROOT/discovery-user"
   mkdir -p "$home/data" "$home/projects/.hidden/.claude/skills" "$user_home/.claude/skills"
@@ -508,7 +710,7 @@ test_skill_map_scans_hidden_projects_and_config_dir_without_home() {
 
 test_skill_compose_refuses_symlinked_managed_ancestry() {
   local home="$TMP_ROOT/escape-home" target="$TMP_ROOT/escape-target"
-  local source="$TMP_ROOT/escape-source" alpha_real tracked out status
+  local source="$TMP_ROOT/escape-source" alpha_real tracked out status level
   mkdir -p "$home/data" "$target/config/skill-compose/claude/home/.claude"
   write_skill "$source/alpha" alpha plain
   alpha_real=$(cd "$source/alpha" && pwd -P)
@@ -524,24 +726,38 @@ EOF
   mkdir -p "$tracked"
   write_skill "$source/keep" keep plain
   ln -s "$(cd "$source/keep" && pwd -P)" "$tracked/keep"
-  ln -s "$tracked" "$target/config/skill-compose/claude/home/.claude/skills"
 
-  set +e
-  out=$(FM_HOME="$home" "$COMPOSE" --target-home "$target" alpha 2>&1)
-  status=$?
-  set -e
-  [ "$status" -ne 0 ] \
-    || fail "composition followed a symlinked managed path instead of refusing: $out"
-  case "$out" in
-    *'refusing to compose through a symlinked managed path'*) ;;
-    *) fail "refusal did not name the symlinked managed path: $out" ;;
-  esac
-  [ -L "$tracked/keep" ] \
-    || fail "refused composition deleted an unrelated skill from the tracked tree"
-  [ ! -e "$tracked/alpha" ] && [ ! -L "$tracked/alpha" ] \
-    || fail "refused composition wrote a composed link into the tracked tree"
+  # Every managed level must be refused, not just the innermost one: the compose
+  # lock's own mkdir -p creates the upper levels, so a symlink at any of them
+  # would be followed on the way down.
+  for level in \
+    config \
+    config/skill-compose \
+    config/skill-compose/claude \
+    config/skill-compose/claude/home \
+    config/skill-compose/claude/home/.claude \
+    config/skill-compose/claude/home/.claude/skills; do
+    rm -rf "$target/config"
+    mkdir -p "$target/$(dirname "$level")"
+    ln -s "$tracked" "$target/$level"
 
-  pass "skill compose refuses a symlinked managed ancestry before any mutation"
+    set +e
+    out=$(FM_HOME="$home" "$COMPOSE" --target-home "$target" alpha 2>&1)
+    status=$?
+    set -e
+    [ "$status" -ne 0 ] \
+      || fail "composition followed the symlinked managed path $level instead of refusing: $out"
+    case "$out" in
+      *'refusing to compose through a symlinked managed path'*) ;;
+      *) fail "refusal for $level did not name the symlinked managed path: $out" ;;
+    esac
+    [ -L "$tracked/keep" ] \
+      || fail "refused composition at $level deleted an unrelated skill from the tracked tree"
+    [ ! -e "$tracked/alpha" ] && [ ! -L "$tracked/alpha" ] \
+      || fail "refused composition at $level wrote a composed link into the tracked tree"
+  done
+
+  pass "skill compose refuses a symlink at every managed ancestry level before any mutation"
 }
 
 test_zeta_obsidian_consumer_composes_from_cold_home() {
@@ -575,12 +791,17 @@ test_zeta_obsidian_consumer_composes_from_cold_home() {
 
 test_skill_map_generates_flat_deduped_registry
 test_skill_map_bounds_frontmatter_and_reports_skips
+test_skill_map_reports_unreadable_skill_md_kinds
+test_skill_map_stops_reading_at_its_frontmatter_bound
+test_skill_map_refuses_a_delimiter_manufactured_by_the_bound
+test_skill_map_refuses_unusable_skill_names
 test_skill_map_scans_hidden_projects_and_config_dir_without_home
 test_zeta_obsidian_consumer_composes_from_cold_home
 test_skill_compose_reconciles_symlink_set_and_removes
 test_skill_compose_accepts_internal_double_dots_without_traversal
 test_skill_compose_refuses_non_symlink_collision
 test_skill_compose_refuses_symlinked_managed_ancestry
+test_skill_compose_clear_collapses_a_legacy_set
 test_skill_compose_prevalidates_before_reconciliation
 test_skill_compose_refuses_unverified_harnesses
 test_locked_session_start_refreshes_map_and_read_only_skips

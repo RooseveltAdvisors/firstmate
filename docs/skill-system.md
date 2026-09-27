@@ -14,8 +14,10 @@ It does not read skill bodies, and it stops reading a `SKILL.md` at a bounded pr
 It records the skill name, one-line description, source group, and absolute canonical skill-folder path.
 Each canonical skill-folder path appears at most once, even when symlinked source trees discover it more than once.
 
-A skill whose frontmatter is unreadable, never closed, or carries no name is skipped.
-Every skip names its `SKILL.md` on stderr, and the generator exits non-zero after still writing the map for the skills that did parse.
+A skill is skipped when its folder or `SKILL.md` cannot be read, its frontmatter never closes within the bound, it carries no usable name, or its name contains the map's own field separator.
+A closing delimiter is trusted only on a complete line, so the byte bound cannot truncate a longer run of dashes into the delimiter it is supposed to require.
+A name carrying the field separator is refused rather than written, because reading such a record back would shadow or redirect another skill.
+Every skip names the offending path on stderr, and the generator exits non-zero after still writing the map for the skills that did parse.
 The `fm-skill-map.sh` header owns that exit status.
 Composition treats a reported skip as a gap rather than a refresh failure, so the skills that did parse still compose, and a skipped name is refused by name when it is requested.
 
