@@ -1,0 +1,4 @@
+signal: /tmp/fm-lab.HdHume/state/ci-lane.status
+stale: fm:ci-lane
+stale: fm:ci-lane (idle 8s - ci running, awaiting the forge checks - external pipeline step, awaiting the forge checks, rechecked on a long cadence not a wedge; confirm the checks are still running)
+stale: fm:ci-lane (idle 8s - ci running, awaiting the forge checks - external pipeline step, awaiting the forge checks, rechecked on a long cadence not a wedge; confirm the checks are still running)

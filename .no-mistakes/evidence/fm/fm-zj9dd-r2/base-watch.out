@@ -1,0 +1,4 @@
+stale: fm:ci-lane (idle 8s, possible wedge, escalation 1)
+stale: fm:ci-lane (idle 9s, possible wedge, escalation 2)
+stale: fm:ci-lane (idle 8s, possible wedge, escalation 3, demand-deep-inspection: same pane has wedge-escalated 3 times in a row - do not re-absorb on the run-step/pane state alone)
+stale: fm:ci-lane (idle 8s, possible wedge, escalation 4, demand-deep-inspection: same pane has wedge-escalated 4 times in a row - do not re-absorb on the run-step/pane state alone)

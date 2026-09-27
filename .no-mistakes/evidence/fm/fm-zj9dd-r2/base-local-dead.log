@@ -1,0 +1,99 @@
+=== scenario=base bin=/tmp/fm-lab.HdHume/base/bin rounds=4 07:21:24 ===
+--- lane endpoint before fixture:
+ zsh pane=zsh
+ci-lane pane=claude
+--- lane endpoint after fixture:
+ zsh pane=zsh
+ci-lane pane=claude
+--- real fm-crew-state.sh verdict:
+state: working · source: run-step · ci running
+    (rc=0)
+--- agent liveness probe:
+    state=alive
+  round 1: watcher surfaced and exited after ~13s
+  queue after round 1:
+      [stale] fm:ci-lane :: stale: fm:ci-lane (idle 8s, possible wedge, escalation 1)
+  (acked wake cycle 1)
+  round 2: watcher surfaced and exited after ~9s
+  queue after round 2:
+      [stale] fm:ci-lane :: stale: fm:ci-lane (idle 9s, possible wedge, escalation 2)
+  (acked wake cycle 2)
+  round 3: watcher surfaced and exited after ~8s
+  queue after round 3:
+      [stale] fm:ci-lane :: stale: fm:ci-lane (idle 8s, possible wedge, escalation 3, demand-deep-inspection: same pane has wedge-escalated 3 times in a row - do not re-absorb on the run-step/pane state alone)
+  (acked wake cycle 3)
+  round 4: watcher surfaced and exited after ~8s
+  queue after round 4:
+      [stale] fm:ci-lane :: stale: fm:ci-lane (idle 8s, possible wedge, escalation 4, demand-deep-inspection: same pane has wedge-escalated 4 times in a row - do not re-absorb on the run-step/pane state alone)
+  (acked wake cycle 4)
+--- wake queue (kind/window/reason):
+--- wedge escalation counter file:
+    count=4
+--- watcher stdout highlights:
+    stale: fm:ci-lane (idle 8s, possible wedge, escalation 1)
+    stale: fm:ci-lane (idle 9s, possible wedge, escalation 2)
+    stale: fm:ci-lane (idle 8s, possible wedge, escalation 3, demand-deep-inspection: same pane has wedge-escalated 3 times in a row - do not re-absorb on the run-step/pane state alone)
+    stale: fm:ci-lane (idle 8s, possible wedge, escalation 4, demand-deep-inspection: same pane has wedge-escalated 4 times in a row - do not re-absorb on the run-step/pane state alone)
+=== done 07:22:26 ===
+
+=== scenario=local bin=/home/jon/.no-mistakes/worktrees/46339c0817e0/01M3G1J3M8WAN0GKCGY3ETYJA0/bin rounds=3 07:22:26 ===
+--- lane endpoint before fixture:
+ zsh pane=zsh
+ci-lane pane=claude
+--- lane endpoint after fixture:
+ zsh pane=zsh
+ci-lane pane=claude
+--- real fm-crew-state.sh verdict:
+state: working · source: run-step · validating (running)
+    (rc=0)
+--- agent liveness probe:
+    state=alive
+  round 1: watcher surfaced and exited after ~13s
+  queue after round 1:
+      [stale] fm:ci-lane :: stale: fm:ci-lane (idle 8s, possible wedge, escalation 1)
+  (acked wake cycle 1)
+  round 2: watcher surfaced and exited after ~9s
+  queue after round 2:
+      [stale] fm:ci-lane :: stale: fm:ci-lane (idle 8s, possible wedge, escalation 2)
+  (acked wake cycle 2)
+  round 3: watcher surfaced and exited after ~8s
+  queue after round 3:
+      [stale] fm:ci-lane :: stale: fm:ci-lane (idle 8s, possible wedge, escalation 3, demand-deep-inspection: same pane has wedge-escalated 3 times in a row - do not re-absorb on the run-step/pane state alone)
+  (acked wake cycle 3)
+--- wake queue (kind/window/reason):
+--- wedge escalation counter file:
+    count=3
+--- watcher stdout highlights:
+    stale: fm:ci-lane (idle 8s, possible wedge, escalation 1)
+    stale: fm:ci-lane (idle 8s, possible wedge, escalation 2)
+    stale: fm:ci-lane (idle 8s, possible wedge, escalation 3, demand-deep-inspection: same pane has wedge-escalated 3 times in a row - do not re-absorb on the run-step/pane state alone)
+=== done 07:23:18 ===
+
+=== scenario=dead bin=/home/jon/.no-mistakes/worktrees/46339c0817e0/01M3G1J3M8WAN0GKCGY3ETYJA0/bin rounds=3 07:23:18 ===
+--- lane endpoint before fixture:
+ zsh pane=zsh
+ci-lane pane=claude
+--- lane endpoint after fixture:
+ zsh pane=zsh
+ci-lane pane=zsh
+--- real fm-crew-state.sh verdict:
+state: working · source: run-step · ci running
+    (rc=0)
+--- agent liveness probe:
+    state=dead
+  round 1: watcher surfaced and exited after ~14s
+  queue after round 1:
+      [stale] fm:ci-lane :: stale: fm:ci-lane (idle 8s, agent dead - the endpoint is still there with no agent running in it, so this is not a wedge; reported once and not re-escalated while it stays that way - reconcile this record, and check for unlanded work before any cleanup)
+  (acked wake cycle 1)
+  round 2: watcher stayed alive the whole round (absorbed every poll)
+  queue after round 2:
+  (acked wake cycle 0)
+  round 3: watcher stayed alive the whole round (absorbed every poll)
+  queue after round 3:
+  (acked wake cycle 0)
+--- wake queue (kind/window/reason):
+--- wedge escalation counter file:
+    (absent - never counted a wedge escalation)
+--- watcher stdout highlights:
+    stale: fm:ci-lane (idle 8s, agent dead - the endpoint is still there with no agent running in it, so this is not a wedge; reported once and not re-escalated while it stays that way - reconcile this record, and check for unlanded work before any cleanup)
+=== done 07:25:06 ===

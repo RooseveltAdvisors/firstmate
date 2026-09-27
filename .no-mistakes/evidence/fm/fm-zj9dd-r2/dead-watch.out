@@ -1,0 +1,1 @@
+stale: fm:ci-lane (idle 8s, agent dead - the endpoint is still there with no agent running in it, so this is not a wedge; reported once and not re-escalated while it stays that way - reconcile this record, and check for unlanded work before any cleanup)

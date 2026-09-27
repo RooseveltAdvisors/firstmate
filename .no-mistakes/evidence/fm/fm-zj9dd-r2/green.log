@@ -1,0 +1,36 @@
+=== scenario=green bin=/home/jon/.no-mistakes/worktrees/46339c0817e0/01M3G1J3M8WAN0GKCGY3ETYJA0/bin rounds=4 07:20:25 ===
+--- lane endpoint before fixture:
+ zsh pane=zsh
+ci-lane pane=claude
+--- lane endpoint after fixture:
+ zsh pane=zsh
+ci-lane pane=claude
+--- real fm-crew-state.sh verdict:
+state: done · source: run-step · checks green: PR ready for review (still monitoring for merge/close): https://github.com/o/r/pull/2
+    (rc=0)
+--- agent liveness probe:
+    state=alive
+  round 1: watcher surfaced and exited after ~2s
+  queue after round 1:
+      [signal] ci-lane.status :: signal: /tmp/fm-lab.HdHume/state/ci-lane.status
+      [signal] ci-lane.status :: signal: /tmp/fm-lab.HdHume/state/ci-lane.status
+  (acked wake cycle 2)
+  round 2: watcher surfaced and exited after ~3s
+  queue after round 2:
+      [stale] fm:ci-lane :: stale: fm:ci-lane
+  (acked wake cycle 3)
+  round 3: watcher surfaced and exited after ~10s
+  queue after round 3:
+      [stale] fm:ci-lane :: stale: fm:ci-lane (idle 8s - ci running, awaiting the forge checks - external pipeline step, awaiting the forge checks, rechecked on a long cadence not a wedge; confirm the checks are still running)
+  (acked wake cycle 4)
+  round 4: watcher surfaced and exited after ~13s
+  queue after round 4:
+      [stale] fm:ci-lane :: stale: fm:ci-lane (idle 8s - ci running, awaiting the forge checks - external pipeline step, awaiting the forge checks, rechecked on a long cadence not a wedge; confirm the checks are still running)
+  (acked wake cycle 5)
+--- wake queue (kind/window/reason):
+--- wedge escalation counter file:
+    (absent - never counted a wedge escalation)
+--- watcher stdout highlights:
+    stale: fm:ci-lane (idle 8s - ci running, awaiting the forge checks - external pipeline step, awaiting the forge checks, rechecked on a long cadence not a wedge; confirm the checks are still running)
+    stale: fm:ci-lane (idle 8s - ci running, awaiting the forge checks - external pipeline step, awaiting the forge checks, rechecked on a long cadence not a wedge; confirm the checks are still running)
+=== done 07:21:18 ===
