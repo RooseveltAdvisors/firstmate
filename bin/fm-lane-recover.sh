@@ -124,7 +124,8 @@ SWITCH_HARNESS=
 RELAUNCH_TIMEOUT=300
 PERSIST_TIMEOUT=30
 SSH_TIMEOUT=10
-LANE_INBOXES=
+SWEEP_INBOX=
+SWEEP_SOURCE=
 
 ACTING=
 NOW=
@@ -158,21 +159,14 @@ is_int() {
 }
 
 config_load() {
-  local line key value name inbox lineno=0
+  local line key value lanes=0 lineno=0
   [ -f "$CONFIG" ] || return 1
   while IFS= read -r line || [ -n "$line" ]; do
     lineno=$(( lineno + 1 ))
     case "$line" in
       ''|'#'*) continue ;;
       'lane '*)
-        # shellcheck disable=SC2086  # deliberate split of a whitespace record
-        set -- $line
-        name=${2:-}
-        inbox=${3:-}
-        fm_pr_task_id_valid "$name" \
-          || die "response-lanes.conf line $lineno: invalid lane name"
-        LANE_INBOXES="$LANE_INBOXES$name	$inbox
-"
+        lanes=$(( lanes + 1 ))
         continue
         ;;
     esac
@@ -213,7 +207,7 @@ config_load() {
       *) ;;
     esac
   done < "$CONFIG"
-  [ -n "$LANE_INBOXES" ]
+  [ "$lanes" -gt 0 ]
 }
 
 # --- the ladder log ----------------------------------------------------------
@@ -374,8 +368,17 @@ rung_decide() {  # <lane> <verdict> <errclass> <pending> <beatage>
   fi
 
   # Rung 2. Reached whether the endpoint is alive or already restarted to its
-  # ceiling, because a provider fault is not cured by another restart.
+  # ceiling, because a provider fault is not cured by another restart. Only a
+  # conclusive probe admits it: an endpoint the probe could not read is
+  # escalated with that evidence instead of being replaced on a guess.
   if [ "$kind" = fault ]; then
+    case "$FM_SM_LIVE_STATUS" in
+      alive|relaunchable) ;;
+      *)
+        rung_escalate "$lane" "$pending" "error class $errclass with an endpoint probe the liveness library reports as inconclusive (status $FM_SM_LIVE_STATUS, state $FM_SM_LIVE_STATE), so no rung may replace an agent it could not read"
+        return 0
+        ;;
+    esac
     if [ "$FM_SM_LIVE_STATE" = missing ]; then
       rung_escalate "$lane" "$pending" "error class $errclass on a missing endpoint, so the provider is not the cause and rung 2 does not apply"
       return 0
@@ -388,7 +391,7 @@ rung_decide() {  # <lane> <verdict> <errclass> <pending> <beatage>
       RUNG=switch_model_or_harness
       RUNG_WHY="rail matched provider error class $errclass, so the provider is the suspect (endpoint $FM_SM_LIVE_STATE, switch attempt $(( switches + 1 )) of $SWITCH_CEILING)"
       RUNG_CMD="$SCRIPT_DIR/fm-control.sh $lane relaunch${SWITCH_HARNESS:+ --harness $SWITCH_HARNESS}${SWITCH_MODEL:+ --model $SWITCH_MODEL}"
-      [ "$FM_SM_LIVE_STATUS" = alive ] \
+      [ "$FM_SM_LIVE_STATUS" != relaunchable ] \
         && RUNG_NOTE="endpoint is alive, so persist is attempted for ${PERSIST_TIMEOUT}s first and persist_impossible is recorded on timeout"
       return 0
     fi
@@ -438,7 +441,7 @@ rung_escalate() {  # <lane> <pending> <why>
   if [ "$FM_SM_LIVE_STATUS" = alive ] && redispatch_applies "$1" "$2"; then
     RUNG=redispatch
     RUNG_CMD="redispatch_do $1"
-    RUNG_WHY="endpoint probes alive again and the lane still holds $2 unclaimed work order(s), so rung 3 re-sends them once with fresh correlation ids so duplicates stay detectable, before the escalation this lane was headed for"
+    RUNG_WHY="endpoint probes alive again and the lane still holds $2 unclaimed work order(s), so rung 3 re-sends them once with fresh correlation ids so duplicates stay detectable, before the escalation this lane was headed for: $3"
     return 0
   fi
   RUNG=escalate_captain
@@ -463,20 +466,18 @@ shell_quote() {
   printf "'"
 }
 
-# redispatch_frames <lane>: every unclaimed record of the lane's own inbox,
-# read at the same place the rail counts that inbox: the config's per-lane
-# override when one is written, otherwise a remote lane over ssh from this
-# home or a local lane from this home's state.
-redispatch_frames() {  # <lane>
-  local lane=$1 meta home host inbox f override program remote
-  meta="$STATE/$lane.meta"
-  home=$(fm_meta_get "$meta" home)
-  host=$(fm_meta_get "$meta" remote_host)
-  override=$(printf '%s' "$LANE_INBOXES" \
-    | awk -F '\t' -v l="$lane" '$1 == l { print $2; exit }')
-  if [ -n "$host" ]; then
-    inbox=${override:-$home/state/parent-route/$lane.inbox}
-    program=$(cat <<'REMOTE'
+# redispatch_frames: every unclaimed record of the lane's own inbox, read from
+# the exact inbox path the rail printed after counting it, over ssh for the
+# remote source the rail named and locally otherwise, so the inbox counted and
+# the inbox re-sent are one string rather than two readings of one record.
+redispatch_frames() {
+  local inbox host f program remote
+  inbox=$SWEEP_INBOX
+  case "$inbox" in ''|-) return 1 ;; esac
+  case "$SWEEP_SOURCE" in
+    remote:*)
+      host=${SWEEP_SOURCE#remote:}
+      program=$(cat <<'REMOTE'
 d=$1
 [ -d "$d" ] || exit 0
 for f in "$d"/*.msg; do
@@ -487,16 +488,17 @@ for f in "$d"/*.msg; do
 done
 REMOTE
 )
-    remote="sh -c $(shell_quote "$program") sh $(shell_quote "$inbox")"
-    fm_run_timed "$SSH_TIMEOUT" ssh -o BatchMode=yes -o ConnectTimeout="$SSH_TIMEOUT" \
-      "$host" "$remote"
-  else
-    inbox=${override:-$STATE/$lane.inbox}
-    for f in "$inbox"/*.msg; do
-      [ -f "$f" ] || continue
-      redispatch_frame "$f"
-    done
-  fi
+      remote="sh -c $(shell_quote "$program") sh $(shell_quote "$inbox")"
+      fm_run_timed "$SSH_TIMEOUT" ssh -o BatchMode=yes -o ConnectTimeout="$SSH_TIMEOUT" \
+        "$host" "$remote"
+      ;;
+    *)
+      for f in "$inbox"/*.msg; do
+        [ -f "$f" ] || continue
+        redispatch_frame "$f"
+      done
+      ;;
+  esac
 }
 
 # redispatch_do <lane>: re-send each unclaimed record once through
@@ -507,7 +509,7 @@ REMOTE
 redispatch_do() {  # <lane>
   local lane=$1 frames line header='' name body failed=0
   REDISPATCH_SENT=0
-  frames=$(redispatch_frames "$lane" 2>/dev/null) || frames=
+  frames=$(redispatch_frames 2>/dev/null) || frames=
   [ -n "$frames" ] || return 1
   while IFS= read -r line; do
     if [ -n "$header" ]; then
@@ -537,7 +539,7 @@ EOF
 sweep() {
   local lane verdict errclass pending beatage line rail drained mover mode=dry-run
   rail_classes_load
-  rail=$("$RAIL" read 2>/dev/null) || rail=
+  rail=$("$RAIL" read) || rail=
   if [ -z "$rail" ]; then
     printf 'error: the liveness rail produced no reading, so the ladder has no verdict to act on\n' >&2
     return 1
@@ -555,6 +557,8 @@ sweep() {
     beatage=$(printf '%s\n' "$line" | sed -n 's/.* watcher_beat_age_s=\([^ ]*\).*/\1/p')
     drained=$(printf '%s\n' "$line" | sed -n 's/.* drained_while_error_active=\([^ ]*\).*/\1/p')
     mover=$(printf '%s\n' "$line" | sed -n 's/.* mover=\([^ ]*\).*/\1/p')
+    SWEEP_INBOX=$(printf '%s\n' "$line" | sed -n 's/.* inbox=\([^ ]*\).*/\1/p')
+    SWEEP_SOURCE=$(printf '%s\n' "$line" | sed -n 's/.* source=\([^ ]*\).*/\1/p')
     if [ "$drained" = yes ]; then
       if [ -z "$ACTING" ]; then
         printf 'lane=%s observation=drained_while_error_active mover=%s\n' \
@@ -651,8 +655,10 @@ lane_act() {  # <lane> <verdict> <errclass>
     switch_model_or_harness)
       # A live agent is asked to persist first, bounded. A provider-dead agent
       # cannot answer, and that is recorded with its justification rather than
-      # allowed to block the rung it exists for.
-      if [ "$FM_SM_LIVE_STATUS" = alive ] && ! persist_attempt "$lane"; then
+      # allowed to block the rung it exists for. The gate is "not proven absent"
+      # rather than "proven alive", so the request is never skipped for an
+      # endpoint whose liveness is unknown.
+      if [ "$FM_SM_LIVE_STATUS" != relaunchable ] && ! persist_attempt "$lane"; then
         if ! ladder_record "$lane" switch_model_or_harness persist_impossible \
           "no persist answer in ${PERSIST_TIMEOUT}s; an agent that cannot reach its provider cannot have landed work, and the relaunch verb keeps the worktree and its unlanded commits"; then
           printf 'lane=%s verdict=%s rung=%s action=unrecorded reason=ladder log unwritable, so the persist_impossible justification was not recorded\n' \

@@ -155,6 +155,24 @@ for state in ambiguous unreadable; do
     "an $state endpoint on a dead lane escalates rather than reporting nothing to do"
 done
 
+# The same inconclusive endpoint with a provider fault still never reaches the
+# switch rung: a fault admits rung 2 only on a conclusive probe, so the lane
+# escalates carrying the inconclusive probe as its evidence instead.
+for state in ambiguous unreadable; do
+  R=$(home "fault-inconclusive-$state")
+  lane "$R" stalled 4000
+  pane "$R" stalled 'Account budget exceeded'
+  conf "$R" 'SWITCH_MODEL=some-other-model'
+  OUT=$(ladder "$R" "$state" sess:stalled plan)
+  ROW=$(row "$OUT" stalled)
+  assert_equals escalate_captain "$(field "$ROW" rung)" \
+    "an $state endpoint with a provider fault escalates instead of reaching the switch rung"
+  assert_contains "$ROW" 'inconclusive' \
+    "the escalation names the inconclusive probe as its evidence"
+  assert_not_contains "$OUT" 'rung=switch_model_or_harness' \
+    "an $state endpoint is never offered the rung that replaces an agent"
+done
+
 # --- an escalation names the stale beat as its evidence ---------------------
 # A lane whose defect is a stale supervision beat must be paged with that beat
 # age named as the evidence, not with a bare report that a defect was found.
@@ -225,6 +243,22 @@ ROW=$(row "$OUT" vanished)
 assert_equals escalate_captain "$(field "$ROW" rung)" \
   'a missing endpoint never gets a profile switch, because the provider is not the cause'
 assert_contains "$ROW" 'provider is not the cause' 'the escalation says why rung 2 does not apply'
+
+# The reason an escalation was handed survives the re-send offered in front of
+# it: the plan must report both the rung that failed and the rung being tried
+# first, because this line is what the dry-run review reads.
+R=$(home reasonkeep)
+lane "$R" stalled 4000
+pane "$R" stalled 'stream disconnected before completion'
+printf 'schema=1\nat=now\n--\nwork order\n' > "$R/state/stalled.inbox/001.msg"
+OUT=$(ladder "$R" alive sess:stalled plan)
+ROW=$(row "$OUT" stalled)
+assert_equals redispatch "$(field "$ROW" rung)" \
+  'a lane that still holds work re-sends before the page'
+assert_contains "$ROW" 'no SWITCH_MODEL' \
+  'the reason keeps the escalation it was handed: no switch target is configured'
+assert_contains "$ROW" 'fresh correlation ids' \
+  'the reason also names the re-send being tried first'
 
 # --- a class the rail does not publish is never dropped ---------------------
 R=$(home unhandled)
@@ -436,6 +470,39 @@ assert_present "$R/state/shifted.inbox/001.msg" \
 assert_present "$R/alt/001.msg" \
   'the original record in the overridden inbox is never touched'
 
+# --- one owner: the inbox on the rail's line is the inbox re-sent from -------
+# The rail resolves the override and prints the exact path it counted, and the
+# ladder reads that path back off the line, so a quoting-sensitive record is
+# read from the directory the count came from and crosses the round trip whole.
+R=$(home inboxdrift)
+lane "$R" scribe 4000
+pane "$R" scribe 'nothing interesting'
+CONF="$R/config/response-lanes.conf"
+grep -v '^lane scribe$' "$CONF" > "$CONF.tmp" && mv "$CONF.tmp" "$CONF"
+mkdir -p "$R/alt"
+# shellcheck disable=SC2016  # the literal $ is the quoting-sensitive value under test
+printf 'schema=1\nat=now\n--\nquoted "body" with $dollar and \\back\\slash and %s\n' "'single'" > "$R/alt/001.msg"
+conf "$R" "lane scribe $R/alt"
+OUT=$(PATH="$(fake_tmux "$R/fake-rail" alive sess:scribe):$BASE_PATH" FM_TEST_SEAM=1 \
+  FM_HOME="$R" FM_STATE_OVERRIDE="$R/state" FM_CONFIG_OVERRIDE="$R/config" \
+  "$ROOT/bin/fm-lane-liveness.sh" read 2>&1)
+RAIL_ROW=$(printf '%s\n' "$OUT" | grep '^lane=scribe ')
+assert_equals "$R/alt" "$(field "$RAIL_ROW" inbox)" \
+  'the rail prints the override inbox it resolved and counted'
+assert_equals 1 "$(field "$RAIL_ROW" pending_count)" \
+  'the count on that same line came from the printed inbox'
+conf "$R" 'RECOVERY=acting'
+OUT=$(ladder "$R" alive sess:scribe run)
+ROW=$(row "$OUT" scribe)
+assert_contains "$ROW" 'action=done sent=1' \
+  'the ladder re-sent from the inbox the rail printed, the only one holding the record'
+assert_present "$R/alt/001.msg" 'the original record stays in the override inbox'
+assert_present "$R/state/scribe.inbox/001.msg" 'the re-send landed in the lane own inbox'
+# shellcheck disable=SC2016  # the literal $ is the quoting-sensitive value under test
+assert_grep 'quoted "body" with $dollar and \back\slash and '\''single'\''' \
+  "$R/state/scribe.inbox/001.msg" \
+  'the quoting-sensitive body crossed the read and the re-send unchanged'
+
 # --- no unhealthy lane ever ends at rung=none -------------------------------
 # The invariant, asserted directly across every endpoint state: a dead verdict
 # must never produce rung=none, whatever the probe said.
@@ -501,6 +568,16 @@ conf "$R" 'SSH_TIMEOUT=0'
 OUT=$(ladder "$R" dead sess:downed plan)
 expect_code 2 $? 'a zero ssh timeout refuses rather than removing the bound'
 assert_contains "$OUT" 'SSH_TIMEOUT' 'the refusal names the offending key'
+
+# A rail-key typo is refused by the rail, not the ladder, so the rail refusal
+# must survive into the ladder's own error instead of being swallowed.
+R=$(home railrefusal)
+lane "$R" fine 0
+conf "$R" 'W=soon'
+OUT=$(ladder "$R" alive sess:fine plan)
+expect_code 1 $? 'a rail that refuses its own config ends the plan'
+assert_contains "$OUT" 'needs a whole number' 'the rail refusal naming the bad key survives'
+assert_contains "$OUT" 'produced no reading' 'the ladder still reports the missing reading'
 
 # --- an unconfigured home is inert -----------------------------------------
 R="$TMP/off"

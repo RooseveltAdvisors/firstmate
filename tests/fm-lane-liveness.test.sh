@@ -307,6 +307,24 @@ assert_equals '-' "$(field_of "$OUT" gone pending_count)" \
 assert_contains "$OUT" 'unread rather than zero' \
   'the reading says why the absent inbox is not a zero-depth reading'
 
+# --- the reading carries the inbox path it counted --------------------------
+# The ladder re-sends from this exact path, so both the default resolution and
+# a config override must appear on the line the rail prints.
+ROOT_IB=$(home_fixture inboxpath)
+lane_fixture "$ROOT_IB" plain
+lane_fixture "$ROOT_IB" counted
+mkdir -p "$ROOT_IB/alt"
+printf 'x\n' > "$ROOT_IB/alt/001.msg"
+conf_add "$ROOT_IB" 'lane plain'
+conf_add "$ROOT_IB" "lane counted $ROOT_IB/alt"
+OUT=$(rail "$ROOT_IB" read)
+assert_equals "$ROOT_IB/state/plain.inbox" "$(field_of "$OUT" plain inbox)" \
+  'a default lane reports its resolved state inbox'
+assert_equals "$ROOT_IB/alt" "$(field_of "$OUT" counted inbox)" \
+  'an override lane reports the override path it counted'
+assert_equals 1 "$(field_of "$OUT" counted pending_count)" \
+  'the count on that same line came from the printed inbox'
+
 # --- 2.2: drained while an error class is active stays degraded --------------
 ROOT_P=$(home_fixture drained_on_error)
 lane_fixture "$ROOT_P" mover
@@ -589,5 +607,43 @@ assert_contains "$OUT" 'names no lane' \
   'routes labels a present but laneless config as itself'
 assert_not_contains "$OUT" 'is absent' \
   'routes never reports a present config as absent'
+
+# --- disarm reports a failed unregistration instead of claiming success ------
+ROOT_DA=$(home_fixture disarmfail)
+lane_fixture "$ROOT_DA" covered
+conf_add "$ROOT_DA" 'lane covered'
+rail "$ROOT_DA" read > /dev/null
+rail "$ROOT_DA" check > /dev/null
+OUT=$(rail "$ROOT_DA" arm 2>&1)
+expect_code 0 $? 'arming the rail in a fixture succeeds'
+assert_present "$ROOT_DA/state/lane-liveness.check.sh" 'arming writes the lane check shim'
+assert_present "$ROOT_DA/state/lane-liveness-self.check.sh" 'arming writes the silence check shim'
+# A trust file with a second hard link is refused by the unregister contract,
+# which is the failure a disarm must report rather than print past.
+ln "$ROOT_DA/state/lane-liveness-self.check-trust" "$ROOT_DA/state/.trust-dupe"
+OUT=$(rail "$ROOT_DA" disarm 2>&1)
+expect_code 2 $? 'a failed unregistration refuses rather than exiting success'
+assert_not_contains "$OUT" 'disarmed:' \
+  'a failed unregistration never prints a disarmed result'
+assert_contains "$OUT" 'could not unregister lane-liveness-self' \
+  'the refusal names the check that stayed'
+assert_present "$ROOT_DA/state/.lane-liveness-beat" \
+  'the records stay in place while a check is still armed'
+assert_present "$ROOT_DA/state/lane-liveness-self.check.sh" \
+  'the still-armed check keeps its shim'
+
+# The ordinary path still disarms and reports it.
+ROOT_OK=$(home_fixture disarmok)
+lane_fixture "$ROOT_OK" covered
+conf_add "$ROOT_OK" 'lane covered'
+rail "$ROOT_OK" read > /dev/null
+rail "$ROOT_OK" check > /dev/null
+rail "$ROOT_OK" arm > /dev/null 2>&1
+OUT=$(rail "$ROOT_OK" disarm 2>&1)
+expect_code 0 $? 'an ordinary disarm exits 0'
+assert_contains "$OUT" 'disarmed: lane-liveness lane-liveness-self' \
+  'an ordinary disarm reports itself'
+assert_absent "$ROOT_OK/state/.lane-liveness-beat" \
+  'a successful disarm removes the records'
 
 pass 'fm-lane-liveness.sh: liveness verdicts, the drained-while-error rule, routing verification, and rail self-reporting'

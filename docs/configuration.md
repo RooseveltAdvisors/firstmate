@@ -1449,7 +1449,7 @@ The ladder records them in its ladder log when acting and prints them on its own
 The inbox path is optional, and needed only when a lane's inbox is not where its record implies.
 A local lane defaults to `state/<name>.inbox`.
 A lane whose record carries `remote_host=` is read over that host at `<its home>/state/parent-route/<name>.inbox`, because no local inbox directory exists for it.
-The ladder's redispatch honors the same override, so the rail counts and the ladder re-sends from one inbox for a lane that moved it.
+The rail resolves each lane's inbox, config override included, prints that exact path on its reading line, and the ladder's redispatch re-sends from that same printed path, so the inbox counted and the inbox re-sent cannot drift apart.
 A remote lane's `agent_status` comes from the same remote control state verb the supervision library polls, bounded like the inbox read, so a remote lane reports its agent's real state instead of a permanent `unverified`.
 
 A lane with no local inbox directory is not a lane with an empty inbox.

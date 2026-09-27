@@ -240,7 +240,7 @@ lane_reset() {
   LANE_SOURCE=- LANE_PENDING=- LANE_HANDLED=- LANE_DRAIN=- LANE_MISSED=-
   LANE_RESOLVED=- LANE_ERRCLASS=unknown LANE_BEAT=- LANE_AGENT=unverified
   LANE_ROUTE_EVIDENCE=- LANE_DRAINED_ON_ERROR=no LANE_MOVER=- LANE_VERDICT=unknown
-  LANE_HANDLED_MOVED=no
+  LANE_HANDLED_MOVED=no LANE_INBOX=-
   LANE_REASON=''
   LANE_RECORDS=''
 }
@@ -375,6 +375,7 @@ lane_read() {  # <lane> <inbox-override>
   if [ -n "$host" ]; then
     LANE_SOURCE="remote:$host"
     inbox=${override:-$home/state/parent-route/$lane.inbox}
+    LANE_INBOX=$inbox
     probe=$(remote_probe "$host" "$inbox" "$home" 2>/dev/null) || probe=
     if [ -z "$probe" ]; then
       LANE_REASON="host $host is unreachable, so this lane is unread rather than healthy"
@@ -383,6 +384,7 @@ lane_read() {  # <lane> <inbox-override>
   else
     LANE_SOURCE=local
     inbox=${override:-$STATE/$lane.inbox}
+    LANE_INBOX=$inbox
     probe=$(local_probe "$inbox")
     LANE_BEAT=$(age_of "$home/state/.last-watcher-beat")
   fi
@@ -573,11 +575,11 @@ lane_verdict() {  # <error-class-sustained-seconds>
 }
 
 lane_line() {  # <lane>
-  printf 'lane=%s source=%s verdict=%s pending_count=%s handled_count=%s inbox_drain_age_s=%s pending_reply_missed=%s pending_reply_resolved=%s error_signature_class=%s watcher_beat_age_s=%s agent_status=%s route_evidence_count=%s drained_while_error_active=%s mover=%s' \
+  printf 'lane=%s source=%s verdict=%s pending_count=%s handled_count=%s inbox_drain_age_s=%s pending_reply_missed=%s pending_reply_resolved=%s error_signature_class=%s watcher_beat_age_s=%s agent_status=%s route_evidence_count=%s drained_while_error_active=%s mover=%s inbox=%s' \
     "$1" "$LANE_SOURCE" "$LANE_VERDICT" "$LANE_PENDING" "$LANE_HANDLED" \
     "$LANE_DRAIN" "$LANE_MISSED" "$LANE_RESOLVED" "$LANE_ERRCLASS" \
     "$LANE_BEAT" "$LANE_AGENT" "$LANE_ROUTE_EVIDENCE" "$LANE_DRAINED_ON_ERROR" \
-    "$LANE_MOVER"
+    "$LANE_MOVER" "$LANE_INBOX"
   [ -z "$LANE_REASON" ] || printf ' reason=%s' "$LANE_REASON"
   printf '\n'
 }
@@ -693,15 +695,20 @@ action_arm() {
   config_load || die "$CONFIG names no lane"
   shim_write "$CHECK_ID" check || die 'could not arm the response-lane check'
   shim_write "$SELF_CHECK_ID" selfcheck || {
-    "$SCRIPT_DIR/fm-check-unregister.sh" "$CHECK_ID" >/dev/null 2>&1
-    die 'could not arm the rail-silence check'
+    if "$SCRIPT_DIR/fm-check-unregister.sh" "$CHECK_ID" >/dev/null 2>&1; then
+      die 'could not arm the rail-silence check'
+    fi
+    die 'could not arm the rail-silence check, and the response-lane check could not be rolled back either, so it may still be armed'
   }
   printf 'armed: state/%s.check.sh state/%s.check.sh\n' "$CHECK_ID" "$SELF_CHECK_ID"
 }
 
 action_disarm() {
-  "$SCRIPT_DIR/fm-check-unregister.sh" "$SELF_CHECK_ID" >/dev/null 2>&1 || true
-  "$SCRIPT_DIR/fm-check-unregister.sh" "$CHECK_ID" >/dev/null 2>&1 || true
+  local failed=''
+  "$SCRIPT_DIR/fm-check-unregister.sh" "$SELF_CHECK_ID" >/dev/null 2>&1 || failed=$SELF_CHECK_ID
+  "$SCRIPT_DIR/fm-check-unregister.sh" "$CHECK_ID" >/dev/null 2>&1 || failed="${failed:+$failed }$CHECK_ID"
+  [ -z "$failed" ] \
+    || die "could not unregister $failed, so the rail is not disarmed and its records were left in place"
   rm -f -- "$BEAT" "$JOURNAL" "$REPORTED"
   printf 'disarmed: %s %s\n' "$CHECK_ID" "$SELF_CHECK_ID"
 }
