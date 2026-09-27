@@ -1407,58 +1407,104 @@ test_skill_map_summary_line_is_one_line_when_empty() {
   pass "skill map reports an empty map on one line with one count"
 }
 
-test_skill_compose_quotes_mapped_paths_it_names() {
+test_skill_compose_names_every_mapped_path_it_refuses() {
   local home="$TMP_ROOT/rquote-home" source="$TMP_ROOT/rquote-source"
-  local good_real out forged esc
+  local good_real out forged esc crafted nosk
   mkdir -p "$home/data"
   write_skill "$source/good" good plain
   good_real=$(cd "$source/good" && pwd -P)
 
-  # Field three of a record is a skill folder path, which is corpus-controlled. A
-  # carriage return or an ANSI sequence in one must not be able to erase and
-  # rewrite the refusal a supervisor reads, the same invariant the map and the
-  # overlay listings already hold.
+  # Field three of a record is a skill folder path, so it comes from a scanned
+  # source. A refusal has to do two things with it: name it, so the operator can
+  # fix the map, and quote it, so a carriage return or ANSI sequence cannot erase
+  # the refusal and leave a plausible different one in its place.
   esc=$(printf '\033')
   forged="error: skill map refresh failed with status 1"
-  mkdir -p "$source/$(printf 'x\r%s' "$forged")"
-  write_skill "$source/$(printf 'x\r%s' "$forged")" collide plain
+  crafted="$source/$(printf 'x\r%s' "$forged")"
+  mkdir -p "$crafted"
+  write_skill "$crafted" collide plain
+  nosk="$source/$(printf 'n%s[2K%s' "$esc" "$forged")"
+  mkdir -p "$nosk"
   cat > "$home/data/skill-map.md" <<EOF
 # Skill map
 
 ## fixture
 - collide — a — $good_real
-- collide — b — $source/$(printf 'x\r%s' "$forged")
-- lone — c — $source/$(printf 'x%s[2K%s' "$esc" "$forged")
+- collide — b — $crafted
+- lone — c — $source/$(printf 'm%s[2K%s' "$esc" "$forged")
+- nosk — d — $nosk
+- rel — e — relative$(printf '\r')$forged/path
 EOF
 
-  # The ambiguous dump prints both candidate paths.
+  assert_no_raw_controls() {  # <label> <output>
+    [ "$(printf '%s' "$2" | LC_ALL=C tr -dc '\r\033' | wc -c | tr -d ' ')" -eq 0 ] \
+      || fail "$1 passed a raw control byte through: $2"
+    [ "$(printf '%s\n' "$2" | grep -cxF "$forged")" -eq 0 ] \
+      || fail "$1 let a corpus path forge its own line: $2"
+  }
+
+  # Ambiguity must ENUMERATE its candidates: a refusal that names none leaves the
+  # operator unable to find the colliding records at all.
   set +e
   out=$(FM_HOME="$home" "$COMPOSE" --target-home "$home" --map "$home/data/skill-map.md" \
     collide 2>&1)
   set -e
-  # Quoting keeps the text but escapes the control bytes, so what must be absent
-  # is a raw carriage return or escape that a terminal would act on, and any line
-  # that IS the forged message.
-  [ "$(printf '%s' "$out" | LC_ALL=C tr -dc '\r\033' | wc -c | tr -d ' ')" -eq 0 ] \
-    || fail "an ambiguous-match dump passed a raw control byte through: $out"
-  [ "$(printf '%s\n' "$out" | grep -cxF "$forged")" -eq 0 ] \
-    || fail "an ambiguous-match dump let a corpus path forge its own line: $out"
+  assert_no_raw_controls "the ambiguous dump" "$out"
   case "$out" in
     *'is ambiguous'*) ;;
     *) fail "the ambiguous refusal itself went missing: $out" ;;
   esac
+  [ "$(printf '%s\n' "$out" | grep -c '^  ' || true)" -eq 2 ] \
+    || fail "the ambiguous refusal did not enumerate both candidates: $out"
+  case "$out" in
+    *"$good_real"*) ;;
+    *) fail "the ambiguous refusal did not name the uncrafted candidate: $out" ;;
+  esac
 
-  # And the not-a-directory path prints the single resolved path.
+  # Each single-path refusal must name its path too, not merely the skill name.
   set +e
   out=$(FM_HOME="$home" "$COMPOSE" --target-home "$home" --map "$home/data/skill-map.md" \
     lone 2>&1)
   set -e
-  [ "$(printf '%s' "$out" | LC_ALL=C tr -dc '\r\033' | wc -c | tr -d ' ')" -eq 0 ] \
-    || fail "a resolved-path refusal passed a raw control byte through: $out"
-  [ "$(printf '%s\n' "$out" | grep -cxF "$forged")" -eq 0 ] \
-    || fail "a resolved-path refusal let a corpus path forge its own line: $out"
+  assert_no_raw_controls "the not-a-directory refusal" "$out"
+  case "$out" in
+    *'is not a directory'*) ;;
+    *) fail "the not-a-directory refusal did not appear: $out" ;;
+  esac
+  case "$out" in
+    *"$source/"*) ;;
+    *) fail "the not-a-directory refusal did not name its path: $out" ;;
+  esac
 
-  pass "skill compose quotes every mapped path it names"
+  set +e
+  out=$(FM_HOME="$home" "$COMPOSE" --target-home "$home" --map "$home/data/skill-map.md" \
+    nosk 2>&1)
+  set -e
+  assert_no_raw_controls "the missing-SKILL.md refusal" "$out"
+  case "$out" in
+    *'lacks SKILL.md'*) ;;
+    *) fail "the missing-SKILL.md refusal did not appear: $out" ;;
+  esac
+  case "$out" in
+    *"$source/"*) ;;
+    *) fail "the missing-SKILL.md refusal did not name its path: $out" ;;
+  esac
+
+  set +e
+  out=$(cd "$home" && FM_HOME="$home" "$COMPOSE" --target-home "$home" \
+    --map "$home/data/skill-map.md" rel 2>&1)
+  set -e
+  assert_no_raw_controls "the not-absolute refusal" "$out"
+  case "$out" in
+    *'is not absolute'*) ;;
+    *) fail "the not-absolute refusal did not appear: $out" ;;
+  esac
+  case "$out" in
+    *relative*) ;;
+    *) fail "the not-absolute refusal did not name its path: $out" ;;
+  esac
+
+  pass "skill compose names and quotes every mapped path it refuses"
 }
 
 test_skill_compose_never_removes_anything_outside_the_target_home() {
@@ -1563,7 +1609,7 @@ test_skill_compose_revalidates_entries_before_mutating
 test_skill_compose_refuses_symlinked_managed_ancestry
 test_skill_compose_quotes_entry_names_it_names
 test_skill_map_summary_line_is_one_line_when_empty
-test_skill_compose_quotes_mapped_paths_it_names
+test_skill_compose_names_every_mapped_path_it_refuses
 test_skill_compose_never_removes_anything_outside_the_target_home
 test_skill_compose_clear_collapses_a_legacy_set
 test_skill_compose_clear_reports_what_it_could_not_remove
