@@ -267,6 +267,9 @@ map_log_state() {  # <line>
 
 LOG_LINE=$(status_current_line "$LOG" "$KIND")
 LOG_VERB=$(status_line_verb "$LOG_LINE")
+if fm_dod_should_gate_ship_done "$KIND" "$(meta_value mode)" "$LOG_LINE"; then
+  fm_dod_verify_declared_checks_pass "$STATE" "$ID" >/dev/null
+fi
 
 # --- remote secondmate: the true source is the remote endpoint ---------------
 # A remote mate's recorded worktree and backend target live on its own host, so
