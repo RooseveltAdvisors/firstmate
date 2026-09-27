@@ -556,7 +556,13 @@ sweep() {
     drained=$(printf '%s\n' "$line" | sed -n 's/.* drained_while_error_active=\([^ ]*\).*/\1/p')
     mover=$(printf '%s\n' "$line" | sed -n 's/.* mover=\([^ ]*\).*/\1/p')
     if [ "$drained" = yes ]; then
-      ladder_record "$lane" rail drained_while_error_active "mover=${mover:--}" || true
+      if [ -z "$ACTING" ]; then
+        printf 'lane=%s observation=drained_while_error_active mover=%s\n' \
+          "$lane" "${mover:--}"
+      elif ! ladder_record "$lane" rail drained_while_error_active "mover=${mover:--}"; then
+        printf 'lane=%s observation=drained_while_error_active mover=%s reason=ladder log unwritable, so the observation is printed rather than recorded\n' \
+          "$lane" "${mover:--}"
+      fi
     fi
     # Acting holds the lane's own liveness lock across probe, decision, and
     # act, so the endpoint state the verdict rests on is the endpoint state
@@ -598,7 +604,7 @@ persist_attempt() {  # <lane>
 }
 
 lane_act() {  # <lane> <verdict> <errclass>
-  local lane=$1 verdict=$2 errclass=$3 rc out detail REDISPATCH_SENT=
+  local lane=$1 verdict=$2 errclass=$3 rc out detail lognote REDISPATCH_SENT=
   case "$RUNG" in
     none|refused)
       printf 'lane=%s verdict=%s rung=%s action=nothing reason=%s\n' \
@@ -607,10 +613,14 @@ lane_act() {  # <lane> <verdict> <errclass>
       ;;
     escalate_captain)
       if [ -n "$ACTING" ]; then
-        [ -z "$RUNG_NOTE" ] || ladder_record "$lane" escalate_captain "$RUNG_NOTE" "$RUNG_WHY" || true
-        ladder_record "$lane" escalate_captain parked "$RUNG_WHY" || true
-        printf 'lane=%s verdict=%s rung=escalate_captain action=parked%s reason=%s log=%s\n' \
-          "$lane" "$verdict" "${RUNG_NOTE:+ note=$RUNG_NOTE}" "$RUNG_WHY" "$(ladder_log "$lane")"
+        if { [ -z "$RUNG_NOTE" ] || ladder_record "$lane" escalate_captain "$RUNG_NOTE" "$RUNG_WHY"; } \
+          && ladder_record "$lane" escalate_captain parked "$RUNG_WHY"; then
+          printf 'lane=%s verdict=%s rung=escalate_captain action=parked%s reason=%s log=%s\n' \
+            "$lane" "$verdict" "${RUNG_NOTE:+ note=$RUNG_NOTE}" "$RUNG_WHY" "$(ladder_log "$lane")"
+        else
+          printf 'lane=%s verdict=%s rung=escalate_captain action=skipped%s reason=ladder log unwritable, so no parked row was recorded and the lane stays under automatic recovery\n' \
+            "$lane" "$verdict" "${RUNG_NOTE:+ note=$RUNG_NOTE}"
+        fi
       else
         printf 'lane=%s verdict=%s rung=escalate_captain action=would-park%s reason=%s\n' \
           "$lane" "$verdict" "${RUNG_NOTE:+ note=$RUNG_NOTE}" "$RUNG_WHY"
@@ -643,8 +653,11 @@ lane_act() {  # <lane> <verdict> <errclass>
       # cannot answer, and that is recorded with its justification rather than
       # allowed to block the rung it exists for.
       if [ "$FM_SM_LIVE_STATUS" = alive ] && ! persist_attempt "$lane"; then
-        ladder_record "$lane" switch_model_or_harness persist_impossible \
-          "no persist answer in ${PERSIST_TIMEOUT}s; an agent that cannot reach its provider cannot have landed work, and the relaunch verb keeps the worktree and its unlanded commits" || true
+        if ! ladder_record "$lane" switch_model_or_harness persist_impossible \
+          "no persist answer in ${PERSIST_TIMEOUT}s; an agent that cannot reach its provider cannot have landed work, and the relaunch verb keeps the worktree and its unlanded commits"; then
+          printf 'lane=%s verdict=%s rung=%s action=unrecorded reason=ladder log unwritable, so the persist_impossible justification was not recorded\n' \
+            "$lane" "$verdict" "$RUNG"
+        fi
       fi
       # fm-control.sh owns replacing a running agent in the same worktree on a
       # newly chosen profile. Not a second recovery path; its documented use.
@@ -661,13 +674,17 @@ lane_act() {  # <lane> <verdict> <errclass>
     detail='replaced through the existing owner of this case'
     [ "$RUNG" != redispatch ] \
       || detail="re-sent $REDISPATCH_SENT unclaimed record(s) through bin/fm-send.sh with fresh correlation ids"
-    ladder_record "$lane" "$RUNG" succeeded "$detail" || true
-    printf 'lane=%s verdict=%s rung=%s action=done%s reason=%s\n' \
-      "$lane" "$verdict" "$RUNG" "${REDISPATCH_SENT:+ sent=$REDISPATCH_SENT}" "$RUNG_WHY"
+    lognote=
+    ladder_record "$lane" "$RUNG" succeeded "$detail" \
+      || lognote='; the ladder log is unwritable, so the outcome row was not recorded'
+    printf 'lane=%s verdict=%s rung=%s action=done%s reason=%s%s\n' \
+      "$lane" "$verdict" "$RUNG" "${REDISPATCH_SENT:+ sent=$REDISPATCH_SENT}" "$RUNG_WHY" "$lognote"
   else
-    ladder_record "$lane" "$RUNG" failed "exited $rc" || true
-    printf 'lane=%s verdict=%s rung=%s action=failed rc=%s reason=%s\n' \
-      "$lane" "$verdict" "$RUNG" "$rc" "$RUNG_WHY"
+    lognote=
+    ladder_record "$lane" "$RUNG" failed "exited $rc" \
+      || lognote='; the ladder log is unwritable, so the outcome row was not recorded'
+    printf 'lane=%s verdict=%s rung=%s action=failed rc=%s reason=%s%s\n' \
+      "$lane" "$verdict" "$RUNG" "$rc" "$RUNG_WHY" "$lognote"
   fi
 }
 

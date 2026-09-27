@@ -250,10 +250,11 @@ assert_equals escalate_captain "$(field "$ROW" rung)" \
   'a class the rail does not publish routes to the escalation rung'
 assert_contains "$ROW" 'unhandled_errclass' 'the unhandled class is named rather than silently dropped'
 
-# --- drained-while-error evidence the rail reports is recorded -------------
+# --- drained-while-error evidence: recorded when acting, printed when planning
 # The ladder's sweep reads the whole rail line but consumes only a few fields
-# of it. An observation of a drain under an active error class must land in the
-# ladder log rather than be parsed for the verdict and dropped.
+# of it. The observation must surface either way: an acting run records it in
+# the ladder log, a plan prints it and writes nothing, and an unwritable log is
+# reported instead of claimed.
 R=$(home drainreport)
 lane "$R" moving 0
 pane "$R" moving 'Account budget exceeded'
@@ -265,12 +266,34 @@ case "${1:-}" in
 esac
 STUB
 chmod +x "$R/stub-rail"
-OUT=$(PATH="$(fake_tmux "$R/fake-moving" alive sess:moving):$BASE_PATH" FM_TEST_SEAM=1 \
-  FM_HOME="$R" FM_STATE_OVERRIDE="$R/state" FM_CONFIG_OVERRIDE="$R/config" \
-  FM_LANE_RAIL="$R/stub-rail" "$LADDER" plan 2>&1)
+run_drain_ladder() {  # <mode>: this fixture's stub rail behind its fake tmux
+  PATH="$(fake_tmux "$R/fake-moving" alive sess:moving):$BASE_PATH" FM_TEST_SEAM=1 \
+    FM_HOME="$R" FM_STATE_OVERRIDE="$R/state" FM_CONFIG_OVERRIDE="$R/config" \
+    FM_LANE_RAIL="$R/stub-rail" "$LADDER" "$1" 2>&1
+}
+OUT=$(run_drain_ladder plan)
+assert_absent "$R/state/.lane-recovery-moving" \
+  'planning writes no ladder log row for the observation'
+assert_contains "$OUT" 'observation=drained_while_error_active mover=worker' \
+  'the plan prints the drained-while-error observation instead of recording it'
+conf "$R" 'RECOVERY=acting'
+OUT=$(run_drain_ladder run)
 assert_grep "$(printf 'rail\tdrained_while_error_active\tmover=worker')" \
   "$R/state/.lane-recovery-moving" \
-  'the ladder log records the drained-while-error observation the rail reported'
+  'the acting run records the drained-while-error observation in the ladder log'
+assert_contains "$(row "$OUT" moving)" 'action=parked' \
+  'the acting escalation parks the lane alongside the recorded observation'
+rm -f "$R/state/.lane-recovery-moving"
+mkdir -p "$R/state/.lane-recovery-moving"
+OUT=$(run_drain_ladder run)
+assert_contains "$OUT" 'observation=drained_while_error_active mover=worker reason=ladder log unwritable' \
+  'an observation that cannot be recorded is printed with the failure instead of vanishing'
+assert_contains "$OUT" 'rung=escalate_captain action=skipped' \
+  'a parked row that could not be written is reported as skipped, not parked'
+assert_contains "$OUT" 'no parked row was recorded' \
+  'the report names exactly what was not recorded'
+assert_not_contains "$OUT" 'action=parked' \
+  'no line claims a parked row when the append failed'
 
 # --- rung 3: a recovered lane's unclaimed work is re-sent once --------------
 R=$(home rung3)

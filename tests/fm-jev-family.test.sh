@@ -396,6 +396,42 @@ assert_contains "$OUT" 'seat-state-advise: off' 'the advisor names itself when o
 assert_contains "$OUT" 'advice: healthy_idle' 'the off path leaves the seat alone'
 assert_absent "$N/c/log/argv" 'an absent key never calls curl for the advisor either'
 
+# --- a probe that never ran is never sent to the model ----------------------
+# A remote seat whose ssh leg fails leaves the probe at skipped/unknown: none
+# of the three documented inconclusive states, so no model question exists to
+# ask. The fail-open answer stands in, the probe reason is carried so the
+# reader sees why, and no network call happens.
+RS=$(mktemp -d "$TMP/advise-remote.XXXXXX")
+mkdir -p "$RS/state" "$RS/data"
+fm_write_meta "$RS/state/rseat.meta" \
+  'window=remote:rseat' 'kind=secondmate' 'harness=claude' \
+  'remote_host=lab-host' 'home=/remote/rseat-home'
+printf '%s\n' \
+  '- rseat - Remote seat (host: lab-host; root: /remote/root; home: /remote/rseat-home; scope: remote work; projects: alpha; added 2026-01-01)' \
+  > "$RS/data/secondmates.md"
+CB7=$(fake_curl "$RS/c" 200 "$(answer seat_state true_wedge 0.99 '{"pipeline_wait":0.005,"true_wedge":0.99,"healthy_idle":0.005}')")
+SB=$(fm_fakebin "$RS/sshbin")
+cat > "$SB/ssh" <<'SH'
+#!/usr/bin/env bash
+exit 1
+SH
+chmod +x "$SB/ssh"
+OUT=$(PATH="$SB:$CB7:$BASE_PATH" TYPESAFE_API_KEY="$KEY" FM_HOME="$RS" \
+  FM_STATE_OVERRIDE="$RS/state" "$ADVISE" rseat 2>&1)
+expect_code 0 $? 'a seat whose probe never ran still exits 0'
+assert_contains "$OUT" 'status: unavailable' \
+  'a probe that never ran is unavailable rather than a model question'
+assert_contains "$OUT" 'advice: healthy_idle' \
+  'the fail-open answer leaves the seat alone'
+assert_contains "$OUT" 'source: fail-open' \
+  'the answer is attributed to the fail-open path'
+assert_contains "$OUT" 'probe: unknown' \
+  'the emitted probe word is the one the probe actually produced'
+assert_contains "$OUT" 'probe unreadable' \
+  'the emitted line carries the probe reason so the reader sees why'
+assert_absent "$RS/c/log/argv" \
+  'a probe that never ran is never sent to the model'
+
 # A seat with no record is a usage error, not a guess.
 OUT=$(FM_HOME="$N" FM_STATE_OVERRIDE="$N/state" "$ADVISE" no-such-seat 2>&1)
 expect_code 2 $? 'an unknown seat is a usage error'

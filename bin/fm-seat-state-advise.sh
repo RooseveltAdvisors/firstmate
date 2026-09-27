@@ -131,6 +131,20 @@ case "$FM_SM_LIVE_STATUS" in
     ;;
 esac
 
+# Only the three documented inconclusive states are a question worth asking. A
+# probe that never ran, or answered with a word this tool does not classify,
+# takes the fail-open path with no network call, because guessing about an
+# endpoint the probe never read is how a working seat gets called wedged.
+case "$PROBE" in
+  ambiguous|unreadable|unverified) ;;
+  *)
+    fm_jev_telemetry "$STATE" "$TOOL" status=unavailable source=fail-open probe="$PROBE" reason=probe_not_inconclusive
+    emit unavailable healthy_idle "$PROBE" fail-open \
+      "reason: ${FM_SM_LIVE_REASON:-the endpoint probe produced no inconclusive state}, so the seat is left alone rather than guessed at"
+    exit 0
+    ;;
+esac
+
 if ! fm_jev_key_resolve "$FM_HOME"; then
   echo "$TOOL: off (TYPESAFE_API_KEY absent from the environment and $FM_HOME/.env)" >&2
   fm_jev_telemetry "$STATE" "$TOOL" status=unavailable source=fail-open probe="$PROBE" reason=off
