@@ -2423,6 +2423,7 @@ FM_INBOX_PROFILE=       # overrides config/inbox-profile; explicitly empty force
 
 A declared check in `state/<id>.verify` must be idempotent and must finish well inside its bounds, because `bin/fm-dod-lib.sh` re-evaluates the pass on every read of a ship task's state.
 `FM_VERIFY_TIMEOUT` bounds each check and `FM_VERIFY_PASS_TIMEOUT` bounds the whole pass, and a pass that hits either bound refuses the `done:` claim rather than passing it.
+The declaration file itself must be a firstmate-private regular file at mode 600, and a `state/<id>.verify` at any other mode is refused rather than read.
 
 `fm-teardown.sh` retries only Git's `Unable to create '...index.lock': File exists` return failure up to `FM_TREEHOUSE_RETURN_LOCK_RETRIES` times.
 `FM_TREEHOUSE_RETURN_LOCK_RETRIES` accepts a nonnegative integer, and an unset, blank, or invalid value uses the default of 3.
