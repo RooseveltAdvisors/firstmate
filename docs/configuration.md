@@ -1470,6 +1470,7 @@ It asks the rail for each lane's verdict and for the error-signature class vocab
 Each reader validates the keys it consumes and skips the keys it does not, so a typo in a key either half reads still refuses rather than being silently ignored.
 
 The ladder is strictly ordered and stops at the first rung that applies: restart a proven dead endpoint, switch the profile of a lane whose error class the rail matched as a provider error, redispatch the work orders a recovered lane never claimed, then escalate and park.
+Only a conclusive endpoint probe admits the switch rung, and a provider fault whose probe is inconclusive escalates with the probe state as its evidence instead.
 Redispatch runs only when the endpoint probes alive again and the lane still holds records it never claimed, and it re-sends each of them once through [`bin/fm-send.sh`](../bin/fm-send.sh) with a fresh correlation id, so a re-send is detectable as a duplicate of the record it repeats.
 Its attempt row in the ladder log is what makes that once-only re-send auditable before the escalation that follows it.
 It reimplements nothing: endpoint probing and the guarded relaunch are [`bin/fm-secondmate-liveness-lib.sh`](../bin/fm-secondmate-liveness-lib.sh), and replacing a live agent onto a new profile is [`bin/fm-control.sh`](../bin/fm-control.sh)'s `relaunch` verb, whose contract already owns that case in the same local copy.
