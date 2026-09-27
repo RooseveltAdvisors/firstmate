@@ -989,6 +989,53 @@ test_tool_flags_pass_through_when_the_tool_and_backend_allow_them() {
   pass "flags pass through only for a tool and a backend that accept them"
 }
 
+test_reopened_issue_after_terminal_is_loud_once() {
+  local parts home fd out ledger
+  parts=$(setup_case reopened)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  ledger="$home/state/fm-sos-intake.log"
+
+  run_intake "$parts" reconcile >/dev/null || fail "setup reconcile failed"
+  assert_equals "1" "$(count_of 'dispatch key=' "$ledger")" "the first pass must dispatch"
+
+  # The captain closes it: watch-fire closes the row and records the close,
+  # the watch fires and its fired verdict is captured, then the issue reopens.
+  out=$(run_intake "$parts" watch-fire "$GH_ISSUE" "$SOS_UUID" 2>&1) \
+    || fail "watch-fire failed: $out"
+  mkdir -p "$home/state/procevent-inbox"
+  cat > "$home/state/procevent-inbox/when-sos-$GH_ISSUE.1.result" <<EOF
+when: when-sos-$GH_ISSUE
+status: fired
+detail: captain closed the issue
+condition_polls: 3
+action_exit: 0
+EOF
+  rm -f "$home/state/procevent/when-sos-$GH_ISSUE.source"
+
+  out=$(run_intake "$parts" reconcile 2>&1) || fail "reopened pass failed: $out"
+  assert_contains "$out" "reopened-after-terminal key=$SOS_UUID issue=$GH_ISSUE" \
+    "the reopen must be logged with its exact class: $out"
+  assert_contains "$out" "dispatched=0" "a reopened ticket must not be dispatched: $out"
+  assert_equals "1" "$(count_of 'reopened key=' "$ledger")" \
+    "the reopen must be recorded once"
+  assert_contains "$(run_intake "$parts" status 2>&1)" "reopened key=$SOS_UUID issue=$GH_ISSUE" \
+    "status must list the reopened ticket"
+  assert_equals "1" "$(count_of 'fm-spawn' "$fd/spawn.log")" \
+    "no second crewmate may launch"
+  assert_equals "1" "$(count_of 'SOS dispatch' "$fd/comments.log")" \
+    "no second dispatched comment may post"
+  assert_absent "$home/state/procevent/when-sos-$GH_ISSUE.source" \
+    "a captured fired verdict must never be re-armed by reconcile"
+
+  out=$(run_intake "$parts" reconcile 2>&1) || fail "repeat pass failed: $out"
+  assert_equals "1" "$(count_of 'reopened key=' "$ledger")" \
+    "the signal must stay recorded once"
+  assert_not_contains "$out" "reopened-after-terminal" \
+    "a repeat pass must not repeat the signal"
+  pass "a reopened-after-terminal ticket is loud once, listed, and never re-dispatched"
+}
+
 test_reconcile_creates_one_task_comment_watch_and_dispatch
 test_reconcile_is_idempotent_across_replays_and_lost_cursors
 test_lost_event_is_healed_from_github
@@ -1017,3 +1064,4 @@ test_event_without_a_url_keeps_every_column
 test_intake_creates_a_row_on_a_due_required_beads_home
 test_tool_flags_are_capability_gated_per_run
 test_tool_flags_pass_through_when_the_tool_and_backend_allow_them
+test_reopened_issue_after_terminal_is_loud_once

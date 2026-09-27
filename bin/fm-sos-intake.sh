@@ -406,6 +406,24 @@ watch_blocks_rearm() {
   return 1
 }
 
+# reopened_after_terminal <key> <issue>: the row is closed and this issue's
+# close watch captured a fired verdict.
+reopened_after_terminal() {
+  local key="$1" issue="$2" state result status
+  ledger_has "task-closed key=$key issue=$issue" || return 1
+  state=$(tasks_axi show "$(task_id_for_key "$key")" 2>/dev/null | sed -n 's/^  state: //p' | head -1)
+  [ "$state" = "done" ] || return 1
+  for result in "$STATE_DIR/procevent-inbox/when-sos-$issue".*.result; do
+    if [ -e "$result" ]; then
+      status=$(FM_HOME="$FM_HOME" "$WHEN" classify "$result" 2>/dev/null) || status=unknown
+      if [ "$status" = fired ]; then
+        return 0
+      fi
+    fi
+  done
+  return 1
+}
+
 cmd_watch_condition() {
   local issue="${1:-}"
   [ -n "$issue" ] || die "watch-condition requires <issue-number>"
@@ -467,6 +485,8 @@ cmd_status() {
       fi
     fi
   done
+  echo "reopened tickets:"
+  grep -F "reopened key=" "$LEDGER" 2>/dev/null | sed 's/^/  /' || true
 }
 
 cmd_reconcile() {
@@ -504,7 +524,7 @@ cmd_reconcile() {
 
   tasks_axi_accepts_why || true
 
-  local key issue url event_id listed issue_open ensured_state
+  local key issue url event_id listed issue_open reopened ensured_state
   while IFS=$'\t' read -r key issue url event_id listed; do
     [ -n "$key" ] || continue
     [ -n "$issue" ] || { echo "skip: key=$key carries no GitHub issue" >&2; continue; }
@@ -526,6 +546,15 @@ cmd_reconcile() {
     if [ "$listed" != open ] && gh_state "$issue"; then
       issue_open=0
       echo "skip: #$issue is closed; no dispatched comment or crewmate"
+    fi
+
+    reopened=0
+    if [ "$issue_open" -eq 1 ] && reopened_after_terminal "$key" "$issue"; then
+      reopened=1
+      if ! ledger_has "reopened key=$key issue=$issue"; then
+        log_line "reopened key=$key issue=$issue"
+        echo "reopened-after-terminal key=$key issue=$issue"
+      fi
     fi
 
     ensured_state=$(task_ensure "$key" "$issue" "$url") || ensured_state="${ensured_state:-failed}"
@@ -564,7 +593,7 @@ cmd_reconcile() {
       log_line "watch key=$key issue=$issue"
     fi
 
-    if [ "$issue_open" -eq 1 ] && ! ledger_has "dispatch key=$key issue=$issue"; then
+    if [ "$issue_open" -eq 1 ] && [ "$reopened" -eq 0 ] && ! ledger_has "dispatch key=$key issue=$issue"; then
       dispatch_ticket "$key" "$issue" || { echo "failed: dispatch for #$issue" >&2; cursor_blocked=1; continue; }
       dispatched=$((dispatched + 1))
     fi
