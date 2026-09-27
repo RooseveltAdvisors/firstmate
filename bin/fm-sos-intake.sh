@@ -364,6 +364,18 @@ cmd_comment() {
 
 # --- close watch ------------------------------------------------------------
 
+# watch_verdict_recorded <issue>: the close watch for this issue has already
+# captured a terminal outcome document in the procevent inbox.
+watch_verdict_recorded() {
+  local result
+  for result in "$STATE_DIR/procevent-inbox/when-sos-$1".*.result; do
+    if [ -e "$result" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 cmd_watch_condition() {
   local issue="${1:-}"
   [ -n "$issue" ] || die "watch-condition requires <issue-number>"
@@ -496,7 +508,8 @@ cmd_reconcile() {
       log_line "comment key=$key issue=$issue transition=dispatched"
     fi
 
-    if [ ! -f "$STATE_DIR/procevent/when-sos-$issue.source" ]; then
+    if [ ! -f "$STATE_DIR/procevent/when-sos-$issue.source" ] \
+      && ! watch_verdict_recorded "$issue"; then
       if [ -e "$STATE_DIR/when/when-sos-$issue.spec" ] \
         || [ -e "$STATE_DIR/when/when-sos-$issue.trust" ] \
         || [ -e "$STATE_DIR/when/when-sos-$issue.fired" ]; then

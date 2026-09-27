@@ -422,21 +422,22 @@ test_status_reports_rows_and_live_watches() {
   pass "status reports the sos rows and only live close watches"
 }
 
-test_reconcile_rearms_a_close_watch_that_reached_its_terminal_outcome() {
+test_reconcile_rearms_a_dead_watch_with_no_captured_verdict() {
   local parts home out
   parts=$(setup_case rearms)
   home=${parts%%|*}
   run_intake "$parts" reconcile >/dev/null || fail "setup reconcile failed"
   assert_present "$home/state/procevent/when-sos-$GH_ISSUE.source" "the close watch must register"
 
-  # Any terminal outcome retires the registration while spec/trust/fired stay.
+  # The registration is gone while spec/trust/fired stay and no outcome was
+  # captured for this source: the watch died without reaching a verdict.
   rm -f "$home/state/procevent/when-sos-$GH_ISSUE.source"
   out=$(run_intake "$parts" reconcile) || fail "reconcile failed: $out"
   assert_present "$home/state/procevent/when-sos-$GH_ISSUE.source" \
-    "reconcile must re-arm the watch while the issue is open: $out"
+    "reconcile must re-arm a watch that reached no verdict: $out"
   assert_equals "1" "$(count_of 'fm-spawn' "${parts##*|}/spawn.log")" \
     "re-arming a watch must not dispatch again"
-  pass "reconcile re-arms a close watch whose registration is gone"
+  pass "reconcile re-arms a dead close watch that captured no verdict"
 }
 
 test_watch_fire_owes_the_close_until_the_row_closes() {
@@ -552,6 +553,41 @@ SH
   pass "overlapping reconcile passes serialize on the intake lock"
 }
 
+test_reconcile_does_not_rearm_after_a_terminal_verdict() {
+  local parts home out rc result
+  parts=$(setup_case nevertrue)
+  home=${parts%%|*}
+  run_intake "$parts" reconcile >/dev/null || fail "setup reconcile failed"
+  assert_present "$home/state/procevent/when-sos-$GH_ISSUE.source" "the close watch must register"
+
+  # The runner captures the never-true outcome and then retires the
+  # registration; spec/trust/fired and the captured result both stay behind.
+  mkdir -p "$home/state/procevent-inbox"
+  result="$home/state/procevent-inbox/when-sos-$GH_ISSUE.1.result"
+  cat > "$result" <<EOF
+when: when-sos-$GH_ISSUE
+status: never-true
+detail: condition never held before the deadline
+condition_polls: 0
+EOF
+  assert_equals "never-true" \
+    "$(FM_HOME="$home" "$ROOT/bin/fm-procevent-when.sh" classify "$result")" \
+    "the fixture must be a real never-true verdict"
+  : > "$home/state/procevent-inbox/when-sos-$GH_ISSUE.1.handled"
+  rm -f "$home/state/procevent/when-sos-$GH_ISSUE.source"
+
+  out=$(run_intake "$parts" reconcile 2>&1)
+  rc=$?
+  expect_code 0 "$rc" "a finished watch must not fail the pass: $out"
+  assert_absent "$home/state/procevent/when-sos-$GH_ISSUE.source" \
+    "reconcile must not re-arm past a captured terminal verdict"
+  assert_present "$home/state/when/when-sos-$GH_ISSUE.spec" \
+    "the finished watch's own state must be left alone"
+  assert_equals "1" "$(count_of 'fm-spawn' "${parts##*|}/spawn.log")" \
+    "a finished watch must not change dispatching"
+  pass "reconcile does not re-arm a close watch that already reached a terminal verdict"
+}
+
 test_reconcile_creates_one_task_comment_watch_and_dispatch
 test_reconcile_is_idempotent_across_replays_and_lost_cursors
 test_lost_event_is_healed_from_github
@@ -563,9 +599,10 @@ test_reconcile_folds_one_ticket_to_one_key
 test_ticket_keeps_one_key_across_passes
 test_reconcile_survives_a_pile_up_of_large_reports
 test_status_reports_rows_and_live_watches
-test_reconcile_rearms_a_close_watch_that_reached_its_terminal_outcome
+test_reconcile_rearms_a_dead_watch_with_no_captured_verdict
 test_watch_fire_owes_the_close_until_the_row_closes
 test_reconcile_exits_nonzero_when_a_pass_leaves_work_owed
 test_reconcile_surfaces_the_task_ensure_failure
 test_reconcile_rejects_the_removed_dispatch_alias
 test_overlapping_reconcile_passes_serialize
+test_reconcile_does_not_rearm_after_a_terminal_verdict
