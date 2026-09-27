@@ -1581,7 +1581,7 @@ is_wake_reason() {  # <reason>
 handle_wake() {  # <reason> <state>
   local reason=$1 state=$2 decision action distilled task last stale_detail
   local capture="$state/.subsuper-classified-end.$$" span_record='' span_rc='' endpoint ident rest sig marker
-  local kind="" arg="" classification_failed=0 span_failure_repeat=0
+  local kind="" arg="" classification_failed=0 span_failure_repeat=0 key
   : > "$capture" || return 1
   if should_force_self "$reason"; then
     log "wake force-self (FM_INJECT_SKIP): $reason"
@@ -1707,7 +1707,10 @@ handle_wake() {  # <reason> <state>
         if [ "$_clear_wedge" = 1 ]; then
           stale_marker_remove "$arg" "$state"
         else
-          pause_marker_remove "$arg" "$state"
+          key=$(_stale_key "$task")
+          if [ ! -e "$state/.subsuper-paused-$key" ] || ! crew_is_ci_waiting "$task"; then
+            pause_marker_remove "$arg" "$state"
+          fi
           stale_marker_record "$arg" "$state"
         fi
       fi
