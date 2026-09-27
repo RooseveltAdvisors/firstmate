@@ -142,7 +142,15 @@ case "$PROVIDER:$MODE" in
   *:no-mistakes|*:) DONE_LINE="done: PR $URL checks green" ;;
   *) DONE_LINE="done: PR $URL" ;;
 esac
-if ! fm_dod_verify_declared_checks_pass "$STATE" "$ID" >/dev/null; then
+# The merge-time re-record is not a ready decision: with FM_PR_CHECK_MERGE=1
+# this path already skips the draft refusal above, skips the fleet-ledger write
+# below because a re-record is not a new review-ready PR, and deliberately skips
+# the named-head gate because the forge head proves reachability.
+# Declared verification is measured at the ready decision, not continuously, so
+# gating the captain's merge would turn a readiness gate into a continuous
+# availability gate on a third party's action.
+if [ "${FM_PR_CHECK_MERGE:-}" != 1 ] \
+  && ! fm_dod_verify_declared_checks_pass "$STATE" "$ID" >/dev/null; then
   echo "error: $FM_DOD_VERIFY_REASON" >&2
   exit 1
 fi

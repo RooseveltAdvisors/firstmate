@@ -759,6 +759,29 @@ test_failed_declared_verification_refuses_registration() {
   pass "fm-pr-check refuses registration on a failing declared verification despite a proven forge head"
 }
 
+# The merge-time re-record is not a ready decision, so FM_PR_CHECK_MERGE=1 gets
+# past declared verification even with a failing declaration, records pr=, and
+# reaches the forge.
+test_merge_time_re_record_skips_declared_verification() {
+  local dir
+  dir=$(make_case merge-re-record-skips-verify)
+  write_task_meta "$dir"
+  printf '%s\n' 'run: exit 1' > "$dir/home/state/task-a.verify"
+  chmod 600 "$dir/home/state/task-a.verify"
+  FM_PR_CHECK_MERGE=1 run_check_entry "$dir" task-a https://github.com/o/r/pull/9 \
+    > "$dir/stdout" 2> "$dir/stderr" \
+    || fail "the merge-time re-record was refused by declared verification: $(cat "$dir/stderr")"
+  ! grep -q 'declared verification' "$dir/stderr" \
+    || fail "the merge-time re-record still reported a declared-verification refusal: $(cat "$dir/stderr")"
+  grep -qxF 'pr=https://github.com/o/r/pull/9' "$dir/home/state/task-a.meta" \
+    || fail "the merge-time re-record did not record pr="
+  grep -q 'headRefOid' "$dir/gh.log" \
+    || fail "the merge-time re-record never reached the forge"
+  [ -f "$dir/home/state/task-a.check.sh" ] \
+    || fail "the merge-time re-record did not arm the merge poll"
+  pass "FM_PR_CHECK_MERGE=1 proceeds past declared verification, recording and reaching the forge"
+}
+
 test_valid_recording_and_merge_derivation() {
   local dir expected sidecar count rc
   dir=$(make_case valid-recording)
@@ -3493,6 +3516,7 @@ test_secondmate_record_refuses_a_pr_watch
 test_unpushed_named_head_refuses_registration
 test_direct_pr_unpushed_commit_refuses_registration
 test_failed_declared_verification_refuses_registration
+test_merge_time_re_record_skips_declared_verification
 test_valid_recording_and_merge_derivation
 test_rejected_metacharacter_bytes_are_inert
 test_static_poll_contract

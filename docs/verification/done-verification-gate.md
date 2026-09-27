@@ -48,6 +48,8 @@ Declared verification runs at every ready decision that reads a ship `done:`, th
 `bin/fm-pr-check.sh` runs it unconditionally before its named-head skip arm, so a registration whose forge-reported head already proves reachability still refuses a failing declared check.
 `bin/fm-crew-state.sh` runs it before emitting a terminal ship run-step `done` and on its status-log `done:` read, so a completed attributed run with a failing declaration reads `blocked` with the refusal reason.
 `bin/fm-inactive-reconcile.sh` runs it on the secondmate ledger publish, so an unreported terminal `done:` is not published past a failing declared check.
+The merge-time re-record (`FM_PR_CHECK_MERGE=1` in `bin/fm-pr-check.sh`) is deliberately not an enforcement point: it is not a ready decision.
+That path already skips the draft refusal, the fleet-ledger write, and the named-head gate, because the invariant is measured at the ready decision rather than continuously; gating the captain's merge would turn a readiness gate into a continuous availability gate on a third party's action.
 A task that declares no verification still behaves exactly as before at every one of them.
 
 ## Refreshing this record

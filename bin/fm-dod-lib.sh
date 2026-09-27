@@ -648,6 +648,17 @@ fm_dod_verify_run() {  # <bound> <command>
   fm_run_timed "$1" bash -c "$2" </dev/null >/dev/null 2>&1
 }
 
+# Run a file: check under <bound> seconds: 0 = present with the required
+# substring, 2 = not a file, 3 = the substring is missing.
+fm_dod_verify_file_check() {  # <bound> <path> <required-substring>
+  # shellcheck disable=SC2016  # The inner script expands after bash -c receives positional args.
+  fm_run_timed "$1" bash -c '
+    [ -f "$1" ] || exit 2
+    [ -z "$2" ] || grep -qF -- "$2" "$1" || exit 3
+    exit 0
+  ' _ "$2" "$3" </dev/null >/dev/null 2>&1
+}
+
 # 0 when every check declared for <id> passes. 1 when one fails or the
 # declaration itself cannot be trusted; stdout then holds a one-line reason.
 # The verdict is memoized per declaration content, so one orchestrator process
@@ -766,12 +777,17 @@ fm_dod_verify_spec_checks() {  # <spec>
         target=${rest%% *}
         want=${rest#"$target"}
         want=${want#"${want%%[![:space:]]*}"}
-        [ -f "$target" ] || {
-          printf '%s\n' "declared verification failed: file: $target is not a file"
-          return 1
-        }
-        [ -z "$want" ] || grep -qF -- "$want" "$target" 2>/dev/null || {
-          printf '%s\n' "declared verification failed: file: $target does not contain $want"
+        started=$(date +%s)
+        rc=0
+        fm_dod_verify_file_check "$check_bound" "$target" "$want" || rc=$?
+        [ "$rc" -eq 0 ] || {
+          if fm_timed_out "$rc" && [ "$(( $(date +%s) - started ))" -ge "$check_bound" ]; then
+            printf '%s\n' "declared verification failed: file: $target hit $bound_name"
+          elif [ "$rc" -eq 2 ]; then
+            printf '%s\n' "declared verification failed: file: $target is not a file"
+          else
+            printf '%s\n' "declared verification failed: file: $target does not contain $want"
+          fi
           return 1
         }
         ;;

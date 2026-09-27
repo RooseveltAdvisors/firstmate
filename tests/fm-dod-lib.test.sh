@@ -617,6 +617,32 @@ test_bound_mechanism_failure_is_not_reported_as_a_timeout() {
   pass "a bound mechanism failure before the command runs is not reported as a timeout"
 }
 
+# The file: kind honors the same per-check bound as run: and http:: a check
+# that cannot complete inside the bound refuses naming the bound instead of
+# hanging or reporting an ordinary failure.
+test_file_check_runs_under_the_per_check_bound() {
+  local state reason rc saved
+  landed_ship filebound
+  state="$TMP_ROOT/filebound-state"
+  printf 'deployed marker\n' > "$TMP_ROOT/filebound-target"
+  saved=$FM_VERIFY_TIMEOUT
+  FM_VERIFY_TIMEOUT=2
+  declare_checks "$state" filebound "file: $TMP_ROOT/filebound-target deployed marker"
+  reason=$(
+    # shellcheck disable=SC2329  # reached indirectly through fm_dod_verify_file_check
+    fm_run_timed() { sleep "$1"; return 124; }
+    accept_done ship no-mistakes "$WT" "$REPO" "$DONE_CI_READY" "$state" filebound "$state/filebound.meta"
+  )
+  rc=$?
+  FM_VERIFY_TIMEOUT=$saved
+  [ "$rc" -eq 1 ] || fail "a file: check that could not finish inside the bound was accepted (exit $rc)"
+  case "$reason" in
+    *"file: $TMP_ROOT/filebound-target hit the 2s check bound"*) ;;
+    *) fail "the file: bound expiry was not reported as a bound expiry: $reason" ;;
+  esac
+  pass "a file: check runs under the per-check bound and names its expiry"
+}
+
 test_absent_declaration_leaves_the_done_ungated() {
   local state
   landed_ship nodecl
@@ -706,6 +732,7 @@ test_stdin_reading_run_check_does_not_skip_later_checks
 test_verification_pass_bound_refuses_a_hanging_check
 test_check_killed_at_the_bound_is_reported_distinctly
 test_bound_mechanism_failure_is_not_reported_as_a_timeout
+test_file_check_runs_under_the_per_check_bound
 test_absent_declaration_leaves_the_done_ungated
 test_untrusted_or_unreadable_declaration_is_refused
 test_malformed_declared_check_is_refused
