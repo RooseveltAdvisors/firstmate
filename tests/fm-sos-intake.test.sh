@@ -764,6 +764,74 @@ test_event_for_a_closed_issue_gets_no_comment_or_crewmate() {
   pass "a bridge event for a closed ticket keeps its row and watch but no dispatch"
 }
 
+test_replay_across_heal_and_event_is_exactly_one_dispatch() {
+  local parts fd out rc
+  parts=$(setup_case replayfold)
+  fd=${parts##*|}
+
+  # Run 1: the open issue alone (GH heal), no SOS id marker, and the backlog
+  # backend refuses the row - the ticket is still picked up under the
+  # fallback key.
+  cat > "$fd/gh-list.json" <<EOF
+[{"number":$GH_ISSUE,"url":"https://github.com/ArcsHealth/Portal/issues/$GH_ISSUE","title":"SOS: reported problem","body":"report text with no id marker"}]
+EOF
+  set_bridge_empty "$fd"
+  cat > "$fd/tasks-broken" <<SH
+#!/usr/bin/env bash
+case "\${1:-}" in
+  add) echo 'error: backlog backend unavailable' >&2; exit 2 ;;
+esac
+exec "$TASKS_AXI" "\$@"
+SH
+  chmod +x "$fd/tasks-broken"
+  out=$(FM_SOS_TASKS_OVERRIDE="$fd/tasks-broken" run_intake "$parts" reconcile 2>&1)
+  rc=$?
+  expect_code 1 "$rc" "the owed ensure must fail the pass: $out"
+  assert_equals "1" "$(count_of 'fm-spawn' "$fd/spawn.log")" "run 1 must dispatch once: $out"
+
+  # Run 2: the same ticket replays as a bridge event (uuid dedupe key) with the
+  # backend recovered - both sources must fold onto the first recorded key.
+  set_bridge_events "$fd" 1 "$SOS_UUID" "$GH_ISSUE"
+  out=$(run_intake "$parts" reconcile 2>&1)
+  rc=$?
+  expect_code 0 "$rc" "the recovered pass must succeed: $out"
+  assert_contains "$out" "dispatched=0" "the replay must not dispatch again: $out"
+  task_present "$parts" "fm-sos-gh-issue-$GH_ISSUE" || \
+    fail "the row must land on the ticket's first recorded key"
+  if task_present "$parts" "fm-sos-$SOS_UUID"; then
+    fail "the replayed event minted a second row under its own key"
+  fi
+  assert_equals "1" "$(count_of 'fm-spawn' "$fd/spawn.log")" \
+    "one ticket must stay exactly one dispatch: $(cat "$fd/spawn.log" 2>/dev/null)"
+  assert_equals "1" "$(count_of 'SOS dispatch' "$fd/comments.log")" \
+    "one ticket must stay one dispatched comment"
+  pass "a replay across the heal and event paths is exactly one dispatch"
+}
+
+test_event_without_a_url_keeps_every_column() {
+  local parts home fd out
+  parts=$(setup_case nourl)
+  home=${parts%%|*}
+  fd=${parts##*|}
+
+  # Event-only candidate (absent from the open list) whose payload carries no
+  # gh_issue_url.
+  printf '[]\n' > "$fd/gh-list.json"
+  cat > "$fd/bridge.json" <<EOF
+{"events":[{"id":1,"kind":"sos","dedupeKey":"$SOS_UUID","at":"2026-09-26T12:00:00.000Z","receivedAt":"2026-09-26T12:00:01.000Z","site":"covenant","payload":{"ticket":"${SOS_UUID%%-*}","gh_issue":$GH_ISSUE}}],"cursor":1,"backlog":0}
+EOF
+
+  out=$(run_intake "$parts" reconcile 2>&1) || fail "reconcile failed: $out"
+  task_present "$parts" || fail "the row must be ensured"
+  assert_contains "$(FM_HOME="$home" "$TASKS_AXI" show "$TASK_ID" 2>/dev/null)" \
+    "GitHub issue: https://github.com/ArcsHealth/Portal/issues/$GH_ISSUE" \
+    "an absent url must fall back to the issue URL"
+  assert_equals "1" "$(cat "$home/state/fm-sos-intake.cursor")" \
+    "the event must be consumed: $out"
+  assert_equals "1" "$(count_of 'fm-spawn' "$fd/spawn.log")" "the event must dispatch once"
+  pass "a candidate with no url keeps every column"
+}
+
 test_reconcile_creates_one_task_comment_watch_and_dispatch
 test_reconcile_is_idempotent_across_replays_and_lost_cursors
 test_lost_event_is_healed_from_github
@@ -787,3 +855,5 @@ test_failed_dispatch_stays_owed_and_is_retried
 test_dispatch_rescaffolds_a_brief_recorded_for_another_mode
 test_ticket_key_stabilizes_before_the_first_successful_ensure
 test_event_for_a_closed_issue_gets_no_comment_or_crewmate
+test_replay_across_heal_and_event_is_exactly_one_dispatch
+test_event_without_a_url_keeps_every_column

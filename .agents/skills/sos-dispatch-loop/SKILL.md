@@ -57,8 +57,9 @@ lifecycle comment thread on the issue, and one close watch.
   For an issue still open, run `bin/fm-sos-intake.sh reconcile`, which
   re-arms the watch while the issue is still open (a watch that already fired
   is never re-armed for a closed issue's work).
-- A late replay after a successful fire may arm one redundant watch; the
-  ledger's `closed` line makes its fire a no-op.
+- A late replay after a successful fire arms no new watch - the captured
+  verdict ends that issue's watch; the ledger's `closed` line makes its
+  fire a no-op.
 
 After a firstmate self-update changes `bin/`, run
 `bin/fm-procevent-when.sh rebind-all`: the watch hash-binds the intake

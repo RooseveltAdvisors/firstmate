@@ -240,7 +240,8 @@ except Exception:
 }
 
 # --- candidate folding ------------------------------------------------------
-# Prints one line per candidate: key<TAB>issue<TAB>url<TAB>event_id(or "-")
+# Prints one line per candidate: key<TAB>issue<TAB>url<TAB>event_id<TAB>listed
+# No column is empty: an absent url or event id travels as "-".
 # Keyed on the SOS message UUID when the body carries it; a sos-labeled issue
 # with no marker still gets dispatched under a stable gh-issue-<n> key, because
 # never dispatching a live ticket is worse than a non-UUID idempotency key.
@@ -313,7 +314,7 @@ for item in gh:
 for issue in order:
     entry = by_issue[issue]
     key = entry["body"] or entry["event"] or entry["fallback"] or FALLBACK.format(issue)
-    print("\t".join([key, str(issue), entry["url"], entry["event_id"], "open" if entry["listed"] else "-"]))
+    print("\t".join([key, str(issue), entry["url"] or "-", entry["event_id"], "open" if entry["listed"] else "-"]))
 ' "$events_file" "$gh_file"
 }
 
@@ -484,6 +485,9 @@ cmd_reconcile() {
   while IFS=$'\t' read -r key issue url event_id listed; do
     [ -n "$key" ] || continue
     [ -n "$issue" ] || { echo "skip: key=$key carries no GitHub issue" >&2; continue; }
+    if [ "$url" = - ]; then
+      url=""
+    fi
     key=$(key_for_issue "$issue" "$key")
 
     if [ "$dry_run" -eq 1 ]; then
