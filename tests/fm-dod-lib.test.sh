@@ -382,6 +382,211 @@ test_pr_based_dod_draft_check_uses_gh_axi() {
   pass "PR-based DoD draft check uses gh-axi"
 }
 
+
+# --- declared mechanical verification --------------------------------------
+#
+# The named-head gate proves a commit left the worker copy. These tests cover
+# what it cannot see: whether the change actually works. Each one puts the task
+# in the shape the structural gate already accepts - a reachable named head -
+# so only the declared check can decide the done:.
+
+landed_ship() {  # <name>; sets REPO WT
+  REPO="$TMP_ROOT/$1-repo"
+  WT="$TMP_ROOT/$1-wt"
+  fm_git_worktree "$REPO" "$WT" "fm/$1"
+  git -C "$WT" commit -q --allow-empty -m 'the fix'
+  git -C "$WT" update-ref "refs/remotes/origin/fm/$1" "$(git -C "$WT" rev-parse HEAD)"
+}
+
+declare_checks() {  # <state> <id> <line>...
+  local state=$1 id=$2
+  shift 2
+  mkdir -p "$state"
+  printf '%s\n' "$@" > "$state/$id.verify"
+  chmod 600 "$state/$id.verify"
+}
+
+serve_dir() {  # <dir>; sets SERVE_PORT SERVE_PID
+  local dir=$1 log i
+  log="$TMP_ROOT/serve-$$-$RANDOM.log"
+  # -u so the port banner flushes immediately; Python 3.14 buffers a piped stdout.
+  python3 -u -m http.server 0 --bind 127.0.0.1 --directory "$dir" > "$log" 2>&1 &
+  SERVE_PID=$!
+  for i in $(seq 1 40); do
+    SERVE_PORT=$(sed -n 's/.*port \([0-9][0-9]*\).*/\1/p' "$log" | head -1)
+    [ -n "$SERVE_PORT" ] && return 0
+    sleep 0.25
+  done
+  kill "$SERVE_PID" 2>/dev/null
+  return 1
+}
+
+DONE_CI_READY='done: PR https://example.test/o/r/pull/9 checks green'
+
+test_declared_http_check_decides_a_structurally_perfect_done() {
+  local state reason rc port
+  if ! command -v python3 >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1; then
+    fail "python3 and curl are required to exercise the declared http check"
+  fi
+  landed_ship httpgate
+  state="$TMP_ROOT/httpgate-state"
+  mkdir -p "$TMP_ROOT/httpgate-site"
+  printf 'the live fix is deployed\n' > "$TMP_ROOT/httpgate-site/index.html"
+  serve_dir "$TMP_ROOT/httpgate-site" || fail "could not start the local site"
+  port=$SERVE_PORT
+
+  declare_checks "$state" httpgate "http: http://127.0.0.1:$port/ 200 the live fix is deployed"
+  accept_done ship no-mistakes "$WT" "$REPO" "$DONE_CI_READY" "$state" httpgate "$state/httpgate.meta" \
+    || fail "a done: whose declared live check passes must be accepted"
+
+  kill "$SERVE_PID" 2>/dev/null
+  wait "$SERVE_PID" 2>/dev/null
+  reason=$(accept_done ship no-mistakes "$WT" "$REPO" "$DONE_CI_READY" "$state" httpgate "$state/httpgate.meta")
+  rc=$?
+  [ "$rc" -eq 1 ] || fail "a done: whose declared live check cannot reach the site was accepted (exit $rc)"
+  case "$reason" in
+    *"http: http://127.0.0.1:$port/ could not be fetched") ;;
+    *) fail "the refusal did not report what happened: $reason" ;;
+  esac
+  pass "the declared http check accepts a live site and refuses a dead one"
+}
+
+test_declared_http_check_refuses_preview_only_content() {
+  local state reason rc port
+  if ! command -v python3 >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1; then
+    fail "python3 and curl are required to exercise the declared http check"
+  fi
+  landed_ship stale
+  state="$TMP_ROOT/stale-state"
+  mkdir -p "$TMP_ROOT/stale-site"
+  printf 'the old broken copy\n' > "$TMP_ROOT/stale-site/index.html"
+  serve_dir "$TMP_ROOT/stale-site" || fail "could not start the local site"
+  port=$SERVE_PORT
+
+  declare_checks "$state" stale "http: http://127.0.0.1:$port/ 200 the live fix is deployed"
+  reason=$(accept_done ship no-mistakes "$WT" "$REPO" "$DONE_CI_READY" "$state" stale "$state/stale.meta")
+  rc=$?
+  [ "$rc" -eq 1 ] || fail "a live site still serving the old content was accepted (exit $rc)"
+  case "$reason" in
+    *"answered 200 without the live fix is deployed") ;;
+    *) fail "the refusal did not report the served content: $reason" ;;
+  esac
+
+  declare_checks "$state" stale "http: http://127.0.0.1:$port/missing 200"
+  reason=$(accept_done ship no-mistakes "$WT" "$REPO" "$DONE_CI_READY" "$state" stale "$state/stale.meta")
+  rc=$?
+  [ "$rc" -eq 1 ] || fail "a 404 on the declared URL was accepted (exit $rc)"
+  case "$reason" in
+    *"answered 404, not 200") ;;
+    *) fail "the refusal did not report the status: $reason" ;;
+  esac
+
+  kill "$SERVE_PID" 2>/dev/null
+  wait "$SERVE_PID" 2>/dev/null
+  pass "a reachable site serving the wrong content or status still refuses the done:"
+}
+
+test_declared_run_and_file_checks_decide_the_done() {
+  local state reason rc
+  landed_ship runfile
+  state="$TMP_ROOT/runfile-state"
+
+  declare_checks "$state" runfile \
+    "run: test 1 = 1" \
+    "file: $WT/.git" \
+    "# a comment and a blank line are ignored" \
+    ''
+  printf 'deployed marker\n' > "$TMP_ROOT/runfile-artifact"
+  declare_checks "$state" runfile \
+    "run: test -s $TMP_ROOT/runfile-artifact" \
+    "file: $TMP_ROOT/runfile-artifact deployed marker"
+  accept_done ship no-mistakes "$WT" "$REPO" "$DONE_CI_READY" "$state" runfile "$state/runfile.meta" \
+    || fail "passing run: and file: checks must accept the done:"
+
+  declare_checks "$state" runfile "run: exit 3"
+  reason=$(accept_done ship no-mistakes "$WT" "$REPO" "$DONE_CI_READY" "$state" runfile "$state/runfile.meta")
+  rc=$?
+  [ "$rc" -eq 1 ] || fail "a failing run: check was accepted (exit $rc)"
+  case "$reason" in
+    *"run: exit 3 exited nonzero") ;;
+    *) fail "the run: refusal did not name the command: $reason" ;;
+  esac
+
+  declare_checks "$state" runfile "file: $TMP_ROOT/runfile-artifact the text that never shipped"
+  reason=$(accept_done ship no-mistakes "$WT" "$REPO" "$DONE_CI_READY" "$state" runfile "$state/runfile.meta")
+  rc=$?
+  [ "$rc" -eq 1 ] || fail "a file: check missing its required content was accepted (exit $rc)"
+  case "$reason" in
+    *"does not contain the text that never shipped") ;;
+    *) fail "the file: refusal did not name the missing content: $reason" ;;
+  esac
+  pass "declared run: and file: checks decide the done: in both directions"
+}
+
+test_absent_declaration_leaves_the_done_ungated() {
+  local state
+  landed_ship nodecl
+  state="$TMP_ROOT/nodecl-state"
+  mkdir -p "$state"
+  accept_done ship no-mistakes "$WT" "$REPO" "$DONE_CI_READY" "$state" nodecl "$state/nodecl.meta" \
+    || fail "a task that declares no verification must behave exactly as before"
+  pass "no declaration is no gate"
+}
+
+test_untrusted_or_unreadable_declaration_is_refused() {
+  local state reason rc
+  landed_ship untrusted
+  state="$TMP_ROOT/untrusted-state"
+
+  declare_checks "$state" untrusted 'run: true'
+  chmod 644 "$state/untrusted.verify"
+  reason=$(accept_done ship no-mistakes "$WT" "$REPO" "$DONE_CI_READY" "$state" untrusted "$state/untrusted.meta")
+  rc=$?
+  [ "$rc" -eq 1 ] || fail "a world-readable declaration was trusted (exit $rc)"
+  case "$reason" in
+    *"is not a firstmate-private file"*) ;;
+    *) fail "the refusal did not name the untrusted declaration: $reason" ;;
+  esac
+
+  rm -f "$state/untrusted.verify"
+  ln -s /dev/null "$state/untrusted.verify"
+  reason=$(accept_done ship no-mistakes "$WT" "$REPO" "$DONE_CI_READY" "$state" untrusted "$state/untrusted.meta")
+  rc=$?
+  [ "$rc" -eq 1 ] || fail "a symlinked declaration was trusted (exit $rc)"
+  rm -f "$state/untrusted.verify"
+  pass "a declaration that is not a firstmate-private file refuses the done:"
+}
+
+test_malformed_declared_check_is_refused() {
+  local state reason rc
+  landed_ship malformed
+  state="$TMP_ROOT/malformed-state"
+
+  declare_checks "$state" malformed 'browser: open the page and look at it'
+  reason=$(accept_done ship no-mistakes "$WT" "$REPO" "$DONE_CI_READY" "$state" malformed "$state/malformed.meta")
+  rc=$?
+  [ "$rc" -eq 1 ] || fail "an unknown declared check was accepted (exit $rc)"
+  case "$reason" in
+    *"unknown check: browser") ;;
+    *) fail "the refusal did not name the unknown check: $reason" ;;
+  esac
+
+  declare_checks "$state" malformed 'http: http://127.0.0.1:1/'
+  reason=$(accept_done ship no-mistakes "$WT" "$REPO" "$DONE_CI_READY" "$state" malformed "$state/malformed.meta")
+  rc=$?
+  [ "$rc" -eq 1 ] || fail "an http: check with no expected status was accepted (exit $rc)"
+  case "$reason" in
+    *"names no expected status"*) ;;
+    *) fail "the refusal did not name the missing status: $reason" ;;
+  esac
+
+  declare_checks "$state" malformed 'run:'
+  reason=$(accept_done ship no-mistakes "$WT" "$REPO" "$DONE_CI_READY" "$state" malformed "$state/malformed.meta")
+  rc=$?
+  [ "$rc" -eq 1 ] || fail "a check naming no target was accepted (exit $rc)"
+  pass "a malformed declared check refuses the done: rather than being skipped"
+}
+
 test_scout_done_is_not_gated
 test_unpushed_ship_done_is_refused
 test_no_mistakes_prevalidation_done_is_not_gated
@@ -400,5 +605,11 @@ test_standalone_local_only_needs_project_ref
 test_non_done_lines_are_not_gated
 test_fenced_and_indented_captain_lines_are_not_intent
 test_pr_based_dod_draft_check_uses_gh_axi
+test_declared_http_check_decides_a_structurally_perfect_done
+test_declared_http_check_refuses_preview_only_content
+test_declared_run_and_file_checks_decide_the_done
+test_absent_declaration_leaves_the_done_ungated
+test_untrusted_or_unreadable_declaration_is_refused
+test_malformed_declared_check_is_refused
 
 echo "all fm-dod-lib tests passed"

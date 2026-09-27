@@ -616,6 +616,122 @@ fm_dod_named_head_reachable_outside_worktree() {  # <worktree> <project> <mode> 
   [ "$mode" = local-only ] && fm_dod_ref_contains "$project" refs/heads "$sha"
 }
 
+
+# Declared mechanical verification of a ship done:, executed by the orchestrator.
+# state/<id>.verify is a firstmate-written declaration read at the same ready
+# decision as the named-head gate; the worker that reports done: never evaluates
+# it. One check per line, `#` comments and blank lines ignored:
+#   run: <command>                                  passes on exit status 0
+#   http: <url> <status> [<required-substring>]      passes when the fetched
+#                                                    status matches and the body
+#                                                    contains the substring
+#   file: <path> [<required-substring>]              passes when the path is a
+#                                                    file containing it
+# The named-head gate proves a commit left the worker copy; it cannot prove the
+# change works. A correct-looking diff whose live URL is dead satisfies every
+# structural test, which is the failure this declaration exists to catch.
+# An absent declaration is no gate, so every task that declares nothing behaves
+# exactly as before. A declaration that is present but is not a firstmate-private
+# regular file, names an unknown verb, or carries no target is refused rather
+# than skipped. Each check is bounded by FM_VERIFY_TIMEOUT seconds (default 30)
+# so a hung command cannot wedge supervision.
+# A target is the rest of the line up to the first space, so a path or URL
+# containing a space needs `run: test -f "/a b/c"` instead of `file:`. A `run:`
+# command inherits the orchestrator's environment and working directory, so it
+# names its own absolute paths.
+FM_VERIFY_TIMEOUT=${FM_VERIFY_TIMEOUT:-30}
+
+# Run <command> under the check timeout. Captures nothing; only the status matters.
+fm_dod_verify_run() {  # <command>
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$FM_VERIFY_TIMEOUT" bash -c "$1" >/dev/null 2>&1
+  else
+    bash -c "$1" >/dev/null 2>&1
+  fi
+}
+
+# 0 when every check declared for <id> passes. 1 when one fails or the
+# declaration itself cannot be trusted; stdout then holds a one-line reason.
+fm_dod_verify_declared_checks_pass() {  # <state> <id>
+  local state=$1 id=$2 spec device line verb rest target want body code
+  [ -n "$state" ] && [ -n "$id" ] || return 0
+  spec="$state/$id.verify"
+  [ -e "$spec" ] || [ -L "$spec" ] || return 0
+  device=$(fm_pr_file_device "$state") || {
+    printf '%s\n' "declared verification cannot be read: $state is not readable"
+    return 1
+  }
+  fm_pr_private_file_valid "$spec" 600 "$device" || {
+    printf '%s\n' "declared verification is not a firstmate-private file: $spec"
+    return 1
+  }
+  while IFS= read -r line || [ -n "$line" ]; do
+    case ${line#"${line%%[![:space:]]*}"} in '' | '#'*) continue ;; esac
+    verb=${line%%:*}
+    verb=${verb#"${verb%%[![:space:]]*}"}
+    rest=${line#*:}
+    rest=${rest#"${rest%%[![:space:]]*}"}
+    [ -n "$rest" ] || {
+      printf '%s\n' "declared verification line names no target: $line"
+      return 1
+    }
+    case $verb in
+      run)
+        fm_dod_verify_run "$rest" || {
+          printf '%s\n' "declared verification failed: run: $rest exited nonzero"
+          return 1
+        }
+        ;;
+      http)
+        target=${rest%% *}
+        want=${rest#"$target"}
+        want=${want#"${want%%[![:space:]]*}"}
+        code=${want%% *}
+        [ -n "$code" ] || {
+          printf '%s\n' "declared verification line names no expected status: $line"
+          return 1
+        }
+        body=$(curl -sS -L --max-time "$FM_VERIFY_TIMEOUT" -w '\n%{http_code}' "$target" 2>/dev/null) || {
+          printf '%s\n' "declared verification failed: http: $target could not be fetched"
+          return 1
+        }
+        [ "${body##*$'\n'}" = "$code" ] || {
+          printf '%s\n' "declared verification failed: http: $target answered ${body##*$'\n'}, not $code"
+          return 1
+        }
+        want=${want#"$code"}
+        want=${want#"${want%%[![:space:]]*}"}
+        [ -z "$want" ] || case ${body%$'\n'*} in
+          *"$want"*) ;;
+          *)
+            printf '%s\n' "declared verification failed: http: $target answered $code without $want"
+            return 1
+            ;;
+        esac
+        ;;
+      file)
+        target=${rest%% *}
+        want=${rest#"$target"}
+        want=${want#"${want%%[![:space:]]*}"}
+        [ -f "$target" ] || {
+          printf '%s\n' "declared verification failed: file: $target is not a file"
+          return 1
+        }
+        [ -z "$want" ] || grep -qF -- "$want" "$target" 2>/dev/null || {
+          printf '%s\n' "declared verification failed: file: $target does not contain $want"
+          return 1
+        }
+        ;;
+      *)
+        printf '%s\n' "declared verification names an unknown check: $verb"
+        return 1
+        ;;
+    esac
+  done < "$spec"
+}
+# Every gated ship done: first passes the task's declared mechanical verification
+# (fm_dod_verify_declared_checks_pass), so a structurally perfect claim whose
+# declared check fails is still refused.
 # 0 when <line> is not a ship done: to gate, when it names the task's recorded
 # PR whose head the forge holds, when it names a Gerrit change whose current
 # patch set carries the worker copy's HEAD tree, or otherwise when its named
@@ -630,6 +746,7 @@ fm_dod_named_head_reachable_outside_worktree() {  # <worktree> <project> <mode> 
 fm_dod_accept_ship_done() {  # <kind> <mode> <worktree> <project> <line> [<state> <id> <meta>]
   local kind=$1 mode=$2 wt=$3 project=$4 line=$5 state=${6:-} id=${7:-} meta=${8:-} url sha gerrit
   fm_dod_should_gate_ship_done "$kind" "$mode" "$line" || return 0
+  fm_dod_verify_declared_checks_pass "$state" "$id" || return 1
   if url=$(fm_dod_pr_url_from_done_note "$(status_line_note "$line")") \
     && fm_dod_recorded_pr_on_forge "$state" "$id" "$meta" "$mode" "$url"; then
     return 0
