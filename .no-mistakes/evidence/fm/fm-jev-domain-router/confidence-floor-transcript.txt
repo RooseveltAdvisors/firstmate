@@ -1,0 +1,42 @@
+# Jev returns choice=seller-outreach with confidence 0.34 / 0.7 / NaN (bare NaN literal), noul=0.2
+$ fm-route-dispatch.sh --task "weak seller hint" --execute
+=== Jev Front-Door Router ===
+Action:     handle_direct
+Route:      captain_direct
+Confidence: 0.34
+New Domain: 0.2
+=============================
+Status: Direct communication for Captain / First Mate. Not dispatched.
+[exit 0]
+
+$ fm-route-dispatch.sh --task "atfloor seller hint" --execute
+=== Jev Front-Door Router ===
+Action:     dispatch
+Route:      seller-outreach
+Confidence: 0.7
+New Domain: 0.2
+=============================
+Executing dispatch to second mate: seller-outreach ...
+fm-send.sh called: seller-outreach [fm-from-firstmate] Routed intake task. It has no contract yet: before any work starts, settle what to build or learn, how it ships, and how much autonomy the worker has through your normal intake, and ask me for any of those you cannot establish. Task: atfloor seller hint
+Dispatched successfully to seller-outreach.
+[exit 0]
+
+$ fm-route-dispatch.sh --task "nan seller hint" --execute
+=== Jev Front-Door Router ===
+Action:     handle_direct
+Route:      captain_direct
+Confidence: 0
+New Domain: 0
+=============================
+Status: Direct communication for Captain / First Mate. Not dispatched.
+[exit 0]
+
+$ fm-route-dispatch.sh --brief <140 KB file> --execute   (stub confidence forced to 0.7 via 'atfloor')
+=== Jev Front-Door Router ===
+Action:     dispatch
+Route:      seller-outreach
+Confidence: 0.7
+New Domain: 0.2
+=============================
+error: dispatch message is 140269 bytes, over the 131071-byte single-argument limit of fm-send.sh; not sent
+[exit 2]

@@ -1,0 +1,56 @@
+$ fm-route-dispatch.sh --task "Build a seller lead campaign for Texas clinics" --execute
+=== Jev Front-Door Router ===
+Action:     dispatch
+Route:      seller-outreach
+Confidence: 0.92
+New Domain: 0.1
+=============================
+Executing dispatch to second mate: seller-outreach ...
+fm-send.sh called: seller-outreach [fm-from-firstmate] Routed intake task. It has no contract yet: before any work starts, settle what to build or learn, how it ships, and how much autonomy the worker has through your normal intake, and ask me for any of those you cannot establish. Task: Build a seller lead campaign for Texas clinics
+Dispatched successfully to seller-outreach.
+[exit 0]
+
+$ fm-route-dispatch.sh --task "Start a drone delivery pilot" --execute
+=== Jev Front-Door Router ===
+Action:     create_secondmate
+Route:      new_domain
+Confidence: 0.9
+New Domain: 0.9
+=============================
+Status: Unmatched domain (new_domain). Firstmate should charter a new Second Mate.
+Suggested workflow:
+  1. Define domain charter in data/secondmates.md
+  2. Run: bin/fm-spawn.sh <new-id> --secondmate
+  3. Dispatch task to new secondmate inbox.
+[exit 0]
+
+$ fm-route-dispatch.sh --task "good morning captain" --execute
+=== Jev Front-Door Router ===
+Action:     handle_direct
+Route:      captain_direct
+Confidence: 0.95
+New Domain: 0.0
+=============================
+Status: Direct communication for Captain / First Mate. Not dispatched.
+[exit 0]
+
+$ fm-route-dispatch.sh --task "Build a seller lead campaign" --json
+{
+  "action": "dispatch",
+  "route": "seller-outreach",
+  "confidence": 0.92,
+  "needs_new_noul": 0.1,
+  "probabilities": {},
+  "reason": null,
+  "dispatch_message": "[fm-from-firstmate] Routed intake task. It has no contract yet: before any work starts, settle what to build or learn, how it ships, and how much autonomy the worker has through your normal intake, and ask me for any of those you cannot establish. Task: Build a seller lead campaign"
+}
+
+$ TYPESAFE_API_KEY= fm-route-dispatch.sh --task "anything"
+=== Jev Front-Door Router ===
+Action:     unavailable
+Route:      captain_direct
+Confidence: 0
+New Domain: 0
+=============================
+Status: Router unavailable (TYPESAFE_API_KEY unavailable). Falling back to Firstmate direct handling.
+[exit 0]
