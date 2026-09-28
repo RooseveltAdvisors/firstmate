@@ -631,6 +631,16 @@ test_grok_crew_profiles_are_refused_before_launch() {
     [ ! -s "$LAUNCH_LOG" ] || fail "$1 Grok refusal must happen before launch"
     assert_absent "$HOME_DIR/state/$id.meta" "$1 Grok refusal must not publish task meta"
   done
+  id=profile-refused-raw-z5
+  rec=$(make_spawn_case profile-refused-raw claude "$id")
+  read_case_record "$rec"
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" \
+    "cursor-agent --model cursor-grok-4.6-high --yolo")
+  status=$?
+  expect_code 1 "$status" "raw launch naming a Grok model should be refused"
+  assert_contains "$out" "spawn quota preflight refused" "raw Grok refusal did not come from the quota preflight"
+  [ ! -s "$LAUNCH_LOG" ] || fail "raw Grok refusal must happen before launch"
+  assert_absent "$HOME_DIR/state/$id.meta" "raw Grok refusal must not publish task meta"
   pass "Grok harness and Grok model crew profiles are refused before launch"
 }
 

@@ -2369,7 +2369,11 @@ if [ "$KIND" = secondmate ] && [ -z "$ARG3" ]; then
     fi
   fi
 fi
-refuse_forbidden_crew_profile "$HARNESS" "$MODEL" || exit 1
+if [ "$RAW_LAUNCH" = 1 ]; then
+  refuse_forbidden_crew_profile "$HARNESS" "$MODEL $LAUNCH" || exit 1
+else
+  refuse_forbidden_crew_profile "$HARNESS" "$MODEL" || exit 1
+fi
 # Ultra is an explicit native capability, never a Pi thinking-level alias.
 # Validate the fully resolved profile before worktree or endpoint provisioning.
 if [ "$EFFORT" = ultra ]; then
