@@ -1,22 +1,29 @@
 #!/usr/bin/env bash
-# Drives bin/fm-sos-intake.sh reconcile/status through the test harness fixture
-# (real tasks-axi backlog, real fm-brief/fm-procevent-when; stub gh/curl/fm-spawn).
+# Drives the real bin/fm-sos-intake.sh with the test suite's stub gh/curl/fm-spawn
+# fixtures to show one SOS event → one row, one comment, one watch, one crewmate,
+# across a replayed event and a lost cursor.
 set -u
-cd "$1"
-sed -n "1,1326p" tests/fm-sos-intake.test.sh > tests/.demo-harness.sh; source tests/.demo-harness.sh; rm -f tests/.demo-harness.sh
+WT=$1
+sed -n '1,/^test_reconcile_creates_one_task_comment_watch_and_dispatch$/p' "$WT/tests/fm-sos-intake.test.sh" | sed "\$d" | sed "s|\$(dirname \"\${BASH_SOURCE\[0\]}\")/lib.sh|$WT/tests/lib.sh|" > /tmp/fm-sos-demo-lib.sh
+cd "$WT/tests"; . /tmp/fm-sos-demo-lib.sh
 parts=$(setup_case demo); home=${parts%%|*}; fd=${parts##*|}
-step() { printf '\n$ %s\n' "$*"; }
-step "fm-sos-intake.sh reconcile   # pass 1: bridge delivers SOS event id=1 for issue #$GH_ISSUE"
+step() { echo; echo "\$ $*"; }
+step "reconcile   # pass 1: bridge delivers SOS event id=1 for issue #$GH_ISSUE"
 run_intake "$parts" reconcile 2>&1
-step "fm-sos-intake.sh reconcile   # pass 2: same event replayed"
+step "reconcile   # pass 2: bridge drained, issue still open"
+set_bridge_empty "$fd"; run_intake "$parts" reconcile 2>&1
+step "rm state/fm-sos-intake.cursor; reconcile   # pass 3: cursor lost, same event replayed"
+rm -f "$home/state/fm-sos-intake.cursor"; set_bridge_events "$fd" 1 "$SOS_UUID" "$GH_ISSUE"
 run_intake "$parts" reconcile 2>&1
-step "rm state/fm-sos-intake.cursor; fm-sos-intake.sh reconcile   # pass 3: cursor lost, event replayed again"
-rm -f "$home/state/fm-sos-intake.cursor"; run_intake "$parts" reconcile 2>&1
-step "fm-sos-intake.sh status"
+step "status"
 run_intake "$parts" status 2>&1
-printf '\n--- side effects after 3 passes ---\n'
-echo "task rows for SOS UUID: $(FM_HOME=$home "$TASKS_AXI" list 2>/dev/null | grep -c "$TASK_ID")"
-echo "github comments posted: $(count_of '' "$fd/comments.log")"
-echo "crewmates spawned:      $(count_of 'fm-spawn' "$fd/spawn.log")"; cat "$fd/spawn.log"
-echo "close watches armed:    $(ls "$home/state/when/"*.spec | wc -l)"
+echo; echo "=== side effects after 3 passes ==="
+echo "task rows ($TASK_ID): $(FM_HOME="$home" "$TASKS_AXI" list 2>/dev/null | grep -c "$TASK_ID")"
+echo "reporter comments posted: $(count_of 'SOS dispatch' "$fd/comments.log")"; cat "$fd/comments.log" | cut -c1-160
+echo "crewmates spawned: $(count_of 'fm-spawn' "$fd/spawn.log")"; cat "$fd/spawn.log"
 echo "gh issue close attempts: $(count_of CLOSE-ATTEMPTED "$fd/gh.log")"
+echo; echo "=== ungranted home (no config/sos-autodispatch) ==="
+p2=$(setup_case nogrant); rm -f "${p2%%|*}/config/sos-autodispatch"
+run_intake "$p2" reconcile 2>&1; echo "rc=$?"
+echo "crewmates spawned: $(count_of 'fm-spawn' "${p2##*|}/spawn.log")"
+rm -rf "$TMP_ROOT" /tmp/fm-sos-demo-lib.sh
