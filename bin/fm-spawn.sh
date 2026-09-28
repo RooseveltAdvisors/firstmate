@@ -2373,7 +2373,8 @@ fi
 if [ "$RAW_LAUNCH" = 1 ]; then
   # Judge each word by its basename so a directory named after Grok never
   # refuses a non-Grok binary, while a grok binary or grok model id still does.
-  read -r -a RAW_LAUNCH_WORDS <<<"$LAUNCH"
+  # -d '' reads every line, since /bin/sh -c runs every line of the launch.
+  read -r -d '' -a RAW_LAUNCH_WORDS <<<"$LAUNCH" || true
   refuse_forbidden_crew_profile "$HARNESS" "$MODEL ${RAW_LAUNCH_WORDS[*]##*/}" || exit 1
 else
   refuse_forbidden_crew_profile "$HARNESS" "$MODEL" || exit 1

@@ -102,10 +102,30 @@ def availability_confirmed(provider: dict, model: str) -> bool:
     )
 
 
-def all_accounts_confirmed(accounts: list[dict], model: str) -> bool:
-    # ponytail: the prober has no account selector, so every account row of a
-    # provider must confirm runway; add an --account flag when lanes need one.
-    return bool(accounts) and all(availability_confirmed(a, model) for a in accounts)
+def select_account(quota_data: dict, harness: str, model: str) -> dict | None:
+    """Bind a lane to its one quota row, mirroring quota_lane/quota_row in
+    bin/fm-quota-axi-lib.sh: a sibling account of the same provider never
+    stands in for (or blocks) the requested lane."""
+    rows = quota_data.get("providers", [])
+    lane = ""
+    if harness == "codex":
+        lane = "codex-home"
+    elif harness in {"pi", "pi-signed"} and "/" in model:
+        lane = model.split("/", 1)[0]
+        lane = "codex-home" if lane == "codex-native" else lane
+        # A Pi lane names an account (openai-codex-work) or a provider (codex).
+        matches = [r for r in rows if r.get("accountKey") == lane] or [
+            r for r in rows if r.get("provider") == lane
+        ]
+        return matches[0] if matches else None
+    provider_rows = [r for r in rows if r.get("provider") == harness]
+    if quota_data.get("schemaVersion") == 6:
+        for key in (lane, "default"):
+            match = next((r for r in provider_rows if r.get("accountKey") == key), None)
+            if match:
+                return match
+        return None
+    return provider_rows[0] if provider_rows else None
 
 
 def unhealthy_result(
@@ -113,10 +133,11 @@ def unhealthy_result(
     model: str,
     status: str,
     reason: str,
-    providers: dict[str, list[dict]],
+    quota_data: dict,
 ) -> dict:
-    has_safe_diversion = all_accounts_confirmed(
-        providers.get(DEFAULT_SAFE_HARNESS, []), DEFAULT_SAFE_MODEL
+    safe_account = select_account(quota_data, DEFAULT_SAFE_HARNESS, DEFAULT_SAFE_MODEL)
+    has_safe_diversion = bool(safe_account) and availability_confirmed(
+        safe_account, DEFAULT_SAFE_MODEL
     )
     return {
         "harness": harness,
@@ -138,9 +159,6 @@ def probe_harness(harness: str, model: str | None = None) -> dict:
     model = (model or "").lower().strip()
 
     quota_data = query_quota_axi()
-    providers: dict[str, list[dict]] = {}
-    for row in quota_data.get("providers", []):
-        providers.setdefault(row.get("provider"), []).append(row)
 
     if harness == "grok" or "grok" in model:
         return unhealthy_result(
@@ -148,11 +166,11 @@ def probe_harness(harness: str, model: str | None = None) -> dict:
             model,
             "forbidden",
             "Grok is reserved for Firstmate and cannot run crew work",
-            providers,
+            quota_data,
         )
 
     # Pi GLM lanes are judged by the zai spend marker; every other lane needs
-    # quota evidence from its own provider (a Pi model's is its id prefix).
+    # quota evidence from its own account row.
     if harness == "pi" and ("zai-general" in model or "glm" in model):
         if is_zai_bundle_dry():
             return unhealthy_result(
@@ -160,47 +178,46 @@ def probe_harness(harness: str, model: str | None = None) -> dict:
                 model,
                 "exhausted",
                 "zai-general bundle is DRY (spend fact: insufficient balance)",
-                providers,
+                quota_data,
             )
     else:
-        provider = model.split("/", 1)[0] if harness == "pi" and "/" in model else harness
-        accounts = providers.get(provider, [])
-        if not accounts:
+        account = select_account(quota_data, harness, model)
+        if not account:
             return unhealthy_result(
                 harness,
                 model,
                 "unknown",
                 "No quota evidence available; runway is unknown",
-                providers,
+                quota_data,
             )
-        for account in accounts:
-            state = account.get("state", {})
-            if state.get("error"):
-                return unhealthy_result(
-                    harness,
-                    model,
-                    "revoked_or_unavailable",
-                    state["error"],
-                    providers,
-                )
-            if (
-                account.get("credits", {}).get("remaining", 1) <= 0
-                or availability_exhausted(account, model)
-            ):
-                return unhealthy_result(
-                    harness,
-                    model,
-                    "exhausted",
-                    f"{provider} quota exhausted",
-                    providers,
-                )
-        if not all_accounts_confirmed(accounts, model):
+        provider = account.get("provider")
+        state = account.get("state", {})
+        if state.get("error"):
+            return unhealthy_result(
+                harness,
+                model,
+                "revoked_or_unavailable",
+                state["error"],
+                quota_data,
+            )
+        if (
+            account.get("credits", {}).get("remaining", 1) <= 0
+            or availability_exhausted(account, model)
+        ):
+            return unhealthy_result(
+                harness,
+                model,
+                "exhausted",
+                f"{provider} quota exhausted",
+                quota_data,
+            )
+        if not availability_confirmed(account, model):
             return unhealthy_result(
                 harness,
                 model,
                 "unknown",
                 f"{provider} quota evidence is stale or runway is unconfirmed",
-                providers,
+                quota_data,
             )
 
     return {

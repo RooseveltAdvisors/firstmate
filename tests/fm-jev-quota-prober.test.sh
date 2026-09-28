@@ -46,10 +46,13 @@ if [ "${CODEX_MODEL_EXHAUSTED:-0}" = 1 ]; then
   codex_model_runway=exhausted_now
 fi
 second_cursor=
+if [ "${CODEX_WORK_ACCOUNT:-0}" = 1 ]; then
+  second_cursor='{"provider":"codex","accountKey":"openai-codex-work","state":{"status":"fresh","stale":false},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":40,"runway":{"status":"through_reset"}}]}},'
+fi
 if [ "${CURSOR_SECOND_ACCOUNT_EXHAUSTED:-0}" = 1 ]; then
   second_cursor='{"provider":"cursor","accountKey":"work","state":{"status":"fresh","stale":false},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":0,"runway":{"status":"exhausted_now"}}]}},'
 fi
-printf '{"schemaVersion":6,"providers":[%s{"provider":"cursor","state":{"status":"fresh","stale":%s},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":%s,"runway":{"status":"%s"}}]}},{"provider":"codex","state":{"status":"fresh","stale":false},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":%s,"runway":{"status":"%s"}},{"scope":"model:gpt-5.6-luna","status":"known","effectivePercentRemaining":%s,"runway":{"status":"%s"}}]}}]}\n' \
+printf '{"schemaVersion":6,"providers":[%s{"provider":"cursor","accountKey":"default","state":{"status":"fresh","stale":%s},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":%s,"runway":{"status":"%s"}}]}},{"provider":"codex","accountKey":"codex-home","state":{"status":"fresh","stale":false},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":%s,"runway":{"status":"%s"}},{"scope":"model:gpt-5.6-luna","status":"known","effectivePercentRemaining":%s,"runway":{"status":"%s"}}]}}]}\n' \
   "$second_cursor" "$cursor_stale" "$cursor_remaining" "$cursor_runway" "$codex_remaining" "$codex_runway" "$codex_model_remaining" "$codex_model_runway"
 SH
 chmod +x "$FAKEBIN/quota-axi"
@@ -166,12 +169,17 @@ ok "absent quota evidence reports unknown and permits no launch"
 
 printf '12. Verify direct probes require confirmed runway...\n'
 "$PROBER" --harness cursor --model composer-2.5 --json >/dev/null || fail "fresh confirmed cursor runway reported unhealthy"
-for env in CURSOR_UNKNOWN_RUNWAY CURSOR_STALE CURSOR_SECOND_ACCOUNT_EXHAUSTED; do
+for env in CURSOR_UNKNOWN_RUNWAY CURSOR_STALE; do
   if env "$env=1" "$PROBER" --harness cursor --model composer-2.5 --json >/dev/null; then
     fail "cursor probe with $env reported healthy"
   fi
 done
-ok "direct probes refuse unconfirmed runway and any exhausted account"
+CURSOR_SECOND_ACCOUNT_EXHAUSTED=1 "$PROBER" --harness cursor --model composer-2.5 --json >/dev/null ||
+  fail "an exhausted sibling account blocked the healthy default cursor lane"
+divert_out=$(CURSOR_SECOND_ACCOUNT_EXHAUSTED=1 "$PROBER" --harness pi --model zai-general/glm-5.3-flash --auto-divert) ||
+  fail "an exhausted sibling account withheld the Composer diversion"
+echo "$divert_out" | grep -q "harness=cursor model=composer-2.5" || fail "sibling account changed the diversion"
+ok "direct probes refuse unconfirmed runway and judge only their own account"
 
 printf '13. Verify Pi models need their own provider evidence...\n'
 if pi_out=$("$PROBER" --harness pi --model openai/gpt-5.5 --json); then
@@ -182,6 +190,11 @@ import json, sys
 assert json.load(sys.stdin)["status"] == "unknown"
 ' || fail "Pi unrelated-evidence result was malformed"
 "$PROBER" --harness pi --model codex/gpt-5.6-luna --json >/dev/null || fail "Pi model with matching provider evidence reported unhealthy"
-ok "Pi models are judged by their own provider evidence"
+if CODEX_EXHAUSTED=1 "$PROBER" --harness pi --model openai-codex-work/gpt-5.6-terra --json >/dev/null; then
+  fail "Pi account lane without its own row reported healthy"
+fi
+CODEX_EXHAUSTED=1 CODEX_WORK_ACCOUNT=1 "$PROBER" --harness pi --model openai-codex-work/gpt-5.6-terra --json >/dev/null ||
+  fail "Pi account lane did not bind to its own codex account row"
+ok "Pi models are judged by their own provider or account evidence"
 
 printf 'ok - all fm-jev-quota-prober tests passed\n'
