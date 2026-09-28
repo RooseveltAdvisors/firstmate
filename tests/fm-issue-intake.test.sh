@@ -165,7 +165,7 @@ run_intake() { # <case-parts> <args...>
   FM_HOME="$home" \
   FM_ISSUE_FAKE_DIR="$fd" \
   FM_ISSUE_BRIDGE_URL="http://bridge.invalid:8791" \
-  FM_ISSUE_TASKS="$TASKS_AXI" \
+  FM_ISSUE_TASKS="${TEST_TASKS_OVERRIDE:-$TASKS_AXI}" \
   FM_ISSUE_SPAWN="$fb/fm-spawn" \
   FM_ISSUE_BRIEF="$ROOT/bin/fm-brief.sh" \
   FM_ISSUE_WHEN="$ROOT/bin/fm-procevent-when.sh" \
@@ -1254,6 +1254,27 @@ EOF
   pass "two issues carrying the same marker both produce candidates"
 }
 
+test_ensure_survives_a_tasks_axi_without_why() {
+  local parts home stub out
+  parts=$(setup_case nowhy)
+  home=${parts%%|*}
+  stub="$home/fake-tasks-axi-no-why"
+  cat > "$stub" <<SH
+#!/usr/bin/env bash
+case " \$* " in
+  *" --why "*) echo 'error: "Unknown flag: --why"' >&2; exit 2 ;;
+esac
+exec "$TASKS_AXI" "\$@"
+SH
+  chmod +x "$stub"
+
+  out=$(TEST_TASKS_OVERRIDE="$stub" run_intake "$parts" reconcile) || fail "reconcile failed: $out"
+  assert_contains "$out" "task_created=1" \
+    "a tasks-axi build without --why must still create the row: $out"
+  task_present "$parts" || fail "task row missing after the --why retry"
+  pass "a tasks-axi without --why still gets its row"
+}
+
 test_reconcile_creates_one_task_comment_watch_and_dispatch
 test_reconcile_is_idempotent_across_replays_and_lost_cursors
 test_lost_event_is_healed_from_github
@@ -1286,3 +1307,4 @@ test_malformed_event_key_and_missing_id_stay_idempotent
 test_reopened_close_record_is_held_for_the_captain
 test_duplicate_marker_keeps_both_issues_as_candidates
 test_large_backlog_payloads_never_wedge_reconcile
+test_ensure_survives_a_tasks_axi_without_why

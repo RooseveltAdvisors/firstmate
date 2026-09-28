@@ -248,7 +248,20 @@ The captain closes the GitHub issue after verification; dispatch never closes it
     0|1) args+=(--why "staff SOS report awaiting fix") ;;
   esac
   if ! out=$(tasks_axi "${args[@]}" --json 2>/dev/null); then
-    return 1
+    # The published tasks-axi (npm 0.2.6, what CI installs) has no --why; the
+    # fleet fork does. A metadata flag must never cost a ticket its row, so
+    # retry once without it before giving up.
+    local -a retry=()
+    local skip=0 a
+    for a in "${args[@]}"; do
+      if [ "$skip" = 1 ]; then skip=0; continue; fi
+      if [ "$a" = "--why" ]; then skip=1; continue; fi
+      retry+=("$a")
+    done
+    if [ ${#retry[@]} -eq ${#args[@]} ]; then
+      return 1
+    fi
+    out=$(tasks_axi "${retry[@]}" --json 2>/dev/null) || return 1
   fi
   case "$(printf '%s' "$out" | python3 -c 'import json,sys
 try:
