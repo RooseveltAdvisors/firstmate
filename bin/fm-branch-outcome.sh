@@ -7,7 +7,9 @@
 #     object per line: {"seq":N,"epoch":N,"task":"...","wake":"...",
 #     "verdict":"routine"|"captain","summary":"...","silent":true|false,
 #     "statusEndpoint":N,"statusIdent":"..."}. Legacy rows without `silent`
-#     or status provenance remain valid and are treated as visible.
+#     or status provenance remain valid and are treated as visible. A silent
+#     row must have verdict `routine`; the branch prompt and delivery consumers
+#     own the additional no-change eligibility rule.
 #     Every read and append validates the complete log as a gap-free sequence;
 #     malformed, duplicate, or reordered rows fail closed.
 #     Existing lines are never rewritten, reordered, or deleted by any
@@ -72,6 +74,15 @@
 #     Advance the processed marker after main acknowledged the captain rows
 #     through <seq>; the target itself must be a currently unprocessed captain
 #     row at or below the read cursor.
+#   fm-branch-outcome.sh present
+#     A supervision-host drain's presentation off Pi (bin/fm-wake-drain.sh
+#     "BRANCH OUTCOMES", docs/supervision-host.md "Captain outcomes"): under
+#     the lock, print every unread record and every unprocessed captain record
+#     (raw JSONL, ascending seq, each with an added "unread" boolean). It
+#     moves nothing: off Pi that drain presentation is what the visible entry
+#     is, so the drain runs mark-read once it has presented the rows; it is
+#     the only reader that advances the cursor there. Prints nothing when
+#     nothing is unread or unprocessed.
 #   fm-branch-outcome.sh processed-init [--held-lock]
 #     Rebuild the bounded per-task outcome indexes, then create the processed
 #     marker at the current read cursor when it does not exist yet; validate a
@@ -81,6 +92,9 @@
 #     the nested acquire so drain's bounded lock wait remains the deadline.
 #   fm-branch-outcome.sh list [--recent <n>]
 #     Print the last n records (default 20), read or not.
+#   fm-branch-outcome.sh lookup --seqs <n,...>
+#     Print the requested records in sequence order only when every sequence
+#     exists; validate the full store while holding its lock.
 #   fm-branch-outcome.sh startup-replay
 #     Session-start recovery: print the leading routine unread records under a
 #     labeled header into the locked startup digest, skip rows whose `silent`
@@ -91,7 +105,7 @@
 #     call site).
 set -eu
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(d=${BASH_SOURCE[0]%/*}; [ "$d" != "${BASH_SOURCE[0]}" ] || d=.; cd "${d:-/}" && pwd)"
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 # shellcheck source=bin/fm-classify-lib.sh
@@ -107,7 +121,7 @@ OUTCOME_INDEX_MAX_BYTES=512
 OUTCOME_INDEX_READY="$STATE/.branch-outcome-index-ready"
 
 usage() {
-  echo "usage: fm-branch-outcome.sh append --task <id> --verdict routine|captain --summary <text> [--wake <text>] [--silent true|false] | unread | mark-read --through <seq> | unprocessed | mark-processed --through <seq> | processed-init [--held-lock] | list [--recent <n>] | startup-replay" >&2
+  echo "usage: fm-branch-outcome.sh append --task <id> --verdict routine|captain --summary <text> [--wake <text>] [--silent true|false] | unread | mark-read --through <seq> | unprocessed | mark-processed --through <seq> | present | processed-init [--held-lock] | list [--recent <n>] | lookup --seqs <n,...> | startup-replay" >&2
   exit 2
 }
 
@@ -193,7 +207,7 @@ last_seq() {
       and ((.epoch | type) == "number" and .epoch >= 0 and .epoch == (.epoch | floor))
       and ((.task | type) == "string" and (.wake | type) == "string")
       and ((.summary | type) == "string" and (.verdict == "routine" or .verdict == "captain"))
-      and (.silent != true or (.task == "fleet" and .verdict == "routine"));
+      and (.silent != true or .verdict == "routine");
     if endswith("\n") then split("\n")[:-1]
     else error("unterminated outcome store")
     end
@@ -442,8 +456,8 @@ case "$CMD" in
     [ -n "$SUMMARY" ] || usage
     case "$VERDICT" in routine|captain) ;; *) usage ;; esac
     case "$SILENT" in true|false) ;; *) usage ;; esac
-    if [ "$SILENT" = true ] && { [ "$TASK" != fleet ] || [ "$VERDICT" != routine ]; }; then
-      echo "error: silent outcomes must be routine fleet outcomes" >&2
+    if [ "$SILENT" = true ] && [ "$VERDICT" != routine ]; then
+      echo "error: silent outcomes must have the routine verdict" >&2
       exit 2
     fi
     fm_lock_acquire_wait "$LOCK"
@@ -514,6 +528,31 @@ case "$CMD" in
       exit 1
     fi
     if ! advance_cursor "$THROUGH"; then
+      fm_lock_release "$LOCK"
+      exit 1
+    fi
+    fm_lock_release "$LOCK"
+    ;;
+  present)
+    [ "$#" -eq 0 ] || usage
+    fm_lock_acquire_wait "$LOCK"
+    if ! LAST_SEQ=$(last_seq); then
+      fm_lock_release "$LOCK"
+      echo "error: refusing presentation because the outcome store is malformed or non-sequential" >&2
+      exit 1
+    fi
+    if ! CURSOR_SEQ=$(read_cursor) || ! PROCESSED_SEQ=$(read_processed); then
+      fm_lock_release "$LOCK"
+      exit 1
+    fi
+    if [ "$CURSOR_SEQ" -gt "$LAST_SEQ" ] || [ "$PROCESSED_SEQ" -gt "$CURSOR_SEQ" ]; then
+      fm_lock_release "$LOCK"
+      echo "error: refusing presentation because the outcome cursor or processed marker is out of order" >&2
+      exit 1
+    fi
+    if [ -s "$STORE" ] && ! jq -c --argjson cursor "$CURSOR_SEQ" --argjson processed "$PROCESSED_SEQ" '
+        select(.seq > $cursor or (.verdict == "captain" and .seq > $processed))
+        | . + {unread: (.seq > $cursor)}' "$STORE"; then
       fm_lock_release "$LOCK"
       exit 1
     fi
@@ -610,6 +649,38 @@ case "$CMD" in
     fi
     if [ -s "$STORE" ]; then
       tail -n "$RECENT" "$STORE"
+    fi
+    fm_lock_release "$LOCK"
+    ;;
+  lookup)
+    [ "$#" -eq 2 ] && [ "$1" = --seqs ] || usage
+    SEQS=$2
+    case "$SEQS" in ''|,*|*,|*,,*) usage ;; esac
+    IFS=, read -r -a REQUESTED <<< "$SEQS"
+    [ "${#REQUESTED[@]}" -gt 0 ] || usage
+    WANT='['
+    SEP=
+    for SEQ in "${REQUESTED[@]}"; do
+      bounded_uint "$SEQ" || usage
+      WANT="${WANT}${SEP}${SEQ}"
+      SEP=,
+    done
+    WANT="${WANT}]"
+    printf '%s\n' "$WANT" | jq -e 'length == (unique | length)' >/dev/null || usage
+    fm_lock_acquire_wait "$LOCK"
+    if ! last_seq >/dev/null; then
+      fm_lock_release "$LOCK"
+      echo "error: refusing lookup because the outcome store is malformed or non-sequential" >&2
+      exit 1
+    fi
+    if ! jq -cs --argjson wanted "$WANT" '
+      . as $rows
+      | [ $wanted[] as $seq | $rows[] | select(.seq == $seq) ]
+      | if length == ($wanted | length) then .[] else error("requested outcome sequence is missing") end
+    ' "$STORE" 2>/dev/null; then
+      fm_lock_release "$LOCK"
+      echo "error: refusing lookup because one or more requested outcome sequences are missing" >&2
+      exit 1
     fi
     fm_lock_release "$LOCK"
     ;;
