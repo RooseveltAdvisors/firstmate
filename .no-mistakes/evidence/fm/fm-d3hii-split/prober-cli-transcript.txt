@@ -1,0 +1,36 @@
+$ fm-jev-quota-prober.py --harness grok --json   # quota-axi returns {}
+{
+  "harness": "grok",
+  "model": "",
+  "status": "forbidden",
+  "healthy": false,
+  "reason": "Grok is reserved for Firstmate and cannot run crew work",
+  "divert_harness": "",
+  "divert_model": ""
+}
+exit=1
+
+$ fm-jev-quota-prober.py --harness cursor --model cursor-grok-4.6-high --json   # quota-axi returns {}
+{
+  "harness": "cursor",
+  "model": "cursor-grok-4.6-high",
+  "status": "forbidden",
+  "healthy": false,
+  "reason": "Grok is reserved for Firstmate and cannot run crew work",
+  "divert_harness": "",
+  "divert_model": ""
+}
+exit=1
+
+$ fm-jev-quota-prober.py --harness codex --json   # quota-axi returns {}
+{
+  "harness": "codex",
+  "model": "",
+  "status": "unknown",
+  "healthy": false,
+  "reason": "No quota evidence available; runway is unknown",
+  "divert_harness": "",
+  "divert_model": ""
+}
+exit=1
+
