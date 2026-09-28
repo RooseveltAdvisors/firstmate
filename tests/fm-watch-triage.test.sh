@@ -39,6 +39,18 @@ ack_stopped_cycle() {  # <state>
     --recovery-generation "$generation"
 }
 
+# Settle a watcher stopped only to prime state: acknowledge its recovery when
+# one is pending, and otherwise accept a drain that leaves nothing queued and
+# asks for no acknowledgement. The priming stop's recovery contract is covered
+# by the TERM tests; a caller that asserts it uses ack_stopped_cycle directly.
+settle_stopped_cycle() {  # <state>
+  local state=$1 out
+  ack_stopped_cycle "$state" && return 0
+  out=$(FM_STATE_OVERRIDE="$state" "$DRAIN" 2>&1) || return 1
+  case "$out" in *WAKE_ACK_REQUIRED*) ack_stopped_cycle "$state"; return ;; esac
+  [ ! -s "$state/.wake-queue" ]
+}
+
 # Common watcher knobs: tight poll/grace, no check or heartbeat cadence unless a
 # test overrides them, so a test only exercises the path it targets. FM_CREW_STATE_BIN
 # points at the case's hermetic fake fm-crew-state.sh (installed by make_case) so the
@@ -4983,7 +4995,7 @@ test_busy_pane_repeated_escalation_reaches_demand_deep_inspection() {
     reap "$pid"; fail "priming round for busy turn-age escalation was not absorbed: $(cat "$out")"
   fi
   reap "$pid"
-  ack_stopped_cycle "$state" || fail "could not acknowledge the intentional busy-wedge priming stop"
+  settle_stopped_cycle "$state" || fail "could not settle the intentional busy-wedge priming stop"
 
   n=1
   while [ "$n" -le 3 ]; do
