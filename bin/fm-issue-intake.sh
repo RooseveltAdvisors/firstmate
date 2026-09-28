@@ -578,8 +578,8 @@ cmd_watch_fire() {
   # The watch fires only after its condition saw CLOSED, and the when runner
   # retires it either way, so an unreadable state (rc 2) cannot decide the
   # outcome: the close is recorded. Only GitHub reporting the issue open again
-  # (rc 1) holds it for the captain; the open issue is re-offered by the next
-  # reconcile, which re-arms the retired watch.
+  # (rc 1) holds it for the captain; once the action-failed wake is retired
+  # (sos-dispatch-loop skill, Close-watch wakes), reconcile re-arms the watch.
   local state_rc=0
   gh_state "$issue" || state_rc=$?
   if [ "$state_rc" -eq 1 ]; then
