@@ -1,0 +1,21 @@
+### BASE 6b0f5a07
+  ╭──────────────────────────────────────────────────────────────────────────╮
+  │ ❯                                                                        │
+  ╰─────────────────────────────────────── Grok 4.6 (high) · always-approve ─╯
+LC_ALL=ambient tmux  idle  -> unknown
+LC_ALL=ambient herdr idle  -> unknown
+LC_ALL=ambient tmux  typed -> pending-unproven
+LC_ALL=C tmux  idle  -> unknown
+LC_ALL=C herdr idle  -> unknown
+LC_ALL=C tmux  typed -> pending-unproven
+
+### HEAD 12b84bb2
+  ╭──────────────────────────────────────────────────────────────────────────╮
+  │ ❯                                                                        │
+  ╰─────────────────────────────────────── Grok 4.6 (high) · always-approve ─╯
+LC_ALL=ambient tmux  idle  -> empty
+LC_ALL=ambient herdr idle  -> empty
+LC_ALL=ambient tmux  typed -> pending
+LC_ALL=C tmux  idle  -> empty
+LC_ALL=C herdr idle  -> empty
+LC_ALL=C tmux  typed -> pending
