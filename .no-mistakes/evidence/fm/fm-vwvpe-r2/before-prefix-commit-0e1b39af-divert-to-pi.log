@@ -1,0 +1,6 @@
+not ok - quota divert to pi should succeed: jev-quota-prober: automatically diverted codex:codex/gpt-5 to viable lane pi:openai-codex/gpt-5.6-sol
+warning: /tmp/fm-spawn-dispatch-profile.U0Fl7P/profile-quota-divert-pi/home/data/profile-quota-divert-pi-z8e/launch-brief.md records no ship branch; defaulting to legacy branch fm/profile-quota-divert-pi-z8e
+warning: /tmp/fm-spawn-dispatch-profile.U0Fl7P/profile-quota-divert-pi/home/data/profile-quota-divert-pi-z8e/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+/tmp/fm-spawn-dispatch-profile.U0Fl7P/profile-quota-divert-pi/fake/fakebin/timeout: line 3: exec: 1: not found
+/tmp/fm-spawn-dispatch-profile.U0Fl7P/profile-quota-divert-pi/fake/fakebin/timeout: line 3: exec: 1: not found
+/tmp/tmp.YZGfgo0cYG/bin/fm-spawn.sh: line 5126: PI_BIN: unbound variable: expected exit 0, got 1
