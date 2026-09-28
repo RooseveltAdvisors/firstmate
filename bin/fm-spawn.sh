@@ -2349,7 +2349,6 @@ prepare_harness_launch
 # Jev Pattern 9: Pre-flight runway and token health prober
 JEV_QUOTA_PROBER=${FM_TEST_JEV_PROBER_PATH:-$SCRIPT_DIR/fm-jev-quota-prober.sh}
 if [ "${FM_TEST_DISABLE_JEV_PROBER:-0}" != 1 ] && [ -x "$JEV_QUOTA_PROBER" ]; then
-  _pre_divert_harness=$HARNESS
   if ! "$JEV_QUOTA_PROBER" --harness "$HARNESS" ${MODEL:+--model "$MODEL"} >/dev/null 2>&1; then
     _divert=$("$JEV_QUOTA_PROBER" --harness "$HARNESS" ${MODEL:+--model "$MODEL"} --auto-divert 2>/dev/null || true)
     # Read only the harness= and model= tokens; prober output is never executed.
@@ -2368,13 +2367,11 @@ if [ "${FM_TEST_DISABLE_JEV_PROBER:-0}" != 1 ] && [ -x "$JEV_QUOTA_PROBER" ]; th
         echo "jev-quota-prober: automatically diverted $HARNESS${MODEL:+:$MODEL} to viable lane $harness:$model" >&2
         HARNESS="$harness"
         MODEL="$model"
-        if [ "$HARNESS" != "$_pre_divert_harness" ]; then
-          LAUNCH=$(launch_template "$HARNESS" "$KIND") || {
-            echo "error: no launch template for diverted harness '$HARNESS'" >&2
-            exit 1
-          }
-          prepare_harness_launch
-        fi
+        LAUNCH=$(launch_template "$HARNESS" "$KIND") || {
+          echo "error: no launch template for diverted harness '$HARNESS'" >&2
+          exit 1
+        }
+        prepare_harness_launch
       fi
     fi
   fi

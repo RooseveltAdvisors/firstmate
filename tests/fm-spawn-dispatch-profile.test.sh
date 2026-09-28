@@ -725,9 +725,8 @@ test_cursor_failed_catalog_probe_does_not_block_spawn() {
   rec=$(make_spawn_case profile-cursor-catalog-unreachable cursor "$id")
   read_case_record "$rec"
 
-  FM_TEST_CURSOR_LIST_STATUS=124 \
-    out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" \
-      --model cursor-catalog-unreachable)
+  out=$(FM_TEST_CURSOR_LIST_STATUS=124 run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" \
+    --model cursor-catalog-unreachable)
   status=$?
   expect_code 0 "$status" "cursor spawn should fail open when the bounded catalog query fails"
   launch=$(cat "$LAUNCH_LOG")
@@ -1053,6 +1052,37 @@ SH
   assert_not_contains "$launch" 'FM_PI_HARNESS=pi' \
     "quota divert to cursor retained the original Pi launch prefix"
   pass "quota divert to cursor rebuilds concrete Cursor launch"
+}
+
+test_same_harness_quota_divert_revalidates_model() {
+  local rec id out status prober
+  id=profile-quota-divert-same-harness-z8h
+  rec=$(make_spawn_case profile-quota-divert-same-harness cursor "$id")
+  read_case_record "$rec"
+  prober="$CASE_DIR/jev-quota-prober"
+  cat > "$prober" <<'SH'
+#!/usr/bin/env bash
+set -u
+case " ${*} " in
+  *' --auto-divert '*)
+    printf '%s\n' 'harness=cursor' 'model=cursor-grok-4.5'
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+SH
+  chmod +x "$prober"
+
+  out=$(FM_TEST_DISABLE_JEV_PROBER=0 FM_TEST_JEV_PROBER_PATH="$prober" run_ship_spawn \
+    "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" \
+    --model cursor-grok-4.5-high)
+  status=$?
+  expect_code 1 "$status" "same-harness divert to an uncatalogued model should refuse: $out"
+  assert_contains "$out" "Cursor model 'cursor-grok-4.5' is not available" \
+    "same-harness divert did not revalidate the diverted model"
+  [ ! -s "$LAUNCH_LOG" ] || fail "same-harness divert refusal must happen before launch"
+  pass "same-harness quota divert revalidates the diverted model"
 }
 
 test_raw_launch_quota_divert_runs_command_verbatim() {
@@ -1958,6 +1988,7 @@ test_pi_threads_model_and_max_effort
 test_pi_tui_mode_probe_is_safe_for_old_and_new_pi
 test_quota_divert_to_pi_rebuilds_launch
 test_quota_divert_to_cursor_rebuilds_launch
+test_same_harness_quota_divert_revalidates_model
 test_raw_launch_quota_divert_runs_command_verbatim
 test_pi_signed_threads_shared_pi_profile_and_preserves_identity
 test_pi_signed_missing_binary_refuses_before_endpoint_or_metadata
