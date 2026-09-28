@@ -1,0 +1,37 @@
+ok - allowlist=absent preserves the operational floor and filters only when opted in
+ok - allowlist=missing-config preserves the operational floor and filters only when opted in
+ok - allowlist=enabled preserves the operational floor and filters only when opted in
+ok - allowlist=empty preserves the operational floor and filters only when opted in
+ok - invalid allowlist names refuse before launch or task publication
+ok - inaccessible config with present allowlist refuses before launch or task publication
+ok - inaccessible config with absent allowlist refuses before launch or task publication
+ok - inaccessible ancestor with present allowlist refuses before launch or task publication
+ok - inaccessible ancestor with absent allowlist refuses before launch or task publication
+ok - secondmate launch inherits the allowlist for subsequent worker launches
+ok - local inheritance preserves the allowlist on source errors and mirrors proven absence
+ok - remote inheritance preserves the allowlist on source errors and mirrors proven absence
+ok - fm-spawn: actual ship/scout launch commands deliver the worker role contract
+ok - no --model/--effort records defaults and types the claude launch instructions
+ok - a claude launch publishes the brief as an operational-inbox record and passes only the doorbell
+ok - a secondmate claude launch publishes its brief record into the secondmate's own home
+ok - a claude spawn whose launch-brief record cannot publish stops with a clear error and sends no launch
+ok - non-cursor launches clear inherited Cursor identity markers
+ok - relative home overrides ignore CDPATH and become absolute before spawn launch construction
+ok - FM_HOME defaults resolve relative paths and preserve absolute spellings
+ok - absolute override spellings are preserved in spawn launch paths
+ok - unresolvable relative spawn overrides fail with named diagnostics
+ok - active crew-dispatch profile requires an explicit harness for ship spawns
+ok - active crew-dispatch profile requires an explicit harness for scout spawns
+ok - active crew-dispatch profile allows an explicit resolved harness
+ok - active crew-dispatch profile allows the legacy positional harness form
+LAUNCH_LOG>> export COMPACT_ADVISER_DISABLE=1; export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0='/tmp/fm-spawn-dispatch-profile.Fs4raK/profile-quota-divert-pi/home/state/profile-quota-divert-pi-z8e.git-hooks'; env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI FM_PI_HARNESS=pi '/tmp/fm-spawn-dispatch-profile.Fs4raK/profile-quota-divert-pi/fake/fakebin/pi' --tui-mode regular --model 'openai-codex/gpt-5.6-sol' --thinking 'max' -e '/tmp/fm-spawn-dispatch-profile.Fs4raK/profile-quota-divert-pi/home/state/profile-quota-divert-pi-z8e.pi-ext.ts' "$('/home/jon/.no-mistakes/worktrees/46339c0817e0/01M3MS3SSZM6J4VNT8V4F0JQE2/bin/fm-operational-input.sh' encode launch-brief < '/tmp/fm-spawn-dispatch-profile.Fs4raK/profile-quota-divert-pi/home/data/profile-quota-divert-pi-z8e/launch-brief.md')"
+SPAWN_OUT>> jev-quota-prober: automatically diverted codex:codex/gpt-5 to viable lane pi:openai-codex/gpt-5.6-sol
+warning: /tmp/fm-spawn-dispatch-profile.Fs4raK/profile-quota-divert-pi/home/data/profile-quota-divert-pi-z8e/launch-brief.md records no ship branch; defaulting to legacy branch fm/profile-quota-divert-pi-z8e
+warning: /tmp/fm-spawn-dispatch-profile.Fs4raK/profile-quota-divert-pi/home/data/profile-quota-divert-pi-z8e/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+spawned profile-quota-divert-pi-z8e harness=pi kind=ship mode=no-mistakes yolo=off window=firstmate:fm-profile-quota-divert-pi-z8e worktree=/tmp/fm-spawn-dispatch-profile.Fs4raK/profile-quota-divert-pi/wt
+ok - quota divert to pi rebuilds concrete Pi launch and applies diverted profile
+SPAWN_OUT>> error: refusing to divert raw launch command 'custom-agent --flag': lane custom-agent is exhausted (divert target cursor:cursor-grok-4.5-high); the raw launch command runs verbatim
+warning: /tmp/fm-spawn-dispatch-profile.Fs4raK/profile-raw-quota-divert/home/data/profile-raw-quota-divert-z8g/launch-brief.md records no ship branch; defaulting to legacy branch fm/profile-raw-quota-divert-z8g
+warning: /tmp/fm-spawn-dispatch-profile.Fs4raK/profile-raw-quota-divert/home/data/profile-raw-quota-divert-z8g/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+spawned profile-raw-quota-divert-z8g harness=custom-agent kind=ship mode=no-mistakes yolo=off window=firstmate:fm-profile-raw-quota-divert-z8g worktree=/tmp/fm-spawn-dispatch-profile.Fs4raK/profile-raw-quota-divert/wt
+ok - raw launch command runs verbatim when the prober would divert
