@@ -1,0 +1,21 @@
+### tests/fm-jev-quota-prober.test.sh
+ok - help flag works
+ok - check-all rejects forbidden Grok lane
+ok - json output format verified
+ok - zai dryness comes only from marker or outcome evidence
+ok - auto-divert safely redirects to cursor Composer
+ok - auto-divert target excludes Grok
+ok - auto-divert refuses exhausted destination
+ok - Codex quota semantics detect exhaustion
+ok - direct Grok launch is forbidden
+ok - auto-divert refuses stale destination evidence
+ok - auto-divert refuses unknown destination runway
+ok - absent quota evidence reports unknown and permits no launch
+ok - all fm-jev-quota-prober tests passed
+
+### tests/fm-grok-harness.test.sh
+ok - grok crew spawn is refused before any hook or task wiring
+ok - fm-lock recognizes grok harness processes
+
+### tests/fm-spawn-dispatch-profile.test.sh (grok)
+ok - Grok harness and Grok model crew profiles are refused before launch

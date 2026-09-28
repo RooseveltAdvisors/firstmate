@@ -1,0 +1,12 @@
+$ python3 bin/fm-jev-quota-prober.py --harness grok --model grok-4   # quota-axi stub returns {}
+blocked: grok (grok-4) unhealthy: Grok is reserved for Firstmate and cannot run crew work (no permitted diversion has confirmed runway)
+[exit 1]
+
+$ python3 bin/fm-jev-quota-prober.py --harness cursor --model cursor-grok-4.6-high   # quota-axi stub returns {}
+blocked: cursor (cursor-grok-4.6-high) unhealthy: Grok is reserved for Firstmate and cannot run crew work (no permitted diversion has confirmed runway)
+[exit 1]
+
+$ python3 bin/fm-jev-quota-prober.py --harness codex --model gpt-5.5   # quota-axi stub returns {}
+blocked: codex (gpt-5.5) unhealthy: No quota evidence available; runway is unknown (no permitted diversion has confirmed runway)
+[exit 1]
+
