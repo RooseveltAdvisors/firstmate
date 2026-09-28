@@ -30,12 +30,16 @@ supports - one dispatched crewmate.
   `fm-sos-<key>` rows still resolve) - so replays and lost cursors can never
   double-dispatch.
 - Every candidate passes the worth-supporting verdict gate (`jev verdict`)
-  first: `supported_bug` dispatches automatically - no manual triage step -
-  `not_supported` is declined and closed by intake, except for a ticket
+  first: `supported_bug` dispatches automatically - no manual triage step,
+  and never onto an issue that is already closed: no pass comments, arms a
+  watch, or spawns against a closed ticket - `not_supported` is declined and
+  closed by intake, except for a ticket
   already dispatched to a crewmate, which is reported for the captain instead
-  and never declined or closed - work in flight is never yanked - a reopened
-  declined ticket is held for the captain again, never re-declined - and
-  `captain_review` is held for the captain with no spawn. `--no-verdict`
+  and never declined or closed - work in flight is never yanked - a ticket the
+  captain already closed, which is left untouched (no decline comment, no
+  close) - a reopened declined ticket is held for the captain again, never
+  re-declined - and `captain_review` is held for the captain with no spawn.
+  `--no-verdict`
   skips new classification for an ops run; ledgered verdict and decline
   decisions still bind. `--mode`/`--yolo` (or `FM_ISSUE_MODE`/`FM_ISSUE_YOLO`) set the
   spawned task's delivery contract; they are posture, not selection.

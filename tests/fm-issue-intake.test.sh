@@ -1015,6 +1015,155 @@ test_verdict_is_decided_once() {
   pass "the verdict is decided once and ledgered across replays"
 }
 
+test_decline_never_touches_a_captain_closed_ticket() {
+  local parts home fd out
+  parts=$(setup_case decline-captain-closed)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  printf 'not_supported\n' > "$fd/jev-verdict"
+
+  # A staging pass arms the watch without dispatching; the captain then closes
+  # the issue directly and watch-fire records the terminal close.
+  out=$(run_intake "$parts" reconcile --no-dispatch --no-verdict) || fail "staging pass failed: $out"
+  assert_present "$home/state/when/when-sos-$GH_ISSUE.spec" \
+    "the staging pass arms the close watch"
+  out=$(run_intake "$parts" watch-fire "$GH_ISSUE" "$SOS_UUID") || fail "watch-fire failed: $out"
+  assert_contains "$out" "captain-closed" "watch-fire must record the close: $out"
+
+  out=$(run_intake "$parts" reconcile) || fail "gate-on pass failed: $out"
+  assert_contains "$out" "already-closed" "the decline must report the recorded close: $out"
+  assert_contains "$out" "declined=0" "a captain-closed ticket must not be declined: $out"
+  assert_equals "0" "$(count_of '**Not supported**' "$fd/comments.log")" \
+    "no decline comment on a captain-closed ticket"
+  assert_no_grep "CLOSE-ATTEMPTED" "$fd/gh.log" \
+    "a captain-closed ticket must never be closed again"
+  assert_equals "0" "$(count_of 'not-supported' "$fd/edit.log")" \
+    "no decline label on a captain-closed ticket"
+  assert_equals "1" "$(count_of 'Closed by the captain' "$fd/comments.log")" \
+    "the captain-closed comment stays singular"
+  assert_equals "1" "$(cat "$home/state/fm-issue-intake.cursor")" \
+    "the already-closed ticket must still advance the cursor"
+  assert_equals "done" "$(task_state_of "$parts")" "the row stays as watch-fire left it"
+  [ ! -f "$fd/spawn.log" ] || fail "a captain-closed ticket must never spawn"
+
+  # Replaying the same gate-on pass changes nothing.
+  out=$(run_intake "$parts" reconcile) || fail "replay failed: $out"
+  assert_contains "$out" "declined=0" "the replay must still not decline: $out"
+  assert_equals "0" "$(count_of '**Not supported**' "$fd/comments.log")" \
+    "the replay still adds no decline comment"
+  assert_no_grep "CLOSE-ATTEMPTED" "$fd/gh.log" "the replay still never closes"
+  pass "a captain-closed ticket is never declined, commented, or closed"
+}
+
+test_closed_issue_is_never_dispatched_or_watched() {
+  local parts home fd out
+
+  # (a) the issue is already closed when intake first sees it - a replay after
+  # a lost cursor, or a ticket closed before intake ever processed it.
+  parts=$(setup_case closed-at-intake)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  echo '{"state":"CLOSED"}' > "$fd/gh-state-$GH_ISSUE"
+
+  out=$(run_intake "$parts" reconcile) || fail "closed pass failed: $out"
+  assert_contains "$out" "skip:" "a closed ticket must be skipped: $out"
+  assert_contains "$out" "task_created=1" "the row is still ensured: $out"
+  [ ! -f "$fd/comments.log" ] || fail "a closed issue must get no comment: $(cat "$fd/comments.log")"
+  [ ! -f "$fd/spawn.log" ] || fail "a closed issue must never spawn"
+  assert_absent "$home/state/when/when-sos-$GH_ISSUE.spec" \
+    "a closed issue must never get a close watch"
+  assert_equals "1" "$(cat "$home/state/fm-issue-intake.cursor")" \
+    "the skip must still advance the cursor"
+  assert_equals "done" "$(task_state_of "$parts")" \
+    "the row closes the way watch-fire would leave it"
+
+  out=$(run_intake "$parts" reconcile) || fail "replay failed: $out"
+  assert_contains "$out" "skip:" "the replay must skip again: $out"
+  assert_contains "$out" "dispatched=0" "the replay must not dispatch: $out"
+  [ ! -f "$fd/spawn.log" ] || fail "the replay must still never spawn"
+  assert_equals "done" "$(task_state_of "$parts")" "the row stays done"
+
+  # (b) the staging pass arms the watch, the captain closes, watch-fire
+  # records it - a later gate-on pass must not announce or spawn a dispatch.
+  parts=$(setup_case closed-after-staging)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  out=$(run_intake "$parts" reconcile --no-dispatch --no-verdict) || fail "staging pass failed: $out"
+  assert_contains "$out" "dispatched=0" "the staging pass must not dispatch: $out"
+  out=$(run_intake "$parts" watch-fire "$GH_ISSUE" "$SOS_UUID") || fail "watch-fire failed: $out"
+  assert_contains "$out" "captain-closed" "watch-fire must record the close: $out"
+
+  out=$(run_intake "$parts" reconcile) || fail "gate-on pass failed: $out"
+  assert_contains "$out" "skip:" "the captain-closed ticket must be skipped: $out"
+  assert_contains "$out" "dispatched=0" "the captain-closed ticket must not dispatch: $out"
+  assert_equals "0" "$(count_of 'Issue intake' "$fd/comments.log")" \
+    "no dispatched comment on a captain-closed ticket"
+  assert_equals "1" "$(count_of 'Closed by the captain' "$fd/comments.log")" \
+    "the captain-closed comment stays singular"
+  [ ! -f "$fd/spawn.log" ] || fail "a captain-closed ticket must never spawn"
+  assert_equals "1" "$(cat "$home/state/fm-issue-intake.cursor")" \
+    "the run must still advance the cursor"
+  assert_equals "done" "$(task_state_of "$parts")" "the row stays closed"
+  pass "a closed issue is never commented on, watched, or spawned"
+}
+
+test_malformed_event_key_and_missing_id_stay_idempotent() {
+  local parts home fd out rows
+
+  # (a) a dedupeKey carrying a space would corrupt every space-delimited
+  # ledger matcher; it must fold to the canonical GitHub-issue identity, so
+  # the event and its valid marker twin collapse to one row, one comment,
+  # one spawn - across replays.
+  parts=$(setup_case malformed-key)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  cat > "$fd/bridge.json" <<EOF
+{"events":[{"id":1,"kind":"sos","dedupeKey":"Bad Key $SOS_UUID","at":"2026-09-26T12:00:00.000Z","receivedAt":"2026-09-26T12:00:01.000Z","site":"covenant","payload":{"ticket":"${SOS_UUID%%-*}","gh_issue":$GH_ISSUE,"gh_issue_url":"https://github.com/ArcsHealth/Portal/issues/$GH_ISSUE"}}],"cursor":1,"backlog":0}
+EOF
+
+  out=$(run_intake "$parts" reconcile) || fail "first pass failed: $out"
+  assert_contains "$out" "task_created=1" "the malformed-key ticket still gets a row: $out"
+  assert_contains "$out" "dispatched=1" "and a dispatch: $out"
+  task_present "$parts" "fm-iss-gh-issue-$GH_ISSUE" || \
+    fail "the canonical GitHub-issue identity must own the ticket"
+  if FM_HOME="$home" "$TASKS_AXI" show "fm-iss-$SOS_UUID" >/dev/null 2>&1; then
+    fail "the marker twin must not mint a second row for the same ticket"
+  fi
+  if FM_HOME="$home" "$TASKS_AXI" list 2>/dev/null | grep -qF 'bad key'; then
+    fail "a malformed key leaked into the backlog"
+  fi
+
+  out=$(run_intake "$parts" reconcile) || fail "replay failed: $out"
+  assert_contains "$out" "task_created=0" "the replay must not mint a second row: $out"
+  assert_contains "$out" "dispatched=0" "the replay must not dispatch again: $out"
+  assert_equals "1" "$(count_of 'Issue intake' "$fd/comments.log")" \
+    "one dispatched comment across replays: $(cat "$fd/comments.log" 2>/dev/null)"
+  assert_equals "1" "$(count_of 'fm-spawn' "$fd/spawn.log")" \
+    "one spawn across replays"
+  assert_equals "1" "$(count_of 'jev verdict' "$fd/jev.log")" \
+    "the verdict is decided once: $(cat "$fd/jev.log" 2>/dev/null)"
+  rows=$(FM_HOME="$home" "$TASKS_AXI" list 2>/dev/null | grep -cE '^  (fm-)?(sos|iss)-')
+  assert_equals "1" "${rows:-0}" "one ticket is exactly one row"
+  assert_equals "1" "$(cat "$home/state/fm-issue-intake.cursor")" \
+    "the cursor advances past the malformed-key event"
+
+  # (b) an event with no id must never write a non-numeric cursor: a cursor
+  # that reads back as garbage resets to 0 and re-feeds the whole backlog.
+  parts=$(setup_case missing-event-id)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  cat > "$fd/bridge.json" <<EOF
+{"events":[{"kind":"sos","dedupeKey":"$SOS_UUID","at":"2026-09-26T12:00:00.000Z","receivedAt":"2026-09-26T12:00:01.000Z","site":"covenant","payload":{"gh_issue":$GH_ISSUE}}],"cursor":1,"backlog":0}
+EOF
+  printf '[]\n' > "$fd/gh-list.json"
+
+  out=$(run_intake "$parts" reconcile) || fail "id-less pass failed: $out"
+  assert_contains "$out" "dispatched=1" "an id-less event still dispatches: $out"
+  assert_absent "$home/state/fm-issue-intake.cursor" \
+    "an event without a numeric id must leave the cursor untouched"
+  pass "a malformed key and a missing event id degrade to idempotent behavior"
+}
+
 test_reconcile_creates_one_task_comment_watch_and_dispatch
 test_reconcile_is_idempotent_across_replays_and_lost_cursors
 test_lost_event_is_healed_from_github
@@ -1041,4 +1190,7 @@ test_manual_comment_then_the_loop_never_duplicates_it
 test_legacy_dispatch_records_still_block_a_second_dispatch
 test_reopened_declined_ticket_is_reported_not_dropped
 test_dispatched_ticket_is_never_declined
+test_decline_never_touches_a_captain_closed_ticket
+test_closed_issue_is_never_dispatched_or_watched
+test_malformed_event_key_and_missing_id_stay_idempotent
 test_large_backlog_payloads_never_wedge_reconcile

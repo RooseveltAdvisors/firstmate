@@ -23,7 +23,8 @@
 #               path), and per ticket: ensures the task row, arms the close
 #               watch, and - unless --no-dispatch - posts the one
 #               "dispatched" lifecycle comment, scaffolds the brief, and
-#               spawns the crewmate. The TASK ROW ID is the idempotency record: it is
+#               spawns the crewmate, but only while the issue is still open:
+#               a closed ticket gets no comment, no watch, and no spawn. The TASK ROW ID is the idempotency record: it is
 #               exactly `fm-iss-<SOS message UUID>` (legacy `fm-sos-` rows
 #               still resolve), and tasks-axi's add is
 #               idempotent on the id, so a replayed event can never mint a
@@ -33,7 +34,9 @@
 #               not_supported is declined and closed here (a reopened
 #               declined ticket returns as captain_review; a ticket already
 #               dispatched to a crewmate is reported for the captain instead
-#               - work in flight is never declined or closed), captain_review
+#               - work in flight is never declined or closed; a ticket the
+#               captain already closed is left untouched (no decline comment,
+#               no close)), captain_review
 #               is held for the captain and never spawns. --no-verdict skips
 #               new classification for an ops run; ledgered verdict and
 #               decline decisions still bind. --mode/--yolo set the spawned task's
@@ -128,6 +131,20 @@ task_key_for_issue() {  # <issue> -> the key first ledgered for this issue, else
 dispatch_recorded() {  # <issue> -> 0 iff the ledger shows the ticket already went out
   ledger_recorded "dispatch key=[^ ]* issue=$1( task=[^ ]*)?" \
     || ledger_recorded "comment key=[^ ]* issue=$1 transition=dispatched"
+}
+
+captain_closed_recorded() {  # <issue> -> 0 iff the loop announced the captain's close
+  ledger_recorded "closed key=[^ ]* issue=$1" \
+    || ledger_recorded "comment key=[^ ]* issue=$1 transition=captain-closed"
+}
+
+closed_reason_for() {  # <issue> -> why the issue is closed (empty when open/unknown)
+  if captain_closed_recorded "$1"; then
+    printf '%s\n' "the captain already closed it"
+  elif gh_state "$1"; then
+    printf '%s\n' "GitHub reports it closed"
+  fi
+  return 0
 }
 
 die() {
@@ -285,15 +302,33 @@ gh = gh_doc if isinstance(gh_doc, list) else []
 
 SOS_ID_RE = re.compile(r"SOS ID:\**\s*`([0-9a-fA-F-]{8,64})`")
 FALLBACK = "gh-issue-{}"
+KEY_OK = re.compile(r"(?:[0-9a-f-]{8,64}|gh-issue-[0-9]+)")
 
 cands = {}
 order = []
 issue_keys = {}
 
+def norm_key(key, issue):
+    key = str(key or "").strip().lower()
+    if KEY_OK.fullmatch(key):
+        return key
+    fallback = FALLBACK.format(issue)
+    print("warn: malformed dedupe key %r for GH #%s; using %s"
+          % (key, issue, fallback), file=sys.stderr)
+    return fallback
+
+def event_id_of(ev):
+    eid = str(ev.get("id"))
+    if not eid.isdigit():
+        print("warn: non-numeric event id %r; cursor will not advance on it"
+              % eid, file=sys.stderr)
+        return "-"
+    return eid
+
 def ensure(key, issue, url, event_id):
-    if not key or not issue:
+    if not issue:
         return
-    key = key.lower()
+    key = norm_key(key, issue)
     if issue in issue_keys:
         key = issue_keys[issue]
     else:
@@ -316,10 +351,10 @@ for ev in events:
         payload = {}
     issue = payload.get("gh_issue")
     ensure(
-        str(ev.get("dedupeKey") or ""),
+        ev.get("dedupeKey") or "",
         int(issue) if isinstance(issue, int) or (isinstance(issue, str) and str(issue).isdigit()) else None,
         str(payload.get("gh_issue_url") or ""),
-        str(ev.get("id")),
+        event_id_of(ev),
     )
 
 for item in gh:
@@ -576,7 +611,7 @@ cmd_reconcile() {
     return 0
   fi
 
-  local key issue url event_id ensured_state verdict watch_spec canonical_key reopened
+  local key issue url event_id ensured_state verdict watch_spec canonical_key reopened new_work closed_reason
   while IFS=$'\t' read -r key issue url event_id; do
     [ -n "$key" ] || continue
     [ -n "$issue" ] || { echo "skip: key=$key carries no GitHub issue" >&2; continue; }
@@ -642,14 +677,23 @@ cmd_reconcile() {
           continue
         fi
         reopened=1
-      elif dispatch_recorded "$issue"; then
-        review=$((review + 1))
-        echo "review: key=$key GH #$issue already dispatched to a crewmate; verdict says not_supported - captain decides"
-        if [ "$event_id" != "-" ] && [ "$cursor_blocked" -eq 0 ]; then
-          new_cursor="$event_id"
-        fi
-        continue
       else
+        closed_reason=$(closed_reason_for "$issue")
+        if [ -n "$closed_reason" ]; then
+          echo "already-closed: key=$key GH #$issue $closed_reason; the not_supported verdict is not applied"
+          if [ "$event_id" != "-" ] && [ "$cursor_blocked" -eq 0 ]; then
+            new_cursor="$event_id"
+          fi
+          continue
+        fi
+        if dispatch_recorded "$issue"; then
+          review=$((review + 1))
+          echo "review: key=$key GH #$issue already dispatched to a crewmate; verdict says not_supported - captain decides"
+          if [ "$event_id" != "-" ] && [ "$cursor_blocked" -eq 0 ]; then
+            new_cursor="$event_id"
+          fi
+          continue
+        fi
         apply_decline "$key" "$issue" \
           || { echo "failed: decline for #$issue" >&2; cursor_blocked=1; continue; }
         log_line "declined key=$key issue=$issue"
@@ -667,6 +711,31 @@ cmd_reconcile() {
         new_cursor="$event_id"
       fi
       continue
+    fi
+
+    new_work=0
+    if [ ! -f "$watch_spec" ]; then new_work=1; fi
+    if [ "$do_dispatch" -eq 1 ]; then
+      if ! ledger_recorded "comment key=[^ ]* issue=$issue transition=dispatched"; then new_work=1; fi
+      if ! ledger_recorded "dispatch key=[^ ]* issue=$issue( task=[^ ]*)?"; then new_work=1; fi
+    fi
+    if [ "$new_work" -eq 1 ]; then
+      closed_reason=$(closed_reason_for "$issue")
+      if [ -n "$closed_reason" ]; then
+        echo "skip: GH #$issue $closed_reason before any dispatch; no comment, watch, or spawn"
+        if ! ledger_recorded "task-closed key=[^ ]* issue=$issue"; then
+          if tasks_axi "done" "$(task_id_for_key "$key")" \
+              --note "issue #$issue already closed at intake; no dispatch" >/dev/null 2>&1; then
+            log_line "task-closed key=$key issue=$issue"
+          else
+            echo "warn: task row not closed for key=$key" >&2
+          fi
+        fi
+        if [ "$event_id" != "-" ] && [ "$cursor_blocked" -eq 0 ]; then
+          new_cursor="$event_id"
+        fi
+        continue
+      fi
     fi
 
     if [ "$do_dispatch" -eq 1 ] && ! ledger_recorded "comment key=[^ ]* issue=$issue transition=dispatched"; then
