@@ -545,7 +545,8 @@ apply_decline() {  # <key> <issue> -> 0 only when the whole decline landed
       || return 1
     log_line "comment key=$key issue=$issue transition=declined"
   fi
-  "$GH" issue edit "$issue" --repo "$GH_REPO" --add-label "$DECLINE_LABEL" >/dev/null 2>&1 || return 1
+  "$GH" issue edit "$issue" --repo "$GH_REPO" --add-label "$DECLINE_LABEL" >/dev/null 2>&1 \
+    || echo "warn: could not add label $DECLINE_LABEL to $GH_REPO#$issue; decline continues" >&2
   "$GH" issue close "$issue" --repo "$GH_REPO" >/dev/null 2>&1 || return 1
   close_task_row "$key" "$issue" "declined: not supported by design (GitHub issue #$issue)"
 }
@@ -574,10 +575,13 @@ cmd_watch_fire() {
     echo "already-closed-recorded: $issue"
     return 0
   fi
-  # The watch saw a close, but the issue may have been reopened since: only
-  # announce a close GitHub still confirms.
-  if ! gh_state "$issue"; then
-    echo "not-closed: $issue is open again or unreadable; no captain-closed announcement" >&2
+  # The watch saw a close, but the issue may have been reopened since: skip
+  # the announcement only when GitHub says open. An unreadable state trusts
+  # the close the condition just confirmed, since the watch fires only once.
+  local state_rc=0
+  gh_state "$issue" || state_rc=$?
+  if [ "$state_rc" -eq 1 ]; then
+    echo "not-closed: $issue is open again; no captain-closed announcement" >&2
     return 1
   fi
   if ! ledger_recorded "comment key=[^ ]* issue=$issue transition=captain-closed"; then
