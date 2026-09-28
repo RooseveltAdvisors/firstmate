@@ -883,6 +883,18 @@ else
   fi
 fi
 
+refuse_forbidden_crew_profile() {  # <harness> <model>
+  local harness=$1 model=$2 probe
+  [ "$model" != - ] || model=
+  case "$(printf '%s %s' "$harness" "$model" | tr '[:upper:]' '[:lower:]')" in
+  *grok*) ;;
+  *) return 0 ;;
+  esac
+  probe=$(python3 "$FM_ROOT/bin/fm-jev-quota-prober.py" --harness "$harness" --model "$model" 2>&1) && return 0
+  echo "error: spawn quota preflight refused '$harness'${model:+ model '$model'}: ${probe#blocked: }" >&2
+  return 1
+}
+
 spawn_remote_secondmate() {
   local id=$1 remote host root home harness positional model effort backend out rc meta tmp
   local remote_backend remote_target remote_harness remote_herdr_session registry_lock remote_lock remote_generation
@@ -951,6 +963,11 @@ spawn_remote_secondmate() {
       effort=$("$SCRIPT_DIR/fm-harness.sh" secondmate-effort)
       [ -n "$effort" ] || effort=-
     fi
+  fi
+  if ! refuse_forbidden_crew_profile "$harness" "$model"; then
+    fm_lock_release "$registry_lock" || true
+    fm_lock_release "$SPAWN_TASK_LOCK" || true
+    return 1
   fi
   # A remote second mate always runs on Herdr: its server belongs to the host's
   # own GUI login session, so the endpoint outlives every SSH connection that
@@ -2352,6 +2369,7 @@ if [ "$KIND" = secondmate ] && [ -z "$ARG3" ]; then
     fi
   fi
 fi
+refuse_forbidden_crew_profile "$HARNESS" "$MODEL" || exit 1
 # Ultra is an explicit native capability, never a Pi thinking-level alias.
 # Validate the fully resolved profile before worktree or endpoint provisioning.
 if [ "$EFFORT" = ultra ]; then

@@ -69,7 +69,7 @@ def is_zai_bundle_dry() -> bool:
                     return True
         except Exception:
             pass
-    return True  # Default to dry given confirmed 2026-09-21 spend fact
+    return False
 
 
 def applicable_availability(provider: dict, model: str) -> list[dict]:
@@ -154,6 +154,19 @@ def probe_harness(harness: str, model: str | None = None) -> dict:
             model,
             "forbidden",
             "Grok is reserved for Firstmate and cannot run crew work",
+            providers,
+        )
+
+    needs_quota_evidence = harness in {"codex", "cursor"} or (
+        harness == "pi" and not ("zai-general" in model or "glm" in model)
+    )
+    evidence = providers.get(harness) if harness in {"codex", "cursor"} else providers
+    if needs_quota_evidence and not evidence:
+        return unhealthy_result(
+            harness,
+            model,
+            "unknown",
+            "No quota evidence available; runway is unknown",
             providers,
         )
 

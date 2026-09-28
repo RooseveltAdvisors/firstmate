@@ -5,16 +5,21 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-PROBER="$FM_ROOT/bin/fm-jev-quota-prober.sh"
+PROBER="$FM_ROOT/bin/fm-jev-quota-prober.py"
 LAB=$(mktemp -d "${TMPDIR:-/tmp}/fm-jev-quota-prober.XXXXXX")
 FAKEBIN="$LAB/fakebin"
 
 cleanup() { rm -rf "$LAB"; }
 trap cleanup EXIT
-mkdir -p "$FAKEBIN"
+mkdir -p "$FAKEBIN" "$LAB/home/state"
+export FM_HOME="$LAB/home"
 
 cat > "$FAKEBIN/quota-axi" <<'SH'
 #!/usr/bin/env bash
+if [ "${QUOTA_EMPTY:-0}" = 1 ]; then
+  printf '{}\n'
+  exit 0
+fi
 cursor_remaining=50
 cursor_runway=through_reset
 cursor_stale=false
@@ -74,7 +79,15 @@ assert all("grok" not in d["divert_model"] for d in data)
 ' || fail "malformed json output"
 ok "json output format verified"
 
-printf '4. Verify --auto-divert flag on exhausted harness...\n'
+printf '4. Verify zai bundle is not dry without evidence...\n'
+zai_out=$("$PROBER" --harness pi --model zai-general/glm-5.3-flash --auto-divert) || fail "zai probe without dry evidence failed"
+echo "$zai_out" | grep -q "harness=pi model=zai-general/glm-5.3-flash healthy=1" || fail "zai bundle reported dry without marker or outcome evidence"
+printf '{"branch":"x","note":"zai-general insufficient balance"}\n' > "$FM_HOME/state/branch-outcomes.jsonl"
+"$PROBER" --harness pi --model zai-general/glm-5.3-flash --json >/dev/null && fail "zai outcome evidence did not mark the bundle dry"
+rm "$FM_HOME/state/branch-outcomes.jsonl"
+ok "zai dryness comes only from marker or outcome evidence"
+
+touch "$FM_HOME/state/.zai-bundle-dry"
 divert_out=$("$PROBER" --harness pi --model zai-general/glm-5.3-flash --auto-divert) || fail "auto-divert failed"
 echo "$divert_out" | grep -q "harness=cursor model=composer-2.5" || fail "failed to divert dry zai bundle"
 ok "auto-divert safely redirects to cursor Composer"
@@ -129,5 +142,22 @@ if divert_out=$(CURSOR_UNKNOWN_RUNWAY=1 "$PROBER" --harness pi --model zai-gener
 fi
 [ -z "$divert_out" ] || fail "unknown destination runway emitted a launch profile"
 ok "auto-divert refuses unknown destination runway"
+
+printf '11. Verify absent quota evidence is unknown, never healthy...\n'
+for target in "codex gpt-5.6-luna" "cursor composer-2.5" "pi openai/gpt-5.5"; do
+  read -r harness model <<<"$target"
+  set -- "$harness" "$model"
+  if unknown_out=$(QUOTA_EMPTY=1 "$PROBER" --harness "$1" --model "$2" --json); then
+    fail "$1 without quota evidence reported healthy"
+  fi
+  printf '%s\n' "$unknown_out" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+assert data["healthy"] is False
+assert data["status"] == "unknown"
+assert data["divert_harness"] == ""
+' || fail "$1 unknown-evidence result was malformed"
+done
+ok "absent quota evidence reports unknown and permits no launch"
 
 printf 'ok - all fm-jev-quota-prober tests passed\n'
