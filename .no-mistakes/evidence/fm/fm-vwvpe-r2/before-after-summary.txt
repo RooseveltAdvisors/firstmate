@@ -1,0 +1,5 @@
+/home/jon/.no-mistakes/evidence/01M3KX3X6PGTDK4HQARR021H4C/spawn-dispatch-profile-base-fmspawn.txt:51:not ok - quota divert to pi did not rebuild the Pi launch prefix and executable (missing: 'FM_PI_HARNESS=pi '/tmp/fm-spawn-dispatch-profile.JsGrFM/profile-quota-divert-pi/fake/fakebin/pi' --tui-mode regular')
+/home/jon/.no-mistakes/evidence/01M3KX3X6PGTDK4HQARR021H4C/spawn-dispatch-profile-after.txt:51:ok - quota divert to pi rebuilds concrete Pi launch and applies diverted profile
+/home/jon/.no-mistakes/evidence/01M3KX3X6PGTDK4HQARR021H4C/spawn-dispatch-profile-after.txt:52:ok - quota divert to cursor rebuilds concrete Cursor launch
+/home/jon/.no-mistakes/evidence/01M3KX3X6PGTDK4HQARR021H4C/spawn-dispatch-profile-after.txt:53:ok - same-harness quota divert revalidates the diverted model
+/home/jon/.no-mistakes/evidence/01M3KX3X6PGTDK4HQARR021H4C/spawn-dispatch-profile-after.txt:54:ok - quota divert away from pi drops the resolved pi executable
