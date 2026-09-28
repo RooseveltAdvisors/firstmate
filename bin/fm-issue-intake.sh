@@ -24,15 +24,18 @@
 #               watch, and - unless --no-dispatch - posts the one
 #               "dispatched" lifecycle comment, scaffolds the brief, and
 #               spawns the crewmate, but only while the issue is still open:
-#               a closed ticket gets no comment, no watch, and no spawn. The TASK ROW ID is the idempotency record: it is
-#               exactly `fm-iss-<SOS message UUID>` (legacy `fm-sos-` rows
-#               still resolve), and tasks-axi's add is
-#               idempotent on the id, so a replayed event can never mint a
-#               second row. The cursor is only a fast-path over the bridge.
+#               a closed ticket gets no comment, no watch, and no spawn, and
+#               a ticket with an earlier recorded close that GitHub no longer
+#               confirms is held for the captain instead - never dispatched,
+#               never declined. The TASK ROW ID is the idempotency record:
+#               it is `fm-iss-<key>`, where `key` is the ticket's SOS message
+#               UUID or `gh-issue-<n>` (legacy `fm-sos-` rows still resolve),
+#               and tasks-axi's add is idempotent on the id, so a replayed
+#               event can never mint a second row. The cursor is only a
+#               fast-path over the bridge.
 #               Every candidate passes the worth-supporting verdict gate
 #               (`jev verdict`) first: supported_bug dispatches as below,
-#               not_supported is declined and closed here (a reopened
-#               declined ticket returns as captain_review; a ticket already
+#               not_supported is declined and closed here (a ticket already
 #               dispatched to a crewmate is reported for the captain instead
 #               - work in flight is never declined or closed; a ticket the
 #               captain already closed is left untouched (no decline comment,
@@ -205,10 +208,10 @@ gh_open_sos_issues() {
 
 # --- task rows (beads on a beads backend) -----------------------------------
 #
-# The row id IS the idempotency key: `fm-iss-<key>`, where the key is the SOS
-# message UUID when the body carries it and gh-issue-<n> otherwise. Rows minted
-# before the rename stay authoritative: resolve to `fm-sos-<key>` when it exists
-# so a rename can never split one ticket across two rows.
+# The row id IS the idempotency key: `fm-iss-<key>`; the candidate-folding
+# section below owns how `key` is derived. Rows minted before the rename stay
+# authoritative: resolve to `fm-sos-<key>` when it exists so a rename can never
+# split one ticket across two rows.
 task_id_for_key() {
   local legacy="fm-sos-$1"
   if tasks_axi show "$legacy" >/dev/null 2>&1; then
@@ -260,8 +263,9 @@ except Exception:
 
 # --- candidate folding ------------------------------------------------------
 # Prints one line per candidate: key<TAB>issue<TAB>url<TAB>event_id(or "-")
-# Keyed on the SOS message UUID when the body carries it; a sos-labeled issue
-# with no marker still gets dispatched under a stable gh-issue-<n> key, because
+# One line per GitHub issue: keyed on the SOS message UUID when the body
+# carries it and no other issue already owns that marker, else on the stable
+# gh-issue-<n> identity (markerless and marker-sharing issues alike), because
 # never dispatching a live ticket is worse than a non-UUID idempotency key.
 
 collect_candidates_py() {  # <events-json> <gh-json>; never fails the caller
