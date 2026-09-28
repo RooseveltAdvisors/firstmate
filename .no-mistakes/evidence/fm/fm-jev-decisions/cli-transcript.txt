@@ -1,0 +1,16 @@
+$ bin/fm-jev-decisions.sh --input decisions.tsv
+TASK             KEY                              VERB            CATEGORY          NOUL   CONF   SUGGESTED ACTION
+==================================================================================================================
+demo             pending-reply-abc                blocked         stale_historical  0.10   0.80   Auto-resolve expired legacy pending-reply config reread
+demo             quota-x                          needs-decision  policy_spend      0.30   0.80   Escalate to Captain for policy, spend, or architecture guidance
+demo             net-down                         blocked         external_block    0.40   0.80   Investigate external host, route, or credentials dependency
+demo             active-fix                       needs-decision  actionable_now    0.90   0.80   Active blocker: requires prompt resolution or steer
+==================================================================================================================
+Total: 4 | stale_historical: 1 | actionable_now: 1 | external_block: 1 | policy_spend: 1
+
+$ bin/fm-jev-decisions.sh --input decisions.tsv --resolve-cmds
+FM_HOME=/home/jon/.no-mistakes/worktrees/46339c0817e0/01M3K9P51F99RTZ2949H6M9QSV FM_STATE_OVERRIDE=/home/jon/.no-mistakes/worktrees/46339c0817e0/01M3K9P51F99RTZ2949H6M9QSV/state bin/fm-send.sh demo --resolve-key pending-reply-abc 'auto-resolved: expired legacy config reread from previous phase'
+
+# note sent to Jev for active-fix (never-send: Acme, Acme Health Partners):
+[withheld] owes X; choose fix
+[withheld] owes X; choose fix
