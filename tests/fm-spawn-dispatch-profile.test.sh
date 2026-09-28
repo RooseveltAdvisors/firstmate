@@ -988,6 +988,7 @@ test_quota_divert_to_pi_rebuilds_launch() {
   id=profile-quota-divert-pi-z8e
   rec=$(make_spawn_case profile-quota-divert-pi codex "$id")
   read_case_record "$rec"
+  : > "$HOME_DIR/config/quota-auto-divert"
   prober="$CASE_DIR/jev-quota-prober"
   cat > "$prober" <<'SH'
 #!/usr/bin/env bash
@@ -1025,6 +1026,7 @@ test_quota_divert_to_cursor_rebuilds_launch() {
   id=profile-quota-divert-cursor-z8f
   rec=$(make_spawn_case profile-quota-divert-cursor pi "$id")
   read_case_record "$rec"
+  : > "$HOME_DIR/config/quota-auto-divert"
   prober="$CASE_DIR/jev-quota-prober"
   cat > "$prober" <<'SH'
 #!/usr/bin/env bash
@@ -1060,6 +1062,7 @@ test_quota_divert_from_pi_drops_pi_executable() {
   id=profile-quota-divert-from-pi-z8i
   rec=$(make_spawn_case profile-quota-divert-from-pi pi "$id")
   read_case_record "$rec"
+  : > "$HOME_DIR/config/quota-auto-divert"
   cat > "$FAKEBIN_DIR/pi" <<'SH'
 #!/usr/bin/env bash
 [ "${1:-}" != auth ] || exit 1
@@ -1105,6 +1108,7 @@ test_same_harness_quota_divert_revalidates_model() {
   id=profile-quota-divert-same-harness-z8h
   rec=$(make_spawn_case profile-quota-divert-same-harness cursor "$id")
   read_case_record "$rec"
+  : > "$HOME_DIR/config/quota-auto-divert"
   prober="$CASE_DIR/jev-quota-prober"
   cat > "$prober" <<'SH'
 #!/usr/bin/env bash
@@ -1129,6 +1133,41 @@ SH
     "same-harness divert did not revalidate the diverted model"
   [ ! -s "$LAUNCH_LOG" ] || fail "same-harness divert refusal must happen before launch"
   pass "same-harness quota divert revalidates the diverted model"
+}
+
+test_quota_divert_requires_standing_permission() {
+  local rec id out status launch prober
+  id=profile-quota-divert-unpermitted-z8j
+  rec=$(make_spawn_case profile-quota-divert-unpermitted codex "$id")
+  read_case_record "$rec"
+  prober="$CASE_DIR/jev-quota-prober"
+  cat > "$prober" <<'SH'
+#!/usr/bin/env bash
+set -u
+case " ${*} " in
+  *' --auto-divert '*)
+    printf '%s\n' 'harness=pi' 'model=openai-codex/gpt-5.6-sol'
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+SH
+  chmod +x "$prober"
+
+  out=$(FM_TEST_DISABLE_JEV_PROBER=0 FM_TEST_JEV_PROBER_PATH="$prober" run_ship_spawn \
+    "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" \
+    --harness codex --model codex/gpt-5 --effort max)
+  status=$?
+  expect_code 0 "$status" "unpermitted quota divert should keep the selected lane: $out"
+  assert_contains "$out" "not diverting without the captain's standing permission" \
+    "unpermitted quota divert did not explain why it kept the selected lane"
+  launch=$(cat "$LAUNCH_LOG")
+  assert_contains "$launch" "codex/gpt-5" \
+    "unpermitted quota divert did not launch the captain-selected model"
+  assert_not_contains "$launch" "FM_PI_HARNESS" \
+    "quota divert switched harness without the captain's standing permission"
+  pass "quota divert without standing permission keeps the captain-selected lane"
 }
 
 test_raw_launch_quota_divert_runs_command_verbatim() {
@@ -2036,6 +2075,7 @@ test_quota_divert_to_pi_rebuilds_launch
 test_quota_divert_to_cursor_rebuilds_launch
 test_same_harness_quota_divert_revalidates_model
 test_quota_divert_from_pi_drops_pi_executable
+test_quota_divert_requires_standing_permission
 test_raw_launch_quota_divert_runs_command_verbatim
 test_pi_signed_threads_shared_pi_profile_and_preserves_identity
 test_pi_signed_missing_binary_refuses_before_endpoint_or_metadata

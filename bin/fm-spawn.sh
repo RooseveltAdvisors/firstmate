@@ -2364,6 +2364,10 @@ if [ "${FM_TEST_DISABLE_JEV_PROBER:-0}" != 1 ] && [ -x "$JEV_QUOTA_PROBER" ]; th
     if [ -n "$harness" ] && [ -n "$model" ]; then
       if [ "$RAW_LAUNCH" = 1 ]; then
         echo "error: refusing to divert raw launch command '$ARG3': lane $HARNESS${MODEL:+:$MODEL} is exhausted (divert target $harness:$model); the raw launch command runs verbatim" >&2
+      elif [ ! -f "$CONFIG/quota-auto-divert" ]; then
+        # A divert may downgrade the intelligence the captain selected, so it
+        # needs the captain's standing opt-in (VISION.md: captain-owned quota).
+        echo "warning: lane $HARNESS${MODEL:+:$MODEL} is exhausted (divert target $harness:$model); not diverting without the captain's standing permission in config/quota-auto-divert" >&2
       else
         echo "jev-quota-prober: automatically diverted $HARNESS${MODEL:+:$MODEL} to viable lane $harness:$model" >&2
         HARNESS="$harness"
