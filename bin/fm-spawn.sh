@@ -891,6 +891,7 @@ refuse_forbidden_crew_profile() {  # <harness> <model>
   *) return 0 ;;
   esac
   probe=$(python3 "$FM_ROOT/bin/fm-jev-quota-prober.py" --harness "$harness" --model "$model" 2>&1) && return 0
+  # shellcheck disable=SC2016 # single quotes are literal text inside the double-quoted message
   echo "error: spawn quota preflight refused '$harness'${model:+ model '$model'}: ${probe#blocked: }" >&2
   return 1
 }
