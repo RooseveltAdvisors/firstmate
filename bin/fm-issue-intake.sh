@@ -575,13 +575,13 @@ cmd_watch_fire() {
     echo "already-closed-recorded: $issue"
     return 0
   fi
-  # The watch saw a close, but the issue may have been reopened since: skip
-  # the announcement only when GitHub says open. An unreadable state trusts
-  # the close the condition just confirmed, since the watch fires only once.
+  # The watch saw a close, but the issue may have been reopened since: only
+  # announce a close GitHub still confirms. An open or unreadable state fails
+  # the action, which the when runner surfaces as action-failed for the captain.
   local state_rc=0
   gh_state "$issue" || state_rc=$?
-  if [ "$state_rc" -eq 1 ]; then
-    echo "not-closed: $issue is open again; no captain-closed announcement" >&2
+  if [ "$state_rc" -ne 0 ]; then
+    echo "not-confirmed-closed: $issue is open or its state is unknown; no captain-closed announcement" >&2
     return 1
   fi
   if ! ledger_recorded "comment key=[^ ]* issue=$issue transition=captain-closed"; then

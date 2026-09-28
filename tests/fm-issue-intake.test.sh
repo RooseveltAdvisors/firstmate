@@ -1362,14 +1362,14 @@ test_watch_fire_never_announces_a_reopened_issue() {
   if out=$(run_intake "$parts" watch-fire "$GH_ISSUE" "$SOS_UUID" 2>&1); then
     fail "watch-fire on an open issue must fail: $out"
   fi
-  assert_contains "$out" "not-closed" "the refusal must be visible: $out"
+  assert_contains "$out" "not-confirmed-closed" "the refusal must be visible: $out"
   assert_equals "0" "$(count_of 'Closed by the captain' "$fd/comments.log")" \
     "an open issue must never get a closure announcement"
   assert_not_equals "done" "$(task_state_of "$parts")" "the row must stay open"
   pass "watch-fire never announces a close GitHub no longer reports"
 }
 
-test_watch_fire_records_the_close_when_github_is_unreadable() {
+test_watch_fire_defers_the_close_when_github_is_unreadable() {
   local parts home fd out
   parts=$(setup_case fire-unreadable)
   home=${parts%%|*}
@@ -1377,15 +1377,16 @@ test_watch_fire_records_the_close_when_github_is_unreadable() {
   run_intake "$parts" reconcile >/dev/null || fail "setup reconcile failed"
 
   : > "$fd/gh-state-fail-$GH_ISSUE"
-  out=$(run_intake "$parts" watch-fire "$GH_ISSUE" "$SOS_UUID" 2>&1) \
-    || fail "an unreadable state must not drop the close: $out"
-  assert_contains "$out" "captain-closed" "the close must be announced: $out"
-  assert_equals "1" "$(count_of 'Closed by the captain' "$fd/comments.log")" \
-    "the captain-closed comment must post"
-  assert_grep "task-closed key=" "$home/state/fm-issue-intake.log" "the row close must be recorded"
-  assert_grep "closed key=$SOS_UUID issue=$GH_ISSUE" "$home/state/fm-issue-intake.log" \
-    "the handoff marker must be written"
-  pass "watch-fire never loses a close to a transient GitHub failure"
+  if out=$(run_intake "$parts" watch-fire "$GH_ISSUE" "$SOS_UUID" 2>&1); then
+    fail "an unreadable state must fail the action: $out"
+  fi
+  assert_contains "$out" "not-confirmed-closed" "the deferral must be visible: $out"
+  assert_equals "0" "$(count_of 'Closed by the captain' "$fd/comments.log")" \
+    "an unconfirmed close must never be announced"
+  assert_not_equals "done" "$(task_state_of "$parts")" "the row must stay open"
+  assert_no_grep "closed key=$SOS_UUID issue=$GH_ISSUE" "$home/state/fm-issue-intake.log" \
+    "no close may be recorded"
+  pass "watch-fire never records a close GitHub cannot confirm"
 }
 
 test_marker_twin_never_adopts_another_issues_row() {
@@ -1488,6 +1489,6 @@ test_unknown_issue_state_never_dispatches
 test_decline_completes_despite_a_failed_label
 test_closed_not_supported_ticket_closes_its_row
 test_watch_fire_never_announces_a_reopened_issue
-test_watch_fire_records_the_close_when_github_is_unreadable
+test_watch_fire_defers_the_close_when_github_is_unreadable
 test_marker_twin_never_adopts_another_issues_row
 test_overlapping_reconcile_passes_never_both_dispatch
