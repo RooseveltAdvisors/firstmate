@@ -530,7 +530,7 @@ except Exception:
 
 apply_decline() {  # <key> <issue> -> 0 only when the whole decline landed
   local key="$1" issue="$2"
-  # Decline order: retire -> comment -> label -> close -> row close, then the
+  # Decline order: retire -> comment -> label (best-effort) -> close -> row close, then the
   # caller writes the declined record. The watch must be retired before the
   # close it watches for, so this close can never wake a watcher into posting
   # a captain-closed comment for a decline.
