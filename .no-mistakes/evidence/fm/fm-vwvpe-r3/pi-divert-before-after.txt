@@ -1,0 +1,6 @@
+## BEFORE (mutant: prepare_harness_launch runs before the quota divert, the pre-fix ordering)
+not ok - quota divert to pi should succeed: jev-quota-prober: automatically diverted codex:codex/gpt-5 to viable lane pi:openai-codex/gpt-5.6-sol
+/tmp/tmp.afDDikg71N/bin/fm-spawn.sh: line 5088: PI_BIN: unbound variable: expected exit 0, got 1
+
+## AFTER (branch HEAD f70cbc71, same test)
+ok - quota divert to pi rebuilds concrete Pi launch and applies diverted profile
