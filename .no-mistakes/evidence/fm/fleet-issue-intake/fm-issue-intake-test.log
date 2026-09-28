@@ -1,0 +1,39 @@
+ok - reconcile creates one task row, comment, watch, and dispatch
+ok - reconcile is idempotent across replays and lost cursors
+ok - a lost bridge event is healed from GitHub and never double-dispatches
+ok - watch-condition is closed-only and fails closed
+ok - watch-fire comments once, closes the task row, and never the issue
+error: unknown transition 'nonsense' (want one of: dispatched declined repro-confirmed fix-up deployed verified captain-closed)
+ok - transition comments are canonical, bounded, and never close the issue
+ok - dry-run reports the plan and changes nothing
+ok - legacy fm-sos rows stay authoritative across the rename
+ok - a by-design request is declined, closed, and never re-declined
+ok - an uncertain ticket is held for the captain and never acted on
+ok - verdict failure fails open to captain review
+ok - the verdict is decided once and ledgered across replays
+ok - a decline comments once and a failed close retries only the close
+ok - an event without a url keeps the row body and cursor aligned
+ok - one GitHub issue is never split into two candidates
+ok - a stale pre-rename watch is retired and re-armed against the renamed script
+ok - a marker-less ticket stays one ticket across the event and heal passes
+ok - a failed spawn is retried and never ledgered as dispatched
+ok - watch-fire never captain-closes an issue intake declined
+ok - a gate-off run honors the recorded decline instead of dispatching
+ok - a gate-off run keeps a recorded captain_review hold
+ok - --no-dispatch posts no dispatched comment; the full run does
+ok - a manual comment is never duplicated by reconcile or watch-fire
+ok - legacy dispatch and verdict records still bind every guard
+ok - a reopened declined ticket is reported to the captain, never dropped
+ok - an already-dispatched ticket is held for the captain, never declined
+ok - a captain-closed ticket is never declined, commented, or closed
+ok - a closed issue is never commented on, watched, or spawned
+warn: malformed dedupe key 'bad key 7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f' for GH #1921; using gh-issue-1921
+warn: malformed dedupe key 'bad key 7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f' for GH #1921; using gh-issue-1921
+warn: non-numeric event id 'None'; cursor will not advance on it
+ok - a malformed key and a missing event id degrade to idempotent behavior
+ok - a stale close record over an open issue is held for the captain
+warn: GH #1922 shares dedupe key '7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f' with GH #1921; keeping the per-issue identity
+warn: GH #1922 shares dedupe key '7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f' with GH #1921; keeping the per-issue identity
+ok - two issues carrying the same marker both produce candidates
+ok - backlog payloads beyond the exec string limit never wedge reconcile
+ok - a tasks-axi without --why still gets its row

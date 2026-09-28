@@ -1,0 +1,23 @@
+{
+  "ok": true,
+  "action": "add",
+  "task": {
+    "id": "probe",
+    "title": "Probe",
+    "state": "queued",
+    "kind": null,
+    "repo": null,
+    "priority": 1,
+    "priority_why": "x",
+    "created": "2026-09-28",
+    "closed": null,
+    "deps": [],
+    "hold": null,
+    "links": [],
+    "body": null,
+    "blocked": false,
+    "blocked_by": [],
+    "held": false
+  }
+}
+rc=0
