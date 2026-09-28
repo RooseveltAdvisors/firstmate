@@ -1114,6 +1114,11 @@ EOF
     "with no dispatch recorded, only the reopened guard can hold it back"
   assert_equals "0" "$(count_of 'fm-spawn' "$fd/spawn.log")" \
     "no crewmate may launch for a reopened-after-terminal ticket"
+  assert_grep "dispatch-skipped key=$SOS_UUID issue=$GH_ISSUE reason=reopened-terminal" "$ledger" \
+    "the reopened-after-terminal guard must supersede the block durably"
+  assert_not_contains "$(run_intake "$parts" status 2>&1)" \
+    "dispatch-blocked key=$SOS_UUID" \
+    "status must not list a block for a ticket that can never dispatch"
   pass "a never-dispatched reopened ticket still launches nothing"
 }
 
@@ -1172,6 +1177,65 @@ SH
   pass "an unresolvable profile blocks the dispatch loudly and stays owed"
 }
 
+test_status_scopes_a_dispatch_block_to_an_open_ticket() {
+  local parts home fd fb out rc ledger status_out
+  parts=$(setup_case blockscope)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  fb=$(printf '%s' "$parts" | cut -d'|' -f2)
+  ledger="$home/state/fm-sos-intake.log"
+
+  cat > "$fb/fm-spawn" <<'SH'
+#!/usr/bin/env bash
+set -u
+FAKE="${FM_SOS_FAKE_DIR:?}"
+if [ -f "$FAKE/spawn-broken" ]; then
+  echo "error: spawn cannot start" >&2
+  exit 1
+fi
+echo "fm-spawn $*" >> "$FAKE/spawn.log"
+exit 0
+SH
+  chmod +x "$fb/fm-spawn"
+  touch "$fd/spawn-broken"
+
+  # An open ticket whose dispatch fails: the block is durable and status
+  # lists it - the ticket is still open and owed.
+  out=$(run_intake "$parts" reconcile 2>&1)
+  rc=$?
+  expect_code 1 "$rc" "a failed spawn must leave the pass owed: $out"
+  assert_grep "dispatch-blocked key=$SOS_UUID issue=$GH_ISSUE" "$ledger" \
+    "the block must be durable in the ledger"
+  status_out=$(run_intake "$parts" status 2>&1)
+  assert_contains "$status_out" "dispatch-blocked key=$SOS_UUID issue=$GH_ISSUE" \
+    "an open ticket's block must be listed by status: $status_out"
+
+  # The captain closes the issue: the next pass supersedes the block with an
+  # appended dispatch-skipped line - never a rewrite - and status drops it.
+  printf '[]\n' > "$fd/gh-list.json"
+  echo '{"state":"CLOSED"}' > "$fd/gh-state-$GH_ISSUE"
+  rm -f "$fd/spawn-broken"
+
+  out=$(run_intake "$parts" reconcile 2>&1)
+  rc=$?
+  expect_code 0 "$rc" "a closed ticket's pass must succeed: $out"
+  assert_contains "$out" "dispatch-skipped key=$SOS_UUID issue=$GH_ISSUE reason=issue-closed" \
+    "the superseding line must be reported: $out"
+  assert_grep "dispatch-skipped key=$SOS_UUID issue=$GH_ISSUE reason=issue-closed" "$ledger" \
+    "the superseding line must be durable in the ledger"
+  assert_equals "1" "$(count_of 'dispatch-blocked key=' "$ledger")" \
+    "the ledger is append-only: the original block line must survive"
+  status_out=$(run_intake "$parts" status 2>&1)
+  assert_not_contains "$status_out" "dispatch-blocked key=$SOS_UUID" \
+    "status must not list a block for a ticket that can never dispatch: $status_out"
+
+  # A repeat pass must not stack a second superseding line.
+  out=$(run_intake "$parts" reconcile 2>&1) || fail "repeat pass failed: $out"
+  assert_equals "1" "$(count_of 'dispatch-skipped key=' "$ledger")" \
+    "the superseding line must be recorded once"
+  pass "status lists a dispatch block only while the ticket is open and owed"
+}
+
 test_skill_documents_profile_dispatch() {
   local skill="$ROOT/.agents/skills/sos-dispatch-loop/SKILL.md"
   assert_grep "resolves the concrete profile" "$skill" \
@@ -1215,4 +1279,5 @@ test_reopened_issue_after_terminal_is_loud_once
 test_reopened_without_a_dispatch_still_launches_nothing
 test_dispatch_consults_the_profile_and_completes
 test_unresolvable_profile_blocks_the_dispatch_loudly
+test_status_scopes_a_dispatch_block_to_an_open_ticket
 test_skill_documents_profile_dispatch

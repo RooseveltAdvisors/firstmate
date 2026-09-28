@@ -103,6 +103,18 @@ ledger_has() {
   [ -f "$LEDGER" ] && grep -qF "$1" "$LEDGER"
 }
 
+# last_dispatch_class <key>: print the class of the key's latest dispatch-class
+# ledger line (dispatch, dispatch-blocked, dispatch-skipped), or nothing when
+# the key never reached a dispatch state.
+last_dispatch_class() {
+  local key="$1"
+  [ -f "$LEDGER" ] || return 0
+  awk -v k="key=$key" '
+    ($1 == "dispatch" || $1 == "dispatch-blocked" || $1 == "dispatch-skipped") && $2 == k { c = $1 }
+    END { if (c != "") print c }
+  ' "$LEDGER"
+}
+
 # lock_intake: take the single-writer lock over the ledger and its guards for
 # this process; the EXIT trap releases it on every path.
 lock_intake() {
@@ -474,13 +486,24 @@ cmd_status() {
   grep -F "reopened key=" "$LEDGER" 2>/dev/null | sed 's/^/  /' || true
   echo "dispatch-blocked:"
   awk '
-    $1 == "dispatch-blocked" || ($1 == "dispatch" && $2 ~ /^key=/) {
+    $1 == "dispatch-blocked" || $1 == "dispatch-skipped" || ($1 == "dispatch" && $2 ~ /^key=/) {
       k = $2 SUBSEP $3
       last[k] = $1
       line[k] = $0
+      dpos[k] = NR
       if (!(k in seen)) { order[++n] = k; seen[k] = 1 }
     }
-    END { for (i = 1; i <= n; i++) { k = order[i]; if (last[k] == "dispatch-blocked") print "  " line[k] } }
+    ($1 == "closed" || $1 == "task-closed") && $2 ~ /^key=/ {
+      k = $2 SUBSEP $3
+      tpos[k] = NR
+      if (!(k in seen)) { order[++n] = k; seen[k] = 1 }
+    }
+    END {
+      for (i = 1; i <= n; i++) {
+        k = order[i]
+        if (last[k] == "dispatch-blocked" && dpos[k] > tpos[k]) print "  " line[k]
+      }
+    }
   ' "$LEDGER" 2>/dev/null || true
 }
 
@@ -539,6 +562,10 @@ cmd_reconcile() {
     if [ "$listed" != open ] && gh_state "$issue"; then
       issue_open=0
       echo "skip: #$issue is closed; no dispatched comment or crewmate"
+      if [ "$(last_dispatch_class "$key")" = dispatch-blocked ]; then
+        log_line "dispatch-skipped key=$key issue=$issue reason=issue-closed"
+        echo "dispatch-skipped key=$key issue=$issue reason=issue-closed"
+      fi
     fi
 
     reopened=0
@@ -547,6 +574,10 @@ cmd_reconcile() {
       if ! ledger_has "reopened key=$key issue=$issue"; then
         log_line "reopened key=$key issue=$issue"
         echo "reopened-after-terminal key=$key issue=$issue"
+      fi
+      if [ "$(last_dispatch_class "$key")" = dispatch-blocked ]; then
+        log_line "dispatch-skipped key=$key issue=$issue reason=reopened-terminal"
+        echo "dispatch-skipped key=$key issue=$issue reason=reopened-terminal"
       fi
     fi
 
