@@ -1,0 +1,58 @@
+$ fm-route-dispatch.sh --task "Launch a seller outreach campaign for Acme Holdings clinics"
+=== Jev Front-Door Router ===
+Action:     dispatch
+Route:      seller-outreach
+Confidence: 0.85
+New Domain: 0.1
+=============================
+Recommended dispatch command:
+  FM_HOME=<tmp>/home <tmp>/home/bin/fm-send.sh seller-outreach \[fm-from-firstmate\]\ Launch\ a\ seller\ outreach\ campaign\ for\ Acme\ Holdings\ clinics
+Pass --execute to dispatch automatically.
+
+$ fm-route-dispatch.sh --task "Good morning, what is on today?"
+=== Jev Front-Door Router ===
+Action:     handle_direct
+Route:      captain_direct
+Confidence: 0.85
+New Domain: 0.0
+=============================
+Status: Direct communication for Captain / First Mate. Not dispatched.
+
+$ fm-route-dispatch.sh --task "Write drone firmware in Rust"
+=== Jev Front-Door Router ===
+Action:     create_secondmate
+Route:      new_domain
+Confidence: 0.85
+New Domain: 0.9
+=============================
+Status: Unmatched domain (new_domain). Firstmate should charter a new Second Mate.
+Suggested workflow:
+  1. Define domain charter in data/secondmates.md
+  2. Run: bin/fm-spawn.sh <new-id> --secondmate
+  3. Dispatch task to new secondmate inbox.
+
+$ fm-route-dispatch.sh --task "seller leads" --execute
+=== Jev Front-Door Router ===
+Action:     dispatch
+Route:      seller-outreach
+Confidence: 0.85
+New Domain: 0.1
+=============================
+Executing dispatch to second mate: seller-outreach ...
+[fake fm-send.sh] FM_HOME=<tmp>/home target=seller-outreach msg=[fm-from-firstmate] seller leads
+Dispatched successfully to seller-outreach.
+
+$ env -u TYPESAFE_API_KEY fm-route-dispatch.sh --task "seller leads"
+=== Jev Front-Door Router ===
+Action:     unavailable
+Route:      captain_direct
+Confidence: 0
+New Domain: 0
+=============================
+Status: Router unavailable (TYPESAFE_API_KEY unavailable). Falling back to Firstmate direct handling.
+
+--- task text actually sent to Jev (never-send list: 'Acme Holdings') ---
+Launch a seller outreach campaign for [withheld] clinics
+Good morning, what is on today?
+Write drone firmware in Rust
+seller leads
