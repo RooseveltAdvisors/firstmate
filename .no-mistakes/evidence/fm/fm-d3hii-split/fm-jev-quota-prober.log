@@ -22,7 +22,7 @@ ok - auto-divert refuses unknown destination runway
 11. Verify absent quota evidence is unknown, never healthy...
 ok - absent quota evidence reports unknown and permits no launch
 12. Verify direct probes require confirmed runway...
-ok - direct probes refuse unconfirmed runway and any exhausted account
+ok - direct probes refuse unconfirmed runway and judge only their own account
 13. Verify Pi models need their own provider evidence...
-ok - Pi models are judged by their own provider evidence
+ok - Pi models are judged by their own provider or account evidence
 ok - all fm-jev-quota-prober tests passed

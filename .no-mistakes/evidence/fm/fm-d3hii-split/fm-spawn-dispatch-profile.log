@@ -52,7 +52,7 @@ ok - pi-signed is a distinct persistent secondmate runtime with shared Pi superv
 ok - batch dispatch forwards shared --harness, --model, and --effort to every pair
 ok - claude forwards firstmate's CLAUDE_CONFIG_DIR so the crewmate uses the same credential store
 ok - the primary-owned Lavish server address reaches every worker launch
-cat: /tmp/fm-spawn-dispatch-profile.hNnIjm/profile-lavish-ambient/pane.log: No such file or directory
+cat: /tmp/fm-spawn-dispatch-profile.oTSsWx/profile-lavish-ambient/pane.log: No such file or directory
 ok - absent Lavish configuration preserves the destination environment
 ok - claude omits the config-dir prefix when firstmate runs with the single-store default
 ok - config/claude-permission-mode=bypass launches exactly as an absent file does
