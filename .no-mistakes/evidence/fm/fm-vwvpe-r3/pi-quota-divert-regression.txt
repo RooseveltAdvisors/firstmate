@@ -1,0 +1,16 @@
+### FIXED fm-spawn.sh (HEAD 2e531dee)
+ok - remote inheritance preserves the allowlist on source errors and mirrors proven absence
+# all fm-spawn-dispatch-profile tests passed
+ok - quota divert to pi rebuilds concrete Pi launch and applies diverted profile
+ok - quota divert to cursor rebuilds concrete Cursor launch
+ok - raw launch command runs verbatim when the prober would divert
+
+            : # MUTATION: divert-time prepare removed (pre-fix behavior)
+### MUTATED fm-spawn.sh (no prepare_harness_launch after divert = original defect)
+# all fm-spawn-dispatch-profile tests passed
+not ok - quota divert to pi should succeed: jev-quota-prober: automatically diverted codex:codex/gpt-5 to viable lane pi:openai-codex/gpt-5.6-sol
+warning: /tmp/fm-spawn-dispatch-profile.b1pHCy/profile-quota-divert-pi/home/data/profile-quota-divert-pi-z8e/launch-brief.md records no ship branch; defaulting to legacy branch fm/profile-quota-divert-pi-z8e
+warning: /tmp/fm-spawn-dispatch-profile.b1pHCy/profile-quota-divert-pi/home/data/profile-quota-divert-pi-z8e/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+/tmp/fm-spawn-dispatch-profile.b1pHCy/profile-quota-divert-pi/fake/fakebin/timeout: line 3: exec: 1: not found
+/tmp/fm-spawn-dispatch-profile.b1pHCy/profile-quota-divert-pi/fake/fakebin/timeout: line 3: exec: 1: not found
+/home/jon/.no-mistakes/worktrees/46339c0817e0/01M3MS3SSZM6J4VNT8V4F0JQE2/bin/fm-spawn.sh: line 5084: PI_BIN: unbound variable: expected exit 0, got 1
