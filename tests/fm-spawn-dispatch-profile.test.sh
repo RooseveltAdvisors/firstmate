@@ -37,6 +37,7 @@ make_spawn_fakebin() {
   fakebin=$(fm_test_make_spawn_fakebin "$dir")
   cat > "$fakebin/timeout" <<'SH'
 #!/usr/bin/env bash
+[ "${1:-}" != -k ] || shift 2
 shift
 exec "$@"
 SH
@@ -1048,6 +1049,49 @@ test_quota_divert_to_cursor_rebuilds_launch() {
   pass "quota divert to cursor rebuilds concrete Cursor launch"
 }
 
+test_quota_divert_escapes_unusable_original_harness() {
+  local rec id out status launch prober
+  id=profile-quota-divert-missing-z8h
+  rec=$(make_spawn_case profile-quota-divert-missing pi-signed "$id")
+  read_case_record "$rec"
+  rm -f "$FAKEBIN_DIR/pi-signed"
+  prober="$CASE_DIR/jev-quota-prober"
+  make_divert_prober "$prober" cursor cursor-grok-4.5-high
+
+  out=$(PATH=/usr/bin:/bin:/usr/sbin:/sbin FM_TEST_DISABLE_JEV_PROBER=0 FM_TEST_JEV_PROBER_PATH="$prober" \
+    run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" \
+    --harness pi-signed --model openai-codex/gpt-5.6-sol --effort high)
+  status=$?
+  expect_code 0 "$status" "a missing original harness should still divert to a viable lane: $out"
+  launch=$(cat "$LAUNCH_LOG")
+  assert_contains "$launch" "'$FAKEBIN_DIR/cursor-agent' --trust --yolo --model 'cursor-grok-4.5-high'" \
+    "divert away from a missing original harness did not launch the viable Cursor lane"
+  pass "quota divert runs before original-harness setup, so a missing binary does not block it"
+}
+
+test_stalled_quota_prober_is_bounded() {
+  local rec id out status launch prober started
+  id=profile-quota-prober-stall-z8i
+  rec=$(make_spawn_case profile-quota-prober-stall codex "$id")
+  read_case_record "$rec"
+  prober="$CASE_DIR/jev-quota-prober"
+  printf '%s\n' '#!/usr/bin/env bash' 'exec sleep 30' > "$prober"
+  chmod +x "$prober"
+  # The pass-through fake timeout would let the stall run to completion.
+  rm -f "$FAKEBIN_DIR/timeout"
+
+  started=$SECONDS
+  out=$(FM_TEST_DISABLE_JEV_PROBER=0 FM_TEST_JEV_PROBER_PATH="$prober" FM_JEV_PROBER_TIMEOUT=1 \
+    run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" \
+    --harness codex --model codex/gpt-5 --effort high)
+  status=$?
+  expect_code 0 "$status" "a stalled prober should not block the spawn: $out"
+  [ $((SECONDS - started)) -lt 25 ] || fail "a stalled prober held the spawn for $((SECONDS - started))s"
+  launch=$(cat "$LAUNCH_LOG")
+  assert_contains "$launch" "codex" "a stalled prober left the original codex launch unsent"
+  pass "a stalled quota prober is bounded and the spawn proceeds on the original lane"
+}
+
 test_raw_launch_quota_divert_runs_command_verbatim() {
   local rec id out status launch expected prober
   id=profile-raw-quota-divert-z8g
@@ -1939,6 +1983,8 @@ test_pi_threads_model_and_max_effort
 test_pi_tui_mode_probe_is_safe_for_old_and_new_pi
 test_quota_divert_to_pi_rebuilds_launch
 test_quota_divert_to_cursor_rebuilds_launch
+test_quota_divert_escapes_unusable_original_harness
+test_stalled_quota_prober_is_bounded
 test_raw_launch_quota_divert_runs_command_verbatim
 test_pi_signed_threads_shared_pi_profile_and_preserves_identity
 test_pi_signed_missing_binary_refuses_before_endpoint_or_metadata

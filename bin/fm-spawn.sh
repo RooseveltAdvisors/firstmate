@@ -2365,14 +2365,15 @@ if [ "$KIND" = secondmate ] && [ -z "$ARG3" ]; then
     fi
   fi
 fi
-prepare_harness_launch
-
-# Jev Pattern 9: Pre-flight runway and token health prober
+# Jev Pattern 9: Pre-flight runway and token health prober. It runs before
+# prepare_harness_launch so an exhausted or unusable original lane can still be
+# diverted, and the one setup pass below always targets the final harness. Each
+# probe is bounded so a stalled prober cannot hold the spawn.
 JEV_QUOTA_PROBER=${FM_TEST_JEV_PROBER_PATH:-$SCRIPT_DIR/fm-jev-quota-prober.sh}
+JEV_QUOTA_PROBER_TIMEOUT=${FM_JEV_PROBER_TIMEOUT:-15}
 if [ "${FM_TEST_DISABLE_JEV_PROBER:-0}" != 1 ] && [ -x "$JEV_QUOTA_PROBER" ]; then
-  _pre_divert_harness=$HARNESS
-  if ! "$JEV_QUOTA_PROBER" --harness "$HARNESS" ${MODEL:+--model "$MODEL"} >/dev/null 2>&1; then
-    _divert=$("$JEV_QUOTA_PROBER" --harness "$HARNESS" ${MODEL:+--model "$MODEL"} --auto-divert 2>/dev/null || true)
+  if ! fm_run_timed "$JEV_QUOTA_PROBER_TIMEOUT" "$JEV_QUOTA_PROBER" --harness "$HARNESS" ${MODEL:+--model "$MODEL"} >/dev/null 2>&1; then
+    _divert=$(fm_run_timed "$JEV_QUOTA_PROBER_TIMEOUT" "$JEV_QUOTA_PROBER" --harness "$HARNESS" ${MODEL:+--model "$MODEL"} --auto-divert 2>/dev/null || true)
     if [ -n "$_divert" ]; then
       eval "$_divert"
       if [ -n "${harness:-}" ] && [ -n "${model:-}" ]; then
@@ -2380,21 +2381,20 @@ if [ "${FM_TEST_DISABLE_JEV_PROBER:-0}" != 1 ] && [ -x "$JEV_QUOTA_PROBER" ]; th
           echo "error: refusing to divert raw launch command '$ARG3': lane $HARNESS${MODEL:+:$MODEL} is exhausted (divert target $harness:$model); the raw launch command runs verbatim" >&2
         else
           echo "jev-quota-prober: automatically diverted $HARNESS${MODEL:+:$MODEL} to viable lane $harness:$model" >&2
-          HARNESS="$harness"
-          MODEL="$model"
-          if [ "$HARNESS" != "$_pre_divert_harness" ]; then
-            unset PI_BIN CURSOR_BIN OMP_BIN OMP_WORKER_CFG AGY_BIN DEVIN_BIN
-            LAUNCH=$(launch_template "$HARNESS" "$KIND") || {
-              echo "error: no launch template for diverted harness '$HARNESS'" >&2
+          if [ "$harness" != "$HARNESS" ]; then
+            LAUNCH=$(launch_template "$harness" "$KIND") || {
+              echo "error: no launch template for diverted harness '$harness'" >&2
               exit 1
             }
-            prepare_harness_launch
           fi
+          HARNESS="$harness"
+          MODEL="$model"
         fi
       fi
     fi
   fi
 fi
+prepare_harness_launch
 # Worker account pin (header above): resolved before any endpoint, worktree, or
 # record exists. An absent pin selects nothing and leaves every later launch
 # step exactly as it was. A pinned Claude root is exported here as well, so the
