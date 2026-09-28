@@ -1,63 +1,19 @@
-$ bin/fm-jev-decisions.sh --input <tmp>/d.tsv
+$ bin/fm-jev-decisions.sh --input decisions.tsv
 TASK             KEY                              VERB            CATEGORY          NOUL   CONF   SUGGESTED ACTION
 ==================================================================================================================
-fm-demo          pending-reply-abc123             blocked         stale_historical  0.10   0.80   Auto-resolve expired legacy pending-reply config reread
-fm-demo          quota-exceeded                   needs-decision  policy_spend      0.30   0.80   Escalate to Captain for policy, spend, or architecture guidance
-fm-demo          net-down                         blocked         external_block    0.40   0.80   Investigate external host, route, or credentials dependency
-fm-demo          active-fix                       needs-decision  actionable_now    0.90   0.80   Active blocker: requires prompt resolution or steer
-fm-demo          missing-answer                   needs-decision  unavailable       N/A    N/A    Jev returned no valid category choice: None
+demo             pending-reply-abc                blocked         stale_historical  0.50   0.80   Auto-resolve expired legacy pending-reply config reread
+demo             pending-reply-xyz                blocked         stale_historical  0.50   0.80   Archive or resolve superseded historical decision
+demo             quota-up                         needs-decision  policy_spend      0.50   0.80   Escalate to Captain for policy, spend, or architecture guidance
+demo             net-down                         blocked         external_block    0.50   0.80   Investigate external host, route, or credentials dependency
+demo             active-fix                       needs-decision  actionable_now    0.50   0.80   Active blocker: requires prompt resolution or steer
+demo             weird                            needs-decision  unavailable       N/A    N/A    Jev returned no valid category choice: None
 ==================================================================================================================
-Total: 5 | stale_historical: 1 | actionable_now: 1 | external_block: 1 | policy_spend: 1 | unavailable: 1
-[exit 0]
+Total: 6 | stale_historical: 2 | actionable_now: 1 | external_block: 1 | policy_spend: 1 | unavailable: 1
 
-$ bin/fm-jev-decisions.sh --input <tmp>/d.tsv --category actionable_now
-TASK             KEY                              VERB            CATEGORY          NOUL   CONF   SUGGESTED ACTION
-==================================================================================================================
-fm-demo          active-fix                       needs-decision  actionable_now    0.90   0.80   Active blocker: requires prompt resolution or steer
-==================================================================================================================
-Total: 1 | actionable_now: 1
-[exit 0]
+$ bin/fm-jev-decisions.sh --input decisions.tsv --resolve-cmds
+bin/fm-send.sh demo --resolve-key pending-reply-abc 'auto-resolved: expired legacy config reread from previous phase'
+bin/fm-send.sh demo --resolve-key pending-reply-xyz 'auto-resolved: superseded historical decision'
 
-$ bin/fm-jev-decisions.sh --input <tmp>/d.tsv --min-noul 0.35 --json
-[
-  {
-    "task": "fm-demo",
-    "key": "net-down",
-    "verb": "blocked",
-    "note": "upstream host unreachable",
-    "category": "external_block",
-    "confidence": 0.8,
-    "actionable_noul": 0.4,
-    "probabilities": {
-      "external_block": 0.8
-    },
-    "suggested_action": "Investigate external host, route, or credentials dependency",
-    "resolve_cmd": "",
-    "error": null
-  },
-  {
-    "task": "fm-demo",
-    "key": "active-fix",
-    "verb": "needs-decision",
-    "note": "choose the fix now",
-    "category": "actionable_now",
-    "confidence": 0.8,
-    "actionable_noul": 0.9,
-    "probabilities": {
-      "actionable_now": 0.8
-    },
-    "suggested_action": "Active blocker: requires prompt resolution or steer",
-    "resolve_cmd": "",
-    "error": null
-  }
-]
-[exit 0]
-
-$ bin/fm-jev-decisions.sh --input <tmp>/d.tsv --resolve-cmds
-bin/fm-send.sh fm-demo --resolve-key pending-reply-abc123 'auto-resolved: expired legacy config reread from previous phase'
-[exit 0]
-
-$ bin/fm-jev-decisions.sh --input <tmp>/missing.tsv
+$ bin/fm-jev-decisions.sh --input missing.tsv
 error: input file <tmp>/missing.tsv does not exist
-[exit 1]
-
+exit=1
