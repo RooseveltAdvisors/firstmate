@@ -1,0 +1,37 @@
+$ python3 bin/fm-jev-quota-prober.py --check-all
+Fleet Pre-Flight Harness Runway:
+  ✗ cursor (cursor-grok-4.6-high): forbidden (Grok is reserved for Firstmate and cannot run crew work) -> divert to cursor:composer-2.5
+  ✓ cursor (cursor-small): healthy (No quota blockers detected) -> divert to cursor:cursor-small
+  ✓ codex (gpt-5.6-luna): healthy (No quota blockers detected) -> divert to codex:gpt-5.6-luna
+  ✓ pi (zai-general/glm-5.3-flash): healthy (No quota blockers detected) -> divert to pi:zai-general/glm-5.3-flash
+[exit 0]
+
+$ python3 bin/fm-jev-quota-prober.py --harness cursor --model cursor-grok-4.6-high
+blocked: cursor (cursor-grok-4.6-high) unhealthy: Grok is reserved for Firstmate and cannot run crew work (recommended: cursor composer-2.5)
+[exit 1]
+
+$ python3 bin/fm-jev-quota-prober.py --harness grok
+blocked: grok () unhealthy: Grok is reserved for Firstmate and cannot run crew work (recommended: cursor composer-2.5)
+[exit 1]
+
+$ QUOTA_EMPTY=1 python3 bin/fm-jev-quota-prober.py --harness codex
+blocked: codex () unhealthy: No quota evidence available; runway is unknown (no permitted diversion has confirmed runway)
+[exit 1]
+
+$ CURSOR_EXHAUSTED=1 python3 bin/fm-jev-quota-prober.py --harness cursor --auto-divert
+[exit 1]
+
+$ python3 bin/fm-jev-quota-prober.py --harness codex --model gpt-5.6-luna
+ok: codex (gpt-5.6-luna) is healthy: No quota blockers detected
+[exit 0]
+
+# (cursor exhausted above: no permitted diversion with confirmed runway -> empty output, exit 1)
+
+$ touch $FM_HOME/state/.zai-bundle-dry
+$ python3 bin/fm-jev-quota-prober.py --harness pi --model zai-general/glm-5.3-flash --auto-divert
+harness=cursor model=composer-2.5 healthy=0
+[exit 0]
+
+$ CURSOR_EXHAUSTED=1 python3 bin/fm-jev-quota-prober.py --harness pi --model zai-general/glm-5.3-flash --auto-divert
+[exit 1]
+

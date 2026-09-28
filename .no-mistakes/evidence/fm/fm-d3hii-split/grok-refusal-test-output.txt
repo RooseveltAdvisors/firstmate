@@ -1,0 +1,94 @@
+/tmp/nm-fm-grok-harness.log:ok - grok crew spawn is refused before any hook or task wiring
+/tmp/nm-fm-control-relaunch.log:ok - fm-control relaunch: the retired incarnation's global turn-end token is revoked
+/tmp/nm-fm-control-relaunch.log:ok - fm-spawn --relaunch: a promoted scout with a recorded custom branch relaunches on it instead of being refused
+/tmp/nm-fm-control-relaunch.log:ok - fm-control relaunch: a secondmate home that is not this secondmate's is refused
+/tmp/nm-fm-control-relaunch.log:ok - fm-spawn --relaunch: an unrecorded task is refused
+/tmp/nm-fm-control-relaunch.log:ok - reclaim: an unclassifiable endpoint is still refused, so two agents cannot share one
+/tmp/nm-fm-control-relaunch.log:ok - reclaim: a rebind refused from a plain shell reports the real cause, not a fabricated session mismatch
+/tmp/nm-fm-jev-quota-prober.log:ok - help flag works
+/tmp/nm-fm-jev-quota-prober.log:ok - check-all rejects forbidden Grok lane
+/tmp/nm-fm-jev-quota-prober.log:ok - json output format verified
+/tmp/nm-fm-jev-quota-prober.log:ok - zai dryness comes only from the explicit marker
+/tmp/nm-fm-jev-quota-prober.log:ok - auto-divert safely redirects to cursor Composer
+/tmp/nm-fm-jev-quota-prober.log:ok - auto-divert target excludes Grok
+/tmp/nm-fm-jev-quota-prober.log:ok - auto-divert refuses exhausted destination
+/tmp/nm-fm-jev-quota-prober.log:ok - Codex quota semantics detect exhaustion
+/tmp/nm-fm-jev-quota-prober.log:ok - direct Grok launch is forbidden
+/tmp/nm-fm-jev-quota-prober.log:ok - auto-divert refuses stale destination evidence
+/tmp/nm-fm-jev-quota-prober.log:ok - auto-divert refuses unknown destination runway
+/tmp/nm-fm-jev-quota-prober.log:ok - absent quota evidence reports unknown and permits no launch
+/tmp/nm-fm-jev-quota-prober.log:ok - direct probes refuse unconfirmed runway and judge only their own account
+/tmp/nm-fm-jev-quota-prober.log:ok - Pi models are judged by their own provider or account evidence
+/tmp/nm-fm-jev-quota-prober.log:ok - all fm-jev-quota-prober tests passed
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - allowlist=absent preserves the operational floor and filters only when opted in
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - allowlist=missing-config preserves the operational floor and filters only when opted in
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - allowlist=enabled preserves the operational floor and filters only when opted in
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - allowlist=empty preserves the operational floor and filters only when opted in
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - invalid allowlist names refuse before launch or task publication
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - inaccessible config with present allowlist refuses before launch or task publication
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - inaccessible config with absent allowlist refuses before launch or task publication
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - inaccessible ancestor with present allowlist refuses before launch or task publication
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - inaccessible ancestor with absent allowlist refuses before launch or task publication
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - secondmate launch inherits the allowlist for subsequent worker launches
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - local inheritance preserves the allowlist on source errors and mirrors proven absence
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - remote inheritance preserves the allowlist on source errors and mirrors proven absence
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - fm-spawn: actual ship/scout launch commands deliver the worker role contract
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - no --model/--effort records defaults and types the claude launch instructions
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - a claude launch publishes the brief as an operational-inbox record and passes only the doorbell
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - a secondmate claude launch publishes its brief record into the secondmate's own home
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - a claude spawn whose launch-brief record cannot publish stops with a clear error and sends no launch
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - non-cursor launches clear inherited Cursor identity markers
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - relative home overrides ignore CDPATH and become absolute before spawn launch construction
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - FM_HOME defaults resolve relative paths and preserve absolute spellings
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - absolute override spellings are preserved in spawn launch paths
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - unresolvable relative spawn overrides fail with named diagnostics
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - active crew-dispatch profile requires an explicit harness for ship spawns
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - active crew-dispatch profile requires an explicit harness for scout spawns
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - active crew-dispatch profile allows an explicit resolved harness
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - active crew-dispatch profile allows the legacy positional harness form
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - active crew-dispatch profile allows the raw launch-command escape hatch
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - a chained raw launch commits through the AI-trailer strip in every step
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - claude receives --model and --effort profile flags
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - codex receives --model and model_reasoning_effort profile flags
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - codex Luna receives --model and model_reasoning_effort max profile flags
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - codex omits max for models without the catalog capability
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - a codex crewmate launches with no hook layer and keeps its turn-end signal
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - a codex secondmate keeps the project hook layer its primary session runs on
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - Grok harness and Grok model crew profiles are refused before launch
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - cursor receives its model-qualified reasoning class and exact task workspace
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - cursor refuses model ids absent from its resolved binary's live catalog
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - cursor preserves the requested model when its live catalog is unreachable
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - opencode receives --model and the effort as its config's agent variant
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - opencode without an effort keeps its launch config unchanged
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - opencode emits the variant for an effort the openai family exposes
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - opencode omits the variant for an effort outside the model family's list
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - native effort validator checks harness and model as separate axes
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - Ultra is explicit for native Pi and Pi-signed, including direct-PR, and refuses unsupported profiles before provisioning
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - batch dispatch preserves native Ultra in metadata and launch flags
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - Pi scout spawn enters the recorded worktree before launch
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - pi receives --model and --thinking max profile flags
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - Pi launch probing omits --tui-mode on older Pi and preserves it on supporting Pi
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - pi-signed shares Pi launch semantics while preserving its configured and recorded identity
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - pi-signed refuses safely and actionably when the selected executable is unavailable
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - pi-signed is a distinct persistent secondmate runtime with shared Pi supervision semantics
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - batch dispatch forwards shared --harness, --model, and --effort to every pair
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - claude forwards firstmate's CLAUDE_CONFIG_DIR so the crewmate uses the same credential store
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - the primary-owned Lavish server address reaches every worker launch
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - absent Lavish configuration preserves the destination environment
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - claude omits the config-dir prefix when firstmate runs with the single-store default
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - config/claude-permission-mode=bypass launches exactly as an absent file does
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - config/claude-permission-mode=auto replaces --dangerously-skip-permissions with --permission-mode auto
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - config/claude-permission-mode=auto reaches scout launches too
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - claude worker launches cover the task-channel directories in bypass and auto modes
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - an unrecognized config/claude-permission-mode token refuses before any endpoint or metadata
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - config/claude-permission-mode changes claude launches only
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - non-claude harnesses do not receive the claude CLAUDE_CONFIG_DIR prefix
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - a claude task launch establishes only Firstmate's task control channels through the system prompt
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - a persistent claude secondmate keeps its supervisor contract without a task-worker authority overlay
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - fm-spawn: a Claude launch longer than 1024 bytes is delivered intact through the staging path
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - a claude crewmate launch carries the attribution-off policy in its own settings
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - keep-ai-trailers omits Claude attribution settings and the pane strip hooks
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - keep-ai-trailers is inherited so a secondmate's crew launch keeps AI trailers
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - a claude secondmate launch carries the attribution-off policy too
+/tmp/nm-fm-spawn-dispatch-profile.log:ok - active crew-dispatch profile does not block secondmate launches
+/tmp/nm-fm-spawn-dispatch-profile.log:# all fm-spawn-dispatch-profile tests passed
