@@ -1,0 +1,4 @@
+$ git diff --stat 6b0f5a07 b11dce4d -- AGENTS.md
+AGENTS.md byte-identical to base (exit 0)
+$ grep -rn quota-auto-divert bin docs tests
+(no matches: opt-in gate removed)
