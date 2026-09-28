@@ -1,0 +1,26 @@
+=== PR #4358 crew-pane color evidence (real tmux, private sockets) ===
+root: /home/jon/.no-mistakes/worktrees/46339c0817e0/01M3K1E3GH6396TV4SYP48KED9
+
+--- CONTROL (pre-fix launch shape: tmux new-session under NO_COLOR=1)
+    window environment created AFTER the server was born (fm-evidence-control-1955950):
+    CLICOLOR=0
+    CLICOLOR_FORCE=1
+    FM_LAUNCH_SENTINEL=kept
+    FORCE_COLOR=0
+    NO_COLOR=1
+    what a NO_COLOR-honoring CLI printed inside that pane (cat -v):
+    ^[[1mRED^[[0m pane-color-probe
+
+--- FIXED (fm_backend_tmux_container_ensure, this PR)
+    window environment created AFTER the server was born (fm-evidence-fixed-1955950):
+    FM_LAUNCH_SENTINEL=kept
+    what a NO_COLOR-honoring CLI printed inside that pane (cat -v):
+    ^[[1;31mRED^[[0m pane-color-probe
+
+=== summary ===
+control pane inherits NO_COLOR=1: leak reproduced
+control pane renders RED monochrome: user-visible bleaching confirmed
+fixed pane inherits none of the four color-control variables: scrub effective
+fixed pane keeps the unrelated FM_LAUNCH_SENTINEL: scrub is narrow
+fixed pane renders RED in color: end-user experience restored
+=== done ===

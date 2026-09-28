@@ -1,0 +1,57 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>PR #4358 crew-pane color evidence</title>
+<style>
+ body { font-family: ui-sans-serif, system-ui, sans-serif; margin: 2rem auto; max-width: 1000px; color: #1a1a1a; }
+ h1 { font-size: 1.3rem; } h2 { font-size: 1rem; margin-bottom: .3rem; }
+ .panes { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+ .pane { border: 1px solid #ccc; border-radius: 8px; overflow: hidden; }
+ .pane header { padding: .5rem .8rem; font-size: .85rem; font-weight: 600; border-bottom: 1px solid #ccc; }
+ .bad header { background: #fdecea; color: #a4321f; }
+ .good header { background: #eafaf0; color: #1e7a46; }
+ pre { margin: 0; padding: 1rem; font-size: .95rem; }
+ .term { font-family: ui-monospace, Menlo, monospace; }
+ .dim { color: #666; font-size: .85rem; }
+ pre.log { background: #f6f6f6; border: 1px solid #ddd; border-radius: 8px; padding: 1rem; font-size: .8rem; white-space: pre-wrap; }
+</style>
+<h1>PR #4358 &mdash; what a crew pane actually inherits (real tmux, private sockets)</h1>
+<p class="dim">A window created <em>after</em> each server birth runs the same NO_COLOR-honoring CLI
+(python <code>rich</code>) printing a red token. This is the end-user surface: monochrome vs colored output in the pane.</p>
+<div class="panes">
+  <div class="pane bad">
+    <header>CONTROL &mdash; pre-fix launch shape: <code>tmux new-session</code> under NO_COLOR=1</header>
+    <pre class="term">@@BOLD<span style="color:#e06c75;font-weight:bold">RESET@@ pane-color-probe<br></pre>
+  </div>
+  <div class="pane good">
+    <header>FIXED &mdash; <code>fm_backend_tmux_container_ensure</code> (this PR)</header>
+    <pre class="term"><span style="color:#e06c75;font-weight:bold">RED</span> pane-color-probe<br></pre>
+  </div>
+</div>
+<h2>Full transcript</h2>
+<pre class="log">=== PR #4358 crew-pane color evidence (real tmux, private sockets) ===
+root: /home/jon/.no-mistakes/worktrees/46339c0817e0/01M3K1E3GH6396TV4SYP48KED9
+
+--- CONTROL (pre-fix launch shape: tmux new-session under NO_COLOR=1)
+    window environment created AFTER the server was born (fm-evidence-control-1955950):
+    CLICOLOR=0
+    CLICOLOR_FORCE=1
+    FM_LAUNCH_SENTINEL=kept
+    FORCE_COLOR=0
+    NO_COLOR=1
+    what a NO_COLOR-honoring CLI printed inside that pane (cat -v):
+    ^[[1mRED^[[0m pane-color-probe
+
+--- FIXED (fm_backend_tmux_container_ensure, this PR)
+    window environment created AFTER the server was born (fm-evidence-fixed-1955950):
+    FM_LAUNCH_SENTINEL=kept
+    what a NO_COLOR-honoring CLI printed inside that pane (cat -v):
+    ^[[1;31mRED^[[0m pane-color-probe
+
+=== summary ===
+control pane inherits NO_COLOR=1: leak reproduced
+control pane renders RED monochrome: user-visible bleaching confirmed
+fixed pane inherits none of the four color-control variables: scrub effective
+fixed pane keeps the unrelated FM_LAUNCH_SENTINEL: scrub is narrow
+fixed pane renders RED in color: end-user experience restored
+=== done ===
+</pre>

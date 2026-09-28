@@ -1,0 +1,46 @@
+# Focused suite transcripts for PR #4358 (fm/herdr-server-scrub-nocolor), target 3bfbad7b
+
+$ bash tests/fm-backend-herdr.test.sh   # full suite; herdr adapter + server_ensure scrub
+  ok - fm_backend_herdr_server_ensure: scrubs home, harness identity, and color-suppression vars without disturbing unrelated environment or session routing
+  exit=0  (227 passing assertions)
+
+$ bash tests/fm-backend-zellij.test.sh   # full suite; zellij adapter + session-birth scrub
+  ok - fm_backend_zellij_server_ensure: drops the launcher's color control from the session it births, leaving unrelated launch environment intact
+  exit=0
+
+$ bash tests/fm-gotmp.test.sh   # teardown fixture carries the new sibling
+  ok - fm-teardown removes the dir pointed to by tasktmp= in meta
+  ok - fm-teardown skips gracefully when tasktmp= is absent (backward compat)
+  ok - fm-teardown skips gracefully when tasktmp= points to a nonexistent dir
+  exit=0  (3 passing assertions)
+
+$ bash tests/fm-teardown.test.sh   # teardown sibling-preflight gate still passes
+  ok - the run abort and the leaked-process reap both complete before the destructive worktree return
+  exit=0  (97 passing assertions)
+
+$ FM_TEST_ONLY=test_backend_source_requires_adapter_file bash tests/fm-backend.test.sh
+  ok - fm_backend_source: missing adapter fails before lifecycle continuation
+  ok - fm_backend_source: unreadable adapter fails before lifecycle continuation
+  exit=0
+
+$ FM_TEST_ONLY=test_teardown_conformance_old_vs_new bash tests/fm-backend.test.sh
+  ok - fm-teardown.sh: treehouse return remains compatible while tmux cleanup uses exact selectors
+  exit=0
+
+$ bash tests/fm-backend.test.sh   # full suite on this host
+  not ok - zsh: fm_backend_source herdr should load the adapter when sourced
+  exit=1
+  NOTE: pre-existing at base commit 3c2a91d7 (verified against a clean git-archive
+  of the base); upstream #5548's sibling loop 'for rel in $siblings' does not
+  word-split in zsh, so the zsh-only shell-portability case fails on any host
+  that has zsh installed. GitHub's ubuntu-24.04 runner has no zsh, so the case
+  is skipped there. Not introduced by this change.
+
+# Docs: each scrubbing adapter's guide records the scrub (user-intent requirement)
+  docs/tmux-backend.md:51:Firstmate therefore drops the launcher's color control (`NO_COLOR`, `FORCE_COLOR`, `CLICOLOR`, `CLICOLOR_FORCE`) before that one `new-session`, so an agent-launched Firstmate cannot leave every crew pane monochrome.
+  docs/herdr-backend.md:525:- The launcher's color control (`NO_COLOR`, `FORCE_COLOR`, `CLICOLOR`, `CLICOLOR_FORCE`).
+  docs/zellij-backend.md:37:Firstmate drops the launcher's color control (`NO_COLOR`, `FORCE_COLOR`, `CLICOLOR`, `CLICOLOR_FORCE`) before that launch, so a Firstmate started by an agent under `NO_COLOR=1` cannot leave every crew pane monochrome.
+  docs/tmux-backend.md:52:The list is shared with the Herdr and zellij adapters through `bin/fm-backend-launch-env-lib.sh`.
+  docs/herdr-backend.md:528:The color list is shared with the tmux and zellij adapters through `bin/fm-backend-launch-env-lib.sh`, so the three server-start paths cannot drift apart.
+  docs/zellij-backend.md:38:The list is shared with the tmux and Herdr adapters through `bin/fm-backend-launch-env-lib.sh`.
+  docs/scripts.md:67:| `fm-backend-launch-env-lib.sh` | Shared color-control scrub the tmux, Herdr, and zellij adapters apply before they birth a long-lived server |
