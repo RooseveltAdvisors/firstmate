@@ -82,6 +82,12 @@ case "${1:-}" in
         # The loop closes an issue only on a decline; every other path must
         # fail here, which pins every close to that one carve-out.
         [ -f "$FAKE/allow-close" ] || exit 97
+        # A close is only safe once the close watch is gone: the decline must
+        # retire the watch before this call, or a watcher could wake on the
+        # close and post a captain-closed comment for a decline.
+        if [ -n "${FM_HOME:-}" ] && [ -e "$FM_HOME/state/when/when-sos-$n.spec" ]; then
+          echo "CLOSE-WATCH-ARMED" >> "$FAKE/gh.log"
+        fi
         echo '{"state":"CLOSED"}' > "$FAKE/gh-state-$n"
         exit 0 ;;
       *) exit 1 ;;
@@ -393,14 +399,20 @@ test_watch_fire_never_captain_closes_a_declined_issue() {
   fd=${parts##*|}
   ledger="$home/state/fm-issue-intake.log"
 
-  # An ops run arms the watch and dispatches; a later gate-on run declines
-  # and closes the same ticket.
-  out=$(run_intake "$parts" reconcile --no-verdict) || fail "ops pass failed: $out"
-  assert_contains "$out" "dispatched=1" "the ops pass must dispatch: $out"
+  # A staging run arms the watch without dispatching; a later gate-on run
+  # declines and closes the same ticket.
+  out=$(run_intake "$parts" reconcile --no-dispatch --no-verdict) || fail "staging pass failed: $out"
+  assert_contains "$out" "dispatched=0" "the staging pass must not dispatch: $out"
+  assert_present "$home/state/when/when-sos-$GH_ISSUE.spec" \
+    "the staging pass arms the close watch"
   printf 'not_supported\n' > "$fd/jev-verdict"
   : > "$fd/allow-close"
   out=$(run_intake "$parts" reconcile) || fail "decline pass failed: $out"
   assert_contains "$out" "declined=1" "the decline must land: $out"
+  assert_absent "$home/state/when/when-sos-$GH_ISSUE.spec" \
+    "the decline must retire the close watch"
+  assert_no_grep "CLOSE-WATCH-ARMED" "$fd/gh.log" \
+    "the close must never run while the watch is still armed"
 
   # The tolerated row-close failure leaves no task-closed record behind.
   grep -v '^task-closed key=' "$ledger" > "$ledger.tmp"
@@ -411,8 +423,8 @@ test_watch_fire_never_captain_closes_a_declined_issue() {
     "watch-fire must recognize the decline record itself: $out"
   assert_no_grep "Closed by the captain" "$fd/comments.log" \
     "a declined issue must never get a captain-closed comment"
-  assert_equals "2" "$(count_of '' "$fd/comments.log")" \
-    "only the dispatched and declined comments exist"
+  assert_equals "1" "$(count_of '' "$fd/comments.log")" \
+    "only the declined comment exists: $(cat "$fd/comments.log" 2>/dev/null)"
   assert_no_grep "closed key=" "$ledger" \
     "the decline never authorizes the reporter handoff marker"
   pass "watch-fire never captain-closes an issue intake declined"
@@ -502,13 +514,14 @@ test_no_dispatch_posts_no_dispatched_comment() {
 test_manual_comment_then_the_loop_never_duplicates_it() {
   local parts home fd out second
 
-  # (a) a manual decline comment satisfies the gate-on decline guard.
+  # (a) a manual decline comment satisfies the gate-on decline guard. The
+  # ops pass stages without dispatching, so the ticket is still declineable.
   parts=$(setup_case manual-decline)
   home=${parts%%|*}
   fd=${parts##*|}
   printf 'not_supported\n' > "$fd/jev-verdict"
   : > "$fd/allow-close"
-  out=$(run_intake "$parts" reconcile --no-verdict) || fail "ops pass failed: $out"
+  out=$(run_intake "$parts" reconcile --no-verdict --no-dispatch) || fail "ops pass failed: $out"
   out=$(run_intake "$parts" comment "$GH_ISSUE" declined) || fail "manual declined failed: $out"
   out=$(run_intake "$parts" reconcile) || fail "gate-on pass failed: $out"
   assert_contains "$out" "declined=1" "the decline must complete: $out"
@@ -597,7 +610,6 @@ test_reopened_declined_ticket_is_reported_not_dropped() {
   fd=${parts##*|}
   printf 'not_supported\n' > "$fd/jev-verdict"
   : > "$fd/allow-close"
-
   out=$(run_intake "$parts" reconcile) || fail "decline pass failed: $out"
   assert_contains "$out" "declined=1" "the decline must land: $out"
   assert_equals "done" "$(task_state_of "$parts")" "the declined row closes"
@@ -620,6 +632,112 @@ test_reopened_declined_ticket_is_reported_not_dropped() {
   assert_equals "done" "$(task_state_of "$parts")" \
     "the row stays as the decline left it"
   pass "a reopened declined ticket is reported to the captain, never dropped"
+}
+
+test_dispatched_ticket_is_never_declined() {
+  local parts home fd out
+
+  # (a) a gate-off dispatch: no verdict is recorded, so the next gate-on pass
+  # classifies from scratch - the dispatch record must still bind the decline.
+  parts=$(setup_case dispatched-hold)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  out=$(run_intake "$parts" reconcile --no-verdict) || fail "ops pass failed: $out"
+  assert_contains "$out" "dispatched=1" "the ops pass dispatches: $out"
+  printf 'not_supported\n' > "$fd/jev-verdict"
+  : > "$fd/allow-close"
+  out=$(run_intake "$parts" reconcile) || fail "gate-on pass failed: $out"
+  assert_contains "$out" "review=1" "the dispatched ticket must be held: $out"
+  assert_contains "$out" "already dispatched" \
+    "the hold must state why: $out"
+  assert_contains "$out" "declined=0" "a dispatched ticket is never declined: $out"
+  assert_no_grep "CLOSE-ATTEMPTED" "$fd/gh.log" \
+    "a dispatched ticket must never be closed"
+  assert_equals "0" "$(count_of '**Not supported**' "$fd/comments.log")" \
+    "a dispatched ticket must get no decline comment"
+  assert_equals "0" "$(count_of 'not-supported' "$fd/edit.log")" \
+    "a dispatched ticket must get no decline label"
+  assert_equals "queued" "$(task_state_of "$parts")" \
+    "the dispatched row must stay open for the worker"
+  assert_equals "1" "$(count_of 'fm-spawn' "$fd/spawn.log")" \
+    "the hold must not spawn a second crewmate"
+
+  # (b) a dispatched comment record (a dispatch whose spawn record is absent)
+  # binds the decline path the same way, across key namespaces.
+  parts=$(setup_case dispatched-hold-comment)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  out=$(run_intake "$parts" comment "$GH_ISSUE" dispatched) || fail "manual dispatched failed: $out"
+  printf 'not_supported\n' > "$fd/jev-verdict"
+  : > "$fd/allow-close"
+  out=$(run_intake "$parts" reconcile) || fail "gate-on pass failed: $out"
+  assert_contains "$out" "review=1" \
+    "a comment-record dispatch must hold the decline: $out"
+  assert_contains "$out" "already dispatched" \
+    "the hold must state why: $out"
+  assert_no_grep "CLOSE-ATTEMPTED" "$fd/gh.log" \
+    "the comment-record dispatch must never be closed"
+  assert_equals "0" "$(count_of '**Not supported**' "$fd/comments.log")" \
+    "no decline comment on a comment-record dispatch"
+  [ ! -f "$fd/spawn.log" ] || fail "a held ticket must never spawn"
+  pass "an already-dispatched ticket is held for the captain, never declined"
+}
+
+test_large_backlog_payloads_never_wedge_reconcile() {
+  local parts home fd out residue
+  parts=$(setup_case large-backlog)
+  home=${parts%%|*}
+  fd=${parts##*|}
+
+  # Both payloads exceed the 128 KiB per-string exec limit on purpose: a lost
+  # cursor can return the whole backlog, and a wedged collector would abort
+  # every pass at the same point forever.
+  python3 - "$fd" "$SOS_UUID" "$GH_ISSUE" <<'PY'
+import json, sys
+fd, uuid, issue = sys.argv[1], sys.argv[2], int(sys.argv[3])
+pad = "x" * 200000
+ev = {
+    "events": [{
+        "id": 1,
+        "kind": "sos",
+        "dedupeKey": uuid,
+        "at": "2026-09-26T12:00:00.000Z",
+        "receivedAt": "2026-09-26T12:00:01.000Z",
+        "site": "covenant",
+        "payload": {
+            "ticket": uuid.split("-")[0],
+            "gh_issue": issue,
+            "gh_issue_url": "https://github.com/ArcsHealth/Portal/issues/%d" % issue,
+            "pad": pad,
+        },
+    }],
+    "cursor": 1,
+    "backlog": 0,
+}
+with open(fd + "/bridge.json", "w") as fh:
+    json.dump(ev, fh)
+gh = [{
+    "number": issue,
+    "url": "https://github.com/ArcsHealth/Portal/issues/%d" % issue,
+    "title": "SOS: reported problem",
+    "body": "### SOS Voice Ticket\n- **SOS ID:** `%s`\n%s" % (uuid, pad),
+}]
+with open(fd + "/gh-list.json", "w") as fh:
+    json.dump(gh, fh)
+PY
+
+  out=$(run_intake "$parts" reconcile 2>&1) \
+    || fail "reconcile must not abort on a large backlog: $out"
+  assert_contains "$out" "dispatched=1" \
+    "the large-backlog pass must still dispatch: $out"
+  assert_contains "$out" "task_created=1" \
+    "the large-backlog pass must still create the row: $out"
+  assert_equals "1" "$(cat "$home/state/fm-issue-intake.cursor")" \
+    "the cursor must advance past a large payload"
+  for residue in "$home/state"/.cand-events.* "$home/state"/.cand-gh.*; do
+    [ -e "$residue" ] && fail "candidate payload temp file left behind: $residue"
+  done
+  pass "backlog payloads beyond the exec string limit never wedge reconcile"
 }
 
 test_reconcile_creates_one_task_comment_watch_and_dispatch() {
@@ -922,3 +1040,5 @@ test_no_dispatch_posts_no_dispatched_comment
 test_manual_comment_then_the_loop_never_duplicates_it
 test_legacy_dispatch_records_still_block_a_second_dispatch
 test_reopened_declined_ticket_is_reported_not_dropped
+test_dispatched_ticket_is_never_declined
+test_large_backlog_payloads_never_wedge_reconcile

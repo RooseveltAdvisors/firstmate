@@ -31,8 +31,10 @@
 #               Every candidate passes the worth-supporting verdict gate
 #               (`jev verdict`) first: supported_bug dispatches as below,
 #               not_supported is declined and closed here (a reopened
-#               declined ticket returns as captain_review), captain_review is
-#               held for the captain and never spawns. --no-verdict skips
+#               declined ticket returns as captain_review; a ticket already
+#               dispatched to a crewmate is reported for the captain instead
+#               - work in flight is never declined or closed), captain_review
+#               is held for the captain and never spawns. --no-verdict skips
 #               new classification for an ops run; ledgered verdict and
 #               decline decisions still bind. --mode/--yolo set the spawned task's
 #               delivery contract (defaults FM_ISSUE_MODE=no-mistakes,
@@ -115,6 +117,11 @@ ledger_recorded() {  # <record pattern> -> 0 iff a ledger line matches ^<pattern
 task_key_for_issue() {  # <issue> -> the key first ledgered for this issue, else empty
   [ -f "$LEDGER" ] || return 0
   sed -n "s/^task key=\([^ ]*\) issue=$1 task=[^ ]* at=.*$/\1/p" "$LEDGER" | head -1
+}
+
+dispatch_recorded() {  # <issue> -> 0 iff the ledger shows the ticket already went out
+  ledger_recorded "dispatch key=[^ ]* issue=$1( task=[^ ]*)?" \
+    || ledger_recorded "comment key=[^ ]* issue=$1 transition=dispatched"
 }
 
 die() {
@@ -230,21 +237,42 @@ except Exception:
 # with no marker still gets dispatched under a stable gh-issue-<n> key, because
 # never dispatching a live ticket is worse than a non-UUID idempotency key.
 
-collect_candidates_py() {
-  local events_json="$1"
-  local gh_json="$2"
+collect_candidates_py() {  # <events-json> <gh-json>; never fails the caller
+  local events_json="$1" gh_json="$2" events_file gh_file folded
+  mkdir -p "$STATE_DIR" 2>/dev/null || true
+  if ! events_file=$(umask 077; mktemp "$STATE_DIR/.cand-events.XXXXXX" 2>/dev/null); then
+    echo "warn: could not stage candidate payloads; treating backlog as empty" >&2
+    return 0
+  fi
+  if ! gh_file=$(umask 077; mktemp "$STATE_DIR/.cand-gh.XXXXXX" 2>/dev/null); then
+    rm -f -- "$events_file"
+    echo "warn: could not stage candidate payloads; treating backlog as empty" >&2
+    return 0
+  fi
+  trap "rm -f -- $(printf '%q' "$events_file") $(printf '%q' "$gh_file")" EXIT
+  if ! printf '%s' "$events_json" > "$events_file" || ! printf '%s' "$gh_json" > "$gh_file"; then
+    rm -f -- "$events_file" "$gh_file"
+    echo "warn: could not stage candidate payloads; treating backlog as empty" >&2
+    return 0
+  fi
   # shellcheck disable=SC2016  # single quotes are deliberate: the python script expands nothing.
-  FM_CAND_EVENTS_JSON="$events_json" FM_CAND_GH_JSON="$gh_json" python3 -c '
-import json, os, re
+  if ! folded=$(python3 -c '
+import json, re, sys
 
-try:
-    events = json.loads(os.environ.get("FM_CAND_EVENTS_JSON") or "").get("events", []) or []
-except Exception:
+def load(path, what):
+    try:
+        with open(path) as fh:
+            return json.load(fh)
+    except Exception:
+        print("warn: unreadable %s payload: %s" % (what, path), file=sys.stderr)
+        return None
+
+ev_doc = load(sys.argv[1], "bridge-events")
+gh_doc = load(sys.argv[2], "github-issues")
+events = ev_doc.get("events") if isinstance(ev_doc, dict) else None
+if not isinstance(events, list):
     events = []
-try:
-    gh = json.loads(os.environ.get("FM_CAND_GH_JSON") or "") or []
-except Exception:
-    gh = []
+gh = gh_doc if isinstance(gh_doc, list) else []
 
 SOS_ID_RE = re.compile(r"SOS ID:\**\s*`([0-9a-fA-F-]{8,64})`")
 FALLBACK = "gh-issue-{}"
@@ -272,7 +300,11 @@ def ensure(key, issue, url, event_id):
             c["event_id"] = event_id
 
 for ev in events:
+    if not isinstance(ev, dict):
+        continue
     payload = ev.get("payload") or {}
+    if not isinstance(payload, dict):
+        payload = {}
     issue = payload.get("gh_issue")
     ensure(
         str(ev.get("dedupeKey") or ""),
@@ -282,15 +314,27 @@ for ev in events:
     )
 
 for item in gh:
-    body = item.get("body") or ""
+    if not isinstance(item, dict):
+        continue
+    body = item.get("body")
+    body = body if isinstance(body, str) else ""
     m = SOS_ID_RE.search(body)
     key = m.group(1) if m else FALLBACK.format(item.get("number"))
-    ensure(key, int(item.get("number") or 0), str(item.get("url") or ""), "-")
+    try:
+        number = int(item.get("number") or 0)
+    except (TypeError, ValueError):
+        continue
+    ensure(key, number, str(item.get("url") or ""), "-")
 
 for k in order:
     c = cands[k]
     print("\t".join([c["key"], str(c["issue"]), c["url"] or "-", c["event_id"]]))
-'
+' "$events_file" "$gh_file"); then
+    echo "warn: candidate folding failed; treating backlog as empty" >&2
+    return 0
+  fi
+  if [ -n "$folded" ]; then printf '%s\n' "$folded"; fi
+  return 0
 }
 
 # --- canonical comments -----------------------------------------------------
@@ -403,6 +447,16 @@ except Exception:
 
 apply_decline() {  # <key> <issue> -> 0 only when the whole decline landed
   local key="$1" issue="$2"
+  # Decline order: retire -> comment -> label -> close -> row close, then the
+  # caller writes the declined record. The watch must be retired before the
+  # close it watches for, so this close can never wake a watcher into posting
+  # a captain-closed comment for a decline.
+  if [ -f "$STATE_DIR/when/when-sos-$issue.spec" ]; then
+    if ! FM_HOME="$FM_HOME" "$WHEN" retire "sos-$issue" >/dev/null; then
+      echo "warn: failed to retire close watch for #$issue" >&2
+      return 1
+    fi
+  fi
   if ! ledger_recorded "comment key=[^ ]* issue=$issue transition=declined"; then
     gh_comment "$issue" "$(comment_body declined "$key" "$issue" "" "$(task_id_for_key "$key")")" \
       || return 1
@@ -498,7 +552,10 @@ cmd_reconcile() {
   gh_json=$(gh_open_sos_issues)
 
   local candidates
-  candidates=$(collect_candidates_py "$events_json" "$gh_json")
+  if ! candidates=$(collect_candidates_py "$events_json" "$gh_json"); then
+    echo "warn: candidate collection failed; treating backlog as empty" >&2
+    candidates=""
+  fi
 
   local new_cursor="$cursor" cursor_blocked=0
   local created=0 dispatched=0 ensured=0 declined=0 review=0
@@ -574,6 +631,13 @@ cmd_reconcile() {
           continue
         fi
         reopened=1
+      elif dispatch_recorded "$issue"; then
+        review=$((review + 1))
+        echo "review: key=$key GH #$issue already dispatched to a crewmate; verdict says not_supported - captain decides"
+        if [ "$event_id" != "-" ] && [ "$cursor_blocked" -eq 0 ]; then
+          new_cursor="$event_id"
+        fi
+        continue
       else
         apply_decline "$key" "$issue" \
           || { echo "failed: decline for #$issue" >&2; cursor_blocked=1; continue; }
