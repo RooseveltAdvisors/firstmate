@@ -31,8 +31,10 @@ supports - one dispatched crewmate.
   double-dispatch.
 - Every candidate passes the worth-supporting verdict gate (`jev verdict`)
   first: `supported_bug` dispatches automatically - no manual triage step -
-  `not_supported` is declined and closed by intake - a reopened declined
-  ticket is held for the captain again, never re-declined - and
+  `not_supported` is declined and closed by intake, except for a ticket
+  already dispatched to a crewmate, which is reported for the captain instead
+  and never declined or closed - work in flight is never yanked - a reopened
+  declined ticket is held for the captain again, never re-declined - and
   `captain_review` is held for the captain with no spawn. `--no-verdict`
   skips new classification for an ops run; ledgered verdict and decline
   decisions still bind. `--mode`/`--yolo` (or `FM_ISSUE_MODE`/`FM_ISSUE_YOLO`) set the

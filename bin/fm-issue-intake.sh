@@ -65,11 +65,17 @@
 # FM_ISSUE_PROJECT (default $FM_HOME/projects/portal), FM_ISSUE_MODE, FM_ISSUE_YOLO,
 # FM_ISSUE_PRIORITY (default 1), FM_ISSUE_GH (gh command), FM_ISSUE_CURL (curl),
 # FM_ISSUE_TASKS / FM_ISSUE_SPAWN / FM_ISSUE_BRIEF / FM_ISSUE_WHEN (the sibling
-# firstmate commands, overridable so tests can substitute a stub).
+# firstmate commands, overridable so tests can substitute a stub), FM_ISSUE_JEV
+# (the `jev verdict` CLI, default `jev`), FM_ISSUE_INTENT (worth-supporting
+# intent file passed as --intent-file, default $FM_HOME/data/issue-intent.md),
+# FM_ISSUE_DECLINE_LABEL (default not-supported), FM_ISSUE_VERDICT (on|off;
+# off makes every run behave like --no-verdict).
 #
 # State (all under $FM_HOME/state/): fm-issue-intake.cursor (bridge event id),
 # fm-issue-intake.log (append-only ledger of handled effects),
-# when/when-sos-<n>.* (close watches).
+# when/when-sos-<n>.* (close watches). The pre-rename fm-sos-intake.cursor and
+# fm-sos-intake.log are adopted into these names once, so a deploy never
+# resets the cursor or drops the ledger.
 set -euo pipefail
 
 BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
