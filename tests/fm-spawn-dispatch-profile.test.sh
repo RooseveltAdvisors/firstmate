@@ -37,6 +37,7 @@ make_spawn_fakebin() {
   fakebin=$(fm_test_make_spawn_fakebin "$dir")
   cat > "$fakebin/timeout" <<'SH'
 #!/usr/bin/env bash
+[ "${1:-}" != -k ] || shift 2
 shift
 exec "$@"
 SH
@@ -1054,6 +1055,51 @@ SH
   pass "quota divert to cursor rebuilds concrete Cursor launch"
 }
 
+test_quota_divert_from_pi_drops_pi_executable() {
+  local rec id out status prober
+  id=profile-quota-divert-from-pi-z8i
+  rec=$(make_spawn_case profile-quota-divert-from-pi pi "$id")
+  read_case_record "$rec"
+  cat > "$FAKEBIN_DIR/pi" <<'SH'
+#!/usr/bin/env bash
+[ "${1:-}" != auth ] || exit 1
+[ "${1:-}" != --help ] || printf '%s\n' 'Pi 0.84.0' 'Options: --help --tui-mode <mode>'
+exit 0
+SH
+  cat > "$FAKEBIN_DIR/claude" <<'SH'
+#!/usr/bin/env bash
+[ "${1:-}" = auth ] && [ "${2:-}" = status ] || exit 0
+[ -f "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.credentials.json" ]
+SH
+  chmod +x "$FAKEBIN_DIR/pi" "$FAKEBIN_DIR/claude"
+  mkdir -p "$CASE_DIR/work"
+  : > "$CASE_DIR/work/.credentials.json"
+  printf '%s\n' "$CASE_DIR/work" > "$HOME_DIR/config/claude-account"
+  prober="$CASE_DIR/jev-quota-prober"
+  cat > "$prober" <<'SH'
+#!/usr/bin/env bash
+set -u
+case " ${*} " in
+  *' --auto-divert '*)
+    printf '%s\n' 'harness=claude' 'model=claude-sonnet-5'
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+SH
+  chmod +x "$prober"
+
+  out=$(FM_TEST_DISABLE_JEV_PROBER=0 FM_TEST_JEV_PROBER_PATH="$prober" run_ship_spawn \
+    "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" \
+    --harness pi --model openai-codex/gpt-5.6-sol)
+  status=$?
+  expect_code 0 "$status" "quota divert from pi to a signed-in pinned claude account should succeed: $out"
+  assert_not_contains "$out" "which is not signed in" \
+    "quota divert from pi checked the claude account pin with the pi executable"
+  pass "quota divert away from pi drops the resolved pi executable"
+}
+
 test_same_harness_quota_divert_revalidates_model() {
   local rec id out status prober
   id=profile-quota-divert-same-harness-z8h
@@ -1989,6 +2035,7 @@ test_pi_tui_mode_probe_is_safe_for_old_and_new_pi
 test_quota_divert_to_pi_rebuilds_launch
 test_quota_divert_to_cursor_rebuilds_launch
 test_same_harness_quota_divert_revalidates_model
+test_quota_divert_from_pi_drops_pi_executable
 test_raw_launch_quota_divert_runs_command_verbatim
 test_pi_signed_threads_shared_pi_profile_and_preserves_identity
 test_pi_signed_missing_binary_refuses_before_endpoint_or_metadata
