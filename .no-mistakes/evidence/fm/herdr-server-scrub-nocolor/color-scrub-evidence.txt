@@ -1,0 +1,8 @@
+ok - real tmux: an unscrubbed server birth really does hand NO_COLOR to every later window
+ok - real tmux: fm_backend_tmux_container_ensure scrubs color control from the server it births, leaving unrelated launch environment intact
+ok - real tmux: a second container_ensure reuses the existing session instead of birthing another server
+ok - real tmux: cleanup kills every private server this test births
+ok - fm_backend_zellij_server_ensure: drops the launcher's color control from the session it births, leaving unrelated launch environment intact
+ok - fm-teardown.sh: force cleanup kills zellij children using the child home tag
+ok - fm_backend_herdr_server_ensure: scrubs home, harness identity, and color-suppression vars without disturbing unrelated environment or session routing
+ok - fm_backend_herdr_composer_state: grok's dark-truecolor placeholder (the TRUECOLOR gap) reads empty
