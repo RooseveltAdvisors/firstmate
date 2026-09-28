@@ -1,0 +1,9 @@
+$ fm-spawn.sh ... --harness codex --model codex/gpt-5 --effort max   (quota prober answers: harness=pi model=openai-codex/gpt-5.6-sol)
+exit=0
+--- spawn output ---
+jev-quota-prober: automatically diverted codex:codex/gpt-5 to viable lane pi:openai-codex/gpt-5.6-sol
+warning: /tmp/fm-spawn-dispatch-profile.MyxHwb/evidence-quota-divert-pi/home/data/evidence-quota-divert-pi-z9a/launch-brief.md records no ship branch; defaulting to legacy branch fm/evidence-quota-divert-pi-z9a
+warning: /tmp/fm-spawn-dispatch-profile.MyxHwb/evidence-quota-divert-pi/home/data/evidence-quota-divert-pi-z9a/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+spawned evidence-quota-divert-pi-z9a harness=pi kind=ship mode=no-mistakes yolo=off window=firstmate:fm-evidence-quota-divert-pi-z9a worktree=/tmp/fm-spawn-dispatch-profile.MyxHwb/evidence-quota-divert-pi/wt
+--- launched pane command ---
+export COMPACT_ADVISER_DISABLE=1; export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0='/tmp/fm-spawn-dispatch-profile.MyxHwb/evidence-quota-divert-pi/home/state/evidence-quota-divert-pi-z9a.git-hooks'; env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI FM_PI_HARNESS=pi '/tmp/fm-spawn-dispatch-profile.MyxHwb/evidence-quota-divert-pi/fake/fakebin/pi' --tui-mode regular --model 'openai-codex/gpt-5.6-sol' --thinking 'max' -e '/tmp/fm-spawn-dispatch-profile.MyxHwb/evidence-quota-divert-pi/home/state/evidence-quota-divert-pi-z9a.pi-ext.ts' "$('/home/jon/.no-mistakes/worktrees/46339c0817e0/01M3KX3X6PGTDK4HQARR021H4C/bin/fm-operational-input.sh' encode launch-brief < '/tmp/fm-spawn-dispatch-profile.MyxHwb/evidence-quota-divert-pi/home/data/evidence-quota-divert-pi-z9a/launch-brief.md')"
