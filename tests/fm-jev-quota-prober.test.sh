@@ -45,8 +45,12 @@ if [ "${CODEX_MODEL_EXHAUSTED:-0}" = 1 ]; then
   codex_model_remaining=0
   codex_model_runway=exhausted_now
 fi
-printf '{"schemaVersion":5,"providers":[{"provider":"cursor","state":{"status":"fresh","stale":%s},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":%s,"runway":{"status":"%s"}}]}},{"provider":"codex","state":{"status":"fresh","stale":false},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":%s,"runway":{"status":"%s"}},{"scope":"model:gpt-5.6-luna","status":"known","effectivePercentRemaining":%s,"runway":{"status":"%s"}}]}}]}\n' \
-  "$cursor_stale" "$cursor_remaining" "$cursor_runway" "$codex_remaining" "$codex_runway" "$codex_model_remaining" "$codex_model_runway"
+second_cursor=
+if [ "${CURSOR_SECOND_ACCOUNT_EXHAUSTED:-0}" = 1 ]; then
+  second_cursor='{"provider":"cursor","accountKey":"work","state":{"status":"fresh","stale":false},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":0,"runway":{"status":"exhausted_now"}}]}},'
+fi
+printf '{"schemaVersion":6,"providers":[%s{"provider":"cursor","state":{"status":"fresh","stale":%s},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":%s,"runway":{"status":"%s"}}]}},{"provider":"codex","state":{"status":"fresh","stale":false},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":%s,"runway":{"status":"%s"}},{"scope":"model:gpt-5.6-luna","status":"known","effectivePercentRemaining":%s,"runway":{"status":"%s"}}]}}]}\n' \
+  "$second_cursor" "$cursor_stale" "$cursor_remaining" "$cursor_runway" "$codex_remaining" "$codex_runway" "$codex_model_remaining" "$codex_model_runway"
 SH
 chmod +x "$FAKEBIN/quota-axi"
 export PATH="$FAKEBIN:$PATH"
@@ -83,9 +87,9 @@ printf '4. Verify zai bundle is not dry without evidence...\n'
 zai_out=$("$PROBER" --harness pi --model zai-general/glm-5.3-flash --auto-divert) || fail "zai probe without dry evidence failed"
 echo "$zai_out" | grep -q "harness=pi model=zai-general/glm-5.3-flash healthy=1" || fail "zai bundle reported dry without marker or outcome evidence"
 printf '{"branch":"x","note":"zai-general insufficient balance"}\n' > "$FM_HOME/state/branch-outcomes.jsonl"
-"$PROBER" --harness pi --model zai-general/glm-5.3-flash --json >/dev/null && fail "zai outcome evidence did not mark the bundle dry"
+"$PROBER" --harness pi --model zai-general/glm-5.3-flash --json >/dev/null || fail "free-form outcome history marked the zai bundle dry"
 rm "$FM_HOME/state/branch-outcomes.jsonl"
-ok "zai dryness comes only from marker or outcome evidence"
+ok "zai dryness comes only from the explicit marker"
 
 touch "$FM_HOME/state/.zai-bundle-dry"
 divert_out=$("$PROBER" --harness pi --model zai-general/glm-5.3-flash --auto-divert) || fail "auto-divert failed"
@@ -159,5 +163,25 @@ assert data["divert_harness"] == ""
 ' || fail "$1 unknown-evidence result was malformed"
 done
 ok "absent quota evidence reports unknown and permits no launch"
+
+printf '12. Verify direct probes require confirmed runway...\n'
+"$PROBER" --harness cursor --model composer-2.5 --json >/dev/null || fail "fresh confirmed cursor runway reported unhealthy"
+for env in CURSOR_UNKNOWN_RUNWAY CURSOR_STALE CURSOR_SECOND_ACCOUNT_EXHAUSTED; do
+  if env "$env=1" "$PROBER" --harness cursor --model composer-2.5 --json >/dev/null; then
+    fail "cursor probe with $env reported healthy"
+  fi
+done
+ok "direct probes refuse unconfirmed runway and any exhausted account"
+
+printf '13. Verify Pi models need their own provider evidence...\n'
+if pi_out=$("$PROBER" --harness pi --model openai/gpt-5.5 --json); then
+  fail "Pi openai model reported healthy from unrelated provider evidence"
+fi
+printf '%s\n' "$pi_out" | python3 -c '
+import json, sys
+assert json.load(sys.stdin)["status"] == "unknown"
+' || fail "Pi unrelated-evidence result was malformed"
+"$PROBER" --harness pi --model codex/gpt-5.6-luna --json >/dev/null || fail "Pi model with matching provider evidence reported unhealthy"
+ok "Pi models are judged by their own provider evidence"
 
 printf 'ok - all fm-jev-quota-prober tests passed\n'

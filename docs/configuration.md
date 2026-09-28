@@ -710,7 +710,7 @@ A local standalone-clone home cannot receive a primary-local commit through that
 ## Harness support
 
 claude, codex, opencode, pi, pi-signed, kimi, cursor, and omp are empirically verified for crewmate and secondmate launches; gemini is verified for crewmate and scout launches only, and [README requirements](../README.md#requirements) own the set supported for the primary session.
-Grok is reserved for the primary Firstmate session: the spawn quota preflight refuses the standalone `grok` harness and every model whose id contains `grok` before creating a crewmate, scout, or secondmate, and it offers Cursor Composer only when fresh quota evidence confirms positive usable runway.
+Grok is reserved for the primary Firstmate session: the spawn quota preflight refuses the standalone `grok` harness and every model whose id contains `grok` before creating a crewmate, scout, or secondmate, and its refusal recommends Cursor Composer only when fresh quota evidence confirms positive usable runway; the spawn never diverts on its own.
 
 ### Harness restrictions and credentials
 

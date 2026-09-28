@@ -3,8 +3,9 @@
 fm-jev-quota-prober.py - Jev System One Pre-Flight Quota & Token Health Prober.
 
 Performs sub-second runway and credential probes before worker launch to prevent
-429 quota exhaustion and revoked-token stalls. Automatically diverts doomed
-worker spawns only to a permitted lane with confirmed runway.
+429 quota exhaustion and revoked-token stalls. For a doomed lane it recommends,
+and with --auto-divert emits, only a permitted lane with confirmed runway; the
+caller decides whether to launch that recommendation.
 
 Usage:
   bin/fm-jev-quota-prober.py --harness <harness> [--model <model>] [--auto-divert] [--json]
@@ -27,8 +28,8 @@ DEFAULT_SAFE_MODEL = "composer-2.5"
 
 def query_quota_axi(providers: list[str] | None = None) -> dict:
     """Fetch structured quota evidence from quota-axi in sub-second time."""
-    quota_axi_bin = shutil.which("quota-axi") or "/home/jon/.npm-global/bin/quota-axi"
-    if not os.path.exists(quota_axi_bin):
+    quota_axi_bin = shutil.which("quota-axi")
+    if not quota_axi_bin:
         return {}
 
     cmd = [quota_axi_bin, "--json"]
@@ -51,25 +52,9 @@ def query_quota_axi(providers: list[str] | None = None) -> dict:
 
 
 def is_zai_bundle_dry() -> bool:
-    """Check if zai-general API bundle has been confirmed dry by fleet spend facts."""
-    fm_root = Path(os.environ.get("FM_HOME", "/opt/ra/firstmate"))
-    # 1. Check direct marker if present
-    marker = fm_root / "state" / ".zai-bundle-dry"
-    if marker.exists():
-        return True
-
-    # 2. Check recent branch outcomes for confirmed spend fact
-    outcomes_f = fm_root / "state" / "branch-outcomes.jsonl"
-    if outcomes_f.exists():
-        try:
-            # Read last 50 lines
-            lines = outcomes_f.read_text(encoding="utf-8", errors="replace").splitlines()[-50:]
-            for line in reversed(lines):
-                if "zai-general" in line and ("dry" in line.lower() or "insufficient balance" in line.lower()):
-                    return True
-        except Exception:
-            pass
-    return False
+    """Check if the zai-general API bundle carries the explicit dry spend marker."""
+    fm_root = Path(os.environ.get("FM_HOME") or Path(__file__).resolve().parent.parent)
+    return (fm_root / "state" / ".zai-bundle-dry").exists()
 
 
 def applicable_availability(provider: dict, model: str) -> list[dict]:
@@ -117,15 +102,22 @@ def availability_confirmed(provider: dict, model: str) -> bool:
     )
 
 
+def all_accounts_confirmed(accounts: list[dict], model: str) -> bool:
+    # ponytail: the prober has no account selector, so every account row of a
+    # provider must confirm runway; add an --account flag when lanes need one.
+    return bool(accounts) and all(availability_confirmed(a, model) for a in accounts)
+
+
 def unhealthy_result(
     harness: str,
     model: str,
     status: str,
     reason: str,
-    providers: dict[str, dict],
+    providers: dict[str, list[dict]],
 ) -> dict:
-    cursor_info = providers.get(DEFAULT_SAFE_HARNESS, {})
-    has_safe_diversion = availability_confirmed(cursor_info, DEFAULT_SAFE_MODEL)
+    has_safe_diversion = all_accounts_confirmed(
+        providers.get(DEFAULT_SAFE_HARNESS, []), DEFAULT_SAFE_MODEL
+    )
     return {
         "harness": harness,
         "model": model,
@@ -146,7 +138,9 @@ def probe_harness(harness: str, model: str | None = None) -> dict:
     model = (model or "").lower().strip()
 
     quota_data = query_quota_axi()
-    providers = {p.get("provider"): p for p in quota_data.get("providers", [])}
+    providers: dict[str, list[dict]] = {}
+    for row in quota_data.get("providers", []):
+        providers.setdefault(row.get("provider"), []).append(row)
 
     if harness == "grok" or "grok" in model:
         return unhealthy_result(
@@ -157,62 +151,55 @@ def probe_harness(harness: str, model: str | None = None) -> dict:
             providers,
         )
 
-    needs_quota_evidence = harness in {"codex", "cursor"} or (
-        harness == "pi" and not ("zai-general" in model or "glm" in model)
-    )
-    evidence = providers.get(harness) if harness in {"codex", "cursor"} else providers
-    if needs_quota_evidence and not evidence:
-        return unhealthy_result(
-            harness,
-            model,
-            "unknown",
-            "No quota evidence available; runway is unknown",
-            providers,
-        )
-
-    # 1. Codex Probe
-    if harness == "codex":
-        codex_info = providers.get("codex", {})
-        state = codex_info.get("state", {})
-        if state.get("error") or state.get("stale"):
-            return unhealthy_result(
-                harness,
-                model,
-                "revoked_or_unavailable",
-                state.get("error") or "Codex credentials unavailable or revoked",
-                providers,
-            )
-        credits = codex_info.get("credits", {}).get("remaining", 1)
-        if credits <= 0 or availability_exhausted(codex_info, model):
+    # Pi GLM lanes are judged by the zai spend marker; every other lane needs
+    # quota evidence from its own provider (a Pi model's is its id prefix).
+    if harness == "pi" and ("zai-general" in model or "glm" in model):
+        if is_zai_bundle_dry():
             return unhealthy_result(
                 harness,
                 model,
                 "exhausted",
-                "Codex quota exhausted",
+                "zai-general bundle is DRY (spend fact: insufficient balance)",
                 providers,
             )
-
-    # 2. Pi / Zai Probe
-    elif harness == "pi":
-        if "zai-general" in model or "glm" in model:
-            if is_zai_bundle_dry():
+    else:
+        provider = model.split("/", 1)[0] if harness == "pi" and "/" in model else harness
+        accounts = providers.get(provider, [])
+        if not accounts:
+            return unhealthy_result(
+                harness,
+                model,
+                "unknown",
+                "No quota evidence available; runway is unknown",
+                providers,
+            )
+        for account in accounts:
+            state = account.get("state", {})
+            if state.get("error"):
+                return unhealthy_result(
+                    harness,
+                    model,
+                    "revoked_or_unavailable",
+                    state["error"],
+                    providers,
+                )
+            if (
+                account.get("credits", {}).get("remaining", 1) <= 0
+                or availability_exhausted(account, model)
+            ):
                 return unhealthy_result(
                     harness,
                     model,
                     "exhausted",
-                    "zai-general bundle is DRY (spend fact: insufficient balance)",
+                    f"{provider} quota exhausted",
                     providers,
                 )
-
-    # 3. Cursor Probe
-    elif harness == "cursor":
-        cursor_info = providers.get("cursor", {})
-        if availability_exhausted(cursor_info, model):
+        if not all_accounts_confirmed(accounts, model):
             return unhealthy_result(
                 harness,
                 model,
-                "exhausted",
-                "Cursor generic quota exhausted",
+                "unknown",
+                f"{provider} quota evidence is stale or runway is unconfirmed",
                 providers,
             )
 

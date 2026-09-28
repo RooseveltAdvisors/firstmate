@@ -2371,7 +2371,10 @@ if [ "$KIND" = secondmate ] && [ -z "$ARG3" ]; then
   fi
 fi
 if [ "$RAW_LAUNCH" = 1 ]; then
-  refuse_forbidden_crew_profile "$HARNESS" "$MODEL $LAUNCH" || exit 1
+  # Judge each word by its basename so a directory named after Grok never
+  # refuses a non-Grok binary, while a grok binary or grok model id still does.
+  read -r -a RAW_LAUNCH_WORDS <<<"$LAUNCH"
+  refuse_forbidden_crew_profile "$HARNESS" "$MODEL ${RAW_LAUNCH_WORDS[*]##*/}" || exit 1
 else
   refuse_forbidden_crew_profile "$HARNESS" "$MODEL" || exit 1
 fi
