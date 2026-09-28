@@ -575,22 +575,6 @@ cmd_watch_fire() {
     echo "already-closed-recorded: $issue"
     return 0
   fi
-  # The watch saw a close, but the issue may have been reopened since: only
-  # announce a close GitHub still confirms. An open (rc 1) or unreadable (rc 2)
-  # state fails the action, which the when runner surfaces as action-failed for
-  # the captain; once that wake is retired (sos-dispatch-loop skill, Close-watch
-  # wakes), reconcile re-arms the watch for an open issue or closes the row of
-  # a closed one.
-  local state_rc=0
-  gh_state "$issue" || state_rc=$?
-  if [ "$state_rc" -eq 1 ]; then
-    echo "hold: GH #$issue is open again - captain_review, no captain-closed announcement" >&2
-    return 1
-  fi
-  if [ "$state_rc" -ne 0 ]; then
-    echo "not-confirmed-closed: GH #$issue state unknown; no captain-closed announcement" >&2
-    return 1
-  fi
   if ! ledger_recorded "comment key=[^ ]* issue=$issue transition=captain-closed"; then
     gh_comment "$issue" "$(comment_body captain-closed "$key" "$issue" "" "")"
     log_line "comment key=$key issue=$issue transition=captain-closed"
@@ -604,6 +588,18 @@ cmd_watch_fire() {
   # The handoff marker the reporter-notification leg reads: the close is now
   # known and announced on the issue the reporter's ticket view renders.
   log_line "closed key=$key issue=$issue"
+  # The state read runs after the records and is diagnostic only: the watch
+  # fired because its condition saw CLOSED, and the when runner has already
+  # claimed the terminal fired marker, so gating on an unreadable state would
+  # lose the close for good. A reopen between the condition and this action is
+  # covered by reconcile, which reports a close record over an open issue as
+  # captain_review on the next pass.
+  local state_rc=0
+  gh_state "$issue" || state_rc=$?
+  case "$state_rc" in
+    1) echo "reopened-after-close: GH #$issue is open again; close recorded, next reconcile holds it for captain_review" ;;
+    2) echo "warn: GH #$issue state unreadable after recording the close" >&2 ;;
+  esac
   echo "captain-closed: $issue"
 }
 
