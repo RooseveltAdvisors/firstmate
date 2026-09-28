@@ -54,16 +54,19 @@ case "${1:-}" in
         n="${3:-}"
         case "$*" in
           *--json*title*)
+            [ -f "$FAKE/gh-view-fail-$n" ] && exit 1
             if [ -f "$FAKE/gh-view-$n.json" ]; then cat "$FAKE/gh-view-$n.json"
             else echo '{"title":"SOS: reported problem","body":"body","labels":[{"name":"sos"}]}'
             fi ;;
           *)
+            [ -f "$FAKE/gh-state-fail-$n" ] && exit 1
             if [ -f "$FAKE/gh-state-$n" ]; then cat "$FAKE/gh-state-$n"; else echo '{"state":"OPEN"}'; fi ;;
         esac
         ;;
       edit)
         n="${3:-}"
         echo "edit $n $*" >> "$FAKE/edit.log"
+        [ -f "$FAKE/edit-fail" ] && exit 1
         exit 0 ;;
       comment)
         n="${3:-}"
@@ -538,6 +541,7 @@ test_manual_comment_then_the_loop_never_duplicates_it() {
   assert_contains "$second" "$TASK_ID" \
     "a manual dispatched comment must carry the real task id: $second"
   out=$(run_intake "$parts" comment "$GH_ISSUE" captain-closed) || fail "manual captain-closed failed: $out"
+  echo '{"state":"CLOSED"}' > "$fd/gh-state-$GH_ISSUE"
   out=$(run_intake "$parts" watch-fire "$GH_ISSUE" "$SOS_UUID") || fail "watch-fire failed: $out"
   assert_equals "1" "$(count_of 'Closed by the captain' "$fd/comments.log")" \
     "the watch must not duplicate a manual captain-closed comment"
@@ -859,6 +863,7 @@ test_watch_fire_comments_closes_the_task_and_never_the_issue() {
   fd=${parts##*|}
   run_intake "$parts" reconcile >/dev/null || fail "setup reconcile failed"
 
+  echo '{"state":"CLOSED"}' > "$fd/gh-state-$GH_ISSUE"
   out=$(run_intake "$parts" watch-fire "$GH_ISSUE" "$SOS_UUID") || fail "watch-fire failed: $out"
   assert_contains "$out" "captain-closed" "watch-fire must report the close"
   assert_contains "$(cat "$fd/comments.log")" "Closed by the captain" \
@@ -1275,6 +1280,160 @@ SH
   pass "a tasks-axi without --why still gets its row"
 }
 
+test_unread_report_is_never_judged() {
+  local parts home fd out
+  parts=$(setup_case unread)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  : > "$fd/gh-view-fail-$GH_ISSUE"
+
+  out=$(run_intake "$parts" reconcile 2>&1) || fail "reconcile failed: $out"
+  assert_contains "$out" "verdict deferred" "an unreadable report must defer: $out"
+  [ ! -f "$fd/jev.log" ] || fail "jev must never judge an unread report"
+  [ ! -f "$fd/spawn.log" ] || fail "an unread report must never spawn"
+  [ ! -f "$fd/comments.log" ] || fail "an unread report must never comment"
+  assert_no_grep "verdict key=" "$home/state/fm-issue-intake.log" "no verdict may be ledgered"
+  assert_equals "0" "$(cat "$home/state/fm-issue-intake.cursor" 2>/dev/null || echo 0)" \
+    "the cursor must stay on the deferred ticket"
+
+  rm -f "$fd/gh-view-fail-$GH_ISSUE"
+  out=$(run_intake "$parts" reconcile) || fail "retry failed: $out"
+  assert_contains "$out" "dispatched=1" "the readable retry dispatches: $out"
+  pass "an unreadable report is deferred, never judged"
+}
+
+test_unknown_issue_state_never_dispatches() {
+  local parts home fd out
+  parts=$(setup_case unknown-state)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  : > "$fd/gh-state-fail-$GH_ISSUE"
+
+  out=$(run_intake "$parts" reconcile 2>&1) || fail "reconcile failed: $out"
+  assert_contains "$out" "dispatched=0" "an unknown state must not dispatch: $out"
+  [ ! -f "$fd/spawn.log" ] || fail "an unknown state must never spawn"
+  [ ! -f "$fd/comments.log" ] || fail "an unknown state must never comment"
+  [ ! -f "$home/state/when/when-sos-$GH_ISSUE.spec" ] || fail "an unknown state must not arm a watch"
+
+  rm -f "$fd/gh-state-fail-$GH_ISSUE"
+  out=$(run_intake "$parts" reconcile) || fail "retry failed: $out"
+  assert_contains "$out" "dispatched=1" "the retry dispatches once GitHub answers: $out"
+  pass "an unknown GitHub state never permits dispatch"
+}
+
+test_decline_retries_a_failed_label() {
+  local parts home fd out
+  parts=$(setup_case label-fail)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  printf 'not_supported\n' > "$fd/jev-verdict"
+  : > "$fd/allow-close"
+  : > "$fd/edit-fail"
+
+  out=$(run_intake "$parts" reconcile 2>&1) || fail "reconcile failed: $out"
+  assert_contains "$out" "failed: decline" "a failed label must fail the decline: $out"
+  assert_no_grep "CLOSE-ATTEMPTED" "$fd/gh.log" "the issue must not close without its label"
+  assert_no_grep "declined key=" "$home/state/fm-issue-intake.log" "the decline must not be recorded"
+
+  rm -f "$fd/edit-fail"
+  out=$(run_intake "$parts" reconcile) || fail "retry failed: $out"
+  assert_contains "$out" "declined=1" "the retry completes the decline: $out"
+  assert_equals "1" "$(count_of "**Not supported**" "$fd/comments.log")" "the decline comment posts once"
+  pass "a decline whose label failed is retried, never recorded complete"
+}
+
+test_closed_not_supported_ticket_closes_its_row() {
+  local parts fd out
+  parts=$(setup_case closed-decline)
+  fd=${parts##*|}
+  printf 'not_supported\n' > "$fd/jev-verdict"
+  echo '{"state":"CLOSED"}' > "$fd/gh-state-$GH_ISSUE"
+
+  out=$(run_intake "$parts" reconcile) || fail "reconcile failed: $out"
+  assert_contains "$out" "already-closed" "the closed ticket is recognised: $out"
+  assert_equals "done" "$(task_state_of "$parts")" "a closed ticket must not leave a queued row"
+  assert_no_grep "CLOSE-ATTEMPTED" "$fd/gh.log" "intake must not re-close it"
+  pass "a not_supported ticket already closed at intake closes its row"
+}
+
+test_watch_fire_never_announces_a_reopened_issue() {
+  local parts fd out
+  parts=$(setup_case fire-reopened)
+  fd=${parts##*|}
+  run_intake "$parts" reconcile >/dev/null || fail "setup reconcile failed"
+
+  if out=$(run_intake "$parts" watch-fire "$GH_ISSUE" "$SOS_UUID" 2>&1); then
+    fail "watch-fire on an open issue must fail: $out"
+  fi
+  assert_contains "$out" "not-closed" "the refusal must be visible: $out"
+  assert_equals "0" "$(count_of 'Closed by the captain' "$fd/comments.log")" \
+    "an open issue must never get a closure announcement"
+  assert_not_equals "done" "$(task_state_of "$parts")" "the row must stay open"
+  pass "watch-fire never announces a close GitHub no longer reports"
+}
+
+test_marker_twin_never_adopts_another_issues_row() {
+  local parts home fd stub out
+  parts=$(setup_case marker-adopt)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  set_bridge_empty "$fd"
+  cat > "$fd/gh-list.json" <<EOF
+[{"number":$GH_ISSUE,"url":"https://github.com/ArcsHealth/Portal/issues/$GH_ISSUE","title":"t","body":"- **SOS ID:** \`$SOS_UUID\`\n"},
+ {"number":1922,"url":"https://github.com/ArcsHealth/Portal/issues/1922","title":"t","body":"- **SOS ID:** \`$SOS_UUID\`\n"}]
+EOF
+  stub="$home/fake-tasks-axi-1922-fails"
+  cat > "$stub" <<SH
+#!/usr/bin/env bash
+case " \$* " in
+  *"GH #1922"*) exit 1 ;;
+esac
+exec "$TASKS_AXI" "\$@"
+SH
+  chmod +x "$stub"
+  out=$(TEST_TASKS_OVERRIDE="$stub" run_intake "$parts" reconcile 2>&1) || fail "first pass failed: $out"
+  assert_contains "$out" "dispatched=1" "only the first issue dispatches: $out"
+
+  # The candidate order flips: #1922 now sees the marker first.
+  cat > "$fd/gh-list.json" <<EOF
+[{"number":1922,"url":"https://github.com/ArcsHealth/Portal/issues/1922","title":"t","body":"- **SOS ID:** \`$SOS_UUID\`\n"},
+ {"number":$GH_ISSUE,"url":"https://github.com/ArcsHealth/Portal/issues/$GH_ISSUE","title":"t","body":"- **SOS ID:** \`$SOS_UUID\`\n"}]
+EOF
+  out=$(run_intake "$parts" reconcile 2>&1) || fail "second pass failed: $out"
+  task_present "$parts" "fm-iss-gh-issue-1922" || fail "#1922 must get its own row: $out"
+  assert_equals "1" "$(count_of "fm-spawn $TASK_ID " "$fd/spawn.log")" \
+    "the marker row must be spawned exactly once: $(cat "$fd/spawn.log")"
+  assert_equals "1" "$(count_of "fm-spawn fm-iss-gh-issue-1922 " "$fd/spawn.log")" \
+    "#1922 must spawn on its own row"
+  pass "an unbound marker twin never adopts another issue's row"
+}
+
+test_overlapping_reconcile_passes_never_both_dispatch() {
+  local parts home fd out holder
+  parts=$(setup_case overlap)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  # shellcheck disable=SC2016  # expanded by the child bash, not here.
+  FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" bash -c '
+    . "$1/bin/fm-wake-lib.sh"
+    fm_lock_try_acquire "$FM_STATE_OVERRIDE/.fm-issue-intake.lock" || exit 1
+    : > "$2/lock-held"
+    exec sleep 30
+  ' _ "$ROOT" "$fd" >/dev/null 2>&1 &
+  holder=$!
+  for _ in $(seq 1 100); do [ -f "$fd/lock-held" ] && break; sleep 0.1; done
+  [ -f "$fd/lock-held" ] || fail "could not hold the reconcile lock"
+
+  out=$(run_intake "$parts" reconcile) || fail "overlapping reconcile failed: $out"
+  assert_contains "$out" "skipping" "an overlapping pass must stand down: $out"
+  [ ! -f "$fd/spawn.log" ] || fail "an overlapping pass must never spawn"
+  kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
+
+  out=$(run_intake "$parts" reconcile) || fail "reconcile after release failed: $out"
+  assert_contains "$out" "dispatched=1" "the next pass dispatches once: $out"
+  pass "overlapping reconcile passes never both dispatch"
+}
+
 test_reconcile_creates_one_task_comment_watch_and_dispatch
 test_reconcile_is_idempotent_across_replays_and_lost_cursors
 test_lost_event_is_healed_from_github
@@ -1308,3 +1467,10 @@ test_reopened_close_record_is_held_for_the_captain
 test_duplicate_marker_keeps_both_issues_as_candidates
 test_large_backlog_payloads_never_wedge_reconcile
 test_ensure_survives_a_tasks_axi_without_why
+test_unread_report_is_never_judged
+test_unknown_issue_state_never_dispatches
+test_decline_retries_a_failed_label
+test_closed_not_supported_ticket_closes_its_row
+test_watch_fire_never_announces_a_reopened_issue
+test_marker_twin_never_adopts_another_issues_row
+test_overlapping_reconcile_passes_never_both_dispatch

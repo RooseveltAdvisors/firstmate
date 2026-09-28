@@ -141,17 +141,35 @@ captain_closed_recorded() {  # <issue> -> 0 iff the loop announced the captain's
     || ledger_recorded "comment key=[^ ]* issue=$1 transition=captain-closed"
 }
 
-closed_reason_for() {  # <issue> -> why the issue is closed, "reopened" when a close is recorded but not confirmed by GitHub, else empty
-  if captain_closed_recorded "$1"; then
-    if gh_state "$1"; then
+closed_reason_for() {  # <issue> -> why the issue is closed, "reopened" when a close is recorded but GitHub reports it open, "unknown" when GitHub cannot tell, else empty
+  local rc=0
+  gh_state "$1" || rc=$?
+  if [ "$rc" -eq 2 ]; then
+    printf '%s\n' "unknown"
+  elif captain_closed_recorded "$1"; then
+    if [ "$rc" -eq 0 ]; then
       printf '%s\n' "the captain already closed it"
     else
       printf '%s\n' "reopened"
     fi
-  elif gh_state "$1"; then
+  elif [ "$rc" -eq 0 ]; then
     printf '%s\n' "GitHub reports it closed"
   fi
   return 0
+}
+
+issue_for_task_key() {  # <key> -> the issue first ledgered for this key, else empty
+  [ -f "$LEDGER" ] || return 0
+  sed -n "s/^task key=$1 issue=\([0-9]*\) task=[^ ]* at=.*$/\1/p" "$LEDGER" | head -1
+}
+
+close_task_row() {  # <key> <issue> <note> -> 0 once the row close is ledgered
+  ledger_recorded "task-closed key=[^ ]* issue=$2" && return 0
+  if ! tasks_axi "done" "$(task_id_for_key "$1")" --note "$3" >/dev/null 2>&1; then
+    echo "warn: task row not closed for key=$1" >&2
+    return 1
+  fi
+  log_line "task-closed key=$1 issue=$2"
 }
 
 die() {
@@ -467,27 +485,25 @@ verdict_recorded() {  # <issue> -> the ledgered verdict, or empty
   sed -n "s/^verdict key=[^ ]* issue=$1 verdict=\([a-z_]*\) at=.*/\1/p" "$LEDGER" | tail -1
 }
 
-classify_issue() {  # <issue> -> verdict on stdout; never fails
+classify_issue() {  # <issue> -> verdict on stdout, or "unread" when the report could not be read; never fails
   local issue="$1" out parsed title="" body="" labels=""
-  out=$("$GH" issue view "$issue" --repo "$GH_REPO" --json title,body,labels 2>/dev/null || true)
-  if [ -n "$out" ]; then
-    parsed=$(printf '%s' "$out" | python3 -c 'import json, sys
-try:
-    d = json.load(sys.stdin)
-    print(" ".join((d.get("title") or "").split()))
-    print(" ".join((d.get("body") or "").split()))
-    print(",".join(
-        (x.get("name", "") if isinstance(x, dict) else str(x))
-        for x in (d.get("labels") or [])
-    ))
-except Exception:
-    print()
-    print()
-    print()' 2>/dev/null || true)
-    title=$(printf '%s\n' "$parsed" | sed -n 1p)
-    body=$(printf '%s\n' "$parsed" | sed -n 2p)
-    labels=$(printf '%s\n' "$parsed" | sed -n 3p)
+  # A report that cannot be read is never judged: an empty title/body could
+  # still come back declinable or dispatchable.
+  if ! out=$("$GH" issue view "$issue" --repo "$GH_REPO" --json title,body,labels 2>/dev/null) \
+      || ! parsed=$(printf '%s' "$out" | python3 -c 'import json, sys
+d = json.load(sys.stdin)
+print(" ".join((d.get("title") or "").split()))
+print(" ".join((d.get("body") or "").split()))
+print(",".join(
+    (x.get("name", "") if isinstance(x, dict) else str(x))
+    for x in (d.get("labels") or [])
+))' 2>/dev/null); then
+    echo unread
+    return 0
   fi
+  title=$(printf '%s\n' "$parsed" | sed -n 1p)
+  body=$(printf '%s\n' "$parsed" | sed -n 2p)
+  labels=$(printf '%s\n' "$parsed" | sed -n 3p)
   mkdir -p "$STATE_DIR" 2>/dev/null || true
   # body_file stays global (this function runs in a command-substitution
   # subshell) so the single-quoted EXIT trap still finds it in scope when it
@@ -529,14 +545,9 @@ apply_decline() {  # <key> <issue> -> 0 only when the whole decline landed
       || return 1
     log_line "comment key=$key issue=$issue transition=declined"
   fi
-  "$GH" issue edit "$issue" --repo "$GH_REPO" --add-label "$DECLINE_LABEL" >/dev/null 2>&1 || true
+  "$GH" issue edit "$issue" --repo "$GH_REPO" --add-label "$DECLINE_LABEL" >/dev/null 2>&1 || return 1
   "$GH" issue close "$issue" --repo "$GH_REPO" >/dev/null 2>&1 || return 1
-  if ! tasks_axi "done" "$(task_id_for_key "$key")" \
-      --note "declined: not supported by design (GitHub issue #$issue)" >/dev/null 2>&1; then
-    echo "warn: task row not closed for key=$key" >&2
-  else
-    log_line "task-closed key=$key issue=$issue"
-  fi
+  close_task_row "$key" "$issue" "declined: not supported by design (GitHub issue #$issue)"
 }
 
 # --- close watch ------------------------------------------------------------
@@ -562,6 +573,12 @@ cmd_watch_fire() {
   if ledger_recorded "closed key=[^ ]* issue=$issue"; then
     echo "already-closed-recorded: $issue"
     return 0
+  fi
+  # The watch saw a close, but the issue may have been reopened since: only
+  # announce a close GitHub still confirms.
+  if ! gh_state "$issue"; then
+    echo "not-closed: $issue is open again or unreadable; no captain-closed announcement" >&2
+    return 1
   fi
   if ! ledger_recorded "comment key=[^ ]* issue=$issue transition=captain-closed"; then
     gh_comment "$issue" "$(comment_body captain-closed "$key" "$issue" "" "")"
@@ -611,6 +628,18 @@ cmd_reconcile() {
     esac
   done
 
+  # One pass at a time: the dispatch record is written after the spawn, so two
+  # overlapping passes (periodic + SOS wake) could both spawn one ticket.
+  # shellcheck source=bin/fm-wake-lib.sh
+  FM_STATE_OVERRIDE="$STATE_DIR" . "$BIN/fm-wake-lib.sh"
+  mkdir -p "$STATE_DIR"
+  RECONCILE_LOCK="$STATE_DIR/.fm-issue-intake.lock"
+  if ! fm_lock_try_acquire "$RECONCILE_LOCK"; then
+    echo "reconcile: another pass holds $RECONCILE_LOCK; skipping"
+    return 0
+  fi
+  trap 'fm_lock_release "$RECONCILE_LOCK" 2>/dev/null || true' EXIT
+
   local cursor events_json gh_json
   cursor=$(read_cursor)
   events_json=$("$CURL" -fsS --max-time 10 \
@@ -632,13 +661,21 @@ cmd_reconcile() {
     return 0
   fi
 
-  local key issue url event_id ensured_state verdict watch_spec canonical_key reopened new_work closed_reason handled close_note
+  local key issue url event_id ensured_state verdict watch_spec canonical_key owner reopened new_work closed_reason handled close_note
   while IFS=$'\t' read -r key issue url event_id; do
     [ -n "$key" ] || continue
     [ -n "$issue" ] || { echo "skip: key=$key carries no GitHub issue" >&2; continue; }
     if [ "$url" = "-" ]; then url=""; fi
     canonical_key=$(task_key_for_issue "$issue")
-    if [ -n "$canonical_key" ]; then key="$canonical_key"; fi
+    if [ -n "$canonical_key" ]; then
+      key="$canonical_key"
+    else
+      owner=$(issue_for_task_key "$key")
+      if [ -n "$owner" ] && [ "$owner" != "$issue" ]; then
+        echo "warn: key=$key already bound to GH #$owner; GH #$issue keeps its own row" >&2
+        key="gh-issue-$issue"
+      fi
+    fi
 
     if [ "$dry_run" -eq 1 ]; then
       if tasks_axi show "$(task_id_for_key "$key")" >/dev/null 2>&1; then
@@ -679,6 +716,11 @@ cmd_reconcile() {
     if [ -z "$verdict" ] && [ "$do_verdict" -eq 1 ]; then
       verdict=$(classify_issue "$issue")
       case "$verdict" in
+        unread)
+          echo "failed: could not read GH #$issue; verdict deferred" >&2
+          cursor_blocked=1
+          continue
+          ;;
         supported_bug|not_supported|captain_review) ;;
         *) verdict=captain_review ;;
       esac
@@ -699,10 +741,16 @@ cmd_reconcile() {
         fi
       else
         closed_reason=$(closed_reason_for "$issue")
-        if [ "$closed_reason" = "reopened" ]; then
+        if [ "$closed_reason" = "unknown" ]; then
+          echo "failed: GitHub state unknown for #$issue; retried next pass" >&2
+          cursor_blocked=1
+          continue
+        elif [ "$closed_reason" = "reopened" ]; then
           reopened=1
         elif [ -n "$closed_reason" ]; then
           echo "already-closed: key=$key GH #$issue $closed_reason; the not_supported verdict is not applied"
+          close_task_row "$key" "$issue" "issue #$issue already closed at intake; no dispatch" \
+            || { cursor_blocked=1; continue; }
           handled=1
         elif dispatch_recorded "$issue"; then
           review=$((review + 1))
@@ -732,24 +780,22 @@ cmd_reconcile() {
       fi
       if [ "$new_work" -eq 1 ]; then
         closed_reason=$(closed_reason_for "$issue")
-        if [ "$closed_reason" = "reopened" ]; then
+        if [ "$closed_reason" = "unknown" ]; then
+          echo "failed: GitHub state unknown for #$issue; spawn deferred" >&2
+          cursor_blocked=1
+          continue
+        elif [ "$closed_reason" = "reopened" ]; then
           review=$((review + 1))
           echo "review: key=$key GH #$issue closed earlier and open again - held for the captain (no dispatch)"
           handled=1
         elif [ -n "$closed_reason" ]; then
           echo "skip: GH #$issue already closed - spawn skipped ($closed_reason)"
-          if ! ledger_recorded "task-closed key=[^ ]* issue=$issue"; then
-            if dispatch_recorded "$issue"; then
-              close_note="issue #$issue already closed after dispatch; closing the row"
-            else
-              close_note="issue #$issue already closed at intake; no dispatch"
-            fi
-            if tasks_axi "done" "$(task_id_for_key "$key")" --note "$close_note" >/dev/null 2>&1; then
-              log_line "task-closed key=$key issue=$issue"
-            else
-              echo "warn: task row not closed for key=$key" >&2
-            fi
+          if dispatch_recorded "$issue"; then
+            close_note="issue #$issue already closed after dispatch; closing the row"
+          else
+            close_note="issue #$issue already closed at intake; no dispatch"
           fi
+          close_task_row "$key" "$issue" "$close_note" || { cursor_blocked=1; continue; }
           handled=1
         fi
       fi
