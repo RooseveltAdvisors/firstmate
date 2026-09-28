@@ -138,9 +138,13 @@ captain_closed_recorded() {  # <issue> -> 0 iff the loop announced the captain's
     || ledger_recorded "comment key=[^ ]* issue=$1 transition=captain-closed"
 }
 
-closed_reason_for() {  # <issue> -> why the issue is closed (empty when open/unknown)
+closed_reason_for() {  # <issue> -> why the issue is closed, "reopened" when a close is recorded but not confirmed by GitHub, else empty
   if captain_closed_recorded "$1"; then
-    printf '%s\n' "the captain already closed it"
+    if gh_state "$1"; then
+      printf '%s\n' "the captain already closed it"
+    else
+      printf '%s\n' "reopened"
+    fi
   elif gh_state "$1"; then
     printf '%s\n' "GitHub reports it closed"
   fi
@@ -306,7 +310,7 @@ KEY_OK = re.compile(r"(?:[0-9a-f-]{8,64}|gh-issue-[0-9]+)")
 
 cands = {}
 order = []
-issue_keys = {}
+key_owner = {}
 
 def norm_key(key, issue):
     key = str(key or "").strip().lower()
@@ -329,19 +333,19 @@ def ensure(key, issue, url, event_id):
     if not issue:
         return
     key = norm_key(key, issue)
-    if issue in issue_keys:
-        key = issue_keys[issue]
-    else:
-        issue_keys[issue] = key
-    if key not in cands:
-        cands[key] = {"key": key, "issue": issue, "url": url, "event_id": event_id}
-        order.append(key)
-    else:
-        c = cands[key]
-        c["issue"] = c["issue"] or issue
+    if issue in cands:
+        c = cands[issue]
         c["url"] = c["url"] or url
         if c["event_id"] == "-":
             c["event_id"] = event_id
+        return
+    if key in key_owner:
+        print("warn: GH #%s shares dedupe key %r with GH #%s; keeping the per-issue identity"
+              % (issue, key, key_owner[key]), file=sys.stderr)
+        key = FALLBACK.format(issue)
+    key_owner[key] = issue
+    cands[issue] = {"key": key, "issue": issue, "url": url, "event_id": event_id}
+    order.append(issue)
 
 for ev in events:
     if not isinstance(ev, dict):
@@ -611,7 +615,7 @@ cmd_reconcile() {
     return 0
   fi
 
-  local key issue url event_id ensured_state verdict watch_spec canonical_key reopened new_work closed_reason
+  local key issue url event_id ensured_state verdict watch_spec canonical_key reopened new_work closed_reason handled close_note
   while IFS=$'\t' read -r key issue url event_id; do
     [ -n "$key" ] || continue
     [ -n "$issue" ] || { echo "skip: key=$key carries no GitHub issue" >&2; continue; }
@@ -667,94 +671,92 @@ cmd_reconcile() {
     # it, or one ambiguous ticket would wedge every later event. The GH heal
     # path keeps re-offering it as an open issue anyway.
     reopened=0
+    handled=0
     if [ "$verdict" = "not_supported" ]; then
       if ledger_recorded "declined key=[^ ]* issue=$issue"; then
         if gh_state "$issue"; then
           declined=$((declined + 1))
-          if [ "$event_id" != "-" ] && [ "$cursor_blocked" -eq 0 ]; then
-            new_cursor="$event_id"
-          fi
-          continue
+          handled=1
+        else
+          reopened=1
         fi
-        reopened=1
       else
         closed_reason=$(closed_reason_for "$issue")
-        if [ -n "$closed_reason" ]; then
+        if [ "$closed_reason" = "reopened" ]; then
+          reopened=1
+        elif [ -n "$closed_reason" ]; then
           echo "already-closed: key=$key GH #$issue $closed_reason; the not_supported verdict is not applied"
-          if [ "$event_id" != "-" ] && [ "$cursor_blocked" -eq 0 ]; then
-            new_cursor="$event_id"
-          fi
-          continue
-        fi
-        if dispatch_recorded "$issue"; then
+          handled=1
+        elif dispatch_recorded "$issue"; then
           review=$((review + 1))
           echo "review: key=$key GH #$issue already dispatched to a crewmate; verdict says not_supported - captain decides"
-          if [ "$event_id" != "-" ] && [ "$cursor_blocked" -eq 0 ]; then
-            new_cursor="$event_id"
-          fi
-          continue
+          handled=1
+        else
+          apply_decline "$key" "$issue" \
+            || { echo "failed: decline for #$issue" >&2; cursor_blocked=1; continue; }
+          log_line "declined key=$key issue=$issue"
+          declined=$((declined + 1))
+          handled=1
         fi
-        apply_decline "$key" "$issue" \
-          || { echo "failed: decline for #$issue" >&2; cursor_blocked=1; continue; }
-        log_line "declined key=$key issue=$issue"
-        declined=$((declined + 1))
-        if [ "$event_id" != "-" ] && [ "$cursor_blocked" -eq 0 ]; then
-          new_cursor="$event_id"
-        fi
-        continue
       fi
     fi
-    if [ "$verdict" = "captain_review" ] || [ "$reopened" -eq 1 ]; then
+    if [ "$handled" -eq 0 ] && { [ "$verdict" = "captain_review" ] || [ "$reopened" -eq 1 ]; }; then
       review=$((review + 1))
       echo "review: key=$key GH #$issue held for the captain (no dispatch)"
-      if [ "$event_id" != "-" ] && [ "$cursor_blocked" -eq 0 ]; then
-        new_cursor="$event_id"
-      fi
-      continue
+      handled=1
     fi
 
-    new_work=0
-    if [ ! -f "$watch_spec" ]; then new_work=1; fi
-    if [ "$do_dispatch" -eq 1 ]; then
-      if ! ledger_recorded "comment key=[^ ]* issue=$issue transition=dispatched"; then new_work=1; fi
-      if ! ledger_recorded "dispatch key=[^ ]* issue=$issue( task=[^ ]*)?"; then new_work=1; fi
-    fi
-    if [ "$new_work" -eq 1 ]; then
-      closed_reason=$(closed_reason_for "$issue")
-      if [ -n "$closed_reason" ]; then
-        echo "skip: GH #$issue $closed_reason before any dispatch; no comment, watch, or spawn"
-        if ! ledger_recorded "task-closed key=[^ ]* issue=$issue"; then
-          if tasks_axi "done" "$(task_id_for_key "$key")" \
-              --note "issue #$issue already closed at intake; no dispatch" >/dev/null 2>&1; then
-            log_line "task-closed key=$key issue=$issue"
-          else
-            echo "warn: task row not closed for key=$key" >&2
+    if [ "$handled" -eq 0 ]; then
+      new_work=0
+      if [ ! -f "$watch_spec" ]; then new_work=1; fi
+      if [ "$do_dispatch" -eq 1 ]; then
+        if ! ledger_recorded "comment key=[^ ]* issue=$issue transition=dispatched"; then new_work=1; fi
+        if ! ledger_recorded "dispatch key=[^ ]* issue=$issue( task=[^ ]*)?"; then new_work=1; fi
+      fi
+      if [ "$new_work" -eq 1 ]; then
+        closed_reason=$(closed_reason_for "$issue")
+        if [ "$closed_reason" = "reopened" ]; then
+          review=$((review + 1))
+          echo "review: key=$key GH #$issue closed earlier and open again - held for the captain (no dispatch)"
+          handled=1
+        elif [ -n "$closed_reason" ]; then
+          echo "skip: GH #$issue already closed - spawn skipped ($closed_reason)"
+          if ! ledger_recorded "task-closed key=[^ ]* issue=$issue"; then
+            if dispatch_recorded "$issue"; then
+              close_note="issue #$issue already closed after dispatch; closing the row"
+            else
+              close_note="issue #$issue already closed at intake; no dispatch"
+            fi
+            if tasks_axi "done" "$(task_id_for_key "$key")" --note "$close_note" >/dev/null 2>&1; then
+              log_line "task-closed key=$key issue=$issue"
+            else
+              echo "warn: task row not closed for key=$key" >&2
+            fi
           fi
+          handled=1
         fi
-        if [ "$event_id" != "-" ] && [ "$cursor_blocked" -eq 0 ]; then
-          new_cursor="$event_id"
-        fi
-        continue
       fi
     fi
 
-    if [ "$do_dispatch" -eq 1 ] && ! ledger_recorded "comment key=[^ ]* issue=$issue transition=dispatched"; then
-      gh_comment "$issue" "$(comment_body dispatched "$key" "$issue" "" "$(task_id_for_key "$key")")" \
-        || { echo "failed: dispatched comment on #$issue" >&2; cursor_blocked=1; continue; }
-      log_line "comment key=$key issue=$issue transition=dispatched"
-    fi
+    if [ "$handled" -eq 0 ]; then
+      if [ "$do_dispatch" -eq 1 ] && ! ledger_recorded "comment key=[^ ]* issue=$issue transition=dispatched"; then
+        gh_comment "$issue" "$(comment_body dispatched "$key" "$issue" "" "$(task_id_for_key "$key")")" \
+          || { echo "failed: dispatched comment on #$issue" >&2; cursor_blocked=1; continue; }
+        log_line "comment key=$key issue=$issue transition=dispatched"
+      fi
 
-    if [ ! -f "$watch_spec" ]; then
-      FM_HOME="$FM_HOME" "$WHEN" arm "sos-$issue" \
-        --condition "$BIN/fm-issue-intake.sh" watch-condition "$issue" \
-        --action "$BIN/fm-issue-intake.sh" watch-fire "$issue" "$key" >/dev/null \
-        || { echo "failed: arm close watch for #$issue" >&2; cursor_blocked=1; continue; }
-      log_line "watch key=$key issue=$issue"
-    fi
+      if [ ! -f "$watch_spec" ]; then
+        FM_HOME="$FM_HOME" "$WHEN" arm "sos-$issue" \
+          --condition "$BIN/fm-issue-intake.sh" watch-condition "$issue" \
+          --action "$BIN/fm-issue-intake.sh" watch-fire "$issue" "$key" >/dev/null \
+          || { echo "failed: arm close watch for #$issue" >&2; cursor_blocked=1; continue; }
+        log_line "watch key=$key issue=$issue"
+      fi
 
-    if [ "$do_dispatch" -eq 1 ] && ! ledger_recorded "dispatch key=[^ ]* issue=$issue( task=[^ ]*)?"; then
-      dispatch_ticket "$key" "$issue" || { echo "failed: dispatch for #$issue" >&2; cursor_blocked=1; continue; }
-      dispatched=$((dispatched + 1))
+      if [ "$do_dispatch" -eq 1 ] && ! ledger_recorded "dispatch key=[^ ]* issue=$issue( task=[^ ]*)?"; then
+        dispatch_ticket "$key" "$issue" || { echo "failed: dispatch for #$issue" >&2; cursor_blocked=1; continue; }
+        dispatched=$((dispatched + 1))
+      fi
     fi
 
     # The cursor may only advance through a contiguous prefix of handled

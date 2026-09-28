@@ -1027,6 +1027,7 @@ test_decline_never_touches_a_captain_closed_ticket() {
   out=$(run_intake "$parts" reconcile --no-dispatch --no-verdict) || fail "staging pass failed: $out"
   assert_present "$home/state/when/when-sos-$GH_ISSUE.spec" \
     "the staging pass arms the close watch"
+  echo '{"state":"CLOSED"}' > "$fd/gh-state-$GH_ISSUE"
   out=$(run_intake "$parts" watch-fire "$GH_ISSUE" "$SOS_UUID") || fail "watch-fire failed: $out"
   assert_contains "$out" "captain-closed" "watch-fire must record the close: $out"
 
@@ -1067,6 +1068,9 @@ test_closed_issue_is_never_dispatched_or_watched() {
 
   out=$(run_intake "$parts" reconcile) || fail "closed pass failed: $out"
   assert_contains "$out" "skip:" "a closed ticket must be skipped: $out"
+  assert_contains "$out" "spawn skipped" "the skip must state what happened: $out"
+  assert_not_contains "$out" "before any dispatch" \
+    "the skip must not claim no dispatch exists: $out"
   assert_contains "$out" "task_created=1" "the row is still ensured: $out"
   [ ! -f "$fd/comments.log" ] || fail "a closed issue must get no comment: $(cat "$fd/comments.log")"
   [ ! -f "$fd/spawn.log" ] || fail "a closed issue must never spawn"
@@ -1090,6 +1094,7 @@ test_closed_issue_is_never_dispatched_or_watched() {
   fd=${parts##*|}
   out=$(run_intake "$parts" reconcile --no-dispatch --no-verdict) || fail "staging pass failed: $out"
   assert_contains "$out" "dispatched=0" "the staging pass must not dispatch: $out"
+  echo '{"state":"CLOSED"}' > "$fd/gh-state-$GH_ISSUE"
   out=$(run_intake "$parts" watch-fire "$GH_ISSUE" "$SOS_UUID") || fail "watch-fire failed: $out"
   assert_contains "$out" "captain-closed" "watch-fire must record the close: $out"
 
@@ -1164,6 +1169,91 @@ EOF
   pass "a malformed key and a missing event id degrade to idempotent behavior"
 }
 
+test_reopened_close_record_is_held_for_the_captain() {
+  local parts home fd out
+
+  # (a) decline side: a staged watch, a captain close recorded by watch-fire,
+  # then the issue reopened on GitHub - the stale close record must not
+  # silence the not_supported verdict; it goes to the captain instead.
+  parts=$(setup_case reopened-close-decline)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  printf 'not_supported\n' > "$fd/jev-verdict"
+  out=$(run_intake "$parts" reconcile --no-dispatch --no-verdict) || fail "staging pass failed: $out"
+  echo '{"state":"CLOSED"}' > "$fd/gh-state-$GH_ISSUE"
+  out=$(run_intake "$parts" watch-fire "$GH_ISSUE" "$SOS_UUID") || fail "watch-fire failed: $out"
+  assert_contains "$out" "captain-closed" "watch-fire must record the close: $out"
+  echo '{"state":"OPEN"}' > "$fd/gh-state-$GH_ISSUE"
+
+  out=$(run_intake "$parts" reconcile) || fail "gate-on pass failed: $out"
+  assert_contains "$out" "review=1" "the reopened ticket must reach the captain: $out"
+  assert_contains "$out" "held for the captain" "the review line must be reported: $out"
+  assert_contains "$out" "declined=0" "a reopened ticket must not be declined: $out"
+  assert_equals "0" "$(count_of '**Not supported**' "$fd/comments.log")" \
+    "no decline comment on a reopened ticket"
+  assert_no_grep "CLOSE-ATTEMPTED" "$fd/gh.log" \
+    "a reopened ticket must never be closed"
+  assert_equals "1" "$(cat "$home/state/fm-issue-intake.cursor")" \
+    "the reopened ticket must still advance the cursor"
+
+  # (b) dispatch side: the same closed-then-reopened ticket with a
+  # dispatchable verdict - reported for the captain, never skipped silently,
+  # never dispatched.
+  parts=$(setup_case reopened-close-dispatch)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  out=$(run_intake "$parts" reconcile --no-dispatch --no-verdict) || fail "staging pass failed: $out"
+  echo '{"state":"CLOSED"}' > "$fd/gh-state-$GH_ISSUE"
+  out=$(run_intake "$parts" watch-fire "$GH_ISSUE" "$SOS_UUID") || fail "watch-fire failed: $out"
+  echo '{"state":"OPEN"}' > "$fd/gh-state-$GH_ISSUE"
+
+  out=$(run_intake "$parts" reconcile) || fail "gate-on pass failed: $out"
+  assert_contains "$out" "review=1" "the reopened ticket must reach the captain: $out"
+  assert_contains "$out" "open again" "the review line must state why: $out"
+  assert_equals "0" "$(count_of 'Issue intake' "$fd/comments.log")" \
+    "no dispatch comment on a reopened ticket"
+  [ ! -f "$fd/spawn.log" ] || fail "a reopened ticket must never spawn"
+  assert_equals "1" "$(cat "$home/state/fm-issue-intake.cursor")" \
+    "the reopened ticket must still advance the cursor"
+  pass "a stale close record over an open issue is held for the captain"
+}
+
+test_duplicate_marker_keeps_both_issues_as_candidates() {
+  local parts home fd out rows
+  parts=$(setup_case duplicate-marker)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  set_bridge_empty "$fd"
+  cat > "$fd/gh-list.json" <<EOF
+[{"number":$GH_ISSUE,"url":"https://github.com/ArcsHealth/Portal/issues/$GH_ISSUE","title":"SOS: reported problem","body":"### SOS Voice Ticket\n- **SOS ID:** \`$SOS_UUID\`\n"},
+ {"number":1922,"url":"https://github.com/ArcsHealth/Portal/issues/1922","title":"SOS: reported problem","body":"### SOS Voice Ticket\n- **SOS ID:** \`$SOS_UUID\`\n"}]
+EOF
+
+  out=$(run_intake "$parts" reconcile) || fail "first pass failed: $out"
+  assert_contains "$out" "task_created=2" \
+    "both issues carrying one marker must get a row: $out"
+  assert_contains "$out" "dispatched=2" \
+    "both issues carrying one marker must dispatch: $out"
+  task_present "$parts" "fm-iss-$SOS_UUID" || fail "the first issue keeps the marker row"
+  task_present "$parts" "fm-iss-gh-issue-1922" || \
+    fail "the second issue must get its own per-issue row"
+  assert_equals "2" "$(count_of 'Issue intake' "$fd/comments.log")" \
+    "one dispatched comment per issue"
+  assert_equals "2" "$(count_of 'fm-spawn' "$fd/spawn.log")" \
+    "one spawn per issue"
+  rows=$(FM_HOME="$home" "$TASKS_AXI" list 2>/dev/null | grep -cE '^  (fm-)?(sos|iss)-')
+  assert_equals "2" "${rows:-0}" "two issues are exactly two rows"
+
+  out=$(run_intake "$parts" reconcile) || fail "replay failed: $out"
+  assert_contains "$out" "task_created=0" "the replay mints no row: $out"
+  assert_contains "$out" "dispatched=0" "the replay dispatches nothing: $out"
+  assert_equals "2" "$(count_of 'Issue intake' "$fd/comments.log")" \
+    "comments stay one per issue across replays"
+  assert_equals "2" "$(count_of 'fm-spawn' "$fd/spawn.log")" \
+    "spawns stay one per issue across replays"
+  pass "two issues carrying the same marker both produce candidates"
+}
+
 test_reconcile_creates_one_task_comment_watch_and_dispatch
 test_reconcile_is_idempotent_across_replays_and_lost_cursors
 test_lost_event_is_healed_from_github
@@ -1193,4 +1283,6 @@ test_dispatched_ticket_is_never_declined
 test_decline_never_touches_a_captain_closed_ticket
 test_closed_issue_is_never_dispatched_or_watched
 test_malformed_event_key_and_missing_id_stay_idempotent
+test_reopened_close_record_is_held_for_the_captain
+test_duplicate_marker_keeps_both_issues_as_candidates
 test_large_backlog_payloads_never_wedge_reconcile
