@@ -416,6 +416,124 @@ test_watch_fire_never_captain_closes_a_declined_issue() {
   pass "watch-fire never captain-closes an issue intake declined"
 }
 
+test_gate_off_run_still_honors_declined_state() {
+  local parts home fd out
+  parts=$(setup_case gateoff-declined)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  printf 'not_supported\n' > "$fd/jev-verdict"
+
+  out=$(run_intake "$parts" reconcile 2>&1) || fail "gate-on pass failed: $out"
+  assert_contains "$out" "failed: decline" "the gate-on decline must start: $out"
+
+  out=$(run_intake "$parts" reconcile --no-verdict 2>&1) || fail "gate-off pass failed: $out"
+  assert_contains "$out" "failed: decline" \
+    "a gate-off run must still finish the recorded decline: $out"
+  assert_equals "0" "$(count_of 'Issue intake' "$fd/comments.log")" \
+    "a gate-off run must not announce a dispatch for a declined ticket"
+  assert_equals "1" "$(count_of '**Not supported**' "$fd/comments.log")" \
+    "the decline comment stays singular"
+  assert_equals "0" "$(count_of 'fm-spawn' "$fd/spawn.log")" \
+    "a gate-off run must not spawn a declined ticket"
+  [ ! -f "$home/state/when/when-sos-$GH_ISSUE.spec" ] || \
+    fail "a declined ticket must not arm a watch, gate off or on"
+
+  : > "$fd/allow-close"
+  out=$(run_intake "$parts" reconcile --no-verdict) || fail "closing pass failed: $out"
+  assert_contains "$out" "declined=1" \
+    "the recorded decline completes with the gate off: $out"
+  assert_equals "0" "$(count_of 'Issue intake' "$fd/comments.log")" \
+    "still no dispatch announcement after the decline completes"
+  assert_equals "0" "$(count_of 'fm-spawn' "$fd/spawn.log")" "still no spawn"
+  assert_equals "done" "$(task_state_of "$parts")" "the declined row closes"
+  pass "a gate-off run honors the recorded decline instead of dispatching"
+}
+
+test_gate_off_run_keeps_held_tickets_held() {
+  local parts home fd out
+  parts=$(setup_case gateoff-hold)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  printf 'captain_review\n' > "$fd/jev-verdict"
+
+  out=$(run_intake "$parts" reconcile) || fail "gate-on pass failed: $out"
+  assert_contains "$out" "review=1" "the hold must land: $out"
+
+  out=$(run_intake "$parts" reconcile --no-verdict) || fail "gate-off pass failed: $out"
+  assert_contains "$out" "held for the captain" \
+    "a recorded hold must survive a gate-off run: $out"
+  assert_contains "$out" "review=1" "the held ticket still counts as held: $out"
+  [ ! -f "$fd/comments.log" ] || fail "a held ticket must stay uncommented"
+  [ ! -f "$fd/spawn.log" ] || fail "a held ticket must never spawn, gate off or on"
+  [ ! -f "$home/state/when/when-sos-$GH_ISSUE.spec" ] || \
+    fail "a held ticket must not arm a watch"
+  assert_equals "queued" "$(task_state_of "$parts")" "the held row stays queued"
+  pass "a gate-off run keeps a recorded captain_review hold"
+}
+
+test_no_dispatch_posts_no_dispatched_comment() {
+  local parts home fd out ledger
+  parts=$(setup_case no-dispatch)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  ledger="$home/state/fm-issue-intake.log"
+
+  out=$(run_intake "$parts" reconcile --no-dispatch) || fail "staging pass failed: $out"
+  assert_contains "$out" "task_created=1" "staging still ensures the row: $out"
+  assert_contains "$out" "dispatched=0" "staging spawns nothing: $out"
+  assert_equals "0" "$(count_of 'Issue intake' "$fd/comments.log")" \
+    "staging must not announce a dispatch"
+  assert_equals "0" "$(count_of 'dispatch key=' "$ledger")" \
+    "staging must not ledger a dispatch"
+  [ ! -f "$fd/spawn.log" ] || fail "staging must not spawn"
+
+  out=$(run_intake "$parts" reconcile) || fail "full pass failed: $out"
+  assert_contains "$out" "dispatched=1" "the full pass dispatches: $out"
+  assert_equals "1" "$(count_of 'Issue intake' "$fd/comments.log")" \
+    "the comment lands on the first run that spawns"
+  assert_equals "1" "$(count_of 'dispatch key=' "$ledger")" \
+    "exactly one dispatch record"
+  assert_equals "1" "$(count_of 'fm-spawn' "$fd/spawn.log")" "exactly one spawn"
+  pass "--no-dispatch posts no dispatched comment; the full run does"
+}
+
+test_manual_comment_then_the_loop_never_duplicates_it() {
+  local parts home fd out second
+
+  # (a) a manual decline comment satisfies the gate-on decline guard.
+  parts=$(setup_case manual-decline)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  printf 'not_supported\n' > "$fd/jev-verdict"
+  : > "$fd/allow-close"
+  out=$(run_intake "$parts" reconcile --no-verdict) || fail "ops pass failed: $out"
+  out=$(run_intake "$parts" comment "$GH_ISSUE" declined) || fail "manual declined failed: $out"
+  out=$(run_intake "$parts" reconcile) || fail "gate-on pass failed: $out"
+  assert_contains "$out" "declined=1" "the decline must complete: $out"
+  assert_equals "1" "$(count_of '**Not supported**' "$fd/comments.log")" \
+    "the manual decline comment must satisfy the decline guard: $(cat "$fd/comments.log" 2>/dev/null)"
+
+  # (b) manual dispatched/captain-closed comments satisfy the loop's guards.
+  parts=$(setup_case manual-captain)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  out=$(run_intake "$parts" reconcile) || fail "reconcile failed: $out"
+  out=$(run_intake "$parts" comment "$GH_ISSUE" dispatched) || fail "manual dispatched failed: $out"
+  second=$(sed -n 2p "$fd/comments.log")
+  assert_contains "$second" "$TASK_ID" \
+    "a manual dispatched comment must carry the real task id: $second"
+  out=$(run_intake "$parts" comment "$GH_ISSUE" captain-closed) || fail "manual captain-closed failed: $out"
+  out=$(run_intake "$parts" watch-fire "$GH_ISSUE" "$SOS_UUID") || fail "watch-fire failed: $out"
+  assert_equals "1" "$(count_of 'Closed by the captain' "$fd/comments.log")" \
+    "the watch must not duplicate a manual captain-closed comment"
+  out=$(run_intake "$parts" reconcile) || fail "replay failed: $out"
+  assert_equals "2" "$(count_of 'Issue intake' "$fd/comments.log")" \
+    "replay adds no dispatched comment of its own"
+  assert_equals "1" "$(count_of 'Closed by the captain' "$fd/comments.log")" \
+    "replay still adds no captain-closed comment"
+  pass "a manual comment is never duplicated by reconcile or watch-fire"
+}
+
 test_reconcile_creates_one_task_comment_watch_and_dispatch() {
   local parts home fd out
   parts=$(setup_case basic)
@@ -710,3 +828,7 @@ test_stale_pre_rename_watch_is_retired_and_rearmed
 test_two_pass_marker_less_ticket_stays_one_ticket
 test_failed_spawn_is_retried_and_never_ledgered
 test_watch_fire_never_captain_closes_a_declined_issue
+test_gate_off_run_still_honors_declined_state
+test_gate_off_run_keeps_held_tickets_held
+test_no_dispatch_posts_no_dispatched_comment
+test_manual_comment_then_the_loop_never_duplicates_it

@@ -20,10 +20,10 @@
 #
 # reconcile     Idempotent intake pass. Pulls bridge events past the durable
 #               cursor, folds in open sos-labeled GitHub issues (the heal
-#               path), and per ticket: ensures the task row, posts the one
-#               "dispatched" lifecycle comment, arms the close watch, and -
-#               unless --no-dispatch - scaffolds the brief and spawns the
-#               crewmate. The TASK ROW ID is the idempotency record: it is
+#               path), and per ticket: ensures the task row, arms the close
+#               watch, and - unless --no-dispatch - posts the one
+#               "dispatched" lifecycle comment, scaffolds the brief, and
+#               spawns the crewmate. The TASK ROW ID is the idempotency record: it is
 #               exactly `fm-iss-<SOS message UUID>` (legacy `fm-sos-` rows
 #               still resolve), and tasks-axi's add is
 #               idempotent on the id, so a replayed event can never mint a
@@ -31,8 +31,9 @@
 #               Every candidate passes the worth-supporting verdict gate
 #               (`jev verdict`) first: supported_bug dispatches as below,
 #               not_supported is declined and closed here, captain_review is
-#               held for the captain and never spawns. --no-verdict bypasses
-#               the gate for an ops run. --mode/--yolo set the spawned task's
+#               held for the captain and never spawns. --no-verdict skips
+#               new classification for an ops run; ledgered verdict and
+#               decline decisions still bind. --mode/--yolo set the spawned task's
 #               delivery contract (defaults FM_ISSUE_MODE=no-mistakes,
 #               FM_ISSUE_YOLO=on); they are posture, not selection.
 # comment       Post one canonical lifecycle comment on the GitHub issue.
@@ -104,10 +105,6 @@ TRANSITIONS="dispatched declined repro-confirmed fix-up deployed verified captai
 log_line() {
   mkdir -p "$STATE_DIR"
   printf '%s at=%s\n' "$1" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$LEDGER"
-}
-
-ledger_has() {
-  [ -f "$LEDGER" ] && grep -qF "$1" "$LEDGER"
 }
 
 ledger_recorded() {  # <record prefix> -> 0 iff a line with exactly that prefix exists
@@ -226,11 +223,6 @@ except Exception:
   esac
 }
 
-task_state() {
-  tasks_axi show "$(task_id_for_key "$1")" 2>/dev/null \
-    | sed -n 's/^  state: //p' | head -1
-}
-
 # --- candidate folding ------------------------------------------------------
 # Prints one line per candidate: key<TAB>issue<TAB>url<TAB>event_id(or "-")
 # Keyed on the SOS message UUID when the body carries it; a sos-labeled issue
@@ -343,8 +335,9 @@ cmd_comment() {
     *) die "unknown transition '$transition' (want one of: $TRANSITIONS)" ;;
   esac
   local key body
-  key="gh-issue-$issue"
-  body=$(comment_body "$transition" "$key" "$issue" "$note" "")
+  key=$(task_key_for_issue "$issue")
+  if [ -z "$key" ]; then key="gh-issue-$issue"; fi
+  body=$(comment_body "$transition" "$key" "$issue" "$note" "$(task_id_for_key "$key")")
   [ -n "$body" ] || die "empty comment body"
   gh_comment "$issue" "$body"
   log_line "comment key=$key issue=$issue transition=$transition"
@@ -409,7 +402,7 @@ except Exception:
 
 apply_decline() {  # <key> <issue> -> 0 only when the whole decline landed
   local key="$1" issue="$2"
-  if ! ledger_has "comment key=$key issue=$issue transition=declined"; then
+  if ! ledger_recorded "comment key=$key issue=$issue transition=declined"; then
     gh_comment "$issue" "$(comment_body declined "$key" "$issue" "" "$(task_id_for_key "$key")")" \
       || return 1
     log_line "comment key=$key issue=$issue transition=declined"
@@ -448,8 +441,10 @@ cmd_watch_fire() {
     echo "already-closed-recorded: $issue"
     return 0
   fi
-  gh_comment "$issue" "$(comment_body captain-closed "$key" "$issue" "" "")"
-  log_line "comment key=$key issue=$issue transition=captain-closed"
+  if ! ledger_recorded "comment key=$key issue=$issue transition=captain-closed"; then
+    gh_comment "$issue" "$(comment_body captain-closed "$key" "$issue" "" "")"
+    log_line "comment key=$key issue=$issue transition=captain-closed"
+  fi
   if ! tasks_axi "done" "$(task_id_for_key "$key")" \
       --note "captain verified and closed GitHub issue #$issue" >/dev/null 2>&1; then
     echo "warn: task row not closed for key=$key (may not exist)" >&2
@@ -555,42 +550,40 @@ cmd_reconcile() {
     fi
 
     # Worth-supporting gate: decide once, act once, never re-decide on replay.
-    if [ "$do_verdict" -eq 1 ]; then
-      verdict=$(verdict_recorded "$key" "$issue")
-      if [ -z "$verdict" ]; then
-        verdict=$(classify_issue "$key" "$issue")
-        case "$verdict" in
-          supported_bug|not_supported|captain_review) ;;
-          *) verdict=captain_review ;;
-        esac
-        log_line "verdict key=$key issue=$issue verdict=$verdict"
+    verdict=$(verdict_recorded "$key" "$issue")
+    if [ -z "$verdict" ] && [ "$do_verdict" -eq 1 ]; then
+      verdict=$(classify_issue "$key" "$issue")
+      case "$verdict" in
+        supported_bug|not_supported|captain_review) ;;
+        *) verdict=captain_review ;;
+      esac
+      log_line "verdict key=$key issue=$issue verdict=$verdict"
+    fi
+    # A decided ticket (declined or held) is handled: the cursor moves past
+    # it, or one ambiguous ticket would wedge every later event. The GH heal
+    # path keeps re-offering it as an open issue anyway.
+    if [ "$verdict" = "not_supported" ]; then
+      if ! ledger_recorded "declined key=$key issue=$issue"; then
+        apply_decline "$key" "$issue" \
+          || { echo "failed: decline for #$issue" >&2; cursor_blocked=1; continue; }
+        log_line "declined key=$key issue=$issue"
       fi
-      # A decided ticket (declined or held) is handled: the cursor moves past
-      # it, or one ambiguous ticket would wedge every later event. The GH heal
-      # path keeps re-offering it as an open issue anyway.
-      if [ "$verdict" = "not_supported" ]; then
-        if ! ledger_has "declined key=$key issue=$issue"; then
-          apply_decline "$key" "$issue" \
-            || { echo "failed: decline for #$issue" >&2; cursor_blocked=1; continue; }
-          log_line "declined key=$key issue=$issue"
-        fi
-        declined=$((declined + 1))
-        if [ "$event_id" != "-" ] && [ "$cursor_blocked" -eq 0 ]; then
-          new_cursor="$event_id"
-        fi
-        continue
+      declined=$((declined + 1))
+      if [ "$event_id" != "-" ] && [ "$cursor_blocked" -eq 0 ]; then
+        new_cursor="$event_id"
       fi
-      if [ "$verdict" = "captain_review" ]; then
-        review=$((review + 1))
-        echo "review: key=$key GH #$issue held for the captain (no dispatch)"
-        if [ "$event_id" != "-" ] && [ "$cursor_blocked" -eq 0 ]; then
-          new_cursor="$event_id"
-        fi
-        continue
+      continue
+    fi
+    if [ "$verdict" = "captain_review" ]; then
+      review=$((review + 1))
+      echo "review: key=$key GH #$issue held for the captain (no dispatch)"
+      if [ "$event_id" != "-" ] && [ "$cursor_blocked" -eq 0 ]; then
+        new_cursor="$event_id"
       fi
+      continue
     fi
 
-    if ! ledger_has "comment key=$key issue=$issue transition=dispatched"; then
+    if [ "$do_dispatch" -eq 1 ] && ! ledger_recorded "comment key=$key issue=$issue transition=dispatched"; then
       gh_comment "$issue" "$(comment_body dispatched "$key" "$issue" "" "$(task_id_for_key "$key")")" \
         || { echo "failed: dispatched comment on #$issue" >&2; cursor_blocked=1; continue; }
       log_line "comment key=$key issue=$issue transition=dispatched"
@@ -604,7 +597,7 @@ cmd_reconcile() {
       log_line "watch key=$key issue=$issue"
     fi
 
-    if [ "$do_dispatch" -eq 1 ] && ! ledger_has "dispatch key=$key issue=$issue"; then
+    if [ "$do_dispatch" -eq 1 ] && ! ledger_recorded "dispatch key=$key issue=$issue"; then
       dispatch_ticket "$key" "$issue" || { echo "failed: dispatch for #$issue" >&2; cursor_blocked=1; continue; }
       dispatched=$((dispatched + 1))
     fi
@@ -633,7 +626,7 @@ dispatch_ticket() {
   fill_brief "$FM_HOME/data/$task_id/brief.md" "$key" "$issue" || return 1
   FM_HOME="$FM_HOME" "$SPAWN" "$task_id" "$PROJECT_DIR" \
     --mode "$MODE" --yolo "$YOLO" >/dev/null || return 1
-  log_line "dispatch key=$key issue=$issue task=$task_id"
+  log_line "dispatch key=$key issue=$issue"
   echo "dispatched: $task_id (GH #$issue)"
 }
 
