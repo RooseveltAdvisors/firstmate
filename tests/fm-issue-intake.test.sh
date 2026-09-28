@@ -992,18 +992,31 @@ test_verdict_holds_uncertain_tickets_for_the_captain() {
   pass "an uncertain ticket is held for the captain and never acted on"
 }
 
-test_verdict_failure_fails_open_not_closed() {
-  local parts fd out
+test_verdict_failure_defers_and_is_retried_not_pinned() {
+  local parts home fd out calls
   parts=$(setup_case failopen)
+  home=${parts%%|*}
   fd=${parts##*|}
   printf 'fail\n' > "$fd/jev-verdict"
   : > "$fd/allow-close"
 
-  out=$(run_intake "$parts" reconcile) || fail "reconcile failed: $out"
-  assert_contains "$out" "review=1" "a broken classifier must hold, not decide: $out"
+  out=$(run_intake "$parts" reconcile 2>&1) || fail "reconcile failed: $out"
+  assert_contains "$out" "deferred" "a broken classifier must defer, not decide: $out"
+  assert_contains "$out" "review=0" "no hold may be recorded from a failure: $out"
+  assert_no_grep "verdict key=" "$home/state/fm-issue-intake.log" \
+    "a failed verdict must never be ledgered"
   assert_no_grep "CLOSE-ATTEMPTED" "$fd/gh.log" "a broken classifier must never close"
   [ ! -f "$fd/spawn.log" ] || fail "a broken classifier must never spawn"
-  pass "verdict failure fails open to captain review"
+  assert_equals "0" "$(count_of 'verdict key=' "$home/state/fm-issue-intake.log")" \
+    "no verdict record may exist after a failure"
+
+  # Next pass asks again instead of treating the failure as a permanent hold.
+  printf 'supported_bug\n' > "$fd/jev-verdict"
+  out=$(run_intake "$parts" reconcile 2>&1) || fail "retry failed: $out"
+  assert_contains "$out" "dispatched=1" "the retried pass must still dispatch: $out"
+  calls=$(count_of 'jev verdict' "$fd/jev.log")
+  assert_equals "2" "$calls" "the verdict must be asked again after a failure: $(cat "$fd/jev.log" 2>/dev/null)"
+  pass "verdict failure defers, is retried, and is never pinned as a hold"
 }
 
 test_verdict_is_decided_once() {
@@ -1462,6 +1475,27 @@ test_overlapping_reconcile_passes_never_both_dispatch() {
   pass "overlapping reconcile passes never both dispatch"
 }
 
+test_ledger_bound_task_ids_are_reused() {
+  local parts home fd out
+  parts=$(setup_case bind)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  FM_HOME="$home" "$TASKS_AXI" add "fm-external-7" "row created outside the loop" \
+    --kind ship --repo portal --priority 1 >/dev/null || fail "seed row failed"
+  mkdir -p "$home/state"
+  printf 'task key=%s issue=%s task=fm-external-7 at=2026-09-28T12:00:00Z\n' \
+    "$SOS_UUID" "$GH_ISSUE" >> "$home/state/fm-issue-intake.log"
+
+  out=$(run_intake "$parts" reconcile) || fail "reconcile failed: $out"
+  assert_contains "$out" "task_created=0" "the bound row must be reused: $out"
+  assert_contains "$(cat "$fd/comments.log" 2>/dev/null)" "fm-external-7" \
+    "the lifecycle comment must name the bound row"
+  if FM_HOME="$home" "$TASKS_AXI" show "fm-iss-$SOS_UUID" >/dev/null 2>&1; then
+    fail "a second row was minted for one ticket"
+  fi
+  pass "a ledger-bound task id is reused instead of minting a row"
+}
+
 test_reconcile_creates_one_task_comment_watch_and_dispatch
 test_reconcile_is_idempotent_across_replays_and_lost_cursors
 test_lost_event_is_healed_from_github
@@ -1472,7 +1506,7 @@ test_dry_run_changes_nothing
 test_legacy_fm_sos_rows_stay_authoritative
 test_verdict_declines_a_by_design_request
 test_verdict_holds_uncertain_tickets_for_the_captain
-test_verdict_failure_fails_open_not_closed
+test_verdict_failure_defers_and_is_retried_not_pinned
 test_verdict_is_decided_once
 test_decline_comments_once_even_when_the_close_fails
 test_event_without_a_url_keeps_row_and_cursor_aligned
@@ -1503,3 +1537,4 @@ test_watch_fire_reports_a_reopen_after_recording_the_close
 test_watch_fire_records_the_close_when_github_is_unreadable
 test_marker_twin_never_adopts_another_issues_row
 test_overlapping_reconcile_passes_never_both_dispatch
+test_ledger_bound_task_ids_are_reused

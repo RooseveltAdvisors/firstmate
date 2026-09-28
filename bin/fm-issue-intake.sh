@@ -231,6 +231,17 @@ gh_open_sos_issues() {
 # authoritative: resolve to `fm-sos-<key>` when it exists so a rename can never
 # split one ticket across two rows.
 task_id_for_key() {
+  # A ledger record binds a key to the row a previous owner (or an operator)
+  # already created for that ticket, so one ticket keeps one row even when the
+  # row was minted outside this loop.
+  local bound=""
+  if [ -f "$LEDGER" ]; then
+    bound=$(sed -n "s/^task key=$1 issue=[^ ]* task=\([^ ]*\) at=.*$/\1/p" "$LEDGER" | head -1)
+  fi
+  if [ -n "$bound" ] && tasks_axi show "$bound" >/dev/null 2>&1; then
+    printf '%s\n' "$bound"
+    return
+  fi
   local legacy="fm-sos-$1"
   if tasks_axi show "$legacy" >/dev/null 2>&1; then
     printf '%s\n' "$legacy"
@@ -509,7 +520,7 @@ print(",".join(
   # subshell) so the single-quoted EXIT trap still finds it in scope when it
   # fires at subshell exit.
   if ! body_file=$(umask 077; mktemp "$STATE_DIR/.issue-body.XXXXXX" 2>/dev/null); then
-    echo captain_review
+    echo unavailable
     return 0
   fi
   trap 'rm -f -- "$body_file"' EXIT
@@ -520,12 +531,16 @@ print(",".join(
     vargs+=(--intent-file "$INTENT")
   fi
   out=$("$JEV" "${vargs[@]}" 2>/dev/null || true)
+  # A fail-open verdict (model, transport, or confidence failure) is NOT a
+  # decision: emit unavailable so the ticket is retried next pass instead of
+  # being pinned to captain_review forever by one bad minute.
   printf '%s' "$out" \
     | python3 -c 'import json, sys
 try:
-    print(json.load(sys.stdin).get("verdict") or "captain_review")
+    d = json.load(sys.stdin)
+    print("unavailable" if d.get("fail_open") else (d.get("verdict") or "captain_review"))
 except Exception:
-    print("captain_review")' 2>/dev/null || echo captain_review
+    print("unavailable")' 2>/dev/null || echo unavailable
 }
 
 apply_decline() {  # <key> <issue> -> 0 only when the whole decline landed
@@ -730,6 +745,11 @@ cmd_reconcile() {
       case "$verdict" in
         unread)
           echo "failed: could not read GH #$issue; verdict deferred" >&2
+          cursor_blocked=1
+          continue
+          ;;
+        unavailable)
+          echo "failed: verdict unavailable for GH #$issue; deferred to the next pass" >&2
           cursor_blocked=1
           continue
           ;;
