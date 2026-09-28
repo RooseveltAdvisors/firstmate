@@ -2371,6 +2371,10 @@ fi
 # probe is bounded so a stalled prober cannot hold the spawn.
 JEV_QUOTA_PROBER=${FM_TEST_JEV_PROBER_PATH:-$SCRIPT_DIR/fm-jev-quota-prober.sh}
 JEV_QUOTA_PROBER_TIMEOUT=${FM_JEV_PROBER_TIMEOUT:-15}
+# fm_run_timed treats 0 as "no deadline"; keep the prober bound positive.
+case "$JEV_QUOTA_PROBER_TIMEOUT" in
+'' | *[!0-9]* | 0*) JEV_QUOTA_PROBER_TIMEOUT=15 ;;
+esac
 if [ "${FM_TEST_DISABLE_JEV_PROBER:-0}" != 1 ] && [ -x "$JEV_QUOTA_PROBER" ]; then
   if ! fm_run_timed "$JEV_QUOTA_PROBER_TIMEOUT" "$JEV_QUOTA_PROBER" --harness "$HARNESS" ${MODEL:+--model "$MODEL"} >/dev/null 2>&1; then
     _divert=$(fm_run_timed "$JEV_QUOTA_PROBER_TIMEOUT" "$JEV_QUOTA_PROBER" --harness "$HARNESS" ${MODEL:+--model "$MODEL"} --auto-divert 2>/dev/null || true)

@@ -1092,6 +1092,29 @@ test_stalled_quota_prober_is_bounded() {
   pass "a stalled quota prober is bounded and the spawn proceeds on the original lane"
 }
 
+test_zero_quota_prober_timeout_stays_bounded() {
+  local rec id out status launch prober started
+  id=profile-quota-prober-zero-z8j
+  rec=$(make_spawn_case profile-quota-prober-zero codex "$id")
+  read_case_record "$rec"
+  prober="$CASE_DIR/jev-quota-prober"
+  # The health check fails fast; only the divert call stalls.
+  printf '%s\n' '#!/usr/bin/env bash' 'case " $* " in *" --auto-divert "*) exec sleep 60 ;; esac' 'exit 1' > "$prober"
+  chmod +x "$prober"
+  rm -f "$FAKEBIN_DIR/timeout"
+
+  started=$SECONDS
+  out=$(FM_TEST_DISABLE_JEV_PROBER=0 FM_TEST_JEV_PROBER_PATH="$prober" FM_JEV_PROBER_TIMEOUT=0 \
+    run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" \
+    --harness codex --model codex/gpt-5 --effort high)
+  status=$?
+  expect_code 0 "$status" "a zero prober timeout should not unbound the spawn: $out"
+  [ $((SECONDS - started)) -lt 50 ] || fail "FM_JEV_PROBER_TIMEOUT=0 let a stalled prober hold the spawn for $((SECONDS - started))s"
+  launch=$(cat "$LAUNCH_LOG")
+  assert_contains "$launch" "codex" "a zero prober timeout left the original codex launch unsent"
+  pass "FM_JEV_PROBER_TIMEOUT=0 falls back to the default bound"
+}
+
 test_raw_launch_quota_divert_runs_command_verbatim() {
   local rec id out status launch expected prober
   id=profile-raw-quota-divert-z8g
@@ -1985,6 +2008,7 @@ test_quota_divert_to_pi_rebuilds_launch
 test_quota_divert_to_cursor_rebuilds_launch
 test_quota_divert_escapes_unusable_original_harness
 test_stalled_quota_prober_is_bounded
+test_zero_quota_prober_timeout_stays_bounded
 test_raw_launch_quota_divert_runs_command_verbatim
 test_pi_signed_threads_shared_pi_profile_and_preserves_identity
 test_pi_signed_missing_binary_refuses_before_endpoint_or_metadata
