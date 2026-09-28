@@ -31,10 +31,11 @@ supports - one dispatched crewmate.
   double-dispatch.
 - Every candidate passes the worth-supporting verdict gate (`jev verdict`)
   first: `supported_bug` dispatches automatically - no manual triage step -
-  `not_supported` is declined and closed by intake, and `captain_review` is
-  held for the captain with no spawn. `--no-verdict` skips new
-  classification for an ops run; ledgered verdict and decline decisions
-  still bind. `--mode`/`--yolo` (or `FM_ISSUE_MODE`/`FM_ISSUE_YOLO`) set the
+  `not_supported` is declined and closed by intake - a reopened declined
+  ticket is held for the captain again, never re-declined - and
+  `captain_review` is held for the captain with no spawn. `--no-verdict`
+  skips new classification for an ops run; ledgered verdict and decline
+  decisions still bind. `--mode`/`--yolo` (or `FM_ISSUE_MODE`/`FM_ISSUE_YOLO`) set the
   spawned task's delivery contract; they are posture, not selection.
 - Transition comments only through `bin/fm-issue-intake.sh comment <issue>
   <transition> "<one line>"` (dispatched, declined, repro-confirmed, fix-up,

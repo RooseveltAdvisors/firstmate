@@ -30,7 +30,8 @@
 #               second row. The cursor is only a fast-path over the bridge.
 #               Every candidate passes the worth-supporting verdict gate
 #               (`jev verdict`) first: supported_bug dispatches as below,
-#               not_supported is declined and closed here, captain_review is
+#               not_supported is declined and closed here (a reopened
+#               declined ticket returns as captain_review), captain_review is
 #               held for the captain and never spawns. --no-verdict skips
 #               new classification for an ops run; ledgered verdict and
 #               decline decisions still bind. --mode/--yolo set the spawned task's
@@ -107,8 +108,8 @@ log_line() {
   printf '%s at=%s\n' "$1" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$LEDGER"
 }
 
-ledger_recorded() {  # <record prefix> -> 0 iff a line with exactly that prefix exists
-  [ -f "$LEDGER" ] && grep -q "^$1 at=" "$LEDGER"
+ledger_recorded() {  # <record pattern> -> 0 iff a ledger line matches ^<pattern> at=
+  [ -f "$LEDGER" ] && grep -qE "^$1 at=" "$LEDGER"
 }
 
 task_key_for_issue() {  # <issue> -> the key first ledgered for this issue, else empty
@@ -352,13 +353,13 @@ cmd_comment() {
 # classifier can never decline or dispatch on its own. The verdict is ledgered
 # per key, so a replay never re-decides a ticket.
 
-verdict_recorded() {  # <key> <issue> -> the ledgered verdict, or empty
+verdict_recorded() {  # <issue> -> the ledgered verdict, or empty
   [ -f "$LEDGER" ] || return 0
-  sed -n "s/^verdict key=$1 issue=$2 verdict=\([a-z_]*\) at=.*/\1/p" "$LEDGER" | tail -1
+  sed -n "s/^verdict key=[^ ]* issue=$1 verdict=\([a-z_]*\) at=.*/\1/p" "$LEDGER" | tail -1
 }
 
-classify_issue() {  # <key> <issue> -> verdict on stdout; never fails
-  local key="$1" issue="$2" out parsed title="" body="" labels=""
+classify_issue() {  # <issue> -> verdict on stdout; never fails
+  local issue="$1" out parsed title="" body="" labels=""
   out=$("$GH" issue view "$issue" --repo "$GH_REPO" --json title,body,labels 2>/dev/null || true)
   if [ -n "$out" ]; then
     parsed=$(printf '%s' "$out" | python3 -c 'import json, sys
@@ -402,7 +403,7 @@ except Exception:
 
 apply_decline() {  # <key> <issue> -> 0 only when the whole decline landed
   local key="$1" issue="$2"
-  if ! ledger_recorded "comment key=$key issue=$issue transition=declined"; then
+  if ! ledger_recorded "comment key=[^ ]* issue=$issue transition=declined"; then
     gh_comment "$issue" "$(comment_body declined "$key" "$issue" "" "$(task_id_for_key "$key")")" \
       || return 1
     log_line "comment key=$key issue=$issue transition=declined"
@@ -433,15 +434,15 @@ cmd_watch_fire() {
   local issue="${1:-}" key="${2:-}"
   [ -n "$issue" ] || die "watch-fire requires <issue-number> <sos-key>"
   [ -n "$key" ] || die "watch-fire requires <sos-key>"
-  if ledger_recorded "declined key=$key issue=$issue"; then
+  if ledger_recorded "declined key=[^ ]* issue=$issue"; then
     echo "declined-recorded: $issue"
     return 0
   fi
-  if ledger_recorded "closed key=$key issue=$issue"; then
+  if ledger_recorded "closed key=[^ ]* issue=$issue"; then
     echo "already-closed-recorded: $issue"
     return 0
   fi
-  if ! ledger_recorded "comment key=$key issue=$issue transition=captain-closed"; then
+  if ! ledger_recorded "comment key=[^ ]* issue=$issue transition=captain-closed"; then
     gh_comment "$issue" "$(comment_body captain-closed "$key" "$issue" "" "")"
     log_line "comment key=$key issue=$issue transition=captain-closed"
   fi
@@ -507,7 +508,7 @@ cmd_reconcile() {
     return 0
   fi
 
-  local key issue url event_id ensured_state verdict watch_spec canonical_key
+  local key issue url event_id ensured_state verdict watch_spec canonical_key reopened
   while IFS=$'\t' read -r key issue url event_id; do
     [ -n "$key" ] || continue
     [ -n "$issue" ] || { echo "skip: key=$key carries no GitHub issue" >&2; continue; }
@@ -550,9 +551,9 @@ cmd_reconcile() {
     fi
 
     # Worth-supporting gate: decide once, act once, never re-decide on replay.
-    verdict=$(verdict_recorded "$key" "$issue")
+    verdict=$(verdict_recorded "$issue")
     if [ -z "$verdict" ] && [ "$do_verdict" -eq 1 ]; then
-      verdict=$(classify_issue "$key" "$issue")
+      verdict=$(classify_issue "$issue")
       case "$verdict" in
         supported_bug|not_supported|captain_review) ;;
         *) verdict=captain_review ;;
@@ -562,19 +563,29 @@ cmd_reconcile() {
     # A decided ticket (declined or held) is handled: the cursor moves past
     # it, or one ambiguous ticket would wedge every later event. The GH heal
     # path keeps re-offering it as an open issue anyway.
+    reopened=0
     if [ "$verdict" = "not_supported" ]; then
-      if ! ledger_recorded "declined key=$key issue=$issue"; then
+      if ledger_recorded "declined key=[^ ]* issue=$issue"; then
+        if gh_state "$issue"; then
+          declined=$((declined + 1))
+          if [ "$event_id" != "-" ] && [ "$cursor_blocked" -eq 0 ]; then
+            new_cursor="$event_id"
+          fi
+          continue
+        fi
+        reopened=1
+      else
         apply_decline "$key" "$issue" \
           || { echo "failed: decline for #$issue" >&2; cursor_blocked=1; continue; }
         log_line "declined key=$key issue=$issue"
+        declined=$((declined + 1))
+        if [ "$event_id" != "-" ] && [ "$cursor_blocked" -eq 0 ]; then
+          new_cursor="$event_id"
+        fi
+        continue
       fi
-      declined=$((declined + 1))
-      if [ "$event_id" != "-" ] && [ "$cursor_blocked" -eq 0 ]; then
-        new_cursor="$event_id"
-      fi
-      continue
     fi
-    if [ "$verdict" = "captain_review" ]; then
+    if [ "$verdict" = "captain_review" ] || [ "$reopened" -eq 1 ]; then
       review=$((review + 1))
       echo "review: key=$key GH #$issue held for the captain (no dispatch)"
       if [ "$event_id" != "-" ] && [ "$cursor_blocked" -eq 0 ]; then
@@ -583,7 +594,7 @@ cmd_reconcile() {
       continue
     fi
 
-    if [ "$do_dispatch" -eq 1 ] && ! ledger_recorded "comment key=$key issue=$issue transition=dispatched"; then
+    if [ "$do_dispatch" -eq 1 ] && ! ledger_recorded "comment key=[^ ]* issue=$issue transition=dispatched"; then
       gh_comment "$issue" "$(comment_body dispatched "$key" "$issue" "" "$(task_id_for_key "$key")")" \
         || { echo "failed: dispatched comment on #$issue" >&2; cursor_blocked=1; continue; }
       log_line "comment key=$key issue=$issue transition=dispatched"
@@ -597,7 +608,7 @@ cmd_reconcile() {
       log_line "watch key=$key issue=$issue"
     fi
 
-    if [ "$do_dispatch" -eq 1 ] && ! ledger_recorded "dispatch key=$key issue=$issue"; then
+    if [ "$do_dispatch" -eq 1 ] && ! ledger_recorded "dispatch key=[^ ]* issue=$issue( task=[^ ]*)?"; then
       dispatch_ticket "$key" "$issue" || { echo "failed: dispatch for #$issue" >&2; cursor_blocked=1; continue; }
       dispatched=$((dispatched + 1))
     fi

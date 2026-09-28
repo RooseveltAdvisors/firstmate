@@ -77,11 +77,13 @@ case "${1:-}" in
         echo "https://github.com/ArcsHealth/Portal/issues/$n#comment-1"
         ;;
       close)
+        n="${3:-}"
         echo "CLOSE-ATTEMPTED" >> "$FAKE/gh.log"
         # The loop closes an issue only on a decline; every other path must
         # fail here, which pins every close to that one carve-out.
-        [ -f "$FAKE/allow-close" ] && exit 0
-        exit 97 ;;
+        [ -f "$FAKE/allow-close" ] || exit 97
+        echo '{"state":"CLOSED"}' > "$FAKE/gh-state-$n"
+        exit 0 ;;
       *) exit 1 ;;
     esac
     ;;
@@ -531,7 +533,93 @@ test_manual_comment_then_the_loop_never_duplicates_it() {
     "replay adds no dispatched comment of its own"
   assert_equals "1" "$(count_of 'Closed by the captain' "$fd/comments.log")" \
     "replay still adds no captain-closed comment"
+
+  # (c) a manual decline comment written before the ticket is ever reconciled
+  parts=$(setup_case manual-decline-fresh)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  printf 'not_supported\n' > "$fd/jev-verdict"
+  : > "$fd/allow-close"
+  out=$(run_intake "$parts" comment "$GH_ISSUE" declined) || fail "fresh manual declined failed: $out"
+  out=$(run_intake "$parts" reconcile) || fail "fresh gate-on pass failed: $out"
+  assert_contains "$out" "declined=1" "the fresh decline must complete: $out"
+  assert_equals "1" "$(count_of '**Not supported**' "$fd/comments.log")" \
+    "a pre-reconcile manual decline comment must satisfy the guard: $(cat "$fd/comments.log" 2>/dev/null)"
   pass "a manual comment is never duplicated by reconcile or watch-fire"
+}
+
+test_legacy_dispatch_records_still_block_a_second_dispatch() {
+  local parts home fd out ledger
+
+  # (a) the exact shape every deployed build wrote: the task segment is present.
+  parts=$(setup_case legacy-dispatch)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  ledger="$home/state/fm-issue-intake.log"
+  {
+    printf 'task key=%s issue=%s task=fm-sos-%s at=2026-01-01T00:00:00Z\n' "$SOS_UUID" "$GH_ISSUE" "$SOS_UUID"
+    printf 'verdict key=%s issue=%s verdict=supported_bug at=2026-01-01T00:00:01Z\n' "$SOS_UUID" "$GH_ISSUE"
+    printf 'dispatch key=%s issue=%s task=fm-sos-%s at=2026-01-01T00:00:02Z\n' "$SOS_UUID" "$GH_ISSUE" "$SOS_UUID"
+  } > "$ledger"
+  out=$(run_intake "$parts" reconcile) || fail "legacy pass failed: $out"
+  assert_contains "$out" "dispatched=0" \
+    "a legacy dispatch record must block a second dispatch: $out"
+  assert_equals "0" "$(count_of 'fm-spawn' "$fd/spawn.log")" \
+    "a legacy-dispatched ticket must never spawn again"
+  assert_equals "0" "$(count_of 'jev verdict' "$fd/jev.log")" \
+    "a legacy verdict record must still bind: $(cat "$fd/jev.log" 2>/dev/null)"
+  assert_equals "1" "$(count_of 'Issue intake' "$fd/comments.log")" \
+    "the ticket is still processed, only the dispatch is skipped"
+
+  # (b) legacy records under the gh-issue key namespace.
+  parts=$(setup_case legacy-dispatch-ns)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  ledger="$home/state/fm-issue-intake.log"
+  {
+    printf 'verdict key=gh-issue-%s issue=%s verdict=supported_bug at=2026-01-01T00:00:00Z\n' "$GH_ISSUE" "$GH_ISSUE"
+    printf 'dispatch key=gh-issue-%s issue=%s task=fm-iss-gh-issue-%s at=2026-01-01T00:00:01Z\n' "$GH_ISSUE" "$GH_ISSUE" "$GH_ISSUE"
+  } > "$ledger"
+  out=$(run_intake "$parts" reconcile) || fail "legacy namespace pass failed: $out"
+  assert_contains "$out" "dispatched=0" \
+    "a gh-issue-keyed dispatch record must block a uuid-keyed dispatch: $out"
+  assert_equals "0" "$(count_of 'fm-spawn' "$fd/spawn.log")" \
+    "a gh-issue-dispatched ticket must never spawn again"
+  assert_equals "0" "$(count_of 'jev verdict' "$fd/jev.log")" \
+    "a gh-issue-keyed verdict record must still bind: $(cat "$fd/jev.log" 2>/dev/null)"
+  pass "legacy dispatch and verdict records still bind every guard"
+}
+
+test_reopened_declined_ticket_is_reported_not_dropped() {
+  local parts home fd out
+  parts=$(setup_case reopened-declined)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  printf 'not_supported\n' > "$fd/jev-verdict"
+  : > "$fd/allow-close"
+
+  out=$(run_intake "$parts" reconcile) || fail "decline pass failed: $out"
+  assert_contains "$out" "declined=1" "the decline must land: $out"
+  assert_equals "done" "$(task_state_of "$parts")" "the declined row closes"
+
+  # A human reopens the issue; the next pass must surface it for the captain.
+  echo '{"state":"OPEN"}' > "$fd/gh-state-$GH_ISSUE"
+  : > "$fd/gh.log"
+  out=$(run_intake "$parts" reconcile) || fail "reopen pass failed: $out"
+  assert_contains "$out" "held for the captain" \
+    "a reopened declined ticket must be reported as held: $out"
+  assert_contains "$out" "review=1" "the reopen is reported as review work: $out"
+  assert_contains "$out" "declined=0" "the ticket is not silently counted as declined: $out"
+  assert_equals "1" "$(count_of '**Not supported**' "$fd/comments.log")" \
+    "a reopened declined ticket is never re-declined"
+  assert_no_grep "CLOSE-ATTEMPTED" "$fd/gh.log" \
+    "the reopen must not trigger a second close"
+  [ ! -f "$fd/spawn.log" ] || fail "a reopened declined ticket must never spawn"
+  assert_equals "0" "$(count_of 'Issue intake' "$fd/comments.log")" \
+    "a reopened declined ticket must not announce a dispatch"
+  assert_equals "done" "$(task_state_of "$parts")" \
+    "the row stays as the decline left it"
+  pass "a reopened declined ticket is reported to the captain, never dropped"
 }
 
 test_reconcile_creates_one_task_comment_watch_and_dispatch() {
@@ -832,3 +920,5 @@ test_gate_off_run_still_honors_declined_state
 test_gate_off_run_keeps_held_tickets_held
 test_no_dispatch_posts_no_dispatched_comment
 test_manual_comment_then_the_loop_never_duplicates_it
+test_legacy_dispatch_records_still_block_a_second_dispatch
+test_reopened_declined_ticket_is_reported_not_dropped
