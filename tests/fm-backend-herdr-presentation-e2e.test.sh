@@ -431,6 +431,18 @@ finish_concurrent_expected_abort() {  # <id> <status> <stdout> <stderr>
   fi
 }
 
+# A recovery that loses the named session lock for the whole bounded wait
+# refuses before any mutation; once the winner has finished, the same resume
+# must succeed.
+finish_concurrent_recovery() {  # <role> <status> <id> <home> <stdout> <stderr>
+  local role=$1 status=$2 id=$3 home=$4 out=$5 err=$6
+  [ "$status" -ne 0 ] || return 0
+  grep -F "could not acquire its session lock" "$err" >/dev/null 2>&1 \
+    || fail "concurrent $role recovery failed: $(cat "$err")"
+  spawn_task "$id" "$home" "$RECOVERY_PROJECT_DIR" > "$out" 2> "$err" \
+    || fail "concurrent $role recovery retry failed after the session lock was released: $(cat "$err")"
+}
+
 spawn_secondmate_task() {
   local id=$1 home=$2
   FM_GATE_REFUSE_BYPASS=1 FM_SPAWN_NO_GUARD=1 FM_HOME="$HOME_DIR" FM_ROOT_OVERRIDE="$ROOT" \
@@ -1322,8 +1334,14 @@ spawn_task "$PRIMARY_WAVE_ID" "$HOME_DIR" "$RECOVERY_PROJECT_DIR" > "$TMP_ROOT/p
 PRIMARY_WAVE_PID=$!
 spawn_task "$BRAVO_WAVE_ID" "$SECOND_HOME_B" "$RECOVERY_PROJECT_DIR" > "$TMP_ROOT/bravo-wave-resume.out" 2> "$TMP_ROOT/bravo-wave-resume.err" &
 BRAVO_WAVE_PID=$!
-wait "$PRIMARY_WAVE_PID" || fail "concurrent primary recovery failed: $(cat "$TMP_ROOT/primary-wave-resume.err")"
-wait "$BRAVO_WAVE_PID" || fail "concurrent secondmate recovery failed: $(cat "$TMP_ROOT/bravo-wave-resume.err")"
+PRIMARY_WAVE_STATUS=0
+wait "$PRIMARY_WAVE_PID" || PRIMARY_WAVE_STATUS=$?
+BRAVO_WAVE_STATUS=0
+wait "$BRAVO_WAVE_PID" || BRAVO_WAVE_STATUS=$?
+finish_concurrent_recovery primary "$PRIMARY_WAVE_STATUS" "$PRIMARY_WAVE_ID" "$HOME_DIR" \
+  "$TMP_ROOT/primary-wave-resume.out" "$TMP_ROOT/primary-wave-resume.err"
+finish_concurrent_recovery secondmate "$BRAVO_WAVE_STATUS" "$BRAVO_WAVE_ID" "$SECOND_HOME_B" \
+  "$TMP_ROOT/bravo-wave-resume.out" "$TMP_ROOT/bravo-wave-resume.err"
 PRIMARY_WAVE_NEW_WT=$(remember_meta_worktree "$PRIMARY_WAVE_META")
 BRAVO_WAVE_NEW_WT=$(remember_meta_worktree "$BRAVO_WAVE_META")
 PRIMARY_WAVE_NEW_PANE=$(grep '^herdr_pane_id=' "$PRIMARY_WAVE_META" | cut -d= -f2-)
