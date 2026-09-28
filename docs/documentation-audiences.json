@@ -405,6 +405,10 @@
       "audience": "operator-current"
     },
     {
+      "path": "docs/house-main-residue.md",
+      "audience": "operator-current"
+    },
+    {
       "path": "docs/jev-guards.md",
       "audience": "maintainer-architecture"
     },
