@@ -575,19 +575,21 @@ cmd_watch_fire() {
     echo "already-closed-recorded: $issue"
     return 0
   fi
-  # The watch fires only after its condition saw CLOSED, and the when runner
-  # retires it either way, so an unreadable state (rc 2) cannot decide the
-  # outcome: the close is recorded. Only GitHub reporting the issue open again
-  # (rc 1) holds it for the captain; once the action-failed wake is retired
-  # (sos-dispatch-loop skill, Close-watch wakes), reconcile re-arms the watch.
+  # The watch saw a close, but the issue may have been reopened since: only
+  # announce a close GitHub still confirms. An open (rc 1) or unreadable (rc 2)
+  # state fails the action, which the when runner surfaces as action-failed for
+  # the captain; once that wake is retired (sos-dispatch-loop skill, Close-watch
+  # wakes), reconcile re-arms the watch for an open issue or closes the row of
+  # a closed one.
   local state_rc=0
   gh_state "$issue" || state_rc=$?
   if [ "$state_rc" -eq 1 ]; then
     echo "hold: GH #$issue is open again - captain_review, no captain-closed announcement" >&2
     return 1
   fi
-  if [ "$state_rc" -eq 2 ]; then
-    echo "warn: GH #$issue state unreadable; recording the close the watch confirmed" >&2
+  if [ "$state_rc" -ne 0 ]; then
+    echo "not-confirmed-closed: GH #$issue state unknown; no captain-closed announcement" >&2
+    return 1
   fi
   if ! ledger_recorded "comment key=[^ ]* issue=$issue transition=captain-closed"; then
     gh_comment "$issue" "$(comment_body captain-closed "$key" "$issue" "" "")"
