@@ -1,0 +1,64 @@
+### Scenario: refusal gates + origin-repo binding (dry-run, real herdr lab + real GitHub data)
+
+--- reconciler --dry-run --json ---
+{
+  "session": "fm-lab-paneclose-3823165-24819",
+  "total_agents": 12,
+  "reconcilable_count": 1,
+  "reconciled_count": 0,
+  "candidates": [
+    {
+      "pane_id": "w1:pF",
+      "title": "Babysit Portal PR 5928 Until Merged - grok",
+      "agent": "grok",
+      "status": "done",
+      "cwd": "/tmp/fm-lab-fixture/repo-a",
+      "reason": "Target PR #5928 is MERGED (kunchenguid/firstmate)",
+      "pr_info": {
+        "state": "MERGED",
+        "title": "feat: make /quiet a statement when attended supervision is ready",
+        "merged": true
+      },
+      "action": "SKIPPED (dry-run)"
+    }
+  ]
+}
+
+--- gh calls made by the product (note: NEVER ArcsHealth/Portal despite title saying 'Portal') ---
+pr view 5928 --repo kunchenguid/firstmate --json state,merged,title
+pr view 5942 --repo kunchenguid/firstmate --json state,merged,title
+pr view 5928 --repo kunchenguid/firstmate --json state,merged,title
+pr view 5928 --repo kunchenguid/firstmate --json state,merged,title
+pr view 5942 --repo kunchenguid/firstmate --json state,merged,title
+pr view 5917 --repo kunchenguid/firstmate --json state,merged,title
+pr view 5928 --repo kunchenguid/firstmate --json state,merged,title
+pr view 5928 --repo kunchenguid/firstmate --json state,merged,title
+pr view 5942 --repo kunchenguid/firstmate --json state,merged,title
+pr view 5917 --repo kunchenguid/firstmate --json state,merged,title
+
+--- reaper --dry-run --json ---
+{
+  "session": "fm-lab-paneclose-3823165-24819",
+  "dry_run": true,
+  "total_panes": 19,
+  "preserved_active": 14,
+  "preserved_protected": 4,
+  "reaped_panes": [
+    {
+      "pane_id": "w1:pF",
+      "title": "Babysit Portal PR 5928 Until Merged - grok",
+      "status": "done",
+      "cwd": "/tmp/fm-lab-fixture/repo-a",
+      "reason": "cross-referenced PR #5928 is MERGED in kunchenguid/firstmate"
+    }
+  ]
+}
+
+### Fixture statuses at the moment of the dry-run decision (recorded live via herdr agent/pane list)
+- w1:pF "Babysit Portal PR 5928 Until Merged - grok"  status=done cwd=repo-a(origin kunchenguid/firstmate)  -> CANDIDATE (only)
+- w1:pG "Babysit Jev router PR #5928 until reset"     status=working (report-agent) cwd=repo-a              -> refused (liveness gate)
+- w1:pK "Zeta watchdog babysit PR #5917"               status=idle   (report-agent) cwd=repo-a              -> refused (liveness gate)
+- w1:pE "User command to output OK - grok"             status=done (confirmed in agent list before run2) cwd=repo-a -> refused (title has no PR number)
+- w1:pH "Babysit PR 5942 merge queue - grok"           status=done cwd=repo-a                               -> refused (PR #5942 OPEN in firstmate; still present in final state)
+- w1:pJ "Babysit PR 5928 without origin - grok"        status=done cwd=repo-unbound (git init, no origin)   -> refused (origin unresolvable; no gh query; still present in final state)
+- Real GitHub facts used: kunchenguid/firstmate#5928=MERGED, #5917=MERGED, #5942=OPEN; ArcsHealth/Portal#5928 does not exist ("Could not resolve to a PullRequest with the number of 5928").

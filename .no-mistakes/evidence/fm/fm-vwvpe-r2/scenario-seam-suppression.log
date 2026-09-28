@@ -1,0 +1,31 @@
+### Scenario: test seam suppresses live herdr/gh entirely (recorders on PATH must never fire)
+
+--- FM_TEST_SEAM=1 reconciler --reconcile --json ---
+{
+  "session": "fm-lab-paneclose-3823165-24819",
+  "total_agents": 0,
+  "reconcilable_count": 0,
+  "reconciled_count": 0,
+  "candidates": []
+}
+
+--- FM_TEST_SEAM=1 reaper --json ---
+{
+  "session": "fm-lab-paneclose-3823165-24819",
+  "dry_run": false,
+  "total_panes": 0,
+  "preserved_active": 0,
+  "preserved_protected": 0,
+  "reaped_panes": []
+}
+
+--- FM_TEST_DISABLE_JEV_RECONCILER=1 reconciler --reconcile --json ---
+{
+  "session": "fm-lab-paneclose-3823165-24819",
+  "total_agents": 0,
+  "reconcilable_count": 0,
+  "reconciled_count": 0,
+  "candidates": []
+}
+
+Recorder PATH shims (herdr/gh appending to seam-herdr.calls / seam-gh.calls) were NEVER invoked: the call files were never created (wc: No such file or directory) while the live lab session held 12 agents / 19 panes.

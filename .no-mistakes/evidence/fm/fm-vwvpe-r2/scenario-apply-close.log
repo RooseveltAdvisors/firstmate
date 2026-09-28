@@ -1,0 +1,59 @@
+### Scenario: apply paths close exactly the eligible pane (real herdr pane close in lab session)
+
+--- reconciler --reconcile --json ---
+{
+  "session": "fm-lab-paneclose-3823165-24819",
+  "total_agents": 12,
+  "reconcilable_count": 1,
+  "reconciled_count": 1,
+  "candidates": [
+    {
+      "pane_id": "w1:pF",
+      "title": "Babysit Portal PR 5928 Until Merged - grok",
+      "agent": "grok",
+      "status": "done",
+      "cwd": "/tmp/fm-lab-fixture/repo-a",
+      "reason": "Target PR #5928 is MERGED (kunchenguid/firstmate)",
+      "pr_info": {
+        "state": "MERGED",
+        "title": "feat: make /quiet a statement when attended supervision is ready",
+        "merged": true
+      },
+      "action": "RECONCILED (closed)"
+    }
+  ]
+}
+
+--- pane ids before/after reconciler apply (comm = closed) ---
+w1:pF
+(closed above)
+
+--- reaper --json (apply) ---
+{
+  "session": "fm-lab-paneclose-3823165-24819",
+  "dry_run": false,
+  "total_panes": 18,
+  "preserved_active": 13,
+  "preserved_protected": 4,
+  "reaped_panes": [
+    {
+      "pane_id": "w1:p9",
+      "title": "Babysit merged firstmate PR 5928 - grok",
+      "status": "done",
+      "cwd": "/tmp/fm-lab-fixture/repo-a",
+      "reason": "cross-referenced PR #5928 is MERGED in kunchenguid/firstmate",
+      "closed": true
+    }
+  ]
+}
+
+--- pane ids before/after reaper apply ---
+w1:p9
+(closed above)
+
+--- refusal fixtures intact after applies ---
+{"pane_id":"w1:pE","terminal_title":"User command to output OK - grok"}
+{"pane_id":"w1:pG","terminal_title":"Babysit Jev router PR #5928 until reset"}
+{"pane_id":"w1:pH","terminal_title":"Babysit PR 5942 merge queue - grok"}
+{"pane_id":"w1:pJ","terminal_title":"Babysit PR 5928 without origin - grok"}
+{"pane_id":"w1:pK","terminal_title":"Zeta watchdog babysit PR #5917"}

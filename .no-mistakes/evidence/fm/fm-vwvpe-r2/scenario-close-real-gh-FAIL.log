@@ -1,0 +1,72 @@
+### Scenario: pane with merged cross-referenced PR + done status is closed (REAL gh 2.93.0)
+
+Fixture w1:pD: title 'PR 5928 Final Merge Check Complete - grok', agent_status=done, cwd=repo-a (origin https://github.com/kunchenguid/firstmate), PR #5928 MERGED (verified by real gh).
+
+--- Product run BEFORE any apply (original fixtures incl. w1:pF): reconciler dry-run, real gh ---
+{
+  "session": "fm-lab-paneclose-3823165-24819",
+  "total_agents": 12,
+  "reconcilable_count": 0,
+  "reconciled_count": 0,
+  "candidates": []
+}
+
+--- Product run BEFORE any apply: reaper dry-run, real gh ---
+{
+  "session": "fm-lab-paneclose-3823165-24819",
+  "dry_run": true,
+  "total_panes": 19,
+  "preserved_active": 15,
+  "preserved_protected": 4,
+  "reaped_panes": []
+}
+
+--- Product run with eligible fixture w1:pD present, real gh passthrough (logs product's own argv) ---
+{
+  "session": "fm-lab-paneclose-3823165-24819",
+  "total_agents": 10,
+  "reconcilable_count": 0,
+  "reconciled_count": 0,
+  "candidates": []
+}
+
+CMD: gh pr view 5928 --repo kunchenguid/firstmate --json state,merged,title
+RC: 1
+STDERR: Unknown JSON field: "merged"
+---
+CMD: gh pr view 5928 --repo kunchenguid/firstmate --json state,merged,title
+RC: 1
+STDERR: Unknown JSON field: "merged"
+---
+CMD: gh pr view 5942 --repo kunchenguid/firstmate --json state,merged,title
+RC: 1
+STDERR: Unknown JSON field: "merged"
+---
+CMD: gh pr view 5917 --repo kunchenguid/firstmate --json state,merged,title
+RC: 1
+STDERR: Unknown JSON field: "merged"
+---
+
+--- SAME fixtures with gh answering real GitHub data on a VALID field list (state,title) - only the 'merged' field differs ---
+{
+  "session": "fm-lab-paneclose-3823165-24819",
+  "total_agents": 10,
+  "reconcilable_count": 1,
+  "reconciled_count": 0,
+  "candidates": [
+    {
+      "pane_id": "w1:pD",
+      "title": "PR 5928 Final Merge Check Complete - grok",
+      "agent": "grok",
+      "status": "done",
+      "cwd": "/tmp/fm-lab-fixture/repo-a",
+      "reason": "Target PR #5928 is MERGED (kunchenguid/firstmate)",
+      "pr_info": {
+        "state": "MERGED",
+        "title": "feat: make /quiet a statement when attended supervision is ready",
+        "merged": true
+      },
+      "action": "SKIPPED (dry-run)"
+    }
+  ]
+}

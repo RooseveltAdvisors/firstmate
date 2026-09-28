@@ -1,0 +1,29 @@
+### Fixture inventory + final lab state (real herdr 'agent list' / 'pane list')
+--- FINAL agent list (post-apply; closed panes w1:pF/w1:p9/w1:pD absent) ---
+{"pane_id":"w1:p3","agent_status":"idle","terminal_title":"Babysit Jev router PR #5928 until reset","cwd":"/home/jon","agent":"grok"}
+{"pane_id":"w1:p4","agent_status":"working","terminal_title":null,"cwd":"/home/jon","agent":"grok"}
+{"pane_id":"w1:pC","agent_status":"idle","terminal_title":"Simple OK acknowledgment exchange twice - grok","cwd":"/tmp/fm-lab-fixture/repo-a","agent":"grok"}
+{"pane_id":"w1:pB","agent_status":"idle","terminal_title":"say OK - grok","cwd":"/tmp/fm-lab-fixture/repo-a","agent":"grok"}
+{"pane_id":"w1:pE","agent_status":"idle","terminal_title":"User command to output OK - grok","cwd":"/tmp/fm-lab-fixture/repo-a","agent":"grok"}
+{"pane_id":"w1:pG","agent_status":"working","terminal_title":"Babysit Jev router PR #5928 until reset","cwd":"/tmp/fm-lab-fixture/repo-a","agent":"grok"}
+{"pane_id":"w1:pH","agent_status":"done","terminal_title":"Babysit PR 5942 merge queue - grok","cwd":"/tmp/fm-lab-fixture/repo-a","agent":"grok"}
+{"pane_id":"w1:pJ","agent_status":"done","terminal_title":"Babysit PR 5928 without origin - grok","cwd":"/tmp/fm-lab-fixture/repo-unbound","agent":"grok"}
+{"pane_id":"w1:pK","agent_status":"idle","terminal_title":"Zeta watchdog babysit PR #5917","cwd":"/tmp/fm-lab-fixture/repo-a","agent":"grok"}
+
+--- FINAL pane list ---
+{"pane_id":"w1:p1","tab_id":"w1:t1","cwd":"/home/jon","terminal_title":null,"agent_status":"unknown"}
+{"pane_id":"w1:p2","tab_id":"w1:t1","cwd":"/home/jon","terminal_title":null,"agent_status":"unknown"}
+{"pane_id":"w1:p3","tab_id":"w1:t1","cwd":"/home/jon","terminal_title":"Babysit Jev router PR #5928 until reset","agent_status":"idle"}
+{"pane_id":"w1:p4","tab_id":"w1:t1","cwd":"/home/jon","terminal_title":null,"agent_status":"working"}
+{"pane_id":"w1:p5","tab_id":"w1:t1","cwd":"/home/jon","terminal_title":null,"agent_status":"unknown"}
+{"pane_id":"w1:p6","tab_id":"w1:t1","cwd":"/home/jon","terminal_title":null,"agent_status":"unknown"}
+{"pane_id":"w1:p7","tab_id":"w1:t1","cwd":"/home/jon","terminal_title":null,"agent_status":"unknown"}
+{"pane_id":"w1:p8","tab_id":"w1:t1","cwd":"/home/jon","terminal_title":null,"agent_status":"unknown"}
+{"pane_id":"w1:pC","tab_id":"w1:t1","cwd":"/tmp/fm-lab-fixture/repo-a","terminal_title":"Simple OK acknowledgment exchange twice - grok","agent_status":"idle"}
+{"pane_id":"w1:pB","tab_id":"w1:t1","cwd":"/tmp/fm-lab-fixture/repo-a","terminal_title":"say OK - grok","agent_status":"idle"}
+{"pane_id":"w1:pA","tab_id":"w1:t1","cwd":"/tmp/fm-lab-fixture/repo-a","terminal_title":null,"agent_status":"unknown"}
+{"pane_id":"w1:pE","tab_id":"w1:t2","cwd":"/tmp/fm-lab-fixture/repo-a","terminal_title":"User command to output OK - grok","agent_status":"idle"}
+{"pane_id":"w1:pG","tab_id":"w1:t3","cwd":"/tmp/fm-lab-fixture/repo-a","terminal_title":"Babysit Jev router PR #5928 until reset","agent_status":"working"}
+{"pane_id":"w1:pH","tab_id":"w1:t3","cwd":"/tmp/fm-lab-fixture/repo-a","terminal_title":"Babysit PR 5942 merge queue - grok","agent_status":"done"}
+{"pane_id":"w1:pJ","tab_id":"w1:t3","cwd":"/tmp/fm-lab-fixture/repo-unbound","terminal_title":"Babysit PR 5928 without origin - grok","agent_status":"done"}
+{"pane_id":"w1:pK","tab_id":"w1:t3","cwd":"/tmp/fm-lab-fixture/repo-a","terminal_title":"Zeta watchdog babysit PR #5917","agent_status":"idle"}

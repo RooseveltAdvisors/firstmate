@@ -1,0 +1,37 @@
+### Scenario: codex quota verdicts (real bin/fm-jev-quota-prober.sh)
+
+--- Q1: REAL quota-axi live (raw credits.remaining=0, effective 97) ---
+{
+  "harness": "codex",
+  "model": "gpt-5.6-luna",
+  "status": "healthy",
+  "healthy": true,
+  "reason": "codex raw credits.remaining=0 disagrees with the effective answer (effectivePercentRemaining=97, runway=through_reset, state=fresh); effective evidence is authoritative",
+  "divert_harness": "codex",
+  "divert_model": "gpt-5.6-luna"
+}
+exit=0
+
+--- Q2 (binding ruling case c): raw credits 0 + all_models status 'unknown', no effectivePercentRemaining -> MUST be EXHAUSTED ---
+{
+  "harness": "codex",
+  "model": "",
+  "status": "exhausted",
+  "healthy": false,
+  "reason": "Codex balance zero / exhausted with no effective percent answer",
+  "divert_harness": "cursor",
+  "divert_model": "cursor-grok-4.6-high"
+}
+exit=1
+
+--- Q3: raw 0 + effectivePercentRemaining=97 (strictly positive) -> healthy ---
+{
+  "harness": "codex",
+  "model": "",
+  "status": "healthy",
+  "healthy": true,
+  "reason": "codex raw credits.remaining=0 disagrees with the effective answer (effectivePercentRemaining=97, runway=ok); effective evidence is authoritative",
+  "divert_harness": "codex",
+  "divert_model": ""
+}
+exit=0

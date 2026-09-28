@@ -1,0 +1,16 @@
+### Existing hermetic suites (supporting, not live)
+--- tests/fm-jev-seat-reconciler.test.sh: PASS ---
+4. Verify --dry-run never closes a pane...
+ok - dry-run reports candidates without closing
+ok - all fm-jev-seat-reconciler tests passed
+
+--- tests/fm-jev-pane-reaper.test.sh: PASS ---
+PASS: Test 5 - Close binds origin repo, needs PR number + MERGED + not-mid-turn
+PASS: Test 6 - Dry run mode runs cleanly with zero side-effects
+=== All 6 fm-jev-pane-reaper tests passed successfully! ===
+
+--- tests/fm-jev-quota-prober.test.sh: PASS ---
+6. Verify the codex verdict follows effective runway evidence...
+ok - codex exhaustion follows effective runway evidence
+ok - all fm-jev-quota-prober tests passed
+

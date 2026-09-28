@@ -1,0 +1,165 @@
+=== session: fm-lab-paneclose-2310903-18810  date: 2026-09-27T20:13:30-04:00
+=== real gh 2.93 field-list premise:
+Unknown JSON field: "merged"
+Available fields:
+rc=0
+{"state":"MERGED","title":"feat: make /quiet a statement when attended supervision is ready"}
+{"state":"OPEN","title":"fix(teardown): refuse teardown for pushed but unmerged ship work"}
+=== pre-state agent list:
+{"name":"elig-a","pane_id":"w1:p8","agent_status":"done","terminal_title":"PR 5928 Final Merge Check Complete - grok","cwd":"/tmp/fm-panefix-2310903"}
+{"name":"guard-miss","pane_id":"w1:pE","agent_status":"done","terminal_title":"PR 99999999 Missing PR Watch - grok","cwd":"/tmp/fm-panefix-2310903"}
+{"name":"guard-work","pane_id":"w1:pD","agent_status":"idle","terminal_title":"grok","cwd":"/tmp/fm-panefix-2310903"}
+{"name":"guard-nopr","pane_id":"w1:pC","agent_status":"done","terminal_title":"Final Merge Check Completion Status - grok","cwd":"/tmp/fm-panefix-2310903"}
+{"name":"guard-open","pane_id":"w1:pB","agent_status":"done","terminal_title":"PR 5953 Open Babysit Watch - grok","cwd":"/tmp/fm-panefix-2310903"}
+{"name":"elig-f","pane_id":"w1:p9","agent_status":"done","terminal_title":"PR 5928 Second Babysit Verify - grok","cwd":"/tmp/fm-panefix-2310903"}
+=== t2 panes:
+[{"pane_id":"w1:p8","focused":false,"agent_status":"done"},{"pane_id":"w1:pE","focused":false,"agent_status":"done"},{"pane_id":"w1:pD","focused":false,"agent_status":"idle"},{"pane_id":"w1:pC","focused":false,"agent_status":"done"},{"pane_id":"w1:pB","focused":false,"agent_status":"done"},{"pane_id":"w1:pA","focused":false,"agent_status":"unknown"},{"pane_id":"w1:p9","focused":false,"agent_status":"done"}]
+=== reconciler dry-run (session lab):
+{
+  "session": "fm-lab-paneclose-2310903-18810",
+  "total_agents": 6,
+  "reconcilable_count": 2,
+  "reconciled_count": 0,
+  "candidates": [
+    {
+      "pane_id": "w1:p8",
+      "title": "PR 5928 Final Merge Check Complete - grok",
+      "agent": "grok",
+      "status": "done",
+      "cwd": "/tmp/fm-panefix-2310903",
+      "reason": "Target PR #5928 is MERGED (kunchenguid/firstmate)",
+      "pr_info": {
+        "state": "MERGED",
+        "title": "feat: make /quiet a statement when attended supervision is ready"
+      },
+      "action": "SKIPPED (dry-run)"
+    },
+    {
+      "pane_id": "w1:p9",
+      "title": "PR 5928 Second Babysit Verify - grok",
+      "agent": "grok",
+      "status": "done",
+      "cwd": "/tmp/fm-panefix-2310903",
+      "reason": "Target PR #5928 is MERGED (kunchenguid/firstmate)",
+      "pr_info": {
+        "state": "MERGED",
+        "title": "feat: make /quiet a statement when attended supervision is ready"
+      },
+      "action": "SKIPPED (dry-run)"
+    }
+  ]
+}
+=== reaper dry-run (session lab):
+{
+  "session": "fm-lab-paneclose-2310903-18810",
+  "dry_run": true,
+  "total_panes": 11,
+  "preserved_active": 7,
+  "preserved_protected": 2,
+  "reaped_panes": [
+    {
+      "pane_id": "w1:p8",
+      "title": "PR 5928 Final Merge Check Complete - grok",
+      "status": "done",
+      "cwd": "/tmp/fm-panefix-2310903",
+      "reason": "cross-referenced PR #5928 is MERGED in kunchenguid/firstmate"
+    },
+    {
+      "pane_id": "w1:p9",
+      "title": "PR 5928 Second Babysit Verify - grok",
+      "status": "done",
+      "cwd": "/tmp/fm-panefix-2310903",
+      "reason": "cross-referenced PR #5928 is MERGED in kunchenguid/firstmate"
+    }
+  ]
+}
+=== reaper APPLY (targeted w1:p9):
+{
+  "session": "fm-lab-paneclose-2310903-18810",
+  "dry_run": false,
+  "total_panes": 11,
+  "preserved_active": 0,
+  "preserved_protected": 0,
+  "reaped_panes": [
+    {
+      "pane_id": "w1:p9",
+      "title": "PR 5928 Second Babysit Verify - grok",
+      "status": "done",
+      "cwd": "/tmp/fm-panefix-2310903",
+      "reason": "cross-referenced PR #5928 is MERGED in kunchenguid/firstmate",
+      "closed": true
+    }
+  ]
+}
+=== pane list after reaper apply (t2):
+["w1:p8","w1:pA","w1:pB","w1:pC","w1:pD","w1:pE"]
+=== reconciler APPLY --reconcile:
+{
+  "session": "fm-lab-paneclose-2310903-18810",
+  "total_agents": 5,
+  "reconcilable_count": 1,
+  "reconciled_count": 1,
+  "candidates": [
+    {
+      "pane_id": "w1:p8",
+      "title": "PR 5928 Final Merge Check Complete - grok",
+      "agent": "grok",
+      "status": "done",
+      "cwd": "/tmp/fm-panefix-2310903",
+      "reason": "Target PR #5928 is MERGED (kunchenguid/firstmate)",
+      "pr_info": {
+        "state": "MERGED",
+        "title": "feat: make /quiet a statement when attended supervision is ready"
+      },
+      "action": "RECONCILED (closed)"
+    }
+  ]
+}
+=== pane list after reconciler apply (t2):
+["w1:pA","w1:pB","w1:pC","w1:pD","w1:pE"]
+=== agent list after applies:
+{"name":"guard-miss","pane_id":"w1:pE","agent_status":"done","terminal_title":"PR 99999999 Missing PR Watch - grok"}
+{"name":"guard-work","pane_id":"w1:pD","agent_status":"idle","terminal_title":"grok"}
+{"name":"guard-nopr","pane_id":"w1:pC","agent_status":"done","terminal_title":"Final Merge Check Completion Status - grok"}
+{"name":"guard-open","pane_id":"w1:pB","agent_status":"done","terminal_title":"PR 5953 Open Babysit Watch - grok"}
+=== prompt guard-work (short) so its turn completes:
+prompt rc=1
+{"pane_id":"w1:pD","agent_status":"working","terminal_title":"⠼ - Thinking - PR 5928 Mid-Turn Watch - grok"}
+=== CONTROL: reconciler dry-run while guard-work is DONE (expect it as the 1 candidate):
+{"reconcilable_count":0,"ids":[]}
+=== CONTROL: reaper dry-run while guard-work is DONE (expect w1:pD):
+{"reaped":[]}
+=== CONTROL A: guard-work now DONE with merged-PR title; dry-runs (expect w1:pD as the only candidate):
+{"pane_id":"w1:pD","agent_status":"done","terminal_title":"PR 5928 Mid-Turn Watch - grok"}
+{"reconcilable_count":1,"ids":["w1:pD"],"statuses":["done"]}
+{"reaped":[{"pane_id":"w1:pD","status":"done"}]}
+=== put guard-work back mid-turn with a long task:
+prompt submit rc=0
+{"pane_id":"w1:pD","agent_status":"working","terminal_title":"⠴ - Running 8 user_prompt_submit hooks… - PR 5928 Mid-Turn Watch - grok"}
+=== LIVENESS GATE: dry-runs while guard-work is mid-turn (expect 0 candidates):
+{"reconcilable_count":0,"ids":[]}
+{"reaped":[]}
+{"pane_id":"w1:pD","agent_status":"working"}
+=== guard panes all preserved:
+["w1:pA","w1:pB","w1:pC","w1:pD","w1:pE"]
+=== hermetic suites AT FIX (worktree):
+seat-reconciler suite rc=0
+pane-reaper suite rc=0
+4. Verify --dry-run never closes a pane...
+ok - dry-run reports candidates without closing
+ok - all fm-jev-seat-reconciler tests passed
+PASS: Test 6 - Dry run mode runs cleanly with zero side-effects
+=== All 6 fm-jev-pane-reaper tests passed successfully! ===
+=== same suites with the OLD gh field list (state,merged,title) restored in a temp copy:
+seat-reconciler pre-fix rc=1
+pane-reaper pre-fix rc=1
+not ok - the merged-PR done pane was never closed
+not ok - the eligible pane was never closed
+=== real gh rejects the old field list the pre-fix tools sent:
+Unknown JSON field: "merged"
+gh rc=1
+=== teardown lab session fm-lab-paneclose-2310903-18810:
+teardown OK (viewer stopped, session stopped+deleted, fleet tripwire verified)
+{"lab_session_remaining":0}
+=== default session untouched:
+{"name":"default","running":true}
