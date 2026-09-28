@@ -33,6 +33,9 @@ setup_case() {
   fd="$case_dir/fake"
   mkdir -p "$home/data" "$fd"
   (umask 077; mkdir -p "$home/state")
+  # The captain's autodispatch grant; tests of the ungranted path remove it.
+  mkdir -p "$home/config"
+  : > "$home/config/sos-autodispatch"
   cp "$ROOT/.tasks.toml" "$home/.tasks.toml"
   fb=$(fm_fakebin "$case_dir")
 
@@ -1247,6 +1250,80 @@ test_skill_documents_profile_dispatch() {
   pass "the SKILL documents profile-consulting dispatch and its blocked class"
 }
 
+test_unknown_issue_state_never_dispatches() {
+  local parts home fd out
+  parts=$(setup_case unknownstate)
+  home=${parts%%|*}
+  fd=${parts##*|}
+
+  # The event's issue is absent from the open list and its state read fails.
+  printf '[]\n' > "$fd/gh-list.json"
+  echo 'not json' > "$fd/gh-state-$GH_ISSUE"
+
+  if out=$(run_intake "$parts" reconcile 2>&1); then
+    fail "an unreadable issue state must fail the pass: $out"
+  fi
+  assert_contains "$out" "cannot read the state of #$GH_ISSUE" "the unknown state must be named: $out"
+  [ ! -f "$fd/comments.log" ] || fail "an unknown state must not comment: $(cat "$fd/comments.log")"
+  [ ! -f "$fd/spawn.log" ] || fail "an unknown state must not spawn: $(cat "$fd/spawn.log")"
+  assert_absent "$home/state/fm-sos-intake.cursor" "the event must stay owed"
+  pass "an unknown issue state keeps the ticket owed with no comment or crewmate"
+}
+
+test_repeated_transition_comment_posts_once() {
+  local parts fd out
+  parts=$(setup_case dupcomment)
+  fd=${parts##*|}
+  out=$(run_intake "$parts" comment "$GH_ISSUE" deployed "first") || fail "comment failed: $out"
+  out=$(run_intake "$parts" comment "$GH_ISSUE" deployed "retry") || fail "retried comment failed: $out"
+  assert_contains "$out" "already-commented" "the retry must report the recorded transition: $out"
+  assert_equals "1" "$(count_of '' "$fd/comments.log")" "a retried transition must post once"
+  pass "a retried transition posts its comment once"
+}
+
+test_source_outage_is_not_empty_work() {
+  local parts fd out
+  parts=$(setup_case outage)
+  fd=${parts##*|}
+  rm -f "$fd/bridge.json"
+  touch "$fd/gh-broken"
+  if out=$(run_intake "$parts" reconcile 2>&1); then
+    fail "a pass with both sources down must fail: $out"
+  fi
+  assert_contains "$out" "no SOS source reachable" "the outage must be named: $out"
+  assert_not_contains "$out" "no open SOS work" "an outage must not read as empty work: $out"
+
+  rm -f "$fd/gh-broken"
+  set_bridge_empty "$fd"
+  printf '[]\n' > "$fd/gh-list.json"
+  out=$(run_intake "$parts" reconcile 2>&1) || fail "a healthy empty pass must succeed: $out"
+  assert_contains "$out" "no open SOS work" "a reachable empty backlog is empty work: $out"
+  pass "a source outage fails loudly instead of reading as empty work"
+}
+
+test_dispatch_requires_the_captain_grant() {
+  local parts home fd out
+  parts=$(setup_case nogrant)
+  home=${parts%%|*}
+  fd=${parts##*|}
+  rm -f "$home/config/sos-autodispatch"
+
+  out=$(run_intake "$parts" reconcile 2>&1) || fail "an ungranted pass must still succeed: $out"
+  assert_contains "$out" "dispatch-held key=$SOS_UUID issue=$GH_ISSUE reason=autodispatch-not-granted" \
+    "the held dispatch must be reported: $out"
+  task_present "$parts" || fail "the row must still be ensured without the grant"
+  [ ! -f "$fd/spawn.log" ] || fail "no crewmate may spawn without the grant: $(cat "$fd/spawn.log")"
+  [ ! -f "$fd/comments.log" ] || fail "no dispatched comment without the grant: $(cat "$fd/comments.log")"
+  assert_contains "$(run_intake "$parts" status 2>&1)" "autodispatch: not granted" \
+    "status must show the missing grant"
+
+  : > "$home/config/sos-autodispatch"
+  out=$(run_intake "$parts" reconcile 2>&1) || fail "the granted pass failed: $out"
+  assert_equals "1" "$(count_of "fm-spawn fm-sos-$SOS_UUID" "$fd/spawn.log")" \
+    "the grant must release exactly one dispatch"
+  pass "auto-dispatch waits for the captain's explicit grant"
+}
+
 test_reconcile_creates_one_task_comment_watch_and_dispatch
 test_reconcile_is_idempotent_across_replays_and_lost_cursors
 test_lost_event_is_healed_from_github
@@ -1281,3 +1358,7 @@ test_dispatch_consults_the_profile_and_completes
 test_unresolvable_profile_blocks_the_dispatch_loudly
 test_status_scopes_a_dispatch_block_to_an_open_ticket
 test_skill_documents_profile_dispatch
+test_unknown_issue_state_never_dispatches
+test_repeated_transition_comment_posts_once
+test_source_outage_is_not_empty_work
+test_dispatch_requires_the_captain_grant

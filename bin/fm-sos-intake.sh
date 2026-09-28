@@ -27,8 +27,11 @@
 #               exactly `fm-sos-<SOS message UUID>`, and tasks-axi's add is
 #               idempotent on the id, so a replayed event can never mint a
 #               second row. The cursor is only a fast-path over the bridge.
-#               Auto-dispatch is every SOS: there is no confidence gate, no
-#               triage, and no hold. --mode/--yolo set the spawned task's
+#               Auto-dispatch is opt-in: the captain grants it by creating
+#               $FM_HOME/config/sos-autodispatch. Without that grant a ticket
+#               gets its task row and close watch but no dispatched comment
+#               or crewmate (a dispatch-held line reports it). With it, every
+#               SOS dispatches: no confidence gate, no triage. --mode/--yolo set the spawned task's
 #               delivery contract (defaults FM_SOS_MODE=no-mistakes,
 #               FM_SOS_YOLO=on); they are posture, not selection.
 # comment       Post one canonical lifecycle comment on the GitHub issue.
@@ -71,6 +74,7 @@ BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_HOME="${FM_HOME:-/opt/ra/firstmate}"
 BRIDGE_URL="${FM_SOS_BRIDGE_URL:-http://127.0.0.1:8791}"
 GH_REPO="${FM_SOS_GH_REPO:-ArcsHealth/Portal}"
+AUTODISPATCH_GRANT="$FM_HOME/config/sos-autodispatch"
 PROJECT_DIR="${FM_SOS_PROJECT:-$FM_HOME/projects/portal}"
 MODE="${FM_SOS_MODE:-no-mistakes}"
 YOLO="${FM_SOS_YOLO:-on}"
@@ -183,9 +187,12 @@ gh_comment() {
 
 gh_open_sos_issues() {
   # [{number,url,title,body}]; body is only parsed for the SOS ID marker and
-  # never copied into task rows, briefs, or logs.
-  "$GH" issue list --repo "$GH_REPO" --label sos --state open --limit 200 \
-    --json number,url,title,body 2>/dev/null || echo "[]"
+  # never copied into task rows, briefs, or logs. Fails when GitHub cannot be
+  # read, so an outage is never mistaken for an empty backlog.
+  # ponytail: gh paginates internally up to --limit; raise it if the open SOS
+  # backlog ever approaches 10000.
+  "$GH" issue list --repo "$GH_REPO" --label sos --state open --limit 10000 \
+    --json number,url,title,body 2>/dev/null
 }
 
 # --- task rows (beads on a beads backend) -----------------------------------
@@ -380,6 +387,11 @@ cmd_comment() {
     *) die "unknown transition '$transition' (want one of: $TRANSITIONS)" ;;
   esac
   local key body
+  lock_intake
+  if ledger_has "issue=$issue transition=$transition"; then
+    echo "already-commented: $issue $transition"
+    return 0
+  fi
   key=$(key_for_issue "$issue" "gh-issue-$issue")
   body=$(comment_body "$transition" "$key" "$issue" "$note" "$(task_id_for_key "$key")")
   [ -n "$body" ] || die "empty comment body"
@@ -470,6 +482,11 @@ cmd_status() {
   echo "bridge: $BRIDGE_URL"
   echo "repo:   $GH_REPO"
   echo "ledger: $LEDGER"
+  if [ -e "$AUTODISPATCH_GRANT" ]; then
+    echo "autodispatch: granted ($AUTODISPATCH_GRANT)"
+  else
+    echo "autodispatch: not granted (create $AUTODISPATCH_GRANT to enable)"
+  fi
   echo "sos task rows:"
   tasks_axi list 2>/dev/null | grep -E '^[[:space:]]+fm-sos-' || true
   echo "armed close watches:"
@@ -520,12 +537,21 @@ cmd_reconcile() {
 
   lock_intake
 
-  local cursor events_json gh_json
+  local cursor events_json gh_json sources_down=0 granted=0
+  [ -e "$AUTODISPATCH_GRANT" ] && granted=1
   cursor=$(read_cursor)
-  events_json=$("$CURL" -fsS --max-time 10 \
-    "$BRIDGE_URL/api/events?kind=sos&after=$cursor" 2>/dev/null \
-    || echo '{"events":[],"cursor":'"$cursor"',"backlog":-1}')
-  gh_json=$(gh_open_sos_issues)
+  if ! events_json=$("$CURL" -fsS --max-time 10 \
+    "$BRIDGE_URL/api/events?kind=sos&after=$cursor" 2>/dev/null); then
+    echo "warn: SOS bridge unavailable at $BRIDGE_URL" >&2
+    events_json='{"events":[]}'
+    sources_down=$((sources_down + 1))
+  fi
+  if ! gh_json=$(gh_open_sos_issues); then
+    echo "warn: cannot list open sos issues on $GH_REPO" >&2
+    gh_json='[]'
+    sources_down=$((sources_down + 1))
+  fi
+  [ "$sources_down" -lt 2 ] || die "reconcile: no SOS source reachable (bridge and GitHub both failed)"
 
   local candidates
   candidates=$(collect_candidates_py \
@@ -540,7 +566,7 @@ cmd_reconcile() {
     return 0
   fi
 
-  local key issue url event_id listed issue_open reopened ensured_state
+  local key issue url event_id listed issue_open reopened ensured_state state_rc held
   while IFS=$'\t' read -r key issue url event_id listed; do
     [ -n "$key" ] || continue
     [ -n "$issue" ] || { echo "skip: key=$key carries no GitHub issue" >&2; continue; }
@@ -559,7 +585,18 @@ cmd_reconcile() {
     fi
 
     issue_open=1
-    if [ "$listed" != open ] && gh_state "$issue"; then
+    state_rc=1
+    if [ "$listed" != open ]; then
+      state_rc=0
+      gh_state "$issue" || state_rc=$?
+    fi
+    if [ "$state_rc" -eq 2 ]; then
+      # An unknown state is never read as open: the row and watch are still
+      # ensured, but no comment or crewmate until the state is known.
+      echo "failed: cannot read the state of #$issue; the ticket stays owed" >&2
+      cursor_blocked=1
+      issue_open=0
+    elif [ "$state_rc" -eq 0 ]; then
       issue_open=0
       echo "skip: #$issue is closed; no dispatched comment or crewmate"
       if [ "$(last_dispatch_class "$key")" = dispatch-blocked ]; then
@@ -597,7 +634,14 @@ cmd_reconcile() {
         ;;
     esac
 
-    if [ "$issue_open" -eq 1 ] && ! ledger_has "issue=$issue transition=dispatched"; then
+    held=0
+    if [ "$issue_open" -eq 1 ] && [ "$reopened" -eq 0 ] && [ "$granted" -eq 0 ] \
+      && ! ledger_has "dispatch key=$key issue=$issue"; then
+      echo "dispatch-held key=$key issue=$issue reason=autodispatch-not-granted"
+      held=1
+    fi
+
+    if [ "$issue_open" -eq 1 ] && [ "$held" -eq 0 ] && ! ledger_has "issue=$issue transition=dispatched"; then
       gh_comment "$issue" "$(comment_body dispatched "$key" "$issue" "" "$(task_id_for_key "$key")")" \
         || { echo "failed: dispatched comment on #$issue" >&2; cursor_blocked=1; continue; }
       log_line "comment key=$key issue=$issue transition=dispatched"
@@ -617,7 +661,7 @@ cmd_reconcile() {
       log_line "watch key=$key issue=$issue"
     fi
 
-    if [ "$issue_open" -eq 1 ] && [ "$reopened" -eq 0 ] && ! ledger_has "dispatch key=$key issue=$issue"; then
+    if [ "$issue_open" -eq 1 ] && [ "$reopened" -eq 0 ] && [ "$held" -eq 0 ] && ! ledger_has "dispatch key=$key issue=$issue"; then
       dispatch_ticket "$key" "$issue" || {
         echo "dispatch-blocked key=$key issue=$issue reason=${DISPATCH_BLOCKED_REASON:-failed}" >&2
         log_line "dispatch-blocked key=$key issue=$issue reason=${DISPATCH_BLOCKED_REASON:-failed}"
