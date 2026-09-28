@@ -1317,6 +1317,11 @@ test_dispatch_requires_the_captain_grant() {
   assert_contains "$(run_intake "$parts" status 2>&1)" "autodispatch: not granted" \
     "status must show the missing grant"
 
+  assert_absent "$home/state/fm-sos-intake.cursor" "a held event must keep the cursor unadvanced"
+
+  # The ticket drops out of the sos-labeled list before the grant lands; the
+  # replayed bridge event alone must still release the dispatch.
+  printf '[]\n' > "$fd/gh-list.json"
   : > "$home/config/sos-autodispatch"
   out=$(run_intake "$parts" reconcile 2>&1) || fail "the granted pass failed: $out"
   assert_equals "1" "$(count_of "fm-spawn fm-sos-$SOS_UUID" "$fd/spawn.log")" \

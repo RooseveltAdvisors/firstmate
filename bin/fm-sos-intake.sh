@@ -558,7 +558,7 @@ cmd_reconcile() {
     <(printf '%s' "$events_json") \
     <(printf '%s' "$gh_json"))
 
-  local new_cursor="$cursor" cursor_blocked=0
+  local new_cursor="$cursor" cursor_blocked=0 cursor_held=0
   local created=0 dispatched=0 ensured=0
 
   if [ -z "$candidates" ]; then
@@ -639,6 +639,9 @@ cmd_reconcile() {
       && ! ledger_has "dispatch key=$key issue=$issue"; then
       echo "dispatch-held key=$key issue=$issue reason=autodispatch-not-granted"
       held=1
+      # A held event stays owed: the bridge replays it once the grant lands,
+      # even if the issue has since dropped out of the sos-labeled list.
+      cursor_held=1
     fi
 
     if [ "$issue_open" -eq 1 ] && [ "$held" -eq 0 ] && ! ledger_has "issue=$issue transition=dispatched"; then
@@ -674,7 +677,7 @@ cmd_reconcile() {
     # The cursor may only advance through a contiguous prefix of handled
     # events: a candidate whose idempotent steps failed stays owed and is
     # retried on the next pass (the GH heal path covers it too).
-    if [ "$event_id" != "-" ] && [ "$cursor_blocked" -eq 0 ]; then
+    if [ "$event_id" != "-" ] && [ "$cursor_blocked" -eq 0 ] && [ "$cursor_held" -eq 0 ]; then
       new_cursor="$event_id"
     fi
   done <<< "$candidates"
