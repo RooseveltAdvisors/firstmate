@@ -1,0 +1,55 @@
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+ok - reconcile creates one task row, comment, watch, and dispatch
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+ok - reconcile is idempotent across replays and lost cursors
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+ok - a lost bridge event is healed from GitHub and never double-dispatches
+ok - watch-condition is closed-only and fails closed
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+ok - watch-fire comments once, closes the task row, and never the issue
+error: unknown transition 'nonsense' (want one of: dispatched repro-confirmed fix-up deployed verified captain-closed)
+ok - transition comments are canonical, bounded, and never close the issue
+ok - dry-run reports the plan and changes nothing
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+ok - one ticket folds to one key across the event and the issue body
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+ok - a ticket keeps one key across passes even when its marker is gone
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+ok - reconcile survives a pile-up of large open reports
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+ok - status reports the sos rows and only live close watches
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+ok - reconcile re-arms a dead close watch that captured no verdict
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+ok - watch-fire records the close only after the row actually closes
+ok - a blocked reconcile pass exits non-zero
+ok - a failed task ensure surfaces its redacted cause and intake continues
+ok - reconcile refuses the removed dispatch flags
+ok - overlapping reconcile passes serialize on the intake lock
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+ok - reconcile does not re-arm a close watch that already reached a terminal verdict
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+ok - reconcile re-arms a close watch whose run died before completing
+ok - a failed dispatch stays owed and is retried on the next pass
+ok - dispatch re-scaffolds a brief recorded for another delivery mode
+ok - the issue key stabilizes before the first successful ensure
+ok - a bridge event for a closed ticket keeps its row and watch but no dispatch
+ok - a replay across the heal and event paths is exactly one dispatch
+ok - a candidate with no url keeps every column
+ok - intake creates a row on a due-required beads home
+ok - a tool without --why or --due receives neither flag
+ok - flags pass through only for a tool and a backend that accept them
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
+ok - a reopened-after-terminal ticket is loud once, listed, and never re-dispatched
+ok - a never-dispatched reopened ticket still launches nothing
+ok - reconcile consults the dispatch profile and completes end to end
+ok - an unresolvable profile blocks the dispatch loudly and stays owed
+ok - status lists a dispatch block only while the ticket is open and owed
+ok - the SKILL documents profile-consulting dispatch and its blocked class
