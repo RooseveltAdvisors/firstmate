@@ -52,6 +52,9 @@ fi
 if [ "${CURSOR_SECOND_ACCOUNT_EXHAUSTED:-0}" = 1 ]; then
   second_cursor='{"provider":"cursor","accountKey":"work","state":{"status":"fresh","stale":false},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":0,"runway":{"status":"exhausted_now"}}]}},'
 fi
+if [ "${CODEX_DEFAULT_ACCOUNT:-0}" = 1 ]; then
+  second_cursor='{"provider":"codex","accountKey":"default","state":{"status":"fresh","stale":false},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":40,"runway":{"status":"through_reset"}}]}},'
+fi
 printf '{"schemaVersion":6,"providers":[%s{"provider":"cursor","accountKey":"default","state":{"status":"fresh","stale":%s},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":%s,"runway":{"status":"%s"}}]}},{"provider":"codex","accountKey":"codex-home","state":{"status":"fresh","stale":false},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":%s,"runway":{"status":"%s"}},{"scope":"model:gpt-5.6-luna","status":"known","effectivePercentRemaining":%s,"runway":{"status":"%s"}}]}}]}\n' \
   "$second_cursor" "$cursor_stale" "$cursor_remaining" "$cursor_runway" "$codex_remaining" "$codex_runway" "$codex_model_remaining" "$codex_model_runway"
 SH
@@ -189,7 +192,15 @@ printf '%s\n' "$pi_out" | python3 -c '
 import json, sys
 assert json.load(sys.stdin)["status"] == "unknown"
 ' || fail "Pi unrelated-evidence result was malformed"
-"$PROBER" --harness pi --model codex/gpt-5.6-luna --json >/dev/null || fail "Pi model with matching provider evidence reported unhealthy"
+if pi_out=$("$PROBER" --harness pi --model codex/gpt-5.6-luna --json); then
+  fail "Pi provider lane bound to an unrelated codex account by row order"
+fi
+printf '%s\n' "$pi_out" | python3 -c '
+import json, sys
+assert json.load(sys.stdin)["status"] == "unknown"
+' || fail "Pi unbound-account result was malformed"
+CODEX_EXHAUSTED=1 CODEX_DEFAULT_ACCOUNT=1 "$PROBER" --harness pi --model codex/gpt-5.6-luna --json >/dev/null ||
+  fail "Pi provider lane did not bind to its provider's default account"
 if CODEX_EXHAUSTED=1 "$PROBER" --harness pi --model openai-codex-work/gpt-5.6-terra --json >/dev/null; then
   fail "Pi account lane without its own row reported healthy"
 fi

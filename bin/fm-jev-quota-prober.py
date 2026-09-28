@@ -114,10 +114,14 @@ def select_account(quota_data: dict, harness: str, model: str) -> dict | None:
         lane = model.split("/", 1)[0]
         lane = "codex-home" if lane == "codex-native" else lane
         # A Pi lane names an account (openai-codex-work) or a provider (codex).
-        matches = [r for r in rows if r.get("accountKey") == lane] or [
-            r for r in rows if r.get("provider") == lane
-        ]
-        return matches[0] if matches else None
+        keyed = next((r for r in rows if r.get("accountKey") == lane), None)
+        if keyed:
+            return keyed
+        lane_rows = [r for r in rows if r.get("provider") == lane]
+        if quota_data.get("schemaVersion") == 6:
+            # Never bind by row order: only an explicit default row stands in.
+            return next((r for r in lane_rows if r.get("accountKey") == "default"), None)
+        return lane_rows[0] if lane_rows else None
     provider_rows = [r for r in rows if r.get("provider") == harness]
     if quota_data.get("schemaVersion") == 6:
         for key in (lane, "default"):
