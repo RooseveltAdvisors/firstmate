@@ -39,10 +39,8 @@ ok - backlog payloads beyond the exec string limit never wedge reconcile
 ok - a tasks-axi without --why still gets its row
 ok - an unreadable report is deferred, never judged
 ok - an unknown GitHub state never permits dispatch
-ok - a decline completes with a named warning when its label fails
-ok - a not_supported ticket already closed at intake closes its row
-ok - watch-fire never announces a close GitHub no longer reports
-ok - watch-fire never loses a close to a transient GitHub failure
-ok - an unbound marker twin never adopts another issue's row
-ok - overlapping reconcile passes never both dispatch
-bash tests/fm-issue-intake.test.sh  29.10s user 12.77s system 102% cpu 40.926 total
+not ok - a failed label must not block the decline: failed: decline for #1921
+reconcile: ensured=1 task_created=1 dispatched=0 declined=0 review=0 cursor=0->0 (missing: 'declined=1')
+--- output ---
+failed: decline for #1921
+reconcile: ensured=1 task_created=1 dispatched=0 declined=0 review=0 cursor=0->0
