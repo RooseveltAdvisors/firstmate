@@ -244,7 +244,10 @@ except Exception:
 # never dispatching a live ticket is worse than a non-UUID idempotency key.
 
 collect_candidates_py() {  # <events-json> <gh-json>; never fails the caller
-  local events_json="$1" gh_json="$2" events_file gh_file folded
+  # events_file/gh_file stay global (this function runs in a command-
+  # substitution subshell) so the single-quoted EXIT trap still finds them in
+  # scope when it fires at subshell exit.
+  local events_json="$1" gh_json="$2" folded
   mkdir -p "$STATE_DIR" 2>/dev/null || true
   if ! events_file=$(umask 077; mktemp "$STATE_DIR/.cand-events.XXXXXX" 2>/dev/null); then
     echo "warn: could not stage candidate payloads; treating backlog as empty" >&2
@@ -255,7 +258,7 @@ collect_candidates_py() {  # <events-json> <gh-json>; never fails the caller
     echo "warn: could not stage candidate payloads; treating backlog as empty" >&2
     return 0
   fi
-  trap "rm -f -- $(printf '%q' "$events_file") $(printf '%q' "$gh_file")" EXIT
+  trap 'rm -f -- "$events_file" "$gh_file"' EXIT
   if ! printf '%s' "$events_json" > "$events_file" || ! printf '%s' "$gh_json" > "$gh_file"; then
     rm -f -- "$events_file" "$gh_file"
     echo "warn: could not stage candidate payloads; treating backlog as empty" >&2
@@ -430,12 +433,14 @@ except Exception:
     labels=$(printf '%s\n' "$parsed" | sed -n 3p)
   fi
   mkdir -p "$STATE_DIR" 2>/dev/null || true
-  local body_file
+  # body_file stays global (this function runs in a command-substitution
+  # subshell) so the single-quoted EXIT trap still finds it in scope when it
+  # fires at subshell exit.
   if ! body_file=$(umask 077; mktemp "$STATE_DIR/.issue-body.XXXXXX" 2>/dev/null); then
     echo captain_review
     return 0
   fi
-  trap "rm -f -- $(printf '%q' "$body_file")" EXIT
+  trap 'rm -f -- "$body_file"' EXIT
   printf '%s' "$body" > "$body_file"
   local -a vargs=(verdict --repo "$GH_REPO" --issue "$issue" --title "$title"
                   --body-file "$body_file" --labels "$labels" --json)
