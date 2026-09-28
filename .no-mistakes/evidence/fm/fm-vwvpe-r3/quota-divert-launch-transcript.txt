@@ -1,0 +1,20 @@
+=== test_quota_divert_to_pi_rebuilds_launch
+ok - quota divert to pi rebuilds concrete Pi launch and applies diverted profile
+--- captured launch (tmux send-keys -l):
+export COMPACT_ADVISER_DISABLE=1; export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0='/tmp/fm-spawn-dispatch-profile.p2Kwmq/profile-quota-divert-pi/home/state/profile-quota-divert-pi-z8e.git-hooks'; env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI FM_PI_HARNESS=pi '/tmp/fm-spawn-dispatch-profile.p2Kwmq/profile-quota-divert-pi/fake/fakebin/pi' --tui-mode regular --model 'openai-codex/gpt-5.6-sol' --thinking 'max' -e '/tmp/fm-spawn-dispatch-profile.p2Kwmq/profile-quota-divert-pi/home/state/profile-quota-divert-pi-z8e.pi-ext.ts' "$('~/.no-mistakes/worktrees/46339c0817e0/01M3MS3SSZM6J4VNT8V4F0JQE2/bin/fm-operational-input.sh' encode launch-brief < '/tmp/fm-spawn-dispatch-profile.p2Kwmq/profile-quota-divert-pi/home/data/profile-quota-divert-pi-z8e/launch-brief.md')"
+
+--- spawn stderr/stdout:
+jev-quota-prober: automatically diverted codex:codex/gpt-5 to viable lane pi:openai-codex/gpt-5.6-sol
+warning: /tmp/fm-spawn-dispatch-profile.p2Kwmq/profile-quota-divert-pi/home/data/profile-quota-divert-pi-z8e/launch-brief.md records no ship branch; defaulting to legacy branch fm/profile-quota-divert-pi-z8e
+warning: /tmp/fm-spawn-dispatch-profile.p2Kwmq/profile-quota-divert-pi/home/data/profile-quota-divert-pi-z8e/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+spawned profile-quota-divert-pi-z8e harness=pi kind=ship mode=no-mistakes yolo=off window=firstmate:fm-profile-quota-divert-pi-z8e worktree=/tmp/fm-spawn-dispatch-profile.p2Kwmq/profile-quota-divert-pi/wt
+=== test_raw_launch_quota_divert_runs_command_verbatim
+ok - raw launch command runs verbatim when the prober would divert
+--- captured launch (tmux send-keys -l):
+export COMPACT_ADVISER_DISABLE=1; export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0='/tmp/fm-spawn-dispatch-profile.p2Kwmq/profile-raw-quota-divert/home/state/profile-raw-quota-divert-z8g.git-hooks'; custom-agent --flag
+
+--- spawn stderr/stdout:
+error: refusing to divert raw launch command 'custom-agent --flag': lane custom-agent is exhausted (divert target cursor:cursor-grok-4.5-high); the raw launch command runs verbatim
+warning: /tmp/fm-spawn-dispatch-profile.p2Kwmq/profile-raw-quota-divert/home/data/profile-raw-quota-divert-z8g/launch-brief.md records no ship branch; defaulting to legacy branch fm/profile-raw-quota-divert-z8g
+warning: /tmp/fm-spawn-dispatch-profile.p2Kwmq/profile-raw-quota-divert/home/data/profile-raw-quota-divert-z8g/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+spawned profile-raw-quota-divert-z8g harness=custom-agent kind=ship mode=no-mistakes yolo=off window=firstmate:fm-profile-raw-quota-divert-z8g worktree=/tmp/fm-spawn-dispatch-profile.p2Kwmq/profile-raw-quota-divert/wt
