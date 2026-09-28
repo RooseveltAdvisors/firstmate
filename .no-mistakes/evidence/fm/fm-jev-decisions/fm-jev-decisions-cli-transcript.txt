@@ -1,26 +1,13 @@
-$ FM_HOME=<worktree> TYPESAFE_API_KEY=*** bin/fm-jev-decisions.sh --input decisions.tsv --state-dir $T/state
+$ bin/fm-jev-decisions.sh --all --state-dir $STATE
 TASK             KEY                              VERB            CATEGORY          NOUL   CONF   SUGGESTED ACTION
 ==================================================================================================================
-websites         pending-reply-9f1                blocked         stale_historical  0.10   0.80   Confirm the pending reply is no longer owed before closing it
-websites         old-deploy-choice                needs-decision  stale_historical  0.20   0.80   Archive or resolve superseded historical decision
-websites         quota-bump                       needs-decision  policy_spend      0.30   0.80   Escalate to Captain for policy, spend, or architecture guidance
-websites         net-dns                          blocked         external_block    0.40   0.80   Investigate external host, route, or credentials dependency
-websites         active-fix                       needs-decision  actionable_now    0.90   0.80   Active blocker: requires prompt resolution or steer
-gone-task        old-thing                        needs-decision  stale_historical  0.20   0.80   Archive or resolve superseded historical decision (task metadata gone; close it by hand)
+alpha            active-pick                      needs-decision  actionable_now    0.90   0.80   Active blocker: requires prompt resolution or steer
+beta             old-dep                          blocked         stale_historical  0.20   0.80   Archive or resolve superseded historical decision
+eps              old-gone                         blocked         stale_historical  0.20   0.80   Archive or resolve superseded historical decision (task metadata gone; close it by hand)
+fm-delta         quota-up                         needs-decision  policy_spend      0.30   0.80   Escalate to Captain for policy, spend, or architecture guidance
+gamma            net-down                         blocked         external_block    0.40   0.80   Investigate external host, route, or credentials dependency
 ==================================================================================================================
-Total: 6 | stale_historical: 3 | actionable_now: 1 | external_block: 1 | policy_spend: 1
+Total: 5 | stale_historical: 2 | actionable_now: 1 | external_block: 1 | policy_spend: 1
 
-$ ... --resolve-cmds   (run from /tmp)
-FM_HOME=/home/jon/.no-mistakes/worktrees/46339c0817e0/01M3K9P51F99RTZ2949H6M9QSV FM_STATE_OVERRIDE=/tmp/tmp.bDNeZXSajR/state /home/jon/.no-mistakes/worktrees/46339c0817e0/01M3K9P51F99RTZ2949H6M9QSV/bin/fm-send.sh websites --resolve-key old-deploy-choice 'auto-resolved: superseded historical decision'
-
-
-
-# FM_HOME without key, .env, or wrapper -> no /opt fallback, items report unavailable:
-TASK             KEY                              VERB            CATEGORY          NOUL   CONF   SUGGESTED ACTION
-==================================================================================================================
-adhoc            active-x                         needs-decision  unavailable       N/A    N/A    TYPESAFE_API_KEY unavailable
-==================================================================================================================
-Total: 1 | unavailable: 1
-# net-dns request body as received by stub Jev:
-{"model": "jev-latest", "state": {"task": "websites", "key": "net-dns", "verb": "blocked", "note": "upstream host unreachable; token [withheld]"}, "questions": {"category": {"type": "choice", "instructions": "Classify this open decision or blocker into exactly one category.", "criteria": {"stale_historical": "Superseded by events, expired timeout, missed pending-reply, or legacy worktree from a previous phase; safe to resolve/archive without blocking ongoing work.", "actionable_now": "Directly and currently blocks active work in flight; requires immediate human or agent resolution today.", "external_block": "Blocked by external dependencies, infrastructure, networking, missing credentials, or third-party outages outside agent control.", "policy_spend": "Requires Captain authorization on product strategy, architecture direction, financial spend, or permanent data discard/retention."}}, "actionable_now": {"type": "noul", "instructions": "Is this decision urgently blocking active current work right now?"}}}
-# fragments present: []
+$ bin/fm-jev-decisions.sh --all --state-dir $STATE --resolve-cmds
+FM_HOME=/home/jon/.no-mistakes/worktrees/46339c0817e0/01M3K9P51F99RTZ2949H6M9QSV FM_STATE_OVERRIDE=$TMP/state /home/jon/.no-mistakes/worktrees/46339c0817e0/01M3K9P51F99RTZ2949H6M9QSV/bin/fm-send.sh beta --resolve-key old-dep 'auto-resolved: superseded historical decision'
