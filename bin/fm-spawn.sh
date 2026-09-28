@@ -2203,8 +2203,24 @@ launch_template() {
 prepare_harness_launch() {
   # muse, gemini, agy, devin, and rovo are verified as CREWMATE/SCOUT adapters
   # only. A secondmate is a firstmate instance, so it needs a primary
-  # supervision protocol. None of these adapters has one: docs/supervision-protocols/
-  # carries no wake protocol for them. Refusing here keeps that gap loud.
+  # supervision protocol. None of these adapters has one, so refusing here
+  # keeps that gap loud instead of standing one up with no way to arm its watch
+  # cycle.
+  # gemini has none: docs/supervision-protocols/ carries no gemini wake protocol
+  # and this task verified only crewmate-side launch, busy state, interrupt, and
+  # exit, so a gemini secondmate is refused rather than stood up on an unverified
+  # supervision path. muse has none either, and its Claude-compatible hook
+  # dialect explicitly rejects the model-reawakening and asyncRewake handlers
+  # that firstmate's primary turn-end supervision is built on
+  # (muse 0.1.0-R708.1). Refusing here keeps that gap loud instead of standing
+  # up a secondmate whose supervision cycle could never be armed.
+  # agy has none either: it exposes no hook surface for primary supervision and
+  # docs/supervision-protocols/ carries no agy wake protocol (agy 1.2.0).
+  # devin has none either: only its worker lifecycle hooks are verified, and
+  # docs/supervision-protocols/ carries no devin wake protocol (devin 3000.11.1).
+  # rovo carries the same primary-supervision gap as muse: no turn-end hook, no
+  # verified primary integration, so a secondmate (a firstmate instance that
+  # must itself act as a primary) could never be supervised.
   if [ "$KIND" = secondmate ] && { [ "$HARNESS" = muse ] || [ "$HARNESS" = gemini ] || [ "$HARNESS" = agy ] || [ "$HARNESS" = devin ] || [ "$HARNESS" = rovo ]; }; then
     echo "error: $HARNESS is a verified crewmate/scout adapter only and cannot run a secondmate; it has no primary supervision protocol. Select a harness verified for secondmates." >&2
     exit 1
@@ -2230,8 +2246,11 @@ prepare_harness_launch() {
     LAUNCH="FM_PI_HARNESS=$HARNESS $LAUNCH"
     ;;
   cursor)
-    # `cursor` is not the CLI name, and the legacy alias `agent` is too generic
-    # to launch on its name alone, so resolution runs through the verified owner.
+    # `cursor` is not the CLI name, and the legacy alias `agent` is far too
+    # generic to launch on its name alone, so resolution runs through the
+    # verified owner rather than a bare command lookup. Refusing here keeps a
+    # missing install a loud spawn refusal instead of a pane that dies with a
+    # command-not-found the supervisor would read as a wedged worker.
     CURSOR_BIN=$(fm_cursor_resolve_binary) || exit 1
     if [ -n "$MODEL" ] && [ "$MODEL" != default ]; then
       if CURSOR_MODELS=$(fm_cursor_list_models "$CURSOR_BIN"); then
@@ -2261,6 +2280,8 @@ prepare_harness_launch() {
     ;;
   esac
 
+  # Ultra is an explicit native capability, never a Pi thinking-level alias.
+  # Validate the fully resolved profile before worktree or endpoint provisioning.
   if [ "$EFFORT" = ultra ]; then
     "$SCRIPT_DIR/fm-harness.sh" validate-native-effort "$HARNESS" "$MODEL" "$EFFORT" || exit 1
     [ "$RAW_LAUNCH" = 0 ] || {
@@ -2362,6 +2383,7 @@ if [ "${FM_TEST_DISABLE_JEV_PROBER:-0}" != 1 ] && [ -x "$JEV_QUOTA_PROBER" ]; th
           HARNESS="$harness"
           MODEL="$model"
           if [ "$HARNESS" != "$_pre_divert_harness" ]; then
+            unset PI_BIN CURSOR_BIN OMP_BIN OMP_WORKER_CFG AGY_BIN DEVIN_BIN
             LAUNCH=$(launch_template "$HARNESS" "$KIND") || {
               echo "error: no launch template for diverted harness '$HARNESS'" >&2
               exit 1

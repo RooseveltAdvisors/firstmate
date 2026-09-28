@@ -71,6 +71,23 @@ make_spawn_case() {
   printf '%s\n' "$case_dir|$home|$proj|$wt|$fakebin|$launchlog"
 }
 
+make_divert_prober() {
+  local prober=$1 divert_harness=$2 divert_model=$3
+  cat > "$prober" <<SH
+#!/usr/bin/env bash
+set -u
+case " \${*} " in
+  *' --auto-divert '*)
+    printf '%s\\n' 'harness=$divert_harness' 'model=$divert_model'
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+SH
+  chmod +x "$prober"
+}
+
 enable_dispatch_profile() {
   local home=$1
   printf '%s\n' '{"rules":[{"when":"current events","use":{"harness":"grok","model":"grok-4","effort":"high"}}],"default":{"harness":"codex","model":"gpt-5","effort":"medium"}}' \
@@ -989,19 +1006,7 @@ test_quota_divert_to_pi_rebuilds_launch() {
   rec=$(make_spawn_case profile-quota-divert-pi codex "$id")
   read_case_record "$rec"
   prober="$CASE_DIR/jev-quota-prober"
-  cat > "$prober" <<'SH'
-#!/usr/bin/env bash
-set -u
-case " ${*} " in
-  *' --auto-divert '*)
-    printf '%s\n' 'harness=pi' 'model=openai-codex/gpt-5.6-sol'
-    ;;
-  *)
-    exit 1
-    ;;
-esac
-SH
-  chmod +x "$prober"
+  make_divert_prober "$prober" pi openai-codex/gpt-5.6-sol
 
   out=$(FM_TEST_DISABLE_JEV_PROBER=0 FM_TEST_JEV_PROBER_PATH="$prober" run_ship_spawn \
     "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" \
@@ -1026,19 +1031,7 @@ test_quota_divert_to_cursor_rebuilds_launch() {
   rec=$(make_spawn_case profile-quota-divert-cursor pi "$id")
   read_case_record "$rec"
   prober="$CASE_DIR/jev-quota-prober"
-  cat > "$prober" <<'SH'
-#!/usr/bin/env bash
-set -u
-case " ${*} " in
-  *' --auto-divert '*)
-    printf '%s\n' 'harness=cursor' 'model=cursor-grok-4.5-high'
-    ;;
-  *)
-    exit 1
-    ;;
-esac
-SH
-  chmod +x "$prober"
+  make_divert_prober "$prober" cursor cursor-grok-4.5-high
 
   out=$(FM_TEST_DISABLE_JEV_PROBER=0 FM_TEST_JEV_PROBER_PATH="$prober" run_ship_spawn \
     "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" \
@@ -1061,19 +1054,7 @@ test_raw_launch_quota_divert_runs_command_verbatim() {
   rec=$(make_spawn_case profile-raw-quota-divert claude "$id")
   read_case_record "$rec"
   prober="$CASE_DIR/jev-quota-prober"
-  cat > "$prober" <<'SH'
-#!/usr/bin/env bash
-set -u
-case " ${*} " in
-  *' --auto-divert '*)
-    printf '%s\n' 'harness=cursor' 'model=cursor-grok-4.5-high'
-    ;;
-  *)
-    exit 1
-    ;;
-esac
-SH
-  chmod +x "$prober"
+  make_divert_prober "$prober" cursor cursor-grok-4.5-high
 
   out=$(FM_TEST_DISABLE_JEV_PROBER=0 FM_TEST_JEV_PROBER_PATH="$prober" run_ship_spawn \
     "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" \
