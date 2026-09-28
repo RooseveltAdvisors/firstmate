@@ -1,0 +1,59 @@
+$ fm-route-domain.sh --task "Seller outreach campaign for clinics"
+action=dispatch
+route=seller-outreach
+confidence=0.900
+needs_new_noul=0.100
+dispatch_cmd=FM_HOME=/tmp/tmp.ytYkqbKN57/home /tmp/tmp.ytYkqbKN57/home/bin/fm-send.sh seller-outreach 'Seller outreach campaign for clinics'
+
+$ fm-route-domain.sh --task "Build a drone delivery program"
+action=create_secondmate
+route=new_domain
+confidence=0.900
+needs_new_noul=0.900
+
+$ fm-route-domain.sh --task "Something vague about stuff"
+action=handle_direct
+route=captain_direct
+confidence=0.340
+needs_new_noul=0.200
+reason=route confidence 0.340 below 0.7 for portal-ops
+
+$ fm-route-domain.sh --task "nan test task"
+action=handle_direct
+route=captain_direct
+reason=Jev returned a non-finite signal for portal-ops
+
+$ fm-route-dispatch.sh --task "Seller outreach campaign for clinics" --execute
+=== Jev Front-Door Router ===
+Action:     dispatch
+Route:      seller-outreach
+Confidence: 0.9
+New Domain: 0.1
+=============================
+Executing dispatch to second mate: seller-outreach ...
+[fake fm-send] target=seller-outreach body=Seller outreach campaign for clinics
+Dispatched successfully to seller-outreach.
+
+$ fm-route-dispatch.sh --task "Seller outreach campaign for clinics" --execute --json
+[fake fm-send] target=seller-outreach body=Seller outreach campaign for clinics
+{
+  "action": "dispatch",
+  "route": "seller-outreach",
+  "confidence": 0.9,
+  "needs_new_noul": 0.1,
+  "probabilities": {},
+  "reason": null,
+  "dispatch_message": "Seller outreach campaign for clinics",
+  "dispatched": true,
+  "send_exit_code": 0
+}
+
+$ fm-route-dispatch.sh --task "Something vague about stuff" --execute --json
+{
+  "action": "handle_direct",
+  "route": "captain_direct",
+  "confidence": 0.34,
+  "needs_new_noul": 0.2,
+  "probabilities": {},
+  "reason": "route confidence 0.340 below 0.7 for portal-ops"
+}
