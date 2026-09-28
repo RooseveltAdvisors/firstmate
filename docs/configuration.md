@@ -712,7 +712,6 @@ A local standalone-clone home cannot receive a primary-local commit through that
 claude, codex, opencode, pi, pi-signed, kimi, cursor, and omp are empirically verified for crewmate and secondmate launches; gemini is verified for crewmate and scout launches only, and [README requirements](../README.md#requirements) own the set supported for the primary session.
 Grok is reserved for the primary Firstmate session: the spawn quota preflight refuses the standalone `grok` harness and every model whose id contains `grok` before creating a crewmate, scout, or secondmate, and it offers Cursor Composer only when fresh quota evidence confirms positive usable runway.
 
-
 ### Harness restrictions and credentials
 
 `fm-spawn.sh` refuses kimi on cmux and Orca at preflight, because answering Kimi's folder-trust dialog needs a verified viewport-only capture those backends lack; [its adapter reference](../.agents/skills/harness-adapters/references/harness/kimi.md#readiness-gated-start) owns the trust-dialog handling.
