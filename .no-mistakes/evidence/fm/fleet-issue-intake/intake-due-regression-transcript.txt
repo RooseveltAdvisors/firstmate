@@ -1,0 +1,61 @@
+FM-SOS/ISSUE INTAKE - the --due regression, reproduced end to end
+date: 2026-09-28T06:23:26Z
+
+==================================================================
+== A. mechanism: tasks-axi has no add --due flag
+==================================================================
+$ fm-tasks-axi.sh add fm-iss-demo 'due demo' --kind ship --repo portal --priority 1 --due +2w --body x --json
+error: "Unknown flag: --due"
+code: VALIDATION_ERROR
+help[1]: Run the command with --help to see supported flags
+rc=2
+  [PASS] the synthetic --due flag is rejected before any write
+  (non-zero rc: task_ensure would fail => task_created=0)
+
+$ fm-tasks-axi.sh add fm-iss-demo 'no due' --kind ship --repo portal --priority 1 --why '...' --body x --json
+{
+  "ok": true,
+  "action": "add",
+  "task": {
+    "id": "fm-iss-nodue-demo",
+    "title": "no due",
+    "state": "queued",
+    "kind": "ship",
+    "repo": "portal",
+    "priority": 1,
+    "priority_why": "staff SOS report awaiting fix",
+    "created": "2026-09-28",
+    "closed": null,
+    "deps": [],
+    "hold": null,
+    "links": [],
+    "body": "x",
+    "blocked": false,
+    "blocked_by": [],
+    "held": false
+  }
+}
+  [PASS] the current add surface succeeds (row written)
+
+==================================================================
+== B. pre-fix intake (rev 1861782d fm-sos-intake.sh): reconcile reports task_created=0
+==================================================================
+extracted 1861782d feat(fm-sos-intake): send task due date (FM_SOS_DUE, default +2w)
+$ fm-sos-intake.sh reconcile   # FM_SOS_* env, same stubs, real tasks-axi
+failed: task ensure sos:7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f
+reconcile: ensured=0 task_created=0 dispatched=0 cursor=0->0
+  [PASS] the pre-fix intake reports task_created=0
+  [PASS] no task row was created by the pre-fix intake
+
+==================================================================
+== C. fixed intake (bin/fm-issue-intake.sh): reconcile reports task_created=1
+==================================================================
+$ fm-issue-intake.sh reconcile   # same scenario, FM_ISSUE_* env
+dispatched: fm-iss-7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f (GH #1921)
+reconcile: ensured=1 task_created=1 dispatched=1 declined=0 review=0 cursor=0->1
+  [PASS] the fixed intake creates the row
+  [PASS] the row exists in the backlog
+
+==================================================================
+CHECKS: 6 total, 0 failed
+RESULT: PASS

@@ -1,0 +1,207 @@
+FLEET ISSUE INTAKE - end-to-end demonstration
+worktree: /home/jon/.no-mistakes/worktrees/46339c0817e0/01M3K3F9B9AM7QN15KJPY9DRWJ
+date:     2026-09-28T06:16:52Z
+script:   bin/fm-issue-intake.sh 1b0cbcb9
+
+==================================================================
+== 1. supported_bug: verdict gate dispatches a fresh ticket (row really created)
+==================================================================
+$ fm-issue-intake.sh reconcile          # jev stub answers supported_bug
+dispatched: fm-iss-7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f (GH #1921)
+reconcile: ensured=1 task_created=1 dispatched=1 declined=0 review=0 cursor=0->1
+  [PASS] the --due fix: a fresh reconcile creates the task row
+  [PASS] a supported_bug ticket dispatches
+  [PASS] the bridge cursor advances
+  [PASS] reporter-facing dispatched comment posted
+  [PASS] the comment names the fm-iss- row id
+  [PASS] one crewmate spawned on the fm-iss- row
+  [PASS] close watch armed against the renamed script
+  [PASS] watch spec names fm-issue-intake.sh (not the retired fm-sos-intake.sh)
+  [PASS] watch spec carries no retired fm-sos-intake.sh path
+  [PASS] dispatch never labels the issue
+  [PASS] dispatch never closes the issue
+--- persisted state: after dispatch
+  ledger (/tmp/fm-issue-intake.WZbImX/demo-dispatch/home/state/fm-issue-intake.log):
+    task key=7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f issue=1921 task=fm-iss-7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f at=2026-09-28T06:16:53Z
+    verdict key=7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f issue=1921 verdict=supported_bug at=2026-09-28T06:16:53Z
+    comment key=7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f issue=1921 transition=dispatched at=2026-09-28T06:16:53Z
+    watch key=7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f issue=1921 at=2026-09-28T06:16:53Z
+    dispatch key=7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f issue=1921 at=2026-09-28T06:16:53Z
+  cursor: 1
+  gh comments posted (/tmp/fm-issue-intake.WZbImX/demo-dispatch/fake):
+    #1921: :robot: **Issue intake** - firstmate intake picked up ticket `7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f` (task `fm-iss-7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f`). Auto-dispatched to a crewmate; lifecycle comments (repro confirmed
+  gh close attempts: 0 | label edits: 0
+  spawns:     fm-spawn fm-iss-7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f /tmp/fm-issue-intake.WZbImX/demo-dispatch/home/projects/portal --mode no-mistakes --yolo on
+  task rows:
+      fm-iss-7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f,queued,ship,portal,SOS ticket 7f3c1a52 - GH #1921
+  task state of the ticket row: queued
+  armed close watches: when-sos-1921.spec 
+
+$ fm-issue-intake.sh status
+  cursor: 1
+  bridge: http://bridge.invalid:8791
+  repo:   ArcsHealth/Portal
+  ledger: /tmp/fm-issue-intake.WZbImX/demo-dispatch/home/state/fm-issue-intake.log
+  sos task rows:
+    fm-iss-7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f,queued,ship,portal,SOS ticket 7f3c1a52 - GH #1921
+  armed close watches:
+    when-sos-1921
+
+==================================================================
+== 2. replay: same event again (lost cursor) changes nothing
+==================================================================
+$ rm state/fm-issue-intake.cursor   # simulate a lost cursor, replay the event
+reconcile: ensured=1 task_created=0 dispatched=0 declined=0 review=0 cursor=0->1
+  [PASS] replay mints no second row
+  [PASS] replay never double-dispatches
+  [PASS] exactly one dispatched comment across replays
+  [PASS] exactly one spawn across replays
+  [PASS] the verdict is decided once and ledgered
+
+==================================================================
+== 3. rename: FM_ISSUE_* posture env reaches the spawn, status shows fm-iss- rows
+==================================================================
+$ FM_ISSUE_MODE=direct-PR FM_ISSUE_YOLO=off fm-issue-intake.sh reconcile
+dispatched: fm-iss-7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f (GH #1921)
+reconcile: ensured=1 task_created=1 dispatched=1 declined=0 review=0 cursor=0->1
+  [PASS] FM_ISSUE_MODE is the spawn's delivery contract
+  [PASS] FM_ISSUE_YOLO reaches the spawn
+
+==================================================================
+== 4. rename: pre-rename fm-sos-intake state files are adopted; legacy fm-sos- row stays authoritative
+==================================================================
+pre-rename state: fm-sos-intake.cursor fm-sos-intake.log 
+$ fm-issue-intake.sh reconcile   # first run of the renamed script
+reconcile: ensured=1 task_created=0 dispatched=0 declined=0 review=0 cursor=1->1
+  [PASS] the legacy fm-sos- row is reused, not duplicated
+  [PASS] legacy cursor adopted (file renamed away)
+  [PASS] legacy ledger adopted (file renamed away)
+  [PASS] cursor now lives under the new name
+  [PASS] the pre-rename ledger carried over verbatim
+  [PASS] the dispatched comment names the pre-rename row
+  [PASS] no fm-iss- row is minted for a ticket a fm-sos- row owns
+--- persisted state: after rename adoption
+  ledger (/tmp/fm-issue-intake.WZbImX/demo-rename/home/state/fm-issue-intake.log):
+    dispatch key=7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f issue=1921 task=fm-sos-7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f at=2025-01-01T00:00:00Z
+    task key=7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f issue=1921 task=fm-sos-7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f at=2026-09-28T06:16:54Z
+    verdict key=7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f issue=1921 verdict=supported_bug at=2026-09-28T06:16:54Z
+    comment key=7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f issue=1921 transition=dispatched at=2026-09-28T06:16:54Z
+    watch key=7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f issue=1921 at=2026-09-28T06:16:55Z
+  cursor: 1
+  gh comments posted (/tmp/fm-issue-intake.WZbImX/demo-rename/fake):
+    #1921: :robot: **Issue intake** - firstmate intake picked up ticket `7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f` (task `fm-sos-7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f`). Auto-dispatched to a crewmate; lifecycle comments (repro confirmed
+  gh close attempts: 0 | label edits: 0
+  spawns: (none)
+  task rows:
+      fm-sos-7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f,queued,ship,portal,legacy row minted before the rename
+  task state of the ticket row: queued
+  armed close watches: when-sos-1921.spec 
+
+==================================================================
+== 5. not_supported: declined, labeled, closed; replay never repeats it
+==================================================================
+$ fm-issue-intake.sh reconcile          # jev stub answers not_supported
+reconcile: ensured=1 task_created=1 dispatched=0 declined=1 review=0 cursor=0->1
+  [PASS] the decline lands
+  [PASS] reporter gets the decline comment
+  [PASS] the not-supported label is applied
+  [PASS] the issue is closed (decline is the only close)
+  [PASS] the task row closes
+  [PASS] a declined ticket never spawns
+  [PASS] a declined ticket arms no close watch
+
+$ fm-issue-intake.sh reconcile          # replay
+reconcile: ensured=1 task_created=0 dispatched=0 declined=1 review=0 cursor=1->1
+  [PASS] the recorded decline still counts as handled
+  [PASS] exactly one decline comment ever
+  [PASS] replay never closes again
+--- persisted state: after decline + replay
+  ledger (/tmp/fm-issue-intake.WZbImX/demo-decline/home/state/fm-issue-intake.log):
+    task key=7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f issue=1921 task=fm-iss-7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f at=2026-09-28T06:16:55Z
+    verdict key=7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f issue=1921 verdict=not_supported at=2026-09-28T06:16:55Z
+    comment key=7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f issue=1921 transition=declined at=2026-09-28T06:16:55Z
+    task-closed key=7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f issue=1921 at=2026-09-28T06:16:55Z
+    declined key=7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f issue=1921 at=2026-09-28T06:16:55Z
+  cursor: 1
+  gh comments posted (/tmp/fm-issue-intake.WZbImX/demo-decline/fake):
+    #1921: :information_source: **Not supported** - thanks for the report. This is working as designed and is outside what Portal intends to support, so we are closing it instead of changing the product. If it is actually breaking 
+  gh close attempts: 0 | label edits: 1
+  spawns: (none)
+  task rows:
+      fm-iss-7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f,done,ship,portal,SOS ticket 7f3c1a52 - GH #1921
+  task state of the ticket row: done
+  armed close watches: 
+
+==================================================================
+== 6. captain_review: held for the captain - no comment, no close, no spawn
+==================================================================
+$ fm-issue-intake.sh reconcile          # jev stub answers captain_review
+review: key=7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f GH #1921 held for the captain (no dispatch)
+reconcile: ensured=1 task_created=1 dispatched=0 declined=0 review=1 cursor=0->1
+  [PASS] the hold is counted
+  [PASS] the hold is visible to the operator
+  [PASS] a held ticket posts no comment
+  [PASS] a held ticket never spawns
+  [PASS] a held ticket is never closed
+  [PASS] the row stays queued for the captain
+
+==================================================================
+== 7. fail-open: a broken classifier holds instead of deciding
+==================================================================
+$ fm-issue-intake.sh reconcile          # jev CLI exits 1 (outage)
+review: key=7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f GH #1921 held for the captain (no dispatch)
+reconcile: ensured=1 task_created=1 dispatched=0 declined=0 review=1 cursor=0->1
+  [PASS] an unreachable classifier fails open to captain_review
+  [PASS] a broken classifier never closes
+  [PASS] a broken classifier never dispatches
+
+==================================================================
+== 8. never decline an already-dispatched ticket
+==================================================================
+$ fm-issue-intake.sh reconcile --no-verdict   # ops run dispatches first
+dispatched: fm-iss-7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f (GH #1921)
+reconcile: ensured=1 task_created=1 dispatched=1 declined=0 review=0 cursor=0->1
+  [PASS] the ops run dispatches with the gate off
+
+$ fm-issue-intake.sh reconcile          # later gate-on pass: not_supported
+review: key=7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f GH #1921 already dispatched to a crewmate; verdict says not_supported - captain decides
+reconcile: ensured=1 task_created=0 dispatched=0 declined=0 review=1 cursor=1->1
+  [PASS] the review line says why it was held
+  [PASS] the in-flight ticket is never declined
+  [PASS] work in flight is never closed
+  [PASS] no decline comment on a dispatched ticket
+  [PASS] no decline label on a dispatched ticket
+  [PASS] the dispatched row stays open for the crewmate
+  [PASS] the hold spawns no second crewmate
+
+==================================================================
+== 9. captain carve-out: a captain-closed ticket is never declined
+==================================================================
+$ fm-issue-intake.sh reconcile --no-dispatch --no-verdict   # staging pass arms the watch
+reconcile: ensured=1 task_created=1 dispatched=0 declined=0 review=0 cursor=0->1
+$ fm-issue-intake.sh watch-fire 1921 7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f        # captain closes the issue
+captain-closed: 1921
+
+$ fm-issue-intake.sh reconcile          # gate-on pass: not_supported on the closed ticket
+already-closed: key=7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f GH #1921 the captain already closed it; the not_supported verdict is not applied
+reconcile: ensured=1 task_created=0 dispatched=0 declined=0 review=0 cursor=1->1
+  [PASS] the captain-closed ticket is not declined
+  [PASS] no decline comment
+  [PASS] no decline label
+  [PASS] the close is never retried by intake
+  [PASS] watch-fire announced the captain's close exactly once
+
+==================================================================
+== 10. dry-run: plans, changes nothing
+==================================================================
+$ fm-issue-intake.sh reconcile --dry-run
+would-create: task fm-iss-7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f (GH #1921)
+reconcile: ensured=0 task_created=0 dispatched=0 declined=0 review=0 cursor=0->0
+  [PASS] dry-run reports the row it would create
+  [PASS] dry-run posts no comment
+  [PASS] dry-run spawns nothing
+  [PASS] dry-run leaves the cursor untouched
+
+==================================================================
+CHECKS: 61 total, 0 failed
+RESULT: PASS
