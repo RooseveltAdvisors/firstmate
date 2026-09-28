@@ -2210,7 +2210,7 @@ prepare_harness_launch() {
     exit 1
   fi
 
-  PI_BIN= PI_TUI_MODE= CURSOR_BIN= OMP_BIN= AGY_BIN= DEVIN_BIN=
+  PI_BIN='' PI_TUI_MODE='' CURSOR_BIN='' OMP_BIN='' AGY_BIN='' DEVIN_BIN=''
   case "$HARNESS" in
   devin)
     DEVIN_BIN=$(command -v devin) || {
