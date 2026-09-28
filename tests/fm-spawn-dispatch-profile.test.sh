@@ -1055,6 +1055,43 @@ SH
   pass "quota divert to cursor rebuilds concrete Cursor launch"
 }
 
+test_raw_launch_quota_divert_runs_command_verbatim() {
+  local rec id out status launch expected prober
+  id=profile-raw-quota-divert-z8g
+  rec=$(make_spawn_case profile-raw-quota-divert claude "$id")
+  read_case_record "$rec"
+  prober="$CASE_DIR/jev-quota-prober"
+  cat > "$prober" <<'SH'
+#!/usr/bin/env bash
+set -u
+case " ${*} " in
+  *' --auto-divert '*)
+    printf '%s\n' 'harness=cursor' 'model=cursor-grok-4.5-high'
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+SH
+  chmod +x "$prober"
+
+  out=$(FM_TEST_DISABLE_JEV_PROBER=0 FM_TEST_JEV_PROBER_PATH="$prober" run_ship_spawn \
+    "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" \
+    "custom-agent --flag")
+  status=$?
+  expect_code 0 "$status" "raw launch should survive an exhausted-lane prober: $out"
+  assert_contains "$out" "refusing to divert raw launch command 'custom-agent --flag'" \
+    "raw launch divert refusal did not name the raw command"
+  assert_contains "$out" "is exhausted (divert target cursor:cursor-grok-4.5-high)" \
+    "raw launch divert refusal did not name the lane exhaustion"
+  launch=$(cat "$LAUNCH_LOG")
+  expected="export COMPACT_ADVISER_DISABLE=1; $(ai_trailer_hooks_prefix "$HOME_DIR" "$id")custom-agent --flag"
+  [ "$launch" = "$expected" ] || fail "raw launch command was not run verbatim under an exhausted-lane prober"$'\n'"expected: $expected"$'\n'"actual:   $launch"
+  assert_not_contains "$launch" "cursor-agent" \
+    "an exhausted-lane prober substituted a harness template for the raw launch command"
+  pass "raw launch command runs verbatim when the prober would divert"
+}
+
 test_pi_signed_missing_binary_refuses_before_endpoint_or_metadata() {
   local rec id out status
   id=profile-pi-signed-missing-z8c
@@ -1921,6 +1958,7 @@ test_pi_threads_model_and_max_effort
 test_pi_tui_mode_probe_is_safe_for_old_and_new_pi
 test_quota_divert_to_pi_rebuilds_launch
 test_quota_divert_to_cursor_rebuilds_launch
+test_raw_launch_quota_divert_runs_command_verbatim
 test_pi_signed_threads_shared_pi_profile_and_preserves_identity
 test_pi_signed_missing_binary_refuses_before_endpoint_or_metadata
 test_pi_signed_persistent_secondmate_uses_pi_extensions_and_identity
