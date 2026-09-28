@@ -56,9 +56,10 @@ supports - one dispatched crewmate.
 `procevent when sos-<issue> <sequence>` outcomes classify through
 `bin/fm-procevent-when.sh classify`:
 
-- `fired`: the captain closed the issue; the action already posted the
+- `fired`: the watch saw the captain's close; the action already posted the
   captain-closed comment and closed the task row.
-  Acknowledge with `bin/fm-procevent.sh handled`.
+  Acknowledge with `bin/fm-procevent.sh handled`. The next reconcile retires
+  the fired spec; if the issue is open again it is reported as review work.
 - `never-true`: the deadline passed with the issue still open.
   Surface the ticket to the captain as review work; do not re-arm blindly.
 - `action-failed` or `condition-error`: the fire or its effect is uncertain.

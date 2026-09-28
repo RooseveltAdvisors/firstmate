@@ -702,6 +702,11 @@ cmd_reconcile() {
       fi
     fi
 
+    if [ -f "$watch_spec" ] && [ -f "${watch_spec%.spec}.fired" ]; then
+      FM_HOME="$FM_HOME" "$WHEN" retire "sos-$issue" >/dev/null 2>&1 \
+        || echo "warn: fired close watch for #$issue not retired yet; handle its wake first" >&2
+    fi
+
     ensured_state=$(task_ensure "$key" "$issue" "$url") || ensured_state=failed
     case "$ensured_state" in
       failed)
@@ -780,7 +785,7 @@ cmd_reconcile() {
 
     if [ "$handled" -eq 0 ]; then
       new_work=0
-      if [ ! -f "$watch_spec" ]; then new_work=1; fi
+      if [ ! -f "$watch_spec" ] || [ -f "${watch_spec%.spec}.fired" ]; then new_work=1; fi
       if [ "$do_dispatch" -eq 1 ]; then
         if ! ledger_recorded "comment key=[^ ]* issue=$issue transition=dispatched"; then new_work=1; fi
         if ! ledger_recorded "dispatch key=[^ ]* issue=$issue( task=[^ ]*)?"; then new_work=1; fi

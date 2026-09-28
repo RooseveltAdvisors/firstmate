@@ -1366,14 +1366,17 @@ test_watch_fire_reports_a_reopen_after_recording_the_close() {
   assert_grep "closed key=$SOS_UUID issue=$GH_ISSUE" "$home/state/fm-issue-intake.log" \
     "the close records are never lost"
 
-  FM_HOME="$home" "$ROOT/bin/fm-procevent-when.sh" retire "sos-$GH_ISSUE" >/dev/null \
-    || fail "retiring the fired watch failed"
+  date +%s > "$home/state/when/when-sos-$GH_ISSUE.fired"
   out=$(run_intake "$parts" reconcile 2>&1) || fail "post-fire reconcile failed: $out"
   assert_contains "$out" "closed earlier and open again - held for the captain" \
     "the open issue must be held for captain_review, not treated as closed: $out"
   assert_contains "$out" "dispatched=0" "the reopened issue must not re-dispatch: $out"
   assert_equals "1" "$(count_of 'Closed by the captain' "$fd/comments.log")" \
     "the close is announced exactly once"
+  [ ! -f "$home/state/when/when-sos-$GH_ISSUE.spec" ] || fail "the fired watch must not stay armed: $out"
+  out=$(run_intake "$parts" reconcile 2>&1) || fail "second reconcile failed: $out"
+  assert_contains "$out" "closed earlier and open again - held for the captain" \
+    "the reopen is still reported on every later pass: $out"
   pass "watch-fire reports a reopen after recording the close, and reconcile holds it"
 }
 
