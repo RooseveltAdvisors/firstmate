@@ -1,19 +1,23 @@
 
-$ fm-sos-intake.sh reconcile   # pass 1: bridge delivers SOS event #1
+$ fm-sos-intake.sh reconcile   # pass 1: bridge delivers SOS event id=1 for issue #1921
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
 dispatched: fm-sos-7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f (GH #1921)
 reconcile: ensured=1 task_created=1 dispatched=1 cursor=0->1
 
 $ fm-sos-intake.sh reconcile   # pass 2: same event replayed
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
 reconcile: ensured=1 task_created=0 dispatched=0 cursor=1->1
 
-$ rm state/fm-sos-intake.cursor; fm-sos-intake.sh reconcile   # pass 3: cursor lost, event replayed
+$ rm state/fm-sos-intake.cursor; fm-sos-intake.sh reconcile   # pass 3: cursor lost, event replayed again
+fm-tasks-axi: stripping --due/--why: installed tasks-axi does not accept them (due not applied to row)
 reconcile: ensured=1 task_created=0 dispatched=0 cursor=0->1
 
 $ fm-sos-intake.sh status
 cursor: 1
 bridge: http://bridge.invalid:8791
 repo:   ArcsHealth/Portal
-ledger: /tmp/fm-sos-intake.NuDbtJ/demo/home/state/fm-sos-intake.log
+ledger: /tmp/fm-sos-intake.2UcCO2/demo/home/state/fm-sos-intake.log
+autodispatch: granted (/tmp/fm-sos-intake.2UcCO2/demo/home/config/sos-autodispatch)
 sos task rows:
   fm-sos-7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f,queued,ship,portal,SOS ticket 7f3c1a52 - GH #1921
 armed close watches:
@@ -21,8 +25,10 @@ armed close watches:
 reopened tickets:
 dispatch-blocked:
 
-$ side effects across all 3 passes
-fm-spawn calls:        1
-reporter comments:     1
-gh issue close calls:  0
-task row state:        queued
+--- side effects after 3 passes ---
+task rows for SOS UUID: 1
+github comments posted: 1
+crewmates spawned:      1
+fm-spawn fm-sos-7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f /tmp/fm-sos-intake.2UcCO2/demo/home/projects/portal --mode no-mistakes --yolo on
+close watches armed:    1
+gh issue close attempts: 0
