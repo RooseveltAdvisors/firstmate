@@ -1,0 +1,17 @@
+== BEFORE (base 6b0f5a07) ==
+  ╭──────────────────────────────────────────────────────────────────────────╮
+  │ ❯                                                                        │
+  ╰────────────────────────────────────────── Grok 4.6 (high) · always-approve ─╯
+
+idle   tmux(cursor row 1)=unknown  herdr=unknown
+typed  tmux(cursor row 1)=pending-unproven herdr=pending-unproven
+bogus  tmux(cursor row 1)=unknown  herdr=unknown
+
+== AFTER (this branch) ==
+  ╭──────────────────────────────────────────────────────────────────────────╮
+  │ ❯                                                                        │
+  ╰────────────────────────────────────────── Grok 4.6 (high) · always-approve ─╯
+
+idle   tmux(cursor row 1)=empty    herdr=empty
+typed  tmux(cursor row 1)=pending  herdr=pending
+bogus  tmux(cursor row 1)=unknown  herdr=unknown
