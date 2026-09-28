@@ -197,7 +197,7 @@ While away, the entry is saved, but processing waits until the away-posture reco
 The branch prompt's "Verdict: routine or captain" section owns the distinction between captain-facing, unsolicited routine, and unchanged-review outcomes.
 
 The generated [Pi supervision protocol](supervision-protocols/pi.md) owns main's event ownership, acknowledgement duty, and conversational treatment for merged outcomes, while the persisted entry itself owns captain visibility.
-A no-change heartbeat outcome explicitly reported with `task=fleet` and `silent=true` is delivered silently with no rendered note, while every other routine outcome still appends a rendered, sailboat-prefixed note.
+A task-level routine no-change outcome or a no-change heartbeat explicitly reported with `silent=true` is delivered without a rendered note; the branch prompt owns task-level eligibility, and every other routine outcome still appends a rendered, sailboat-prefixed note.
 
 ## Pi supervision branch model and effort (config/supervision-branch-model, config/supervision-branch-effort)
 
@@ -306,7 +306,7 @@ The host runs the supervision branch's contract on a headless engine session bes
 A Claude, Cursor, OpenCode, omp, Grok, or Codex primary can run the host.
 With the file present, the primary's arm owner runs the host in place of the watcher arm.
 The host handles wakes on the engine while `state/.afk-contract` exists, and also while attended on a Claude or Cursor primary, whose dialog mirror is verified ([supervision-host.md](supervision-host.md#postures)).
-On that home, `/afk` launches no away daemon; `/quiet` still does.
+On that home, `/afk` launches no away daemon; see [Quiet mode](supervision-host.md#quiet-mode) for `/quiet`'s attended statement and fallback.
 The file also gates the primary's dialog-mirror hooks (`bin/fm-host-mirror.sh`), which record on a Claude or Cursor primary ([supervision-host.md](supervision-host.md#the-dialog-mirror)).
 
 Absence leaves the home exactly as it is without the host, on every harness; a Pi primary keeps its in-process supervision branch whether or not the file exists.
@@ -825,10 +825,14 @@ The token is the file's whitespace-trimmed content.
 | `bypass` | `claude --dangerously-skip-permissions` |
 | `auto` | `--permission-mode auto` |
 
-An absent file defaults to bypass, so an unconfigured home launches byte-for-byte as before.
+An absent file defaults to bypass, so an unconfigured home launches with the bypass permission flag.
 Auto is Claude Code's classifier-reviewed permission mode, for a captain who refuses to run workers in bypass mode.
-Only the permission flag changes.
-The environment prefix, inline settings, model, effort flags, and every other part of the Claude launch stay unchanged.
+Only the permission flag changes between the two modes.
+The environment prefix, inline settings, model, effort flags, and the task-channel `--add-dir` grant below stay the same in both.
+
+Every Claude launch, in both modes, also passes `--add-dir` for exactly this task's Firstmate channel directories, resolved to real paths: a secondmate gets the parent home's `state/<id>.inbox` it reads its steers from; a ship or scout worker gets this home's `state/operational-inbox` (its launch record), `state/<id>.inbox` (its steers), `data/<id>` (its brief and report), and the code root's `.agents/skills`.
+The grant exists because Claude Code path-checks the Read/Glob/Grep file tools against cwd plus `--add-dir`, and since 2.1.257 the first outside read in `auto` mode parks the pane on a one-time interactive question, while a "Block" answer there writes `permissions.blockReadsOutsideWorkingDirectories` into user settings and then refuses the same reads under bypass too.
+It never covers the whole `state/` or anything wider.
 
 Any other value or an unreadable file refuses every spawn from that home, whichever harness it would launch.
 This happens before any endpoint, worktree, or task record exists.
@@ -839,7 +843,7 @@ The diagnostic names the accepted values; Firstmate never falls back to a permis
 `bin/fm-spawn.sh` reads the file on every spawn and relaunch, so a change takes effect at the next launch without a restart.
 The file is a captain-wide safety preference, so it is inherited into secondmate homes under the [`secondmate-provisioning`](../.agents/skills/secondmate-provisioning/SKILL.md) inherited-local-material contract; a secondmate's own Claude crewmates then launch on the same posture.
 
-The [Claude adapter reference](../.agents/skills/harness-adapters/references/harness/claude.md) records the verified shape of both launches and which once-per-machine dialog each one can meet.
+The [Claude adapter reference](../.agents/skills/harness-adapters/references/harness/claude.md) records the permission-mode observations and the distinct startup dialogs.
 
 ## Worker account pin (config/claude-account, config/pi-account)
 
@@ -1923,6 +1927,9 @@ This section is the single owner of the runner's operating contract.
 - The watcher delivers a queued result on its ordinary cycle by reporting it as an actionable `check` wake, so a default or fallback publication reaches firstmate through the same rewake path every other wake uses and never waits for a manual drain.
 - A queued `check` delivery is reported at most once per captured source and sequence while any records for that key remain queued.
 - A durable handled acknowledgement stops future source re-announcement, while a record already queued remains under the durable queue's authority until the ordinary drain's sequence-bound post-handling acknowledgement consumes it.
+- By default, a runner releases its claim after one poll; an adapter that opts into `relisten` keeps that runner and claim across empty waits and captured results, adopting a replacement registration only when the registered command is unchanged and the claim still belongs to it.
+  A failed relisten check releases the claim; the runner never refreshes its own home lease.
+  The `bin/fm-procevent.sh` header owns the exact seam, and [remote secondmates](remote-secondmates.md#how-remote-lines-are-mirrored) owns the reply listener's behavior.
 
 **Reconcile sources**
 

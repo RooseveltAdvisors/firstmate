@@ -117,6 +117,7 @@ The shared no-mistakes gate lifecycle boundary is summarized in [architecture.md
 | `fm-wake-drain.sh`       | Present and acknowledge the current actor's claimed wake rows alongside status, outcome-backstop, decision, divergence, supervision-host outcome, recovery, and supervision checks |
 | `fm-wake-grant.sh`       | Serialize Pi supervision-branch wake-row claim activation, publication, release, and deactivation |
 | `fm-wake-lib.sh`         | Shared durable wake queue, recovery generations, portable locks, and watcher identity/health helpers |
+| `fm-path-lib.sh`         | Fork-free `dirname`/`basename` equivalents with no source-time side effects             |
 | `fm-classify-lib.sh`     | Shared wake classification, durable keyed-decision folds and scans, unread status selection, home-owned status-append ranges, and bounded latest-event snapshots |
 | `fm-jev-decisions.sh`    | Triage open decisions and blockers across tasks using Jev System One                 |
 | `fm-jev-decisions.py`    | Jev System One decision classification engine behind `fm-jev-decisions.sh`           |
