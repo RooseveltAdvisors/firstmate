@@ -195,7 +195,7 @@ def probe_harness(harness: str, model: str | None = None) -> dict:
                 quota_data,
             )
         provider = account.get("provider")
-        state = account.get("state", {})
+        state = account.get("state") or {}
         if state.get("error"):
             return unhealthy_result(
                 harness,
@@ -204,10 +204,10 @@ def probe_harness(harness: str, model: str | None = None) -> dict:
                 state["error"],
                 quota_data,
             )
+        remaining = (account.get("credits") or {}).get("remaining")
         if (
-            account.get("credits", {}).get("remaining", 1) <= 0
-            or availability_exhausted(account, model)
-        ):
+            isinstance(remaining, (int, float)) and remaining <= 0
+        ) or availability_exhausted(account, model):
             return unhealthy_result(
                 harness,
                 model,
@@ -274,12 +274,20 @@ def main() -> int:
 
     if args.auto_divert:
         if res["healthy"]:
-            print(f"harness={res['harness']} model={res['model']} healthy=1")
+            print(f"harness={res['harness']} model={res['model']} healthy=1 status=healthy")
             return 0
         if res["divert_harness"] and res["divert_model"]:
-            print(f"harness={res['divert_harness']} model={res['divert_model']} healthy=0")
+            print(
+                f"harness={res['divert_harness']} model={res['divert_model']} "
+                f"healthy=0 status={res['status']}"
+            )
             return 0
-        return 1
+        print(
+            f"blocked: {res['harness']} ({res['model']}) unhealthy: {res['reason']} "
+            "(no permitted diversion has confirmed runway)",
+            file=sys.stderr,
+        )
+        return 3 if res["status"] == "unknown" else 1
 
     if res["healthy"]:
         print(f"ok: {res['harness']} ({res['model']}) is healthy: {res['reason']}")

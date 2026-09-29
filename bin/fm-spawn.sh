@@ -883,20 +883,49 @@ else
   fi
 fi
 
-# Grok is reserved for the primary session. This is a policy refusal, not a
-# quota gate: other profiles launch unprobed, and a refused spawn never
-# diverts itself; the prober only supplies a lane the dispatcher may choose.
-refuse_forbidden_crew_profile() {  # <harness> <model>
-  local harness=$1 model=$2 probe
+# Every resolved profile runs the quota prober with --auto-divert before it
+# launches. A doomed lane (exhausted, revoked, or a Grok profile reserved for
+# the primary session) switches to the prober's permitted lane with confirmed
+# runway, and is refused only when no such lane exists. A lane the prober has
+# no quota evidence for launches as requested.
+quota_preflight_crew_profile() {  # <harness> <model> [<raw launch scan words>]
+  local harness=$1 model=$2 scan=${3-} probe_model out rc status lane_harness lane_model
+  PREFLIGHT_HARNESS=$harness
+  PREFLIGHT_MODEL=$model
   [ "$model" != - ] || model=
-  case "$(printf '%s %s' "$harness" "$model" | tr '[:upper:]' '[:lower:]')" in
-  *grok*) ;;
-  *) return 0 ;;
+  probe_model=$model
+  [ -z "$scan" ] || probe_model="$model $scan"
+  out=$(python3 "$FM_ROOT/bin/fm-jev-quota-prober.py" --harness "$harness" --model "$probe_model" --auto-divert 2>&1)
+  rc=$?
+  case "$rc" in
+  0) ;;
+  3) return 0 ;;
+  1)
+    echo "error: spawn quota preflight refused '$harness'${model:+ model '$model'}: ${out#blocked: }" >&2
+    return 1
+    ;;
+  *)
+    case "$(printf '%s %s' "$harness" "$probe_model" | tr '[:upper:]' '[:lower:]')" in
+    *grok*)
+      echo "error: spawn quota preflight refused '$harness'${model:+ model '$model'}: Grok is reserved for Firstmate and the prober could not run: $out" >&2
+      return 1
+      ;;
+    esac
+    echo "warning: spawn quota preflight could not run for '$harness' (exit $rc); launching as requested" >&2
+    return 0
+    ;;
   esac
-  probe=$(python3 "$FM_ROOT/bin/fm-jev-quota-prober.py" --harness "$harness" --model "$model" 2>&1) && return 0
-  # shellcheck disable=SC2016 # single quotes are literal text inside the double-quoted message
-  echo "error: spawn refused Grok crew profile '$harness'${model:+ model '$model'}: ${probe#blocked: }; this spawn does not divert, so re-dispatch with a permitted profile" >&2
-  return 1
+  status=${out##*status=}
+  case "$status" in
+  healthy | unknown) return 0 ;;
+  esac
+  lane_harness=${out#harness=}
+  lane_harness=${lane_harness%% *}
+  lane_model=${out#* model=}
+  lane_model=${lane_model%% *}
+  echo "warning: spawn quota preflight diverted '$harness'${model:+ model '$model'} ($status) to '$lane_harness' model '$lane_model'" >&2
+  PREFLIGHT_HARNESS=$lane_harness
+  PREFLIGHT_MODEL=$lane_model
 }
 
 spawn_remote_secondmate() {
@@ -968,11 +997,13 @@ spawn_remote_secondmate() {
       [ -n "$effort" ] || effort=-
     fi
   fi
-  if ! refuse_forbidden_crew_profile "$harness" "$model"; then
+  if ! quota_preflight_crew_profile "$harness" "$model"; then
     fm_lock_release "$registry_lock" || true
     fm_lock_release "$SPAWN_TASK_LOCK" || true
     return 1
   fi
+  harness=$PREFLIGHT_HARNESS
+  model=$PREFLIGHT_MODEL
   # A remote second mate always runs on Herdr: its server belongs to the host's
   # own GUI login session, so the endpoint outlives every SSH connection that
   # supervises it. bin/fm-remote-doctor.sh gates that host on the same
@@ -2270,6 +2301,46 @@ case "$ARG3" in
   ;;
 esac
 
+# config/secondmate-harness may carry optional model/effort tokens alongside the
+# harness ("<harness> [<model>] [<effort>]"). They apply only when this is a
+# --secondmate spawn and no explicit per-spawn harness/raw launch was supplied, so
+# the harness itself came from the secondmate config fallback chain. Resolving
+# here on every spawn makes the pin durable across respawns. Precedence: explicit
+# --model/--effort flags still win over the file's tokens.
+if [ "$KIND" = secondmate ] && [ -z "$ARG3" ]; then
+  if [ "$MODEL_SET" -eq 0 ]; then
+    SM_MODEL=$("$SCRIPT_DIR/fm-harness.sh" secondmate-model)
+    [ -z "$SM_MODEL" ] || MODEL=$SM_MODEL
+  fi
+  if [ "$EFFORT_SET" -eq 0 ]; then
+    SM_EFFORT=$("$SCRIPT_DIR/fm-harness.sh" secondmate-effort)
+    if [ -n "$SM_EFFORT" ]; then
+      case "$SM_EFFORT" in
+      low | medium | high | xhigh | max | ultra) EFFORT=$SM_EFFORT ;;
+      *) echo "warning: config/secondmate-harness effort token '$SM_EFFORT' is not one of low, medium, high, xhigh, max, ultra; ignoring" >&2 ;;
+      esac
+    fi
+  fi
+fi
+PREFLIGHT_SCAN=
+if [ "$RAW_LAUNCH" = 1 ]; then
+  # Judge each word by its basename so a directory named after Grok never
+  # refuses a non-Grok binary, while a grok binary or grok model id still does.
+  # -d '' reads every line, since /bin/sh -c runs every line of the launch.
+  read -r -d '' -a RAW_LAUNCH_WORDS <<<"$LAUNCH" || true
+  PREFLIGHT_SCAN="${RAW_LAUNCH_WORDS[*]##*/}"
+fi
+quota_preflight_crew_profile "$HARNESS" "$MODEL" "$PREFLIGHT_SCAN" || exit 1
+if [ "$PREFLIGHT_HARNESS" != "$HARNESS" ] || [ "$PREFLIGHT_MODEL" != "$MODEL" ]; then
+  HARNESS=$PREFLIGHT_HARNESS
+  MODEL=$PREFLIGHT_MODEL
+  RAW_LAUNCH=0
+  LAUNCH=$(launch_template "$HARNESS" "$KIND") || {
+    echo "error: no launch template for diverted harness '$HARNESS'" >&2
+    exit 1
+  }
+fi
+
 # muse, gemini, agy, and devin are verified as CREWMATE/SCOUT adapters only. A secondmate is
 # a firstmate instance, so it needs a primary supervision protocol.
 # gemini has none: docs/supervision-protocols/ carries no gemini wake protocol
@@ -2352,36 +2423,6 @@ agy)
   ;;
 esac
 
-# config/secondmate-harness may carry optional model/effort tokens alongside the
-# harness ("<harness> [<model>] [<effort>]"). They apply only when this is a
-# --secondmate spawn and no explicit per-spawn harness/raw launch was supplied, so
-# the harness itself came from the secondmate config fallback chain. Resolving
-# here on every spawn makes the pin durable across respawns. Precedence: explicit
-# --model/--effort flags still win over the file's tokens.
-if [ "$KIND" = secondmate ] && [ -z "$ARG3" ]; then
-  if [ "$MODEL_SET" -eq 0 ]; then
-    SM_MODEL=$("$SCRIPT_DIR/fm-harness.sh" secondmate-model)
-    [ -z "$SM_MODEL" ] || MODEL=$SM_MODEL
-  fi
-  if [ "$EFFORT_SET" -eq 0 ]; then
-    SM_EFFORT=$("$SCRIPT_DIR/fm-harness.sh" secondmate-effort)
-    if [ -n "$SM_EFFORT" ]; then
-      case "$SM_EFFORT" in
-      low | medium | high | xhigh | max | ultra) EFFORT=$SM_EFFORT ;;
-      *) echo "warning: config/secondmate-harness effort token '$SM_EFFORT' is not one of low, medium, high, xhigh, max, ultra; ignoring" >&2 ;;
-      esac
-    fi
-  fi
-fi
-if [ "$RAW_LAUNCH" = 1 ]; then
-  # Judge each word by its basename so a directory named after Grok never
-  # refuses a non-Grok binary, while a grok binary or grok model id still does.
-  # -d '' reads every line, since /bin/sh -c runs every line of the launch.
-  read -r -d '' -a RAW_LAUNCH_WORDS <<<"$LAUNCH" || true
-  refuse_forbidden_crew_profile "$HARNESS" "$MODEL ${RAW_LAUNCH_WORDS[*]##*/}" || exit 1
-else
-  refuse_forbidden_crew_profile "$HARNESS" "$MODEL" || exit 1
-fi
 # Ultra is an explicit native capability, never a Pi thinking-level alias.
 # Validate the fully resolved profile before worktree or endpoint provisioning.
 if [ "$EFFORT" = ultra ]; then

@@ -626,7 +626,7 @@ test_grok_crew_profiles_are_refused_before_launch() {
       run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model "$2" --effort high)
     status=$?
     expect_code 1 "$status" "$1 spawn with model $2 should be refused"
-    assert_contains "$out" "spawn refused Grok crew profile" "$1 refusal did not come from the Grok crew refusal"
+    assert_contains "$out" "spawn quota preflight refused" "$1 refusal did not come from the quota preflight"
     assert_contains "$out" "reserved for Firstmate" "$1 refusal did not name the Grok reservation"
     [ ! -s "$LAUNCH_LOG" ] || fail "$1 Grok refusal must happen before launch"
     assert_absent "$HOME_DIR/state/$id.meta" "$1 Grok refusal must not publish task meta"
@@ -638,7 +638,7 @@ test_grok_crew_profiles_are_refused_before_launch() {
     "cursor-agent --model cursor-grok-4.6-high --yolo")
   status=$?
   expect_code 1 "$status" "raw launch naming a Grok model should be refused"
-  assert_contains "$out" "spawn refused Grok crew profile" "raw Grok refusal did not come from the Grok crew refusal"
+  assert_contains "$out" "spawn quota preflight refused" "raw Grok refusal did not come from the quota preflight"
   [ ! -s "$LAUNCH_LOG" ] || fail "raw Grok refusal must happen before launch"
   assert_absent "$HOME_DIR/state/$id.meta" "raw Grok refusal must not publish task meta"
   id='profile-refused-multiline-raw-z5'
@@ -649,7 +649,7 @@ test_grok_crew_profiles_are_refused_before_launch() {
 cursor-agent --model cursor-grok-4.6-high --yolo")
   status=$?
   expect_code 1 "$status" "raw launch naming a Grok model on a later line should be refused"
-  assert_contains "$out" "spawn refused Grok crew profile" "multiline raw Grok refusal did not come from the Grok crew refusal"
+  assert_contains "$out" "spawn quota preflight refused" "multiline raw Grok refusal did not come from the quota preflight"
   [ ! -s "$LAUNCH_LOG" ] || fail "multiline raw Grok refusal must happen before launch"
   id='profile-grok-path-raw-z5'
   rec=$(make_spawn_case profile-grok-path-raw claude "$id")
@@ -658,8 +658,54 @@ cursor-agent --model cursor-grok-4.6-high --yolo")
     "/opt/tools/grok-bridge/custom-agent --model sonnet")
   status=$?
   expect_code 0 "$status" "raw launch whose path merely contains grok should spawn: $out"
-  assert_not_contains "$out" "spawn refused Grok crew profile" "a grok directory name refused a non-Grok raw launch"
+  assert_not_contains "$out" "spawn quota preflight refused" "a grok directory name refused a non-Grok raw launch"
   pass "Grok harness and Grok model crew profiles are refused before launch"
+}
+
+quota_axi_rows() {  # <codex-remaining> <codex-runway> <cursor-remaining> <cursor-runway>
+  printf '{"schemaVersion":5,"providers":[{"provider":"codex","state":{"status":"fresh","stale":false},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":%s,"runway":{"status":"%s"}}]}},{"provider":"cursor","state":{"status":"fresh","stale":false},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":%s,"runway":{"status":"%s"}}]}}]}' "$@"
+}
+
+test_quota_preflight_diverts_doomed_profiles_to_confirmed_lane() {
+  local rec id out status launch profile harness model
+  for profile in "grok grok-4" "codex gpt-5"; do
+    read -r harness model <<<"$profile"
+    id="profile-diverted-$harness-z5d"
+    rec=$(make_spawn_case "profile-diverted-$harness" "$harness" "$id")
+    read_case_record "$rec"
+    out=$(FM_FAKE_QUOTA_AXI_JSON=$(quota_axi_rows 0 exhausted_now 50 through_reset) \
+      FM_TEST_CURSOR_MODELS='Available models\ncomposer-2.5 - Composer 2.5' \
+      run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model "$model")
+    status=$?
+    expect_code 0 "$status" "doomed $harness spawn should divert to the confirmed lane"$'\n'"$out"
+    assert_contains "$out" "spawn quota preflight diverted '$harness'" "$harness diversion was not reported"
+    assert_grep 'harness=cursor' "$HOME_DIR/state/$id.meta" "$harness diversion did not record the cursor lane"
+    assert_grep 'model=composer-2.5' "$HOME_DIR/state/$id.meta" "$harness diversion did not record the composer model"
+    launch=$(cat "$LAUNCH_LOG")
+    assert_contains "$launch" "--model 'composer-2.5'" "$harness diversion did not launch the composer model"
+  done
+
+  id='profile-exhausted-codex-z5e'
+  rec=$(make_spawn_case profile-exhausted-codex codex "$id")
+  read_case_record "$rec"
+  out=$(FM_FAKE_QUOTA_AXI_JSON=$(quota_axi_rows 0 exhausted_now 0 exhausted_now) \
+    run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model gpt-5)
+  status=$?
+  expect_code 1 "$status" "doomed codex spawn with no confirmed lane should be refused"
+  assert_contains "$out" "spawn quota preflight refused 'codex'" "exhausted codex refusal did not come from the quota preflight"
+  [ ! -s "$LAUNCH_LOG" ] || fail "exhausted codex refusal must happen before launch"
+  assert_absent "$HOME_DIR/state/$id.meta" "exhausted codex refusal must not publish task meta"
+
+  id='profile-healthy-codex-z5f'
+  rec=$(make_spawn_case profile-healthy-codex codex "$id")
+  read_case_record "$rec"
+  out=$(FM_FAKE_QUOTA_AXI_JSON=$(quota_axi_rows 50 through_reset 50 through_reset) \
+    run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model gpt-5)
+  status=$?
+  expect_code 0 "$status" "healthy codex spawn should launch as requested"$'\n'"$out"
+  assert_not_contains "$out" "diverted" "healthy codex spawn must not divert"
+  assert_grep 'harness=codex' "$HOME_DIR/state/$id.meta" "healthy codex spawn changed lane"
+  pass "the spawn quota preflight diverts doomed profiles and refuses only without a confirmed lane"
 }
 
 test_cursor_threads_model_workspace_and_omits_effort_axis() {
@@ -1827,6 +1873,7 @@ test_codex_omits_max_effort_for_unsupported_model
 test_codex_crewmate_launch_disables_the_hook_layer
 test_codex_secondmate_launch_keeps_the_hook_layer
 test_grok_crew_profiles_are_refused_before_launch
+test_quota_preflight_diverts_doomed_profiles_to_confirmed_lane
 test_cursor_threads_model_workspace_and_omits_effort_axis
 test_cursor_refuses_model_absent_from_live_catalog
 test_cursor_failed_catalog_probe_does_not_block_spawn

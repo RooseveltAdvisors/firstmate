@@ -16,6 +16,10 @@ export FM_HOME="$LAB/home"
 
 cat > "$FAKEBIN/quota-axi" <<'SH'
 #!/usr/bin/env bash
+if [ -n "${QUOTA_JSON:-}" ]; then
+  printf '%s\n' "$QUOTA_JSON"
+  exit 0
+fi
 if [ "${QUOTA_EMPTY:-0}" = 1 ]; then
   printf '{}\n'
   exit 0
@@ -207,5 +211,27 @@ fi
 CODEX_EXHAUSTED=1 CODEX_WORK_ACCOUNT=1 "$PROBER" --harness pi --model openai-codex-work/gpt-5.6-terra --json >/dev/null ||
   fail "Pi account lane did not bind to its own codex account row"
 ok "Pi models are judged by their own provider or account evidence"
+
+printf '12. Verify null credits yield a structured result, not a traceback...\n'
+for credits in 'null' '{"remaining":null}'; do
+  row='{"provider":"codex","credits":'"$credits"',"state":{"status":"fresh","stale":false},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":50,"runway":{"status":"through_reset"}}]}}'
+  null_out=$(QUOTA_JSON='{"schemaVersion":5,"providers":['"$row"']}' "$PROBER" --harness codex --model gpt-5.6-luna --json 2>&1) \
+    || fail "codex with credits $credits did not report healthy: $null_out"
+  printf '%s\n' "$null_out" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+assert data["healthy"] is True
+assert data["status"] == "healthy"
+' || fail "codex with credits $credits returned a malformed result: $null_out"
+done
+ok "null credits are treated as missing evidence"
+
+printf '13. Verify auto-divert reports the lane status...\n'
+status_out=$(CODEX_EXHAUSTED=1 "$PROBER" --harness codex --model gpt-5.6-luna --auto-divert) || fail "exhausted codex did not divert"
+[ "$status_out" = "harness=cursor model=composer-2.5 healthy=0 status=exhausted" ] || fail "unexpected auto-divert line: $status_out"
+unknown_rc=0
+QUOTA_EMPTY=1 "$PROBER" --harness codex --model gpt-5.6-luna --auto-divert >/dev/null 2>&1 || unknown_rc=$?
+[ "$unknown_rc" = 3 ] || fail "unknown lane without diversion should exit 3, got $unknown_rc"
+ok "auto-divert reports status and distinguishes unknown from doomed"
 
 printf 'ok - all fm-jev-quota-prober tests passed\n'

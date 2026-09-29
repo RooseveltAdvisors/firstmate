@@ -55,6 +55,8 @@ trap relaunch_cleanup EXIT
 make_tmux_stub() {  # <dir>
   local fb="$1/fakebin"
   mkdir -p "$fb"
+  printf '%s\n' '#!/usr/bin/env bash' "printf '{}\\n'" > "$fb/quota-axi"
+  chmod +x "$fb/quota-axi"
   cat > "$fb/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u

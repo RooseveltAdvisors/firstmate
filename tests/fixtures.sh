@@ -292,14 +292,20 @@ EOF
 }
 
 # fm_test_make_spawn_fakebin <dir> [extra-exit0-tool...]
-# Creates <dir>/fakebin with the spawn tmux stub, a no-op treehouse, and any
-# extra exit-0 tools. Echoes the fakebin path.
+# Creates <dir>/fakebin with the spawn tmux stub, a no-op treehouse, a
+# quota-axi stub (FM_FAKE_QUOTA_AXI_JSON, default no evidence), and any extra
+# exit-0 tools. Echoes the fakebin path.
 fm_test_make_spawn_fakebin() {
   local dir=$1 fakebin
   shift
   fakebin=$(fm_fakebin "$dir")
   fm_test_fake_tmux_spawn "$fakebin"
   fm_fake_exit0 "$fakebin" treehouse "$@"
+  cat > "$fakebin/quota-axi" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "${FM_FAKE_QUOTA_AXI_JSON:-"{}"}"
+SH
+  chmod +x "$fakebin/quota-axi"
   printf '%s\n' "$fakebin"
 }
 

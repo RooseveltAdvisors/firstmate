@@ -39,7 +39,7 @@ EOF
   out=$(run_grok_spawn "$home" "$proj" "$wt" "$fakebin" "$grok_home" "$id" 2>&1)
   status=$?
   expect_code 1 "$status" "grok crew spawn should be refused"
-  assert_contains "$out" "spawn refused Grok crew profile 'grok'" "grok refusal did not come from the Grok crew refusal"
+  assert_contains "$out" "spawn quota preflight refused 'grok'" "grok refusal did not come from the quota preflight"
   assert_absent "$grok_home/hooks/fm-turn-end.sh" "refused grok spawn installed the global turn-end hook"
   assert_absent "$wt/.fm-grok-turnend" "refused grok spawn wrote a worktree pointer"
   assert_absent "$home/state/$id.grok-turnend-token" "refused grok spawn wrote a state token"
