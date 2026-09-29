@@ -889,6 +889,7 @@ fi
 # confirmed runway, and is refused only when no such lane exists. A lane whose
 # quota is missing or could not be measured launches as requested, with a
 # warning and no diversion.
+# shellcheck disable=SC2016  # the ' inside ${model:+ model '$model'} are literal message quotes; $model still expands
 quota_preflight_crew_profile() {  # <harness> <model> [<raw launch scan words>]
   local harness=$1 model=$2 scan=${3-} probe_model out rc status lane_harness lane_model
   PREFLIGHT_HARNESS=$harness
@@ -939,6 +940,7 @@ quota_preflight_crew_profile() {  # <harness> <model> [<raw launch scan words>]
 # A remote secondmate launches under the remote host's own logins, so this
 # host's quota rows cannot confirm or divert its lane; only the host-independent
 # Grok reservation applies there.
+# shellcheck disable=SC2016  # the ' inside ${model:+ model '$model'} are literal message quotes; $model still expands
 refuse_forbidden_remote_profile() {  # <harness> <model>
   local harness=$1 model=$2 out
   [ "$model" != - ] || model=
