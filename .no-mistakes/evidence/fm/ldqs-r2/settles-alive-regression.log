@@ -1,0 +1,7 @@
+== bin/fm-control.sh @ 0085f7f4 (before settles-alive fix) ==
+not ok - a seat that settles back to alive after ambiguous evidence should still be exited
+error: exit-interrupted t1 interrupt=delivered verified=unattributed cancel=unconfirmed exit-command=not-sent agent-state=alive exit=unconfirmed; the stop state was not observed within the 0.05s exit window and its 2s confirm window - a window's expiry is not evidence the agent kept running, so this is unconfirmed rather than failed; read the seat's current state before any recovery action: expected exit 0, got 1
+rc=1
+== bin/fm-control.sh @ 4750c85c (target) ==
+ok - fm-control exit: an ambiguous post-interrupt seat that settles alive still receives its exit command
+rc=0

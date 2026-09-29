@@ -34,14 +34,5 @@ ok - fm-control interrupt: unconfirmed delivery preserves observed busy state
 ok - fm-control interrupt: muse confirms cancellation from its session log
 ok - fm-control interrupt: postconditions are revalidated after acknowledgement polling
 ok - fm-control exit: an interrupt-stopped agent satisfies the gone-state postcondition
-ok - fm-control exit: an unprovable post-interrupt missing endpoint is unconfirmed, never a claimed stop
-ok - fm-control exit: a stubborn agent reports delivered input and an unconfirmed, never failed, exit
-ok - fm-control exit: ambiguous post-interrupt evidence is unconfirmed, never failed, and takes no exit command
-ok - fm-control exit: a positively observed stop after ambiguous post-interrupt evidence is success
-ok - fm-control exit: an ambiguous post-interrupt seat that settles alive still receives its exit command
-ok - fm-control exit: a late stop inside the confirm window is success, never failure
-ok - fm-control interrupt: grok reports delivery without claiming cancellation
-ok - fm-control interrupt: grok's idle footer does not confirm cancellation
-ok - fm-control: a lifecycle command to a secondmate is unmarked and opens no reply expectation
-ok - fm-control's arrival leaves fm-send's from-firstmate marking untouched
-bash tests/fm-control.test.sh  8.29s user 9.88s system 32% cpu 55.935 total
+not ok - an unprovable post-interrupt missing endpoint must not report success
+stopped t1 harness=claude backend=tmux endpoint=fmses:fm-t1 worktree=/tmp/fm-control.iZ1Pw1/interrupt-vanishes-10168/wt-t1: expected exit 1, got 0
