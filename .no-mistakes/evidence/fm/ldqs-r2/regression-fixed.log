@@ -1,0 +1,3 @@
+# fixed bin/fm-control.sh (HEAD cb310a09) + settles-alive test only
+ok - fm-control exit: an ambiguous post-interrupt seat that settles alive still receives its exit command
+rc=0
