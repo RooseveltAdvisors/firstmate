@@ -1,0 +1,16 @@
+$ fm-jev-decisions.sh --all --state-dir <state>
+TASK             KEY                              VERB            CATEGORY          NOUL   CONF   SUGGESTED ACTION
+==================================================================================================================
+delta            old-legacy                       blocked         stale_historical  0.20   0.80   Archive or resolve superseded historical decision
+fm-delta         old-legacy                       blocked         stale_historical  0.20   0.80   Archive or resolve superseded historical decision (fm-send would close <tmp>/state/delta.status, not <tmp>/state/fm-delta.status; close it by hand)
+gamma            old-gone                         blocked         stale_historical  0.20   0.80   Archive or resolve superseded historical decision (task metadata gone; close it by hand)
+w                pending-reply-cfg                blocked         stale_historical  0.10   0.80   Confirm the pending reply is no longer owed before closing it
+w                old-dep                          blocked         stale_historical  0.20   0.80   Archive or resolve superseded historical decision
+w                active-now                       needs-decision  actionable_now    0.90   0.80   Active blocker: requires prompt resolution or steer
+w                quota-up                         needs-decision  policy_spend      0.30   0.80   Escalate to Captain for policy, spend, or architecture guidance
+==================================================================================================================
+Total: 7 | stale_historical: 5 | actionable_now: 1 | policy_spend: 1
+
+$ fm-jev-decisions.sh --all --state-dir <state> --resolve-cmds
+FM_HOME=<repo> FM_STATE_OVERRIDE=<tmp>/state <repo>/bin/fm-send.sh delta --resolve-key old-legacy 'auto-resolved: superseded historical decision'
+FM_HOME=<repo> FM_STATE_OVERRIDE=<tmp>/state <repo>/bin/fm-send.sh w --resolve-key old-dep 'auto-resolved: superseded historical decision'
