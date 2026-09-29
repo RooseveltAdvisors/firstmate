@@ -12,7 +12,7 @@ with no diversion, and exit 3 means unmeasured runway with no diversion; a
 quota-axi row error is always unknown and never diverts.
 
 Usage:
-  bin/fm-jev-quota-prober.py --harness <harness> [--model <model>] [--auto-divert] [--json]
+  bin/fm-jev-quota-prober.py --harness <harness> [--model <model>] [--scan <raw launch words>] [--auto-divert] [--json]
   bin/fm-jev-quota-prober.py --check-all [--json]
 """
 
