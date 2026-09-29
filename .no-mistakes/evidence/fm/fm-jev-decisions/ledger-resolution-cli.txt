@@ -1,0 +1,16 @@
+## state: fm-delta.status + delta.status (only delta.meta), alpha.status + alpha.meta
+$ fm-jev-decisions.sh --all --state-dir $S
+TASK             KEY                              VERB            CATEGORY          NOUL   CONF   SUGGESTED ACTION
+==================================================================================================================
+alpha            active-pick                      needs-decision  actionable_now    0.90   0.80   Active blocker: requires prompt resolution or steer
+delta            old-dep                          blocked         stale_historical  0.20   0.80   Archive or resolve superseded historical decision
+fm-delta         old-dep                          blocked         stale_historical  0.20   0.80   Archive or resolve superseded historical decision (fm-send would close $TMP/state/delta.status, not $TMP/state/fm-delta.status; close it by hand)
+==================================================================================================================
+Total: 3 | stale_historical: 2 | actionable_now: 1
+
+$ fm-jev-decisions.sh --all --state-dir $S --resolve-cmds
+FM_HOME=/home/jon/.no-mistakes/worktrees/46339c0817e0/01M3NE2QQ97PQGCR6D5XSP4KXD FM_STATE_OVERRIDE=$TMP/state /home/jon/.no-mistakes/worktrees/46339c0817e0/01M3NE2QQ97PQGCR6D5XSP4KXD/bin/fm-send.sh delta --resolve-key old-dep 'auto-resolved: superseded historical decision'
+
+## add fm-delta.meta -> fm-send now closes fm-delta.status itself
+$ fm-jev-decisions.sh --status-file $S/fm-delta.status --resolve-cmds
+FM_HOME=/home/jon/.no-mistakes/worktrees/46339c0817e0/01M3NE2QQ97PQGCR6D5XSP4KXD FM_STATE_OVERRIDE=$TMP/state /home/jon/.no-mistakes/worktrees/46339c0817e0/01M3NE2QQ97PQGCR6D5XSP4KXD/bin/fm-send.sh fm-delta --resolve-key old-dep 'auto-resolved: superseded historical decision'
