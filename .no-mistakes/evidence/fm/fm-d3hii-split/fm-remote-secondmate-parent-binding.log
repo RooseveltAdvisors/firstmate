@@ -1,0 +1,5 @@
+ok - remote provisioning publishes durable parent state before its completion marker
+warning: spawn quota preflight could not confirm runway for 'codex': codex () unhealthy: No quota evidence available; runway is unknown (no permitted diversion has confirmed runway); launching as requested without diversion
+error: task temp root /tmp/fm-ios already exists and is not a private directory owned by this user; refusing to stage the launch command there; inspect and remove it, then retry
+error: remote host-local secondmate launch failed
+not ok - real remote secondmate launch failed
