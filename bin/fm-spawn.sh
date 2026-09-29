@@ -895,13 +895,11 @@ fi
 # requested, with a warning and no diversion.
 # shellcheck disable=SC2016  # the ' inside ${model:+ model '$model'} are literal message quotes; $model still expands
 quota_preflight_crew_profile() {  # <harness> <model> [<raw launch scan words>]
-  local harness=$1 model=$2 scan=${3-} probe_model out rc status lane_harness lane_model
+  local harness=$1 model=$2 scan=${3-} out rc status lane_harness lane_model
   PREFLIGHT_HARNESS=$harness
   PREFLIGHT_MODEL=$model
   [ "$model" != - ] || model=
-  probe_model=$model
-  [ -z "$scan" ] || probe_model="$model $scan"
-  out=$(python3 "$FM_ROOT/bin/fm-jev-quota-prober.py" --harness "$harness" --model "$probe_model" --auto-divert 2>&1)
+  out=$(python3 "$FM_ROOT/bin/fm-jev-quota-prober.py" --harness "$harness" --model "$model" --scan "$scan" --auto-divert 2>&1)
   rc=$?
   case "$rc" in
   0) ;;
@@ -914,7 +912,7 @@ quota_preflight_crew_profile() {  # <harness> <model> [<raw launch scan words>]
     return 1
     ;;
   *)
-    case "$(printf '%s %s' "$harness" "$probe_model" | tr '[:upper:]' '[:lower:]')" in
+    case "$(printf '%s %s %s' "$harness" "$model" "$scan" | tr '[:upper:]' '[:lower:]')" in
     *grok*)
       echo "error: spawn quota preflight refused '$harness'${model:+ model '$model'}: Grok is reserved for Firstmate and the prober could not run: $out" >&2
       return 1
@@ -2365,6 +2363,10 @@ quota_preflight_crew_profile "$HARNESS" "$MODEL" "$PREFLIGHT_SCAN" || exit 1
 if [ "$PREFLIGHT_HARNESS" != "$HARNESS" ] || [ "$PREFLIGHT_MODEL" != "$MODEL" ]; then
   HARNESS=$PREFLIGHT_HARNESS
   MODEL=$PREFLIGHT_MODEL
+  if [ "$EFFORT" = ultra ] && ! "$SCRIPT_DIR/fm-harness.sh" validate-native-effort "$HARNESS" "$MODEL" "$EFFORT" 2>/dev/null; then
+    echo "warning: diverted lane '$HARNESS' model '$MODEL' has no native ultra effort; launching at its default effort" >&2
+    EFFORT=
+  fi
   RAW_LAUNCH=0
   LAUNCH=$(launch_template "$HARNESS" "$KIND") || {
     echo "error: no launch template for diverted harness '$HARNESS'" >&2

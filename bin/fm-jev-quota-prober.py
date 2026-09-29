@@ -136,6 +136,11 @@ def select_account(quota_data: dict, harness: str, model: str) -> dict | None:
     return provider_rows[0] if provider_rows else None
 
 
+def credits_exhausted(account: dict) -> bool:
+    remaining = (account.get("credits") or {}).get("remaining")
+    return isinstance(remaining, (int, float)) and remaining <= 0
+
+
 def unhealthy_result(
     harness: str,
     model: str,
@@ -147,7 +152,9 @@ def unhealthy_result(
     safe_account = select_account(quota_data, DEFAULT_SAFE_HARNESS, DEFAULT_SAFE_MODEL)
     has_safe_diversion = (
         allow_divert
+        and (harness, model.rsplit("/", 1)[-1]) != (DEFAULT_SAFE_HARNESS, DEFAULT_SAFE_MODEL)
         and bool(safe_account)
+        and not credits_exhausted(safe_account)
         and availability_confirmed(safe_account, DEFAULT_SAFE_MODEL)
     )
     return {
@@ -161,7 +168,7 @@ def unhealthy_result(
     }
 
 
-def probe_harness(harness: str, model: str | None = None) -> dict:
+def probe_harness(harness: str, model: str | None = None, scan: str = "") -> dict:
     """
     Probe a specific harness and model combination.
     Returns health: 'healthy', 'exhausted', 'forbidden', 'unknown'.
@@ -171,7 +178,7 @@ def probe_harness(harness: str, model: str | None = None) -> dict:
 
     quota_data = query_quota_axi()
 
-    if harness == "grok" or "grok" in model:
+    if harness == "grok" or "grok" in model or "grok" in scan.lower():
         return unhealthy_result(
             harness,
             model,
@@ -212,10 +219,7 @@ def probe_harness(harness: str, model: str | None = None) -> dict:
                 quota_data,
                 allow_divert=False,
             )
-        remaining = (account.get("credits") or {}).get("remaining")
-        if (
-            isinstance(remaining, (int, float)) and remaining <= 0
-        ) or availability_exhausted(account, model):
+        if credits_exhausted(account) or availability_exhausted(account, model):
             return unhealthy_result(
                 harness,
                 model,
@@ -247,6 +251,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Jev Pre-Flight Quota & Token Health Prober")
     parser.add_argument("--harness", help="Harness to probe (e.g. pi, codex, cursor)")
     parser.add_argument("--model", help="Model to probe (e.g. zai-general/glm-5.3-flash, cursor-grok-4.6-high)")
+    parser.add_argument("--scan", default="", help="Raw launch words, judged only for the Grok reservation")
     parser.add_argument("--auto-divert", action="store_true", help="Emit diverted harness and model if target is unhealthy")
     parser.add_argument("--check-all", action="store_true", help="Probe all standard fleet harnesses")
     parser.add_argument("--json", action="store_true", help="Output JSON")
@@ -274,7 +279,7 @@ def main() -> int:
         parser.print_help()
         return 2
 
-    res = probe_harness(args.harness, args.model)
+    res = probe_harness(args.harness, args.model, args.scan)
 
     if args.json:
         print(json.dumps(res, indent=2))

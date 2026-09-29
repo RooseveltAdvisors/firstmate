@@ -249,4 +249,24 @@ QUOTA_JSON="$error_json" "$PROBER" --harness codex --model gpt-5.6-luna --auto-d
 [ "$error_rc" = 3 ] || fail "codex quota error with --auto-divert should exit 3, got $error_rc"
 ok "quota measurement errors are unknown and never divert"
 
+printf '15. Verify a credit-exhausted safe lane is never offered as a diversion...\n'
+credits_json='{"schemaVersion":5,"providers":[{"provider":"codex","state":{"status":"fresh","stale":false},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":0,"runway":{"status":"exhausted_now"}}]}},{"provider":"cursor","credits":{"remaining":0},"state":{"status":"fresh","stale":false},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":50,"runway":{"status":"through_reset"}}]}}]}'
+for target in "cursor composer-2.5" "codex gpt-5.6-luna"; do
+  read -r h m <<<"$target"
+  credit_rc=0
+  QUOTA_JSON="$credits_json" "$PROBER" --harness "$h" --model "$m" --auto-divert >/dev/null 2>&1 || credit_rc=$?
+  [ "$credit_rc" = 1 ] || fail "$h with a credit-exhausted cursor lane should refuse (exit 1), got $credit_rc"
+done
+same_rc=0
+CURSOR_EXHAUSTED=1 "$PROBER" --harness cursor --model cursor/composer-2.5 --auto-divert >/dev/null 2>&1 || same_rc=$?
+[ "$same_rc" = 1 ] || fail "an exhausted safe lane diverted to itself (exit $same_rc)"
+ok "no diversion into a credit-exhausted or the requested lane"
+
+printf '16. Verify raw launch words never pollute model scoping...\n'
+scan_out=$(CODEX_MODEL_EXHAUSTED=1 "$PROBER" --harness codex --model gpt-5.6-luna --scan "codex brief.md" --auto-divert) || fail "model-scoped exhaustion with scan words did not divert"
+[ "$scan_out" = "harness=cursor model=composer-2.5 healthy=0 status=exhausted" ] || fail "scan words hid model-scoped exhaustion: $scan_out"
+scan_json=$("$PROBER" --harness codex --model gpt-5.6-luna --scan "grok --model grok-4" --json) && fail "Grok raw launch words were not refused"
+printf '%s\n' "$scan_json" | grep -q '"status": "forbidden"' || fail "Grok raw launch words not forbidden: $scan_json"
+ok "scan words only feed the Grok check"
+
 printf 'ok - all fm-jev-quota-prober tests passed\n'

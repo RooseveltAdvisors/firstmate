@@ -699,6 +699,18 @@ test_quota_preflight_diverts_doomed_profiles_to_confirmed_lane() {
     assert_contains "$launch" "--model 'composer-2.5'" "$harness diversion did not launch the composer model"
   done
 
+  id='profile-diverted-ultra-z5h'
+  rec=$(make_spawn_case profile-diverted-ultra grok "$id")
+  read_case_record "$rec"
+  : >"$HOME_DIR/config/spawn-quota-divert"
+  out=$(FM_FAKE_QUOTA_AXI_JSON=$(quota_axi_rows 0 exhausted_now 50 through_reset) \
+    FM_TEST_CURSOR_MODELS='Available models\ncomposer-2.5 - Composer 2.5' \
+    run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model grok-4 --effort ultra)
+  status=$?
+  expect_code 0 "$status" "a diverted ultra spawn should launch the diverted lane"$'\n'"$out"
+  assert_contains "$out" "no native ultra effort" "dropping the unportable ultra effort was not reported"
+  assert_grep 'harness=cursor' "$HOME_DIR/state/$id.meta" "diverted ultra spawn did not record the cursor lane"
+
   id='profile-exhausted-codex-z5e'
   rec=$(make_spawn_case profile-exhausted-codex codex "$id")
   read_case_record "$rec"
