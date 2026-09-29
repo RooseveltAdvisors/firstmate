@@ -1,0 +1,30 @@
+$ git diff --stat fa48367 963f1ea8
+(empty: net tree identical to base)
+$ git rev-parse fa48367^{tree} 963f1ea8^{tree}
+31b142c906b9c72a2489c75f78b5b7f6d09fc4b1
+31b142c906b9c72a2489c75f78b5b7f6d09fc4b1
+
+510fe182 fix(jev): resolve PI template and PI_BIN for cross-harness quota diverts
+
+ bin/fm-spawn.sh | 61 ++++++++++++++++++++++++++++++++++++++++++++++++---------
+ 1 file changed, 52 insertions(+), 9 deletions(-)
+
+ee3c385c fix(spawn): repair pi quota divert launch
+
+ bin/fm-spawn.sh                         | 44 +++++++++++++++++++--------------
+ tests/fm-spawn-dispatch-profile.test.sh | 38 ++++++++++++++++++++++++++++
+ 2 files changed, 63 insertions(+), 19 deletions(-)
+
+06067b7e no-mistakes(review): Move quota divert before harness gates; drop reconciler hook
+
+ bin/fm-spawn.sh | 119 +++++++++++++++++++++++---------------------------------
+ 1 file changed, 49 insertions(+), 70 deletions(-)
+
+963f1ea8 no-mistakes(review): Remove Jev prober hook, divert repair, and divert test
+
+ bin/fm-spawn.sh                         | 70 ++++++++++-----------------------
+ tests/fm-spawn-dispatch-profile.test.sh | 38 ------------------
+ 2 files changed, 21 insertions(+), 87 deletions(-)
+
+$ grep -c 'quota-prober\|divert' bin/fm-spawn.sh
+0
