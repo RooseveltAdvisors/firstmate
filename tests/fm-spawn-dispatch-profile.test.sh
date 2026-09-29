@@ -626,7 +626,7 @@ test_grok_crew_profiles_are_refused_before_launch() {
       run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model "$2" --effort high)
     status=$?
     expect_code 1 "$status" "$1 spawn with model $2 should be refused"
-    assert_contains "$out" "spawn quota preflight refused" "$1 refusal did not come from the quota preflight"
+    assert_contains "$out" "spawn refused Grok crew profile" "$1 refusal did not come from the Grok crew refusal"
     assert_contains "$out" "reserved for Firstmate" "$1 refusal did not name the Grok reservation"
     [ ! -s "$LAUNCH_LOG" ] || fail "$1 Grok refusal must happen before launch"
     assert_absent "$HOME_DIR/state/$id.meta" "$1 Grok refusal must not publish task meta"
@@ -638,7 +638,7 @@ test_grok_crew_profiles_are_refused_before_launch() {
     "cursor-agent --model cursor-grok-4.6-high --yolo")
   status=$?
   expect_code 1 "$status" "raw launch naming a Grok model should be refused"
-  assert_contains "$out" "spawn quota preflight refused" "raw Grok refusal did not come from the quota preflight"
+  assert_contains "$out" "spawn refused Grok crew profile" "raw Grok refusal did not come from the Grok crew refusal"
   [ ! -s "$LAUNCH_LOG" ] || fail "raw Grok refusal must happen before launch"
   assert_absent "$HOME_DIR/state/$id.meta" "raw Grok refusal must not publish task meta"
   id='profile-refused-multiline-raw-z5'
@@ -649,7 +649,7 @@ test_grok_crew_profiles_are_refused_before_launch() {
 cursor-agent --model cursor-grok-4.6-high --yolo")
   status=$?
   expect_code 1 "$status" "raw launch naming a Grok model on a later line should be refused"
-  assert_contains "$out" "spawn quota preflight refused" "multiline raw Grok refusal did not come from the quota preflight"
+  assert_contains "$out" "spawn refused Grok crew profile" "multiline raw Grok refusal did not come from the Grok crew refusal"
   [ ! -s "$LAUNCH_LOG" ] || fail "multiline raw Grok refusal must happen before launch"
   id='profile-grok-path-raw-z5'
   rec=$(make_spawn_case profile-grok-path-raw claude "$id")
@@ -658,7 +658,7 @@ cursor-agent --model cursor-grok-4.6-high --yolo")
     "/opt/tools/grok-bridge/custom-agent --model sonnet")
   status=$?
   expect_code 0 "$status" "raw launch whose path merely contains grok should spawn: $out"
-  assert_not_contains "$out" "spawn quota preflight refused" "a grok directory name refused a non-Grok raw launch"
+  assert_not_contains "$out" "spawn refused Grok crew profile" "a grok directory name refused a non-Grok raw launch"
   pass "Grok harness and Grok model crew profiles are refused before launch"
 }
 

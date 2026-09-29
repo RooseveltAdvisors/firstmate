@@ -883,6 +883,9 @@ else
   fi
 fi
 
+# Grok is reserved for the primary session. This is a policy refusal, not a
+# quota gate: other profiles launch unprobed, and a refused spawn never
+# diverts itself; the prober only supplies a lane the dispatcher may choose.
 refuse_forbidden_crew_profile() {  # <harness> <model>
   local harness=$1 model=$2 probe
   [ "$model" != - ] || model=
@@ -892,7 +895,7 @@ refuse_forbidden_crew_profile() {  # <harness> <model>
   esac
   probe=$(python3 "$FM_ROOT/bin/fm-jev-quota-prober.py" --harness "$harness" --model "$model" 2>&1) && return 0
   # shellcheck disable=SC2016 # single quotes are literal text inside the double-quoted message
-  echo "error: spawn quota preflight refused '$harness'${model:+ model '$model'}: ${probe#blocked: }" >&2
+  echo "error: spawn refused Grok crew profile '$harness'${model:+ model '$model'}: ${probe#blocked: }; this spawn does not divert, so re-dispatch with a permitted profile" >&2
   return 1
 }
 
