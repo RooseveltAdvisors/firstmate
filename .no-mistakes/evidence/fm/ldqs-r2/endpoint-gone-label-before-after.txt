@@ -1,0 +1,5 @@
+# Pre-fix (HEAD~1 bin/fm-control.sh):
+not ok - one proven-gone fact must carry one label on both paths: before exit 'endpoint-gone rl78 harness=claude backend=herdr endpoint=fmlab:%7 worktree=/tmp/fm-control-relaunch.eQ7UeZ/gone-herdr-pre-12420/wt', after the interrupt 'stopped rl79 harness=claude backend=herdr endpoint=fmlab:%7 worktree=/tmp/fm-control-relaunch.eQ7UeZ/gone-herdr-post-20444/wt'
+
+# Fixed (HEAD 37fdda90):
+ok - fm-control exit: a proven-gone endpoint reports endpoint-gone before exit and after the busy interrupt
