@@ -587,6 +587,22 @@ await_positive_stop() {  # <outcome prefix> [extra positive state]...
       die "$prefix agent-state=$state exit=unconfirmed; the stop state was not observed within the ${EXIT_WAIT}s exit window and its ${EXIT_CONFIRM_WAIT}s confirm window - a window's expiry is not evidence the agent kept running, so this is unconfirmed rather than failed; read the seat's current state before any recovery action"
     }
   }
+  [ "$state" != missing ] || prove_missing_stop "$prefix"
+}
+
+# prove_missing_stop: a `missing` read after lifecycle input is not stop
+# evidence on its own - it also covers an endpoint merely unreachable from this
+# seat - so it goes through the same absence proof as a `missing` read before
+# exit. Proven gone, or there after all with no agent, is the stop (state
+# dead); an agent that came back reads alive; anything unproven is unconfirmed.
+prove_missing_stop() {  # <outcome prefix>
+  local absence
+  absence=$(fm_control_endpoint_absence_verdict "$BACKEND" "$T")
+  case "${absence%%$'\t'*}" in
+    gone|dead) state=dead ;;
+    alive) state=alive ;;
+    *) die "$1 agent-state=missing exit=unconfirmed; task $ID's endpoint $T reads 'missing', but ${absence#*$'\t'}; a missing read is not stop evidence, so read the seat's current state before any recovery action" ;;
+  esac
 }
 
 # do_exit: stop the running agent, preserving endpoint and worktree. Prints
@@ -642,8 +658,10 @@ do_exit() {
     busy*)
       cancel=$(deliver_interrupt) || return $?
       state=$(agent_state)
+      [ "$state" != missing ] \
+        || prove_missing_stop "exit-interrupted $ID interrupt=delivered cancel=$cancel exit-command=not-sent"
       case "$state" in
-        dead|missing)
+        dead)
           retire_busy_incarnation
           printf 'stopped'
           return 0
@@ -697,13 +715,16 @@ do_exit() {
   [ "$verdict" != send-failed ] \
     || die "the exit command could not be sent to task $ID on $BACKEND"
   # The postcondition is the POSITIVE stop state: the classifier confidently
-  # reads no agent (dead), or the recorded endpoint is authoritatively absent
-  # because the seat closed itself on exit (missing). Window expiry is a
+  # reads no agent (dead), or the recorded endpoint is PROVEN absent because the
+  # seat closed itself on exit (a `missing` read that passes the absence proof;
+  # an unproven one is unconfirmed, never a stop). Window expiry is a
   # different thing entirely, so the waits are staged: the primary window,
   # then a shorter confirm window for a stop that lands just late. Both key on
   # the same positive state, and only their combined expiry reports unconfirmed
   # - with the observed state, never a definite "did not stop" failure claim.
   await_positive_stop "exit-delivered $ID interrupt=$interrupt_result exit-command=delivered"
+  [ "$state" = dead ] \
+    || die "exit-delivered $ID interrupt=$interrupt_result exit-command=delivered agent-state=$state exit=unconfirmed; the endpoint read 'missing' but proved to still hold a running agent; read the seat's current state before any recovery action"
   # The incarnation is over: retire its busy wiring so no stale record or
   # orphaned generation survives the agent that produced it.
   retire_busy_incarnation

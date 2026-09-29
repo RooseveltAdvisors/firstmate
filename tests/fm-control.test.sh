@@ -982,7 +982,7 @@ test_exit_accepts_agent_stopped_by_busy_interrupt() {
   pass "fm-control exit: an interrupt-stopped agent satisfies the gone-state postcondition"
 }
 
-test_exit_accepts_endpoint_that_disappears_after_busy_interrupt() {
+test_unprovable_post_interrupt_missing_endpoint_is_unconfirmed() {
   local dir out rc gen
   dir=$(new_case interrupt-vanishes)
   add_task "$dir" t1 claude
@@ -990,16 +990,20 @@ test_exit_accepts_endpoint_that_disappears_after_busy_interrupt() {
   gen=$("$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1)
   printf 'busy_gen=%s\n' "$gen" >> "$dir/home/state/t1.meta"
   out=$(FM_FAKE_INTERRUPT_DISAPPEARS=1 run_control "$dir" t1 exit); rc=$?
-  expect_code 0 "$rc" "exit should accept an endpoint that disappears after the interrupt"$'\n'"$out"
-  assert_contains "$out" "stopped t1 harness=claude" \
-    "an authoritatively absent endpoint after interrupt is a positive stop"
+  # A tmux `missing` read after the interrupt may be a window on a server this
+  # seat cannot address, still holding a live agent, and tmux cannot prove
+  # absence. It is neither a stop nor a failure: it is unconfirmed.
+  expect_code 1 "$rc" "an unprovable post-interrupt missing endpoint must not report success"$'\n'"$out"
+  assert_contains "$out" "exit-interrupted t1 interrupt=delivered cancel=unconfirmed exit-command=not-sent agent-state=missing exit=unconfirmed" \
+    "the report should name the delivered interrupt and the unproven absence"
+  assert_not_contains "$out" "stopped t1" "an unproven absence must not be claimed as a stop"
   [ "$(keys_sent "$dir")" = Escape ] \
     || fail "exit should deliver the busy agent's interrupt sequence"
   [ -z "$(literals "$dir")" ] \
-    || fail "exit should not type a command after the endpoint already vanished"
-  [ ! -e "$dir/home/state/t1.busy-gen" ] && [ ! -e "$dir/home/state/t1.busy-state" ] \
-    || fail "exit should retire busy wiring for an endpoint that vanished"
-  pass "fm-control exit: a post-interrupt missing endpoint is a stopped exit, never a failure"
+    || fail "nothing may be typed into an endpoint whose absence is unproven"
+  [ -e "$dir/home/state/t1.busy-state" ] \
+    || fail "busy wiring must survive an exit that could not prove the agent stopped"
+  pass "fm-control exit: an unprovable post-interrupt missing endpoint is unconfirmed, never a claimed stop"
 }
 
 test_agent_that_does_not_stop_reports_unconfirmed_never_failed() {
@@ -1267,7 +1271,7 @@ test_interrupt_without_acknowledgement_preserves_busy_state
 test_muse_interrupt_confirms_adapter_acknowledgement
 test_interrupt_revalidates_agent_after_acknowledgement_wait
 test_exit_accepts_agent_stopped_by_busy_interrupt
-test_exit_accepts_endpoint_that_disappears_after_busy_interrupt
+test_unprovable_post_interrupt_missing_endpoint_is_unconfirmed
 test_agent_that_does_not_stop_reports_unconfirmed_never_failed
 test_ambiguous_post_interrupt_evidence_reports_unconfirmed_never_failed
 test_stop_landing_during_ambiguous_post_interrupt_wait_is_success
