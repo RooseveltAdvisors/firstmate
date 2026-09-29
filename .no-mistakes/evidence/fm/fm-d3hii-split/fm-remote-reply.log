@@ -25,7 +25,8 @@ ok - a reply that arrives after escalation resolves it and clears the open decis
 ok - a remote reply listener stays owned across empty waits and a delta
 ok - a failed remote read exits instead of relistening
 ok - persistent ingestion failure leaves exactly one durable capture
-ok - a preempted reply poll cannot publish channel freshness
+ok - a preempted reply poll reports a closed window without publishing channel freshness
+ok - a preempted reply poll keeps its listener and reconcile launches nothing
 ok - a quiet reply window publishes the caught-up watermark the reply guard reads
 ok - a cursor-loss whole-log recapture is acknowledged quietly with no duplicate wake
 ok - truncation is detected, escalated once, and not silently rebased
