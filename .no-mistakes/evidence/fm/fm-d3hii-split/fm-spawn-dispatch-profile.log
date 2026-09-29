@@ -33,6 +33,7 @@ ok - codex omits max for models without the catalog capability
 ok - a codex crewmate launches with no hook layer and keeps its turn-end signal
 ok - a codex secondmate keeps the project hook layer its primary session runs on
 ok - Grok harness and Grok model crew profiles are refused before launch
+ok - the spawn quota preflight diverts doomed profiles and refuses only without a confirmed lane
 ok - cursor receives its model-qualified reasoning class and exact task workspace
 ok - cursor refuses model ids absent from its resolved binary's live catalog
 ok - cursor preserves the requested model when its live catalog is unreachable
@@ -52,7 +53,7 @@ ok - pi-signed is a distinct persistent secondmate runtime with shared Pi superv
 ok - batch dispatch forwards shared --harness, --model, and --effort to every pair
 ok - claude forwards firstmate's CLAUDE_CONFIG_DIR so the crewmate uses the same credential store
 ok - the primary-owned Lavish server address reaches every worker launch
-cat: /tmp/fm-spawn-dispatch-profile.oTSsWx/profile-lavish-ambient/pane.log: No such file or directory
+cat: /tmp/fm-spawn-dispatch-profile.b6fmLa/profile-lavish-ambient/pane.log: No such file or directory
 ok - absent Lavish configuration preserves the destination environment
 ok - claude omits the config-dir prefix when firstmate runs with the single-store default
 ok - config/claude-permission-mode=bypass launches exactly as an absent file does

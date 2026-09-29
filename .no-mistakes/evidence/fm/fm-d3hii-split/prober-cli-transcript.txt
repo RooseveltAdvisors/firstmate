@@ -1,36 +1,51 @@
-$ fm-jev-quota-prober.py --harness grok --model grok-4 --json   (no quota-axi on PATH)
-{
-  "harness": "grok",
-  "model": "grok-4",
-  "status": "forbidden",
-  "healthy": false,
-  "reason": "Grok is reserved for Firstmate and cannot run crew work",
-  "divert_harness": "",
-  "divert_model": ""
-}
+$ # case A: codex exhausted, cursor fresh w/ runway
+$ fm-jev-quota-prober.py --harness codex --auto-divert
+harness=cursor model=composer-2.5 healthy=0 status=exhausted
+exit=0
+
+$ # case B: grok requested
+$ fm-jev-quota-prober.py --harness grok --auto-divert
+harness=cursor model=composer-2.5 healthy=0 status=forbidden
+exit=0
+
+$ # case C: codex exhausted AND cursor exhausted -> no confirmed divert
+$ fm-jev-quota-prober.py --harness codex --auto-divert
+blocked: codex () unhealthy: codex quota exhausted (no permitted diversion has confirmed runway)
 exit=1
 
-$ fm-jev-quota-prober.py --harness cursor --model cursor-grok-4.6-high --auto-divert --json   (no quota-axi on PATH)
-{
-  "harness": "cursor",
-  "model": "cursor-grok-4.6-high",
-  "status": "forbidden",
-  "healthy": false,
-  "reason": "Grok is reserved for Firstmate and cannot run crew work",
-  "divert_harness": "",
-  "divert_model": ""
-}
-exit=1
+$ # case D: codex row with state.error (measurement failure)
+$ fm-jev-quota-prober.py --harness codex --auto-divert
+blocked: codex () unhealthy: codex quota could not be measured: timeout (no permitted diversion has confirmed runway)
+exit=3
 
-$ fm-jev-quota-prober.py --harness codex --model gpt-5.5 --json   (no quota-axi on PATH)
+$ # case E: credits null / remaining null
+$ fm-jev-quota-prober.py --harness codex --json
 {
   "harness": "codex",
-  "model": "gpt-5.5",
-  "status": "unknown",
-  "healthy": false,
-  "reason": "No quota evidence available; runway is unknown",
-  "divert_harness": "",
+  "model": "",
+  "status": "healthy",
+  "healthy": true,
+  "reason": "No quota blockers detected",
+  "divert_harness": "codex",
   "divert_model": ""
 }
-exit=1
+exit=0
+$ fm-jev-quota-prober.py --harness cursor --json
+{
+  "harness": "cursor",
+  "model": "",
+  "status": "healthy",
+  "healthy": true,
+  "reason": "No quota blockers detected",
+  "divert_harness": "cursor",
+  "divert_model": ""
+}
+exit=0
 
+$ fm-jev-quota-prober.py --check-all
+Fleet Pre-Flight Harness Runway:
+  ✗ cursor (cursor-grok-4.6-high): forbidden (Grok is reserved for Firstmate and cannot run crew work) -> divert to cursor:composer-2.5
+  ✓ cursor (cursor-small): healthy (No quota blockers detected) -> divert to cursor:cursor-small
+  ✓ codex (gpt-5.6-luna): healthy (No quota blockers detected) -> divert to codex:gpt-5.6-luna
+  ✓ pi (zai-general/glm-5.3-flash): healthy (No quota blockers detected) -> divert to pi:zai-general/glm-5.3-flash
+exit=0

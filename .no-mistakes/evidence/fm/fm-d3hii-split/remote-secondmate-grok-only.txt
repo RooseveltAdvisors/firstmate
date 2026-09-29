@@ -1,0 +1,10 @@
+$ refuse_forbidden_remote_profile codex -
+rc=0
+$ refuse_forbidden_remote_profile claude sonnet
+rc=0
+$ refuse_forbidden_remote_profile grok -
+error: spawn refused Grok profile 'grok' for remote secondmate: grok () unhealthy: Grok is reserved for Firstmate and cannot run crew work (no permitted diversion has confirmed runway)
+rc=1
+$ refuse_forbidden_remote_profile cursor cursor-grok-4.6-high
+error: spawn refused Grok profile 'cursor' model 'cursor-grok-4.6-high' for remote secondmate: cursor (cursor-grok-4.6-high) unhealthy: Grok is reserved for Firstmate and cannot run crew work (no permitted diversion has confirmed runway)
+rc=1

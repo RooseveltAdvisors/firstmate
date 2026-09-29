@@ -1,0 +1,27 @@
+ok - grok crew spawn is refused before any hook or task wiring
+ok - fm-lock recognizes grok harness processes
+ok - check-all rejects forbidden Grok lane
+ok - auto-divert safely redirects to cursor Composer
+ok - auto-divert target excludes Grok
+ok - auto-divert refuses exhausted destination
+ok - Codex quota semantics detect exhaustion
+ok - direct Grok launch is forbidden
+ok - auto-divert refuses stale destination evidence
+ok - auto-divert refuses unknown destination runway
+ok - absent quota evidence reports unknown and permits no launch
+ok - direct probes refuse unconfirmed runway and judge only their own account
+ok - auto-divert reports status and distinguishes unknown from doomed
+ok - quota measurement errors are unknown and never divert
+ok - all fm-jev-quota-prober tests passed
+ok - invalid allowlist names refuse before launch or task publication
+ok - inaccessible config with present allowlist refuses before launch or task publication
+ok - inaccessible config with absent allowlist refuses before launch or task publication
+ok - inaccessible ancestor with present allowlist refuses before launch or task publication
+ok - inaccessible ancestor with absent allowlist refuses before launch or task publication
+ok - remote inheritance preserves the allowlist on source errors and mirrors proven absence
+ok - Grok harness and Grok model crew profiles are refused before launch
+ok - the spawn quota preflight diverts doomed profiles and refuses only without a confirmed lane
+ok - cursor refuses model ids absent from its resolved binary's live catalog
+ok - Ultra is explicit for native Pi and Pi-signed, including direct-PR, and refuses unsupported profiles before provisioning
+ok - pi-signed refuses safely and actionably when the selected executable is unavailable
+ok - an unrecognized config/claude-permission-mode token refuses before any endpoint or metadata
