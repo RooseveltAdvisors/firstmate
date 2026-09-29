@@ -6,6 +6,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROBER="$FM_ROOT/bin/fm-jev-quota-prober.py"
+unset FM_QUOTA_AXI_BIN
 LAB=$(mktemp -d "${TMPDIR:-/tmp}/fm-jev-quota-prober.XXXXXX")
 FAKEBIN="$LAB/fakebin"
 
@@ -233,5 +234,19 @@ unknown_rc=0
 QUOTA_EMPTY=1 "$PROBER" --harness codex --model gpt-5.6-luna --auto-divert >/dev/null 2>&1 || unknown_rc=$?
 [ "$unknown_rc" = 3 ] || fail "unknown lane without diversion should exit 3, got $unknown_rc"
 ok "auto-divert reports status and distinguishes unknown from doomed"
+
+printf '14. Verify a quota measurement error is unknown and never diverts...\n'
+error_json='{"schemaVersion":5,"providers":[{"provider":"codex","state":{"status":"fresh","stale":false,"error":"fetch timed out"},"quotaSemantics":{"status":"known","effectiveAvailability":[]}},{"provider":"cursor","state":{"status":"fresh","stale":false},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":50,"runway":{"status":"through_reset"}}]}}]}'
+error_out=$(QUOTA_JSON="$error_json" "$PROBER" --harness codex --model gpt-5.6-luna --json) && fail "codex quota error reported healthy"
+printf '%s\n' "$error_out" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+assert data["status"] == "unknown", data
+assert data["divert_harness"] == "", data
+' || fail "codex quota error result was not unknown without diversion: $error_out"
+error_rc=0
+QUOTA_JSON="$error_json" "$PROBER" --harness codex --model gpt-5.6-luna --auto-divert >/dev/null 2>&1 || error_rc=$?
+[ "$error_rc" = 3 ] || fail "codex quota error with --auto-divert should exit 3, got $error_rc"
+ok "quota measurement errors are unknown and never divert"
 
 printf 'ok - all fm-jev-quota-prober tests passed\n'

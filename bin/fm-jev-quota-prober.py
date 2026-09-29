@@ -28,8 +28,8 @@ DEFAULT_SAFE_MODEL = "composer-2.5"
 
 def query_quota_axi(providers: list[str] | None = None) -> dict:
     """Fetch structured quota evidence from quota-axi in sub-second time."""
-    quota_axi_bin = shutil.which("quota-axi")
-    if not quota_axi_bin:
+    quota_axi_bin = os.environ.get("FM_QUOTA_AXI_BIN") or shutil.which("quota-axi")
+    if not quota_axi_bin or not os.access(quota_axi_bin, os.X_OK) or os.path.isdir(quota_axi_bin):
         return {}
 
     cmd = [quota_axi_bin, "--json"]
@@ -138,10 +138,13 @@ def unhealthy_result(
     status: str,
     reason: str,
     quota_data: dict,
+    allow_divert: bool = True,
 ) -> dict:
     safe_account = select_account(quota_data, DEFAULT_SAFE_HARNESS, DEFAULT_SAFE_MODEL)
-    has_safe_diversion = bool(safe_account) and availability_confirmed(
-        safe_account, DEFAULT_SAFE_MODEL
+    has_safe_diversion = (
+        allow_divert
+        and bool(safe_account)
+        and availability_confirmed(safe_account, DEFAULT_SAFE_MODEL)
     )
     return {
         "harness": harness,
@@ -157,7 +160,7 @@ def unhealthy_result(
 def probe_harness(harness: str, model: str | None = None) -> dict:
     """
     Probe a specific harness and model combination.
-    Returns health: 'healthy', 'exhausted', 'revoked', 'unknown'.
+    Returns health: 'healthy', 'exhausted', 'forbidden', 'unknown'.
     """
     harness = harness.lower().strip()
     model = (model or "").lower().strip()
@@ -200,9 +203,10 @@ def probe_harness(harness: str, model: str | None = None) -> dict:
             return unhealthy_result(
                 harness,
                 model,
-                "revoked_or_unavailable",
-                state["error"],
+                "unknown",
+                f"{provider} quota could not be measured: {state['error']}",
                 quota_data,
+                allow_divert=False,
             )
         remaining = (account.get("credits") or {}).get("remaining")
         if (

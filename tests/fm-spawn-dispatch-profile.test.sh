@@ -705,6 +705,16 @@ test_quota_preflight_diverts_doomed_profiles_to_confirmed_lane() {
   expect_code 0 "$status" "healthy codex spawn should launch as requested"$'\n'"$out"
   assert_not_contains "$out" "diverted" "healthy codex spawn must not divert"
   assert_grep 'harness=codex' "$HOME_DIR/state/$id.meta" "healthy codex spawn changed lane"
+  id='profile-quota-error-codex-z5g'
+  rec=$(make_spawn_case profile-quota-error-codex codex "$id")
+  read_case_record "$rec"
+  out=$(FM_FAKE_QUOTA_AXI_JSON='{"schemaVersion":5,"providers":[{"provider":"codex","state":{"status":"fresh","stale":false,"error":"fetch timed out"}},{"provider":"cursor","state":{"status":"fresh","stale":false},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":50,"runway":{"status":"through_reset"}}]}}]}' \
+    run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model gpt-5)
+  status=$?
+  expect_code 0 "$status" "codex spawn whose quota could not be measured should launch as requested"$'\n'"$out"
+  assert_contains "$out" "could not confirm runway for 'codex'" "unmeasured codex quota did not surface its uncertainty"
+  assert_not_contains "$out" "diverted" "unmeasured codex quota must not divert"
+  assert_grep 'harness=codex' "$HOME_DIR/state/$id.meta" "unmeasured codex quota changed lane"
   pass "the spawn quota preflight diverts doomed profiles and refuses only without a confirmed lane"
 }
 

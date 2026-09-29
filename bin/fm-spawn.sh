@@ -883,11 +883,12 @@ else
   fi
 fi
 
-# Every resolved profile runs the quota prober with --auto-divert before it
-# launches. A doomed lane (exhausted, revoked, or a Grok profile reserved for
-# the primary session) switches to the prober's permitted lane with confirmed
-# runway, and is refused only when no such lane exists. A lane the prober has
-# no quota evidence for launches as requested.
+# Every locally launched profile runs the quota prober with --auto-divert
+# before it launches. A doomed lane (confirmed exhausted, or a Grok profile
+# reserved for the primary session) switches to the prober's permitted lane with
+# confirmed runway, and is refused only when no such lane exists. A lane whose
+# quota is missing or could not be measured launches as requested, with a
+# warning and no diversion.
 quota_preflight_crew_profile() {  # <harness> <model> [<raw launch scan words>]
   local harness=$1 model=$2 scan=${3-} probe_model out rc status lane_harness lane_model
   PREFLIGHT_HARNESS=$harness
@@ -899,7 +900,10 @@ quota_preflight_crew_profile() {  # <harness> <model> [<raw launch scan words>]
   rc=$?
   case "$rc" in
   0) ;;
-  3) return 0 ;;
+  3)
+    echo "warning: spawn quota preflight could not confirm runway for '$harness'${model:+ model '$model'}: ${out#blocked: }; launching as requested without diversion" >&2
+    return 0
+    ;;
   1)
     echo "error: spawn quota preflight refused '$harness'${model:+ model '$model'}: ${out#blocked: }" >&2
     return 1
@@ -917,7 +921,11 @@ quota_preflight_crew_profile() {  # <harness> <model> [<raw launch scan words>]
   esac
   status=${out##*status=}
   case "$status" in
-  healthy | unknown) return 0 ;;
+  healthy) return 0 ;;
+  unknown)
+    echo "warning: spawn quota preflight could not confirm runway for '$harness'${model:+ model '$model'}; launching as requested without diversion" >&2
+    return 0
+    ;;
   esac
   lane_harness=${out#harness=}
   lane_harness=${lane_harness%% *}
@@ -926,6 +934,21 @@ quota_preflight_crew_profile() {  # <harness> <model> [<raw launch scan words>]
   echo "warning: spawn quota preflight diverted '$harness'${model:+ model '$model'} ($status) to '$lane_harness' model '$lane_model'" >&2
   PREFLIGHT_HARNESS=$lane_harness
   PREFLIGHT_MODEL=$lane_model
+}
+
+# A remote secondmate launches under the remote host's own logins, so this
+# host's quota rows cannot confirm or divert its lane; only the host-independent
+# Grok reservation applies there.
+refuse_forbidden_remote_profile() {  # <harness> <model>
+  local harness=$1 model=$2 out
+  [ "$model" != - ] || model=
+  case "$(printf '%s %s' "$harness" "$model" | tr '[:upper:]' '[:lower:]')" in
+  *grok*) ;;
+  *) return 0 ;;
+  esac
+  out=$(FM_QUOTA_AXI_BIN=/dev/null python3 "$FM_ROOT/bin/fm-jev-quota-prober.py" --harness "$harness" --model "$model" 2>&1) && return 0
+  echo "error: spawn refused Grok profile '$harness'${model:+ model '$model'} for remote secondmate: ${out#blocked: }" >&2
+  return 1
 }
 
 spawn_remote_secondmate() {
@@ -997,13 +1020,11 @@ spawn_remote_secondmate() {
       [ -n "$effort" ] || effort=-
     fi
   fi
-  if ! quota_preflight_crew_profile "$harness" "$model"; then
+  if ! refuse_forbidden_remote_profile "$harness" "$model"; then
     fm_lock_release "$registry_lock" || true
     fm_lock_release "$SPAWN_TASK_LOCK" || true
     return 1
   fi
-  harness=$PREFLIGHT_HARNESS
-  model=$PREFLIGHT_MODEL
   # A remote second mate always runs on Herdr: its server belongs to the host's
   # own GUI login session, so the endpoint outlives every SSH connection that
   # supervises it. bin/fm-remote-doctor.sh gates that host on the same
