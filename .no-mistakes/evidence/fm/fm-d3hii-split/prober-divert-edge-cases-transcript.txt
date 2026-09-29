@@ -1,0 +1,21 @@
+=== AFTER fix (26363ea0) ===
+$ QUOTA_JSON=<cursor credits.remaining=0, availability through_reset> prober --harness cursor --model composer-2.5 --auto-divert
+blocked: cursor (composer-2.5) unhealthy: cursor quota exhausted (no permitted diversion has confirmed runway)
+exit=1
+$ CURSOR_EXHAUSTED=1 prober --harness cursor --model cursor/composer-2.5 --auto-divert
+blocked: cursor (cursor/composer-2.5) unhealthy: cursor quota exhausted (no permitted diversion has confirmed runway)
+exit=1
+$ CODEX_MODEL_EXHAUSTED=1 prober --harness codex --model gpt-5.6-luna --scan "codex brief.md" --auto-divert
+harness=cursor model=composer-2.5 healthy=0 status=exhausted
+exit=0
+$ prober --harness codex --model gpt-5.6-luna --scan "grok --model grok-4" --auto-divert
+harness=cursor model=composer-2.5 healthy=0 status=forbidden
+exit=0
+
+=== BEFORE fix (HEAD~1; old CLI had no --scan, scan words were appended to --model) ===
+$ QUOTA_JSON=<cursor credits.remaining=0> old-prober --harness cursor --model composer-2.5 --auto-divert
+harness=cursor model=composer-2.5 healthy=0 status=exhausted
+exit=0
+$ CODEX_MODEL_EXHAUSTED=1 old-prober --harness codex --model "gpt-5.6-luna codex brief.md" --auto-divert
+harness=codex model=gpt-5.6-luna codex brief.md healthy=1 status=healthy
+exit=0
