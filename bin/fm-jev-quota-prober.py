@@ -3,9 +3,13 @@
 fm-jev-quota-prober.py - Jev System One Pre-Flight Quota & Token Health Prober.
 
 Performs sub-second runway and credential probes before worker launch to prevent
-429 quota exhaustion and revoked-token stalls. For a doomed lane it recommends,
-and with --auto-divert emits, only a permitted lane with confirmed runway; the
-caller decides whether to launch that recommendation.
+429 quota exhaustion. For a doomed lane it recommends, and with --auto-divert
+emits, only a permitted lane with confirmed runway; the caller decides whether to
+launch that recommendation. With --auto-divert, exit 0 prints
+`harness=… model=… healthy=… status=…` (the caller must check status, since an
+unknown lane can still print a diversion), exit 1 means a confirmed-doomed lane
+with no diversion, and exit 3 means unmeasured runway with no diversion; a
+quota-axi row error is always unknown and never diverts.
 
 Usage:
   bin/fm-jev-quota-prober.py --harness <harness> [--model <model>] [--auto-divert] [--json]
