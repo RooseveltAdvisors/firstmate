@@ -171,6 +171,7 @@ case "${1:-}" in
       if [ "$payload" = Escape ] && [ -n "${FM_FAKE_INTERRUPT_BLURS:-}" ]; then
         # The interrupt lands but the classifier cannot positively attribute
         # the seat: the foreground command reads as neither agent nor shell.
+        [ -z "${FM_FAKE_INTERRUPT_SETTLES:-}" ] || cp "$D/command" "$D/settle-to"
         printf 'python' > "$D/command"
         if [ -n "${FM_FAKE_INTERRUPT_STOP_DELAY:-}" ]; then
           printf '%s' "$(awk -v now="${EPOCHREALTIME:-$SECONDS}" \
@@ -201,7 +202,11 @@ case "${1:-}" in
           if [ -f "$D/exit-deadline" ]; then
             if [ "$(awk -v n="${EPOCHREALTIME:-$SECONDS}" \
               -v d="$(cat "$D/exit-deadline")" 'BEGIN{print (n >= d) ? 1 : 0}')" = 1 ]; then
-              printf 'zsh' > "$D/command"
+              if [ -f "$D/settle-to" ]; then
+                mv "$D/settle-to" "$D/command"
+              else
+                printf 'zsh' > "$D/command"
+              fi
               rm -f "$D/exit-deadline"
             fi
           fi
@@ -290,6 +295,7 @@ run_control() {
     FM_FAKE_INTERRUPT_DISAPPEARS="${FM_FAKE_INTERRUPT_DISAPPEARS:-}" \
     FM_FAKE_INTERRUPT_BLURS="${FM_FAKE_INTERRUPT_BLURS:-}" \
     FM_FAKE_INTERRUPT_STOP_DELAY="${FM_FAKE_INTERRUPT_STOP_DELAY:-}" \
+    FM_FAKE_INTERRUPT_SETTLES="${FM_FAKE_INTERRUPT_SETTLES:-}" \
     "$CONTROL" "$@" 2>&1
 }
 
@@ -1023,11 +1029,6 @@ test_agent_that_does_not_stop_reports_unconfirmed_never_failed() {
   pass "fm-control exit: a stubborn agent reports delivered input and an unconfirmed, never failed, exit"
 }
 
-# The fleet failure pattern this pins (recorded 2026-09-05): a fixed window
-# reported a succeeded exit as failed - the pane had already printed its
-# resume line and returned to a shell prompt while the check kept asserting
-# the agent did not stop. The stop landing after the primary window, inside
-# the confirm window, is SUCCESS.
 test_ambiguous_post_interrupt_evidence_reports_unconfirmed_never_failed() {
   local dir out rc gen
   dir=$(new_case interrupt-blur)
@@ -1072,6 +1073,35 @@ test_stop_landing_during_ambiguous_post_interrupt_wait_is_success() {
   pass "fm-control exit: a positively observed stop after ambiguous post-interrupt evidence is success"
 }
 
+test_ambiguous_post_interrupt_seat_that_settles_alive_still_gets_exit_command() {
+  local dir out rc gen
+  dir=$(new_case interrupt-blur-settle)
+  add_task "$dir" t1 claude
+  alive_as "$dir" claude
+  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1)
+  printf 'busy_gen=%s\n' "$gen" >> "$dir/home/state/t1.meta"
+  out=$(FM_FAKE_INTERRUPT_BLURS=1 FM_FAKE_INTERRUPT_SETTLES=1 \
+    FM_FAKE_INTERRUPT_STOP_DELAY=0.1 FM_CONTROL_EXIT_CONFIRM_WAIT=2 \
+    run_control "$dir" t1 exit); rc=$?
+  expect_code 0 "$rc" "a seat that settles back to alive after ambiguous evidence should still be exited"$'\n'"$out"
+  assert_contains "$out" "stopped t1 harness=claude" \
+    "the exit command sent after the seat settled should stop the agent"
+  assert_not_contains "$out" "exit=unconfirmed" \
+    "a seat that reads alive must not be reported unconfirmed"
+  [ "$(keys_sent "$dir")" = Escape ] \
+    || fail "the busy agent should receive its interrupt sequence once"
+  [ "$(literals "$dir")" = /exit ] \
+    || fail "a seat that settles back to alive should receive its exit command, got: $(literals "$dir")"
+  [ ! -e "$dir/home/state/t1.busy-gen" ] && [ ! -e "$dir/home/state/t1.busy-state" ] \
+    || fail "exit should retire busy wiring once the settled agent stops"
+  pass "fm-control exit: an ambiguous post-interrupt seat that settles alive still receives its exit command"
+}
+
+# The fleet failure pattern this pins (recorded 2026-09-05): a fixed window
+# reported a succeeded exit as failed - the pane had already printed its
+# resume line and returned to a shell prompt while the check kept asserting
+# the agent did not stop. The stop landing after the primary window, inside
+# the confirm window, is SUCCESS.
 test_exit_reports_late_stop_as_success() {
   local dir out rc
   dir=$(new_case late-stop)
@@ -1241,6 +1271,7 @@ test_exit_accepts_endpoint_that_disappears_after_busy_interrupt
 test_agent_that_does_not_stop_reports_unconfirmed_never_failed
 test_ambiguous_post_interrupt_evidence_reports_unconfirmed_never_failed
 test_stop_landing_during_ambiguous_post_interrupt_wait_is_success
+test_ambiguous_post_interrupt_seat_that_settles_alive_still_gets_exit_command
 test_exit_reports_late_stop_as_success
 test_grok_interrupt_without_acknowledgement_reports_unconfirmed
 test_grok_idle_footer_does_not_confirm_cancellation

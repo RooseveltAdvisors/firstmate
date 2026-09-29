@@ -133,7 +133,8 @@
 #   - An ambiguous or unreadable endpoint state is never sent a lifecycle
 #     command; only a positively classified state receives one. For exit after
 #     a delivered interrupt, such a read is not a refusal: the exit command is
-#     withheld and the same staged positive-stop waits decide the outcome.
+#     withheld while the same staged waits decide the outcome, and a seat that
+#     settles back to alive still receives its exit command.
 #   - A composer that visibly holds pending text refuses before an exit command
 #     is typed, so existing text is preserved instead of being concatenated.
 #
@@ -577,10 +578,13 @@ retire_busy_incarnation() {
 # window, then the shorter confirm window - and report their combined expiry.
 # Window expiry is not evidence the agent kept running, so the report is
 # unconfirmed with the last observed state, never a definite failure claim.
-await_positive_stop() {  # <outcome prefix>
-  state=$(wait_agent_state "$EXIT_WAIT" dead missing) || {
-    state=$(wait_agent_state "$EXIT_CONFIRM_WAIT" dead missing) || {
-      die "$1 agent-state=$state exit=unconfirmed; the stop state was not observed within the ${EXIT_WAIT}s exit window and its ${EXIT_CONFIRM_WAIT}s confirm window - a window's expiry is not evidence the agent kept running, so this is unconfirmed rather than failed; read the seat's current state before any recovery action"
+# Extra positive states the caller can act on end the waits the same way.
+await_positive_stop() {  # <outcome prefix> [extra positive state]...
+  local prefix=$1
+  shift
+  state=$(wait_agent_state "$EXIT_WAIT" dead missing "$@") || {
+    state=$(wait_agent_state "$EXIT_CONFIRM_WAIT" dead missing "$@") || {
+      die "$prefix agent-state=$state exit=unconfirmed; the stop state was not observed within the ${EXIT_WAIT}s exit window and its ${EXIT_CONFIRM_WAIT}s confirm window - a window's expiry is not evidence the agent kept running, so this is unconfirmed rather than failed; read the seat's current state before any recovery action"
     }
   }
 }
@@ -649,14 +653,19 @@ do_exit() {
           # The interrupt landed but the seat cannot be positively attributed
           # right now. That is neither a refusal nor stop evidence, so the exit
           # command is withheld (an unattributed endpoint takes no lifecycle
-          # command) and the same staged positive-state waits decide the
-          # outcome: a positively observed stop is success, their expiry is
-          # unconfirmed.
+          # command) and the same staged waits decide the outcome: a positively
+          # observed stop is success, a seat that settles back to alive still
+          # gets its exit command, and only their expiry is unconfirmed.
           interrupt_result="delivered verified=unattributed cancel=$cancel"
-          await_positive_stop "exit-interrupted $ID interrupt=$interrupt_result exit-command=not-sent"
-          retire_busy_incarnation
-          printf 'stopped'
-          return 0
+          await_positive_stop "exit-interrupted $ID interrupt=$interrupt_result exit-command=not-sent" alive
+          case "$state" in
+            alive) interrupt_result="delivered verified=agent-alive cancel=$cancel" ;;
+            *)
+              retire_busy_incarnation
+              printf 'stopped'
+              return 0
+              ;;
+          esac
           ;;
       esac
       ;;
