@@ -741,6 +741,20 @@ test_quota_preflight_diverts_doomed_profiles_to_confirmed_lane() {
   assert_contains "$out" "could not confirm runway for 'codex'" "unmeasured codex quota did not surface its uncertainty"
   assert_not_contains "$out" "diverted" "unmeasured codex quota must not divert"
   assert_grep 'harness=codex' "$HOME_DIR/state/$id.meta" "unmeasured codex quota changed lane"
+
+  # A raw launch names its model inside the command; a model-scoped exhaustion
+  # must refuse it even while the provider-wide quota still has runway.
+  id='profile-raw-model-exhausted-z5i'
+  rec=$(make_spawn_case profile-raw-model-exhausted codex "$id")
+  read_case_record "$rec"
+  out=$(FM_FAKE_QUOTA_AXI_JSON='{"schemaVersion":5,"providers":[{"provider":"codex","state":{"status":"fresh","stale":false},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":50,"runway":{"status":"through_reset"}},{"scope":"model:gpt-5.6-luna","status":"known","effectivePercentRemaining":0,"runway":{"status":"exhausted_now"}}]}},{"provider":"cursor","state":{"status":"fresh","stale":false},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":0,"runway":{"status":"exhausted_now"}}]}}]}' \
+    run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" \
+    "codex --model gpt-5.6-luna")
+  status=$?
+  expect_code 1 "$status" "raw launch into an exhausted model should be refused"$'\n'"$out"
+  assert_contains "$out" "spawn quota preflight refused 'codex' model 'gpt-5.6-luna'" "raw launch model was not judged by the quota preflight"
+  [ ! -s "$LAUNCH_LOG" ] || fail "raw launch into an exhausted model must not launch"
+  assert_absent "$HOME_DIR/state/$id.meta" "raw launch into an exhausted model must not publish task meta"
   pass "the spawn quota preflight refuses doomed profiles and diverts only under the captain's config/spawn-quota-divert grant"
 }
 

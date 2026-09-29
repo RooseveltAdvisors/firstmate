@@ -2352,15 +2352,27 @@ if [ "$KIND" = secondmate ] && [ -z "$ARG3" ]; then
   fi
 fi
 PREFLIGHT_SCAN=
+PREFLIGHT_IN_MODEL=$MODEL
 if [ "$RAW_LAUNCH" = 1 ]; then
   # Judge each word by its basename so a directory named after Grok never
   # refuses a non-Grok binary, while a grok binary or grok model id still does.
   # -d '' reads every line, since /bin/sh -c runs every line of the launch.
   read -r -d '' -a RAW_LAUNCH_WORDS <<<"$LAUNCH" || true
   PREFLIGHT_SCAN="${RAW_LAUNCH_WORDS[*]##*/}"
+  # A raw launch carries its model inside the command, so model-scoped quota
+  # must be judged against that model rather than an empty one.
+  if [ -z "$MODEL" ]; then
+    for ((raw_i = 0; raw_i < ${#RAW_LAUNCH_WORDS[@]}; raw_i++)); do
+      case "${RAW_LAUNCH_WORDS[raw_i]}" in
+      --model=*) PREFLIGHT_IN_MODEL=${RAW_LAUNCH_WORDS[raw_i]#--model=} ;;
+      --model | -m) PREFLIGHT_IN_MODEL=${RAW_LAUNCH_WORDS[raw_i + 1]-} ;;
+      esac
+    done
+    PREFLIGHT_IN_MODEL=${PREFLIGHT_IN_MODEL//[\'\"]/}
+  fi
 fi
-quota_preflight_crew_profile "$HARNESS" "$MODEL" "$PREFLIGHT_SCAN" || exit 1
-if [ "$PREFLIGHT_HARNESS" != "$HARNESS" ] || [ "$PREFLIGHT_MODEL" != "$MODEL" ]; then
+quota_preflight_crew_profile "$HARNESS" "$PREFLIGHT_IN_MODEL" "$PREFLIGHT_SCAN" || exit 1
+if [ "$PREFLIGHT_HARNESS" != "$HARNESS" ] || [ "$PREFLIGHT_MODEL" != "$PREFLIGHT_IN_MODEL" ]; then
   HARNESS=$PREFLIGHT_HARNESS
   MODEL=$PREFLIGHT_MODEL
   if [ "$EFFORT" = ultra ] && ! "$SCRIPT_DIR/fm-harness.sh" validate-native-effort "$HARNESS" "$MODEL" "$EFFORT" 2>/dev/null; then
