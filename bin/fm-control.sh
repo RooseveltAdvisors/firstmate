@@ -593,16 +593,25 @@ await_positive_stop() {  # <outcome prefix> [extra positive state]...
 # prove_missing_stop: a `missing` read after lifecycle input is not stop
 # evidence on its own - it also covers an endpoint merely unreachable from this
 # seat - so it goes through the same absence proof as a `missing` read before
-# exit. Proven gone, or there after all with no agent, is the stop (state
-# dead); an agent that came back reads alive; anything unproven is unconfirmed.
+# exit. Proven gone is the stop (state gone, reported `endpoint-gone` exactly as
+# before exit); there after all with no agent is the stop (state dead); an
+# agent that came back reads alive; anything unproven is unconfirmed.
 prove_missing_stop() {  # <outcome prefix>
   local absence
   absence=$(fm_control_endpoint_absence_verdict "$BACKEND" "$T")
   case "${absence%%$'\t'*}" in
-    gone|dead) state=dead ;;
+    gone) state=gone ;;
+    dead) state=dead ;;
     alive) state=alive ;;
     *) die "$1 agent-state=missing exit=unconfirmed; task $ID's endpoint $T reads 'missing', but ${absence#*$'\t'}; a missing read is not stop evidence, so read the seat's current state before any recovery action" ;;
   esac
+}
+
+# report_stop: retire the finished incarnation and print the stop outcome - a
+# proven-gone endpoint is `endpoint-gone` on every path, anything else `stopped`.
+report_stop() {
+  retire_busy_incarnation
+  if [ "$state" = gone ]; then printf 'endpoint-gone'; else printf 'stopped'; fi
 }
 
 # do_exit: stop the running agent, preserving endpoint and worktree. Prints
@@ -661,9 +670,8 @@ do_exit() {
       [ "$state" != missing ] \
         || prove_missing_stop "exit-interrupted $ID interrupt=delivered cancel=$cancel exit-command=not-sent"
       case "$state" in
-        dead)
-          retire_busy_incarnation
-          printf 'stopped'
+        dead|gone)
+          report_stop
           return 0
           ;;
         alive) interrupt_result="delivered verified=agent-alive cancel=$cancel" ;;
@@ -679,8 +687,7 @@ do_exit() {
           case "$state" in
             alive) interrupt_result="delivered verified=agent-alive cancel=$cancel" ;;
             *)
-              retire_busy_incarnation
-              printf 'stopped'
+              report_stop
               return 0
               ;;
           esac
@@ -723,12 +730,11 @@ do_exit() {
   # the same positive state, and only their combined expiry reports unconfirmed
   # - with the observed state, never a definite "did not stop" failure claim.
   await_positive_stop "exit-delivered $ID interrupt=$interrupt_result exit-command=delivered"
-  [ "$state" = dead ] \
+  [ "$state" = dead ] || [ "$state" = gone ] \
     || die "exit-delivered $ID interrupt=$interrupt_result exit-command=delivered agent-state=$state exit=unconfirmed; the endpoint read 'missing' but proved to still hold a running agent; read the seat's current state before any recovery action"
   # The incarnation is over: retire its busy wiring so no stale record or
   # orphaned generation survives the agent that produced it.
-  retire_busy_incarnation
-  printf 'stopped'
+  report_stop
 }
 
 # --- transactional relaunch -------------------------------------------------
