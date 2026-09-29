@@ -587,6 +587,9 @@ fi
 if ! KEEP_AI_TRAILERS=$(fm_config_source_present "$CONFIG/keep-ai-trailers"); then
   exit 1
 fi
+if ! QUOTA_DIVERT=$(fm_config_source_present "$CONFIG/spawn-quota-divert"); then
+  exit 1
+fi
 SUB_HOME_MARKER=".fm-secondmate-home"
 if [ -e "$STATE" ] || [ -L "$STATE" ]; then
   fm_backlog_directory_present "$STATE" "state directory" || {
@@ -885,10 +888,11 @@ fi
 
 # Every locally launched profile runs the quota prober with --auto-divert
 # before it launches. A doomed lane (confirmed exhausted, or a Grok profile
-# reserved for the primary session) switches to the prober's permitted lane with
-# confirmed runway, and is refused only when no such lane exists. A lane whose
-# quota is missing or could not be measured launches as requested, with a
-# warning and no diversion.
+# reserved for the primary session) is refused, naming the prober's permitted
+# lane when one has confirmed runway. The model choice is captain-owned, so the
+# spawn switches to that lane itself only when config/spawn-quota-divert grants
+# it. A lane whose quota is missing or could not be measured launches as
+# requested, with a warning and no diversion.
 # shellcheck disable=SC2016  # the ' inside ${model:+ model '$model'} are literal message quotes; $model still expands
 quota_preflight_crew_profile() {  # <harness> <model> [<raw launch scan words>]
   local harness=$1 model=$2 scan=${3-} probe_model out rc status lane_harness lane_model
@@ -932,6 +936,10 @@ quota_preflight_crew_profile() {  # <harness> <model> [<raw launch scan words>]
   lane_harness=${lane_harness%% *}
   lane_model=${out#* model=}
   lane_model=${lane_model%% *}
+  if [ "$QUOTA_DIVERT" != 1 ]; then
+    echo "error: spawn quota preflight refused '$harness'${model:+ model '$model'} ($status); '$lane_harness' model '$lane_model' has confirmed runway: dispatch it explicitly, or create config/spawn-quota-divert to let spawn divert" >&2
+    return 1
+  fi
   echo "warning: spawn quota preflight diverted '$harness'${model:+ model '$model'} ($status) to '$lane_harness' model '$lane_model'" >&2
   PREFLIGHT_HARNESS=$lane_harness
   PREFLIGHT_MODEL=$lane_model

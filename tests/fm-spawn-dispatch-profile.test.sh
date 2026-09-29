@@ -670,9 +670,23 @@ test_quota_preflight_diverts_doomed_profiles_to_confirmed_lane() {
   local rec id out status launch profile harness model
   for profile in "grok grok-4" "codex gpt-5"; do
     read -r harness model <<<"$profile"
+    id="profile-undiverted-$harness-z5d"
+    rec=$(make_spawn_case "profile-undiverted-$harness" "$harness" "$id")
+    read_case_record "$rec"
+    out=$(FM_FAKE_QUOTA_AXI_JSON=$(quota_axi_rows 0 exhausted_now 50 through_reset) \
+      FM_TEST_CURSOR_MODELS='Available models\ncomposer-2.5 - Composer 2.5' \
+      run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model "$model")
+    status=$?
+    expect_code 1 "$status" "doomed $harness spawn without the divert grant should be refused"$'\n'"$out"
+    assert_contains "$out" "spawn quota preflight refused '$harness'" "$harness refusal did not come from the quota preflight"
+    assert_contains "$out" "'cursor' model 'composer-2.5' has confirmed runway" "$harness refusal did not name the confirmed lane"
+    [ ! -s "$LAUNCH_LOG" ] || fail "$harness spawn without the divert grant must not launch"
+    assert_absent "$HOME_DIR/state/$id.meta" "$harness spawn without the divert grant must not publish task meta"
+
     id="profile-diverted-$harness-z5d"
     rec=$(make_spawn_case "profile-diverted-$harness" "$harness" "$id")
     read_case_record "$rec"
+    : >"$HOME_DIR/config/spawn-quota-divert"
     out=$(FM_FAKE_QUOTA_AXI_JSON=$(quota_axi_rows 0 exhausted_now 50 through_reset) \
       FM_TEST_CURSOR_MODELS='Available models\ncomposer-2.5 - Composer 2.5' \
       run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model "$model")
@@ -715,7 +729,7 @@ test_quota_preflight_diverts_doomed_profiles_to_confirmed_lane() {
   assert_contains "$out" "could not confirm runway for 'codex'" "unmeasured codex quota did not surface its uncertainty"
   assert_not_contains "$out" "diverted" "unmeasured codex quota must not divert"
   assert_grep 'harness=codex' "$HOME_DIR/state/$id.meta" "unmeasured codex quota changed lane"
-  pass "the spawn quota preflight diverts doomed profiles and refuses only without a confirmed lane"
+  pass "the spawn quota preflight refuses doomed profiles and diverts only under the captain's config/spawn-quota-divert grant"
 }
 
 test_cursor_threads_model_workspace_and_omits_effort_axis() {

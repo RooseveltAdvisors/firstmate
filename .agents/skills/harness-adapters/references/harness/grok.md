@@ -74,7 +74,7 @@ The shared classifier locates the full box and all content rows, so border curso
 
 ## Legacy worker turn-end hook
 
-The worker adapter remains for compatibility and focused tests, but the normal spawn quota preflight refuses Grok crew profiles, or diverts them to a permitted lane with confirmed runway, before allocation.
+The worker adapter remains for compatibility and focused tests, but the normal spawn quota preflight refuses Grok crew profiles before allocation; it diverts them to a permitted lane with confirmed runway only when `config/spawn-quota-divert` grants that.
 When that adapter is exercised in a test, Grok fires `Stop` each turn.
 Project hooks require folder trust in `~/.grok/trusted_folders.toml`, which the spawn does not edit, though answering the folder-trust gate above writes it; global `~/.grok/hooks/` is always trusted.
 The spawn installs guarded global `fm-turn-end.json` and `fm-turn-end.sh`.
