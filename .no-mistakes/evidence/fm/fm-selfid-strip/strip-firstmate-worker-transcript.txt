@@ -1,0 +1,32 @@
+== input message ==
+feat: portal change
+
+Body text.
+
+Co-authored-by: firstmate-worker <worker@firstmate.local>
+Co-authored-by: Cursor <noreply@cursor.com>
+Co-authored-by: Jane Human <jane@example.com>
+
+== BEFORE (base e2668de0 stripper) ==
+feat: portal change
+
+Body text.
+
+Co-authored-by: firstmate-worker <worker@firstmate.local>
+Co-authored-by: Jane Human <jane@example.com>
+
+== AFTER (this change) ==
+feat: portal change
+
+Body text.
+
+Co-authored-by: Jane Human <jane@example.com>
+
+== real git commit through installed commit-msg hook ==
+author: firstmate-worker <worker@firstmate.local>
+feat: portal change
+
+Body text.
+
+Co-authored-by: Jane Human <jane@example.com>
+
