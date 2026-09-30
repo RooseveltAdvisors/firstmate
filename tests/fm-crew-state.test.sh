@@ -3053,6 +3053,7 @@ test_dead_window_declared_pause_reads_paused() {
   assert_contains "$out" "source: status-log" "the declared pause is the source"
   assert_contains "$out" "holding for the upstream tool release" "the pause reason is carried in the detail"
   assert_not_contains "$out" "state: unknown" "a declared wait never reads as unexplained silence"
+  assert_contains "$out" "backend target gone" "the death evidence survives the pause"
   pass "a stopped seat holding unlanded work reports its declared pause"
 }
 
@@ -3085,6 +3086,7 @@ test_torn_down_worktree_declared_pause_reads_paused() {
   assert_contains "$out" "state: paused" "worktree gone with a declared pause -> paused"
   assert_contains "$out" "source: status-log" "the declared pause is the source"
   assert_contains "$out" "holding for a scheduled maintenance window" "the pause reason survives the missing worktree"
+  assert_contains "$out" "worktree gone" "the missing-worktree evidence survives the pause"
   pass "a torn-down worktree still surfaces its declared pause"
 }
 
@@ -3102,6 +3104,30 @@ test_dead_window_superseded_pause_stays_unknown() {
   assert_contains "$out" "state: unknown" "a pause superseded by a later event no longer declares"
   assert_not_contains "$out" "state: paused" "a stale pause cannot mask real silence"
   pass "a superseded pause stays unknown (only a current pause declares)"
+}
+
+test_unverified_run_identity_declared_pause_reads_paused() {
+  reset_fakes
+  local d out; d=$(new_case run-identity-paused)
+  make_repo_on_branch "$d/wt" fm/feat-idpause
+  printf 'scratch\n' > "$d/wt/unlanded.txt"
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/idpause.meta" "window=fm:fm-idpause" "worktree=$d/wt" "kind=ship"
+  printf 'paused: holding for the upstream tool release\n' > "$d/state/idpause.status"
+  FM_FAKE_RUN_HEAD=f0f0f0f0
+  FM_FAKE_AXI_HOME="count: 1 of 1 total
+runs[1]{id,branch,status,head,pr}:
+  \"01RUN\",fm/feat-idpause,completed,f0f0f0f0,\"\""
+  FM_FAKE_AXI_STATUS="$(run_failed fm/feat-idpause)"
+  FM_FAKE_AXI_STATUS_RUN="$FM_FAKE_AXI_STATUS"
+  FM_FAKE_RUNS_LIST=""
+  FM_FAKE_TMUX_MISSING=1
+  out=$(run_crew_state "$d" idpause)
+  assert_contains "$out" "state: paused" "an unverifiable run record with a declared pause -> paused"
+  assert_contains "$out" "source: status-log" "the declared pause is the source"
+  assert_contains "$out" "holding for the upstream tool release" "the pause reason leads the detail"
+  assert_contains "$out" "selected run code identity unverified; run ids: 01RUN" "the run-step evidence survives the pause"
+  pass "a declared pause surfaces over an unverified run record without losing its evidence"
 }
 
 # Regression (2026-09 G7 stale-claim incident, tmux half): the default backend
@@ -5673,6 +5699,7 @@ test_dead_window_declared_pause_reads_paused
 test_dead_window_without_declared_pause_stays_unknown
 test_torn_down_worktree_declared_pause_reads_paused
 test_dead_window_superseded_pause_stays_unknown
+test_unverified_run_identity_declared_pause_reads_paused
 test_no_run_tmux_unreadable_reads_unreachable_not_gone
 test_dead_window_still_reports_terminal_run_step
 test_dead_window_still_reports_active_run_step

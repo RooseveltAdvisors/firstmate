@@ -226,7 +226,9 @@ emit() {  # <state> <source> [detail]
     if status_is_paused "$current"; then
       state=paused
       source="status-log"
-      detail=$(status_line_note "$current")
+      local note
+      note=$(status_line_note "$current")
+      detail="${note}${note:+${detail:+$SEP}}${detail}"
     fi
   fi
   line="state: $state${SEP}source: $source"
