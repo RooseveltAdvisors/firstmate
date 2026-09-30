@@ -1,0 +1,17 @@
+$ cat msg   # input
+fix: repro
+
+Co-authored-by: firstmate-worker <worker@firstmate.local>
+Co-authored-by: Cursor <noreply@cursor.com>
+Co-authored-by: Jane Doe <jane@example.com>
+
+== BEFORE (base e2668de0 stripper) ==
+fix: repro
+
+Co-authored-by: firstmate-worker <worker@firstmate.local>
+Co-authored-by: Jane Doe <jane@example.com>
+
+== AFTER (fb67710e stripper) ==
+fix: repro
+
+Co-authored-by: Jane Doe <jane@example.com>

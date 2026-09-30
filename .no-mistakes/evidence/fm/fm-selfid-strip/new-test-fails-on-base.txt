@@ -1,0 +1,4 @@
+ok - a Cursor --trailer commit object has no AI co-author and keeps the captain identity
+not ok - firstmate-worker trailer reached the commit object (unexpected: 'Co-authored-by: firstmate-worker')
+--- output ---
+fix: our own runtime trailer
