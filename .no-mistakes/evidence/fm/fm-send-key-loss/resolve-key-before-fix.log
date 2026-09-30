@@ -1,0 +1,7 @@
+ok - fm-send --resolve-key: the answer send itself closes the open decision
+ok - fm-send --resolve-key: the close never re-wakes its own home, later lines still do
+ok - fm-send --resolve-key: separate answers do not each re-wake; later lines still do
+ok - fm-send --resolve-key: a colon-first stated key is open under that key and answerable
+ok - fm-send --resolve-key: an answer that starts a workstream leaves no orphaned decision
+grep: /tmp/fm-send-resolve-key.KxY3w1/routine-6664/state/t3.inbox/002.msg: No such file or directory
+not ok - even a superseded decision's answer must be delivered, not silently lost

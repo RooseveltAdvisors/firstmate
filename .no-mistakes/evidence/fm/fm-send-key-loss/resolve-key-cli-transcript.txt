@@ -1,0 +1,49 @@
+=== BEFORE fix (base b3d41332) ===
+$ fm-send t4 --resolve-key gate-a GATE DECISION A: approve
+  ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ●  WATCHER DOWN - SUPERVISION IS OFF
+  ●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+  ●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+  ●  This is a supervision warning only; the requested message WILL still be sent.
+  ●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+  ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  error: --resolve-key 'gate-a': no open decision or blocker with that key in /tmp/tmp.9RsNOMlfg8/home/state/t4.status, and no captain-held task 'gate-a' or 't4-decision-gate-a' still open (already closed or mistyped). Re-check the OPEN DECISIONS listing, then resend without that key or with the right one; nothing was sent.
+  exit=1
+$ fm-send t4 --resolve-key gate-b GATE DECISION B: approve
+  WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+  error: --resolve-key 'gate-b': no open decision or blocker with that key in /tmp/tmp.9RsNOMlfg8/home/state/t4.status, and no captain-held task 'gate-b' or 't4-decision-gate-b' still open (already closed or mistyped). Re-check the OPEN DECISIONS listing, then resend without that key or with the right one; nothing was sent.
+  exit=1
+$ fm-send t4 GATE DECISION C: approve
+  WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+  exit=0
+--- durable inbox records:
+  001.msg: GATE DECISION C
+--- doorbell rings typed: 1
+--- status ledger:
+  needs-decision [key=real-key]: choose
+
+=== AFTER fix (e6edd750) ===
+$ fm-send t4 --resolve-key gate-a GATE DECISION A: approve
+  ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ●  WATCHER DOWN - SUPERVISION IS OFF
+  ●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+  ●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+  ●  This is a supervision warning only; the requested message WILL still be sent.
+  ●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+  ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  error: the answer was delivered to sess:fm-t4, but --resolve-key key(s) 'gate-a' matched no open decision or blocker in /tmp/tmp.NzpuSnTQwS/home/state/t4.status and no open captain-held task (already closed or mistyped), so nothing was closed. Do not resend the answer; re-check the OPEN DECISIONS listing and close the decision manually if it is still open.
+  exit=1
+$ fm-send t4 --resolve-key gate-b GATE DECISION B: approve
+  WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+  error: the answer was delivered to sess:fm-t4, but --resolve-key key(s) 'gate-b' matched no open decision or blocker in /tmp/tmp.NzpuSnTQwS/home/state/t4.status and no open captain-held task (already closed or mistyped), so nothing was closed. Do not resend the answer; re-check the OPEN DECISIONS listing and close the decision manually if it is still open.
+  exit=1
+$ fm-send t4 GATE DECISION C: approve
+  WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+  exit=0
+--- durable inbox records:
+  001.msg: GATE DECISION A
+  002.msg: GATE DECISION B
+  003.msg: GATE DECISION C
+--- doorbell rings typed: 3
+--- status ledger:
+  needs-decision [key=real-key]: choose
