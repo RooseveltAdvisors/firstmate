@@ -578,6 +578,30 @@ test_remote_secondmate_answer_closes_locally() {
   pass "fm-send --resolve-key: a remote-secondmate answer closes the same local ledger, transport-only difference"
 }
 
+# A close failure must not hide an unmatched key: the remote path used to exit
+# on the failed close before reporting the miss, so the operator never learned
+# the second key closed nothing.
+test_remote_failed_close_still_reports_unmatched_key() {
+  local dir fb log home ssh_log err rc
+  dir="$TMP_ROOT/remote-close-fail"; mkdir -p "$dir"
+  fb=$(make_stubs "$dir"); log="$dir/send.log"; ssh_log="$dir/ssh.log"; : > "$ssh_log"; err="$dir/send.err"
+  home=$(setup_remote_home remote-close-fail)
+  printf 'needs-decision [key=upgrade-window]: tonight or the weekend\n' > "$home/state/rsm.status"
+  chmod 0400 "$home/state/rsm.status"
+
+  : > "$log"
+  env PATH="$fb:$PATH" \
+    FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" FM_SEND_LOG="$log" FM_SEND_SETTLE=0 \
+    FM_SSH_BIN="$fb/fake-ssh" FM_SSH_LOG="$ssh_log" FM_FAKE_SSH_RC=0 \
+    "$SEND" rsm --resolve-key upgrade-window --resolve-key ghost "the weekend" >/dev/null 2>"$err"; rc=$?
+  chmod 0600 "$home/state/rsm.status"
+  [ "$rc" -ne 0 ] || fail "a failed close plus an unmatched key should exit nonzero"
+  assert_grep 'fm-remote-entrypoint.sh' "$ssh_log" "the answer should still cross the remote transport"
+  assert_contains "$(cat "$err")" "Close it manually with:" "the close failure should be reported"
+  assert_contains "$(cat "$err")" "'ghost' matched no open decision" "the unmatched key should still be reported"
+  pass "fm-send --resolve-key: a failed remote close still reports the unmatched key"
+}
+
 # The reported failure: a remote secondmate reply line prepends a
 # "[corr=<hex>]" correlation tag ahead of "[key=...]"
 # (needs-decision [corr=d448ea86afa4bf67] [key=x]: ...). The verb parser used
@@ -961,6 +985,7 @@ test_multiple_keys_close_together
 test_multiple_keys_close_after_fold_is_self_announced
 test_local_secondmate_answer_marked_and_closed
 test_remote_secondmate_answer_closes_locally
+test_remote_failed_close_still_reports_unmatched_key
 test_remote_reply_corr_tag_does_not_block_resolve_key
 test_remote_transport_failure_does_not_close
 test_flag_misuse_refuses

@@ -211,7 +211,7 @@
 # refuse the send: refusing before delivery would silently eat the answer
 # itself, which is the worst message to lose. The answer is delivered
 # normally, and only after the durable write does the send exit nonzero,
-# naming each unmatched key and stating that nothing was closed and the
+# naming each unmatched key and stating that those keys were not closed and the
 # delivered answer must not be resent, so a mistyped or already-closed key
 # cannot orphan its decision unnoticed. A failed or unconfirmed send never closes a key; a
 # delivered answer whose closing append fails exits nonzero with the exact
@@ -608,7 +608,7 @@ fm_send_hold_resolved_id() { # <task-id> <decision-key>
 # closed, but the delivered answer must not be resent.
 fm_send_report_unmatched_keys() {
   [ -n "$RESOLVE_UNMATCHED_KEYS" ] || return 0
-  echo "error: the answer was delivered to $T, but --resolve-key key(s) '$RESOLVE_UNMATCHED_KEYS' matched no open decision or blocker in $RESOLVE_STATUS_FILE and no open captain-held task (already closed or mistyped), so nothing was closed. Do not resend the answer; re-check the OPEN DECISIONS listing and close the decision manually if it is still open." >&2
+  echo "error: the answer was delivered to $T, but --resolve-key key(s) '$RESOLVE_UNMATCHED_KEYS' matched no open decision or blocker in $RESOLVE_STATUS_FILE and no open captain-held task (already closed or mistyped), so those key(s) were not closed; any other --resolve-key keys were handled as reported separately. Do not resend the answer; re-check the OPEN DECISIONS listing and close the decision manually if it is still open." >&2
   return 1
 }
 
@@ -1031,12 +1031,15 @@ else
         fi
       fi
     fi
+    # Every post-delivery failure is reported: a close failure must not hide
+    # an unmatched key, so collect the status instead of exiting early.
+    post_delivery_rc=0
     if [ -n "$RESOLVE_KEYS" ]; then
-      fm_send_close_resolved_keys "$RESOLVE_ANSWER_TEXT" || exit 1
-      fm_send_feed_resolved_holds "$RESOLVE_ANSWER_TEXT" || exit 1
+      fm_send_close_resolved_keys "$RESOLVE_ANSWER_TEXT" &&
+        fm_send_feed_resolved_holds "$RESOLVE_ANSWER_TEXT" || post_delivery_rc=1
     fi
-    fm_send_report_unmatched_keys || exit 1
-    exit 0
+    fm_send_report_unmatched_keys || post_delivery_rc=1
+    exit "$post_delivery_rc"
   fi
   if [ "$INBOX_PLANE" = 1 ]; then
     INBOX_TASK_ID=$(fm_send_id_from_meta "$TARGET_META")
@@ -1226,11 +1229,15 @@ else
   fi
   # Delivery is fully confirmed: close each answered decision in this home's
   # ledger (answerer-closes; see the header contract).
+  # Report every post-delivery failure before exiting: a close failure must
+  # not hide an unmatched key.
+  post_delivery_rc=0
   if [ -n "$RESOLVE_KEYS" ]; then
-    fm_send_close_resolved_keys "$RESOLVE_ANSWER_TEXT" || exit 1
-    fm_send_feed_resolved_holds "$RESOLVE_ANSWER_TEXT" || exit 1
+    fm_send_close_resolved_keys "$RESOLVE_ANSWER_TEXT" &&
+      fm_send_feed_resolved_holds "$RESOLVE_ANSWER_TEXT" || post_delivery_rc=1
   fi
-  fm_send_report_unmatched_keys || exit 1
+  fm_send_report_unmatched_keys || post_delivery_rc=1
+  [ "$post_delivery_rc" = 0 ] || exit 1
   # Submit landed with exact empty. Confirmation only proves the text was
   # accepted; the harness still needs a beat to spin up the
   # turn before its busy footer shows. Pause so an immediate peek catches the
