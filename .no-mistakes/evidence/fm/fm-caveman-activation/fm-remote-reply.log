@@ -32,4 +32,4 @@ ok - a cursor-loss whole-log recapture is acknowledged quietly with no duplicate
 ok - truncation is detected, escalated once, and not silently rebased
 ok - remote reply retirement quiesces and refuses unhandled captured results
 ALL TESTS PASSED
-exit=0
+exit 0

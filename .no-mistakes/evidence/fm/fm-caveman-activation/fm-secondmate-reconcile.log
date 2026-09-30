@@ -20,4 +20,4 @@ ok - a legitimately markerless persistent remote secondmate is nudged once per w
 ok - a stale remote-route snapshot cannot ask or silence a replacement mate
 ok - a route replacement between reconcile and fm-send cannot receive a stale ask
 ok - a row with neither a spawn generation nor a host fails loudly instead of vanishing
-exit=0
+exit 0
