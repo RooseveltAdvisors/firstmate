@@ -379,8 +379,10 @@ test_agy_identity_probe_names_agy() (
   # classifies as agy, never as the pi its separated frame resembles and never
   # as an absent identity (fm-agy-idle-classify). Keep the mocks in this
   # subshell so they cannot affect later tests.
-  local out arg_file
+  local out arg_file count_file
   arg_file="$TMP_ROOT/agy-probe-busy-harness"
+  count_file="$TMP_ROOT/agy-probe-busy-reads"
+  export FM_TMUX_AGY_IDLE_SETTLE_SLEEP=0
   # shellcheck disable=SC2329 # Mock invoked indirectly by the sourced adapter.
   tmux() {
     local arg
@@ -400,6 +402,35 @@ test_agy_identity_probe_names_agy() (
     || fail "an idle agy composer must classify as agy, got '$out'"
   [ "$(cat "$arg_file" 2>/dev/null)" = agy ] \
     || fail "the identity's busy read must be scoped to agy, got '$(cat "$arg_file" 2>/dev/null)'"
+  # agy draws its busy footer seconds after Enter: a turn that is still
+  # spinning up reads idle at first, and must flip to working once the footer
+  # lands inside the settle window rather than proving an empty composer.
+  printf '0' > "$count_file"
+  # shellcheck disable=SC2329 # Mock invoked indirectly by the sourced adapter.
+  fm_pane_busy_state() {
+    local n
+    n=$(($(cat "$count_file") + 1)); printf '%s' "$n" > "$count_file"
+    if [ "$n" -ge 3 ]; then printf 'busy'; else printf 'idle'; fi
+  }
+  out=$(fm_tmux_composer_identity fakepane) \
+    || fail "a spinning-up agy must still produce an identity"
+  [ "$out" = "$(printf 'agy\tworking')" ] \
+    || fail "an agy whose busy footer lands inside the settle window must read working, got '$out'"
+  [ "$(cat "$count_file")" = 3 ] \
+    || fail "the settle must stop re-reading once busy, got $(cat "$count_file") reads"
+  printf '0' > "$count_file"
+  # shellcheck disable=SC2329 # Mock invoked indirectly by the sourced adapter.
+  fm_pane_busy_state() {
+    printf '%s' "$(($(cat "$count_file") + 1))" > "$count_file"; printf 'idle'
+  }
+  out=$(FM_TMUX_AGY_IDLE_SETTLE_POLLS=4 fm_tmux_composer_identity fakepane) \
+    || fail "a settled idle agy must produce an identity"
+  [ "$out" = "$(printf 'agy\tidle')" ] \
+    || fail "an agy idle across the whole settle window must read idle, got '$out'"
+  [ "$(cat "$count_file")" = 5 ] \
+    || fail "idle must hold across every settle re-read, got $(cat "$count_file") reads"
+  # shellcheck disable=SC2329 # Mock invoked indirectly by the sourced adapter.
+  fm_pane_busy_state() { printf 'idle'; }
   # A real pane has a tty: the foreground-process scan must name agy on its
   # own, with tmux's command-name fallback reporting only a wrapper shell.
   # shellcheck disable=SC2329 # Mock invoked indirectly by the sourced adapter.
@@ -463,6 +494,7 @@ test_agy_idle_frame_classifies_through_live_identity() {
   capture="$dir/styled.txt"
   printf 'transcript\n────────────────────────\n>\n────────────────────────\n? for shortcuts                          Gemini 3.8 Flash · low\n' > "$capture"
   out=$(PATH="$fb:$PATH" FM_FAKE_STYLED="$capture" FM_FAKE_CY=2 FM_FAKE_PANE_COMMAND=agy \
+    FM_TMUX_AGY_IDLE_SETTLE_SLEEP=0 \
     fm_tmux_composer_state "fakepane")
   [ "$out" = empty ] \
     || fail "an idle agy frame with a live agy process must read empty, got '$out'"
