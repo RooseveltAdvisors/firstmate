@@ -54,7 +54,10 @@
 # evidence: zero unhandled records can mean the worker already consumed the
 # message into handled/ just as easily as that no record was ever queued, so
 # tell the two apart by listing state/<id>.inbox/ itself, including handled/,
-# never by the pending count alone. The
+# never by the pending count alone. This is not hypothetical: a supervising
+# firstmate read an empty pending glob as "never delivered" when its
+# instruction had landed seconds earlier and already moved to handled/, and
+# nearly sent a duplicate. The
 # watcher re-rings an unacknowledged message while its endpoint remains
 # available, escalates after the bounded ladder, and instead routes a positively
 # dead or missing endpoint directly to recovery without typing. An explicit
