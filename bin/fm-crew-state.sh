@@ -150,7 +150,9 @@
 #      `resolved` never become current state or detail.
 #   5. Missing meta or torn-down worktree: report unknown · none. If no run is
 #      attributed to this crew, a dead endpoint also reports unknown · none rather
-#      than trusting a stale status log. On tmux and herdr, which own a
+#      than trusting a stale status log - UNLESS the log's current declaration
+#      is a pause: a declared wait the crew stated first-hand is not staleness,
+#      and emit below surfaces it as paused ahead of every unknown verdict. On tmux and herdr, which own a
 #      recovery-grade classifier, only its positive death evidence reads as gone
 #      (the endpoint is authoritatively absent, or its pane holds no agent); an
 #      endpoint that merely failed to answer reports unknown · none as
@@ -204,9 +206,31 @@ case "$FM_CREW_STATE_RUNS_LIMIT" in ''|*[!0-9]*) FM_CREW_STATE_RUNS_LIMIT=200 ;;
 SEP=' · '
 
 # Emit the one canonical line and exit 0. Detail is optional.
+# A current declared pause in the status log outranks EVERY unknown verdict
+# below, whatever its source: a seat intentionally stopped while it holds
+# unlanded work (endpoint gone, worktree gone or unverifiable, run record
+# unattributable) is a crew on a declared wait, not unexplained silence, and a
+# supervisor who cannot read the pause keeps treating it as a wedge suspect.
+# One status_is_paused read here, ahead of every unknown emit, so no caller
+# has to remember it; genuinely unexplained silence (no current pause
+# declaration) keeps its unknown. status_current_line owns what "current"
+# means (a pause superseded by a later event no longer declares), so a stale
+# pause cannot mask real silence. The remote-endpoint source is exempt: an
+# unreachable or dead remote host is evidence a possibly-stale routed log must
+# never mask.
 emit() {  # <state> <source> [detail]
-  local line="state: $1${SEP}source: $2"
-  [ -n "${3:-}" ] && line="$line${SEP}$3"
+  local state=$1 source=$2 detail=${3:-} line
+  if [ "$state" = unknown ] && [ "$source" != remote-endpoint ]; then
+    local current
+    current=$(status_current_line "$LOG" "${KIND:-ship}")
+    if status_is_paused "$current"; then
+      state=paused
+      source="status-log"
+      detail=$(status_line_note "$current")
+    fi
+  fi
+  line="state: $state${SEP}source: $source"
+  [ -n "$detail" ] && line="$line${SEP}$detail"
   printf '%s\n' "$line"
   exit 0
 }
@@ -1232,7 +1256,9 @@ fi
 # read as death - a backend that failed to answer is unknown, never death, for
 # both classifier-backed backends (tmux and herdr) - and every death-class
 # verdict reports unknown rather than trusting a possibly-stale status log as
-# the current state.
+# the current state. A status log whose CURRENT declaration is a pause is the
+# one exception, surfaced as paused by emit's declared-pause read, which owns
+# that rule for every unknown verdict in this script.
 [ -n "$BACKEND_TARGET" ] || emit unknown none "no backend target recorded"
 if ! pane_readable "$BACKEND_TARGET"; then
   # A failed probe is not itself evidence the pane is gone: the herdr CLI can
