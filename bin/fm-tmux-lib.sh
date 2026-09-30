@@ -103,16 +103,11 @@ fm_tmux_composer_caps() {
 #     and gets NO identity, which is exactly what keeps the strict blank-row
 #     rule honest: a blank row between two stale rules stays unknown.
 #   - status: the agent's verified busy footer via fm_pane_is_busy, mapped onto
-#     the idle/working vocabulary herdr's probe reports natively. agy draws
-#     that footer late (~1.5s after Enter for a short steer, ~4-5s for a
-#     longer brief, docs/verification/agy.md), so an idle agy read must hold
-#     across a settle window (FM_TMUX_AGY_IDLE_SETTLE_POLLS x
-#     FM_TMUX_AGY_IDLE_SETTLE_SLEEP, ~5s by default) before it counts as idle:
-#     a turn still spinning up reads working as soon as its footer appears.
+#     the idle/working vocabulary herdr's probe reports natively.
 # Prints "<agent><TAB>idle" or "<agent><TAB>working"; exits 1 when the pane
 # holds no live agent the probe knows.
 fm_tmux_composer_identity() {  # <target>
-  local target=$1 tty pgid tpgid comm agent='' status polls
+  local target=$1 tty pgid tpgid comm agent='' status
   tty=$(tmux display-message -p -t "$target" '#{pane_tty}' 2>/dev/null) || tty=
   case "$tty" in
     /dev/*)
@@ -137,14 +132,6 @@ EOF
   fi
   [ -n "$agent" ] || return 1
   status=$(fm_pane_busy_state "$target" "$agent")
-  if [ "$agent" = agy ] && [ "$status" = idle ]; then
-    polls=${FM_TMUX_AGY_IDLE_SETTLE_POLLS:-10}
-    while [ "$polls" -gt 0 ] && [ "$status" = idle ]; do
-      sleep "${FM_TMUX_AGY_IDLE_SETTLE_SLEEP:-0.5}"
-      status=$(fm_pane_busy_state "$target" "$agent")
-      polls=$((polls - 1))
-    done
-  fi
   case "$status" in
     busy) printf '%s\tworking' "$agent" ;;
     idle) printf '%s\tidle' "$agent" ;;
@@ -158,9 +145,13 @@ EOF
 # future verdicts failing safe) is owned by bin/fm-composer-lib.sh. Identity
 # is fetched lazily, only when the classifier reports the verdict depends on
 # it (a pi separator pair under the cursor), so the common read never pays
-# for the process probe.
+# for the process probe. agy draws its busy footer late (~1.5s after Enter for
+# a short steer, ~4-5s for a longer brief, docs/verification/agy.md), so an
+# agy `empty` verdict must see the footer stay absent across a settle window
+# (FM_TMUX_AGY_IDLE_SETTLE_POLLS x FM_TMUX_AGY_IDLE_SETTLE_SLEEP, ~5s by
+# default); pending and unknown frames never wait on it.
 fm_tmux_composer_state() {  # <target> -> empty|pending|pending-unproven|unknown
-  local target=$1 cy pane verdict identity
+  local target=$1 cy pane verdict identity polls
   cy=$(fm_tmux_composer_cursor_row "$target") || { printf 'unknown'; return 0; }
   case "$cy" in ''|*[!0-9]*) printf 'unknown'; return 0 ;; esac
   pane=$(fm_tmux_composer_capture "$target") || { printf 'unknown'; return 0; }
@@ -171,6 +162,17 @@ fm_tmux_composer_state() {  # <target> -> empty|pending|pending-unproven|unknown
     fi
     verdict=$(fm_composer_classify_screen "$(fm_tmux_composer_caps)" "$pane" "$cy" "$identity")
     [ "$verdict" != need-identity ] || verdict=unknown
+    if [ "$verdict" = empty ] && [ "${identity%%$'\t'*}" = agy ]; then
+      polls=${FM_TMUX_AGY_IDLE_SETTLE_POLLS:-10}
+      while [ "$polls" -gt 0 ]; do
+        sleep "${FM_TMUX_AGY_IDLE_SETTLE_SLEEP:-0.5}"
+        if [ "$(fm_pane_busy_state "$target" agy)" != idle ]; then
+          verdict=$(fm_composer_classify_screen "$(fm_tmux_composer_caps)" "$pane" "$cy" "$(printf 'agy\tworking')")
+          break
+        fi
+        polls=$((polls - 1))
+      done
+    fi
   fi
   # Cursor Agent CLI parks its terminal cursor OUTSIDE its composer, below the
   # footer, with #{cursor_flag} 0 - so on a Cursor pane tmux's cursor row is not
