@@ -1,0 +1,22 @@
+Real tmux pane (isolated server) drawing agy 1.2.0's idle frame; the fm-control exit guard's composer read (fm_tmux_composer_state).
+--- pane running 'agy' (base source): pane_current_command=bash
+  | transcript line
+  | ──────────────────────────────────────────────────────────────────────────────
+  | >
+  | ──────────────────────────────────────────────────────────────────────────────
+  | ? for shortcuts                                      Gemini 3.8 Flash · low
+  fm_tmux_composer_state => unknown
+--- pane running 'agy' (head source): pane_current_command=bash
+  | transcript line
+  | ──────────────────────────────────────────────────────────────────────────────
+  | >
+  | ──────────────────────────────────────────────────────────────────────────────
+  | ? for shortcuts                                      Gemini 3.8 Flash · low
+  fm_tmux_composer_state => empty
+--- pane running 'notagent' (head source): pane_current_command=bash
+  | transcript line
+  | ──────────────────────────────────────────────────────────────────────────────
+  | >
+  | ──────────────────────────────────────────────────────────────────────────────
+  | ? for shortcuts                                      Gemini 3.8 Flash · low
+  fm_tmux_composer_state => unknown

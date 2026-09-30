@@ -1,0 +1,23 @@
+== fm-composer-ghost
+ok - fm_tmux_composer_identity: an idle agy pane classifies as agy; a shell pane gets none
+ok - fm_tmux_composer_state: an idle agy frame proves empty through the live agy identity only
+ok - fm_tmux_composer_state: an agy empty verdict survives the late-footer settle; pending never waits
+ok - fm_tmux_composer_state: an unbounded bordered box fails closed as unknown
+ok - fm_tmux_composer_state: clipped and asymmetric composer edges fail closed
+ok - fm_tmux_composer_state: inconsistent box geometry fails closed
+ok - fm_tmux_composer_state: misaligned box bounds fail closed
+exit=
+== fm-composer-lib
+ok - matrix: agy's separated frame reads the agent identity, never the idle box shape
+exit=
+== fm-send-agy-confirm
+ok - agy typed send: no not-submitted refusal on confirmed idle-to-busy
+ok - agy typed send: sleep log shows the confirm poll running to the late busy render
+ok - agy typed send: explicit FM_SEND_RETRIES=3 keeps the exit-1 verdict=unknown refusal
+ok - agy typed send: never-rendering busy footer still refuses with verdict=unknown
+ok - agy typed send: long-brief render (15th poll) still confirms idle-to-busy
+ok - claude typed send: late busy footer still refuses (agy budget is agy-scoped)
+exit=
+== fm-tmux-submit-busy
+ok - fm_tmux_submit_core: failed baseline capture disables busy unknown conversion
+exit=
