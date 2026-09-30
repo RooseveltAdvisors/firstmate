@@ -1,0 +1,44 @@
+=== send 1 (--resolve-key, unmatched): fm-send w1 --resolve-key gate-a approve the gate decision
+exit=1
+stdout: 
+stderr: ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the requested message WILL still be sent.
+●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+error: the answer was delivered to sess:fm-w1, but --resolve-key key(s) 'gate-a' matched no open decision or blocker in /tmp/tmp.vfXQCpbKtX/home/state/w1.status and no open captain-held task (already closed or mistyped), so those key(s) were not closed; any other --resolve-key keys were handled as reported separately. Do not resend the answer; re-check the OPEN DECISIONS listing and close the decision manually if it is still open.
+doorbell typed: : Firstmate instruction waiting: list '/tmp/tmp.vfXQCpbKtX/home/state/w1.inbox'/*.msg and, in numeric order, read and act on each, then mv each handled file to '/tmp/tmp.vfXQCpbKtX/home/state/w1.inbox'/handled/. 
+inbox records now: 001.msg handled 
+=== send 2 (--resolve-key, unmatched): fm-send w1 --resolve-key gate-b approve the gate decision
+exit=1
+stdout: 
+stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+error: the answer was delivered to sess:fm-w1, but --resolve-key key(s) 'gate-b' matched no open decision or blocker in /tmp/tmp.vfXQCpbKtX/home/state/w1.status and no open captain-held task (already closed or mistyped), so those key(s) were not closed; any other --resolve-key keys were handled as reported separately. Do not resend the answer; re-check the OPEN DECISIONS listing and close the decision manually if it is still open.
+doorbell typed: : Firstmate instruction waiting: list '/tmp/tmp.vfXQCpbKtX/home/state/w1.inbox'/*.msg and, in numeric order, read and act on each, then mv each handled file to '/tmp/tmp.vfXQCpbKtX/home/state/w1.inbox'/handled/. 
+inbox records now: 001.msg 002.msg handled 
+=== send 3 (no flag): fm-send w1 approve the gate decision
+exit=0
+stdout: 
+stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+doorbell typed: : Firstmate instruction waiting: list '/tmp/tmp.vfXQCpbKtX/home/state/w1.inbox'/*.msg and, in numeric order, read and act on each, then mv each handled file to '/tmp/tmp.vfXQCpbKtX/home/state/w1.inbox'/handled/. 
+inbox records now: 001.msg 002.msg 003.msg handled 
+=== durable inbox contents
+--- 001.msg
+schema=fm-task-inbox.v1
+at=2026-09-30T05:43:41Z
+--
+approve the gate decision
+--- 002.msg
+schema=fm-task-inbox.v1
+at=2026-09-30T05:43:43Z
+--
+approve the gate decision
+--- 003.msg
+schema=fm-task-inbox.v1
+at=2026-09-30T05:43:45Z
+--
+approve the gate decision
+=== ledger (w1.status)
+needs-decision [key=real-key]: choose A or B
