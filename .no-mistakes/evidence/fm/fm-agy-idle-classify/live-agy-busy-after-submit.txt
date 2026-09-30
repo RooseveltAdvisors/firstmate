@@ -1,0 +1,9 @@
+=== submit a prompt to live agy, then read the composer immediately (HEAD) ===
+composer_state=unknown
+identity_now=agy working
+--- pane at read time ---
+⣾  Generating...
+─────────────────────────────────�
+>
+─────────────────────────────────�
+esc to cancel                                                                                       

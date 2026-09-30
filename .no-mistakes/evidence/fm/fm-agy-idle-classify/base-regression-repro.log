@@ -1,0 +1,3 @@
+not ok - agy idle frame with agy identity on herdr: expected empty, got 'unknown'
+not ok - a live agy foreground process must produce an identity
+not ok - an idle agy frame with a live agy process must read empty, got 'unknown'

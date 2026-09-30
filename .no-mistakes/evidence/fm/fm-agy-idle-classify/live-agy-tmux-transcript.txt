@@ -1,0 +1,28 @@
+=== live agy 1.2.14 in tmux, idle, empty composer ===
+─────────────────────────────────�
+>
+─────────────────────────────────�
+? for shortcuts                                                                                     
+
+--- BASE b3d4133 (before fix) ---
+identity=
+composer_state=unknown
+fm_pane_input_pending=YES (control plane refuses to type)
+
+--- HEAD dc7762d3 (after fix) ---
+identity=agy idle
+composer_state=empty
+fm_pane_input_pending=NO (safe to send)
+bash /tmp/fm-probe.sh $PWD 2>&1  0.21s user 0.24s system 4% cpu 10.428 total
+
+=== same pane after typing "hello pending text" (not submitted) ===
+─────────────────────────────────�
+> hello pending text
+─────────────────────────────────�
+                                                                                                    
+
+--- HEAD dc7762d3 ---
+identity=agy idle
+composer_state=pending
+fm_pane_input_pending=YES (control plane refuses to type)
+bash /tmp/fm-probe.sh $PWD 2>&1  0.10s user 0.15s system 102% cpu 0.245 total
