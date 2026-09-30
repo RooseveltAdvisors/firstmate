@@ -144,7 +144,7 @@ EOF
 # pending-unproven | unknown, positive proof required for empty, unrecognized
 # future verdicts failing safe) is owned by bin/fm-composer-lib.sh. Identity
 # is fetched lazily, only when the classifier reports the verdict depends on
-# it (a pi separator pair under the cursor), so the common read never pays
+# it (a separator pair under the cursor), so the common read never pays
 # for the process probe. agy draws its busy footer late (~1.5s after Enter for
 # a short steer, ~4-5s for a longer brief, docs/verification/agy.md), so an
 # agy `empty` verdict must see the footer stay absent across a settle window
