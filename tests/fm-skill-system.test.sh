@@ -1198,9 +1198,14 @@ EOF
 
 test_skill_map_scans_hidden_projects_and_config_dir_without_home() {
   local home="$TMP_ROOT/discovery-home" user_home="$TMP_ROOT/discovery-user"
-  mkdir -p "$home/data" "$home/projects/.hidden/.claude/skills" "$user_home/.claude/skills"
-  printf '%s\n' '- .hidden [no-mistakes] - registered dot-prefixed project' > "$home/data/projects.md"
+  mkdir -p "$home/data" "$home/projects/.hidden/.claude/skills" "$user_home/.claude/skills" \
+    "$home/projects/foo bar/.agents/skills" "$home/projects/legacy name/.claude/skills"
+  printf '%s\n' '- .hidden [no-mistakes] - registered dot-prefixed project' \
+    '- foo bar [local-only] - registered multi-word project' \
+    '- legacy name - registered multi-word project without a posture' > "$home/data/projects.md"
   write_skill "$home/projects/.hidden/.claude/skills/hidden-skill" hidden-skill plain
+  write_skill "$home/projects/foo bar/.agents/skills/spaced-skill" spaced-skill plain
+  write_skill "$home/projects/legacy name/.claude/skills/legacy-skill" legacy-skill plain
   write_skill "$user_home/.claude/skills/config-dir-skill" config-dir-skill plain
 
   env -u HOME CLAUDE_CONFIG_DIR="$user_home/.claude" \
@@ -1210,6 +1215,10 @@ test_skill_map_scans_hidden_projects_and_config_dir_without_home() {
 
   assert_file_contains "$home/data/skill-map.md" '- hidden-skill — ' \
     "a registered dot-prefixed project was not scanned"
+  assert_file_contains "$home/data/skill-map.md" '- spaced-skill — ' \
+    "a registered multi-word project was not scanned"
+  assert_file_contains "$home/data/skill-map.md" '- legacy-skill — ' \
+    "a registered multi-word project without a posture was not scanned"
   assert_file_contains "$home/data/skill-map.md" '- config-dir-skill — ' \
     "CLAUDE_CONFIG_DIR skills were skipped because HOME was unset"
 

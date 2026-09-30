@@ -258,7 +258,16 @@ add_skill_source() {  # <group> <skills-dir> <records-file> <seen-file>
 project_names() {
   [ -f "$DATA/projects.md" ] || return 0
   awk '
-    $1 == "-" && $2 != "" { print $2; next }
+    # A registered name may contain spaces; it ends at " [" or " - " (fm-project-mode.sh).
+    $1 == "-" && $2 != "" {
+      name = $0
+      sub(/^[[:space:]]*-[[:space:]]+/, "", name)
+      i = index(name, " ["); if (i) name = substr(name, 1, i - 1)
+      i = index(name, " - "); if (i) name = substr(name, 1, i - 1)
+      sub(/[[:space:]]+$/, "", name)
+      if (name != "") print name
+      next
+    }
     /^[^#[:space:]][^[:space:]]*[[:space:]]+\[/ { print $1; next }
   ' "$DATA/projects.md" | sort -u
 }
