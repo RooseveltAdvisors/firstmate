@@ -150,9 +150,10 @@
 #      `resolved` never become current state or detail.
 #   5. Missing meta or torn-down worktree: report unknown · none. If no run is
 #      attributed to this crew, a dead endpoint also reports unknown · none rather
-#      than trusting a stale status log - UNLESS the log's current declaration
-#      is a pause: a declared wait the crew stated first-hand is not staleness,
-#      and emit below surfaces it as paused ahead of every unknown verdict. On tmux and herdr, which own a
+#      than trusting a stale status log. Every unknown verdict in this script
+#      (except remote-endpoint) yields to a CURRENT declared pause: emit below
+#      reports paused · status-log with the pause note, keeping the unknown's
+#      evidence after it. On tmux and herdr, which own a
 #      recovery-grade classifier, only its positive death evidence reads as gone
 #      (the endpoint is authoritatively absent, or its pane holds no agent); an
 #      endpoint that merely failed to answer reports unknown · none as
