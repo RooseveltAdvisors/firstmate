@@ -188,13 +188,12 @@ case "$FM_SNAPSHOT_SECONDMATES" in
 esac
 validate_positive_bound FM_SNAPSHOT_CREW_STATE_TIMEOUT "$FM_SNAPSHOT_CREW_STATE_TIMEOUT"
 # A ship task's declared-verification pass runs inside its crew-state read, so
-# its bound is held to half that read's bound; a slow declared check then still
-# reports its refusal as blocked instead of being killed and folded to unknown.
+# that read's bound is extended by the same pass bound a direct read uses; the
+# snapshot then reaches the same verdict, and a slow declared check reports its
+# refusal as blocked instead of being killed and folded to unknown.
 SNAPSHOT_VERIFY_PASS_TIMEOUT=${FM_VERIFY_PASS_TIMEOUT:-5}
 case $SNAPSHOT_VERIFY_PASS_TIMEOUT in '' | 0* | *[!0-9]*) SNAPSHOT_VERIFY_PASS_TIMEOUT=5 ;; esac
-snapshot_verify_cap=$(( FM_SNAPSHOT_CREW_STATE_TIMEOUT / 2 ))
-[ "$snapshot_verify_cap" -ge 1 ] || snapshot_verify_cap=1
-[ "$SNAPSHOT_VERIFY_PASS_TIMEOUT" -le "$snapshot_verify_cap" ] || SNAPSHOT_VERIFY_PASS_TIMEOUT=$snapshot_verify_cap
+SNAPSHOT_CREW_STATE_READ_TIMEOUT=$(( FM_SNAPSHOT_CREW_STATE_TIMEOUT + SNAPSHOT_VERIFY_PASS_TIMEOUT ))
 validate_positive_bound FM_SNAPSHOT_LOCAL_READ_CONCURRENCY "$FM_SNAPSHOT_LOCAL_READ_CONCURRENCY"
 validate_positive_bound FM_SNAPSHOT_BUDGET "$FM_SNAPSHOT_BUDGET"
 validate_positive_bound FM_SNAPSHOT_SECONDMATE_MAX_BYTES "$FM_SNAPSHOT_SECONDMATE_MAX_BYTES"
@@ -273,7 +272,7 @@ home with neither a valid current ledger nor a valid current cached copy is
 reported unreadable with the reason; collection never computes a summary in
 that home.
 Each local per-task current-state read is bounded by FM_SNAPSHOT_CREW_STATE_TIMEOUT
-(default 10 seconds); a read that hits the bound reports state unknown. Local task
+(default 10 seconds) plus FM_VERIFY_PASS_TIMEOUT (default 5 seconds); a read that hits the bound reports state unknown. Local task
 observations run concurrently, up to FM_SNAPSHOT_LOCAL_READ_CONCURRENCY (default 8).
 Remote secondmate endpoint liveness is not probed by this command.
 Terminal contradiction evidence uses
@@ -331,7 +330,7 @@ last_nonempty_line() {  # <file>
 crew_state_json() {  # <id> [<captured-meta>] [<captured-status>]
   local id=$1 captured_meta=${2:-} captured_status=${3:-} raw rest state source detail sep
   raw=$(
-    fm_run_timed "$FM_SNAPSHOT_CREW_STATE_TIMEOUT" \
+    fm_run_timed "$SNAPSHOT_CREW_STATE_READ_TIMEOUT" \
       env FM_ROOT_OVERRIDE="$FM_ROOT" \
       FM_HOME="$FM_HOME" \
       FM_STATE_OVERRIDE="$STATE" \

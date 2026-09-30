@@ -686,12 +686,15 @@ fm_dod_verify_declared_checks_pass() {  # <state> <id>
     printf '%s\n' "$FM_DOD_VERIFY_REASON"
     return 1
   }
-  [ "$(head -c $((FM_VERIFY_MAX_BYTES + 1)) "$spec" | wc -c)" -le "$FM_VERIFY_MAX_BYTES" ] || {
+  # One bounded read both sizes and loads the declaration, so a file that grows
+  # after the size check can never be loaded whole.
+  content=$(head -c $((FM_VERIFY_MAX_BYTES + 1)) "$spec"; printf x)
+  content=${content%x}
+  [ "$(printf '%s' "$content" | wc -c)" -le "$FM_VERIFY_MAX_BYTES" ] || {
     FM_DOD_VERIFY_REASON="declared verification is larger than $FM_VERIFY_MAX_BYTES bytes: $spec"
     printf '%s\n' "$FM_DOD_VERIFY_REASON"
     return 1
   }
-  content=$(<"$spec")
   key="$state"$'\x1f'"$id"$'\x1f'"$content"
   if [ "$key" = "${FM_DOD_VERIFY_KEY:-}" ]; then
     [ "${FM_DOD_VERIFY_FAILED:-0}" = 0 ] || {
@@ -700,7 +703,7 @@ fm_dod_verify_declared_checks_pass() {  # <state> <id>
     }
     return 0
   fi
-  if reason=$(fm_dod_verify_spec_checks "$spec"); then
+  if reason=$(fm_dod_verify_spec_checks "$content"); then
     FM_DOD_VERIFY_KEY=$key
     FM_DOD_VERIFY_FAILED=0
     FM_DOD_VERIFY_REASON=
@@ -713,7 +716,7 @@ fm_dod_verify_declared_checks_pass() {  # <state> <id>
   return 1
 }
 
-fm_dod_verify_spec_checks() {  # <spec>
+fm_dod_verify_spec_checks() {  # <declaration-content>
   local line verb rest target want body code
   local deadline remaining check_bound started bound_name rc
   deadline=$(( $(date +%s) + FM_VERIFY_PASS_TIMEOUT ))
@@ -811,7 +814,7 @@ fm_dod_verify_spec_checks() {  # <spec>
         return 1
         ;;
     esac
-  done < "$1"
+  done <<<"$1"
 }
 # Every gated ship done: first passes the task's declared mechanical verification
 # (fm_dod_verify_declared_checks_pass) unless the caller set
