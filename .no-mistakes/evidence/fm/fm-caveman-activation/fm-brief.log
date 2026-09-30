@@ -1,6 +1,6 @@
 ok - fm-brief: scaffolds leave the worker role scope to the launch boundary and keep the secondmate contract
 ok - fm-brief.sh: bash -n succeeds
-/tmp/fm-brief.2BE508/heredoc-in-substitution.sh:2
+/tmp/fm-brief.vjFwfc/heredoc-in-substitution.sh:2
 ok - fm-brief.sh: no heredoc is nested inside a command substitution (Bash 3.2 parse-safe)
 ok - fm-brief.sh: --help renders the complete header
 ok - fm-brief.sh: no-mistakes/direct-PR/local-only briefs generate cleanly
@@ -32,7 +32,7 @@ ok - fm-brief.sh: a --branch-prefix override renders identically across every ge
 ok - fm-brief.sh: an empty --branch-prefix override resolves to a bare <task-id> branch
 ok - fm-brief.sh: --branch-prefix is refused on scout and secondmate scaffolds
 ok - fm-brief.sh: --branch-prefix value is validated against embedded spaces and a leading dash
-Switched to a new branch '$(touch${IFS}/tmp/fm-brief.2BE508/branch-prefix-shell-safe-marker)brief-branch-safe-g3'
+Switched to a new branch '$(touch${IFS}/tmp/fm-brief.vjFwfc/branch-prefix-shell-safe-marker)brief-branch-safe-g3'
 ok - fm-brief.sh: ref-format-valid shell metacharacters stay literal in generated branch commands
 ok - fm-brief.sh: every crewmate scaffold forbids administering the shared worktree pool
-exit 0
+bash tests/$t.test.sh  5.19s user 4.13s system 83% cpu 11.188 total
