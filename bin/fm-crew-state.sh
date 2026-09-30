@@ -90,8 +90,9 @@
 #      run-step detail keeps its standalone `run: <id>` component (the machine
 #      contract crew_gate_awaits_human_decision parses) and appends a separate
 #      `unknown-but-running; pipeline head <sha> not yet local` component, or
-#      only `pipeline head <sha> not yet local` when the daemon answered down,
-#      so the dead-instrument detail stays authoritative.
+#      only `pipeline head <sha> not yet local` when the daemon answered down
+#      (so the dead-instrument detail stays authoritative) or the run is not
+#      working (a parked run is waiting, not running).
 #      A run PARKED at a gate is exempt from the dead-instrument verdict: an
 #      open decision stays open when the instrument dies, so it keeps its gate
 #      and findings.
@@ -1239,10 +1240,10 @@ if [ "$HAVE_RUN" = 1 ]; then
 
   [ -z "$SELECTED_RUN_ID" ] || RUN_DETAIL="$RUN_DETAIL${SEP}run: $SELECTED_RUN_ID"
   if [ "$RUN_HEAD_UNRESOLVED" = 1 ]; then
-    if [ -n "$RUN_DEAD_DAEMON" ]; then
-      RUN_DETAIL="$RUN_DETAIL${SEP}pipeline head $RUN_HEAD not yet local"
-    else
+    if [ -z "$RUN_DEAD_DAEMON" ] && [ "$RUN_STATE" = working ]; then
       RUN_DETAIL="$RUN_DETAIL${SEP}unknown-but-running; pipeline head $RUN_HEAD not yet local"
+    else
+      RUN_DETAIL="$RUN_DETAIL${SEP}pipeline head $RUN_HEAD not yet local"
     fi
   fi
   emit "$RUN_STATE" run-step "$RUN_DETAIL"

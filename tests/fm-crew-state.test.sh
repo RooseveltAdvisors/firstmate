@@ -3516,6 +3516,7 @@ runs[2]{id,branch,status,head,pr}:
   out=$(run_crew_state "$d" unresolved)
   assert_contains "$out" "state: parked" "a parked unresolved row keeps its gate"
   assert_contains "$out" "pipeline head $h2 not yet local" "the parked row's unresolved head is explained"
+  assert_not_contains "$out" "unknown-but-running" "a parked row waits at its gate, it is not running"
   local gate_run
   gate_run=$(PATH="$d/fakebin:$PATH" FM_STATE_OVERRIDE="$d/state" crew_gate_awaits_human_decision unresolved) \
     || fail "a parked ask-user gate at an unresolved head must still await a human decision"
