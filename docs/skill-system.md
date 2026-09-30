@@ -94,6 +94,7 @@ Non-symlink entries are refused instead of being overwritten.
 Claude Code reads project skills from `.claude/skills/` and user skills from the Claude config directory.
 It also loads `.claude/skills/` found under a directory passed with `claude --add-dir`.
 Firstmate uses that `--add-dir` mechanism for composed skills.
+`FM_SKILL_OVERLAY_LOAD_LIVE_E2E=1 tests/fm-skill-overlay-load-live-e2e.test.sh` re-proves that load against the installed Claude binary.
 
 The helper writes Claude overlays under:
 
