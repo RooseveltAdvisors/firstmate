@@ -1,0 +1,31 @@
+=== BEFORE (base c35b9a69) ===
+## case 1: seat gone, worktree holds 2 unlanded files, run identity unverified
+$ cat state/parked-a.status
+paused: holding for upstream release before landing
+$ git -C wt status --short
+?? a.txt
+?? b.txt
+$ fm-crew-state.sh parked-a
+state: unknown · source: run-step · selected run code identity unverified; run ids: 01RUN
+
+## case 2: worktree gone, declared pause
+$ cat state/parked-b.status
+paused: waiting on captain decision
+$ fm-crew-state.sh parked-b
+state: unknown · source: none · worktree gone (torn down?)
+
+=== AFTER (e4e40fb3) ===
+## case 1: seat gone, worktree holds 2 unlanded files, run identity unverified
+$ cat state/parked-a.status
+paused: holding for upstream release before landing
+$ git -C wt status --short
+?? a.txt
+?? b.txt
+$ fm-crew-state.sh parked-a
+state: paused · source: status-log · holding for upstream release before landing · selected run code identity unverified; run ids: 01RUN
+
+## case 2: worktree gone, declared pause
+$ cat state/parked-b.status
+paused: waiting on captain decision
+$ fm-crew-state.sh parked-b
+state: paused · source: status-log · waiting on captain decision · worktree gone (torn down?)
