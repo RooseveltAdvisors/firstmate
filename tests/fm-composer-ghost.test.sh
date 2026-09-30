@@ -509,6 +509,20 @@ test_agy_empty_frame_waits_for_late_busy_footer() (
     || fail "an agy idle across the whole settle window must read empty, got '$out'"
   [ "$(cat "$count_file")" = 5 ] \
     || fail "idle must hold across every settle re-read, got $(cat "$count_file") reads"
+  printf '0' > "$count_file"
+  # shellcheck disable=SC2329 # Mock invoked indirectly by the sourced adapter.
+  fm_pane_busy_state() {
+    printf '%s' "$(($(cat "$count_file") + 1))" > "$count_file"
+    printf 'transcript\n────────────────────────\n> typed meanwhile\n────────────────────────\n? for shortcuts                          Gemini 3.8 Flash · low\n' > "$capture"
+    printf 'idle'
+  }
+  out=$(PATH="$fb:$PATH" FM_TMUX_AGY_IDLE_SETTLE_POLLS=2 fm_tmux_composer_state fakepane)
+  [ "$out" = pending ] \
+    || fail "text landing during the settle window must not return the stale empty verdict, got '$out'"
+  # shellcheck disable=SC2329 # Mock invoked indirectly by the sourced adapter.
+  fm_pane_busy_state() {
+    printf '%s' "$(($(cat "$count_file") + 1))" > "$count_file"; printf 'idle'
+  }
   printf 'transcript\n────────────────────────\n> queued text\n────────────────────────\n? for shortcuts                          Gemini 3.8 Flash · low\n' > "$capture"
   printf '0' > "$count_file"
   out=$(PATH="$fb:$PATH" FM_TMUX_AGY_IDLE_SETTLE_SLEEP=30 fm_tmux_composer_state fakepane)

@@ -149,7 +149,8 @@ EOF
 # a short steer, ~4-5s for a longer brief, docs/verification/agy.md), so an
 # agy `empty` verdict must see the footer stay absent across a settle window
 # (FM_TMUX_AGY_IDLE_SETTLE_POLLS x FM_TMUX_AGY_IDLE_SETTLE_SLEEP, ~5s by
-# default); pending and unknown frames never wait on it.
+# default), and the frame is then re-read so the verdict reflects the pane
+# after the wait; pending and unknown frames never wait on it.
 fm_tmux_composer_state() {  # <target> -> empty|pending|pending-unproven|unknown
   local target=$1 cy pane verdict identity polls
   cy=$(fm_tmux_composer_cursor_row "$target") || { printf 'unknown'; return 0; }
@@ -172,6 +173,15 @@ fm_tmux_composer_state() {  # <target> -> empty|pending|pending-unproven|unknown
         fi
         polls=$((polls - 1))
       done
+      if [ "$verdict" = empty ]; then
+        verdict=unknown
+        if cy=$(fm_tmux_composer_cursor_row "$target") \
+          && case "$cy" in ''|*[!0-9]*) false ;; esac \
+          && pane=$(fm_tmux_composer_capture "$target"); then
+          verdict=$(fm_composer_classify_screen "$(fm_tmux_composer_caps)" "$pane" "$cy" "$identity")
+          [ "$verdict" != need-identity ] || verdict=unknown
+        fi
+      fi
     fi
   fi
   # Cursor Agent CLI parks its terminal cursor OUTSIDE its composer, below the
