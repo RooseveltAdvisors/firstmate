@@ -62,7 +62,10 @@ bash tests/fm-dod-lib.test.sh        # all declared-verification cases
 bash tests/fm-fleet-snapshot-view.test.sh  # the blackholing declared check reads blocked at the snapshot boundary
 ```
 
-All four ran green on the date above.
+The latest refresh, no-mistakes run `01M3RKQJ6HNM413740VBE4C10M` on 2026-09-30 against upstream firstmate `eb77f02b` with the same host and tool versions, did not run green.
+`tests/fm-crew-state.test.sh` (285 ok), `tests/fm-dod-lib.test.sh` (31 ok), and `tests/fm-fleet-snapshot-view.test.sh` (19 ok) exited 0.
+`tests/fm-pr-check-security.test.sh` exited 1 after 14 ok at `not ok - teardown race: refused cleanup removed persisted authority`, stopping before its declared-verification cases, so that run did not exercise them.
+The same suite exited 0 outside the gate worktree on a clean archive of base `eb77f02b` (45 ok) and on pushed head `fc923209` (47 ok, both declared-verification cases included), so the failure is specific to the pipeline environment or the gate worktree and was not reproduced on a clean base.
 `tests/fm-crew-state.test.sh` drives the demonstration above end to end through `bin/fm-crew-state.sh` over a real throwaway git repo and a real local HTTP server, with no harness and no model, and its run-step case drives a terminal attributed run whose passing declaration reads `done` and whose failing declaration reads `blocked`.
 `tests/fm-pr-check-security.test.sh` covers the newly covered registration shape: a non-empty forge head whose named-head proof passes still refuses because the declared check fails, recording no `pr=` and arming no merge poll.
 `tests/fm-fleet-snapshot-view.test.sh` runs a full snapshot over a declared `http:` target that accepts the connection and never answers, and asserts the task reads `blocked` with the declared-verification refusal rather than `unknown` under the snapshot's real crew-state bound.
