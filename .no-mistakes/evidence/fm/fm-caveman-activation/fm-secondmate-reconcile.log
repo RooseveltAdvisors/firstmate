@@ -20,4 +20,4 @@ ok - a legitimately markerless persistent remote secondmate is nudged once per w
 ok - a stale remote-route snapshot cannot ask or silence a replacement mate
 ok - a route replacement between reconcile and fm-send cannot receive a stale ask
 ok - a row with neither a spawn generation nor a host fails loudly instead of vanishing
-bash tests/$t.test.sh  22.16s user 45.71s system 78% cpu 1:26.70 total
+exit=0
