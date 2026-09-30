@@ -400,6 +400,36 @@ test_agy_identity_probe_names_agy() (
     || fail "an idle agy composer must classify as agy, got '$out'"
   [ "$(cat "$arg_file" 2>/dev/null)" = agy ] \
     || fail "the identity's busy read must be scoped to agy, got '$(cat "$arg_file" 2>/dev/null)'"
+  # A real pane has a tty: the foreground-process scan must name agy on its
+  # own, with tmux's command-name fallback reporting only a wrapper shell.
+  # shellcheck disable=SC2329 # Mock invoked indirectly by the sourced adapter.
+  tmux() {
+    local arg
+    for arg in "$@"; do
+      case "$arg" in
+        *pane_tty*) printf '/dev/pts/9\n'; return 0 ;;
+        *pane_current_command*) printf 'zsh\n'; return 0 ;;
+      esac
+    done
+    return 1
+  }
+  # shellcheck disable=SC2329 # Mock invoked indirectly by the sourced adapter.
+  ps() {
+    printf '%s\n' "  100   100   200 zsh" "  200   200   200 /usr/local/bin/agy"
+  }
+  out=$(fm_tmux_composer_identity fakepane) \
+    || fail "a foreground agy process on the pane tty must produce an identity"
+  [ "$out" = "$(printf 'agy\tidle')" ] \
+    || fail "the foreground scan must classify an idle agy pane as agy, got '$out'"
+  # An agy process outside the foreground process group is not the pane's agent.
+  # shellcheck disable=SC2329 # Mock invoked indirectly by the sourced adapter.
+  ps() {
+    printf '%s\n' "  100   100   100 zsh" "  200   200   100 agy"
+  }
+  if out=$(fm_tmux_composer_identity fakepane); then
+    fail "a background agy process must produce no identity, got '$out'"
+  fi
+  unset -f ps
   # The strict rule's honesty is untouched: a pane with no known agent
   # foreground process gets no identity at all.
   # shellcheck disable=SC2329 # Mock invoked indirectly by the sourced adapter.
