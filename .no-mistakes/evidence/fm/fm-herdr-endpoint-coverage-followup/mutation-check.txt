@@ -1,0 +1,12 @@
+== m1-dead-maps-open (lines changed: 1) exit=1
+not ok - pane_not_found must map to gone (missing: 'endpoint default:w2:p1 closed so the redispatch can create it again')
+== m2-unknown-maps-gone (lines changed: 1) exit=1
+not ok - an error response must map to unconfirmed (missing: 'endpoint default:w2:p1 close attempted but NOT CONFIRMED')
+== m3-drop-projection-cleanup (lines changed: 1) exit=1
+not ok - projection abort cleanup must happen before the endpoint verdict read (missing: 'endpoint default:w2:p1 closed so the redispatch can create it again')
+== m4-ignore-cleanup-refused (lines changed: 1) exit=1
+not ok - a refused projection cleanup must report the close as unconfirmed (missing: 'endpoint default:w2:p1 close attempted but NOT CONFIRMED')
+== m5-drop-source-guard (lines changed: 1) exit=0
+# all fm-capacity-hold tests passed
+== m6-drop-parse-guard (lines changed: 1) exit=1
+not ok - an unparseable herdr target must answer unconfirmed
