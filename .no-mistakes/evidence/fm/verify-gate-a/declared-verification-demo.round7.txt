@@ -1,0 +1,21 @@
+## BAD done: preview fixed, live URL still broken (Tutti case)
+--- state/t1.verify:
+run: true
+http: http://127.0.0.1:18731/missing.html 200
+=> exit=1 declared verification failed: http: http://127.0.0.1:18731/missing.html answered 404, not 200
+
+## BAD done: file lacks the asserted content
+--- state/t1.verify:
+file: /tmp/tmp.geB09ghPji/live.html fixed-marker
+=> exit=1 declared verification failed: file: /tmp/tmp.geB09ghPji/live.html does not contain fixed-marker
+
+## GOOD done: all checks really hold
+--- state/t1.verify:
+run: true
+http: http://127.0.0.1:18731/live.html 200 live
+file: /tmp/tmp.geB09ghPji/live.html live
+=> exit=0 (accepted)
+
+## over-maximum pass bound is refused
+=> exit=1 declared verification refused: FM_VERIFY_PASS_TIMEOUT=30s exceeds the 5s maximum, half of bin/fm-fleet-snapshot.sh's default 10s FM_SNAPSHOT_CREW_STATE_TIMEOUT crew-state read budget
+
