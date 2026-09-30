@@ -1,0 +1,3 @@
+not ok - the active row's unresolved state is explicit (missing: 'unknown-but-running')
+--- output ---
+state: working · source: run-step · validating (fixing) · run: 01KZZ8SK7S868VK2X9RXGMG1FA

@@ -1,0 +1,10 @@
+
+--- fm-crew-state output (daemon_down=0) ---
+state: working · source: run-step · validating (fixing) · run: 01KZZ8SK7S868VK2X9RXGMG1FA · unknown-but-running; pipeline head 103233f61f11b294b412b1c71556cfad90a989e3 not yet local
+
+--- fm-crew-state output (daemon_down=1) ---
+state: unknown · source: run-step · no-mistakes daemon unreachable; last run record fixing - unverified · run: 01KZZ8SK7S868VK2X9RXGMG1FA · pipeline head 103233f61f11b294b412b1c71556cfad90a989e3 not yet local
+
+--- fm-crew-state output (daemon_down=0) ---
+state: parked · source: run-step · parked at review: 2 finding(s) · ask-user: authority decision · run: 01KZZ8SK7S868VK2X9RXGMG1FA · unknown-but-running; pipeline head 103233f61f11b294b412b1c71556cfad90a989e3 not yet local
+ok - an unresolved active head names the current row and why
