@@ -1220,7 +1220,7 @@ EOF
   gate="$TMP_ROOT/window-gate"
   bindir="$TMP_ROOT/window-bin"
   mkdir -p "$bindir"
-  cp "$ROOT/bin/fm-skill-compose.sh" "$ROOT/bin/fm-wake-lib.sh" "$bindir/"
+  cp "$ROOT/bin/fm-skill-compose.sh" "$ROOT/bin/fm-wake-lib.sh" "$ROOT/bin/fm-path-lib.sh" "$bindir/"
   cat > "$bindir/fm-skill-map.sh" <<SH
 #!/usr/bin/env bash
 rm -rf "$target/config/skill-compose/claude/home/.claude"
@@ -1267,7 +1267,7 @@ EOF
   gate="$TMP_ROOT/entrywin-gate"
   bindir="$TMP_ROOT/entrywin-bin"
   mkdir -p "$bindir"
-  cp "$ROOT/bin/fm-skill-compose.sh" "$ROOT/bin/fm-wake-lib.sh" "$bindir/"
+  cp "$ROOT/bin/fm-skill-compose.sh" "$ROOT/bin/fm-wake-lib.sh" "$ROOT/bin/fm-path-lib.sh" "$bindir/"
   cat > "$bindir/fm-skill-map.sh" <<SH
 #!/usr/bin/env bash
 mkdir -p "$skills_dir/alpha"
@@ -1529,7 +1529,7 @@ EOF
   gate="$TMP_ROOT/outside-gate"
   bindir="$TMP_ROOT/outside-bin"
   mkdir -p "$bindir"
-  cp "$ROOT/bin/fm-skill-compose.sh" "$ROOT/bin/fm-wake-lib.sh" "$bindir/"
+  cp "$ROOT/bin/fm-skill-compose.sh" "$ROOT/bin/fm-wake-lib.sh" "$ROOT/bin/fm-path-lib.sh" "$bindir/"
   cat > "$bindir/fm-skill-map.sh" <<SH
 #!/usr/bin/env bash
 rm -rf "$target/config"
