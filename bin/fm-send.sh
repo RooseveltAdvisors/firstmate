@@ -205,7 +205,7 @@
 # transferred from the live status log to its durable captain-held task, which
 # the status ledger alone can no longer close.
 #
-# Each named key must therefore currently be open in ONE of the two ledgers: open
+# Each named key is therefore expected to be open in ONE of the two ledgers: open
 # in this home's status log per status_open_decisions (bin/fm-classify-lib.sh), or
 # a still-open captain-held task resolved as above. A key in neither does NOT
 # refuse the send: refusing before delivery would silently eat the answer
