@@ -110,7 +110,7 @@ case "${1:-} ${2:-}" in
     printf '%s\n' '{"client":{"version":"0.9.0","protocol":22},"server":{"running":true}}'
     ;;
   "session list")
-    printf '%s\n' '{"sessions":[{"name":"'"$session"'","running":true,"socket_path":"/tmp/fm-herdr-capacity.sock"}]}'
+    printf '%s\n' '{"sessions":[{"name":"'"$session"'","running":true,"socket_path":"'"${FM_FAKE_HERDR_SOCKET:?}"'"}]}'
     ;;
   "workspace list")
     printf '%s\n' '{"result":{"workspaces":[{"workspace_id":"w0","label":"firstmate","focused":true,"active_tab_id":"t0"}]}}'
@@ -358,7 +358,7 @@ run_herdr_capacity_spawn() {
     CLAUDE_CONFIG_DIR='' FM_STATE_OVERRIDE="$HOME_DIR/state" FM_DATA_OVERRIDE="$HOME_DIR/data" \
     FM_PROJECTS_OVERRIDE="$HOME_DIR/projects" FM_CONFIG_OVERRIDE="$HOME_DIR/config" FM_SPAWN_NO_GUARD=1 \
     FM_FAKE_HERDR_STATE="$CASE_DIR/herdr-state" FM_FAKE_HERDR_PROJECT="$PROJ_DIR" \
-    FM_FAKE_HERDR_REFUSAL="$CASE_DIR/refusal.txt" FM_FAKE_HERDR_PRESENCE="$HERDR_PRESENCE" \
+    FM_FAKE_HERDR_SOCKET="$CASE_DIR/herdr.sock" FM_FAKE_HERDR_REFUSAL="$CASE_DIR/refusal.txt" FM_FAKE_HERDR_PRESENCE="$HERDR_PRESENCE" \
     HERDR_ENV='' HERDR_PANE_ID='' HERDR_TAB_ID='' HERDR_WORKSPACE_ID='' HERDR_SOCKET_PATH='' \
     HERDR_SESSION="${HERDR_SESSION_OVERRIDE:-default}" PATH="$FAKEBIN:$PATH" \
     "$SPAWN" cap-x1 "$PROJ_DIR" --backend herdr --mode no-mistakes --yolo off 2>&1
@@ -368,7 +368,7 @@ run_herdr_capacity_spawn() {
 hold_herdr_presentation_lock() {  # <case-dir> <fakebin>
   local case_dir=$1 fakebin=$2 lock marker release
   marker="$case_dir/lock-held"; release="$case_dir/lock-release"
-  lock=$(FM_FAKE_HERDR_STATE="$case_dir/herdr-state" HERDR_ENV='' HERDR_PANE_ID='' \
+  lock=$(FM_FAKE_HERDR_STATE="$case_dir/herdr-state" FM_FAKE_HERDR_SOCKET="$case_dir/herdr.sock" HERDR_ENV='' HERDR_PANE_ID='' \
     PATH="$fakebin:$PATH" bash -c \
     '. "$1/bin/fm-backend.sh"; fm_backend_source herdr; fm_backend_herdr_presentation_session_lock_path default' \
     _ "$ROOT") || fail "could not resolve the fixture presentation lock"
@@ -385,6 +385,8 @@ hold_herdr_presentation_lock() {  # <case-dir> <fakebin>
     [ -e "$marker" ] && return 0
     sleep 0.05
   done
+  kill "$HERDR_LOCK_HOLDER_PID" 2>/dev/null || true
+  wait "$HERDR_LOCK_HOLDER_PID" 2>/dev/null || true
   fail "fixture sibling never acquired the herdr presentation lock"
 }
 
@@ -440,6 +442,71 @@ test_herdr_sibling_presentation_lock_refuses_close() {
   [ ! -s "$CASE_DIR/herdr-state/events.log" ] \
     || fail "the lock-held refusal attempted a pane close despite the sibling lock"
   pass "a sibling can hold the herdr presentation lock and make cleanup refusal observable"
+}
+
+# The spawn holds the presentation order lock from arming the projection until
+# it exits, so its own refusal never meets a refused cleanup. The refusal is
+# called directly with an armed projection and the lock held by a sibling, the
+# only state that reaches the refused cleanup, and the fake herdr still answers
+# present, so a verdict read would say open instead of NOT CONFIRMED.
+test_herdr_refused_projection_cleanup_is_unconfirmed() {
+  local rec out rc
+  rec=$(make_herdr_spawn_case projection-refused present on)
+  read_herdr_spawn_record "$rec"
+  hold_herdr_presentation_lock "$CASE_DIR" "$FAKEBIN"
+  out=$(FM_FAKE_HERDR_STATE="$CASE_DIR/herdr-state" FM_FAKE_HERDR_PROJECT="$PROJ_DIR" \
+    FM_FAKE_HERDR_SOCKET="$CASE_DIR/herdr.sock" HERDR_ENV='' HERDR_PANE_ID='' HERDR_SESSION=default \
+    PATH="$FAKEBIN:$PATH" bash -c '
+      . "$1/bin/fm-backend.sh"
+      . "$1/bin/fm-wake-lib.sh"
+      . "$1/bin/fm-capacity-lib.sh"
+      for fn in spawn_capacity_refuse spawn_capacity_endpoint_verdict \
+        spawn_herdr_projection_abort_cleanup spawn_herdr_presentation_order_lock_acquire; do
+        eval "$(sed -n "/^$fn() {/,/^}/p" "$1/bin/fm-spawn.sh")"
+      done
+      BACKEND=herdr T=default:w2:p1 W= ID=cap-x1 PROJ_ABS_REAL=$2 POOL_FULL_N=3 POOL_FULL_MAX=4
+      BACKLOG_TRANSITION=0 HERDR_PRESENTATION_ORDER_LOCK_HELD=0
+      HERDR_PROJECTION_ABORT_CLEANUP=1 HERDR_PROJECTION_ABORT_SESSION=default
+      HERDR_PROJECTION_ABORT_TASK_PANE=w2:p1 HERDR_PROJECTION_ABORT_SEEDED_PANE=
+      spawn_capacity_refuse
+    ' _ "$ROOT" "$PROJ_DIR" 2>&1)
+  rc=$?
+  release_herdr_presentation_lock
+  expect_code 2 "$rc" "a refused projection cleanup must still exit 2"
+  assert_contains "$out" "refusing concurrent abort cleanup" \
+    "the sibling lock must refuse the projection abort cleanup"
+  assert_contains "$out" "endpoint default:w2:p1 close attempted but NOT CONFIRMED" \
+    "a refused projection cleanup must report the close as unconfirmed"
+  pass "a refused herdr projection cleanup reports the close as NOT CONFIRMED"
+}
+
+# Direct calls of spawn_capacity_endpoint_verdict with its own inputs
+# (BACKEND, T, the herdr adapter) reach the two defensive guards the public
+# refusal path cannot. The fake herdr answers present for any pane, so a guard
+# that fell through to the presence read would answer open instead.
+herdr_endpoint_verdict() {  # <lib-dir> <target>
+  local fakebin
+  fakebin=$(make_herdr_spawn_fakebin "$TMP_ROOT/verdict-direct" /dev/null)
+  FM_FAKE_HERDR_STATE="$TMP_ROOT/verdict-direct/herdr-state" FM_FAKE_HERDR_PROJECT="$TMP_ROOT" \
+    FM_FAKE_HERDR_SOCKET="$TMP_ROOT/verdict-direct/herdr.sock" HERDR_ENV='' HERDR_PANE_ID='' \
+    PATH="$fakebin:$PATH" bash -c '
+      . "$1/bin/fm-backend.sh"
+      eval "$(sed -n "/^spawn_capacity_endpoint_verdict() {/,/^}/p" "$1/bin/fm-spawn.sh")"
+      FM_BACKEND_LIB_DIR=$2 BACKEND=herdr T=$3 W=
+      spawn_capacity_endpoint_verdict
+    ' _ "$ROOT" "$1" "$2"
+}
+
+test_herdr_endpoint_verdict_guards_are_unconfirmed() {
+  local empty_lib="$TMP_ROOT/verdict-empty-lib"
+  mkdir -p "$empty_lib/backends"
+  [ "$(herdr_endpoint_verdict "$ROOT/bin" default:w2:p1)" = open ] \
+    || fail "the direct verdict harness must reach the presence read for a valid target"
+  [ "$(herdr_endpoint_verdict "$empty_lib" default:w2:p1)" = unconfirmed ] \
+    || fail "an unsourceable herdr adapter must answer unconfirmed"
+  [ "$(herdr_endpoint_verdict "$ROOT/bin" no-pane-separator)" = unconfirmed ] \
+    || fail "an unparseable herdr target must answer unconfirmed"
+  pass "herdr endpoint verdict answers unconfirmed for an unsourceable adapter and an unparseable target"
 }
 
 # --- teardown side -----------------------------------------------------------
@@ -613,6 +680,8 @@ test_pool_full_refusal_reports_an_endpoint_it_could_not_close
 test_herdr_capacity_verdict_maps_presence_states
 test_herdr_projection_cleanup_is_before_endpoint_read
 test_herdr_sibling_presentation_lock_refuses_close
+test_herdr_refused_projection_cleanup_is_unconfirmed
+test_herdr_endpoint_verdict_guards_are_unconfirmed
 test_teardown_releases_oldest_capacity_hold_for_the_pool
 test_teardown_releases_fallback_identity_hold_when_pool_scan_matches_nothing
 
