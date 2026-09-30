@@ -706,24 +706,44 @@ test_nul_padded_oversized_declaration_is_refused() {
 
 # A configured pass bound above the ceiling is held to it, so the pass still
 # finishes inside the fleet snapshot's default crew-state read.
-test_pass_bound_is_held_under_the_snapshot_read() {
+test_pass_bound_at_the_maximum_is_used_unchanged() {
   local state reason rc
-  landed_ship passceil
-  state="$TMP_ROOT/passceil-state"
-  declare_checks "$state" passceil 'run: sleep 30'
+  landed_ship passmax
+  state="$TMP_ROOT/passmax-state"
+  declare_checks "$state" passmax 'run: sleep 30'
   reason=$(
-    FM_VERIFY_PASS_TIMEOUT=30
+    FM_VERIFY_PASS_TIMEOUT=5
     # shellcheck source=bin/fm-dod-lib.sh
     . "$ROOT/bin/fm-dod-lib.sh"
-    accept_done ship no-mistakes "$WT" "$REPO" "$DONE_CI_READY" "$state" passceil "$state/passceil.meta"
+    accept_done ship no-mistakes "$WT" "$REPO" "$DONE_CI_READY" "$state" passmax "$state/passmax.meta"
   )
   rc=$?
-  [ "$rc" -eq 1 ] || fail "a check hanging past the capped pass bound was accepted (exit $rc)"
+  [ "$rc" -eq 1 ] || fail "a check hanging past the pass bound was accepted (exit $rc)"
   case "$reason" in
     *"FM_VERIFY_PASS_TIMEOUT pass bound (5s)"*) ;;
-    *) fail "a pass bound above the ceiling was not held to 5s: $reason" ;;
+    *) fail "a pass bound at the maximum was not used as configured: $reason" ;;
   esac
-  pass "a pass bound above the ceiling is held under the snapshot read"
+  pass "a pass bound at the maximum bounds the pass unchanged"
+}
+
+test_pass_bound_above_the_maximum_is_refused() {
+  local state reason rc
+  landed_ship passover
+  state="$TMP_ROOT/passover-state"
+  declare_checks "$state" passover 'run: true'
+  reason=$(
+    FM_VERIFY_PASS_TIMEOUT=6
+    # shellcheck source=bin/fm-dod-lib.sh
+    . "$ROOT/bin/fm-dod-lib.sh"
+    accept_done ship no-mistakes "$WT" "$REPO" "$DONE_CI_READY" "$state" passover "$state/passover.meta"
+  )
+  rc=$?
+  [ "$rc" -eq 1 ] || fail "a pass bound above the maximum was accepted (exit $rc)"
+  case "$reason" in
+    *"FM_VERIFY_PASS_TIMEOUT=6s exceeds the 5s maximum"*"crew-state read budget"*) ;;
+    *) fail "the refusal did not name the configured value and the maximum: $reason" ;;
+  esac
+  pass "a pass bound above the maximum refuses and names both numbers"
 }
 
 # A declaration that passes the private-file check but then fails to read is
@@ -840,7 +860,8 @@ test_file_check_runs_under_the_per_check_bound
 test_unreadable_file_check_target_is_named_unreadable
 test_oversized_declaration_is_refused
 test_nul_padded_oversized_declaration_is_refused
-test_pass_bound_is_held_under_the_snapshot_read
+test_pass_bound_at_the_maximum_is_used_unchanged
+test_pass_bound_above_the_maximum_is_refused
 test_declaration_read_failure_is_refused
 test_absent_declaration_leaves_the_done_ungated
 test_untrusted_or_unreadable_declaration_is_refused

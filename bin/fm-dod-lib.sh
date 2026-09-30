@@ -647,11 +647,11 @@ case $FM_VERIFY_TIMEOUT in '' | 0* | *[!0-9]*) FM_VERIFY_TIMEOUT=30 ;; esac
 FM_VERIFY_PASS_TIMEOUT=${FM_VERIFY_PASS_TIMEOUT:-5}
 case $FM_VERIFY_PASS_TIMEOUT in '' | 0* | *[!0-9]*) FM_VERIFY_PASS_TIMEOUT=5 ;; esac
 # The pass runs inside bin/fm-fleet-snapshot.sh's crew-state read (default 10s),
-# so it is capped at half that bound: a slow check then still reports its
-# refusal there instead of being killed and folded to state unknown, and the
-# snapshot and a direct read apply the same pass bound.
+# so a pass bound above half that budget is refused rather than run: a slow
+# check then still reports its refusal there instead of being killed and folded
+# to state unknown.
 # ponytail: fixed ceiling tied to the snapshot default; raise both together.
-[ "$FM_VERIFY_PASS_TIMEOUT" -le 5 ] || FM_VERIFY_PASS_TIMEOUT=5
+FM_VERIFY_PASS_TIMEOUT_MAX=5
 # ponytail: fixed cap, not a knob; a real declaration is a handful of lines.
 FM_VERIFY_MAX_BYTES=65536
 
@@ -682,6 +682,11 @@ fm_dod_verify_declared_checks_pass() {  # <state> <id>
   [ -n "$state" ] && [ -n "$id" ] || return 0
   spec="$state/$id.verify"
   [ -e "$spec" ] || [ -L "$spec" ] || return 0
+  [ "$FM_VERIFY_PASS_TIMEOUT" -le "$FM_VERIFY_PASS_TIMEOUT_MAX" ] || {
+    FM_DOD_VERIFY_REASON="declared verification refused: FM_VERIFY_PASS_TIMEOUT=${FM_VERIFY_PASS_TIMEOUT}s exceeds the ${FM_VERIFY_PASS_TIMEOUT_MAX}s maximum, half of bin/fm-fleet-snapshot.sh's default 10s FM_SNAPSHOT_CREW_STATE_TIMEOUT crew-state read budget"
+    printf '%s\n' "$FM_DOD_VERIFY_REASON"
+    return 1
+  }
   device=$(fm_pr_file_device "$state") || {
     FM_DOD_VERIFY_REASON="declared verification cannot be read: $state is not readable"
     printf '%s\n' "$FM_DOD_VERIFY_REASON"
