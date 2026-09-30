@@ -706,6 +706,26 @@ test_nul_padded_oversized_declaration_is_refused() {
 
 # A configured pass bound above the ceiling is held to it, so the pass still
 # finishes inside the fleet snapshot's default crew-state read.
+test_configured_pass_bound_is_used_unchanged() {
+  local state reason rc
+  landed_ship passcfg
+  state="$TMP_ROOT/passcfg-state"
+  declare_checks "$state" passcfg 'run: sleep 30'
+  reason=$(
+    FM_VERIFY_PASS_TIMEOUT=2
+    # shellcheck source=bin/fm-dod-lib.sh
+    . "$ROOT/bin/fm-dod-lib.sh"
+    accept_done ship no-mistakes "$WT" "$REPO" "$DONE_CI_READY" "$state" passcfg "$state/passcfg.meta"
+  )
+  rc=$?
+  [ "$rc" -eq 1 ] || fail "a check hanging past the configured pass bound was accepted (exit $rc)"
+  case "$reason" in
+    *"FM_VERIFY_PASS_TIMEOUT pass bound (2s)"*) ;;
+    *) fail "the configured pass bound was not the one bounding the pass: $reason" ;;
+  esac
+  pass "a configured pass bound below the maximum bounds the pass unchanged"
+}
+
 test_pass_bound_at_the_maximum_is_used_unchanged() {
   local state reason rc
   landed_ship passmax
@@ -860,6 +880,7 @@ test_file_check_runs_under_the_per_check_bound
 test_unreadable_file_check_target_is_named_unreadable
 test_oversized_declaration_is_refused
 test_nul_padded_oversized_declaration_is_refused
+test_configured_pass_bound_is_used_unchanged
 test_pass_bound_at_the_maximum_is_used_unchanged
 test_pass_bound_above_the_maximum_is_refused
 test_declaration_read_failure_is_refused
