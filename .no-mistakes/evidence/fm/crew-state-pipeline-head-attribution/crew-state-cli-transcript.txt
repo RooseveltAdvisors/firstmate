@@ -1,0 +1,10 @@
+>>> fm-crew-state unresolved  (exit 0)
+state: working · source: run-step · validating (fixing) · run: 01KZZ8SK7S868VK2X9RXGMG1FA · unknown-but-running; pipeline head dfa3e77edf860bd5195fa7eccf5fe161f55a0e18 not yet local
+
+>>> fm-crew-state unresolved  (exit 0)
+state: unknown · source: run-step · no-mistakes daemon unreachable; last run record fixing - unverified · run: 01KZZ8SK7S868VK2X9RXGMG1FA · pipeline head dfa3e77edf860bd5195fa7eccf5fe161f55a0e18 not yet local
+
+>>> fm-crew-state unresolved  (exit 0)
+state: parked · source: run-step · parked at review: 2 finding(s) · ask-user: authority decision · run: 01KZZ8SK7S868VK2X9RXGMG1FA · pipeline head dfa3e77edf860bd5195fa7eccf5fe161f55a0e18 not yet local
+
+>>> crew_gate_awaits_human_decision unresolved -> 01KZZ8SK7S868VK2X9RXGMG1FA
