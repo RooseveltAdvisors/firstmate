@@ -695,7 +695,7 @@ test_declaration_read_failure_is_refused() {
   declare_checks "$state" readfail 'run: false'
   reason=$(
     # shellcheck disable=SC2329
-    head() { case "${!#}" in *.verify) return 1 ;; esac; command head "$@"; }
+    head() { if [[ "${!#}" == *.verify ]]; then return 1; fi; command head "$@"; }
     accept_done ship no-mistakes "$WT" "$REPO" "$DONE_CI_READY" "$state" readfail "$state/readfail.meta"
   )
   rc=$?
