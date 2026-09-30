@@ -124,7 +124,7 @@ EOF
 Never inspect or change any other home's endpoint namespace; this authorization is limited to the exact task paths named by this brief.
 When this task works on Firstmate itself, the repository root `AGENTS.md` (also imported by `CLAUDE.md`) is project content and the supervisor contract for the firstmate managing you: follow this brief instead of that supervisor contract.
 Project instructions still govern the work wherever they do not conflict with this worker identity, including `CONTRIBUTING.md` and `firstmate-coding-guidelines` for Firstmate changes.
-Activate the Zeta-distributed `caveman` skill at `full` for every response: read `~/.agents/skills/caveman/SKILL.md` (the canonical source, not the renamed `pi-caveman` vendored copy; if absent, continue without it) and apply its full-intensity compression to everything you write to firstmate or any person, including status-line and report prose.
+Activate the Zeta-distributed `caveman` skill at `full` for every response: read `~/.agents/skills/caveman/SKILL.md` (the canonical source, not the renamed `pi-caveman` vendored copy; if that file is absent on this host, still apply `full`: drop articles, filler, pleasantries, and hedging, use fragments and short synonyms, and keep technical terms, numbers, negations, code, and quoted errors exact) and apply its full-intensity compression to everything you write to firstmate or any person, including status-line and report prose.
 Caveman compresses communication only: code, comments, commits, docs, issue and PR text, memory files, third-party messages, safety-critical explanations, and every exact format this brief mandates remain normal and complete.
 EOF
 }
