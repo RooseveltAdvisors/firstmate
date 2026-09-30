@@ -86,6 +86,12 @@
 #      worktree's run to report on: it leaves HAVE_RUN=0 so the pane and status
 #      log answer, because a stale record naming this branch must never override
 #      a crew that is visibly working.
+#      When the selected ACTIVE run's head does not resolve in this copy, the
+#      run-step detail keeps its standalone `run: <id>` component (the machine
+#      contract crew_gate_awaits_human_decision parses) and appends a separate
+#      `unknown-but-running; pipeline head <sha> not yet local` component, or
+#      only `pipeline head <sha> not yet local` when the daemon answered down,
+#      so the dead-instrument detail stays authoritative.
 #      A run PARKED at a gate is exempt from the dead-instrument verdict: an
 #      open decision stays open when the instrument dies, so it keeps its gate
 #      and findings.
