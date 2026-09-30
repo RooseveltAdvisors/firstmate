@@ -751,14 +751,6 @@ if [ -n "$BOOT_OUT" ]; then
 else
   printf '(silent - all good)\n'
 fi
-if [ "$READ_ONLY" -eq 0 ] && [ "$REEMIT" -eq 0 ]; then
-  if ! SKILL_MAP_OUT=$("$SCRIPT_DIR/fm-skill-map.sh" --quiet 2>&1); then
-    # The generator names itself in both cases it reports, so pass its own words
-    # through rather than labelling a written-with-skips map a failure. The
-    # fallback keeps a silent non-zero exit from printing a bare blank line.
-    printf '%s\n' "${SKILL_MAP_OUT:-SKILL_MAP: refresh exited non-zero with no diagnostic}"
-  fi
-fi
 
 # --- 3. wake-drain ---------------------------------------------------------
 # The inactive-outcome startup scan runs in the deferred worker launched above,

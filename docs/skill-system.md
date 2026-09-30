@@ -39,7 +39,7 @@ Regenerate it with:
 bin/fm-skill-map.sh
 ```
 
-Session start refreshes the map when the session holds the home lock.
+Session start refreshes the map when the session holds the home lock, in the deferred startup stage (`bin/fm-startup-network.sh`), so the scan never blocks the digest.
 A read-only session skips the refresh because the map is a mutable `data/` record.
 
 The map groups entries under source headings; each skill line contains its name, description, and canonical path.

@@ -390,9 +390,18 @@ test_locked_session_start_refreshes_map_and_read_only_skips() {
   fm_fake_exit0 "$fakebin" tmux node chrome-devtools-axi gh gh-axi treehouse no-mistakes lavish-axi
   cat > "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
+pid=
+previous=
+for argument in "$@"; do
+  [ "$previous" = -p ] && pid=$argument
+  previous=$argument
+done
+harness=0
+[ "$pid" = "$FM_FAKE_HARNESS_PID" ] || [ "$pid" = "${FM_FAKE_LIVE_HOLDER_PID:-}" ] && harness=1
 case "$*" in
-  *"comm="*) printf '%s\n' /usr/local/bin/claude ;;
-  *"args="*) printf '%s\n' claude ;;
+  *"comm="*) [ "$harness" = 1 ] && printf '%s\n' /usr/local/bin/claude || printf '%s\n' /bin/bash ;;
+  *"args="*) [ "$harness" = 1 ] && printf '%s\n' claude || printf '%s\n' bash ;;
+  *"ppid="*) /bin/ps -o ppid= -p "$pid" ;;
   *) exit 1 ;;
 esac
 SH
@@ -400,9 +409,13 @@ SH
 
   out=$(env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
     HOME="$user_home" CLAUDE_CONFIG_DIR="$user_home/.claude" \
+    FM_FAKE_HARNESS_PID=$$ FM_FAKE_LIVE_HOLDER_PID="${holder:-}" \
     FM_HOME="$home" FM_ROOT_OVERRIDE="$root" PATH="$fakebin:$PATH" \
     "$ROOT/bin/fm-session-start.sh") \
     || fail "locked session start failed while refreshing the skill map"
+  FM_FAKE_HARNESS_PID=$$ PATH="$fakebin:$PATH" \
+    FM_HOME="$home" FM_ROOT_OVERRIDE="$root" "$ROOT/bin/fm-startup-network.sh" wait 60 >/dev/null \
+    || fail "the deferred startup stage did not publish after a locked session start"
   assert_file_contains "$home/data/skill-map.md" '- session-skill — session-skill description — ' \
     "locked session start did not refresh the generated skill map"
   # The map's source group is the scanned source, not a label derived from the
@@ -412,22 +425,28 @@ SH
   assert_file_not_contains "$home/data/skill-map.md" '## root' \
     "the skill map labelled a group from its containing git repository"
 
-  # A reported skip must reach the digest, naming the skill, rather than being
+  # A reported skip must reach the deferred report, naming the skill, rather than being
   # swallowed or reduced to a blank line.
   mkdir -p "$root/.agents/skills/broken"
   printf -- '---\nname: broken\n' > "$root/.agents/skills/broken/SKILL.md"
   if ! out=$(env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
     HOME="$user_home" CLAUDE_CONFIG_DIR="$user_home/.claude" \
+    FM_FAKE_HARNESS_PID=$$ FM_FAKE_LIVE_HOLDER_PID="${holder:-}" \
     FM_HOME="$home" FM_ROOT_OVERRIDE="$root" PATH="$fakebin:$PATH" \
     "$ROOT/bin/fm-session-start.sh"); then
     fail "locked session start failed because one skill was skipped"
   fi
+  FM_FAKE_HARNESS_PID=$$ PATH="$fakebin:$PATH" \
+    FM_HOME="$home" FM_ROOT_OVERRIDE="$root" "$ROOT/bin/fm-startup-network.sh" wait 60 >/dev/null \
+    || fail "the deferred startup stage did not publish after a skipped skill"
+  out=$(FM_FAKE_HARNESS_PID=$$ PATH="$fakebin:$PATH" \
+    FM_HOME="$home" FM_ROOT_OVERRIDE="$root" "$ROOT/bin/fm-startup-network.sh" report)
   case "$out" in
     *"$root/.agents/skills/broken/SKILL.md"*) ;;
-    *) fail "the session digest did not surface the skipped skill the map reported" ;;
+    *) fail "the deferred startup report did not surface the skipped skill the map reported" ;;
   esac
   case "$out" in
-    *'refresh failed'*) fail "the digest called a written-with-skips map a refresh failure" ;;
+    *'refresh failed'*) fail "the report called a written-with-skips map a refresh failure" ;;
     *) ;;
   esac
   rm -rf "$root/.agents/skills/broken"
@@ -438,6 +457,7 @@ SH
   printf '%s\n' "$holder" > "$home/state/.lock"
   if ! out=$(env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
     HOME="$user_home" CLAUDE_CONFIG_DIR="$user_home/.claude" \
+    FM_FAKE_HARNESS_PID=$$ FM_FAKE_LIVE_HOLDER_PID="${holder:-}" \
     FM_HOME="$home" FM_ROOT_OVERRIDE="$root" PATH="$fakebin:$PATH" \
     "$ROOT/bin/fm-session-start.sh"); then
     kill "$holder" 2>/dev/null || true
