@@ -87,8 +87,8 @@
 # fm_brief_worker_role owns the ship/scout role scope and the one structural
 # communication-style directive (the Zeta `caveman` skill at `full`) every
 # launch brief carries, so activation never relies on conversation memory.
-# Firstmate/secondmate activation rides on data/captain-shared.md plus the
-# session-start digest; this function owns only ship/scout launch briefs.
+# Firstmate/secondmate activation lives in the AGENTS.md supervisor contract;
+# this function owns only ship/scout launch briefs.
 # bin/fm-spawn.sh is its one
 # emitter, supplying it first in every ship/scout launch brief and never to a
 # secondmate charter. It names the one task-owned steering inbox without
