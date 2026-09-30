@@ -187,6 +187,14 @@ case "$FM_SNAPSHOT_SECONDMATES" in
     ;;
 esac
 validate_positive_bound FM_SNAPSHOT_CREW_STATE_TIMEOUT "$FM_SNAPSHOT_CREW_STATE_TIMEOUT"
+# A ship task's declared-verification pass runs inside its crew-state read, so
+# its bound is held to half that read's bound; a slow declared check then still
+# reports its refusal as blocked instead of being killed and folded to unknown.
+SNAPSHOT_VERIFY_PASS_TIMEOUT=${FM_VERIFY_PASS_TIMEOUT:-5}
+case $SNAPSHOT_VERIFY_PASS_TIMEOUT in '' | 0* | *[!0-9]*) SNAPSHOT_VERIFY_PASS_TIMEOUT=5 ;; esac
+snapshot_verify_cap=$(( FM_SNAPSHOT_CREW_STATE_TIMEOUT / 2 ))
+[ "$snapshot_verify_cap" -ge 1 ] || snapshot_verify_cap=1
+[ "$SNAPSHOT_VERIFY_PASS_TIMEOUT" -le "$snapshot_verify_cap" ] || SNAPSHOT_VERIFY_PASS_TIMEOUT=$snapshot_verify_cap
 validate_positive_bound FM_SNAPSHOT_LOCAL_READ_CONCURRENCY "$FM_SNAPSHOT_LOCAL_READ_CONCURRENCY"
 validate_positive_bound FM_SNAPSHOT_BUDGET "$FM_SNAPSHOT_BUDGET"
 validate_positive_bound FM_SNAPSHOT_SECONDMATE_MAX_BYTES "$FM_SNAPSHOT_SECONDMATE_MAX_BYTES"
@@ -332,6 +340,7 @@ crew_state_json() {  # <id> [<captured-meta>] [<captured-status>]
       FM_DATA_OVERRIDE="$DATA" \
       FM_PROJECTS_OVERRIDE="$PROJECTS" \
       FM_CONFIG_OVERRIDE="$CONFIG" \
+      FM_VERIFY_PASS_TIMEOUT="$SNAPSHOT_VERIFY_PASS_TIMEOUT" \
       "$SCRIPT_DIR/fm-crew-state.sh" "$id" 2>/dev/null || true
   )
   raw=$(printf '%s\n' "$raw" | head -1)

@@ -1201,7 +1201,8 @@ while True:
     > "$home/state/verify-task.verify"
   chmod 600 "$home/state/verify-task.verify"
 
-  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --json)
+  # A configured pass bound above the crew-state bound must not outlast the read.
+  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_VERIFY_PASS_TIMEOUT=60 "$SNAPSHOT" --json)
   kill "$pid" 2>/dev/null
   wait "$pid" 2>/dev/null
 

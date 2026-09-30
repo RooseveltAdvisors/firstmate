@@ -646,6 +646,8 @@ FM_VERIFY_TIMEOUT=${FM_VERIFY_TIMEOUT:-30}
 case $FM_VERIFY_TIMEOUT in '' | 0* | *[!0-9]*) FM_VERIFY_TIMEOUT=30 ;; esac
 FM_VERIFY_PASS_TIMEOUT=${FM_VERIFY_PASS_TIMEOUT:-5}
 case $FM_VERIFY_PASS_TIMEOUT in '' | 0* | *[!0-9]*) FM_VERIFY_PASS_TIMEOUT=5 ;; esac
+# ponytail: fixed cap, not a knob; a real declaration is a handful of lines.
+FM_VERIFY_MAX_BYTES=65536
 
 # Run <command> under <bound> seconds. Captures nothing; only the status matters.
 fm_dod_verify_run() {  # <bound> <command>
@@ -653,13 +655,15 @@ fm_dod_verify_run() {  # <bound> <command>
 }
 
 # Run a file: check under <bound> seconds: 0 = present with the required
-# substring, 2 = not a file, 3 = the substring is missing.
+# substring, 2 = not a file, 3 = the substring is missing, 4 = the file could
+# not be read.
 fm_dod_verify_file_check() {  # <bound> <path> <required-substring>
   # shellcheck disable=SC2016  # The inner script expands after bash -c receives positional args.
   fm_run_timed "$1" bash -c '
     [ -f "$1" ] || exit 2
-    [ -z "$2" ] || grep -qF -- "$2" "$1" || exit 3
-    exit 0
+    [ -z "$2" ] && exit 0
+    grep -qF -- "$2" "$1"
+    case $? in 0) exit 0 ;; 1) exit 3 ;; *) exit 4 ;; esac
   ' _ "$2" "$3" </dev/null >/dev/null 2>&1
 }
 
@@ -679,6 +683,11 @@ fm_dod_verify_declared_checks_pass() {  # <state> <id>
   }
   fm_pr_private_file_valid "$spec" 600 "$device" || {
     FM_DOD_VERIFY_REASON="declared verification is not a firstmate-private file: $spec"
+    printf '%s\n' "$FM_DOD_VERIFY_REASON"
+    return 1
+  }
+  [ "$(head -c $((FM_VERIFY_MAX_BYTES + 1)) "$spec" | wc -c)" -le "$FM_VERIFY_MAX_BYTES" ] || {
+    FM_DOD_VERIFY_REASON="declared verification is larger than $FM_VERIFY_MAX_BYTES bytes: $spec"
     printf '%s\n' "$FM_DOD_VERIFY_REASON"
     return 1
   }
@@ -789,6 +798,8 @@ fm_dod_verify_spec_checks() {  # <spec>
             printf '%s\n' "declared verification failed: file: $target hit $bound_name"
           elif [ "$rc" -eq 2 ]; then
             printf '%s\n' "declared verification failed: file: $target is not a file"
+          elif [ "$rc" -eq 4 ]; then
+            printf '%s\n' "declared verification failed: file: $target could not be read"
           else
             printf '%s\n' "declared verification failed: file: $target does not contain $want"
           fi

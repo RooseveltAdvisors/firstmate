@@ -643,6 +643,49 @@ test_file_check_runs_under_the_per_check_bound() {
   pass "a file: check runs under the per-check bound and names its expiry"
 }
 
+# A file: target that exists but cannot be read is reported as unreadable, not
+# as missing the required text, so the refusal names what the operator must fix.
+test_unreadable_file_check_target_is_named_unreadable() {
+  local state reason rc target
+  landed_ship fileunread
+  state="$TMP_ROOT/fileunread-state"
+  target="$TMP_ROOT/fileunread-target"
+  printf 'deployed marker\n' > "$target"
+  chmod 000 "$target"
+  if [ -r "$target" ]; then
+    chmod 600 "$target"
+    pass "unreadable file: target case skipped (running with read override)"
+    return 0
+  fi
+  declare_checks "$state" fileunread "file: $target deployed marker"
+  reason=$(accept_done ship no-mistakes "$WT" "$REPO" "$DONE_CI_READY" "$state" fileunread "$state/fileunread.meta")
+  rc=$?
+  chmod 600 "$target"
+  [ "$rc" -eq 1 ] || fail "an unreadable file: target was accepted (exit $rc)"
+  case "$reason" in
+    *"file: $target could not be read") ;;
+    *) fail "an unreadable file: target was not named unreadable: $reason" ;;
+  esac
+  pass "an unreadable file: target is refused as unreadable, not as missing text"
+}
+
+# A declaration past the size cap is refused before it is loaded.
+test_oversized_declaration_is_refused() {
+  local state reason rc
+  landed_ship bigdecl
+  state="$TMP_ROOT/bigdecl-state"
+  declare_checks "$state" bigdecl 'run: true'
+  head -c $((FM_VERIFY_MAX_BYTES + 1)) /dev/zero | tr '\0' '#' >> "$state/bigdecl.verify"
+  reason=$(accept_done ship no-mistakes "$WT" "$REPO" "$DONE_CI_READY" "$state" bigdecl "$state/bigdecl.meta")
+  rc=$?
+  [ "$rc" -eq 1 ] || fail "an oversized declaration was accepted (exit $rc)"
+  case "$reason" in
+    *"larger than $FM_VERIFY_MAX_BYTES bytes"*) ;;
+    *) fail "the oversized refusal did not name the cap: $reason" ;;
+  esac
+  pass "an oversized declaration is refused"
+}
+
 test_absent_declaration_leaves_the_done_ungated() {
   local state
   landed_ship nodecl
@@ -733,6 +776,8 @@ test_verification_pass_bound_refuses_a_hanging_check
 test_check_killed_at_the_bound_is_reported_distinctly
 test_bound_mechanism_failure_is_not_reported_as_a_timeout
 test_file_check_runs_under_the_per_check_bound
+test_unreadable_file_check_target_is_named_unreadable
+test_oversized_declaration_is_refused
 test_absent_declaration_leaves_the_done_ungated
 test_untrusted_or_unreadable_declaration_is_refused
 test_malformed_declared_check_is_refused
