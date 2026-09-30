@@ -1,0 +1,20 @@
+== real tmux pane: foreground process 'agy' drawing the idle agy composer frame ==
+transcript
+────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────
+? for shortcuts                          Gemini 3.8 Flash · low
+foreground procs: agy sleep   cursor_y=2
+
+-- BEFORE fix (base b3d41332) --
+identity probe: <none>
+composer_state: unknown
+
+-- AFTER fix (target 33cc1026) --
+identity probe: agy idle
+composer_state: empty
+
+== identical frame, foreground process is not a known agent ('zsh-dead') ==
+-- AFTER fix (target 33cc1026) --
+identity probe: <none>
+composer_state: unknown
