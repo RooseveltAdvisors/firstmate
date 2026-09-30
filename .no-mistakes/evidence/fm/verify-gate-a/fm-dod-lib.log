@@ -24,6 +24,9 @@ ok - the verification pass bound refuses a hanging check, naming the bound
 ok - a bound expiry is reported distinctly from an instant nonzero exit
 ok - a bound mechanism failure before the command runs is not reported as a timeout
 ok - a file: check runs under the per-check bound and names its expiry
+ok - an unreadable file: target is refused as unreadable, not as missing text
+ok - an oversized declaration is refused
+ok - a declaration that fails to read refuses the done:
 ok - no declaration is no gate
 ok - a declaration that is not a firstmate-private file refuses the done:
 ok - a malformed declared check refuses the done: rather than being skipped
