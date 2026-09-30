@@ -1,0 +1,5 @@
+ok - fm-pr-check refuses to register a PR whose named head is only in the worker copy
+ok - fm-pr-check refuses a direct-PR registration while a later commit is only in the copy
+ok - fm-pr-check refuses registration on a failing declared verification despite a proven forge head
+ok - FM_PR_CHECK_MERGE=1 skips declared verification in every shape while registration still refuses
+ok - valid direct and merge flows record exact metadata and reject multiline head metadata

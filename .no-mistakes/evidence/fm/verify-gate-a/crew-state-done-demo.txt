@@ -1,0 +1,6 @@
+$ bin/fm-crew-state.sh declared   # site UP
+state: done · source: status-log · PR https://example.test/o/r/pull/9 checks green
+
+$ bin/fm-crew-state.sh declared   # site DOWN
+state: blocked · source: status-log · declared verification failed: http: http://127.0.0.1:37327/ could not be fetched
+
