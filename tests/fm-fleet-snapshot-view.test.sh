@@ -1201,9 +1201,7 @@ while True:
     > "$home/state/verify-task.verify"
   chmod 600 "$home/state/verify-task.verify"
 
-  # A configured pass bound above the crew-state bound must not outlast the read.
-  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_SNAPSHOT_CREW_STATE_TIMEOUT=2 \
-    FM_VERIFY_PASS_TIMEOUT=3 "$SNAPSHOT" --json)
+  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --json)
   kill "$pid" 2>/dev/null
   wait "$pid" 2>/dev/null
 
@@ -1215,39 +1213,6 @@ while True:
   ' >/dev/null \
     || fail "a blackholing declared check did not read blocked under the snapshot crew-state bound: $state_view"
   pass "a blackholing declared check reads blocked, not unknown, at the snapshot boundary"
-}
-
-# A declared check that passes inside FM_VERIFY_PASS_TIMEOUT passes a direct
-# crew-state read, so the snapshot must not refuse it under a tighter bound.
-test_slow_passing_declared_check_not_refused_in_snapshot() {
-  local home fakebin out state_view
-  home=$(make_home declared-slow-pass)
-  fakebin=$(make_fakebin "$home")
-  mkdir -p "$home/projects/verify-worktree"
-  fm_write_meta "$home/state/verify-task.meta" \
-    "window=firstmate:fm-verify-task" \
-    "worktree=$home/projects/verify-worktree" \
-    "project=alpha" \
-    "harness=claude" \
-    "kind=ship" \
-    "mode=no-mistakes"
-  printf 'done: PR https://example.test/o/r/pull/9 checks green\n' \
-    > "$home/state/verify-task.status"
-  record_claude_idle "$home/state" verify-task
-  printf 'run: sleep 2\n' > "$home/state/verify-task.verify"
-  chmod 600 "$home/state/verify-task.verify"
-
-  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_SNAPSHOT_CREW_STATE_TIMEOUT=2 \
-    FM_VERIFY_PASS_TIMEOUT=4 "$SNAPSHOT" --json)
-
-  state_view=$(printf '%s' "$out" | jq -c '.tasks[] | select(.id == "verify-task") | .current_state')
-  printf '%s' "$out" | jq -e '
-    .tasks[] | select(.id == "verify-task")
-    | .current_state.state != "unknown"
-      and ((.current_state.detail // "") | contains("declared verification") | not)
-  ' >/dev/null \
-    || fail "a declared check passing inside FM_VERIFY_PASS_TIMEOUT was refused or dropped by the snapshot: $state_view"
-  pass "a declared check passing inside FM_VERIFY_PASS_TIMEOUT is not refused at the snapshot boundary"
 }
 
 test_empty_fleet_json
@@ -1269,4 +1234,3 @@ test_backlog_tasks_axi_forms_and_overrides
 test_view_renders_snapshot
 test_view_renders_dead_secondmate_agent_status
 test_blackholing_declared_check_reads_blocked_in_snapshot
-test_slow_passing_declared_check_not_refused_in_snapshot

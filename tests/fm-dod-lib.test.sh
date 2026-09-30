@@ -686,6 +686,27 @@ test_oversized_declaration_is_refused() {
   pass "an oversized declaration is refused"
 }
 
+# A declaration that passes the private-file check but then fails to read is
+# refused, never treated as an empty declaration that gates nothing.
+test_declaration_read_failure_is_refused() {
+  local state reason rc
+  landed_ship readfail
+  state="$TMP_ROOT/readfail-state"
+  declare_checks "$state" readfail 'run: false'
+  reason=$(
+    # shellcheck disable=SC2329
+    head() { case "${!#}" in *.verify) return 1 ;; esac; command head "$@"; }
+    accept_done ship no-mistakes "$WT" "$REPO" "$DONE_CI_READY" "$state" readfail "$state/readfail.meta"
+  )
+  rc=$?
+  [ "$rc" -eq 1 ] || fail "a declaration that failed to read was accepted (exit $rc)"
+  case "$reason" in
+    *"declared verification cannot be read: $state/readfail.verify"*) ;;
+    *) fail "the read failure did not name the unreadable declaration: $reason" ;;
+  esac
+  pass "a declaration that fails to read refuses the done:"
+}
+
 test_absent_declaration_leaves_the_done_ungated() {
   local state
   landed_ship nodecl
@@ -778,6 +799,7 @@ test_bound_mechanism_failure_is_not_reported_as_a_timeout
 test_file_check_runs_under_the_per_check_bound
 test_unreadable_file_check_target_is_named_unreadable
 test_oversized_declaration_is_refused
+test_declaration_read_failure_is_refused
 test_absent_declaration_leaves_the_done_ungated
 test_untrusted_or_unreadable_declaration_is_refused
 test_malformed_declared_check_is_refused

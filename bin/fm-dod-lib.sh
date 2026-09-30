@@ -688,7 +688,11 @@ fm_dod_verify_declared_checks_pass() {  # <state> <id>
   }
   # One bounded read both sizes and loads the declaration, so a file that grows
   # after the size check can never be loaded whole.
-  content=$(head -c $((FM_VERIFY_MAX_BYTES + 1)) "$spec"; printf x)
+  content=$(head -c $((FM_VERIFY_MAX_BYTES + 1)) "$spec" && printf x) || {
+    FM_DOD_VERIFY_REASON="declared verification cannot be read: $spec"
+    printf '%s\n' "$FM_DOD_VERIFY_REASON"
+    return 1
+  }
   content=${content%x}
   [ "$(printf '%s' "$content" | wc -c)" -le "$FM_VERIFY_MAX_BYTES" ] || {
     FM_DOD_VERIFY_REASON="declared verification is larger than $FM_VERIFY_MAX_BYTES bytes: $spec"
