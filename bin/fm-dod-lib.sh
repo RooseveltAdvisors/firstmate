@@ -646,6 +646,12 @@ FM_VERIFY_TIMEOUT=${FM_VERIFY_TIMEOUT:-30}
 case $FM_VERIFY_TIMEOUT in '' | 0* | *[!0-9]*) FM_VERIFY_TIMEOUT=30 ;; esac
 FM_VERIFY_PASS_TIMEOUT=${FM_VERIFY_PASS_TIMEOUT:-5}
 case $FM_VERIFY_PASS_TIMEOUT in '' | 0* | *[!0-9]*) FM_VERIFY_PASS_TIMEOUT=5 ;; esac
+# The pass runs inside bin/fm-fleet-snapshot.sh's crew-state read (default 10s),
+# so it is capped at half that bound: a slow check then still reports its
+# refusal there instead of being killed and folded to state unknown, and the
+# snapshot and a direct read apply the same pass bound.
+# ponytail: fixed ceiling tied to the snapshot default; raise both together.
+[ "$FM_VERIFY_PASS_TIMEOUT" -le 5 ] || FM_VERIFY_PASS_TIMEOUT=5
 # ponytail: fixed cap, not a knob; a real declaration is a handful of lines.
 FM_VERIFY_MAX_BYTES=65536
 
@@ -672,7 +678,7 @@ fm_dod_verify_file_check() {  # <bound> <path> <required-substring>
 # The verdict is memoized per declaration content, so one orchestrator process
 # evaluates a given declaration at most once.
 fm_dod_verify_declared_checks_pass() {  # <state> <id>
-  local state=$1 id=$2 spec device content key reason
+  local state=$1 id=$2 spec device content size key reason
   [ -n "$state" ] && [ -n "$id" ] || return 0
   spec="$state/$id.verify"
   [ -e "$spec" ] || [ -L "$spec" ] || return 0
@@ -694,8 +700,16 @@ fm_dod_verify_declared_checks_pass() {  # <state> <id>
     return 1
   }
   content=${content%x}
-  [ "$(printf '%s' "$content" | wc -c)" -le "$FM_VERIFY_MAX_BYTES" ] || {
+  # The size is counted on the file's bytes, not the loaded text: command
+  # substitution drops NUL bytes, so NUL padding cannot slip past the cap.
+  size=$(head -c $((FM_VERIFY_MAX_BYTES + 1)) "$spec" | wc -c)
+  [ "$size" -le "$FM_VERIFY_MAX_BYTES" ] || {
     FM_DOD_VERIFY_REASON="declared verification is larger than $FM_VERIFY_MAX_BYTES bytes: $spec"
+    printf '%s\n' "$FM_DOD_VERIFY_REASON"
+    return 1
+  }
+  [ "$(printf '%s' "$content" | wc -c)" -eq "$size" ] || {
+    FM_DOD_VERIFY_REASON="declared verification contains NUL bytes or changed while read: $spec"
     printf '%s\n' "$FM_DOD_VERIFY_REASON"
     return 1
   }

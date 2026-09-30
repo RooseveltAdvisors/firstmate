@@ -686,6 +686,46 @@ test_oversized_declaration_is_refused() {
   pass "an oversized declaration is refused"
 }
 
+# NUL padding is dropped by command substitution, so the cap must count the
+# file's bytes: a small passing check padded past the cap with NULs is refused.
+test_nul_padded_oversized_declaration_is_refused() {
+  local state reason rc
+  landed_ship nuldecl
+  state="$TMP_ROOT/nuldecl-state"
+  declare_checks "$state" nuldecl 'run: true'
+  head -c $((FM_VERIFY_MAX_BYTES + 1)) /dev/zero >> "$state/nuldecl.verify"
+  reason=$(accept_done ship no-mistakes "$WT" "$REPO" "$DONE_CI_READY" "$state" nuldecl "$state/nuldecl.meta" 2>/dev/null)
+  rc=$?
+  [ "$rc" -eq 1 ] || fail "a NUL-padded oversized declaration was accepted (exit $rc)"
+  case "$reason" in
+    *"larger than $FM_VERIFY_MAX_BYTES bytes"*) ;;
+    *) fail "the NUL-padded refusal did not name the cap: $reason" ;;
+  esac
+  pass "a NUL-padded oversized declaration is refused"
+}
+
+# A configured pass bound above the ceiling is held to it, so the pass still
+# finishes inside the fleet snapshot's default crew-state read.
+test_pass_bound_is_held_under_the_snapshot_read() {
+  local state reason rc
+  landed_ship passceil
+  state="$TMP_ROOT/passceil-state"
+  declare_checks "$state" passceil 'run: sleep 30'
+  reason=$(
+    FM_VERIFY_PASS_TIMEOUT=30
+    # shellcheck source=bin/fm-dod-lib.sh
+    . "$ROOT/bin/fm-dod-lib.sh"
+    accept_done ship no-mistakes "$WT" "$REPO" "$DONE_CI_READY" "$state" passceil "$state/passceil.meta"
+  )
+  rc=$?
+  [ "$rc" -eq 1 ] || fail "a check hanging past the capped pass bound was accepted (exit $rc)"
+  case "$reason" in
+    *"FM_VERIFY_PASS_TIMEOUT pass bound (5s)"*) ;;
+    *) fail "a pass bound above the ceiling was not held to 5s: $reason" ;;
+  esac
+  pass "a pass bound above the ceiling is held under the snapshot read"
+}
+
 # A declaration that passes the private-file check but then fails to read is
 # refused, never treated as an empty declaration that gates nothing.
 test_declaration_read_failure_is_refused() {
@@ -799,6 +839,8 @@ test_bound_mechanism_failure_is_not_reported_as_a_timeout
 test_file_check_runs_under_the_per_check_bound
 test_unreadable_file_check_target_is_named_unreadable
 test_oversized_declaration_is_refused
+test_nul_padded_oversized_declaration_is_refused
+test_pass_bound_is_held_under_the_snapshot_read
 test_declaration_read_failure_is_refused
 test_absent_declaration_leaves_the_done_ungated
 test_untrusted_or_unreadable_declaration_is_refused
