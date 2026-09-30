@@ -560,11 +560,11 @@ if [ -n "$TARGET_SELECTOR" ] && [ -n "$TARGET_META" ] && [ "$(fm_meta_get "$TARG
 fi
 
 # Validate the answerer-closes request before any durable mutation or send: the
-# target must have a task ledger in THIS home, the send must carry an answer
-# message, and every named key must be open right now in that ledger per the
-# ONE authoritative fold (status_open_decisions). Refusing here, before the
-# send, is what keeps a mistyped key loud instead of delivering an answer that
-# silently leaves its decision open.
+# target must have a task ledger in THIS home and the send must carry an answer
+# message. Each named key is then classified against the ONE authoritative fold
+# (status_open_decisions): open keys are closed after delivery, and a key that
+# matches nothing never refuses the send - the answer is still delivered and
+# the miss is reported loudly afterward with a nonzero exit.
 RESOLVE_STATUS_FILE=
 # Which ledger each answered key belongs to. A key still open in the status log
 # is owned by the status log: fm-captain-hold's `complete` closes that live copy
@@ -1109,13 +1109,13 @@ else
     fi
     # The answer is durably sent: close each answered decision at enqueue time
     # (answerer-closes; see the header contract).
+    # A bookkeeping failure here never skips the doorbell: the answer is
+    # already queued, so ring first and surface the failure as the exit status.
+    post_delivery_rc=0
     if [ -n "$RESOLVE_KEYS" ]; then
-      fm_send_close_resolved_keys "$RESOLVE_ANSWER_TEXT" || exit 1
-      fm_send_feed_resolved_holds "$RESOLVE_ANSWER_TEXT" || exit 1
+      fm_send_close_resolved_keys "$RESOLVE_ANSWER_TEXT" &&
+        fm_send_feed_resolved_holds "$RESOLVE_ANSWER_TEXT" || post_delivery_rc=1
     fi
-    # A key that matched nothing still left its answer durably queued: report
-    # the miss now, before the best-effort ring (the watcher owns re-ringing).
-    fm_send_report_unmatched_keys || exit 1
     # Ring the doorbell, best-effort: no ring outcome changes the exit status,
     # because the watcher owns loss detection from here, either through its
     # bounded re-ring ladder or direct unavailable-endpoint recovery.
@@ -1126,7 +1126,9 @@ else
     2) echo "fm-send: doorbell did not reach $T; the steer is durably recorded at $INBOX_RECORD and the watcher will re-ring" >&2 ;;
     3) echo "fm-send: doorbell not typed because the agent in $T has exited; the steer is durably recorded at $INBOX_RECORD for recovery (stuck-crewmate-recovery), and the watcher will not re-ring a dead pane" >&2 ;;
     esac
-    exit 0
+    # A key that matched nothing still left its answer durably queued and rung.
+    fm_send_report_unmatched_keys || post_delivery_rc=1
+    exit "$post_delivery_rc"
   fi
   # Slash commands open a completion popup in some TUIs (verified on codex);
   # submitting too fast selects nothing, so give the popup time to settle before

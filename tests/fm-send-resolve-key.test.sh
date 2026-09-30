@@ -352,6 +352,7 @@ test_unmatched_key_still_delivers() {
   assert_contains "$(cat "$err")" "Do not resend" "the report should forbid resending the delivered answer"
   grep -qF "the answer" "$home/state/t4.inbox/001.msg" \
     || fail "the answer must land in the durable inbox record even when the key matches nothing"
+  assert_contains "$(cat "$log")" "Firstmate instruction waiting" "the doorbell should still be rung for an unmatched-key answer"
   if grep -F 'resolved' "$home/state/t4.status" >/dev/null; then
     fail "an unmatched key still closed something: $(cat "$home/state/t4.status")"
   fi
