@@ -1232,7 +1232,7 @@ if [ "$HAVE_RUN" = 1 ]; then
   esac
 
   if [ "$RUN_HEAD_UNRESOLVED" = 1 ]; then
-    RUN_DETAIL="$RUN_DETAIL${SEP}matched run: $SELECTED_RUN_ID (unknown-but-running; pipeline head $RUN_HEAD not yet local)"
+    RUN_DETAIL="$RUN_DETAIL${SEP}run: $SELECTED_RUN_ID${SEP}unknown-but-running; pipeline head $RUN_HEAD not yet local"
   else
     [ -z "$SELECTED_RUN_ID" ] || RUN_DETAIL="$RUN_DETAIL${SEP}run: $SELECTED_RUN_ID"
   fi

@@ -3498,7 +3498,8 @@ runs[2]{id,branch,status,head,pr}:
   out=$(run_crew_state "$d" unresolved)
   assert_contains "$out" "state: working" "the active row is not reported as terminal failure"
   assert_not_contains "$out" "state: failed" "the older failed row must not answer"
-  assert_contains "$out" "matched run: $run_id" "the selected live row is named"
+  assert_contains "$out" "run: $run_id" "the selected live row is named"
+  assert_contains "$out" "unknown-but-running" "the active row's unresolved state is explicit"
   assert_contains "$out" "pipeline head $h2 not yet local" "the unresolved head is explained"
   pass "an unresolved active head names the current row and why"
 }
