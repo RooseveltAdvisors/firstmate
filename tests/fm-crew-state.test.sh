@@ -3501,6 +3501,25 @@ runs[2]{id,branch,status,head,pr}:
   assert_contains "$out" "run: $run_id" "the selected live row is named"
   assert_contains "$out" "unknown-but-running" "the active row's unresolved state is explicit"
   assert_contains "$out" "pipeline head $h2 not yet local" "the unresolved head is explained"
+
+  FM_FAKE_DAEMON_DOWN=1
+  out=$(run_crew_state "$d" unresolved)
+  assert_contains "$out" "state: unknown" "a dead daemon leaves the unresolved row unverified"
+  assert_contains "$out" "no-mistakes daemon unreachable" "the dead instrument stays authoritative"
+  assert_contains "$out" "run: $run_id" "the selected row is still named"
+  assert_contains "$out" "pipeline head $h2 not yet local" "the unresolved head is still explained"
+  assert_not_contains "$out" "unknown-but-running" "a dead daemon never reads as running"
+  FM_FAKE_DAEMON_DOWN=0
+
+  FM_FAKE_AXI_STATUS="$(run_parked fm/feat-unresolved | sed "s/01RUN/$run_id/")"
+  FM_FAKE_AXI_STATUS_RUN="$FM_FAKE_AXI_STATUS"
+  out=$(run_crew_state "$d" unresolved)
+  assert_contains "$out" "state: parked" "a parked unresolved row keeps its gate"
+  assert_contains "$out" "pipeline head $h2 not yet local" "the parked row's unresolved head is explained"
+  local gate_run
+  gate_run=$(PATH="$d/fakebin:$PATH" FM_STATE_OVERRIDE="$d/state" crew_gate_awaits_human_decision unresolved) \
+    || fail "a parked ask-user gate at an unresolved head must still await a human decision"
+  [ "$gate_run" = "$run_id" ] || fail "human-decision consumer read run '$gate_run', want '$run_id'"
   pass "an unresolved active head names the current row and why"
 }
 

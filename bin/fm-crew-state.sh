@@ -1231,10 +1231,13 @@ if [ "$HAVE_RUN" = 1 ]; then
       ;;
   esac
 
+  [ -z "$SELECTED_RUN_ID" ] || RUN_DETAIL="$RUN_DETAIL${SEP}run: $SELECTED_RUN_ID"
   if [ "$RUN_HEAD_UNRESOLVED" = 1 ]; then
-    RUN_DETAIL="$RUN_DETAIL${SEP}run: $SELECTED_RUN_ID${SEP}unknown-but-running; pipeline head $RUN_HEAD not yet local"
-  else
-    [ -z "$SELECTED_RUN_ID" ] || RUN_DETAIL="$RUN_DETAIL${SEP}run: $SELECTED_RUN_ID"
+    if [ -n "$RUN_DEAD_DAEMON" ]; then
+      RUN_DETAIL="$RUN_DETAIL${SEP}pipeline head $RUN_HEAD not yet local"
+    else
+      RUN_DETAIL="$RUN_DETAIL${SEP}unknown-but-running; pipeline head $RUN_HEAD not yet local"
+    fi
   fi
   emit "$RUN_STATE" run-step "$RUN_DETAIL"
 fi
