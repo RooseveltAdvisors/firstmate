@@ -49,6 +49,24 @@ test_cursor_trailer_does_not_reach_the_commit_object() {
 }
 
 
+test_firstmate_worker_trailer_does_not_reach_the_commit_object() {
+  local repo hooks body
+  repo="$TMP_ROOT/firstmate-worker-object"
+  make_repo "$repo"
+  hooks="$TMP_ROOT/hooks-firstmate-worker"
+  "$STRIP" install "$hooks" "$repo" || fail "install should succeed"
+  printf 'note\n' >>"$repo/README.md"
+  git -C "$repo" add README.md
+  with_hooks_env "$hooks" git -C "$repo" commit -q \
+    --trailer 'Co-authored-by: firstmate-worker <worker@firstmate.local>' \
+    --trailer 'Co-authored-by: Jane Doe <jane@example.com>' -m 'fix: our own runtime trailer'
+  body=$(git -C "$repo" log -1 --format=%B)
+  assert_not_contains "$body" "Co-authored-by: firstmate-worker" "firstmate-worker trailer reached the commit object"
+  assert_not_contains "$body" "worker@firstmate.local" "firstmate-worker email reached the commit object"
+  assert_contains "$body" "Co-authored-by: Jane Doe <jane@example.com>" "human co-author was stripped"
+  pass "a firstmate-worker --trailer commit object has no AI co-author and keeps the human"
+}
+
 test_human_coauthor_is_kept() {
   local repo hooks body
   repo="$TMP_ROOT/human-coauthor"
@@ -302,6 +320,7 @@ test_strip_msgfile_alone_does_not_rewrite_author_fields() {
 }
 
 test_cursor_trailer_does_not_reach_the_commit_object
+test_firstmate_worker_trailer_does_not_reach_the_commit_object
 test_human_coauthor_is_kept
 test_human_at_a_vendor_domain_is_kept
 test_hook_manager_cannot_displace_the_strip
