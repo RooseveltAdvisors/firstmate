@@ -2876,10 +2876,12 @@ test_config_reread_fill_gate_discards_retained_identical_generations() {
   mkdir -p "$retry_dir"
   stage="$retry_dir/.fm-inherited-config-reread.20260721T000000.00000001"
   tmp_stage="$retry_dir/.fm-inherited-config-reread.20260721T000000.00000002.tmp.retained"
-  cp "$gen1" "$stage" && chmod 0600 "$stage" \
-    || fail "could not plant a retained identical stage"
-  cp "$gen1" "$tmp_stage" && chmod 0600 "$tmp_stage" \
-    || fail "could not plant a retained identical temporary"
+  if ! cp "$gen1" "$stage" || ! chmod 0600 "$stage"; then
+    fail "could not plant a retained identical stage"
+  fi
+  if ! cp "$gen1" "$tmp_stage" || ! chmod 0600 "$tmp_stage"; then
+    fail "could not plant a retained identical temporary"
+  fi
 
   : > "$log"
   out=$(run_config_push "$w" "$log" 2>/dev/null); status=$?
