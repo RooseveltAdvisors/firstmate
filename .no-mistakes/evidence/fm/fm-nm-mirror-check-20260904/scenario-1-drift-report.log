@@ -1,0 +1,18 @@
+### S1: fm-bootstrap.sh detect-only flavor (as fm-session-start.sh runs it read-only)
+PRESENTATION_UNAVAILABLE: lavish-axi (requires >=0.1.77; install: npm install -g lavish-axi && lavish-axi setup hooks) - nonvisual work may proceed with plain-text decisions and reports; install or upgrade before using Lavish
+NO_MISTAKES_MIRROR: firstmate remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/fm.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/fm-root-drift to point its gate at the active root)
+NO_MISTAKES_MIRROR: macro remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/macro.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/macro to point its gate at the active root)
+NO_MISTAKES_MIRROR: portal remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/portal.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/portal to point its gate at the active root)
+NO_MISTAKES_MIRROR: absent remote=absent expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/absent to point its gate at the active root)
+NO_MISTAKES_MIRROR: my portal remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/my-portal.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/my portal to point its gate at the active root)
+NO_MISTAKES_MIRROR: linked remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/linked.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/linked to point its gate at the active root)
+rc=0
+
+### S1 mirror lines only:
+NO_MISTAKES_MIRROR: firstmate remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/fm.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/fm-root-drift to point its gate at the active root)
+NO_MISTAKES_MIRROR: macro remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/macro.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/macro to point its gate at the active root)
+NO_MISTAKES_MIRROR: portal remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/portal.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/portal to point its gate at the active root)
+NO_MISTAKES_MIRROR: absent remote=absent expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/absent to point its gate at the active root)
+NO_MISTAKES_MIRROR: my portal remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/my-portal.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/my portal to point its gate at the active root)
+NO_MISTAKES_MIRROR: linked remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/linked.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/linked to point its gate at the active root)
+cat: /home/jon/.no-mistakes/evidence/01M3X6W5PXZ2VKJC3JQ3H748P6/scenario-1-drift-report.log: input file is output file

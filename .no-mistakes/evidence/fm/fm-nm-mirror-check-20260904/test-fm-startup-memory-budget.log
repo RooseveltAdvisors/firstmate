@@ -1,0 +1,14 @@
+ok - primary bootstrap materializes only the visible default and preserves valid captain choices
+ok - budget parser accepts one exact positive value and rejects malformed or unsafe inputs
+ok - budget accounting sums the three startup files and reports safe failures
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 0s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e /tmp/fm-startup-memory-budget.xJxB4n/propagation/root/.pi/extensions/fm-primary-turnend-guard.ts -e /tmp/fm-startup-memory-budget.xJxB4n/propagation/root/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WARNING: watcher still down (same stale episode; last beat: 5s ago, grace 300s) - full banner already printed this episode.
+WARNING: watcher still down (same stale episode; last beat: 9s ago, grace 300s) - full banner already printed this episode.
+ok - budget propagation converges through config push with exact rereads, absence, and safe rejection
+# all fm-startup-memory-budget tests passed

@@ -1,0 +1,15 @@
+Read-only remote probe taken 2026-09-02 during the test phase of no-mistakes run
+01M3X6W5PXZ2VKJC3JQ3H748P6, branch fm/fm-nm-mirror-check-20260904:
+
+  $ git ls-remote origin 'refs/heads/fm/fm-nm-mirror-check-20260904'
+  (no output - empty)
+
+  $ git ls-remote origin refs/heads/main
+  8690c4117a298ee870f0f72f571c72b846b4c5fb	refs/heads/main
+
+Meaning: the branch has not been pushed yet, so "required checks green at the
+final head" and the no-mistakes attestation binding that head cannot exist
+yet - they are produced only by the outer run's push/CI/attestation phases,
+which this test phase is forbidden to execute. Upstream main has not moved
+past the merge commit 78297d97 already contains (verified by
+`git merge-base --is-ancestor origin/main HEAD` -> true).

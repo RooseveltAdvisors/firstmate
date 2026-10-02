@@ -1,0 +1,19 @@
+### A1: legacy bracket-less registry row (fm-project-mode legacy default = no-mistakes)
+NO_MISTAKES_MIRROR: firstmate remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/fm.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/fm-root-drift to point its gate at the active root)
+NO_MISTAKES_MIRROR: macro remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/macro.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/macro to point its gate at the active root)
+NO_MISTAKES_MIRROR: portal remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/portal.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/portal to point its gate at the active root)
+NO_MISTAKES_MIRROR: absent remote=absent expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/absent to point its gate at the active root)
+NO_MISTAKES_MIRROR: my portal remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/my-portal.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/my portal to point its gate at the active root)
+NO_MISTAKES_MIRROR: linked remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/linked.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/linked to point its gate at the active root)
+NO_MISTAKES_MIRROR: legacy remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/legacy.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/legacy to point its gate at the active root)
+PASS: legacy no-bracket row resolved to the default no-mistakes posture and its drifted clone was reported
+
+### A2: non-git FM_ROOT stays silent (git discovery has no work tree to misread)
+PASS: non-git FM_ROOT printed no firstmate mirror line (project legs unaffected)
+NO_MISTAKES_MIRROR: macro remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/macro.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/macro to point its gate at the active root)
+NO_MISTAKES_MIRROR: portal remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/portal.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/portal to point its gate at the active root)
+NO_MISTAKES_MIRROR: absent remote=absent expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/absent to point its gate at the active root)
+NO_MISTAKES_MIRROR: my portal remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/my-portal.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/my portal to point its gate at the active root)
+NO_MISTAKES_MIRROR: linked remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/linked.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/linked to point its gate at the active root)
+NO_MISTAKES_MIRROR: legacy remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/legacy.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/legacy to point its gate at the active root)
+done

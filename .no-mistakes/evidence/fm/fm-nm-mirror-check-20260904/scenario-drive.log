@@ -1,0 +1,103 @@
+===================================================================
+S1+S2: drift reported for no-mistakes-posture clones; everything else silent
+===================================================================
+PRESENTATION_UNAVAILABLE: lavish-axi (requires >=0.1.77; install: npm install -g lavish-axi && lavish-axi setup hooks) - nonvisual work may proceed with plain-text decisions and reports; install or upgrade before using Lavish
+NO_MISTAKES_MIRROR: firstmate remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/fm.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/fm-root-drift to point its gate at the active root)
+NO_MISTAKES_MIRROR: macro remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/macro.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/macro to point its gate at the active root)
+NO_MISTAKES_MIRROR: portal remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/portal.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/portal to point its gate at the active root)
+NO_MISTAKES_MIRROR: absent remote=absent expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/absent to point its gate at the active root)
+NO_MISTAKES_MIRROR: my portal remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/my-portal.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/my portal to point its gate at the active root)
+NO_MISTAKES_MIRROR: linked remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/linked.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/linked to point its gate at the active root)
+--- mirror lines ---
+NO_MISTAKES_MIRROR: firstmate remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/fm.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/fm-root-drift to point its gate at the active root)
+NO_MISTAKES_MIRROR: macro remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/macro.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/macro to point its gate at the active root)
+NO_MISTAKES_MIRROR: portal remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/portal.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/portal to point its gate at the active root)
+NO_MISTAKES_MIRROR: absent remote=absent expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/absent to point its gate at the active root)
+NO_MISTAKES_MIRROR: my portal remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/my-portal.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/my portal to point its gate at the active root)
+NO_MISTAKES_MIRROR: linked remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/linked.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/linked to point its gate at the active root)
+PASS: exactly the 6 expected drift lines: firstmate, macro, portal, absent, 'my portal' (full spaced name), linked; silent for quick(vault?), vault, ghost, well, 'my', secret vault, nested
+PASS: 'quick' stayed silent (posture gating / never-cloned / not-a-clone-root)
+PASS: 'vault' stayed silent (posture gating / never-cloned / not-a-clone-root)
+PASS: 'ghost' stayed silent (posture gating / never-cloned / not-a-clone-root)
+PASS: 'well' stayed silent (posture gating / never-cloned / not-a-clone-root)
+PASS: 'secret vault' stayed silent (posture gating / never-cloned / not-a-clone-root)
+PASS: 'nested' stayed silent (posture gating / never-cloned / not-a-clone-root)
+PASS: 'my' (healthy) silent while 'my portal' (drifted) reported under its full name
+
+===================================================================
+S3: a fully healthy home is completely silent
+===================================================================
+PASS: healthy firstmate checkout + healthy no-mistakes clone + never-cloned + out-of-scope postures printed no NO_MISTAKES_MIRROR line
+--- (full bootstrap output for the healthy home) ---
+PRESENTATION_UNAVAILABLE: lavish-axi (requires >=0.1.77; install: npm install -g lavish-axi && lavish-axi setup hooks) - nonvisual work may proceed with plain-text decisions and reports; install or upgrade before using Lavish
+
+===================================================================
+S4a: trailing-slash NM_HOME normalizes (no false drift, no '//' roots)
+===================================================================
+PASS: NM_HOME='/tmp/fm-lab.zMw1Y6/nm-root-active///' produced byte-identical expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active report
+
+===================================================================
+S4b: bare '/' NM_HOME: /repos/* stays healthy, other paths still drift
+===================================================================
+PASS: bare / root accepted the healthy /repos/fm.git remote (no //repos prefix bug)
+PASS: bare / root still reports a remote outside /repos/ with expected-root=/
+
+===================================================================
+S5: default root resolution when NM_HOME is unset (falls back to ~/.no-mistakes)
+===================================================================
+PASS: default root: remote under $HOME/.no-mistakes/repos stays silent with NM_HOME unset
+PASS: default root: drift reported against $HOME/.no-mistakes when NM_HOME unset
+
+===================================================================
+S6: detect-only contract - bootstrap never mutates a clone or the registry
+===================================================================
+--- full-flavor run mirror lines ---
+NO_MISTAKES_MIRROR: firstmate remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/fm.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/fm-root-drift to point its gate at the active root)
+NO_MISTAKES_MIRROR: macro remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/macro.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/macro to point its gate at the active root)
+NO_MISTAKES_MIRROR: portal remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/portal.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/portal to point its gate at the active root)
+NO_MISTAKES_MIRROR: absent remote=absent expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/absent to point its gate at the active root)
+NO_MISTAKES_MIRROR: my portal remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/my-portal.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/my portal to point its gate at the active root)
+NO_MISTAKES_MIRROR: linked remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/linked.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/linked to point its gate at the active root)
+PASS: full bootstrap run left every clone's config, every HEAD, and data/projects.md byte-identical (no init, no remote edits)
+PASS: full flavor prints the same 6 drift lines as the detect-only flavor
+
+===================================================================
+S7: adversarial regression - the pre-review-fix script (78297d97) on the same fixtures
+===================================================================
+--- OLD (78297d97) mirror lines ---
+NO_MISTAKES_MIRROR: firstmate remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/fm.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/fm-root-drift to point its gate at the active root)
+NO_MISTAKES_MIRROR: macro remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/macro.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/macro to point its gate at the active root)
+NO_MISTAKES_MIRROR: portal remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/portal.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/portal to point its gate at the active root)
+NO_MISTAKES_MIRROR: absent remote=absent expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/absent to point its gate at the active root)
+NO_MISTAKES_MIRROR: nested remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/projects.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/nested to point its gate at the active root)
+NO_MISTAKES_MIRROR: linked remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/linked.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/linked to point its gate at the active root)
+--- NEW (HEAD) mirror lines ---
+NO_MISTAKES_MIRROR: firstmate remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/fm.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/fm-root-drift to point its gate at the active root)
+NO_MISTAKES_MIRROR: macro remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/macro.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/macro to point its gate at the active root)
+NO_MISTAKES_MIRROR: portal remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/portal.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/portal to point its gate at the active root)
+NO_MISTAKES_MIRROR: absent remote=absent expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/absent to point its gate at the active root)
+NO_MISTAKES_MIRROR: my portal remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/my-portal.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/my portal to point its gate at the active root)
+NO_MISTAKES_MIRROR: linked remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/linked.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/linked to point its gate at the active root)
+PASS: regression reproduced on pre-fix script: 'my portal' never reported (registry name truncated at the space)
+PASS: regression reproduced on pre-fix script: plain directory 'nested' falsely reported with the ENCLOSING repository's remote
+PASS: HEAD stays silent for 'nested' (clone-root guard)
+--- firstmate leg with FM_ROOT = plain directory inside a repository ---
+OLD: NO_MISTAKES_MIRROR: firstmate remote=/tmp/fm-lab.zMw1Y6/nm-root-stale/repos/projects.git expected-root=/tmp/fm-lab.zMw1Y6/nm-root-active (run no-mistakes init inside /tmp/fm-lab.zMw1Y6/projects/nested to point its gate at the active root)
+NEW: (silent)
+PASS: regression reproduced: pre-fix script attributed the enclosing repository's remote to the firstmate label
+PASS: HEAD silent when FM_ROOT is a plain directory nested inside a repository
+
+===================================================================
+S8: docs contract - read-only qualifier still follows the TANGLE sentence
+===================================================================
+TANGLE at line 1284, read-only qualifier at 1285, NO_MISTAKES_MIRROR at 1286
+PASS: read-only qualifier directly follows its TANGLE sentence; NO_MISTAKES_MIRROR sentence comes after both
+
+===================================================================
+S9: branch contains the locally-known upstream main (conflict-free base)
+===================================================================
+PASS: HEAD contains origin/main (8690c411) - a merge against it cannot conflict
+
+===================================================================
+RESULT: 23 passed, 0 failed
+===================================================================
