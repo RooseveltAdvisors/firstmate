@@ -1,0 +1,38 @@
+=== real bd + tasks-axi 0.2.6 scratch graph: 36 dead-endpoint in_progress rows; fm-r05..fm-r36 captain-held, fm-r01..fm-r04 unheld
+
+=== PRE-FIX (40860a24) check:
+stale-sweep: 36 dead-endpoint in_progress rows reclaimable - run bin/fm-stale-sweep.sh --apply
+
+=== PRE-FIX dry run summary:
+36 stale candidates: 36 dead, 0 live, 0 unproven, 0 no-home; would reclaim 36
+
+=== FIXED (HEAD) check:
+stale-sweep: 4 dead-endpoint in_progress rows reclaimable - run bin/fm-stale-sweep.sh --apply
+
+=== FIXED dry run:
+ID                                         HOME               AGE     VERDICT   ACTION                   ACTOR         PROV
+fm-r04                                     main home          50h     dead      would reclaim            -             -
+fm-r03                                     main home          50h     dead      would reclaim            -             -
+fm-r02                                     main home          50h     dead      would reclaim            -             -
+fm-r01                                     main home          50h     dead      would reclaim            -             -
+4 stale candidates: 4 dead, 0 live, 0 unproven, 0 no-home; would reclaim 4
+
+=== FIXED --apply:
+ID                                         HOME               AGE     VERDICT   ACTION                   ACTOR         PROV
+fm-r04                                     main home          50h     dead      reclaimed                -             -
+fm-r03                                     main home          50h     dead      reclaimed                -             -
+fm-r02                                     main home          50h     dead      reclaimed                -             -
+fm-r01                                     main home          50h     dead      reclaimed                -             -
+4 stale candidates: 4 dead, 0 live, 0 unproven, 0 no-home; reclaimed 4
+
+=== post-apply row states (count status held):
+     32 in_progress held=true
+      4 open held=false
+
+=== tasks-axi show fm-r05 (held, untouched):
+  state: in_flight
+  held: yes
+  hold_kind: captain
+
+=== FIXED check after apply (expect silence):
+[check rc=0 , no output]
