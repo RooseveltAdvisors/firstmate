@@ -317,30 +317,71 @@ EOF
   return 0
 }
 
-# True when state dir $1 records a live verified harness outside this process's
-# contiguous harness ancestry that was not recorded by this same trusted Claude
-# session. Sets FM_SESSION_LOCK_FOREIGN_OWNER_PID for a diagnostic caller.
-# Malformed, missing, dead, and ancestry-uncertain locks are not foreign-owner
-# evidence.
-# shellcheck disable=SC2034 # Output global, read by the sourcing guard caller.
-FM_SESSION_LOCK_FOREIGN_OWNER_PID=
-fm_session_lock_foreign_owner_live() {
-  local state=$1 lock_pid pids pid
-  FM_SESSION_LOCK_FOREIGN_OWNER_PID=
-  [ -f "$state/.lock" ] && [ ! -L "$state/.lock" ] || return 1
-  lock_pid=$(cat "$state/.lock" 2>/dev/null || true)
-  case "$lock_pid" in
-    ''|*[!0-9]*) return 1 ;;
+# Read-only classification of state/.lock for machine-readable callers.
+# Never acquires the lock. A held lock is not proof the holder is consuming
+# wakes; that question belongs to the inbox readiness projection.
+#
+# Sets:
+#   FM_LOCK_INSPECT_STATE         free|held|stale|unreadable|unknown
+#   FM_LOCK_INSPECT_PID           recorded pid, or empty
+#   FM_LOCK_INSPECT_LIVE_HARNESS  true|false|unknown
+#
+# held: the recorded pid is a live verified harness.
+# stale: the recorded pid is gone.
+# unknown: the file or pid cannot be classified without guessing, including a
+# live process that is not a verified harness. Existence of a lock file, a
+# session record, or a pane is never treated as liveness.
+# shellcheck disable=SC2034 # Output globals, read by lock status and inbox ready.
+FM_LOCK_INSPECT_STATE=unknown
+FM_LOCK_INSPECT_PID=
+FM_LOCK_INSPECT_LIVE_HARNESS=unknown
+fm_session_lock_inspect() {  # <state>
+  local state=$1 lock pid
+  # shellcheck disable=SC2034 # Output globals, read by lock status and inbox ready.
+  FM_LOCK_INSPECT_STATE=unknown
+  # shellcheck disable=SC2034 # Output globals, read by lock status and inbox ready.
+  FM_LOCK_INSPECT_PID=
+  # shellcheck disable=SC2034 # Output globals, read by lock status and inbox ready.
+  FM_LOCK_INSPECT_LIVE_HARNESS=unknown
+  lock="$state/.lock"
+  if [ ! -e "$lock" ]; then
+    FM_LOCK_INSPECT_STATE=free
+    FM_LOCK_INSPECT_LIVE_HARNESS=false
+    return 0
+  fi
+  if [ ! -f "$lock" ] || [ -L "$lock" ]; then
+    FM_LOCK_INSPECT_STATE=unreadable
+    return 0
+  fi
+  pid=$(cat "$lock" 2>/dev/null) || {
+    FM_LOCK_INSPECT_STATE=unreadable
+    return 0
+  }
+  pid=${pid%%$'\n'*}
+  # shellcheck disable=SC2034 # Output global, read by lock status and inbox ready.
+  FM_LOCK_INSPECT_PID=$pid
+  case "$pid" in
+    ''|*[!0-9]*)
+      FM_LOCK_INSPECT_STATE=unknown
+      return 0
+      ;;
   esac
-  fm_harness_pid_alive "$lock_pid" || return 1
-  pids=$(fm_harness_ancestry_pids) || return 1
-  while IFS= read -r pid; do
-    [ "$pid" = "$lock_pid" ] && return 1
-  done <<EOF
-$pids
-EOF
-  fm_session_lock_same_session "$state" "$pids" && return 1
-  # shellcheck disable=SC2034 # Output global, read by the sourcing guard caller.
-  FM_SESSION_LOCK_FOREIGN_OWNER_PID=$lock_pid
-  return 0
+  if kill -0 "$pid" 2>/dev/null; then
+    if fm_harness_pid_alive "$pid"; then
+      FM_LOCK_INSPECT_STATE=held
+      FM_LOCK_INSPECT_LIVE_HARNESS=true
+    else
+      FM_LOCK_INSPECT_STATE=unknown
+      FM_LOCK_INSPECT_LIVE_HARNESS=false
+    fi
+    return 0
+  fi
+  if ps -o comm= -p "$pid" >/dev/null 2>&1; then
+    FM_LOCK_INSPECT_STATE=unknown
+    return 0
+  fi
+  # shellcheck disable=SC2034 # Output global, read by lock status and inbox ready.
+  FM_LOCK_INSPECT_STATE=stale
+  # shellcheck disable=SC2034 # Output global, read by lock status and inbox ready.
+  FM_LOCK_INSPECT_LIVE_HARNESS=false
 }

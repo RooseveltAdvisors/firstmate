@@ -189,8 +189,18 @@ case "${1:-}" in
   display-message)
     for a in "$@"; do
       case "$a" in
-        *cursor_y*) printf '1\n'; exit 0 ;;
+        *cursor_y*)
+          # A modelled Devin screen parks the cursor on its composer row.
+          if [ -f "$D/devin" ]; then
+            devin_screen "$(cat "$D/devin")" | awk '/^❭ /{ print NR - 1; exit }'
+          else
+            printf '1\n'
+          fi
+          exit 0 ;;
         *pane_current_command*)
+          # The PR's fake agent stops only once its exit deadline has passed,
+          # so a stop that lands after the exit window still lands inside the
+          # confirm window.
           if [ -f "$D/exit-deadline" ]; then
             if [ "$(awk -v n="${EPOCHREALTIME:-$SECONDS}" \
               -v d="$(cat "$D/exit-deadline")" 'BEGIN{print (n >= d) ? 1 : 0}')" = 1 ]; then
@@ -282,6 +292,7 @@ run_control() {
     FM_FAKE_INTERRUPT_DISAPPEARS="${FM_FAKE_INTERRUPT_DISAPPEARS:-}" \
     FM_FAKE_INTERRUPT_BLURS="${FM_FAKE_INTERRUPT_BLURS:-}" \
     FM_FAKE_INTERRUPT_STOP_DELAY="${FM_FAKE_INTERRUPT_STOP_DELAY:-}" \
+    FM_FAKE_DEVIN_PICKER_STUCK="${FM_FAKE_DEVIN_PICKER_STUCK:-}" \
     "$CONTROL" "$@" 2>&1
 }
 
