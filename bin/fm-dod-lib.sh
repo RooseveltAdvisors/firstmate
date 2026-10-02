@@ -362,7 +362,7 @@ Delivery contract: mode=direct-PR forge=gerrit shape=squash
 Ship branch: $branch
 This task ships **direct-PR** to a Gerrit review server: you publish the change yourself, without the no-mistakes pipeline.
 Gerrit has no pull requests, so there is nothing to open; publishing creates the change.
-The task is complete only when committed on your branch.
+The task is complete only after the branch is pushed and the change is open.
 When it is implemented and committed, publish it.
 EOF
       fm_gerrit_publish_block
@@ -378,10 +378,9 @@ Ship branch: $branch
 This project's review server is Gerrit: it has no pull requests and no forge CI the pipeline can watch, so **no-mistakes runs here as a review pass that ends at a ready branch**, and you then publish that branch as one change.
 Pass \`--skip push,pr,ci\` on every \`no-mistakes axi run\` for this task, and skip nothing else: \`review\`, \`test\`, \`document\`, and \`lint\` are the whole point of the run.
 Those three are the only steps that reach a forge, and skipping them is a supported outcome, not a degraded one.
-The task is complete only when committed on your branch.
-When you believe it is complete, append \`done [at=<epoch>]: {summary}\` to the status file and stop.
-Firstmate will then instruct you to run /no-mistakes to validate.
-That first \`done:\` is the handoff that starts the pipeline; it is not a request to publish.
+The task is complete only after the change is pushed and open for review with checks green (or attestation green).
+A commit is only the input to validation; never report done from the bare implementation commit.
+When it is implemented and committed, start /no-mistakes to validate the branch; do not append \`done:\` until the run's outcome passes and the change is published.
 
 EOF
       fm_nm_driving_block "$forge"
