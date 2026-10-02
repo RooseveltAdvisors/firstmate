@@ -230,12 +230,11 @@ while IFS='|' read -r id home _window meta; do
     errors=1
   fi
   print_item_report "$report"
-  reread_before=$(fm_config_reread_latest_delivered "$home_real" || true)
+  reread_before=$(fm_config_reread_delivered_paths "$home_real" || true)
   if reread_out=$(FM_HOME="$FM_HOME" FM_ROOT_OVERRIDE="$FM_ROOT" \
     FM_STATE_OVERRIDE="$STATE" \
     fm_config_send_reread_nudge "$id" "$home_real" "$report" 2>&1); then
-    reread_after=$(fm_config_reread_latest_delivered "$home_real" || true)
-    if [ -n "$reread_after" ] && [ "$reread_after" != "$reread_before" ]; then
+    if fm_config_reread_delivered_gained "$home_real" "$reread_before"; then
       printf '  config-reread: sent\n'
     fi
     [ -z "$reread_out" ] || printf '%s\n' "$reread_out"
