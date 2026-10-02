@@ -651,22 +651,6 @@ fm_backend_herdr_task_label_matches_id() {  # <task-label> <task-id>
   esac
 }
 
-# fm_backend_herdr_task_id_from_label: recover the task id from a supported
-# task label when a legacy direct caller does not pass it separately.
-fm_backend_herdr_task_id_from_label() {  # <task-label>
-  local label=$1 id
-  case "$label" in
-    *' ('*')')
-      id=${label##*' ('}
-      id=${id%')'}
-      ;;
-    fm-*) id=${label#fm-} ;;
-    *) return 1 ;;
-  esac
-  [ -n "$id" ] || return 1
-  printf '%s' "$id"
-}
-
 # fm_backend_herdr_projection_journal_snapshot: validate a version 1 attempt
 # journal or a version 2 exact projection binding without sourcing shell code.
 # Version 2 sets FM_BACKEND_HERDR_JOURNAL_* globals for same-process callers.
@@ -2502,13 +2486,11 @@ fm_backend_herdr_agent_alive() {  # <target>
 
 # fm_backend_herdr_task_label: choose a new worker's task-tab label.
 # Existing tabs keep their recorded labels; this is only called while creating
-# a new worker endpoint. The spawn site passes both label candidates - the
-# backlog row title and the task's own brief - so the policy lives in exactly
-# one place: only the row title may name the tab, and a task with no row title
-# keeps the bare fm-<id>. A scaffolded brief opens with the fixed crewmate role
-# sentence every worker shares, so the brief never names the tab.
-fm_backend_herdr_task_label() {  # <row-title> <brief-path> <task-id>
-  local title=$1 id=$3
+# a new worker endpoint. Only the backlog row title may name the tab: a task
+# with no row title keeps the bare fm-<id>, and the task brief never labels the
+# tab.
+fm_backend_herdr_task_label() {  # <short-title> <task-id>
+  local title=$1 id=$2
   title=$(printf '%s' "$title" | tr '\r\n\t' ' ' | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//')
   if [ -z "$title" ]; then
     printf 'fm-%s' "$id"
@@ -2626,14 +2608,11 @@ fm_backend_herdr_task_label_history_compact() {  # <path> <label>
 # the safety argument). An ADOPTED workspace's caller always passes an empty
 # 4th arg, so this function never even queries for a prune candidate in that
 # case. Echoes "<tab_id> <pane_id>" on success.
-fm_backend_herdr_create_task() {  # <container> <label> <cwd> <seeded_default_tab_id> [<task-id>] [<label-history>]
+fm_backend_herdr_create_task() {  # <container> <label> <cwd> <seeded_default_tab_id> <task-id> [<label-history>]
   local container=$1 label=$2 cwd=$3 seeded_tab_id=${4:-} task_id=${5:-} label_history=${6:-}
   local session wsid list dup_tabs dup dup_label dup_pane dup_tab_ids out tab_id pane_id remaining_dup_tabs remaining_dup_list remaining_dup remaining_dup_label attempted_labels
   session=${container%%:*}
   wsid=${container#*:}
-  if [ -z "$task_id" ]; then
-    task_id=$(fm_backend_herdr_task_id_from_label "$label" 2>/dev/null || true)
-  fi
   attempted_labels=$(fm_backend_herdr_task_label_history_json "$label_history") || return 1
   list=$(fm_backend_herdr_cli "$session" tab list --workspace "$wsid" 2>/dev/null) || return 1
   dup_tabs=$(printf '%s' "$list" | jq -r \

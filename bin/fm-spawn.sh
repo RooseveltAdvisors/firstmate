@@ -3508,7 +3508,7 @@ if [ "$BACKEND" = herdr ]; then
     HERDR_TASK_LABEL_HOME=$PROJ_ABS/config
   fi
   if [ "$(fm_backend_herdr_task_titles_preference "$HERDR_TASK_LABEL_HOME")" = on ]; then
-    HERDR_TASK_LABEL=$(fm_backend_herdr_task_label "${FM_BACKLOG_ROW_TITLE:-}" "${SOURCE_BRIEF:-$BRIEF}" "$ID")
+    HERDR_TASK_LABEL=$(fm_backend_herdr_task_label "${FM_BACKLOG_ROW_TITLE:-}" "$ID")
   fi
 fi
 if [ "$RELAUNCH" -eq 1 ]; then
