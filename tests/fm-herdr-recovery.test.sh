@@ -1620,6 +1620,62 @@ EOF
 > 1. Yes, proceed (y)
   3. No (esc)
 EOF
+  cat > "$prompts/deny-rg-encoding-e-pathless" <<EOF
+  Would you like to run the following command?
+
+  rg -Eeuc-kr $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-rg-threads-pathless" <<EOF
+  Would you like to run the following command?
+
+  rg -j 4 $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-rg-depth-pathless" <<EOF
+  Would you like to run the following command?
+
+  rg -d 2 $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-rg-encoding-pathless" <<EOF
+  Would you like to run the following command?
+
+  rg -E euc-kr $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-rg-depth-path" <<EOF
+  Would you like to run the following command?
+
+  rg -d 2 TODO $ROOT/state
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-grep-drecurse-pathless" <<EOF
+  Would you like to run the following command?
+
+  grep -drecurse $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-grep-drecurse-path" <<EOF
+  Would you like to run the following command?
+
+  grep -drecurse TODO $ROOT/state
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
   cat > "$prompts/unknown" <<'EOF'
 Status header
 gpt-5.6-sol high - some/cwd
@@ -1800,6 +1856,13 @@ EOF
   classify allow-rg-replace-quoted-e 'approve' 'classifier approves an rg -r quoted replacement of e'
   classify deny-awk-argv-read 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses an awk program that rewrites ARGV'
   classify deny-awk-argc-read 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses an awk program that appends through ARGC'
+  classify deny-rg-encoding-e-pathless 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a pathless rg whose attached -E value contains an e'
+  classify deny-rg-threads-pathless 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a pathless rg -j'
+  classify deny-rg-depth-pathless 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a pathless rg -d'
+  classify deny-rg-encoding-pathless 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a pathless rg -E'
+  classify allow-rg-depth-path 'approve' 'classifier approves rg -d with a pattern and path'
+  classify deny-grep-drecurse-pathless 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a pathless grep -drecurse'
+  classify allow-grep-drecurse-path 'approve' 'classifier approves grep -drecurse with a pattern and path'
   classify deny-grep-pre-e-operand 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an unverified operand before grep -e'
   classify deny-grep-pre-f-operand 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an unverified operand before grep -f'
   classify deny-sed-pre-e-operand 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an unverified operand before sed -e'

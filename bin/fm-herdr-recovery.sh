@@ -287,7 +287,7 @@ fm_reco_awk_scripts_ok() { # <segment>
 # scan, so an e inside an attached value is not mistaken for -e.
 fm_reco_e_cluster() { # <head> <unquoted-token>
   local pre noarg=nivclqorEFwxhHs
-  [ "$1" = rg ] && noarg=nivclqoEFwxhHs
+  [ "$1" = rg ] && noarg=nivclqoFwxhHs
   case "$2" in
     -*e*) ;;
     *) return 1 ;;
@@ -485,7 +485,7 @@ fm_reco_program_slot() { # <raw-token>
 # positional path, because with none its operand is the pane's cwd, which is
 # never fetched.
 fm_reco_relative_ok() { # <line> <resolved-home>
-  local seg head tok raw home seen_special used_e expect_val expect_prog expect_pat check_next in_single in_pat saw_pos pre post pspan ptok rest sq dq
+  local seg head tok raw home seen_special used_e expect_val expect_prog expect_pat check_next in_single in_pat saw_pos pre post pspan ptok rest sq dq grec
   home=$(readlink -f -- "$2" 2>/dev/null) || return 1
   local -a toks
   while IFS= read -r seg; do
@@ -503,6 +503,7 @@ fm_reco_relative_ok() { # <line> <resolved-home>
     in_single=0
     in_pat=0
     saw_pos=0
+    grec=0
     read -ra toks <<< "$seg" || return 1
     if [ "$head" = grep ] || [ "$head" = sed ] || [ "$head" = rg ]; then
       pspan=0
@@ -646,12 +647,13 @@ fm_reco_relative_ok() { # <line> <resolved-home>
             find:-name|find:-iname|find:-lname|find:-path|find:-ipath|find:-regex|find:-iregex|find:-type|find:-maxdepth|find:-mindepth|find:-mtime|find:-mmin|find:-size) expect_val=1; expect_pat=1 ;;
             grep:-A|grep:-B|grep:-C|grep:-e|grep:-m) expect_val=1; expect_pat=1; case "$tok" in -e) used_e=1 ;; esac ;;
             grep:-f) used_e=1; check_next=1 ;;
-            rg:-A|rg:-B|rg:-C|rg:-e|rg:-g|rg:-t|rg:-T|rg:-m|rg:-M|rg:-r) expect_val=1; expect_pat=1; case "$tok" in -e) used_e=1 ;; esac ;;
+            rg:-A|rg:-B|rg:-C|rg:-e|rg:-g|rg:-t|rg:-T|rg:-m|rg:-M|rg:-r|rg:-E|rg:-j|rg:-d) expect_val=1; expect_pat=1; case "$tok" in -e) used_e=1 ;; esac ;;
             rg:-f) used_e=1; check_next=1 ;;
             head:-n|head:-c|tail:-n|tail:-c) expect_val=1 ;;
             sort:-k|sort:-t|sort:-S) expect_val=1 ;;
             uniq:-f|uniq:-s|uniq:-w) expect_val=1 ;;
             grep:--*|wc:--*) return 1 ;;
+            grep:-drecurse) grec=1 ;;
             grep:-*|rg:-*)
               if fm_reco_e_cluster "$head" "$tok"; then
                 used_e=1
@@ -704,6 +706,9 @@ fm_reco_relative_ok() { # <line> <resolved-home>
     case "$head" in
       ls|find|rg)
         [ "$saw_pos" -eq 1 ] || return 1
+        ;;
+      grep)
+        [ "$grec" -eq 0 ] || [ "$saw_pos" -eq 1 ] || return 1
         ;;
     esac
   done < <(fm_reco_segments "$1")
