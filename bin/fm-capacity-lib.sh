@@ -8,9 +8,11 @@
 #
 #   bin/fm-spawn.sh detects treehouse's exact "all N worktrees are in use"
 #   refusal during the treehouse-get wait and holds the item through
-#   fm_capacity_hold; bin/fm-teardown.sh releases the oldest hold recorded for
-#   the same pool through fm_capacity_release_oldest right after a worktree is
-#   returned to that pool.
+#   fm_capacity_hold; fm_capacity_release_after_return releases the oldest hold
+#   recorded for the freed pool right after this home returns a slot to it -
+#   bin/fm-teardown.sh after its task-worktree, secondmate-home, and forced
+#   child-worktree returns, bin/fm-home-seed.sh after the seed rollback's
+#   treehouse return.
 #
 # Reason contract (owned here, consumed by both call sites and the tests):
 #   pool <pool-root> full <N>/<max>
@@ -177,4 +179,24 @@ EOF
   # shellcheck disable=SC2034
   FM_CAPACITY_RELEASED_ID=$best_id
   printf 'ready: %s - capacity hold released for pool %s\n' "$best_id" "$pool"
+}
+
+# Release the oldest capacity hold for the pool whose slot <worktree> just went
+# back to it, scanning the project-root fallback identity <project> when the
+# worktree-derived pool scan matches nothing, and print which item became
+# ready. The scan reads only <data-dir>, the returning home's own backlog, so a
+# hold another home recorded for the same pool stays recorded. Never fatal and
+# silent when the pool cannot be computed: the release is the returning side's
+# best effort, never the caller's decision point.
+fm_capacity_release_after_return() {  # <data-dir> <worktree> <project>
+  local data=$1 worktree=$2 project=$3 pool fallback
+  pool=$(fm_capacity_pool_of_worktree "$worktree" 2>/dev/null || true)
+  [ -n "$pool" ] || return 0
+  fm_capacity_release_oldest "$data" "$pool" || true
+  if [ -z "$FM_CAPACITY_RELEASED_ID" ] && [ -n "$project" ]; then
+    fallback=$(fm_capacity_canonical_or_raw "$project" 2>/dev/null || true)
+    if [ -n "$fallback" ] && [ "$fallback" != "$pool" ]; then
+      fm_capacity_release_oldest "$data" "$fallback" || true
+    fi
+  fi
 }
