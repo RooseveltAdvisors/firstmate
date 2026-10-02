@@ -1,0 +1,31 @@
+=== C-continued cycle 1 ===
+watcher exited with wake after 19s
+wake output: stale: fmlab:fm-jevlive (idle 3s, possible wedge, escalation 1)
+jev curl calls: 3
+key absent from curl argv; header: Authorization: Bearer <redacted-present>
+escalation counter: 1
+suppress streak marker: fp=cf56d9df… count=3
+triage log tail: 
+=== C-continued cycle 2 ===
+watcher exited with wake after 5s
+wake output: stale: fmlab:fm-jevlive (idle 4s, possible wedge, escalation 2)
+jev curl calls: 0
+escalation counter: 2
+suppress streak marker: fp=cf56d9df… count=3
+triage log tail: 
+=== C-continued cycle 3 ===
+watcher exited with wake after 4s
+wake output: stale: fmlab:fm-jevlive (idle 3s, possible wedge, escalation 3, demand-deep-inspection: same pane has wedge-escalated 3 times in a row - do not re-absorb on the run-step/pane state alone)
+jev curl calls: 0
+escalation counter: 3
+suppress streak marker: fp=cf56d9df… count=3
+triage log tail: 
+=== C-continued cycle 4 ===
+watcher exited with wake after 4s
+wake output: stale: fmlab:fm-jevlive (idle 3s, possible wedge, escalation 4, demand-deep-inspection: same pane has wedge-escalated 4 times in a row - do not re-absorb on the run-step/pane state alone)
+jev curl calls: 0
+escalation counter: 4
+suppress streak marker: fp=cf56d9df… count=3
+triage log tail: 
+total calibration rows: 3
+lab torn down: yes

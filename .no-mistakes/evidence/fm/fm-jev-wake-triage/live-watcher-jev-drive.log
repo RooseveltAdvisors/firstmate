@@ -1,0 +1,59 @@
+--- A: no config, no env (default OFF) ---
+=== A default-off ===
+watcher exited with wake after 8s
+wake output: stale: fmlab:fm-jevlive (idle 3s, possible wedge, escalation 1)
+/tmp/jevlive/drive.sh: line 60: /tmp/fm-lab.ALEnFm/curl.calls: No such file or directory
+jev curl calls: 0
+escalation counter: 1
+suppress streak marker: none
+triage log tail: 
+--- B: config/jev-wake-triage = 'ONN' typo (must stay OFF) ---
+=== B typo-off ===
+watcher exited with wake after 5s
+wake output: stale: fmlab:fm-jevlive (idle 4s, possible wedge, escalation 1)
+/tmp/jevlive/drive.sh: line 60: /tmp/fm-lab.ALEnFm/curl.calls: No such file or directory
+jev curl calls: 0
+escalation counter: 1
+suppress streak marker: none
+triage log tail: 
+--- B2: empty config file (must stay OFF) ---
+=== B2 empty-off ===
+watcher exited with wake after 5s
+wake output: stale: fmlab:fm-jevlive (idle 4s, possible wedge, escalation 1)
+/tmp/jevlive/drive.sh: line 60: /tmp/fm-lab.ALEnFm/curl.calls: No such file or directory
+jev curl calls: 0
+escalation counter: 1
+suppress streak marker: none
+triage log tail: 
+--- C: config on, Jev pipeline_wait conf 0.9 -> suppress; streak caps at 3 then pages ---
+=== C suppress-until-cap ===
+watcher exited with wake after 14s
+wake output: stale: fmlab:fm-jevlive (idle 3s, possible wedge, escalation 1)
+jev curl calls: 3
+key absent from curl argv; header: Authorization: Bearer <redacted-present>
+escalation counter: 1
+suppress streak marker: fp=cf56d9df… count=3
+triage log tail: 
+calibration rows: 3
+{"n":3,"class":"ship","action":"suppress","choice":"pipeline_wait","noul":0.2,"outcome":"pending","last":"validating (running)"}
+telemetry:       3 jev_triage.suppressed	ship;
+--- D: config on, pipeline_wait conf 0.5 (below 0.6 floor) -> escalate ---
+=== D below-floor ===
+watcher exited with wake after 4s
+wake output: stale: fmlab:fm-jevlive (idle 3s, possible wedge, escalation 1)
+jev curl calls: 1
+key absent from curl argv; header: Authorization: Bearer <redacted-present>
+escalation counter: 1
+suppress streak marker: none
+triage log tail: 
+--- E: config on, true_wedge 0.9 -> escalate ---
+=== E true_wedge ===
+watcher exited with wake after 5s
+wake output: stale: fmlab:fm-jevlive (idle 3s, possible wedge, escalation 1)
+jev curl calls: 1
+key absent from curl argv; header: Authorization: Bearer <redacted-present>
+escalation counter: 1
+suppress streak marker: none
+triage log tail: 
+final telemetry:       1 jev_triage.escalated	ship;      3 jev_triage.suppressed	ship;      1 jev_triage.unavailable	ship;
+lab torn down: yes

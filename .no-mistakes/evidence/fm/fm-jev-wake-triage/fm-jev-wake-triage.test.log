@@ -1,0 +1,23 @@
+ok - absent key and .env-only key fail open without a network call
+ok - true_wedge escalates, stamps telemetry, and logs calibration
+ok - pipeline_wait suppresses and stamps suppressed telemetry
+ok - healthy_idle suppresses with the secondmate class
+ok - Jev HTTP and transport errors fail open to unavailable
+ok - a malformed Jev answer fail-opens
+ok - below-floor confidence fail-opens instead of suppressing
+ok - below-floor true_wedge still pages
+ok - missing confidence fail-opens instead of suppressing
+ok - calibration logs the first N decisions; telemetry keeps counting
+ok - later_escalated does not append after the calibration cap
+ok - telemetry class is coerced to the known set
+ok - watcher pipeline_wait suppresses the stale escalation and restarts the idle timer
+ok - a suppression streak below the cap stays quiet and extends the streak
+ok - a capped suppression streak escalates without Jev and reaches demand-deep-inspection
+ok - a changed last status line restarts the suppression streak
+ok - watcher true_wedge still escalates on today's stale reason
+ok - watcher Jev error fails open to today's escalate path
+ok - absent config and env skip Jev and escalate as today
+ok - config/jev-wake-triage enables only on/1/true/yes (any case); empty, garbage, and typos stay off
+ok - FM_JEV_WAKE_TRIAGE=off disables triage with no config file present
+ok - FM_JEV_WAKE_TRIAGE=on re-enables triage over config/jev-wake-triage=off
+# all fm-jev-wake-triage tests passed
