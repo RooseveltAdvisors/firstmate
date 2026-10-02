@@ -187,9 +187,13 @@ EOF
 # ready. The scan reads only <data-dir>, the returning home's own backlog, so a
 # hold another home recorded for the same pool stays recorded. Never fatal and
 # silent when the pool cannot be computed: the release is the returning side's
-# best effort, never the caller's decision point.
-fm_capacity_release_after_return() {  # <data-dir> <worktree> <project>
-  local data=$1 worktree=$2 project=$3 pool fallback
+# best effort, never the caller's decision point. A home whose
+# config/backlog-backend selects manual editing is skipped outright: spawn
+# records no hold there, so release must not mutate a hand-kept backlog.
+fm_capacity_release_after_return() {  # <config-dir> <data-dir> <worktree> <project>
+  local config=$1 data=$2 worktree=$3 project=$4 pool fallback
+  FM_CAPACITY_RELEASED_ID=
+  ! fm_backlog_backend_manual "$config" || return 0
   pool=$(fm_capacity_pool_of_worktree "$worktree" 2>/dev/null || true)
   [ -n "$pool" ] || return 0
   fm_capacity_release_oldest "$data" "$pool" || true

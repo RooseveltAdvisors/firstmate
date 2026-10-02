@@ -2683,7 +2683,7 @@ remove_firstmate_home() {
       restore_firstmate_home_process_events "$abs_home_path" "$label" "$process_event_backup" || return $?
       return 1
     }
-    fm_capacity_release_after_return "$DATA" "$abs_home_path" "$FM_ROOT"
+    fm_capacity_release_after_return "$CONFIG" "$DATA" "$abs_home_path" "$FM_ROOT"
     [ -z "$process_event_backup" ] || rm -rf -- "$process_event_backup"
     return 0
   fi
@@ -3290,7 +3290,7 @@ cleanup_firstmate_home_children() {
         if [ -n "$child_proj" ] && [ -d "$child_proj" ] && command -v treehouse >/dev/null 2>&1; then
           if teardown_treehouse_return "$child_wt" "$child_proj" "child worktree"; then
             fm_treehouse_slot_owner_release "$child_wt" "$child_id"
-            fm_capacity_release_after_return "$DATA" "$child_wt" "$child_proj"
+            fm_capacity_release_after_return "$CONFIG" "$DATA" "$child_wt" "$child_proj"
           else
             child_return_rc=$?
             if [ "$child_return_rc" -eq "$TEARDOWN_TREEHOUSE_LOCK_REFUSED" ]; then
@@ -3636,7 +3636,7 @@ elif [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
   # dispatchable again instead of waiting for the next backlog re-evaluation.
   # Best-effort by design - a failed release leaves the hold recorded for the
   # next teardown to retry, never aborting this one.
-  fm_capacity_release_after_return "$DATA" "$WT" "$PROJ"
+  fm_capacity_release_after_return "$CONFIG" "$DATA" "$WT" "$PROJ"
 fi
 
 HERDR_PRESENTATION_JOURNAL="$STATE/$ID.herdr-presentation"

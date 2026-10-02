@@ -16,7 +16,8 @@
 # Teardown side: a landed local-only worktree under <pool>/7/wt is torn down
 # through the real script, and the release must unhold exactly the oldest
 # capacity hold recorded for that pool, leaving a same-pool newer hold, a
-# different-pool hold, and a non-capacity hold all in place.
+# different-pool hold, and a non-capacity hold all in place. A manual-backend
+# home proves teardown never touches the hand-kept backlog.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -433,10 +434,33 @@ test_teardown_releases_fallback_identity_hold_when_pool_scan_matches_nothing() {
   pass "a hold recorded under the project-root fallback identity is released when the worktree-derived pool matches nothing"
 }
 
+test_teardown_on_manual_home_leaves_capacity_holds_untouched() {
+  local case_dir rc before
+  case_dir=$(make_teardown_case manual-z5)
+  printf 'manual\n' > "$case_dir/config/backlog-backend"
+  before=$(cat "$case_dir/data/backlog.md")
+  set +e
+  FM_ROOT_OVERRIDE="$ROOT" \
+  FM_STATE_OVERRIDE="$case_dir/state" \
+  FM_DATA_OVERRIDE="$case_dir/data" \
+  FM_CONFIG_OVERRIDE="$case_dir/config" \
+  PATH="$case_dir/fakebin:$PATH" \
+    "$TEARDOWN" task-x1 > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "landed task teardown should succeed (stderr: $(cat "$case_dir/stderr"))"
+  assert_not_contains "$(cat "$case_dir/stdout")" "capacity hold released" \
+    "a manual-backend home must not report a capacity release"
+  [ "$(held_field "$case_dir" task-a)" = yes ] || fail "manual-home teardown released a hand-kept hold"
+  [ "$(cat "$case_dir/data/backlog.md")" = "$before" ] || fail "manual-home teardown mutated the backlog"
+  pass "returning a worktree in a manual-backend home leaves its backlog untouched"
+}
+
 test_pool_full_refusal_holds_and_exits_two
 test_pool_full_refusal_on_manual_home_exits_two_without_hold
 test_pool_full_refusal_reports_an_endpoint_it_could_not_close
 test_teardown_releases_oldest_capacity_hold_for_the_pool
 test_teardown_releases_fallback_identity_hold_when_pool_scan_matches_nothing
+test_teardown_on_manual_home_leaves_capacity_holds_untouched
 
 echo "# all fm-capacity-hold tests passed"
