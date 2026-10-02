@@ -11,8 +11,8 @@
 # agents, login session, or herdr server.
 set -u
 
-# shellcheck source=tests/lib.sh
-. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=tests/fixtures.sh
+. "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
 command -v jq >/dev/null 2>&1 || { echo "skip: jq not found (the herdr adapter parses its JSON)"; exit 0; }
 command -v python3 >/dev/null 2>&1 || { echo "skip: python3 not found (plistlib parses the owned launch-agent contract)"; exit 0; }
 
@@ -270,14 +270,7 @@ exit 0
 SH
     chmod +x "$CASE_BIN/herdr"
   fi
-  cat > "$CASE_BIN/tasks-axi" <<'SH'
-#!/usr/bin/env bash
-case "${1:-}:${2:-}" in
-  --version:*) printf '0.2.6\n' ;;
-  update:--help) printf '%s\n' --archive-body ;;
-  mv:--help) printf '%s\n' 'usage: tasks-axi mv <id> [<id>...]' ;;
-esac
-SH
+  fm_test_fake_tasks_axi "$CASE_BIN"
   fm_fake_exit0 "$CASE_BIN" treehouse
   cat > "$CASE_BIN/claude" <<'SH'
 #!/usr/bin/env bash
