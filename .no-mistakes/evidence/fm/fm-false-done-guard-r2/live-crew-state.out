@@ -1,0 +1,26 @@
+
+### C1 unpushed ship 'done: implementation complete' -> crew-state must NOT read done
+state: unknown · source: none · no current-state source available
+
+### C2 pushed + forge-confirmed open PR -> crew-state reads done
+state: done · source: status-log · PR https://github.com/example/repo/pull/7 checks green
+
+### C3 PR merged after done; receipt recorded, branch never on remote (squash-pruned), offline -> done
+state: done · source: status-log · PR https://github.com/example/repo/pull/7 checks green
+
+### C4 same merged ship read via fleet-snapshot captured copy (FM_CREW_STATE_STATUS_OVERRIDE) -> done
+state: done · source: status-log · PR https://github.com/example/repo/pull/7 checks green
+
+### C5 adversarial: PR CLOSED, no receipt -> not done
+state: unknown · source: none · no current-state source available
+
+### C6 fleet snapshot over the lab home (consumer of crew-state)
+{"id":"c1","crew_state":{"state":"unknown","source":"none","detail":"no current-state source available","raw":"state: unknown · source: none · no current-state source available","observed_at":"2026-10-02T15:37:52Z","freshness":"fresh"}}
+{"id":"c2","crew_state":{"state":"unknown","source":"none","detail":"no current-state source available","raw":"state: unknown · source: none · no current-state source available","observed_at":"2026-10-02T15:37:52Z","freshness":"fresh"}}
+{"id":"c3","crew_state":{"state":"done","source":"status-log","detail":"PR https://github.com/example/repo/pull/7 checks green","raw":"state: done · source: status-log · PR https://github.com/example/repo/pull/7 checks green","observed_at":"2026-10-02T15:37:52Z","freshness":"fresh"}}
+{"id":"c5","crew_state":{"state":"unknown","source":"none","detail":"no current-state source available","raw":"state: unknown · source: none · no current-state source available","observed_at":"2026-10-02T15:37:52Z","freshness":"fresh"}}
+--- raw state lines:
+63:        "raw": "state: unknown · source: none · no current-state source available",
+139:        "raw": "state: unknown · source: none · no current-state source available",
+215:        "raw": "state: done · source: status-log · PR https://github.com/example/repo/pull/7 checks green",
+291:        "raw": "state: unknown · source: none · no current-state source available",

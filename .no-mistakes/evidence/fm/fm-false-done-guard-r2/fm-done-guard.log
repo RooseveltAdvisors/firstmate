@@ -1,0 +1,15 @@
+ok - worker commits but does not push -> done refused
+ok - worker pushes but opens no PR -> done refused for ship tasks
+ok - worker pushes and opens a PR the forge confirms -> done accepted
+ok - worker names a PR but never pushes its own branch -> done refused
+ok - worker names a PR in another repository -> done refused
+ok - worker names a PR the forge reports closed -> done refused
+ok - forge unreachable -> done refused rather than accepted on the claim
+ok - scout and local-only dones are skipped
+ok - a recorded worktree that is not a checkout skips the gate
+ok - PR merges after done and the merge is recorded -> done accepted, offline too
+ok - fleet sync prunes a merged branch -> the recorded merge still accepts the done
+ok - merge receipt names a different PR -> done still refused
+ok - classifier drops a refused ship done from the actionable span
+ok - apply refuses an unpushed done and steers the worker to push
+ok - watcher drops an unpushed ship done from the captain's wake queue and steers the crewmate

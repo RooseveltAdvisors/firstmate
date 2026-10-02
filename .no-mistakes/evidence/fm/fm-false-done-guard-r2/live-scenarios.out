@@ -1,0 +1,54 @@
+
+### S1 unpushed ship reports done: implementation complete
+verdict=refused
+reason=unpushed
+exit=1
+state: unknown · source: pane · harness state unavailable (unknown missing)
+
+### S2 pushed branch, no PR named (offline gate)
+verdict=refused
+reason=no-pr
+exit=1
+
+### S3 pushed branch + forge-confirmed open PR
+verdict=accepted
+reason=accepted
+exit=0
+state: unknown · source: pane · harness state unavailable (unknown missing)
+
+### S4 adversarial: names a PR but never pushed own branch
+verdict=refused
+reason=unpushed
+exit=1
+
+### S5 adversarial: PR closed without merge receipt
+verdict=refused
+reason=unverified-pr
+exit=1
+
+### S6 PR merged, receipt recorded, branch pruned (offline)
+s6.meta
+s6.pr-poll-merge-notified
+s6.status
+verdict=accepted
+reason=merged
+exit=0
+state: unknown · source: pane · harness state unavailable (unknown missing)
+
+### S7 fleet-snapshot path: crew-state over a captured status copy (FM_CREW_STATE_STATUS_OVERRIDE)
+state: unknown · source: pane · harness state unavailable (unknown missing)
+
+### S8 adversarial: merge receipt for a different PR (#8)
+verdict=refused
+reason=unpushed
+exit=1
+
+### S9 scout + local-only skip the gate
+verdict=skipped
+reason=local-only
+exit=0
+
+### S10 main-actor wake drain: does the outcome backstop surface the refused s1 done?
+1:STATUS OUTCOME BACKSTOP (newest captain-facing task event has no covering branch outcome):
+2:s3 done: PR https://github.com/example/repo/pull/7 checks green
+4:s6 done: shipped
