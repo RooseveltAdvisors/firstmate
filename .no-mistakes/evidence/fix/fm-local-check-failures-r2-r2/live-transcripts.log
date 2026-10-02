@@ -1,0 +1,59 @@
+
+===== 1. fm-test-run.sh --check-coverage under a non-C collation (base vs branch) =====
+$ LC_ALL=C bin/fm-test-run.sh --check-coverage   # this branch
+FM_TEST_COVERAGE ok total=242 parallel=24 parallel_max_ms=665545 parallel_imbalance_ms=2 parallel_unhinted=0 serial=202 serial_shards=9 serial_unhinted=1 serial_max_ms=1074843 serial_budget_ms=1200000 herdr=16
+rc=0
+
+$ LC_ALL=en_US.UTF-8 bin/fm-test-run.sh --check-coverage   # this branch
+FM_TEST_COVERAGE ok total=242 parallel=24 parallel_max_ms=665545 parallel_imbalance_ms=2 parallel_unhinted=0 serial=202 serial_shards=9 serial_unhinted=1 serial_max_ms=1074843 serial_budget_ms=1200000 herdr=16
+rc=0
+
+$ LC_ALL=en_US.UTF-8 <base-commit bin/fm-test-run.sh> --check-coverage
+comm: file 2 is not in sorted order
+comm: input is not in sorted order
+rc=1
+
+===== 2. process-event runner on a state root another script created under umask 002 =====
+$ ls -ld $H/state   # plain mkdir under umask 002, as fm-bootstrap.sh does
+drwxrwxr-x 2 jon jon 4096 Oct  2 01:09 /tmp/fm-lab-sharedstate.uEEmzX/state
+$ FM_HOME=$H bin/fm-procevent.sh list
+no sources registered
+rc=0
+$ ls -ld $H/state   # established private, not refused
+drwxr-xr-x 2 jon jon 4096 Oct  2 01:09 /tmp/fm-lab-sharedstate.uEEmzX/state
+$ repeat (idempotence)
+rc=0
+drwxr-xr-x 2 jon jon 4096 Oct  2 01:09 /tmp/fm-lab-sharedstate.uEEmzX/state
+
+-- adversarial: a root that cannot be tightened still fails closed
+$ PATH=<chmod-exits-1 shim>:$PATH FM_HOME=$HB bin/fm-procevent.sh list
+error: process-event state root is not a private directory
+rc=1
+drwxrwxr-x 2 jon jon 4096 Oct  2 01:09 /tmp/fm-lab-unfixable.le1jKQ/state
+
+-- adversarial: a root another user owns is refused, mode untouched
+$ PATH=<id-reports-foreign-uid shim>:$PATH FM_HOME=$HC bin/fm-procevent.sh list
+error: process-event state root is not a private directory
+rc=1
+drwxrwxr-x 2 jon jon 4096 Oct  2 01:09 /tmp/fm-lab-foreign.cCVdPP/state
+
+===== 3. bin/fm-bootstrap.sh against a NON-git root (default-branch probe) =====
+=== base commit (8690c411) stderr ===
+rc=0
+1:fatal: not a git repository (or any of the parent directories): .git
+2:fatal: not a git repository (or any of the parent directories): .git
+=== this branch (b80dbca5) stderr ===
+rc=0
+(no git complaint)
+=== this branch: end-user diagnostics still present ===
+MISSING: node
+NEEDS_GH_AUTH
+=== stderr tail (this branch) ===
+
+===== 4. state root reached through a symlinked ancestor still behaves physically =====
+$ FM_HOME=$HS/link bin/fm-procevent.sh list   # 775 physical root behind a symlinked home
+no sources registered
+rc=0
+drwxr-xr-x 2 jon jon 4096 Oct  2 01:10 /tmp/fm-lab-symstate.FdEEzL/real/state
+
+done
