@@ -982,15 +982,16 @@ fm_config_reread_delivered_gained() {
 # true is returned when its bytes match the generation this delivery leaves as
 # the home's newest received payload - checked only when no generation is
 # awaiting a failed send (its .pending marker lands in or after this run) and
-# no other stage is queued for this delivery - or when its bytes match a
-# generation still awaiting a failed send, or a stage already queued for this
-# home in this delivery - first writer wins - so the same payload is never
-# published or sent twice.
+# no other stage is queued for this delivery - or when its bytes match the
+# generation delivered last (by name) among those still awaiting a failed send
+# and the stages already queued for this home in this delivery, so the same
+# payload is never sent twice and a newer differing generation never ends up
+# delivered after a suppressed current payload.
 # Skips unchanged payloads only; drift-from-payload (destination edited away
 # from the inherited value and then restored) is detected by the convergence
 # check (propagate_inheritable_config), not here.
 fm_config_reread_discard_redundant_stage() {
-  local dest_home=$1 stage_path=$2 queued=${3:-} latest state queued_path pending_path
+  local dest_home=$1 stage_path=$2 queued=${3:-} latest state queued_path last_path
   local pending_instructions
   [ -f "$stage_path" ] && [ ! -L "$stage_path" ] || return 1
   state="$dest_home/${FM_CONFIG_REREAD_INSTRUCTION_PREFIX_REL%/*}"
@@ -1005,27 +1006,21 @@ fm_config_reread_discard_redundant_stage() {
       return 0
     fi
   fi
-  if [ -n "$pending_instructions" ]; then
-    while IFS= read -r pending_path; do
-      [ -n "$pending_path" ] || continue
-      [ -f "$pending_path" ] && [ ! -L "$pending_path" ] || continue
-      cmp -s "$stage_path" "$pending_path" || continue
-      rm -f "$stage_path" 2>/dev/null || true
-      return 0
-    done <<EOF
+  last_path=$(
+    while IFS= read -r queued_path; do
+      [ -n "$queued_path" ] || continue
+      [ "$queued_path" != "$stage_path" ] || continue
+      printf '%s\t%s\n' "${queued_path##*/}" "$queued_path"
+    done <<EOF | LC_ALL=C sort | tail -1 | cut -f2-
 $pending_instructions
-EOF
-  fi
-  while IFS= read -r queued_path; do
-    [ -n "$queued_path" ] || continue
-    [ "$queued_path" != "$stage_path" ] || continue
-    [ -f "$queued_path" ] && [ ! -L "$queued_path" ] || continue
-    cmp -s "$stage_path" "$queued_path" || continue
-    rm -f "$stage_path" 2>/dev/null || true
-    return 0
-  done <<EOF
 $queued
 EOF
+  )
+  if [ -n "$last_path" ] && [ -f "$last_path" ] && [ ! -L "$last_path" ] \
+    && cmp -s "$stage_path" "$last_path"; then
+    rm -f "$stage_path" 2>/dev/null || true
+    return 0
+  fi
   return 1
 }
 
@@ -1328,8 +1323,8 @@ fm_config_reread_quarantine_pending() {
 # to the generation this delivery leaves as the home's newest received payload
 # (the live destination copy, not a stale propagate-report snapshot; only when
 # no generation is awaiting a failed send and no other stage is queued for this
-# delivery), to a generation still awaiting a failed send, or to a generation
-# already queued in this same delivery. On
+# delivery), or to the generation delivered last among those still awaiting a
+# failed send and those already queued in this same delivery. On
 # publication or send failure, print a concrete CONFIG_REREAD retry
 # diagnostic to stdout and return non-zero - never claim the live agent reread
 # the values.

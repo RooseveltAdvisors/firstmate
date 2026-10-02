@@ -3093,6 +3093,47 @@ test_config_reread_revert_after_pending_drain_keeps_current_payload() {
   pass "config reread reverts to the current payload after a pending drain"
 }
 
+# Two failed sends leave payload A and then payload B pending; reverting to
+# payload A must not be suppressed against the older pending A generation,
+# because the name-ordered drain would then deliver B last.
+test_config_reread_revert_after_two_pending_keeps_current_payload() {
+  local w head out status err newest count pending_count
+  w=$(new_world config-reread-revert-two-pending)
+  head=$(git -C "$w/main" rev-parse HEAD)
+  add_sm_worktree "$w" sm "$head"
+  mkdir -p "$w/sm/config" "$w/sm/state"
+
+  printf 'old\n' > "$w/sm/config/crew-harness"
+  : > "$w/home/state/sm.inbox"
+  for payload in payload-A payload-B; do
+    printf '%s\n' "$payload" > "$w/home/config/crew-harness"
+    err="$w/revert-two-pending-$payload.err"
+    out=$(PATH="$(make_fake_toolchain "$w"):$BASE_PATH" FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/main" \
+      FM_SEND_SETTLE=0 \
+      "$ROOT/bin/fm-config-push.sh" 2>"$err"); status=$?
+    expect_code 1 "$status" "the failed $payload send must fail the push"
+    assert_not_contains "$out" "config-reread: sent" "a failed $payload send must not claim a delivery"
+  done
+  pending_count=$(find "$w/sm/state" -maxdepth 1 -name '.fm-inherited-config-reread.*.pending' | wc -l)
+  [ "$pending_count" -eq 2 ] || fail "expected payload A and payload B pending (count=$pending_count)"
+
+  rm -f "$w/home/state/sm.inbox"
+  printf 'payload-A\n' > "$w/home/config/crew-harness"
+  out=$(run_config_push "$w" "$w/revert-two-pending-a2.tmux.log" 2>/dev/null); status=$?
+  expect_code 0 "$status" "the revert push should succeed"
+  [ "$(cat "$w/sm/config/crew-harness")" = payload-A ] \
+    || fail "the revert did not restore payload A bytes"
+  count=$(inbox_stream "$w/home/state" sm | grep -c 'CONFIG_REREAD:' || true)
+  [ "$count" = 3 ] || fail "expected payload A, payload B, payload A pointers (count=$count)"
+  newest=$(inbox_stream "$w/home/state" sm | grep 'CONFIG_REREAD:' | tail -n 1 | sed 's/.*CONFIG_REREAD: //')
+  assert_contains "$(cat "$newest")" \
+    $'-----BEGIN config/crew-harness-----\npayload-A\n-----END config/crew-harness-----' \
+    "the newest instruction must carry the reverted payload bytes"
+  assert_no_reread_pending "$w/sm"
+  assert_no_reread_retry_stages "$w/home" sm
+  pass "config reread reverts to the current payload after two pending generations"
+}
+
 # A respawn run (FM_CONFIG_REREAD_SKIP_PENDING=1) delivers its newer-named
 # generation while an older pending generation remains, and a later normal run
 # drains that older generation after it - so generation-name order stops
@@ -3423,6 +3464,7 @@ test_config_reread_fill_gate_discards_retained_identical_generations
 test_config_reread_skip_pending_never_republishes_identical_pending
 test_config_reread_fresh_adopt_of_delivered_payload_is_discarded
 test_config_reread_revert_after_pending_drain_keeps_current_payload
+test_config_reread_revert_after_two_pending_keeps_current_payload
 test_config_reread_respawn_divergence_returns_to_current_payload
 test_config_reread_bootstrap_path_and_spawn_flexibility
 test_bootstrap_respawns_before_config_reread
