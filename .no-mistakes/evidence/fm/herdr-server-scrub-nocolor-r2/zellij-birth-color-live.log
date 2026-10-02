@@ -1,0 +1,26 @@
+== precondition: no zellij server is running on this machine ==
+no pre-existing zellij process - every zellij pid below is created by this driver
+== fixed: fm_backend_zellij_server_ensure under NO_COLOR=1 launcher env ==
+fixed server pid: 3748963
+== control: direct 'zellij attach -b' birth under the same pollution (pre-fix launch shape) ==
+control server pid: 3755182
+fixed pane pid: 3749399
+control pane pid: 3755692
+fixed-server: FM_ZELLIJ_SENTINEL=kept
+fixed-pane: FM_ZELLIJ_SENTINEL=kept
+control-server: CLICOLOR=0
+control-server: CLICOLOR_FORCE=1
+control-server: FM_ZELLIJ_SENTINEL=kept
+control-server: FORCE_COLOR=0
+control-server: NO_COLOR=1
+control-pane: CLICOLOR=0
+control-pane: CLICOLOR_FORCE=1
+control-pane: FM_ZELLIJ_SENTINEL=kept
+control-pane: FORCE_COLOR=0
+control-pane: NO_COLOR=1
+== adversarial: second server_ensure under pollution against the running session ==
+after-reuse: FM_ZELLIJ_SENTINEL=kept
+== teardown (zellij_safe_delete, explicit named sessions only) ==
+deleted session fm-lab-zcolor-fixed
+deleted session fm-lab-zcolor-ctrl
+ALL ZELLIJ BIRTH-ENV CHECKS PASSED

@@ -1,0 +1,15 @@
+== scenario: control - an UNSCRUBBED server birth really leaks color control ==
+isolated socket (ctl): error connecting to /tmp/fm-color-tmux.smpN1p/ctl/tmux-1000/default (No such file or directory)
+isolated socket (fixed): error connecting to /tmp/fm-color-tmux.smpN1p/fixed/tmux-1000/default (No such file or directory)
+control-window: CLICOLOR=0
+control-window: CLICOLOR_FORCE=1
+control-window: FM_TMUX_LAUNCH_SENTINEL=kept
+control-window: FORCE_COLOR=0
+control-window: NO_COLOR=1
+== scenario: firstmate container_ensure births the server WITHOUT color control ==
+container_ensure echoed: firstmate
+first-window: FM_TMUX_LAUNCH_SENTINEL=kept
+== adversarial: a SECOND container_ensure under a polluted env must not inject into the running server ==
+reuse container_ensure echoed: firstmate
+post-reuse-window: FM_TMUX_LAUNCH_SENTINEL=kept
+ALL TMUX BIRTH-ENV CHECKS PASSED

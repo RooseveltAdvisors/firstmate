@@ -1,0 +1,30 @@
+== lab prepare (fleet-state tripwire) for fm-lab-colorfix-274031-2082 and fm-lab-colorctrl-274031-1031 ==
+== fixed: fm_backend_herdr_server_ensure under NO_COLOR=1 launcher env ==
+fixed server pid: 274289
+== control: direct 'herdr server' birth under the same pollution (pre-fix launch shape) ==
+control server pid: 274697
+fixed-server: FM_HERDR_SENTINEL=kept
+control-server: CLICOLOR=0
+control-server: CLICOLOR_FORCE=1
+control-server: FM_HERDR_SENTINEL=kept
+control-server: FM_HOME=/tmp/fm-lab.d9hn75
+control-server: FORCE_COLOR=0
+control-server: NO_COLOR=1
+== fixed: create a crew pane AFTER the scrubbed birth ==
+fixed: container_ensure -> session=fm-lab-colorfix-274031-2082 ws=w1 tab=w1:t1
+fixed: pane=w1:p1 pid=279804
+fixed-pane: FM_HERDR_SENTINEL=kept
+== control: create a crew pane after the unscrubbed birth (leak expected) ==
+ctrl: container_ensure -> session=fm-lab-colorctrl-274031-1031 ws=w1 tab=w1:t1
+ctrl: pane=w1:p1 pid=280231
+ctrl-pane: CLICOLOR=0
+ctrl-pane: CLICOLOR_FORCE=1
+ctrl-pane: FM_HERDR_SENTINEL=kept
+ctrl-pane: FORCE_COLOR=0
+ctrl-pane: NO_COLOR=1
+== adversarial: second server_ensure under pollution against the running fixed server ==
+reuse server_ensure rc=0 ()
+after-reuse: FM_HERDR_SENTINEL=kept
+== teardown both lab sessions (fleet-state tripwire checked) ==
+teardown ok; default session untouched (tripwire matched)
+ALL HERDR BIRTH-ENV CHECKS PASSED

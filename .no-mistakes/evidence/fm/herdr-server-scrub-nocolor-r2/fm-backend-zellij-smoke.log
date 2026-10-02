@@ -1,0 +1,16 @@
+ok - real zellij: version_check accepts the installed binary's version
+ok - real zellij: container_ensure starts the isolated background session (fm-backend-smoke-894822)
+ok - real zellij: container_ensure is idempotent (reuses the existing session)
+ok - real zellij: create_task creates a tab/pane and refuses a duplicate name
+ok - real zellij: expected task label verification accepts the matching tab and rejects a mismatch
+ok - real zellij: send_literal (paste) + send_key Enter submit as two steps and the output is capturable
+ok - real zellij: send_text_line composes paste+Enter and its output is capturable
+ok - real zellij: capture supports viewport-sized reads and larger full-scrollback reads
+ok - real zellij: current_path reads the pane's live cwd after a direct cd
+ok - real zellij: current_path reconstructs a long cwd that can wrap in the terminal
+ok - real zellij: current_path tracks a NESTED SUBSHELL's own cd (the treehouse-get-shaped case a bare pane_cwd read cannot see)
+ok - real zellij: send_key Escape (normalized to the verified 'Esc' name) succeeds
+ok - real zellij: send_key C-c (normalized to the verified 'Ctrl c' name) succeeds
+ok - real zellij: fm_backend_busy_state reports unknown (D5 - watcher falls back to pane-regex, same as tmux)
+ok - real zellij: kill removes the pane+tab and is idempotent/best-effort
+ok - real zellij: list_live discovers a live task tab by fm-<id> name
