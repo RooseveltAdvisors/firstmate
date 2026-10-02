@@ -1,0 +1,21 @@
+zellij 0.44.0, isolated XDG dirs under /tmp/fm-zellij-iso.aG7Z1G, private runtime dir
+
+== CONTROL (raw 'zellij attach -b', no scrub) ==
+server pid 2286753:
+CLICOLOR=0
+CLICOLOR_FORCE=1
+FORCE_COLOR=0
+NO_COLOR=1
+ZELLIJ_SENTINEL=control-kept
+pane shell pid 2287008:
+CLICOLOR=0
+CLICOLOR_FORCE=1
+FORCE_COLOR=0
+NO_COLOR=1
+ZELLIJ_SENTINEL=control-kept
+
+== FIXED (fm_backend_zellij_server_ensure with the shared color scrub) ==
+server pid 3387967:
+ZELLIJ_SENTINEL=should-be-kept
+pane shell pid 3388631:
+ZELLIJ_SENTINEL=should-be-kept

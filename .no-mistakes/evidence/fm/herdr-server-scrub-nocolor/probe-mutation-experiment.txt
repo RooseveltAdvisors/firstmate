@@ -1,0 +1,17 @@
+=== PRE-FIX test (f37bc84b) with the reuse probe forced to fail ===
+OLD-MUTATED EXIT=0
+ok - real tmux: kill removes the window and the readable session inventory authoritatively classifies it missing
+ok - real tmux: an unscrubbed server birth really does hand NO_COLOR to every later window
+ok - real tmux: fm_backend_tmux_container_ensure scrubs color control from the server it births, leaving unrelated launch environment intact
+ok - real tmux: a second container_ensure reuses the existing session instead of birthing another server
+ok - real tmux: the reuse path leaves the scrubbed server environment clean for windows born after it
+ok - real tmux: cleanup kills every private server this test births
+
+=== FIXED test (83505fa) with the identical injected probe failure ===
+NEW-MUTATED EXIT=1
+ok - real tmux: fm_backend_tmux_resolve_bare_selector fails for a window that does not exist
+ok - real tmux: kill removes the window and the readable session inventory authoritatively classifies it missing
+ok - real tmux: an unscrubbed server birth really does hand NO_COLOR to every later window
+ok - real tmux: fm_backend_tmux_container_ensure scrubs color control from the server it births, leaving unrelated launch environment intact
+ok - real tmux: a second container_ensure reuses the existing session instead of birthing another server
+not ok - the reuse path's environment probe on socket fm-backend-smoke-fixed-3309982 failed

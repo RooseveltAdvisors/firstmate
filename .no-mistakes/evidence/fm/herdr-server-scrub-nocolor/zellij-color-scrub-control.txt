@@ -1,0 +1,6 @@
+== zellij 0.44.0 isolated XDG dirs: /tmp/fm-zellij-iso.aG7Z1G ==
+
+== CONTROL: session birthed by a raw 'zellij attach -b' (no scrub) under a polluted launcher ==
+attach rc=0
+session up
+control pane shell pid=2286498

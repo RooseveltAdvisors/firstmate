@@ -1,0 +1,29 @@
+=== finding 2 (force-color-substring-false-pass): assertion behavior driven directly ===
+
+Haystack where FORCE_COLOR leaks but CLICOLOR_FORCE stays unset (the drift the finding names):
+NO_COLOR=<unset>
+FORCE_COLOR=1
+CLICOLOR=<unset>
+CLICOLOR_FORCE=<unset>
+
+--- assert_contains FORCE_COLOR=<unset> -> rc=1: not ok - force-color probe (missing: 'FORCE_COLOR=<unset>')
+--- assert_line FORCE_COLOR=<unset> -> rc=1: not ok - force-color probe (missing line: 'FORCE_COLOR=<unset>')
+
+Each of the four keys independently leaked, checked line-anchored (each must fail):
+--- leaked NO_COLOR: assert_line rc=1 (not ok - probe (missing line: 'NO_COLOR=<unset>'))
+--- leaked FORCE_COLOR: assert_line rc=1 (not ok - probe (missing line: 'FORCE_COLOR=<unset>'))
+--- leaked CLICOLOR: assert_line rc=1 (not ok - probe (missing line: 'CLICOLOR=<unset>'))
+--- leaked CLICOLOR_FORCE: assert_line rc=1 (not ok - probe (missing line: 'CLICOLOR_FORCE=<unset>'))
+
+Clean haystack (nothing leaked), each must pass:
+--- clean NO_COLOR: assert_line rc=0
+--- clean FORCE_COLOR: assert_line rc=0
+--- clean CLICOLOR: assert_line rc=0
+--- clean CLICOLOR_FORCE: assert_line rc=0
+
+=== sanity check of the recorded finding's substring premise (finding 2) ===
+needle 'FORCE_COLOR=<unset>' is NOT a substring of the CLICOLOR_FORCE line
+old-style assert_contains on the drift haystack (FORCE_COLOR=1 leaked):
+not ok - old-style probe (missing: 'FORCE_COLOR=<unset>')
+--- output ---
+old assert_contains exit status = 1 (the "not ok" line above): the old assertion already failed, so the recorded substring false-pass does not reproduce
