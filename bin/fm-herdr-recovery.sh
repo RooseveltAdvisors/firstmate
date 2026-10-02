@@ -282,12 +282,12 @@ fm_reco_awk_scripts_ok() { # <segment>
   return 0
 }
 
-# fm_reco_e_cluster: a grep/rg short-option token carries -e when every letter
-# before its first e is a no-argument option; a value-taking letter ends the
+# fm_reco_e_cluster: a grep/rg short-option token carries -e when no
+# value-taking letter comes before its first e; a value-taking letter ends the
 # scan, so an e inside an attached value is not mistaken for -e.
 fm_reco_e_cluster() { # <head> <unquoted-token>
-  local pre noarg=nivclqorEFwxhHs
-  [ "$1" = rg ] && noarg=nivclqoFwxhHs
+  local pre withval=ABCDdfm
+  [ "$1" = rg ] && withval=ABCdEfgjMmrTt
   case "$2" in
     -*e*) ;;
     *) return 1 ;;
@@ -295,7 +295,7 @@ fm_reco_e_cluster() { # <head> <unquoted-token>
   pre=${2#-}
   pre=${pre%%e*}
   case "$pre" in
-    *[!$noarg]*) return 1 ;;
+    *[!a-zA-Z0-9]*|*[$withval]*) return 1 ;;
   esac
   return 0
 }

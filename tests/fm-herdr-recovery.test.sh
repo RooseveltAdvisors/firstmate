@@ -1676,6 +1676,22 @@ EOF
 > 1. Yes, proceed (y)
   3. No (esc)
 EOF
+  cat > "$prompts/deny-cluster-ae-grep" <<EOF
+  Would you like to run the following command?
+
+  grep notes -ae $ROOT/state
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-cluster-Se-rg" <<EOF
+  Would you like to run the following command?
+
+  rg notes -Se $ROOT/state
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
   cat > "$prompts/unknown" <<'EOF'
 Status header
 gpt-5.6-sol high - some/cwd
@@ -1863,6 +1879,8 @@ EOF
   classify allow-rg-depth-path 'approve' 'classifier approves rg -d with a pattern and path'
   classify deny-grep-drecurse-pathless 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a pathless grep -drecurse'
   classify allow-grep-drecurse-path 'approve' 'classifier approves grep -drecurse with a pattern and path'
+  classify deny-cluster-ae-grep 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an operand before a clustered grep -ae'
+  classify deny-cluster-Se-rg 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an operand before a clustered rg -Se'
   classify deny-grep-pre-e-operand 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an unverified operand before grep -e'
   classify deny-grep-pre-f-operand 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an unverified operand before grep -f'
   classify deny-sed-pre-e-operand 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an unverified operand before sed -e'
