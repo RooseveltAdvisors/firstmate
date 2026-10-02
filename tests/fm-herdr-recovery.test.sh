@@ -1356,6 +1356,62 @@ EOF
 > 1. Yes, proceed (y)
   3. No (esc)
 EOF
+  cat > "$prompts/deny-unquoted-span-sed" <<EOF
+  Would you like to run the following command?
+
+  sed 'x'\$P'y' $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-unquoted-span-awk" <<EOF
+  Would you like to run the following command?
+
+  awk 'x'\$P'y' $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-unquoted-span-grep" <<EOF
+  Would you like to run the following command?
+
+  grep 'x'\$P'y' $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-awk-getline-read" <<EOF
+  Would you like to run the following command?
+
+  awk 'BEGIN{getline<".env"}1' $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-multword-grep-e" <<EOF
+  Would you like to run the following command?
+
+  grep -e 'foo bar' $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-multword-rg-e" <<EOF
+  Would you like to run the following command?
+
+  rg -e 'foo bar' $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-expanding-pattern-e" <<EOF
+  Would you like to run the following command?
+
+  grep -e "foo \$P bar" $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
   cat > "$prompts/unknown" <<'EOF'
 Status header
 gpt-5.6-sol high - some/cwd
@@ -1517,6 +1573,13 @@ EOF
   classify deny-swallowed-grep-file 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an unverified file after an attached grep -e value'
   classify deny-swallowed-rg-file 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an unverified file after an attached rg -e value'
   classify allow-awk-attached-f 'approve' 'classifier approves an attached awk -F with program and file'
+  classify deny-unquoted-span-sed 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an unquoted dollar span in a sed program'
+  classify deny-unquoted-span-awk 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an unquoted dollar span in an awk program'
+  classify deny-unquoted-span-grep 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an unquoted dollar span in a grep pattern'
+  classify deny-awk-getline-read 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses an awk getline file read in a single-token program'
+  classify allow-multword-grep-e 'approve' 'classifier approves a multi-word grep -e pattern'
+  classify allow-multword-rg-e 'approve' 'classifier approves a multi-word rg -e pattern'
+  classify deny-expanding-pattern-e 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an expanding dollar in a double-quoted -e pattern'
   classify unknown 'unknown' 'classifier fails closed on an unrecognized prompt'
   ROOT=$saved_root
 }

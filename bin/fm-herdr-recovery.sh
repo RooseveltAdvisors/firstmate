@@ -263,6 +263,21 @@ fm_reco_sed_scripts_ok() { # <segment>
   return 0
 }
 
+# fm_reco_awk_scripts_ok: refuse an awk segment whose inline program hides a
+# getline file read; a whitespace-split payload falls through to the path
+# screen through its fragments instead.
+fm_reco_awk_scripts_ok() { # <segment>
+  local tok
+  local -a toks
+  read -ra toks <<< "$1" || return 1
+  for tok in "${toks[@]:1}"; do
+    case "$tok" in
+      *'getline<'*) return 1 ;;
+    esac
+  done
+  return 0
+}
+
 # fm_reco_flags_ok: an allowlisted-flags boundary for the read tools whose
 # flags can mutate or execute. For find/sed/awk/sort/rg segments every flag
 # token must match that head's safe read set; long options, program/expression
@@ -301,6 +316,9 @@ fm_reco_flags_ok() { # <line>
     case "$head" in
       sed)
         fm_reco_sed_scripts_ok "$seg" || return 1
+        ;;
+      awk)
+        fm_reco_awk_scripts_ok "$seg" || return 1
         ;;
     esac
   done < <(fm_reco_segments "$1")
@@ -380,8 +398,9 @@ fm_reco_relative_token_ok() { # <token> <resolved-home>
 # fm_reco_dollar_literal_ok: pass only when no '$' survives outside a
 # single-quoted region the shell keeps literal; a '$' unquoted or inside
 # double quotes expands, so the running text would not match the screen.
-fm_reco_dollar_literal_ok() { # <raw-token>
-  local tok=$1 i c state=0
+# An optional start state continues an already-open quote span.
+fm_reco_dollar_literal_ok() { # <raw-token> [start-state]
+  local tok=$1 i c state=${2:-0}
   for ((i = 0; i < ${#tok}; i++)); do
     c=${tok:i:1}
     if [ "$state" -eq 1 ]; then
@@ -419,7 +438,13 @@ fm_reco_program_slot() { # <raw-token>
   case "$1" in
     \'*)
       case "${1#\'}" in
-        *"'"*) printf 'ok' ;;
+        *"'"*)
+          if fm_reco_dollar_literal_ok "$1"; then
+            printf 'ok'
+          else
+            printf 'refuse'
+          fi
+          ;;
         *) printf 'open' ;;
       esac
       ;;
@@ -438,7 +463,7 @@ fm_reco_program_slot() { # <raw-token>
 # positional path, because with none its operand is the pane's cwd, which is
 # never fetched.
 fm_reco_relative_ok() { # <line> <resolved-home>
-  local seg head tok raw home seen_special used_e expect_val expect_prog check_next in_single saw_pos pre post
+  local seg head tok raw home seen_special used_e expect_val expect_prog expect_pat check_next in_single in_pat saw_pos pre post
   home=$(readlink -f -- "$2" 2>/dev/null) || return 1
   local -a toks
   while IFS= read -r seg; do
@@ -451,8 +476,10 @@ fm_reco_relative_ok() { # <line> <resolved-home>
     used_e=0
     expect_val=0
     expect_prog=0
+    expect_pat=0
     check_next=0
     in_single=0
+    in_pat=0
     saw_pos=0
     read -ra toks <<< "$seg" || return 1
     for tok in "${toks[@]:1}"; do
@@ -477,10 +504,31 @@ fm_reco_relative_ok() { # <line> <resolved-home>
           open)
             if [ "$expect_prog" -eq 1 ]; then
               in_single=1
+            elif [ "$expect_pat" -eq 1 ]; then
+              in_pat=1
             fi
             ;;
         esac
+        if [ "$expect_pat" -eq 1 ]; then
+          case "$raw" in
+            \"*)
+              case "${raw#\"}" in
+                *\"*) ;;
+                *) in_pat=2 ;;
+              esac
+              ;;
+          esac
+        fi
+        expect_pat=0
         expect_prog=0
+        continue
+      fi
+      if [ "$in_pat" -ne 0 ]; then
+        fm_reco_dollar_literal_ok "$raw" "$in_pat" || return 1
+        case "$in_pat:$raw" in
+          1:*\'*) in_pat=0 ;;
+          2:*\"*) in_pat=0 ;;
+        esac
         continue
       fi
       if [ "$check_next" -eq 1 ]; then
@@ -543,9 +591,9 @@ fm_reco_relative_ok() { # <line> <resolved-home>
             sed:-e) expect_val=1; used_e=1; expect_prog=1 ;;
             awk:-F|awk:-v) expect_val=1 ;;
             find:-name|find:-iname|find:-lname|find:-path|find:-ipath|find:-regex|find:-iregex|find:-type|find:-maxdepth|find:-mindepth|find:-mtime|find:-mmin|find:-size) expect_val=1 ;;
-            grep:-A|grep:-B|grep:-C|grep:-e|grep:-m) expect_val=1; case "$tok" in -e) used_e=1 ;; esac ;;
+            grep:-A|grep:-B|grep:-C|grep:-e|grep:-m) expect_val=1; case "$tok" in -e) used_e=1; expect_pat=1 ;; esac ;;
             grep:-f) used_e=1; check_next=1 ;;
-            rg:-A|rg:-B|rg:-C|rg:-e|rg:-g|rg:-t|rg:-T|rg:-m|rg:-M|rg:-r) expect_val=1; case "$tok" in -e) used_e=1 ;; esac ;;
+            rg:-A|rg:-B|rg:-C|rg:-e|rg:-g|rg:-t|rg:-T|rg:-m|rg:-M|rg:-r) expect_val=1; case "$tok" in -e) used_e=1; expect_pat=1 ;; esac ;;
             rg:-f) used_e=1; check_next=1 ;;
             head:-n|head:-c|tail:-n|tail:-c) expect_val=1 ;;
             sort:-k|sort:-t|sort:-S) expect_val=1 ;;
