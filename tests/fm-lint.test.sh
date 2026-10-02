@@ -30,14 +30,8 @@ SHELLCHECK_SHA_LINUX_AARCH64=12b331c1d2db6b9eb13cfca64306b1b157a86eb69db83023e26
 SHELLCHECK_SHA_DARWIN_X86_64=3c89db4edcab7cf1c27bff178882e0f6f27f7afdf54e859fa041fca10febe4c6
 SHELLCHECK_SHA_DARWIN_AARCH64=56affdd8de5527894dca6dc3d7e0a99a873b0f004d7aabc30ae407d3f48b0a79
 
-# fm_test_fake_uname <fakebin>: uname -s / uname -m from FM_TEST_UNAME_S/M.
-
-# fm_test_fake_curl <fakebin>: log the URL, fail CURL_FAIL_UNTIL times, then
-# write an empty file at -o. CURL_COUNT and CURL_URL_LOG are paths the stub
-# updates when invoked.
-
-# fm_test_fake_hasher <fakebin> <name>: sha256sum or shasum stub that prints
-# SHA256_STUB_HASH and records the invocation on HASHER_LOG. shasum requires -a 256.
+# The fake uname/curl/hasher install stubs (fm_test_fake_uname, fm_test_fake_curl,
+# fm_test_fake_hasher) come from tests/fixtures.sh, which owns their contract.
 
 fm_install_stub_tar_shellcheck() {
   local fakebin=$1
