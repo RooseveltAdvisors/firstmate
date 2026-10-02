@@ -1042,10 +1042,19 @@ fm_config_reread_queue_stage() {
   fi
 }
 
+# fm_config_reread_cleanup_sent <dest-home>
+# Bound delivered history to FM_CONFIG_REREAD_MAX_SENT, evicting oldest names
+# first but never the generation the arrival marker records as received last:
+# name order is not arrival order, and the skip gate's baseline must survive.
 fm_config_reread_cleanup_sent() {
-  local dest_home=$1 state path paths sorted total remove
+  local dest_home=$1 state path paths sorted total remove newest=
   state="$dest_home/${FM_CONFIG_REREAD_INSTRUCTION_PREFIX_REL%/*}"
   [ -d "$state" ] || return 0
+  if [ -f "$state/$FM_CONFIG_REREAD_NEWEST_MARKER" ] \
+    && [ ! -L "$state/$FM_CONFIG_REREAD_NEWEST_MARKER" ]; then
+    newest=$(cat "$state/$FM_CONFIG_REREAD_NEWEST_MARKER" 2>/dev/null || true)
+    newest=${newest##*/}
+  fi
   paths=""
   for path in "$state"/.fm-inherited-config-reread.*; do
     case "$path" in
@@ -1067,6 +1076,7 @@ fm_config_reread_cleanup_sent() {
     [ "$remove" -gt 0 ] || break
     [ -n "$path" ] || continue
     [ -e "$path.pending" ] || [ -L "$path.pending" ] && continue
+    [ -n "$newest" ] && [ "${path##*/}" = "$newest" ] && continue
     rm -f "$path" 2>/dev/null || continue
     remove=$((remove - 1))
   done <<EOF

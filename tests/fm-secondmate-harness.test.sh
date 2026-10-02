@@ -3233,6 +3233,55 @@ test_config_reread_respawn_divergence_returns_to_current_payload() {
   pass "config reread returns to the current payload after a skip-pending divergence"
 }
 
+# Bounded sent-history cleanup must not evict the generation the home received
+# last when it owns an older name than the retained history; otherwise the skip
+# gate falls back to the name-newest generation and suppresses a payload the
+# home never received last.
+test_config_reread_cleanup_keeps_arrival_generation() {
+  local w head state_real report arrived path n out status fakebin log count newest
+  w=$(new_world config-reread-cleanup-arrival)
+  head=$(git -C "$w/main" rev-parse HEAD)
+  add_sm_worktree "$w" sm "$head"
+  mkdir -p "$w/sm/config" "$w/sm/state"
+  state_real=$(cd "$w/sm/state" && pwd -P)
+  report="$w/cleanup-arrival.report"
+  printf '%s\n' $'crew-harness\tpushed\t' > "$report"
+
+  printf 'two\n' > "$w/sm/config/crew-harness"
+  for n in $(seq 10 26); do
+    path="$state_real/.fm-inherited-config-reread.20200101T000000.000000$n"
+    fm_config_write_reread_instruction "$w/sm" "$report" "$path" \
+      || fail "could not write delivered history generation $n"
+  done
+  # The oldest-named generation (payload one) arrived last, out of name order.
+  printf 'one\n' > "$w/sm/config/crew-harness"
+  arrived="$state_real/.fm-inherited-config-reread.20200101T000000.00000001"
+  fm_config_write_reread_instruction "$w/sm" "$report" "$arrived" \
+    || fail "could not write the arrival generation"
+  fm_config_reread_record_arrival "$arrived"
+
+  fm_config_reread_cleanup_sent "$w/sm"
+  assert_present "$arrived" "history cleanup evicted the generation the home received last"
+  count=$(fm_config_reread_delivered_paths "$w/sm" | wc -l | tr -d ' ')
+  [ "$count" = 16 ] || fail "history cleanup no longer bounds sent history (count=$count)"
+
+  # The current payload matches the name-newest generation, not the arrival.
+  printf 'two\n' > "$w/sm/config/crew-harness"
+  fakebin=$(make_fake_toolchain "$w")
+  log="$w/cleanup-arrival.tmux.log"
+  out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/main" \
+    FM_SEND_SETTLE=0 FM_FAKE_TMUX_LOG="$log" \
+    fm_config_send_reread_nudge sm "$w/sm" "$report" 2>&1); status=$?
+  expect_code 0 "$status" "the current-payload push should succeed: $out"
+  count=$(inbox_stream "$w/home/state" sm | grep -c 'CONFIG_REREAD:' || true)
+  [ "$count" = 1 ] || fail "the current payload was suppressed against an evicted arrival (count=$count)"
+  newest=$(inbox_stream "$w/home/state" sm | grep 'CONFIG_REREAD:' | tail -n 1 | sed 's/.*CONFIG_REREAD: //')
+  assert_contains "$(cat "$newest")" \
+    $'-----BEGIN config/crew-harness-----\ntwo\n-----END config/crew-harness-----' \
+    "the home's newest instruction must carry the current payload bytes"
+  pass "config reread history cleanup keeps the arrival generation"
+}
+
 test_config_reread_bootstrap_path_and_spawn_flexibility() {
   local w head log out fakebin sm launchlog launch instr report stale
   w=$(new_world config-reread-bootstrap)
@@ -3466,6 +3515,7 @@ test_config_reread_fresh_adopt_of_delivered_payload_is_discarded
 test_config_reread_revert_after_pending_drain_keeps_current_payload
 test_config_reread_revert_after_two_pending_keeps_current_payload
 test_config_reread_respawn_divergence_returns_to_current_payload
+test_config_reread_cleanup_keeps_arrival_generation
 test_config_reread_bootstrap_path_and_spawn_flexibility
 test_bootstrap_respawns_before_config_reread
 test_spawn_quarantines_pending_rereads_on_cleanup_failure
