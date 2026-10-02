@@ -1,0 +1,48 @@
+$ fm-done-guard.sh check ship1   # committed, never pushed
+verdict=refused
+reason=unpushed
+exit=1
+
+$ fm-done-guard.sh check ship1   # pushed, no PR referenced (offline forge)
+verdict=refused
+reason=no-pr
+exit=1
+
+$ fm-done-guard.sh check ship2   # pushed, names a PR the forge cannot confirm (fail-closed)
+verdict=refused
+reason=unverified-pr
+exit=1
+
+$ fm-done-guard.sh check ship2   # same PR now has a recorded merge receipt
+verdict=accepted
+reason=merged
+exit=0
+
+$ fm-done-guard.sh check scout1   # scout task is out of scope
+verdict=skipped
+reason=no-mistakes
+exit=0
+
+$ fm-done-guard.sh check local1   # local-only mode is out of scope
+verdict=skipped
+reason=local-only
+exit=0
+
+$ fm-done-guard.sh check ger1   # gerrit change claim, unverifiable offline (fail-closed)
+verdict=refused
+reason=unverified-change
+exit=1
+
+$ fm-done-guard.sh apply ship1   # refused done steers worker once
+verdict=refused
+reason=no-pr
+exit=1
+verdict=refused
+reason=no-pr
+exit=1
+steers sent: 1
+SENT to ship1: Your done report was refused: this ship task requires a pushed branch and an open PR. Push the branch to origin and open a PR, then report done with the PR's full https URL. For a no-mistakes ship, start /no-mistakes so the pipeline can push and open the PR; do not report done until it prints done: PR <url> checks green. On a Gerrit project, publish with gerrit-axi as your Definition of done says and report done with the change URL once its current patch set carries your HEAD.
+
+$ fm-done-guard.sh check 'bad/id'
+error: invalid task id
+exit=2
