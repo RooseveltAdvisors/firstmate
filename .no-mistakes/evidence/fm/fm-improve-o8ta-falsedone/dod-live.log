@@ -1,0 +1,32 @@
+== DoD brief: --mode no-mistakes
+fm-brief exit=0
+# Definition of done
+Delivery contract: mode=no-mistakes
+Ship branch: fm/dod-no-mistakes
+The task is complete only after the branch is pushed and a PR is open with checks green (or attestation green).
+A commit is only the input to validation; never report done from the bare implementation commit.
+When it is implemented and committed, start /no-mistakes to validate and ship a PR. Do not append `done:` until the pipeline reports CI green.
+
+legacy "complete only when committed" lines: 0
+== DoD brief: --mode direct-PR
+fm-brief exit=0
+# Definition of done
+Delivery contract: mode=direct-PR
+Ship branch: fm/dod-direct-PR
+This task ships **direct-PR**: you raise the PR yourself, without the no-mistakes pipeline.
+The task is complete only after the branch is pushed and a PR is open.
+When it is implemented and committed, push your branch and open a PR with `gh-axi` that is ready for review, not a draft.
+Before you report done, read the PR back from the forge and confirm it is not a draft (`gh-axi pr view <number>` must print `draft: no`, where <number> is the PR number from your PR URL); if it is a draft, mark it ready with `gh-axi pr ready <number>`.
+A draft cannot be merged, so a done report on one leaves the merge unasked.
+Then append `done [at=<epoch>]: PR {url}` to the status file and stop.
+That `done:` is accepted only when this copy's HEAD - your latest commit - is pushed to your PR branch; the check tests that commit, not merely that a branch moved.
+If you deliberately keep the PR a draft, append `paused [at=<epoch>]: {why the draft is held}` instead of done.
+Do NOT run /no-mistakes. The configured merge authority decides whether to merge the PR; firstmate relays the outcome.
+legacy "complete only when committed" lines: 0
+== crew-state on ship task (mode=no-mistakes), real tmux lab socket
+-- status: bare 'done: implementation complete' from the implementation commit
+state: blocked · source: status-log · the claim "done: implementation complete" reports no validated no-mistakes delivery: a ship done is the CI-ready 'PR <url> checks green' or, on Gerrit, 'PR <change url> published for review', never a bare implementation-commit summary
+-- status: CI-ready 'done: PR <url> checks green' while the head exists only in the worker copy
+state: blocked · source: status-log · named head ce017ea81b64641460904edb42b5bef8fad284aa is unreachable outside the worker copy
+-- same claim after the head is pushed to the branch remote
+state: done · source: status-log · PR https://github.com/o/r/pull/1 checks green

@@ -1,0 +1,84 @@
+== S1 changed config push (A) sends exactly one reread pointer
+config-push: /tmp/fm-lab.3wxnm2/home -> live secondmate homes
+secondmate sm (/tmp/fm-lab.3wxnm2/sm):
+  crew-harness: pushed
+  config-reread: sent
+exit=0
+  -> last-arrived pointer payload=codex
+  -> inbox CONFIG_REREAD pointers=1 pending=0 sm-config=codex newest-delivered-instruction-payload=codex
+   live pane doorbell:
+bash-5.2$
+== S2 re-push with no config change sends nothing
+config-push: /tmp/fm-lab.3wxnm2/home -> live secondmate homes
+secondmate sm (/tmp/fm-lab.3wxnm2/sm):
+exit=0
+  -> last-arrived pointer payload=codex
+  -> inbox CONFIG_REREAD pointers=1 pending=0 sm-config=codex newest-delivered-instruction-payload=codex
+== S3 sm-side drift then push of same A: payload byte-identical to latest delivered
+config-push: /tmp/fm-lab.3wxnm2/home -> live secondmate homes
+secondmate sm (/tmp/fm-lab.3wxnm2/sm):
+  crew-harness: pushed
+exit=0
+  -> last-arrived pointer payload=codex
+  -> inbox CONFIG_REREAD pointers=1 pending=0 sm-config=codex newest-delivered-instruction-payload=codex
+== S4 change to B sends a new pointer
+config-push: /tmp/fm-lab.3wxnm2/home -> live secondmate homes
+secondmate sm (/tmp/fm-lab.3wxnm2/sm):
+  crew-harness: pushed
+  config-reread: sent
+exit=0
+  -> last-arrived pointer payload=pi
+  -> inbox CONFIG_REREAD pointers=2 pending=0 sm-config=pi newest-delivered-instruction-payload=pi
+== S5 adversarial A->B-pending->revert-A: inbox unwritable while B pushed
+config-push: /tmp/fm-lab.3wxnm2/home -> live secondmate homes
+secondmate sm (/tmp/fm-lab.3wxnm2/sm):
+  crew-harness: pushed
+  config-reread: sent
+exit=0
+  -> last-arrived pointer payload=codex
+  -> inbox CONFIG_REREAD pointers=3 pending=0 sm-config=codex newest-delivered-instruction-payload=codex
+config-push: /tmp/fm-lab.3wxnm2/home -> live secondmate homes
+secondmate sm (/tmp/fm-lab.3wxnm2/sm):
+  crew-harness: pushed
+CONFIG_REREAD: secondmate sm: send failed: mktemp: failed to create file via template ‘/tmp/fm-lab.3wxnm2/home/state/sm.inbox/.lock-probe.XXXXXX’: Permission denied
+exit=1
+  -> last-arrived pointer payload=codex
+  -> inbox CONFIG_REREAD pointers=3 pending=1 sm-config=pi newest-delivered-instruction-payload=pi
+config-push: /tmp/fm-lab.3wxnm2/home -> live secondmate homes
+secondmate sm (/tmp/fm-lab.3wxnm2/sm):
+  crew-harness: pushed
+  config-reread: sent
+exit=0
+  -> last-arrived pointer payload=codex
+  -> inbox CONFIG_REREAD pointers=5 pending=0 sm-config=codex newest-delivered-instruction-payload=codex
+   expectation: newest delivered instruction payload == sm config == codex
+== S6 adversarial (round finding): A-pending -> B-pending -> revert-A
+config-push: /tmp/fm-lab.3wxnm2/home -> live secondmate homes
+secondmate sm (/tmp/fm-lab.3wxnm2/sm):
+  crew-harness: pushed
+  config-reread: sent
+exit=0
+  -> last-arrived pointer payload=opencode
+  -> inbox CONFIG_REREAD pointers=6 pending=0 sm-config=opencode newest-delivered-instruction-payload=opencode
+config-push: /tmp/fm-lab.3wxnm2/home -> live secondmate homes
+secondmate sm (/tmp/fm-lab.3wxnm2/sm):
+  crew-harness: pushed
+CONFIG_REREAD: secondmate sm: send failed: mktemp: failed to create file via template ‘/tmp/fm-lab.3wxnm2/home/state/sm.inbox/.lock-probe.XXXXXX’: Permission denied
+exit=1
+  -> last-arrived pointer payload=opencode
+  -> inbox CONFIG_REREAD pointers=6 pending=1 sm-config=codex newest-delivered-instruction-payload=codex
+config-push: /tmp/fm-lab.3wxnm2/home -> live secondmate homes
+secondmate sm (/tmp/fm-lab.3wxnm2/sm):
+  crew-harness: pushed
+CONFIG_REREAD: secondmate sm: send failed: mktemp: failed to create file via template ‘/tmp/fm-lab.3wxnm2/home/state/sm.inbox/.lock-probe.XXXXXX’: Permission denied
+exit=1
+  -> last-arrived pointer payload=opencode
+  -> inbox CONFIG_REREAD pointers=6 pending=2 sm-config=pi newest-delivered-instruction-payload=pi
+config-push: /tmp/fm-lab.3wxnm2/home -> live secondmate homes
+secondmate sm (/tmp/fm-lab.3wxnm2/sm):
+  crew-harness: pushed
+  config-reread: sent
+exit=0
+  -> last-arrived pointer payload=codex
+  -> inbox CONFIG_REREAD pointers=9 pending=0 sm-config=codex newest-delivered-instruction-payload=codex
+   expectation: newest delivered instruction payload == sm config == codex, pending=0
