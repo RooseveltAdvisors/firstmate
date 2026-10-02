@@ -1,0 +1,57 @@
+### tasks-axi list before sweep
+count: 10
+tasks[10]{id,state,kind,repo,title}:
+  fm-race,in_flight,ship,"-",becomes held mid-sweep
+  fm-blocker,queued,ship,"-",open blocker
+  fm-blk,in_flight,ship,"-",blocked dead claim
+  fm-held-3,in_flight,ship,"-",held dead claim 3
+  fm-held-2,in_flight,ship,"-",held dead claim 2
+  fm-held-1,in_flight,ship,"-",held dead claim 1
+  fm-valid-4,in_flight,ship,"-",valid dead claim 4
+  fm-valid-3,in_flight,ship,"-",valid dead claim 3
+  fm-valid-2,in_flight,ship,"-",valid dead claim 2
+  fm-valid-1,in_flight,ship,"-",valid dead claim 1
+help[2]:
+  - Run `tasks-axi show <id>` for full notes on a task
+  - Run `tasks-axi ready` to see unblocked queued work
+
+### fm-stale-sweep.sh check
+stale-sweep: 5 dead-endpoint in_progress rows reclaimable - run bin/fm-stale-sweep.sh --apply
+(rc=0)
+
+### fm-stale-sweep.sh (dry run)
+ID                                         HOME               AGE     VERDICT   ACTION                   ACTOR         PROV
+fm-race                                    main home          50h     dead      would reclaim            -             -
+fm-valid-4                                 main home          50h     dead      would reclaim            -             -
+fm-valid-3                                 main home          50h     dead      would reclaim            -             -
+fm-valid-2                                 main home          50h     dead      would reclaim            -             -
+fm-valid-1                                 main home          50h     dead      would reclaim            -             -
+5 stale candidates: 5 dead, 0 live, 0 unproven, 0 no-home; would reclaim 5
+(rc=0)
+
+### fm-stale-sweep.sh --apply (fm-race gets held between scan and apply)
+ID                                         HOME               AGE     VERDICT   ACTION                   ACTOR         PROV
+fm-race                                    main home          50h     dead      reclaim failed: row changed under the sweep (state=in_flight held=yes blocked=no) -             -
+fm-valid-4                                 main home          50h     dead      reclaimed                -             -
+fm-valid-3                                 main home          50h     dead      reclaimed                -             -
+fm-valid-2                                 main home          50h     dead      reclaimed                -             -
+fm-valid-1                                 main home          50h     dead      reclaimed                -             -
+5 stale candidates: 5 dead, 0 live, 0 unproven, 0 no-home; reclaimed 4
+(rc=1)
+
+### per-row state after apply (bd status / tasks-axi held)
+fm-valid-1   status=open           blocked: no   held: no   hold_kind: "-"  reclaim_notes=1
+fm-valid-2   status=open           blocked: no   held: no   hold_kind: "-"  reclaim_notes=1
+fm-valid-3   status=open           blocked: no   held: no   hold_kind: "-"  reclaim_notes=1
+fm-valid-4   status=open           blocked: no   held: no   hold_kind: "-"  reclaim_notes=1
+fm-held-1    status=in_progress    blocked: no   held: yes   hold_kind: captain  reclaim_notes=0
+fm-held-2    status=in_progress    blocked: no   held: yes   hold_kind: captain  reclaim_notes=0
+fm-held-3    status=in_progress    blocked: no   held: yes   hold_kind: captain  reclaim_notes=0
+fm-blk       status=in_progress    blocked: yes   held: no   hold_kind: "-"  reclaim_notes=0
+fm-race      status=in_progress    blocked: no   held: yes   hold_kind: captain  reclaim_notes=0
+
+### second check after apply
+(rc=0, silent = nothing reclaimable)
+
+meta files still present: 9
+lab removed: /tmp/fm-lab.W2uIQj
