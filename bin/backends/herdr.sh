@@ -181,11 +181,6 @@ fm_backend_herdr_presentation_preference() {  # <config-dir>
   esac
 }
 
-# fm_backend_herdr_version_at_least <candidate> <floor>: numeric dotted-release
-# comparison. Return codes: 0 candidate >= floor, 1 candidate < floor, 2 the
-# candidate is unparseable. Any prerelease or build suffix is stripped first, so
-# a 0.8.0-preview build compares as 0.8.0 (it is built from the 0.8.0 line and
-# carries its fixes) while a 0.7.5-preview build compares as 0.7.5.
 # The config item a home writes to opt in to human-readable task-tab labels.
 FM_BACKEND_HERDR_TASK_TITLES_CONFIG="herdr-task-titles"
 
@@ -209,6 +204,11 @@ fm_backend_herdr_task_titles_preference() {  # <config-dir>
   fi
 }
 
+# fm_backend_herdr_version_at_least <candidate> <floor>: numeric dotted-release
+# comparison. Return codes: 0 candidate >= floor, 1 candidate < floor, 2 the
+# candidate is unparseable. Any prerelease or build suffix is stripped first, so
+# a 0.8.0-preview build compares as 0.8.0 (it is built from the 0.8.0 line and
+# carries its fixes) while a 0.7.5-preview build compares as 0.7.5.
 fm_backend_herdr_version_at_least() {  # <candidate> <floor>
   local candidate=${1:-} floor=${2:-} c f
   candidate=${candidate%%[-+]*}
@@ -2553,6 +2553,10 @@ fm_backend_herdr_task_label_history_json() {  # <path>
 fm_backend_herdr_task_label_history_compact() {  # <path> <label>
   local path=$1 label=$2 tmp
   [ -n "$path" ] || return 0
+  if [ -L "$path" ] || { [ -e "$path" ] && [ ! -f "$path" ]; }; then
+    echo "error: herdr task-label history is not a regular file: $path" >&2
+    return 1
+  fi
   tmp=$(mktemp "$path.tmp.XXXXXX") || return 1
   if ! printf '%s\n' "$label" > "$tmp"; then
     rm -f "$tmp"

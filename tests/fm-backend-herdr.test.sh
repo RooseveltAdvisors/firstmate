@@ -3868,6 +3868,15 @@ test_task_label_history_refuses_a_symlink() {
     "$ROOT" "$dir/history" 2>&1); rc=$?
   expect_code 1 "$rc" "reading a symlinked history should refuse"
   assert_contains "$out" "not a regular file" "the json refusal should name the non-regular-file rule"
+  mkdir "$dir/outside-dir"
+  rm "$dir/history"
+  ln -s "$dir/outside-dir" "$dir/history"
+  out=$(bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_task_label_history_compact "$1" "Mine (mine)"' \
+    "$ROOT" "$dir/history" 2>&1); rc=$?
+  expect_code 1 "$rc" "compacting through a symlinked history should refuse"
+  assert_contains "$out" "not a regular file" "the compact refusal should name the non-regular-file rule"
+  [ -z "$(ls -A "$dir/outside-dir")" ] \
+    || fail "the refused compact still moved the label file outside state"
   pass "fm_backend_herdr_task_label_history: refuses a symlinked history path"
 }
 
