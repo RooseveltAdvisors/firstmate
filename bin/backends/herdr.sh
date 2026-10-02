@@ -2568,6 +2568,29 @@ fm_backend_herdr_task_label_history_compact() {  # <path> <label>
   fi
 }
 
+# fm_backend_herdr_duplicate_match_jq [<replacement-tab-id>]: the one
+# duplicate/husk identity rule as a jq program - a tab is this task's tab when
+# its label equals the label being created, the legacy fm-<task-id>, or any
+# recorded attempted label; the optional replacement id additionally excludes
+# the tab this very call just created. Both consumers live in
+# fm_backend_herdr_create_task: the pre-create duplicate scan and the
+# post-close verification. Never re-inline this predicate at a call site.
+fm_backend_herdr_duplicate_match_jq() {
+  local exclude=
+  if [ -n "${1:-}" ]; then
+    exclude="
+        | select(.tab_id != \$replacement)"
+  fi
+  printf '%s' "select((.label | type) == \"string\")
+      | .label as \$candidate
+      | select(
+          \$candidate == \$want
+          or (\$task_id != \"\" and .label == \$legacy)
+          or any(\$attempted[]; . == \$candidate)
+        )${exclude}
+      | \"\\(.tab_id)\\t\\(.label)\""
+}
+
 # fm_backend_herdr_create_task: create the task's tab (one pane) in
 # <container> ("session:workspace_id"). Herdr does NOT enforce label
 # uniqueness itself (verified: two tabs can share a label), so the duplicate
@@ -2621,19 +2644,11 @@ fm_backend_herdr_create_task() {  # <container> <label> <cwd> <seeded_default_ta
   list=$(fm_backend_herdr_cli "$session" tab list --workspace "$wsid" 2>/dev/null) || return 1
   dup_tabs=$(printf '%s' "$list" | jq -r \
     --arg want "$label" --arg task_id "$task_id" --argjson attempted "$attempted_labels" \
-    --arg legacy "fm-$task_id" '
-      if (.result.tabs | type) == "array" then
-        .result.tabs[]
-        | select((.label | type) == "string")
-        | .label as $candidate
-        | select(
-            $candidate == $want
-            or ($task_id != "" and .label == $legacy)
-            or any($attempted[]; . == $candidate)
-          )
-        | "\(.tab_id)\t\(.label)"
-      else error("missing result.tabs") end
-    ' 2>/dev/null) || {
+    --arg legacy "fm-$task_id" \
+    "if (.result.tabs | type) == \"array\" then
+       .result.tabs[]
+     else error(\"missing result.tabs\") end
+     | $(fm_backend_herdr_duplicate_match_jq)" 2>/dev/null) || {
     echo "error: could not parse herdr tab list output for workspace $wsid (session $session)" >&2
     return 1
   }
@@ -2677,18 +2692,8 @@ EOF
     remaining_dup_tabs=$(printf '%s' "$list" | jq -r \
       --arg want "$label" --arg task_id "$task_id" --argjson attempted "$attempted_labels" \
       --arg legacy "fm-$task_id" \
-      --arg replacement "$tab_id" '
-        .result.tabs[]?
-        | select((.label | type) == "string")
-        | .label as $candidate
-        | select(
-            $candidate == $want
-            or ($task_id != "" and .label == $legacy)
-            or any($attempted[]; . == $candidate)
-          )
-        | select(.tab_id != $replacement)
-        | "\(.tab_id)\t\(.label)"
-      ' 2>/dev/null)
+      --arg replacement "$tab_id" \
+      ".result.tabs[]? | $(fm_backend_herdr_duplicate_match_jq "$tab_id")" 2>/dev/null)
     remaining_dup_list=$remaining_dup_tabs
     remaining_dup_tabs=
     while IFS=$'\t' read -r remaining_dup remaining_dup_label; do
