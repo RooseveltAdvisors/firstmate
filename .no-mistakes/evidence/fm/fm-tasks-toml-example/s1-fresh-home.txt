@@ -1,0 +1,31 @@
+## S1 fresh home: ls before
+config
+data
+.fm-lab-home
+projects
+state
+tmux
+## bootstrap run 1
+rc=0
+## ls after
+config
+data
+.fm-lab-home
+projects
+state
+.tasks.toml
+tmux
+## cmp with example
+IDENTICAL
+AGENTS.md
+assets
+bin
+CLAUDE.md
+CONTRIBUTING.md
+docs
+GROK_BOT.md
+LICENSE
+README.md
+skills
+tests
+VISION.md

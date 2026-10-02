@@ -1,0 +1,7 @@
+## S2 customised copy, rerun bootstrap
+rc=0
+BYTE-IDENTICAL after bootstrap
+# my home customisation
+backlog = "data/backlog.md"
+done_keep = 3
+no-trailing-newline

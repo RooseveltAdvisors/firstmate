@@ -1,0 +1,6 @@
+## S3 dangling symlink counts as home's choice
+rc=0
+lrwxrwxrwx 1 jon jon 16 Oct  2 12:56 /tmp/fm-lab.Emarbn/.tasks.toml -> /nonexistent-xyz
+## S4 missing example -> actionable TASKS_CONFIG
+TASKS_CONFIG: this home has no .tasks.toml and /tmp/tmp.ftJ7xF4N7C/bin/../.tasks.toml.example is missing or not a regular file
+(no .tasks.toml created, no temp left)

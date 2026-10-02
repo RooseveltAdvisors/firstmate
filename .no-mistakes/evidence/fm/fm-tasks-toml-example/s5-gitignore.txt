@@ -1,0 +1,4 @@
+## S5 gitignore: tracked example present, live file ignored
+.tasks.toml.example
+.gitignore:14:.tasks.toml	.tasks.toml
+(git status clean of .tasks.toml)
