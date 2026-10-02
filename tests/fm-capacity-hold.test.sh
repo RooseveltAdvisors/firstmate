@@ -33,6 +33,14 @@ TMP_ROOT=$(fm_test_tmproot fm-capacity-hold)
 # A fake tmux whose pane never leaves the project (treehouse get refused) and
 # whose capture serves the wrapped refusal from a file, plus a fake treehouse
 # whose `status --json` names one worktree under the scratch pool.
+#
+# The fake mirrors REAL tmux (3.7b) semantics rather than assumed ones,
+# because the product's endpoint readback depends on them: display-message
+# never fails for an absent -t target (it answers from the ACTIVE pane, rc 0),
+# so window state is modelled as real state - new-window creates a named
+# window, kill-window removes it - and list-windows is the inventory that can
+# prove a window absent. The suite therefore cannot pass by encoding a probe
+# behavior real tmux does not have.
 make_spawn_fakebin() {  # <dir> <refusal-file>
   local dir=$1 refusal=$2 fakebin pool
   fakebin="$dir/fakebin"
@@ -41,6 +49,9 @@ make_spawn_fakebin() {  # <dir> <refusal-file>
   cat > "$fakebin/tmux" <<SH
 #!/usr/bin/env bash
 set -u
+# The session's window state: real state that new-window creates and
+# kill-window removes, baked in per case so cases stay isolated.
+windows='$dir/tmux-windows.txt'
 case "\$*" in
   *"\#{pane_current_path}"*) printf '%s\n' "\${FM_FAKE_PANE_PATH:-}"; exit 0 ;;
 esac
@@ -54,12 +65,9 @@ case "\${1:-}" in
   display-message)
     case "\$*" in
       *'#{pane_id}'*)
-        # A killed window is gone: the presence probe for it must fail, unless
-        # the fake is standing in for a kill that returned 0 without closing.
-        if [ -s "\${FM_FAKE_TMUX_KILL_LOG:-/dev/null}" ] \
-           && [ -z "\${FM_FAKE_TMUX_KILL_REFUSED:-}" ]; then
-          exit 1
-        fi
+        # Real tmux reads an absent target from the ACTIVE pane and exits 0:
+        # a killed window is indistinguishable from a live one here, so this
+        # probe can never settle whether the endpoint is gone.
         printf '%%1\n'
         exit 0
         ;;
@@ -67,12 +75,43 @@ case "\${1:-}" in
     printf 'firstmate\n'
     exit 0
     ;;
-  list-windows) exit 0 ;;
-  kill-window)
-    printf '%s\n' "\$*" >> "\${FM_FAKE_TMUX_KILL_LOG:-/dev/null}"
+  list-windows)
+    # The authoritative inventory: exactly the windows the session has.
+    [ -f "\$windows" ] && cat "\$windows"
     exit 0
     ;;
-  has-session|new-session|new-window|set-window-option) exit 0 ;;
+  new-window)
+    name= prev=
+    for arg in "\$@"; do
+      [ "\$prev" = -n ] && name=\$arg
+      prev=\$arg
+    done
+    [ -z "\$name" ] || printf '%s\n' "\$name" >> "\$windows"
+    printf '@1\n'
+    exit 0
+    ;;
+  kill-window)
+    printf '%s\n' "\$*" >> "\${FM_FAKE_TMUX_KILL_LOG:-/dev/null}"
+    target= prev=
+    for arg in "\$@"; do
+      [ "\$prev" = -t ] && target=\$arg
+      prev=\$arg
+    done
+    # FM_FAKE_TMUX_KILL_REFUSED stands in for the backends that refuse a close
+    # and still return 0: the kill succeeds on paper, the window survives.
+    if [ -n "\${FM_FAKE_TMUX_KILL_REFUSED:-}" ]; then
+      exit 0
+    fi
+    name=\${target##*:=}
+    if [ -n "\$name" ] && [ -f "\$windows" ] && grep -qxF -- "\$name" "\$windows"; then
+      grep -vxF -- "\$name" "\$windows" > "\$windows.tmp"
+      mv "\$windows.tmp" "\$windows"
+      exit 0
+    fi
+    printf '%s\n' "can't find window: \$target" >&2
+    exit 1
+    ;;
+  has-session|new-session|set-window-option) exit 0 ;;
   send-keys) exit 0 ;;
 esac
 exit 0

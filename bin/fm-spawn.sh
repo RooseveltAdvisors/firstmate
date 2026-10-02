@@ -3978,9 +3978,19 @@ spawn_capacity_refuse() {
 #            `unknown` - any other error, an unparseable reply, a server that
 #            has since exited - is `unconfirmed`, as is a target that will not
 #            parse or an adapter that will not source.
-#   tmux   - fm_backend_target_exists looks the window up directly, so a failed
-#            lookup means no such window (a dead server has none either, and
-#            the redispatch starts its own).
+#   tmux   - the pane-targeted reads cannot answer here: real tmux never fails
+#            a read of an absent -t target, display-message answers from the
+#            ACTIVE pane instead (verified on tmux 3.7b), so a failed lookup
+#            would prove nothing. The verdict reads the session's window
+#            inventory instead - fm_backend_tmux_window_inventory under the
+#            window's EXACT recorded identity (=session plus a whole-line name
+#            match, the same read fm_backend_tmux_kill and
+#            fm_backend_tmux_agent_state use): a readable inventory that omits
+#            the recorded name is `gone`, a listed name is `open`, a session
+#            or server tmux definitively reports absent is `gone` too (the
+#            redispatch starts its own), and an inventory that could not be
+#            read at all is `unconfirmed`, as is a target that will not parse
+#            or an adapter that will not source.
 # zellij and cmux reach this path too, but fm_backend_target_exists dispatches
 # both to a READINESS predicate (fm_backend_zellij_target_ready,
 # fm_backend_cmux_target_ready) that also fails on a label mismatch or an
@@ -3991,6 +4001,7 @@ spawn_capacity_refuse() {
 # the follow-up that would let them answer `gone`. An unanswerable read is
 # never taken as proof.
 spawn_capacity_endpoint_verdict() {
+  local tmux_session tmux_window tmux_windows tmux_inventory_status
   case "$BACKEND" in
     herdr)
       fm_backend_source herdr 2>/dev/null || { printf 'unconfirmed'; return 0; }
@@ -4004,11 +4015,32 @@ spawn_capacity_endpoint_verdict() {
       esac
       ;;
     tmux)
-      if fm_backend_target_exists tmux "$T" "$W" 2>/dev/null; then
-        printf 'open'
+      fm_backend_source tmux 2>/dev/null || { printf 'unconfirmed'; return 0; }
+      case "$T" in
+        *:*) ;;
+        *) printf 'unconfirmed'; return 0 ;;
+      esac
+      tmux_session=${T%%:*}
+      tmux_window=${T#*:}
+      case "$tmux_session:$tmux_window" in
+        :*|*:|*:*:*) printf 'unconfirmed'; return 0 ;;
+      esac
+      if tmux_windows=$(fm_backend_tmux_window_inventory "=$tmux_session"); then
+        tmux_inventory_status=0
       else
-        printf 'gone'
+        tmux_inventory_status=$?
       fi
+      case "$tmux_inventory_status" in
+        0)
+          if printf '%s\n' "$tmux_windows" | grep -qxF -- "$tmux_window"; then
+            printf 'open'
+          else
+            printf 'gone'
+          fi
+          ;;
+        2) printf 'gone' ;;
+        *) printf 'unconfirmed' ;;
+      esac
       ;;
     *)
       if fm_backend_target_exists "$BACKEND" "$T" "$W" 2>/dev/null; then
