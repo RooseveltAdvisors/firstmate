@@ -239,8 +239,8 @@ fi
 # a crew with no active run and an idle pane that declared a known external wait
 # reports `paused` distinctly, so a supervisor reading this sees a declared pause
 # and its reason rather than a wedge-suspect idle.
-# A ship `done:` is not current-state done while bin/fm-dod-lib.sh refuses the
-# named-head reachability gate: that claim is blocked so a disposable copy is
+# A ship `done:` is not current-state done while bin/fm-dod-lib.sh refuses it:
+# that claim is blocked so an unvalidated or disposable-copy-only report is
 # not treated as finished-and-safe.
 emit_ship_status_done() {  # [extra-detail]
   local extra=${1:-} reason

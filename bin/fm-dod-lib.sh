@@ -18,11 +18,13 @@
 # (secondmate ledger-first publish of a child done). A ship `done:` is not
 # accepted while the named head exists only in the worker's disposable copy.
 # The check tests that head, not whether some branch moved. In no-mistakes
-# mode only the CI-ready `done: PR <url> checks green` is gated, or on a
-# Gerrit project `done: PR <change url> published for review`; any other
-# no-mistakes `done:` line passes ungated, and the rendered contract orders
-# no pre-validation handoff `done: {summary}` because the worker reports done
-# only after CI is green. The
+# mode every ship `done:` is gated: the CI-ready `done: PR <url> checks green`
+# or, on a Gerrit project which has no forge CI, `done: PR <change url>
+# published for review`, while any other no-mistakes `done:` line - a bare
+# summary - is refused rather than passed ungated, because the rendered
+# contract orders no pre-validation handoff `done: {summary}`: a forge-CI
+# mode's worker reports done only after CI is green, and a Gerrit worker
+# reports it only after the run's outcome passes and the change is published. The
 # named head is the worker copy's HEAD, except that a done naming the task's
 # recorded pr= passes when the forge holds that head: a forge-reported
 # pr_head= in no-mistakes mode, or a recorded merge
@@ -380,7 +382,7 @@ Ship branch: $branch
 This project's review server is Gerrit: it has no pull requests and no forge CI the pipeline can watch, so **no-mistakes runs here as a review pass that ends at a ready branch**, and you then publish that branch as one change.
 Pass \`--skip push,pr,ci\` on every \`no-mistakes axi run\` for this task, and skip nothing else: \`review\`, \`test\`, \`document\`, and \`lint\` are the whole point of the run.
 Those three are the only steps that reach a forge, and skipping them is a supported outcome, not a degraded one.
-The task is complete only after the change is pushed and open for review with checks green (or attestation green).
+The task is complete only after the run's outcome passes and the change is published for review.
 A commit is only the input to validation; never report done from the bare implementation commit.
 When it is implemented and committed, start /no-mistakes to validate the branch; do not append \`done:\` until the run's outcome passes and the change is published.
 
@@ -490,18 +492,16 @@ fm_dod_note_reports_published_change() {  # <note>
 }
 
 # 0 when this ship done: is one the named-head gate must accept or refuse.
-# A no-mistakes done: that is neither CI-ready nor published-for-review (any
-# bare summary) passes ungated, though the rendered contract orders none.
+# Every no-mistakes ship done: is gated: only the CI-ready `done: PR <url>
+# checks green` and the Gerrit `done: PR <change url> published for review` can
+# pass, and any other done: (a bare summary) is refused instead of accepted
+# ungated, though the rendered contract orders none.
 # Empty mode is treated as no-mistakes, the unregistered-project default.
 fm_dod_should_gate_ship_done() {  # <kind> <mode> <line>
-  local note
   [ "$1" = ship ] || return 1
   [ "$(status_line_verb "$3")" = "done" ] || return 1
-  note=$(status_line_note "$3")
   case "$2" in
-    direct-PR|local-only) return 0 ;;
-    no-mistakes|'')
-      fm_dod_note_reports_ci_ready "$note" || fm_dod_note_reports_published_change "$note" ;;
+    direct-PR|local-only|no-mistakes|'') return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -641,9 +641,17 @@ fm_dod_named_head_reachable_outside_worktree() {  # <worktree> <project> <mode> 
 # pr_head=, and the merge-notified marker; <meta> may be a captured copy
 # (bin/fm-fleet-snapshot.sh), so the marker is read from <state>.
 fm_dod_accept_ship_done() {  # <kind> <mode> <worktree> <project> <line> [<state> <id> <meta>]
-  local kind=$1 mode=$2 wt=$3 project=$4 line=$5 state=${6:-} id=${7:-} meta=${8:-} url sha gerrit
+  local kind=$1 mode=$2 wt=$3 project=$4 line=$5 state=${6:-} id=${7:-} meta=${8:-} url sha gerrit note
   fm_dod_should_gate_ship_done "$kind" "$mode" "$line" || return 0
-  if url=$(fm_dod_pr_url_from_done_note "$(status_line_note "$line")") \
+  note=$(status_line_note "$line")
+  case "$mode" in
+    no-mistakes|'')
+      fm_dod_note_reports_ci_ready "$note" || fm_dod_note_reports_published_change "$note" || {
+        printf '%s\n' "the claim \"$line\" reports no validated no-mistakes delivery: a ship done is the CI-ready 'PR <url> checks green' or, on Gerrit, 'PR <change url> published for review', never a bare implementation-commit summary"
+        return 1
+      } ;;
+  esac
+  if url=$(fm_dod_pr_url_from_done_note "$note") \
     && fm_dod_recorded_pr_on_forge "$state" "$id" "$meta" "$mode" "$url"; then
     return 0
   fi

@@ -1218,8 +1218,8 @@ test_forge_gerrit_changes_what_no_mistakes_means() {
     "the gerrit worker was not told to report each pipeline fix the squash hides"
   assert_grep 'pipeline changes: none' "$brief" \
     "the gerrit worker was not told what to report when the pipeline fixed nothing"
-  assert_grep 'The task is complete only after the change is pushed and open for review with checks green (or attestation green)' "$brief" \
-    "the gerrit no-mistakes contract does not require the pushed, open, green change before done"
+  assert_grep 'The task is complete only after the run'"'"'s outcome passes and the change is published for review' "$brief" \
+    "the gerrit no-mistakes contract does not require the passing run and published change before done"
   assert_grep 'A commit is only the input to validation; never report done from the bare implementation commit.' "$brief" \
     "the gerrit no-mistakes contract does not reject a done from the bare implementation commit"
   assert_grep 'start /no-mistakes to validate the branch' "$brief" \
