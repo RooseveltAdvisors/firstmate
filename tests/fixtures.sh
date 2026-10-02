@@ -32,10 +32,10 @@ export FM_TEST_NO_MISTAKES_FAKE_VERSION="no-mistakes version v${FM_TEST_NO_MISTA
 # form. Override a single case with FM_FAKE_NO_MISTAKES_VERSION.
 export FM_TEST_NO_MISTAKES_FAKE_VERSION_TS="${FM_TEST_NO_MISTAKES_FAKE_VERSION} 2026-06-27T00:02:18Z"
 export FM_TEST_GH_AXI_VERSION=0.1.29
-export FM_TEST_QUOTA_AXI_VERSION=0.1.29
+export FM_TEST_QUOTA_AXI_VERSION=0.1.51
 # Production floor lives in bin/fm-tasks-axi-lib.sh (FM_TASKS_AXI_MIN). Keep
 # this equal to that floor so a bump is one constant here plus that pin.
-export FM_TEST_TASKS_AXI_VERSION=0.2.4
+export FM_TEST_TASKS_AXI_VERSION=0.2.6
 
 # --- fake no-mistakes -------------------------------------------------------
 
@@ -162,7 +162,9 @@ SH
 # fm_test_fake_tmux_spawn <fakebin>
 # Spawn-world tmux: pane_current_path from FM_FAKE_PANE_PATH, session named
 # firstmate, window ops succeed, send-keys succeed. When FM_FAKE_LAUNCH_LOG is
-# set, each send-keys -l payload is appended one per line. Optional
+# set, each send-keys -l payload is appended one per line. When FM_FAKE_PANE_LOG
+# is set, each send-keys TEXT-LINE payload (the pre-launch pane exports, which
+# carry no -l) is appended there instead, one per line in send order. Optional
 # FM_FAKE_DUPLICATE_WINDOW is printed from list-windows.
 #
 # The pane path defaults to empty when FM_FAKE_PANE_PATH is unset. Window
@@ -190,9 +192,48 @@ case "${1:-}" in
       prev=
       for a in "$@"; do
         if [ "$prev" = "-l" ]; then
+          # A spawn types a short line sourcing its staged launch file; log
+          # the staged command itself so suites assert what the pane runs.
+          # Direct literals past the terminal line buffer are truncated, so a
+          # long launch only survives when it arrived through that short source.
+          case "$a" in
+            ". '"*"'")
+              staged=${a#". '"}
+              staged=${staged%"'"}
+              if [ -f "$staged" ]; then
+                a=$(cat "$staged")
+              elif [ "${#a}" -gt 1024 ]; then
+                a=${a:0:1024}
+              fi
+              ;;
+            *)
+              if [ "${#a}" -gt 1024 ]; then
+                a=${a:0:1024}
+              fi
+              ;;
+          esac
           printf '%s\n' "$a" >> "$FM_FAKE_LAUNCH_LOG"
         fi
         prev=$a
+      done
+    fi
+    # The pre-launch pane exports ride the text-line form
+    # (`send-keys -t <target> <text> Enter`), which carries no -l flag, so a
+    # suite that asserts on what the pane shell received opts in with its own
+    # log. Skip the flags, the target, and the trailing key so only the payload
+    # is recorded, one per line, in send order.
+    if [ -n "${FM_FAKE_PANE_LOG:-}" ]; then
+      shift
+      skip_next=
+      literal=
+      for a in "$@"; do
+        if [ -n "$skip_next" ]; then skip_next=; continue; fi
+        case "$a" in
+          -t) skip_next=1; continue ;;
+          -l) literal=1; continue ;;
+          Enter|C-m) continue ;;
+          *) [ -n "$literal" ] || printf '%s\n' "$a" >> "$FM_FAKE_PANE_LOG" ;;
+        esac
       done
     fi
     exit 0
