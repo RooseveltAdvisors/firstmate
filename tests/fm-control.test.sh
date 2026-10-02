@@ -1239,7 +1239,7 @@ test_exit_window_starts_at_exit_command_delivery() {
 # window actually waited, never the full configured exit window the proof
 # time already consumed.
 test_not_sent_path_charges_the_pre_wait_proof_to_the_window() {
-  local dir out rc gen log window
+  local dir out rc gen log window e
   command -v jq >/dev/null 2>&1 \
     || { echo "skip - the herdr absence proof parses JSON with jq"; return 0; }
   dir=$(new_case not-sent-charging)
@@ -1265,9 +1265,10 @@ test_not_sent_path_charges_the_pre_wait_proof_to_the_window() {
     "the staged windows should end unconfirmed with the observed state"
   assert_contains "$log" "server" \
     "the absence proof should have attempted the restart before the waits"
+  e=2
   window=$(printf '%s\n' "$out" | sed -n 's/.*within the \([0-9][0-9.]*\)s exit window.*/\1/p')
   [ -n "$window" ] || fail "the unconfirmed report should name the window it waited: $out"
-  awk -v w="$window" -v e=2 'BEGIN{exit !(w + 0 < e)}' \
+  awk -v w="$window" -v e="$e" 'BEGIN{exit !(w + 0 < e)}' \
     || fail "the pre-wait proof was not charged to the primary window: the report claims ${window}s of a ${e}s exit window"
   pass "fm-control exit: the not-sent path charges its pre-wait absence proof to the primary window"
 }
