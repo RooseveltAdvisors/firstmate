@@ -2362,9 +2362,10 @@ _fm_status_open_decision_origins() {  # <status-file> [<kind>]
 
 status_span_first_actionable_record() {  # <status-file> <start-offset> [record-var] [needs-decision-var]
   local f=$1 start=${2:-0} output_var=${3-} needs_var=${4-} size ident cur_ident scratch chunk_file result
-  local line verb key origins='' folded=0 rc=1 failed=0 line_number=0 live_line='' events='' _line _key _fm_span_needs_decision=0 _fm_span_done_refused=0
+  local line verb key origins='' folded=0 rc=1 failed=0 line_number=0 live_line='' events='' _line _key _fm_span_needs_decision=0 _fm_span_done_refused=
+  # The last refused ship `done:` line in the span, empty when none.
   # shellcheck disable=SC2034 # Read by bin/fm-watch.sh after a same-shell span classify.
-  FM_STATUS_SPAN_DONE_REFUSED=0
+  FM_STATUS_SPAN_DONE_REFUSED=
   [ -e "$f" ] || { [ -L "$f" ] && return 2; return 1; }
   [ -f "$f" ] && [ -r "$f" ] && [ ! -L "$f" ] || return 2
   ident=$(_fm_open_decisions_file_ident "$f") || return 2
@@ -2443,7 +2444,7 @@ EOF
         if [ "$verb" = "done" ] \
           && command -v fm_done_guard_accepts_status_line >/dev/null 2>&1 \
           && ! fm_done_guard_accepts_status_line "$f" "$line"; then
-          _fm_span_done_refused=1
+          _fm_span_done_refused=$line
           continue
         fi
         [ -n "$events" ] && events="${events} ; "

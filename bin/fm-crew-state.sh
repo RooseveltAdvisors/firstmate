@@ -18,10 +18,9 @@
 # with no heuristics and no LLM.
 # For a terminal passed no-mistakes run, a matching merge-poll retirement
 # receipt is local merged evidence; otherwise a 5s-bounded forge read is tried.
-# FM_CREW_STATE_NO_FORGE=1 keeps the receipt read but skips that forge fallback.
-# It does not cover the ship-done gate in step 4, whose own bounded forge read is
-# governed separately by FM_DONE_GUARD_NO_FORGE (bin/fm-done-guard-lib.sh), so a
-# caller that must stay offline sets both.
+# FM_CREW_STATE_NO_FORGE=1 keeps the receipt read but skips that forge fallback,
+# and also keeps the ship-done gate in step 4 offline (FM_DONE_GUARD_NO_FORGE,
+# bin/fm-done-guard-lib.sh), so an offline read makes no forge call at all.
 # An absent or unreadable PR identity yields an honest unknown, never an
 # optimistic merged claim.
 # Output is one stable, parseable, token-tight line firstmate can read every
@@ -201,6 +200,7 @@ ID=${1:-}
 META=${FM_CREW_STATE_META_OVERRIDE:-"$STATE/$ID.meta"}
 LOG=${FM_CREW_STATE_STATUS_OVERRIDE:-"$STATE/$ID.status"}
 FM_DONE_GUARD_STATE_DIR=$STATE
+[ "${FM_CREW_STATE_NO_FORGE:-}" != 1 ] || FM_DONE_GUARD_NO_FORGE=1
 NM_TIMEOUT=${FM_CREW_STATE_NM_TIMEOUT:-10}
 case "$NM_TIMEOUT" in ''|*[!0-9]*) NM_TIMEOUT=10 ;; esac
 # How many of the most recent `no-mistakes runs` rows each ledger read

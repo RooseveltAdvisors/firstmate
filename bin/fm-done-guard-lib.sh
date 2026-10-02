@@ -19,8 +19,12 @@
 # The gate is fail-closed: an unreachable forge, a timed-out read, a PR in
 # another repository, or any non-open state refuses the done. Every forge call
 # is bounded by bin/fm-timeout-lib.sh, so no classifier blocks on the network.
+# An accepted forge verdict is cached in <state>/<id>.done-guard-accepted, keyed
+# by the done line, the task meta, and the worktree HEAD, so a done is read from
+# the forge once and a changed HEAD, meta, or line re-judges it.
 # FM_DONE_GUARD_NO_FORGE=1 keeps a caller offline; offline it can still refuse an
-# unpushed or unreferenced done, and accepts one only on a recorded merge receipt.
+# unpushed done (reason=unpushed, the one refusal that needs no forge), and
+# accepts one only on a recorded merge receipt or a cached accepted verdict.
 # fm_done_guard_accepts_status_line is the classifier hook: return 0 to keep a
 # done line actionable, 1 to drop it. fm_done_guard_steer_status is the watcher
 # side effect that tells the worker to push.
@@ -129,23 +133,29 @@ fm_done_guard_pr_url_from_forge() {  # <worktree>
   printf '%s' "$FM_PR_URL"
 }
 
-# Print the forge's state for one PR/MR through a hard bound. The reader runs in
-# a child shell because fm_run_timed bounds a command, not a shell function, and
-# bin/fm-pr-lib.sh returns its record in variables.
-fm_done_guard_forge_state() {  # <reader-function> <arg1> <arg2> <number>
+# Print "<state> <head-branch>" for one GitHub PR or GitLab MR through a hard
+# bound, so one read answers both whether it is open and whose branch it is.
+fm_done_guard_forge_pr() {  # <provider> <host> <path> <number>
   # shellcheck disable=SC2016  # The inner script expands after bash -c receives positional args.
   fm_run_timed "${FM_DONE_GUARD_FORGE_SECS:-5}" bash -c '
-    . "$1"
-    "$2" "$3" "$4" "$5" || exit 1
-    printf "%s" "$FM_PR_RECORD_STATE"
-  ' _ "$_FM_DONE_GUARD_LIB_DIR/fm-pr-lib.sh" "$@" 2>/dev/null
+    set -o pipefail
+    case "$1" in
+      github) exec env GH_PROMPT_DISABLED=1 GH_NO_UPDATE_NOTIFIER=1 \
+        gh pr view "$4" --repo "$2/$3" --json state,headRefName -q ".state + \" \" + .headRefName" ;;
+      gitlab) GITLAB_HOST="$2" glab mr view "$4" -R "https://$2/$3" -F json \
+        | jq -r ".state + \" \" + .source_branch" ;;
+      *) exit 1 ;;
+    esac
+  ' _ "$@" 2>/dev/null
 }
 
 # 0 only when <url> names a PR/MR in the worktree's own origin repository that
-# the forge reports open. Fail-closed: an offline caller, a foreign repository,
-# an unreachable forge, a hit bound, or any non-open state returns 1.
+# the forge reports open with this worktree's branch as its head, so a task
+# cannot complete on another task's PR. Fail-closed: an offline caller, a
+# foreign repository or branch, an unreachable forge, a hit bound, or any
+# non-open state returns 1.
 fm_done_guard_pr_is_open() {  # <url> <worktree>
-  local url=$1 wt=$2 origin state
+  local url=$1 wt=$2 origin out state head branch
   fm_pr_url_parse "$url" || return 1
   [ "${FM_DONE_GUARD_NO_FORGE:-}" = 1 ] && return 1
   command -v fm_run_timed >/dev/null 2>&1 || return 1
@@ -157,21 +167,16 @@ fm_done_guard_pr_is_open() {  # <url> <worktree>
     *"$FM_PR_HOST/$FM_PR_PATH"|*"$FM_PR_HOST:$FM_PR_PATH") ;;
     *) return 1 ;;
   esac
-  case "$FM_PR_PROVIDER" in
-    github)
-      state=$(fm_done_guard_forge_state fm_pr_github_read_record \
-        "$FM_PR_OWNER" "$FM_PR_REPO" "$FM_PR_NUMBER") || return 1
-      ;;
-    gitlab)
-      state=$(fm_done_guard_forge_state fm_pr_gitlab_read_record \
-        "$FM_PR_HOST" "$FM_PR_PATH" "$FM_PR_NUMBER") || return 1
-      ;;
+  branch=$(git -C "$wt" symbolic-ref --quiet --short HEAD 2>/dev/null) || return 1
+  out=$(fm_done_guard_forge_pr "$FM_PR_PROVIDER" "$FM_PR_HOST" "$FM_PR_PATH" "$FM_PR_NUMBER") \
+    || return 1
+  state=${out%% *}
+  head=${out#* }
+  case "$state" in
+    OPEN|open|opened) ;;
     *) return 1 ;;
   esac
-  case "$state" in
-    OPEN|open|opened) return 0 ;;
-  esac
-  return 1
+  [ -n "$branch" ] && [ "$head" = "$branch" ]
 }
 
 # 0 when the merge poll recorded the PR named by the done line or the recorded
@@ -223,11 +228,19 @@ fm_done_guard_gerrit_change_carries_head() {  # <url> <worktree>
   [ -n "$head_tree" ] && [ "$head_tree" = "$revision_tree" ]
 }
 
+# Print the identity an accepted verdict is cached under: the judged line, the
+# task meta, and the worktree HEAD. Any change to one re-judges the done.
+fm_done_guard_accept_key() {  # <line> <meta> <worktree>
+  local head
+  head=$(git -C "$3" rev-parse --verify --quiet HEAD 2>/dev/null) || return 1
+  fm_done_guard_steer_fingerprint "$1|$head|$(cat "$2" 2>/dev/null)"
+}
+
 # Inspect one status file and optional done line. Sets FM_DONE_GUARD_VERDICT to
 # accepted, skipped, or refused and FM_DONE_GUARD_REASON to a short token.
 # Return 0 for accepted or skipped, 1 for refused.
 fm_done_guard_check() {  # <status-file> [<done-line>]
-  local status=$1 line=${2-} meta kind mode wt source url referenced=0
+  local status=$1 line=${2-} meta kind mode wt source url referenced=0 id cache key=''
   FM_DONE_GUARD_VERDICT=skipped
   FM_DONE_GUARD_REASON=no-status
   [ -n "$status" ] || return 0
@@ -260,8 +273,20 @@ fm_done_guard_check() {  # <status-file> [<done-line>]
     FM_DONE_GUARD_REASON=no-worktree
     return 0
   fi
+  # A done already accepted under the same line, meta, and HEAD is not
+  # re-read from the forge: stale polls and backstops re-judge it every cycle.
+  id=$(basename "$status")
+  id=${id%.status}
+  cache="${FM_DONE_GUARD_STATE_DIR:-$(dirname "$status")}/$id.done-guard-accepted"
+  key=$(fm_done_guard_accept_key "$line" "$meta" "$wt") || key=''
+  if [ -n "$key" ] && [ "$(cat "$cache" 2>/dev/null || true)" = "$key" ]; then
+    FM_DONE_GUARD_VERDICT=accepted
+    FM_DONE_GUARD_REASON=accepted
+    return 0
+  fi
   if url=$(fm_done_guard_gerrit_url "$line" "$meta"); then
     if fm_done_guard_gerrit_change_carries_head "$url" "$wt"; then
+      [ -z "$key" ] || printf '%s\n' "$key" > "$cache" 2>/dev/null || true
       FM_DONE_GUARD_VERDICT=accepted
       FM_DONE_GUARD_REASON=accepted
       return 0
@@ -287,6 +312,7 @@ fm_done_guard_check() {  # <status-file> [<done-line>]
     esac
     referenced=1
     if fm_done_guard_pr_is_open "$url" "$wt"; then
+      [ -z "$key" ] || printf '%s\n' "$key" > "$cache" 2>/dev/null || true
       FM_DONE_GUARD_VERDICT=accepted
       FM_DONE_GUARD_REASON=accepted
       return 0

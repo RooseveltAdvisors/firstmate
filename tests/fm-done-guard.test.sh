@@ -47,21 +47,25 @@ run_check() {  # <home> <id>
 }
 
 # A forge that answers for one PR. FM_FAKE_GH_MODE=down makes every call fail so
-# a test can drive the unreachable-forge path; FM_FAKE_GH_STATE picks the state.
+# a test can drive the unreachable-forge path; FM_FAKE_GH_STATE picks the state
+# and FM_FAKE_GH_HEAD the PR's head branch. FM_FAKE_GH_LOG records each call and
+# FM_FAKE_GH_SLEEP makes each one slow.
 install_fake_forge() {  # <home>
   local home=$1
   mkdir -p "$home/bin"
   cat > "$home/bin/gh" <<'SH'
 #!/usr/bin/env bash
+[ -z "${FM_FAKE_GH_LOG:-}" ] || printf '%s\n' "$*" >> "$FM_FAKE_GH_LOG"
+[ -z "${FM_FAKE_GH_SLEEP:-}" ] || sleep "$FM_FAKE_GH_SLEEP"
 [ "${FM_FAKE_GH_MODE:-up}" = up ] || exit 1
-case "${1:-}" in
-  api) printf 'state=%s\nmerged=false\n' "${FM_FAKE_GH_STATE:-OPEN}" ;;
-  pr) printf '%s\n' "${FM_FAKE_GH_PR_URL:-}" ;;
+case "$*" in
+  *state,headRefName*) printf '%s %s\n' "${FM_FAKE_GH_STATE:-OPEN}" "${FM_FAKE_GH_HEAD:-}" ;;
+  api\ *) printf 'state=%s\nmerged=false\n' "${FM_FAKE_GH_STATE:-OPEN}" ;;
+  pr\ *) printf '%s\n' "${FM_FAKE_GH_PR_URL:-}" ;;
   *) exit 1 ;;
 esac
 SH
-  cp "$home/bin/gh" "$home/bin/gh-axi"
-  chmod +x "$home/bin/gh" "$home/bin/gh-axi"
+  chmod +x "$home/bin/gh"
 }
 
 # Push the task branch and point origin at the repository the fake PR lives in.
@@ -129,10 +133,58 @@ EOF
   commit_on "$wt" feature.txt "ready"
   publish "$wt" "$branch"
   printf 'done: PR %s checks green\n' "$FAKE_PR_URL" > "$home/state/${id}.status"
-  out=$(run_check "$home" "$id") || rc=$?
+  out=$(FM_FAKE_GH_HEAD=$branch run_check "$home" "$id") || rc=$?
   [ "$rc" -eq 0 ] || fail "pushed ship with an open PR should be accepted, got exit $rc ($out)"
   assert_contains "$out" "verdict=accepted" "pushed+open-PR ship did not print accepted"
   pass "worker pushes and opens a PR the forge confirms -> done accepted"
+}
+
+# Two concurrent tasks in one repository: A pushes its own branch but reports
+# B's open PR. The PR is open in the right repository, but its head is B's
+# branch, so it is not A's completion.
+test_pr_of_another_task_refuses_done() {
+  local rec home wt branch id=task-a-a1 out rc=0
+  rec=$(make_ship "$id" no-mistakes)
+  IFS='|' read -r home wt branch <<EOF
+$rec
+EOF
+  install_fake_forge "$home"
+  commit_on "$wt" feature.txt "ready"
+  publish "$wt" "$branch"
+  printf 'done: PR %s checks green\n' "$FAKE_PR_URL" > "$home/state/${id}.status"
+  out=$(FM_FAKE_GH_HEAD=fm/task-b-a1 run_check "$home" "$id") || rc=$?
+  [ "$rc" -eq 1 ] || fail "task A citing task B's PR should be refused, got exit $rc ($out)"
+  assert_contains "$out" "reason=unverified-pr" "another task's PR was not named unverified"
+  pass "task A reports task B's open PR -> done refused"
+}
+
+# An accepted done is read from the forge once: repeat checks of the same line,
+# meta, and HEAD reuse the verdict, and a new HEAD re-judges it.
+test_accepted_verdict_is_read_once_per_head() {
+  local rec home wt branch id=cached-a1 out rc=0 log
+  rec=$(make_ship "$id" no-mistakes)
+  IFS='|' read -r home wt branch <<EOF
+$rec
+EOF
+  install_fake_forge "$home"
+  log="$home/gh.log"
+  commit_on "$wt" feature.txt "ready"
+  publish "$wt" "$branch"
+  printf 'done: PR %s checks green\n' "$FAKE_PR_URL" > "$home/state/${id}.status"
+  for _ in 1 2 3; do
+    out=$(FM_FAKE_GH_LOG=$log FM_FAKE_GH_HEAD=$branch run_check "$home" "$id") || rc=$?
+    [ "$rc" -eq 0 ] || fail "a repeat check of an accepted done refused it, exit $rc ($out)"
+  done
+  [ "$(wc -l < "$log" | tr -d ' ')" = 1 ] \
+    || fail "unchanged repeat checks re-read the forge: $(cat "$log")"
+  commit_on "$wt" feature.txt "more"
+  # The new head reached the remote (origin now names the fake forge's URL).
+  git -C "$wt" update-ref "refs/remotes/origin/$branch" HEAD
+  out=$(FM_FAKE_GH_LOG=$log FM_FAKE_GH_HEAD=$branch run_check "$home" "$id") || rc=$?
+  [ "$rc" -eq 0 ] || fail "a re-pushed head was refused, exit $rc ($out)"
+  [ "$(wc -l < "$log" | tr -d ' ')" = 2 ] \
+    || fail "a changed HEAD did not re-judge the done: $(cat "$log")"
+  pass "accepted done is read from the forge once per line, meta, and HEAD"
 }
 
 test_unpushed_branch_with_pr_url_refuses_done() {
@@ -480,9 +532,83 @@ EOF
   pass "watcher drops an unpushed ship done from the captain's wake queue and steers the crewmate"
 }
 
+# A refused done followed, inside the signal grace, by another append: the
+# steer and its dedupe marker belong to the refused done, not the later line.
+test_watcher_steers_on_the_refused_done_line() {
+  local rec home wt id=watch-later-a1 log pid i=0 expected
+  rec=$(make_ship "$id" no-mistakes)
+  IFS='|' read -r home wt _ <<EOF
+$rec
+EOF
+  install_watch_fakes "$home"
+  install_fake_send "$home"
+  log="$home/send.log"
+  commit_on "$wt" feature.txt "local only"
+  printf 'done: implementation complete\nblocked: need a credential\n' > "$home/state/${id}.status"
+  PATH="$home/bin:$PATH" FM_STATE_OVERRIDE="$home/state" FM_ROOT_OVERRIDE="$home/nogit" \
+    FM_CREW_STATE_BIN="$home/bin/fm-crew-state.sh" FM_FAKE_TMUX_WINDOWS="fm-$id" \
+    FM_DONE_GUARD_SEND="$home/fake-send" FM_DONE_GUARD_SEND_LOG="$log" \
+    FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+    "$ROOT/bin/fm-watch.sh" > "$home/watch.out" 2>&1 &
+  pid=$!
+  while [ "$i" -lt 80 ] && kill -0 "$pid" 2>/dev/null; do
+    sleep 0.25
+    i=$((i + 1))
+  done
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  [ -s "$log" ] || fail "the watcher did not steer the refused done: $(cat "$home/watch.out")"
+  # shellcheck source=/dev/null
+  expected=$(. "$ROOT/bin/fm-done-guard-lib.sh"; fm_done_guard_steer_fingerprint 'done: implementation complete')
+  [ "$(cat "$home/state/${id}.done-guard-steered" 2>/dev/null)" = "$expected" ] \
+    || fail "the steer marker was keyed to a line other than the refused done"
+  pass "watcher steers on the refused done line even when a later line follows it"
+}
+
+# The drain backstop presents several uncovered ship completions under its
+# presentation lock without a forge read per completion, so a slow forge
+# neither delays them nor, by failing, hides them.
+test_drain_presents_completions_without_forge_reads() {
+  local home state cfg n rec wt branch log out start elapsed old
+  home="$TMP_ROOT/drain-shared/home"
+  state="$home/state"
+  cfg="$TMP_ROOT/drain-shared/config"
+  mkdir -p "$state" "$cfg" "$home/nogit"
+  : > "$cfg/supervision-host-off"
+  install_fake_forge "$home"
+  log="$home/gh.log"
+  : > "$log"
+  old=$(( $(date +%s) - 20 ))
+  for n in 1 2 3; do
+    rec=$(make_ship "drain-$n" no-mistakes)
+    IFS='|' read -r _ wt branch <<EOF
+$rec
+EOF
+    commit_on "$wt" feature.txt "ready"
+    publish "$wt" "$branch"
+    fm_write_meta "$state/drain-$n.meta" "window=test:fm-drain-$n" \
+      "worktree=$wt" "kind=ship" "mode=no-mistakes"
+    printf 'done: PR %s checks green\n' "$FAKE_PR_URL" > "$state/drain-$n.status"
+    touch -d "@$old" "$state/drain-$n.status"
+  done
+  start=$(date +%s)
+  out=$(PATH="$home/bin:$PATH" FM_STATE_OVERRIDE="$state" FM_CONFIG_OVERRIDE="$cfg" \
+    FM_ROOT_OVERRIDE="$home/nogit" FM_FAKE_GH_LOG="$log" FM_FAKE_GH_SLEEP=10 \
+    "$ROOT/bin/fm-wake-drain.sh" 2>&1) || fail "drain failed: $out"
+  elapsed=$(( $(date +%s) - start ))
+  for n in 1 2 3; do
+    assert_contains "$out" "drain-$n done: PR $FAKE_PR_URL" "uncovered completion drain-$n was not presented"
+  done
+  [ ! -s "$log" ] || fail "the drain read the forge under its presentation lock: $(cat "$log")"
+  [ "$elapsed" -lt 10 ] || fail "the drain took ${elapsed}s with a slow forge"
+  pass "drain backstop presents several ship completions without a forge read each"
+}
+
 test_unpushed_commit_refuses_done
 test_pushed_without_pr_refuses_done
 test_pushed_with_open_pr_accepts_done
+test_pr_of_another_task_refuses_done
+test_accepted_verdict_is_read_once_per_head
 test_unpushed_branch_with_pr_url_refuses_done
 test_pr_in_another_repository_refuses_done
 test_closed_pr_refuses_done
@@ -497,3 +623,5 @@ test_gerrit_change_without_head_refuses_done
 test_span_drops_refused_done
 test_apply_steers_on_refuse
 test_watcher_keeps_false_done_out_of_the_wake_queue
+test_watcher_steers_on_the_refused_done_line
+test_drain_presents_completions_without_forge_reads

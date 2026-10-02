@@ -85,11 +85,13 @@
 # and its cursor records the last child visited within the aggregate budget.
 #
 # The scan reads only durable local state and fm-crew-state.sh; it never invokes
-# gh, gh-axi, curl, fm-pr-check.sh, fm-pr-poll.sh, or a state *.check.sh itself.
-# The ledger-first path above runs the ship-done gate offline
-# (FM_DONE_GUARD_NO_FORGE=1), so it stays a pure file read; the delegated
-# fm-crew-state.sh read leaves that gate's own bounded forge read enabled, which
-# is the one forge call this scan can reach (bin/fm-done-guard-lib.sh).
+# gh, gh-axi, curl, fm-pr-check.sh, fm-pr-poll.sh, or a state *.check.sh.
+# Both the ledger-first path and the delegated fm-crew-state.sh read
+# (FM_CREW_STATE_NO_FORGE=1) run the ship-done gate offline, so a ship done is
+# accepted here only on a recorded merge or a verdict an online check cached
+# (bin/fm-done-guard-lib.sh). An offline refusal other than an unpushed branch
+# is pending verification, not nothing owed: the report entry point keeps the
+# obligation so teardown retains the child's records until it is verified.
 set -u
 export LC_ALL=C
 
@@ -371,8 +373,10 @@ notice_parent_report_failed() { # <record> <fingerprint> <payload>
 }
 
 # The whole terminal event a child's ledger states, or non-zero when the ledger
-# is absent, unusable, or states no done or failed event (1), or when that event
-# is the line still being appended (2, no trailing newline yet). The event is
+# is absent, unusable, or states no done or failed event (1), when that event
+# is the line still being appended (2, no trailing newline yet), or when it is a
+# ship done the offline ship-done gate cannot yet verify (3); an unpushed ship
+# done is refused outright (1). The event is
 # selected through the shared latest-event reader, so the ledger path owns a
 # terminal record whose continuation prose trails it, and an unfinished line of
 # ordinary prose withholds nothing.
@@ -381,14 +385,15 @@ child_terminal_ledger_line() { # <status>
   [ -f "$status" ] && [ ! -L "$status" ] && [ -s "$status" ] || return 1
   last=$(last_status_line "$status")
   case "$(status_line_verb "$last")" in done|failed) ;; *) return 1 ;; esac
-  if [ "$(status_line_verb "$last")" = "done" ]; then
-    FM_DONE_GUARD_NO_FORGE=1 fm_done_guard_accepts_status_line "$status" "$last" || return 1
-  fi
   snapshot=$(cat "$status"; printf '%s' "$marker") || return 1
   case "$snapshot" in
     *$'\n'"$marker") ;;
     "$last$marker"|*$'\n'"$last$marker") return 2 ;;
   esac
+  if ! FM_DONE_GUARD_NO_FORGE=1 fm_done_guard_accepts_status_line "$status" "$last"; then
+    [ "$FM_DONE_GUARD_REASON" = unpushed ] && return 1
+    return 3
+  fi
   printf '%s\n' "$last"
 }
 
@@ -421,11 +426,12 @@ claim_inactive_report_for_ledger() { # <task> <incarnation> <state> <ledger-fing
 # The ledger-first parent delivery for one direct child, for a caller holding
 # the child's meta lock. Returns 0 when the line is delivered, already
 # delivered, or nothing is owed, and 1 when it is owed but the parent channel
-# could not be written (the notice is queued once per record).
+# could not be written (the notice is queued once per record) or it is a ship
+# done still pending verification.
 report_child_ledger_locked() { # <id> <meta>
   local id=$1 meta=$2 status last previous state note pr mode yolo data incarnation fingerprint predecessor_head outcome_key line
   status="$STATE/$id.status"
-  last=$(child_terminal_ledger_line "$status") || return 0
+  last=$(child_terminal_ledger_line "$status") || { [ "$?" -eq 3 ] && return 1; return 0; }
   state=$(status_line_verb "$last")
   pr=$(pr_for_task "$meta" "$last")
   incarnation=$(meta_incarnation "$meta")

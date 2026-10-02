@@ -2427,6 +2427,29 @@ test_merged_pr_reads_done_under_captured_status() {
   pass "recorded merged PR reads done under the fleet snapshot's captured status"
 }
 
+# The inactive reconciler reads crew state with FM_CREW_STATE_NO_FORGE=1 inside
+# an aggregate budget. That flag keeps the ship-done gate offline too, so a
+# pushed ship's done line costs no forge call and cannot stall the scan.
+test_no_forge_read_keeps_ship_done_gate_offline() {
+  reset_fakes
+  local d out
+  d=$(new_case offline-done)
+  make_repo_on_branch "$d/wt" fm/offline
+  git -C "$d/wt" update-ref refs/remotes/origin/fm/offline HEAD
+  git -C "$d/wt" remote add origin https://github.com/o/r.git
+  make_fakebin "$d" >/dev/null
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> %q\nexit 1\n' "$d/forge.log" > "$d/fakebin/gh"
+  fm_write_meta "$d/state/offline.meta" \
+    "window=fm:fm-offline" "worktree=$d/wt" "project=$d/wt" \
+    "kind=ship" "mode=no-mistakes" "harness=claude"
+  printf 'done: PR https://github.com/o/r/pull/9 checks green\n' > "$d/state/offline.status"
+  arm_idle_record "$d/state" offline
+  out=$(FM_CREW_STATE_NO_FORGE=1 run_crew_state "$d" offline)
+  [ ! -s "$d/forge.log" ] || fail "an offline crew-state read reached the forge: $(cat "$d/forge.log")"
+  assert_not_contains "$out" "state: done" "an unverified ship done read done offline"
+  pass "FM_CREW_STATE_NO_FORGE keeps the ship-done gate offline"
+}
+
 # A pre-validation `done:` from a no-mistakes ship whose branch was never
 # pushed is the false completion the ship-done gate refuses: the named-head
 # gate does not gate a non-CI-ready note, so the ship-done gate owns the
@@ -5611,6 +5634,7 @@ test_unpushed_ship_done_is_blocked
 test_merged_pr_reads_done_under_captured_meta
 test_merged_pr_reads_done_under_captured_status
 test_no_mistakes_prevalidation_done_reads_unknown
+test_no_forge_read_keeps_ship_done_gate_offline
 test_moved_remote_branch_without_named_head_is_blocked
 test_no_run_busy_pane
 test_no_run_launch_prompt_parked_is_not_working

@@ -23,9 +23,9 @@ SCRIPT_DIR="$(d=${BASH_SOURCE[0]%/*}; [ "$d" != "${BASH_SOURCE[0]}" ] || d=.; cd
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 # shellcheck source=bin/fm-classify-lib.sh
 . "$SCRIPT_DIR/fm-classify-lib.sh"
-# The ship-done gate the shared predicates consult: a refused ship `done:`
-# stays out of the captain-facing outcome backstop below, exactly as it stays
-# out of the watcher's wake queue (bin/fm-done-guard-lib.sh).
+# The ship-done gate, consulted offline below: an unpushed ship `done:` stays
+# out of the captain-facing outcome backstop, as it stays out of the watcher's
+# wake queue (bin/fm-done-guard-lib.sh).
 # shellcheck source=bin/fm-done-guard-lib.sh
 . "$SCRIPT_DIR/fm-done-guard-lib.sh"
 # shellcheck source=bin/fm-line-cap-lib.sh
@@ -366,7 +366,14 @@ print_status_outcome_backstop_section() {  # <task-and-endpoint-snapshot>
     event=$FM_STATUS_SNAPSHOT_EVENT_LINE
     event_endpoint=$FM_STATUS_SNAPSHOT_EVENT_ENDPOINT
     [ "$receipt" -lt "$event_endpoint" ] || continue
-    status_is_captain_relevant_accepted "$STATE/$task.status" "$event" || continue
+    status_is_captain_relevant "$event" || continue
+    # Offline under the presentation lock: no forge read per completion. Only an
+    # unpushed branch, a refusal that needs no forge, hides the completion; one
+    # the offline gate cannot verify is still presented.
+    if ! FM_DONE_GUARD_NO_FORGE=1 fm_done_guard_accepts_status_line "$STATE/$task.status" "$event" \
+      && [ "$FM_DONE_GUARD_REASON" = unpushed ]; then
+      continue
+    fi
     verb=$(status_line_verb "$event")
     case "$verb" in
       needs-decision|blocked)

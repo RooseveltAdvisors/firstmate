@@ -248,6 +248,38 @@ test_unpushed_ci_ready_done_is_not_published() {
   pass "unpushed CI-ready ship done: is not published upstream"
 }
 
+# Offline, the ledger path cannot confirm a pushed ship's open PR. That is a
+# pending verification, not nothing owed: teardown's report entry point keeps
+# the obligation, and once an online check accepts the done, the next report
+# delivers it.
+test_unverified_ship_done_stays_owed_until_verified() {
+  local wt fake
+  make_world pending-verify; bind_secondmate local
+  write_child "$MATE" child 'done: PR https://github.com/owner/repo/pull/1 checks green'
+  wt="$MATE/projects/child"
+  git -C "$wt" branch -M fm/child
+  git -C "$wt" update-ref refs/remotes/origin/fm/child HEAD
+  git -C "$wt" remote add origin https://github.com/owner/repo.git
+  sed -i.bak 's#^pr=.*#pr=https://github.com/owner/repo/pull/1#' "$MATE/state/child.meta"
+  rm -f "$MATE/state/child.meta.bak"
+  if run_report "$MATE" child; then
+    fail "an unverified ship done let teardown's report entry point succeed"
+  fi
+  [ ! -s "$MAIN/state/mate.status" ] || fail "an unverified ship done was published upstream"
+  [ ! -s "$WORLD/forge.log" ] || fail "the ledger path reached the forge: $(cat "$WORLD/forge.log")"
+  fake="$WORLD/verify-bin"
+  mkdir -p "$fake"
+  printf '#!/usr/bin/env bash\nprintf "OPEN fm/child\\n"\n' > "$fake/gh"
+  chmod +x "$fake/gh"
+  PATH="$fake:$PATH" FM_HOME="$MATE" FM_STATE_OVERRIDE="$MATE/state" \
+    "$ROOT/bin/fm-done-guard.sh" check child >/dev/null \
+    || fail "the online check did not accept the pushed ship's open PR"
+  run_report "$MATE" child || fail "a verified ship done was not delivered"
+  grep -Fq 'child child done: PR https://github.com/owner/repo/pull/1 checks green' "$MAIN/state/mate.status" \
+    || fail "the verified ship done did not reach the parent: $(cat "$MAIN/state/mate.status" 2>/dev/null)"
+  pass "an offline-unverified ship done stays owed until a later check verifies it"
+}
+
 # The ledger pass runs on every poll, so a ship done: already delivered does
 # not pay for the git reachability check again.
 test_delivered_ledger_done_skips_git_gate() {
@@ -1053,6 +1085,7 @@ test_main_direct_terminal_presentation_receipt
 test_branch_ack_retires_inactive_outcome_receipt
 test_unpushed_ci_ready_done_is_not_published
 test_delivered_ledger_done_skips_git_gate
+test_unverified_ship_done_stays_owed_until_verified
 test_local_secondmate_delivers_terminal_ledger_line
 test_secondmate_multiline_terminal_outcome_is_delivered_once
 test_secondmate_unterminated_prose_reports_run_outcome

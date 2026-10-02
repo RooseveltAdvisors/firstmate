@@ -2206,7 +2206,7 @@ run_check_capture() {
 # (docs/pi-supervision-branch.md). Stale and heartbeat rows retain their existing
 # eligibility rules.
 signal_files_actionable() {  # <status-file> ...
-  local f task record rest endpoint ident needs_decision rc found=1 last
+  local f task record rest endpoint ident needs_decision rc found=1
   local saw_refused_done=0 had_actionable=0
   FM_SIGNAL_SURFACE_ENDPOINTS=''
   FM_SIGNAL_NEEDS_DECISION_FILES=''
@@ -2219,11 +2219,11 @@ signal_files_actionable() {  # <status-file> ...
     status_span_first_actionable_record "$f" \
       "$(fm_wake_signal_seen_size "$STATE" "$f")" record needs_decision
     rc=$?
-    if [ "${FM_STATUS_SPAN_DONE_REFUSED:-0}" = 1 ]; then
+    if [ -n "${FM_STATUS_SPAN_DONE_REFUSED:-}" ]; then
       # Only a delivered steer hands the refused done to someone. A failed send
-      # leaves nobody holding it, so the wake must still reach firstmate.
-      last=$(last_status_line "$f")
-      fm_done_guard_steer_status "$f" "$last" && saw_refused_done=1
+      # leaves nobody holding it, so the wake must still reach firstmate. The
+      # steer is keyed to the refused line, not to whatever was appended after.
+      fm_done_guard_steer_status "$f" "$FM_STATUS_SPAN_DONE_REFUSED" && saw_refused_done=1
     fi
     [ "$rc" -eq 1 ] && [ -z "$record" ] && continue
     if [ "$rc" -eq 2 ]; then
