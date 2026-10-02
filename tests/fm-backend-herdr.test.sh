@@ -3783,10 +3783,52 @@ test_workspace_find_matches_only_this_homes_own_label() {
 
 test_task_label_is_human_readable_and_id_bound() {
   local out
-  out=$(bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_task_label "NeoMD I/F/A instant" fm-css' "$ROOT")
+  out=$(bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_task_label "NeoMD I/F/A instant" "" fm-css' "$ROOT")
   [ "$out" = 'NeoMD I/F/A instant (fm-css)' ] \
     || fail "new task labels should contain the short title and id in parentheses, got '$out'"
   pass "fm_backend_herdr_task_label: formats a human-readable title with the task id"
+}
+
+# A brief scaffolded by bin/fm-brief.sh opens with the fixed crewmate role
+# sentence every worker shares and leaves `# Task` on its placeholder, so a
+# title derived from the brief body would label every worker of that shape the
+# same. With no backlog row title the label must stay the bare fm-<id>.
+test_task_label_without_a_row_title_stays_the_bare_task_id() {
+  local dir home brief out
+  dir="$TMP_ROOT/task-label-fallback"; home="$dir/home"; mkdir -p "$home"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" nolabel some-proj --mode no-mistakes >/dev/null 2>&1 \
+    || fail "could not scaffold the real brief fixture"
+  brief="$home/data/nolabel/brief.md"
+  assert_present "$brief" "the brief fixture was not scaffolded"
+  grep -Fq 'You are a crewmate: an autonomous worker agent managed by firstmate' "$brief" \
+    || fail "the scaffolded fixture brief does not carry the real crewmate opener"
+  out=$(bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_task_label "" "$1" nolabel' "$ROOT" "$brief")
+  [ "$out" = 'fm-nolabel' ] \
+    || fail "a real-scaffold brief with no backlog row title should keep the bare fm-<id>, got '$out'"
+  pass "fm_backend_herdr_task_label: a real scaffold brief with no row title keeps fm-<id>"
+}
+
+# The backlog row probe's title global is the only title source a new worker's
+# tab label has, so the label must carry exactly what the probe read from the
+# row tasks-axi serves.
+test_task_label_follows_the_backlog_row_title() {
+  local dir data out
+  command -v tasks-axi >/dev/null 2>&1 \
+    || { echo "skip: tasks-axi not found (fm_backlog_row_probe reads the row title that names the tab)"; return 0; }
+  dir="$TMP_ROOT/task-label-row-title"; data="$dir/data"; mkdir -p "$data"
+  printf '# Backlog\n\n## In flight\n\n## Queued\n\n## Done\n' > "$data/backlog.md"
+  tasks-axi add rowtitle "Refit the lazarette" --file="$data/backlog.md" >/dev/null \
+    || fail "fixture: could not seed the backlog row"
+  out=$(bash -c '
+    . "$0/bin/fm-tasks-axi-lib.sh"
+    . "$0/bin/fm-backlog-transition-lib.sh"
+    . "$0/bin/backends/herdr.sh"
+    fm_backlog_row_probe "$1" rowtitle || exit 1
+    fm_backend_herdr_task_label "$FM_BACKLOG_ROW_TITLE" "$1/brief.md" rowtitle
+  ' "$ROOT" "$data") || fail "could not derive the tab label from the probed row"
+  [ "$out" = 'Refit the lazarette (rowtitle)' ] \
+    || fail "the probed backlog row title should name the tab, got '$out'"
+  pass "fm_backend_herdr_task_label: the backlog row title names the tab"
 }
 
 test_list_live_scoped_to_this_homes_workspace_only() {
@@ -6032,6 +6074,8 @@ test_projection_reclaim_replaces_only_exact_husk_and_advances_binding
 test_projection_recovery_is_read_only_and_refuses_live_duplicate_risk
 test_workspace_find_matches_only_this_homes_own_label
 test_task_label_is_human_readable_and_id_bound
+test_task_label_without_a_row_title_stays_the_bare_task_id
+test_task_label_follows_the_backlog_row_title
 test_list_live_scoped_to_this_homes_workspace_only
 test_list_live_discovers_supported_task_labels
 test_parse_target

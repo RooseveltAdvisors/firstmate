@@ -2500,13 +2500,20 @@ fm_backend_herdr_agent_alive() {  # <target>
   esac
 }
 
-# fm_backend_herdr_task_label: format a new worker's human-readable tab label.
+# fm_backend_herdr_task_label: choose a new worker's task-tab label.
 # Existing tabs keep their recorded labels; this is only called while creating
-# a new worker endpoint.
-fm_backend_herdr_task_label() {  # <short-title> <task-id>
-  local title=$1 id=$2
+# a new worker endpoint. The spawn site passes both label candidates - the
+# backlog row title and the task's own brief - so the policy lives in exactly
+# one place: only the row title may name the tab, and a task with no row title
+# keeps the bare fm-<id>. A scaffolded brief opens with the fixed crewmate role
+# sentence every worker shares, so the brief never names the tab.
+fm_backend_herdr_task_label() {  # <row-title> <brief-path> <task-id>
+  local title=$1 id=$3
   title=$(printf '%s' "$title" | tr '\r\n\t' ' ' | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//')
-  [ -n "$title" ] || title=Task
+  if [ -z "$title" ]; then
+    printf 'fm-%s' "$id"
+    return 0
+  fi
   printf '%s (%s)' "$title" "$id"
 }
 

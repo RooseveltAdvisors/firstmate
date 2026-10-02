@@ -15,6 +15,10 @@ pass() { printf 'ok - %s\n' "$1"; }
 command -v herdr >/dev/null 2>&1 || { echo "skip: herdr not found"; exit 0; }
 command -v jq >/dev/null 2>&1 || { echo "skip: jq not found"; exit 0; }
 command -v treehouse >/dev/null 2>&1 || { echo "skip: treehouse not found"; exit 0; }
+command -v tasks-axi >/dev/null 2>&1 || { echo "skip: tasks-axi not found (each fixture home's backlog rows name its opted-in task tabs)"; exit 0; }
+# A fixture backlog is addressed only through its own home's data/backlog.md,
+# never through an operator's ambient tasks-axi configuration.
+unset TASKS_AXI_FILE TASKS_AXI_BACKEND
 [ -x "$HERDR_LAB_HELPER" ] || { echo "skip: Herdr lab helper not executable at $HERDR_LAB_HELPER"; exit 0; }
 
 REAL_HERDR=$(command -v herdr)
@@ -405,6 +409,11 @@ $description
 ## Firstmate spec
 Verify projected workspace behavior for $id.
 EOF
+  # This home opts in to human-readable task tabs, and only a backlog row title
+  # may name one, so file the worker's row with this fixture description as its
+  # title: Queued is exactly the state the paired dispatch requires.
+  tasks-axi add "$id" "$description" --file="$home/data/backlog.md" >/dev/null \
+    || fail "fixture: could not seed backlog row $id in $home"
 }
 
 spawn_task() {  # <id> <home> <project>
@@ -641,6 +650,10 @@ assert_focus_is "$CAPTAIN_FOCUS" "focused secondmate fixture"
 # The historical presence-based opt-in was an empty file; it must still project,
 # so no home that had already enabled the projection is turned off by the default.
 : > "$HOME_DIR/config/herdr-presentation-spaces"
+# The opted-out teardown closed shape's row with `tasks-axi done`; a retired row
+# is not dispatchable, so refile it before the projected respawn.
+tasks-axi reopen shape --file="$HOME_DIR/data/backlog.md" >/dev/null \
+  || fail "could not refile the retired shape row for its projected respawn"
 SHAPE_FOCUS_AUDIT_START=$(focus_audit_line_count)
 spawn_task shape "$HOME_DIR" "$PROJECT_DIR" > "$TMP_ROOT/on.out" 2> "$TMP_ROOT/on.err" \
   || fail "projected spawn failed: $(cat "$TMP_ROOT/on.err")"

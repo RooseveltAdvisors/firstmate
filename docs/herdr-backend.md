@@ -97,7 +97,7 @@ Removing or upgrading the shadowing client is the durable fix.
 ## Watching and task containers
 
 The ordinary topology puts one task tab per endpoint in the exact workspace of the Firstmate or secondmate that launches it.
-A new worker's task tab keeps the historical `fm-<id>` label by default; a home that opts in through `config/herdr-task-titles` labels its new workers `<short title> (<id>)`, derived from the backlog row title or, without one, the task brief (a `--secondmate` spawn follows the secondmate home's own config, the same home-authority rule the presentation projection follows).
+A new worker's task tab keeps the historical `fm-<id>` label by default; a home that opts in through `config/herdr-task-titles` labels its new workers `<short title> (<id>)` from the task's backlog row title, and a task with no backlog row title keeps the bare `fm-<id>` (a `--secondmate` spawn follows the secondmate home's own config, the same home-authority rule the presentation projection follows).
 Historical `fm-<id>` task tabs remain valid and discoverable, and existing task operations never rename them.
 When the launcher has no Herdr workspace to inherit, the adapter maintains one durable home-labeled workspace instead.
 

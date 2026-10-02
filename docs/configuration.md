@@ -613,7 +613,7 @@ The flag is a home-local supervision-noise preference and is not inherited by se
 
 ## Herdr task-title labels (config/herdr-task-titles)
 
-The optional local, gitignored `config/herdr-task-titles` presence flag opts this home into default-off human-readable Herdr task-tab labels: a new worker's tab is labeled `<short title> (<id>)`, derived from the backlog row title or, without one, the task brief, instead of the historical `fm-<id>`.
+The optional local, gitignored `config/herdr-task-titles` presence flag opts this home into default-off human-readable Herdr task-tab labels: a new worker's tab is labeled `<short title> (<id>)` from its backlog row title instead of the historical `fm-<id>`, and a task with no backlog row title keeps the `fm-<id>` label.
 With the flag absent (or carrying the value `off`), new workers keep the `fm-<id>` label exactly as before.
 Existing tabs are never renamed, a relaunch adopts the recorded tab without relabeling it, and `fm_backend_herdr_list_live` and the duplicate/husk guards in `bin/backends/herdr.sh` discover and match both label shapes regardless of this flag, so a home can opt in or stand down without stranding live work.
 The flag stays opt-in because VISION keeps presentation and convenience features out of the unconfigured default.

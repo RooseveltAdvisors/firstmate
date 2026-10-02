@@ -50,6 +50,18 @@ assert_not_contains_local() {  # <haystack> <needle> <msg>
 command -v herdr >/dev/null 2>&1 || { echo "skip: herdr not found"; exit 0; }
 command -v jq >/dev/null 2>&1 || { echo "skip: jq not found (required by the herdr adapter)"; exit 0; }
 command -v treehouse >/dev/null 2>&1 || { echo "skip: treehouse not found (required by fm-spawn.sh)"; exit 0; }
+command -v tasks-axi >/dev/null 2>&1 || { echo "skip: tasks-axi not found (each fixture home's backlog row names its opted-in task tab)"; exit 0; }
+# A fixture backlog is addressed only through its own home's data/backlog.md,
+# never through an operator's ambient tasks-axi configuration.
+unset TASKS_AXI_FILE TASKS_AXI_BACKEND
+
+# The opted-in fixtures below name a worker's tab after its backlog row title,
+# so each home that spawns an opted-in worker keeps a real markdown backlog
+# with that worker's row filed Queued - exactly the state dispatch requires.
+seed_backlog_row() {  # <home> <id> <title>
+  tasks-axi add "$2" "$3" --file="$1/data/backlog.md" >/dev/null \
+    || fail "fixture: could not seed backlog row $2 in $1"
+}
 
 # shellcheck source=tests/herdr-test-safety.sh
 . "$ROOT/tests/herdr-test-safety.sh"
@@ -89,9 +101,10 @@ fm_backend_source herdr || fail "fm_backend_source herdr failed"
 # This test asserts the per-home FLAT workspace shape, so both homes opt out of
 # the default-on presentation projection rather than depending on that default.
 # The primary home opts in to human-readable task-tab labels, so its own
-# crewmate (cm1) gets a "<short title> (<id>)" label and the flag inherits into
-# the secondmate home at spawn convergence (primary-authoritative, so a local
-# secondmate-home copy is not the way to opt a secondmate in).
+# crewmate (cm1) gets a "<short title> (<id>)" label built from cm1's backlog
+# row title and the flag inherits into the secondmate home at spawn
+# convergence (primary-authoritative, so a local secondmate-home copy is not
+# the way to opt a secondmate in).
 PRIMARY_HOME="$TMP_ROOT/primary-home"
 mkdir -p "$PRIMARY_HOME/state" "$PRIMARY_HOME/data/cm1" "$PRIMARY_HOME/config"
 printf 'off\n' > "$PRIMARY_HOME/config/herdr-presentation-spaces"
@@ -104,6 +117,7 @@ Exercise primary-home Herdr placement.
 ## Firstmate spec
 Verify the crewmate uses its primary home's workspace.
 EOF
+seed_backlog_row "$PRIMARY_HOME" cm1 'Primary workspace placement fixture.'
 
 SM_HOME="$TMP_ROOT/secondmate-home"
 mkdir -p "$SM_HOME/state" "$SM_HOME/data/cm2" "$SM_HOME/config" "$SM_HOME/projects" "$SM_HOME/bin"
@@ -121,6 +135,7 @@ Exercise secondmate-owned Herdr placement.
 ## Firstmate spec
 Verify the crewmate uses its secondmate home's workspace.
 EOF
+seed_backlog_row "$SM_HOME" cm2 'Secondmate crewmate placement fixture.'
 
 make_scratch_project() {  # <dir>
   local dir=$1
@@ -223,10 +238,11 @@ CM2_WSID=$(herdr pane get "$CM2_PANE" --session "$SESSION" 2>/dev/null | jq -r '
 [ "$CM2_WSID" != "$CM1_WSID" ] || fail "a crewmate spawned FROM the secondmate home must NOT land in the primary's workspace"
 pass "real herdr E2E: a crewmate spawned FROM the secondmate-shaped home lands in the secondmate's OWN workspace - falls out of per-home resolution, no glue needed"
 
-# Labels follow the home that owns each endpoint: the opted-in primary labels
-# its own crewmate with a human-readable title, the secondmate spawn inherits
-# that opt-in into its own home (so its endpoint and its crewmate get human
-# labels too), and standing the primary back down returns new workers to the
+# Labels follow the home that owns each endpoint: the opted-in primary names
+# its own crewmate from cm1's backlog row title, the secondmate spawn inherits
+# that opt-in into its own home so its crewmate is named from cm2's backlog row
+# title, while a secondmate task is never a backlog item and therefore keeps
+# fm-<id>, and standing the primary back down returns new workers to the
 # historical fm-<id> default. Verify the real labels before adding explicit
 # legacy-label fixtures for the compatibility checks below.
 CM1_LABEL=$(herdr tab list --workspace "$CM1_WSID" --session "$SESSION" 2>/dev/null \
@@ -235,15 +251,15 @@ SM_LABEL=$(herdr tab list --workspace "$SM_WSID" --session "$SESSION" 2>/dev/nul
   | jq -r --arg tab "$SM_TAB" '.result.tabs[]? | select(.tab_id == $tab) | .label')
 CM2_LABEL=$(herdr tab list --workspace "$CM2_WSID" --session "$SESSION" 2>/dev/null \
   | jq -r --arg tab "$CM2_TAB" '.result.tabs[]? | select(.tab_id == $tab) | .label')
-assert_contains_local "$CM1_LABEL" " (cm1)" "the opted-in primary home did not give its own worker a human-readable task label"
-assert_not_contains_local "$CM1_LABEL" "fm-cm1" "the opted-in primary home's worker kept the legacy task label"
+[ "$CM1_LABEL" = "Primary workspace placement fixture. (cm1)" ] \
+  || fail "the opted-in primary home did not name its own worker after cm1's backlog row title, got '$CM1_LABEL'"
 [ -f "$SM_HOME/config/herdr-task-titles" ] \
   || fail "the secondmate spawn did not inherit the primary's task-title opt-in before creating its endpoint"
-assert_contains_local "$SM_LABEL" " (e2esm1)" "the inherited opt-in did not give the secondmate's own worker a human-readable task label"
-assert_not_contains_local "$SM_LABEL" "fm-e2esm1" "the inherited opt-in still left the secondmate's own worker on the legacy task label"
-assert_contains_local "$CM2_LABEL" " (cm2)" "the secondmate-owned crewmate did not receive a human-readable task label"
-assert_not_contains_local "$CM2_LABEL" "fm-cm2" "the secondmate-owned crewmate kept the legacy task label"
-pass "real herdr E2E: new workers on opted-in homes use human-readable labels with their exact task ids, and the opt-in inherits through the spawn"
+[ "$SM_LABEL" = "fm-e2esm1" ] \
+  || fail "a secondmate task has no backlog row to name it, so its label must stay fm-e2esm1, got '$SM_LABEL'"
+[ "$CM2_LABEL" = "Secondmate crewmate placement fixture. (cm2)" ] \
+  || fail "the secondmate-owned crewmate was not named after cm2's backlog row title, got '$CM2_LABEL'"
+pass "real herdr E2E: opted-in workers are named from their backlog row titles, a rowless secondmate task keeps fm-<id>, and the opt-in inherits through the spawn"
 
 # Standing the opt-in down returns new workers to the historical fm-<id>
 # default without touching any live tab.
@@ -257,6 +273,7 @@ Exercise the stood-down label default.
 ## Firstmate spec
 Verify the crewmate keeps the historical fm-<id> label.
 EOF
+seed_backlog_row "$PRIMARY_HOME" cm3 'Stood-down label default fixture.'
 CM3_OUT="$TMP_ROOT/cm3.out"; CM3_ERR="$TMP_ROOT/cm3.err"
 FM_SPAWN_NO_GUARD=1 FM_HOME="$PRIMARY_HOME" FM_ROOT_OVERRIDE="$ROOT" \
   "$ROOT/bin/fm-spawn.sh" cm3 "$PROJ1" "sh -c 'echo primary-crew-ok'" --mode no-mistakes --yolo off --backend herdr \
