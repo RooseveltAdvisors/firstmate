@@ -208,10 +208,22 @@ jobs:
             exit 1
           }
           tmux -V
-      - name: Install tasks-axi for backlog-handoff delegation
+      # The stale-sweep and beads-actor suites need a tasks-axi that operates the
+      # Beads backend; published tasks-axi is markdown-only. Build the
+      # beads-backend fork (upstream PR #53's lineage) at a pinned commit.
+      - name: Install beads-capable tasks-axi for backlog-handoff delegation
+        env:
+          TASKS_AXI_REPO: https://github.com/RooseveltAdvisors/tasks-axi.git
+          TASKS_AXI_SHA: 8c6f96eb58924fd094053eb1a57dd57c64655bbd
         run: |
           set -eu
-          npm install -g tasks-axi
+          src="$RUNNER_TEMP/tasks-axi-src"
+          git init -q "$src"
+          git -C "$src" fetch -q --depth 1 "$TASKS_AXI_REPO" "$TASKS_AXI_SHA"
+          git -C "$src" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$src" rev-parse HEAD)" = "$TASKS_AXI_SHA"
+          (cd "$src" && npm install --ignore-scripts --no-audit --no-fund && npm pack)
+          npm install -g "$src"/tasks-axi-*.tgz
           tasks-axi --version
       # The stale-sweep suite drives a real scratch Beads graph through the
       # real bd 1.2.x CLI; without bd every fixture row fails to create and
