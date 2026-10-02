@@ -62,7 +62,8 @@
 #                          or healthy_idle (bin/fm-jev-wake-triage.sh); only
 #                          true_wedge, or Jev unavailable, still escalates.
 #                          pipeline_wait and healthy_idle suppress the wake and
-#                          restart the idle timer. The gate is off unless
+#                          restart the idle timer, up to a capped streak per
+#                          unchanged status line. The gate is off unless
 #                          config/jev-wake-triage or FM_JEV_WAKE_TRIAGE turns
 #                          it on.
 #                          A genuinely busy pane
