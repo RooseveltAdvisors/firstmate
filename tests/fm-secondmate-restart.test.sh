@@ -62,6 +62,13 @@ case "${1:-}" in
     done
     payload=${1:-}
     if [ "$literal" = 1 ]; then
+      case "$payload" in
+        ". '"*"'")
+          staged=${payload#". '"}
+          staged=${staged%"'"}
+          [ ! -f "$staged" ] || payload=$(cat "$staged")
+          ;;
+      esac
       printf '%s\n' "$payload" >> "$D/literal"
       case "$payload" in
         /exit|/quit)
@@ -70,7 +77,7 @@ case "${1:-}" in
           fi
           printf 'zsh' > "$D/command.$target"
           ;;
-        *'encode launch-brief'*) cat "$D/becomes" > "$D/command.$target" ;;
+        *'encode launch-brief'* | *'Firstmate operational input waiting: read'*) cat "$D/becomes" > "$D/command.$target" ;;
         ': Firstmate instruction waiting: list '*)
           printf 'doorbell\n' >> "$D/rings"
           if [ -x "$D/on-doorbell" ]; then
@@ -109,7 +116,7 @@ case "${1:-}" in
       prev=$a
     done
     printf 'fakepane\n'; exit 0 ;;
-  capture-pane) printf '> \n'; exit 0 ;;
+  capture-pane) printf '╭────╮\n│    │\n╰────╯\n'; exit 0 ;;
   list-windows) [ -f "$D/windows" ] && cat "$D/windows"; exit 0 ;;
 esac
 exit 0
@@ -478,7 +485,15 @@ case "${rargs[1]:-}" in
         : > "$FM_FAKE_DIR/remote-relaunch-end"
         ;;
     esac
-    printf 'relaunched %s\n' "${rargs[2]}"
+    printf 'relaunched %s harness=%s from=claude model=%s effort=%s backend=herdr endpoint=fm-remote:2ndmate-%s worktree=/srv/fm\n' \
+      "${rargs[2]}" "${rargs[3]}" "${rargs[4]}" "${rargs[5]}" "${rargs[2]}"
+    printf 'schema=fm-remote-secondmate-control.v1\n'
+    printf 'backend=herdr\n'
+    printf 'target=fm-remote:2ndmate-%s\n' "${rargs[2]}"
+    printf 'herdr_session=fm-remote\n'
+    printf 'harness=%s\n' "${rargs[3]}"
+    printf 'model=%s\n' "${rargs[4]}"
+    printf 'effort=%s\n' "${rargs[5]}"
     ;;
 esac
 exit 0
@@ -548,6 +563,34 @@ test_local_restart_uses_the_home_pin_and_reports_what_ran() {
   [ "$(grep '^harness=' "$dir/home/state/sm1.meta" | tail -1)" = "harness=codex" ] \
     || fail "the durable record did not follow the replacement onto the pinned runtime"
   pass "T8 a local restart re-resolves this home's pin and reports the runtime that came up"
+}
+
+test_native_ultra_restart_keeps_local_and_remote_profiles() {
+  local dir out rc relaunch_line
+  dir=$(new_case native-local)
+  add_local_mate "$dir" sm1
+  arm_answer "$dir" sm1
+  printf 'pi codex-native/gpt-6-astra ultra\n' > "$dir/home/config/secondmate-harness"
+  printf 'pi' > "$dir/fake/becomes"
+  printf '#!/usr/bin/env bash\nprintf "Options: --tui-mode\\n"\n' > "$dir/fakebin/pi"
+  chmod +x "$dir/fakebin/pi"
+  out=$(run_restart "$dir" sm1); rc=$?
+  expect_code 0 "$rc" "native local restart failed: $out"
+  assert_contains "$out" "restarted: sm1 (pi)" "native local restart did not complete"
+  assert_contains "$(cat "$dir/home/state/sm1.meta")" "effort=ultra" "local restart dropped native effort"
+  assert_contains "$(cat "$dir/fake/literal")" "--codex-effort 'ultra'" "local restart dropped native launch flag"
+
+  dir=$(new_case native-remote)
+  setup_remote_case "$dir" sm2 ok
+  export FM_FAKE_ANSWER_STATUS="$dir/home/state/sm2.status"
+  printf 'pi-signed codex-native/gpt-6-astra ultra\n' > "$dir/home/config/secondmate-harness"
+  out=$(run_restart "$dir" sm2); rc=$?
+  unset FM_FAKE_ANSWER_STATUS
+  expect_code 0 "$rc" "native remote restart failed: $out"
+  relaunch_line=$(grep '^fm-remote-secondmate-control.sh relaunch' "$dir/ssh.log" | head -1)
+  [ "$relaunch_line" = "fm-remote-secondmate-control.sh relaunch sm2 pi-signed codex-native/gpt-6-astra ultra" ] \
+    || fail "remote restart dropped native profile: $relaunch_line"
+  pass "native Ultra survives local restart and the remote restart transport"
 }
 
 # --- T9: an unrelated concurrent reply cannot release the persist gate -------
@@ -812,6 +855,7 @@ test_unprovable_runtime_falls_back
 test_unknown_mate_is_accounted_for
 test_refused_restart_falls_back_without_claiming_a_reload
 test_local_restart_uses_the_home_pin_and_reports_what_ran
+test_native_ultra_restart_keeps_local_and_remote_profiles
 test_remote_mate_restarts_over_the_transport_hop
 test_unreachable_host_is_reported_unknown
 test_concurrent_reply_cannot_release_persist_gate
