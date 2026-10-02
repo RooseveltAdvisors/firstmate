@@ -1,0 +1,81 @@
+== fleet view cleanup candidates ==
+# Cleanup Candidates
+
+Home: /tmp/fm-lab.Q56aEh
+
+| ID | Kind | Persistence | Teardown |
+| --- | --- | --- | --- |
+| crew-fix | ship | disposable | bin/fm-teardown.sh crew-fix |
+| design | secondmate | persistent | retire only by an explicit decision naming this home - see .agents/skills/secondmate-provisioning |
+
+A persistent home is retired only by a decision naming that exact home; an idle queue is healthy, not finished.
+This report prints no runnable retirement command, so retiring a standing home has to be typed deliberately.
+Teardown takes one target per invocation.
+[rc=0]
+
+== S2 secondmate teardown without authority ==
+
+$ FM_HOME=$LAB bin/fm-teardown.sh design
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.Q56aEh
+REFUSED: task design is a persistent secondmate home, not a finished worker; nothing was changed.
+An idle queue is a healthy secondmate's normal state, never evidence it is done.
+Retiring it takes authority naming that exact home: bin/fm-teardown.sh design --retire-secondmate design
+List candidates with their kinds using bin/fm-fleet-view.sh --cleanup-candidates rather than inferring persistence from a worktree path.
+[rc=1]
+
+== S3 secondmate teardown with --force only ==
+
+$ FM_HOME=$LAB bin/fm-teardown.sh design --force
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.Q56aEh
+REFUSED: task design is a persistent secondmate home, not a finished worker; nothing was changed.
+An idle queue is a healthy secondmate's normal state, never evidence it is done.
+Retiring it takes authority naming that exact home: bin/fm-teardown.sh design --retire-secondmate design
+List candidates with their kinds using bin/fm-fleet-view.sh --cleanup-candidates rather than inferring persistence from a worktree path.
+[rc=1]
+
+== S4 authority naming a different home ==
+
+$ FM_HOME=$LAB bin/fm-teardown.sh design --retire-secondmate crew-fix
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.Q56aEh
+REFUSED: --retire-secondmate names crew-fix, but this teardown targets design; nothing was changed.
+Authority for retiring a persistent home must name that exact home.
+[rc=1]
+== S4b equals form wrong id ==
+
+$ FM_HOME=$LAB bin/fm-teardown.sh design --retire-secondmate=other
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.Q56aEh
+REFUSED: --retire-secondmate names other, but this teardown targets design; nothing was changed.
+Authority for retiring a persistent home must name that exact home.
+[rc=1]
+== S4c missing value ==
+
+$ FM_HOME=$LAB bin/fm-teardown.sh design --retire-secondmate
+error: --retire-secondmate needs the exact task id it authorizes
+[rc=2]
+
+== S5 authority on a non-secondmate task ==
+
+$ FM_HOME=$LAB bin/fm-teardown.sh crew-fix --retire-secondmate crew-fix
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.Q56aEh
+REFUSED: --retire-secondmate was given for task crew-fix, which is a ship task and not a secondmate home; nothing was changed.
+That mismatch means the target was selected wrong; re-check it with bin/fm-fleet-view.sh --cleanup-candidates.
+[rc=1]
+
+== S6 batch list sweeping in a secondmate ==
+
+$ FM_HOME=$LAB bin/fm-teardown.sh crew-fix design
+error: teardown acts on exactly one task, but 2 targets were given: crew-fix design
+error: 1 of those targets are persistent secondmate homes, not finished workers: design
+Retiring a secondmate is a per-target decision. Nothing was changed.
+List candidates with their kinds using bin/fm-fleet-view.sh --cleanup-candidates, then act on one target per invocation.
+[rc=2]
+
+== S7 batch after -- with option-spelled ids ==
+
+$ FM_HOME=$LAB bin/fm-teardown.sh crew-fix -- --force design
+error: teardown acts on exactly one task, but 3 targets were given: crew-fix --force design
+error: 1 of those targets are persistent secondmate homes, not finished workers: design
+Retiring a secondmate is a per-target decision. Nothing was changed.
+List candidates with their kinds using bin/fm-fleet-view.sh --cleanup-candidates, then act on one target per invocation.
+[rc=2]
+STATE UNCHANGED across all refusals: yes
