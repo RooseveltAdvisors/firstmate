@@ -31,9 +31,10 @@
 # Selection and reclaim, per row:
 #   1. `bd list --all --json` reads the shared graph to a temp file (never
 #      piped into a subshell) and selects in_progress rows older than the
-#      threshold, excluding held rows (the tasks-axi-held label) before
-#      endpoint classification so check and dry-run output can never present
-#      a held row as reclaimable. FM_STALE_SWEEP_BD_TIMEOUT (default 120)
+#      threshold, excluding held rows (the tasks-axi-held label) and
+#      dependency-blocked rows (a "blocks" edge to a row that is not closed)
+#      before endpoint classification so check and dry-run output can never
+#      present a held or blocked row as reclaimable. FM_STALE_SWEEP_BD_TIMEOUT (default 120)
 #      bounds the read and is cut down to the remaining budget in check mode.
 #   2. The owning home is resolved from whichever registered home has
 #      state/<id>.meta (this home plus the local routes in data/secondmates.md,
@@ -544,11 +545,15 @@ fm_stale_sweep() {  # <apply 0|1> <budget-secs 0-unbounded> <cutoff-epoch>
     rm -f -- "$tmp"
     return 1
   fi
-  # Raw bd JSON carries a tasks-axi structured hold as this label; exclude it
-  # before endpoint classification so check mode cannot call it reclaimable.
+  # Raw bd JSON carries a tasks-axi structured hold as this label, and a
+  # dependency block as a "blocks" edge to a row that is not closed; exclude
+  # both before endpoint classification so check mode cannot call reclaimable
+  # a row the apply proofs would refuse.
   if ! rows=$(jq -r --argjson cutoff "$cutoff" --argjson now "$(record_epoch_now)" '
-    .[] | select(.status == "in_progress")
+    (map({key: .id, value: .status}) | from_entries) as $status
+    | .[] | select(.status == "in_progress")
         | select((.labels // [] | index("tasks-axi-held")) == null)
+        | select(any(.dependencies // [] | .[]; .type == "blocks" and $status[.depends_on_id] != "closed") | not)
         | select(.updated_at)
         | (.updated_at | fromdateiso8601?) as $epoch
         | select($epoch != null) | select($epoch < $cutoff)

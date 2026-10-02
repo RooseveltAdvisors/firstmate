@@ -473,6 +473,36 @@ test_held_row_is_excluded_from_scan() {
   pass "held in_progress rows are excluded from stale-sweep candidates"
 }
 
+# A dependency-blocked in_progress row is refused by the apply proofs, so the
+# scan excludes it: check and dry-run output never advertise it, while an
+# unblocked dead row is still advertised and reclaimed.
+test_blocked_row_is_excluded_from_scan() {
+  require_tasks_axi_beads "the blocked-row scan path" || return 0
+  local rec out t0
+  rec=$(make_fixture blockedscan)
+  [ -n "$rec" ] || fail "fixture construction failed (see stderr above)"
+  read_fixture "$rec"
+  (cd "$HOME_DIR" && tasks-axi block fm-dead-row --by fm-live-row) \
+    >/dev/null || fail "could not block the scan fixture row"
+  t0=$(sweep_clock)
+  out=$(FM_HOME="$HOME_DIR" FM_STALE_SWEEP_NOW=$t0 PATH="$FAKEBIN:$PATH" "$SWEEP" check)
+  assert_contains "$out" "stale-sweep: 1 dead-endpoint in_progress rows reclaimable" \
+    "check must not count a blocked dead row as reclaimable"
+  out=$(run_sweep)
+  assert_not_contains "$out" "fm-dead-row" \
+    "a dependency-blocked row must be excluded from stale candidates"
+  assert_row_matches 'fm-prov-row[[:space:]].*would reclaim' "$out" \
+    "an unblocked dead row must still be advertised"
+  out=$(run_sweep --apply)
+  assert_contains "$out" "reclaimed 1" \
+    "the unblocked dead row must still be reclaimed"
+  [ "$(row_state fm-dead-row)" = in_flight ] \
+    || fail "the blocked row was reopened"
+  [ "$(row_state fm-prov-row)" = queued ] \
+    || fail "the unblocked dead row was not reopened"
+  pass "dependency-blocked in_progress rows are excluded from stale-sweep candidates"
+}
+
 # A row can become held after the liveness scan but before apply. The existing
 # second proof must refuse it, leaving both the hold and the row in flight.
 test_apply_refuses_row_held_after_scan() {
@@ -692,6 +722,7 @@ test_orphan_columns_and_apply_orphans_guards
 test_dry_run_lists_verdicts_and_reclaims_nothing
 test_apply_reclaims_only_dead_rows
 test_held_row_is_excluded_from_scan
+test_blocked_row_is_excluded_from_scan
 test_apply_refuses_row_held_after_scan
 test_apply_refuses_a_row_whose_record_lock_a_completion_holds
 test_apply_refuses_a_row_with_a_pending_completion_replay
