@@ -530,7 +530,7 @@ fm_reco_relative_ok() { # <line> <resolved-home>
 # fm_reco_command_allowed: verdict over one command text (possibly multi-line).
 # Prints "ok" or "refuse:<reason>".
 fm_reco_command_allowed() { # <command-text> <home>
-  local text=$1 home=$2 line word red masked wordrest seg segcount
+  local text=$1 home=$2 line word red masked wordrest seg segcount segrest
   if [ -z "$text" ]; then
     printf 'refuse:no command text found between the question and the options'
     return 0
@@ -618,7 +618,13 @@ fm_reco_command_allowed() { # <command-text> <home>
           esac
         done
         case "$wordrest" in
-          '>'|'>/dev/null') continue ;;
+          '>'|'>/dev/null')
+            segrest=${seg#"$word"}
+            segrest=${segrest#"${segrest%%[![:space:]]*}"}
+            if [ -z "$segrest" ]; then
+              continue
+            fi
+            ;;
         esac
         printf 'refuse:command segment "%s" is outside the read allowlist' "$word"
         return 0

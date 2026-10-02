@@ -979,6 +979,22 @@ EOF
 > 1. Yes, proceed (y)
   3. No (esc)
 EOF
+  cat > "$prompts/deny-redirect-headed-delete" <<'EOF'
+  Would you like to run the following command?
+
+  $ >/dev/null find . -delete
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-redirect-headed-exec" <<'EOF'
+  Would you like to run the following command?
+
+  $ 2>/dev/null sh -c sleep5
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
   cat > "$prompts/unknown" <<'EOF'
 Status header
 gpt-5.6-sol high - some/cwd
@@ -1093,6 +1109,8 @@ EOF
   classify allow-null-redirect-delimiter 'approve' 'classifier approves a delimiter-attached null redirect behind an if condition'
   classify deny-attached-null-missing 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an unverifiable operand attached to a null redirect'
   classify deny-sort-tempdir 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses sort -T buffer directory flags'
+  classify deny-redirect-headed-delete 'refuse:command segment ">/dev/null" is outside the read allowlist' 'classifier refuses a redirect-headed segment carrying find -delete'
+  classify deny-redirect-headed-exec 'refuse:command segment "2>/dev/null" is outside the read allowlist' 'classifier refuses a redirect-headed segment carrying sh -c'
   classify unknown 'unknown' 'classifier fails closed on an unrecognized prompt'
   ROOT=$saved_root
 }
