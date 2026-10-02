@@ -599,6 +599,19 @@ TEARDOWN_META_KIND=$(fm_meta_get "$META" kind)
 # retirement path below, and answered from the task's own kind rather than from
 # anything the caller passed in.
 if [ "$TEARDOWN_META_KIND" = secondmate ]; then
+  # A secondmate's endpoint-liveness episodes (bin/fm-secondmate-liveness-lib.sh)
+  # serialize on this lock; retirement holds it to the end so no probe or relaunch
+  # can act on the route mid-teardown, and its relaunch ledger and park marker are
+  # removed with the route instead of surviving for a reused id. Taken before the
+  # authority refusals below so a teardown attempted while an episode is active
+  # always reports that transient block and asks for a retry; an unauthorized
+  # attempt still exits here (or right below) with nothing mutated, and the EXIT
+  # trap releases this lock on every refusal path.
+  fm_lock_try_acquire "$STATE/.secondmate-liveness-$ID.lock" || {
+    echo "error: a secondmate liveness check is in progress for $ID; nothing was changed - retry teardown" >&2
+    exit 1
+  }
+  SM_LIVENESS_LOCK="$STATE/.secondmate-liveness-$ID.lock"
   if [ "$RETIRE_AUTH_GIVEN" != 1 ]; then
     echo "REFUSED: task $ID is a persistent secondmate home, not a finished worker; nothing was changed." >&2
     echo "An idle queue is a healthy secondmate's normal state, never evidence it is done." >&2
@@ -611,15 +624,6 @@ if [ "$TEARDOWN_META_KIND" = secondmate ]; then
     echo "Authority for retiring a persistent home must name that exact home." >&2
     exit 1
   fi
-  # A secondmate's endpoint-liveness episodes (bin/fm-secondmate-liveness-lib.sh)
-  # serialize on this lock; retirement holds it to the end so no probe or relaunch
-  # can act on the route mid-teardown, and its relaunch ledger and park marker are
-  # removed with the route instead of surviving for a reused id.
-  fm_lock_try_acquire "$STATE/.secondmate-liveness-$ID.lock" || {
-    echo "error: a secondmate liveness check is in progress for $ID; nothing was changed - retry teardown" >&2
-    exit 1
-  }
-  SM_LIVENESS_LOCK="$STATE/.secondmate-liveness-$ID.lock"
 elif [ "$RETIRE_AUTH_GIVEN" = 1 ]; then
   echo "REFUSED: --retire-secondmate was given for task $ID, which is a $TEARDOWN_META_KIND task and not a secondmate home; nothing was changed." >&2
   echo "That mismatch means the target was selected wrong; re-check it with bin/fm-fleet-view.sh --cleanup-candidates." >&2
