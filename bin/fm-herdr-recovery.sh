@@ -509,7 +509,7 @@ fm_reco_relative_ok() { # <line> <resolved-home>
               *) pspan=2 ;;
             esac
             ;;
-          -e*|-f*|-[a-zA-Z]*e*|-[a-zA-Z]*f*) used_e=1 ;;
+          -e*|-f*|-[a-zA-Z]*e*) used_e=1 ;;
         esac
       done
     fi
