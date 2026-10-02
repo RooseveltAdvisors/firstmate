@@ -1,0 +1,45 @@
+### live GitHub state for PR 3651 (read-only API, 2026-10-02T04:54:53Z)
+{
+  "state": "open",
+  "mergeable": true,
+  "mergeable_state": "unstable",
+  "head_sha": "4b75fbd721ab2a189f8764badb900f88bbb60e20",
+  "base_ref": "main",
+  "base_sha": "8690c4117a298ee870f0f72f571c72b846b4c5fb"
+}
+### remote refs (git ls-remote, read-only)
+8690c4117a298ee870f0f72f571c72b846b4c5fb	refs/heads/main
+4b75fbd721ab2a189f8764badb900f88bbb60e20	refs/heads/fm/fleet-cleanup-skill-rebased
+### ancestor proofs
+current main (8690c411) IS an ancestor of target head (869a054c) -> merge is conflict-free
+target head fast-forwards the published PR head 4b75fbd7 -> publishing rewrites no published history
+### check-runs at published head 4b75fbd7
+failure	PR must be raised via no-mistakes
+success	Behavior portable parallel 1
+success	Behavior portable parallel 2
+success	Behavior portable serial 1
+success	Behavior portable serial 2
+success	Behavior portable serial 3
+success	Behavior portable serial 4
+success	Behavior portable serial 5
+success	Behavior portable serial 6
+success	Behavior portable serial 7
+success	Behavior portable serial 8
+success	Behavior portable serial 9
+success	Behavior tests (Herdr)
+success	Behavior timing aggregate
+success	Greptile Review
+success	Lint 1
+success	Lint 2
+success	Repo invariants
+success	Stock macOS Bash snapshot compatibility
+success	Test coverage guard
+
+### target head vs published head 4b75fbd7 (what publishing the final head adds)
+ bin/fm-test-run.sh                   |  2 +-
+ tests/fm-fleet-cleanup-skill.test.sh | 53 ++++++++++++++++++++++++++++++------
+ 2 files changed, 45 insertions(+), 10 deletions(-)
+### skill prose identical between published head and final head?
+YES - .agents/skills/fleet-cleanup/SKILL.md byte-identical
+### HEAD
+869a054cfec0eaa799d13298c5a9ebbb7603e764

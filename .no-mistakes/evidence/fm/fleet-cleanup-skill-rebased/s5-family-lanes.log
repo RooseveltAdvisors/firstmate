@@ -1,0 +1,5 @@
+### --list --family pure-contract-unit | grep fleet-cleanup (expect nothing)
+0
+0 matches (absent from pure-contract-unit)
+### --list --family unclassified | grep fleet-cleanup (expect present)
+tests/fm-fleet-cleanup-skill.test.sh

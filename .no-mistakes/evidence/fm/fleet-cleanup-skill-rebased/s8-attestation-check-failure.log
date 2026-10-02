@@ -1,0 +1,7 @@
+### required check 'PR must be raised via no-mistakes' at published head 4b75fbd7 (run 36956134538, conclusion=failure)
+2026-10-02T02:33:04.5461482Z ##[error]Pipeline attestation head_sha does not match the current PR head.
+2026-10-02T02:33:04.5463433Z attestation.head_sha: 38eb1ff5e99848310e948c908ff2ae700ba9c7c8
+2026-10-02T02:33:04.5464836Z PR head: 4b75fbd721ab2a189f8764badb900f88bbb60e20
+2026-10-02T02:33:04.5467382Z A later push must not pass on an older attestation. Re-run 'git push no-mistakes' so the PR body attestation binds to the current head.
+2026-10-02T02:33:04.5472174Z Found no-mistakes signature in PR #3651 body.
+2026-10-02T02:33:04.5533813Z ##[error]Process completed with exit code 1.

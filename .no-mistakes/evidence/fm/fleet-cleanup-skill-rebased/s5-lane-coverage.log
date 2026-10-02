@@ -1,0 +1,6 @@
+### --list --lane portable-serial | grep fleet-cleanup (CI shard coverage)
+tests/fm-fleet-cleanup-skill.test.sh
+### --check-coverage
+comm: file 2 is not in sorted order
+comm: input is not in sorted order
+exit=1

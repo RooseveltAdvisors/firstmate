@@ -1,0 +1,44 @@
+================ baseline (unmutated artifact) ================
+--- refined test on: baseline
+    ok - fleet-cleanup skill is reachable, agent-only, installer-internal, and has a declared load trigger
+OK        baseline :: refined test (exit=0, expected 0)
+--- published(4b75fbd7) test on: baseline
+    ok - fleet-cleanup skill is reachable, agent-only, installer-internal, and has a declared load trigger
+OK        baseline :: published test (exit=0, expected 0)
+================ A1: duplicate metadata.internal (false last) ================
+--- refined test on: duplicate metadata.internal=false
+    not ok - fleet-cleanup skill must set metadata.internal=true so installers do not surface it
+OK        duplicate metadata.internal=false :: refined test (exit=1, expected 1)
+--- published(4b75fbd7) test on: duplicate metadata.internal=false
+    ok - fleet-cleanup skill is reachable, agent-only, installer-internal, and has a declared load trigger
+OK        duplicate metadata.internal=false :: published test (exit=0, expected 0)
+================ A2: duplicate user-invocable (true last) ================
+--- refined test on: duplicate user-invocable=true
+    not ok - fleet-cleanup skill must declare itself agent-only
+OK        duplicate user-invocable=true :: refined test (exit=1, expected 1)
+--- published(4b75fbd7) test on: duplicate user-invocable=true
+    ok - fleet-cleanup skill is reachable, agent-only, installer-internal, and has a declared load trigger
+OK        duplicate user-invocable=true :: published test (exit=0, expected 0)
+================ B2: semantically-equivalent trigger bullet reflow ================
+--- refined test on: trigger bullet reflowed onto continuation line
+    ok - fleet-cleanup skill is reachable, agent-only, installer-internal, and has a declared load trigger
+OK        trigger bullet reflowed onto continuation line :: refined test (exit=0, expected 0)
+--- published(4b75fbd7) test on: trigger bullet reflowed onto continuation line
+    not ok - fleet-cleanup skill has no load trigger declared in the agent-only trigger index
+OK        trigger bullet reflowed onto continuation line :: published test (exit=1, expected 1)
+================ C: fleet-cleanup trigger bullet removed ================
+--- refined test on: fleet-cleanup trigger entry removed
+    not ok - fleet-cleanup skill has no non-empty trigger in the agent-only trigger index
+OK        fleet-cleanup trigger entry removed :: refined test (exit=1, expected 1)
+--- published(4b75fbd7) test on: fleet-cleanup trigger entry removed
+    not ok - fleet-cleanup skill has no load trigger declared in the agent-only trigger index
+OK        fleet-cleanup trigger entry removed :: published test (exit=1, expected 1)
+================ post-matrix: restored artifact still validates ================
+--- refined test on: restored artifact
+    ok - fleet-cleanup skill is reachable, agent-only, installer-internal, and has a declared load trigger
+OK        restored artifact :: refined test (exit=0, expected 0)
+--- published(4b75fbd7) test on: restored artifact
+    ok - fleet-cleanup skill is reachable, agent-only, installer-internal, and has a declared load trigger
+OK        restored artifact :: published test (exit=0, expected 0)
+
+MATRIX RESULT: all expectations matched
