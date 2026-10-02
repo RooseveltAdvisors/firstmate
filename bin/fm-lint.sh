@@ -403,10 +403,11 @@ fm_lint_run_workflows() {
 # out of firstmate's core scripts so every configured backend follows the same
 # lifecycle path.
 # KNOWN, TRACKED GAP - NOT AN OVERSIGHT: a wrapper (sudo, time, timeout, xargs,
-# nohup, command, exec) is stripped only when the command follows it
+# nohup, command, exec, eval) is stripped only when the command follows it
 # immediately, so a form with arguments in between - `timeout 5 bd close <id>`,
-# `sudo -n bd list` - passes this check silently. Do not read a clean verdict
-# as proof that the boundary held.
+# `sudo -n bd list` - passes this check silently, and an `eval` whose whole body
+# is one quoted string - `eval "bd close"` - never puts `bd` in command position
+# here. Do not read a clean verdict as proof that the boundary held.
 fm_lint_run_backend_purity() {
   local findings path canonical
   local -a purity_roots
@@ -451,7 +452,7 @@ fm_lint_run_backend_purity() {
         previous=segment
         sub(/^(if|then|elif|else|while|until|do)[[:space:]]+/, "", segment)
         sub(/^![[:space:]]+/, "", segment)
-        sub(/^(command|exec|sudo|time|xargs|nohup|timeout)[[:space:]]+/, "", segment)
+        sub(/^(command|exec|sudo|time|xargs|nohup|timeout|eval)[[:space:]]+/, "", segment)
         sub(/^[[:alpha:]_][[:alnum:]_]*=[^[:space:]]+[[:space:]]+/, "", segment)
         if (segment ~ /^env[[:space:]]+/) {
           sub(/^env[[:space:]]+/, "", segment)

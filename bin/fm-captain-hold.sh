@@ -64,7 +64,9 @@
 # tasks-axi --archive-body). It then closes the task through the guarded
 # backlog close owned by bin/fm-backlog-transition-lib.sh, carrying
 # `--note "answered: <first line of the decision>"` as the close's done-class
-# reason so the closed row records why it closed - or, with `--release`, lifts
+# reason so the closed row records why it closed - except when a pending
+# retention carries a retained Gerrit change, which closes the row with that
+# change's URL as its recorded note instead - or, with `--release`, lifts
 # the hold with `tasks-axi unhold` so a captain-gated WORK item resumes instead
 # of closing - and restores resolution-first body ordering. An exact retry also
 # completes unfinished ordering normalization and is idempotent only when its
@@ -1688,7 +1690,7 @@ reconcile_close() {
   else
     write_resolution_record "$id" reconciled "$body"
   fi
-  close_answered "$id" 0 || fail "could not close reconciled captain-held task $id"
+  close_answered "$id" 0 || fail "could not close reconciled captain-held task $id${FM_BACKLOG_TRANSITION_ERROR:+ ($FM_BACKLOG_TRANSITION_ERROR)}"
   remove_interrupted_answer_stamp "$id"
   task_show_or_fail "$id" "task $id disappeared after closing"
   body_has_resolution_record "$(show_field "$show" body)" \

@@ -85,7 +85,7 @@ It then works in this order:
 3. It then restores the successful record's resolution-first body ordering.
    The previous body remains preserved below the block and archived through tasks-axi `--archive-body`.
 
-The close itself runs through the guarded backlog close owned by `bin/fm-backlog-transition-lib.sh`, which records the answer's first line as the close's `answered:` done-class reason - or `tasks-axi unhold` under `answer --release`, so a captain-gated work item resumes instead of closing.
+The close itself runs through the guarded backlog close owned by `bin/fm-backlog-transition-lib.sh`, which records the answer's first line as the close's `answered:` done-class reason - except when a pending retention carries a retained Gerrit change, where the row closes with that change's URL as its recorded note instead - or `tasks-axi unhold` under `answer --release`, so a captain-gated work item resumes instead of closing.
 
 If the close is interrupted, the still-held task therefore keeps its original age basis.
 A matching retry also completes any resolution-first normalization left unfinished after the close itself succeeded.

@@ -1192,7 +1192,10 @@ SH
     'time bd list' \
     'xargs bd show fm-example' \
     'nohup bd ready --json' \
-    'timeout bd close fm-example'
+    'timeout bd close fm-example' \
+    'ready) bd ready --json ;;' \
+    'exec bd show fm-example' \
+    'eval bd list'
   do
     printf '#!/usr/bin/env bash\n%s\n' "$invocation" > "$tmp/repo/bin/direct-beads.sh"
     rc=0

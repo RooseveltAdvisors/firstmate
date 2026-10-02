@@ -3483,8 +3483,13 @@ if [ "$TEARDOWN_BACKLOG_APPLIES" = 1 ]; then
     echo "error: the pending backlog $BACKLOG_TRANSITION for $ID is not replayable; refusing destructive teardown" >&2
     exit 1
   }
-  if fm_backlog_row_probe "$DATA" "$ID" && [ "$FM_BACKLOG_ROW_KIND" != "$KIND" ]; then
-    echo "error: backlog item $ID is kind ${FM_BACKLOG_ROW_KIND:-none} but task $ID's record is kind $KIND; refusing destructive teardown with the task record and worktree intact - repair with: tasks-axi update $ID --kind $KIND" >&2
+  if fm_backlog_row_probe "$DATA" "$ID"; then
+    if [ "$FM_BACKLOG_ROW_KIND" != "$KIND" ]; then
+      echo "error: backlog item $ID is kind ${FM_BACKLOG_ROW_KIND:-none} but task $ID's record is kind $KIND; refusing destructive teardown with the task record and worktree intact - repair with: tasks-axi update $ID --kind $KIND" >&2
+      exit 1
+    fi
+  elif [ "$FM_BACKLOG_ROW_RESULT" != not_found ]; then
+    echo "error: could not verify the row for $ID before destructive teardown (${FM_BACKLOG_ROW_ERROR:-the backlog read failed}); refusing with the task record and worktree intact - retry once the backlog reads again" >&2
     exit 1
   fi
 # Roll the accepted legacy incarnation's stamp back to the record's exact
