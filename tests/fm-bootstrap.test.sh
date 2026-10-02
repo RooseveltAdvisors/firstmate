@@ -905,7 +905,7 @@ test_routine_bootstrap_contract_runs_under_system_bash() {
 test_network_phase_partitions_the_run() {
   local case_dir fakebin all_out skip_out only_out combined
   case_dir="$TMP_ROOT/network-phase"
-  mkdir -p "$case_dir/home/config"
+  mkdir -p "$case_dir/home/config" "$case_dir/home/state"
   printf '%s\n' manual > "$case_dir/home/config/backlog-backend"
   fakebin=$(make_fake_toolchain "$case_dir")
   # Break the two diagnostics that stand for the two halves: a local tool floor
