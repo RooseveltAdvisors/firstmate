@@ -18,24 +18,11 @@ make_fake_toolchain() {
   fm_fake_exit0 "$fakebin" node chrome-devtools-axi
   fm_fake_version_tool "$fakebin" lavish-axi FM_FAKE_LAVISH_AXI_VERSION 0.1.80
   fm_test_fake_gh_axi "$fakebin"
-  cat > "$fakebin/quota-axi" <<'SH'
-#!/usr/bin/env bash
-if [ "${1:-}" = --version ]; then
-  printf '%s\n' 'quota-axi 0.1.51 (fake)'
-fi
-exit 0
-SH
+  fm_test_fake_quota_axi "$fakebin"
   fm_test_fake_gh "$fakebin"
   fm_test_fake_treehouse "$fakebin"
   fm_test_fake_no_mistakes "$fakebin"
-  cat > "$fakebin/tasks-axi" <<'SH'
-#!/usr/bin/env bash
-case "${1:-}:${2:-}" in
-  --version:*) printf '%s\n' '0.2.6' ;;
-  update:--help) printf '%s\n' '--archive-body' ;;
-  mv:--help) printf '%s\n' 'usage: tasks-axi mv <id> [<id>...]' ;;
-esac
-SH
+  fm_test_fake_tasks_axi "$fakebin"
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 [ -z "${FM_FAKE_TMUX_LOG:-}" ] || printf '%s\n' "$*" >> "$FM_FAKE_TMUX_LOG"

@@ -350,14 +350,7 @@ SH
   fm_test_fake_treehouse "$fakebin"
   fm_test_fake_no_mistakes "$fakebin"
   fm_test_fake_tasks_axi "$fakebin"
-  cat > "$fakebin/quota-axi" <<'SH'
-#!/usr/bin/env bash
-if [ "${1:-}" = --version ]; then
-  printf '%s\n' 'quota-axi 0.1.51 (fake)'
-fi
-exit 0
-SH
-  chmod +x "$fakebin/quota-axi"
+  fm_test_fake_quota_axi "$fakebin"
   printf '%s\n' "$fakebin"
 }
 
