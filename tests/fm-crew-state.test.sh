@@ -2400,7 +2400,7 @@ test_merged_pr_reads_done_under_captured_meta() {
   pass "recorded merged PR reads done under the fleet snapshot's captured meta"
 }
 
-test_no_mistakes_prevalidation_done_stays_done() {
+test_no_mistakes_prevalidation_done_reads_blocked() {
   reset_fakes
   local d out
   d=$(new_case preval-done)
@@ -5499,6 +5499,17 @@ test_captured_completed_history() {
     assert_contains "$out" "source: $source" 'captured historical validation yields to current worker evidence'
   done
   pass 'captured completed status yields to synthetic subsequent development'
+}
+
+command_not_found_handle() {
+  case "$1" in
+    test_*)
+      printf 'not ok - runner references undefined test function: %s\n' "$1" >&2
+      exit 1
+      ;;
+  esac
+  printf '%s: command not found\n' "$1" >&2
+  return 127
 }
 
 test_captured_axi_status_shapes
