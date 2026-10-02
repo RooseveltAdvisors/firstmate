@@ -1,0 +1,48 @@
+LAB=/tmp/fm-lab.OSn9aA
+### pool before spawn
+A new version of treehouse is available: v1.8.1-0.20260905115643-6e0ac79a026b → v3.1.1
+Run "treehouse update" to update
+
+base  main  (repository default)
+1     in-use       /tmp/fm-lab.OSn9aA/projects/proj/.treehouse/proj-9879f9/1/proj
+                   zsh (2930613)
+### spawn into full pool
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.OSn9aA
+warning: /tmp/fm-lab.OSn9aA/data/cap-x1/launch-brief.md records no ship branch; defaulting to legacy branch fm/cap-x1
+notice: cap-x1 ships mode=local-only while the standing posture for proj is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+held: cap-x1 - pool /tmp/fm-lab.OSn9aA/projects/proj/.treehouse/proj-9879f9 full 1/1; item left queued for redispatch when a worktree frees; endpoint firstmate:fm-cap-x1 closed so the redispatch can create it again
+spawn exit=2
+### backlog row after
+task:
+  id: cap-x1
+  title: capacity lab task
+  state: queued
+  blocked: no
+  blocked_by: none
+  held: yes
+  hold_reason: pool /tmp/fm-lab.OSn9aA/projects/proj/.treehouse/proj-9879f9 full 1/1
+  hold_kind: load
+  hold_until: "-"
+  kind: ship
+  repo: "-"
+  priority: "-"
+  priority_why: "-"
+  created: 2026-10-02
+  closed: "-"
+  deps: none
+  links: none
+  body: ""
+
+# Backlog
+
+## In flight
+
+## Queued
+- [ ] cap-x1 - capacity lab task (kind: ship) (since 2026-10-02) (hold: pool /tmp/fm-lab.OSn9aA/projects/proj/.treehouse/proj-9879f9 full 1/1) (hold-kind: load)
+## Done
+### lab tmux windows after (endpoint should be gone)
+firstmate:holder
+### state dir
+.
+..
+.last-watcher-beat

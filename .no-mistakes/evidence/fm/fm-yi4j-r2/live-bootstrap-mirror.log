@@ -1,0 +1,18 @@
+### run 1: real bootstrap, NM_HOME=/tmp/fm-lab.IYJTGT/nm-active (firstmate checkout <worktree> never gated under this root)
+NO_MISTAKES_MIRROR: drifted remote=/tmp/fm-lab.IYJTGT/nm-old-mirror/repos/drifted.git expected-root=/tmp/fm-lab.IYJTGT/nm-active (run no-mistakes init inside /tmp/fm-lab.IYJTGT/projects/drifted to point its gate at the active root)
+NO_MISTAKES_MIRROR: lost remote=absent expected-root=/tmp/fm-lab.IYJTGT/nm-active (run no-mistakes init inside /tmp/fm-lab.IYJTGT/projects/lost to point its gate at the active root)
+(end mirror lines)
+### run 2: gate record /tmp/fm-lab.IYJTGT/nm-active/repos/5c380181a935.git now exists for the firstmate checkout
+NO_MISTAKES_MIRROR: firstmate remote=absent expected-root=/tmp/fm-lab.IYJTGT/nm-active (run no-mistakes init inside <worktree> to point its gate at the active root)
+NO_MISTAKES_MIRROR: drifted remote=/tmp/fm-lab.IYJTGT/nm-old-mirror/repos/drifted.git expected-root=/tmp/fm-lab.IYJTGT/nm-active (run no-mistakes init inside /tmp/fm-lab.IYJTGT/projects/drifted to point its gate at the active root)
+NO_MISTAKES_MIRROR: lost remote=absent expected-root=/tmp/fm-lab.IYJTGT/nm-active (run no-mistakes init inside /tmp/fm-lab.IYJTGT/projects/lost to point its gate at the active root)
+(end mirror lines)
+### run 3: trailing-slash NM_HOME normalizes
+0
+(healthy-line count above must be 0)
+### clones untouched (detect-only)
+drifted: /tmp/fm-lab.IYJTGT/nm-old-mirror/repos/drifted.git
+healthy: /tmp/fm-lab.IYJTGT/nm-active/repos/healthy.git
+lost: none
+casual: /tmp/fm-lab.IYJTGT/nm-old-mirror/repos/casual.git
+lab removed: yes

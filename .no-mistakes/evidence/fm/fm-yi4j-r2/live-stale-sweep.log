@@ -1,0 +1,63 @@
+### bd claims before sweep
+fm-gone-row in_progress
+fm-live-row in_progress
+fm-dead-row in_progress
+### fm-crew-state on each row (live lab tmux: live=%0 dead(killed)=%1)
+state: unknown · source: pane · harness state unavailable (unknown missing)
+state: working · source: pane · harness busy (claude-hook)
+state: unknown · source: none · worktree gone (torn down?)
+### dry run (clock +30h)
+ID                                         HOME               AGE     VERDICT   ACTION                   ACTOR         PROV
+fm-gone-row                                main home          30h     dead      would reclaim            -             -
+fm-live-row                                main home          30h     live      keep                     -             -
+fm-dead-row                                main home          30h     unproven  keep                     -             -
+3 stale candidates: 1 dead, 1 live, 1 unproven, 0 no-home; would reclaim 1
+exit=0
+### check mode
+stale-sweep: 1 dead-endpoint in_progress rows reclaimable - run bin/fm-stale-sweep.sh --apply
+exit=0
+### --apply
+ID                                         HOME               AGE     VERDICT   ACTION                   ACTOR         PROV
+fm-gone-row                                main home          30h     dead      reclaimed                -             -
+fm-live-row                                main home          30h     live      keep                     -             -
+fm-dead-row                                main home          30h     unproven  keep                     -             -
+3 stale candidates: 1 dead, 1 live, 1 unproven, 0 no-home; reclaimed 1
+exit=0
+### bd state after apply
+fm-gone-row open
+fm-live-row in_progress
+fm-dead-row in_progress
+### dead row body
+<!-- tasks-axi:beads/v1:eyJraW5kIjoic2hpcCJ9 -->
+reclaimed 2026-10-02: endpoint dead, previous claim by main home
+### endpoint records untouched
+/tmp/fm-lab.OeIaTo/state/fm-dead-row.meta
+/tmp/fm-lab.OeIaTo/state/fm-gone-row.meta
+/tmp/fm-lab.OeIaTo/state/fm-live-row.meta
+/tmp/fm-lab.OeIaTo/wt-dead
+### second dry run (idempotent)
+ID                                         HOME               AGE     VERDICT   ACTION                   ACTOR         PROV
+fm-live-row                                main home          30h     live      keep                     -             -
+fm-dead-row                                main home          30h     unproven  keep                     -             -
+2 stale candidates: 0 dead, 1 live, 1 unproven, 0 no-home; would reclaim 0
+exit=0
+### arm / disarm
+armed: state/stale-sweep.check.sh
+exit=0
+-rwx------ 1 jon jon 310 Oct  2 12:00 /tmp/fm-lab.OeIaTo/state/stale-sweep.check.sh
+disarmed: state/stale-sweep.check.sh
+exit=0
+ls: cannot access '/tmp/fm-lab.OeIaTo/state/stale-sweep.check.sh': No such file or directory
+### bad flag
+fm-stale-sweep: --older-than needs a positive whole number of hours
+Usage:
+  fm-stale-sweep.sh [sweep] [--apply] [--apply-orphans] [--older-than <hours>]   sweep the shared Beads graph for dead-endpoint claims
+  fm-stale-sweep.sh check    watcher check mode: silent unless rows are reclaimable
+  fm-stale-sweep.sh arm      write and register state/stale-sweep.check.sh
+  fm-stale-sweep.sh disarm   remove the check shim, its trust binding, and the record
+  fm-stale-sweep.sh --help   print this help
+
+Default is a dry run; --apply performs reclaims through each owning home's tasks-axi.
+See docs/configuration.md "Stale-claim sweep" for thresholds and the check contract.
+exit=2
+lab removed: yes

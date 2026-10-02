@@ -1,0 +1,41 @@
+
+
+
+
+
+### pool after freeing
+
+base  main  (repository default)
+1     available    /tmp/fm-lab.OSn9aA/projects/proj/.treehouse/proj-9879f9/1/proj
+### spawn cap-x2 (real)
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.OSn9aA
+warning: /tmp/fm-lab.OSn9aA/data/cap-x2/launch-brief.md records no ship branch; defaulting to legacy branch fm/cap-x2
+notice: cap-x2 ships mode=local-only while the standing posture for proj is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+spawned cap-x2 harness=claude kind=ship mode=local-only yolo=off window=firstmate:fm-cap-x2 worktree=/tmp/fm-lab.OSn9aA/projects/proj/.treehouse/proj-9879f9/1/proj
+exit=
+firstmate:holder
+firstmate:fm-cap-x2
+### cap-x1 before teardown
+- [ ] cap-x1 - capacity lab task (kind: ship) (since 2026-10-02) (hold: pool /tmp/fm-lab.OSn9aA/projects/proj/.treehouse/proj-9879f9 full 1/1) (hold-kind: load)
+### teardown cap-x2
+teardown: force-killing leaked worktree process(es) for cap-x2: 3233878
+A new version of treehouse is available: v1.8.1-0.20260905115643-6e0ac79a026b → v3.1.1
+Run "treehouse update" to update
+
+🌳 Worktree returned to pool.
+ready: cap-x1 - capacity hold released for pool /tmp/fm-lab.OSn9aA/projects/proj/.treehouse/proj-9879f9
+teardown cap-x2 complete (window firstmate:fm-cap-x2, worktree /tmp/fm-lab.OSn9aA/projects/proj/.treehouse/proj-9879f9/1/proj)
+Backlog: cap-x2 is closed in /tmp/fm-lab.OSn9aA/data/backlog.md. Run bin/fm-tasks-axi.sh ready for dependency-cleared candidates, check date gates, and dispatch only work whose blockers are gone and date is due.
+exit=
+### cap-x1 after teardown
+  state: queued
+  held: no
+  hold_reason: "-"
+# Backlog
+
+## In flight
+## Queued
+- [ ] cap-x1 - capacity lab task (kind: ship) (since 2026-10-02)
+## Done
+- [x] cap-x2 - second lab task (kind: ship) (done 2026-10-02)
+  local main
