@@ -134,6 +134,13 @@ ctime_second() { perl -e 'print +(stat shift)[10]' "$1"; }
 SAME_SECOND=
 for _ in 1 2 3; do
   perl -MTime::HiRes=time,sleep -e 'sleep(1 - (time - int(time)))'
+  # The filesystem stamps inode times from the kernel's coarse timestamp
+  # clock, which trails this process's clock by a few milliseconds. A write
+  # issued immediately after the boundary can therefore be stamped in the
+  # previous whole second while the rewrite 0.15s later lands in the new one,
+  # and every attempt would mismatch for the same reason. Settle past that
+  # lag before the first write so both stamps share the boundary's second.
+  sleep 0.05
   printf 'alpha\nbeta\n' > "$DELTA_HOME/$DELTA_LOG_REL"
   BEFORE_SECOND=$(ctime_second "$DELTA_HOME/$DELTA_LOG_REL")
   : > "$EXEC_LOG"
