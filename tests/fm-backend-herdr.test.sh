@@ -3880,6 +3880,19 @@ test_task_label_history_refuses_a_symlink() {
   pass "fm_backend_herdr_task_label_history: refuses a symlinked history path"
 }
 
+# A non-regular history path must be refused loudly by every reader: if a
+# directory at the path read as "no history", an interrupted earlier attempt's
+# labels would drop out of the duplicate guard instead of refusing the spawn.
+test_task_label_history_json_refuses_a_directory() {
+  local dir out rc
+  dir="$TMP_ROOT/task-label-history-directory"; mkdir -p "$dir/history"
+  out=$(bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_task_label_history_json "$1"' \
+    "$ROOT" "$dir/history" 2>&1); rc=$?
+  expect_code 1 "$rc" "reading a directory as the task-label history should refuse"
+  assert_contains "$out" "not a regular file" "the refusal should name the non-regular-file rule"
+  pass "fm_backend_herdr_task_label_history_json: refuses a non-regular history path"
+}
+
 test_list_live_scoped_to_this_homes_workspace_only() {
   local dir log resp fb out home
   dir="$TMP_ROOT/list-live-scoped"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
@@ -6126,6 +6139,7 @@ test_task_label_is_human_readable_and_id_bound
 test_task_label_without_a_row_title_stays_the_bare_task_id
 test_task_label_follows_the_backlog_row_title
 test_task_label_history_refuses_a_symlink
+test_task_label_history_json_refuses_a_directory
 test_list_live_scoped_to_this_homes_workspace_only
 test_list_live_discovers_supported_task_labels
 test_parse_target

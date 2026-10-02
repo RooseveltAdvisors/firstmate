@@ -2534,7 +2534,7 @@ fm_backend_herdr_task_label_history_append() {  # <path> <label>
 
 fm_backend_herdr_task_label_history_json() {  # <path>
   local path=$1
-  if [ -L "$path" ]; then
+  if [ -L "$path" ] || { [ -e "$path" ] && [ ! -f "$path" ]; }; then
     echo "error: herdr task-label history is not a regular file: $path" >&2
     return 1
   fi
