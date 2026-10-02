@@ -3504,15 +3504,17 @@ if [ "$BACKEND" = herdr ]; then
   # --secondmate that is this process's own config, and a --secondmate spawn
   # stands up the secondmate's own home, so the secondmate's config decides.
   HERDR_TASK_LABEL_HOME=$CONFIG
+  HERDR_TASK_LABEL_DATA=$DATA
   if [ "$KIND" = secondmate ]; then
     HERDR_TASK_LABEL_HOME=$PROJ_ABS/config
+    HERDR_TASK_LABEL_DATA=$PROJ_ABS/data
   fi
   if [ "$(fm_backend_herdr_task_titles_preference "$HERDR_TASK_LABEL_HOME")" = on ]; then
     # The transition preflight never probes the homes it exempts (manual
     # backlog, no backlog file, secondmate), so read the row title directly;
     # a missing or unreadable row is the same no-title fallback, not a refusal.
     if [ "$BACKLOG_TRANSITION" -eq 0 ] && [ -z "${FM_BACKLOG_ROW_TITLE:-}" ]; then
-      if ! fm_backlog_row_probe "$DATA" "$ID" 2>/dev/null; then
+      if ! fm_backlog_row_probe "$HERDR_TASK_LABEL_DATA" "$ID" 2>/dev/null; then
         FM_BACKLOG_ROW_TITLE=
       fi
     fi

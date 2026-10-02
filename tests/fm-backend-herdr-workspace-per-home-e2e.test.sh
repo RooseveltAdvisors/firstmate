@@ -463,6 +463,47 @@ rc=$?
 [ -f "$CM5_META" ] && fail "fm-teardown.sh did not remove cm5's meta"
 pass "real herdr E2E: manual-backlog homes spawn and tear down without dispatch transitions"
 
+# --- 7. a --secondmate tab is named from the secondmate home's own row -----
+
+# The label authority for a --secondmate spawn is the secondmate home (the same
+# home whose config supplies the preference), so a row with the same id in the
+# PRIMARY's backlog must not name the secondmate's tab; e2esm1 above stays
+# rowless in its own home and keeps fm-<id>.
+# The cm3 section above stood the primary's opt-in down; this case needs it
+# armed again so the secondmate spawn can inherit it into its own home.
+printf '' > "$PRIMARY_HOME/config/herdr-task-titles"
+seed_backlog_row "$PRIMARY_HOME" e2esm2 'Primary backlog decoy title.'
+SM2_HOME="$TMP_ROOT/secondmate-home-2"
+mkdir -p "$SM2_HOME/state" "$SM2_HOME/data" "$SM2_HOME/config" "$SM2_HOME/projects" "$SM2_HOME/bin"
+printf 'off\n' > "$SM2_HOME/config/herdr-presentation-spaces"
+printf '# scratch secondmate home AGENTS.md placeholder\n' > "$SM2_HOME/AGENTS.md"
+printf 'e2esm2\n' > "$SM2_HOME/.fm-secondmate-home"
+printf 'trivial e2e secondmate charter: nothing to do.\n' > "$SM2_HOME/data/charter.md"
+printf '%s\n' 'projects/' 'state/' 'data/' 'config/' '.no-mistakes/' > "$SM2_HOME/.gitignore"
+git -C "$SM2_HOME" init -q -b main
+seed_backlog_row "$SM2_HOME" e2esm2 'Secondmate backlog row title.'
+
+SM2_OUT="$TMP_ROOT/sm2.out"; SM2_ERR="$TMP_ROOT/sm2.err"
+FM_SPAWN_NO_GUARD=1 FM_HOME="$PRIMARY_HOME" FM_ROOT_OVERRIDE="$ROOT" \
+  "$ROOT/bin/fm-spawn.sh" e2esm2 "$SM2_HOME" "sh -c 'echo secondmate-launch-ok'" --secondmate --backend herdr \
+  >"$SM2_OUT" 2>"$SM2_ERR"
+rc=$?
+[ "$rc" -eq 0 ] || fail "the opted-in secondmate spawn e2esm2 failed"$'\n'"--- stdout ---"$'\n'"$(cat "$SM2_OUT")"$'\n'"--- stderr ---"$'\n'"$(cat "$SM2_ERR")"
+SM2_META="$PRIMARY_HOME/state/e2esm2.meta"
+[ -f "$SM2_META" ] || fail "no meta written for e2esm2 (recorded in the primary's own state dir)"
+assert_contains_local "$(cat "$SM2_META")" "home=$SM2_HOME" "e2esm2 meta does not record its own home"
+SM2_PANE=$(grep '^herdr_pane_id=' "$SM2_META" | cut -d= -f2-)
+SM2_TAB=$(grep '^herdr_tab_id=' "$SM2_META" | cut -d= -f2-)
+[ -n "$SM2_TAB" ] || fail "e2esm2 meta missing herdr_tab_id"
+SM2_WSID=$(herdr pane get "$SM2_PANE" --session "$SESSION" 2>/dev/null | jq -r '.result.pane.workspace_id // empty')
+[ -n "$SM2_WSID" ] || fail "could not read e2esm2's pane workspace_id"
+SM2_LABEL=$(herdr tab list --workspace "$SM2_WSID" --session "$SESSION" 2>/dev/null \
+  | jq -r --arg tab "$SM2_TAB" '.result.tabs[]? | select(.tab_id == $tab) | .label')
+[ "$SM2_LABEL" = "Secondmate backlog row title. (e2esm2)" ] \
+  || fail "a --secondmate tab must be named from its OWN home's backlog row, not the primary's, got '$SM2_LABEL'"
+pass "real herdr E2E: a --secondmate spawn names its tab from the secondmate home's own backlog row"
+
+fm_backend_herdr_kill "$SESSION:$SM2_PANE"
 fm_backend_herdr_kill "$SESSION:$SM_PANE"
 
 cleanup_all
