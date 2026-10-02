@@ -41,6 +41,18 @@ if ! { command -v tasks-axi >/dev/null 2>&1 \
   exit 0
 fi
 
+# The npm-published tasks-axi ships the markdown backend only ("Unsupported
+# backend \"beads\""), so probe the capability once against a scratch graph
+# and skip the suite on a markdown-only install, as tests/fm-stale-sweep does.
+probe_dir="$TMP_ROOT/.probe"
+mkdir -p "$probe_dir"
+printf '%s\n' 'backend = "beads"' '[beads]' 'path = ".beads"' 'prefix = "probe"' \
+  "binary = \"$(command -v bd)\"" > "$probe_dir/.tasks.toml"
+if ! (cd "$probe_dir" && bd init --prefix probe && tasks-axi list) >/dev/null 2>&1; then
+  printf 'ok - skipped (the installed tasks-axi cannot operate the beads backend)\n'
+  exit 0
+fi
+
 # --- fixture ----------------------------------------------------------------
 
 # A home with a real bd database on the beads backend, a real project clone

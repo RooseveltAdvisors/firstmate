@@ -1790,42 +1790,6 @@ test_spawn_relaunch_refuses_a_pending_authoritative_close() {
   pass "fm-spawn --relaunch: pending closes refuse before replacement begins"
 }
 
-# make_herdr_stub <case-dir>: a canned Herdr CLI for the relaunch path. The
-# recorded pane is present and agent-free (a valid relaunch candidate), its
-# shell reports the worktree recorded in $FM_FAKE_DIR/cwd (mirroring the tmux
-# stub's cwd contract), and every invocation is logged to herdr-log so a test
-# can assert the adapter never relabeled the adopted endpoint's tab.
-make_herdr_stub() {
-  cat > "$1/fakebin/herdr" <<'SH'
-#!/usr/bin/env bash
-set -u
-args=()
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --session) shift 2 ;;
-    *) args+=("$1"); shift ;;
-  esac
-done
-printf '%s\n' "${args[*]:-}" >> "$FM_FAKE_DIR/herdr-log"
-case "${args[0]:-}" in
-  status)
-    printf '{"client":{"protocol":14,"version":"0.7.1"},"server":{"running":true}}\n' ;;
-  pane)
-    case "${args[1]:-}" in
-      get)
-        printf '{"result":{"pane":{"pane_id":"%s","foreground_cwd":"%s"}}}\n' \
-          "${args[2]:-}" "$(cat "$FM_FAKE_DIR/cwd")" ;;
-    esac ;;
-  agent)
-    case "${args[1]:-}" in
-      get) printf '{"error":{"code":"agent_not_found","message":"no agent registered"}}\n' ;;
-    esac ;;
-esac
-exit 0
-SH
-  chmod +x "$1/fakebin/herdr"
-}
-
 test_spawn_relaunch_refuses_contradicting_flags() {
   local dir out rc
   dir=$(new_case flags rl16)
