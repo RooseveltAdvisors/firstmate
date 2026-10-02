@@ -3513,7 +3513,7 @@ if [ "$BACKEND" = herdr ]; then
     # The transition preflight never probes the homes it exempts (manual
     # backlog, no backlog file, secondmate), so read the row title directly;
     # a missing or unreadable row is the same no-title fallback, not a refusal.
-    if [ "$BACKLOG_TRANSITION" -eq 0 ] && [ -z "${FM_BACKLOG_ROW_TITLE:-}" ]; then
+    if [ "$RELAUNCH" -eq 0 ] && [ "$BACKLOG_TRANSITION" -eq 0 ] && [ -z "${FM_BACKLOG_ROW_TITLE:-}" ]; then
       if ! fm_backlog_row_probe "$HERDR_TASK_LABEL_DATA" "$ID" 2>/dev/null; then
         FM_BACKLOG_ROW_TITLE=
       fi

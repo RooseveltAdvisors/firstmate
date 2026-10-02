@@ -1866,6 +1866,58 @@ EOF
   pass "fm-spawn --relaunch: the recorded herdr_task_label survives republication verbatim"
 }
 
+# An opted-in home the dispatch preflight exempts (here a manual backlog) reads
+# its row title directly on a fresh spawn, but a relaunch never mints a label,
+# so it must not spend a backlog read on one.
+test_spawn_relaunch_skips_the_herdr_row_title_probe() {
+  local dir wt out rc
+  dir=$(new_case herdr-noprobe rl51)
+  add_ship_task "$dir" rl51 claude
+  printf '%s' 'pane-rl51' > "$dir/fake/herdr-pane"
+  make_herdr_stub "$dir"
+  mkdir -p "$dir/home/config"
+  : > "$dir/home/config/herdr-task-titles"
+  printf 'manual\n' > "$dir/home/config/backlog-backend"
+  printf '# Backlog\n' > "$dir/home/data/backlog.md"
+  cat > "$dir/fakebin/tasks-axi" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$dir/fake/tasks-axi-log"
+exit 1
+EOF
+  chmod +x "$dir/fakebin/tasks-axi"
+  wt=$(meta_field "$dir" rl51 worktree)
+  cat > "$dir/home/state/rl51.meta" <<EOF
+window=fake-herdr-session:pane-rl51
+endpoint_task_id=rl51
+worktree=$wt
+project=$dir/proj
+harness=claude
+kind=ship
+mode=no-mistakes
+yolo=off
+tasktmp=/tmp/fm-rl51
+model=default
+effort=default
+backend=herdr
+herdr_session=fake-herdr-session
+herdr_workspace_id=ws-rl51
+herdr_tab_id=tab-rl51
+herdr_pane_id=pane-rl51
+herdr_task_label=Paint the shed (rl51)
+EOF
+  printf 'zsh' > "$dir/fake/command"
+
+  out=$(run_spawn "$dir" rl51 --relaunch); rc=$?
+  expect_code 0 "$rc" \
+    "a Herdr relaunch of an opted-in manual-backlog home should succeed"$'\n'"$out"
+  if [ -f "$dir/fake/tasks-axi-log" ] && grep -q 'show' "$dir/fake/tasks-axi-log"; then
+    fail "relaunch read the backlog row title it never uses: $(cat "$dir/fake/tasks-axi-log")"
+  fi
+  [ "$(meta_field "$dir" rl51 herdr_task_label)" = 'Paint the shed (rl51)' ] \
+    || fail "relaunch dropped or rewrote the recorded Herdr task label: '$(meta_field "$dir" rl51 herdr_task_label)'"
+  pass "fm-spawn --relaunch: an opted-in exempt home performs no row-title probe"
+}
+
 test_spawn_relaunch_refuses_a_pane_outside_the_worktree() {
   local dir out rc
   dir=$(new_case wrongcwd rl18)
@@ -2530,6 +2582,7 @@ test_spawn_relaunch_refuses_a_pending_authoritative_close
 test_spawn_relaunch_refuses_contradicting_flags
 test_spawn_relaunch_refuses_an_unrecorded_task
 test_spawn_relaunch_preserves_the_recorded_herdr_task_label
+test_spawn_relaunch_skips_the_herdr_row_title_probe
 test_spawn_relaunch_refuses_a_pane_outside_the_worktree
 test_tmux_refuses_a_window_missing_from_its_session
 test_tmux_refuses_a_session_that_cannot_be_found
