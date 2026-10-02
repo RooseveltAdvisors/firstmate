@@ -36,6 +36,10 @@ awk '
     return v
   }
   function path(k,   i, p) { p = ""; for (i = 1; i <= depth; i++) p = p stack_key[i] "."; return p k }
+  function emit(p, v) {
+    if (!(p in cell)) order[++n_order] = p
+    cell[p] = v
+  }
   {
     if ($0 ~ /^[[:space:]]*$/ || $0 ~ /^[[:space:]]*#/) next
     pos = match($0, /[^[:space:]]/); if (pos == 0) next
@@ -44,7 +48,7 @@ awk '
     # body line as the value so an empty block scalar is distinguishable.
     if (in_scalar) {
       if (indent > scalar_indent) {
-        if (!scalar_emitted) { print scalar_path "=" trim($0); scalar_emitted = 1 }
+        if (!scalar_emitted) { emit(scalar_path, trim($0)); scalar_emitted = 1 }
         next
       }
       in_scalar = 0
@@ -64,11 +68,14 @@ awk '
       n = split(inner, pairs, ",")
       for (i = 1; i <= n; i++) {
         pc = index(pairs[i], ":")
-        if (pc > 0) print full "." trim(substr(pairs[i], 1, pc - 1)) "=" trim(substr(pairs[i], pc + 1))
+        if (pc > 0) emit(full "." trim(substr(pairs[i], 1, pc - 1)), trim(substr(pairs[i], pc + 1)))
       }
       next
     }
-    print full "=" val
+    emit(full, val)
+  }
+  END {
+    for (i = 1; i <= n_order; i++) print order[i] "=" cell[order[i]]
   }
 ' "$FRONTMATTER" > "$MODEL"
 
@@ -84,12 +91,40 @@ grep -q '^description=..*' "$MODEL" \
   || fail "fleet-cleanup skill frontmatter must carry a non-empty description"
 
 # A skill nothing loads is dead weight, so the declared trigger must be registered.
-# This is deliberately a text match: the complete trigger list lives in the
-# agent-skill-trigger-index skill's prose and nothing in bin/ consumes it
-# (bin/fm-test-run.sh keys on the SKILL.md path, not the trigger).
-# Replace this with a real-consumer assertion if such a consumer ever exists.
+# The complete trigger list lives in the agent-skill-trigger-index skill's prose and
+# nothing in bin/ consumes it (bin/fm-test-run.sh keys on the SKILL.md path, not the
+# trigger), so parse that prose: each top-level `- `skill` - ` bullet plus its
+# continuation lines becomes one `skill=trigger` row, and fleet-cleanup must have a
+# row whose trigger text is non-empty.
+INDEX_MODEL="$TMP_ROOT/trigger-index.model"
 # shellcheck disable=SC2016 # Backticks are literal Markdown here, not a subshell.
-grep -q '^- `fleet-cleanup` - load ' "$ROOT/.agents/skills/agent-skill-trigger-index/SKILL.md" \
-  || fail "fleet-cleanup skill has no load trigger declared in the agent-only trigger index"
+awk '
+  function flush() {
+    if (cur == "") return
+    sub(/^[[:space:]]+/, "", trig)
+    sub(/[[:space:]]+$/, "", trig)
+    print cur "=" trig
+    cur = ""; trig = ""
+  }
+  /^- `[^`]+` -/ {
+    flush()
+    s = substr($0, 4)
+    c = index(s, "`")
+    if (c == 0) next
+    cur = substr(s, 1, c - 1)
+    rest = substr(s, c + 1)
+    trig = substr(rest, 3)
+    next
+  }
+  /^[[:space:]]*$/ { next }
+  /^[[:space:]]/ {
+    if (cur != "") trig = trig " " $0
+    next
+  }
+  { flush() }
+  END { flush() }
+' "$ROOT/.agents/skills/agent-skill-trigger-index/SKILL.md" > "$INDEX_MODEL"
+grep -q '^fleet-cleanup=..*' "$INDEX_MODEL" \
+  || fail "fleet-cleanup skill has no non-empty trigger in the agent-only trigger index"
 
 pass "fleet-cleanup skill is reachable, agent-only, installer-internal, and has a declared load trigger"
