@@ -1461,7 +1461,7 @@ For every stale row the sweep resolves the owning home (the registered home hold
 Anything merely unproven (an unreadable pane, an unreachable remote) is kept.
 A held or dependency-blocked row is never a candidate: the scan itself excludes held in_progress rows and in_progress rows blocked by a row that is neither closed nor pinned before endpoint classification, so check and dry-run output cannot present a row the reclaim would refuse as reclaimable.
 A row no local home owns is listed and kept too; `--apply-orphans` additionally reclaims such an orphan row only when it is older than 48 hours, carries no claim actor, and has no landing URL in its description.
-The reclaim appends `reclaimed <date>: endpoint dead, previous claim by <actor>` to the row's body and reopens it through the owning home's tasks-axi, only after re-proving the row is still in flight and unheld.
+The reclaim appends `reclaimed <date>: endpoint dead, previous claim by <actor>` to the row's body and reopens it through the owning home's tasks-axi, only after re-proving the row is still in flight, unheld, and unblocked.
 The sweep never touches a row whose endpoint is live and never removes a meta, worktree, or pane, so stuck-crewmate recovery can still inspect what died.
 A home whose backlog is not beads-backed has no graph to sweep and the script says so instead of guessing.
 

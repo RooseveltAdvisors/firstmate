@@ -61,7 +61,7 @@
 #      and the captain-hold answer's resolution record plus close) holds
 #      - it appends "reclaimed <date>: endpoint dead, previous claim by
 #      <actor>" to the row's body, then reopens the row (back to Queued) only
-#      after re-proving the row is still in flight and unheld, so a row that
+#      after re-proving the row is still in flight, unheld, and unblocked, so a row that
 #      finished between the sweep's read and its write is never resurrected.
 #      A completion running concurrently holds the lock first: the sweep then
 #      refuses the row outright instead of racing the close. A pending
