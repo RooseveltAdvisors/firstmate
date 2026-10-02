@@ -1275,6 +1275,7 @@ test_no_mistakes_mirror_check() {
 - absent [no-mistakes] - uninitialized fixture (added 2026-09-04)
 - my portal [no-mistakes] - spaced drift fixture (added 2026-09-04)
 - secret vault [local-only] - spaced local fixture (added 2026-09-04)
+- nested [no-mistakes] - plain directory inside a repository (added 2026-09-04)
 REG
   for name in macro portal quick vault; do
     git init -q -b main "$home/projects/$name"
@@ -1287,6 +1288,11 @@ REG
   git -C "$home/projects/my portal" remote add no-mistakes "$root_b/repos/my-portal.git"
   git init -q -b main "$home/projects/secret vault"
   git -C "$home/projects/secret vault" remote add no-mistakes "$root_b/repos/secret-vault.git"
+  # A registered clone that is a plain directory nested inside a repository is
+  # not a clone root: git discovery would resolve the enclosing repository, so
+  # the check stays silent for it like for a never-cloned entry.
+  mkdir -p "$home/projects/nested"
+  git init -q -b main "$home/projects"
   git init -q -b main "$home/projects/well"
   git -C "$home/projects/well" remote add no-mistakes "$root_a/repos/well.git"
   git init -q -b main "$home/projects/absent"

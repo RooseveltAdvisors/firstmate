@@ -1456,12 +1456,15 @@ detect_local_tools() {
 }
 
 # One checkout's no-mistakes gate-remote placement. Silent when the remote
-# sits under <root>/repos/ or the path is not a git work tree (so a non-git
-# FM_ROOT fixture or a plain directory stays inert); one diagnostic line
-# otherwise. The header's NO_MISTAKES_MIRROR paragraph owns the contract.
+# sits under <root>/repos/ or when $clone is not the root of its own work tree:
+# git discovery walks UP from the path, so a plain directory nested in another
+# checkout (or a non-git FM_ROOT fixture) would report that enclosing
+# repository's remote under this label. One diagnostic line otherwise. The
+# header's NO_MISTAKES_MIRROR paragraph owns the contract.
 check_no_mistakes_mirror_one() {  # <label> <clone> <root>
-  local label=$1 clone=$2 root=$3 url
-  git -C "$clone" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
+  local label=$1 clone=$2 root=$3 url top
+  top=$(git -C "$clone" rev-parse --show-toplevel 2>/dev/null) || top=
+  [ -n "$top" ] && [ "$top" -ef "$clone" ] || return 0
   url=$(git -C "$clone" remote get-url no-mistakes 2>/dev/null || true)
   # A bare "/" root must not double the leading slash: "$root"/repos/* would
   # become //repos/* and never match a healthy /repos/<repo>.git remote, and
