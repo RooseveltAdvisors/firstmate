@@ -1273,11 +1273,20 @@ test_no_mistakes_mirror_check() {
 - ghost [no-mistakes] - registered but never cloned (added 2026-09-04)
 - well [no-mistakes] - healthy fixture (added 2026-09-04)
 - absent [no-mistakes] - uninitialized fixture (added 2026-09-04)
+- my portal [no-mistakes] - spaced drift fixture (added 2026-09-04)
+- secret vault [local-only] - spaced local fixture (added 2026-09-04)
 REG
   for name in macro portal quick vault; do
     git init -q -b main "$home/projects/$name"
     git -C "$home/projects/$name" remote add no-mistakes "$root_b/repos/$name.git"
   done
+  # A registry name ends at " ["/" - ", so a spaced no-mistakes project is
+  # one entry resolved under its full name, and a spaced local-only clone with
+  # a drifted remote stays silent.
+  git init -q -b main "$home/projects/my portal"
+  git -C "$home/projects/my portal" remote add no-mistakes "$root_b/repos/my-portal.git"
+  git init -q -b main "$home/projects/secret vault"
+  git -C "$home/projects/secret vault" remote add no-mistakes "$root_b/repos/secret-vault.git"
   git init -q -b main "$home/projects/well"
   git -C "$home/projects/well" remote add no-mistakes "$root_a/repos/well.git"
   git init -q -b main "$home/projects/absent"
@@ -1291,9 +1300,10 @@ REG
     "$ROOT/bin/fm-bootstrap.sh")
   expect="NO_MISTAKES_MIRROR: macro remote=$root_b/repos/macro.git expected-root=$root_a (run no-mistakes init inside $home/projects/macro to point its gate at the active root)
 NO_MISTAKES_MIRROR: portal remote=$root_b/repos/portal.git expected-root=$root_a (run no-mistakes init inside $home/projects/portal to point its gate at the active root)
-NO_MISTAKES_MIRROR: absent remote=absent expected-root=$root_a (run no-mistakes init inside $home/projects/absent to point its gate at the active root)"
+NO_MISTAKES_MIRROR: absent remote=absent expected-root=$root_a (run no-mistakes init inside $home/projects/absent to point its gate at the active root)
+NO_MISTAKES_MIRROR: my portal remote=$root_b/repos/my-portal.git expected-root=$root_a (run no-mistakes init inside $home/projects/my portal to point its gate at the active root)"
   [ "$out" = "$expect" ] \
-    || fail "mirror check: expected exactly the macro/portal/absent drift lines, got: $out"
+    || fail "mirror check: expected exactly the macro/portal/absent/my portal drift lines, got: $out"
 
   # This home's own firstmate checkout is checked too, under the same root.
   case_dir="$TMP_ROOT/no-mistakes-mirror-root"

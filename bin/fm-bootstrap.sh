@@ -1499,7 +1499,16 @@ detect_no_mistakes_mirror() {
     clone="$PROJECTS/$name"
     [ -d "$clone" ] || continue
     check_no_mistakes_mirror_one "$name" "$clone" "$root"
-  done < <(awk '$1=="-" && $2!="" { print $2 }' "$DATA/projects.md" 2>/dev/null)
+  done < <(awk '
+    substr($0, 1, 2) == "- " {
+      rest = substr($0, 3)
+      cut = index(rest, " [")
+      dash = index(rest, " - ")
+      if (dash > 0 && (cut == 0 || dash < cut)) cut = dash
+      if (cut > 0) rest = substr(rest, 1, cut - 1)
+      if (rest != "") print rest
+    }
+  ' "$DATA/projects.md" 2>/dev/null)
 }
 
 detect_local_config() {
