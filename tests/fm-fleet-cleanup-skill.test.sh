@@ -84,11 +84,12 @@ grep -q '^description=..*' "$MODEL" \
   || fail "fleet-cleanup skill frontmatter must carry a non-empty description"
 
 # A skill nothing loads is dead weight, so the declared trigger must be registered.
-# This is deliberately a text match: AGENTS.md is prose and nothing in bin/ consumes
-# the section 13 trigger list (bin/fm-test-run.sh keys on the SKILL.md path, not the
-# trigger). Replace this with a real-consumer assertion if such a consumer ever exists.
+# This is deliberately a text match: the complete trigger list lives in the
+# agent-skill-trigger-index skill's prose and nothing in bin/ consumes it
+# (bin/fm-test-run.sh keys on the SKILL.md path, not the trigger).
+# Replace this with a real-consumer assertion if such a consumer ever exists.
 # shellcheck disable=SC2016 # Backticks are literal Markdown here, not a subshell.
-grep -q '^- `fleet-cleanup` - load ' "$ROOT/AGENTS.md" \
-  || fail "fleet-cleanup skill has no load trigger declared in AGENTS.md section 13"
+grep -q '^- `fleet-cleanup` - load ' "$ROOT/.agents/skills/agent-skill-trigger-index/SKILL.md" \
+  || fail "fleet-cleanup skill has no load trigger declared in the agent-only trigger index"
 
 pass "fleet-cleanup skill is reachable, agent-only, installer-internal, and has a declared load trigger"
