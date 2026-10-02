@@ -1,0 +1,105 @@
+tmux socket dir: /tmp/fm-lab.ENUiJV/tmux
+### S1 table, key from env
+TASK             KEY                              VERB            CATEGORY          NOUL   CONF   SUGGESTED ACTION
+==================================================================================================================
+t1               old-dep                          blocked         stale_historical  0.10   0.80   Archive or resolve superseded historical decision
+t1               spend-tier                       needs-decision  policy_spend      0.30   0.80   Escalate to Captain for policy, spend, or architecture guidance
+t1               net-down                         blocked         external_block    0.50   0.80   Investigate external host, route, or credentials dependency
+t1               fix-now                          needs-decision  actionable_now    0.95   0.80   Active blocker: requires prompt resolution or steer
+t1               pending-reply-abc                blocked         stale_historical  0.10   0.80   Confirm the pending reply is no longer owed before closing it
+t1               garbage-x                        needs-decision  unavailable       N/A    N/A    Jev returned no valid category choice: 'nope'
+==================================================================================================================
+Total: 6 | stale_historical: 2 | actionable_now: 1 | external_block: 1 | policy_spend: 1 | unavailable: 1
+
+### S2 json + filters (--category actionable_now)
+[
+  {
+    "task": "t1",
+    "key": "fix-now",
+    "verb": "needs-decision",
+    "note": "choose the fix now",
+    "category": "actionable_now",
+    "confidence": 0.8,
+    "actionable_noul": 0.95,
+    "probabilities": {},
+    "suggested_action": "Active blocker: requires prompt resolution or steer",
+    "resolve_cmd": "",
+    "error": null
+  }
+]
+
+### S2 --min-noul 0.4 keys
+['net-down', 'fix-now']
+
+### S2 --limit 2
+2
+
+### S3 never-send: request log lines containing "acme" (case-insens):
+0
+"note": "approve paid API tier for [withheld] rollout"
+
+### S4 key from home .env only
+TASK             KEY                              VERB            CATEGORY          NOUL   CONF   SUGGESTED ACTION
+==================================================================================================================
+t1               net-down                         blocked         external_block    0.50   0.80   Investigate external host, route, or credentials dependency
+==================================================================================================================
+Total: 1 | external_block: 1
+
+### S5 no key anywhere -> unavailable, exit code
+TASK             KEY                              VERB            CATEGORY          NOUL   CONF   SUGGESTED ACTION
+==================================================================================================================
+t1               old-dep                          blocked         unavailable       N/A    N/A    TYPESAFE_API_KEY unavailable
+t1               spend-tier                       needs-decision  unavailable       N/A    N/A    TYPESAFE_API_KEY unavailable
+t1               net-down                         blocked         unavailable       N/A    N/A    TYPESAFE_API_KEY unavailable
+t1               fix-now                          needs-decision  unavailable       N/A    N/A    TYPESAFE_API_KEY unavailable
+t1               pending-reply-abc                blocked         unavailable       N/A    N/A    TYPESAFE_API_KEY unavailable
+t1               garbage-x                        needs-decision  unavailable       N/A    N/A    TYPESAFE_API_KEY unavailable
+==================================================================================================================
+Total: 6 | unavailable: 6
+exit=0
+
+### S6 --resolve-cmds (only old-dep expected)
+FM_HOME=/tmp/fm-lab.ENUiJV FM_STATE_OVERRIDE=/tmp/fm-lab.ENUiJV/state /tmp/fm-lab.ENUiJV/bin/fm-send.sh t1 --resolve-key old-dep 'auto-resolved: superseded historical decision'
+
+### S6 execute generated command via real fm-send against lab task pane
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  2 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the requested message WILL still be sent.
+●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+fm-send: doorbell not typed because the agent in sess:fm-t1 has exited; the steer is durably recorded at /tmp/fm-lab.ENUiJV/state/t1.inbox/001.msg for recovery (stuck-crewmate-recovery), and the watcher will not re-ring a dead pane
+exit=0
+--- status tail:
+needs-decision [key=garbage-x]: jev returns junk
+resolved [key=old-dep] [at=1790978258]: answered: auto-resolved: superseded historical decision
+--- pane doorbell:
+bash-5.2$
+--- inbox record:
+schema=fm-task-inbox.v1
+at=2026-10-02T21:57:38Z
+--
+--- re-triage after close (old-dep should be gone):
+['fix-now', 'garbage-x', 'net-down', 'pending-reply-abc', 'spend-tier']
+
+### S7 ledger mismatch: fm-t2.status (fm-send would close t2.status)
+TASK             KEY                              VERB            CATEGORY          NOUL   CONF   SUGGESTED ACTION
+==================================================================================================================
+fm-t2            old-legacy                       blocked         stale_historical  0.10   0.80   Archive or resolve superseded historical decision (fm-send would close /tmp/fm-lab.ENUiJV/state/t2.status, not /tmp/fm-lab.ENUiJV/state/fm-t2.status; close it by hand)
+==================================================================================================================
+Total: 1 | stale_historical: 1
+# No actionable resolve commands generated.
+
+### S8 --all across state
+t1               garbage-x                        needs-decision  unavailable       N/A    N/A    Jev returned no valid category choice: 'nope'
+==================================================================================================================
+Total: 6 | stale_historical: 2 | actionable_now: 1 | external_block: 1 | policy_spend: 1 | unavailable: 1
+
+### S9 wrong key -> 401 -> unavailable, not crash
+TASK             KEY                              VERB            CATEGORY          NOUL   CONF   SUGGESTED ACTION
+==================================================================================================================
+t1               spend-tier                       needs-decision  unavailable       N/A    N/A    HTTP Error 401: Unauthorized
+==================================================================================================================
+Total: 1 | unavailable: 1
+exit=0
