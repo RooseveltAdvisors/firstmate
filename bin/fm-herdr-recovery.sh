@@ -275,10 +275,28 @@ fm_reco_awk_scripts_ok() { # <segment>
       return 1
     fi
     masked=$(printf '%s' "$tok" | sed -E 's/"([^"\\]|\\.)*"//g')
-    if printf '%s' "$masked" | grep -qE 'print[^>]*>'; then
+    if printf '%s' "$masked" | grep -qE 'print[^>]*>|ARGV|ARGC'; then
       return 1
     fi
   done
+  return 0
+}
+
+# fm_reco_e_cluster: a grep/rg short-option token carries -e when every letter
+# before its first e is a no-argument option; a value-taking letter ends the
+# scan, so an e inside an attached value is not mistaken for -e.
+fm_reco_e_cluster() { # <head> <unquoted-token>
+  local pre noarg=nivclqorEFwxhHs
+  [ "$1" = rg ] && noarg=nivclqoEFwxhHs
+  case "$2" in
+    -*e*) ;;
+    *) return 1 ;;
+  esac
+  pre=${2#-}
+  pre=${pre%%e*}
+  case "$pre" in
+    *[!$noarg]*) return 1 ;;
+  esac
   return 0
 }
 
@@ -467,7 +485,7 @@ fm_reco_program_slot() { # <raw-token>
 # positional path, because with none its operand is the pane's cwd, which is
 # never fetched.
 fm_reco_relative_ok() { # <line> <resolved-home>
-  local seg head tok raw home seen_special used_e expect_val expect_prog expect_pat check_next in_single in_pat saw_pos pre post pspan ptok rest
+  local seg head tok raw home seen_special used_e expect_val expect_prog expect_pat check_next in_single in_pat saw_pos pre post pspan ptok rest sq dq
   home=$(readlink -f -- "$2" 2>/dev/null) || return 1
   local -a toks
   while IFS= read -r seg; do
@@ -509,7 +527,11 @@ fm_reco_relative_ok() { # <line> <resolved-home>
               *) pspan=2 ;;
             esac
             ;;
-          -e*|-f*|-[a-zA-Z]*e*) used_e=1 ;;
+          -f*) used_e=1 ;;
+          -*)
+            ptok=${ptok//\'/}
+            fm_reco_e_cluster "$head" "${ptok//\"/}" && used_e=1
+            ;;
         esac
       done
     fi
@@ -629,26 +651,23 @@ fm_reco_relative_ok() { # <line> <resolved-home>
             head:-n|head:-c|tail:-n|tail:-c) expect_val=1 ;;
             sort:-k|sort:-t|sort:-S) expect_val=1 ;;
             uniq:-f|uniq:-s|uniq:-w) expect_val=1 ;;
-            grep:-e*|rg:-e*|grep:-[a-zA-Z]*e*|rg:-[a-zA-Z]*e*)
-              used_e=1
-              rest=${raw#*e}
-              case "$rest" in
-                \'*)
-                  case "${rest#\'}" in
-                    *\'*) ;;
-                    *) in_pat=1 ;;
-                  esac
-                  ;;
-                \"*)
-                  case "${rest#\"}" in
-                    *\"*) ;;
-                    *) in_pat=2 ;;
-                  esac
-                  ;;
-                '') expect_val=1; expect_pat=1 ;;
-              esac
-              ;;
             grep:--*|wc:--*) return 1 ;;
+            grep:-*|rg:-*)
+              if fm_reco_e_cluster "$head" "$tok"; then
+                used_e=1
+                rest=${tok#*e}
+                sq=${raw//[!\']/}
+                dq=${raw//[!\"]/}
+                if [ $((${#sq} % 2)) -eq 1 ]; then
+                  in_pat=1
+                elif [ $((${#dq} % 2)) -eq 1 ]; then
+                  in_pat=2
+                elif [ -z "$rest" ]; then
+                  expect_val=1
+                  expect_pat=1
+                fi
+              fi
+              ;;
           esac
           continue
           ;;

@@ -1580,6 +1580,46 @@ EOF
 > 1. Yes, proceed (y)
   3. No (esc)
 EOF
+  cat > "$prompts/deny-rg-glob-e-pathless" <<EOF
+  Would you like to run the following command?
+
+  rg -g*test* $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-rg-glob-e-value" <<EOF
+  Would you like to run the following command?
+
+  rg -g*test* foopattern $ROOT/state
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-rg-replace-quoted-e" <<EOF
+  Would you like to run the following command?
+
+  rg -r'e' TODO $ROOT/state
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-awk-argv-read" <<EOF
+  Would you like to run the following command?
+
+  awk 'BEGIN{ARGV[1]=".env"}{print}' $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-awk-argc-read" <<EOF
+  Would you like to run the following command?
+
+  awk 'BEGIN{ARGV[ARGC++]=".bashrc"}1' $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
   cat > "$prompts/unknown" <<'EOF'
 Status header
 gpt-5.6-sol high - some/cwd
@@ -1755,6 +1795,11 @@ EOF
   classify deny-cluster-e-quoted 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a quoted operand before a clustered grep -ne'
   classify allow-awk-print-string 'approve' 'classifier approves an awk print of a string containing a greater-than'
   classify allow-awk-printf-format 'approve' 'classifier approves an awk printf format containing a greater-than'
+  classify deny-rg-glob-e-pathless 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a pathless rg whose -g value contains an e'
+  classify allow-rg-glob-e-value 'approve' 'classifier approves an rg -g value containing an e'
+  classify allow-rg-replace-quoted-e 'approve' 'classifier approves an rg -r quoted replacement of e'
+  classify deny-awk-argv-read 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses an awk program that rewrites ARGV'
+  classify deny-awk-argc-read 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses an awk program that appends through ARGC'
   classify deny-grep-pre-e-operand 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an unverified operand before grep -e'
   classify deny-grep-pre-f-operand 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an unverified operand before grep -f'
   classify deny-sed-pre-e-operand 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an unverified operand before sed -e'
