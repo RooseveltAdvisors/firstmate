@@ -5501,19 +5501,10 @@ test_captured_completed_history() {
   pass 'captured completed status yields to synthetic subsequent development'
 }
 
-runner_tests=(
 test_captured_axi_status_shapes
 test_captured_inventory_replay
 test_captured_authority_transition
 test_captured_completed_history
-)
-for runner_test in "${runner_tests[@]}"; do
-  declare -F "$runner_test" >/dev/null || {
-    printf 'not ok - runner references undefined test function: %s\n' "$runner_test" >&2
-    exit 1
-  }
-  "$runner_test"
-done
 cancellation_failures=0
 for cancellation_test in test_captured_cancelled_review_has_no_verdict \
   test_terminal_green_delivery_disposition \
@@ -5524,7 +5515,6 @@ for cancellation_test in test_captured_cancelled_review_has_no_verdict \
 done
 [ "$cancellation_failures" -eq 0 ] || fail "$cancellation_failures cancellation test groups failed"
 
-runner_tests=(
 test_active_run_is_authoritative
 test_stale_needs_decision_superseded
 test_stale_blocked_superseded
@@ -5699,13 +5689,5 @@ test_competing_live_runs_report_unknown_with_both_ids
 test_newer_failed_run_is_not_hidden_by_older_live_run
 test_unverifiable_run_selection_reports_unknown
 test_legacy_conflicting_run_records_report_unknown
-)
-for runner_test in "${runner_tests[@]}"; do
-  declare -F "$runner_test" >/dev/null || {
-    printf 'not ok - runner references undefined test function: %s\n' "$runner_test" >&2
-    exit 1
-  }
-  "$runner_test"
-done
 
 echo "all fm-crew-state tests passed"
