@@ -960,7 +960,7 @@ test_tasks_config_follows_a_relocated_data_directory() {
 # done_keep), and readdressing to the symlink's name would point the archive at
 # a directory that does not exist.
 test_tasks_config_follows_a_symlinked_override() {
-  local case_dir fixture root home fakebin data out config
+  local case_dir fixture root home fakebin data out config gate_out
   case_dir="$TMP_ROOT/tasks-config-symlinked"
   fixture=$(make_routine_bootstrap_fixture "$case_dir")
   root=${fixture%%|*}
@@ -986,6 +986,33 @@ test_tasks_config_follows_a_symlinked_override() {
     "generated .tasks.toml must address the canonical data directory, not the symlink name"
   assert_contains "$(cat "$config")" 'archive = "backlog-store/done-archive.md"' \
     "generated .tasks.toml must archive inside the canonical data directory"
+
+  # Publishing at the canonical root only helps if the authorization gate every
+  # backlog consumer runs (probe, mutate, dispatch, session-start replay) accepts
+  # the config there: a gate that still derives its root from the raw override
+  # path refuses dispatch and mutations on this layout.
+  printf '%s\n' '# Backlog' '' '## In flight' '' '## Queued' '' '## Done' > "$data/backlog.md"
+  gate_out=$(
+    set +u
+    TASKS_AXI_BACKEND=markdown FM_TASKS_AXI_COMPATIBLE=1
+    export TASKS_AXI_BACKEND FM_TASKS_AXI_COMPATIBLE
+    # shellcheck source=bin/fm-tasks-axi-lib.sh disable=SC1091
+    . "$ROOT/bin/fm-tasks-axi-lib.sh"
+    # shellcheck source=bin/fm-backlog-transition-lib.sh disable=SC1091
+    . "$ROOT/bin/fm-backlog-transition-lib.sh"
+    gate_data=$(fm_backlog_data_absolute "$case_dir/relocated/data-link") || exit 90
+    fm_backlog_source_present "$gate_data" "$case_dir/relocated/data-link" || {
+      printf 'source_present rc=%s: %s\n' "$?" "$FM_BACKLOG_TRANSITION_ERROR"
+      exit 1
+    }
+    fm_backlog_transition_applies "$case_dir/config" "$case_dir/relocated/data-link" ship || {
+      printf 'transition_applies rc=%s: %s\n' "$?" "$FM_BACKLOG_TRANSITION_ERROR"
+      exit 1
+    }
+    printf 'gates accepted the seeded config\n'
+  ) 2>&1 || fail "backlog consumers refused the seeded config on a symlinked override: $gate_out"
+  assert_contains "$gate_out" 'gates accepted the seeded config' \
+    "the seeded config must clear the backlog authorization gate: $gate_out"
 
   if command -v tasks-axi >/dev/null 2>&1; then
     local i
