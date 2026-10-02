@@ -1540,6 +1540,46 @@ EOF
 > 1. Yes, proceed (y)
   3. No (esc)
 EOF
+  cat > "$prompts/deny-cluster-e-grep" <<EOF
+  Would you like to run the following command?
+
+  grep missing-operand -ne $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-cluster-e-rg" <<EOF
+  Would you like to run the following command?
+
+  rg missing-operand -ne $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-cluster-e-quoted" <<EOF
+  Would you like to run the following command?
+
+  grep 'missing-operand' -ne $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-awk-print-string" <<EOF
+  Would you like to run the following command?
+
+  awk '{print"a>b"}' $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-awk-printf-format" <<EOF
+  Would you like to run the following command?
+
+  awk '{printf"%s>%s",a,b}' $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
   cat > "$prompts/unknown" <<'EOF'
 Status header
 gpt-5.6-sol high - some/cwd
@@ -1710,6 +1750,11 @@ EOF
   classify deny-expanding-pattern-e 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an expanding dollar in a double-quoted -e pattern'
   classify deny-awk-write 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses an awk program write redirect'
   classify allow-awk-comparison 'approve' 'classifier approves an awk comparison program'
+  classify deny-cluster-e-grep 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an operand before a clustered grep -ne'
+  classify deny-cluster-e-rg 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an operand before a clustered rg -ne'
+  classify deny-cluster-e-quoted 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a quoted operand before a clustered grep -ne'
+  classify allow-awk-print-string 'approve' 'classifier approves an awk print of a string containing a greater-than'
+  classify allow-awk-printf-format 'approve' 'classifier approves an awk printf format containing a greater-than'
   classify deny-grep-pre-e-operand 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an unverified operand before grep -e'
   classify deny-grep-pre-f-operand 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an unverified operand before grep -f'
   classify deny-sed-pre-e-operand 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an unverified operand before sed -e'

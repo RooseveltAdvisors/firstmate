@@ -267,11 +267,15 @@ fm_reco_sed_scripts_ok() { # <segment>
 # getline file read or a print/printf write redirect; a whitespace-split
 # payload falls through to the path screen through its fragments instead.
 fm_reco_awk_scripts_ok() { # <segment>
-  local tok
+  local tok masked
   local -a toks
   read -ra toks <<< "$1" || return 1
   for tok in "${toks[@]:1}"; do
-    if printf '%s' "$tok" | grep -qE 'getline<|print[^>]*>'; then
+    if printf '%s' "$tok" | grep -q 'getline<'; then
+      return 1
+    fi
+    masked=$(printf '%s' "$tok" | sed -E 's/"([^"\\]|\\.)*"//g')
+    if printf '%s' "$masked" | grep -qE 'print[^>]*>'; then
       return 1
     fi
   done
@@ -505,7 +509,7 @@ fm_reco_relative_ok() { # <line> <resolved-home>
               *) pspan=2 ;;
             esac
             ;;
-          -e*|-f*) used_e=1 ;;
+          -e*|-f*|-[a-zA-Z]*e*|-[a-zA-Z]*f*) used_e=1 ;;
         esac
       done
     fi
@@ -625,9 +629,9 @@ fm_reco_relative_ok() { # <line> <resolved-home>
             head:-n|head:-c|tail:-n|tail:-c) expect_val=1 ;;
             sort:-k|sort:-t|sort:-S) expect_val=1 ;;
             uniq:-f|uniq:-s|uniq:-w) expect_val=1 ;;
-            grep:-e*|rg:-e*)
+            grep:-e*|rg:-e*|grep:-[a-zA-Z]*e*|rg:-[a-zA-Z]*e*)
               used_e=1
-              rest=${raw#-e}
+              rest=${raw#*e}
               case "$rest" in
                 \'*)
                   case "${rest#\'}" in
@@ -641,6 +645,7 @@ fm_reco_relative_ok() { # <line> <resolved-home>
                     *) in_pat=2 ;;
                   esac
                   ;;
+                '') expect_val=1; expect_pat=1 ;;
               esac
               ;;
             grep:--*|wc:--*) return 1 ;;
