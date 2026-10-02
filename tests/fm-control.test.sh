@@ -1190,11 +1190,12 @@ test_staged_wait_windows_are_wall_clock_bounded() {
   pass "fm-control exit: the staged windows hold their wall-clock bound when a poll iteration is slow"
 }
 
-# The exit window is measured from exit-command delivery: a herdr session
-# whose server the pre-delivery absence proof spends seconds starting must
-# still give the command its full documented 30s+10s, so a stop 35s after
-# delivery reports `stopped` - the concrete sequence that read
-# `exit=unconfirmed` while the wait stayed anchored at the proof.
+# The exit window is measured from exit-command delivery, not from the
+# pre-delivery absence proof: the restart proof burns ~7.5s of unscaled real
+# sleeps before the command is sent, and with the documented window overrides
+# (5s primary, 3s confirm) the fake stop ~4.8s after delivery reports
+# `stopped`, where a wait anchored at the proof would already have expired
+# both windows before the stop and read `exit=unconfirmed`.
 test_exit_window_starts_at_exit_command_delivery() {
   local dir out rc gen log
   command -v jq >/dev/null 2>&1 \
@@ -1212,16 +1213,17 @@ test_exit_window_starts_at_exit_command_delivery() {
   printf 'busy_gen=%s\n' "$gen" >> "$dir/home/state/t1.meta"
   out=$(env PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
     FM_CONTROL_POLL=0.01 \
+    FM_CONTROL_EXIT_WAIT=5 FM_CONTROL_EXIT_CONFIRM_WAIT=3 \
     FM_FAKE_HERDR_INTERRUPT_STOPS_SERVER=1 \
     FM_FAKE_HERDR_RESTART_POLLS=15 \
-    FM_FAKE_EXIT_DELAY=35 \
+    FM_FAKE_EXIT_DELAY=6 \
     "$CONTROL" t1 exit 2>&1); rc=$?
-  expect_code 0 "$rc" "a stop inside the documented windows must be success"$'\n'"$out"
+  expect_code 0 "$rc" "a stop inside the window must be success"$'\n'"$out"
   log=$(cat "$dir/fake/herdr-log")
   assert_contains "$out" "stopped t1 harness=claude" \
     "the stop after exit-command delivery should be reported stopped"
   assert_not_contains "$out" "exit=unconfirmed" \
-    "a stop 35s after delivery is inside the 30s+10s windows and must not read unconfirmed"
+    "a stop inside the delivery-anchored window must never read unconfirmed"
   assert_contains "$log" "server" \
     "the absence proof should have restarted the recorded session's server before delivery"
   pass "fm-control exit: the exit window is measured from exit-command delivery, not the pre-delivery proof"
