@@ -497,6 +497,9 @@ fm_reco_relative_ok() { # <line> <resolved-home>
       esac
       case "$tok" in
         -*)
+          case "$raw" in
+            *'$'*) return 1 ;;
+          esac
           if [ "$head" = grep ] || [ "$head" = rg ]; then
             case "$tok" in
               -f) ;;
@@ -642,7 +645,7 @@ fm_reco_command_allowed() { # <command-text> <home>
             segrest=${segrest#"${segrest%%[![:space:]]*}"}
             segrest=${segrest%"${segrest##*[![:space:]]}"}
             case "$segrest" in
-              ''|/dev/null|'&1'|'&2') continue ;;
+              ''|/dev/null) continue ;;
             esac
             ;;
         esac

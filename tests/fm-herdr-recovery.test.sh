@@ -1155,6 +1155,102 @@ EOF
 > 1. Yes, proceed (y)
   3. No (esc)
 EOF
+  cat > "$prompts/deny-attached-flagval-grep-e" <<'EOF'
+  Would you like to run the following command?
+
+  grep -e$P README.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-attached-flagval-grep-m" <<'EOF'
+  Would you like to run the following command?
+
+  grep -m$N README.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-attached-flagval-head-bare" <<'EOF'
+  Would you like to run the following command?
+
+  head -$N README.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-attached-flagval-head-n" <<'EOF'
+  Would you like to run the following command?
+
+  head -n$N README.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-attached-flagval-tail" <<'EOF'
+  Would you like to run the following command?
+
+  tail -$N README.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-attached-flagval-wc" <<'EOF'
+  Would you like to run the following command?
+
+  wc -l$X README.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-attached-flagval-uniq" <<'EOF'
+  Would you like to run the following command?
+
+  uniq -f$N README.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-attached-flagval-sort" <<'EOF'
+  Would you like to run the following command?
+
+  sort -k$K README.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-attached-flagval-cat" <<'EOF'
+  Would you like to run the following command?
+
+  cat -n$X README.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-attached-flagval-awk" <<'EOF'
+  Would you like to run the following command?
+
+  awk -F$OFS README.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-attached-flagval-rg" <<'EOF'
+  Would you like to run the following command?
+
+  rg -e$P . state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-attached-flagval-ls" <<'EOF'
+  Would you like to run the following command?
+
+  ls -$X state
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
   cat > "$prompts/unknown" <<'EOF'
 Status header
 gpt-5.6-sol high - some/cwd
@@ -1291,6 +1387,18 @@ EOF
   classify allow-attached-input 'approve' 'classifier approves an attached input redirect'
   classify allow-attached-input-head 'approve' 'classifier approves an attached input redirect under head'
   classify deny-attached-input-outside 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an attached input redirect outside the home'
+  classify deny-attached-flagval-grep-e 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an attached dollar-bearing grep -e value'
+  classify deny-attached-flagval-grep-m 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an attached dollar-bearing grep -m value'
+  classify deny-attached-flagval-head-bare 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an attached dollar-bearing head value'
+  classify deny-attached-flagval-head-n 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an attached dollar-bearing head -n value'
+  classify deny-attached-flagval-tail 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an attached dollar-bearing tail value'
+  classify deny-attached-flagval-wc 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an attached dollar-bearing wc flag'
+  classify deny-attached-flagval-uniq 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an attached dollar-bearing uniq -f value'
+  classify deny-attached-flagval-sort 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an attached dollar-bearing sort -k value'
+  classify deny-attached-flagval-cat 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an attached dollar-bearing cat flag'
+  classify deny-attached-flagval-awk 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an attached dollar-bearing awk -F value'
+  classify deny-attached-flagval-rg 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an attached dollar-bearing rg -e value'
+  classify deny-attached-flagval-ls 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an attached dollar-bearing ls flag'
   classify unknown 'unknown' 'classifier fails closed on an unrecognized prompt'
   ROOT=$saved_root
 }
