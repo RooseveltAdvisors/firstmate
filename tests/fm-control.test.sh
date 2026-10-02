@@ -198,6 +198,9 @@ case "${1:-}" in
           fi
           exit 0 ;;
         *pane_current_command*)
+          # A state read costs FM_FAKE_STATE_DELAY of wall clock, so a test can
+          # pin bounds that must hold when a poll iteration is slow.
+          [ -z "${FM_FAKE_STATE_DELAY:-}" ] || /bin/sleep "$FM_FAKE_STATE_DELAY"
           # The PR's fake agent stops only once its exit deadline has passed,
           # so a stop that lands after the exit window still lands inside the
           # confirm window.
@@ -339,6 +342,7 @@ run_control() {
     FM_FAKE_INTERRUPT_DISAPPEARS="${FM_FAKE_INTERRUPT_DISAPPEARS:-}" \
     FM_FAKE_INTERRUPT_BLURS="${FM_FAKE_INTERRUPT_BLURS:-}" \
     FM_FAKE_INTERRUPT_STOP_DELAY="${FM_FAKE_INTERRUPT_STOP_DELAY:-}" \
+    FM_FAKE_STATE_DELAY="${FM_FAKE_STATE_DELAY:-}" \
     FM_FAKE_DEVIN_PICKER_STUCK="${FM_FAKE_DEVIN_PICKER_STUCK:-}" \
     "$CONTROL" "$@" 2>&1
 }
@@ -1088,6 +1092,31 @@ test_post_interrupt_missing_proven_absent_reports_endpoint_gone() {
   pass "fm-control exit: a proven-absent post-interrupt endpoint reports endpoint-gone, never a failure"
 }
 
+# The staged windows are wall-clock bounds: a poll iteration's own work - a
+# slow provider read, a slow absence proof - is charged to the window, so the
+# unconfirmed report's named window sizes are the windows that actually
+# elapsed rather than a count of cheap poll steps.
+test_staged_wait_windows_are_wall_clock_bounded() {
+  local dir out rc gen t0 t1 total
+  dir=$(new_case wall-clock-windows)
+  add_task "$dir" t1 claude
+  alive_as "$dir" claude
+  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1)
+  printf 'busy_gen=%s\n' "$gen" >> "$dir/home/state/t1.meta"
+  t0=${EPOCHREALTIME:-$(date +%s)}
+  out=$(FM_FAKE_NEVER_DIES=1 FM_FAKE_STATE_DELAY=0.3 \
+    FM_CONTROL_EXIT_WAIT=0.05 FM_CONTROL_EXIT_CONFIRM_WAIT=0.05 \
+    run_control "$dir" t1 exit); rc=$?
+  t1=${EPOCHREALTIME:-$(date +%s)}
+  total=$(awk -v a="$t0" -v b="$t1" 'BEGIN{printf "%.3f", b - a}')
+  expect_code 1 "$rc" "an agent that never stops must not report success"$'\n'"$out"
+  assert_contains "$out" "exit=unconfirmed" \
+    "the stubborn agent should still end unconfirmed"
+  awk -v t="$total" 'BEGIN{exit !(t < 3)}' \
+    || fail "the 0.05s+0.05s staged windows stretched to ${total}s of wall clock when each provider read took 0.3s"
+  pass "fm-control exit: the staged windows hold their wall-clock bound when a poll iteration is slow"
+}
+
 test_agent_that_does_not_stop_reports_unconfirmed_never_failed() {
   local dir out rc gen
   dir=$(new_case stubborn)
@@ -1331,6 +1360,7 @@ test_interrupt_revalidates_agent_after_acknowledgement_wait
 test_exit_accepts_agent_stopped_by_busy_interrupt
 test_post_interrupt_missing_without_an_absence_proof_is_unconfirmed
 test_post_interrupt_missing_proven_absent_reports_endpoint_gone
+test_staged_wait_windows_are_wall_clock_bounded
 test_agent_that_does_not_stop_reports_unconfirmed_never_failed
 test_ambiguous_post_interrupt_evidence_reports_unconfirmed_never_failed
 test_stop_landing_during_ambiguous_post_interrupt_wait_is_success
