@@ -11,7 +11,9 @@
 # no-mistakes run-step attributed under bin/fm-nm-run-lib.sh's contract, else
 # the pane busy-signature) and reconciles the possibly-stale log against it.
 # A ship `done:` is current-state done only when bin/fm-dod-lib.sh accepts the
-# named head as reachable outside the worker's disposable copy; otherwise blocked.
+# claim: for no-mistakes the note must be CI-ready (Gerrit: published for
+# review), and every ship `done:` needs a named head that does not live only in
+# the worker's disposable copy; otherwise blocked.
 #
 # The determinism lives entirely here - run-step / pane / log reads, fixed
 # mapping logic, and terminal passed-run PR detail from bounded evidence only,

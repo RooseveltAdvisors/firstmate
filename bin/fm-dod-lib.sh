@@ -629,11 +629,15 @@ fm_dod_named_head_reachable_outside_worktree() {  # <worktree> <project> <mode> 
   [ "$mode" = local-only ] && fm_dod_ref_contains "$project" refs/heads "$sha"
 }
 
-# 0 when <line> is not a ship done: to gate, when it names the task's recorded
-# PR whose head the forge holds, when it names a Gerrit change whose current
-# patch set carries the worker copy's HEAD tree, or otherwise when its named
-# head - the worker copy's HEAD - is reachable outside that disposable copy. A
-# published-for-review report that names no Gerrit change is refused.
+# 0 when <line> is not a ship done: to gate; for a gated no-mistakes claim,
+# only when its note is the CI-ready `PR <url> checks green` or, on a Gerrit
+# project, `PR <change url> published for review`; and then when it names the
+# task's recorded PR whose head the forge holds, when it names a Gerrit change
+# whose current patch set carries the worker copy's HEAD tree, or otherwise
+# when its named head - the worker copy's HEAD - is reachable outside that
+# disposable copy. A no-mistakes `done:` whose note is neither - a bare
+# summary - is refused before any of those tests, and so is a
+# published-for-review report that names no Gerrit change.
 # There is no free-text SHA scan: a SHA that happens to appear in the note is
 # not the named head. 1 when
 # the claim is refused; stdout then holds a one-line reason and no other
