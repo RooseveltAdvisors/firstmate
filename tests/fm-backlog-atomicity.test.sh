@@ -132,7 +132,7 @@ case "\${1:-}" in
   update) printf '%s\n' '--archive-body' ;;
   mv) printf '%s\n' '[<id>...]' ;;
   show)
-    printf 'task:\n  state: queued\n  held: no\n  blocked: no\n'
+    printf 'task:\n  state: queued\n  kind: ship\n  held: no\n  blocked: no\n'
     ;;
   start)
     printf '%s\n' "\$*" > "$case_dir/env-backend-start"
@@ -201,7 +201,7 @@ case "\${1:-}" in
     fi
     printf '%s\n' 'task:'
     printf '  id: %s\n' "$id"
-    printf '%s\n' '  state: in_flight' '  held: no' '  blocked: no'
+    printf '%s\n' '  state: in_flight' '  kind: ship' '  held: no' '  blocked: no'
     ;;
   *)
     exit 1
@@ -791,6 +791,39 @@ test_dispatch_moves_the_item_in_flight_in_the_same_run() {
   pass "dispatch publishes the record and moves the backlog item In flight in one run"
 }
 
+# The row's kind and the dispatch kind are one fact under two names: the
+# record's kind picks the close reason later, the row's kind feeds the close
+# gates, so a dispatch that would make them disagree refuses before any
+# endpoint, local copy, or record exists - and the named repair makes it pass.
+test_dispatch_refuses_a_row_whose_kind_differs_from_the_dispatch() {
+  local case_dir id out rc=0
+  id=atomic-dispatch-kind-b1
+  case_dir=$(make_home dispatch-kind "$id")
+  add_item "$case_dir" "$id" scout
+
+  out=$(run_ship_spawn "$case_dir" "$id") || rc=$?
+  [ "$rc" -ne 0 ] || fail "spawn dispatched a scout row as a ship"
+  assert_contains "$out" "kind scout" \
+    "the kind refusal did not name the row's kind"
+  assert_contains "$out" "tasks-axi update $id --kind ship" \
+    "the kind refusal did not name the repair"
+  assert_absent "$(home_of "$case_dir")/state/$id.meta" \
+    "a kind-refused dispatch published a task record"
+  [ "$(row_state "$case_dir" "$id")" = queued ] \
+    || fail "a kind-refused dispatch moved the row to $(row_state "$case_dir" "$id")"
+
+  tasks-axi update "$id" --kind ship --file "$(backlog_of "$case_dir")" >/dev/null \
+    || fail "the row's kind could not be repaired"
+  rc=0
+  out=$(run_ship_spawn "$case_dir" "$id") || rc=$?
+  [ "$rc" -eq 0 ] || fail "spawn refused a row whose kind matches the dispatch: $out"
+  assert_present "$(home_of "$case_dir")/state/$id.meta" \
+    "a matching-kind dispatch published no task record"
+  [ "$(row_state "$case_dir" "$id")" = in_flight ] \
+    || fail "a matching-kind dispatch left its row at $(row_state "$case_dir" "$id")"
+  pass "dispatch refuses a row whose kind differs from the dispatch kind and accepts the repaired row"
+}
+
 test_dispatch_omits_the_file_for_a_beads_show() {
   local case_dir home id out
   id=atomic-dispatch-beads-b1
@@ -864,7 +897,7 @@ case "\${1:-}" in
     esac
     printf '%s\n' 'task:'
     printf '  id: %s\n' "$id"
-    printf '%s\n' '  state: in_flight' '  held: no' '  blocked: no'
+    printf '%s\n' '  state: in_flight' '  kind: ship' '  held: no' '  blocked: no'
     ;;
   done)
     [ "\${2:-}" = "$id" ] || exit 1
@@ -3040,6 +3073,7 @@ test_backend_resolution_preserves_precedence_and_defaults
 test_backlog_callers_refuse_unreadable_backend_config
 test_captain_hold_preserves_relocated_backlog_on_backend_error
 test_dispatch_moves_the_item_in_flight_in_the_same_run
+test_dispatch_refuses_a_row_whose_kind_differs_from_the_dispatch
 test_dispatch_omits_the_file_for_a_beads_show
 test_a_leftover_markdown_symlink_does_not_brick_a_beads_home
 test_completion_omits_the_file_for_a_beads_done
