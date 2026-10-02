@@ -512,7 +512,7 @@ herdr_task_label=<task-tab label>
 A Herdr pane id contains a colon, so the adapter splits `window=` on the first colon only.
 The recorded pane is the operational fast path.
 Workspace and tab ids support verification and cleanup but are not inferred from mutable labels during normal operation.
-The recorded `herdr_task_label` is the exact task-tab label, `fm-<id>` by default or `<short title> (<id>)` on an opted-in home, and it survives a relaunch unchanged, because a relaunch adopts the recorded tab without renaming it.
+The recorded `herdr_task_label` is the exact task-tab label, `fm-<id>` by default or `<short title> (<id>)` on an opted-in home, and it survives an adopting relaunch unchanged, because a relaunch adopts the recorded tab without renaming it; a relaunch whose recorded endpoint is gone instead records the `fm-<id>` label of the tab it rebinds.
 
 ## Current transport behavior
 

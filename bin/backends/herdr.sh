@@ -2523,7 +2523,7 @@ fm_backend_herdr_task_label() {  # <row-title> <brief-path> <task-id>
 fm_backend_herdr_task_label_history_append() {  # <path> <label>
   local path=$1 label=$2 tmp
   [ -n "$path" ] || return 0
-  if [ -e "$path" ] && [ ! -f "$path" ]; then
+  if [ -L "$path" ] || { [ -e "$path" ] && [ ! -f "$path" ]; }; then
     echo "error: herdr task-label history is not a regular file: $path" >&2
     return 1
   fi
@@ -2552,6 +2552,10 @@ fm_backend_herdr_task_label_history_append() {  # <path> <label>
 
 fm_backend_herdr_task_label_history_json() {  # <path>
   local path=$1
+  if [ -L "$path" ]; then
+    echo "error: herdr task-label history is not a regular file: $path" >&2
+    return 1
+  fi
   if [ -z "$path" ] || [ ! -f "$path" ]; then
     printf '[]'
     return 0
@@ -2624,7 +2628,7 @@ fm_backend_herdr_task_label_history_compact() {  # <path> <label>
 # case. Echoes "<tab_id> <pane_id>" on success.
 fm_backend_herdr_create_task() {  # <container> <label> <cwd> <seeded_default_tab_id> [<task-id>] [<label-history>]
   local container=$1 label=$2 cwd=$3 seeded_tab_id=${4:-} task_id=${5:-} label_history=${6:-}
-  local session wsid list dup_tabs dup dup_pane dup_tab_ids out tab_id pane_id remaining_dup_tabs attempted_labels
+  local session wsid list dup_tabs dup dup_label dup_pane dup_tab_ids out tab_id pane_id remaining_dup_tabs remaining_dup_list remaining_dup remaining_dup_label attempted_labels
   session=${container%%:*}
   wsid=${container#*:}
   if [ -z "$task_id" ]; then
@@ -2644,7 +2648,7 @@ fm_backend_herdr_create_task() {  # <container> <label> <cwd> <seeded_default_ta
             or ($task_id != "" and .label == $legacy)
             or any($attempted[]; . == $candidate)
           )
-        | .tab_id
+        | "\(.tab_id)\t\(.label)"
       else error("missing result.tabs") end
     ' 2>/dev/null) || {
     echo "error: could not parse herdr tab list output for workspace $wsid (session $session)" >&2
@@ -2652,11 +2656,11 @@ fm_backend_herdr_create_task() {  # <container> <label> <cwd> <seeded_default_ta
   }
   dup_tab_ids=""
   if [ -n "$dup_tabs" ]; then
-    while IFS= read -r dup; do
+    while IFS=$'\t' read -r dup dup_label; do
       [ -n "$dup" ] || continue
       dup_pane=$(fm_backend_herdr_pane_for_tab "$session" "$wsid" "$dup")
       if [ -z "$dup_pane" ] || ! fm_backend_herdr_tab_is_husk "$session" "$dup_pane"; then
-        echo "error: herdr tab '$label' already exists in workspace $wsid (session $session)" >&2
+        echo "error: herdr tab '$dup_label' already exists in workspace $wsid (session $session)" >&2
         return 1
       fi
       dup_tab_ids="${dup_tab_ids}${dup}"$'\n'
@@ -2700,11 +2704,18 @@ EOF
             or any($attempted[]; . == $candidate)
           )
         | select(.tab_id != $replacement)
-        | .tab_id
+        | "\(.tab_id)\t\(.label)"
       ' 2>/dev/null)
-    remaining_dup_tabs=${remaining_dup_tabs//$'\n'/ }
+    remaining_dup_list=$remaining_dup_tabs
+    remaining_dup_tabs=
+    while IFS=$'\t' read -r remaining_dup remaining_dup_label; do
+      [ -n "$remaining_dup" ] || continue
+      remaining_dup_tabs="${remaining_dup_tabs:+$remaining_dup_tabs }'$remaining_dup_label' ($remaining_dup)"
+    done <<EOF
+$remaining_dup_list
+EOF
     if [ -n "$remaining_dup_tabs" ]; then
-      echo "error: failed to remove preexisting herdr tab(s) $remaining_dup_tabs for label '$label' in workspace $wsid (session $session)" >&2
+      echo "error: failed to remove preexisting herdr tab(s) $remaining_dup_tabs in workspace $wsid (session $session)" >&2
       return 1
     fi
   fi

@@ -2261,6 +2261,9 @@ test_herdr_rebind_stays_in_the_recorded_session() {
     return 0
   }
   dir=$HERDR_CASE_DIR
+  # The prior spawn recorded a human label for the tab this rebind is about to
+  # destroy; the republished record must name the tab that actually exists.
+  printf '%s\n' 'herdr_task_label=Stale human title (rl73)' >> "$dir/home/state/rl73.meta"
 
   out=$(run_spawn "$dir" rl73 --relaunch --harness claude) || rc=$?
   log=$(cat "$dir/fake/herdr-log")
@@ -2275,6 +2278,10 @@ test_herdr_rebind_stays_in_the_recorded_session() {
     || fail "the rebound endpoint should be the new pane in the recorded session, got $(meta_field "$dir" rl73 window)"
   [ "$(meta_field "$dir" rl73 herdr_pane_id)" = '%9' ] \
     || fail "the rebound record should name the pane the reclaim minted, got $(meta_field "$dir" rl73 herdr_pane_id)"
+  [ "$(meta_field "$dir" rl73 herdr_task_label)" = 'fm-rl73' ] \
+    || fail "the rebound record must name the tab label it actually minted, got '$(meta_field "$dir" rl73 herdr_task_label)'"
+  [ "$(grep -c '^herdr_task_label=' "$dir/home/state/rl73.meta")" = 1 ] \
+    || fail "the rebound record must carry exactly one herdr_task_label"
   pass "reclaim: a herdr rebind is created in the session the record names, never the ambient one"
 }
 

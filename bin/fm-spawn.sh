@@ -3586,6 +3586,9 @@ if [ "$RELAUNCH" -eq 1 ]; then
     HERDR_SEEDED_DEFAULT_TAB_ID=${HERDR_CONTAINER_RAW#*$'\t'}
     HERDR_SES=${CONTAINER%%:*}
     HERDR_WORKSPACE_ID=${CONTAINER#*:}
+    # This rebind always mints the legacy fm-<id> tab, so the record below
+    # names exactly that label rather than the label the old tab wore.
+    HERDR_TASK_LABEL=$W
     HERDR_TASK_IDS=$(fm_backend_herdr_create_task "$CONTAINER" "$W" "$WT" "$HERDR_SEEDED_DEFAULT_TAB_ID") || exit 1
     read -r HERDR_TAB_ID HERDR_PANE_ID <<EOF
 $HERDR_TASK_IDS
@@ -4889,7 +4892,7 @@ SPAWN_META_PATH=$SPAWN_META_TMP
 preserve_relaunch_meta() {
   awk -F= '
     BEGIN {
-      split("window endpoint_task_id worktree project harness kind mode yolo branch tasktmp model effort account account_provider busy_gen spawn_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
+      split("window endpoint_task_id worktree project harness kind mode yolo branch tasktmp model effort account account_provider busy_gen spawn_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id herdr_task_label zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
       for (i in keys) owned[keys[i]] = 1
     }
     !($1 in owned)
@@ -4924,11 +4927,17 @@ preserve_relaunch_meta() {
     echo "herdr_workspace_id=$HERDR_WORKSPACE_ID"
     echo "herdr_tab_id=$HERDR_TAB_ID"
     echo "herdr_pane_id=$HERDR_PANE_ID"
-    # herdr_task_label is emitted only on a fresh spawn: a relaunch adopts the
-    # recorded tab without renaming it, so the prior meta's recorded label is
-    # still the tab's exact label and survives through preserve_relaunch_meta
-    # (not an owned key), while a recomputed label could diverge from it.
-    [ "$RELAUNCH" -eq 1 ] || echo "herdr_task_label=$HERDR_TASK_LABEL"
+    # A fresh spawn records the label it minted, and a rebind records the
+    # fm-<id> tab it minted above. An adopting relaunch never renames the
+    # recorded tab, so it republishes the recorded label verbatim instead of a
+    # recomputed label that could diverge from what the tab shows (an older
+    # record without the key stays without it).
+    if [ "$RELAUNCH" -eq 1 ] && [ "$RELAUNCH_REBIND" -eq 0 ]; then
+      HERDR_TASK_LABEL=$(fm_meta_get "$RELAUNCH_META" herdr_task_label)
+    fi
+    if [ -n "$HERDR_TASK_LABEL" ]; then
+      echo "herdr_task_label=$HERDR_TASK_LABEL"
+    fi
   fi
   if [ "$BACKEND" = zellij ]; then
     echo "zellij_session=$ZELLIJ_SES"

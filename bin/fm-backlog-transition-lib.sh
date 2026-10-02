@@ -424,6 +424,22 @@ fm_backlog_row_list() {  # <resolved-data-dir> [flag...]
   fi
 }
 
+# tasks-axi show renders a scalar field unquoted unless the value contains a
+# ':' or a '"', in which case it emits the JSON-ish quoted form with \" and \\
+# escapes. Decode that serialization so a caller sees the value the row
+# actually carries rather than the wire form.
+fm_backlog_show_value() {  # <raw-field-value>
+  local value=$1
+  case "$value" in
+    '"'*'"')
+      value=${value#\"}
+      value=${value%\"}
+      value=$(printf '%s' "$value" | sed -e 's/\\\(.\)/\1/g')
+      ;;
+  esac
+  printf '%s' "$value"
+}
+
 fm_backlog_row_probe() {  # <data-dir> <id>
   local data authorized_data=$1 id=$2 out state held blocked hold_kind command_status source_status
   if ! data=$(fm_backlog_data_absolute "$1"); then
@@ -463,7 +479,7 @@ fm_backlog_row_probe() {  # <data-dir> <id>
     return "$command_status"
   fi
   state=$(printf '%s\n' "$out" | sed -n 's/^  state: *//p' | head -1)
-  FM_BACKLOG_ROW_TITLE=$(printf '%s\n' "$out" | sed -n 's/^  title: *//p' | head -1)
+  FM_BACKLOG_ROW_TITLE=$(fm_backlog_show_value "$(printf '%s\n' "$out" | sed -n 's/^  title: *//p' | head -1)")
   held=$(printf '%s\n' "$out" | sed -n 's/^  held: *//p' | head -1)
   blocked=$(printf '%s\n' "$out" | sed -n 's/^  blocked: *//p' | head -1)
   hold_kind=$(printf '%s\n' "$out" | sed -n 's/^  hold_kind: *//p' | head -1)

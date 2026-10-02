@@ -1269,6 +1269,8 @@ test_create_task_refuses_exact_task_labels_when_live() {
     status=$?
     [ "$status" -ne 0 ] || fail "$kind exact task label with a live agent must refuse a duplicate launch"
     assert_contains "$out" "already exists" "$kind exact task label live duplicate refusal was not reported"
+    assert_contains "$out" "'$duplicate_label'" \
+      "$kind exact task label refusal should name the tab that already exists ('$duplicate_label'), not the label being created"
     assert_not_contains "$(cat "$log")" $'\x1f''tab'$'\x1f''create' \
       "$kind exact task label live duplicate triggered a second tab"
   done
@@ -1337,6 +1339,8 @@ test_create_task_refuses_when_legacy_husk_remains() {
   [ "$status" -ne 0 ] || fail "a legacy task-label husk left after replacement must refuse success"
   assert_contains "$out" "failed to remove preexisting herdr tab" \
     "a remaining legacy task-label husk was not reported"
+  assert_contains "$out" "'fm-fm-css' (w1:t2)" \
+    "the remaining-husk refusal should name the surviving tab's own label"
   pass "fm_backend_herdr_create_task: verifies legacy task-label husks are gone after replacement"
 }
 
@@ -3831,6 +3835,29 @@ test_task_label_follows_the_backlog_row_title() {
   pass "fm_backend_herdr_task_label: the backlog row title names the tab"
 }
 
+# The history feeds create_task's attempted-label set, which closes matching
+# husk tabs, so a symlink planted at the state path must never be read - by the
+# appender that merges it, nor by the json reader that feeds jq.
+test_task_label_history_refuses_a_symlink() {
+  local dir out rc
+  dir="$TMP_ROOT/task-label-history-symlink"; mkdir -p "$dir"
+  printf 'Someone elses tab (other)\n' > "$dir/outside"
+  ln -s "$dir/outside" "$dir/history"
+  out=$(bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_task_label_history_append "$1" "Mine (mine)"' \
+    "$ROOT" "$dir/history" 2>&1); rc=$?
+  expect_code 1 "$rc" "appending through a symlinked history should refuse"
+  assert_contains "$out" "not a regular file" "the refusal should name the non-regular-file rule"
+  [ "$(cat "$dir/outside")" = 'Someone elses tab (other)' ] \
+    || fail "the refused append still changed the symlink's target"
+  [ ! -e "$dir/history" ] || [ -L "$dir/history" ] \
+    || fail "the refused append replaced the symlink with a regular file"
+  out=$(bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_task_label_history_json "$1"' \
+    "$ROOT" "$dir/history" 2>&1); rc=$?
+  expect_code 1 "$rc" "reading a symlinked history should refuse"
+  assert_contains "$out" "not a regular file" "the json refusal should name the non-regular-file rule"
+  pass "fm_backend_herdr_task_label_history: refuses a symlinked history path"
+}
+
 test_list_live_scoped_to_this_homes_workspace_only() {
   local dir log resp fb out home
   dir="$TMP_ROOT/list-live-scoped"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
@@ -6076,6 +6103,7 @@ test_workspace_find_matches_only_this_homes_own_label
 test_task_label_is_human_readable_and_id_bound
 test_task_label_without_a_row_title_stays_the_bare_task_id
 test_task_label_follows_the_backlog_row_title
+test_task_label_history_refuses_a_symlink
 test_list_live_scoped_to_this_homes_workspace_only
 test_list_live_discovers_supported_task_labels
 test_parse_target

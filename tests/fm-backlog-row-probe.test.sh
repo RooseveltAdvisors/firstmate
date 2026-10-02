@@ -31,6 +31,26 @@ fi
   || fail "a found row should report its title, got '$FM_BACKLOG_ROW_TITLE'"
 pass "fm_backlog_row_probe: a found row reports its title"
 
+# tasks-axi show serializes a title containing ':' or '"' in its quoted,
+# backslash-escaped form; the probe must hand callers the title itself.
+tasks-axi add t2 "fix: label workers" --file="$TMP_ROOT/data/backlog.md" >/dev/null \
+  || fail "fixture: could not seed the colon-bearing row"
+if ! fm_backlog_row_probe "$TMP_ROOT/data" t2; then
+  fail "a probe of a colon-bearing row should succeed: $FM_BACKLOG_ROW_ERROR"
+fi
+[ "$FM_BACKLOG_ROW_TITLE" = "fix: label workers" ] \
+  || fail "a colon-bearing title should report itself unquoted, got '$FM_BACKLOG_ROW_TITLE'"
+pass "fm_backlog_row_probe: a colon-bearing title is reported unquoted"
+
+tasks-axi add t3 'say: "hi" \back' --file="$TMP_ROOT/data/backlog.md" >/dev/null \
+  || fail "fixture: could not seed the quote-bearing row"
+if ! fm_backlog_row_probe "$TMP_ROOT/data" t3; then
+  fail "a probe of a quote-bearing row should succeed: $FM_BACKLOG_ROW_ERROR"
+fi
+[ "$FM_BACKLOG_ROW_TITLE" = 'say: "hi" \back' ] \
+  || fail "a quote-bearing title should report itself unescaped, got '$FM_BACKLOG_ROW_TITLE'"
+pass "fm_backlog_row_probe: a quote-bearing title is reported unescaped"
+
 if fm_backlog_row_probe "$TMP_ROOT/no-such-data" t1; then
   fail "a probe against an unresolvable data directory should fail"
 fi
