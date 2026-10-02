@@ -61,6 +61,10 @@
 FM_BACKLOG_TRANSITION_SKIP=
 # Set by the mutating helpers when they return non-zero.
 FM_BACKLOG_TRANSITION_ERROR=
+# The captured tasks-axi output of the last successful mutation, kept for a
+# caller that surfaces what tasks-axi reported (the wrapper's `done`).
+# shellcheck disable=SC2034 # Output global, read by the sourcing caller.
+FM_BACKLOG_MUTATE_OUTPUT=
 FM_BACKLOG_ROW_RESULT=
 FM_BACKLOG_ROW_STATE=
 FM_BACKLOG_ROW_ERROR=
@@ -499,6 +503,7 @@ fm_backlog_row_probe() {  # <data-dir> <id>
 # how the selected adapter is addressed (ADDRESSING above).
 fm_backlog_mutate() {  # <data-dir> <verb> <id> [flag...]
   local data authorized_data=$1 verb=$2 id=$3 out command_status source_status
+  FM_BACKLOG_MUTATE_OUTPUT=
   if ! data=$(fm_backlog_data_absolute "$1"); then
     FM_BACKLOG_TRANSITION_ERROR="data directory cannot be resolved: $1"
     return 1
@@ -517,7 +522,10 @@ fm_backlog_mutate() {  # <data-dir> <verb> <id> [flag...]
     out=$(cd "$FM_BACKLOG_AXI_ROOT" 2>/dev/null && fm_tasks_axi "$verb" "$id" "$@" 2>&1)
   fi
   command_status=$?
-  [ "$command_status" -ne 0 ] || return 0
+  if [ "$command_status" -eq 0 ]; then
+    FM_BACKLOG_MUTATE_OUTPUT=$out
+    return 0
+  fi
   FM_BACKLOG_TRANSITION_ERROR=$(printf '%s\n' "$out" | sed -n '1p')
   if [ -z "$FM_BACKLOG_TRANSITION_ERROR" ]; then
     if fm_tasks_axi_timeout_expired "$command_status" && [ -n "${FM_TASKS_AXI_TIMEOUT:-}" ]; then

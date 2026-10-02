@@ -125,8 +125,10 @@ run_guarded_close() {  # <command> <id> [flag...]
   local cmd=$1 id=$2 gate_status
   shift 2
   if fm_backlog_transition_applies "$CONFIG" "$DATA" ''; then
+    [ "$#" -gt 0 ] || fail "refusing to close $id: this close carries no done-class reason; a close records one - --pr <url>, --note 'local main', --report <path>, --note 'superseded by <id>', --note 'cancelled: <captain word>', or --note 'answered: <captain word>'"
     fm_backlog_done "$DATA" "$id" "$STATE" "$@" \
       || fail "${FM_BACKLOG_TRANSITION_ERROR:-tasks-axi $cmd $id failed}"
+    [ -z "$FM_BACKLOG_MUTATE_OUTPUT" ] || printf '%s\n' "$FM_BACKLOG_MUTATE_OUTPUT"
     exit 0
   else
     gate_status=$?
