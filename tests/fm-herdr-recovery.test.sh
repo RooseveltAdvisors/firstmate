@@ -1316,6 +1316,46 @@ EOF
 > 1. Yes, proceed (y)
   3. No (esc)
 EOF
+  cat > "$prompts/deny-nested-quote-flagval-grep" <<EOF
+  Would you like to run the following command?
+
+  grep -e"'x\$P'y" $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-nested-quote-flagval-awk" <<EOF
+  Would you like to run the following command?
+
+  awk -F"'\$OFS'" $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-swallowed-grep-file" <<'EOF'
+  Would you like to run the following command?
+
+  grep -e'bar' missing-operand.txt
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-swallowed-rg-file" <<EOF
+  Would you like to run the following command?
+
+  rg -e'bar' missing-dir/f.txt $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-awk-attached-f" <<EOF
+  Would you like to run the following command?
+
+  awk -F, '{print \$1}' $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
   cat > "$prompts/unknown" <<'EOF'
 Status header
 gpt-5.6-sol high - some/cwd
@@ -1472,6 +1512,11 @@ EOF
   classify deny-doublequoted-dollar-path 'refuse:command reaches a path outside this home' 'classifier refuses a double-quoted dollar-bearing path'
   classify deny-quoted-abs-flag-value 'refuse:command reaches a path outside this home' 'classifier refuses a quote-wrapped absolute path in a flag value'
   classify deny-quoted-abs-skipped-head 'refuse:command reaches a path outside this home' 'classifier refuses a quote-wrapped absolute path under a skipped head'
+  classify deny-nested-quote-flagval-grep 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a double-quoted single-quote dollar flag value'
+  classify deny-nested-quote-flagval-awk 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a nested-quote dollar awk -F value'
+  classify deny-swallowed-grep-file 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an unverified file after an attached grep -e value'
+  classify deny-swallowed-rg-file 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an unverified file after an attached rg -e value'
+  classify allow-awk-attached-f 'approve' 'classifier approves an attached awk -F with program and file'
   classify unknown 'unknown' 'classifier fails closed on an unrecognized prompt'
   ROOT=$saved_root
 }

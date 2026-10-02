@@ -377,13 +377,36 @@ fm_reco_relative_token_ok() { # <token> <resolved-home>
   return 1
 }
 
-# fm_reco_dollar_literal_ok: pass only when no '$' survives outside complete
-# single-quoted spans - the shell never expands those spans, so their '$' is
-# the same text on screen and in argv.
+# fm_reco_dollar_literal_ok: pass only when no '$' survives outside a
+# single-quoted region the shell keeps literal; a '$' unquoted or inside
+# double quotes expands, so the running text would not match the screen.
 fm_reco_dollar_literal_ok() { # <raw-token>
-  case "$(printf '%s' "$1" | sed "s/'[^']*'//g")" in
-    *'$'*) return 1 ;;
-  esac
+  local tok=$1 i c state=0
+  for ((i = 0; i < ${#tok}; i++)); do
+    c=${tok:i:1}
+    if [ "$state" -eq 1 ]; then
+      if [ "$c" = "'" ]; then
+        state=0
+      fi
+      continue
+    fi
+    if [ "$state" -eq 2 ]; then
+      if [ "$c" = "\\" ]; then
+        i=$((i + 1))
+      elif [ "$c" = '"' ]; then
+        state=0
+      elif [ "$c" = '$' ]; then
+        return 1
+      fi
+      continue
+    fi
+    case "$c" in
+      \\) i=$((i + 1)) ;;
+      "'") state=1 ;;
+      '"') state=2 ;;
+      '$') return 1 ;;
+    esac
+  done
   return 0
 }
 
@@ -527,6 +550,7 @@ fm_reco_relative_ok() { # <line> <resolved-home>
             head:-n|head:-c|tail:-n|tail:-c) expect_val=1 ;;
             sort:-k|sort:-t|sort:-S) expect_val=1 ;;
             uniq:-f|uniq:-s|uniq:-w) expect_val=1 ;;
+            grep:-e*|rg:-e*) used_e=1 ;;
             grep:--*|wc:--*) return 1 ;;
           esac
           continue
