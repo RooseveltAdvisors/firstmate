@@ -805,7 +805,7 @@ test_dispatch_refuses_a_row_whose_kind_differs_from_the_dispatch() {
   [ "$rc" -ne 0 ] || fail "spawn dispatched a scout row as a ship"
   assert_contains "$out" "kind scout" \
     "the kind refusal did not name the row's kind"
-  assert_contains "$out" "tasks-axi update $id --kind ship" \
+  assert_contains "$out" "bin/fm-tasks-axi.sh update $id --kind ship" \
     "the kind refusal did not name the repair"
   assert_absent "$(home_of "$case_dir")/state/$id.meta" \
     "a kind-refused dispatch published a task record"

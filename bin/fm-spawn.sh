@@ -3456,7 +3456,7 @@ if fm_backlog_transition_applies "$CONFIG" "$DATA" "$KIND"; then
     case "$KIND" in
       ship|scout)
         if [ "$FM_BACKLOG_ROW_KIND" != "$KIND" ]; then
-          echo "error: task $ID's backlog item is kind ${FM_BACKLOG_ROW_KIND:-none} but this dispatch is kind $KIND; refusing before creating its endpoint or local copy - repair with: tasks-axi update $ID --kind $KIND" >&2
+          echo "error: task $ID's backlog item is kind ${FM_BACKLOG_ROW_KIND:-none} but this dispatch is kind $KIND; refusing before creating its endpoint or local copy - repair with: bin/fm-tasks-axi.sh update $ID --kind $KIND" >&2
           exit 1
         fi
         ;;

@@ -3485,7 +3485,7 @@ if [ "$TEARDOWN_BACKLOG_APPLIES" = 1 ]; then
   }
   if fm_backlog_row_probe "$DATA" "$ID"; then
     if [ "$FM_BACKLOG_ROW_KIND" != "$KIND" ]; then
-      echo "error: backlog item $ID is kind ${FM_BACKLOG_ROW_KIND:-none} but task $ID's record is kind $KIND; refusing destructive teardown with the task record and worktree intact - repair with: tasks-axi update $ID --kind $KIND" >&2
+      echo "error: backlog item $ID is kind ${FM_BACKLOG_ROW_KIND:-none} but task $ID's record is kind $KIND; refusing destructive teardown with the task record and worktree intact - repair with: bin/fm-tasks-axi.sh update $ID --kind $KIND" >&2
       exit 1
     fi
   elif [ "$FM_BACKLOG_ROW_RESULT" != not_found ]; then

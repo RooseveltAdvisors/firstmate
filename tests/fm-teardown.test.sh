@@ -740,7 +740,7 @@ test_teardown_refuses_a_row_whose_kind_differs_from_the_record() {
 
   out=$(run_teardown "$case_dir" 2>&1) || rc=$?
   [ "$rc" -ne 0 ] || fail "teardown closed a row whose kind differs from the record's"
-  assert_contains "$out" "tasks-axi update task-x1 --kind ship" \
+  assert_contains "$out" "bin/fm-tasks-axi.sh update task-x1 --kind ship" \
     "the kind refusal did not name the repair"
   assert_present "$case_dir/state/task-x1.meta" \
     "a kind-refused teardown removed the task record"
@@ -783,7 +783,7 @@ SH
   [ "$rc" -ne 0 ] || fail "teardown continued on a row it could not read"
   assert_contains "$out" "could not verify the row" \
     "the unreadable-row refusal did not carry its distinct reason"
-  assert_not_contains "$out" "repair with: tasks-axi update" \
+  assert_not_contains "$out" "repair with: bin/fm-tasks-axi.sh update" \
     "a failed read was reported as a kind mismatch"
   assert_present "$case_dir/state/task-x1.meta" \
     "an unverifiable-row refusal removed the task record"
@@ -814,7 +814,7 @@ test_teardown_proceeds_when_the_row_is_absent() {
   [ "$rc" -ne 0 ] || fail "teardown reported success for a row it could not close"
   assert_not_contains "$out" "could not verify the row" \
     "a missing row was refused as an unverifiable read"
-  assert_not_contains "$out" "repair with: tasks-axi update" \
+  assert_not_contains "$out" "repair with: bin/fm-tasks-axi.sh update" \
     "a missing row was refused as a kind mismatch"
   assert_present "$case_dir/state/task-x1.backlog-close" \
     "a missing row stopped teardown before it staged the close"
@@ -851,7 +851,7 @@ SH
     "the scout-record refusal did not carry the read's own reason"
   assert_not_contains "$out" "report completion is for scout rows" \
     "teardown reached the post-destruction report gate behind an unreadable row"
-  assert_not_contains "$out" "repair with: tasks-axi update" \
+  assert_not_contains "$out" "repair with: bin/fm-tasks-axi.sh update" \
     "an unreadable row was reported as a kind mismatch"
   assert_present "$case_dir/state/task-x1.meta" \
     "an unverifiable scout record was destroyed"
