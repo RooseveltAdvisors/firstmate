@@ -370,14 +370,22 @@ busy_verdict() {
 }
 
 # wait_agent_state <wanted...> <timeout>: poll until agent_state prints one of
-# the wanted values. Prints the final observed state; returns 0 on a match.
+# the wanted values. A wanted `missing` matches only when the shared absence
+# proof (fm_control_endpoint_absence_verdict) establishes the recorded endpoint
+# is actually gone: the raw verdict also covers an endpoint merely unreachable
+# from this seat, which is not the stop state. Prints the final observed state;
+# returns 0 on a match.
 wait_agent_state() {  # <timeout> <wanted>...
-  local timeout=$1 state want elapsed=0
+  local timeout=$1 state want elapsed=0 absence
   shift
   while :; do
     state=$(agent_state)
     for want in "$@"; do
       if [ "$state" = "$want" ]; then
+        if [ "$state" = missing ]; then
+          absence=$(fm_control_endpoint_absence_verdict "$BACKEND" "$T")
+          [ "${absence%%$'\t'*}" = gone ] || break
+        fi
         printf '%s' "$state"
         return 0
       fi
@@ -624,8 +632,28 @@ do_exit() {
     busy*)
       cancel=$(deliver_interrupt) || return $?
       state=$(agent_state)
+      if [ "$state" = missing ]; then
+        # A raw `missing` is not a finding about the endpoint: it conflates
+        # "destroyed" with "unreachable from this seat". Route it through the
+        # control plane's one absence proof - the same one the entry path and
+        # the relaunch gate use - so this verb answers for that state the way
+        # the next `exit` on it would, never more than the proof established.
+        absence=$(fm_control_endpoint_absence_verdict "$BACKEND" "$T")
+        case "${absence%%$'\t'*}" in
+          gone)
+            # Proven gone: the agent went with the endpoint, so there is
+            # nothing left to send, and the endpoint's own outcome rather
+            # than `stopped` at an address that no longer exists.
+            retire_busy_incarnation
+            printf 'endpoint-gone'
+            return 0
+            ;;
+          dead) state=dead ;;
+          alive) state=alive ;;
+        esac
+      fi
       case "$state" in
-        dead|missing)
+        dead)
           retire_busy_incarnation
           printf 'stopped'
           return 0

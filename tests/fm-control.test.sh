@@ -240,6 +240,53 @@ SH
   printf '%s\n' "$fb"
 }
 
+# A herdr stub for the shared absence proof: the recorded session's server is
+# running, the recorded pane holds a registered claude with a live foreground
+# process, and a delivered interrupt key closes that pane - after which every
+# read answers herdr's own pane_not_found, the state the control plane's
+# absence proof re-reads when the raw agent-state says `missing`. Every
+# operational call is appended to fake/herdr-log as the side-effect record.
+make_herdr_stub() {  # <dir> -> echoes fakebin dir
+  local dir=$1 fb="$1/fakebin"
+  mkdir -p "$fb"
+  cat > "$fb/herdr" <<'SH'
+#!/usr/bin/env bash
+set -u
+D=$FM_FAKE_DIR
+case "${1:-} ${2:-}" in
+  'status --json')
+    printf '{"client":{"version":"0.9.0","protocol":22},"server":{"running":true}}\n'
+    exit 0 ;;
+  'pane get')
+    printf '%s\n' "$*" >> "$D/herdr-log"
+    if [ -f "$D/herdr-pane-gone" ]; then
+      printf '{"error":{"code":"pane_not_found"}}\n'
+    else
+      printf '{"result":{"pane":{"pane_id":"%s","foreground_cwd":"%s"}}}\n' \
+        "${3:-}" "$(cat "$D/cwd" 2>/dev/null || printf /tmp)"
+    fi
+    exit 0 ;;
+  'agent get')
+    printf '%s\n' "$*" >> "$D/herdr-log"
+    printf '{"result":{"agent":{"agent_status":"working"}}}\n'
+    exit 0 ;;
+  'pane process-info')
+    printf '%s\n' "$*" >> "$D/herdr-log"
+    # `pane process-info --pane <id>`: the pane's own live claude foreground.
+    printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":4242,"foreground_processes":[{"pid":4243,"name":"claude","argv":["claude"],"cmdline":"claude"}]}}}\n' "${4:-}"
+    exit 0 ;;
+  'pane send-keys')
+    printf '%s\n' "$*" >> "$D/herdr-log"
+    # The interrupt closes the seat: from here the recorded pane is gone.
+    : > "$D/herdr-pane-gone"
+    exit 0 ;;
+esac
+exit 0
+SH
+  chmod +x "$fb/herdr"
+  printf '%s\n' "$fb"
+}
+
 # new_case <name> -> echoes a case dir holding home/, fake/, and fakebin.
 new_case() {
   local dir="$TMP_ROOT/$1-$RANDOM"
@@ -979,24 +1026,66 @@ test_exit_accepts_agent_stopped_by_busy_interrupt() {
   pass "fm-control exit: an interrupt-stopped agent satisfies the gone-state postcondition"
 }
 
-test_exit_accepts_endpoint_that_disappears_after_busy_interrupt() {
+# A post-interrupt raw `missing` is not a stop finding: it conflates a
+# destroyed endpoint with one merely unreachable from this seat, so it is
+# routed through the control plane's one absence proof. Proven absent reports
+# `endpoint-gone` - the same outcome the entry path reports for the same state
+# - and an unprovable one falls to the staged waits, which end
+# exit=unconfirmed. Neither direction ever claims a definite stop failure.
+test_post_interrupt_missing_without_an_absence_proof_is_unconfirmed() {
   local dir out rc gen
-  dir=$(new_case interrupt-vanishes)
+  dir=$(new_case interrupt-vanishes-unproven)
   add_task "$dir" t1 claude
   alive_as "$dir" claude
   gen=$("$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1)
   printf 'busy_gen=%s\n' "$gen" >> "$dir/home/state/t1.meta"
-  out=$(FM_FAKE_INTERRUPT_DISAPPEARS=1 run_control "$dir" t1 exit); rc=$?
-  expect_code 0 "$rc" "exit should accept an endpoint that disappears after the interrupt"$'\n'"$out"
-  assert_contains "$out" "stopped t1 harness=claude" \
-    "an authoritatively absent endpoint after interrupt is a positive stop"
+  out=$(FM_FAKE_INTERRUPT_DISAPPEARS=1 FM_CONTROL_EXIT_CONFIRM_WAIT=0.05 \
+    run_control "$dir" t1 exit); rc=$?
+  expect_code 1 "$rc" "an endpoint whose absence tmux cannot prove must not claim a stop"$'\n'"$out"
+  assert_contains "$out" "exit-interrupted t1 interrupt=delivered verified=unattributed cancel=unconfirmed exit-command=not-sent agent-state=missing exit=unconfirmed" \
+    "the staged windows should end unconfirmed with the observed state"
+  assert_not_contains "$out" "did not stop" \
+    "an unprovable read must never become a definite stop-failure claim"
+  assert_not_contains "$out" "endpoint-gone" \
+    "exit must not report a stop tmux cannot prove"
   [ "$(keys_sent "$dir")" = Escape ] \
     || fail "exit should deliver the busy agent's interrupt sequence"
   [ -z "$(literals "$dir")" ] \
-    || fail "exit should not type a command after the endpoint already vanished"
+    || fail "an endpoint exit cannot trust must receive no lifecycle command"
+  pass "fm-control exit: a post-interrupt missing endpoint tmux cannot prove ends unconfirmed, never failed"
+}
+
+test_post_interrupt_missing_proven_absent_reports_endpoint_gone() {
+  local dir out rc gen log
+  command -v jq >/dev/null 2>&1 \
+    || { echo "skip - the herdr absence proof parses JSON with jq"; return 0; }
+  dir=$(new_case interrupt-vanishes-proven)
+  make_herdr_stub "$dir" >/dev/null
+  add_task "$dir" t1 claude ship herdr 'fmlab:%7'
+  {
+    echo "herdr_session=fmlab"
+    echo "herdr_workspace_id=ws1"
+    echo "herdr_tab_id=tab1"
+    echo "herdr_pane_id=%7"
+  } >> "$dir/home/state/t1.meta"
+  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1)
+  printf 'busy_gen=%s\n' "$gen" >> "$dir/home/state/t1.meta"
+  out=$(run_control "$dir" t1 exit); rc=$?
+  expect_code 0 "$rc" "a proven-absent endpoint after the interrupt is success"$'\n'"$out"
+  log=$(cat "$dir/fake/herdr-log")
+  assert_contains "$out" "endpoint-gone t1 harness=claude" \
+    "a proven-absent endpoint must report the outcome the proof established"
+  assert_not_contains "$out" "stopped t1" \
+    "a proven-absent endpoint is endpoint-gone, not a bare stop at a dead address"
+  assert_not_contains "$out" "did not stop" \
+    "a proven stop must never be reported as a stop failure"
+  assert_contains "$log" "pane send-keys" \
+    "the busy agent's interrupt must have been delivered through herdr"
+  assert_not_contains "$log" "send-text" \
+    "a proven-absent endpoint must receive no exit command"
   [ ! -e "$dir/home/state/t1.busy-gen" ] && [ ! -e "$dir/home/state/t1.busy-state" ] \
-    || fail "exit should retire busy wiring for an endpoint that vanished"
-  pass "fm-control exit: a post-interrupt missing endpoint is a stopped exit, never a failure"
+    || fail "exit should retire busy wiring for an endpoint that went with its agent"
+  pass "fm-control exit: a proven-absent post-interrupt endpoint reports endpoint-gone, never a failure"
 }
 
 test_agent_that_does_not_stop_reports_unconfirmed_never_failed() {
@@ -1240,7 +1329,8 @@ test_interrupt_without_acknowledgement_preserves_busy_state
 test_muse_interrupt_confirms_adapter_acknowledgement
 test_interrupt_revalidates_agent_after_acknowledgement_wait
 test_exit_accepts_agent_stopped_by_busy_interrupt
-test_exit_accepts_endpoint_that_disappears_after_busy_interrupt
+test_post_interrupt_missing_without_an_absence_proof_is_unconfirmed
+test_post_interrupt_missing_proven_absent_reports_endpoint_gone
 test_agent_that_does_not_stop_reports_unconfirmed_never_failed
 test_ambiguous_post_interrupt_evidence_reports_unconfirmed_never_failed
 test_stop_landing_during_ambiguous_post_interrupt_wait_is_success
