@@ -3262,6 +3262,7 @@ test_config_reread_cleanup_keeps_arrival_generation() {
 
   fm_config_reread_cleanup_sent "$w/sm"
   assert_present "$arrived" "history cleanup evicted the generation the home received last"
+  assert_present "$state_real/$FM_CONFIG_REREAD_NEWEST_MARKER" "history cleanup deleted the arrival marker"
   count=$(fm_config_reread_delivered_paths "$w/sm" | wc -l | tr -d ' ')
   [ "$count" = 16 ] || fail "history cleanup no longer bounds sent history (count=$count)"
 
