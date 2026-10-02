@@ -1,0 +1,20 @@
+# Targeted validation runs (branch fix/fm-secondmate-retire-validation-r2, head 714a3127 + kept NM_WATCH_DEBUG block)
+
+fleet: ok=19 not_ok=0
+sm-lifecycle: ok=6 not_ok=0
+teardown: ok=109 not_ok=0
+sm-safety: ok=80 not_ok=0
+endpoint: ok=27 not_ok=0
+remote: ok=31 not_ok=0
+remote2: ok=31 not_ok=0
+delta: ok=10 not_ok=0
+handoff: ok=24 not_ok=0
+fm-backend-orca: ok=52 not_ok=0
+fm-backend-zellij: ok=64 not_ok=0
+herdr-pres: ok=23 not_ok=0
+lint: ok=46 not_ok=1
+lint2: ok=47 not_ok=0
+
+fm-fleet-snapshot-view ok count = 19 matches CI expectation in .github/workflows/ci.yml
+fm-lint.test.sh first run failed: 'no-external-sources pass emitted codes outside the local exclusion list: SC2009' from the kept NM_WATCH_DEBUG block's 'ps aux | grep ...' line (tests/fm-remote-secondmate-lifecycle-e2e.test.sh:1298); rewritten as ps aux | awk '/[f]m-watch|[f]m-spawn|[f]m-remote/' (same captured lines), then fm-lint.test.sh passed.
+remote lifecycle suite passed twice with NM_WATCH_DEBUG set (failure-path capture did not fire); 'watcher did not exit on its auto-relaunch wake' case = 'watch liveness: a dead remote secondmate is auto-relaunched on its own host with one wake' -> ok both runs => load-induced flake, debug aid retained.

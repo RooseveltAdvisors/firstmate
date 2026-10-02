@@ -1,0 +1,39 @@
+# Live lab drive: retire-secondmate authority guards (bin/fm-teardown.sh, bin/fm-fleet-view.sh)
+# lab home: <mktemp -d fm-lab>/ (disposable, created via bin/fm-lab-home.sh create)
+
+## 1. secondmate teardown with NO authority
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.h7HfL6
+REFUSED: task design is a persistent secondmate home, not a finished worker; nothing was changed.
+An idle queue is a healthy secondmate's normal state, never evidence it is done.
+Retiring it takes authority naming that exact home: bin/fm-teardown.sh design --retire-secondmate design
+List candidates with their kinds using bin/fm-fleet-view.sh --cleanup-candidates rather than inferring persistence from a worktree path.
+rc=1
+state after: design.meta task-x1.meta ; home exists: yes
+
+## 2. authority naming a DIFFERENT home
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.h7HfL6
+REFUSED: --retire-secondmate names other-domain, but this teardown targets design; nothing was changed.
+Authority for retiring a persistent home must name that exact home.
+rc=1
+state after: design.meta task-x1.meta ; home exists: yes
+
+## 3. authority offered for an ordinary ship task (mis-selected target)
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.h7HfL6
+REFUSED: --retire-secondmate was given for task task-x1, which is a ship task and not a secondmate home; nothing was changed.
+That mismatch means the target was selected wrong; re-check it with bin/fm-fleet-view.sh --cleanup-candidates.
+rc=1
+state after: design.meta task-x1.meta 
+
+## 4. selection list of two targets (ship + secondmate)
+error: teardown acts on exactly one task, but 2 targets were given: task-x1 design
+error: 1 of those targets are persistent secondmate homes, not finished workers: design
+Retiring a secondmate is a per-target decision. Nothing was changed.
+List candidates with their kinds using bin/fm-fleet-view.sh --cleanup-candidates, then act on one target per invocation.
+rc=2
+state after: design.meta task-x1.meta 
+
+## 5. end-of-options: later ids that spell flags reach the multi-target refusal
+error: teardown acts on exactly one task, but 3 targets were given: task-x1 --force --legacy-record
+List candidates with their kinds using bin/fm-fleet-view.sh --cleanup-candidates, then act on one target per invocation.
+rc=2
+state after: design.meta task-x1.meta 

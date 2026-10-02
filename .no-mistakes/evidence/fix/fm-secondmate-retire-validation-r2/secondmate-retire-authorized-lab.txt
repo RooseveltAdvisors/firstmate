@@ -1,0 +1,8 @@
+## 6. authorized retirement: authority naming this exact home (lab home, secondmate home outside it)
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.h7HfL6
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+teardown design complete (window firstmate:fm-design, worktree /tmp/fm-smhome.HXomj8)
+rc=0
+state after: home-summary.json secondmate-summary-cache task-x1.meta 
+secondmate home after: removed
+registry after: 
