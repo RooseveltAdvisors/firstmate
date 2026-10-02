@@ -1357,7 +1357,7 @@ tasks_config_setup() {
     return 0
   fi
   local tmp
-  tmp=$(mktemp "$root/.tasks.toml.XXXXXX" 2>/dev/null) || {
+  tmp=$(mktemp -u "$root/.tasks.toml.XXXXXX" 2>/dev/null) || {
     echo "TASKS_CONFIG: could not create $root/.tasks.toml from $example"
     return 0
   }
@@ -1369,12 +1369,20 @@ tasks_config_setup() {
   # this covers an ordinary interruption; the trap is cleared on every path
   # below so it never outlives the file it guards. The path is deliberately
   # expanded at trap-set time: tmp is local to this function and out of scope
-  # by the time the trap fires.
+  # by the time the trap fires. The name is only reserved above; the file is
+  # created exclusively (noclobber) after the trap is armed, so no signal can
+  # land between its creation and its cleanup guard.
   # shellcheck disable=SC2064
-  trap "rm -f '$tmp' 2>/dev/null" EXIT
+  trap "$(printf 'rm -f -- %q 2>/dev/null' "$tmp")" EXIT
+  if ! (set -C; : > "$tmp") 2>/dev/null; then
+    trap - EXIT
+    echo "TASKS_CONFIG: could not create $root/.tasks.toml from $example"
+    return 0
+  fi
   if [ "$rel_data" = data ]; then
     if ! cp "$example" "$tmp" 2>/dev/null; then
       rm -f "$tmp" 2>/dev/null
+      trap - EXIT
       echo "TASKS_CONFIG: could not create $root/.tasks.toml from $example"
       return 0
     fi
@@ -1390,6 +1398,7 @@ tasks_config_setup() {
              "$example" > "$tmp" 2>/dev/null
     if [ ! -s "$tmp" ]; then
       rm -f "$tmp" 2>/dev/null
+      trap - EXIT
       echo "TASKS_CONFIG: could not create $root/.tasks.toml from $example"
       return 0
     fi
