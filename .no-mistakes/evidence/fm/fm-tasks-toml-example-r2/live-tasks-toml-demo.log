@@ -1,0 +1,70 @@
+
+===== A: fresh home seeds config; tasks-axi honors it; custom copy untouched =====
+ok - bootstrap session start is silent on a fresh home
+ok - bootstrap materialized .tasks.toml byte-identical to .tasks.toml.example
+ok - tasks-axi honored the seeded config: archive written to data/done-archive.md
+ok - tasks-axi addressed data/backlog.md, not a root-level backlog.md
+ok - archive head:  ## Archived 2026-10-02 - [x] fm-live-1 - row 1 (done 2026-10-02) 
+ok - control: a home with NO config falls back to tasks-axi default ./backlog.md (the degradation seeding prevents)
+ok - second session start leaves a customized .tasks.toml byte-for-byte untouched
+ok - second session start reports no TASKS_CONFIG diagnostic
+note (unrelated to .tasks.toml): second run also printed: SECONDMATE_SYNC: secondmate sm: skipped: dirty working tree
+
+===== B: gitignored live file keeps the checkout clean and the advance eligible =====
+ok - bootstrap seeded the checkout home without diagnostics
+ok - checkout home got .tasks.toml from the tracked example
+ok - git status --porcelain is empty after seeding (live file does not dirty the home)
+ok - git ignores the live file: .gitignore:14:.tasks.toml	.tasks.toml
+ok - git status --ignored lists .tasks.toml as ignored
+ok - git ls-files shows .tasks.toml is not tracked
+ok - git ls-files shows .tasks.toml.example is tracked
+home: updated b9b2b8f..dad7d81
+FF_STATUS=updated
+ok - ff_target fast-forwarded the home (FF_STATUS=updated)
+ok - .tasks.toml survived the advance byte-for-byte
+ok - home still clean after the advance
+home: skipped: dirty working tree
+FF_STATUS=skipped
+ok - adversarial: real dirt still refuses the advance (skip is not masked by the ignore)
+ok - clean home reads 'already current' after the advance
+
+===== C: the untracking advance carries the live file; a modified tracked copy refuses =====
+TASKS_CONFIG: restored /tmp/fm-bootstrap-tests.1gk8bU/demoC/home/.tasks.toml, which the update removed
+home: updated f96c0dc..c0a5051
+FF_STATUS=updated
+ok - the untracking advance fast-forwarded (FF_STATUS=updated)
+ok - advance reported the carry: TASKS_CONFIG: restored /tmp/fm-bootstrap-tests.1gk8bU/demoC/home/.tasks.toml, which the update removed
+ok - live .tasks.toml carried byte-for-byte across the untracking advance
+ok - home now also holds the tracked .tasks.toml.example
+ok - restored file is ignored: home clean after carry
+home: skipped: dirty working tree: .tasks.toml is modified and still tracked here, and this update untracks it; copy it aside, run git -C /tmp/fm-bootstrap-tests.1gk8bU/demoC/home2 checkout -- .tasks.toml, update, then put your copy back
+FF_STATUS=skipped
+ok - adversarial: modified tracked copy refuses with a reason that names the file and the way out
+ok - customization preserved (never stashed/discarded)
+ok - advance stayed refused (HEAD unchanged)
+
+===== D: changed-path test selection through the real runner =====
+tests/fm-brief.test.sh
+tests/fm-bootstrap.test.sh
+tests/fm-session-start.test.sh
+tests/fm-update.test.sh
+ok - selecting .tasks.toml.example runs the session-bootstrap suite (fm-bootstrap.test.sh)
+ok - .tasks.toml.example also runs its contract family (fm-brief.test.sh)
+ok - .tasks.toml.example does not pull in unrelated secondmate coverage
+tests/fm-brief.test.sh
+tests/fm-bootstrap.test.sh
+tests/fm-session-start.test.sh
+tests/fm-update.test.sh
+tests/fm-secondmate-sync.test.sh
+ok - bin/fm-ff-lib.sh change selects the update suite
+ok - bin/fm-ff-lib.sh change selects the secondmate-sync suite
+
+===== E: mergeability against live upstream main =====
+ok - git ls-remote origin refs/heads/main = 241d4617d6c160471d7da8ffe637b59f8f4a7af9
+ok - local origin/main ref matches the live upstream tip
+ok - branch contains the merge base (base commit is an ancestor of the target)
+note: upstream advanced past the merge; conflict-checking the current tip
+ok - git merge-tree origin/main HEAD merges cleanly (tree fc6819adbe848b04115e8135fab138dcc99bb830, no conflicts)
+ok - the PR carries an explicit 'Merge origin/main' commit (2ba3da64)
+
+SUMMARY: 0 failure(s)

@@ -1,0 +1,10 @@
+fm-pr-merge rc=0 444s ok - fm-pr-merge reports known missing checks and all independent read errors
+fm-bearings-board rc=0 30s ok - build reserves reconcile across non-decision cards
+fm-watch-triage rc=0 1142s ok - a declared wait whose until time has passed is rechecked at once, then held to the cadence
+fm-public-followup rc=0 336s ok - a refusal whose event was retained repeats its wake instead of a new one
+fm-captain-hold-lifecycle rc=0 591s ok - hold creates a captain row when Beads requires due and has no captain type
+fm-backlog-read-bound rc=0 25s # fm-backlog-read-bound.test.sh: all assertions passed
+fm-afk-return rc=0 64s ok - a return with only the legacy away flag still renders the brief and measures the window from the flag
+fm-branch-supervision rc=0 35s ok - a quiet-mode record never caps a present captain's spawn, while the away record's cap still binds
+fm-backlog-atomicity rc=0 255s ok - dispatching a persistent secondmate needs no backlog item
+fm-backlog-handoff rc=0 84s ALL TESTS PASSED

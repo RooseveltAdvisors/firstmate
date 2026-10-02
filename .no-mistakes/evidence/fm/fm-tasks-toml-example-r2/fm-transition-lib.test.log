@@ -1,0 +1,6 @@
+ok - fm_transition_record builds a 5-field record and every accessor reads its field
+ok - fm_transition_record uses a single TAB between each of the five fields
+ok - fm_transition_record scrubs TAB/newline out of fields so the record stays exactly five columns
+ok - fm_transition_record tolerates empty workspace/from/agent fields
+ok - fm_transition_policy is the single-owner status->action table (blocked=actionable, working=absorb, idle/done=defer, else=fallback)
+# fm-transition-lib.test.sh: all assertions passed

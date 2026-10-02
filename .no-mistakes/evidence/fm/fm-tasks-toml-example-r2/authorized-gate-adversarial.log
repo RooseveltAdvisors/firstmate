@@ -1,0 +1,3 @@
+control OK: config at the authorized root is accepted
+adversarial OK: refused rc with: tasks-axi config resolves outside its authorized directory at /tmp/fm-gate-adversarial.QZmJhN/home/.tasks.toml
+adversarial2 OK: refused rc with: tasks-axi config resolves outside its authorized directory at /tmp/fm-gate-adversarial.QZmJhN/home/.tasks.toml
