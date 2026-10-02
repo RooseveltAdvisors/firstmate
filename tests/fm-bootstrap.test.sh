@@ -960,16 +960,16 @@ test_tasks_config_follows_a_relocated_data_directory() {
 # done_keep), and readdressing to the symlink's name would point the archive at
 # a directory that does not exist.
 test_tasks_config_follows_a_symlinked_override() {
-  local case_dir fixture root home fakebin data out config gate_out
+  local case_dir fixture root home fakebin store out config gate_out
   case_dir="$TMP_ROOT/tasks-config-symlinked"
   fixture=$(make_routine_bootstrap_fixture "$case_dir")
   root=${fixture%%|*}
   fixture=${fixture#*|}
   home=${fixture%%|*}
   fakebin=${fixture#*|}
-  data="$case_dir/backlog-store"
-  mkdir -p "$data" "$case_dir/relocated"
-  ln -s "$data" "$case_dir/relocated/data-link"
+  store="$case_dir/backlog-store"
+  mkdir -p "$store" "$case_dir/relocated"
+  ln -s "$store" "$case_dir/relocated/data-link"
 
   out=$(PATH="$fakebin:$BASE_PATH" FM_BACKEND=tmux FM_HOME="$home" FM_ROOT_OVERRIDE="$root" \
     FM_DATA_OVERRIDE="$case_dir/relocated/data-link" FM_FAKE_TREEHOUSE_LEASE_HELP=1 \
@@ -991,7 +991,7 @@ test_tasks_config_follows_a_symlinked_override() {
   # backlog consumer runs (probe, mutate, dispatch, session-start replay) accepts
   # the config there: a gate that still derives its root from the raw override
   # path refuses dispatch and mutations on this layout.
-  printf '%s\n' '# Backlog' '' '## In flight' '' '## Queued' '' '## Done' > "$data/backlog.md"
+  printf '%s\n' '# Backlog' '' '## In flight' '' '## Queued' '' '## Done' > "$store/backlog.md"
   gate_out=$(
     set +u
     TASKS_AXI_BACKEND=markdown FM_TASKS_AXI_COMPATIBLE=1
@@ -1016,13 +1016,13 @@ test_tasks_config_follows_a_symlinked_override() {
 
   if command -v tasks-axi >/dev/null 2>&1; then
     local i
-    printf '%s\n' '# Backlog' '' '## In flight' '' '## Queued' '' '## Done' > "$data/backlog.md"
+    printf '%s\n' '# Backlog' '' '## In flight' '' '## Queued' '' '## Done' > "$store/backlog.md"
     for i in 1 2 3 4 5 6 7 8 9 10 11; do
-      (cd "$case_dir" && tasks-axi add "fm-sym-$i" "row $i" --file "$data/backlog.md") >/dev/null
-      (cd "$case_dir" && tasks-axi start "fm-sym-$i" --file "$data/backlog.md") >/dev/null
-      (cd "$case_dir" && tasks-axi "done" "fm-sym-$i" --file "$data/backlog.md") >/dev/null
+      (cd "$case_dir" && tasks-axi add "fm-sym-$i" "row $i" --file "$store/backlog.md") >/dev/null
+      (cd "$case_dir" && tasks-axi start "fm-sym-$i" --file "$store/backlog.md") >/dev/null
+      (cd "$case_dir" && tasks-axi "done" "fm-sym-$i" --file "$store/backlog.md") >/dev/null
     done
-    [ -f "$data/done-archive.md" ] \
+    [ -f "$store/done-archive.md" ] \
       || fail "tasks-axi did not read the generated .tasks.toml and archived outside the configured data directory"
     [ ! -e "$case_dir/data" ] \
       || fail "tasks-axi sent the archive to a sibling data directory"
