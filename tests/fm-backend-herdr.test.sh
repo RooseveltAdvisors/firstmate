@@ -295,8 +295,9 @@ fake_herdr_set_agent_status() {  # <state-file> <pane_id> <status>
   jq --arg p "$pane" --arg s "$status" '.agent_status[$p] = $s' "$state" > "$tmp" && mv "$tmp" "$state"
 }
 
-# herdr_case <name> -> sets up FM_HERDR_LOG/FM_HERDR_RESPONSES/fb for one test,
-# registers cleanup-free tmp dirs under TMP_ROOT.
+# herdr_env <name> -> creates one case's dir under TMP_ROOT with an empty log
+# and responses/ (TMP_ROOT's wholesale cleanup owns the dir, so no per-case
+# registration) and prints the log path, then the responses path.
 herdr_env() {  # <name>
   local name=$1 dir
   dir="$TMP_ROOT/$name"
