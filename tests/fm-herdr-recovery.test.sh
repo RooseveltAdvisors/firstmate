@@ -549,6 +549,54 @@ EOF
 > 1. Yes, proceed (y)
   3. No (esc)
 EOF
+  cat > "$prompts/allow-fd-dup-semi" <<EOF
+  Would you like to run the following command?
+
+  if grep -n msg $ROOT/state/x.md 2>&1; then echo ok; fi
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-fd-dup-paren" <<EOF
+  Would you like to run the following command?
+
+  (grep msg $ROOT/state/x.md 2>&1)
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-sed-fragment-write" <<EOF
+  Would you like to run the following command?
+
+  sed 's/a/b/ w outw.txt' $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-sed-e-fragment-write" <<EOF
+  Would you like to run the following command?
+
+  sed -e 's/a/b/ w outw.txt' $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-sed-fragment-exec" <<EOF
+  Would you like to run the following command?
+
+  sed 's#.*#sleep 1# e' $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-awk-fragment-path" <<EOF
+  Would you like to run the following command?
+
+  awk '{getline x < "missing-cwd.txt"}' $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
   cat > "$prompts/deny-sed-attached" <<EOF
   Would you like to run the following command?
 
@@ -922,6 +970,12 @@ EOF
   classify allow-ls-path 'approve' 'classifier approves an ls with a verified path'
   classify allow-fd-dup 'approve' 'classifier approves a read with a trailing fd-duplication redirect'
   classify allow-fd-dup-devnull 'approve' 'classifier approves a read with fd-duplication next to /dev/null'
+  classify allow-fd-dup-semi 'approve' 'classifier approves a delimiter-attached fd-duplication redirect behind an if condition'
+  classify allow-fd-dup-paren 'approve' 'classifier approves a delimiter-attached fd-duplication redirect inside parens'
+  classify deny-sed-fragment-write 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses a s///w payload in a later program fragment'
+  classify deny-sed-e-fragment-write 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses a s///w payload in a later -e value fragment'
+  classify deny-sed-fragment-exec 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses a s///e payload in a later program fragment'
+  classify deny-awk-fragment-path 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an unverifiable path inside a later awk program fragment'
   classify unknown 'unknown' 'classifier fails closed on an unrecognized prompt'
   ROOT=$saved_root
 }

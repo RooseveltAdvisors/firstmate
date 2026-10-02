@@ -225,29 +225,45 @@ fm_reco_command_words() { # <line>
   done < <(fm_reco_segments "$1")
 }
 
-# fm_reco_sed_scripts_ok: extract the inline program tokens of a sed segment
-# (the -e values and the first positional) and refuse any e/w/W command or
-# s/// flag occurrence, however addressed: leading non-alnum boundaries cover
-# start, quotes, delimiters, commas, and GNU sed's !-negation prefix, and the
+# fm_reco_sed_scripts_ok: extract the inline program of a sed segment - the
+# full token span of the first positional and of every -e value, however the
+# whitespace splits it - and refuse any e/w/W/r command or s/// flag
+# occurrence, however addressed: leading non-alnum boundaries cover start,
+# quotes, delimiters, commas, and GNU sed's !-negation prefix, and the
 # trailing guard also catches combined s/// flags like eg or ge.
 fm_reco_sed_scripts_ok() { # <segment>
-  local tok script='' expect=0
+  local tok raw script='' expect=0 in_span=0
   local -a toks
   read -ra toks <<< "$1" || return 1
   for tok in "${toks[@]:1}"; do
+    raw=$tok
     tok=${tok//\'/}
     tok=${tok//\"/}
+    if [ "$in_span" -eq 1 ]; then
+      script="$script $tok"$'\n'
+      case "$raw" in
+        *"'"*) in_span=0 ;;
+      esac
+      continue
+    fi
     [ -n "$tok" ] || continue
     if [ "$expect" -eq 1 ]; then
       expect=0
-      script="$script$tok"$'\n'
+      script="$script $tok"$'\n'
+      case "$raw" in
+        \'*) case "${raw#\'}" in *"'"*) ;; *) in_span=1 ;; esac ;;
+      esac
       continue
     fi
     case "$tok" in
       -e) expect=1 ;;
       -*) ;;
       *)
-        [ -n "$script" ] || script="$tok"$'\n'
+        [ -z "$script" ] || continue
+        script="$tok"$'\n'
+        case "$raw" in
+          \'*) case "${raw#\'}" in *"'"*) ;; *) in_span=1 ;; esac ;;
+        esac
         ;;
     esac
   done
@@ -419,6 +435,10 @@ fm_reco_relative_ok() { # <line> <resolved-home>
         case "$raw" in
           *"'"*) in_single=0 ;;
         esac
+        case "$head:$tok" in
+          awk:\$*) continue ;;
+        esac
+        fm_reco_relative_token_ok "$tok" "$home" || return 1
         continue
       fi
       if [ "$expect_val" -eq 1 ]; then
@@ -511,12 +531,13 @@ fm_reco_command_allowed() { # <command-text> <home>
         return 0
         ;;
     esac
-    # Drop whole-token fd-duplication redirections (2>&1 and friends) before
-    # any screen sees the line: the whitelist admits them, and the segment
-    # printer would otherwise split on their '&'. Only a whitespace-delimited
-    # token that is exactly digits-over-digits is dropped, so a word merely
-    # ending in digits before a redirect keeps its text for every screen.
-    line=$(printf '%s\n' "$line" | awk '{ out = ""; for (i = 1; i <= NF; i++) if ($i !~ /^[0-9]*>&[0-9]+$/) out = out (out == "" ? "" : " ") $i; print out }')
+    # Drop fd-duplication redirections (2>&1 and friends) before any screen
+    # sees the line: the whitelist admits them, and the segment printer would
+    # otherwise split on their '&'. Only a token's leading digits-over-digits
+    # redirect is removed and any trailing shell delimiter is kept, so a word
+    # merely ending in digits before a redirect keeps its text for every
+    # screen, and a delimiter-attached 2>&1; never reaches the write screen.
+    line=$(printf '%s\n' "$line" | awk '{ out = ""; for (i = 1; i <= NF; i++) { t = $i; if (t ~ /^[0-9]*>&[0-9]+([;|)&<>]|$)/) { sub(/^[0-9]*>&[0-9]+/, "", t); if (t == "") continue } out = out (out == "" ? "" : " ") t } print out }')
     red=$(printf '%s' "$line" | grep -oE '>[[:space:]]*[^[:space:]]+' | grep -vE '^>[[:space:]]*(/dev/null|&1|&2)$') || red=
     if [ -n "$red" ]; then
       printf 'refuse:command writes with a redirect'
