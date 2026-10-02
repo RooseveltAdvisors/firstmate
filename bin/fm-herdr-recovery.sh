@@ -437,13 +437,15 @@ fm_reco_relative_ok() { # <line> <resolved-home>
       fi
       if [ "$expect_val" -eq 1 ]; then
         expect_val=0
-        if [ "$expect_prog" -eq 1 ]; then
-          expect_prog=0
-          case "$(fm_reco_program_slot "$raw")" in
-            refuse) return 1 ;;
-            open) in_single=1 ;;
-          esac
-        fi
+        case "$(fm_reco_program_slot "$raw")" in
+          refuse) return 1 ;;
+          open)
+            if [ "$expect_prog" -eq 1 ]; then
+              in_single=1
+            fi
+            ;;
+        esac
+        expect_prog=0
         continue
       fi
       if [ "$check_next" -eq 1 ]; then
@@ -472,6 +474,23 @@ fm_reco_relative_ok() { # <line> <resolved-home>
                 /dev/null|'&1'|'&2') continue ;;
                 *) return 1 ;;
               esac
+              ;;
+            *'<'*)
+              pre=${tok%%<*}
+              post=${tok#*<}
+              case "$pre" in
+                '') ;;
+                -*) ;;
+                *[!0-9]*)
+                  fm_reco_relative_token_ok "$pre" "$home" || return 1
+                  saw_pos=1
+                  ;;
+                *) ;;
+              esac
+              [ -n "$post" ] || return 1
+              fm_reco_relative_token_ok "$post" "$home" || return 1
+              saw_pos=1
+              continue
               ;;
           esac
           ;;
@@ -502,11 +521,11 @@ fm_reco_relative_ok() { # <line> <resolved-home>
       esac
       if [ "$seen_special" -eq 0 ] && [ "$used_e" -eq 0 ]; then
         seen_special=1
-        case "$head" in
-          sed|awk)
-            case "$(fm_reco_program_slot "$raw")" in
-              refuse) return 1 ;;
-              open) in_single=1 ;;
+        case "$(fm_reco_program_slot "$raw")" in
+          refuse) return 1 ;;
+          open)
+            case "$head" in
+              sed|awk) in_single=1 ;;
             esac
             ;;
         esac
@@ -621,9 +640,10 @@ fm_reco_command_allowed() { # <command-text> <home>
           '>'|'>/dev/null')
             segrest=${seg#"$word"}
             segrest=${segrest#"${segrest%%[![:space:]]*}"}
-            if [ -z "$segrest" ]; then
-              continue
-            fi
+            segrest=${segrest%"${segrest##*[![:space:]]}"}
+            case "$segrest" in
+              ''|/dev/null|'&1'|'&2') continue ;;
+            esac
             ;;
         esac
         printf 'refuse:command segment "%s" is outside the read allowlist' "$word"

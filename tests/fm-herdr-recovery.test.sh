@@ -995,6 +995,166 @@ EOF
 > 1. Yes, proceed (y)
   3. No (esc)
 EOF
+  cat > "$prompts/allow-amp-devnull-spaced-grep" <<EOF
+  Would you like to run the following command?
+
+  grep -n TODO $ROOT/state/x.md &> /dev/null
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-amp-devnull-spaced-cat" <<EOF
+  Would you like to run the following command?
+
+  cat $ROOT/state/x.md &> /dev/null
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-redirect-only-semicolon" <<EOF
+  Would you like to run the following command?
+
+  cat $ROOT/state/x.md; > /dev/null
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-redirect-only-andand" <<EOF
+  Would you like to run the following command?
+
+  grep -n TODO $ROOT/state/x.md && > /dev/null
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-redirect-headed-sed" <<'EOF'
+  Would you like to run the following command?
+
+  $ 2>/dev/null sed -i s/a/b/ x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-redirect-headed-rg" <<'EOF'
+  Would you like to run the following command?
+
+  $ 2>/dev/null rg --pre sleep README.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-redirect-headed-cat" <<'EOF'
+  Would you like to run the following command?
+
+  $ >/dev/null cat missing-file.txt
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-redirect-headed-if" <<'EOF'
+  Would you like to run the following command?
+
+  $ if >/dev/null find . -delete; then echo ok; fi
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-redirect-headed-seq" <<'EOF'
+  Would you like to run the following command?
+
+  $ cat README.md; >/dev/null find . -delete
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-redirect-headed-spaced-target" <<'EOF'
+  Would you like to run the following command?
+
+  $ > /dev/null find . -delete
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-flagval-find-name" <<'EOF'
+  Would you like to run the following command?
+
+  find -name $P .
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-flagval-grep-pos" <<'EOF'
+  Would you like to run the following command?
+
+  grep $P README.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-flagval-grep-e" <<'EOF'
+  Would you like to run the following command?
+
+  grep -e $P README.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-flagval-rg-pos" <<'EOF'
+  Would you like to run the following command?
+
+  rg $P README.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-flagval-awk-v" <<'EOF'
+  Would you like to run the following command?
+
+  awk -v $P README.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-flagval-head-n" <<'EOF'
+  Would you like to run the following command?
+
+  head -n $N README.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-flagval-sort-k" <<'EOF'
+  Would you like to run the following command?
+
+  sort -k $K README.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-attached-input" <<EOF
+  Would you like to run the following command?
+
+  cat <$ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-attached-input-head" <<EOF
+  Would you like to run the following command?
+
+  head -5 <$ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-attached-input-outside" <<'EOF'
+  Would you like to run the following command?
+
+  cat </etc/shadow
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
   cat > "$prompts/unknown" <<'EOF'
 Status header
 gpt-5.6-sol high - some/cwd
@@ -1111,6 +1271,26 @@ EOF
   classify deny-sort-tempdir 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses sort -T buffer directory flags'
   classify deny-redirect-headed-delete 'refuse:command segment ">/dev/null" is outside the read allowlist' 'classifier refuses a redirect-headed segment carrying find -delete'
   classify deny-redirect-headed-exec 'refuse:command segment "2>/dev/null" is outside the read allowlist' 'classifier refuses a redirect-headed segment carrying sh -c'
+  classify allow-amp-devnull-spaced-grep 'approve' 'classifier approves a spaced ampersand-null redirect after grep'
+  classify allow-amp-devnull-spaced-cat 'approve' 'classifier approves a spaced ampersand-null redirect after cat'
+  classify allow-redirect-only-semicolon 'approve' 'classifier approves a semicolon-split redirect-only segment'
+  classify allow-redirect-only-andand 'approve' 'classifier approves an and-and-split redirect-only segment'
+  classify deny-redirect-headed-sed 'refuse:command segment "2>/dev/null" is outside the read allowlist' 'classifier refuses a redirect-headed segment carrying sed -i'
+  classify deny-redirect-headed-rg 'refuse:command segment "2>/dev/null" is outside the read allowlist' 'classifier refuses a redirect-headed segment carrying rg --pre'
+  classify deny-redirect-headed-cat 'refuse:command segment ">/dev/null" is outside the read allowlist' 'classifier refuses a redirect-headed segment carrying cat'
+  classify deny-redirect-headed-if 'refuse:command segment ">/dev/null" is outside the read allowlist' 'classifier refuses an if-wrapped redirect-headed find -delete'
+  classify deny-redirect-headed-seq 'refuse:command segment ">/dev/null" is outside the read allowlist' 'classifier refuses a sequenced redirect-headed find -delete'
+  classify deny-redirect-headed-spaced-target 'refuse:command segment ">" is outside the read allowlist' 'classifier refuses a redirect head whose tail is not a bare null target'
+  classify deny-flagval-find-name 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a dollar-bearing find -name value'
+  classify deny-flagval-grep-pos 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a dollar-bearing grep pattern positional'
+  classify deny-flagval-grep-e 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a dollar-bearing grep -e value'
+  classify deny-flagval-rg-pos 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a dollar-bearing rg pattern positional'
+  classify deny-flagval-awk-v 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a dollar-bearing awk -v value'
+  classify deny-flagval-head-n 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a dollar-bearing head -n value'
+  classify deny-flagval-sort-k 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a dollar-bearing sort -k value'
+  classify allow-attached-input 'approve' 'classifier approves an attached input redirect'
+  classify allow-attached-input-head 'approve' 'classifier approves an attached input redirect under head'
+  classify deny-attached-input-outside 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an attached input redirect outside the home'
   classify unknown 'unknown' 'classifier fails closed on an unrecognized prompt'
   ROOT=$saved_root
 }
