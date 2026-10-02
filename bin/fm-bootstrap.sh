@@ -18,7 +18,8 @@
 #                 "BACKLOG_RECONCILE: code-root <file> is not this home's <file>; ...",
 #                 "TANGLE: <remediation>",
 #                 "NO_MISTAKES_MIRROR: <project> remote=<url>|absent
-#                 expected-root=<root>",
+#                 expected-root=<root> (run no-mistakes init inside <clone>
+#                 to point its gate at the active root)",
 #                 "SECONDMATE_SYNC: secondmate <id>: skipped: <reason>",
 #                 "NUDGE_SECONDMATES: secondmate <id>: send failed: <reason>",
 #                 "BOOTSTRAP_INFO: nudged fm-<id> with '<message>'",
@@ -1480,7 +1481,8 @@ check_no_mistakes_mirror_one() {  # <label> <clone> <root>
 # Detect-only no-mistakes mirror drift for this home: every registered
 # no-mistakes-posture project clone (bin/fm-project-mode.sh owns the registry
 # posture parse), plus this home's own firstmate checkout, must carry a
-# "no-mistakes" remote under the root the installed CLI would resolve.
+# "no-mistakes" remote under the <root>/repos/ tree, where <root> is the root
+# the installed CLI would resolve.
 detect_no_mistakes_mirror() {
   local root name mode clone
   root=${NM_HOME:-}
