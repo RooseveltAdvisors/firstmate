@@ -142,7 +142,7 @@
 #   FM_CONTROL_SETTLE_WAIT       adapter acknowledgement wait after interrupt (5)
 #   FM_CONTROL_ARM_WAIT          wait for an armed interrupt's rendered proof
 #                                after the press gap (1.5)
-#   FM_CONTROL_EXIT_WAIT         alive->dead wait after the exit command (30)
+#   FM_CONTROL_EXIT_WAIT         positive-stop wait after the exit command (30)
 #   FM_CONTROL_EXIT_CONFIRM_WAIT second bounded wait for the same positive stop
 #                                state after the exit window expires (10)
 #   FM_CONTROL_LAUNCH_WAIT       dead->alive wait after a relaunch (90)
