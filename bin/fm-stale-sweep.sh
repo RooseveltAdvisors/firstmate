@@ -499,7 +499,11 @@ fm_stale_reclaim_locked() {  # <home> <id> <actor>
   fi
   date=$(date +%F)
   note="reclaimed $date: endpoint dead, previous claim by $actor"
-  body=$(fm_stale_axi "$home" show "$id" --full | sed -n 's/^  body: //p' | head -1)
+  out=$(fm_stale_axi "$home" show "$id" --full) || {
+    printf 'body unreadable'
+    return 1
+  }
+  body=$(printf '%s\n' "$out" | sed -n 's/^  body: //p' | head -1)
   if [ -n "$body" ] && ! body=$(fm_stale_decode_body "$body"); then
     printf 'body undecodable'
     return 1
@@ -775,7 +779,16 @@ fm_stale_gate_open() {
 }
 
 fm_stale_write_record() {  # <now-epoch>
-  printf '%s\nepoch %s\n' "$RECORD_SCHEMA" "$1" > "$RECORD" 2>/dev/null || true
+  local tmp
+  if tmp=$(mktemp "$RECORD.XXXXXX" 2>/dev/null) \
+     && chmod 0600 "$tmp" 2>/dev/null \
+     && printf '%s\nepoch %s\n' "$RECORD_SCHEMA" "$1" > "$tmp" \
+     && mv -f -- "$tmp" "$RECORD"; then
+    return 0
+  fi
+  [ -z "${tmp:-}" ] || rm -f -- "$tmp" 2>/dev/null || true
+  printf 'fm-stale-sweep: could not write the interval record at %s; the next poll will repeat this report\n' "$RECORD" >&2
+  return 1
 }
 
 action_check() {

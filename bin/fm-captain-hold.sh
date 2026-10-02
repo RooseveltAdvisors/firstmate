@@ -313,6 +313,11 @@ acquire_task_control_lock() {  # <task-id>
 
 release_task_control_lock() {
   [ "$CAPTAIN_CONTROL_LOCK_HELD" = 1 ] || return 0
+  if [ "$CAPTAIN_META_LOCK_HELD" = 1 ]; then
+    fm_lock_release "$CAPTAIN_META_LOCK"
+    CAPTAIN_META_LOCK_HELD=0
+    CAPTAIN_META_LOCK=
+  fi
   fm_lock_release "$CAPTAIN_CONTROL_LOCK"
   CAPTAIN_CONTROL_LOCK_HELD=0
   CAPTAIN_CONTROL_LOCK=
