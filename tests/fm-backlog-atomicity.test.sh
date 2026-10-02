@@ -430,7 +430,17 @@ if [ "\${1:-}" = show ]; then
   count=\$((count + 1))
   printf '%s\n' "\$count" > "$case_dir/show-count"
   if [ "\$count" -eq 2 ]; then
-    "$real" "$action" "\$2" --file "\$4" >/dev/null || exit 1
+    file=
+    prev=
+    for arg in "\$@"; do
+      if [ "\$prev" = --file ]; then file=\$arg; break; fi
+      prev=\$arg
+    done
+    if [ -n "\$file" ]; then
+      "$real" "$action" "\$2" --file "\$file" >/dev/null || exit 1
+    else
+      "$real" "$action" "\$2" >/dev/null || exit 1
+    fi
   fi
 fi
 exec "$real" "\$@"
@@ -783,7 +793,7 @@ test_dispatch_moves_the_item_in_flight_in_the_same_run() {
   out=$(run_ship_spawn "$case_dir" "$id") || fail "spawn failed: $out"
   assert_contains "$out" "spawned $id" "spawn did not report success"
   assert_present "$(home_of "$case_dir")/state/$id.meta" "spawn published no record"
-  assert_grep "show $id --file $(backlog_of "$case_dir")" \
+  assert_grep "show $id --full --file $(backlog_of "$case_dir")" \
     "$case_dir/tasks-axi-calls" \
     "markdown dispatch did not pass the backlog file to show"
   [ "$(row_state "$case_dir" "$id")" = in_flight ] \

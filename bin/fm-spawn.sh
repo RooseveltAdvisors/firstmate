@@ -3589,7 +3589,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
     # This rebind always mints the legacy fm-<id> tab, so the record below
     # names exactly that label rather than the label the old tab wore.
     HERDR_TASK_LABEL=$W
-    HERDR_TASK_IDS=$(fm_backend_herdr_create_task "$CONTAINER" "$W" "$WT" "$HERDR_SEEDED_DEFAULT_TAB_ID") || exit 1
+    HERDR_TASK_IDS=$(fm_backend_herdr_create_task "$CONTAINER" "$W" "$WT" "$HERDR_SEEDED_DEFAULT_TAB_ID" "$ID" "$STATE/$ID.herdr-task-labels") || exit 1
     read -r HERDR_TAB_ID HERDR_PANE_ID <<EOF
 $HERDR_TASK_IDS
 EOF

@@ -424,9 +424,10 @@ fm_backlog_row_list() {  # <resolved-data-dir> [flag...]
   fi
 }
 
-# tasks-axi show renders a scalar field unquoted unless the value contains a
-# ':' or a '"', in which case it emits the JSON-ish quoted form with \" and \\
-# escapes. Decode that serialization so a caller sees the value the row
+# tasks-axi show renders a scalar field unquoted only when the value avoids
+# every character the serializer quotes (':', '"', ',', backslash) and is not
+# a truncated render; otherwise it emits the JSON-ish quoted form with \" and
+# \\ escapes. Decode that serialization so a caller sees the value the row
 # actually carries rather than the wire form.
 fm_backlog_show_value() {  # <raw-field-value>
   local value=$1
@@ -434,7 +435,7 @@ fm_backlog_show_value() {  # <raw-field-value>
     '"'*'"')
       value=${value#\"}
       value=${value%\"}
-      value=$(printf '%s' "$value" | sed -e 's/\\\(.\)/\1/g')
+      value=$(printf '%s' "$value" | sed -e 's/\\"/"/g' -e 's/\\\\/\\/g')
       ;;
   esac
   printf '%s' "$value"
@@ -460,7 +461,9 @@ fm_backlog_row_probe() {  # <data-dir> <id>
     FM_BACKLOG_ROW_ERROR=$FM_BACKLOG_TRANSITION_ERROR
     return "$source_status"
   fi
-  out=$(fm_backlog_row_show "$data" "$id")
+  # --full: the default render truncates titles and annotates them, and a
+  # truncated title must never name the tab.
+  out=$(fm_backlog_row_show "$data" "$id" --full)
   command_status=$?
   [ "$command_status" -ne 124 ] || FM_BACKLOG_ROW_SHOW_WEDGED=1
   if [ "$command_status" -ne 0 ]; then

@@ -2078,7 +2078,12 @@ case "${1:-} ${2:-}" in
     printf '{"result":{"workspace":{"workspace_id":"wsnew"},"tab":{"tab_id":"seedtab"}}}\n'
     exit 0 ;;
   'tab list')
-    printf '{"result":{"tabs":[]}}\n'
+    # A case may seed the tabs the surviving session still lists.
+    if [ -f "$D/herdr-tab-list" ]; then
+      cat "$D/herdr-tab-list"
+    else
+      printf '{"result":{"tabs":[]}}\n'
+    fi
     exit 0 ;;
   'tab create')
     # The re-created endpoint. Recording it lets a case prove the pane the
@@ -2283,6 +2288,31 @@ test_herdr_rebind_stays_in_the_recorded_session() {
   [ "$(grep -c '^herdr_task_label=' "$dir/home/state/rl73.meta")" = 1 ] \
     || fail "the rebound record must carry exactly one herdr_task_label"
   pass "reclaim: a herdr rebind is created in the session the record names, never the ambient one"
+}
+
+# The recorded pane is gone (so this reclaim really rebinds), but the human
+# label an earlier attempt minted still wears a tab the session lists: the
+# rebind's duplicate guard must read state/<id>.herdr-task-labels, the same
+# history the flat fresh path feeds, and refuse rather than mint a second tab
+# for one task.
+test_herdr_rebind_sees_the_attempted_label_history() {
+  local dir out rc=0 log
+  herdr_case_or_skip gone-herdr-hist rl78 fmlab '%none' || {
+    echo "skip - herdr rebind needs jq (the herdr adapter parses JSON with it)"
+    return 0
+  }
+  dir=$HERDR_CASE_DIR
+  printf '%s\n' 'Stale human title (rl78)' > "$dir/home/state/rl78.herdr-task-labels"
+  printf '%s\n' '{"result":{"tabs":[{"tab_id":"ws1:t9","label":"Stale human title (rl78)","workspace_id":"ws1"}]}}' \
+    > "$dir/fake/herdr-tab-list"
+
+  out=$(run_spawn "$dir" rl78 --relaunch --harness claude); rc=$?
+  log=$(cat "$dir/fake/herdr-log")
+  expect_code 1 "$rc" "a rebind whose earlier human label still exists should refuse"$'\n'"$out"
+  assert_contains "$out" "'Stale human title (rl78)' already exists" \
+    "the refusal should name the tab recorded in the attempted-label history"
+  assert_not_contains "$log" "tab create" "a refused rebind must not mint a second tab"
+  pass "reclaim: a herdr rebind's duplicate guard sees the recorded attempted-label history"
 }
 
 test_herdr_reclaim_refuses_an_agent_that_came_back() {
@@ -2509,6 +2539,7 @@ test_herdr_relaunch_resumes_only_the_registered_pi_session
 test_herdr_reclaim_adopts_a_pane_that_outlived_its_server
 test_herdr_exit_reports_already_stopped_when_the_pane_outlived_its_server
 test_herdr_rebind_stays_in_the_recorded_session
+test_herdr_rebind_sees_the_attempted_label_history
 test_herdr_reclaim_refuses_an_agent_that_came_back
 test_herdr_reclaim_keeps_the_task_whole
 test_herdr_reclaim_of_a_secondmate_names_its_own_owner

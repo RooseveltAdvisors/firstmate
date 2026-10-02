@@ -51,6 +51,19 @@ fi
   || fail "a quote-bearing title should report itself unescaped, got '$FM_BACKLOG_ROW_TITLE'"
 pass "fm_backlog_row_probe: a quote-bearing title is reported unescaped"
 
+# The default show render truncates titles past ~84 characters and annotates
+# the truncation; the probe must still report the complete title, because that
+# title names the tab.
+long_title="Refactor the duplicate-refusal path so the message carries the matched tab's own label rather than the label being created"
+tasks-axi add t4 "$long_title" --file="$TMP_ROOT/data/backlog.md" >/dev/null \
+  || fail "fixture: could not seed the long-title row"
+if ! fm_backlog_row_probe "$TMP_ROOT/data" t4; then
+  fail "a probe of a long-title row should succeed: $FM_BACKLOG_ROW_ERROR"
+fi
+[ "$FM_BACKLOG_ROW_TITLE" = "$long_title" ] \
+  || fail "a long title should be reported complete, got '$FM_BACKLOG_ROW_TITLE'"
+pass "fm_backlog_row_probe: a long title is reported complete, never truncated"
+
 if fm_backlog_row_probe "$TMP_ROOT/no-such-data" t1; then
   fail "a probe against an unresolvable data directory should fail"
 fi
