@@ -614,8 +614,8 @@ The flag is a home-local supervision-noise preference and is not inherited by se
 
 The local, gitignored `config/jev-wake-triage` file opts a home in to the default-off Jev classifier on the watcher's stale-escalation path.
 Absent, the gate stays off and the watcher escalates exactly as it did before Jev.
-A first line of `on` enables it; a first line of `off` keeps it off.
-`FM_JEV_WAKE_TRIAGE` overrides the file: `off`/`0`/`false`/`no` disables, `on`/`1`/`true`/`yes` enables, and unset defers to the file.
+Only a first line of `on`, `1`, `true`, or `yes` (any case) enables it; an empty file or any other first line keeps it off.
+`FM_JEV_WAKE_TRIAGE` overrides the file: `off`/`0`/`false`/`no` disables, `on`/`1`/`true`/`yes` enables (any case), and unset or any other value defers to the file.
 The gate runs only at the moment a provably-working stale pane would otherwise escalate, after the wait, worktree-write, and dead-record probes.
 It asks typesafe.ai's System One model (Jev) to classify `pipeline_wait`, `true_wedge`, or `healthy_idle`, plus a `wedge_probability` Noul, and escalates on `true_wedge`.
 `pipeline_wait` and `healthy_idle` suppress only when Choice confidence is at least 0.6, matching `bin/fm-dispatch-resolve.sh`; missing or below-floor confidence fail-opens.

@@ -13,7 +13,7 @@ It proves an absent `TYPESAFE_API_KEY`, and a key present only in `.env`, print 
 It proves a `true_wedge` Choice returns `action=escalate`, a `pipeline_wait` or `healthy_idle` Choice with confidence at least 0.6 returns `action=suppress`, and HTTP 500, transport failure, a malformed answer, missing confidence, or below-floor confidence fail-open to `action=unavailable`.
 It proves the request uses `https://api.typesafe.ai/v1/systemone`, asks one Choice with `pipeline_wait`/`true_wedge`/`healthy_idle` and one Noul, and sends the key only as the bearer header.
 It proves the first N calibration rows include the input summary and Jev answer, that telemetry keeps counting after that cap, and that a later escalate after suppress does not append `later_escalated` once the cap has closed.
-Watcher cases replace the helper through `FM_JEV_WAKE_TRIAGE_BIN` and prove `pipeline_wait` suppresses without advancing the escalation counter, `true_wedge` and `action=unavailable` keep today's possible-wedge wake, and both an absent config and `config/jev-wake-triage=off` skip the helper entirely.
+Watcher cases replace the helper through `FM_JEV_WAKE_TRIAGE_BIN` and prove `pipeline_wait` suppresses without advancing the escalation counter, `true_wedge` and `action=unavailable` keep today's possible-wedge wake, an absent config skips the helper entirely, and `config/jev-wake-triage` calls it only for a first line of `on`, `1`, `true`, or `yes` in any case while `off`, an empty file, garbage, and near-miss typos skip it.
 They also prove the `FM_JEV_WAKE_TRIAGE` override in both directions: `off` skips the helper with no config file present, and `on` re-enables the gate over a config file that says `off`.
 
 ```console

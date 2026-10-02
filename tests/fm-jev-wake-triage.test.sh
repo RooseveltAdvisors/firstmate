@@ -417,25 +417,42 @@ test_watcher_default_off_skips_jev() {
   pass "absent config and env skip Jev and escalate as today"
 }
 
-test_watcher_config_off_skips_jev() {
-  local dir state fakebin out capture_file window key pid
-  dir=$(prime_stale_case jev-off)
+# Only the canonical truthy set (any case) in config/jev-wake-triage enables
+# the gate; empty, garbage, and near-miss first lines keep it off. The fake Jev
+# escalates, so the watcher exits either way and only the Jev call differs.
+config_gate_case() {  # <name> <first-line> <expect on|off>
+  local name=$1 line=$2 expect=$3 dir state fakebin out capture_file window pid
+  dir=$(prime_stale_case "$name")
   state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"
-  capture_file="$dir/pane.txt"; window="test:fm-jev-jev-off"
-  key=$(printf '%s' "$window" | tr ':/.' '___')
+  capture_file="$dir/pane.txt"; window="test:fm-jev-$name"
   mkdir -p "$dir/config"
-  printf 'off\n' > "$dir/config/jev-wake-triage"
-  install_fake_jev "$fakebin" suppress
+  if [ -n "$line" ]; then printf '%s\n' "$line" > "$dir/config/jev-wake-triage"; else : > "$dir/config/jev-wake-triage"; fi
+  install_fake_jev "$fakebin" escalate
+  unset FM_JEV_WAKE_TRIAGE
   export FM_FAKE_CREW_STATE='state: working · source: run-step · validating (running)'
   FM_CONFIG_OVERRIDE="$dir/config" FM_JEV_WAKE_TRIAGE_BIN="$fakebin/fm-jev-wake-triage.sh" \
     start_stale_watch "$state" "$fakebin" "$out" "$window" "$capture_file"
   pid=$!
-  wait_for_exit "$pid" 100 || fail "config off did not keep today's escalate path: $(cat "$out")"
-  grep -F "possible wedge" "$out" >/dev/null || fail "config off lost today's escalate reason: $(cat "$out")"
-  [ ! -e "$fakebin/jev.argv" ] || fail "config off still invoked Jev"
-  ack_stopped_cycle "$state" || fail "could not acknowledge the config-off escalation"
+  wait_for_exit "$pid" 100 || fail "config '$line' did not escalate: $(cat "$out")"
+  grep -F "possible wedge" "$out" >/dev/null || fail "config '$line' lost today's escalate reason: $(cat "$out")"
+  if [ "$expect" = on ]; then
+    [ -s "$fakebin/jev.argv" ] || fail "config '$line' did not enable Jev"
+  else
+    [ ! -e "$fakebin/jev.argv" ] || fail "config '$line' invoked Jev while the gate should stay off"
+  fi
+  ack_stopped_cycle "$state" || fail "could not acknowledge the config '$line' escalation"
   unset FM_FAKE_CREW_STATE
-  pass "config/jev-wake-triage=off disables triage and escalates as today"
+}
+
+test_watcher_config_gate_values() {
+  local i=0 v
+  for v in off '' garbage ONN tru 1x of; do
+    i=$((i + 1)); config_gate_case "cfg-off-$i" "$v" off
+  done
+  for v in on 1 true yes ON True YES; do
+    i=$((i + 1)); config_gate_case "cfg-on-$i" "$v" on
+  done
+  pass "config/jev-wake-triage enables only on/1/true/yes (any case); empty, garbage, and typos stay off"
 }
 
 # FM_JEV_WAKE_TRIAGE is the documented override of config/jev-wake-triage in
@@ -498,7 +515,7 @@ test_watcher_pipeline_wait_suppresses
 test_watcher_true_wedge_escalates
 test_watcher_jev_error_fails_open
 test_watcher_default_off_skips_jev
-test_watcher_config_off_skips_jev
+test_watcher_config_gate_values
 test_watcher_env_off_skips_jev
 test_watcher_env_on_beats_config_off
 

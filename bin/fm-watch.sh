@@ -1510,20 +1510,21 @@ wedge_dead_record() {  # <window> <since-file> <triage-label> <idle-age> <pane-h
 # suppress the wake, restart the idle timer, and leave the escalation
 # counter untouched. bin/fm-jev-wake-triage.sh owns the request, telemetry,
 # and calibration log. config/jev-wake-triage=on, or FM_JEV_WAKE_TRIAGE=on,
-# enables this gate. Default off.
+# enables this gate. Default off; any other first line keeps it off.
 wedge_jev_enabled() {
-  local v=${FM_JEV_WAKE_TRIAGE-}
+  local v
+  v=$(printf '%s' "${FM_JEV_WAKE_TRIAGE-}" | tr '[:upper:]' '[:lower:]')
   case "$v" in
     off|0|false|no) return 1 ;;
     on|1|true|yes) return 0 ;;
   esac
   [ -f "$CONFIG/jev-wake-triage" ] || return 1
-  v=$(head -n 1 "$CONFIG/jev-wake-triage" 2>/dev/null || true)
+  v=$(head -n 1 "$CONFIG/jev-wake-triage" 2>/dev/null | tr '[:upper:]' '[:lower:]' || true)
   v=${v#"${v%%[![:space:]]*}"}
   v=${v%"${v##*[![:space:]]}"}
   case "$v" in
-    off|0|false|no) return 1 ;;
-    *) return 0 ;;
+    on|1|true|yes) return 0 ;;
+    *) return 1 ;;
   esac
 }
 
