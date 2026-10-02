@@ -1,0 +1,13 @@
+# Scenario: session-start bootstrap relays a local secondmate sweep's TASKS_CONFIG line
+# Fixture: marked lab home LAB4 with state/sm1.meta -> sm2 (standalone clone at 65e2aa4); primary head = 3ad567b via FM_ROOT_OVERRIDE (gate worktree cannot resolve a default branch). Private TMUX_TMPDIR; no overrides other than FM_ROOT_OVERRIDE.
+$ TMUX_TMPDIR=$LAB4/tmux FM_HOME=$LAB4 FM_ROOT_OVERRIDE=$TMPU/home FM_BACKEND=tmux bash bin/fm-bootstrap.sh
+--- stdout:
+PRESENTATION_UNAVAILABLE: lavish-axi (requires >=0.1.77; install: npm install -g lavish-axi && lavish-axi setup hooks) - nonvisual work may proceed with plain-text decisions and reports; install or upgrade before using Lavish
+SECONDMATE_LIVENESS: secondmate sm1: respawn failed after recorded endpoint confidently missing: error: refusing fleet lifecycle from inside a no-mistakes gate worktree (/home/jon/.no-mistakes/repos/2f32188048b1.git)
+TASKS_CONFIG: restored /tmp/fm-upd.xzv6RU/sm2/.tasks.toml, which the update removed
+NUDGE_SECONDMATES: secondmate sm1: send failed: error: refusing fleet lifecycle from inside a no-mistakes gate worktree (/home/jon/.no-mistakes/repos/2f32188048b1.git)
+--- stderr:
+--- sm2 HEAD:
+3ad567b Merge remote-tracking branch 'origin/main' into HEAD
+SM2-PRESERVED-BYTE-IDENTICAL
+# (The two fm-gate-refuse lines are the gate guard correctly refusing the fixture secondmate's respawn/nudge against a non-lab home; they do not affect the carry or its relay.)

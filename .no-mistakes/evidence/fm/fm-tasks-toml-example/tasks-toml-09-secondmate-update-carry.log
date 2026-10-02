@@ -1,0 +1,24 @@
+# Scenario: a registered secondmate home keeps its .tasks.toml across the same advance
+# Fixture: primary home4 (clone at 65e2aa4) with state/sm1.meta pointing at secondmate sm1 (standalone clone at 65e2aa4, detached, marker .fm-secondmate-home); origin advanced to 3ad567b.
+$ FM_ROOT_OVERRIDE=$TMPU/home4 FM_HOME=$TMPU/home4 bash bin/fm-update.sh
+--- stdout:
+TASKS_CONFIG: restored /tmp/fm-upd.xzv6RU/home4/.tasks.toml, which the update removed
+firstmate: updated 65e2aa4..3ad567b (instructions changed: AGENTS.md, bin, .agents/skills)
+no watches registered
+TASKS_CONFIG: restored /tmp/fm-upd.xzv6RU/sm1/.tasks.toml, which the update removed
+secondmate sm1: updated 65e2aa4..3ad567b (instructions changed: AGENTS.md, bin, .agents/skills)
+no watches registered
+reread-firstmate: yes
+restart-secondmates: none
+nudge-secondmates: none
+--- stderr (supervision banner only):
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e /tmp/fm-upd.xzv6RU/home4/.pi/extensions/fm-primary-turnend-guard.ts -e /tmp/fm-upd.xzv6RU/home4/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--- sm1 HEAD:
+3ad567b Merge remote-tracking branch 'origin/main' into HEAD
+SM1-PRESERVED-BYTE-IDENTICAL

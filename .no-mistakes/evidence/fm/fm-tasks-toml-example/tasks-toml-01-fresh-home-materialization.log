@@ -1,0 +1,25 @@
+# Scenario: fresh home bootstrap materializes .tasks.toml from the tracked example
+$ LAB=$(mktemp -d ${TMPDIR:-/tmp}/fm-lab.XXXXXX); bin/fm-lab-home.sh create "$LAB"  # -> /tmp/fm-lab.xQYDTa
+$ env -u NO_MISTAKES_GATE -u FM_GATE_REFUSE_BYPASS -u FM_ROOT_OVERRIDE -u FM_STATE_OVERRIDE -u FM_DATA_OVERRIDE -u FM_CONFIG_OVERRIDE -u FM_PROJECTS_OVERRIDE FM_HOME="$LAB" FM_BACKEND=tmux bash bin/fm-bootstrap.sh
+(exit 0; full stdout below)
+PRESENTATION_UNAVAILABLE: lavish-axi (requires >=0.1.77; install: npm install -g lavish-axi && lavish-axi setup hooks) - nonvisual work may proceed with plain-text decisions and reports; install or upgrade before using Lavish
+--- $ ls -la "$LAB"
+total 4800
+drwx------     6 jon  jon     4096 Oct  2 10:59 .
+drwxrwxrwt 44291 root root 4870144 Oct  2 11:27 ..
+drwxrwxr-x     2 jon  jon     4096 Oct  2 10:59 config
+drwxrwxr-x     2 jon  jon     4096 Oct  2 11:01 data
+-rw-rw-r--     1 jon  jon       15 Oct  2 10:59 .fm-lab-home
+drwxrwxr-x     2 jon  jon     4096 Oct  2 10:59 projects
+drwxrwxr-x     2 jon  jon     4096 Oct  2 11:01 state
+-rw-------     1 jon  jon      104 Oct  2 11:01 .tasks.toml
+--- $ cmp "$LAB/.tasks.toml" .tasks.toml.example && echo BYTE-IDENTICAL
+/tmp/fm-lab.xQYDTa/.tasks.toml .tasks.toml.example differ: byte 47, line 4
+--- $ cat "$LAB/.tasks.toml"
+backend = "markdown"
+
+[markdown]
+path = "data/other.md"
+archive = "data/other-archive.md"
+done_keep = 3
+# No TASKS_CONFIG line was printed; the file appears only on a home that had none.

@@ -1,0 +1,17 @@
+# Scenario: changed-path test selection covers this change (bin/fm-test-run.sh --changed)
+
+$ env LC_ALL=C bin/fm-test-run.sh --changed --base 65e2aa443a42108689eee260a0d792608ec3540b --list   # from this worktree
+exit 0, 177 scripts selected; key suites:
+62:tests/fm-bootstrap.test.sh
+70:tests/fm-update.test.sh
+102:tests/fm-secondmate-sync.test.sh
+
+# Isolation: a fixture repo containing ONLY the rename (base + .tasks.toml -> .tasks.toml.example + .gitignore entry)
+$ cd <fixture> && bin/fm-test-run.sh --changed --base HEAD~1 --list   # runner at BASE revision:
+  exit 2: fm-test-run: no changed-test mapping for source path: .tasks.toml.example
+$ ...same, with this change's bin/fm-test-run.sh in place:
+  exit 0, 55 scripts selected, including session-bootstrap coverage:
+46:tests/fm-bootstrap.test.sh
+54:tests/fm-update.test.sh
+  (secondmate family is absent, as expected: bin/fm-ff-lib.sh did not change in this fixture)
+0

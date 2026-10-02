@@ -1,0 +1,11 @@
+# Adversarial scenario: a create that cannot complete is loud (TASKS_CONFIG) and leaves no partial file
+$ FAIL=$(mktemp -d ...); mkdir -p $FAIL/data; chmod 555 $FAIL   # unwritable addressing root
+$ FM_HOME=$LAB3 FM_DATA_OVERRIDE=$FAIL/data bash bin/fm-bootstrap.sh   # same bootstrap command as the happy path
+(exit 0)
+TASKS_CONFIG: could not create /tmp/fm-ro.oJzLAn/.tasks.toml from /home/jon/.no-mistakes/worktrees/2f32188048b1/01M3YCY0NQP4CJFHRJPRP8FK7V/bin/../.tasks.toml.example
+PRESENTATION_UNAVAILABLE: lavish-axi (requires >=0.1.77; install: npm install -g lavish-axi && lavish-axi setup hooks) - nonvisual work may proceed with plain-text decisions and reports; install or upgrade before using Lavish
+--- $ ls -a $FAIL   # no .tasks.toml, no .tasks.toml.* temp file
+.
+..
+data
+# The publish is a hard link over a temp file, so a partial final file cannot exist; mktemp failing here is reported, not swallowed.

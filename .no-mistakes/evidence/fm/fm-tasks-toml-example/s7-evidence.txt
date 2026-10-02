@@ -1,0 +1,9 @@
+=== Scenario: a customized TRACKED .tasks.toml blocks the advance with a reason that names it ===
+$ # world at A; .tasks.toml modified (done_keep = 99) while still tracked
+$ FM_HOME=/tmp/fm-upd.ZfU0l0/main bin/fm-update.sh   # rc=0
+  firstmate: skipped: dirty working tree: .tasks.toml is modified and still tracked here, and this update untracks it; copy it aside, run git -C /tmp/fm-upd.ZfU0l0/main checkout -- .tasks.toml, update, then put your copy back
+  reread-firstmate: no
+$ git -C main rev-parse HEAD -> 99f3681  (still A=99f36810f189d94734b76b81b77e35ce706383de; origin/main=3ff0aad — advance refused)
+$ cmp main/.tasks.toml <customized copy> -> identical (exit 0)
+$ # origin/main/.tasks.toml.example never reached the home
+  ls: cannot access '/tmp/fm-upd.ZfU0l0/main/.tasks.toml.example': No such file or directory

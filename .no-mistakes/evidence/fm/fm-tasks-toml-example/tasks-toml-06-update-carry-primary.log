@@ -1,0 +1,19 @@
+# Scenario: /updatefirstmate (bin/fm-update.sh) carries a live home's tracked .tasks.toml across the advance that untracks it
+# Fixture: disposable bare origin ($TMPU/origin.git) with main advanced 65e2aa4 -> 3ad567b (this branch), home = fresh clone reset to 65e2aa4 (tracked .tasks.toml).
+$ FM_ROOT_OVERRIDE=$TMPU/home FM_HOME=$TMPU/home bash bin/fm-update.sh
+--- stdout:
+TASKS_CONFIG: restored /tmp/fm-upd.xzv6RU/home/.tasks.toml, which the update removed
+firstmate: updated 65e2aa4..3ad567b (instructions changed: AGENTS.md, bin, .agents/skills)
+no watches registered
+reread-firstmate: yes
+restart-secondmates: none
+nudge-secondmates: none
+--- stderr:
+--- git -C home log --oneline -1:
+3ad567b Merge remote-tracking branch 'origin/main' into HEAD
+--- cmp home/.tasks.toml saved-before-copy:
+PRESERVED-BYTE-IDENTICAL
+--- git status --porcelain -- .tasks.toml: []  check-ignore: .tasks.toml
+--- ls:
+-rw------- 1 jon jon 106 Oct  2 11:03 /tmp/fm-upd.xzv6RU/home/.tasks.toml
+-rw-rw-r-- 1 jon jon 106 Oct  2 11:03 /tmp/fm-upd.xzv6RU/home/.tasks.toml.example

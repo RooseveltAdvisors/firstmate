@@ -1,0 +1,30 @@
+# Scenario: the materialized config drives the real backlog end to end (bin/fm-tasks-axi.sh + tasks-axi 0.2.6)
+$ FM_HOME=/tmp/fm-lab.xQYDTa  # 12x: bin/fm-tasks-axi.sh add/start/done fm-live-$i  (run from the repo root cwd)
+ok: done fm-live-12 -> Done; pruned 1
+help[1]:
+  - Run `tasks-axi ready` to dispatch work unblocked by this
+--- $ sed -n '/## Done/,$p' "/tmp/fm-lab.xQYDTa/data/backlog.md"
+## Done
+- [x] fm-live-12 - row 12 (done 2026-10-02)
+- [x] fm-live-11 - row 11 (done 2026-10-02)
+- [x] fm-live-10 - row 10 (done 2026-10-02)
+- [x] fm-live-9 - row 9 (done 2026-10-02)
+- [x] fm-live-8 - row 8 (done 2026-10-02)
+- [x] fm-live-7 - row 7 (done 2026-10-02)
+- [x] fm-live-6 - row 6 (done 2026-10-02)
+- [x] fm-live-5 - row 5 (done 2026-10-02)
+- [x] fm-live-4 - row 4 (done 2026-10-02)
+- [x] fm-live-3 - row 3 (done 2026-10-02)
+--- $ ls -la "/tmp/fm-lab.xQYDTa/data"  (done_keep=10 kept 10 Done rows; older rows archived)
+total 16
+drwxrwxr-x 2 jon jon 4096 Oct  2 11:01 .
+drwx------ 6 jon jon 4096 Oct  2 10:59 ..
+-rw-rw-r-- 1 jon jon  468 Oct  2 11:01 backlog.md
+-rw-rw-r-- 1 jon jon  132 Oct  2 11:01 done-archive.md
+--- $ head -5 "/tmp/fm-lab.xQYDTa/data/done-archive.md"
+
+## Archived 2026-10-02
+- [x] fm-live-1 - row 1 (done 2026-10-02)
+
+## Archived 2026-10-02
+done rows left in backlog.md: 10  (done_keep = 10)

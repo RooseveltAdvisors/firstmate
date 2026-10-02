@@ -1,0 +1,14 @@
+# Adversarial scenario: the carry never reverts a writer it does not own
+# Fixture: clone at 65e2aa4 with a post-merge hook that writes a different .tasks.toml during the ff-only merge window.
+$ FM_ROOT_OVERRIDE=$TMPU/home3 FM_HOME=$TMPU/home3 bash bin/fm-update.sh
+--- stdout:
+firstmate: updated 65e2aa4..3ad567b (instructions changed: AGENTS.md, bin, .agents/skills)
+no watches registered
+reread-firstmate: yes
+restart-secondmates: none
+nudge-secondmates: none
+--- stderr:
+--- home3 HEAD:
+3ad567b Merge remote-tracking branch 'origin/main' into HEAD
+LIVE WRITER'S FILE PRESERVED (data/live-writer.md)
+TASKS_CONFIG lines printed: 0 (must be 0: no removal happened)

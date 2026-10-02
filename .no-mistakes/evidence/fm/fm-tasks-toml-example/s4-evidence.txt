@@ -1,0 +1,4 @@
+=== Scenario: a home bootstrap cannot configure says so (TASKS_CONFIG) and never leaves a partial file ===
+$ chmod a-w /tmp/fm-lab.ZmXNtN && bin/fm-bootstrap.sh   # rc=0
+  1:TASKS_CONFIG: could not create /tmp/fm-lab.ZmXNtN/.tasks.toml from /home/jon/.no-mistakes/worktrees/2f32188048b1/01M3YCY0NQP4CJFHRJPRP8FK7V/bin/../.tasks.toml.example
+$ ls /tmp/fm-lab.ZmXNtN | grep tasks  -> 0 files (none expected)

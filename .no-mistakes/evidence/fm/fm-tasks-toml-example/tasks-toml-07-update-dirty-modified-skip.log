@@ -1,0 +1,12 @@
+# Adversarial scenario: a home that customized the file while TRACKED blocks the advance with an actionable reason
+# Fixture: clone reset to 65e2aa4 with 'done_keep = 42' appended to its tracked .tasks.toml; origin already at 3ad567b.
+$ FM_ROOT_OVERRIDE=$TMPU/home2 FM_HOME=$TMPU/home2 bash bin/fm-update.sh
+--- stdout:
+firstmate: skipped: dirty working tree: .tasks.toml is modified and still tracked here, and this update untracks it; copy it aside, run git -C /tmp/fm-upd.xzv6RU/home2 checkout -- .tasks.toml, update, then put your copy back
+reread-firstmate: no
+restart-secondmates: none
+nudge-secondmates: none
+--- stderr:
+--- home2 HEAD still: 
+65e2aa4 fix: reduce remote-job polling process churn (#6363)
+CUSTOM COPY PRESERVED (done_keep = 42 intact)

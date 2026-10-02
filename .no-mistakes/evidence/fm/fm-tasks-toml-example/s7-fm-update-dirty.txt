@@ -1,0 +1,4 @@
+firstmate: skipped: dirty working tree: .tasks.toml is modified and still tracked here, and this update untracks it; copy it aside, run git -C /tmp/fm-upd.ZfU0l0/main checkout -- .tasks.toml, update, then put your copy back
+reread-firstmate: no
+restart-secondmates: none
+nudge-secondmates: none

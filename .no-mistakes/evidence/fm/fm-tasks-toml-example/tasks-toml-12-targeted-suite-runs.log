@@ -1,0 +1,55 @@
+# Targeted suite runs (each drives the real bin/ scripts end to end in disposable fixture worlds)
+
+$ bash tests/fm-bootstrap.test.sh            -> exit 0, 36 ok
+ok - bootstrap reports treehouse lease + tasks-axi/quota-axi bootstrap contracts
+ok - bootstrap enforces tasks-axi minimum version
+ok - bootstrap keeps routine tasks-axi, harness, dispatch, and already-live liveness confirmations silent
+ok - bootstrap materializes .tasks.toml from the tracked example
+ok - bootstrap materializes .tasks.toml at a relocated data directory's parent
+ok - bootstrap readdresses .tasks.toml to a data directory under another name
+ok - bootstrap leaves a customized .tasks.toml byte-for-byte untouched
+ok - bootstrap never clobbers a .tasks.toml created during its own setup
+ok - an interrupted bootstrap removes its .tasks.toml temporary file
+ok - bootstrap reports an actionable line when it cannot create .tasks.toml
+ok - bootstrap: the tasks-axi compatibility verdict travels exactly one process hop
+
+$ bash tests/fm-update.test.sh               -> exit 0, 21 ok, # all fm-update tests passed
+ok - T1 main + secondmate fast-forward (single-parent), reread + restart signalled
+ok - T3 a non-instruction advance still restarts the live secondmate
+ok - T3b a bin/-only advance restarts the secondmate
+ok - T3c an unverifiable secondmate receives the fallback nudge
+ok - T3d an already-stopped secondmate is left to startup recovery
+ok - T3e a legacy remote advance still restarts the live remote mate
+ok - T3f a remote host's TASKS_CONFIG diagnostic reaches the operator
+ok - T3g a failed remote update reports its real reason and still surfaces TASKS_CONFIG
+ok - T4 dirty secondmate skipped, local edit preserved
+ok - T5 diverged secondmate is preserved and durably actionable
+ok - T5b squash-merged divergence heals and rejoins live convergence
+ok - T6 an already-current live secondmate is still restarted
+ok - T6b an already-current mate with an unprovable runtime is steered, not claimed as reloaded
+ok - T7 registry backstop resolves, dedups meta+registry, excludes the firstmate repo
+ok - T9 firstmate off its default branch is skipped, not forced
+ok - T10 firstmate detached HEAD is skipped
+ok - T11 unsafe secondmate home is not fast-forwarded
+ok - T12 a self-update rebinds a locally armed watch on the primary
+ok - T13 an existing .tasks.toml survives the advance that untracks it
+ok - T14 a secondmate home's .tasks.toml survives the advance that untracks it
+ok - T15 a live .tasks.toml writer is never reverted and no removal is claimed
+
+$ bash tests/fm-secondmate-sync.test.sh      -> exit 0, 35 ok, # all fm-secondmate-sync tests passed
+ok - T3b a modified tracked .tasks.toml is skipped with a reason that names it
+ok - T11b spawn surfaces a pre-launch sync that could not carry .tasks.toml
+ok - R1b a remote sync names exactly which instruction paths its advance changed
+ok - R1c a remote sync carries .tasks.toml and reports the home it could not carry
+
+$ bash tests/fm-tasks-axi.test.sh            -> exit 0, 9 ok (fixtures now copy $ROOT/.tasks.toml.example)
+ok - fm-tasks-axi.sh keeps the single-home layout addressing its own code-root backlog
+
+$ bash tests/fm-test-run.test.sh             -> exit 1 in THIS environment (documented, unrelated to the change):
+  - default locale (en_US.UTF-8): dies at 'portable shard union' because bin/fm-test-run.sh --check-coverage runs comm on LC_ALL=C-sorted files; comm under en_US.UTF-8 reports 'file 2 is not in sorted order' and the guard fails.
+    $ env LC_ALL=C bin/fm-test-run.sh --check-coverage -> exit 0: FM_TEST_COVERAGE ok total=243 parallel=24 parallel_max_ms=665545 parallel_imbalance_ms=2 parallel_unhinted=0 serial=203 serial_shards=9 serial_unhinted=2 serial_max_ms=1074843 serial_budget_ms=1200000 herdr=16
+  - under LC_ALL=C the suite runs 50 ok including the change's new test:
+ok - a fast-forward library change selects the families that actually cover it
+    then fails while EXECUTING tests/fm-session-lock-ancestry.test.sh (pty-host reparent assertion); that suite also fails standalone here:
+    $ bash tests/fm-session-lock-ancestry.test.sh -> exit 1: not ok - the fixture hook never finished
+    Neither the coverage-guard locale sensitivity nor session-lock ancestry touches anything this change modifies.

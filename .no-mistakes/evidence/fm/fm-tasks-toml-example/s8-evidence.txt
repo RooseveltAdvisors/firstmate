@@ -1,0 +1,11 @@
+=== Scenario: the carry never reverts a live writer and never claims a restore that did not happen ===
+$ # post-merge hook rewrites .tasks.toml during the advance window
+$ FM_HOME=/tmp/fm-upd.xhVw7g/main bin/fm-update.sh   # rc=0
+  firstmate: updated cf86c2e..0199082
+  reread-firstmate: no
+$ grep -c TASKS_CONFIG output -> 0  (0: no restore was claimed)
+$ cat main/.tasks.toml   (the hook's write survives)
+  backend = "markdown"
+  
+  [markdown]
+  path = "data/live-writer.md"

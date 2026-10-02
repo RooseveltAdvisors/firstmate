@@ -1,0 +1,20 @@
+=== Scenario: a relocated (renamed) data directory gets its config where tasks-axi reads it ===
+$ FM_DATA_OVERRIDE=/tmp/fm-reloc.OiinY0/backlog-store bin/fm-bootstrap.sh  # rc=0, silent (no TASKS_CONFIG)
+$ cat /tmp/fm-reloc.OiinY0/.tasks.toml   (at the data dir's parent, not FM_HOME)
+backend = "markdown"
+
+[markdown]
+path = "backlog-store/backlog.md"
+archive = "backlog-store/done-archive.md"
+done_keep = 10
+
+$ cd /tmp/fm-reloc.OiinY0 && (11x add/start/done --file backlog-store/backlog.md)
+$ ls /tmp/fm-reloc.OiinY0/backlog-store/
+backlog.md
+done-archive.md
+$ ls /tmp/fm-reloc.OiinY0/data 2>&1
+ls: cannot access '/tmp/fm-reloc.OiinY0/data': No such file or directory
+$ head backlog-store/done-archive.md
+
+## Archived 2026-10-02
+- [x] fm-reloc-1 - row 1 (done 2026-10-02)

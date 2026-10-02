@@ -1,0 +1,10 @@
+# Scenario: the remote sync lane splits protocol (stdout) from TASKS_CONFIG diagnostic (stderr)
+# Fixture: REM = standalone clone at 65e2aa4 with .fm-secondmate-home marker; driving the real host-side control script directly:
+$ FM_HOME=$TMPU/rem FM_ROOT_OVERRIDE=<worktree> bash bin/fm-remote-secondmate-control.sh sync sm1 3ad567b30e8a361e5f7d12f36fd8e24ea176163a
+--- stdout (parent protocol):
+synced: 3ad567b30e8a361e5f7d12f36fd8e24ea176163a instr=AGENTS.md,bin,.agents/skills
+--- stderr (diagnostic, separate by design):
+TASKS_CONFIG: restored /tmp/fm-upd.xzv6RU/rem/.tasks.toml, which the update removed
+--- rem HEAD:
+3ad567b Merge remote-tracking branch 'origin/main' into HEAD
+REM-PRESERVED-BYTE-IDENTICAL

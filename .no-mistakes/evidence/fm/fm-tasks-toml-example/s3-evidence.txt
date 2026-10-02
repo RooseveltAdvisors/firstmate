@@ -1,0 +1,13 @@
+=== Scenario: an existing customized .tasks.toml is never read or rewritten ===
+$ cat /tmp/fm-lab.NA23LP/.tasks.toml   (pre-seeded by the home's owner)
+backend = "markdown"
+
+[markdown]
+path = "data/other.md"
+archive = "data/other-archive.md"
+done_keep = 3
+
+$ bin/fm-session-start.sh  -> rc=0 (digest in evidence file)
+$ cmp /tmp/fm-lab.NA23LP/.tasks.toml <saved copy>
+identical (exit 0)
+$ grep TASKS_CONFIG digest -> 0 lines

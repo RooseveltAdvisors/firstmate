@@ -1,0 +1,7 @@
+firstmate: already current
+TASKS_CONFIG: restored /tmp/fm-rem.EZeo6a/rcoderoot/.tasks.toml, which the update removed
+TASKS_CONFIG: restored /tmp/fm-rem.EZeo6a/rhome/.tasks.toml, which the update removed
+remote secondmate sm1: updated on fmrem (93b3764ba8ba5bcd3d3052f71bf37dae5eb56bd3)
+reread-firstmate: no
+restart-secondmates: none
+nudge-secondmates: none

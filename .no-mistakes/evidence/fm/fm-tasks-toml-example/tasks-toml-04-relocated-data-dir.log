@@ -1,0 +1,41 @@
+# Scenario: a relocated data directory gets the config at its canonical parent, readdressed, and tasks-axi honors it
+$ CASE=$(mktemp -d ...); mkdir -p $CASE/backlog-store; FM_HOME=$LAB2 FM_DATA_OVERRIDE=$CASE/backlog-store bash bin/fm-bootstrap.sh
+(exit 0)
+PRESENTATION_UNAVAILABLE: lavish-axi (requires >=0.1.77; install: npm install -g lavish-axi && lavish-axi setup hooks) - nonvisual work may proceed with plain-text decisions and reports; install or upgrade before using Lavish
+--- $ ls -la $CASE $LAB2   # config at the data parent, NOT at FM_HOME
+/tmp/fm-lab.gu8rwi:
+total 4796
+drwx------     6 jon  jon     4096 Oct  2 11:01 .
+drwxrwxrwt 44293 root root 4870144 Oct  2 11:27 ..
+drwxrwxr-x     2 jon  jon     4096 Oct  2 11:01 config
+drwxrwxr-x     2 jon  jon     4096 Oct  2 11:01 data
+-rw-rw-r--     1 jon  jon       15 Oct  2 11:01 .fm-lab-home
+drwxrwxr-x     2 jon  jon     4096 Oct  2 11:01 projects
+drwxrwxr-x     2 jon  jon     4096 Oct  2 11:01 state
+
+/tmp/fm-reloc.MB5aT6:
+total 4784
+drwx------     3 jon  jon     4096 Oct  2 11:01 .
+drwxrwxrwt 44293 root root 4870144 Oct  2 11:27 ..
+drwxrwxr-x     2 jon  jon     4096 Oct  2 11:02 backlog-store
+-rw-------     1 jon  jon      124 Oct  2 11:01 .tasks.toml
+--- $ cat $CASE/.tasks.toml
+backend = "markdown"
+
+[markdown]
+path = "backlog-store/backlog.md"
+archive = "backlog-store/done-archive.md"
+done_keep = 10
+--- 12x: FM_HOME=$LAB2 FM_DATA_OVERRIDE=$CASE/backlog-store bin/fm-tasks-axi.sh add/start/done fm-reloc-$i
+--- $ ls -la $CASE/backlog-store
+total 16
+drwxrwxr-x 2 jon jon 4096 Oct  2 11:02 .
+drwx------ 3 jon jon 4096 Oct  2 11:01 ..
+-rw-rw-r-- 1 jon jon  525 Oct  2 11:02 backlog.md
+-rw-rw-r-- 1 jon jon  134 Oct  2 11:02 done-archive.md
+done rows kept in backlog: 10 (done_keep=10)
+sibling $CASE/data dir: absent-good
+--- bare tasks-axi run from the root consumes the generated config (docs contract):
+$ cd $CASE && tasks-axi add fm-bare-probe probe   # row landed in backlog-store/backlog.md, root/backlog.md not created
+root/backlog.md: not-created-good; fm-bare-probe in store: 1
+--- contrast: same bare run in a root WITHOUT .tasks.toml uses tasks-axi built-in defaults (row lands in ./backlog.md): confirmed in this run (scratch dir probe created ./backlog.md + ./done-archive.md).

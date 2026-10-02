@@ -1,0 +1,20 @@
+=== Scenario: materialized .tasks.toml is consumed by the real tasks-axi ===
+$ cat /tmp/fm-lab.jSayaW/.tasks.toml
+backend = "markdown"
+
+[markdown]
+path = "data/backlog.md"
+archive = "data/done-archive.md"
+done_keep = 10
+
+$ cd /tmp/fm-lab.jSayaW && (11x: tasks-axi add/start/done fm-live-N --file data/backlog.md)
+$ ls /tmp/fm-lab.jSayaW/data/
+backlog.md
+done-archive.md
+
+$ grep -c 'fm-live-' /tmp/fm-lab.jSayaW/data/backlog.md   # done rows kept per done_keep=10
+10
+$ cat /tmp/fm-lab.jSayaW/data/done-archive.md   # 11th done row archived via configured archive path
+
+## Archived 2026-10-02
+- [x] fm-live-1 - row 1 (done 2026-10-02)
