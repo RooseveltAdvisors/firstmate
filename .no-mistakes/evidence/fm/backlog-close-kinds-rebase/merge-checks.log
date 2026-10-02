@@ -1,0 +1,27 @@
+$ git rev-parse origin/main
+8690c4117a298ee870f0f72f571c72b846b4c5fb
+
+$ git rev-parse 83df4d1d (PR head) and its parents
+83df4d1d978cfdf73b6bdc1c33843dd1bd4e7731 67c3df3a3ba2b983a7b1d9adbb8e2c8f5ea3cb88 8690c4117a298ee870f0f72f571c72b846b4c5fb Merge remote-tracking branch 'origin/main' into fm/backlog-close-kinds-rebase
+
+$ git merge-base --is-ancestor <upstream-main> <head>  # conflict-free: main fully contained
+rc=0 upstream main IS an ancestor of the PR head
+
+$ git merge-tree --write-tree <head> <upstream-main>  # GitHub-style clean merge
+c7e3b7d6ab648555aa6f3086d676e74342873fdf
+rc=0
+
+$ git merge-base --is-ancestor <published anchor 67c3df3a> <head>  # no history rewrite
+rc=0 anchor is an ancestor: published commits preserved, no force-push shape
+
+$ git grep conflict markers in PR head tree
+rc=1 (1 = no conflict markers anywhere in the tree)
+
+$ git diff <upstream-main> <head> --stat  # the PR delta vs main
+ bin/fm-backlog-transition-lib.sh   | 320 ++++++++++++++++++++++++++++---------
+ bin/fm-captain-hold.sh             |  49 ++++--
+ bin/fm-lint.sh                     |  10 +-
+ docs/captain-hold-lifecycle.md     |   4 +-
+ tests/fm-backlog-atomicity.test.sh | 275 +++++++++++++++++++++++++++++++
+ tests/fm-lint.test.sh              |   8 +-
+ 6 files changed, 576 insertions(+), 90 deletions(-)

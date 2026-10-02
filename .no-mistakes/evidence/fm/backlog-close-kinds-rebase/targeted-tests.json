@@ -1,0 +1,55 @@
+{
+  "families": [
+    {
+      "count": 2,
+      "duration_ms": 786045,
+      "failed": 0,
+      "name": "pure-contract-unit"
+    },
+    {
+      "count": 1,
+      "duration_ms": 272306,
+      "failed": 0,
+      "name": "session-bootstrap"
+    }
+  ],
+  "finished_at": "2026-10-02T04:40:40Z",
+  "run_id": "fm-test-run-1790915153550-3953305",
+  "scripts": [
+    {
+      "duration_ms": 171583,
+      "exit": 0,
+      "expected_gate_skip": "none",
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "gate_skip_reason": "",
+      "path": "tests/fm-lint.test.sh"
+    },
+    {
+      "duration_ms": 614462,
+      "exit": 0,
+      "expected_gate_skip": "none",
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "gate_skip_reason": "",
+      "path": "tests/fm-captain-hold-lifecycle.test.sh"
+    },
+    {
+      "duration_ms": 272306,
+      "exit": 0,
+      "expected_gate_skip": "none",
+      "family": "session-bootstrap",
+      "gate_skip": false,
+      "gate_skip_reason": "",
+      "path": "tests/fm-backlog-atomicity.test.sh"
+    }
+  ],
+  "selection": "scripts;jobs=4",
+  "started_at": "2026-10-02T04:25:53Z",
+  "summary": {
+    "duration_ms": 886885,
+    "failed": 0,
+    "skipped_gate": 0,
+    "total": 3
+  }
+}

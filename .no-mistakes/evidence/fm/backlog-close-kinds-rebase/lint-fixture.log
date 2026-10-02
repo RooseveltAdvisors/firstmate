@@ -1,0 +1,11 @@
+=== A: production bin/ script hides a beads call behind sudo
+rc=1
+bin/direct-beads.sh:2: direct Beads CLI invocation bypasses tasks-axi
+=== B: same hidden beads call, but only in tests/ (out of scope by design)
+rc=0 (0 = test fixtures exempt)
+0
+=== C: production bin/ script hides a beads call behind timeout
+rc=1
+bin/direct-beads.sh:2: direct Beads CLI invocation bypasses tasks-axi
+=== D: clean fixture passes
+rc=0

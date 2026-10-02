@@ -1,0 +1,55 @@
+
+=== 1. captain-hold: hold then answer a plain backlog task
+PASS: added hold-demo
+PASS: hold placed
+held=yes
+PASS: empty decision refused (rc=1): fm-captain-hold: decision file must not be empty
+PASS: answer closed the task
+PASS: row state is done
+PASS: closed row records the answered: reason
+exact retry rc=0
+PASS: exact retry of the answered close is idempotent
+PASS: changed decision after the close refused, row stays done
+
+=== 2. fm_backlog_done: done-class reasons accepted, junk refused
+PASS: reason accepted, row done: --pr https://github.com/o/r/pull/42
+PASS: reason accepted, row done: --note local main
+PASS: reason accepted, row done: --report data/c-report/report.md
+PASS: reason accepted, row done: --note superseded by c-pr
+PASS: reason accepted, row done: --note cancelled: the captain called it off
+PASS: reason accepted, row done: --note answered: the captain said ship it
+PASS: captain word persisted in the backlog
+
+=== 2b. junk reasons refused with the row untouched
+PASS: refused, row untouched: --note 'Closed'
+PASS: refused, row untouched: --note 'done'
+PASS: refused, row untouched: --note ''
+PASS: refused, row untouched: --note 'superseded by '
+PASS: refused, row untouched: --note 'cancelled: '
+PASS: refused, row untouched: --note 'answered: '
+PASS: refused, row untouched: --note 'local main and more'
+PASS: non-reason flag --keep refused
+PASS: refusal names the rule and accepted reasons
+PASS: row still closable after refusals
+
+=== 2c. project-work worker-record guard (adversarial)
+PASS: project ship with no worker record refused, naming the gap
+PASS: unworked scout refused against a report
+PASS: captain word overrides the guard and is recorded on the row
+PASS: blank captain word refused
+PASS: project work with a live worker record closes
+
+=== 2d. Gerrit change URL lands as the row note
+PASS: Gerrit --pr reason accepted and recorded as a note
+
+=== 3. staged marker: writer then validator
+PASS: staged --note local%20main: staged record accepted by the validator
+PASS: staged --pr landing URL: staged record accepted by the validator
+PASS: staged --report: staged record accepted by the validator
+PASS: staged zero args: staged record accepted by the validator
+PASS: staged superseded note (decode would rewrite it): rejected (rc=2)
+PASS: staged cancelled note (decode would rewrite it): rejected (rc=2)
+PASS: staged raw 'local main' via real writer (encoded on write): staged record accepted by the validator
+PASS: hand-written raw-spelling marker rejected (rc=1)
+
+RESULT: ALL-PASS
