@@ -3,6 +3,7 @@
 #
 # Usage:
 #   fm-herdr-recovery.sh [--home <FM_HOME>] [--dry-run] [--max-rounds N]
+#                        [--approve-prompts]
 #   fm-herdr-recovery.sh --help
 #
 # After a Herdr server or firstmate harness update restart, every live codex
@@ -11,7 +12,10 @@
 # home's recorded seats (state/<id>.meta with backend=herdr), reads each pane's
 # live agent_status, and for blocked codex seats accepts the directory trust
 # dialog and approves only prompts whose visible command matches a bounded
-# recovery-read allowlist. One round is one prompt read plus at most one Enter;
+# recovery-read allowlist. Answering a gate is the operator's explicit grant:
+# without --approve-prompts (scoped to this one sweep invocation) every
+# classified trust or approval prompt is preserved and reported needs-human,
+# and no Enter is ever sent. One round is one prompt read plus at most one Enter;
 # --max-rounds (default 5) caps both the rounds and the total Enters per seat.
 # The tool only ever sends Enter (which accepts the highlighted first option);
 # it never types 'p' (don't-ask-again), never answers a prompt it cannot
@@ -24,11 +28,14 @@
 #   idle/done      report only; a healthy idle persistent seat is never relaunched.
 #   blocked        codex trust/approval recovery loop.
 #   other          report only.
-#   no pane        report only.
+#   no pane        needs-human (an unresolved dead seat is never a success).
 #   unverifiable   metadata lacks a provable herdr seat binding; report only, never touched.
 #
-# Prompt classification (fail closed; every unclassified prompt is needs-human):
-#   trust      "Do you trust the contents of this directory?" (live-verified on
+# Prompt classification reads the pane's visible viewport only (never its
+# scrollback), and fails closed; every unclassified prompt is needs-human:
+#   trust      the complete trust dialog: "Do you trust the contents of this
+#              directory?" followed by exactly the numbered options
+#              "1. Yes, continue" and "2. No, quit" (live-verified on
 #              codex-cli 0.153.4 over herdr 0.9.0). Add patterns only with the
 #              same quality of live evidence; an unverified pattern is a
 #              blind-Enter risk.
@@ -68,7 +75,8 @@
 # Output: one line per seat (seat, harness, pane, before/after state, Enters
 # sent, verdict) plus a summary line. Exit codes: 0 all seats resolved or
 # reported no-action; 1 usage or environment error; 2 at least one seat is
-# needs-human (unrecognized or refused prompt, round cap, unverifiable metadata).
+# needs-human (unrecognized, refused, or preserved prompt, round cap, missing
+# pane, unverifiable metadata).
 #
 # Tunables (environment): FM_HERDR_RECOVERY_SETTLE seconds between polls after
 # an Enter (default 1) and FM_HERDR_RECOVERY_WAIT total seconds to wait for a
@@ -82,6 +90,7 @@ FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 
 DRY_RUN=0
+APPROVE_PROMPTS=0
 MAX_ROUNDS=5
 FM_HERDR_RECOVERY_SETTLE="${FM_HERDR_RECOVERY_SETTLE:-1}"
 FM_HERDR_RECOVERY_WAIT="${FM_HERDR_RECOVERY_WAIT:-5}"
@@ -143,8 +152,10 @@ fm_reco_pane_status() { # <session> <pane>
   printf '%s' "$out" | jq -r '.result.pane.agent_status' 2>/dev/null
 }
 
+# The visible viewport only: a stale dialog left in scrollback must never be
+# what a classification (and so an Enter) is based on.
 fm_reco_prompt() { # <session> <pane>
-  fm_reco_herdr "$1" pane read "$2" --lines 40 2>/dev/null
+  fm_reco_herdr "$1" pane read "$2" --source visible 2>/dev/null
 }
 
 fm_reco_send_enter() { # <session> <pane>
@@ -847,7 +858,7 @@ fm_reco_command_allowed() { # <command-text> <home>
 # fm_reco_classify_prompt <prompt> <home> -> one of:
 #   trust | approve | refuse:<reason> | unknown
 fm_reco_classify_prompt() { # <prompt> <home>
-  local prompt=$1 home=$2 qline qno cands rest text verdict
+  local prompt=$1 home=$2 qline qno cands rest text verdict opts
   # The first question line, never a numbered option line carrying the same
   # words, so later lines bearing the phrase stay inside the screened block.
   qline=$(printf '%s\n' "$prompt" \
@@ -885,9 +896,19 @@ fm_reco_classify_prompt() { # <prompt> <home>
     esac
     return 0
   fi
-  if printf '%s\n' "$prompt" | grep -qiF 'Do you trust the contents of this directory?'; then
-    printf 'trust'
-    return 0
+  # The whole trust dialog shape: the question line, then exactly its two
+  # numbered options and no other, so a stale trust phrase beside some other
+  # dialog never reads as the trust prompt.
+  qno=$(printf '%s\n' "$prompt" | grep -niF 'Do you trust the contents of this directory?' | head -1) || qno=
+  if [ -n "$qno" ]; then
+    qno=${qno%%:*}
+    opts=$(printf '%s\n' "$prompt" | grep -E '^[^a-zA-Z0-9]*[0-9]+[.)]' \
+      | sed -E 's/^[^a-zA-Z0-9]*//; s/[[:space:]]+$//')
+    rest=$(printf '%s\n' "$prompt" | grep -nE '^[^a-zA-Z0-9]*[0-9]+[.)]' | head -1)
+    if [ "$opts" = "1. Yes, continue"$'\n'"2. No, quit" ] && [ "${rest%%:*}" -gt "$qno" ]; then
+      printf 'trust'
+      return 0
+    fi
   fi
   printf 'unknown'
 }
@@ -957,6 +978,13 @@ fm_reco_recover_seat() { # <session> <pane>
         return 0
         ;;
     esac
+    # Accepting a gate needs the operator's per-invocation grant; without it
+    # the classified prompt stays up for explicit handling.
+    if [ "$APPROVE_PROMPTS" -ne 1 ]; then
+      FM_RECO_AFTER=blocked
+      FM_RECO_VERDICT="needs-human:$verdict prompt preserved (rerun with --approve-prompts to accept it)"
+      return 0
+    fi
     round=$((round + 1))
     if [ "$DRY_RUN" -eq 1 ]; then
       FM_RECO_ENTERS=$((FM_RECO_ENTERS + 1))
@@ -1008,6 +1036,10 @@ fm_reco_main() {
         ;;
       --dry-run)
         DRY_RUN=1
+        shift
+        ;;
+      --approve-prompts)
+        APPROVE_PROMPTS=1
         shift
         ;;
       --max-rounds)
@@ -1078,8 +1110,8 @@ fm_reco_main() {
     local seat_status
     seat_status=$(awk -F'\t' -v pane="$pane" '$1 == pane { print $2; exit }' "$FM_RECO_STATUSES")
     if [ -z "$seat_status" ]; then
-      no_action=$((no_action + 1))
-      printf 'seat %s harness=%s pane=%s before=- after=- enters=0 no-pane\n' "$id" "${harness:-none}" "$window"
+      needs_human=$((needs_human + 1))
+      printf 'seat %s harness=%s pane=%s before=- after=- enters=0 needs-human:no-pane\n' "$id" "${harness:-none}" "$window"
       continue
     fi
     case "$seat_status" in

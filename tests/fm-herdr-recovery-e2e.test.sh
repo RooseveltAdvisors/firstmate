@@ -109,7 +109,7 @@ printf 'recovery instruction for the e2e seat\n' > "$HOME_DIR/state/fm-e2e-b.inb
 # same pane-first order every other real-herdr test uses. Report errors are
 # logged per seat so a future regression names its cause.
 # The screen and its scrollback are cleared before the dialog is rendered: the
-# recovery tool screens the whole 40-line pane read, and the pane's own shell
+# recovery tool screens the whole visible viewport, and the pane's own shell
 # echoes the launching "bash <seat script>" line behind a "$ " prompt on a
 # runner whose PS1 is the bare default (observed on CI, not on a developer
 # shell with a themed prompt). That echoed line is a "$"-prefixed command
@@ -190,7 +190,7 @@ done
 # the recovery from inside the home.
 OUT=$(cd "$HOME_DIR" && env -u FM_HOME -u FM_STATE_OVERRIDE \
   PATH="$FAKEBIN:$HERDR_ORIGINAL_PATH" \
-  bash "$ROOT/bin/fm-herdr-recovery.sh" --home "$HOME_DIR")
+  bash "$ROOT/bin/fm-herdr-recovery.sh" --home "$HOME_DIR" --approve-prompts)
 RC=$?
 printf '%s\n' "$OUT"
 # The tool classifies exactly what the pane renders, so a verdict this test did
@@ -202,7 +202,7 @@ dump_panes() {
     pane=$(sed -n 's/^herdr_pane_id=//p' "$HOME_DIR/state/$id.meta" 2>/dev/null)
     [ -n "$pane" ] || continue
     printf '\n--- pane read: %s (%s) ---\n' "$id" "$pane"
-    lab pane read "$pane" --lines 40 2>&1 || true
+    lab pane read "$pane" --source visible 2>&1 || true
   done
 }
 [ "$RC" -eq 0 ] || fail "recovery run exited $RC, expected 0$(dump_panes)"

