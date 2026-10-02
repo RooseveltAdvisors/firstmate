@@ -134,7 +134,11 @@ fm_reco_pane_statuses() { # <session> -> "pane<TAB>status" lines
 fm_reco_pane_status() { # <session> <pane>
   local out
   out=$(fm_reco_herdr "$1" pane get "$2" 2>/dev/null) || return 1
-  printf '%s' "$out" | jq -r '.result.pane.agent_status // "none"' 2>/dev/null
+  # A pane get without a non-empty agent_status string is an output-shape
+  # drift, never an authoritative status: fail closed instead of fabricating
+  # one for the verdicts to read.
+  printf '%s' "$out" | jq -e '.result.pane.agent_status | (type == "string" and length > 0)' >/dev/null 2>&1 || return 1
+  printf '%s' "$out" | jq -r '.result.pane.agent_status' 2>/dev/null
 }
 
 fm_reco_prompt() { # <session> <pane>
@@ -361,13 +365,35 @@ fm_reco_relative_token_ok() { # <token> <resolved-home>
   return 1
 }
 
+# fm_reco_program_slot: verdict for one inline sed/awk program token - the
+# first positional or a -e value. 'refuse' means the shell would expand the
+# token before the tool ever runs it, so the payload is not the text on
+# screen; 'open' means a single-quoted literal whose closing quote lands in a
+# later token; anything else is a plain inline literal.
+fm_reco_program_slot() { # <raw-token>
+  case "$1" in
+    \'*)
+      case "${1#\'}" in
+        *"'"*) printf 'ok' ;;
+        *) printf 'open' ;;
+      esac
+      ;;
+    *'$'*|*\\*) printf 'refuse' ;;
+    *) printf 'ok' ;;
+  esac
+}
+
 # fm_reco_relative_ok: positional file tokens of the file-consuming heads
 # (cat/ls/head/tail/wc/sort/uniq/find fully; sed/awk/grep/rg after their
 # script or pattern positional; grep/rg -f values) must pass
 # fm_reco_relative_token_ok, so an unverifiable relative read is needs-manual
-# instead of blind-approved.
+# instead of blind-approved. A sed/awk program token must be an inline
+# literal the shell will not expand, or the program text this screen sees is
+# not the text that runs; and an ls/rg/find segment must carry a verified
+# positional path, because with none its operand is the pane's cwd, which is
+# never fetched.
 fm_reco_relative_ok() { # <line> <resolved-home>
-  local seg head tok home seen_special used_e expect_val check_next
+  local seg head tok raw home seen_special used_e expect_val expect_prog check_next in_single saw_pos
   home=$(readlink -f -- "$2" 2>/dev/null) || return 1
   local -a toks
   while IFS= read -r seg; do
@@ -379,14 +405,31 @@ fm_reco_relative_ok() { # <line> <resolved-home>
     esac
     used_e=0
     expect_val=0
+    expect_prog=0
     check_next=0
+    in_single=0
+    saw_pos=0
     read -ra toks <<< "$seg" || return 1
     for tok in "${toks[@]:1}"; do
+      raw=$tok
       tok=${tok//\'/}
       tok=${tok//\"/}
       [ -n "$tok" ] || continue
+      if [ "$in_single" -eq 1 ]; then
+        case "$raw" in
+          *"'"*) in_single=0 ;;
+        esac
+        continue
+      fi
       if [ "$expect_val" -eq 1 ]; then
         expect_val=0
+        if [ "$expect_prog" -eq 1 ]; then
+          expect_prog=0
+          case "$(fm_reco_program_slot "$raw")" in
+            refuse) return 1 ;;
+            open) in_single=1 ;;
+          esac
+        fi
         continue
       fi
       if [ "$check_next" -eq 1 ]; then
@@ -397,9 +440,6 @@ fm_reco_relative_ok() { # <line> <resolved-home>
       case "$tok" in
         '>'|'<'|'1>'|'2>') continue ;;
       esac
-      case "$head:$tok" in
-        awk:\$*) continue ;;
-      esac
       case "$tok" in
         -*)
           if [ "$head" = grep ] || [ "$head" = rg ]; then
@@ -409,7 +449,7 @@ fm_reco_relative_ok() { # <line> <resolved-home>
             esac
           fi
           case "$head:$tok" in
-            sed:-e) expect_val=1; used_e=1 ;;
+            sed:-e) expect_val=1; used_e=1; expect_prog=1 ;;
             awk:-F|awk:-v) expect_val=1 ;;
             find:-name|find:-iname|find:-lname|find:-path|find:-ipath|find:-regex|find:-iregex|find:-type|find:-maxdepth|find:-mindepth|find:-mtime|find:-mmin|find:-size) expect_val=1 ;;
             grep:-A|grep:-B|grep:-C|grep:-e|grep:-m) expect_val=1; case "$tok" in -e) used_e=1 ;; esac ;;
@@ -419,7 +459,6 @@ fm_reco_relative_ok() { # <line> <resolved-home>
             head:-n|head:-c|tail:-n|tail:-c) expect_val=1 ;;
             sort:-k|sort:-t|sort:-S|sort:-T) expect_val=1 ;;
             uniq:-f|uniq:-s|uniq:-w) expect_val=1 ;;
-            grep:-f*|rg:-f*) return 1 ;;
             grep:--*|rg:--*|wc:--*) return 1 ;;
           esac
           continue
@@ -427,10 +466,27 @@ fm_reco_relative_ok() { # <line> <resolved-home>
       esac
       if [ "$seen_special" -eq 0 ] && [ "$used_e" -eq 0 ]; then
         seen_special=1
+        case "$head" in
+          sed|awk)
+            case "$(fm_reco_program_slot "$raw")" in
+              refuse) return 1 ;;
+              open) in_single=1 ;;
+            esac
+            ;;
+        esac
         continue
       fi
       fm_reco_relative_token_ok "$tok" "$home" || return 1
+      case "$tok" in
+        /dev/null) ;;
+        *) saw_pos=1 ;;
+      esac
     done
+    case "$head" in
+      ls|find|rg)
+        [ "$saw_pos" -eq 1 ] || return 1
+        ;;
+    esac
   done < <(fm_reco_segments "$1")
   return 0
 }
@@ -455,6 +511,12 @@ fm_reco_command_allowed() { # <command-text> <home>
         return 0
         ;;
     esac
+    # Drop whole-token fd-duplication redirections (2>&1 and friends) before
+    # any screen sees the line: the whitelist admits them, and the segment
+    # printer would otherwise split on their '&'. Only a whitespace-delimited
+    # token that is exactly digits-over-digits is dropped, so a word merely
+    # ending in digits before a redirect keeps its text for every screen.
+    line=$(printf '%s\n' "$line" | awk '{ out = ""; for (i = 1; i <= NF; i++) if ($i !~ /^[0-9]*>&[0-9]+$/) out = out (out == "" ? "" : " ") $i; print out }')
     red=$(printf '%s' "$line" | grep -oE '>[[:space:]]*[^[:space:]]+' | grep -vE '^>[[:space:]]*(/dev/null|&1|&2)$') || red=
     if [ -n "$red" ]; then
       printf 'refuse:command writes with a redirect'
@@ -576,7 +638,16 @@ fm_reco_recover_seat() { # <session> <pane>
     fi
     case "$status" in
       blocked) ;;
-      *) FM_RECO_AFTER=$status; FM_RECO_VERDICT=recovered; return 0 ;;
+      working|idle|done)
+        FM_RECO_AFTER=$status
+        FM_RECO_VERDICT=recovered
+        return 0
+        ;;
+      *)
+        FM_RECO_AFTER=$status
+        FM_RECO_VERDICT="needs-human:pane status $status is not auto-recoverable"
+        return 0
+        ;;
     esac
     prompt=$(fm_reco_prompt "$session" "$pane")
     verdict=$(fm_reco_classify_prompt "$prompt" "$FM_HOME")
@@ -618,11 +689,17 @@ fm_reco_recover_seat() { # <session> <pane>
     return 0
   fi
   FM_RECO_AFTER=$status
-  if [ "$status" = blocked ]; then
-    FM_RECO_VERDICT="needs-human:round cap ($MAX_ROUNDS) reached with the seat still blocked"
-  else
-    FM_RECO_VERDICT=recovered
-  fi
+  case "$status" in
+    blocked)
+      FM_RECO_VERDICT="needs-human:round cap ($MAX_ROUNDS) reached with the seat still blocked"
+      ;;
+    working|idle|done)
+      FM_RECO_VERDICT=recovered
+      ;;
+    *)
+      FM_RECO_VERDICT="needs-human:pane status $status is not auto-recoverable"
+      ;;
+  esac
   return 0
 }
 

@@ -65,6 +65,10 @@ case "$sub $op" in
     ;;
   'pane get')
     [ -f "$(pane_file "$pane.getfail")" ] && exit 4
+    if [ -f "$(pane_file "$pane.getdrift")" ]; then
+      printf '%s\n' '{"id":"cli:pane:get","result":{}}'
+      exit 0
+    fi
     [ -f "$(pane_file "$pane.status")" ] || exit 4
     printf '{"id":"cli:pane:get","result":{"pane":{"pane_id":"%s","agent_status":"%s"}}}\n' \
       "$pane" "$(cat "$(pane_file "$pane.status")")"
@@ -449,6 +453,102 @@ EOF
 > 1. Yes, proceed (y)
   3. No (esc)
 EOF
+  cat > "$prompts/deny-awk-indirect" <<EOF
+  Would you like to run the following command?
+
+  awk "\$P" $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-awk-var-operand" <<EOF
+  Would you like to run the following command?
+
+  awk '{print}' "\$P" $ROOT/state/rows.txt
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-sed-indirect" <<EOF
+  Would you like to run the following command?
+
+  sed "\$S" $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-sed-e-indirect" <<EOF
+  Would you like to run the following command?
+
+  sed -e "\$S" $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-sed-dollar-literal" <<EOF
+  Would you like to run the following command?
+
+  sed '\$d' $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-awk-field" <<EOF
+  Would you like to run the following command?
+
+  awk '{print \$1}' $ROOT/state/rows.txt
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-pathless-ls" <<EOF
+  Would you like to run the following command?
+
+  ls
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-pathless-rg" <<EOF
+  Would you like to run the following command?
+
+  rg TODO
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-pathless-find" <<EOF
+  Would you like to run the following command?
+
+  find -name '*.msg'
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-ls-path" <<EOF
+  Would you like to run the following command?
+
+  ls $ROOT/state
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-fd-dup" <<EOF
+  Would you like to run the following command?
+
+  grep -n msg $ROOT/state/x.md 2>&1
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-fd-dup-devnull" <<EOF
+  Would you like to run the following command?
+
+  cat $ROOT/state/fm-x.inbox/001.msg > /dev/null 2>&1
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
   cat > "$prompts/deny-sed-attached" <<EOF
   Would you like to run the following command?
 
@@ -810,6 +910,18 @@ EOF
   classify deny-interior-option 'refuse:command reaches a path outside this home' 'classifier screens lines after an interior option-shaped line'
   classify deny-trailing-command 'refuse:command reaches a path outside this home' 'classifier screens a command line after the options'
   classify allow-rg-short 'approve' 'classifier approves an rg short-flag read'
+  classify deny-awk-indirect 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an indirect awk program slot'
+  classify deny-awk-var-operand 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an indirect awk operand after a literal program'
+  classify deny-sed-indirect 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an indirect sed program slot'
+  classify deny-sed-e-indirect 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an indirect sed -e value'
+  classify allow-sed-dollar-literal 'approve' 'classifier approves a single-quoted sed dollar-address read'
+  classify allow-awk-field 'approve' 'classifier approves a single-quoted awk field read'
+  classify deny-pathless-ls 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a pathless ls over the pane cwd'
+  classify deny-pathless-rg 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a pathless rg over the pane cwd'
+  classify deny-pathless-find 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a pathless find over the pane cwd'
+  classify allow-ls-path 'approve' 'classifier approves an ls with a verified path'
+  classify allow-fd-dup 'approve' 'classifier approves a read with a trailing fd-duplication redirect'
+  classify allow-fd-dup-devnull 'approve' 'classifier approves a read with fd-duplication next to /dev/null'
   classify unknown 'unknown' 'classifier fails closed on an unrecognized prompt'
   ROOT=$saved_root
 }
@@ -928,6 +1040,37 @@ test_status_read_failure() {
   assert_contains "$out" 'needs-human:pane status could not be read' \
     "an unreadable pane status is never labeled recovered"
   [ ! -f "$FIXTURE/panes/w1:pt-getfail.sends" ] || fail "an unreadable-status seat must never receive Enter"
+}
+
+test_status_unknown_after_enter() {
+  reco_fixture_init
+  local home=$TMP_ROOT/home
+  write_shared_prompts "$home"
+  reco_add_pane w1:pt-unk blocked "$TRUST_PROMPT"
+  printf 'status:unknown\n' > "$FIXTURE/panes/w1:pt-unk.queue"
+  reco_add_meta "$home" t-unk codex
+  local out rc
+  out=$(reco_run "$home"); rc=$?
+  expect_code 2 "$rc" "an unknown post-Enter status run exits 2"
+  assert_contains "$out" 'seat t-unk harness=codex pane='"$FIXTURE_SESSION"':w1:pt-unk before=blocked after=unknown enters=1 needs-human:pane status unknown is not auto-recoverable' \
+    "an unknown post-Enter status is needs-human, never recovered"
+  assert_contains "$out" 'summary: seats=1 recovered=0 needs-human=1 no-action=0' \
+    "the unknown seat is not counted as recovered"
+}
+
+test_pane_get_shape_drift() {
+  reco_fixture_init
+  local home=$TMP_ROOT/home
+  write_shared_prompts "$home"
+  reco_add_pane w1:pt-gdrift blocked "$TRUST_PROMPT"
+  reco_add_meta "$home" t-gdrift codex
+  touch "$FIXTURE/panes/w1:pt-gdrift.getdrift"
+  local out rc
+  out=$(reco_run "$home"); rc=$?
+  expect_code 2 "$rc" "pane-get shape drift exits 2"
+  assert_contains "$out" 'needs-human:pane status could not be read' \
+    "a drifted pane get is never labeled recovered"
+  [ ! -f "$FIXTURE/panes/w1:pt-gdrift.sends" ] || fail "shape drift must never reach the seat"
 }
 
 test_ambiguous_backend_meta() {
@@ -1113,6 +1256,8 @@ unit_classifier
 test_inventory_classification
 test_duplicate_meta_key
 test_status_read_failure
+test_status_unknown_after_enter
+test_pane_get_shape_drift
 test_ambiguous_backend_meta
 test_pane_list_shape_drift
 test_symlink_escape
