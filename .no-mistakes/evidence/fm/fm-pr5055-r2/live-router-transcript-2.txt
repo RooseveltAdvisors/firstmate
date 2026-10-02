@@ -1,0 +1,26 @@
+### S6b low-confidence (0.4) route handled direct, nothing sent
+
+$ bin/fm-route-dispatch.sh --task a vague request --json --execute
+{
+  "action": "handle_direct",
+  "route": "captain_direct",
+  "confidence": 0.4,
+  "needs_new_noul": 0.1,
+  "probabilities": {},
+  "reason": "route confidence 0.400 below 0.7 for seller-outreach"
+}
+[exit 0]
+inbox msgs before=3 after=3
+### S12 secondmate id on never-send list -> unavailable, no Jev request
+
+$ bin/fm-route-dispatch.sh --task seller leads --execute
+=== Jev Front-Door Router ===
+Action:     unavailable
+Route:      captain_direct
+Confidence: 0
+New Domain: 0
+=============================
+Status: Router unavailable (secondmate id portal-ops matches the never-send list; nothing sent). Falling back to Firstmate direct handling.
+[exit 0]
+requests before=9 after=9
+### DONE2

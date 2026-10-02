@@ -1,0 +1,156 @@
+TMUX=/tmp/fm-lab.Clg32F/tmux/tmux-1000/fm-lab,2320023,0
+FM_HOME=/tmp/fm-lab.Clg32F
+### S1 route seller task (text mode, no execute)
+
+$ bin/fm-route-dispatch.sh --task Build a seller lead list for Dallas urgent-care clinics
+=== Jev Front-Door Router ===
+Action:     dispatch
+Route:      seller-outreach
+Confidence: 0.91
+New Domain: 0.05
+=============================
+Recommended dispatch command:
+  FM_HOME=/tmp/fm-lab.Clg32F /home/jon/.no-mistakes/worktrees/2f32188048b1/01M3Z9S1NP1B5TDNG1NRQV9CDB/bin/fm-send.sh seller-outreach Build\ a\ seller\ lead\ list\ for\ Dallas\ urgent-care\ clinics
+Pass --execute to dispatch automatically.
+[exit 0]
+### S2 dispatch multi-line brief --execute to live secondmate
+
+$ bin/fm-route-dispatch.sh --brief /tmp/fm-lab.Clg32F/brief.md --execute
+=== Jev Front-Door Router ===
+Action:     dispatch
+Route:      seller-outreach
+Confidence: 0.91
+New Domain: 0.05
+=============================
+Executing dispatch to second mate: seller-outreach ...
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.Clg32F
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  2 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the requested message WILL still be sent.
+●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+fm-send: doorbell not typed because the agent in firstmate:fm-seller-outreach has exited; the steer is durably recorded at /tmp/fm-lab.Clg32F/state/seller-outreach.inbox/001.msg for recovery (stuck-crewmate-recovery), and the watcher will not re-ring a dead pane
+Dispatched successfully to seller-outreach.
+[exit 0]
+--- inbox files:
+001.msg
+handled
+--- /tmp/fm-lab.Clg32F/state/seller-outreach.inbox/001.msg
+schema=fm-task-inbox.v1
+at=2026-10-02T21:56:27Z
+--
+[fm-from-firstmate]⁣corr=64d1085631b5fba5 seller leads for the spring campaign
+
+- call the Dallas clinics
+- email the Austin list
+FINAL-LINE keep### S3 --json --execute reports dispatched
+
+$ bash -c bin/fm-route-dispatch.sh --task "seller campaign follow-ups" --json --execute 2>/dev/null | jq "{action,route,confidence,dispatched,send_exit_code}"
+{
+  "action": "dispatch",
+  "route": "seller-outreach",
+  "confidence": 0.91,
+  "dispatched": true,
+  "send_exit_code": 0
+}
+[exit 0]
+### S4 captain-direct task not dispatched
+
+$ bin/fm-route-dispatch.sh --task Remind the captain about lunch --execute
+=== Jev Front-Door Router ===
+Action:     handle_direct
+Route:      captain_direct
+Confidence: 0.9
+New Domain: 0.0
+=============================
+Status: Direct communication for Captain / First Mate. Not dispatched.
+[exit 0]
+### S5 unmatched domain -> create_secondmate
+
+$ bin/fm-route-dispatch.sh --task Start a drone delivery program --execute
+=== Jev Front-Door Router ===
+Action:     create_secondmate
+Route:      new_domain
+Confidence: 0.8
+New Domain: 0.92
+=============================
+Status: Unmatched domain (new_domain). Firstmate should charter a new Second Mate.
+Suggested workflow:
+  1. Define domain charter in data/secondmates.md
+  2. Run: bin/fm-spawn.sh <new-id> --secondmate
+  3. Dispatch task to new secondmate inbox.
+[exit 0]
+### S6 low-confidence route handled direct
+
+$ bin/fm-route-dispatch.sh --task vague seller-ish thing --json --execute
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.Clg32F
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+fm-send: doorbell not typed because the agent in firstmate:fm-seller-outreach has exited; the steer is durably recorded at /tmp/fm-lab.Clg32F/state/seller-outreach.inbox/003.msg for recovery (stuck-crewmate-recovery), and the watcher will not re-ring a dead pane
+{
+  "action": "dispatch",
+  "route": "seller-outreach",
+  "confidence": 0.91,
+  "needs_new_noul": 0.05,
+  "probabilities": {
+    "seller-outreach": 0.91
+  },
+  "reason": null,
+  "dispatch_message": "vague seller-ish thing",
+  "dispatched": true,
+  "send_exit_code": 0
+}
+[exit 0]
+### S7 Jev reply without route -> unavailable
+
+$ bin/fm-route-dispatch.sh --task something unrelated --json --execute
+{
+  "action": "unavailable",
+  "route": "captain_direct",
+  "confidence": null,
+  "needs_new_noul": null,
+  "probabilities": {},
+  "reason": "Jev returned an unknown route: None"
+}
+[exit 0]
+### S8 never-send: Jev request withholds secret scope text
+0
+"All urgent-care seller lead generation, campaigns, [withheld]"
+["captain_direct","new_domain","portal-ops","seller-outreach"]
+### S9 no key -> unavailable, no request
+
+$ bin/fm-route-domain.sh --task seller leads --json
+{
+  "action": "unavailable",
+  "route": "captain_direct",
+  "confidence": null,
+  "needs_new_noul": null,
+  "probabilities": {},
+  "reason": "TYPESAFE_API_KEY unavailable"
+}
+[exit 0]
+requests before=7 after=7
+### S10 empty registry -> unavailable, no request
+
+$ bin/fm-route-domain.sh --registry /tmp/fm-lab.Clg32F/empty.md --task seller leads
+action=unavailable
+route=captain_direct
+reason=no live secondmate in the registry
+[exit 0]
+requests before=7 after=7
+### S11 hostile task text: printed dispatch cmd is shell-safe
+
+$ bin/fm-route-dispatch.sh --task seller $(touch /tmp/fm-route-pwned) `touch /tmp/fm-route-pwned2`; rm -rf x
+=== Jev Front-Door Router ===
+Action:     dispatch
+Route:      seller-outreach
+Confidence: 0.91
+New Domain: 0.05
+=============================
+Recommended dispatch command:
+  FM_HOME=/tmp/fm-lab.Clg32F /home/jon/.no-mistakes/worktrees/2f32188048b1/01M3Z9S1NP1B5TDNG1NRQV9CDB/bin/fm-send.sh seller-outreach seller\ \$\(touch\ /tmp/fm-route-pwned\)\ \`touch\ /tmp/fm-route-pwned2\`\;\ rm\ -rf\ x
+Pass --execute to dispatch automatically.
+[exit 0]
+ls: cannot access '/tmp/fm-route-pwned*': No such file or directory
+### DONE
