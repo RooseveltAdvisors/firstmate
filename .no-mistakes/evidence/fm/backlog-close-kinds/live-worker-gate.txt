@@ -1,0 +1,21 @@
+# repo-carrying ship row that no worker ever touched
+$ bin/fm-tasks-axi.sh add lab-k3 Repo ship row --kind ship --repo kunchenguid/firstmate
+ok: added lab-k3 (ship, repo kunchenguid/firstmate) -> Queued
+task:
+  id: lab-k3
+  title: Repo ship row
+  state: queued
+  kind: ship
+  repo: kunchenguid/firstmate
+help[2]:
+  - Run `tasks-axi start lab-k3` to move it to in flight
+  - Run `tasks-axi block lab-k3 --by <other>` to record a dependency
+[exit ]
+$ bin/fm-tasks-axi.sh done lab-k3 --pr https://github.com/kunchenguid/firstmate/pull/1
+fm-tasks-axi: refusing to close lab-k3: it is project work in kunchenguid/firstmate with no worker record, so nothing ever worked it; close it with --note 'cancelled: <captain word>' or --note 'answered: <captain word>' to record the captain's own decision
+[exit ]
+$ bin/fm-tasks-axi.sh done lab-k3 --note cancelled: captain dropped it
+ok: done lab-k3 -> Done
+help[1]:
+  - Run `tasks-axi ready --file=/tmp/fm-lab.OhoX5P/data/backlog.md` to dispatch work unblocked by this
+[exit ]

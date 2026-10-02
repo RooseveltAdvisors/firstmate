@@ -1,0 +1,153 @@
+# lab home: /tmp/fm-lab.OhoX5P ; cwd: code root /home/jon/.no-mistakes/worktrees/2f32188048b1/01M3YY10H6WEF522YJDDTQPD5A (split home)
+$ bin/fm-tasks-axi.sh add lab-k1 Scout lab row
+ok: added lab-k1 -> Queued
+task:
+  id: lab-k1
+  title: Scout lab row
+  state: queued
+  blocked: no
+  blocked_by: none
+  held: no
+  hold_reason: "-"
+  hold_kind: "-"
+  hold_until: "-"
+  kind: task
+  repo: "-"
+  priority: "-"
+  priority_why: "-"
+  created: 2026-10-02
+  closed: "-"
+  deps: none
+  links: none
+  body: ""
+help[2]:
+  - Run `tasks-axi start lab-k1` to move it to in flight
+  - Run `tasks-axi block lab-k1 --by <other>` to record a dependency
+[exit 0]
+$ bin/fm-tasks-axi.sh show lab-k1
+task:
+  id: lab-k1
+  title: Scout lab row
+  state: queued
+  blocked: no
+  blocked_by: none
+  held: no
+  hold_reason: "-"
+  hold_kind: "-"
+  hold_until: "-"
+  kind: task
+  repo: "-"
+  priority: "-"
+  priority_why: "-"
+  created: 2026-10-02
+  closed: "-"
+  deps: none
+  links: none
+  body: ""
+[exit 0]
+# repair hint form printed by the kind-mismatch refusals, run verbatim from the code root:
+$ bin/fm-tasks-axi.sh update lab-k1 --kind scout
+ok: updated lab-k1 (kind)
+task:
+  id: lab-k1
+  title: Scout lab row
+  state: queued
+  blocked: no
+  blocked_by: none
+  held: no
+  hold_reason: "-"
+  hold_kind: "-"
+  hold_until: "-"
+  kind: scout
+  repo: "-"
+  priority: "-"
+  priority_why: "-"
+  created: 2026-10-02
+  closed: "-"
+  deps: none
+  links: none
+  body: ""
+help[1]:
+  - Run `tasks-axi show lab-k1 --full` to see the result
+[exit 0]
+$ bin/fm-tasks-axi.sh show lab-k1
+task:
+  id: lab-k1
+  title: Scout lab row
+  state: queued
+  blocked: no
+  blocked_by: none
+  held: no
+  hold_reason: "-"
+  hold_kind: "-"
+  hold_until: "-"
+  kind: scout
+  repo: "-"
+  priority: "-"
+  priority_why: "-"
+  created: 2026-10-02
+  closed: "-"
+  deps: none
+  links: none
+  body: ""
+[exit 0]
+# lab backlog on disk:
+backlog.md
+lab-k1
+/tmp/fm-lab.OhoX5P/data/backlog.md:5:- [ ] lab-k1 - Scout lab row (kind: scout) (since 2026-10-02)
+/tmp/fm-lab.OhoX5P/data/backlog.md-6-## Done
+# code root has no data/ created:
+ls: cannot access 'data': No such file or directory
+# guarded close: bare done (no reason)
+$ bin/fm-tasks-axi.sh done lab-k1
+fm-tasks-axi: refusing to close lab-k1: this close carries no done-class reason; a close records one - --pr <url>, --note 'local main', --report <path>, --note 'superseded by <id>', --note 'cancelled: <captain word>', or --note 'answered: <captain word>'
+[exit 2]
+# --report on a non-scout (ship) row
+$ bin/fm-tasks-axi.sh add lab-k2 Ship lab row --kind ship
+ok: added lab-k2 (ship) -> Queued
+task:
+  id: lab-k2
+  title: Ship lab row
+  state: queued
+  blocked: no
+  blocked_by: none
+  held: no
+  hold_reason: "-"
+  hold_kind: "-"
+  hold_until: "-"
+  kind: ship
+  repo: "-"
+  priority: "-"
+  priority_why: "-"
+  created: 2026-10-02
+  closed: "-"
+  deps: none
+  links: none
+  body: ""
+help[2]:
+  - Run `tasks-axi start lab-k2` to move it to in flight
+  - Run `tasks-axi block lab-k2 --by <other>` to record a dependency
+[exit 0]
+$ bin/fm-tasks-axi.sh done lab-k2 --report data/lab-k2/report.md
+fm-tasks-axi: refusing to close lab-k2: report completion is for scout rows (this row's kind is ship)
+[exit 2]
+# --report on the scout row
+$ bin/fm-tasks-axi.sh done lab-k1 --report data/lab-k1/report.md
+ok: done lab-k1 -> Done (report data/lab-k1/report.md)
+help[1]:
+  - Run `tasks-axi ready --file=/tmp/fm-lab.OhoX5P/data/backlog.md` to dispatch work unblocked by this
+[exit 0]
+# done-class note on ship row (no repo)
+$ bin/fm-tasks-axi.sh done lab-k2 --note local main
+ok: done lab-k2 -> Done
+help[1]:
+  - Run `tasks-axi ready --file=/tmp/fm-lab.OhoX5P/data/backlog.md` to dispatch work unblocked by this
+[exit 0]
+$ bin/fm-tasks-axi.sh list --state done
+count: 2
+tasks[2]{id,state,kind,repo,title}:
+  lab-k2,done,ship,"-",Ship lab row
+  lab-k1,done,scout,"-",Scout lab row data/lab-k1/report.md
+help[1]:
+  - Run `tasks-axi show <id>` for full notes on a task
+[exit 0]
