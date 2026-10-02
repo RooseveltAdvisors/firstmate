@@ -426,16 +426,24 @@ fm_backlog_row_list() {  # <resolved-data-dir> [flag...]
 
 # tasks-axi show renders a scalar field unquoted only when the value avoids
 # every character the serializer quotes (':', '"', ',', backslash) and is not
-# a truncated render; otherwise it emits the JSON-ish quoted form with \" and
-# \\ escapes. Decode that serialization so a caller sees the value the row
-# actually carries rather than the wire form.
+# a truncated render; otherwise it emits the JSON-ish quoted form with JSON
+# escapes (\t, \uXXXX, \" , \\). Decode it with the same JSON::PP path this
+# file uses for the body field so a caller sees the value the row actually
+# carries rather than the wire form; a value that fails to decode becomes
+# empty, which keeps the caller on its no-title fallback instead of a mangled
+# title.
 fm_backlog_show_value() {  # <raw-field-value>
   local value=$1
   case "$value" in
     '"'*'"')
-      value=${value#\"}
-      value=${value%\"}
-      value=$(printf '%s' "$value" | sed -e 's/\\"/"/g' -e 's/\\\\/\\/g')
+      value=$(printf '%s' "$value" | LC_ALL=C perl -MJSON::PP -e '
+        local $/;
+        my $shown = <STDIN>;
+        my $value = JSON::PP->new->utf8->allow_nonref->decode($shown);
+        binmode STDOUT, ":raw";
+        utf8::encode($value) if utf8::is_utf8($value);
+        print $value;
+      ' 2>/dev/null) || value=
       ;;
   esac
   printf '%s' "$value"

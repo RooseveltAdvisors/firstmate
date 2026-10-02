@@ -3833,6 +3833,19 @@ test_task_label_follows_the_backlog_row_title() {
   [ "$out" = 'Refit the lazarette (rowtitle)' ] \
     || fail "the probed backlog row title should name the tab, got '$out'"
   pass "fm_backend_herdr_task_label: the backlog row title names the tab"
+
+  tasks-axi add tabby $'has\ttab' --file="$data/backlog.md" >/dev/null \
+    || fail "fixture: could not seed the tab-bearing row"
+  out=$(bash -c '
+    . "$0/bin/fm-tasks-axi-lib.sh"
+    . "$0/bin/fm-backlog-transition-lib.sh"
+    . "$0/bin/backends/herdr.sh"
+    fm_backlog_row_probe "$1" tabby || exit 1
+    fm_backend_herdr_task_label "$FM_BACKLOG_ROW_TITLE" "$1/brief.md" tabby
+  ' "$ROOT" "$data") || fail "could not derive the tab label from the tab-bearing row"
+  [ "$out" = 'has tab (tabby)' ] \
+    || fail "a decoded tab-bearing title should mint 'has tab (tabby)', got '$out'"
+  pass "fm_backend_herdr_task_label: a tab-bearing row title mints its decoded text"
 }
 
 # The history feeds create_task's attempted-label set, which closes matching

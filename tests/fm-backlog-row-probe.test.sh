@@ -64,6 +64,26 @@ fi
   || fail "a long title should be reported complete, got '$FM_BACKLOG_ROW_TITLE'"
 pass "fm_backlog_row_probe: a long title is reported complete, never truncated"
 
+# The serializer escapes control characters; the probe must decode them, and a
+# literal backslash-t must stay two characters rather than become a tab.
+tasks-axi add t5 $'has\ttab' --file="$TMP_ROOT/data/backlog.md" >/dev/null \
+  || fail "fixture: could not seed the tab-bearing row"
+if ! fm_backlog_row_probe "$TMP_ROOT/data" t5; then
+  fail "a probe of a tab-bearing row should succeed: $FM_BACKLOG_ROW_ERROR"
+fi
+[ "$FM_BACKLOG_ROW_TITLE" = $'has\ttab' ] \
+  || fail "a tab-bearing title should decode to a real tab, got '$FM_BACKLOG_ROW_TITLE'"
+pass "fm_backlog_row_probe: a tab-bearing title is decoded to a real tab"
+
+tasks-axi add t6 'tab\tsep' --file="$TMP_ROOT/data/backlog.md" >/dev/null \
+  || fail "fixture: could not seed the backslash-t row"
+if ! fm_backlog_row_probe "$TMP_ROOT/data" t6; then
+  fail "a probe of a backslash-t row should succeed: $FM_BACKLOG_ROW_ERROR"
+fi
+[ "$FM_BACKLOG_ROW_TITLE" = 'tab\tsep' ] \
+  || fail "a literal backslash-t title should stay literal, got '$FM_BACKLOG_ROW_TITLE'"
+pass "fm_backlog_row_probe: a literal backslash-t title is not turned into a tab"
+
 if fm_backlog_row_probe "$TMP_ROOT/no-such-data" t1; then
   fail "a probe against an unresolvable data directory should fail"
 fi

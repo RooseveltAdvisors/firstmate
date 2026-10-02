@@ -194,11 +194,13 @@ case "\${1:-}" in
     ;;
   show)
     [ "\${2:-}" = "$id" ] || exit 1
-    if [ "\${3:-}" = --file ]; then
-      printf '%s\n' 'error: beads show failed' >&2
-      printf '%s\n' 'code: UNKNOWN' >&2
-      exit 1
-    fi
+    case " \$* " in
+      *" --file "*)
+        printf '%s\n' 'error: beads show failed' >&2
+        printf '%s\n' 'code: UNKNOWN' >&2
+        exit 1
+        ;;
+    esac
     printf '%s\n' 'task:'
     printf '  id: %s\n' "$id"
     printf '%s\n' '  state: in_flight' '  held: no' '  blocked: no'
@@ -814,8 +816,8 @@ test_dispatch_omits_the_file_for_a_beads_show() {
   assert_contains "$out" "spawned $id" "Beads spawn did not report success"
   assert_grep "show $id" "$case_dir/tasks-axi-calls" \
     "Beads dispatch did not probe the backlog row"
-  assert_no_grep "show $id --file" "$case_dir/tasks-axi-calls" \
-    "Beads dispatch passed the markdown file to show"
+  assert_no_grep " --file " "$case_dir/tasks-axi-calls" \
+    "Beads dispatch passed a markdown file override to tasks-axi"
   pass "dispatch omits the markdown file when probing a Beads backlog"
 }
 
