@@ -365,11 +365,16 @@ do
   teardown_require_source "$SCRIPT_DIR/$_teardown_source"
 done
 unset _teardown_source
-# shellcheck source=bin/fm-tasks-axi-lib.sh
+# Deliberately not followed: bin/fm-tasks-axi-lib.sh and
+# bin/fm-backlog-transition-lib.sh are already expanded through
+# bin/fm-public-followup-lib.sh -> bin/fm-x-lib.sh's directed sources below;
+# a second directive here re-expands both graphs and pushes this root past
+# the fm-lint per-root memory cap.
+# shellcheck source=/dev/null
 . "$SCRIPT_DIR/fm-tasks-axi-lib.sh"
 # shellcheck source=bin/fm-capacity-lib.sh
 . "$SCRIPT_DIR/fm-capacity-lib.sh"
-# shellcheck source=bin/fm-backlog-transition-lib.sh
+# shellcheck source=/dev/null
 . "$SCRIPT_DIR/fm-backlog-transition-lib.sh"
 # shellcheck source=bin/fm-backend.sh
 . "$SCRIPT_DIR/fm-backend.sh"
