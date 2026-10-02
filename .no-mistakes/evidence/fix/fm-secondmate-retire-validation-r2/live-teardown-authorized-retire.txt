@@ -1,0 +1,25 @@
+## S9 authorized secondmate retirement (home outside FM_HOME)
+home=/tmp/fm-lab-mates.n7EVk7/mate-a
+  state: crew-b.meta mate-a.meta   mate-home: present
+
+$ bin/fm-teardown.sh mate-a --retire-secondmate mate-a
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.2HS8N0
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+teardown mate-a complete (window fm-lab-none:fm-mate-a, worktree /tmp/fm-lab-mates.n7EVk7/mate-a)
+[rc=0]
+  state: crew-b.meta   mate-home: GONE
+## S1b cleanup-candidates after retirement
+
+$ bin/fm-fleet-view.sh --cleanup-candidates
+# Cleanup Candidates
+
+Home: /tmp/fm-lab.2HS8N0
+
+| ID | Kind | Persistence | Teardown |
+| --- | --- | --- | --- |
+| crew-b | ship | disposable | bin/fm-teardown.sh crew-b |
+
+A persistent home is retired only by a decision naming that exact home; an idle queue is healthy, not finished.
+This report prints no runnable retirement command, so retiring a standing home has to be typed deliberately.
+Teardown takes one target per invocation.
+[rc=0]

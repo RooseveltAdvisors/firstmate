@@ -1,7 +1,7 @@
-== S8 authorized retirement naming the exact home ==
+## S8 ordinary ship teardown needs no authority
 
-$ FM_HOME=$LAB bin/fm-teardown.sh design --retire-secondmate design
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.Q56aEh
+$ bin/fm-teardown.sh crew-b
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.2HS8N0
 ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ●  WATCHER DOWN - SUPERVISION IS OFF
 ●  2 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
@@ -9,20 +9,34 @@ fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab
 ●  This is a supervision warning only; the guarded operation WILL still run.
 ●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
 ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-REFUSED: unsafe secondmate home removal target /tmp/fm-lab.Q56aEh/sm-design is inside the active firstmate home
+A new version of treehouse is available: v1.8.1-0.20260905115643-6e0ac79a026b → v3.1.1
+Run "treehouse update" to update
+
+worktree /tmp/fm-lab.2HS8N0/wt-crew-b is not managed by treehouse
+error: treehouse return failed for worktree /tmp/fm-lab.2HS8N0/wt-crew-b; teardown aborted
 [rc=1]
-design.meta present after: yes
-registry route present after: 1
-home dir present after: yes
+  state: crew-b.meta mate-a.meta   mate-home: present  crew-wt: present
+## S9 authorized secondmate retirement
 
-== S9 ordinary task teardown unchanged (no authority flag) ==
+$ bin/fm-teardown.sh mate-a --retire-secondmate mate-a
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.2HS8N0
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+REFUSED: unsafe secondmate home removal target /tmp/fm-lab.2HS8N0/mates/mate-a is inside the active firstmate home
+[rc=1]
+  state: crew-b.meta mate-a.meta   mate-home: present  crew-wt: present
+## S1b cleanup-candidates after cleanup
 
-$ FM_HOME=$LAB bin/fm-teardown.sh crew-fix
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.Q56aEh
-WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
-WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
-alpha: skipped: not a directory
-teardown crew-fix complete (window firstmate:fm-crew-fix, worktree /tmp/fm-lab.Q56aEh/nonexistent-wt)
-Backlog: crew-fix just finished (this home keeps no markdown backlog at /tmp/fm-lab.Q56aEh/data/backlog.md). Update /tmp/fm-lab.Q56aEh/data/backlog.md - move crew-fix to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+$ bin/fm-fleet-view.sh --cleanup-candidates
+# Cleanup Candidates
+
+Home: /tmp/fm-lab.2HS8N0
+
+| ID | Kind | Persistence | Teardown |
+| --- | --- | --- | --- |
+| crew-b | ship | disposable | bin/fm-teardown.sh crew-b |
+| mate-a | secondmate | persistent | retire only by an explicit decision naming this home - see .agents/skills/secondmate-provisioning |
+
+A persistent home is retired only by a decision naming that exact home; an idle queue is healthy, not finished.
+This report prints no runnable retirement command, so retiring a standing home has to be typed deliberately.
+Teardown takes one target per invocation.
 [rc=0]
-crew-fix.meta present after: no
