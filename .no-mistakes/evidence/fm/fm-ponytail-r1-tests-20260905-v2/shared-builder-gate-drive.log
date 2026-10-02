@@ -1,0 +1,9 @@
+PASS: shared fm_test_fake_tasks_axi (default 0.2.6) passes fm_tasks_axi_compatible (rc=0)
+PASS: tasks-axi below FM_TASKS_AXI_MIN (0.2.5) is refused by fm_tasks_axi_compatible (rc=1)
+PASS: tasks-axi without --archive-body capability is refused (rc=1)
+PASS: tasks-axi without multi-id mv usage is refused (rc=1)
+PASS: absent tasks-axi is refused (rc=1)
+PASS: shared fm_test_fake_quota_axi (default 0.1.51) passes fm_quota_axi_compatible (rc=0)
+PASS: quota-axi below FM_QUOTA_AXI_MIN (0.1.50) is refused (rc=1)
+PASS: absent quota-axi is refused (rc=1)
+TOTAL pass=8 fail=0
