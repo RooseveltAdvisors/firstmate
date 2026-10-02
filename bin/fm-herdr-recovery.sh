@@ -264,16 +264,16 @@ fm_reco_sed_scripts_ok() { # <segment>
 }
 
 # fm_reco_awk_scripts_ok: refuse an awk segment whose inline program hides a
-# getline file read; a whitespace-split payload falls through to the path
-# screen through its fragments instead.
+# getline file read or a print/printf write redirect; a whitespace-split
+# payload falls through to the path screen through its fragments instead.
 fm_reco_awk_scripts_ok() { # <segment>
   local tok
   local -a toks
   read -ra toks <<< "$1" || return 1
   for tok in "${toks[@]:1}"; do
-    case "$tok" in
-      *'getline<'*) return 1 ;;
-    esac
+    if printf '%s' "$tok" | grep -qE 'getline<|print[^>]*>'; then
+      return 1
+    fi
   done
   return 0
 }
@@ -463,7 +463,7 @@ fm_reco_program_slot() { # <raw-token>
 # positional path, because with none its operand is the pane's cwd, which is
 # never fetched.
 fm_reco_relative_ok() { # <line> <resolved-home>
-  local seg head tok raw home seen_special used_e expect_val expect_prog expect_pat check_next in_single in_pat saw_pos pre post
+  local seg head tok raw home seen_special used_e expect_val expect_prog expect_pat check_next in_single in_pat saw_pos pre post pspan ptok rest
   home=$(readlink -f -- "$2" 2>/dev/null) || return 1
   local -a toks
   while IFS= read -r seg; do
@@ -482,6 +482,33 @@ fm_reco_relative_ok() { # <line> <resolved-home>
     in_pat=0
     saw_pos=0
     read -ra toks <<< "$seg" || return 1
+    if [ "$head" = grep ] || [ "$head" = sed ] || [ "$head" = rg ]; then
+      pspan=0
+      for ptok in "${toks[@]:1}"; do
+        if [ "$pspan" -ne 0 ]; then
+          case "$pspan:$ptok" in
+            1:*\'*) pspan=0 ;;
+            2:*\"*) pspan=0 ;;
+          esac
+          continue
+        fi
+        case "$ptok" in
+          \'*)
+            case "${ptok#\'}" in
+              *\'*) ;;
+              *) pspan=1 ;;
+            esac
+            ;;
+          \"*)
+            case "${ptok#\"}" in
+              *\"*) ;;
+              *) pspan=2 ;;
+            esac
+            ;;
+          -e*|-f*) used_e=1 ;;
+        esac
+      done
+    fi
     for tok in "${toks[@]:1}"; do
       raw=$tok
       tok=${tok//\'/}
@@ -590,15 +617,32 @@ fm_reco_relative_ok() { # <line> <resolved-home>
           case "$head:$tok" in
             sed:-e) expect_val=1; used_e=1; expect_prog=1 ;;
             awk:-F|awk:-v) expect_val=1 ;;
-            find:-name|find:-iname|find:-lname|find:-path|find:-ipath|find:-regex|find:-iregex|find:-type|find:-maxdepth|find:-mindepth|find:-mtime|find:-mmin|find:-size) expect_val=1 ;;
-            grep:-A|grep:-B|grep:-C|grep:-e|grep:-m) expect_val=1; case "$tok" in -e) used_e=1; expect_pat=1 ;; esac ;;
+            find:-name|find:-iname|find:-lname|find:-path|find:-ipath|find:-regex|find:-iregex|find:-type|find:-maxdepth|find:-mindepth|find:-mtime|find:-mmin|find:-size) expect_val=1; expect_pat=1 ;;
+            grep:-A|grep:-B|grep:-C|grep:-e|grep:-m) expect_val=1; expect_pat=1; case "$tok" in -e) used_e=1 ;; esac ;;
             grep:-f) used_e=1; check_next=1 ;;
-            rg:-A|rg:-B|rg:-C|rg:-e|rg:-g|rg:-t|rg:-T|rg:-m|rg:-M|rg:-r) expect_val=1; case "$tok" in -e) used_e=1; expect_pat=1 ;; esac ;;
+            rg:-A|rg:-B|rg:-C|rg:-e|rg:-g|rg:-t|rg:-T|rg:-m|rg:-M|rg:-r) expect_val=1; expect_pat=1; case "$tok" in -e) used_e=1 ;; esac ;;
             rg:-f) used_e=1; check_next=1 ;;
             head:-n|head:-c|tail:-n|tail:-c) expect_val=1 ;;
             sort:-k|sort:-t|sort:-S) expect_val=1 ;;
             uniq:-f|uniq:-s|uniq:-w) expect_val=1 ;;
-            grep:-e*|rg:-e*) used_e=1 ;;
+            grep:-e*|rg:-e*)
+              used_e=1
+              rest=${raw#-e}
+              case "$rest" in
+                \'*)
+                  case "${rest#\'}" in
+                    *\'*) ;;
+                    *) in_pat=1 ;;
+                  esac
+                  ;;
+                \"*)
+                  case "${rest#\"}" in
+                    *\"*) ;;
+                    *) in_pat=2 ;;
+                  esac
+                  ;;
+              esac
+              ;;
             grep:--*|wc:--*) return 1 ;;
           esac
           continue
@@ -611,6 +655,17 @@ fm_reco_relative_ok() { # <line> <resolved-home>
           open)
             case "$head" in
               sed|awk) in_single=1 ;;
+              grep|rg) in_pat=1 ;;
+            esac
+            ;;
+          ok)
+            case "$head:$raw" in
+              grep:\"*|rg:\"*)
+                case "${raw#\"}" in
+                  *\"*) ;;
+                  *) in_pat=2 ;;
+                esac
+                ;;
             esac
             ;;
         esac

@@ -1412,6 +1412,134 @@ EOF
 > 1. Yes, proceed (y)
   3. No (esc)
 EOF
+  cat > "$prompts/deny-awk-write" <<EOF
+  Would you like to run the following command?
+
+  awk 'BEGIN{print>"rel-out"}' $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-awk-comparison" <<EOF
+  Would you like to run the following command?
+
+  awk '\$1>2{print}' $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-grep-pre-e-operand" <<EOF
+  Would you like to run the following command?
+
+  grep missing-operand -e 'foo bar'
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-grep-pre-f-operand" <<EOF
+  Would you like to run the following command?
+
+  grep missing-operand -f $ROOT/state/list.txt
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-sed-pre-e-operand" <<EOF
+  Would you like to run the following command?
+
+  sed missing-operand -e 'x'
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-rg-pre-e-operand" <<EOF
+  Would you like to run the following command?
+
+  rg missing-operand -e 'foo bar' $ROOT/state
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-grep-positional-multword" <<EOF
+  Would you like to run the following command?
+
+  grep 'foo bar' $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-grep-positional-doublequote" <<EOF
+  Would you like to run the following command?
+
+  grep "foo bar" $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-rg-positional-multword" <<EOF
+  Would you like to run the following command?
+
+  rg 'foo bar' $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-grep-context-multword" <<EOF
+  Would you like to run the following command?
+
+  grep -C 2 'foo bar' $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-grep-attached-multword" <<EOF
+  Would you like to run the following command?
+
+  grep -e'bar baz' $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-find-name-multword" <<EOF
+  Would you like to run the following command?
+
+  find $ROOT/state -name 'my file*'
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-find-path-doublequote" <<EOF
+  Would you like to run the following command?
+
+  find $ROOT/state -path "a b/*"
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-rg-type-multword" <<EOF
+  Would you like to run the following command?
+
+  rg -t rust 'multi word' $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-rg-glob-pathless" <<EOF
+  Would you like to run the following command?
+
+  rg -g 'multi glob' TODO
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-rg-glob-path" <<EOF
+  Would you like to run the following command?
+
+  rg -g 'multi glob' TODO $ROOT/state
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
   cat > "$prompts/unknown" <<'EOF'
 Status header
 gpt-5.6-sol high - some/cwd
@@ -1580,6 +1708,22 @@ EOF
   classify allow-multword-grep-e 'approve' 'classifier approves a multi-word grep -e pattern'
   classify allow-multword-rg-e 'approve' 'classifier approves a multi-word rg -e pattern'
   classify deny-expanding-pattern-e 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an expanding dollar in a double-quoted -e pattern'
+  classify deny-awk-write 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses an awk program write redirect'
+  classify allow-awk-comparison 'approve' 'classifier approves an awk comparison program'
+  classify deny-grep-pre-e-operand 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an unverified operand before grep -e'
+  classify deny-grep-pre-f-operand 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an unverified operand before grep -f'
+  classify deny-sed-pre-e-operand 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an unverified operand before sed -e'
+  classify deny-rg-pre-e-operand 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an unverified operand before rg -e'
+  classify allow-grep-positional-multword 'approve' 'classifier approves a multi-word quoted grep positional pattern'
+  classify allow-grep-positional-doublequote 'approve' 'classifier approves a double-quoted grep positional pattern'
+  classify allow-rg-positional-multword 'approve' 'classifier approves a multi-word quoted rg positional pattern'
+  classify allow-grep-context-multword 'approve' 'classifier approves a multi-word quoted grep -C pattern'
+  classify allow-grep-attached-multword 'approve' 'classifier approves a multi-word attached grep -e pattern'
+  classify allow-find-name-multword 'approve' 'classifier approves a multi-word quoted find -name value'
+  classify allow-find-path-doublequote 'approve' 'classifier approves a double-quoted find -path value'
+  classify allow-rg-type-multword 'approve' 'classifier approves a multi-word quoted rg pattern after -t'
+  classify deny-rg-glob-pathless 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a pathless rg after a split -g value'
+  classify allow-rg-glob-path 'approve' 'classifier approves rg after a split -g value with a verified path'
   classify unknown 'unknown' 'classifier fails closed on an unrecognized prompt'
   ROOT=$saved_root
 }
