@@ -1,0 +1,17 @@
+ok - real herdr E2E: a primary-shaped home spawns a crewmate on the herdr backend
+ok - real herdr E2E: the primary-shaped home's crewmate landed in the 'firstmate' workspace
+ok - real herdr E2E: the primary spawns a --secondmate task on the herdr backend
+ok - real herdr E2E: a --secondmate spawn by the PRIMARY lands in the SECONDMATE's own labeled workspace, distinct from the primary's
+ok - real herdr E2E: a crewmate spawns successfully FROM a secondmate-shaped home's own fm-spawn.sh process
+ok - real herdr E2E: a crewmate spawned FROM the secondmate-shaped home lands in the secondmate's OWN workspace - falls out of per-home resolution, no glue needed
+ok - real herdr E2E: opted-in workers are named from their backlog row titles, a rowless secondmate task keeps fm-<id>, and the opt-in inherits through the spawn
+ok - real herdr E2E: standing the task-title opt-in down restores the fm-<id> default for new workers and never renames live tabs
+ok - real herdr E2E: list_live from the primary's own context sees only the primary's own task
+ok - real herdr E2E: list_live from the secondmate's own context sees only tasks in the secondmate's own workspace (both its own tab and its crewmate's)
+ok - real herdr E2E: tearing down cm1 closes only its own tab - the secondmate's and cm2's tabs survive untouched
+ok - real herdr E2E: tearing down cm2 closes only its own tab - the secondmate's own tab (same workspace) survives untouched
+ok - real herdr E2E: tearing down cm3 closes its own fm-<id> labeled tab
+ok - real herdr E2E: a manual-backend home's opted-in label reads its backlog row title
+ok - real herdr E2E: a manual-backend home with no row keeps the fm-<id> label
+ok - real herdr E2E: manual-backlog homes spawn and tear down without dispatch transitions
+ok - real herdr E2E: a --secondmate spawn names its tab from the secondmate home's own backlog row

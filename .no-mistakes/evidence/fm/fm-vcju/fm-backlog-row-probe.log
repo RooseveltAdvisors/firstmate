@@ -1,0 +1,7 @@
+ok - fm_backlog_row_probe: a found row reports its title
+ok - fm_backlog_row_probe: a colon-bearing title is reported unquoted
+ok - fm_backlog_row_probe: a quote-bearing title is reported unescaped
+ok - fm_backlog_row_probe: a long title is reported complete, never truncated
+ok - fm_backlog_row_probe: a tab-bearing title is decoded to a real tab
+ok - fm_backlog_row_probe: a literal backslash-t title is not turned into a tab
+ok - fm_backlog_row_probe: an unresolvable data directory clears the prior probe's outputs
