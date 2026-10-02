@@ -503,6 +503,44 @@ test_blocked_row_is_excluded_from_scan() {
   pass "dependency-blocked in_progress rows are excluded from stale-sweep candidates"
 }
 
+# tasks-axi's blocked: bit ignores pinned blockers, so a row blocked only by a
+# pinned row stays a candidate and is reclaimed, while a row blocked by an
+# active open row stays excluded.
+test_pinned_blocker_does_not_exclude_row() {
+  require_tasks_axi_beads "the pinned-blocker scan path" || return 0
+  local rec out t0
+  rec=$(make_fixture pinnedblock)
+  [ -n "$rec" ] || fail "fixture construction failed (see stderr above)"
+  read_fixture "$rec"
+  (cd "$HOME_DIR" && tasks-axi add fm-pin-row 'fixture fm-pin-row' --kind ship) \
+    >/dev/null || fail "could not add the pinned fixture row"
+  BEADS_DIR="$CASE_DIR/fm/.beads" bd update fm-pin-row --status pinned >/dev/null 2>&1 \
+    || fail "could not pin the fixture row"
+  (cd "$HOME_DIR" && tasks-axi block fm-dead-row --by fm-pin-row) \
+    >/dev/null || fail "could not block the dead row by the pinned row"
+  (cd "$HOME_DIR" && tasks-axi block fm-prov-row --by fm-live-row) \
+    >/dev/null || fail "could not block the provenance row by an active row"
+  assert_contains "$(cd "$HOME_DIR" && tasks-axi show fm-dead-row)" "blocked: no" \
+    "a pinned blocker must not set tasks-axi's blocked bit"
+  t0=$(sweep_clock)
+  out=$(FM_HOME="$HOME_DIR" FM_STALE_SWEEP_NOW=$t0 PATH="$FAKEBIN:$PATH" "$SWEEP" check)
+  assert_contains "$out" "stale-sweep: 1 dead-endpoint in_progress rows reclaimable" \
+    "check must count the pinned-blocked row and not the actively blocked row"
+  out=$(run_sweep)
+  assert_row_matches 'fm-dead-row[[:space:]].*would reclaim' "$out" \
+    "a row blocked only by a pinned row must still be advertised"
+  assert_not_contains "$out" "fm-prov-row" \
+    "a row blocked by an active open row must stay excluded"
+  out=$(run_sweep --apply)
+  assert_contains "$out" "reclaimed 1" \
+    "the pinned-blocked dead row must be reclaimed"
+  [ "$(row_state fm-dead-row)" = queued ] \
+    || fail "the pinned-blocked dead row was not reopened"
+  [ "$(row_state fm-prov-row)" = in_flight ] \
+    || fail "the actively blocked row was reopened"
+  pass "a pinned blocker does not exclude a row from stale-sweep candidates"
+}
+
 # A row can become held after the liveness scan but before apply. The existing
 # second proof must refuse it, leaving both the hold and the row in flight.
 test_apply_refuses_row_held_after_scan() {
@@ -723,6 +761,7 @@ test_dry_run_lists_verdicts_and_reclaims_nothing
 test_apply_reclaims_only_dead_rows
 test_held_row_is_excluded_from_scan
 test_blocked_row_is_excluded_from_scan
+test_pinned_blocker_does_not_exclude_row
 test_apply_refuses_row_held_after_scan
 test_apply_refuses_a_row_whose_record_lock_a_completion_holds
 test_apply_refuses_a_row_with_a_pending_completion_replay
