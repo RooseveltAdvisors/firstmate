@@ -566,7 +566,11 @@ fm_backlog_close_captain_word() {  # <arg>...
   printf '%s\n' "$word"
 }
 
-# THE close-kind contract, stated once and enforced on every close path.
+# THE close-kind contract, stated once and enforced on every firstmate-managed
+# close path: the programmatic callers (bin/fm-teardown.sh and
+# bin/fm-captain-hold.sh, through fm_backlog_done and the close transition) and
+# the documented wrapper bin/fm-tasks-axi.sh. A direct raw `tasks-axi done`
+# outside firstmate's own tooling is out of reach by design.
 # A task is marked done for exactly one structured completion fact this home can
 # point at, never free prose - free prose is what let a bare "Closed" stand in
 # for a result nobody could check.
