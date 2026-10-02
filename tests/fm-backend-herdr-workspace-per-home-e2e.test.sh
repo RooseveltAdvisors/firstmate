@@ -377,6 +377,92 @@ fi
 WT1=
 pass "real herdr E2E: tearing down cm3 closes its own fm-<id> labeled tab"
 
+# --- 6. manual-backlog homes: the opt-in label reads the row title directly ---
+
+# config/backlog-backend=manual exempts the home from the dispatch preflight -
+# and therefore from the probe that preflight owns - but the row title is still
+# readable, and the opted-in label must follow the data exactly as an ordinary
+# home's spawn does (cm1 above); a home whose row is missing keeps fm-<id>.
+MANUAL_HOME="$TMP_ROOT/manual-home"
+mkdir -p "$MANUAL_HOME/state" "$MANUAL_HOME/config" "$MANUAL_HOME/data"
+printf 'off\n' > "$MANUAL_HOME/config/herdr-presentation-spaces"
+printf 'manual\n' > "$MANUAL_HOME/config/backlog-backend"
+printf '' > "$MANUAL_HOME/config/herdr-task-titles"
+mkdir -p "$MANUAL_HOME/data/cm4"
+cat > "$MANUAL_HOME/data/cm4/brief.md" <<'EOF'
+# Task
+## Captain's intent
+Exercise the manual-backend label path.
+
+## Firstmate spec
+Verify the row title names the tab without a dispatch preflight.
+EOF
+seed_backlog_row "$MANUAL_HOME" cm4 'Manual backlog label fixture.'
+mkdir -p "$MANUAL_HOME/data/cm5"
+cat > "$MANUAL_HOME/data/cm5/brief.md" <<'EOF'
+# Task
+## Captain's intent
+Exercise the manual-backend no-row fallback.
+
+## Firstmate spec
+Verify a missing row keeps the fm-<id> label.
+EOF
+
+CM4_OUT="$TMP_ROOT/cm4.out"; CM4_ERR="$TMP_ROOT/cm4.err"
+FM_SPAWN_NO_GUARD=1 FM_HOME="$MANUAL_HOME" FM_ROOT_OVERRIDE="$ROOT" \
+  "$ROOT/bin/fm-spawn.sh" cm4 "$PROJ1" "sh -c 'echo manual-crew-ok'" --mode no-mistakes --yolo off --backend herdr \
+  >"$CM4_OUT" 2>"$CM4_ERR"
+rc=$?
+[ "$rc" -eq 0 ] || fail "the manual-backend home's crewmate cm4 failed to spawn"$'\n'"--- stdout ---"$'\n'"$(cat "$CM4_OUT")"$'\n'"--- stderr ---"$'\n'"$(cat "$CM4_ERR")"
+CM4_META="$MANUAL_HOME/state/cm4.meta"
+[ -f "$CM4_META" ] || fail "no meta written for cm4"
+CM4_PANE=$(grep '^herdr_pane_id=' "$CM4_META" | cut -d= -f2-)
+CM4_TAB=$(grep '^herdr_tab_id=' "$CM4_META" | cut -d= -f2-)
+[ -n "$CM4_TAB" ] || fail "cm4 meta missing herdr_tab_id"
+CM4_WSID=$(herdr pane get "$CM4_PANE" --session "$SESSION" 2>/dev/null | jq -r '.result.pane.workspace_id // empty')
+[ -n "$CM4_WSID" ] || fail "could not read cm4's pane workspace_id"
+CM4_LABEL=$(herdr tab list --workspace "$CM4_WSID" --session "$SESSION" 2>/dev/null \
+  | jq -r --arg tab "$CM4_TAB" '.result.tabs[]? | select(.tab_id == $tab) | .label')
+[ "$CM4_LABEL" = "Manual backlog label fixture. (cm4)" ] \
+  || fail "a manual-backend home's titled row did not name its opted-in tab, got '$CM4_LABEL'"
+pass "real herdr E2E: a manual-backend home's opted-in label reads its backlog row title"
+
+TD4_OUT="$TMP_ROOT/td4.out"
+FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$MANUAL_HOME/state" FM_DATA_OVERRIDE="$MANUAL_HOME/data" \
+  FM_CONFIG_OVERRIDE="$MANUAL_HOME/config" \
+  "$ROOT/bin/fm-teardown.sh" cm4 >"$TD4_OUT" 2>&1
+rc=$?
+[ "$rc" -eq 0 ] || fail "fm-teardown.sh failed for the manual-backend crewmate cm4"$'\n'"$(cat "$TD4_OUT")"
+[ -f "$CM4_META" ] && fail "fm-teardown.sh did not remove cm4's meta"
+
+CM5_OUT="$TMP_ROOT/cm5.out"; CM5_ERR="$TMP_ROOT/cm5.err"
+FM_SPAWN_NO_GUARD=1 FM_HOME="$MANUAL_HOME" FM_ROOT_OVERRIDE="$ROOT" \
+  "$ROOT/bin/fm-spawn.sh" cm5 "$PROJ1" "sh -c 'echo manual-crew-ok'" --mode no-mistakes --yolo off --backend herdr \
+  >"$CM5_OUT" 2>"$CM5_ERR"
+rc=$?
+[ "$rc" -eq 0 ] || fail "the manual-backend home's rowless crewmate cm5 failed to spawn"$'\n'"--- stdout ---"$'\n'"$(cat "$CM5_OUT")"$'\n'"--- stderr ---"$'\n'"$(cat "$CM5_ERR")"
+CM5_META="$MANUAL_HOME/state/cm5.meta"
+[ -f "$CM5_META" ] || fail "no meta written for cm5"
+CM5_PANE=$(grep '^herdr_pane_id=' "$CM5_META" | cut -d= -f2-)
+CM5_TAB=$(grep '^herdr_tab_id=' "$CM5_META" | cut -d= -f2-)
+[ -n "$CM5_TAB" ] || fail "cm5 meta missing herdr_tab_id"
+CM5_WSID=$(herdr pane get "$CM5_PANE" --session "$SESSION" 2>/dev/null | jq -r '.result.pane.workspace_id // empty')
+[ -n "$CM5_WSID" ] || fail "could not read cm5's pane workspace_id"
+CM5_LABEL=$(herdr tab list --workspace "$CM5_WSID" --session "$SESSION" 2>/dev/null \
+  | jq -r --arg tab "$CM5_TAB" '.result.tabs[]? | select(.tab_id == $tab) | .label')
+[ "$CM5_LABEL" = "fm-cm5" ] \
+  || fail "a manual-backend home with no row must keep the fm-<id> label, got '$CM5_LABEL'"
+pass "real herdr E2E: a manual-backend home with no row keeps the fm-<id> label"
+
+TD5_OUT="$TMP_ROOT/td5.out"
+FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$MANUAL_HOME/state" FM_DATA_OVERRIDE="$MANUAL_HOME/data" \
+  FM_CONFIG_OVERRIDE="$MANUAL_HOME/config" \
+  "$ROOT/bin/fm-teardown.sh" cm5 >"$TD5_OUT" 2>&1
+rc=$?
+[ "$rc" -eq 0 ] || fail "fm-teardown.sh failed for the manual-backend crewmate cm5"$'\n'"$(cat "$TD5_OUT")"
+[ -f "$CM5_META" ] && fail "fm-teardown.sh did not remove cm5's meta"
+pass "real herdr E2E: manual-backlog homes spawn and tear down without dispatch transitions"
+
 fm_backend_herdr_kill "$SESSION:$SM_PANE"
 
 cleanup_all
