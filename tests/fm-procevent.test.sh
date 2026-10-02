@@ -83,11 +83,7 @@ pe_register() {  # <home> <adapter> <source-id> -- <argv>...
   fm_test_track_procevent_home "$home"
   pe "$home" register "$adapter" "$id" "$@"
 }
-# Pin the fixture home's mode instead of inheriting the host umask, so no case
-# below silently depends on whether the host leaves the group write bit set. The
-# group-writable state root a umask-002 host produces is exercised deliberately,
-# by its own case, rather than leaking into every other verdict here.
-new_home() { (umask 077; mkdir -p "$1/state"); }
+new_home() { mkdir -p "$1/state"; }
 # A worker-owned board can only be armed for a task whose endpoint metadata the
 # runner can ring, so every fixture worker needs the same durable record a real
 # spawn leaves behind.
