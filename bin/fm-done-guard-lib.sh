@@ -20,8 +20,8 @@
 # another repository, or any non-open state refuses the done. Every forge call
 # is bounded by bin/fm-timeout-lib.sh, so no classifier blocks on the network.
 # An accepted forge verdict is cached in <state>/<id>.done-guard-accepted, keyed
-# by the done line, the task meta, and the worktree HEAD, so a done is read from
-# the forge once and a changed HEAD, meta, or line re-judges it.
+# by the done line, the task meta, and the worktree HEAD, branch, and origin, so
+# a done is read from the forge once and any change to those re-judges it.
 # FM_DONE_GUARD_NO_FORGE=1 keeps a caller offline; offline it can still refuse an
 # unpushed done (reason=unpushed, the one refusal that needs no forge), and
 # accepts one only on a recorded merge receipt or a cached accepted verdict.
@@ -229,11 +229,15 @@ fm_done_guard_gerrit_change_carries_head() {  # <url> <worktree>
 }
 
 # Print the identity an accepted verdict is cached under: the judged line, the
-# task meta, and the worktree HEAD. Any change to one re-judges the done.
+# task meta, and the worktree HEAD, branch, and origin. The line and meta carry
+# any named PR URL, and the branch and origin bind the PR, so a rename, remote
+# repoint, or changed PR re-judges the done.
 fm_done_guard_accept_key() {  # <line> <meta> <worktree>
-  local head
+  local head branch origin
   head=$(git -C "$3" rev-parse --verify --quiet HEAD 2>/dev/null) || return 1
-  fm_done_guard_steer_fingerprint "$1|$head|$(cat "$2" 2>/dev/null)"
+  branch=$(git -C "$3" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+  origin=$(git -C "$3" remote get-url origin 2>/dev/null || true)
+  fm_done_guard_steer_fingerprint "$1|$head|$branch|$origin|$(cat "$2" 2>/dev/null)"
 }
 
 # Inspect one status file and optional done line. Sets FM_DONE_GUARD_VERDICT to
@@ -273,7 +277,7 @@ fm_done_guard_check() {  # <status-file> [<done-line>]
     FM_DONE_GUARD_REASON=no-worktree
     return 0
   fi
-  # A done already accepted under the same line, meta, and HEAD is not
+  # A done already accepted under the same line, meta, HEAD, branch, and origin is not
   # re-read from the forge: stale polls and backstops re-judge it every cycle.
   id=$(basename "$status")
   id=${id%.status}

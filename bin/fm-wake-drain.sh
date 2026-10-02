@@ -367,13 +367,11 @@ print_status_outcome_backstop_section() {  # <task-and-endpoint-snapshot>
     event_endpoint=$FM_STATUS_SNAPSHOT_EVENT_ENDPOINT
     [ "$receipt" -lt "$event_endpoint" ] || continue
     status_is_captain_relevant "$event" || continue
-    # Offline under the presentation lock: no forge read per completion. Only an
-    # unpushed branch, a refusal that needs no forge, hides the completion; one
-    # the offline gate cannot verify is still presented.
-    if ! FM_DONE_GUARD_NO_FORGE=1 fm_done_guard_accepts_status_line "$STATE/$task.status" "$event" \
-      && [ "$FM_DONE_GUARD_REASON" = unpushed ]; then
-      continue
-    fi
+    # Offline under the presentation lock: no forge read per completion. A ship
+    # completion is presented only on a merge receipt or a cached accepted
+    # verdict; every refusal is held until an online check accepts it.
+    FM_DONE_GUARD_NO_FORGE=1 fm_done_guard_accepts_status_line "$STATE/$task.status" "$event" \
+      || continue
     verb=$(status_line_verb "$event")
     case "$verb" in
       needs-decision|blocked)

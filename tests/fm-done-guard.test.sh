@@ -184,7 +184,23 @@ EOF
   [ "$rc" -eq 0 ] || fail "a re-pushed head was refused, exit $rc ($out)"
   [ "$(wc -l < "$log" | tr -d ' ')" = 2 ] \
     || fail "a changed HEAD did not re-judge the done: $(cat "$log")"
-  pass "accepted done is read from the forge once per line, meta, and HEAD"
+  # A renamed branch no longer heads the cached PR: the done is re-judged and
+  # refused rather than served from the cache.
+  git -C "$wt" branch -m "$branch" fm/renamed-a1
+  git -C "$wt" update-ref refs/remotes/origin/fm/renamed-a1 HEAD
+  rc=0
+  out=$(FM_FAKE_GH_LOG=$log FM_FAKE_GH_HEAD=$branch run_check "$home" "$id") || rc=$?
+  [ "$rc" -eq 1 ] || fail "a renamed branch reused the cached accept, exit $rc ($out)"
+  [ "$(wc -l < "$log" | tr -d ' ')" -gt 2 ] \
+    || fail "a renamed branch did not re-judge the done: $(cat "$log")"
+  git -C "$wt" branch -m fm/renamed-a1 "$branch"
+  out=$(FM_FAKE_GH_LOG=$log FM_FAKE_GH_HEAD=$branch run_check "$home" "$id") || fail "re-accept failed ($out)"
+  # A repointed origin no longer names the PR's repository.
+  git -C "$wt" remote set-url origin https://github.com/example/other.git
+  rc=0
+  out=$(FM_FAKE_GH_LOG=$log FM_FAKE_GH_HEAD=$branch run_check "$home" "$id") || rc=$?
+  [ "$rc" -eq 1 ] || fail "a repointed origin reused the cached accept, exit $rc ($out)"
+  pass "accepted done is read from the forge once per line, meta, HEAD, branch, and origin"
 }
 
 test_unpushed_branch_with_pr_url_refuses_done() {
@@ -565,7 +581,7 @@ EOF
   pass "watcher steers on the refused done line even when a later line follows it"
 }
 
-# The drain backstop presents several uncovered ship completions under its
+# The drain backstop presents several accepted ship completions under its
 # presentation lock without a forge read per completion, so a slow forge
 # neither delays them nor, by failing, hides them.
 test_drain_presents_completions_without_forge_reads() {
@@ -590,7 +606,11 @@ EOF
       "worktree=$wt" "kind=ship" "mode=no-mistakes"
     printf 'done: PR %s checks green\n' "$FAKE_PR_URL" > "$state/drain-$n.status"
     touch -d "@$old" "$state/drain-$n.status"
+    # The watcher's online check accepts and caches each done before the drain.
+    PATH="$home/bin:$PATH" FM_HOME="$home" FM_STATE_OVERRIDE="$state" FM_FAKE_GH_HEAD=$branch \
+      "$GUARD" check "drain-$n" >/dev/null || fail "online check refused drain-$n"
   done
+  : > "$log"
   start=$(date +%s)
   out=$(PATH="$home/bin:$PATH" FM_STATE_OVERRIDE="$state" FM_CONFIG_OVERRIDE="$cfg" \
     FM_ROOT_OVERRIDE="$home/nogit" FM_FAKE_GH_LOG="$log" FM_FAKE_GH_SLEEP=10 \
@@ -602,6 +622,53 @@ EOF
   [ ! -s "$log" ] || fail "the drain read the forge under its presentation lock: $(cat "$log")"
   [ "$elapsed" -lt 10 ] || fail "the drain took ${elapsed}s with a slow forge"
   pass "drain backstop presents several ship completions without a forge read each"
+}
+
+# Offline, the drain backstop presents a ship done only on a cached accept or a
+# merge receipt: a pushed branch with no PR, an unverifiable PR, a closed PR, and
+# an unverified Gerrit change are all held, not shown as completed.
+test_drain_holds_unaccepted_completions() {
+  local home state cfg id rec wt branch out old
+  home="$TMP_ROOT/drain-held/home"
+  state="$home/state"
+  cfg="$TMP_ROOT/drain-held/config"
+  mkdir -p "$state" "$cfg" "$home/nogit"
+  : > "$cfg/supervision-host-off"
+  install_fake_forge "$home"
+  install_fake_gerrit "$home"
+  old=$(( $(date +%s) - 20 ))
+  for id in held-nopr held-unverified held-closed held-gerrit; do
+    rec=$(make_ship "$id" no-mistakes)
+    IFS='|' read -r _ wt branch <<EOF
+$rec
+EOF
+    commit_on "$wt" feature.txt "ready"
+    fm_write_meta "$state/$id.meta" "window=test:fm-$id" \
+      "worktree=$wt" "kind=ship" "mode=no-mistakes"
+    case "$id" in
+      held-nopr) publish "$wt" "$branch"
+        printf 'done: implementation complete\n' > "$state/$id.status" ;;
+      held-unverified) publish "$wt" "$branch"
+        printf 'done: PR %s checks green\n' "$FAKE_PR_URL" > "$state/$id.status" ;;
+      held-closed) publish "$wt" "$branch"
+        printf 'done: PR %s checks green\n' "$FAKE_PR_URL" > "$state/$id.status"
+        PATH="$home/bin:$PATH" FM_HOME="$home" FM_STATE_OVERRIDE="$state" \
+          FM_FAKE_GH_STATE=CLOSED FM_FAKE_GH_HEAD=$branch "$GUARD" check "$id" >/dev/null \
+          && fail "a closed PR was accepted online" ;;
+      held-gerrit)
+        printf 'done: PR %s published for review\n' "$FAKE_CHANGE_URL" > "$state/$id.status" ;;
+    esac
+    touch -d "@$old" "$state/$id.status"
+  done
+  out=$(PATH="$home/bin:$PATH" FM_STATE_OVERRIDE="$state" FM_CONFIG_OVERRIDE="$cfg" \
+    FM_ROOT_OVERRIDE="$home/nogit" FM_DONE_GUARD_NO_FORGE=1 \
+    "$ROOT/bin/fm-wake-drain.sh" 2>&1) || fail "drain failed: $out"
+  for id in held-nopr held-unverified held-closed held-gerrit; do
+    case "$out" in
+      *"$id done:"*) fail "the drain presented unaccepted completion $id: $out" ;;
+    esac
+  done
+  pass "drain backstop holds no-PR, unverified, closed, and unverified-Gerrit dones"
 }
 
 test_unpushed_commit_refuses_done
@@ -625,3 +692,4 @@ test_apply_steers_on_refuse
 test_watcher_keeps_false_done_out_of_the_wake_queue
 test_watcher_steers_on_the_refused_done_line
 test_drain_presents_completions_without_forge_reads
+test_drain_holds_unaccepted_completions
