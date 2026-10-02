@@ -420,18 +420,12 @@ fm_stale_ask_home() {  # <home> <id> <timeout>
 
 # --- reclaim -----------------------------------------------------------------
 
-# Run one tasks-axi command from the owning home's backlog root, with --file
-# only for the markdown backend (mirroring fm_backlog_row_show's backend
-# awareness in bin/fm-backlog-transition-lib.sh).
+# Run one tasks-axi command from the owning home's backlog root.
 fm_stale_axi() {  # <home> <verb> <id> [flag...]
   local home=$1 verb=$2 id=$3
   shift 3
   home=$(fm_capacity_resolve_dir "$home") || return 1
-  if [ "$(fm_tasks_axi_backend "$home")" = markdown ]; then
-    (cd "$home" 2>/dev/null && tasks-axi "$verb" "$id" --file "$home/data/backlog.md" "$@")
-  else
-    (cd "$home" 2>/dev/null && tasks-axi "$verb" "$id" "$@")
-  fi
+  (cd "$home" 2>/dev/null && tasks-axi "$verb" "$id" "$@")
 }
 
 # Decode the `body:` field tasks-axi show prints: "-" or empty for none, a
