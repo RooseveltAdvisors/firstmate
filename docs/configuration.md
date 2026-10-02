@@ -617,7 +617,7 @@ The optional local, gitignored `config/herdr-task-titles` presence flag opts thi
 With the flag absent (or carrying the value `off`), new workers keep the `fm-<id>` label exactly as before.
 Existing tabs are never renamed, a relaunch adopts the recorded tab without relabeling it, and `fm_backend_herdr_list_live` and the duplicate/husk guards in `bin/backends/herdr.sh` discover and match both label shapes regardless of this flag, so a home can opt in or stand down without stranding live work.
 The flag stays opt-in because VISION keeps presentation and convenience features out of the unconfigured default.
-A `--secondmate` spawn reads the secondmate home's own copy of the flag, the same home-authority rule the presentation projection follows, and the flag is inherited into secondmate homes under the primary-authoritative contract owned by [`secondmate-provisioning`](../.agents/skills/secondmate-provisioning/SKILL.md).
+A `--secondmate` spawn reads the secondmate home's own copy of the flag and its own backlog row title, the same home-authority rule the presentation projection follows, and the flag is inherited into secondmate homes under the primary-authoritative contract owned by [`secondmate-provisioning`](../.agents/skills/secondmate-provisioning/SKILL.md).
 `bin/backends/herdr.sh`'s `fm_backend_herdr_task_titles_preference` owns the exact parsing, and [herdr-backend.md](herdr-backend.md#watching-and-task-containers) owns the label, recovery, and duplicate-identity behavior.
 
 ## Gate defaults (.no-mistakes.yaml)
