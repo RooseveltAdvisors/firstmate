@@ -1,0 +1,81 @@
+### S1 unpushed local commit, worker says done
+$ fm-done-guard.sh check s1   [unpushed]
+verdict=refused
+reason=unpushed
+exit=1
+$ fm-crew-state.sh s1
+state: unknown · source: none · no current-state source available
+
+### S2 pushed branch, forge has no PR
+$ fm-done-guard.sh check s2   [pushed, no PR]
+verdict=refused
+reason=no-pr
+exit=1
+
+### S3 pushed + open PR named in done line
+$ fm-done-guard.sh check s3   [open PR]
+verdict=accepted
+reason=accepted
+exit=0
+
+### S4 adversarial: PR URL claimed but forge reports CLOSED
+$ fm-done-guard.sh check s4   [closed PR]
+verdict=refused
+reason=unverified-pr
+exit=1
+
+### S5 adversarial: forge unreachable (s3 otherwise accepted)
+$ fm-done-guard.sh check s3   [forge down]
+verdict=refused
+reason=unverified-pr
+exit=1
+
+### S6 adversarial: done names a PR in another repository
+$ fm-done-guard.sh check s6   [foreign-repo PR]
+verdict=refused
+reason=unverified-pr
+exit=1
+
+### S7 scout and local-only tasks are skipped
+$ fm-done-guard.sh check s7   [scout]
+verdict=skipped
+reason=no-mistakes
+exit=0
+$ fm-done-guard.sh check s8   [local-only]
+verdict=skipped
+reason=local-only
+exit=0
+
+### S9 PR merged after done, branch pruned (unpushed), merge receipt recorded, offline
+s9.busy-gen
+s9.busy-state
+s9.meta
+s9.pr-poll-merge-notified
+s9.status
+$ fm-done-guard.sh check s9   [receipt, NO_FORGE, forge down]
+verdict=accepted
+reason=merged
+exit=0
+$ fm-crew-state.sh s9
+state: done · source: status-log · shipped
+  (fleet-snapshot path: status+meta captured into a temp dir with no receipt)
+$ fm-crew-state.sh s9
+state: done · source: status-log · shipped
+
+### S10 adversarial: merge receipt names a different PR (#8)
+$ fm-done-guard.sh check s10   [foreign receipt]
+verdict=refused
+reason=unpushed
+exit=1
+
+### S11 apply on a refused done steers the worker to push
+verdict=refused
+reason=unpushed
+exit=1
+SEND s1 Your done report was refused: this ship task requires a pushed branch and an open PR. Push the branch to origin and open a PR, then report done with the PR's full https URL. For a no-mistakes ship, start /no-mistakes so the pipeline can push and open the PR; do not report done until it prints done: PR <url> checks green.
+
+### S12 main wake-drain outcome backstop (offline gate)
+STATUS OUTCOME BACKSTOP (newest captain-facing task event has no covering branch outcome):
+s7 done: report written
+s8 done: local work
+s9 done: shipped
