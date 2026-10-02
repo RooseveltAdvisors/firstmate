@@ -1300,6 +1300,22 @@ EOF
 > 1. Yes, proceed (y)
   3. No (esc)
 EOF
+  cat > "$prompts/deny-quoted-abs-flag-value" <<EOF
+  Would you like to run the following command?
+
+  head --files0-from='/etc/shadow' $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-quoted-abs-skipped-head" <<EOF
+  Would you like to run the following command?
+
+  echo '/etc/shadow'
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
   cat > "$prompts/unknown" <<'EOF'
 Status header
 gpt-5.6-sol high - some/cwd
@@ -1454,6 +1470,8 @@ EOF
   classify allow-quoted-dollar-path 'approve' 'classifier approves a single-quoted dollar-bearing path'
   classify deny-unquoted-dollar-path 'refuse:command reaches a path outside this home' 'classifier refuses an unquoted dollar-bearing path'
   classify deny-doublequoted-dollar-path 'refuse:command reaches a path outside this home' 'classifier refuses a double-quoted dollar-bearing path'
+  classify deny-quoted-abs-flag-value 'refuse:command reaches a path outside this home' 'classifier refuses a quote-wrapped absolute path in a flag value'
+  classify deny-quoted-abs-skipped-head 'refuse:command reaches a path outside this home' 'classifier refuses a quote-wrapped absolute path under a skipped head'
   classify unknown 'unknown' 'classifier fails closed on an unrecognized prompt'
   ROOT=$saved_root
 }

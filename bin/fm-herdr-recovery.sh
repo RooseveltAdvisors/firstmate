@@ -311,18 +311,19 @@ fm_reco_flags_ok() { # <line>
 # including '='-attached values, and existing tokens are resolved so a
 # symlink cannot carry a read outside the tree.
 fm_reco_paths_ok() { # <text> <home>
-  local home resolved tok part bare
+  local home resolved tok part bare stripped
   home=$(readlink -f -- "$2" 2>/dev/null) || return 1
   while IFS= read -r tok; do
     [ -n "$tok" ] || continue
-    case "$tok" in
+    stripped=${tok//\'/}
+    case "$stripped" in
       *'..'*) return 1 ;;
       '~'*) return 1 ;;
       *'://'*) return 1 ;;
       *\\*) return 1 ;;
     esac
     fm_reco_dollar_literal_ok "$tok" || return 1
-    part=$tok
+    part=$stripped
     while :; do
       case "$part" in
         /*)
@@ -340,8 +341,8 @@ fm_reco_paths_ok() { # <text> <home>
         *) break ;;
       esac
     done
-    if [ -e "$tok" ] || [ -L "$tok" ]; then
-      resolved=$(readlink -f -- "$tok" 2>/dev/null) || return 1
+    if [ -e "$stripped" ] || [ -L "$stripped" ]; then
+      resolved=$(readlink -f -- "$stripped" 2>/dev/null) || return 1
       case "$resolved" in
         "$home"|"$home"/*|/dev/null) ;;
         *) return 1 ;;
