@@ -1,0 +1,37 @@
+$ --task beta (stale pending reply)
+TASK             KEY                              VERB            CATEGORY          NOUL   CONF   SUGGESTED ACTION
+==================================================================================================================
+beta             pending-reply-abc                blocked         stale_historical  0.10   0.80   Confirm the pending reply is no longer owed before closing it
+==================================================================================================================
+Total: 1 | stale_historical: 1
+
+$ --task beta --resolve-cmds
+# No actionable resolve commands generated.
+
+$ --status-file elsewhere/alpha.status --task alpha (fm-send would close a different file)
+old-foreign | Archive or resolve superseded historical decision (task metadata gone; close it by hand) | resolve_cmd= ''
+
+$ no key anywhere: env -u TYPESAFE_API_KEY, FM_HOME without .env/wrapper
+TASK             KEY                              VERB            CATEGORY          NOUL   CONF   SUGGESTED ACTION
+==================================================================================================================
+beta             pending-reply-abc                blocked         unavailable       N/A    N/A    TYPESAFE_API_KEY unavailable
+==================================================================================================================
+Total: 1 | unavailable: 1
+exit=0
+
+$ key from FM_HOME/.env
+TASK             KEY                              VERB            CATEGORY          NOUL   CONF   SUGGESTED ACTION
+==================================================================================================================
+alpha            old-wt                           blocked         stale_historical  0.10   0.80   Archive or resolve superseded historical decision
+==================================================================================================================
+Total: 1 | stale_historical: 1
+
+$ unreadable dispatch-never-send (directory)
+warning: /tmp/fm-jev-lab.3Jnb/badcfg/dispatch-never-send is not a readable regular file; nothing sent
+TASK             KEY                              VERB            CATEGORY          NOUL   CONF   SUGGESTED ACTION
+==================================================================================================================
+[withheld]       [withheld]                       [withheld]      unavailable       N/A    N/A    [withheld]
+[withheld]       [withheld]                       [withheld]      unavailable       N/A    N/A    [withheld]
+==================================================================================================================
+Total: 2 | unavailable: 2
+exit=0

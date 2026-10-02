@@ -1,0 +1,69 @@
+$ TYPESAFE_API_KEY=k fm-jev-decisions.sh --all
+TASK             KEY                              VERB            CATEGORY          NOUL   CONF   SUGGESTED ACTION
+==================================================================================================================
+[withheld]       old-[withheld]-wt                blocked         stale_historical  0.10   0.80   Archive or resolve superseded historical decision
+alpha            old-wt                           blocked         stale_historical  0.10   0.80   Archive or resolve superseded historical decision
+alpha            quota-up                         needs-decision  policy_spend      0.30   0.80   Escalate to Captain for policy, spend, or architecture guidance
+alpha            net-down                         blocked         external_block    0.40   0.80   Investigate external host, route, or credentials dependency
+alpha            active-fix                       needs-decision  actionable_now    0.90   0.80   Active blocker: requires prompt resolution or steer
+alpha            badnoul-1                        blocked         unavailable       N/A    N/A    Jev returned no valid actionable_now noul: nan
+alpha            garbage-1                        blocked         unavailable       N/A    N/A    Expecting value: line 1 column 1 (char 0)
+orphan           old-orphan                       blocked         stale_historical  0.10   0.80   Archive or resolve superseded historical decision (task metadata gone; close it by hand)
+==================================================================================================================
+Total: 8 | stale_historical: 3 | actionable_now: 1 | external_block: 1 | policy_spend: 1 | unavailable: 2
+
+$ ... --all --resolve-cmds
+FM_HOME=/home/jon/.no-mistakes/worktrees/2f32188048b1/01M3ZG6BWA68JN8HPZ1TQ64H6F FM_STATE_OVERRIDE=/tmp/fm-jev-lab.3Jnb/state /home/jon/.no-mistakes/worktrees/2f32188048b1/01M3ZG6BWA68JN8HPZ1TQ64H6F/bin/fm-send.sh alpha --resolve-key old-wt 'auto-resolved: superseded historical decision'
+
+$ ... --all --category stale_historical --json
+[
+  {
+    "task": "[withheld]",
+    "key": "old-[withheld]-wt",
+    "verb": "blocked",
+    "note": "[withheld] secret thing",
+    "category": "stale_historical",
+    "confidence": 0.8,
+    "actionable_noul": 0.1,
+    "probabilities": {},
+    "suggested_action": "Archive or resolve superseded historical decision",
+    "resolve_cmd": "",
+    "error": null
+  },
+  {
+    "task": "alpha",
+    "key": "old-wt",
+    "verb": "blocked",
+    "note": "legacy worktree from phase 1",
+    "category": "stale_historical",
+    "confidence": 0.8,
+    "actionable_noul": 0.1,
+    "probabilities": {},
+    "suggested_action": "Archive or resolve superseded historical decision",
+    "resolve_cmd": "FM_HOME=/home/jon/.no-mistakes/worktrees/2f32188048b1/01M3ZG6BWA68JN8HPZ1TQ64H6F FM_STATE_OVERRIDE=/tmp/fm-jev-lab.3Jnb/state /home/jon/.no-mistakes/worktrees/2f32188048b1/01M3ZG6BWA68JN8HPZ1TQ64H6F/bin/fm-send.sh alpha --resolve-key old-wt 'auto-resolved: superseded historical decision'",
+    "error": null
+  },
+  {
+    "task": "orphan",
+    "key": "old-orphan",
+    "verb": "blocked",
+    "note": "no meta",
+    "category": "stale_historical",
+    "confidence": 0.8,
+    "actionable_noul": 0.1,
+    "probabilities": {},
+    "suggested_action": "Archive or resolve superseded historical decision (task metadata gone; close it by hand)",
+    "resolve_cmd": "",
+    "error": null
+  }
+]
+
+$ ... --all --min-noul 0.5 --limit 6
+TASK             KEY                              VERB            CATEGORY          NOUL   CONF   SUGGESTED ACTION
+==================================================================================================================
+alpha            active-fix                       needs-decision  actionable_now    0.90   0.80   Active blocker: requires prompt resolution or steer
+==================================================================================================================
+Total: 1 | actionable_now: 1
+
+$ grep AcmeClient in outbound request log (expect none)
+0

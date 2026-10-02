@@ -1,0 +1,13 @@
+$ --task fm-gamma (fm-send resolves fm-gamma -> gamma.status, a different file)
+TASK             KEY                              VERB            CATEGORY          NOUL   CONF   SUGGESTED ACTION
+==================================================================================================================
+fm-gamma         old-g                            blocked         stale_historical  0.10   0.80   Archive or resolve superseded historical decision (fm-send would close /tmp/fm-jev-lab.3Jnb/state/gamma.status, not /tmp/fm-jev-lab.3Jnb/state/fm-gamma.status; close it by hand)
+==================================================================================================================
+Total: 1 | stale_historical: 1
+
+# No actionable resolve commands generated.
+
+$ removed modes rejected
+--input exit=2
+--key exit=2
+--max-workers exit=2
