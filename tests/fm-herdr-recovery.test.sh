@@ -172,6 +172,7 @@ unit_classifier() {
   printf 'msg\n' > "$ROOT/state/x.md"
   printf 'msg\n' > "$ROOT/state/list.txt"
   printf 'msg\n' > "$ROOT/state/rows.txt"
+  printf 'dollar\n' > "$ROOT/state/f\$1.txt"
   printf 'outside\n' > "$TMP_ROOT/classifier-outside.txt"
   ln -s "$TMP_ROOT/classifier-outside.txt" "$ROOT/state/escape.md"
   cat > "$prompts/deny-slashful-escape" <<EOF
@@ -1171,58 +1172,58 @@ EOF
 > 1. Yes, proceed (y)
   3. No (esc)
 EOF
-  cat > "$prompts/deny-attached-flagval-head-bare" <<'EOF'
+  cat > "$prompts/deny-attached-flagval-head-bare" <<EOF
   Would you like to run the following command?
 
-  head -$N README.md
+  head -\$N $ROOT/state/x.md
 
 > 1. Yes, proceed (y)
   3. No (esc)
 EOF
-  cat > "$prompts/deny-attached-flagval-head-n" <<'EOF'
+  cat > "$prompts/deny-attached-flagval-head-n" <<EOF
   Would you like to run the following command?
 
-  head -n$N README.md
+  head -n\$N $ROOT/state/x.md
 
 > 1. Yes, proceed (y)
   3. No (esc)
 EOF
-  cat > "$prompts/deny-attached-flagval-tail" <<'EOF'
+  cat > "$prompts/deny-attached-flagval-tail" <<EOF
   Would you like to run the following command?
 
-  tail -$N README.md
+  tail -\$N $ROOT/state/x.md
 
 > 1. Yes, proceed (y)
   3. No (esc)
 EOF
-  cat > "$prompts/deny-attached-flagval-wc" <<'EOF'
+  cat > "$prompts/deny-attached-flagval-wc" <<EOF
   Would you like to run the following command?
 
-  wc -l$X README.md
+  wc -l\$X $ROOT/state/x.md
 
 > 1. Yes, proceed (y)
   3. No (esc)
 EOF
-  cat > "$prompts/deny-attached-flagval-uniq" <<'EOF'
+  cat > "$prompts/deny-attached-flagval-uniq" <<EOF
   Would you like to run the following command?
 
-  uniq -f$N README.md
+  uniq -f\$N $ROOT/state/x.md
 
 > 1. Yes, proceed (y)
   3. No (esc)
 EOF
-  cat > "$prompts/deny-attached-flagval-sort" <<'EOF'
+  cat > "$prompts/deny-attached-flagval-sort" <<EOF
   Would you like to run the following command?
 
-  sort -k$K README.md
+  sort -k\$K $ROOT/state/x.md
 
 > 1. Yes, proceed (y)
   3. No (esc)
 EOF
-  cat > "$prompts/deny-attached-flagval-cat" <<'EOF'
+  cat > "$prompts/deny-attached-flagval-cat" <<EOF
   Would you like to run the following command?
 
-  cat -n$X README.md
+  cat -n\$X $ROOT/state/x.md
 
 > 1. Yes, proceed (y)
   3. No (esc)
@@ -1235,18 +1236,66 @@ EOF
 > 1. Yes, proceed (y)
   3. No (esc)
 EOF
-  cat > "$prompts/deny-attached-flagval-rg" <<'EOF'
+  cat > "$prompts/deny-attached-flagval-rg" <<EOF
   Would you like to run the following command?
 
-  rg -e$P . state/x.md
+  rg -e\$P . $ROOT/state/x.md
 
 > 1. Yes, proceed (y)
   3. No (esc)
 EOF
-  cat > "$prompts/deny-attached-flagval-ls" <<'EOF'
+  cat > "$prompts/deny-attached-flagval-ls" <<EOF
   Would you like to run the following command?
 
-  ls -$X state
+  ls -\$X $ROOT/state
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-quoted-flagval-awk" <<EOF
+  Would you like to run the following command?
+
+  awk -v'x=\$1' $ROOT/state/rows.txt
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-quoted-flagval-grep" <<EOF
+  Would you like to run the following command?
+
+  grep -e'bar\$' $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-doublequoted-flagval" <<EOF
+  Would you like to run the following command?
+
+  grep -e"\$P" $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-quoted-dollar-path" <<EOF
+  Would you like to run the following command?
+
+  cat '$ROOT/state/f\$1.txt'
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-unquoted-dollar-path" <<EOF
+  Would you like to run the following command?
+
+  cat $ROOT/state/f\$1.txt
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-doublequoted-dollar-path" <<EOF
+  Would you like to run the following command?
+
+  cat "$ROOT/state/f\$1.txt"
 
 > 1. Yes, proceed (y)
   3. No (esc)
@@ -1399,6 +1448,12 @@ EOF
   classify deny-attached-flagval-awk 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an attached dollar-bearing awk -F value'
   classify deny-attached-flagval-rg 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an attached dollar-bearing rg -e value'
   classify deny-attached-flagval-ls 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an attached dollar-bearing ls flag'
+  classify allow-quoted-flagval-awk 'approve' 'classifier approves a single-quoted awk -v value'
+  classify allow-quoted-flagval-grep 'approve' 'classifier approves a single-quoted grep -e value'
+  classify deny-doublequoted-flagval 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses a double-quoted grep -e value'
+  classify allow-quoted-dollar-path 'approve' 'classifier approves a single-quoted dollar-bearing path'
+  classify deny-unquoted-dollar-path 'refuse:command reaches a path outside this home' 'classifier refuses an unquoted dollar-bearing path'
+  classify deny-doublequoted-dollar-path 'refuse:command reaches a path outside this home' 'classifier refuses a double-quoted dollar-bearing path'
   classify unknown 'unknown' 'classifier fails closed on an unrecognized prompt'
   ROOT=$saved_root
 }

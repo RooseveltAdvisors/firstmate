@@ -320,8 +320,8 @@ fm_reco_paths_ok() { # <text> <home>
       '~'*) return 1 ;;
       *'://'*) return 1 ;;
       *\\*) return 1 ;;
-      *'$'*) return 1 ;;
     esac
+    fm_reco_dollar_literal_ok "$tok" || return 1
     part=$tok
     while :; do
       case "$part" in
@@ -347,7 +347,7 @@ fm_reco_paths_ok() { # <text> <home>
         *) return 1 ;;
       esac
     fi
-  done < <(printf '%s' "$1" | grep -oE '[^[:space:]"'"'"']*/[^[:space:]"'"'"']*')
+  done < <(printf '%s' "$1" | grep -oE '[^[:space:]"]*/[^[:space:]"]*')
   return 0
 }
 
@@ -358,10 +358,11 @@ fm_reco_paths_ok() { # <text> <home>
 # manual confirmation.
 fm_reco_relative_token_ok() { # <token> <resolved-home>
   local tok=$1 resolved
+  fm_reco_dollar_literal_ok "$1" || return 1
   tok=${tok%\"}; tok=${tok#\"}
   tok=${tok%\'}; tok=${tok#\'}
   case "$tok" in
-    ''|-*|*\\*|*\$*|*'*'*|*'?'*) return 1 ;;
+    ''|-*|*\\*|*'*'*|*'?'*) return 1 ;;
     *'..'*) return 1 ;;
     '~'*) return 1 ;;
   esac
@@ -373,6 +374,16 @@ fm_reco_relative_token_ok() { # <token> <resolved-home>
     esac
   fi
   return 1
+}
+
+# fm_reco_dollar_literal_ok: pass only when no '$' survives outside complete
+# single-quoted spans - the shell never expands those spans, so their '$' is
+# the same text on screen and in argv.
+fm_reco_dollar_literal_ok() { # <raw-token>
+  case "$(printf '%s' "$1" | sed "s/'[^']*'//g")" in
+    *'$'*) return 1 ;;
+  esac
+  return 0
 }
 
 # fm_reco_program_slot: verdict for one inline sed/awk program token - the
@@ -450,7 +461,7 @@ fm_reco_relative_ok() { # <line> <resolved-home>
       fi
       if [ "$check_next" -eq 1 ]; then
         check_next=0
-        fm_reco_relative_token_ok "$tok" "$home" || return 1
+        fm_reco_relative_token_ok "$raw" "$home" || return 1
         continue
       fi
       case "$raw" in
@@ -497,9 +508,7 @@ fm_reco_relative_ok() { # <line> <resolved-home>
       esac
       case "$tok" in
         -*)
-          case "$raw" in
-            *'$'*) return 1 ;;
-          esac
+          fm_reco_dollar_literal_ok "$raw" || return 1
           if [ "$head" = grep ] || [ "$head" = rg ]; then
             case "$tok" in
               -f) ;;
@@ -534,7 +543,7 @@ fm_reco_relative_ok() { # <line> <resolved-home>
         esac
         continue
       fi
-      fm_reco_relative_token_ok "$tok" "$home" || return 1
+      fm_reco_relative_token_ok "$raw" "$home" || return 1
       case "$tok" in
         /dev/null) ;;
         *) saw_pos=1 ;;
