@@ -1,0 +1,11 @@
+### Scenario: busy real Claude seat, exit window 0.05s, confirm window 20s (stop lands after the primary window)
+$ FM_CONTROL_EXIT_WAIT=0.05 FM_CONTROL_EXIT_CONFIRM_WAIT=20 bin/fm-control.sh t1 exit
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.QaSU7n
+stopped t1 harness=claude backend=tmux endpoint=fmses:fm-t1 worktree=/tmp/fm-lab.QaSU7n/projects/wt-t1
+rc=0
+pane_current_command after: bash
+--- pane tail:
+  /AudioEditor                                                      AI-powered audio and video editing pipeline: Whisper word-level transcription (insanely-fast-whisper on MPS) → Claude segment
+                                                                    classification (KEEP / CUT_FILLER / CUT_FALSE_START / CUT_STUTTER / CUT_DEAD_AIR / CUT_EDIT_M… (user)
+  /usage-credits                                                    Configure usage credits or request them from your admin when you hit a limit
+bash-5.2$

@@ -1,0 +1,4 @@
+$ BASE 8690c411 bin/fm-control.sh t1 exit  (same seat, same ambiguous post-interrupt read)
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.rzl8NF
+error: task t1's endpoint reads 'ambiguous' after interrupt delivery rather than a positively classified state; exit cannot prove whether the agent stopped
+rc=1

@@ -1,0 +1,10 @@
+$  FM_HOME=$LAB bin/fm-control.sh t1 exit
+--- seat before:
+hold cmd=zsh
+fm-t1 cmd=claude
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.rzl8NF
+error: task t1's composer visibly holds pending text; refusing to type the /exit exit command because it would concatenate onto that text. Clear or submit the pending text, then retry 'exit'
+rc=1  elapsed=1.160109643s
+--- seat after:
+hold cmd=zsh
+fm-t1 cmd=claude

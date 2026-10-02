@@ -1,0 +1,15 @@
+$ FM_CONTROL_EXIT_WAIT=5 FM_CONTROL_EXIT_CONFIRM_WAIT=2 FM_HOME=$LAB bin/fm-control.sh t1 exit
+--- seat before:
+hold cmd=zsh
+fm-t1 cmd=claude
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.rzl8NF
+stopped t1 harness=claude backend=tmux endpoint=fmlab:fm-t1 worktree=/tmp/fm-lab.rzl8NF/wt-t1
+rc=0  elapsed=4.477530485s
+--- seat after:
+hold cmd=zsh
+fm-t1 cmd=zsh
+--- F1 pane tail (no /exit typed):
+fixture seat (busy)
+wt-t1 ➜ FAKE_DELAY=3 /tmp/fm-lab.rzl8NF/fakebin/claude /tmp/fm-lab.rzl8NF/fakebin/seat.sh
+fixture seat (busy)
+wt-t1 ➜

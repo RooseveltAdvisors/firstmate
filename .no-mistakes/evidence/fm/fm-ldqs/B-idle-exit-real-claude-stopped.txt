@@ -1,0 +1,10 @@
+$  FM_HOME=$LAB bin/fm-control.sh t1 exit
+--- seat before:
+hold cmd=zsh
+fm-t1 cmd=claude
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.rzl8NF
+stopped t1 harness=claude backend=tmux endpoint=fmlab:fm-t1 worktree=/tmp/fm-lab.rzl8NF/wt-t1
+rc=0  elapsed=4.272572582s
+--- seat after:
+hold cmd=zsh
+fm-t1 cmd=zsh

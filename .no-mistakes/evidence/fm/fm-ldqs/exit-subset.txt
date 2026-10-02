@@ -1,0 +1,33 @@
+ok - fm-control exit: every verified harness gets its own verified exit command
+ok - fm-control interrupt: every verified harness gets its own verified key and repeat count
+ok - fm-control Devin interrupt: second press only after the armed hint, then busy invalidated without fabricating idle
+ok - fm-control Devin interrupt: an idle agent gets one Escape and reports not-running
+ok - fm-control Devin exit: a busy record whose turn already ended never opens the revert picker
+ok - fm-control Devin interrupt: a revert picker a press opened is closed with Escape, never Enter
+ok - fm-control Devin: an open revert picker refuses every typed command
+ok - fm-control interrupt: opencode needs a double Escape, claude a single one
+ok - fm-control interrupt: a backend that cannot deliver the harness's key refuses instead of sending another
+ok - fm-control: a backend that cannot prove an agent stopped refuses exit and relaunch
+ok - fm-control: interrupt and exit lock before task-state resolution
+ok - fm-control exit: an already-stopped agent is idempotent success with no bytes sent
+ok - fm-control exit: an unprovable tmux endpoint refuses instead of claiming the agent stopped
+ok - fm-control interrupt: refuses when no agent is running rather than keying a shell
+ok - fm-control exit: an endpoint whose process cannot be attributed refuses
+ok - fm-control exit: a busy agent receives interrupt delivery before the exit command
+ok - fm-control exit: an idle agent goes straight to its exit command
+ok - fm-control interrupt: unconfirmed delivery preserves observed busy state
+ok - fm-control interrupt: muse confirms cancellation from its session log
+ok - fm-control interrupt: postconditions are revalidated after acknowledgement polling
+ok - fm-control exit: an interrupt-stopped agent satisfies the gone-state postcondition
+ok - fm-control exit: a post-interrupt missing endpoint tmux cannot prove ends unconfirmed, never failed
+ok - fm-control exit: a proven-absent post-interrupt endpoint reports endpoint-gone, never a failure
+ok - fm-control exit: the staged windows hold their wall-clock bound when a poll iteration is slow
+ok - fm-control exit: the exit window is measured from exit-command delivery, not the pre-delivery proof
+ok - fm-control exit: the not-sent path charges its pre-wait absence proof to the primary window
+ok - fm-control exit: the delivered-exit wait labels a proof-proven gone endpoint endpoint-gone
+ok - fm-control exit: the withheld wait labels a proof-proven gone endpoint endpoint-gone
+ok - fm-control exit: a stubborn agent reports delivered input and an unconfirmed, never failed, exit
+ok - fm-control exit: ambiguous post-interrupt evidence is unconfirmed, never failed, and takes no exit command
+ok - fm-control exit: a positively observed stop after ambiguous post-interrupt evidence is success
+ok - fm-control exit: a late stop inside the confirm window is success, never failure
+ok - fm-control interrupt: grok reports delivery without claiming cancellation

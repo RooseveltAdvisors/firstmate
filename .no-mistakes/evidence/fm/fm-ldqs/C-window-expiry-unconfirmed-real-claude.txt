@@ -1,0 +1,10 @@
+$ FM_CONTROL_EXIT_WAIT=0.01 FM_CONTROL_EXIT_CONFIRM_WAIT=0.01 FM_CONTROL_EXIT_RETRIES=1 FM_HOME=$LAB bin/fm-control.sh t1 exit
+--- seat before:
+hold cmd=zsh
+fm-t1 cmd=claude
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.rzl8NF
+error: exit-delivered t1 interrupt=not-needed exit-command=delivered agent-state=alive exit=unconfirmed; the stop state was not observed within the 0.009s exit window and its 0.01s confirm window - a window's expiry is not evidence the agent kept running, so this is unconfirmed rather than failed; read the seat's current state before any recovery action
+rc=1  elapsed=3.072793479s
+--- seat after (+6s):
+hold cmd=zsh
+fm-t1 cmd=zsh

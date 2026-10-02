@@ -1,0 +1,13 @@
+$ FM_HOME=$LAB bin/fm-control.sh t1 exit   # real claude idle in lab tmux
+ ▝▝   ▝▝   /tmp/fm-lab.rzl8NF/wt-t1
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ Try "write a test for <filepath>"
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  cl arcs Opus 5.5(1M) 4%(4h31m)/8%(6d18h)
+  ⏸ manual mode on · ← 1 agent
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.rzl8NF
+error: exit-delivered t1 interrupt=not-needed exit-command=delivered agent-state=missing exit=unconfirmed; the stop state was not observed within the 29.999s exit window and its 10s confirm window - a window's expiry is not evidence the agent kept running, so this is unconfirmed rather than failed; read the seat's current state before any recovery action
+rc=1
+elapsed=44.738958846s
+--- window after:
+no server running on /tmp/fm-lab.rzl8NF/tmux/tmux-1000/default

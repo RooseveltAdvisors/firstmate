@@ -1,0 +1,11 @@
+### Scenario: busy real Claude seat, exit window 0.01s, confirm window 0.01s (attempt to force window expiry; the real seat stopped before the first post-delivery read, so the stop was observed and reported)
+before: pane_current_command=claude
+$ FM_CONTROL_EXIT_WAIT=0.01 FM_CONTROL_EXIT_CONFIRM_WAIT=0.01 bin/fm-control.sh t1 exit
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.QaSU7n
+stopped t1 harness=claude backend=tmux endpoint=fmses:fm-t1 worktree=/tmp/fm-lab.QaSU7n/projects/wt-t1
+rc=0
+6s later: pane_current_command=bash
+$ bin/fm-control.sh t1 exit   # follow-up read, default windows
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.QaSU7n
+already-stopped t1 harness=claude backend=tmux endpoint=fmses:fm-t1 worktree=/tmp/fm-lab.QaSU7n/projects/wt-t1
+rc=0
