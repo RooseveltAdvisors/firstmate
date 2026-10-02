@@ -248,13 +248,16 @@ SH
 # registered claude with a live foreground process. Per-test env shapes the
 # choreography: FM_FAKE_HERDR_INTERRUPT_STOPS_SERVER stops the server on the
 # interrupt key (so the raw read widens to `missing`),
+# FM_FAKE_HERDR_INTERRUPT_BREAKS_SEAT both stops it and destroys the pane,
 # FM_FAKE_HERDR_RESTART_POLLS paces the restart - each status call answers
 # false until the count is spent, so server_ensure burns 0.5s per poll -
 # FM_FAKE_HERDR_SERVER_START_FAILS keeps the server down (the proof stays
-# unproven), FM_FAKE_HERDR_SLEEP_SCALE shrinks every sleep, and
-# FM_FAKE_EXIT_DELAY flips the agent to gone that many seconds after the exit
-# command is typed. Every call is appended to fake/herdr-log as the
-# side-effect record.
+# unproven), FM_FAKE_HERDR_START_FAILS_FIRST lets only later launch attempts
+# succeed, FM_FAKE_HERDR_SLEEP_SCALE shrinks every sleep, FM_FAKE_EXIT_DELAY
+# flips the agent to gone that many seconds after the exit command is typed,
+# and FM_FAKE_EXIT_CLOSES_SEAT destroys the pane when the exit command is
+# typed - the seat that closed itself on exit. Every call is appended to
+# fake/herdr-log as the side-effect record.
 make_herdr_stub() {  # <dir> -> echoes fakebin dir
   local dir=$1 fb="$1/fakebin"
   mkdir -p "$fb"
@@ -280,7 +283,10 @@ case "${1:-} ${2:-}" in
     printf '{"client":{"version":"0.9.0","protocol":22},"server":{"running":%s}}\n' "$running"
     exit 0 ;;
   'server'|'server '*)
-    if [ -z "${FM_FAKE_HERDR_SERVER_START_FAILS:-}" ]; then
+    attempt=$(cat "$D/herdr-server-attempts" 2>/dev/null || printf 0)
+    printf '%s\n' "$((attempt + 1))" > "$D/herdr-server-attempts"
+    if [ -z "${FM_FAKE_HERDR_SERVER_START_FAILS:-}" ] \
+      && [ "$attempt" -ge "${FM_FAKE_HERDR_START_FAILS_FIRST:-0}" ]; then
       rm -f "$D/herdr-stopped"
       : > "$D/herdr-restarting"
       printf '0\n' > "$D/herdr-restart-count"
@@ -317,7 +323,9 @@ case "${1:-} ${2:-}" in
     printf '╭────╮\n│    │\n╰────╯\n'
     exit 0 ;;
   'pane send-text')
-    if [ -n "${FM_FAKE_EXIT_DELAY:-}" ]; then
+    if [ -n "${FM_FAKE_EXIT_CLOSES_SEAT:-}" ]; then
+      : > "$D/herdr-pane-gone"
+    elif [ -n "${FM_FAKE_EXIT_DELAY:-}" ]; then
       printf '%s' "$(awk -v now="${EPOCHREALTIME:-$SECONDS}" \
         -v d="$FM_FAKE_EXIT_DELAY" 'BEGIN{printf "%.6f\n", now + d}')" \
         > "$D/herdr-exit-deadline"
@@ -327,7 +335,10 @@ case "${1:-} ${2:-}" in
     case "${4:-}" in
       enter) : > "$D/herdr-enter" ;;
       *)
-        if [ -n "${FM_FAKE_HERDR_INTERRUPT_STOPS_SERVER:-}" ]; then
+        if [ -n "${FM_FAKE_HERDR_INTERRUPT_BREAKS_SEAT:-}" ]; then
+          : > "$D/herdr-stopped"
+          : > "$D/herdr-pane-gone"
+        elif [ -n "${FM_FAKE_HERDR_INTERRUPT_STOPS_SERVER:-}" ]; then
           : > "$D/herdr-stopped"
         else
           : > "$D/herdr-pane-gone"
@@ -1254,6 +1265,81 @@ test_not_sent_path_charges_the_pre_wait_proof_to_the_window() {
   pass "fm-control exit: the not-sent path charges its pre-wait absence proof to the primary window"
 }
 
+# A stop the delivered-exit wait observes as proof-proven gone gets the
+# endpoint's own outcome: the seat closes itself when the exit command lands,
+# the wait's raw read is `missing`, the shared proof establishes gone, and
+# exit reports `endpoint-gone` - the same label the immediate re-read and a
+# second exit give that physical event, never `stopped` at a dead address.
+test_delivered_wait_observing_proven_gone_reports_endpoint_gone() {
+  local dir out rc gen
+  command -v jq >/dev/null 2>&1 \
+    || { echo "skip - the herdr absence proof parses JSON with jq"; return 0; }
+  dir=$(new_case delivered-wait-gone)
+  make_herdr_stub "$dir" >/dev/null
+  add_task "$dir" t1 claude ship herdr 'fmlab:%7'
+  {
+    echo "herdr_session=fmlab"
+    echo "herdr_workspace_id=ws1"
+    echo "herdr_tab_id=tab1"
+    echo "herdr_pane_id=%7"
+  } >> "$dir/home/state/t1.meta"
+  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1)
+  printf 'busy_gen=%s\n' "$gen" >> "$dir/home/state/t1.meta"
+  out=$(env PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
+    FM_CONTROL_POLL=0.01 \
+    FM_FAKE_HERDR_INTERRUPT_STOPS_SERVER=1 \
+    FM_FAKE_HERDR_RESTART_POLLS=1 \
+    FM_FAKE_EXIT_CLOSES_SEAT=1 \
+    "$CONTROL" t1 exit 2>&1); rc=$?
+  expect_code 0 "$rc" "a wait-observed proven-gone endpoint is success"$'\n'"$out"
+  assert_contains "$out" "endpoint-gone t1 harness=claude" \
+    "a seat that closed itself on exit must report endpoint-gone from the wait"
+  assert_not_contains "$out" "stopped t1" \
+    "a proven-absent endpoint must never be labeled a bare stop at a dead address"
+  assert_not_contains "$out" "exit=unconfirmed" \
+    "a proof-proven stop is a success, never unconfirmed"
+  [ ! -e "$dir/home/state/t1.busy-gen" ] && [ ! -e "$dir/home/state/t1.busy-state" ] \
+    || fail "exit should retire busy wiring for an endpoint that went with its agent"
+  pass "fm-control exit: the delivered-exit wait labels a proof-proven gone endpoint endpoint-gone"
+}
+
+# The withheld (exit-command-not-sent) path carries the same label: an
+# immediate proof that cannot establish absence but becomes provably gone
+# during the staged wait reports `endpoint-gone`, matching the delivered-exit
+# wait and the immediate re-read.
+test_withheld_wait_observing_proven_gone_reports_endpoint_gone() {
+  local dir out rc gen
+  command -v jq >/dev/null 2>&1 \
+    || { echo "skip - the herdr absence proof parses JSON with jq"; return 0; }
+  dir=$(new_case withheld-wait-gone)
+  make_herdr_stub "$dir" >/dev/null
+  add_task "$dir" t1 claude ship herdr 'fmlab:%7'
+  {
+    echo "herdr_session=fmlab"
+    echo "herdr_workspace_id=ws1"
+    echo "herdr_tab_id=tab1"
+    echo "herdr_pane_id=%7"
+  } >> "$dir/home/state/t1.meta"
+  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1)
+  printf 'busy_gen=%s\n' "$gen" >> "$dir/home/state/t1.meta"
+  out=$(env PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
+    FM_CONTROL_POLL=0.01 FM_CONTROL_EXIT_WAIT=5 FM_CONTROL_EXIT_CONFIRM_WAIT=1 \
+    FM_FAKE_HERDR_INTERRUPT_BREAKS_SEAT=1 \
+    FM_FAKE_HERDR_START_FAILS_FIRST=1 \
+    FM_FAKE_HERDR_SLEEP_SCALE=0.1 \
+    "$CONTROL" t1 exit 2>&1); rc=$?
+  expect_code 0 "$rc" "a wait-observed proven-gone endpoint is success"$'\n'"$out"
+  assert_contains "$out" "endpoint-gone t1 harness=claude" \
+    "a gap the wait's proof closes must report endpoint-gone from the withheld path"
+  assert_not_contains "$out" "stopped t1" \
+    "a proven-absent endpoint must never be labeled a bare stop at a dead address"
+  assert_not_contains "$out" "exit=unconfirmed" \
+    "a proof-proven stop is a success, never unconfirmed"
+  [ ! -e "$dir/home/state/t1.busy-gen" ] && [ ! -e "$dir/home/state/t1.busy-state" ] \
+    || fail "exit should retire busy wiring for an endpoint that went with its agent"
+  pass "fm-control exit: the withheld wait labels a proof-proven gone endpoint endpoint-gone"
+}
+
 test_agent_that_does_not_stop_reports_unconfirmed_never_failed() {
   local dir out rc gen
   dir=$(new_case stubborn)
@@ -1323,6 +1409,8 @@ test_stop_landing_during_ambiguous_post_interrupt_wait_is_success() {
   expect_code 0 "$rc" "a positive stop observed during the post-interrupt waits is success"$'\n'"$out"
   assert_contains "$out" "stopped t1 harness=claude" \
     "a stop landing inside the post-interrupt confirm window should be reported stopped"
+  assert_not_contains "$out" "endpoint-gone" \
+    "a wait-observed dead endpoint is the ordinary stopped, never the gone endpoint's own outcome"
   assert_not_contains "$out" "exit=unconfirmed" \
     "a succeeded exit must never be reported as unconfirmed"
   [ ! -e "$dir/home/state/t1.busy-gen" ] && [ ! -e "$dir/home/state/t1.busy-state" ] \
@@ -1342,6 +1430,8 @@ test_exit_reports_late_stop_as_success() {
   expect_code 0 "$rc" "a stop that lands after the exit window but inside the confirm window is success"$'\n'"$out"
   assert_contains "$out" "stopped t1 harness=pi" \
     "the late stop should be reported as stopped"
+  assert_not_contains "$out" "endpoint-gone" \
+    "a wait-observed dead endpoint is the ordinary stopped, never the gone endpoint's own outcome"
   assert_not_contains "$out" "exit=unconfirmed" \
     "a succeeded exit must never be reported as unconfirmed"
   assert_not_contains "$out" "did not stop" \
@@ -1500,6 +1590,8 @@ test_post_interrupt_missing_proven_absent_reports_endpoint_gone
 test_staged_wait_windows_are_wall_clock_bounded
 test_exit_window_starts_at_exit_command_delivery
 test_not_sent_path_charges_the_pre_wait_proof_to_the_window
+test_delivered_wait_observing_proven_gone_reports_endpoint_gone
+test_withheld_wait_observing_proven_gone_reports_endpoint_gone
 test_agent_that_does_not_stop_reports_unconfirmed_never_failed
 test_ambiguous_post_interrupt_evidence_reports_unconfirmed_never_failed
 test_stop_landing_during_ambiguous_post_interrupt_wait_is_success

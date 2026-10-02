@@ -598,6 +598,9 @@ retire_busy_incarnation() {
 # window, then the shorter confirm window - and report their combined expiry.
 # Window expiry is not evidence the agent kept running, so the report is
 # unconfirmed with the last observed state, never a definite failure claim.
+# On success `state` carries the matched stop state - `dead`, or `missing`
+# whose absence the proof established - so each caller labels the outcome the
+# way the immediate-read sibling labels the same physical event.
 # An optional epoch-seconds <origin> predates work already charged to the
 # primary window (an absence proof run before these waits), so the windows the
 # report names are the windows that actually elapsed.
@@ -705,7 +708,11 @@ do_exit() {
           interrupt_result="delivered verified=unattributed cancel=$cancel"
           await_positive_stop "exit-interrupted $ID interrupt=$interrupt_result exit-command=not-sent" ${stop_clock_origin:+"$stop_clock_origin"}
           retire_busy_incarnation
-          printf 'stopped'
+          if [ "$state" = missing ]; then
+            printf 'endpoint-gone'
+          else
+            printf 'stopped'
+          fi
           return 0
           ;;
       esac
@@ -752,7 +759,11 @@ do_exit() {
   # The incarnation is over: retire its busy wiring so no stale record or
   # orphaned generation survives the agent that produced it.
   retire_busy_incarnation
-  printf 'stopped'
+  if [ "$state" = missing ]; then
+    printf 'endpoint-gone'
+  else
+    printf 'stopped'
+  fi
 }
 
 # --- transactional relaunch -------------------------------------------------
