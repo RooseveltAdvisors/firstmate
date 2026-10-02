@@ -9,12 +9,14 @@
 # Sourced by the watcher, away-mode daemon, crew-state reader, and
 # bin/fm-done-guard.sh. No side effects on source.
 # bin/fm-pr-lib.sh owns URL validation and the forge record reads; a URL that
-# only parses is a claim, not evidence, so every accept ends in a live read.
+# only parses is a claim, not evidence, so every open-PR accept ends in a live
+# read. The one local accept is the merge poll's recorded receipt for the named
+# PR (<state>/<id>.pr-poll-merge-notified): landed work needs no open PR.
 # The gate is fail-closed: an unreachable forge, a timed-out read, a PR in
 # another repository, or any non-open state refuses the done. Every forge call
 # is bounded by bin/fm-timeout-lib.sh, so no classifier blocks on the network.
 # FM_DONE_GUARD_NO_FORGE=1 keeps a caller offline; offline it can still refuse an
-# unpushed or unreferenced done but can never accept one.
+# unpushed or unreferenced done, and accepts one only on a recorded merge receipt.
 # fm_done_guard_accepts_status_line is the classifier hook: return 0 to keep a
 # done line actionable, 1 to drop it. fm_done_guard_steer_status is the watcher
 # side effect that tells the worker to push.
