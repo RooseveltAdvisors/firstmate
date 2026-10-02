@@ -1,0 +1,19 @@
+lab-home create rc=0  (/tmp/fm-lab.t29pPs)
+hold cap-a rc=0
+hold cap-b rc=0
+--- held rows before
+  cap-a,queued,ship,"-",held oldest,load,pool /tmp/fm-lab.t29pPs/pool full 3/3
+  cap-b,queued,ship,"-",held other pool,load,pool /elsewhere full 3/3
+  - Run `tasks-axi show <id> --file=/tmp/fm-lab.t29pPs/data/backlog.md` for full notes on a task
+--- config/backlog-backend=manual -> release after slot return
+released=''
+backlog.md byte-identical (no mutation)
+  cap-a,queued,ship,"-",held oldest,load,pool /tmp/fm-lab.t29pPs/pool full 3/3
+  cap-b,queued,ship,"-",held other pool,load,pool /elsewhere full 3/3
+  - Run `tasks-axi show <id> --file=/tmp/fm-lab.t29pPs/data/backlog.md` for full notes on a task
+--- default backend -> release after slot return
+ready: cap-a - capacity hold released for pool /tmp/fm-lab.t29pPs/pool
+released='cap-a'
+  cap-b,queued,ship,"-",held other pool,load,pool /elsewhere full 3/3
+  - Run `tasks-axi show <id> --file=/tmp/fm-lab.t29pPs/data/backlog.md` for full notes on a task
+lab removed

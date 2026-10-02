@@ -1,0 +1,11 @@
+$ fm-stale-sweep.sh --help | head -3
+Usage:
+  fm-stale-sweep.sh [sweep] [--apply] [--apply-orphans] [--older-than <hours>]   sweep the shared Beads graph for dead-endpoint claims
+  fm-stale-sweep.sh check    watcher check mode: silent unless rows are reclaimable
+$ FM_HOME=lab fm-stale-sweep.sh 
+fm-stale-sweep: no .tasks.toml at /tmp/fm-lab.WHcw3H/.tasks.toml; a home without a backlog config has no graph to sweep
+rc=1
+$ FM_HOME=lab fm-stale-sweep.sh check
+fm-stale-sweep: no .tasks.toml at /tmp/fm-lab.WHcw3H/.tasks.toml; a home without a backlog config has no graph to sweep
+fm-stale-sweep: graph config unreadable
+rc=0
