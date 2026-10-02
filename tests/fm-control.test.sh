@@ -1170,23 +1170,28 @@ test_post_interrupt_missing_proven_absent_reports_endpoint_gone() {
 # unconfirmed report's named window sizes are the windows that actually
 # elapsed rather than a count of cheap poll steps.
 test_staged_wait_windows_are_wall_clock_bounded() {
-  local dir out rc gen t0 t1 total
-  dir=$(new_case wall-clock-windows)
-  add_task "$dir" t1 claude
-  alive_as "$dir" claude
-  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1)
-  printf 'busy_gen=%s\n' "$gen" >> "$dir/home/state/t1.meta"
-  t0=${EPOCHREALTIME:-$(date +%s)}
-  out=$(FM_FAKE_NEVER_DIES=1 FM_FAKE_STATE_DELAY=0.3 \
-    FM_CONTROL_EXIT_WAIT=0.05 FM_CONTROL_EXIT_CONFIRM_WAIT=0.05 \
-    run_control "$dir" t1 exit); rc=$?
-  t1=${EPOCHREALTIME:-$(date +%s)}
-  total=$(awk -v a="$t0" -v b="$t1" 'BEGIN{printf "%.3f", b - a}')
+  local dir out rc gen t0 t1 total base delay
+  # The bound is measured against the same exit with instant reads, so the
+  # fixed process overhead of a loaded host is not charged to the windows.
+  for delay in 0 0.3; do
+    dir=$(new_case "wall-clock-windows-$delay")
+    add_task "$dir" t1 claude
+    alive_as "$dir" claude
+    gen=$("$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1)
+    printf 'busy_gen=%s\n' "$gen" >> "$dir/home/state/t1.meta"
+    t0=${EPOCHREALTIME:-$(date +%s)}
+    out=$(FM_FAKE_NEVER_DIES=1 FM_FAKE_STATE_DELAY=$delay \
+      FM_CONTROL_EXIT_WAIT=0.05 FM_CONTROL_EXIT_CONFIRM_WAIT=0.05 \
+      run_control "$dir" t1 exit); rc=$?
+    t1=${EPOCHREALTIME:-$(date +%s)}
+    total=$(awk -v a="$t0" -v b="$t1" 'BEGIN{printf "%.3f", b - a}')
+    [ "$delay" = 0 ] && base=$total
+  done
   expect_code 1 "$rc" "an agent that never stops must not report success"$'\n'"$out"
   assert_contains "$out" "exit=unconfirmed" \
     "the stubborn agent should still end unconfirmed"
-  awk -v t="$total" 'BEGIN{exit !(t < 3)}' \
-    || fail "the 0.05s+0.05s staged windows stretched to ${total}s of wall clock when each provider read took 0.3s"
+  awk -v t="$total" -v b="$base" 'BEGIN{exit !(t - b < 2.4)}' \
+    || fail "the 0.05s+0.05s staged windows stretched to ${total}s of wall clock (${base}s with instant reads) when each provider read took 0.3s"
   pass "fm-control exit: the staged windows hold their wall-clock bound when a poll iteration is slow"
 }
 
