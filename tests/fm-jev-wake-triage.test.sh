@@ -345,6 +345,91 @@ test_watcher_pipeline_wait_suppresses() {
   pass "watcher pipeline_wait suppresses the stale escalation and restarts the idle timer"
 }
 
+# Suppression streaks are capped at FM_WEDGE_DEMAND_INSPECT_COUNT (default 3)
+# per window while the last status line is unchanged. The streak marker is the
+# watcher's persisted per-window state: "<status-line-hash> <count>".
+seed_streak() {  # <state> <key> <status-line> <count>
+  printf '%s %s\n' "$(hash_text "$3")" "$4" > "$1/.jev-suppress-$2"
+}
+
+test_watcher_short_streak_still_suppresses() {
+  local dir state fakebin out capture_file window key pid
+  dir=$(prime_stale_case jev-short)
+  state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"
+  capture_file="$dir/pane.txt"; window="test:fm-jev-jev-short"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  seed_streak "$state" "$key" "working: still monitoring ci" 2
+  install_fake_jev "$fakebin" suppress
+  export FM_FAKE_CREW_STATE='state: working · source: run-step · validating (running)'
+  export FM_JEV_WAKE_TRIAGE=on
+  FM_JEV_WAKE_TRIAGE_BIN="$fakebin/fm-jev-wake-triage.sh" \
+    start_stale_watch "$state" "$fakebin" "$out" "$window" "$capture_file"
+  pid=$!
+  if ! wait_poll_cycle "$state" "$pid"; then
+    reap "$pid"; unset FM_JEV_WAKE_TRIAGE; fail "a streak below the cap escalated: $(cat "$out")"
+  fi
+  unset FM_JEV_WAKE_TRIAGE
+  [ ! -s "$out" ] || { reap "$pid"; fail "a streak below the cap printed a wake reason: $(cat "$out")"; }
+  [ ! -e "$state/.wedge-escalations-$key" ] || { reap "$pid"; fail "a streak below the cap advanced the escalation counter"; }
+  [ -s "$fakebin/jev.argv" ] || { reap "$pid"; fail "a streak below the cap never invoked Jev"; }
+  [ "$(cut -d' ' -f2 "$state/.jev-suppress-$key")" = 3 ] || { reap "$pid"; fail "suppression did not extend the streak: $(cat "$state/.jev-suppress-$key")"; }
+  reap "$pid"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the short-streak watcher stop"
+  unset FM_FAKE_CREW_STATE
+  pass "a suppression streak below the cap stays quiet and extends the streak"
+}
+
+test_watcher_capped_streak_pages() {
+  local dir state fakebin out capture_file window key pid
+  dir=$(prime_stale_case jev-capped)
+  state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"
+  capture_file="$dir/pane.txt"; window="test:fm-jev-jev-capped"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  seed_streak "$state" "$key" "working: still monitoring ci" 3
+  printf '2\n' > "$state/.wedge-escalations-$key"
+  install_fake_jev "$fakebin" suppress
+  export FM_FAKE_CREW_STATE='state: working · source: run-step · validating (running)'
+  export FM_JEV_WAKE_TRIAGE=on
+  FM_JEV_WAKE_TRIAGE_BIN="$fakebin/fm-jev-wake-triage.sh" \
+    start_stale_watch "$state" "$fakebin" "$out" "$window" "$capture_file"
+  pid=$!
+  wait_for_exit "$pid" 100 || { unset FM_JEV_WAKE_TRIAGE; fail "a capped streak did not escalate: $(cat "$out")"; }
+  unset FM_JEV_WAKE_TRIAGE
+  grep -F "demand-deep-inspection" "$out" >/dev/null || fail "a capped streak did not reach the demand-inspect page: $(cat "$out")"
+  [ "$(cat "$state/.wedge-escalations-$key" 2>/dev/null || true)" = 3 ] || fail "a capped streak did not advance the escalation counter"
+  [ ! -e "$fakebin/jev.argv" ] || fail "a capped streak still spent a Jev call"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the capped-streak escalation"
+  unset FM_FAKE_CREW_STATE
+  pass "a capped suppression streak escalates without Jev and reaches demand-deep-inspection"
+}
+
+test_watcher_new_status_line_resets_streak() {
+  local dir state fakebin out capture_file window key pid
+  dir=$(prime_stale_case jev-reset)
+  state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"
+  capture_file="$dir/pane.txt"; window="test:fm-jev-jev-reset"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  seed_streak "$state" "$key" "working: an older status line" 3
+  install_fake_jev "$fakebin" suppress
+  export FM_FAKE_CREW_STATE='state: working · source: run-step · validating (running)'
+  export FM_JEV_WAKE_TRIAGE=on
+  FM_JEV_WAKE_TRIAGE_BIN="$fakebin/fm-jev-wake-triage.sh" \
+    start_stale_watch "$state" "$fakebin" "$out" "$window" "$capture_file"
+  pid=$!
+  if ! wait_poll_cycle "$state" "$pid"; then
+    reap "$pid"; unset FM_JEV_WAKE_TRIAGE; fail "a new status line inherited the old streak and escalated: $(cat "$out")"
+  fi
+  unset FM_JEV_WAKE_TRIAGE
+  [ ! -s "$out" ] || { reap "$pid"; fail "a new status line printed a wake reason: $(cat "$out")"; }
+  [ -s "$fakebin/jev.argv" ] || { reap "$pid"; fail "a new status line did not consult Jev"; }
+  [ "$(cat "$state/.jev-suppress-$key")" = "$(hash_text "working: still monitoring ci") 1" ] \
+    || { reap "$pid"; fail "a new status line did not restart the streak: $(cat "$state/.jev-suppress-$key")"; }
+  reap "$pid"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the streak-reset watcher stop"
+  unset FM_FAKE_CREW_STATE
+  pass "a changed last status line restarts the suppression streak"
+}
+
 test_watcher_true_wedge_escalates() {
   local dir state fakebin out capture_file window key pid
   dir=$(prime_stale_case jev-escalate)
@@ -512,6 +597,9 @@ test_watcher_env_on_beats_config_off() {
 }
 
 test_watcher_pipeline_wait_suppresses
+test_watcher_short_streak_still_suppresses
+test_watcher_capped_streak_pages
+test_watcher_new_status_line_resets_streak
 test_watcher_true_wedge_escalates
 test_watcher_jev_error_fails_open
 test_watcher_default_off_skips_jev

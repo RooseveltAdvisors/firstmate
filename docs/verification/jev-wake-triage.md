@@ -14,6 +14,7 @@ It proves a `true_wedge` Choice returns `action=escalate`, a `pipeline_wait` or 
 It proves the request uses `https://api.typesafe.ai/v1/systemone`, asks one Choice with `pipeline_wait`/`true_wedge`/`healthy_idle` and one Noul, and sends the key only as the bearer header.
 It proves the first N calibration rows include the input summary and Jev answer, that telemetry keeps counting after that cap, and that a later escalate after suppress does not append `later_escalated` once the cap has closed.
 Watcher cases replace the helper through `FM_JEV_WAKE_TRIAGE_BIN` and prove `pipeline_wait` suppresses without advancing the escalation counter, `true_wedge` and `action=unavailable` keep today's possible-wedge wake, an absent config skips the helper entirely, and `config/jev-wake-triage` calls it only for a first line of `on`, `1`, `true`, or `yes` in any case while `off`, an empty file, garbage, and near-miss typos skip it.
+Streak cases prove a suppression streak below `FM_WEDGE_DEMAND_INSPECT_COUNT` stays quiet, a streak at the cap escalates without calling Jev and reaches the `demand-deep-inspection` page, and a changed last status line restarts the streak.
 They also prove the `FM_JEV_WAKE_TRIAGE` override in both directions: `off` skips the helper with no config file present, and `on` re-enables the gate over a config file that says `off`.
 
 ```console

@@ -619,6 +619,8 @@ Only a first line of `on`, `1`, `true`, or `yes` (any case) enables it; an empty
 The gate runs only at the moment a provably-working stale pane would otherwise escalate, after the wait, worktree-write, and dead-record probes.
 It asks typesafe.ai's System One model (Jev) to classify `pipeline_wait`, `true_wedge`, or `healthy_idle`, plus a `wedge_probability` Noul, and escalates on `true_wedge`.
 `pipeline_wait` and `healthy_idle` suppress only when Choice confidence is at least 0.6, matching `bin/fm-dispatch-resolve.sh`; missing or below-floor confidence fail-opens.
+Consecutive suppressions of one pane are capped at `FM_WEDGE_DEMAND_INSPECT_COUNT` (default 3) while its last status line is unchanged; at the cap the watcher escalates without calling Jev, so the escalation counter reaches the `demand-deep-inspection` page on its normal schedule and model calls stay bounded.
+A new last status line, or any answer other than suppress, restarts the streak.
 Any missing key, timeout, HTTP error, or malformed answer also fail-opens to today's escalate path and stamps `jev_triage.unavailable`.
 The key is `TYPESAFE_API_KEY` from the watcher process environment only, vault-injected at runtime, never from `.env`.
 Telemetry under `state/.jev-triage-telemetry` records `jev_triage.suppressed|escalated|unavailable` with the task class (`ship`, `scout`, `secondmate`, or `unknown`) and no status content.

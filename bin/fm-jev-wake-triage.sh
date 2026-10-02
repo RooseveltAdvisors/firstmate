@@ -158,12 +158,7 @@ write_calibration() {  # <action> [choice] [noul]
   local action=$1 choice=${2-} noul=${3-} n summary pending_action
   n=$(calibration_count)
   mkdir -p "$STATE" 2>/dev/null || return 0
-  if [ "$n" -ge "$CALIBRATION_LIMIT" ]; then
-    if [ -n "$TASK" ]; then
-      printf '%s\t%s\n' "$TASK" "$action" >> "$PENDING" 2>/dev/null || true
-    fi
-    return 0
-  fi
+  [ "$n" -lt "$CALIBRATION_LIMIT" ] || return 0
   if [ -n "$TASK" ] && [ -f "$PENDING" ]; then
     pending_action=$(awk -F '\t' -v t="$TASK" '$1 == t { a=$2 } END { print a }' "$PENDING" 2>/dev/null || true)
     if [ "$pending_action" = suppress ] && [ "$action" = escalate ]; then
