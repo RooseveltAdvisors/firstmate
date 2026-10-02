@@ -402,6 +402,11 @@ fm_lint_run_workflows() {
 # Backend adapters belong behind tasks-axi. Keep direct Beads CLI invocations
 # out of firstmate's core scripts so every configured backend follows the same
 # lifecycle path.
+# KNOWN, TRACKED GAP - NOT AN OVERSIGHT: a wrapper (sudo, time, timeout, xargs,
+# nohup, command, exec) is stripped only when the command follows it
+# immediately, so a form with arguments in between - `timeout 5 bd close <id>`,
+# `sudo -n bd list` - passes this check silently. Do not read a clean verdict
+# as proof that the boundary held.
 fm_lint_run_backend_purity() {
   local findings path canonical
   local -a purity_roots
