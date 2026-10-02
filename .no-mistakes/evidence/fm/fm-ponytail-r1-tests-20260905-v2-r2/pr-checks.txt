@@ -1,0 +1,20 @@
+PR must be raised via no-mistakes	COMPLETED	FAILURE
+Lint 1	COMPLETED	SUCCESS
+Lint 2	COMPLETED	SUCCESS
+Test coverage guard	COMPLETED	SUCCESS
+Behavior portable parallel 1	COMPLETED	SUCCESS
+Behavior portable parallel 2	COMPLETED	SUCCESS
+Behavior portable serial 1	COMPLETED	SUCCESS
+Behavior portable serial 2	COMPLETED	SUCCESS
+Behavior portable serial 3	COMPLETED	SUCCESS
+Behavior portable serial 4	COMPLETED	SUCCESS
+Behavior portable serial 5	COMPLETED	SUCCESS
+Behavior portable serial 6	COMPLETED	SUCCESS
+Behavior portable serial 7	COMPLETED	SUCCESS
+Behavior portable serial 8	COMPLETED	SUCCESS
+Behavior portable serial 9	COMPLETED	SUCCESS
+Behavior tests (Herdr)	COMPLETED	SUCCESS
+Stock macOS Bash snapshot compatibility	COMPLETED	SUCCESS
+Repo invariants	COMPLETED	SUCCESS
+Behavior timing aggregate	COMPLETED	SUCCESS
+Greptile Review	COMPLETED	SUCCESS

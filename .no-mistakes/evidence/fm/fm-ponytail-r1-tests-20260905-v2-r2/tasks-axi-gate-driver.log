@@ -1,0 +1,5 @@
+probe[full-capability default]: rc=0 result=compatible
+probe[version 0.2.5 below floor]: rc=0 result=incompatible
+probe[missing --archive-body]: rc=0 result=incompatible
+probe[missing mv multi-id]: rc=0 result=incompatible
+floor parity: fixture=0.2.6 production=0.2.6 MATCH

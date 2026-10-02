@@ -1,0 +1,9 @@
+== git ls-remote --tags kunchenguid/firstmate (origin):
+(count=0)
+== git ls-remote --tags RooseveltAdvisors/firstmate:
+(count=0)
+== git tag (worktree repo):
+(count=0)
+== GitHub API matching-refs/tags/ on both repos: 0 and 0 (see scenario reason)
+== old-head SHAs as refs on either remote:
+(none)
