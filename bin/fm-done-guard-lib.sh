@@ -168,6 +168,19 @@ fm_done_guard_pr_is_open() {  # <url> <worktree>
   return 1
 }
 
+# 0 when the merge poll recorded the PR named by the done line or the recorded
+# pr= as merged (<state>/<id>.pr-poll-merge-notified, bin/fm-pr-lib.sh).
+fm_done_guard_merge_recorded() {  # <status-file> <line> <meta>
+  local status=$1 line=$2 meta=$3 id url
+  id=$(basename "$status")
+  id=${id%.status}
+  { url=$(fm_done_guard_pr_url_from_line "$line") \
+    || url=$(fm_done_guard_pr_url_from_meta "$meta"); } || return 1
+  fm_pr_url_parse "$url" || return 1
+  fm_pr_poll_merge_already_notified "$(dirname "$status")" "$id" \
+    "$FM_PR_PROVIDER" "$FM_PR_HOST" "$FM_PR_PATH" "$FM_PR_NUMBER"
+}
+
 # Inspect one status file and optional done line. Sets FM_DONE_GUARD_VERDICT to
 # accepted, skipped, or refused and FM_DONE_GUARD_REASON to a short token.
 # Return 0 for accepted or skipped, 1 for refused.
@@ -187,6 +200,13 @@ fm_done_guard_check() {  # <status-file> [<done-line>]
   fi
   if ! fm_done_guard_requires_pr "$kind" "$mode"; then
     FM_DONE_GUARD_REASON=${mode:-${kind:-no-mode}}
+    return 0
+  fi
+  # A recorded merge receipt is terminal success: landed work needs no open PR,
+  # and fleet sync prunes the branch after a squash merge.
+  if fm_done_guard_merge_recorded "$status" "$line" "$meta"; then
+    FM_DONE_GUARD_VERDICT=accepted
+    FM_DONE_GUARD_REASON=merged
     return 0
   fi
   # A recorded worktree that is not a checkout carries no branch to judge, which

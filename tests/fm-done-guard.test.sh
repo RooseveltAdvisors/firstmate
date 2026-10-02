@@ -254,6 +254,71 @@ test_non_checkout_worktree_skips() {
   pass "a recorded worktree that is not a checkout skips the gate"
 }
 
+record_merge() {  # <home> <id> <number>
+  # shellcheck source=/dev/null
+  ( . "$ROOT/bin/fm-pr-lib.sh"
+    fm_pr_poll_merge_mark_notified "$1/state" "$2" github github.com example/repo "$3" )
+}
+
+# The PR merged after an accepted done and the merge poll recorded it, but the
+# task is not torn down yet: the forge now reports the PR closed and fleet sync
+# may have pruned the branch. Every consumer reads the receipt through the one
+# gate, offline included, so the landed ship stays terminal.
+test_recorded_merge_accepts_done() {
+  local rec home wt branch id=merged-a1 out rc=0
+  rec=$(make_ship "$id" no-mistakes)
+  IFS='|' read -r home wt branch <<EOF
+$rec
+EOF
+  install_fake_forge "$home"
+  commit_on "$wt" feature.txt "ready"
+  publish "$wt" "$branch"
+  printf 'done: PR %s checks green\n' "$FAKE_PR_URL" > "$home/state/${id}.status"
+  record_merge "$home" "$id" 7 || fail "could not record the merge receipt"
+  out=$(FM_FAKE_GH_STATE=MERGED run_check "$home" "$id") || rc=$?
+  [ "$rc" -eq 0 ] || fail "a recorded merge should accept the done, got exit $rc ($out)"
+  assert_contains "$out" "reason=merged" "a recorded merge was not named merged"
+  # shellcheck source=/dev/null
+  . "$ROOT/bin/fm-classify-lib.sh"
+  # shellcheck source=/dev/null
+  . "$ROOT/bin/fm-done-guard-lib.sh"
+  FM_DONE_GUARD_NO_FORGE=1 status_is_captain_relevant_accepted "$home/state/${id}.status" \
+    "$(cat "$home/state/${id}.status")" \
+    || fail "an offline consumer read a recorded merge as a refused done"
+  pass "PR merges after done and the merge is recorded -> done accepted, offline too"
+}
+
+test_recorded_merge_accepts_pruned_branch() {
+  local rec home wt id=merged-pruned-a1 out rc=0
+  rec=$(make_ship "$id" no-mistakes)
+  IFS='|' read -r home wt _ <<EOF
+$rec
+EOF
+  commit_on "$wt" feature.txt "squash-merged, branch pruned"
+  printf 'pr=%s\n' "$FAKE_PR_URL" >> "$home/state/${id}.meta"
+  printf 'done: shipped\n' > "$home/state/${id}.status"
+  record_merge "$home" "$id" 7 || fail "could not record the merge receipt"
+  out=$(FM_DONE_GUARD_NO_FORGE=1 run_check "$home" "$id") || rc=$?
+  [ "$rc" -eq 0 ] || fail "a recorded merge should accept a pruned branch, got exit $rc ($out)"
+  assert_contains "$out" "reason=merged" "a pruned merged branch was not named merged"
+  pass "fleet sync prunes a merged branch -> the recorded merge still accepts the done"
+}
+
+test_merge_receipt_for_another_pr_refuses_done() {
+  local rec home wt id=merged-other-a1 out rc=0
+  rec=$(make_ship "$id" no-mistakes)
+  IFS='|' read -r home wt _ <<EOF
+$rec
+EOF
+  commit_on "$wt" feature.txt "local only"
+  printf 'done: PR %s checks green\n' "$FAKE_PR_URL" > "$home/state/${id}.status"
+  record_merge "$home" "$id" 8 || fail "could not record the merge receipt"
+  out=$(FM_DONE_GUARD_NO_FORGE=1 run_check "$home" "$id") || rc=$?
+  [ "$rc" -eq 1 ] || fail "a receipt for another PR should not accept the done, got exit $rc ($out)"
+  assert_contains "$out" "reason=unpushed" "a foreign receipt changed the refusal reason"
+  pass "merge receipt names a different PR -> done still refused"
+}
+
 test_span_drops_refused_done() {
   local rec home wt id=span-drop-a1 event rc
   rec=$(make_ship "$id" no-mistakes)
@@ -362,6 +427,9 @@ test_closed_pr_refuses_done
 test_unreachable_forge_refuses_done
 test_scout_and_local_only_skip
 test_non_checkout_worktree_skips
+test_recorded_merge_accepts_done
+test_recorded_merge_accepts_pruned_branch
+test_merge_receipt_for_another_pr_refuses_done
 test_span_drops_refused_done
 test_apply_steers_on_refuse
 test_watcher_keeps_false_done_out_of_the_wake_queue
