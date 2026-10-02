@@ -1,0 +1,187 @@
+== base == lab /tmp/fm-live-cfgpush.EqETJe/lab sm /tmp/fm-live-sm.Dx0Be6
+--- A first changed push (rc=0)
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e /home/jon/.no-mistakes/evidence/01M3XNRZQKW563WQCGY4XH4RVF/base-bin/.pi/extensions/fm-primary-turnend-guard.ts -e /home/jon/.no-mistakes/evidence/01M3XNRZQKW563WQCGY4XH4RVF/base-bin/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+config-push: /tmp/fm-live-cfgpush.EqETJe/lab -> live secondmate homes
+secondmate sm (/tmp/fm-live-sm.Dx0Be6):
+  crew-dispatch.json: unchanged
+  dispatch-never-send: unchanged
+  crew-harness: pushed
+  backlog-backend: unchanged
+  backend: unchanged
+  herdr-presentation-spaces: unchanged
+  startup-memory-budget: unchanged
+  trace-context: unchanged - session-scoped
+  launch-env-allowlist: unchanged
+  claude-permission-mode: unchanged
+  lavish-axi-host: unchanged
+  keep-ai-trailers: unchanged
+  supervision-host-off: unchanged
+  data/captain-shared.md: unchanged
+  config-reread: sent
+--- A pane after first send:
+codex-5.2$ : Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your
+'sm.inbox' steering inbox, read and act on each in numeric order, then mv each i
+nto its handled/.
+codex-5.2$
+--- B unchanged push (rc=0)
+WARNING: watcher still down (same stale episode; last beat: 6s ago, grace 300s) - full banner already printed this episode.
+config-push: /tmp/fm-live-cfgpush.EqETJe/lab -> live secondmate homes
+secondmate sm (/tmp/fm-live-sm.Dx0Be6):
+  crew-dispatch.json: unchanged
+  dispatch-never-send: unchanged
+  crew-harness: unchanged
+  backlog-backend: unchanged
+  backend: unchanged
+  herdr-presentation-spaces: unchanged
+  startup-memory-budget: unchanged
+  trace-context: unchanged - session-scoped
+  launch-env-allowlist: unchanged
+  claude-permission-mode: unchanged
+  lavish-axi-host: unchanged
+  keep-ai-trailers: unchanged
+  supervision-host-off: unchanged
+  data/captain-shared.md: unchanged
+--- C dest-restored byte-identical push (rc=0)
+WARNING: watcher still down (same stale episode; last beat: 7s ago, grace 300s) - full banner already printed this episode.
+config-push: /tmp/fm-live-cfgpush.EqETJe/lab -> live secondmate homes
+secondmate sm (/tmp/fm-live-sm.Dx0Be6):
+  crew-dispatch.json: unchanged
+  dispatch-never-send: unchanged
+  crew-harness: pushed
+  backlog-backend: unchanged
+  backend: unchanged
+  herdr-presentation-spaces: unchanged
+  startup-memory-budget: unchanged
+  trace-context: unchanged - session-scoped
+  launch-env-allowlist: unchanged
+  claude-permission-mode: unchanged
+  lavish-axi-host: unchanged
+  keep-ai-trailers: unchanged
+  supervision-host-off: unchanged
+  data/captain-shared.md: unchanged
+  config-reread: sent
+--- C2 dest-drift byte-identical push (rc=0)
+WARNING: watcher still down (same stale episode; last beat: 11s ago, grace 300s) - full banner already printed this episode.
+config-push: /tmp/fm-live-cfgpush.EqETJe/lab -> live secondmate homes
+secondmate sm (/tmp/fm-live-sm.Dx0Be6):
+  crew-dispatch.json: unchanged
+  dispatch-never-send: unchanged
+  crew-harness: pushed
+  backlog-backend: unchanged
+  backend: unchanged
+  herdr-presentation-spaces: unchanged
+  startup-memory-budget: unchanged
+  trace-context: unchanged - session-scoped
+  launch-env-allowlist: unchanged
+  claude-permission-mode: unchanged
+  lavish-axi-host: unchanged
+  keep-ai-trailers: unchanged
+  supervision-host-off: unchanged
+  data/captain-shared.md: unchanged
+  config-reread: sent
+--- D failed send keeps generation pending (rc=1)
+WARNING: watcher still down (same stale episode; last beat: 15s ago, grace 300s) - full banner already printed this episode.
+config-push: /tmp/fm-live-cfgpush.EqETJe/lab -> live secondmate homes
+secondmate sm (/tmp/fm-live-sm.Dx0Be6):
+  crew-dispatch.json: unchanged
+  dispatch-never-send: unchanged
+  crew-harness: pushed
+  backlog-backend: unchanged
+  backend: unchanged
+  herdr-presentation-spaces: unchanged
+  startup-memory-budget: unchanged
+  trace-context: unchanged - session-scoped
+  launch-env-allowlist: unchanged
+  claude-permission-mode: unchanged
+  lavish-axi-host: unchanged
+  keep-ai-trailers: unchanged
+  supervision-host-off: unchanged
+  data/captain-shared.md: unchanged
+CONFIG_REREAD: secondmate sm: send failed: WARNING: watcher still down (same stale episode; last beat: 17s ago, grace 300s) - full banner already printed this episode.
+--- E skip-pending newer delivery (rc=0)
+WARNING: watcher still down (same stale episode; last beat: 18s ago, grace 300s) - full banner already printed this episode.
+config-push: /tmp/fm-live-cfgpush.EqETJe/lab -> live secondmate homes
+secondmate sm (/tmp/fm-live-sm.Dx0Be6):
+  crew-dispatch.json: unchanged
+  dispatch-never-send: unchanged
+  crew-harness: pushed
+  backlog-backend: unchanged
+  backend: unchanged
+  herdr-presentation-spaces: unchanged
+  startup-memory-budget: unchanged
+  trace-context: unchanged - session-scoped
+  launch-env-allowlist: unchanged
+  claude-permission-mode: unchanged
+  lavish-axi-host: unchanged
+  keep-ai-trailers: unchanged
+  supervision-host-off: unchanged
+  data/captain-shared.md: unchanged
+  config-reread: sent
+--- F older pending drain (rc=0)
+WARNING: watcher still down (same stale episode; last beat: 22s ago, grace 300s) - full banner already printed this episode.
+config-push: /tmp/fm-live-cfgpush.EqETJe/lab -> live secondmate homes
+secondmate sm (/tmp/fm-live-sm.Dx0Be6):
+  crew-dispatch.json: unchanged
+  dispatch-never-send: unchanged
+  crew-harness: unchanged
+  backlog-backend: unchanged
+  backend: unchanged
+  herdr-presentation-spaces: unchanged
+  startup-memory-budget: unchanged
+  trace-context: unchanged - session-scoped
+  launch-env-allowlist: unchanged
+  claude-permission-mode: unchanged
+  lavish-axi-host: unchanged
+  keep-ai-trailers: unchanged
+  supervision-host-off: unchanged
+  data/captain-shared.md: unchanged
+  config-reread: sent
+--- G identical sibling stages in one delivery (rc=0)
+
+--- G2 differing sibling stages in one delivery (rc=0)
+
+--- final inbox records:
+--- 001.msg
+[fm-from-firstmate]⁣corr=d1c7b61ed4307758 CONFIG_REREAD: /tmp/fm-live-sm.Dx0Be6/state/.fm-inherited-config-reread.20261002T125408.00000001.zuOMGL
+--- 002.msg
+[fm-from-firstmate]⁣corr=227a627a4dfee7d7 CONFIG_REREAD: /tmp/fm-live-sm.Dx0Be6/state/.fm-inherited-config-reread.20261002T125413.00000002.sEhUNv
+--- 003.msg
+[fm-from-firstmate]⁣corr=5af1979afd36a27f CONFIG_REREAD: /tmp/fm-live-sm.Dx0Be6/state/.fm-inherited-config-reread.20261002T125417.00000003.gRp4ic
+--- 004.msg
+[fm-from-firstmate]⁣corr=81d4b0298ca4986d CONFIG_REREAD: /tmp/fm-live-sm.Dx0Be6/state/.fm-inherited-config-reread.20261002T125424.00000005.JtTtOk
+--- 005.msg
+[fm-from-firstmate]⁣corr=35808d99c2ac5d79 CONFIG_REREAD: /tmp/fm-live-sm.Dx0Be6/state/.fm-inherited-config-reread.20261002T125422.00000004.RJ82BF
+--- 006.msg
+[fm-from-firstmate]⁣corr=37887b9c3f592471 CONFIG_REREAD: /tmp/fm-live-sm.Dx0Be6/state/.fm-inherited-config-reread.20260721T000000.00000001
+--- 007.msg
+[fm-from-firstmate]⁣corr=18d783bb22c9ecae CONFIG_REREAD: /tmp/fm-live-sm.Dx0Be6/state/.fm-inherited-config-reread.20260721T000000.00000002
+--- 008.msg
+[fm-from-firstmate]⁣corr=464f56e43a39c62b CONFIG_REREAD: /tmp/fm-live-sm.Dx0Be6/state/.fm-inherited-config-reread.20260721T000000.00000003
+--- 009.msg
+[fm-from-firstmate]⁣corr=012995b83e8fe424 CONFIG_REREAD: /tmp/fm-live-sm.Dx0Be6/state/.fm-inherited-config-reread.20260721T000000.00000004
+--- final pane:
+codex-5.2$ : Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your
+'sm.inbox' steering inbox, read and act on each in numeric order, then mv each i
+nto its handled/.
+codex-5.2$ : Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your
+'sm.inbox' steering inbox, read and act on each in numeric order, then mv each i
+nto its handled/.
+codex-5.2$ : Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your
+'sm.inbox' steering inbox, read and act on each in numeric order, then mv each i
+nto its handled/.
+codex-5.2$ : Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your
+'sm.inbox' steering inbox, read and act on each in numeric order, then mv each i
+nto its handled/.
+codex-5.2$ : Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your
+'sm.inbox' steering inbox, read and act on each in numeric order, then mv each i
+nto its handled/.
+codex-5.2$ : Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your
+'sm.inbox' steering inbox, read and act on each in numeric order, then mv each i
+nto its handled/.
+codex-5.2$

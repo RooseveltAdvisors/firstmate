@@ -1,0 +1,163 @@
+== target == lab /tmp/fm-live-cfgpush.DQisg7/lab sm /tmp/fm-live-sm.H2g9jt
+--- A first changed push (rc=0)
+config-push: /tmp/fm-live-cfgpush.DQisg7/lab -> live secondmate homes
+secondmate sm (/tmp/fm-live-sm.H2g9jt):
+  crew-dispatch.json: unchanged
+  dispatch-never-send: unchanged
+  crew-harness: pushed
+  backlog-backend: unchanged
+  backend: unchanged
+  herdr-presentation-spaces: unchanged
+  startup-memory-budget: unchanged
+  trace-context: unchanged - session-scoped
+  launch-env-allowlist: unchanged
+  claude-permission-mode: unchanged
+  lavish-axi-host: unchanged
+  keep-ai-trailers: unchanged
+  supervision-host-off: unchanged
+  data/captain-shared.md: unchanged
+  config-reread: sent
+--- A pane after first send:
+codex-5.2$ : Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your
+'sm.inbox' steering inbox, read and act on each in numeric order, then mv each i
+nto its handled/.
+codex-5.2$
+--- B unchanged push (rc=0)
+config-push: /tmp/fm-live-cfgpush.DQisg7/lab -> live secondmate homes
+secondmate sm (/tmp/fm-live-sm.H2g9jt):
+  crew-dispatch.json: unchanged
+  dispatch-never-send: unchanged
+  crew-harness: unchanged
+  backlog-backend: unchanged
+  backend: unchanged
+  herdr-presentation-spaces: unchanged
+  startup-memory-budget: unchanged
+  trace-context: unchanged - session-scoped
+  launch-env-allowlist: unchanged
+  claude-permission-mode: unchanged
+  lavish-axi-host: unchanged
+  keep-ai-trailers: unchanged
+  supervision-host-off: unchanged
+  data/captain-shared.md: unchanged
+--- C dest-restored byte-identical push (rc=0)
+config-push: /tmp/fm-live-cfgpush.DQisg7/lab -> live secondmate homes
+secondmate sm (/tmp/fm-live-sm.H2g9jt):
+  crew-dispatch.json: unchanged
+  dispatch-never-send: unchanged
+  crew-harness: pushed
+  backlog-backend: unchanged
+  backend: unchanged
+  herdr-presentation-spaces: unchanged
+  startup-memory-budget: unchanged
+  trace-context: unchanged - session-scoped
+  launch-env-allowlist: unchanged
+  claude-permission-mode: unchanged
+  lavish-axi-host: unchanged
+  keep-ai-trailers: unchanged
+  supervision-host-off: unchanged
+  data/captain-shared.md: unchanged
+--- C2 dest-drift byte-identical push (rc=0)
+config-push: /tmp/fm-live-cfgpush.DQisg7/lab -> live secondmate homes
+secondmate sm (/tmp/fm-live-sm.H2g9jt):
+  crew-dispatch.json: unchanged
+  dispatch-never-send: unchanged
+  crew-harness: pushed
+  backlog-backend: unchanged
+  backend: unchanged
+  herdr-presentation-spaces: unchanged
+  startup-memory-budget: unchanged
+  trace-context: unchanged - session-scoped
+  launch-env-allowlist: unchanged
+  claude-permission-mode: unchanged
+  lavish-axi-host: unchanged
+  keep-ai-trailers: unchanged
+  supervision-host-off: unchanged
+  data/captain-shared.md: unchanged
+--- D failed send keeps generation pending (rc=1)
+config-push: /tmp/fm-live-cfgpush.DQisg7/lab -> live secondmate homes
+secondmate sm (/tmp/fm-live-sm.H2g9jt):
+  crew-dispatch.json: unchanged
+  dispatch-never-send: unchanged
+  crew-harness: pushed
+  backlog-backend: unchanged
+  backend: unchanged
+  herdr-presentation-spaces: unchanged
+  startup-memory-budget: unchanged
+  trace-context: unchanged - session-scoped
+  launch-env-allowlist: unchanged
+  claude-permission-mode: unchanged
+  lavish-axi-host: unchanged
+  keep-ai-trailers: unchanged
+  supervision-host-off: unchanged
+  data/captain-shared.md: unchanged
+CONFIG_REREAD: secondmate sm: send failed: mktemp: failed to create file via template ‘/tmp/fm-live-cfgpush.DQisg7/lab/state/sm.inbox/.lock-probe.XXXXXX’: Permission denied
+--- E skip-pending newer delivery (rc=0)
+config-push: /tmp/fm-live-cfgpush.DQisg7/lab -> live secondmate homes
+secondmate sm (/tmp/fm-live-sm.H2g9jt):
+  crew-dispatch.json: unchanged
+  dispatch-never-send: unchanged
+  crew-harness: pushed
+  backlog-backend: unchanged
+  backend: unchanged
+  herdr-presentation-spaces: unchanged
+  startup-memory-budget: unchanged
+  trace-context: unchanged - session-scoped
+  launch-env-allowlist: unchanged
+  claude-permission-mode: unchanged
+  lavish-axi-host: unchanged
+  keep-ai-trailers: unchanged
+  supervision-host-off: unchanged
+  data/captain-shared.md: unchanged
+  config-reread: sent
+--- F older pending drain (rc=0)
+config-push: /tmp/fm-live-cfgpush.DQisg7/lab -> live secondmate homes
+secondmate sm (/tmp/fm-live-sm.H2g9jt):
+  crew-dispatch.json: unchanged
+  dispatch-never-send: unchanged
+  crew-harness: unchanged
+  backlog-backend: unchanged
+  backend: unchanged
+  herdr-presentation-spaces: unchanged
+  startup-memory-budget: unchanged
+  trace-context: unchanged - session-scoped
+  launch-env-allowlist: unchanged
+  claude-permission-mode: unchanged
+  lavish-axi-host: unchanged
+  keep-ai-trailers: unchanged
+  supervision-host-off: unchanged
+  data/captain-shared.md: unchanged
+  config-reread: sent
+--- G identical sibling stages in one delivery (rc=0)
+
+--- G2 differing sibling stages in one delivery (rc=0)
+
+--- final inbox records:
+--- 001.msg
+[fm-from-firstmate]⁣corr=06500e26edca302e CONFIG_REREAD: /tmp/fm-live-sm.H2g9jt/state/.fm-inherited-config-reread.20261002T125338.00000001.z02pd1
+--- 002.msg
+[fm-from-firstmate]⁣corr=b1c8ba1de0f54b8e CONFIG_REREAD: /tmp/fm-live-sm.H2g9jt/state/.fm-inherited-config-reread.20261002T125349.00000005.gF7xO0
+--- 003.msg
+[fm-from-firstmate]⁣corr=3f7222156a05a0bf CONFIG_REREAD: /tmp/fm-live-sm.H2g9jt/state/.fm-inherited-config-reread.20261002T125346.00000004.RjYaT1
+--- 004.msg
+[fm-from-firstmate]⁣corr=776d099380ab29fa CONFIG_REREAD: /tmp/fm-live-sm.H2g9jt/state/.fm-inherited-config-reread.20260721T000000.00000001
+--- 005.msg
+[fm-from-firstmate]⁣corr=56c33a80acf6bb70 CONFIG_REREAD: /tmp/fm-live-sm.H2g9jt/state/.fm-inherited-config-reread.20260721T000000.00000003
+--- 006.msg
+[fm-from-firstmate]⁣corr=ef69a904486874ac CONFIG_REREAD: /tmp/fm-live-sm.H2g9jt/state/.fm-inherited-config-reread.20260721T000000.00000004
+--- final pane:
+codex-5.2$ : Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your
+'sm.inbox' steering inbox, read and act on each in numeric order, then mv each i
+nto its handled/.
+codex-5.2$ : Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your
+'sm.inbox' steering inbox, read and act on each in numeric order, then mv each i
+nto its handled/.
+codex-5.2$ : Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your
+'sm.inbox' steering inbox, read and act on each in numeric order, then mv each i
+nto its handled/.
+codex-5.2$ : Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your
+'sm.inbox' steering inbox, read and act on each in numeric order, then mv each i
+nto its handled/.
+codex-5.2$ : Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your
+'sm.inbox' steering inbox, read and act on each in numeric order, then mv each i
+nto its handled/.
+codex-5.2$
