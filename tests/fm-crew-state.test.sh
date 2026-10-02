@@ -2400,7 +2400,12 @@ test_merged_pr_reads_done_under_captured_meta() {
   pass "recorded merged PR reads done under the fleet snapshot's captured meta"
 }
 
-test_no_mistakes_prevalidation_done_stays_done() {
+# A pre-validation `done:` from a no-mistakes ship whose branch was never
+# pushed is the false completion the ship-done gate refuses: the named-head
+# gate does not gate a non-CI-ready note, so the ship-done gate owns the
+# verdict and the claim reads unknown - never done, and never blocked, because
+# the named-head question is never reached.
+test_no_mistakes_prevalidation_done_reads_unknown() {
   reset_fakes
   local d out
   d=$(new_case preval-done)
@@ -2416,9 +2421,10 @@ test_no_mistakes_prevalidation_done_stays_done() {
   FM_FAKE_BUSY=0
   arm_idle_record "$d/state" preval
   out=$(run_crew_state "$d" preval)
-  assert_contains "$out" "state: done" "no-mistakes pre-validation done: remains done"
-  assert_not_contains "$out" "state: blocked" "pre-validation done: must not be the named-head gate"
-  pass "no-mistakes pre-validation done: stays current-state done"
+  assert_contains "$out" "state: unknown" "an unpushed pre-validation done: reads unknown"
+  assert_not_contains "$out" "state: done" "pre-validation done: from an unpushed ship must not read as done"
+  assert_not_contains "$out" "state: blocked" "the named-head gate does not gate a non-CI-ready note"
+  pass "no-mistakes pre-validation done: from an unpushed ship reads unknown"
 }
 
 test_moved_remote_branch_without_named_head_is_blocked() {
@@ -5576,7 +5582,7 @@ test_coarse_run_does_not_probe_other_branch_ci_log_for_ready_status
 test_other_branch_run_ignored
 test_unpushed_ship_done_is_blocked
 test_merged_pr_reads_done_under_captured_meta
-test_no_mistakes_prevalidation_done_stays_done
+test_no_mistakes_prevalidation_done_reads_unknown
 test_moved_remote_branch_without_named_head_is_blocked
 test_no_run_busy_pane
 test_no_run_launch_prompt_parked_is_not_working

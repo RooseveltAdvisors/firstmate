@@ -23,6 +23,11 @@ SCRIPT_DIR="$(d=${BASH_SOURCE[0]%/*}; [ "$d" != "${BASH_SOURCE[0]}" ] || d=.; cd
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 # shellcheck source=bin/fm-classify-lib.sh
 . "$SCRIPT_DIR/fm-classify-lib.sh"
+# The ship-done gate the shared predicates consult: a refused ship `done:`
+# stays out of the captain-facing outcome backstop below, exactly as it stays
+# out of the watcher's wake queue (bin/fm-done-guard-lib.sh).
+# shellcheck source=bin/fm-done-guard-lib.sh
+. "$SCRIPT_DIR/fm-done-guard-lib.sh"
 # shellcheck source=bin/fm-line-cap-lib.sh
 . "$SCRIPT_DIR/fm-line-cap-lib.sh"
 # shellcheck source=bin/fm-timeout-lib.sh
@@ -361,7 +366,7 @@ print_status_outcome_backstop_section() {  # <task-and-endpoint-snapshot>
     event=$FM_STATUS_SNAPSHOT_EVENT_LINE
     event_endpoint=$FM_STATUS_SNAPSHOT_EVENT_ENDPOINT
     [ "$receipt" -lt "$event_endpoint" ] || continue
-    status_is_captain_relevant "$event" || continue
+    status_is_captain_relevant_accepted "$STATE/$task.status" "$event" || continue
     verb=$(status_line_verb "$event")
     case "$verb" in
       needs-decision|blocked)

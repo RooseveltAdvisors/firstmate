@@ -151,8 +151,9 @@
 #      backend's pane busy state, then the resolved status declaration
 #      when its verb maps to a recognized run-state. Decision-only events such as
 #      `resolved` never become current state or detail. A `done:` declaration from
-#      a PR-requiring ship reads unknown unless the ship-done gate accepts it
-#      (bin/fm-done-guard-lib.sh owns that check), so an unpushed branch or an
+#      a PR-requiring ship reads blocked while its named head is unpublished
+#      (bin/fm-dod-lib.sh) and unknown while the ship-done gate cannot confirm
+#      an open PR (bin/fm-done-guard-lib.sh), so an unpushed branch or an
 #      unconfirmed PR is never reported here as a completed ship.
 #   5. Missing meta or torn-down worktree: report unknown · none. If no run is
 #      attributed to this crew, a dead endpoint also reports unknown · none rather
@@ -249,13 +250,26 @@ fi
 # and its reason rather than a wedge-suspect idle.
 # A ship `done:` is not current-state done while bin/fm-dod-lib.sh refuses the
 # named-head reachability gate: that claim is blocked so a disposable copy is
-# not treated as finished-and-safe.
+# not treated as finished-and-safe. A recorded merge receipt then answers the
+# ship-done gate's open-PR question - landed work needs no open PR, and fleet
+# sync prunes the branch after a squash merge. Otherwise the claim reads
+# unknown, never done, while the ship-done gate cannot confirm an open PR
+# (bin/fm-done-guard-lib.sh). Every `done` emission in this reader goes through
+# here, so both gates are consulted before any `done`.
 emit_ship_status_done() {  # [extra-detail]
-  local extra=${1:-} reason
-  if reason=$(fm_dod_accept_ship_done "$KIND" "$(meta_value mode)" "$WT" "$(meta_value project)" "$LOG_LINE" "$STATE" "$ID" "$META"); then
-    emit "done" status-log "$(status_line_note "$LOG_LINE")${extra:+${SEP}$extra}"
+  local extra=${1:-} reason url merged=0
+  if ! reason=$(fm_dod_accept_ship_done "$KIND" "$(meta_value mode)" "$WT" "$(meta_value project)" "$LOG_LINE" "$STATE" "$ID" "$META"); then
+    emit blocked status-log "$reason"
   fi
-  emit blocked status-log "$reason"
+  if { url=$(fm_done_guard_pr_url_from_line "$LOG_LINE") || url=$(fm_done_guard_pr_url_from_meta "$META"); } \
+    && fm_pr_url_parse "$url" \
+    && fm_pr_poll_merge_already_notified "$STATE" "$ID" "$FM_PR_PROVIDER" "$FM_PR_HOST" "$FM_PR_PATH" "$FM_PR_NUMBER"; then
+    merged=1
+  fi
+  if [ "$merged" = 0 ] && ! fm_done_guard_accepts_status_line "$LOG" "$LOG_LINE"; then
+    emit unknown none "no current-state source available"
+  fi
+  emit "done" status-log "$(status_line_note "$LOG_LINE")${extra:+${SEP}$extra}"
 }
 
 map_log_state() {  # <line>
@@ -1320,10 +1334,6 @@ if [ -n "$LOG_VERB" ]; then
     emit_ship_status_done
   fi
   LOG_STATE=$(map_log_state "$LOG_LINE")
-  if [ "$LOG_STATE" = "done" ] \
-    && ! fm_done_guard_accepts_status_line "$LOG" "$LOG_LINE"; then
-    LOG_STATE=unknown
-  fi
   if [ "$LOG_STATE" != unknown ]; then
     emit "$LOG_STATE" status-log "$(status_line_note "$LOG_LINE")"
   fi
