@@ -241,7 +241,12 @@ fm_stale_read_beads_config() {
   bin=$(printf '%s\n' "$parsed" | sed -n 's/^BIN //p' | head -1)
   path=$(printf '%s\n' "$parsed" | sed -n 's/^PATH //p' | head -1)
   FM_STALE_BD_BIN=${bin:-bd}
-  FM_STALE_BD_PATH=$path
+  # A relative graph path names a directory inside this home, never the
+  # caller's working directory.
+  case "$path" in
+    ''|/*) FM_STALE_BD_PATH=$path ;;
+    *) FM_STALE_BD_PATH=$FM_HOME/$path ;;
+  esac
   [ -n "$FM_STALE_BD_PATH" ] || {
     printf 'fm-stale-sweep: .tasks.toml [beads] carries no graph path\n' >&2
     return 1

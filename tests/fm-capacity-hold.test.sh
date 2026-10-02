@@ -33,11 +33,10 @@ TMP_ROOT=$(fm_test_tmproot fm-capacity-hold)
 # A fake tmux whose pane never leaves the project (treehouse get refused) and
 # whose capture serves the wrapped refusal from a file, plus a fake treehouse
 # whose `status --json` names one worktree under the scratch pool.
-make_spawn_fakebin() {  # <dir> <refusal-file>
-  local dir=$1 refusal=$2 fakebin pool
+make_spawn_fakebin() {  # <dir> <refusal-file> [pool]
+  local dir=$1 refusal=$2 fakebin pool=${3:-$1/pool}
   fakebin="$dir/fakebin"
   mkdir -p "$fakebin"
-  pool="$dir/pool"
   cat > "$fakebin/tmux" <<SH
 #!/usr/bin/env bash
 set -u
@@ -177,8 +176,8 @@ test_pool_full_refusal_on_manual_home_exits_two_without_hold() {
 
 # --- teardown side -----------------------------------------------------------
 
-make_teardown_case() {  # <name> [fallback-pool-identity]
-  local name=$1 fallback=${2:-} case_dir fakebin pool a_reason b_reason
+make_teardown_case() {  # <name> [fallback-pool-identity] [backlog-path-under-home]
+  local name=$1 fallback=${2:-} rel=${3:-data/backlog.md} case_dir fakebin pool a_reason b_reason
   case_dir="$TMP_ROOT/$name"
   fakebin="$case_dir/fakebin"
   pool="$case_dir/pool"
@@ -262,9 +261,13 @@ SH
   # (spawn's project-root fallback when treehouse could not answer), so the
   # worktree-derived scan matches nothing and the fallback scan must release
   # task-a, the oldest fallback-identity hold.
-  printf '%s\n' '# Backlog' '' '## In flight' '' '## Queued' '' '## Done' \
-    > "$case_dir/data/backlog.md"
-  local backlog="$case_dir/data/backlog.md"
+  # A non-default backlog path is configured through the home's .tasks.toml,
+  # the way a home relocates its markdown backlog.
+  if [ "$rel" != data/backlog.md ]; then
+    printf '%s\n' 'backend = "markdown"' '' '[markdown]' "path = \"$rel\"" > "$case_dir/.tasks.toml"
+  fi
+  local backlog="$case_dir/$rel"
+  printf '%s\n' '# Backlog' '' '## In flight' '' '## Queued' '' '## Done' > "$backlog"
   a_reason="pool $pool full 3/4"
   b_reason="pool $pool full 3/4"
   if [ -n "$fallback" ]; then
@@ -284,8 +287,8 @@ SH
   printf '%s\n' "$case_dir"
 }
 
-held_field() {  # <case-dir> <id>
-  tasks-axi show "$2" --file "$1/data/backlog.md" 2>/dev/null |
+held_field() {  # <case-dir> <id> [backlog-path-under-home]
+  tasks-axi show "$2" --file "$1/${3:-data/backlog.md}" 2>/dev/null |
     sed -n 's/^  held: *//p' | head -1
 }
 
@@ -340,9 +343,53 @@ test_teardown_releases_fallback_identity_hold_when_pool_scan_matches_nothing() {
   pass "a hold recorded under the project-root fallback identity is released when the worktree-derived pool matches nothing"
 }
 
+# A home whose .tasks.toml relocates its markdown backlog: the pool-full spawn
+# records the hold in that configured file, and the teardown that returns a
+# worktree to the same pool releases it from that same file.
+test_configured_backlog_holds_and_releases_in_the_same_file() {
+  local case_dir rc pool rel=data/queue.md backlog out
+  case_dir=$(make_teardown_case cfg-z5 "" "$rel")
+  pool="$case_dir/pool"
+  backlog="$case_dir/$rel"
+  # task-a starts unheld so the hold under test is the one spawn records.
+  tasks-axi unhold task-a --file "$backlog" >/dev/null
+  [ "$(held_field "$case_dir" task-a "$rel")" = no ] || fail "fixture task-a is still held"
+  mkdir -p "$case_dir/projects" "$case_dir/data/task-a"
+  printf 'codex\n' > "$case_dir/config/crew-harness"
+  printf '%s\n' '# Task' "## Captain's intent" 'Hold on a full pool.' '' '## Firstmate spec' 'Hold the item.' \
+    > "$case_dir/data/task-a/brief.md"
+  write_refusal "$case_dir/refusal.txt"
+  CASE_DIR=$case_dir HOME_DIR=$case_dir PROJ_DIR="$case_dir/project"
+  FAKEBIN=$(make_spawn_fakebin "$case_dir/spawn" "$case_dir/refusal.txt" "$pool")
+  set +e
+  out=$(run_capacity_spawn task-a "$PROJ_DIR" --mode no-mistakes --yolo off)
+  rc=$?
+  set -e
+  expect_code 2 "$rc" "pool-full spawn must exit 2, got $rc (output: $out)"
+  [ "$(held_field "$case_dir" task-a "$rel")" = yes ] || fail "spawn did not record the hold in the configured backlog"
+  [ ! -e "$case_dir/data/backlog.md" ] || fail "spawn wrote a hold to the unconfigured default backlog"
+  set +e
+  FM_ROOT_OVERRIDE="$ROOT" \
+  FM_STATE_OVERRIDE="$case_dir/state" \
+  FM_DATA_OVERRIDE="$case_dir/data" \
+  FM_CONFIG_OVERRIDE="$case_dir/config" \
+  PATH="$case_dir/fakebin:$PATH" \
+    "$TEARDOWN" task-x1 > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "landed task teardown should succeed (stderr: $(cat "$case_dir/stderr"))"
+  assert_contains "$(cat "$case_dir/stdout")" "ready: task-a - capacity hold released for pool $pool" \
+    "teardown must release the spawn-recorded hold"
+  [ "$(held_field "$case_dir" task-a "$rel")" = no ] || fail "the hold was not released from the configured backlog"
+  [ "$(held_field "$case_dir" task-b "$rel")" = yes ] || fail "newer same-pool hold was wrongly released"
+  [ ! -e "$case_dir/data/backlog.md" ] || fail "teardown touched the unconfigured default backlog"
+  pass "a capacity hold on a configured non-default backlog is held and released in that same file"
+}
+
 test_pool_full_refusal_holds_and_exits_two
 test_pool_full_refusal_on_manual_home_exits_two_without_hold
 test_teardown_releases_oldest_capacity_hold_for_the_pool
 test_teardown_releases_fallback_identity_hold_when_pool_scan_matches_nothing
+test_configured_backlog_holds_and_releases_in_the_same_file
 
 echo "# all fm-capacity-hold tests passed"

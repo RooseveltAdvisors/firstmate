@@ -227,8 +227,8 @@ SH
 
 # One capability probe for the whole suite: can the installed tasks-axi
 # operate on a beads-backed home? The npm-published tasks-axi cannot (its P1
-# ships markdown only), and the reclaim-mutation tests must skip themselves
-# with that reason instead of failing.
+# ships markdown only), and the reclaim-mutation tests fail on it unless the
+# explicit local opt-out FM_LIVE=0 is set.
 probe_tasks_axi_beads() {
   local probe_home="$TMP_ROOT/.probe"
   rm -rf "$probe_home" "$TMP_ROOT/.probe-graph"
@@ -251,11 +251,16 @@ if bd --version >/dev/null 2>&1 && probe_tasks_axi_beads; then
 fi
 
 # Guard for coverage that drives the sweep's reclaim mutations through
-# tasks-axi: on a markdown-only install it skips with an explicit reason.
+# tasks-axi: a markdown-only install is a hard failure, so the apply and
+# race-refusal checks always run in the required lane. Only the explicit local
+# opt-out FM_LIVE=0 turns it into a skip.
 require_tasks_axi_beads() {  # <what>
   [ "$TASKS_AXI_BEADS_OK" = 1 ] && return 0
-  pass "skipped on markdown-only tasks-axi: $1"
-  return 1
+  if [ "${FM_LIVE:-}" = 0 ]; then
+    pass "skipped on markdown-only tasks-axi (FM_LIVE=0): $1"
+    return 1
+  fi
+  fail "the installed tasks-axi cannot operate the beads backend, so $1 cannot run (set FM_LIVE=0 to skip locally)"
 }
 
 # Row reads go through bd, the tool that owns the graph, so the helpers work
@@ -312,6 +317,26 @@ test_age_column_is_true_age_and_threshold_gates_selection() {
     PATH="$FAKEBIN:$PATH" "$SWEEP" --older-than 3)
   assert_contains "$out" "0 stale candidates" \
     "rows younger than --older-than must not be listed"
+}
+
+# A relative [beads] path names a graph inside the home, so the sweep finds it
+# from any caller working directory, never from the caller's own.
+test_relative_beads_path_resolves_against_the_home() {
+  local rec out rc
+  rec=$(make_fixture relpath)
+  [ -n "$rec" ] || fail "fixture construction failed (see stderr above)"
+  read_fixture "$rec"
+  sed 's|^path = ".*/fm/\.beads"$|path = "../fm/.beads"|' "$HOME_DIR/.tasks.toml" > "$HOME_DIR/.tasks.toml.new"
+  mv "$HOME_DIR/.tasks.toml.new" "$HOME_DIR/.tasks.toml"
+  grep -qx 'path = "../fm/.beads"' "$HOME_DIR/.tasks.toml" || fail "fixture graph path was not made relative"
+  # A cwd two levels down, so "../fm/.beads" against the cwd names no graph.
+  mkdir -p "$CASE_DIR/elsewhere/deeper"
+  out=$(cd "$CASE_DIR/elsewhere/deeper" && run_sweep 2>&1)
+  rc=$?
+  expect_code 0 "$rc" "sweep from an unrelated cwd must succeed (output: $out)"
+  assert_row_matches 'fm-dead-row[[:space:]]+main home[[:space:]]+50h[[:space:]]+dead' "$out" \
+    "a relative graph path must resolve against FM_HOME, not the caller's cwd"
+  pass "a relative [beads] path resolves against the home from any caller cwd"
 }
 
 # No-home rows carry the row's own ownership evidence: the ACTOR column decodes
@@ -756,6 +781,7 @@ test_apply_refuses_a_row_with_a_pending_completion_replay() {
 }
 
 test_age_column_is_true_age_and_threshold_gates_selection
+test_relative_beads_path_resolves_against_the_home
 test_orphan_columns_and_apply_orphans_guards
 test_dry_run_lists_verdicts_and_reclaims_nothing
 test_apply_reclaims_only_dead_rows
