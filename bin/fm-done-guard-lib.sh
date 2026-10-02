@@ -5,7 +5,11 @@
 # pr=, or the forge itself. Scout, secondmate, and local-only (and any other mode
 # that does not require a PR) are skipped. A missing mode, or a worktree that is
 # missing or is not a git checkout, is also skipped so incomplete task metadata
-# does not change classification.
+# does not change classification. On a Gerrit project there is no pushed branch
+# and no PR: a done that names a Gerrit change (on the line or as the recorded
+# pr=) is accepted only when the server reports that change NEW and its current
+# patch set carries this worktree's HEAD tree, the same published-tree proof
+# bin/fm-dod-lib.sh requires.
 # Sourced by the watcher, away-mode daemon, crew-state reader, and
 # bin/fm-done-guard.sh. No side effects on source.
 # bin/fm-pr-lib.sh owns URL validation and the forge record reads; a URL that
@@ -185,6 +189,40 @@ fm_done_guard_merge_recorded() {  # <status-file> <line> <meta>
     "$FM_PR_PROVIDER" "$FM_PR_HOST" "$FM_PR_PATH" "$FM_PR_NUMBER"
 }
 
+# Print the Gerrit change URL the done line names, else the recorded pr=, or
+# return 1 when the claim does not name a Gerrit change.
+fm_done_guard_gerrit_url() {  # <line> <meta>
+  local url
+  { url=$(fm_done_guard_pr_url_from_line "$1") \
+    || url=$(fm_done_guard_pr_url_from_meta "$2"); } || return 1
+  fm_pr_url_parse "$url" && [ "$FM_PR_PROVIDER" = gerrit ] || return 1
+  printf '%s' "$url"
+}
+
+# 0 only when the server reports the Gerrit change <url> NEW and its current
+# patch set carries the tree of <worktree>'s HEAD, an object already in the
+# worktree. Fail-closed like fm_done_guard_pr_is_open.
+fm_done_guard_gerrit_change_carries_head() {  # <url> <worktree>
+  local url=$1 wt=$2 out state revision head_tree revision_tree
+  fm_pr_url_parse "$url" && [ "$FM_PR_PROVIDER" = gerrit ] || return 1
+  [ "${FM_DONE_GUARD_NO_FORGE:-}" = 1 ] && return 1
+  command -v fm_run_timed >/dev/null 2>&1 || return 1
+  # shellcheck disable=SC2016  # The inner script expands after bash -c receives positional args.
+  out=$(fm_run_timed "${FM_DONE_GUARD_FORGE_SECS:-5}" bash -c '
+    . "$1"
+    fm_pr_gerrit_read_record "$2" "$3" || exit 1
+    fm_pr_gerrit_read_revision "$2" "$3" || exit 1
+    printf "%s %s" "$FM_PR_RECORD_STATE" "$FM_PR_RECORD_REVISION"
+  ' _ "$_FM_DONE_GUARD_LIB_DIR/fm-pr-lib.sh" "$FM_PR_HOST" "$FM_PR_NUMBER" 2>/dev/null) || return 1
+  state=${out%% *}
+  revision=${out#* }
+  [ "$state" = NEW ] || return 1
+  fm_pr_head_valid "$revision" || return 1
+  head_tree=$(git -C "$wt" rev-parse --verify --quiet 'HEAD^{tree}' 2>/dev/null) || return 1
+  revision_tree=$(git -C "$wt" rev-parse --verify --quiet "$revision^{tree}" 2>/dev/null) || return 1
+  [ -n "$head_tree" ] && [ "$head_tree" = "$revision_tree" ]
+}
+
 # Inspect one status file and optional done line. Sets FM_DONE_GUARD_VERDICT to
 # accepted, skipped, or refused and FM_DONE_GUARD_REASON to a short token.
 # Return 0 for accepted or skipped, 1 for refused.
@@ -221,6 +259,16 @@ fm_done_guard_check() {  # <status-file> [<done-line>]
     || ! git -C "$wt" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     FM_DONE_GUARD_REASON=no-worktree
     return 0
+  fi
+  if url=$(fm_done_guard_gerrit_url "$line" "$meta"); then
+    if fm_done_guard_gerrit_change_carries_head "$url" "$wt"; then
+      FM_DONE_GUARD_VERDICT=accepted
+      FM_DONE_GUARD_REASON=accepted
+      return 0
+    fi
+    FM_DONE_GUARD_VERDICT=refused
+    FM_DONE_GUARD_REASON=unverified-change
+    return 1
   fi
   if ! fm_done_guard_head_is_pushed "$wt"; then
     FM_DONE_GUARD_VERDICT=refused
@@ -292,7 +340,7 @@ fm_done_guard_steer_status() {  # <status-file> <line>
   if [ -f "$marker" ] && [ "$(cat "$marker" 2>/dev/null || true)" = "$fp" ]; then
     return 0
   fi
-  msg="Your done report was refused: this ship task requires a pushed branch and an open PR. Push the branch to origin and open a PR, then report done with the PR's full https URL. For a no-mistakes ship, start /no-mistakes so the pipeline can push and open the PR; do not report done until it prints done: PR <url> checks green."
+  msg="Your done report was refused: this ship task requires a pushed branch and an open PR. Push the branch to origin and open a PR, then report done with the PR's full https URL. For a no-mistakes ship, start /no-mistakes so the pipeline can push and open the PR; do not report done until it prints done: PR <url> checks green. On a Gerrit project, publish with gerrit-axi as your Definition of done says and report done with the change URL once its current patch set carries your HEAD."
   send=${FM_DONE_GUARD_SEND:-$_FM_DONE_GUARD_LIB_DIR/fm-send.sh}
   home=${FM_HOME:-$(cd "$state/.." && pwd)}
   if ! FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$send" "$task" "$msg"; then

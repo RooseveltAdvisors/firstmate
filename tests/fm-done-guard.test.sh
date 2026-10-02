@@ -319,6 +319,68 @@ EOF
   pass "merge receipt names a different PR -> done still refused"
 }
 
+FAKE_CHANGE_URL=https://review.example/c/proj/+/42
+
+# A Gerrit server that answers for change 42: FM_FAKE_GERRIT_STATUS picks its
+# status and FM_FAKE_GERRIT_REVISION its current patch set.
+install_fake_gerrit() {  # <home>
+  local home=$1
+  mkdir -p "$home/bin"
+  cat > "$home/bin/gerrit-axi" <<'SH'
+#!/usr/bin/env bash
+[ "${1:-}" = show ] && [ "${2:-}" = 42 ] || exit 1
+printf '{"ok":true,"changes":[{"change":42,"status":"%s","revision":"%s"}]}\n' \
+  "${FM_FAKE_GERRIT_STATUS:-NEW}" "${FM_FAKE_GERRIT_REVISION:-}"
+SH
+  chmod +x "$home/bin/gerrit-axi"
+}
+
+# A Gerrit worker publishes through refs/for/, so its branch is never on a
+# remote; the published change carrying its HEAD is the evidence instead.
+test_gerrit_change_carrying_head_accepts_done() {
+  local mode rec home wt id out rc
+  for mode in direct-PR no-mistakes; do
+    id=gerrit-ok-${mode,,}
+    rec=$(make_ship "$id" "$mode")
+    IFS='|' read -r home wt _ <<EOF
+$rec
+EOF
+    install_fake_gerrit "$home"
+    commit_on "$wt" feature.txt "published as a change"
+    printf 'done: PR %s published for review\n' "$FAKE_CHANGE_URL" > "$home/state/${id}.status"
+    rc=0
+    out=$(FM_FAKE_GERRIT_REVISION=$(git -C "$wt" rev-parse HEAD) run_check "$home" "$id") || rc=$?
+    [ "$rc" -eq 0 ] || fail "$mode gerrit done carrying HEAD should be accepted, got exit $rc ($out)"
+    assert_contains "$out" "verdict=accepted" "$mode gerrit done carrying HEAD was not accepted"
+  done
+  pass "gerrit change's current patch set carries HEAD -> done accepted in both ship modes"
+}
+
+test_gerrit_change_without_head_refuses_done() {
+  local rec home wt id=gerrit-stale-a1 out rc base
+  rec=$(make_ship "$id" direct-PR)
+  IFS='|' read -r home wt _ <<EOF
+$rec
+EOF
+  install_fake_gerrit "$home"
+  base=$(git -C "$wt" rev-parse HEAD)
+  commit_on "$wt" feature.txt "committed after publishing"
+  printf 'done: PR %s published for review\n' "$FAKE_CHANGE_URL" > "$home/state/${id}.status"
+  rc=0
+  out=$(FM_FAKE_GERRIT_REVISION=$base run_check "$home" "$id") || rc=$?
+  [ "$rc" -eq 1 ] || fail "a stale gerrit patch set should refuse, got exit $rc ($out)"
+  assert_contains "$out" "reason=unverified-change" "stale gerrit patch set did not name the change reason"
+  rc=0
+  out=$(FM_FAKE_GERRIT_STATUS=ABANDONED FM_FAKE_GERRIT_REVISION=$(git -C "$wt" rev-parse HEAD) \
+    run_check "$home" "$id") || rc=$?
+  [ "$rc" -eq 1 ] || fail "an abandoned gerrit change should refuse, got exit $rc ($out)"
+  rc=0
+  out=$(FM_DONE_GUARD_NO_FORGE=1 FM_FAKE_GERRIT_REVISION=$(git -C "$wt" rev-parse HEAD) \
+    run_check "$home" "$id") || rc=$?
+  [ "$rc" -eq 1 ] || fail "an offline gerrit check should refuse, got exit $rc ($out)"
+  pass "gerrit change stale, abandoned, or unreadable -> done refused"
+}
+
 test_span_drops_refused_done() {
   local rec home wt id=span-drop-a1 event rc
   rec=$(make_ship "$id" no-mistakes)
@@ -430,6 +492,8 @@ test_non_checkout_worktree_skips
 test_recorded_merge_accepts_done
 test_recorded_merge_accepts_pruned_branch
 test_merge_receipt_for_another_pr_refuses_done
+test_gerrit_change_carrying_head_accepts_done
+test_gerrit_change_without_head_refuses_done
 test_span_drops_refused_done
 test_apply_steers_on_refuse
 test_watcher_keeps_false_done_out_of_the_wake_queue
