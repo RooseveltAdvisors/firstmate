@@ -1425,7 +1425,7 @@ test_exit_reports_late_stop_as_success() {
   dir=$(new_case late-stop)
   add_task "$dir" t1 pi
   alive_as "$dir" pi
-  out=$(env FM_FAKE_EXIT_DELAY=0.3 PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" \
+  out=$(env FM_FAKE_EXIT_DELAY=1.6 PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" \
     FM_FAKE_DIR="$dir/fake" FM_CONTROL_POLL=0.02 FM_CONTROL_EXIT_WAIT=0.05 \
     FM_CONTROL_EXIT_CONFIRM_WAIT=2 \
     "$CONTROL" t1 exit 2>&1); rc=$?
