@@ -68,6 +68,11 @@ make_home() {  # <name>
   } > "$home/.tasks.toml"
   (cd "$home" && bd init --prefix actor) >/dev/null 2>&1 \
     || fail "could not initialize the beads fixture database"
+  # bd's audit sidecar (.beads/interactions.jsonl, the file these tests read
+  # for actor attribution) is opt-in per database: enable it hermetically so
+  # the fixture records transitions on every host regardless of the operator's
+  # global bd config or the bd default.
+  printf '\naudit:\n  enabled: true\n' >> "$home/.beads/config.yaml"
 
   cat > "$fakebin/tmux" <<SH
 #!/usr/bin/env bash

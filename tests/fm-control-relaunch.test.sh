@@ -1863,6 +1863,11 @@ test_spawn_relaunch_preserves_the_recorded_herdr_task_label() {
   dir=$(new_case herdr-label rl50)
   add_ship_task "$dir" rl50 claude
   make_herdr_stub "$dir"
+  # The endpoint this case relaunches is AGENT-FREE but still present: its
+  # recorded pane must read back, so seed it exactly as the record names it.
+  # Without this the pane reads structurally gone, and the rebind path (endpoint
+  # proven absent) correctly mints a fresh tab instead of adopting this one.
+  printf '%s' 'pane-rl50' > "$dir/fake/herdr-pane"
   wt=$(meta_field "$dir" rl50 worktree)
   cat > "$dir/home/state/rl50.meta" <<EOF
 window=fake-herdr-session:pane-rl50
