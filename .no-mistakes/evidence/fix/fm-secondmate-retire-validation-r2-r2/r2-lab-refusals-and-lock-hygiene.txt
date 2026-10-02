@@ -1,0 +1,43 @@
+===== SCENARIO L3: authority guards still fire when no liveness episode is active =====
+pre: stale lock symlink present from dead holder (will be broken on acquire)
+-- (a) no authority: bin/fm-teardown.sh domain
+exit=1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.64HjGb
+REFUSED: task domain is a persistent secondmate home, not a finished worker; nothing was changed.
+An idle queue is a healthy secondmate's normal state, never evidence it is done.
+Retiring it takes authority naming that exact home: bin/fm-teardown.sh domain --retire-secondmate domain
+List candidates with their kinds using bin/fm-fleet-view.sh --cleanup-candidates rather than inferring persistence from a worktree path.
+-- (b) --force does not substitute for authority: bin/fm-teardown.sh domain --force
+exit=1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.64HjGb
+REFUSED: task domain is a persistent secondmate home, not a finished worker; nothing was changed.
+An idle queue is a healthy secondmate's normal state, never evidence it is done.
+Retiring it takes authority naming that exact home: bin/fm-teardown.sh domain --retire-secondmate domain
+List candidates with their kinds using bin/fm-fleet-view.sh --cleanup-candidates rather than inferring persistence from a worktree path.
+-- (c) authority naming a different home: bin/fm-teardown.sh domain --retire-secondmate other-domain
+exit=1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.64HjGb
+REFUSED: --retire-secondmate names other-domain, but this teardown targets domain; nothing was changed.
+Authority for retiring a persistent home must name that exact home.
+-- (d) authority offered for an ordinary ship task (mis-selected target): bin/fm-teardown.sh task-x1 --retire-secondmate task-x1
+exit=1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.64HjGb
+REFUSED: --retire-secondmate was given for task task-x1, which is a ship task and not a secondmate home; nothing was changed.
+That mismatch means the target was selected wrong; re-check it with bin/fm-fleet-view.sh --cleanup-candidates.
+-- (e) two targets in one invocation (per-target rule) --
+exit=2
+error: teardown acts on exactly one task, but 2 targets were given: task-x1 domain
+error: 1 of those targets are persistent secondmate homes, not finished workers: domain
+Retiring a secondmate is a per-target decision. Nothing was changed.
+List candidates with their kinds using bin/fm-fleet-view.sh --cleanup-candidates, then act on one target per invocation.
+-- invariant: nothing changed after every refusal --
+domain.meta byte-identical
+task-x1.meta intact
+secondmate home intact
+registry route intact
+===== SCENARIO L4: refusal paths release the liveness lock they now take first =====
+lock acquirable after refusal run 1: yes
+released cleanly
+lock acquirable after refusal run 2: yes
+released cleanly
+no leftover lock owner file

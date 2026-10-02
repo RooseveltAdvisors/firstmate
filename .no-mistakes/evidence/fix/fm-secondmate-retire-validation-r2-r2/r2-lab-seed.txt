@@ -1,0 +1,70 @@
+SUB=/tmp/fm-lab-sub.0N0rKn
+Note: switching to '695bcc66434db21738c3aee7a86558189d5f3fe1'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+scaffolded: /tmp/fm-lab.64HjGb/data/domain/brief.md (secondmate charter)
+home=/tmp/fm-lab-sub.0N0rKn
+seed rc=0
+.
+..
+.agents
+AGENTS.md
+assets
+bin
+.claude
+CLAUDE.md
+.codex
+config
+CONTRIBUTING.md
+.cursor
+data
+docs
+.fm-secondmate-home
+.fm-secondmate-parent
+.git
+.gitattributes
+.github
+.gitignore
+.greptile
+.grok
+GROK_BOT.md
+LICENSE
+.no-mistakes.yaml
+.omp
+.opencode
+.pi
+projects
+README.md
+skills
+state
+.tasks.toml
+tests
+VISION.md
+--- registry ---
+- domain - design domain (home: /tmp/fm-lab-sub.0N0rKn; scope: design domain; projects: ; added 2026-10-02)
+--- meta ---
+window=firstmate:fm-domain
+endpoint_task_id=domain
+worktree=/tmp/fm-lab-sub.0N0rKn
+project=/tmp/fm-lab-sub.0N0rKn
+harness=echo
+kind=secondmate
+mode=secondmate
+yolo=off
+home=/tmp/fm-lab-sub.0N0rKn
+projects=
+SUBPATH=/tmp/fm-lab-sub.0N0rKn

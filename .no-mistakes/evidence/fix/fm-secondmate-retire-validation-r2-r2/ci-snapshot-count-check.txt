@@ -1,0 +1,4 @@
+$ /bin/bash tests/fm-fleet-snapshot-view.test.sh | grep -c '^ok - '
+count=19
+CI expectation (ci.yml): 19
+MATCH - CI snapshot count gate passes

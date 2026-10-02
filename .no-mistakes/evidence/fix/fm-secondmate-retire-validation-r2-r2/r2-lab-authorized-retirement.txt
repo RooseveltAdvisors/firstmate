@@ -1,0 +1,37 @@
+===== SCENARIO L5: retry after the episode ends, then authorized retirement completes =====
+-- endpoint window on the lab's private tmux socket --
+1: fm-domain* (1 panes) [80x24] [layout b25d,80x24,0,0,0] @0 (active)
+-- (retry) authorized retirement now that no episode holds the lock --
+exit=0
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.64HjGb
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  2 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e /home/jon/.no-mistakes/worktrees/2f32188048b1/01M3X9QP6GAESCJ50YRZM7YEWJ/.pi/extensions/fm-primary-turnend-guard.ts -e /home/jon/.no-mistakes/worktrees/2f32188048b1/01M3X9QP6GAESCJ50YRZM7YEWJ/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown domain complete (window firstmate:fm-domain, worktree /tmp/fm-lab-sub.0N0rKn)
+-- observable state after authorized retirement --
+domain.meta removed
+secondmate home removed
+registry route removed
+liveness lock leftover: none
+-- ordinary task untouched --
+task-x1.meta intact
+-- lab tmux windows now --
+no server running on /tmp/fm-lab.64HjGb/tmux/tmux-1000/default
+(window/session gone: 1)
+-- fleet view after retirement --
+# Cleanup Candidates
+
+Home: /tmp/fm-lab.64HjGb
+
+| ID | Kind | Persistence | Teardown |
+| --- | --- | --- | --- |
+| task-x1 | ship | disposable | bin/fm-teardown.sh task-x1 |
+
+A persistent home is retired only by a decision naming that exact home; an idle queue is healthy, not finished.
+This report prints no runnable retirement command, so retiring a standing home has to be typed deliberately.
+Teardown takes one target per invocation.
+rc=0

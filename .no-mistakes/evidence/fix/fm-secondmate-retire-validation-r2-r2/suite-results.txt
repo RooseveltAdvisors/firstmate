@@ -1,0 +1,21 @@
+Targeted suite runs for fix/fm-secondmate-retire-validation-r2-r2 (base 8690c41 -> target 6e0a0bc), executed in this validation session from the run worktree:
+
+PASS tests/fm-fleet-snapshot-view.test.sh            RC=0, 19 x "ok - " (matches ci.yml snapshot count gate: 19)
+PASS tests/fm-teardown-endpoint-safety.test.sh       RC=0
+PASS tests/fm-teardown.test.sh                       RC=0, 109 x "ok - "
+PASS tests/fm-secondmate-safety.test.sh              RC=0, 80 x "ok - "
+PASS tests/fm-secondmate-lifecycle-e2e.test.sh       RC=0 (seed/spawn/send/handoff/recovery/teardown phases)
+PASS tests/fm-backlog-handoff.test.sh                RC=0 ("ALL TESTS PASSED")
+PASS tests/fm-backend-zellij.test.sh                 RC=0
+PASS tests/fm-backend-orca.test.sh                   RC=0
+PASS tests/fm-backend-herdr-presentation-e2e.test.sh RC=0, 23 x "ok - " (drives real Herdr through bin/fm-herdr-lab.sh)
+PASS tests/fm-ci-workflow.test.sh                    RC=0 (guards .github/workflows/ci.yml)
+PASS bin/fm-test-run.sh --check-coverage             RC=0, "FM_TEST_COVERAGE ok total=242" (run with LC_ALL=C; without it, comm sort-order noise fails locally - locale artifact, not the change)
+
+FAIL tests/fm-remote-secondmate-lifecycle-e2e.test.sh  RC=1 (reproduced twice)
+     not ok - a liveness-busy retirement did not ask for a retry
+     Root cause pinned live in lab-liveness-lock-ordering.txt: the test's teardown call at
+     tests/fm-remote-secondmate-lifecycle-e2e.test.sh:1523 omits --retire-secondmate ios, so the new
+     per-target authority refusal fires first and the "liveness check is in progress for ios" text the
+     assertion greps can never be printed. This test is family=secondmate and runs in CI's portable
+     serial lane (bin/fm-test-run.sh), so this suite red blocks "CI re-greens".

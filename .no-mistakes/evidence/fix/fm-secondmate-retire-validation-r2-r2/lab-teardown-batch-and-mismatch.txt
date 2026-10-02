@@ -1,0 +1,37 @@
+===== SCENARIO: multi-target selection list refused before any seat dies =====
+$ bin/fm-teardown.sh task-x1 domain
+error: teardown acts on exactly one task, but 2 targets were given: task-x1 domain
+error: 1 of those targets are persistent secondmate homes, not finished workers: domain
+Retiring a secondmate is a per-target decision. Nothing was changed.
+List candidates with their kinds using bin/fm-fleet-view.sh --cleanup-candidates, then act on one target per invocation.
+----- exit=2 -----
+===== SCENARIO: ids after -- are targets, not flags (end-of-options escape) =====
+$ bin/fm-teardown.sh task-x1 -- --force
+error: teardown acts on exactly one task, but 2 targets were given: task-x1 --force
+List candidates with their kinds using bin/fm-fleet-view.sh --cleanup-candidates, then act on one target per invocation.
+----- exit=2 -----
+===== SCENARIO: retirement authority offered for an ordinary ship task refuses (mis-selected target) =====
+$ bin/fm-teardown.sh task-x1 --retire-secondmate task-x1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.8Y5j3O
+REFUSED: --retire-secondmate was given for task task-x1, which is a ship task and not a secondmate home; nothing was changed.
+That mismatch means the target was selected wrong; re-check it with bin/fm-fleet-view.sh --cleanup-candidates.
+----- exit=1 -----
+===== INVARIANT: nothing changed after every refusal =====
+LAB/domain-home:
+total 28
+drwxrwxr-x 6 jon jon 4096 Oct  2 00:07 .
+drwx------ 8 jon jon 4096 Oct  2 00:07 ..
+drwxrwxr-x 2 jon jon 4096 Oct  2 00:07 config
+drwxrwxr-x 2 jon jon 4096 Oct  2 00:07 data
+-rw-rw-r-- 1 jon jon    7 Oct  2 00:07 .fm-secondmate-home
+drwxrwxr-x 2 jon jon 4096 Oct  2 00:07 projects
+drwxrwxr-x 2 jon jon 4096 Oct  2 00:07 state
+
+LAB/state:
+total 16
+drwxrwxr-x 2 jon jon 4096 Oct  2 00:07 .
+drwx------ 8 jon jon 4096 Oct  2 00:07 ..
+-rw-rw-r-- 1 jon jon  235 Oct  2 00:07 domain.meta
+-rw-rw-r-- 1 jon jon   93 Oct  2 00:07 task-x1.meta
+--- registry ---
+- domain - design domain (home: /tmp/fm-lab.8Y5j3O/domain-home; scope: design domain; projects: alpha; added 2026-06-22)

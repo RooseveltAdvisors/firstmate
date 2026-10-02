@@ -1,0 +1,12 @@
+fm-teardown-endpoint-safety RC=0 ok=27 notok=0 elapsed=116s
+fm-teardown RC=0 ok=109 notok=0 elapsed=510s
+fm-secondmate-safety RC=0 ok=80 notok=0 elapsed=128s
+fm-fleet-snapshot-view RC=0 ok=19 notok=0 elapsed=13s
+fm-backlog-handoff RC=0 ok=24 notok=0 elapsed=83s
+fm-ci-workflow RC=0 ok=9 notok=0 elapsed=3s
+fm-secondmate-lifecycle-e2e RC=0 ok=6 notok=0 elapsed=14s
+fm-backend-zellij RC=0 ok=64 notok=0 elapsed=18s
+fm-backend-orca RC=0 ok=52 notok=0 elapsed=29s
+fm-backend-herdr-presentation-e2e RC=0 ok=23 notok=0 elapsed=600s
+FM_TEST_COVERAGE ok total=242 parallel=24 parallel_max_ms=665545 parallel_imbalance_ms=2 parallel_unhinted=0 serial=202 serial_shards=9 serial_unhinted=1 serial_max_ms=1074843 serial_budget_ms=1200000 herdr=16
+fm-bearings-snapshot RC=0 ok=60 notok=0 elapsed=123s

@@ -1,0 +1,17 @@
+===== SCENARIO (root cause of the failing e2e assertion): held liveness lock =====
+-- (a) teardown WITHOUT retire authority hits the authority guard first --
+$ bin/fm-teardown.sh domain
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.8Y5j3O
+REFUSED: task domain is a persistent secondmate home, not a finished worker; nothing was changed.
+An idle queue is a healthy secondmate's normal state, never evidence it is done.
+Retiring it takes authority naming that exact home: bin/fm-teardown.sh domain --retire-secondmate domain
+List candidates with their kinds using bin/fm-fleet-view.sh --cleanup-candidates rather than inferring persistence from a worktree path.
+----- exit=1 -----
+-- (b) teardown WITH retire authority reaches the liveness guard and asks for a retry --
+$ bin/fm-teardown.sh domain --retire-secondmate domain
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.8Y5j3O
+error: a secondmate liveness check is in progress for domain; nothing was changed - retry teardown
+----- exit=1 -----
+-- state intact --
+domain.meta intact
+secondmate home intact

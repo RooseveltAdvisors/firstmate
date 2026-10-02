@@ -1,0 +1,14 @@
+===== SCENARIO: authorized retirement naming this exact home completes (subhome outside parent home) =====
+$ bin/fm-teardown.sh domain --retire-secondmate domain
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.8Y5j3O
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+teardown domain complete (window firstmate:fm-domain, worktree /tmp/fm-lab-sub.UTKqYB)
+----- exit=0 -----
+===== observable state after authorized retirement =====
+-- domain.meta --
+removed
+-- secondmate home (/tmp/fm-lab-sub.UTKqYB) --
+removed
+-- registry --
+-- ordinary task untouched? --
+task-x1.meta intact

@@ -1,0 +1,60 @@
+Round-2 live validation for fix/fm-secondmate-retire-validation-r2-r2
+base 8690c4117a298ee870f0f72f571c72b846b4c5fb -> target 695bcc66434db21738c3aee7a86558189d5f3fe1
+(target commit reorders bin/fm-teardown.sh so the secondmate liveness lock is
+taken BEFORE the per-target retirement authority refusals)
+
+BASELINE / SUITE RUNS (all from this run worktree, real product scripts):
+- tests/fm-remote-secondmate-lifecycle-e2e.test.sh  RC=0, 31 x "ok - ", "ALL TESTS PASSED"
+  (round-1 red suite; the "not ok - a liveness-busy retirement did not ask for a retry"
+   line is gone)                                       -> r2-remote-secondmate-lifecycle-e2e.out
+- tests/fm-teardown-endpoint-safety.test.sh          RC=0, 27 ok
+- tests/fm-teardown.test.sh                          RC=0, 109 ok
+- tests/fm-secondmate-safety.test.sh                 RC=0, 80 ok
+- tests/fm-fleet-snapshot-view.test.sh               RC=0, 19 ok  (ci.yml gate expects 19)
+- tests/fm-backlog-handoff.test.sh                   RC=0, 24 ok
+- tests/fm-ci-workflow.test.sh                       RC=0, 9 ok
+- tests/fm-secondmate-lifecycle-e2e.test.sh          RC=0, 6 ok
+- tests/fm-backend-zellij.test.sh                    RC=0, 64 ok
+- tests/fm-backend-orca.test.sh                      RC=0, 52 ok
+- tests/fm-backend-herdr-presentation-e2e.test.sh    RC=0, 23 ok (drives a real Herdr lab
+  session through bin/fm-herdr-lab.sh)
+- tests/fm-bearings-snapshot.test.sh                 RC=0, 60 ok (same CI snapshot job)
+- bin/fm-test-run.sh --check-coverage (LC_ALL=C)     RC=0, "FM_TEST_COVERAGE ok total=242"
+                                                       -> r2-suite-runs.txt
+- git merge-base --is-ancestor 8690c411..695bcc66    RC=0 (base is an ancestor of target)
+
+LIVE LAB SCENARIOS (disposable lab home LAB=/tmp/fm-lab.64HjGb minted with
+bin/fm-lab-home.sh create, secondmate home seeded with the real
+bin/fm-home-seed.sh, driven with FM_HOME=$LAB on a private tmux socket;
+both removed at the end of this turn):
+
+S3 - held liveness lock blocks retirement and asks for a retry
+     (a) bin/fm-teardown.sh domain            -> exit 1,
+         "error: a secondmate liveness check is in progress for domain; nothing was
+          changed - retry teardown"   <-- the exact CI-test invocation shape (no flag)
+     (b) bin/fm-teardown.sh domain --retire-secondmate domain -> same retry message
+     invariants: domain.meta intact, secondmate home intact, registry route intact,
+     episode still owns its lock (pid unchanged)
+                                                       -> r2-lab-liveness-lock.txt
+
+S4/S5 - guards still fire with no episode active, and no lock leaks from the
+     reordering (each refusal used to not touch the lock at all; it now takes it
+     first, so this is the adversarial check that the EXIT trap still releases it)
+     bare / --force / wrong-name / wrong-kind / two-target refusals all exit 1 or 2
+     with their own messages; domain.meta byte-identical (cksum), home+registry intact;
+     lock acquirable + cleanly releasable after every refusal, no leftover owner file
+                                                       -> r2-lab-refusals-and-lock-hygiene.txt
+
+S6 - retry succeeds after the episode ends: bin/fm-teardown.sh domain
+     --retire-secondmate domain -> exit 0 "teardown domain complete (window
+     firstmate:fm-domain, worktree ...)"; domain.meta removed, home removed,
+     registry route removed, no liveness-lock leftover, lab tmux endpoint window
+     closed, ordinary task-x1 untouched, fleet view drops the row
+                                                       -> r2-lab-authorized-retirement.txt
+
+S7 - bin/fm-fleet-view.sh --cleanup-candidates lists each id's kind, prints no
+     runnable retirement command, and reflects the post-retirement state
+                                                       -> r2-lab-build.txt, r2-lab-authorized-retirement.txt
+
+Tear-down: LAB and the seeded subhome removed (rm -rf) in this same turn;
+worktree git status clean at 695bcc66.

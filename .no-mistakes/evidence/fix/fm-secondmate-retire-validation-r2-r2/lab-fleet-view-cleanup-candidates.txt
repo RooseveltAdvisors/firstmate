@@ -1,0 +1,25 @@
+===== SCENARIO: fleet-view --cleanup-candidates labels every live task by kind =====
+$ bin/fm-fleet-view.sh --cleanup-candidates
+# Cleanup Candidates
+
+Home: /tmp/fm-lab.8Y5j3O
+
+| ID | Kind | Persistence | Teardown |
+| --- | --- | --- | --- |
+| domain | secondmate | persistent | retire only by an explicit decision naming this home - see .agents/skills/secondmate-provisioning |
+| task-x1 | ship | disposable | bin/fm-teardown.sh task-x1 |
+
+A persistent home is retired only by a decision naming that exact home; an idle queue is healthy, not finished.
+This report prints no runnable retirement command, so retiring a standing home has to be typed deliberately.
+Teardown takes one target per invocation.
+----- exit=0 -----
+
+===== ADVERSARIAL: no runnable retirement command for the persistent home anywhere in the report =====
+PASS: no 'bin/fm-teardown.sh domain' runnable command in report
+PASS: disposable task carries its runnable teardown command
+
+===== ADVERSARIAL: unknown flag still rejected (usage exit 2) =====
+usage: fm-fleet-view.sh [--json | --cleanup-candidates]
+
+Render a human fleet view from fm-fleet-snapshot.sh.
+----- exit=2 -----

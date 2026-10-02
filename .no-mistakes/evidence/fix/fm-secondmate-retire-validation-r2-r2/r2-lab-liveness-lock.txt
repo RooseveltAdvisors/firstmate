@@ -1,0 +1,18 @@
+===== SCENARIO L1/L2: held liveness lock blocks retirement and asks for a retry =====
+lock holder pid=181420 lock owner=181420
+(a) teardown WITHOUT retire authority (the exact CI-test invocation shape)
+-- (a): bin/fm-teardown.sh domain
+exit=1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.64HjGb
+error: a secondmate liveness check is in progress for domain; nothing was changed - retry teardown
+(b) teardown WITH matching retire authority
+-- (b): bin/fm-teardown.sh domain --retire-secondmate domain
+exit=1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.64HjGb
+error: a secondmate liveness check is in progress for domain; nothing was changed - retry teardown
+-- invariant: state intact under the held lock --
+domain.meta intact
+secondmate home intact
+registry route intact
+episode still owns its lock
+NOTE: lock dir still present after holder exit: lrwxrwxrwx 1 jon jon 70 Oct  2 01:45 /tmp/fm-lab.64HjGb/state/.secondmate-liveness-domain.lock -> /tmp/fm-lab.64HjGb/state/.secondmate-liveness-domain.lock.owner.mhTi7Z
