@@ -1291,6 +1291,18 @@ while kill -0 "$watch_pid" 2>/dev/null && [ "$watch_wait" -lt 1500 ]; do
 done
 if kill -0 "$watch_pid" 2>/dev/null; then
   kill "$watch_pid" 2>/dev/null || true
+  if [ -n "${NM_WATCH_DEBUG:-}" ]; then
+    mkdir -p "$NM_WATCH_DEBUG"
+    cp "$TMP_ROOT/watch-liveness.out" "$TMP_ROOT/watch-liveness.err" "$NM_WATCH_DEBUG/" 2>/dev/null || true
+    cp -R "$WATCH_STATE" "$NM_WATCH_DEBUG/watch-state" 2>/dev/null || true
+    # awk with the bracketed self-exclusion instead of `ps | grep`: same matched
+    # process lines, and it keeps the canonical lint roots SC2009-clean
+    # (bin/fm-lint.sh's local exclusion list does not cover SC2009).
+    ps aux | awk '/[f]m-watch|[f]m-spawn|[f]m-remote/' > "$NM_WATCH_DEBUG/ps.txt" 2>/dev/null || true
+    cp "$HERDR_LOG" "$NM_WATCH_DEBUG/herdr.log" 2>/dev/null || true
+    cp "$SSH_COUNT" "$NM_WATCH_DEBUG/ssh.count" 2>/dev/null || true
+    cp "$TMP_ROOT/watch-liveness-state/.wake-queue" "$NM_WATCH_DEBUG/wake-queue" 2>/dev/null || true
+  fi
   fail "the watcher did not exit on its auto-relaunch wake within the bound"
 fi
 wait "$watch_pid" \
