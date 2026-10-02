@@ -49,7 +49,9 @@
 # files or long options, never its e/w shell-running, r/R file-reading, or
 # file-writing commands in any address or s/// flag form, including
 # !-negated addresses), awk's
-# -F/-v only, rg's short flags only (never long options such as --pre), and
+# -F/-v only (never getline file reads, print/printf write redirects, or
+# ARGV/ARGC rewrites in its inline program), rg's short flags only (never
+# long options such as --pre), and
 # sort's behavior flags (never -o/--output). Every path stays inside this
 # home's tree (absolute under FM_HOME, relative without "..", no "~", or
 # /dev/null; '='-attached values included; absolute tokens resolved so
@@ -264,8 +266,10 @@ fm_reco_sed_scripts_ok() { # <segment>
 }
 
 # fm_reco_awk_scripts_ok: refuse an awk segment whose inline program hides a
-# getline file read or a print/printf write redirect; a whitespace-split
-# payload falls through to the path screen through its fragments instead.
+# getline file read, a print/printf write redirect, or an ARGV/ARGC rewrite of
+# its input list; '>' and ARGV/ARGC inside a double-quoted awk string are
+# masked first so string literals stay readable. A whitespace-split payload
+# falls through to the path screen through its fragments instead.
 fm_reco_awk_scripts_ok() { # <segment>
   local tok masked
   local -a toks
@@ -481,9 +485,9 @@ fm_reco_program_slot() { # <raw-token>
 # fm_reco_relative_token_ok, so an unverifiable relative read is needs-manual
 # instead of blind-approved. A sed/awk program token must be an inline
 # literal the shell will not expand, or the program text this screen sees is
-# not the text that runs; and an ls/rg/find segment must carry a verified
-# positional path, because with none its operand is the pane's cwd, which is
-# never fetched.
+# not the text that runs; and an ls/rg/find segment (and a grep segment with
+# -drecurse) must carry a verified positional path, because with none its
+# operand is the pane's cwd, which is never fetched.
 fm_reco_relative_ok() { # <line> <resolved-home>
   local seg head tok raw home seen_special used_e expect_val expect_prog expect_pat check_next in_single in_pat saw_pos pre post pspan ptok rest sq dq grec
   home=$(readlink -f -- "$2" 2>/dev/null) || return 1
