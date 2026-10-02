@@ -875,6 +875,110 @@ EOF
 > 1. Yes, proceed (y)
   3. No (esc)
 EOF
+  cat > "$prompts/deny-substitution" <<EOF
+  Would you like to run the following command?
+
+  sed "\$(cat $ROOT/state/x.md)" $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-backtick-substitution" <<'EOF'
+  Would you like to run the following command?
+
+  cat `echo state/x.md`
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-quote-desync" <<EOF
+  Would you like to run the following command?
+
+  grep -n 'draw(' missing-operand.txt
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-unbalanced-quote" <<EOF
+  Would you like to run the following command?
+
+  grep -n 'unclosed $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-quoted-gt" <<EOF
+  Would you like to run the following command?
+
+  grep -n '>' $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-quoted-tag" <<EOF
+  Would you like to run the following command?
+
+  sed 's/<h1>/x/' $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-attached-devnull" <<EOF
+  Would you like to run the following command?
+
+  cat $ROOT/state/x.md 2>/dev/null
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-attached-devnull-fd1" <<EOF
+  Would you like to run the following command?
+
+  cat $ROOT/state/x.md 1>/dev/null
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-amp-devnull" <<EOF
+  Would you like to run the following command?
+
+  cat $ROOT/state/x.md &>/dev/null
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-attached-null-operand" <<EOF
+  Would you like to run the following command?
+
+  cat $ROOT/state/x.md>/dev/null
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/allow-null-redirect-delimiter" <<EOF
+  Would you like to run the following command?
+
+  if cat $ROOT/state/x.md 2>/dev/null; then echo ok; fi
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-attached-null-missing" <<EOF
+  Would you like to run the following command?
+
+  cat missing-attached>/dev/null
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
+  cat > "$prompts/deny-sort-tempdir" <<EOF
+  Would you like to run the following command?
+
+  sort -T tmpdir $ROOT/state/x.md
+
+> 1. Yes, proceed (y)
+  3. No (esc)
+EOF
   cat > "$prompts/unknown" <<'EOF'
 Status header
 gpt-5.6-sol high - some/cwd
@@ -976,6 +1080,19 @@ EOF
   classify deny-sed-e-fragment-write 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses a s///w payload in a later -e value fragment'
   classify deny-sed-fragment-exec 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses a s///e payload in a later program fragment'
   classify deny-awk-fragment-path 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an unverifiable path inside a later awk program fragment'
+  classify deny-substitution 'refuse:command contains an unverifiable command substitution' 'classifier refuses a command-substitution program payload'
+  classify deny-backtick-substitution 'refuse:command contains an unverifiable command substitution' 'classifier refuses a backtick substitution payload'
+  classify deny-quote-desync 'refuse:command segment has no command word' 'classifier refuses a segment whose head is hidden by quote desync'
+  classify deny-unbalanced-quote 'refuse:command contains an unbalanced quote' 'classifier refuses a line whose quote never closes'
+  classify allow-quoted-gt 'approve' 'classifier approves a quoted greater-than pattern'
+  classify allow-quoted-tag 'approve' 'classifier approves a quoted HTML-tag substitution pattern'
+  classify allow-attached-devnull 'approve' 'classifier approves an attached stderr-to-null redirect'
+  classify allow-attached-devnull-fd1 'approve' 'classifier approves an attached stdout-to-null redirect'
+  classify allow-amp-devnull 'approve' 'classifier approves an attached ampersand-to-null redirect'
+  classify allow-attached-null-operand 'approve' 'classifier approves an operand attached to a null redirect'
+  classify allow-null-redirect-delimiter 'approve' 'classifier approves a delimiter-attached null redirect behind an if condition'
+  classify deny-attached-null-missing 'refuse:relative file token is not symlink-verifiable inside this home' 'classifier refuses an unverifiable operand attached to a null redirect'
+  classify deny-sort-tempdir 'refuse:command mutates or executes through a read-tool flag' 'classifier refuses sort -T buffer directory flags'
   classify unknown 'unknown' 'classifier fails closed on an unrecognized prompt'
   ROOT=$saved_root
 }

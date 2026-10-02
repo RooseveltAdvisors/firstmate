@@ -216,15 +216,6 @@ fm_reco_segments() { # <line>
   done <<< "$s"
 }
 
-# fm_reco_command_words: print the first word of every shell segment of <line>
-# via the shared segment printer; each head is the word that would execute.
-fm_reco_command_words() { # <line>
-  local seg
-  while IFS= read -r seg; do
-    printf '%s\n' "${seg%%[[:space:]]*}"
-  done < <(fm_reco_segments "$1")
-}
-
 # fm_reco_sed_scripts_ok: extract the inline program of a sed segment - the
 # full token span of the first positional and of every -e value, however the
 # whitespace splits it - and refuse any e/w/W/r command or s/// flag
@@ -320,7 +311,7 @@ fm_reco_flags_ok() { # <line>
 # including '='-attached values, and existing tokens are resolved so a
 # symlink cannot carry a read outside the tree.
 fm_reco_paths_ok() { # <text> <home>
-  local home resolved tok part
+  local home resolved tok part bare
   home=$(readlink -f -- "$2" 2>/dev/null) || return 1
   while IFS= read -r tok; do
     [ -n "$tok" ] || continue
@@ -337,7 +328,10 @@ fm_reco_paths_ok() { # <text> <home>
         /*)
           case "$part" in
             "$home"|"$home"/*|/dev/null) ;;
-            *) return 1 ;;
+            *)
+              bare=$(printf '%s' "$part" | sed 's/[;|)&<>]*$//')
+              [ "$bare" = /dev/null ] || return 1
+              ;;
           esac
           ;;
       esac
@@ -409,7 +403,7 @@ fm_reco_program_slot() { # <raw-token>
 # positional path, because with none its operand is the pane's cwd, which is
 # never fetched.
 fm_reco_relative_ok() { # <line> <resolved-home>
-  local seg head tok raw home seen_special used_e expect_val expect_prog check_next in_single saw_pos
+  local seg head tok raw home seen_special used_e expect_val expect_prog check_next in_single saw_pos pre post
   home=$(readlink -f -- "$2" 2>/dev/null) || return 1
   local -a toks
   while IFS= read -r seg; do
@@ -457,8 +451,30 @@ fm_reco_relative_ok() { # <line> <resolved-home>
         fm_reco_relative_token_ok "$tok" "$home" || return 1
         continue
       fi
-      case "$tok" in
-        '>'|'<'|'1>'|'2>') continue ;;
+      case "$raw" in
+        *\'*|*\"*) : ;;
+        *)
+          case "$tok" in
+            '>'|'<'|'1>'|'2>') continue ;;
+            *'>'*)
+              pre=${tok%%>*}
+              post=${tok#*>}
+              case "$pre" in
+                '') ;;
+                -*) ;;
+                *[!0-9]*)
+                  fm_reco_relative_token_ok "$pre" "$home" || return 1
+                  saw_pos=1
+                  ;;
+                *) ;;
+              esac
+              case "$post" in
+                /dev/null|'&1'|'&2') continue ;;
+                *) return 1 ;;
+              esac
+              ;;
+          esac
+          ;;
       esac
       case "$tok" in
         -*)
@@ -477,9 +493,9 @@ fm_reco_relative_ok() { # <line> <resolved-home>
             rg:-A|rg:-B|rg:-C|rg:-e|rg:-g|rg:-t|rg:-T|rg:-m|rg:-M|rg:-r) expect_val=1; case "$tok" in -e) used_e=1 ;; esac ;;
             rg:-f) used_e=1; check_next=1 ;;
             head:-n|head:-c|tail:-n|tail:-c) expect_val=1 ;;
-            sort:-k|sort:-t|sort:-S|sort:-T) expect_val=1 ;;
+            sort:-k|sort:-t|sort:-S) expect_val=1 ;;
             uniq:-f|uniq:-s|uniq:-w) expect_val=1 ;;
-            grep:--*|rg:--*|wc:--*) return 1 ;;
+            grep:--*|wc:--*) return 1 ;;
           esac
           continue
           ;;
@@ -514,7 +530,7 @@ fm_reco_relative_ok() { # <line> <resolved-home>
 # fm_reco_command_allowed: verdict over one command text (possibly multi-line).
 # Prints "ok" or "refuse:<reason>".
 fm_reco_command_allowed() { # <command-text> <home>
-  local text=$1 home=$2 line word words red
+  local text=$1 home=$2 line word red masked wordrest seg segcount
   if [ -z "$text" ]; then
     printf 'refuse:no command text found between the question and the options'
     return 0
@@ -523,14 +539,15 @@ fm_reco_command_allowed() { # <command-text> <home>
     printf 'refuse:command names a denied tool or topic'
     return 0
   fi
+  # shellcheck disable=SC2016 # The literal '$(' and backtick are the match.
+  case "$text" in
+    *'$('*|*'`'*)
+      printf 'refuse:command contains an unverifiable command substitution'
+      return 0
+      ;;
+  esac
   while IFS= read -r line; do
     [ -n "$line" ] || continue
-    case "$line" in
-      *'>>'*)
-        printf 'refuse:command contains an append redirect'
-        return 0
-        ;;
-    esac
     # Drop fd-duplication redirections (2>&1 and friends) before any screen
     # sees the line: the whitelist admits them, and the segment printer would
     # otherwise split on their '&'. Only a token's leading digits-over-digits
@@ -538,23 +555,79 @@ fm_reco_command_allowed() { # <command-text> <home>
     # merely ending in digits before a redirect keeps its text for every
     # screen, and a delimiter-attached 2>&1; never reaches the write screen.
     line=$(printf '%s\n' "$line" | awk '{ out = ""; for (i = 1; i <= NF; i++) { t = $i; if (t ~ /^[0-9]*>&[0-9]+([;|)&<>]|$)/) { sub(/^[0-9]*>&[0-9]+/, "", t); if (t == "") continue } out = out (out == "" ? "" : " ") t } print out }')
-    red=$(printf '%s' "$line" | grep -oE '>[[:space:]]*[^[:space:]]+' | grep -vE '^>[[:space:]]*(/dev/null|&1|&2)$') || red=
+    # The redirect screens must see the line the shell sees: a '>' inside
+    # quotes is pattern text, not a redirect, and a line whose quote never
+    # closes shifts those boundaries, so refuse it instead of guessing.
+    if ! masked=$(printf '%s\n' "$line" | awk '
+      {
+        q = 0
+        out = ""
+        n = length($0)
+        i = 1
+        while (i <= n) {
+          c = substr($0, i, 1)
+          if (q == 1) {
+            if (c == "\047") { q = 0 } else { out = out "x" }
+            i++
+            continue
+          }
+          if (q == 2) {
+            if (c == "\\") { i += 2; continue }
+            if (c == "\"") { q = 0; i++; continue }
+            out = out "x"
+            i++
+            continue
+          }
+          if (c == "\047") { q = 1; out = out "x"; i++; continue }
+          if (c == "\"") { q = 2; out = out "x"; i++; continue }
+          out = out c
+          i++
+        }
+        if (q != 0) bad = 1
+        print out
+      }
+      END { if (bad) exit 1 }'); then
+      printf 'refuse:command contains an unbalanced quote'
+      return 0
+    fi
+    case "$masked" in
+      *'>>'*)
+        printf 'refuse:command contains an append redirect'
+        return 0
+        ;;
+    esac
+    red=$(printf '%s' "$masked" | grep -oE '>[[:space:]]*[^[:space:]]+' | grep -vE '^>[[:space:]]*(/dev/null|&1|&2)[;|)&<>]*$') || red=
     if [ -n "$red" ]; then
       printf 'refuse:command writes with a redirect'
       return 0
     fi
-    words=$(fm_reco_command_words "$line")
-    if [ -z "$words" ]; then
+    segcount=0
+    while IFS= read -r seg; do
+      segcount=$((segcount + 1))
+      word=${seg%%[[:space:]]*}
+      if [ -z "$word" ]; then
+        printf 'refuse:command segment has no command word'
+        return 0
+      fi
+      if ! fm_reco_is_allowed_word "$word"; then
+        wordrest=$word
+        while :; do
+          case "$wordrest" in
+            [0-9]*) wordrest=${wordrest#?} ;;
+            *) break ;;
+          esac
+        done
+        case "$wordrest" in
+          '>'|'>/dev/null') continue ;;
+        esac
+        printf 'refuse:command segment "%s" is outside the read allowlist' "$word"
+        return 0
+      fi
+    done < <(fm_reco_segments "$line")
+    if [ "$segcount" -eq 0 ]; then
       printf 'refuse:could not parse command segments'
       return 0
     fi
-    while IFS= read -r word; do
-      [ -n "$word" ] || continue
-      fm_reco_is_allowed_word "$word" || {
-        printf 'refuse:command segment "%s" is outside the read allowlist' "$word"
-        return 0
-      }
-    done <<< "$words"
     fm_reco_flags_ok "$line" || {
       printf 'refuse:command mutates or executes through a read-tool flag'
       return 0
