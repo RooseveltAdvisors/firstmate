@@ -171,7 +171,9 @@ fm_done_guard_pr_is_open() {  # <url> <worktree>
 }
 
 # 0 when the merge poll recorded the PR named by the done line or the recorded
-# pr= as merged (<state>/<id>.pr-poll-merge-notified, bin/fm-pr-lib.sh).
+# pr= as merged (<state>/<id>.pr-poll-merge-notified, bin/fm-pr-lib.sh). A caller
+# that judges a captured status copy names the live state dir in
+# FM_DONE_GUARD_STATE_DIR.
 fm_done_guard_merge_recorded() {  # <status-file> <line> <meta>
   local status=$1 line=$2 meta=$3 id url
   id=$(basename "$status")
@@ -179,7 +181,7 @@ fm_done_guard_merge_recorded() {  # <status-file> <line> <meta>
   { url=$(fm_done_guard_pr_url_from_line "$line") \
     || url=$(fm_done_guard_pr_url_from_meta "$meta"); } || return 1
   fm_pr_url_parse "$url" || return 1
-  fm_pr_poll_merge_already_notified "$(dirname "$status")" "$id" \
+  fm_pr_poll_merge_already_notified "${FM_DONE_GUARD_STATE_DIR:-$(dirname "$status")}" "$id" \
     "$FM_PR_PROVIDER" "$FM_PR_HOST" "$FM_PR_PATH" "$FM_PR_NUMBER"
 }
 

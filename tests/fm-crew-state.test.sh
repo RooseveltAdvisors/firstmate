@@ -2400,6 +2400,33 @@ test_merged_pr_reads_done_under_captured_meta() {
   pass "recorded merged PR reads done under the fleet snapshot's captured meta"
 }
 
+test_merged_pr_reads_done_under_captured_status() {
+  reset_fakes
+  local d out
+  d=$(new_case merged-captured-status)
+  make_repo_on_branch "$d/wt" fm/merged
+  git -C "$d/wt" commit -q --allow-empty -m 'squash-merged fix, branch pruned'
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/merged.meta" \
+    "window=fm:fm-merged" "worktree=$d/wt" "project=$d/wt" \
+    "kind=ship" "mode=no-mistakes" "harness=claude" "pr=https://github.com/o/r/pull/7"
+  printf '%s\n' fm-pr-poll-merge-notified-v1 github github.com o/r 7 \
+    > "$d/state/merged.pr-poll-merge-notified"
+  chmod 600 "$d/state/merged.pr-poll-merge-notified"
+  printf 'done: PR https://github.com/o/r/pull/7 checks green\n' > "$d/state/merged.status"
+  mkdir -p "$d/captured"
+  cp "$d/state/merged.meta" "$d/captured/merged.meta"
+  cp "$d/state/merged.status" "$d/captured/merged.status"
+  FM_FAKE_AXI_STATUS=""
+  FM_FAKE_RUNS_LIST=""
+  FM_FAKE_BUSY=0
+  arm_idle_record "$d/state" merged
+  out=$(FM_CREW_STATE_META_OVERRIDE="$d/captured/merged.meta" \
+    FM_CREW_STATE_STATUS_OVERRIDE="$d/captured/merged.status" run_crew_state "$d" merged)
+  assert_contains "$out" "state: done" "recorded merged PR must read done under a captured status copy"
+  pass "recorded merged PR reads done under the fleet snapshot's captured status"
+}
+
 # A pre-validation `done:` from a no-mistakes ship whose branch was never
 # pushed is the false completion the ship-done gate refuses: the named-head
 # gate does not gate a non-CI-ready note, so the ship-done gate owns the
@@ -5582,6 +5609,7 @@ test_coarse_run_does_not_probe_other_branch_ci_log_for_ready_status
 test_other_branch_run_ignored
 test_unpushed_ship_done_is_blocked
 test_merged_pr_reads_done_under_captured_meta
+test_merged_pr_reads_done_under_captured_status
 test_no_mistakes_prevalidation_done_reads_unknown
 test_moved_remote_branch_without_named_head_is_blocked
 test_no_run_busy_pane
