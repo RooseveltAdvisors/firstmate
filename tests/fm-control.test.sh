@@ -243,12 +243,18 @@ SH
   printf '%s\n' "$fb"
 }
 
-# A herdr stub for the shared absence proof: the recorded session's server is
-# running, the recorded pane holds a registered claude with a live foreground
-# process, and a delivered interrupt key closes that pane - after which every
-# read answers herdr's own pane_not_found, the state the control plane's
-# absence proof re-reads when the raw agent-state says `missing`. Every
-# operational call is appended to fake/herdr-log as the side-effect record.
+# A herdr stub for the control plane's absence proofs and exit verification:
+# the recorded session's server is running and the recorded pane holds a
+# registered claude with a live foreground process. Per-test env shapes the
+# choreography: FM_FAKE_HERDR_INTERRUPT_STOPS_SERVER stops the server on the
+# interrupt key (so the raw read widens to `missing`),
+# FM_FAKE_HERDR_RESTART_POLLS paces the restart - each status call answers
+# false until the count is spent, so server_ensure burns 0.5s per poll -
+# FM_FAKE_HERDR_SERVER_START_FAILS keeps the server down (the proof stays
+# unproven), FM_FAKE_HERDR_SLEEP_SCALE shrinks every sleep, and
+# FM_FAKE_EXIT_DELAY flips the agent to gone that many seconds after the exit
+# command is typed. Every call is appended to fake/herdr-log as the
+# side-effect record.
 make_herdr_stub() {  # <dir> -> echoes fakebin dir
   local dir=$1 fb="$1/fakebin"
   mkdir -p "$fb"
@@ -256,13 +262,35 @@ make_herdr_stub() {  # <dir> -> echoes fakebin dir
 #!/usr/bin/env bash
 set -u
 D=$FM_FAKE_DIR
+printf '%s\n' "$*" >> "$D/herdr-log"
 case "${1:-} ${2:-}" in
   'status --json')
-    printf '{"client":{"version":"0.9.0","protocol":22},"server":{"running":true}}\n'
+    running=true
+    if [ -f "$D/herdr-stopped" ]; then
+      running=false
+    elif [ -f "$D/herdr-restarting" ]; then
+      count=$(cat "$D/herdr-restart-count" 2>/dev/null || printf 0)
+      if [ "$count" -lt "${FM_FAKE_HERDR_RESTART_POLLS:-0}" ]; then
+        printf '%s\n' "$((count + 1))" > "$D/herdr-restart-count"
+        running=false
+      else
+        rm -f "$D/herdr-restarting" "$D/herdr-restart-count"
+      fi
+    fi
+    printf '{"client":{"version":"0.9.0","protocol":22},"server":{"running":%s}}\n' "$running"
+    exit 0 ;;
+  'server'|'server '*)
+    if [ -z "${FM_FAKE_HERDR_SERVER_START_FAILS:-}" ]; then
+      rm -f "$D/herdr-stopped"
+      : > "$D/herdr-restarting"
+      printf '0\n' > "$D/herdr-restart-count"
+    fi
     exit 0 ;;
   'pane get')
-    printf '%s\n' "$*" >> "$D/herdr-log"
-    if [ -f "$D/herdr-pane-gone" ]; then
+    if [ -f "$D/herdr-stopped" ]; then
+      echo 'error: could not connect to the herdr server' >&2
+      exit 1
+    elif [ -f "$D/herdr-pane-gone" ]; then
       printf '{"error":{"code":"pane_not_found"}}\n'
     else
       printf '{"result":{"pane":{"pane_id":"%s","foreground_cwd":"%s"}}}\n' \
@@ -270,23 +298,57 @@ case "${1:-} ${2:-}" in
     fi
     exit 0 ;;
   'agent get')
-    printf '%s\n' "$*" >> "$D/herdr-log"
-    printf '{"result":{"agent":{"agent_status":"working"}}}\n'
+    if [ -f "$D/herdr-exit-deadline" ] \
+      && [ "$(awk -v n="${EPOCHREALTIME:-$SECONDS}" -v d="$(cat "$D/herdr-exit-deadline")" \
+        'BEGIN{print (n >= d) ? 1 : 0}')" = 1 ]; then
+      printf '{"error":{"code":"agent_not_found"}}\n'
+    elif [ -f "$D/herdr-enter" ]; then
+      printf '{"result":{"agent":{"agent_status":"working"}}}\n'
+    else
+      printf '{"result":{"agent":{"agent_status":"idle"}}}\n'
+    fi
     exit 0 ;;
   'pane process-info')
-    printf '%s\n' "$*" >> "$D/herdr-log"
     # `pane process-info --pane <id>`: the pane's own live claude foreground.
     printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":4242,"foreground_processes":[{"pid":4243,"name":"claude","argv":["claude"],"cmdline":"claude"}]}}}\n' "${4:-}"
     exit 0 ;;
+  'pane read')
+    case " $* " in *' --format ansi '*) exit 1 ;; esac
+    printf '╭────╮\n│    │\n╰────╯\n'
+    exit 0 ;;
+  'pane send-text')
+    if [ -n "${FM_FAKE_EXIT_DELAY:-}" ]; then
+      printf '%s' "$(awk -v now="${EPOCHREALTIME:-$SECONDS}" \
+        -v d="$FM_FAKE_EXIT_DELAY" 'BEGIN{printf "%.6f\n", now + d}')" \
+        > "$D/herdr-exit-deadline"
+    fi
+    exit 0 ;;
   'pane send-keys')
-    printf '%s\n' "$*" >> "$D/herdr-log"
-    # The interrupt closes the seat: from here the recorded pane is gone.
-    : > "$D/herdr-pane-gone"
+    case "${4:-}" in
+      enter) : > "$D/herdr-enter" ;;
+      *)
+        if [ -n "${FM_FAKE_HERDR_INTERRUPT_STOPS_SERVER:-}" ]; then
+          : > "$D/herdr-stopped"
+        else
+          : > "$D/herdr-pane-gone"
+        fi
+        ;;
+    esac
     exit 0 ;;
 esac
 exit 0
 SH
   chmod +x "$fb/herdr"
+  cat > "$fb/sleep" <<'SH'
+#!/usr/bin/env bash
+t=${1:-}
+case "$t" in ''|*[!0-9.]*) exit 0 ;; esac
+if [ -n "${FM_FAKE_HERDR_SLEEP_SCALE:-}" ]; then
+  t=$(awk -v t="$t" -v f="$FM_FAKE_HERDR_SLEEP_SCALE" 'BEGIN{printf "%.3f", t * f}')
+fi
+exec /bin/sleep "$t"
+SH
+  chmod +x "$fb/sleep"
   printf '%s\n' "$fb"
 }
 
@@ -1117,6 +1179,81 @@ test_staged_wait_windows_are_wall_clock_bounded() {
   pass "fm-control exit: the staged windows hold their wall-clock bound when a poll iteration is slow"
 }
 
+# The exit window is measured from exit-command delivery: a herdr session
+# whose server the pre-delivery absence proof spends seconds starting must
+# still give the command its full documented 30s+10s, so a stop 35s after
+# delivery reports `stopped` - the concrete sequence that read
+# `exit=unconfirmed` while the wait stayed anchored at the proof.
+test_exit_window_starts_at_exit_command_delivery() {
+  local dir out rc gen log
+  command -v jq >/dev/null 2>&1 \
+    || { echo "skip - the herdr absence proof parses JSON with jq"; return 0; }
+  dir=$(new_case exit-window-delivery)
+  make_herdr_stub "$dir" >/dev/null
+  add_task "$dir" t1 claude ship herdr 'fmlab:%7'
+  {
+    echo "herdr_session=fmlab"
+    echo "herdr_workspace_id=ws1"
+    echo "herdr_tab_id=tab1"
+    echo "herdr_pane_id=%7"
+  } >> "$dir/home/state/t1.meta"
+  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1)
+  printf 'busy_gen=%s\n' "$gen" >> "$dir/home/state/t1.meta"
+  out=$(env PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
+    FM_CONTROL_POLL=0.01 \
+    FM_FAKE_HERDR_INTERRUPT_STOPS_SERVER=1 \
+    FM_FAKE_HERDR_RESTART_POLLS=15 \
+    FM_FAKE_EXIT_DELAY=35 \
+    "$CONTROL" t1 exit 2>&1); rc=$?
+  expect_code 0 "$rc" "a stop inside the documented windows must be success"$'\n'"$out"
+  log=$(cat "$dir/fake/herdr-log")
+  assert_contains "$out" "stopped t1 harness=claude" \
+    "the stop after exit-command delivery should be reported stopped"
+  assert_not_contains "$out" "exit=unconfirmed" \
+    "a stop 35s after delivery is inside the 30s+10s windows and must not read unconfirmed"
+  assert_contains "$log" "server" \
+    "the absence proof should have restarted the recorded session's server before delivery"
+  pass "fm-control exit: the exit window is measured from exit-command delivery, not the pre-delivery proof"
+}
+
+# The not-sent path still charges its pre-wait absence proof against the
+# primary window: when the proof is slow, the unconfirmed report names the
+# window actually waited, never the full configured exit window the proof
+# time already consumed.
+test_not_sent_path_charges_the_pre_wait_proof_to_the_window() {
+  local dir out rc gen log window
+  command -v jq >/dev/null 2>&1 \
+    || { echo "skip - the herdr absence proof parses JSON with jq"; return 0; }
+  dir=$(new_case not-sent-charging)
+  make_herdr_stub "$dir" >/dev/null
+  add_task "$dir" t1 claude ship herdr 'fmlab:%7'
+  {
+    echo "herdr_session=fmlab"
+    echo "herdr_workspace_id=ws1"
+    echo "herdr_tab_id=tab1"
+    echo "herdr_pane_id=%7"
+  } >> "$dir/home/state/t1.meta"
+  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1)
+  printf 'busy_gen=%s\n' "$gen" >> "$dir/home/state/t1.meta"
+  out=$(env PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
+    FM_CONTROL_POLL=0.01 FM_CONTROL_EXIT_WAIT=2 FM_CONTROL_EXIT_CONFIRM_WAIT=0.05 \
+    FM_FAKE_HERDR_INTERRUPT_STOPS_SERVER=1 \
+    FM_FAKE_HERDR_SERVER_START_FAILS=1 \
+    FM_FAKE_HERDR_SLEEP_SCALE=0.1 \
+    "$CONTROL" t1 exit 2>&1); rc=$?
+  expect_code 1 "$rc" "an unprovable post-interrupt missing must end unconfirmed"$'\n'"$out"
+  log=$(cat "$dir/fake/herdr-log")
+  assert_contains "$out" "agent-state=missing exit=unconfirmed" \
+    "the staged windows should end unconfirmed with the observed state"
+  assert_contains "$log" "server" \
+    "the absence proof should have attempted the restart before the waits"
+  window=$(printf '%s\n' "$out" | sed -n 's/.*within the \([0-9][0-9.]*\)s exit window.*/\1/p')
+  [ -n "$window" ] || fail "the unconfirmed report should name the window it waited: $out"
+  awk -v w="$window" -v e=2 'BEGIN{exit !(w + 0 < e)}' \
+    || fail "the pre-wait proof was not charged to the primary window: the report claims ${window}s of a ${e}s exit window"
+  pass "fm-control exit: the not-sent path charges its pre-wait absence proof to the primary window"
+}
+
 test_agent_that_does_not_stop_reports_unconfirmed_never_failed() {
   local dir out rc gen
   dir=$(new_case stubborn)
@@ -1361,6 +1498,8 @@ test_exit_accepts_agent_stopped_by_busy_interrupt
 test_post_interrupt_missing_without_an_absence_proof_is_unconfirmed
 test_post_interrupt_missing_proven_absent_reports_endpoint_gone
 test_staged_wait_windows_are_wall_clock_bounded
+test_exit_window_starts_at_exit_command_delivery
+test_not_sent_path_charges_the_pre_wait_proof_to_the_window
 test_agent_that_does_not_stop_reports_unconfirmed_never_failed
 test_ambiguous_post_interrupt_evidence_reports_unconfirmed_never_failed
 test_stop_landing_during_ambiguous_post_interrupt_wait_is_success

@@ -609,7 +609,7 @@ await_positive_stop() {  # <outcome prefix> [origin]
   fi
   state=$(wait_agent_state "$budget" dead missing) || {
     state=$(wait_agent_state "$EXIT_CONFIRM_WAIT" dead missing) || {
-      die "$1 agent-state=$state exit=unconfirmed; the stop state was not observed within the ${EXIT_WAIT}s exit window and its ${EXIT_CONFIRM_WAIT}s confirm window - a window's expiry is not evidence the agent kept running, so this is unconfirmed rather than failed; read the seat's current state before any recovery action"
+      die "$1 agent-state=$state exit=unconfirmed; the stop state was not observed within the ${budget}s exit window and its ${EXIT_CONFIRM_WAIT}s confirm window - a window's expiry is not evidence the agent kept running, so this is unconfirmed rather than failed; read the seat's current state before any recovery action"
     }
   }
 }
@@ -744,7 +744,11 @@ do_exit() {
   # then a shorter confirm window for a stop that lands just late. Both key on
   # the same positive state, and only their combined expiry reports unconfirmed
   # - with the observed state, never a definite "did not stop" failure claim.
-  await_positive_stop "exit-delivered $ID interrupt=$interrupt_result exit-command=delivered" ${stop_clock_origin:+"$stop_clock_origin"}
+  # The exit window is the wait AFTER this delivery: re-anchor the charged
+  # origin here so a pre-delivery absence proof never eats into the window
+  # the report names.
+  stop_clock_origin=$(fm_epoch_now)
+  await_positive_stop "exit-delivered $ID interrupt=$interrupt_result exit-command=delivered" "$stop_clock_origin"
   # The incarnation is over: retire its busy wiring so no stale record or
   # orphaned generation survives the agent that produced it.
   retire_busy_incarnation
