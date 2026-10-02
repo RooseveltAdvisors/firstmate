@@ -737,12 +737,21 @@ fm_backlog_close_args_valid() {  # <live|staged> <arg>...
 # it is for: a close invented for project work no worker ever touched.
 #
 # The one way past it is the captain's own word, which the close records
-# (fm_backlog_close_captain_word). An unreadable row is left to the close itself
-# to fail on, so a transient backlog read failure is never reported as this.
+# (fm_backlog_close_captain_word). A row that cannot be read is never assumed
+# worked or unworked: a clean not-found and a source that is itself unreadable
+# are left to the close to fail on with their own reason, while any other failed
+# read - a bound hit, a wedged or transient backend - refuses the close outright
+# with its own distinct reason, so backend slowness is never reported as an
+# unworked row and a close is never inferred from a read that failed.
 fm_backlog_close_worker_record_required() {  # <data-dir> <id> <state-dir> <arg>...
   local data=$1 id=$2 state=$3 meta marker
   shift 3
-  fm_backlog_row_probe "$data" "$id" >/dev/null 2>&1 || return 0
+  if ! fm_backlog_row_probe "$data" "$id" >/dev/null 2>&1; then
+    [ "$FM_BACKLOG_ROW_RESULT" = not_found ] && return 0
+    fm_backlog_source_present "$data" "$data" >/dev/null 2>&1 || return 0
+    FM_BACKLOG_TRANSITION_ERROR="refusing to close $id: could not verify the row (${FM_BACKLOG_ROW_ERROR:-the backlog read failed}); a close needs a row it could actually read"
+    return 1
+  fi
   [ -n "$FM_BACKLOG_ROW_REPO" ] && [ "$FM_BACKLOG_ROW_REPO" != - ] || return 0
   case "$FM_BACKLOG_ROW_KIND" in
     ship|scout) ;;
@@ -774,6 +783,15 @@ fm_backlog_done() {  # <data-dir> <id> <state-dir> [flag...]
     return 1
   fi
   fm_backlog_close_worker_record_required "$data" "$id" "$state" "$@" || return 1
+  # `--report` records a scout's own deliverable (the contract table above), so
+  # a row this close read as anything else is refused rather than closed under a
+  # completion fact nobody can check; a row that was not read at all is left to
+  # the close itself to fail on.
+  if [ "${1:-}" = --report ] && [ "$FM_BACKLOG_ROW_RESULT" = found ] \
+     && [ "$FM_BACKLOG_ROW_KIND" != scout ]; then
+    FM_BACKLOG_TRANSITION_ERROR="refusing to close $id: report completion is for scout rows (this row's kind is ${FM_BACKLOG_ROW_KIND:-none})"
+    return 1
+  fi
   # The close-kind contract above validated the incoming reason; a Gerrit change
   # URL arrives as its canonical --pr landed reason, and tasks-axi refuses to
   # store a non-GitHub/Forgejo PR link, so it reaches the row as a note.

@@ -13,10 +13,10 @@
 # reports any code-root copy that is not this home's own file while staying
 # silent for a link into the home, an absent copy, and the single-home layout.
 # It also pins `done` reaching this home's guarded close: a bare close, a reason
-# outside the done-class contract, and a project row with no worker record are
-# refused with the row untouched, a done-class close carrying a worker record
-# passes and prints tasks-axi's own success line, and a home the transition gate
-# skips keeps the raw pass-through.
+# outside the done-class contract, a `--report` on a row that is not a scout, and
+# a project row with no worker record are refused with the row untouched, a
+# done-class close carrying a worker record passes and prints tasks-axi's own
+# success line, and a home the transition gate skips keeps the raw pass-through.
 set -u
 
 # shellcheck source=tests/lib.sh disable=SC1091
@@ -336,6 +336,23 @@ test_wrapper_done_passes_through_on_a_manual_backend() {
   pass "fm-tasks-axi.sh passes done through unchanged on a manual-backend home"
 }
 
+# `--report` records a scout's own deliverable, so the guarded close refuses it
+# on a row that is not a scout instead of closing under a fact nobody can check.
+test_wrapper_done_refuses_a_report_on_a_non_scout_row() {
+  local dir out rc=0
+  dir=$(make_split wrapper-done-report)
+  wrapper_from_code "$dir" add report-1 "ordinary work" --kind ship >/dev/null \
+    || fail "add report-1 failed"
+  rc=0
+  out=$(wrapper_from_code "$dir" "done" report-1 --report data/report-1/report.md 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "a non-scout row was closed against a scout deliverable"
+  assert_contains "$out" "report completion is for scout rows" \
+    "the non-scout report refusal did not name its rule"
+  assert_contains "$(wrapper_from_code "$dir" show report-1)" "state: queued" \
+    "a refused report close still moved the row"
+  pass "fm-tasks-axi.sh refuses a report close on a row that is not a scout"
+}
+
 test_guard_reports_regular_code_root_backlog
 test_guard_reports_foreign_link_and_archive
 test_guard_silent_for_single_home
@@ -349,6 +366,7 @@ if [ "$HAVE_TASKS_AXI" = 1 ]; then
   test_wrapper_done_is_guarded
   test_wrapper_done_closes_with_a_done_class_reason
   test_wrapper_done_passes_through_on_a_manual_backend
+  test_wrapper_done_refuses_a_report_on_a_non_scout_row
 else
   echo "skip: tasks-axi not found; home-addressing cases not run"
 fi

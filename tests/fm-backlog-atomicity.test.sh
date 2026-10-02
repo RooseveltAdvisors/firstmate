@@ -3124,10 +3124,12 @@ close_with() {  # <case-dir> <id> <arg>...
 test_a_close_accepts_every_done_class_reason() {
   local case_dir id
   case_dir=$(make_home close-kinds-accepted)
-  for id in landed-pr-c1 landed-local-c2 scout-report-c3 superseded-c4 cancelled-c5 answered-c6; do
+  for id in landed-pr-c1 landed-local-c2 superseded-c4 cancelled-c5 answered-c6; do
     add_item "$case_dir" "$id"
     start_item "$case_dir" "$id"
   done
+  add_item "$case_dir" scout-report-c3 scout
+  start_item "$case_dir" scout-report-c3
 
   close_with "$case_dir" landed-pr-c1 --pr https://github.com/o/r/pull/42 \
     || fail "a landing URL was refused as a close reason"
@@ -3291,6 +3293,67 @@ test_the_captain_word_is_the_one_override_and_is_recorded() {
   pass "the captain word is the one override and is recorded on the closed task"
 }
 
+# A close whose row could not be read is refused with its own reason: never the
+# unworked-row refusal, and never a close inferred from a read that failed.
+test_a_close_refuses_when_the_row_cannot_be_verified() {
+  local case_dir id out real
+  case_dir=$(make_home close-unverified-read)
+  id=unverified-read-c13
+  add_item "$case_dir" "$id"
+  start_item "$case_dir" "$id"
+  real=$(command -v tasks-axi)
+  mkdir -p "$case_dir/fakebin"
+  cat > "$case_dir/fakebin/tasks-axi" <<SH
+#!/usr/bin/env bash
+if [ "\${1:-}" = show ]; then
+  sleep 5
+fi
+exec "$real" "\$@"
+SH
+  chmod +x "$case_dir/fakebin/tasks-axi"
+
+  out=$(PATH="$case_dir/fakebin:$PATH" FM_BACKLOG_ROW_TIMEOUT_SECS=1 \
+    close_with "$case_dir" "$id" --note 'local main' 2>&1) && \
+    fail "a close whose row read hit its bound was not refused"
+  assert_contains "$out" "could not verify the row" \
+    "the unverifiable-row refusal did not name its own reason"
+  assert_not_contains "$out" "no worker record" \
+    "a failed row read was reported as an unworked row"
+  [ "$(row_state "$case_dir" "$id")" = in_flight ] \
+    || fail "a refused unverifiable close still changed the row"
+
+  rm -f "$case_dir/fakebin/tasks-axi"
+  close_with "$case_dir" "$id" --note 'local main' \
+    || fail "the same close was refused once the row could be read"
+  [ "$(row_state "$case_dir" "$id")" = "done" ] \
+    || fail "a close after the read recovered did not land"
+  pass "a close refuses an unreadable row with its own reason and closes once readable"
+}
+
+# `--report` records a scout's own deliverable, so a row that is not a scout is
+# refused it rather than closed under a completion fact nobody can check.
+test_a_report_close_is_for_scout_rows_only() {
+  local case_dir out
+  case_dir=$(make_home close-report-kind)
+  add_item "$case_dir" report-ship-c14 ship
+  start_item "$case_dir" report-ship-c14
+  add_item "$case_dir" report-scout-c15 scout
+  start_item "$case_dir" report-scout-c15
+
+  out=$(close_with "$case_dir" report-ship-c14 --report data/report-ship-c14/report.md 2>&1) && \
+    fail "a ship row was closed against a scout deliverable"
+  assert_contains "$out" "report completion is for scout rows" \
+    "the non-scout report refusal did not name its rule"
+  [ "$(row_state "$case_dir" report-ship-c14)" = in_flight ] \
+    || fail "a refused non-scout report close still changed the row"
+
+  close_with "$case_dir" report-scout-c15 --report data/report-scout-c15/report.md \
+    || fail "a scout row was refused its own report deliverable"
+  [ "$(row_state "$case_dir" report-scout-c15)" = "done" ] \
+    || fail "the scout report close did not land"
+  pass "a report close lands for a scout row and is refused for any other kind"
+}
+
 # --- dependency edges -------------------------------------------------------
 
 # The dispatch gate firstmate reads is `tasks-axi ready`, and a task-to-task
@@ -3410,3 +3473,5 @@ test_a_close_refuses_a_reason_outside_the_done_class
 test_project_work_is_not_closed_without_a_worker_record
 test_the_captain_word_is_the_one_override_and_is_recorded
 test_an_answered_close_is_the_same_captain_authority
+test_a_close_refuses_when_the_row_cannot_be_verified
+test_a_report_close_is_for_scout_rows_only

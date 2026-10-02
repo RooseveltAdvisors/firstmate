@@ -21,10 +21,11 @@
 # `done` (and its `close` alias) runs through the guarded backlog close owned by
 # bin/fm-backlog-transition-lib.sh rather than reaching tasks-axi bare: a close
 # records exactly one done-class reason - --pr <url>, --note "local main",
-# --report <path>, --note "superseded by <id>", --note "cancelled: <word>", or
-# --note "answered: <word>" - and a repo-carrying ship or scout row closes only
-# while a worker record still proves a worker existed for it, or under the
-# captain's own word. tasks-axi's own `done` flags outside that contract
+# --report <path> (scout rows only), --note "superseded by <id>",
+# --note "cancelled: <word>", or --note "answered: <word>" - and a
+# repo-carrying ship or scout row closes only while a worker record still
+# proves a worker existed for it, or under the captain's own word.
+# tasks-axi's own `done` flags outside that contract
 # (`--keep`, `--no-prune`, `--json`) are not reasons and are refused with it.
 # Where that gate deliberately skips a home (a manual backend, or a markdown
 # home keeping no backlog file), `done` passes through to tasks-axi unchanged,
@@ -64,7 +65,8 @@
 #     first write would replace the link with a private copy, exactly the fork
 #     this command exists to prevent. Lifecycle transitions refuse the same file;
 #   - `done` (or `close`) the guarded close refuses - a reason outside the
-#     done-class contract, a project row holding no worker record, or a backlog
+#     done-class contract, a `--report` on a row that is not a scout, a project
+#     row holding no worker record, a row the close could not read, or a backlog
 #     the transition gate cannot address - reported with the reason
 #     bin/fm-backlog-transition-lib.sh names.
 # Otherwise the exit status is tasks-axi's own, unless decoding a read fails
