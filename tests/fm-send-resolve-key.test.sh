@@ -978,6 +978,7 @@ test_parser_native_answer_lands_durably() {
 # ambiguous. (test_not_open_key_refuses_before_send covers the plain-text shape;
 # this pins the parser-native shape the plane fix newly routes through the
 # inbox, so the refusal cannot regress into an enqueue-anyway.)
+# Contract pinned: mistyped key = fail-loudly form (nonzero, no record, no false success); matching key = durable-queue form (test_parser_native_answer_lands_durably).
 test_not_open_key_refuses_parser_native_answer() {
   local dir fb log home rc err
   dir="$TMP_ROOT/parser-native-badkey"; mkdir -p "$dir"
