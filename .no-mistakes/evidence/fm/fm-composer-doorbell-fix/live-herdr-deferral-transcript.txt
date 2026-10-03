@@ -1,0 +1,21 @@
+=== herdr lab session fm-lab-cdoorbell-3327583-13431; claude 2.1.288 (Claude Code) ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.eG2aWi/home
+warning: secondmate cd-sm sync skipped before launch: primary default-branch commit cannot be resolved
+spawned cd-sm harness=claude kind=secondmate mode=secondmate yolo=off window=fm-lab-cdoorbell-3327583-13431:w1:p2 worktree=/tmp/fm-lab.eG2aWi/second
+spawned target=fm-lab-cdoorbell-3327583-13431:w1:p2
+agent status before busy turn: idle
+agent status at send: working
+seeded consecutive-skip counter: 2
+$ fm-send.sh cd-sm 'steer while mid-turn' -> exit 0
+  stderr: fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.eG2aWi/home
+  stderr: ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  stderr: ●  WATCHER DOWN - SUPERVISION IS OFF
+  stderr: ●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+  stderr: ●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+  stderr: ●  This is a supervision warning only; the requested message WILL still be sent.
+  stderr: ●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+  stderr: ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  stderr: fm-send: doorbell deferred (the agent in fm-lab-cdoorbell-3327583-13431:w1:p2 is mid-turn and its composer holds pending text); the steer is durably recorded at /tmp/fm-lab.eG2aWi/home/state/cd-sm.inbox/001.msg and the watcher will re-ring
+counter after send: absent
+inbox records: 001.msg handled 
+----- pane after send -----

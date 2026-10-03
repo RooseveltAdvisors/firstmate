@@ -1,0 +1,133 @@
+=== claude 2.1.288 (Claude Code); lab FM_HOME=/tmp/fm-lab.l0Q5YY ===
+
+=== S1: stale word text held in an idle composer ===
+composer verdict before send: pending
+----- pane (S1 before send) -----
+ ▝▝   ▝▝   ~/.no-mistakes/worktrees/2f32188048b1/01M4167BWW63WG866EQNZ57C1A
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ stale note from earlier: reply OK-STALE
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  cl arcs Opus 5.5(1M)                                                                                                                                                              ◐ medium · /effort
+  ⏵⏵ bypass permissions on (shift+tab to cycle)
+---------------------
+$ fm-send.sh t1 '<steer>'  -> exit 0
+  stderr: ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  stderr: ●  WATCHER DOWN - SUPERVISION IS OFF
+  stderr: ●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+  stderr: ●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+  stderr: ●  This is a supervision warning only; the requested message WILL still be sent.
+  stderr: ●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+  stderr: ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+S1 RESULT: PASS (exit 0; worker acted and acked; held text submitted)
+----- pane (S1 after) -----
+ ▐▛███▛█   Claude Code v2.1.288
+▝▜██████▀  Opus 5.5 · Claude Max
+ ▝▝   ▝▝   ~/.no-mistakes/worktrees/2f32188048b1/01M4167BWW63WG866EQNZ57C1A
+❯ stale note from earlier: reply OK-STALE
+● OK-STALE
+✻ Brewed for 5s · done 11:35 AM
+❯ : Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your 't1.inbox' steering inbox, read and act on each in numeric order, then mv each into its handled/.
+● Bash(echo "FM_TASK_INBOX=$FM_TASK_INBOX"; ls -la "$FM_TASK_INBOX" 2>&1; for f in "$FM_TASK_INBOX"/*.msg; do echo "=== $f"; cat "$f"; done)
+  ⎿  FM_TASK_INBOX=/tmp/fm-lab.l0Q5YY/state/t1.inbox
+     total 16
+     drwxrwxr-x 3 jon jon 4096 Oct  3 11:35 .
+     … +8 lines (ctrl+o to expand)
+● Bash(touch /tmp/fm-lab.l0Q5YY/acted-t1 && mv "$FM_TASK_INBOX/001.msg" "$FM_TASK_INBOX/handled/" && ls "$FM_TASK_INBOX" "$FM_TASK_INBOX/handled" /tmp/fm-lab.l0Q5YY/ac…)
+  ⎿  /tmp/fm-lab.l0Q5YY/acted-t1
+     /tmp/fm-lab.l0Q5YY/state/t1.inbox:
+     … +4 lines (ctrl+o to expand)
+✢ Buffer-overflowing… (5s · ↓ 210 tokens)
+  ⎿  Tip: The Quality Gate checks count, category diversity, testability, anti-criteria, and capabilities.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  cl Stale Note Earlier Reply arcs Opus 5.5(1M) 10% ↑ 192K(+2·96K) ↓ 590(+170) 2%(4h44m)/20%(5d22h)
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← 1 agent
+---------------------
+
+=== S2: punctuation-only junk held in an idle composer ===
+composer verdict before send: pending
+$ fm-send.sh t2 '<steer>'  -> exit 0
+  stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+S2 RESULT: PASS (exit 0; junk dropped, worker acted and acked)
+----- pane (S2 after) -----
+ ▐▛███▛█   Claude Code v2.1.288
+▝▜██████▀  Opus 5.5 · Claude Max
+ ▝▝   ▝▝   ~/.no-mistakes/worktrees/2f32188048b1/01M4167BWW63WG866EQNZ57C1A
+❯ : Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your 't2.inbox' steering inbox, read and act on each in numeric order, then mv each into its handled/.
+● Bash(echo "$FM_TASK_INBOX"; ls -la "$FM_TASK_INBOX"/ 2>&1; for f in "$FM_TASK_INBOX"/*.msg; do echo "== $f"; cat "$f"; done)
+  ⎿  /tmp/fm-lab.l0Q5YY/state/t2.inbox
+     total 16
+     drwxrwxr-x 3 jon jon 4096 Oct  3 11:35 .
+     … +8 lines (ctrl+o to expand)
+● Bash(touch /tmp/fm-lab.l0Q5YY/acted-t2 && mv "$FM_TASK_INBOX"/001.msg "$FM_TASK_INBOX"/handled/ && ls "$FM_TASK_INBOX"/handled/)
+  ⎿  001.msg
+✢ Ender-gaming… (5s · ↓ 368 tokens)
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  cl Process Firstmate Steering Inbox arcs Opus 5.5(1M) 10% ↑ 165K(+2·96K) ↓ 530(+168) 2%(4h44m)/20%(5d22h)                                                                         ◐ medium · /effort
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← 1 agent
+---------------------
+
+=== S3: clear-or-submit refused by the backend: countable skip + page at N ===
+$ fm-send.sh t3 '<steer>'  -> exit 0
+  stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+  counter= paged-marker=no wake-queue-pages=0
+$ fm-send.sh t3 '<steer>'  -> exit 0
+  stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+  counter= paged-marker=no wake-queue-pages=0
+$ fm-send.sh t3 '<steer>'  -> exit 0
+  stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+  counter= paged-marker=no wake-queue-pages=0
+$ fm-send.sh t3 '<steer>'  -> exit 0
+  stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+  counter= paged-marker=no wake-queue-pages=0
+  wake queue rows:
+  inbox records (durable, none resent): 2
+$ fm-send.sh t3 '<steer>'  -> exit 0
+  stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+  after healthy send: counter=absent paged-marker=no
+----- pane (S3 after recovery) -----
+     total 20
+     drwxrwxr-x 3 jon jon 4096 Oct  3 11:35 .
+     … +11 lines (ctrl+o to expand)
+  ⎿  Shell cwd was reset to /home/jon/.no-mistakes/worktrees/2f32188048b1/01M4167BWW63WG866EQNZ57C1A
+❯ : Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your 't3.inbox' steering inbox, read and act on each in numeric order, then mv each into its handled/.
+❯ : Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your 't3.inbox' steering inbox, read and act on each in numeric order, then mv each into its handled/.
+● Bash(cd "$FM_TASK_INBOX" && for f in $(ls *.msg 2>/dev/null | sort -n); do echo "== $f"; cat "$f"; echo; mv "$f" handled/; done; ls . handled)
+  ⎿  == 003.msg
+     schema=fm-task-inbox.v1
+     at=2026-10-03T15:35:42Z
+     … +15 lines (ctrl+o to expand)
+  ⎿  Shell cwd was reset to /home/jon/.no-mistakes/worktrees/2f32188048b1/01M4167BWW63WG866EQNZ57C1A
+❯ : Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your 't3.inbox' steering inbox, read and act on each in numeric order, then mv each into its handled/.
+  ctrl+x ctrl+s to send now
+✢ Prompting… (13s · ↓ 1.1k tokens · thinking)
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ Press up to edit queued messages
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  cl Fix Stuck Held Draft Clearing arcs Opus 5.5(1M) 10% ↑ 173K(+2·99K) ↓ 2K(+163) 2%(4h44m)/20%(5d22h)
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← 1 agent
+---------------------
+
+=== S4: mid-turn agent: deferral leaves the composer alone ===
+busy verdict: unknown
+composer verdict before send: pending
+$ fm-send.sh t4 '<steer>'  -> exit 0
+  stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+  counter after deferral: absent
+----- pane (S4 after) -----
+● The 45-second sleep is running in the background, captain, because this environment doesn't allow a foreground sleep. I'll reply DONE once it finishes.
+✻ Cooked for 6s · done 11:35 AM · 1 shell still running
+❯ queued draft keep me
+❯ : Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your 't4.inbox' steering inbox, read and act on each in numeric order, then mv each into its handled/.
+  ctrl+x ctrl+s to send now
+✢ Glanding-slumber… (1s · thinking)
+  ⎿  Tip: OBSERVE creates the PRD, writes ISC criteria with category tags, runs preflight gates.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ Press up to edit queued messages
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  cl Shell Command Sleep Reply arcs Opus 5.5(1M) 10% ↑ 166K(+2·96K) ↓ 854(+87) 2%(4h43m)/20%(5d22h)
+  ⏵⏵ bypass permissions on · 1 shell · ← 1 agent
+---------------------

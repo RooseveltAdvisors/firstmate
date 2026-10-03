@@ -1,0 +1,75 @@
+=== claude 2.1.288 (Claude Code); lab FM_HOME=/tmp/fm-lab.oWwD2G ===
+
+=== S3: clear-or-submit refused by the backend: countable skip + page at N ===
+$ fm-send.sh t3 '<steer>'  -> exit 4
+  stderr: ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  stderr: ●  WATCHER DOWN - SUPERVISION IS OFF
+  stderr: ●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+  stderr: ●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+  stderr: ●  This is a supervision warning only; the requested message WILL still be sent.
+  stderr: ●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+  stderr: ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  stderr: tmux: invalid_key (injected refusal)
+  stderr: fm-send: doorbell-skip (the composer in lab:w3 holds pending text and clear-or-submit failed); the steer is durably recorded at /tmp/fm-lab.oWwD2G/state/t3.inbox/001.msg and the watcher will re-ring; the record is durable, so do not resend it; consecutive composer-held skips for t3: 1
+  counter=1 paged-marker=no wake-queue-pages=0
+$ fm-send.sh t3 '<steer>'  -> exit 4
+  stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+  stderr: tmux: invalid_key (injected refusal)
+  stderr: fm-send: doorbell-skip (the composer in lab:w3 holds pending text and clear-or-submit failed); the steer is durably recorded at /tmp/fm-lab.oWwD2G/state/t3.inbox/002.msg and the watcher will re-ring; the record is durable, so do not resend it; consecutive composer-held skips for t3: 2
+  counter=2 paged-marker=no wake-queue-pages=0
+$ fm-send.sh t3 '<steer>'  -> exit 4
+  stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+  stderr: tmux: invalid_key (injected refusal)
+  stderr: fm-send: doorbell-skip (the composer in lab:w3 holds pending text and clear-or-submit failed); the steer is durably recorded at /tmp/fm-lab.oWwD2G/state/t3.inbox/003.msg and the watcher will re-ring; the record is durable, so do not resend it; consecutive composer-held skips for t3: 3; paged the supervisor at 3 consecutive skips
+  counter=3 paged-marker=yes wake-queue-pages=1
+$ fm-send.sh t3 '<steer>'  -> exit 4
+  stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+  stderr: WARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.
+  stderr: tmux: invalid_key (injected refusal)
+  stderr: fm-send: doorbell-skip (the composer in lab:w3 holds pending text and clear-or-submit failed); the steer is durably recorded at /tmp/fm-lab.oWwD2G/state/t3.inbox/004.msg and the watcher will re-ring; the record is durable, so do not resend it; consecutive composer-held skips for t3: 4
+  counter=4 paged-marker=yes wake-queue-pages=1
+  wake queue rows:
+    1791041894	1	check	/tmp/fm-lab.oWwD2G/state/t3.doorbell-skip	check: doorbell-skip: task=t3 consecutive=3 - its composer holds pending text and clear-or-submit failed, so the steer is durably recorded but its doorbell never rang; inspect the endpoint
+  inbox records (durable, none resent): 4
+$ fm-send.sh t3 '<steer>'  -> exit 0
+  stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+  stderr: WARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.
+  after healthy send: counter=absent paged-marker=no
+----- pane (S3 after recovery) -----
+ ▐▛███▛█   Claude Code v2.1.288
+▝▜██████▀  Opus 5.5 · Claude Max
+ ▝▝   ▝▝   ~/.no-mistakes/worktrees/2f32188048b1/01M4167BWW63WG866EQNZ57C1A
+❯ held draft that cannot be cleared
+❯ : Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your 't3.inbox' steering inbox, read and act on each in numeric order, then mv each into its handled/.
+  ctrl+x ctrl+s to send now
+✽ Sandworming…
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ Press up to edit queued messages
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  cl arcs Opus 5.5(1M) 2%(4h41m)/20%(5d22h)
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← 1 agent
+---------------------
+
+=== S4: mid-turn agent: deferral leaves the composer alone ===
+busy verdict: unknown
+composer verdict before send: pending
+busy verdict at send: unknown
+$ fm-send.sh t4 '<steer>'  -> exit 0
+  stderr: WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+  stderr: WARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.
+  composer still holds the draft: 1
+  counter after deferral: absent
+----- pane (S4 after) -----
+● Bash(timeout 60 tail -f /dev/null)
+  ⎿  Running… (41s · timeout 1m 30s)
+     (ctrl+b ctrl+b (twice) to run in background)
+❯ queued draft keep me
+❯ : Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your 't4.inbox' steering inbox, read and act on each in numeric order, then mv each into its handled/.
+  ctrl+x ctrl+s to send now
+* Respawning… (47s · ↓ 118 tokens)
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ Press up to edit queued messages
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  cl Exact Bash Command Foreground arcs Opus 5.5(1M) 9% ↑ 80K(+2·13K) ↓ 118(+118) 3%(4h41m)/20%(5d22h)
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← 1 agent
+---------------------
