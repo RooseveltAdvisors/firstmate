@@ -537,34 +537,46 @@ test_remote_routes_are_never_resolved_locally() {
   pass "remote routes are excluded from local resolution while local homes still sweep"
 }
 
-# A budget-stopped check has not examined every candidate, so it must not
-# advance the interval record: the next poll checks again.
-test_budget_stopped_check_keeps_the_gate_open() {
-  local rec out t0 skew="$TMP_ROOT/skew/fakebin"
+# A graph that always outruns the check budget warns once per interval: the
+# budget-stopped poll still closes the gate, so later polls in the same
+# interval stay silent (no repeated wake), the next interval warns once more,
+# and a graph back under budget prints no budget warning.
+test_budget_stopped_check_warns_once_per_interval() {
+  local rec out t0 i skew="$TMP_ROOT/skew/fakebin"
   rec=$(make_fixture budgetstop)
   [ -n "$rec" ] || fail "fixture construction failed (see stderr above)"
   read_fixture "$rec"
-  # A date whose second "+%s" reading jumps far ahead, so the sweep's budget is
-  # spent before the first candidate is considered.
+  # A date whose every "+%s" reading jumps 1000s past the last, so each sweep's
+  # budget is spent before the first candidate is considered.
   mkdir -p "$skew"
   cat > "$skew/date" <<SH
 #!/usr/bin/env bash
 real=\$(PATH="$PATH" command -v date)
 if [ "\$*" = +%s ]; then
-  if [ -e "$TMP_ROOT/skew/started" ]; then echo \$(( \$("\$real" +%s) + 1000 )); exit 0; fi
-  : > "$TMP_ROOT/skew/started"
+  n=\$(cat "$TMP_ROOT/skew/count" 2>/dev/null || echo 0)
+  echo \$((n + 1)) > "$TMP_ROOT/skew/count"
+  echo \$(( \$("\$real" +%s) + n * 1000 )); exit 0
 fi
 exec "\$real" "\$@"
 SH
   chmod +x "$skew/date"
   t0=$(sweep_clock)
   out=$(FM_HOME="$HOME_DIR" FM_STALE_SWEEP_NOW=$t0 PATH="$skew:$FAKEBIN:$PATH" "$SWEEP" check)
-  assert_contains "$out" "budget stopped the sweep with" "the budget stop must be reported: $out"
-  [ ! -e "$HOME_DIR/state/.stale-sweep" ] || fail "a budget-stopped check advanced the interval record"
-  out=$(FM_HOME="$HOME_DIR" FM_STALE_SWEEP_NOW=$((t0 + 600)) PATH="$FAKEBIN:$PATH" "$SWEEP" check)
+  [ "$(printf '%s\n' "$out" | grep -c "budget stopped the sweep with")" = 1 ] ||
+    fail "the first over-budget poll must warn exactly once: $out"
+  [ -f "$HOME_DIR/state/.stale-sweep" ] || fail "a budget-stopped check left the interval gate open"
+  for i in 1 2 3; do
+    out=$(FM_HOME="$HOME_DIR" FM_STALE_SWEEP_NOW=$((t0 + i * 600)) PATH="$skew:$FAKEBIN:$PATH" "$SWEEP" check)
+    [ -z "$out" ] || fail "over-budget poll $i inside the interval woke the watcher: $out"
+  done
+  out=$(FM_HOME="$HOME_DIR" FM_STALE_SWEEP_NOW=$((t0 + 86401)) PATH="$skew:$FAKEBIN:$PATH" "$SWEEP" check)
+  [ "$(printf '%s\n' "$out" | grep -c "budget stopped the sweep with")" = 1 ] ||
+    fail "a new interval must warn once again: $out"
+  out=$(FM_HOME="$HOME_DIR" FM_STALE_SWEEP_NOW=$((t0 + 2 * 86401)) PATH="$FAKEBIN:$PATH" "$SWEEP" check)
+  case "$out" in *"budget stopped"*) fail "a graph back under budget still warned: $out" ;; esac
   assert_contains "$out" "stale-sweep: 2 dead-endpoint in_progress rows reclaimable" \
-    "the next poll must examine the unconsidered candidates: $out"
-  pass "a budget-stopped check keeps the interval gate open"
+    "a graph back under budget must be examined in full: $out"
+  pass "a budget-stopped check warns once per interval and closes the gate"
 }
 
 test_apply_names_the_resolved_homes_actor_when_two_homes_hold_meta() {
@@ -712,7 +724,7 @@ test_check_mode_reports_the_budget_cut
 test_check_mode_bounds_the_graph_read
 test_relative_graph_path_resolves_against_the_home
 test_remote_routes_are_never_resolved_locally
-test_budget_stopped_check_keeps_the_gate_open
+test_budget_stopped_check_warns_once_per_interval
 test_arm_disarm_roundtrip
 
 echo "# all fm-stale-sweep tests passed"

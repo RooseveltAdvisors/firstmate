@@ -72,7 +72,8 @@
 # gate, otherwise 900..604800) inside FM_STALE_SWEEP_BUDGET_SECS (default 25,
 # 1..3600, cut down to what FM_CHECK_TIMEOUT allows), stays silent when nothing
 # is reclaimable, and prints one line when rows are reclaimable. A failed graph
-# read reports one line on the same interval instead of every poll, and writes
+# read or a budget-stopped sweep reports one line on the same interval instead
+# of every poll, and writes
 # its probe record either way, so a killed probe is retried rather than
 # suppressed.
 #
@@ -773,12 +774,12 @@ action_check() {
     printf 'fm-stale-sweep: graph read failed\n'
     return 0
   fi
-  # Unconsidered candidates may hold dead rows, so a budget-stopped sweep
-  # leaves the gate open and the next poll checks again.
+  # A budget-stopped sweep is a health note, not a fleet event: it is
+  # reported once and the record still closes the gate, so a graph that
+  # always outruns the budget warns once per interval instead of every poll.
+  fm_stale_write_record "$now"
   if [ "$FM_STALE_UNCONSIDERED" -gt 0 ]; then
     printf 'budget stopped the sweep with %d candidates unconsidered; raise FM_STALE_SWEEP_BUDGET_SECS or run without the check gate\n' "$FM_STALE_UNCONSIDERED"
-  else
-    fm_stale_write_record "$now"
   fi
   count=$FM_STALE_COUNT_DEAD
   [ "$count" -gt 0 ] || return 0
