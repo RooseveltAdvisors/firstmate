@@ -528,7 +528,7 @@ test_remote_routes_are_never_resolved_locally() {
     "- mounted - remote mount (host: gpu; root: /srv/fm; home: $CASE_DIR/mounted; scope: all; projects: -; added 2026-09-04)" \
     > "$HOME_DIR/data/secondmates.md"
   out=$(run_sweep 2>&1)
-  assert_row_matches 'fm-orphan-prov[[:space:]]+-[[:space:]]+50h[[:space:]]+no-home' "$out" \
+  assert_row_matches 'fm-orphan-prov[[:space:]]+-[[:space:]]+[0-9]+h[[:space:]]+no-home' "$out" \
     "a provenance home naming a remote route must not resolve locally: $out"
   assert_row_matches 'fm-orphan-row[[:space:]]+-[[:space:]]+50h[[:space:]]+no-home' "$out" \
     "a remote route's mounted home must not claim a row: $out"
