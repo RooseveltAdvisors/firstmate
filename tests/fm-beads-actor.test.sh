@@ -41,6 +41,18 @@ if ! { command -v tasks-axi >/dev/null 2>&1 \
   exit 0
 fi
 
+# The npm-published tasks-axi ships the markdown backend only; only a
+# beads-capable build (the local fork) can drive this suite.
+probe_home="$TMP_ROOT/.probe"
+mkdir -p "$probe_home"
+printf '%s\n' 'backend = "beads"' '[beads]' 'path = ".beads"' "binary = \"$(command -v bd)\"" \
+  > "$probe_home/.tasks.toml"
+if ! { (cd "$probe_home" && bd init --prefix probe) >/dev/null 2>&1 \
+    && (cd "$probe_home" && tasks-axi list) >/dev/null 2>&1; }; then
+  printf 'ok - skipped (tasks-axi lacks the beads backend)\n'
+  exit 0
+fi
+
 # --- fixture ----------------------------------------------------------------
 
 # A home with a real bd database on the beads backend, a real project clone
