@@ -1,0 +1,33 @@
+# lab FM_HOME (marked lab home), private tmux server under $LAB/tmux; state has alpha.meta and fm-gamma.meta only
+$ fm-send.sh 'alpha' 'LIVE-alpha'
+●  This is a supervision warning only; the requested message WILL still be sent.
+●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+rc=0
+$ fm-send.sh 'fm-alpha' 'LIVE-fm-alpha'
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+rc=0
+$ fm-send.sh 'fm-gamma' 'LIVE-fm-gamma'
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+rc=0
+$ fm-send.sh 'fm-' 'LIVE-fm-'
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+error: no metadata for fm- in $LAB/state (tried meta=$LAB/state/fm-.meta; legacy-meta=$LAB/state/.meta; backend=none); pass a well-formed explicit backend target only when targeting outside this firstmate home
+rc=1
+--- real pane sess:fm-alpha-w capture-pane
+: Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your 'alpha.inbox' steering inbox, read and act on each
+in numeric order, then mv each into its handled/.
+: Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your 'alpha.inbox' steering inbox, read and act on each
+in numeric order, then mv each into its handled/.
+: Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your 'alpha.inbox' steering inbox, read and act on each
+in numeric order, then mv each into its handled/.
+: Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your 'alpha.inbox' steering inbox, read and act on each
+in numeric order, then mv each into its handled/.
+--- real pane sess:fm-gammaw capture-pane
+: Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your 'fm-gamma.inbox' steering inbox, read and act on ea
+ch in numeric order, then mv each into its handled/.
+: Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your 'fm-gamma.inbox' steering inbox, read and act on ea
+ch in numeric order, then mv each into its handled/.
+--- inbox dirs
+alpha.inbox
+fm-gamma.inbox

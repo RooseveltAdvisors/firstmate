@@ -1,0 +1,17 @@
+# rule file edited ONLY at prefix=xx- (one line); every reader picks it up
+$ fm-send.sh xx-alpha hi-xx-alpha
+rc=0
+$ fm-jev-decisions.sh --task xx-alpha
+error [Errno 111] Connection refused>
+$ fm-send.sh fm-alpha hi-fm-alpha
+error: target 'fm-alpha' is not resolvable (tried meta=$LAB/state/fm-alpha.meta; metadata window/terminal lookup; backend=none). Use fm-fm-alpha for a recorded task/lane, or pass a well-formed explicit backend target such as session:window.
+rc=1
+$ fm-jev-decisions.sh --task fm-alpha
+error [Errno 111] Connection refused>
+--- inboxes:
+alpha.inbox
+# python side, same edited rule (prefix=xx-)
+$ fm-jev-decisions.sh --task xx-alpha
+xx-alpha         k                                blocked         stale_historical  0.10   0.80   Archive or resolve superseded historical decision (fm-send would close $STATE/alpha.status, not $STATE/xx-alpha.status; close it by hand)
+$ fm-jev-decisions.sh --task fm-alpha
+fm-alpha         k                                blocked         stale_historical  0.10   0.80   Archive or resolve superseded historical decision (task metadata gone; close it by hand)

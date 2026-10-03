@@ -1,0 +1,30 @@
+### fm-task-id-rule.conf:
+    prefix=fm-
+    candidates=exact,nope
+    reject_contains=:
+$ fm-send.sh alpha hello
+error: shared task-id rule $ROOTCOPY/bin/fm-task-id-rule.conf: unknown candidate transform: nope
+rc=1
+$ fm-jev-decisions.sh --task alpha
+error: shared task-id rule $ROOTCOPY/bin/fm-task-id-rule.conf: unknown candidate transform: nope
+rc=1
+### fm-task-id-rule.conf:
+    prefix=fm-
+    candidates=exact,stripped
+$ fm-send.sh alpha hello
+error: shared task-id rule $ROOTCOPY/bin/fm-task-id-rule.conf: missing key: reject_contains
+rc=1
+$ fm-jev-decisions.sh --task alpha
+error: shared task-id rule $ROOTCOPY/bin/fm-task-id-rule.conf: missing key: reject_contains
+rc=1
+### fm-task-id-rule.conf:
+    prefix=fm-
+    prefix=xx-
+    candidates=exact,stripped
+    reject_contains=:
+$ fm-send.sh alpha hello
+error: shared task-id rule $ROOTCOPY/bin/fm-task-id-rule.conf: duplicate key: prefix
+rc=1
+$ fm-jev-decisions.sh --task alpha
+error: shared task-id rule $ROOTCOPY/bin/fm-task-id-rule.conf: duplicate key: prefix
+rc=1

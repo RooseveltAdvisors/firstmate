@@ -1,0 +1,5 @@
+ok - agreement row plain (alpha) -> alpha on both entry points
+ok - agreement row fm-plain (fm-alpha) -> alpha on both entry points
+ok - agreement row already-prefixed (fm-gamma) -> fm-gamma on both entry points
+ok - agreement row malformed (fm-) -> reject on both entry points
+ok - fm-task-id-rule: both entry points agree on every id shape and both loaders fail closed

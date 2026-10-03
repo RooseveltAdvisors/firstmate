@@ -1,0 +1,29 @@
+# fm-jev-decisions CLI, lab FM_HOME state: alpha.meta, fm-gamma.meta; status origins alpha, fm-alpha, fm-gamma, fm-; Jev = local stub
+
+$ fm-jev-decisions.sh --state-dir $LAB/state --task 'alpha' --resolve-cmds
+FM_HOME=/home/jon/.no-mistakes/worktrees/2f32188048b1/01M4124S70RE6P855M2C39C3GZ FM_STATE_OVERRIDE=$LAB/state /home/jon/.no-mistakes/worktrees/2f32188048b1/01M4124S70RE6P855M2C39C3GZ/bin/fm-send.sh alpha --resolve-key old-alpha 'auto-resolved: superseded historical decision'
+rc=0
+$ fm-jev-decisions.sh --task 'alpha'  (triage view)
+TASK             KEY                              VERB            CATEGORY          NOUL   CONF   SUGGESTED ACTION
+alpha            old-alpha                        blocked         stale_historical  0.10   0.80   Archive or resolve superseded historical decision
+
+$ fm-jev-decisions.sh --state-dir $LAB/state --task 'fm-alpha' --resolve-cmds
+# No actionable resolve commands generated.
+rc=0
+$ fm-jev-decisions.sh --task 'fm-alpha'  (triage view)
+TASK             KEY                              VERB            CATEGORY          NOUL   CONF   SUGGESTED ACTION
+fm-alpha         old-fmalpha                      blocked         stale_historical  0.10   0.80   Archive or resolve superseded historical decision (fm-send would close $LAB/state/alpha.status, not $LAB/state/fm-alpha.status; close it by hand)
+
+$ fm-jev-decisions.sh --state-dir $LAB/state --task 'fm-gamma' --resolve-cmds
+FM_HOME=/home/jon/.no-mistakes/worktrees/2f32188048b1/01M4124S70RE6P855M2C39C3GZ FM_STATE_OVERRIDE=$LAB/state /home/jon/.no-mistakes/worktrees/2f32188048b1/01M4124S70RE6P855M2C39C3GZ/bin/fm-send.sh fm-gamma --resolve-key old-fmgamma 'auto-resolved: superseded historical decision'
+rc=0
+$ fm-jev-decisions.sh --task 'fm-gamma'  (triage view)
+TASK             KEY                              VERB            CATEGORY          NOUL   CONF   SUGGESTED ACTION
+fm-gamma         old-fmgamma                      blocked         stale_historical  0.10   0.80   Archive or resolve superseded historical decision
+
+$ fm-jev-decisions.sh --state-dir $LAB/state --task 'fm-' --resolve-cmds
+# No actionable resolve commands generated.
+rc=0
+$ fm-jev-decisions.sh --task 'fm-'  (triage view)
+TASK             KEY                              VERB            CATEGORY          NOUL   CONF   SUGGESTED ACTION
+fm-              old-fm                           blocked         stale_historical  0.10   0.80   Archive or resolve superseded historical decision (task metadata gone; close it by hand)
