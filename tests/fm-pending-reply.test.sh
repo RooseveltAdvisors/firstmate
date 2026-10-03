@@ -201,6 +201,32 @@ test_completed_turn_no_report_triggers_one_recovery() {
   pass "completed turn with no report triggers exactly one recovery"
 }
 
+# fm-send exit 4 (composer-held doorbell skip) recorded the repost durably, so
+# the recovery is sent, not failed.
+test_recovery_with_a_skipped_doorbell_is_sent() {
+  local home state corr err
+  home=$(setup_parent skipped-doorbell)
+  state="$home/state"
+  err="$TMP_ROOT/skipped-doorbell.err"
+  export FM_PENDING_REPLY_NOW=2200
+  # Invoked indirectly through FM_PENDING_REPLY_SEND_HOOK.
+  # shellcheck disable=SC2329
+  skipped_doorbell_hook() { return 4; }
+  export -f skipped_doorbell_hook
+  export FM_PENDING_REPLY_SEND_HOOK='skipped_doorbell_hook'
+  corr=$(fm_pending_reply_create "$home" "$state" "hibit" "status after a wedged composer")
+  fm_pending_reply_mark_delivered "$state" "$corr"
+  fm_pending_reply_observe_busy "$state" "$corr" busy
+  fm_pending_reply_observe_busy "$state" "$corr" idle
+  fm_pending_reply_send_recovery "$state" "$corr" 2>"$err" \
+    || fail "a recovery whose doorbell was skipped must still count as sent"
+  [ "$(phase_of "$state" "$corr")" = recovery_sent ] \
+    || fail "phase should be recovery_sent, got $(phase_of "$state" "$corr")"
+  grep -q '^warning: fm-send: doorbell-skip' "$err" || fail "the doorbell skip was not surfaced: $(cat "$err")"
+  unset FM_PENDING_REPLY_SEND_HOOK
+  pass "a recovery repost with a skipped doorbell is sent, not failed"
+}
+
 # A mate waiting on its own open decision is never poked by the recovery; the
 # recovery stays unattempted and runs once the decision closes.
 test_recovery_waits_while_the_mate_has_an_open_decision() {
@@ -2031,6 +2057,7 @@ test_tick_leaves_settled_records_alone
 test_correlations_reuse_only_for_matching_open_task
 test_tick_end_to_end_missed_then_escalate
 test_failed_send_discards_undelivered_expectation
+test_recovery_with_a_skipped_doorbell_is_sent
 test_remote_repost_waits_for_the_reply_channel
 test_mirrored_remote_reply_never_triggers_a_repost
 test_same_basename_self_home_corr_resolves_on_tick

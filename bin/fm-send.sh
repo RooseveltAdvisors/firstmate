@@ -33,7 +33,9 @@
 # skipped because the target's composer held pending text and the clear-or-
 # submit recovery failed. A caller counts that skip - reported on stderr as its
 # own `fm-send: doorbell-skip ...` line, distinct from success, from a landed
-# doorbell, and from every resend-appropriate failure - instead of resending.
+# doorbell, and from every resend-appropriate failure - instead of resending;
+# in-repo callers read the exit through fm_send_delivered
+# (bin/fm-send-status-lib.sh), which treats 4 as delivered and warns.
 # FM_SEND_SKIP_PAGE_MAX (default 3) consecutive composer-held skips for one
 # task queue one check wake per streak, so N skips page the supervisor instead
 # of riding the re-ring ladder's escalations forever. The remote enqueue
