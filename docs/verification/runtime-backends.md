@@ -1808,6 +1808,10 @@ The clear request itself is deliberately NOT measured against a real server, bec
 That gap is bounded by the verb's own contract: it never claims success from the request's exit code, only from the post-clear `agent get` re-read, so a server that accepts and ignores the request surfaces as `failed` rather than a false clear.
 The capability predicate above is the refresh command for the schema half; run it after every Herdr upgrade rather than trusting the version recorded here.
 
+Measured live 2026-10-03 against Herdr 0.9.3 with Pi 1.0.0 in isolated `fm-lab-` sessions: a `report-agent` registration over an agent-less shell clears, but after a real Pi `/quit` under a nested `bash -i` the `agent=pi idle` record is Herdr's own process detection (`agent explain` answers for it; a hook-only record returns `agent_explain_unavailable`), which neither `pane.clear_agent_authority` nor `pane.release_agent` drops.
+It clears only when the nested shell exits, and never appears when Pi runs directly under the pane's shell.
+The verb therefore reports `cleared-authority ... detection-record=held` with exit 0 there, while the classifier reads the pane dead and `exit` and `relaunch` both succeed.
+
 ### Pane status authority across a relaunch
 
 Measured 2026-09-21 on Linux x86_64 against Herdr 0.9.1 (client protocol 22) and Pi 0.86.1, in an isolated `fm-lab-` session (`bin/fm-herdr-lab.sh`), after the same freeze was observed live on a relaunched Pi crewmate whose pane read `idle` while its validation pipeline ran.

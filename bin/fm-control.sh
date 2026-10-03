@@ -99,6 +99,10 @@
 #              process view cannot be read - is REFUSED, the same direction
 #              as exit's classifier safety: authority is never stripped from a
 #              registration status alone. Already-clear is idempotent success.
+#              A record Herdr's own process detection still holds (no API
+#              drops it) reports cleared-authority with detection-record=held
+#              and exits 0: the shell was proven agent-less, so exit and
+#              relaunch already read the agent dead.
 #              HERDR-ONLY: every other backend reports no registration to
 #              clear. The reported outcome is the post-clear re-read, never
 #              the request's exit code. The verdict contract lives in
@@ -1107,6 +1111,9 @@ case "$VERB" in
         ;;
       already-clear)
         echo "already-clear $ID harness=$HARNESS backend=$BACKEND endpoint=$T"
+        ;;
+      detection-held)
+        echo "cleared-authority $ID harness=$HARNESS backend=$BACKEND endpoint=$T detection-record=held: $reason"
         ;;
       refused) die "refusing to clear task $ID's agent registration: $reason" ;;
       unsupported) die "task $ID's agent registration cannot be cleared from here: $reason" ;;

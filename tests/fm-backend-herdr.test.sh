@@ -647,14 +647,15 @@ test_done_registration_with_a_live_agent_stays_alive() {
 # fm_backend_herdr_clear_agent_registration, against the same canned CLI. The
 # exact call order the function uses: pane get (1), agent get (2), api schema
 # (3), session list (4), pane process-info (5), the helper stub outside the
-# CLI, then the post-clear agent get (6). Responses the flow never reaches are
+# CLI, then the post-clear agent get (6) and, only when the record survives,
+# agent explain (7). Responses the flow never reaches are
 # simply left unconsumed.
 # shellcheck disable=SC2016 # $defs is a literal JSON Schema key.
 CLEAR_SCHEMA_OK='{"schemas":{"request":{"oneOf":[{"properties":{"method":{"const":"pane.clear_agent_authority","type":"string"}},"required":["method","params"],"type":"object"}],"$defs":{"PaneClearAgentAuthorityParams":{"properties":{"pane_id":{"type":"string"}},"required":["pane_id"],"type":"object"}}}}}'
 # shellcheck disable=SC2016 # $defs is a literal JSON Schema key.
 CLEAR_SCHEMA_OLD='{"schemas":{"request":{"oneOf":[],"$defs":{}}}}'
 
-clear_registration_case() {  # <dir-suffix> <registered|none> <process-info-body|-> <post-gone|post-stuck> [process-info-exit] [schema-json]
+clear_registration_case() {  # <dir-suffix> <registered|none> <process-info-body|-> <post-gone|post-stuck> [process-info-exit] [schema-json] [agent-explain-body]
   local dir="$TMP_ROOT/clear-reg-$1" resp log fb n
   mkdir -p "$dir/responses"; resp="$dir/responses"; log="$dir/log"; : > "$log"
   printf '{"result":{"pane":{"pane_id":"w1:p2"}}}\n' > "$resp/1.out"
@@ -672,6 +673,7 @@ clear_registration_case() {  # <dir-suffix> <registered|none> <process-info-body
   else
     printf '{"result":{"agent":{"agent":"pi","agent_status":"%s"}}}\n' "${2:-done}" > "$resp/6.out"
   fi
+  [ -z "${7:-}" ] || printf '%s\n' "$7" > "$resp/7.out"
   cat > "$dir/helper" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FM_HERDR_TEST_CLEAR_LOG"
@@ -769,6 +771,27 @@ test_clear_agent_registration_reports_failure_when_the_clear_does_not_take() {
     || fail "an accepted-but-ignored clear must report failed, got '$CLEAR_VERDICT'"
   [ "$CLEAR_HELPER" = helper=1 ] || fail "the request should have been sent exactly once, got '$CLEAR_HELPER'"
   pass "herdr clear-registration: the outcome is the post-clear re-read, never the request's exit code"
+}
+
+test_clear_agent_registration_reports_a_surviving_detection_record() {
+  local sleep_bin shell_pid out
+  sleep_bin=$(command -v sleep) || fail "sleep not found"
+  "$sleep_bin" 300 &
+  shell_pid=$!
+  # Measured on herdr 0.9.3: after a real Pi /quit under a nested shell the
+  # authority clear is accepted, yet Herdr's process-detection record (the one
+  # `agent explain` answers for) survives. The seat is recoverable - exit and
+  # relaunch read the proven shell dead - so this is not a failure.
+  out=$(clear_registration_case detection "idle" "$(shell_only_process_info "$shell_pid")" post-stuck "" "" \
+    '{"agent":"pi","state":"idle","fallback_reason":"default_known_agent_idle_fallback"}')
+  kill "$shell_pid" 2>/dev/null || true
+  clear_case_split "$out"
+  [ "${CLEAR_VERDICT%%$'\t'*}" = detection-held ] \
+    || fail "a surviving detection record over a proven shell must report detection-held, got '$CLEAR_VERDICT'"
+  assert_contains "$CLEAR_VERDICT" "exit and relaunch already read the agent dead" \
+    "detection-held must tell the operator the seat still recovers"
+  [ "$CLEAR_HELPER" = helper=1 ] || fail "the request should have been sent exactly once, got '$CLEAR_HELPER'"
+  pass "herdr clear-registration: a detection record no API drops reports detection-held, not failed"
 }
 
 # settle_registration_case: one pane classification over a scripted sequence
@@ -5950,6 +5973,7 @@ test_clear_agent_registration_clears_a_proven_agent_less_shell
 test_clear_agent_registration_refuses_anything_but_an_agent_less_shell
 test_clear_agent_registration_reports_already_clear_and_unsupported
 test_clear_agent_registration_reports_failure_when_the_clear_does_not_take
+test_clear_agent_registration_reports_a_surviving_detection_record
 test_transient_prompt_helper_settles_into_stale_agent
 test_exhausted_settle_window_keeps_a_non_shell_foreground_live
 test_registered_agent_with_an_agent_descendant_outside_the_foreground_stays_alive

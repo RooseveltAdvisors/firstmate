@@ -699,6 +699,8 @@ The socket API's `pane.clear_agent_authority` is the one escape hatch, and `bin/
 That verb proves an agent-less shell from the pane's own process view immediately before the request - the same process-level proof the classifier above uses - issues the narrow clear over the recorded session's socket, and reports only the follow-up `agent get` read: a server that accepts and ignores the request reports failure, never success.
 A pane holding a live agent, a foreground command, an editor, or an unreadable process view is refused, in the same direction as the rule above: authority is never stripped from a registration status alone.
 Already-clear is idempotent success.
+The clear only drops hook authority: Herdr's own process-detection record (the one `agent explain` answers for) has no API that drops it, and a nested shell keeps it until that shell exits (measured on 0.9.3 with a real Pi `/quit` under `bash -i`).
+When that record survives, the verb reports `cleared-authority ... detection-record=held` and exits 0, because the pane was just proven an agent-less shell and the classifier above already reads it dead, so `exit` and `relaunch` proceed.
 
 The clear drops the pane's hook authority and its bound session record; it changes no process, no pane, no tab, no workspace, and no task record, so teardown, closing, and discard still stay with `bin/fm-teardown.sh` and their own guards.
 Dropping the bound session record costs session continuity: a later relaunch of a Pi-family task has no bound reference to hand the replacement as `--session`, so it starts a fresh Pi session instead of resuming the previous conversation.

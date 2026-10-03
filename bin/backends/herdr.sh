@@ -2507,6 +2507,12 @@ fm_backend_herdr_clear_agent_authority_capable() {  # <session>
 #   unsupported    - this seat cannot send the request: no python3 transport,
 #                    an unreadable schema, or a server that does not advertise
 #                    pane.clear_agent_authority.
+#   detection-held - the request was accepted and hook authority is gone, but
+#                    the record still read is Herdr's own process-detection
+#                    record (`agent explain` answers for it), which no API
+#                    drops. The pane was proven an agent-less shell, so the
+#                    recovery classifier already reads it dead and exit and
+#                    relaunch proceed; the seat is not stuck.
 #   failed         - the request could not be sent or errored, or - the case
 #                    that makes the post-clear re-read load-bearing - it was
 #                    accepted but the registration still reads present.
@@ -2567,6 +2573,13 @@ fm_backend_herdr_clear_agent_registration() {  # <target>
   code=$(printf '%s' "$out" | jq -r '.error.code // empty' 2>/dev/null)
   if [ "$code" = agent_not_found ]; then
     printf 'cleared\t'
+  # Herdr's own process detection keeps a record no API drops (measured on
+  # 0.9.3: a nested shell holds it until that shell exits); `agent explain`
+  # answers only for a detected label, so a record it explains is detection,
+  # not the authority just cleared, over the shell proven above.
+  elif fm_backend_herdr_cli "$FM_BACKEND_HERDR_SESSION" agent explain "$FM_BACKEND_HERDR_PANE" --json 2>/dev/null \
+    | jq -e '.agent | type == "string"' >/dev/null 2>&1; then
+    printf 'detection-held\tthe hook authority was cleared, but Herdr process detection still holds a record over this agent-less shell until the pane'"'"'s nested shell exits; exit and relaunch already read the agent dead'
   else
     printf 'failed\tthe clear request was accepted but the registration still reads present afterwards'
   fi
