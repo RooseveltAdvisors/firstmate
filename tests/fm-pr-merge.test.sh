@@ -89,17 +89,28 @@ write_github_required() {
   printf '[{"type":"deletion"}%s]\n' "${rules:+,$rules}" > "$case_dir/github-required-rules.json"
 }
 
-# The commit list the co-author guard reads out of the same live view. A case
-# writes its own entries to <case_dir>/github-commits.json before a writer runs;
-# every other case gets one clean commit, so a pull request with no trailer
-# behaves exactly as it did before the guard existed.
-github_commits_json() {
-  local case_dir=$1
-  if [ -f "$case_dir/github-commits.json" ]; then
-    cat "$case_dir/github-commits.json"
-  else
-    printf '%s' '[{"oid":"1111111111111111111111111111111111111111","messageHeadline":"clean subject","messageBody":""}]'
-  fi
+# The paged GraphQL answer the co-author guard reads: the pull request title
+# and body plus the given commit nodes, one page per 100 nodes, every page
+# reporting the given total (default: the node count).
+# Args: case_dir nodes_json [pr_body] [reported_total]
+write_github_commit_pages() {
+  local case_dir=$1 nodes=$2 body=${3:-} total=${4:-}
+  jq -c --arg body "$body" --arg total "$total" '
+    . as $all
+    | ($all | length) as $n
+    | (if $total == "" then $n else ($total | tonumber) end) as $t
+    | range(0; ([$n, 1] | max); 100) as $start
+    | {data: {repository: {pullRequest: {title: "a pull request", body: $body,
+        commits: {totalCount: $t, pageInfo: {hasNextPage: ($start + 100 < $n), endCursor: ($start | tostring)},
+          nodes: $all[$start:$start + 100]}}}}}' <<< "$nodes" > "$case_dir/github-commit-pages.json"
+}
+
+# <count> clean commit nodes, with a co-author trailer in the one at
+# <trailer_index> when given. Args: count [trailer_index]
+github_commit_nodes() {
+  jq -nc --argjson n "$1" --argjson t "${2:--1}" '
+    [range($n) | {commit: {oid: ("c" * (40 - (tostring | length)) + tostring),
+      message: ("commit \(.)\n\nbody" + (if . == $t then "\n\nCo-authored-by: Cursor <cursoragent@cursor.com>" else "" end))}}]'
 }
 
 # Live GitHub JSON for the pre-merge verify, plus gh-axi for the
@@ -109,7 +120,7 @@ write_github_live_json() {
   local case_dir=$1 head=$2
   printf '%s\n' "$head" > "$case_dir/github-head"
   cat > "$case_dir/github-view.json" <<JSON
-{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","headRefOid":"$head","baseRefName":"main","statusCheckRollup":[{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}],"commits":$(github_commits_json "$case_dir")}
+{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","headRefOid":"$head","baseRefName":"main","statusCheckRollup":[{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}]}
 JSON
 }
 
@@ -117,7 +128,7 @@ write_github_red_json() {
   local case_dir=$1 head=$2 name=$3
   printf '%s\n' "$head" > "$case_dir/github-head"
   cat > "$case_dir/github-view.json" <<JSON
-{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","headRefOid":"$head","baseRefName":"main","statusCheckRollup":[{"__typename":"CheckRun","name":"$name","status":"COMPLETED","conclusion":"FAILURE"}],"commits":$(github_commits_json "$case_dir")}
+{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","headRefOid":"$head","baseRefName":"main","statusCheckRollup":[{"__typename":"CheckRun","name":"$name","status":"COMPLETED","conclusion":"FAILURE"}]}
 JSON
 }
 
@@ -152,7 +163,7 @@ write_github_rollup_json() {
   done
   printf '%s\n' "$head" > "$case_dir/github-head"
   cat > "$case_dir/github-view.json" <<JSON
-{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","headRefOid":"$head","baseRefName":"main","statusCheckRollup":[$rollup],"commits":$(github_commits_json "$case_dir")}
+{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","headRefOid":"$head","baseRefName":"main","statusCheckRollup":[$rollup]}
 JSON
 }
 
@@ -169,6 +180,8 @@ assert_logged_gh_merge() {
 add_gh_mocks() {
   local case_dir=$1 head=$2
   write_github_live_json "$case_dir" "$head"
+  [ -f "$case_dir/github-commit-pages.json" ] \
+    || write_github_commit_pages "$case_dir" "$(github_commit_nodes 1)"
   cat > "$case_dir/fakebin/gh-axi" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FM_TEST_GH_AXI_LOG"
@@ -246,6 +259,13 @@ case "${1:-} ${2:-}" in
     exit "$merge_rc"
     ;;
   "api graphql")
+    case " $* " in
+      *"commits(first"*)
+        [ ! -e "$(dirname "$FM_TEST_GH_VIEW_JSON")/github-commit-pages-fail" ] || exit 1
+        cat "$(dirname "$FM_TEST_GH_VIEW_JSON")/github-commit-pages.json"
+        exit 0
+        ;;
+    esac
     if [ -f "${FM_TEST_GH_GRAPHQL_FAIL:-}" ]; then
       echo 'error: could not reach the GitHub API' >&2
       exit 1
@@ -363,6 +383,15 @@ case "${1:-} ${2:-}" in
       cat "$case_dir/mr-post.json"
     else
       cat "$FM_TEST_GLAB_JSON"
+    fi
+    exit 0
+    ;;
+  "api --hostname")
+    [ ! -e "$case_dir/glab-commits-fails" ] || exit 1
+    if [ -f "$case_dir/mr-commits.json" ]; then
+      cat "$case_dir/mr-commits.json"
+    else
+      printf '%s\n' '[{"id":"dddddddddddddddddddddddddddddddddddddddd","message":"clean subject\n"}]'
     fi
     exit 0
     ;;
@@ -577,8 +606,7 @@ test_github_coauthor_trailer_refuses_before_merge() {
   local case_dir rc
   case_dir=$(make_case coauthor-trailer-refuses)
   mkdir -p "$case_dir/wt"
-  printf '%s\n' '[{"oid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","messageHeadline":"feat: one","messageBody":"body text\n\nCo-authored-by: Cursor <cursoragent@cursor.com>"},{"oid":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","messageHeadline":"feat: two","messageBody":"body text\n\nCo-Authored-By: Claude <noreply@anthropic.com>"}]' \
-    > "$case_dir/github-commits.json"
+  write_github_commit_pages "$case_dir" '[{"commit":{"oid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","message":"feat: one\n\nbody text\n\nCo-authored-by: Cursor <cursoragent@cursor.com>"}},{"commit":{"oid":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","message":"feat: two\n\nbody text\n\nCo-Authored-By: Claude <noreply@anthropic.com>"}}]'
   add_gh_mocks "$case_dir" deadbeefcafefeed0000000000000000deadbeef
   : > "$case_dir/gh-axi.log"
 
@@ -626,16 +654,15 @@ test_github_commits_without_trailers_merge_unchanged() {
   pass "a pull request whose commits carry no co-author trailer merges unchanged"
 }
 
-# Fail-closed: a live view that carries no commit list cannot prove the pull
-# request clean, so the merge refuses instead of merging unguarded.
+# Fail-closed: a commit read that fails cannot prove the pull request clean,
+# so the merge refuses instead of merging unguarded.
 test_github_unreadable_commit_list_refuses() {
   local case_dir rc
   case_dir=$(make_case coauthor-unreadable-commits)
   mkdir -p "$case_dir/wt"
   add_gh_mocks "$case_dir" deadbeefcafefeed0000000000000000deadbeef
   : > "$case_dir/gh-axi.log"
-  jq 'del(.commits)' "$case_dir/github-view.json" > "$case_dir/github-view.tmp"
-  mv "$case_dir/github-view.tmp" "$case_dir/github-view.json"
+  : > "$case_dir/github-commit-pages-fail"
 
   set +e
   run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/73 \
@@ -649,6 +676,194 @@ test_github_unreadable_commit_list_refuses() {
   assert_no_grep 'pr merge' "$case_dir/gh.log" \
     "coauthor-unreadable-commits: the merge API call ran despite an unreadable commit list"
   pass "fm-pr-merge refuses when the pull request commit list cannot be read"
+}
+
+# A trailer on the second page of commits (index 105 of 130) is still found.
+test_github_trailer_past_the_first_page_refuses() {
+  local case_dir rc sha
+  case_dir=$(make_case coauthor-second-page)
+  mkdir -p "$case_dir/wt"
+  write_github_commit_pages "$case_dir" "$(github_commit_nodes 130 105)"
+  add_gh_mocks "$case_dir" deadbeefcafefeed0000000000000000deadbeef
+  : > "$case_dir/gh-axi.log"
+  sha=$(printf 'c%.0s' $(seq 37))105
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/74 \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "coauthor-second-page: a trailer past the first page must refuse"
+  assert_grep "$sha Co-authored-by: Cursor" "$case_dir/stderr" \
+    "coauthor-second-page: the commit at index 105 was not named"
+  assert_no_grep 'pr merge' "$case_dir/gh.log" \
+    "coauthor-second-page: the merge API call ran despite the refusal"
+  pass "fm-pr-merge pages past 100 commits and refuses a trailer found there"
+}
+
+test_github_clean_commits_past_the_first_page_merge() {
+  local case_dir rc
+  case_dir=$(make_case coauthor-clean-pages)
+  mkdir -p "$case_dir/wt"
+  write_github_commit_pages "$case_dir" "$(github_commit_nodes 130)"
+  add_gh_mocks "$case_dir" deadbeefcafefeed0000000000000000deadbeef
+  : > "$case_dir/gh-axi.log"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/75 \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "coauthor-clean-pages: 130 clean commits should merge"
+  assert_logged_gh_merge "$case_dir" 75 example/repo --squash
+  pass "a pull request with more than 100 clean commits merges"
+}
+
+# Pages that list fewer commits than the reported total cannot prove the pull
+# request clean, so the merge refuses.
+test_github_incomplete_commit_pages_refuse() {
+  local case_dir rc
+  case_dir=$(make_case coauthor-incomplete-pages)
+  mkdir -p "$case_dir/wt"
+  write_github_commit_pages "$case_dir" "$(github_commit_nodes 250)" '' 300
+  add_gh_mocks "$case_dir" deadbeefcafefeed0000000000000000deadbeef
+  : > "$case_dir/gh-axi.log"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/76 \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "coauthor-incomplete-pages: an incomplete commit list must refuse"
+  assert_grep 'could not read the GitHub pull request commit messages' "$case_dir/stderr" \
+    "coauthor-incomplete-pages: the refusal did not name the unreadable commit messages"
+  assert_no_grep 'pr merge' "$case_dir/gh.log" \
+    "coauthor-incomplete-pages: the merge API call ran despite an incomplete commit list"
+  pass "fm-pr-merge refuses when pagination cannot list every commit"
+}
+
+# A squash merge can compose its body from the pull request description, so a
+# trailer there refuses too.
+test_github_description_trailer_refuses() {
+  local case_dir rc
+  case_dir=$(make_case coauthor-description)
+  mkdir -p "$case_dir/wt"
+  write_github_commit_pages "$case_dir" "$(github_commit_nodes 1)" \
+    $'Summary\n\nCo-Authored-By: Claude <noreply@anthropic.com>'
+  add_gh_mocks "$case_dir" deadbeefcafefeed0000000000000000deadbeef
+  : > "$case_dir/gh-axi.log"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/77 \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "coauthor-description: a description trailer must refuse"
+  assert_grep 'pull request description Co-Authored-By: Claude' "$case_dir/stderr" \
+    "coauthor-description: the description trailer was not named"
+  assert_no_grep 'pr merge' "$case_dir/gh.log" \
+    "coauthor-description: the merge API call ran despite the refusal"
+  pass "fm-pr-merge refuses a pull request whose description carries a co-author trailer"
+}
+
+# A caller-supplied merge message would bypass the scanned sources, so every
+# spelling of it is refused before anything is recorded.
+test_caller_supplied_merge_message_refuses() {
+  local case_dir rc args
+  for args in '--body x' '--body-file=f' '--subject x' '-b x' '-yF f'; do
+    case_dir=$(make_case "caller-message-${args//[^a-zA-Z]/}")
+    mkdir -p "$case_dir/wt"
+    add_gh_mocks "$case_dir" deadbeefcafefeed0000000000000000deadbeef
+    : > "$case_dir/gh-axi.log"
+    set +e
+    # shellcheck disable=SC2086  # the case's args split into separate words.
+    run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/78 -- $args \
+      > "$case_dir/stdout" 2> "$case_dir/stderr"
+    rc=$?
+    set -e
+    expect_code 1 "$rc" "caller-message ($args): a caller-supplied message must refuse"
+    assert_grep 'must not supply the merge commit message' "$case_dir/stderr" \
+      "caller-message ($args): the refusal was not reported"
+    assert_no_grep 'pr merge' "$case_dir/gh.log" \
+      "caller-message ($args): the merge API call ran despite the refusal"
+  done
+  for args in '--squash-message x' '-m x'; do
+    case_dir=$(make_gitlab_case "caller-message-gitlab-${args//[^a-zA-Z]/}")
+    set +e
+    # shellcheck disable=SC2086  # the case's args split into separate words.
+    run_pr_merge "$case_dir" task-x1 "$MR_URL" -- $args \
+      > "$case_dir/stdout" 2> "$case_dir/stderr"
+    rc=$?
+    set -e
+    expect_code 1 "$rc" "caller-message gitlab ($args): a caller-supplied message must refuse"
+    [ -z "$(glab_merge_line "$case_dir/glab.log")" ] \
+      || fail "caller-message gitlab ($args): the merge ran despite the refusal"
+  done
+  pass "fm-pr-merge refuses a caller-supplied merge commit message on both forges"
+}
+
+test_gitlab_coauthor_trailer_refuses_before_merge() {
+  local case_dir rc
+  case_dir=$(make_gitlab_case gitlab-coauthor-commit)
+  printf '%s\n' '[{"id":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","message":"feat: x\n\nco-authored-by: Cursor <cursoragent@cursor.com>\n"}]' \
+    > "$case_dir/mr-commits.json"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 "$MR_URL" \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "gitlab-coauthor-commit: a commit trailer must refuse"
+  assert_grep 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee co-authored-by: Cursor' "$case_dir/stderr" \
+    "gitlab-coauthor-commit: the offending commit was not named"
+  [ -z "$(glab_merge_line "$case_dir/glab.log")" ] \
+    || fail "gitlab-coauthor-commit: the merge ran despite the refusal"
+  pass "fm-pr-merge refuses a GitLab merge request whose commits carry a co-author trailer"
+}
+
+test_gitlab_description_trailer_refuses() {
+  local case_dir rc
+  case_dir=$(make_gitlab_case gitlab-coauthor-description)
+  jq -c '.description = "Summary\n\nCo-Authored-By: Claude <noreply@anthropic.com>"' \
+    "$case_dir/mr.json" > "$case_dir/mr.tmp"
+  mv "$case_dir/mr.tmp" "$case_dir/mr.json"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 "$MR_URL" \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "gitlab-coauthor-description: a description trailer must refuse"
+  assert_grep 'merge request description Co-Authored-By: Claude' "$case_dir/stderr" \
+    "gitlab-coauthor-description: the description trailer was not named"
+  [ -z "$(glab_merge_line "$case_dir/glab.log")" ] \
+    || fail "gitlab-coauthor-description: the merge ran despite the refusal"
+  pass "fm-pr-merge refuses a GitLab merge request whose description carries a co-author trailer"
+}
+
+test_gitlab_unreadable_commit_list_refuses() {
+  local case_dir rc
+  case_dir=$(make_gitlab_case gitlab-coauthor-unreadable)
+  : > "$case_dir/glab-commits-fails"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 "$MR_URL" \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "gitlab-coauthor-unreadable: an unreadable commit list must refuse"
+  assert_grep 'could not read the GitLab merge request commit messages' "$case_dir/stderr" \
+    "gitlab-coauthor-unreadable: the refusal did not name the unreadable commit messages"
+  [ -z "$(glab_merge_line "$case_dir/glab.log")" ] \
+    || fail "gitlab-coauthor-unreadable: the merge ran despite the refusal"
+  pass "fm-pr-merge refuses when the GitLab merge request commit list cannot be read"
 }
 
 test_merge_failure_propagates_after_recording() {
@@ -2461,6 +2676,14 @@ test_verified_merge_records_pr_and_head
 test_github_coauthor_trailer_refuses_before_merge
 test_github_commits_without_trailers_merge_unchanged
 test_github_unreadable_commit_list_refuses
+test_github_trailer_past_the_first_page_refuses
+test_github_clean_commits_past_the_first_page_merge
+test_github_incomplete_commit_pages_refuse
+test_github_description_trailer_refuses
+test_caller_supplied_merge_message_refuses
+test_gitlab_coauthor_trailer_refuses_before_merge
+test_gitlab_description_trailer_refuses
+test_gitlab_unreadable_commit_list_refuses
 test_pr_metadata_is_recorded_before_the_forge_call
 test_merge_failure_propagates_after_recording
 test_github_open_unqueued_outcome_refuses

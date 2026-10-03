@@ -115,14 +115,19 @@ case "${1:-} ${2:-}" in
   "pr view")
     case " $* " in
       *statusCheckRollup*)
-        printf '%s\n' '{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","headRefOid":"1111111111111111111111111111111111111111","baseRefName":"main","statusCheckRollup":[{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}],"commits":[{"oid":"1111111111111111111111111111111111111111","messageHeadline":"clean subject","messageBody":""}]}'
+        printf '%s\n' '{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","headRefOid":"1111111111111111111111111111111111111111","baseRefName":"main","statusCheckRollup":[{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}]}'
         ;;
       *headRefOid*) printf '%s\n' 1111111111111111111111111111111111111111 ;;
     esac
     ;;
   "pr merge") printf 'merged:\n  number: %s\n  status: ok\n' "${3:-}" ;;
   "api graphql")
-    printf '%s\n' 'state=MERGED' 'merged=true' 'queued=false' 'base=main'
+    case " $* " in
+      *"commits(first"*)
+        printf '%s\n' '{"data":{"repository":{"pullRequest":{"title":"t","body":"","commits":{"totalCount":1,"nodes":[{"commit":{"oid":"1111111111111111111111111111111111111111","message":"clean subject"}}]}}}}}'
+        ;;
+      *) printf '%s\n' 'state=MERGED' 'merged=true' 'queued=false' 'base=main' ;;
+    esac
     ;;
   "api --paginate")
     case " $* " in
