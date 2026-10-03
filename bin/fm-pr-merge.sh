@@ -88,9 +88,10 @@
 # merge would carry that line into the base branch's history. The refusal names
 # every offending commit sha or description with its trailer line. On GitHub
 # the Co-authored-by line its default squash message adds for every commit
-# author who is not the pull request author refuses the same way. These are
-# read last, just before the merge API call, at the head the run verified, so
-# the scanned text is the text that lands. The remedy has two paths: an AI
+# author who is not the pull request author refuses the same way, unless the
+# caller explicitly chose a merge or rebase, which compose no squash message.
+# These are read last, just before the merge API call, at the head the run
+# verified, so the scanned text is the text that lands. The remedy has two paths: an AI
 # trailer is stripped from those commits with bin/fm-git-strip-ai-trailers.sh
 # and the commits re-pushed, while a human co-author trailer, or a commit by
 # another author, must be fixed by hand, because that stripper deliberately
@@ -1259,17 +1260,22 @@ COAUTHOR_TRAILER_SCAN='.[]
 # Every commit message and the title and description of a GitHub pull request,
 # paged through in full and read at the head this run verified, plus the
 # Co-authored-by line GitHub's default squash message adds for every commit
-# author who is not the pull request author. A page that cannot be read, a page
-# set whose commits fall short of the reported total (GitHub stops listing a
-# pull request's commits past its own cap), or a head that moved since the
-# verify refuses rather than passing an unverified list.
+# author who is not the pull request author. Only a squash merge composes that
+# message, so a caller's explicit merge or rebase method skips the author lines;
+# any other method, named or not, is read as the squash it may be. A page that
+# cannot be read, a page set whose commits fall short of the reported total
+# (GitHub stops listing a pull request's commits past its own cap), or a head
+# that moved since the verify refuses rather than passing an unverified list.
 github_read_coauthor_trailers() {
-  local pages
+  local pages squash=true
+  if github_caller_method_is merge || github_caller_method_is rebase; then
+    squash=false
+  fi
   # shellcheck disable=SC2016  # GraphQL variables are literal query syntax.
   if ! pages=$(gh api graphql --paginate \
       -f query='query($owner:String!,$repo:String!,$number:Int!,$endCursor:String){repository(owner:$owner,name:$repo){pullRequest(number:$number){title body headRefOid author{login} commits(first:100,after:$endCursor){totalCount pageInfo{hasNextPage endCursor} nodes{commit{oid message authors(first:100){nodes{name email user{login}}}}}}}}}' \
       -F "owner=$PR_OWNER" -F "repo=$PR_REPO" -F "number=$PR_NUMBER" 2>/dev/null) \
-    || ! FM_PR_COAUTHOR_TRAILERS=$(printf '%s' "$pages" | jq -rs --arg head "$FM_PR_MERGE_HEAD" '
+    || ! FM_PR_COAUTHOR_TRAILERS=$(printf '%s' "$pages" | jq -rs --arg head "$FM_PR_MERGE_HEAD" --argjson squash "$squash" '
         map(.data.repository.pullRequest) as $pages
         | if ($pages | length) == 0 or any($pages[]; (.commits.nodes | type) != "array")
           then error("unreadable commit pages") else . end
@@ -1280,10 +1286,11 @@ github_read_coauthor_trailers() {
           then error("incomplete commit list") else . end
         | [{source: "pull request description", text: (($pages[0].title // "") + "\n" + ($pages[0].body // ""))}]
           + [$commits[] | {source: (.oid | if type == "string" and length > 0 then . else error("unreadable commit oid") end), text: .message}]
-          + [$commits[] | .oid as $oid
+          + if $squash then [$commits[] | .oid as $oid
               | (.authors.nodes | if type == "array" then .[] else error("unreadable commit authors") end)
               | select($pr_author == null or (.user.login // null) != $pr_author)
               | {source: "\($oid) (GitHub adds for its author)", text: "Co-authored-by: \(.name) <\(.email)>"}]
+            else [] end
         | '"$COAUTHOR_TRAILER_SCAN" 2>/dev/null); then
     echo "error: could not read the GitHub pull request commit messages before merging" >&2
     return 1

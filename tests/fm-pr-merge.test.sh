@@ -809,6 +809,70 @@ test_github_other_commit_author_refuses() {
   pass "fm-pr-merge refuses a pull request whose squash message GitHub would credit to another commit author"
 }
 
+OTHER_AUTHOR_COMMITS='[{"commit":{"oid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","message":"feat: one"}},{"commit":{"oid":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","message":"feat: two","authors":{"nodes":[{"name":"Cursor Agent","email":"cursoragent@cursor.com","user":{"login":"cursor"}}]}}}]'
+
+# A merge or rebase composes no squash message, so a clean commit by another
+# author adds no trailer and the merge proceeds with the caller's method.
+test_github_other_commit_author_merges_without_squash() {
+  local case_dir method
+  for method in --merge --rebase --method=merge; do
+    case_dir=$(make_case "coauthor-other-author-nosquash${method//=/-}")
+    mkdir -p "$case_dir/wt"
+    write_github_commit_pages "$case_dir" "$OTHER_AUTHOR_COMMITS"
+    add_gh_mocks "$case_dir" deadbeefcafefeed0000000000000000deadbeef
+    : > "$case_dir/gh-axi.log"
+
+    run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/79 -- "$method" \
+      > "$case_dir/stdout" 2> "$case_dir/stderr" \
+      || fail "coauthor-other-author $method: a non-squash merge of a clean other-author commit was refused"
+    assert_logged_gh_merge "$case_dir" 79 example/repo "$method"
+  done
+  pass "fm-pr-merge lets a merge or rebase land a clean commit by another author"
+}
+
+# The description lands in a merge commit too, so its trailer refuses whatever
+# the method; an explicit squash or an unrecognised method still refuses the
+# line GitHub would add for another commit author.
+test_github_coauthor_refusals_by_method() {
+  local case_dir rc method
+  for method in --merge --rebase; do
+    case_dir=$(make_case "coauthor-description${method}")
+    mkdir -p "$case_dir/wt"
+    write_github_commit_pages "$case_dir" "$(github_commit_nodes 1)" \
+      $'Summary\n\nCo-authored-by: Claude <noreply@anthropic.com>'
+    add_gh_mocks "$case_dir" deadbeefcafefeed0000000000000000deadbeef
+    : > "$case_dir/gh-axi.log"
+    set +e
+    run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/77 -- "$method" \
+      > "$case_dir/stdout" 2> "$case_dir/stderr"
+    rc=$?
+    set -e
+    expect_code 1 "$rc" "coauthor-description $method: a description trailer must refuse"
+    assert_grep 'pull request description Co-authored-by: Claude' "$case_dir/stderr" \
+      "coauthor-description $method: the description trailer was not named"
+    assert_no_grep 'pr merge' "$case_dir/gh.log" \
+      "coauthor-description $method: the merge API call ran despite the refusal"
+  done
+  for method in --squash --method=bogus; do
+    case_dir=$(make_case "coauthor-other-author${method//=/-}")
+    mkdir -p "$case_dir/wt"
+    write_github_commit_pages "$case_dir" "$OTHER_AUTHOR_COMMITS"
+    add_gh_mocks "$case_dir" deadbeefcafefeed0000000000000000deadbeef
+    : > "$case_dir/gh-axi.log"
+    set +e
+    run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/79 -- "$method" \
+      > "$case_dir/stdout" 2> "$case_dir/stderr"
+    rc=$?
+    set -e
+    expect_code 1 "$rc" "coauthor-other-author $method: a second commit author must refuse"
+    assert_grep '(GitHub adds for its author) Co-authored-by: Cursor Agent' "$case_dir/stderr" \
+      "coauthor-other-author $method: the synthesized trailer line was not named"
+    assert_no_grep 'pr merge' "$case_dir/gh.log" \
+      "coauthor-other-author $method: the merge API call ran despite the refusal"
+  done
+  pass "fm-pr-merge refuses a description trailer for any method and another author's trailer unless the method is merge or rebase"
+}
+
 # Trailers read at a head other than the verified one prove nothing about what
 # lands, so the merge refuses.
 test_github_trailer_read_at_a_moved_head_refuses() {
@@ -2769,6 +2833,8 @@ test_github_clean_commits_past_the_first_page_merge
 test_github_incomplete_commit_pages_refuse
 test_github_description_trailer_refuses
 test_github_other_commit_author_refuses
+test_github_other_commit_author_merges_without_squash
+test_github_coauthor_refusals_by_method
 test_github_trailer_read_at_a_moved_head_refuses
 test_caller_supplied_merge_message_refuses
 test_gitlab_coauthor_trailer_refuses_before_merge
