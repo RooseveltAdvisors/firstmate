@@ -623,6 +623,154 @@ test_registered_agent_with_a_non_shell_foreground_process_stays_alive() {
   pass "herdr stale registration: only a shell-only pane demotes a registration"
 }
 
+# The STUCK-class counter-fact: agent_status=done on a pane that still runs its
+# agent must keep reading alive. Corroboration cuts both ways - done alone never
+# means dead (the shell-only cases above) and never means dead is disproven
+# here either, so exit verification still sees a running agent and relaunch
+# keeps refusing to stop it.
+test_done_registration_with_a_live_agent_stays_alive() {
+  local out
+  out=$(stale_registration_case done-live "done" \
+    '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":4242,"foreground_process_group_id":4243,"foreground_processes":[{"pid":4243,"name":"node","argv0":"pi","argv":["pi"],"cmdline":"pi"}]}}}')
+  [ "$out" = "live alive refused" ] \
+    || fail "a done registration over a live Pi foreground must stay live/alive, got '$out'"
+  out=$(FM_BACKEND_HERDR_IDLE_SHELL_PROOF_POLLS=1 stale_registration_case done-foreground "done" \
+    '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":4242,"foreground_process_group_id":4250,"foreground_processes":[{"pid":4250,"name":"vim","argv0":"vim","argv":["vim","notes.md"],"cmdline":"vim notes.md"}]}}}')
+  [ "$out" = "live alive refused" ] \
+    || fail "a done registration over an open editor must stay live/alive, got '$out'"
+  pass "herdr agent state: done plus a live agent or a foreground editor still reads alive"
+}
+
+# --- clear-registration: the sanctioned escape hatch for a stuck seat --------
+#
+# The guard, transport gate, and post-clear re-read of
+# fm_backend_herdr_clear_agent_registration, against the same canned CLI. The
+# exact call order the function uses: pane get (1), agent get (2), api schema
+# (3), session list (4), pane process-info (5), the helper stub outside the
+# CLI, then the post-clear agent get (6). Responses the flow never reaches are
+# simply left unconsumed.
+# shellcheck disable=SC2016 # $defs is a literal JSON Schema key.
+CLEAR_SCHEMA_OK='{"schemas":{"request":{"oneOf":[{"properties":{"method":{"const":"pane.clear_agent_authority","type":"string"}},"required":["method","params"],"type":"object"}],"$defs":{"PaneClearAgentAuthorityParams":{"properties":{"pane_id":{"type":"string"}},"required":["pane_id"],"type":"object"}}}}}'
+# shellcheck disable=SC2016 # $defs is a literal JSON Schema key.
+CLEAR_SCHEMA_OLD='{"schemas":{"request":{"oneOf":[],"$defs":{}}}}'
+
+clear_registration_case() {  # <dir-suffix> <registered|none> <process-info-body|-> <post-gone|post-stuck> [process-info-exit] [schema-json]
+  local dir="$TMP_ROOT/clear-reg-$1" resp log fb n
+  mkdir -p "$dir/responses"; resp="$dir/responses"; log="$dir/log"; : > "$log"
+  printf '{"result":{"pane":{"pane_id":"w1:p2"}}}\n' > "$resp/1.out"
+  if [ "$2" = none ]; then
+    printf '{"error":{"code":"agent_not_found","message":"agent target w1:p2 not found"}}\n' > "$resp/2.out"
+  else
+    printf '{"result":{"agent":{"agent":"pi","agent_status":"%s"}}}\n' "$2" > "$resp/2.out"
+  fi
+  printf '%s\n' "${6:-$CLEAR_SCHEMA_OK}" > "$resp/3.out"
+  printf '{"sessions":[{"name":"default","running":true,"socket_path":"/tmp/fm-clear-fake.sock"}]}\n' > "$resp/4.out"
+  [ "$3" = - ] || printf '%s\n' "$3" > "$resp/5.out"
+  [ -z "${5:-}" ] || printf '%s\n' "$5" > "$resp/5.exit"
+  if [ "$4" = post-gone ]; then
+    printf '{"error":{"code":"agent_not_found","message":"agent target w1:p2 not found"}}\n' > "$resp/6.out"
+  else
+    printf '{"result":{"agent":{"agent":"pi","agent_status":"%s"}}}\n' "${2:-done}" > "$resp/6.out"
+  fi
+  cat > "$dir/helper" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$FM_HERDR_TEST_CLEAR_LOG"
+SH
+  chmod +x "$dir/helper"
+  fb=$(make_herdr_fakebin "$dir")
+  PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
+    FM_HERDR_TEST_CLEAR_LOG="$dir/clear.log" \
+    FM_BACKEND_HERDR_CLEAR_AGENT_HELPER="$dir/helper" \
+    bash -c '. "$0/bin/backends/herdr.sh"
+      printf "%s\n" "$(fm_backend_herdr_clear_agent_registration default:w1:p2)"
+      if [ -f "$1" ]; then printf "helper=%s\n" "$(wc -l < "$1" | tr -d " ")"; else printf "helper=0\n"; fi' "$ROOT" "$dir/clear.log"
+}
+
+# Split clear_registration_case's two output lines: <verdict>\t<reason>, then
+# helper=<invocations of the clear request stub>.
+clear_case_split() {  # <case-output>
+  CLEAR_VERDICT=${1%%$'\n'*}
+  CLEAR_HELPER=${1#*$'\n'}
+}
+
+test_clear_agent_registration_clears_a_proven_agent_less_shell() {
+  local sleep_bin shell_pid out
+  sleep_bin=$(command -v sleep) || fail "sleep not found"
+  "$sleep_bin" 300 &
+  shell_pid=$!
+  out=$(clear_registration_case clearable "done" "$(shell_only_process_info "$shell_pid")" post-gone)
+  kill "$shell_pid" 2>/dev/null || true
+  clear_case_split "$out"
+  [ "$CLEAR_VERDICT" = $'cleared\t' ] \
+    || fail "a proven agent-less shell with a stuck registration must clear, got '$CLEAR_VERDICT'"
+  [ "$CLEAR_HELPER" = helper=1 ] || fail "exactly one clear request must be sent, got '$CLEAR_HELPER'"
+  assert_contains "$(cat "$TMP_ROOT/clear-reg-clearable/clear.log")" '/tmp/fm-clear-fake.sock w1:p2' \
+    "the clear request must carry the session socket and the exact pane id"
+  pass "herdr clear-registration: a proven agent-less shell with a stuck registration is cleared and verified"
+}
+
+test_clear_agent_registration_refuses_anything_but_an_agent_less_shell() {
+  local sleep_bin shell_pid out
+  sleep_bin=$(command -v sleep) || fail "sleep not found"
+  "$sleep_bin" 300 &
+  shell_pid=$!
+
+  out=$(clear_registration_case refuse-agent "done" \
+    '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":4242,"foreground_process_group_id":4243,"foreground_processes":[{"pid":4243,"name":"node","argv0":"pi","argv":["pi"],"cmdline":"pi"}]}}}' post-gone)
+  clear_case_split "$out"
+  [ "$CLEAR_VERDICT" = $'refused\ta live agent process is present in the pane' ] \
+    || fail "a pane with a live agent must be refused, got '$CLEAR_VERDICT'"
+  [ "$CLEAR_HELPER" = helper=0 ] || fail "a live-agent pane must never receive the clear request, got '$CLEAR_HELPER'"
+
+  out=$(FM_BACKEND_HERDR_IDLE_SHELL_PROOF_POLLS=1 clear_registration_case refuse-editor "done" \
+    '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":4242,"foreground_process_group_id":4250,"foreground_processes":[{"pid":4250,"name":"vim","argv0":"vim","argv":["vim","notes.md"],"cmdline":"vim notes.md"}]}}}' post-gone)
+  clear_case_split "$out"
+  [ "$CLEAR_VERDICT" = $'refused\ta foreground command or editor is running in the pane' ] \
+    || fail "a pane with an open editor must be refused, got '$CLEAR_VERDICT'"
+  [ "$CLEAR_HELPER" = helper=0 ] || fail "an editor pane must never receive the clear request, got '$CLEAR_HELPER'"
+
+  out=$(clear_registration_case refuse-unreadable "done" - post-gone 1)
+  clear_case_split "$out"
+  [ "$CLEAR_VERDICT" = $'refused\tthe pane process view could not be read, so an agent-less shell cannot be proven' ] \
+    || fail "an unreadable process view must be refused, got '$CLEAR_VERDICT'"
+  [ "$CLEAR_HELPER" = helper=0 ] || fail "an unreadable pane must never receive the clear request, got '$CLEAR_HELPER'"
+
+  kill "$shell_pid" 2>/dev/null || true
+  pass "herdr clear-registration: a live agent, a foreground editor, and an unreadable process view all refuse before the request"
+}
+
+test_clear_agent_registration_reports_already_clear_and_unsupported() {
+  local out
+  out=$(clear_registration_case already-clear none - post-gone)
+  clear_case_split "$out"
+  [ "$CLEAR_VERDICT" = $'already-clear\t' ] \
+    || fail "a pane with no registration must report already-clear, got '$CLEAR_VERDICT'"
+  [ "$CLEAR_HELPER" = helper=0 ] || fail "already-clear must send no request, got '$CLEAR_HELPER'"
+
+  out=$(clear_registration_case unsupported "done" - post-gone "" "$CLEAR_SCHEMA_OLD")
+  clear_case_split "$out"
+  [ "$CLEAR_VERDICT" = $'unsupported\tthis herdr server does not advertise pane.clear_agent_authority' ] \
+    || fail "a server without the method must be unsupported, got '$CLEAR_VERDICT'"
+  [ "$CLEAR_HELPER" = helper=0 ] || fail "an unsupported server must never receive the request, got '$CLEAR_HELPER'"
+  pass "herdr clear-registration: already-clear is idempotent and an unadvertising server is unsupported"
+}
+
+test_clear_agent_registration_reports_failure_when_the_clear_does_not_take() {
+  local sleep_bin shell_pid out
+  sleep_bin=$(command -v sleep) || fail "sleep not found"
+  "$sleep_bin" 300 &
+  shell_pid=$!
+  # The request is accepted (the stub exits 0) but the follow-up read still
+  # finds the registration: that must report failure, never cleared.
+  out=$(clear_registration_case ignored "done" "$(shell_only_process_info "$shell_pid")" post-stuck)
+  kill "$shell_pid" 2>/dev/null || true
+  clear_case_split "$out"
+  [ "$CLEAR_VERDICT" = $'failed\tthe clear request was accepted but the registration still reads present afterwards' ] \
+    || fail "an accepted-but-ignored clear must report failed, got '$CLEAR_VERDICT'"
+  [ "$CLEAR_HELPER" = helper=1 ] || fail "the request should have been sent exactly once, got '$CLEAR_HELPER'"
+  pass "herdr clear-registration: the outcome is the post-clear re-read, never the request's exit code"
+}
+
 # settle_registration_case: one pane classification over a scripted sequence
 # of `pane process-info` samples, so the settle window's resampling is
 # observable in the fake CLI's call log.
@@ -5797,6 +5945,11 @@ test_pane_agent_session_ref_reports_a_resumable_reference_with_its_agent
 test_pane_agent_session_ref_degrades_to_nothing_when_not_resumable
 test_registered_agent_with_a_live_foreground_process_stays_alive
 test_registered_agent_with_a_non_shell_foreground_process_stays_alive
+test_done_registration_with_a_live_agent_stays_alive
+test_clear_agent_registration_clears_a_proven_agent_less_shell
+test_clear_agent_registration_refuses_anything_but_an_agent_less_shell
+test_clear_agent_registration_reports_already_clear_and_unsupported
+test_clear_agent_registration_reports_failure_when_the_clear_does_not_take
 test_transient_prompt_helper_settles_into_stale_agent
 test_exhausted_settle_window_keeps_a_non_shell_foreground_live
 test_registered_agent_with_an_agent_descendant_outside_the_foreground_stays_alive

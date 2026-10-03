@@ -7,6 +7,7 @@
 #        fm-control.sh <task-id> relaunch [--harness <name>] [--model <name>]
 #                                         [--effort <level>]
 #                                         (--note <text> | --note-file <path>)
+#        fm-control.sh <task-id> clear-registration
 #
 # Why this exists, and how it differs from fm-send.sh. bin/fm-send.sh is the
 # DATA plane: conversational text for the agent to read, always routing-marked
@@ -86,6 +87,22 @@
 #              the prior durable record in place and reports the concrete
 #              state; it never leaves a half-transitioned task claiming to be
 #              running.
+#   clear-registration
+#              Clear the lingering Herdr agent registration a pane keeps after
+#              its agent process exits - the stuck seat with no other
+#              sanctioned repair, because Herdr's CLI exposes no release or
+#              stop and `pane release-agent` is ignored for an official agent
+#              source. Postcondition: the pane's own process view proved an
+#              agent-less shell immediately before the request, and the
+#              follow-up read finds no registration. A pane holding a live
+#              agent, a foreground command, or an editor - or one whose
+#              process view cannot be read - is REFUSED, the same direction
+#              as exit's classifier safety: authority is never stripped from a
+#              registration status alone. Already-clear is idempotent success.
+#              HERDR-ONLY: every other backend reports no registration to
+#              clear. The reported outcome is the post-clear re-read, never
+#              the request's exit code. The verdict contract lives in
+#              bin/backends/herdr.sh's fm_backend_herdr_clear_agent_registration.
 #
 # Teardown and discard are NOT verbs here and never will be. `exit` stops an
 # agent and preserves everything else; removing a worktree, killing an
@@ -120,6 +137,9 @@
 #     classified state acts.
 #   - A composer that visibly holds pending text refuses before an exit command
 #     is typed, so existing text is preserved instead of being concatenated.
+#   - `clear-registration` refuses unless the pane's process view proves an
+#     agent-less shell, so a live agent's status authority is never stripped
+#     from its registration status alone.
 #
 # Environment knobs (all bounded waits, seconds):
 #   FM_CONTROL_POLL              poll interval for postcondition waits (0.5)
@@ -1069,5 +1089,26 @@ case "$VERB" in
     ;;
   relaunch)
     do_relaunch
+    ;;
+  clear-registration)
+    result=$(fm_backend_clear_agent_registration "$BACKEND" "$T")
+    verdict=${result%%$'\t'*}
+    if [ "$result" = "$verdict" ]; then
+      reason=
+    else
+      reason=${result#*$'\t'}
+    fi
+    case "$verdict" in
+      cleared)
+        echo "cleared-registration $ID harness=$HARNESS backend=$BACKEND endpoint=$T"
+        ;;
+      already-clear)
+        echo "already-clear $ID harness=$HARNESS backend=$BACKEND endpoint=$T"
+        ;;
+      refused) die "refusing to clear task $ID's agent registration: $reason" ;;
+      unsupported) die "task $ID's agent registration cannot be cleared from here: $reason" ;;
+      failed) die "clearing task $ID's agent registration did not take: $reason" ;;
+      *) die "task $ID's registration clear returned '$verdict' rather than a positively classified outcome; refusing to report an unproven clear" ;;
+    esac
     ;;
 esac
