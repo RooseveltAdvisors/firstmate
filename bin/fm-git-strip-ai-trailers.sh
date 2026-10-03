@@ -104,12 +104,12 @@ fm_is_ai_attribution_line() {
   esac
   name=$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')
   case "$email" in
-  noreply@anthropic.com | cursoragent@* | noreply@openai.com | copilot@github.com)
+  noreply@anthropic.com | cursoragent@* | noreply@openai.com | copilot@github.com | worker@firstmate.local)
     return 0
     ;;
   esac
   case "$name" in
-  cursor | 'cursor agent' | claude | 'claude code' | 'github copilot' | copilot | codex | chatgpt | gemini | 'google gemini' | grok | openai)
+  cursor | 'cursor agent' | claude | 'claude code' | 'github copilot' | copilot | codex | chatgpt | gemini | 'google gemini' | grok | openai | firstmate-worker)
     return 0
     ;;
   esac
@@ -164,14 +164,24 @@ runtime_chain_body() {
 unset GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0
 ours=$(quote_for_hook "$ours")
 name=\${0##*/}
-orig=\$(unset GIT_CONFIG_PARAMETERS; git rev-parse --path-format=absolute --git-path hooks 2>/dev/null) || {
-  if hooks_path=\$(unset GIT_CONFIG_PARAMETERS; git config --get --type=path core.hooksPath 2>/dev/null) && [ -z "\$hooks_path" ]; then
+orig=\$(unset GIT_CONFIG_PARAMETERS; git rev-parse --path-format=absolute --git-path hooks 2>/dev/null)
+if [ -n "\$orig" ]; then
+  if [ "\$orig" = "\$ours" ]; then
     exit 0
   fi
-  (unset GIT_CONFIG_PARAMETERS; git rev-parse --path-format=absolute --git-path hooks >/dev/null)
-  echo "fm-git-strip-ai-trailers: cannot resolve this repository's hooks directory; refusing to skip its \$name hook" >&2
-  exit 1
-}
+  if [ -x "\$orig/\$name" ]; then
+    exec "\$orig/\$name" "\$@"
+  fi
+  exit 0
+fi
+hooks_path=\$(unset GIT_CONFIG_PARAMETERS; git config --get --type=path core.hooksPath 2>/dev/null)
+config_rc=\$?
+if [ \$config_rc -eq 0 ] && [ -z "\$hooks_path" ]; then
+  exit 0
+fi
+(unset GIT_CONFIG_PARAMETERS; git rev-parse --path-format=absolute --git-path hooks >/dev/null) 2>/dev/null
+echo "fm-git-strip-ai-trailers: cannot resolve this repository's hooks directory; refusing to skip its \$name hook" >&2
+exit 1
 if [ "\$orig" = "\$ours" ]; then
   exit 0
 fi
@@ -216,10 +226,14 @@ install_hooks() {
     echo "error: worktree is not a directory: $wt" >&2
     return 1
   }
-  git -C "$wt" rev-parse --is-inside-work-tree >/dev/null || {
+  # The worktree's own core.hooksPath may be unresolvable (a typo, a missing
+  # user); git dies on it during repository discovery, which would make every
+  # git invocation here fail. The install only writes the hook directory - the
+  # generated chain body refuses at commit time if hooks cannot be resolved.
+  if [ ! -d "$wt/.git" ] && [ ! -f "$wt/.git" ]; then
     echo "error: not a git worktree: $wt" >&2
     return 1
-  }
+  fi
   chmod u+w "$hooks_dir" 2>/dev/null
   rm -rf "$hooks_dir"
   mkdir -p "$hooks_dir" || return 1
