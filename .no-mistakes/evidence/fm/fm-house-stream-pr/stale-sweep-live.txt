@@ -1,0 +1,29 @@
+# clock = now+30h, rows claimed now; fm-dead1 has a meta whose worktree is gone, fm-orph1 has no owning home
+$ fm-stale-sweep.sh   (dry run)
+ID                                         HOME               AGE     VERDICT   ACTION                   ACTOR         PROV
+fm-orph1                                   -                  29h     no-home   keep                     -             -
+fm-dead1                                   main home          30h     dead      would reclaim            -             -
+2 stale candidates: 1 dead, 0 live, 0 unproven, 1 no-home; would reclaim 1
+
+# status after dry run (must be unchanged)
+fm-dead1 status=in_progress
+fm-orph1 status=in_progress
+
+$ fm-stale-sweep.sh check
+stale-sweep: 1 dead-endpoint in_progress rows reclaimable - run bin/fm-stale-sweep.sh --apply
+
+$ fm-stale-sweep.sh --apply
+ID                                         HOME               AGE     VERDICT   ACTION                   ACTOR         PROV
+fm-orph1                                   -                  29h     no-home   keep                     -             -
+fm-dead1                                   main home          30h     dead      reclaimed                -             -
+2 stale candidates: 1 dead, 0 live, 0 unproven, 1 no-home; reclaimed 1
+
+# status after apply
+fm-dead1 status=open
+fm-orph1 status=in_progress
+
+# fm-dead1 body after apply
+reclaimed 2026-10-03: endpoint dead, previous claim by main home
+
+# leftover lock dirs in state/:
+none

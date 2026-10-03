@@ -1,0 +1,60 @@
+$ tasks-axi add call-a / call-b
+ok: added call-a (repo sample) -> Queued
+task:
+  id: call-a
+  title: Captain call A
+  state: queued
+  blocked: no
+  blocked_by: none
+  held: no
+  hold_reason: "-"
+  hold_kind: "-"
+  hold_until: "-"
+  kind: task
+  repo: sample
+  priority: "-"
+  priority_why: "-"
+  created: 2026-10-03
+  closed: "-"
+  deps: none
+  links: none
+  body: ""
+help[2]:
+  - Run `tasks-axi start call-a` to move it to in flight
+  - Run `tasks-axi block call-a --by <other>` to record a dependency
+ok: added call-b (repo sample) -> Queued
+task:
+  id: call-b
+  title: Captain call B
+  state: queued
+  blocked: no
+  blocked_by: none
+  held: no
+  hold_reason: "-"
+  hold_kind: "-"
+  hold_until: "-"
+  kind: task
+  repo: sample
+  priority: "-"
+  priority_why: "-"
+  created: 2026-10-03
+  closed: "-"
+  deps: none
+  links: none
+  body: ""
+help[2]:
+  - Run `tasks-axi start call-b` to move it to in flight
+  - Run `tasks-axi block call-b --by <other>` to record a dependency
+$ fm-captain-hold.sh hold call-a
+call-a
+$ fm-captain-hold.sh hold call-b
+call-b
+# lock dirs after holds: 0
+$ fm-captain-hold.sh answer call-a --decision-file dec.txt
+answered: call-a
+# lock dirs after answer: 0
+$ tasks-axi show call-a / call-b
+  state: done
+  held: no
+  state: queued
+  held: yes

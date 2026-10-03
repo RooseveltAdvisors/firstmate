@@ -1,0 +1,7 @@
+# CI guard step (extracted by yq) run against this branch tree
+exit=0
+
+# adversarial: force-track .tasks.toml then rerun guard
+::error::Personal fleet paths are tracked in git:
+.tasks.toml
+exit=1
