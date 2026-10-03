@@ -63,9 +63,9 @@
 #                          true_wedge, or Jev unavailable, still escalates.
 #                          pipeline_wait and healthy_idle suppress the wake and
 #                          restart the idle timer, up to a capped streak per
-#                          unchanged status line. The gate is off unless
+#                          unchanged status line. The gate is on by default;
 #                          config/jev-wake-triage or FM_JEV_WAKE_TRIAGE turns
-#                          it on.
+#                          it off.
 #                          A genuinely busy pane
 #                          (window_is_busy true) is exempt from the above, but
 #                          only up to BUSY_TURN_MAX_SECS with no completed turn
@@ -1515,17 +1515,19 @@ wedge_dead_record() {  # <window> <since-file> <triage-label> <idle-age> <pane-h
 # demand-deep-inspection page on schedule. .jev-suppress-<key> holds the
 # status-line fingerprint and streak; a new line or any non-suppress answer
 # restarts it. bin/fm-jev-wake-triage.sh owns the request, telemetry,
-# and calibration log. config/jev-wake-triage=on, or FM_JEV_WAKE_TRIAGE=on,
-# enables this gate. Default off; any other first line keeps it off.
+# and calibration log. Default on with no override. A non-empty
+# FM_JEV_WAKE_TRIAGE beats config/jev-wake-triage's first line; either is on
+# only for on/1/true/yes (any case), and off, empty, or any other value is off.
 wedge_jev_enabled() {
   local v
-  v=$(printf '%s' "${FM_JEV_WAKE_TRIAGE-}" | tr '[:upper:]' '[:lower:]')
-  case "$v" in
-    off|0|false|no) return 1 ;;
-    on|1|true|yes) return 0 ;;
-  esac
-  [ -f "$CONFIG/jev-wake-triage" ] || return 1
-  v=$(head -n 1 "$CONFIG/jev-wake-triage" 2>/dev/null | tr '[:upper:]' '[:lower:]' || true)
+  if [ -n "${FM_JEV_WAKE_TRIAGE-}" ]; then
+    v=$FM_JEV_WAKE_TRIAGE
+  elif [ -f "$CONFIG/jev-wake-triage" ]; then
+    v=$(head -n 1 "$CONFIG/jev-wake-triage" 2>/dev/null || true)
+  else
+    return 0
+  fi
+  v=$(printf '%s' "$v" | tr '[:upper:]' '[:lower:]')
   v=${v#"${v%%[![:space:]]*}"}
   v=${v%"${v##*[![:space:]]}"}
   case "$v" in

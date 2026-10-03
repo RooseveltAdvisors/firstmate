@@ -42,7 +42,7 @@ config/fleet-ledger  optional presence flag opting this home in to the default-o
 config/wait-no-turns  optional presence flag opting this home into default-off waiting-worker behavior (brief waiting section, foreground pipeline drive, pending-reply hold, one fire-and-forget retry ring); LOCAL, gitignored, and not inherited; see docs/configuration.md "Waiting worker spends no turns"
 config/turnend-churn-absorb  optional presence flag opting this home into the default-off absorb of bare turn-end wakes on pane churn; LOCAL, gitignored, and not inherited; see docs/configuration.md "Turn-end pane-churn absorb"
 config/wedge-defer-parked-gate  optional presence flag opting this home into the default-off deferral of a wedge escalation for a lane parked at a validation gate awaiting the supervisor's own still-open decision; LOCAL, gitignored, and not inherited; see docs/configuration.md "Parked-gate wait deferral"
-config/jev-wake-triage  optional "on" opt-in to the default-off Jev stale-escalation triage; LOCAL, gitignored, and not inherited; see docs/configuration.md "Jev stale-escalation triage"
+config/jev-wake-triage  optional override of the default-on Jev stale-escalation triage (first line on/1/true/yes keeps it on; any other content turns it off); LOCAL, gitignored, and not inherited; see docs/configuration.md "Jev stale-escalation triage"
 config/cmux-socket-password  optional cmux control-socket password; LOCAL, gitignored; read fresh on every cmux CLI call and passed through without ever overriding an operator's own ambient CMUX_SOCKET_PASSWORD when absent (docs/cmux-backend.md "Setup")
 config/wedge-alarm  optional away-mode wedge-alarm active-alert directives; LOCAL, gitignored; absent means auto (macOS Notification Center when available); see docs/wedge-alarm.md
 config/watched-tools.json  optional list of the tools this home depends on, read by the update check armed with bin/fm-tool-update-check.sh; LOCAL, gitignored, firstmate-maintained but human-editable, and NOT inherited by secondmate homes; see docs/configuration.md "Watched tool updates"
@@ -118,7 +118,7 @@ state/               runtime records and signals; gitignored
   .hash-* .count-* .stale-* .stale-since-* .churn-since-* .paused-* .wedge-escalations-* .jev-suppress-* .dead-reported-* .writing-* .waiting-* .seen-* .hb-surfaced-* .last-* .heartbeat-streak .secondmate-liveness-tick .secondmate-liveness-*.lock*   watcher internals; never touch
   .secondmate-relaunch-<id> .secondmate-relaunch-bound-<id>   durable relaunch history and parked-bound state; never touch (bin/fm-secondmate-liveness-lib.sh owns the ledger contract)
   .watch-triage.log  watcher's absorbed-wake debug log (size-capped); never relied on, safe to delete
-  .jev-triage-telemetry .jev-triage-calibration.jsonl .jev-triage-pending  Jev stale-escalation counters by task class, the first-20 calibration log, and the last per-task action for later-outcome follow-up; written by bin/fm-jev-wake-triage.sh
+  .jev-triage-telemetry .jev-triage-calibration.jsonl .jev-triage-pending  Jev stale-escalation counters by task class (size-capped), the first-20 calibration log, and the per-task suppress/escalate history for later-outcome follow-up; written by bin/fm-jev-wake-triage.sh
   .last-watcher-beat watcher liveness beacon, touched every poll (including while absorbing benign wakes); guard scripts read it
   .subsuper-* .supervise-daemon.*   sub-supervisor internals; never touch
 .no-mistakes/        local validation state and evidence; gitignored

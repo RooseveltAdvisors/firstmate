@@ -36,14 +36,18 @@
 #
 # Telemetry: appends one `jev_triage.<action>\t<class>` line to
 #   state/.jev-triage-telemetry. <class> is ship, scout, secondmate, or
-#   unknown. No task id, no status text, no PHI.
+#   unknown. No task id, no status text, no PHI. Capped like the watcher
+#   triage log: at FM_WATCH_TRIAGE_LOG_MAX_BYTES (default 262144) it keeps
+#   the newest 2000 lines.
 #
 # Calibration: the first 20 decisions (override with
 #   FM_JEV_WAKE_TRIAGE_CALIBRATION_LIMIT) append one JSON object to
 #   state/.jev-triage-calibration.jsonl with the input summary, Jev answer,
 #   action, and outcome. A later escalate after a suppress for the same task
 #   appends a follow-up line with outcome=later_escalated only while that
-#   window is still open.
+#   window is still open; unavailable answers between them are not decisions
+#   and do not hide the earlier suppress. The request carries the status-log
+#   tail only; it presents no separate run-step evidence.
 #
 # Output (stdout, one key=value per line):
 #   action=escalate|suppress|unavailable
@@ -66,8 +70,10 @@ TS_BASE=https://api.typesafe.ai
 TS_TIMEOUT=${FM_JEV_WAKE_TRIAGE_TIMEOUT:-5}
 CALIBRATION_LIMIT=${FM_JEV_WAKE_TRIAGE_CALIBRATION_LIMIT:-20}
 CONFIDENCE_FLOOR=0.6
+TELEMETRY_MAX_BYTES=${FM_WATCH_TRIAGE_LOG_MAX_BYTES:-262144}
 case "$TS_TIMEOUT" in ''|*[!0-9]*|0) TS_TIMEOUT=5 ;; esac
 case "$CALIBRATION_LIMIT" in ''|*[!0-9]*) CALIBRATION_LIMIT=20 ;; esac
+case "$TELEMETRY_MAX_BYTES" in ''|*[!0-9]*|0) TELEMETRY_MAX_BYTES=262144 ;; esac
 
 CLASS='' AGE='' COUNT='' TASK='' STATUS_FILE='' LAST_STATUS=''
 
@@ -136,13 +142,19 @@ status_tail_json() {
 }
 
 stamp_telemetry() {  # <suppress|escalate|unavailable>
-  local counter=$1
+  local counter=$1 sz
   case "$counter" in
     suppress) counter=suppressed ;;
     escalate) counter=escalated ;;
   esac
   mkdir -p "$STATE" 2>/dev/null || return 0
-  printf 'jev_triage.%s\t%s\n' "$counter" "$CLASS" >> "$TELEMETRY" 2>/dev/null || true
+  printf 'jev_triage.%s\t%s\n' "$counter" "$CLASS" >> "$TELEMETRY" 2>/dev/null || return 0
+  sz=$(wc -c < "$TELEMETRY" 2>/dev/null | tr -d '[:space:]')
+  case "$sz" in ''|*[!0-9]*) return 0 ;; esac
+  if [ "$sz" -ge "$TELEMETRY_MAX_BYTES" ]; then
+    tail -n 2000 "$TELEMETRY" > "$TELEMETRY.tmp" 2>/dev/null && mv -f "$TELEMETRY.tmp" "$TELEMETRY" 2>/dev/null
+    rm -f "$TELEMETRY.tmp" 2>/dev/null || true
+  fi
 }
 
 calibration_count() {
@@ -170,12 +182,12 @@ write_calibration() {  # <action> [choice] [noul]
   fi
   summary=$(jq -nc --arg class "$CLASS" --argjson age "$AGE" --argjson count "$COUNT" \
     --arg task "$TASK" --arg last "$(sanitize_line "$LAST_STATUS")" --argjson tail "$(status_tail_json "$STATUS_FILE")" \
-    '{task_id:$task,kind:$class,idle_seconds:$age,escalation_count:$count,last_status:$last,status_tail:$tail,run_step:$last}')
+    '{task_id:$task,kind:$class,idle_seconds:$age,escalation_count:$count,last_status:$last,status_tail:$tail}')
   jq -nc --argjson summary "$summary" --arg class "$CLASS" --arg action "$action" \
     --arg choice "$choice" --arg noul "$noul" --argjson n "$n" \
     '{n:($n+1),class:$class,action:$action,choice:(if $choice == "" then null else $choice end),noul:(if $noul == "" then null else ($noul|tonumber) end),outcome:(if $action == "suppress" then "pending" else $action end),summary:$summary}' \
     >> "$CALIBRATION" 2>/dev/null || true
-  if [ -n "$TASK" ]; then
+  if [ -n "$TASK" ] && [ "$action" != unavailable ]; then
     printf '%s\t%s\n' "$TASK" "$action" >> "$PENDING" 2>/dev/null || true
   fi
 }
@@ -214,13 +226,12 @@ REQUEST=$(jq -n --arg model "$TS_MODEL" --arg class "$CLASS" --argjson age "$AGE
       idle_seconds: $age,
       escalation_count: $count,
       last_status: $last,
-      status_tail: $tail,
-      run_step: $last
+      status_tail: $tail
     },
     questions: {
       class: {
         type: "choice",
-        instructions: "Which one label describes this quiet pane? Read `kind`, `idle_seconds`, `escalation_count`, `last_status`, `run_step`, and `status_tail`. Pick pipeline_wait when a ship or scout is silent because a pipeline, CI, validation round, or long drive call is still running. Pick healthy_idle when silence is the healthy state: an idle secondmate with an empty queue, or a finished worker whose endpoint is still up. Pick true_wedge when the worker looks stuck in a way that will not clear on its own.",
+        instructions: "Which one label describes this quiet pane? Read `kind`, `idle_seconds`, `escalation_count`, `last_status`, and `status_tail`. Pick pipeline_wait when a ship or scout is silent because a pipeline, CI, validation round, or long drive call is still running. Pick healthy_idle when silence is the healthy state: an idle secondmate with an empty queue, or a finished worker whose endpoint is still up. Pick true_wedge when the worker looks stuck in a way that will not clear on its own.",
         criteria: {
           pipeline_wait: "A static pane is expected because in-flight validation, CI, a long tool call, or another pipeline step is still running. Tonight false escalations were this class: ships waiting on no-mistakes or CI while the pane stayed idle.",
           true_wedge: "The worker is actually stuck: looping, confused, repeating the same unchanged display without pipeline evidence, or otherwise not making progress that will resume on its own.",

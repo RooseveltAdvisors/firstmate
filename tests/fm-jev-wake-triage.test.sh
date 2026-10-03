@@ -231,6 +231,49 @@ grep -F '"outcome":"later_escalated"' "$HOME_DIR/state/.jev-triage-calibration.j
   && fail "later_escalated must not append after the calibration cap"
 pass "later_escalated does not append after the calibration cap"
 
+# --- the status tail is not repackaged as run-step evidence -----------------
+reset_log
+printf 'working: validating (running)\n' > "$TMP_ROOT/says-validating.status"
+write_choice_response pipeline_wait 0.2
+TYPESAFE_API_KEY=$KEY run_tool code out --class ship --age 500 --escalation-count 1 \
+  --task says --status-file "$TMP_ROOT/says-validating.status"
+jq -e '.state | has("run_step") | not' "$LOG/body" >/dev/null \
+  || fail "the request presents the status tail as a separate run_step: $(cat "$LOG/body")"
+jq -e '.state.last_status == "working: validating (running)"' "$LOG/body" >/dev/null \
+  || fail "the request lost the status line it does carry"
+jq -e '.questions.class.instructions | test("run_step") | not' "$LOG/body" >/dev/null \
+  || fail "the Choice instructions still point Jev at a run_step field"
+jq -se 'all(.[]; .summary | has("run_step") | not)' "$HOME_DIR/state/.jev-triage-calibration.jsonl" >/dev/null \
+  || fail "calibration still records the status line as run_step"
+pass "a status tail that says validating is never presented as run-step evidence"
+
+# --- suppress -> unavailable -> escalate still records later_escalated -----
+reset_log
+write_choice_response pipeline_wait 0.2
+TYPESAFE_API_KEY=$KEY run_tool code out --class ship --age 500 --escalation-count 1 \
+  --task H --status-file "$STATUS"
+FAKE_CURL_HTTP=500 TYPESAFE_API_KEY=$KEY run_tool code out --class ship --age 500 \
+  --escalation-count 1 --task H --status-file "$STATUS"
+assert_contains "$out" 'action=unavailable' "the middle call is unavailable"
+write_choice_response true_wedge 0.91
+TYPESAFE_API_KEY=$KEY run_tool code out --class ship --age 500 --escalation-count 2 \
+  --task H --status-file "$STATUS"
+later_n=$(grep -c '"outcome":"later_escalated"' "$HOME_DIR/state/.jev-triage-calibration.jsonl")
+[ "$later_n" = 1 ] || fail "suppress -> unavailable -> escalate must record one later_escalated, got $later_n"
+pass "an unavailable answer does not erase an earlier suppression"
+
+# --- telemetry is capped like the watcher triage log ------------------------
+reset_log
+i=0
+while [ "$i" -lt 2100 ]; do printf 'jev_triage.old\tship\n'; i=$((i + 1)); done > "$HOME_DIR/state/.jev-triage-telemetry"
+FM_WATCH_TRIAGE_LOG_MAX_BYTES=4096 run_tool code out --class scout --age 1 --escalation-count 0 \
+  --task cap --status-file "$STATUS"
+tel_lines=$(wc -l < "$HOME_DIR/state/.jev-triage-telemetry" | tr -d ' ')
+[ "$tel_lines" -le 2000 ] || fail "telemetry past the cap kept $tel_lines lines"
+[ "$(tail -n 1 "$HOME_DIR/state/.jev-triage-telemetry")" = "$(printf 'jev_triage.unavailable\tscout')" ] \
+  || fail "telemetry rotation dropped the newest entry"
+pass "telemetry past the size cap keeps the newest 2000 lines"
+
 # --- unknown class is coerced so telemetry never carries free text ---------
 reset_log
 run_tool code out --class 'not-a-kind' --age 1 --escalation-count 0 --task x --status-file "$STATUS"
@@ -482,62 +525,52 @@ SH
   pass "watcher Jev error fails open to today's escalate path"
 }
 
-test_watcher_default_off_skips_jev() {
-  local dir state fakebin out capture_file window key pid
-  dir=$(prime_stale_case jev-default-off)
-  state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"
-  capture_file="$dir/pane.txt"; window="test:fm-jev-jev-default-off"
-  key=$(printf '%s' "$window" | tr ':/.' '___')
-  install_fake_jev "$fakebin" suppress
-  unset FM_JEV_WAKE_TRIAGE
-  export FM_FAKE_CREW_STATE='state: working · source: run-step · validating (running)'
-  FM_JEV_WAKE_TRIAGE_BIN="$fakebin/fm-jev-wake-triage.sh" \
-    start_stale_watch "$state" "$fakebin" "$out" "$window" "$capture_file"
-  pid=$!
-  wait_for_exit "$pid" 100 || fail "default-off did not keep today's escalate path: $(cat "$out")"
-  grep -F "possible wedge" "$out" >/dev/null || fail "default-off lost today's escalate reason: $(cat "$out")"
-  [ ! -e "$fakebin/jev.argv" ] || fail "default-off still invoked Jev"
-  ack_stopped_cycle "$state" || fail "could not acknowledge the default-off escalation"
-  unset FM_FAKE_CREW_STATE
-  pass "absent config and env skip Jev and escalate as today"
-}
-
-# Only the canonical truthy set (any case) in config/jev-wake-triage enables
-# the gate; empty, garbage, and near-miss first lines keep it off. The fake Jev
-# escalates, so the watcher exits either way and only the Jev call differs.
-config_gate_case() {  # <name> <first-line> <expect on|off>
-  local name=$1 line=$2 expect=$3 dir state fakebin out capture_file window pid
+# The gate matrix: no file and no env is on; a present file or a non-empty
+# FM_JEV_WAKE_TRIAGE is on only for on/1/true/yes (any case), and the env
+# value beats the file. The fake Jev escalates, so the watcher exits either way
+# and only the Jev call differs.
+gate_case() {  # <name> <file-first-line|-> <env> <expect on|off>
+  local name=$1 line=$2 env=$3 expect=$4 dir state fakebin out capture_file window pid
   dir=$(prime_stale_case "$name")
   state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"
   capture_file="$dir/pane.txt"; window="test:fm-jev-$name"
   mkdir -p "$dir/config"
-  if [ -n "$line" ]; then printf '%s\n' "$line" > "$dir/config/jev-wake-triage"; else : > "$dir/config/jev-wake-triage"; fi
+  case "$line" in
+    -) ;;
+    '') : > "$dir/config/jev-wake-triage" ;;
+    *) printf '%s\n' "$line" > "$dir/config/jev-wake-triage" ;;
+  esac
   install_fake_jev "$fakebin" escalate
-  unset FM_JEV_WAKE_TRIAGE
+  export FM_JEV_WAKE_TRIAGE=$env
   export FM_FAKE_CREW_STATE='state: working · source: run-step · validating (running)'
   FM_CONFIG_OVERRIDE="$dir/config" FM_JEV_WAKE_TRIAGE_BIN="$fakebin/fm-jev-wake-triage.sh" \
     start_stale_watch "$state" "$fakebin" "$out" "$window" "$capture_file"
   pid=$!
-  wait_for_exit "$pid" 100 || fail "config '$line' did not escalate: $(cat "$out")"
-  grep -F "possible wedge" "$out" >/dev/null || fail "config '$line' lost today's escalate reason: $(cat "$out")"
+  unset FM_JEV_WAKE_TRIAGE
+  wait_for_exit "$pid" 100 || fail "gate file='$line' env='$env' did not escalate: $(cat "$out")"
+  grep -F "possible wedge" "$out" >/dev/null || fail "gate file='$line' env='$env' lost today's escalate reason: $(cat "$out")"
   if [ "$expect" = on ]; then
-    [ -s "$fakebin/jev.argv" ] || fail "config '$line' did not enable Jev"
+    [ -s "$fakebin/jev.argv" ] || fail "gate file='$line' env='$env' did not call Jev"
   else
-    [ ! -e "$fakebin/jev.argv" ] || fail "config '$line' invoked Jev while the gate should stay off"
+    [ ! -e "$fakebin/jev.argv" ] || fail "gate file='$line' env='$env' called Jev while the gate should be off"
   fi
-  ack_stopped_cycle "$state" || fail "could not acknowledge the config '$line' escalation"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the gate file='$line' env='$env' escalation"
   unset FM_FAKE_CREW_STATE
 }
 
-test_watcher_config_gate_values() {
+test_watcher_gate_matrix() {
   local i=0 v
+  gate_case gate-default - '' on
   for v in off '' garbage ONN tru 1x of; do
-    i=$((i + 1)); config_gate_case "cfg-off-$i" "$v" off
+    i=$((i + 1)); gate_case "cfg-off-$i" "$v" '' off
   done
   for v in on 1 true yes ON True YES; do
-    i=$((i + 1)); config_gate_case "cfg-on-$i" "$v" on
+    i=$((i + 1)); gate_case "cfg-on-$i" "$v" '' on
   done
-  pass "config/jev-wake-triage enables only on/1/true/yes (any case); empty, garbage, and typos stay off"
+  gate_case env-off-file-on on off off
+  gate_case env-garbage - garbage off
+  gate_case env-typo-file-on on of off
+  pass "Jev gate: default on; file and env on only for on/1/true/yes; env beats file"
 }
 
 # FM_JEV_WAKE_TRIAGE is the documented override of config/jev-wake-triage in
@@ -602,8 +635,7 @@ test_watcher_capped_streak_pages
 test_watcher_new_status_line_resets_streak
 test_watcher_true_wedge_escalates
 test_watcher_jev_error_fails_open
-test_watcher_default_off_skips_jev
-test_watcher_config_gate_values
+test_watcher_gate_matrix
 test_watcher_env_off_skips_jev
 test_watcher_env_on_beats_config_off
 
