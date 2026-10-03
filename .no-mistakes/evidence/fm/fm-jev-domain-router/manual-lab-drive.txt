@@ -1,0 +1,45 @@
+$ fm-route-dispatch.sh --task "Seller outreach campaign for Dallas clinics"   # dry run
+=== Jev Front-Door Router ===
+Action:     dispatch
+Route:      seller-outreach
+Confidence: 0.9
+New Domain: 0.1
+=============================
+Recommended dispatch command:
+  FM_HOME=/tmp/fm-lab.dnAWx2 /home/jon/.no-mistakes/worktrees/2f32188048b1/01M3ZQ0YC6YP0KDXSWWQKNK8PM/bin/fm-send.sh seller-outreach Seller\ outreach\ campaign\ for\ Dallas\ clinics
+Pass --execute to dispatch automatically.
+exit=0 inbox=0
+
+$ fm-route-dispatch.sh --task "Seller outreach campaign for Dallas clinics" --execute
+=== Jev Front-Door Router ===
+Action:     dispatch
+Route:      seller-outreach
+Confidence: 0.9
+New Domain: 0.1
+=============================
+Executing dispatch to second mate: seller-outreach ...
+fm-send: doorbell not typed because the agent in sess:fm-seller-outreach has exited; the steer is durably recorded at /tmp/fm-lab.dnAWx2/state/seller-outreach.inbox/001.msg for recovery (stuck-crewmate-recovery), and the watcher will not re-ring a dead pane
+Dispatched successfully to seller-outreach.
+exit=0 inbox=2
+--- inbox message body:
+[fm-from-firstmate]⁣corr=831bae5c448040ca Seller outreach campaign for Dallas clinics
+$ fm-route-dispatch.sh --task "vague seller thing" --json --execute   # confidence 0.3 < floor 0.7
+{
+  "action": "handle_direct",
+  "route": "captain_direct",
+  "confidence": 0.3,
+  "needs_new_noul": 0.1,
+  "probabilities": {},
+  "reason": "route confidence 0.300 below 0.7 for seller-outreach"
+}
+exit=0 inbox=2
+
+$ fm-route-dispatch.sh --brief big.md (131079 bytes) --execute   # over local arg limit
+=== Jev Front-Door Router ===
+Action:     dispatch
+Route:      seller-outreach
+Confidence: 0.9
+New Domain: 0.1
+=============================
+error: local dispatch message is 131079 bytes, at or over the 131072-byte single-argument limit of fm-send.sh; not sent
+exit=2 inbox=2
