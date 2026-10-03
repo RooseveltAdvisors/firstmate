@@ -103,6 +103,9 @@
 #              clear. The reported outcome is the post-clear re-read, never
 #              the request's exit code. The verdict contract lives in
 #              bin/backends/herdr.sh's fm_backend_herdr_clear_agent_registration.
+#              The clear also drops the pane's bound session record, so a
+#              later relaunch of a Pi-family task starts a fresh Pi session
+#              instead of resuming the previous conversation.
 #
 # Teardown and discard are NOT verbs here and never will be. `exit` stops an
 # agent and preserves everything else; removing a worktree, killing an

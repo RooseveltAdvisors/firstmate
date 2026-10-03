@@ -701,6 +701,7 @@ A pane holding a live agent, a foreground command, an editor, or an unreadable p
 Already-clear is idempotent success.
 
 The clear drops the pane's hook authority and its bound session record; it changes no process, no pane, no tab, no workspace, and no task record, so teardown, closing, and discard still stay with `bin/fm-teardown.sh` and their own guards.
+Dropping the bound session record costs session continuity: a later relaunch of a Pi-family task has no bound reference to hand the replacement as `--session`, so it starts a fresh Pi session instead of resuming the previous conversation.
 Exact flags, verdicts, and refusal wording live in `bin/fm-control.sh`'s header and `bin/backends/herdr.sh`'s `fm_backend_herdr_clear_agent_registration`; `bin/backends/herdr-clear-agent-authority.py` owns the wire request, guarded by the server's own `api schema` read (`fm_backend_herdr_clear_agent_authority_capable`).
 The portable halves are pinned by `tests/fm-backend-herdr.test.sh` (the classifier and the guard, against a canned CLI) and `tests/fm-control-herdr-stuck-registration.test.sh` (both verbs end to end against canned fixtures).
 
