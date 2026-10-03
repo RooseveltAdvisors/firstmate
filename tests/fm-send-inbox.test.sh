@@ -418,6 +418,96 @@ test_skip_page_threshold_is_tunable() {
   pass "fm-send inbox: FM_SEND_SKIP_PAGE_MAX moves the page threshold"
 }
 
+# A page whose wake-queue append fails leaves no .paged marker, so the next
+# skip in the same streak retries the page instead of never alerting.
+test_failed_page_is_retried_by_the_next_skip() {
+  local dir err rc wakes
+  dir=$(setup_case skippage-retry)
+  err="$dir/send.err"
+  run_send "$dir" "$err" FM_FAKE_TMUX_COMPOSER=pending FM_SEND_SKIP_PAGE_MAX=2 -- t1 "steer 1"
+  mkdir "$dir/home/state/.wake-queue"
+  run_send "$dir" "$err" FM_FAKE_TMUX_COMPOSER=pending FM_SEND_SKIP_PAGE_MAX=2 -- t1 "steer 2"
+  rc=$?
+  expect_code 4 "$rc" "a skip whose page failed is still the countable skip"
+  [ ! -e "$dir/home/state/t1.doorbell-skip.paged" ] || fail "a failed page must not arm the page marker"
+  assert_contains "$(cat "$err")" "the supervisor page could not be queued" \
+    "a failed page must be surfaced"
+  rmdir "$dir/home/state/.wake-queue"
+  run_send "$dir" "$err" FM_FAKE_TMUX_COMPOSER=pending FM_SEND_SKIP_PAGE_MAX=2 -- t1 "steer 3"
+  [ -e "$dir/home/state/t1.doorbell-skip.paged" ] || fail "the next skip should retry and arm the page"
+  wakes=$(grep -c 't1.doorbell-skip' "$dir/home/state/.wake-queue" 2>/dev/null || true)
+  [ "${wakes:-0}" = 1 ] || fail "the retried page should queue exactly once, got ${wakes:-0}"
+  assert_contains "$(cat "$err")" "paged the supervisor at 2 consecutive skips" \
+    "the retried page should be named"
+  pass "fm-send inbox: a failed page leaves no marker and the next skip retries it"
+}
+
+# Concurrent skips serialize on the counter's lock: none is lost and the
+# streak pages exactly once.
+test_concurrent_skips_count_every_skip_and_page_once() {
+  local dir n wakes
+  dir=$(setup_case skippage-concurrent)
+  for n in 1 2 3 4; do
+    env PATH="$dir/fakebin:$PATH" FM_ROOT_OVERRIDE="$dir/home" FM_HOME="$dir/home" \
+      FM_SEND_LOG="$dir/send.log" FM_SEND_SETTLE=0 FM_FAKE_TMUX_COMPOSER=pending FM_SEND_SKIP_PAGE_MAX=2 \
+      "$SEND" t1 "steer $n" >/dev/null 2>&1 &
+  done
+  wait
+  [ "$(cat "$dir/home/state/t1.doorbell-skip" 2>/dev/null)" = 4 ] || \
+    fail "four concurrent skips should count four, got $(cat "$dir/home/state/t1.doorbell-skip" 2>/dev/null)"
+  wakes=$(grep -c 't1.doorbell-skip' "$dir/home/state/.wake-queue" 2>/dev/null || true)
+  [ "${wakes:-0}" = 1 ] || fail "concurrent skips should page exactly once, got ${wakes:-0}"
+  pass "fm-send inbox: concurrent composer skips count every skip and page once"
+}
+
+# A mid-turn deferral breaks the streak: failed recovery -> deferral -> failed
+# recovery is two separate streaks of one, never a page. Herdr is the backend
+# with a native busy state, so the stub reports the agent status from a file.
+test_deferral_breaks_the_skip_streak() {
+  local dir err st rc wakes
+  dir="$TMP_ROOT/skip-deferral"
+  mkdir -p "$dir/home/state" "$dir/fakebin"
+  cat > "$dir/fakebin/herdr" <<'SH'
+#!/usr/bin/env bash
+set -u
+case "${1:-} ${2:-}" in
+  "status --json") printf '{"client":{"version":"0.7.5","protocol":16},"server":{"running":true}}\n' ;;
+  "pane get") printf '{"result":{"pane":{"pane_id":"%s"}}}\n' "${3:-}" ;;
+  "pane read") printf '╭──────────────╮\n│ leftover txt │\n╰──────────────╯\n' ;;
+  "agent get") printf '{"result":{"agent":{"agent_status":"%s"}}}\n' "$(cat "$FM_FAKE_HERDR_STATUS")" ;;
+  "pane process-info") printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":100,"foreground_process_group_id":200,"foreground_processes":[{"pid":200,"name":"claude","argv":["claude"]}]}}}\n' "${4:-}" ;;
+esac
+exit 0
+SH
+  chmod +x "$dir/fakebin/herdr"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$dir/fakebin/sleep"
+  chmod +x "$dir/fakebin/sleep"
+  fm_write_meta "$dir/home/state/t1.meta" "window=default:w1:p1" "backend=herdr" \
+    "herdr_session=default" "herdr_pane_id=w1:p1" "kind=ship" "harness=claude"
+  err="$dir/send.err"
+  for st in idle working idle; do
+    printf '%s\n' "$st" > "$dir/status"
+    rc=0
+    env PATH="$dir/fakebin:$PATH" FM_ROOT_OVERRIDE="$dir/home" FM_HOME="$dir/home" \
+      FM_FAKE_HERDR_STATUS="$dir/status" FM_SEND_SETTLE=0 FM_SEND_SKIP_PAGE_MAX=2 \
+      "$SEND" t1 "steer while $st" >/dev/null 2>"$err" || rc=$?
+    case "$st" in
+    working)
+      expect_code 0 "$rc" "a mid-turn endpoint defers the doorbell"
+      assert_contains "$(cat "$err")" "doorbell deferred" "the middle send should defer"
+      [ ! -e "$dir/home/state/t1.doorbell-skip" ] || fail "a deferral must break the skip streak"
+      ;;
+    *) expect_code 4 "$rc" "a failed recovery on an idle endpoint is the countable skip" ;;
+    esac
+  done
+  [ "$(cat "$dir/home/state/t1.doorbell-skip" 2>/dev/null)" = 1 ] || \
+    fail "the skip after a deferral should start a new streak, got $(cat "$dir/home/state/t1.doorbell-skip" 2>/dev/null)"
+  [ ! -e "$dir/home/state/t1.doorbell-skip.paged" ] || fail "a mixed streak must not page"
+  wakes=$(grep -c 't1.doorbell-skip' "$dir/home/state/.wake-queue" 2>/dev/null || true)
+  [ "${wakes:-0}" = 0 ] || fail "a mixed streak must not queue a page, got ${wakes:-0}"
+  pass "fm-send inbox: a mid-turn deferral breaks the consecutive-skip streak"
+}
+
 test_failed_ring_is_still_sent() {
   local dir err rc
   dir=$(setup_case ringfail)
@@ -702,6 +792,9 @@ test_composer_stale_text_is_submitted_and_the_doorbell_rings
 test_composer_recovery_failure_is_a_loud_countable_skip
 test_consecutive_composer_skips_page_once_and_reset
 test_skip_page_threshold_is_tunable
+test_failed_page_is_retried_by_the_next_skip
+test_concurrent_skips_count_every_skip_and_page_once
+test_deferral_breaks_the_skip_streak
 test_failed_ring_is_still_sent
 test_fire_and_forget_unlanded_ring_owes_one_retry
 test_fire_and_forget_retry_stays_off_without_the_flag

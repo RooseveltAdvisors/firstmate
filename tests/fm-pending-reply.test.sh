@@ -201,30 +201,29 @@ test_completed_turn_no_report_triggers_one_recovery() {
   pass "completed turn with no report triggers exactly one recovery"
 }
 
-# fm-send exit 4 (composer-held doorbell skip) recorded the repost durably, so
-# the recovery is sent, not failed.
-test_recovery_with_a_skipped_doorbell_is_sent() {
-  local home state corr err
-  home=$(setup_parent skipped-doorbell)
+# Exit 4 means delivered only for fm-send itself: an arbitrary send hook that
+# exits 4 has no such contract, so the recovery stays failed and survives.
+test_recovery_hook_exit_4_is_not_delivered() {
+  local home state corr
+  home=$(setup_parent hook-exit-4)
   state="$home/state"
-  err="$TMP_ROOT/skipped-doorbell.err"
   export FM_PENDING_REPLY_NOW=2200
   # Invoked indirectly through FM_PENDING_REPLY_SEND_HOOK.
   # shellcheck disable=SC2329
-  skipped_doorbell_hook() { return 4; }
-  export -f skipped_doorbell_hook
-  export FM_PENDING_REPLY_SEND_HOOK='skipped_doorbell_hook'
-  corr=$(fm_pending_reply_create "$home" "$state" "hibit" "status after a wedged composer")
+  exit_4_hook() { return 4; }
+  export -f exit_4_hook
+  export FM_PENDING_REPLY_SEND_HOOK='exit_4_hook'
+  corr=$(fm_pending_reply_create "$home" "$state" "hibit" "status after a failing hook")
   fm_pending_reply_mark_delivered "$state" "$corr"
   fm_pending_reply_observe_busy "$state" "$corr" busy
   fm_pending_reply_observe_busy "$state" "$corr" idle
-  fm_pending_reply_send_recovery "$state" "$corr" 2>"$err" \
-    || fail "a recovery whose doorbell was skipped must still count as sent"
-  [ "$(phase_of "$state" "$corr")" = recovery_sent ] \
-    || fail "phase should be recovery_sent, got $(phase_of "$state" "$corr")"
-  grep -q '^warning: fm-send: doorbell-skip' "$err" || fail "the doorbell skip was not surfaced: $(cat "$err")"
+  if fm_pending_reply_send_recovery "$state" "$corr" 2>/dev/null; then
+    fail "a hook exiting 4 must not count as a sent recovery"
+  fi
+  [ "$(phase_of "$state" "$corr")" = recovery_failed ] \
+    || fail "phase should be recovery_failed, got $(phase_of "$state" "$corr")"
   unset FM_PENDING_REPLY_SEND_HOOK
-  pass "a recovery repost with a skipped doorbell is sent, not failed"
+  pass "a non-fm-send hook exiting 4 leaves the recovery failed"
 }
 
 # A mate waiting on its own open decision is never poked by the recovery; the
@@ -2057,7 +2056,7 @@ test_tick_leaves_settled_records_alone
 test_correlations_reuse_only_for_matching_open_task
 test_tick_end_to_end_missed_then_escalate
 test_failed_send_discards_undelivered_expectation
-test_recovery_with_a_skipped_doorbell_is_sent
+test_recovery_hook_exit_4_is_not_delivered
 test_remote_repost_waits_for_the_reply_channel
 test_mirrored_remote_reply_never_triggers_a_repost
 test_same_basename_self_home_corr_resolves_on_tick

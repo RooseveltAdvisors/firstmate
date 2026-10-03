@@ -1003,8 +1003,11 @@ fm_pending_reply_send_recovery() {  # <state-dir> <corr_id>
   if [ -n "${FM_PENDING_REPLY_SEND_HOOK:-}" ]; then
     # Hook receives: task_id message
     # shellcheck disable=SC2086
-    eval "$FM_PENDING_REPLY_SEND_HOOK" "$(printf '%q' "$task_id")" "$(printf '%q' "$msg")" || send_rc=$?
-    fm_send_delivered "$send_rc" || send_status=1
+    # The hook is an arbitrary command, not fm-send: only its exit 0 counts as
+    # sent; fm-send's exit-4 delivery contract applies to fm-send alone.
+    if ! eval "$FM_PENDING_REPLY_SEND_HOOK" "$(printf '%q' "$task_id")" "$(printf '%q' "$msg")"; then
+      send_status=1
+    fi
   else
     if [ -z "$parent_home" ] || [ ! -d "$parent_home" ]; then
       send_status=1
