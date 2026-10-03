@@ -89,18 +89,21 @@ write_github_required() {
   printf '[{"type":"deletion"}%s]\n' "${rules:+,$rules}" > "$case_dir/github-required-rules.json"
 }
 
-# The paged GraphQL answer the co-author guard reads: the pull request title
-# and body plus the given commit nodes, one page per 100 nodes, every page
-# reporting the given total (default: the node count).
+# The paged GraphQL answer the co-author guard reads: the pull request title,
+# body, and author "operator" plus the given commit nodes, one page per 100
+# nodes, every page reporting the given total (default: the node count). A
+# node without authors is authored by the pull request author. The mock fills
+# headRefOid from the live view unless a node set pins it.
 # Args: case_dir nodes_json [pr_body] [reported_total]
 write_github_commit_pages() {
   local case_dir=$1 nodes=$2 body=${3:-} total=${4:-}
   jq -c --arg body "$body" --arg total "$total" '
-    . as $all
+    map(.commit.authors //= {nodes: [{name: "Operator", email: "op@example.com", user: {login: "operator"}}]})
+    | . as $all
     | ($all | length) as $n
     | (if $total == "" then $n else ($total | tonumber) end) as $t
     | range(0; ([$n, 1] | max); 100) as $start
-    | {data: {repository: {pullRequest: {title: "a pull request", body: $body,
+    | {data: {repository: {pullRequest: {title: "a pull request", body: $body, author: {login: "operator"},
         commits: {totalCount: $t, pageInfo: {hasNextPage: ($start + 100 < $n), endCursor: ($start | tostring)},
           nodes: $all[$start:$start + 100]}}}}}' <<< "$nodes" > "$case_dir/github-commit-pages.json"
 }
@@ -262,7 +265,8 @@ case "${1:-} ${2:-}" in
     case " $* " in
       *"commits(first"*)
         [ ! -e "$(dirname "$FM_TEST_GH_VIEW_JSON")/github-commit-pages-fail" ] || exit 1
-        cat "$(dirname "$FM_TEST_GH_VIEW_JSON")/github-commit-pages.json"
+        jq -c --slurpfile v "$FM_TEST_GH_VIEW_JSON" '.data.repository.pullRequest.headRefOid //= $v[0].headRefOid' \
+          "$(dirname "$FM_TEST_GH_VIEW_JSON")/github-commit-pages.json"
         exit 0
         ;;
     esac
@@ -381,7 +385,10 @@ case "${1:-} ${2:-}" in
     [ ! -e "$case_dir/glab-view-fails" ] || exit 1
     if [ -e "$case_dir/glab-merge-called" ] && [ ! -e "$case_dir/glab-stays-open" ]; then
       cat "$case_dir/mr-post.json"
+    elif [ -f "$case_dir/mr-late.json" ] && [ -e "$case_dir/glab-viewed" ]; then
+      cat "$case_dir/mr-late.json"
     else
+      : > "$case_dir/glab-viewed"
       cat "$FM_TEST_GLAB_JSON"
     fi
     exit 0
@@ -625,8 +632,10 @@ test_github_coauthor_trailer_refuses_before_merge() {
     "coauthor-trailer-refuses: the Co-authored-by trailer line was not named"
   assert_grep 'Co-Authored-By: Claude <noreply@anthropic.com>' "$case_dir/stderr" \
     "coauthor-trailer-refuses: the Co-Authored-By trailer line was not named"
-  assert_grep 'bin/fm-git-strip-ai-trailers.sh' "$case_dir/stderr" \
-    "coauthor-trailer-refuses: the refusal did not name the fleet stripper as the remedy"
+  assert_grep 'strip AI trailers from the named commits with bin/fm-git-strip-ai-trailers.sh' "$case_dir/stderr" \
+    "coauthor-trailer-refuses: the refusal did not name the fleet stripper as the AI-trailer remedy"
+  assert_grep 'remove human co-author trailers from commits by hand' "$case_dir/stderr" \
+    "coauthor-trailer-refuses: the refusal did not give the by-hand remedy for human trailers"
   assert_no_grep 'pr merge' "$case_dir/gh.log" \
     "coauthor-trailer-refuses: the merge API call ran despite the refusal"
   pass "fm-pr-merge refuses a pull request whose commits carry co-author trailers"
@@ -651,6 +660,8 @@ test_github_commits_without_trailers_merge_unchanged() {
   assert_logged_gh_merge "$case_dir" 72 example/repo --squash
   assert_no_grep 'Co-authored-by' "$case_dir/stderr" \
     "coauthor-clean-merge: a clean pull request produced a trailer refusal"
+  grep -B1 '^pr merge ' "$case_dir/gh.log" | head -n1 | grep -q 'commits(first' \
+    || fail "coauthor-clean-merge: the trailer read was not the last forge call before the merge"
   pass "a pull request whose commits carry no co-author trailer merges unchanged"
 }
 
@@ -770,6 +781,61 @@ test_github_description_trailer_refuses() {
   pass "fm-pr-merge refuses a pull request whose description carries a co-author trailer"
 }
 
+# GitHub's default squash message adds a Co-authored-by line for every commit
+# author who is not the pull request author, even when no message carries one.
+test_github_other_commit_author_refuses() {
+  local case_dir rc
+  case_dir=$(make_case coauthor-other-author)
+  mkdir -p "$case_dir/wt"
+  write_github_commit_pages "$case_dir" '[{"commit":{"oid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","message":"feat: one"}},{"commit":{"oid":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","message":"feat: two","authors":{"nodes":[{"name":"Cursor Agent","email":"cursoragent@cursor.com","user":{"login":"cursor"}}]}}}]'
+  add_gh_mocks "$case_dir" deadbeefcafefeed0000000000000000deadbeef
+  : > "$case_dir/gh-axi.log"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/79 \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "coauthor-other-author: a second commit author must refuse"
+  assert_grep 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb (GitHub adds for its author) Co-authored-by: Cursor Agent <cursoragent@cursor.com>' "$case_dir/stderr" \
+    "coauthor-other-author: the synthesized trailer line was not named"
+  assert_no_grep 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' "$case_dir/stderr" \
+    "coauthor-other-author: a commit by the pull request author was named"
+  assert_grep 're-author by hand' "$case_dir/stderr" \
+    "coauthor-other-author: the by-hand remedy was not given"
+  assert_no_grep 'pr merge' "$case_dir/gh.log" \
+    "coauthor-other-author: the merge API call ran despite the refusal"
+  pass "fm-pr-merge refuses a pull request whose squash message GitHub would credit to another commit author"
+}
+
+# Trailers read at a head other than the verified one prove nothing about what
+# lands, so the merge refuses.
+test_github_trailer_read_at_a_moved_head_refuses() {
+  local case_dir rc
+  case_dir=$(make_case coauthor-moved-head)
+  mkdir -p "$case_dir/wt"
+  write_github_commit_pages "$case_dir" "$(github_commit_nodes 1)"
+  jq -c '.data.repository.pullRequest.headRefOid = "1111111111111111111111111111111111111111"' \
+    "$case_dir/github-commit-pages.json" > "$case_dir/pages.tmp"
+  mv "$case_dir/pages.tmp" "$case_dir/github-commit-pages.json"
+  add_gh_mocks "$case_dir" deadbeefcafefeed0000000000000000deadbeef
+  : > "$case_dir/gh-axi.log"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/80 \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "coauthor-moved-head: a read at a moved head must refuse"
+  assert_grep 'could not read the GitHub pull request commit messages' "$case_dir/stderr" \
+    "coauthor-moved-head: the refusal was not reported"
+  assert_no_grep 'pr merge' "$case_dir/gh.log" \
+    "coauthor-moved-head: the merge API call ran despite the refusal"
+  pass "fm-pr-merge refuses trailers read at a head other than the verified one"
+}
+
 # A caller-supplied merge message would bypass the scanned sources, so every
 # spelling of it is refused before anything is recorded.
 test_caller_supplied_merge_message_refuses() {
@@ -845,6 +911,28 @@ test_gitlab_description_trailer_refuses() {
   [ -z "$(glab_merge_line "$case_dir/glab.log")" ] \
     || fail "gitlab-coauthor-description: the merge ran despite the refusal"
   pass "fm-pr-merge refuses a GitLab merge request whose description carries a co-author trailer"
+}
+
+# The description is read again just before the merge, so a trailer added
+# after the mergeability verify is still caught.
+test_gitlab_description_changed_after_verify_refuses() {
+  local case_dir rc
+  case_dir=$(make_gitlab_case gitlab-coauthor-late-description)
+  jq -c '.description = "Summary\n\nCo-Authored-By: Claude <noreply@anthropic.com>"' \
+    "$case_dir/mr.json" > "$case_dir/mr-late.json"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 "$MR_URL" \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "gitlab-coauthor-late-description: a late description trailer must refuse"
+  assert_grep 'merge request description Co-Authored-By: Claude' "$case_dir/stderr" \
+    "gitlab-coauthor-late-description: the late description trailer was not named"
+  [ -z "$(glab_merge_line "$case_dir/glab.log")" ] \
+    || fail "gitlab-coauthor-late-description: the merge ran despite the refusal"
+  pass "fm-pr-merge reads the GitLab description again just before merging"
 }
 
 test_gitlab_unreadable_commit_list_refuses() {
@@ -2680,9 +2768,12 @@ test_github_trailer_past_the_first_page_refuses
 test_github_clean_commits_past_the_first_page_merge
 test_github_incomplete_commit_pages_refuse
 test_github_description_trailer_refuses
+test_github_other_commit_author_refuses
+test_github_trailer_read_at_a_moved_head_refuses
 test_caller_supplied_merge_message_refuses
 test_gitlab_coauthor_trailer_refuses_before_merge
 test_gitlab_description_trailer_refuses
+test_gitlab_description_changed_after_verify_refuses
 test_gitlab_unreadable_commit_list_refuses
 test_pr_metadata_is_recorded_before_the_forge_call
 test_merge_failure_propagates_after_recording

@@ -124,7 +124,7 @@ case "${1:-} ${2:-}" in
   "api graphql")
     case " $* " in
       *"commits(first"*)
-        printf '%s\n' '{"data":{"repository":{"pullRequest":{"title":"t","body":"","commits":{"totalCount":1,"nodes":[{"commit":{"oid":"1111111111111111111111111111111111111111","message":"clean subject"}}]}}}}}'
+        printf '%s\n' '{"data":{"repository":{"pullRequest":{"title":"t","body":"","headRefOid":"1111111111111111111111111111111111111111","author":{"login":"operator"},"commits":{"totalCount":1,"nodes":[{"commit":{"oid":"1111111111111111111111111111111111111111","message":"clean subject","authors":{"nodes":[{"name":"Operator","email":"op@example.com","user":{"login":"operator"}}]}}}]}}}}}'
         ;;
       *) printf '%s\n' 'state=MERGED' 'merged=true' 'queued=false' 'base=main' ;;
     esac

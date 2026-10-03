@@ -143,7 +143,7 @@ case "${1:-} ${2:-}" in
   "api graphql")
     case " $* " in
       *"commits(first"*)
-        printf '%s\n' '{"data":{"repository":{"pullRequest":{"title":"t","body":"","commits":{"totalCount":1,"nodes":[{"commit":{"oid":"0123456789abcdef0123456789abcdef01234567","message":"clean subject"}}]}}}}}'
+        printf '%s\n' "{\"data\":{\"repository\":{\"pullRequest\":{\"title\":\"t\",\"body\":\"\",\"headRefOid\":\"${FM_TEST_GH_HEAD:-0123456789abcdef0123456789abcdef01234567}\",\"author\":{\"login\":\"operator\"},\"commits\":{\"totalCount\":1,\"nodes\":[{\"commit\":{\"oid\":\"0123456789abcdef0123456789abcdef01234567\",\"message\":\"clean subject\",\"authors\":{\"nodes\":[{\"name\":\"Operator\",\"email\":\"op@example.com\",\"user\":{\"login\":\"operator\"}}]}}}]}}}}}"
         exit 0
         ;;
     esac

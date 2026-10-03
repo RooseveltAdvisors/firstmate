@@ -86,11 +86,16 @@
 # squash or merge commit message). Any line whose start, ignoring case and
 # leading whitespace, is co-authored-by: refuses the merge, because a squash
 # merge would carry that line into the base branch's history. The refusal names
-# every offending commit sha or description with its trailer line. The remedy
-# has two paths: an AI trailer is stripped from those commits with
-# bin/fm-git-strip-ai-trailers.sh and the commits re-pushed, while a human
-# co-author trailer must be removed by hand, because that stripper deliberately
-# leaves human trailers alone; then re-run this guard. The guard is
+# every offending commit sha or description with its trailer line. On GitHub
+# the Co-authored-by line its default squash message adds for every commit
+# author who is not the pull request author refuses the same way. These are
+# read last, just before the merge API call, at the head the run verified, so
+# the scanned text is the text that lands. The remedy has two paths: an AI
+# trailer is stripped from those commits with bin/fm-git-strip-ai-trailers.sh
+# and the commits re-pushed, while a human co-author trailer, or a commit by
+# another author, must be fixed by hand, because that stripper deliberately
+# leaves human trailers alone; any trailer in the description is removed from
+# it; then re-run this merge. The guard is
 # forward-only - it refuses, and never rewrites landed history. A commit list
 # that cannot be read in full refuses rather than merging unguarded, and extra
 # args that would supply the merge message themselves (--body, --body-file,
@@ -485,12 +490,10 @@ if [ "$PROVIDER" = gitlab ]; then
 fi
 
 # Pre-merge conditions for a GitLab merge request, read from one live view of
-# the merge request. Sets FM_PR_MERGE_HEAD to the verified head and
-# FM_PR_GITLAB_VIEW_JSON to that view on success and returns non-zero after
-# reporting every condition that failed.
+# the merge request. Sets FM_PR_MERGE_HEAD to the verified head on success and
+# returns non-zero after reporting every condition that failed.
 FM_PR_MERGE_HEAD=
 FM_PR_GITLAB_ASYNC_CONFIGURED=false
-FM_PR_GITLAB_VIEW_JSON=
 gitlab_verify_mergeable() {
   local json fields line
   local total=0 named=0 refusals=''
@@ -589,7 +592,6 @@ FIELDS
     "$URL" "$live_head" >&2
   FM_PR_MERGE_HEAD=$live_head
   FM_PR_GITLAB_ASYNC_CONFIGURED=$async_configured
-  FM_PR_GITLAB_VIEW_JSON=$json
 }
 
 # Every GitHub check that is not green in the given live pull-request JSON, one
@@ -1255,24 +1257,33 @@ COAUTHOR_TRAILER_SCAN='.[]
   | $s + "\t" + .'
 
 # Every commit message and the title and description of a GitHub pull request,
-# paged through in full. A page that cannot be read, or a page set whose commits
-# fall short of the reported total (GitHub stops listing a pull request's
-# commits past its own cap), refuses rather than passing an unverified list.
+# paged through in full and read at the head this run verified, plus the
+# Co-authored-by line GitHub's default squash message adds for every commit
+# author who is not the pull request author. A page that cannot be read, a page
+# set whose commits fall short of the reported total (GitHub stops listing a
+# pull request's commits past its own cap), or a head that moved since the
+# verify refuses rather than passing an unverified list.
 github_read_coauthor_trailers() {
   local pages
   # shellcheck disable=SC2016  # GraphQL variables are literal query syntax.
   if ! pages=$(gh api graphql --paginate \
-      -f query='query($owner:String!,$repo:String!,$number:Int!,$endCursor:String){repository(owner:$owner,name:$repo){pullRequest(number:$number){title body commits(first:100,after:$endCursor){totalCount pageInfo{hasNextPage endCursor} nodes{commit{oid message}}}}}}' \
+      -f query='query($owner:String!,$repo:String!,$number:Int!,$endCursor:String){repository(owner:$owner,name:$repo){pullRequest(number:$number){title body headRefOid author{login} commits(first:100,after:$endCursor){totalCount pageInfo{hasNextPage endCursor} nodes{commit{oid message authors(first:100){nodes{name email user{login}}}}}}}}}' \
       -F "owner=$PR_OWNER" -F "repo=$PR_REPO" -F "number=$PR_NUMBER" 2>/dev/null) \
-    || ! FM_PR_COAUTHOR_TRAILERS=$(printf '%s' "$pages" | jq -rs '
+    || ! FM_PR_COAUTHOR_TRAILERS=$(printf '%s' "$pages" | jq -rs --arg head "$FM_PR_MERGE_HEAD" '
         map(.data.repository.pullRequest) as $pages
         | if ($pages | length) == 0 or any($pages[]; (.commits.nodes | type) != "array")
           then error("unreadable commit pages") else . end
+        | if $pages[0].headRefOid != $head then error("head moved since the verify") else . end
+        | ($pages[0].author.login // null) as $pr_author
         | [$pages[].commits.nodes[].commit] as $commits
         | if ($commits | length) != $pages[0].commits.totalCount
           then error("incomplete commit list") else . end
         | [{source: "pull request description", text: (($pages[0].title // "") + "\n" + ($pages[0].body // ""))}]
           + [$commits[] | {source: (.oid | if type == "string" and length > 0 then . else error("unreadable commit oid") end), text: .message}]
+          + [$commits[] | .oid as $oid
+              | (.authors.nodes | if type == "array" then .[] else error("unreadable commit authors") end)
+              | select($pr_author == null or (.user.login // null) != $pr_author)
+              | {source: "\($oid) (GitHub adds for its author)", text: "Co-authored-by: \(.name) <\(.email)>"}]
         | '"$COAUTHOR_TRAILER_SCAN" 2>/dev/null); then
     echo "error: could not read the GitHub pull request commit messages before merging" >&2
     return 1
@@ -1281,17 +1292,20 @@ github_read_coauthor_trailers() {
 
 # Every commit message of a GitLab merge request, paged through in full, plus
 # the title, description, and any explicitly set squash or merge commit message
-# from the live view gitlab_verify_mergeable read. A page that cannot be read
-# refuses rather than passing an unverified list.
+# from a fresh view read at the head this run verified. A view or page that
+# cannot be read, or a head that moved since the verify, refuses rather than
+# passing an unverified list.
 gitlab_read_coauthor_trailers() {
-  local commits
-  if ! commits=$(GITLAB_HOST="$FM_PR_HOST" glab api --hostname "$FM_PR_HOST" --paginate \
+  local view commits
+  if ! view=$(GITLAB_HOST="$FM_PR_HOST" glab mr view "$PR_NUMBER" -R "$PROJECT_URL" -F json 2>/dev/null) \
+    || ! commits=$(GITLAB_HOST="$FM_PR_HOST" glab api --hostname "$FM_PR_HOST" --paginate \
       "projects/$(github_urlencode_path_segment "$PR_PATH")/merge_requests/$PR_NUMBER/commits" 2>/dev/null) \
     || [ -z "$commits" ] \
-    || ! FM_PR_COAUTHOR_TRAILERS=$(printf '%s\n%s\n' "$FM_PR_GITLAB_VIEW_JSON" "$commits" | jq -rs '
+    || ! FM_PR_COAUTHOR_TRAILERS=$(printf '%s\n%s\n' "$view" "$commits" | jq -rs --arg head "$FM_PR_MERGE_HEAD" '
         .[0] as $mr
         | [.[1:][] | if type == "array" then .[] else error("unreadable commit page") end] as $commits
         | if ($mr | type) != "object" then error("unreadable merge request") else . end
+        | if $mr.sha != $head then error("head moved since the verify") else . end
         | [{source: "merge request description", text: (($mr.title // "") + "\n" + ($mr.description // ""))}]
           + [$mr.squash_commit_message, $mr.merge_commit_message | select(. != null) | {source: "merge request commit message", text: .}]
           + [$commits[] | {source: (.id | if type == "string" and length > 0 then . else error("unreadable commit id") end), text: .message}]
@@ -1303,8 +1317,9 @@ gitlab_read_coauthor_trailers() {
 
 # Refuse a merge whose squash message sources carry a co-author trailer, naming
 # every offending commit sha or description with its trailer line and pointing
-# at the fleet stripper for AI trailers; a human co-author trailer is removed
-# by hand, since the stripper never touches it. An empty list is a clean pull request
+# at the fleet stripper for AI trailers; a human co-author trailer, or a commit
+# by another author that GitHub would credit, is fixed by hand, since the
+# stripper never touches it. An empty list is a clean pull request
 # and passes unchanged. Forward-only: this refuses the merge and rewrites
 # nothing.
 require_no_coauthor_trailers() {
@@ -1317,7 +1332,7 @@ require_no_coauthor_trailers() {
   done <<EOF
 $hits
 EOF
-  printf 'error: remedy: strip these trailers from the named commits with bin/fm-git-strip-ai-trailers.sh and push the rewritten commits, or remove them from the description, then re-run this merge\n' >&2
+  printf 'error: remedy: strip AI trailers from the named commits with bin/fm-git-strip-ai-trailers.sh and push the rewritten commits; remove human co-author trailers from commits by hand (the stripper leaves them untouched), and re-author by hand any named commit that GitHub would credit to another author; remove any trailers from the description; then re-run this merge\n' >&2
   return 1
 }
 
@@ -1500,11 +1515,6 @@ case "$PROVIDER" in
       fi
       exit 1
     fi
-    # The last gate before the away-record lock and the forge command: a pull
-    # request whose commits or description carry a co-author trailer is
-    # refused here, before any merge API call.
-    github_read_coauthor_trailers || exit 1
-    require_no_coauthor_trailers "$FM_PR_COAUTHOR_TRAILERS" || exit 1
     # The away record is locked first, so this last presence and authority read
     # and the forge command below share one live-owner critical section.
     hold_away_record_for_merge || exit 1
@@ -1512,6 +1522,12 @@ case "$PROVIDER" in
     require_current_away_authority || away_status=$?
     [ "$away_status" -eq 0 ] || exit "$away_status"
     refuse_github_queue_while_away || exit 2
+    # The last read before the merge API call: a pull request whose commits or
+    # description carry a co-author trailer, or whose squash message GitHub
+    # would credit to another commit author, is refused here, so the scanned
+    # text is the text the merge lands.
+    github_read_coauthor_trailers || exit 1
+    require_no_coauthor_trailers "$FM_PR_COAUTHOR_TRAILERS" || exit 1
     merge_status=0
     merge_output=$(gh pr merge "$PR_NUMBER" --repo "$PR_OWNER/$PR_REPO" \
       --match-head-commit "$FM_PR_MERGE_HEAD" \
@@ -1556,8 +1572,6 @@ case "$PROVIDER" in
     ;;
   gitlab)
     gitlab_verify_mergeable || exit 1
-    gitlab_read_coauthor_trailers || exit 1
-    require_no_coauthor_trailers "$FM_PR_COAUTHOR_TRAILERS" || exit 1
     # --sha binds the merge to the head this run verified, so a push that lands
     # in between is refused by GitLab instead of merged unverified. --yes only
     # skips the interactive confirmation, which no supervised run can answer;
@@ -1568,6 +1582,10 @@ case "$PROVIDER" in
     away_status=0
     require_current_away_authority || away_status=$?
     [ "$away_status" -eq 0 ] || exit "$away_status"
+    # The last read before the merge API call, from a fresh view, so the
+    # scanned description is the one the merge lands.
+    gitlab_read_coauthor_trailers || exit 1
+    require_no_coauthor_trailers "$FM_PR_COAUTHOR_TRAILERS" || exit 1
     merge_status=0
     gitlab_merge_args=()
     if [ "$FM_PR_AWAY_POSTURE" = true ]; then
