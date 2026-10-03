@@ -1,0 +1,34 @@
+# herdr herdr 0.9.3, pi 1.0.0, lab fm-lab-realpi-496193
+[real pi running idle] reg={"agent":"pi","agent_status":"idle"} process_state=agent pane_agent_state=live agent_state=alive
+--- clear-registration while real pi is live:
+error: refusing to clear task rpi's agent registration: a live agent process is present in the pane
+rc=1
+[after refused clear] reg={"agent":"pi","agent_status":"idle"} process_state=agent pane_agent_state=live agent_state=alive
+[after /quit under nested shell] reg={"agent":"pi","agent_status":"idle"} process_state=shell pane_agent_state=stale-agent agent_state=dead
+--- exit verb on stuck pane:
+already-stopped rpi harness=pi backend=herdr endpoint=fm-lab-realpi-496193:w1:p2 worktree=/tmp/fm-realpi.XK1L/wt
+rc=0
+--- clear-registration on stuck pane:
+error: clearing task rpi's agent registration did not take: the clear request was accepted but the registration still reads present afterwards
+rc=1
+[after clear] reg={"agent":"pi","agent_status":"idle"} process_state=shell pane_agent_state=stale-agent agent_state=dead
+--- relaunch:
+warning: /tmp/fm-realpi.XK1L/home/data/rpi/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+spawned rpi harness=codex kind=ship mode=no-mistakes yolo=off window=fm-lab-realpi-496193:w1:p2 worktree=/tmp/fm-realpi.XK1L/wt
+rc=0
+replacement harness launched on same endpoint: fm-lab-realpi-496193:w1:p2
+rm: cannot remove '/tmp/fm-realpi.XK1L/home/state/rpi.git-hooks/commit-msg': Permission denied
+rm: cannot remove '/tmp/fm-realpi.XK1L/home/state/rpi.git-hooks/post-commit': Permission denied
+rm: cannot remove '/tmp/fm-realpi.XK1L/home/state/rpi.git-hooks/sendemail-validate': Permission denied
+rm: cannot remove '/tmp/fm-realpi.XK1L/home/state/rpi.git-hooks/pre-auto-gc': Permission denied
+rm: cannot remove '/tmp/fm-realpi.XK1L/home/state/rpi.git-hooks/pre-rebase': Permission denied
+rm: cannot remove '/tmp/fm-realpi.XK1L/home/state/rpi.git-hooks/pre-commit': Permission denied
+rm: cannot remove '/tmp/fm-realpi.XK1L/home/state/rpi.git-hooks/applypatch-msg': Permission denied
+rm: cannot remove '/tmp/fm-realpi.XK1L/home/state/rpi.git-hooks/post-checkout': Permission denied
+rm: cannot remove '/tmp/fm-realpi.XK1L/home/state/rpi.git-hooks/pre-applypatch': Permission denied
+rm: cannot remove '/tmp/fm-realpi.XK1L/home/state/rpi.git-hooks/post-merge': Permission denied
+rm: cannot remove '/tmp/fm-realpi.XK1L/home/state/rpi.git-hooks/prepare-commit-msg': Permission denied
+rm: cannot remove '/tmp/fm-realpi.XK1L/home/state/rpi.git-hooks/post-rewrite': Permission denied
+rm: cannot remove '/tmp/fm-realpi.XK1L/home/state/rpi.git-hooks/post-applypatch': Permission denied
+rm: cannot remove '/tmp/fm-realpi.XK1L/home/state/rpi.git-hooks/pre-push': Permission denied
+rm: cannot remove '/tmp/fm-realpi.XK1L/home/state/rpi.git-hooks/pre-merge-commit': Permission denied

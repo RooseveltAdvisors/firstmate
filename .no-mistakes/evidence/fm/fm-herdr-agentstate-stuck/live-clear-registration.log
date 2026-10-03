@@ -1,0 +1,22 @@
+# herdr herdr 0.9.3 lab session fm-lab-clearreg-734139
+## S1 stuck registration over idle shell (agent process exited, record kept)
+registration: {"agent":"fm-clearreg-agent","agent_status":"idle","code":null}  process_state=shell  pane_agent_state=stale-agent  agent_state=dead
+ok - S1 classifier: registration over agent-less shell reads dead
+## S2 clear-registration on stuck pane (real pane.clear_agent_authority)
+$ fm-control.sh creg clear-registration  -> rc=0
+cleared-registration creg harness=pi backend=herdr endpoint=fm-lab-clearreg-734139:w1:p2
+registration after: {"agent":null,"agent_status":null,"code":"agent_not_found"}
+ok - S2 real server cleared the stuck registration; pane and worktree survive
+## S3 idempotent
+rc=0 already-clear creg harness=pi backend=herdr endpoint=fm-lab-clearreg-734139:w1:p2
+ok - S3 second clear is already-clear success
+## S5 adversarial: foreground non-agent command + registration
+registration: {"agent":"fm-clearreg-agent","agent_status":"idle","code":null} process_state=other agent_state=alive
+rc=1 error: refusing to clear task creg's agent registration: a foreground command or editor is running in the pane
+registration after: {"agent":"fm-clearreg-agent","agent_status":"idle","code":null}
+ok - S5 foreground command refused; registration intact; classifier never concludes dead
+## S4 adversarial: live agent process + registration
+registration: {"agent":"fm-clearreg-agent","agent_status":"idle","code":null} process_state=agent agent_state=alive
+rc=1 error: refusing to clear task creg's agent registration: a live agent process is present in the pane
+registration after: {"agent":"fm-clearreg-agent","agent_status":"idle","code":null}
+ok - S4 live agent refused; registration intact; classifier still alive

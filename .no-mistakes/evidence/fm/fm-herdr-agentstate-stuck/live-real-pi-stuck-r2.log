@@ -1,0 +1,19 @@
+# herdr herdr 0.9.3, pi 1.0.0, lab fm-lab-realpi-2676289
+[real pi running idle] reg={"agent":"pi","agent_status":"idle"} process_state=agent pane_agent_state=live agent_state=alive
+--- clear-registration while real pi is live:
+error: refusing to clear task rpi's agent registration: a live agent process is present in the pane
+rc=1
+[after refused clear] reg={"agent":"pi","agent_status":"idle"} process_state=agent pane_agent_state=live agent_state=alive
+[after /quit under nested shell] reg={"agent":"pi","agent_status":"idle"} process_state=shell pane_agent_state=stale-agent agent_state=dead
+--- exit verb on stuck pane:
+already-stopped rpi harness=pi backend=herdr endpoint=fm-lab-realpi-2676289:w1:p2 worktree=/tmp/fm-realpi.UNPz/wt
+rc=0
+--- clear-registration on stuck pane:
+cleared-authority rpi harness=pi backend=herdr endpoint=fm-lab-realpi-2676289:w1:p2 detection-record=held: the hook authority was cleared, but Herdr process detection still holds a record over this agent-less shell until the pane's nested shell exits; exit and relaunch already read the agent dead
+rc=0
+[after clear] reg={"agent":"pi","agent_status":"idle"} process_state=shell pane_agent_state=stale-agent agent_state=dead
+--- relaunch:
+warning: /tmp/fm-realpi.UNPz/home/data/rpi/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+spawned rpi harness=codex kind=ship mode=no-mistakes yolo=off window=fm-lab-realpi-2676289:w1:p2 worktree=/tmp/fm-realpi.UNPz/wt
+rc=0
+replacement harness launched on same endpoint: fm-lab-realpi-2676289:w1:p2
