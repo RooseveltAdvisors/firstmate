@@ -1,0 +1,40 @@
+=== kunchenguid/firstmate#6447 (real GitHub, read-only) ===
+commits reported by REST: 21
+error: refusing to merge https://github.com/kunchenguid/firstmate/pull/6447: its commits or description carry Co-authored-by / Co-Authored-By trailer lines that a squash merge would land in the base branch history
+error:  - a82452270bc951f3af21f3f04739c84f7ffce864 <trailer line>
+error:  - ee3d90e7fbd62cc96ac088fb5e00156fed851485 <trailer line>
+error:  - d40f21e3e9dc09c1fafde02edc1325cc1c640431 <trailer line>
+error:  - f6c718cccd1ce0c64bbeedc2d157542423c9cbec <trailer line>
+error: remedy: strip these trailers from the named commits with bin/fm-git-strip-ai-trailers.sh and push the rewritten commits, or remove them from the description, then re-run this merge
+verdict: REFUSED (trailers), rc=1
+
+=== kunchenguid/firstmate#6430 (real GitHub, read-only) ===
+commits reported by REST: 7
+error: refusing to merge https://github.com/kunchenguid/firstmate/pull/6430: its commits or description carry Co-authored-by / Co-Authored-By trailer lines that a squash merge would land in the base branch history
+error:  - 1f7a5832bffa42c037fa8d39d0f2f03736571ff9 <trailer line>
+error:  - 35ecc965a8fdac9c812836bf39ad42446414ff30 <trailer line>
+error:  - 325b744bc903daaf1b9e85d71e61aa773f8d9a3b <trailer line>
+error:  - ca6dce3a2c166cb0a7146e0a56fcd24a0e89bf24 <trailer line>
+error:  - ac0ffddee35ac4be258443d10c0930c71ca54dfc <trailer line>
+error: remedy: strip these trailers from the named commits with bin/fm-git-strip-ai-trailers.sh and push the rewritten commits, or remove them from the description, then re-run this merge
+verdict: REFUSED (trailers), rc=1
+
+=== kunchenguid/firstmate#6446 (real GitHub, read-only) ===
+commits reported by REST: 16
+verdict: CLEAN - merge would proceed, rc=0
+
+=== kunchenguid/firstmate#6460 (real GitHub, read-only) ===
+commits reported by REST: 158
+error: refusing to merge https://github.com/kunchenguid/firstmate/pull/6460: its commits or description carry Co-authored-by / Co-Authored-By trailer lines that a squash merge would land in the base branch history
+error:  - 3039060cc758877a9bba34e534ae93a2159dbbf3 <trailer line>
+error: remedy: strip these trailers from the named commits with bin/fm-git-strip-ai-trailers.sh and push the rewritten commits, or remove them from the description, then re-run this merge
+verdict: REFUSED (trailers), rc=1
+
+=== cross-check #6460: position of the flagged commit in the full paged list (independent REST read) ===
+105:3039060cc758877a9bba34e534ae93a2159dbbf3
+first-100 commits containing a trailer (what gh pr view --json commits sees):
+0
+=== fail-closed: nonexistent PR kunchenguid/firstmate#99999999 (real GitHub) ===
+error: could not read the GitHub pull request commit messages before merging
+verdict: REFUSED (unreadable), rc=1
+exit=1
