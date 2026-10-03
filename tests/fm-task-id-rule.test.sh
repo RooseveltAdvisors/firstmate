@@ -260,6 +260,7 @@ cp "$ROOT/bin/fm-task-id-rule-lib.sh" "$ROOT/bin/fm-jev-decisions.py" "$BAD/"
 printf 'prefix=fm-\ncandidates=exact,nope\nreject_contains=:\n' > "$BAD/fm-task-id-rule.conf"
 
 rc=0
+# shellcheck source=/dev/null
 ( . "$BAD/fm-task-id-rule-lib.sh" ) 2>"$BAD/bash.err" || rc=$?
 expect_code 1 "$rc" "bash loader refuses a malformed artifact"
 assert_contains "$(cat "$BAD/bash.err")" "unknown candidate transform: nope" \
