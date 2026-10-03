@@ -1,0 +1,39 @@
+Endpoint: real tmux window sess:fm-t2 running a wedged composer (argv0=claude) that renders '│ leftover txt │' and ignores every key
+wedged composer fixture (ignores every key)
+
+╭──────────────╮
+│ leftover txt │
+╰──────────────╯
+
+== send 1 -> exit=4
+fm-send: doorbell-skip (the composer in sess:fm-t2 holds pending text and clear-or-submit failed); the steer is durably recorded at /tmp/fm-lab.JRQEBb/state/t2.inbox/001.msg and the watcher will re-ring; the record is durable, so do not resend it; consecutive composer-held skips for t2: 1
+counter=1 paged-marker=no wake-queue-pages=0
+
+== send 2 -> exit=4
+fm-send: doorbell-skip (the composer in sess:fm-t2 holds pending text and clear-or-submit failed); the steer is durably recorded at /tmp/fm-lab.JRQEBb/state/t2.inbox/002.msg and the watcher will re-ring; the record is durable, so do not resend it; consecutive composer-held skips for t2: 2
+counter=2 paged-marker=no wake-queue-pages=0
+
+== send 3 -> exit=4
+fm-send: doorbell-skip (the composer in sess:fm-t2 holds pending text and clear-or-submit failed); the steer is durably recorded at /tmp/fm-lab.JRQEBb/state/t2.inbox/003.msg and the watcher will re-ring; the record is durable, so do not resend it; consecutive composer-held skips for t2: 3; paged the supervisor at 3 consecutive skips
+counter=3 paged-marker=yes wake-queue-pages=1
+
+== send 4 -> exit=4
+fm-send: doorbell-skip (the composer in sess:fm-t2 holds pending text and clear-or-submit failed); the steer is durably recorded at /tmp/fm-lab.JRQEBb/state/t2.inbox/004.msg and the watcher will re-ring; the record is durable, so do not resend it; consecutive composer-held skips for t2: 4
+counter=4 paged-marker=yes wake-queue-pages=1
+
+-- inbox records (all 4 steers durable):
+001.msg
+002.msg
+003.msg
+004.msg
+handled
+-- wake queue page entry:
+1791034724	1	check	/tmp/fm-lab.JRQEBb/state/t2.doorbell-skip	check: doorbell-skip: task=t2 consecutive=3 - its composer holds pending text and clear-or-submit failed, so the steer is durably recorded but its doorbell never rang; inspect the endpoint
+
+== endpoint healed (empty composer); send 5 -> exit=0
+(no doorbell notice)
+counter file: gone (streak reset)
+
+== re-wedged; send 6 -> exit=4
+fm-send: doorbell-skip (the composer in sess:fm-t2 holds pending text and clear-or-submit failed); the steer is durably recorded at /tmp/fm-lab.JRQEBb/state/t2.inbox/006.msg and the watcher will re-ring; the record is durable, so do not resend it; consecutive composer-held skips for t2: 1
+counter=1 paged-marker=no

@@ -1,0 +1,19 @@
+== BEFORE: agent mid-turn, composer holds a draft
+  ⎿  Tip: Every ISC criterion must be 8-12 words, state not action, binary testable.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ my unfinished draft line
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  cl Reply Only Word Pong arcs Opus 5.5(1M) 10% ↑ 96K(+2·95K) ↓ 599(+157) 7%(1h43m)/18%(6d0h)                                               ◐ medium · /effort
+  ⏸ manual mode on
+== fm-send t1 exit=0
+-- stderr (doorbell lines):
+(no doorbell notice)
+-- skip counter:
+none
+== AFTER pane (draft must still be held):
+  ⎿  Tip: Every ISC criterion must be 8-12 words, state not action, binary testable.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ Press up to edit queued messages
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  cl Reply Only Word Pong arcs Opus 5.5(1M) 10% ↑ 96K(+2·95K) ↓ 599(+157) 7%(1h42m)/18%(6d0h)
+  ⏸ manual mode on · ← 1 agent

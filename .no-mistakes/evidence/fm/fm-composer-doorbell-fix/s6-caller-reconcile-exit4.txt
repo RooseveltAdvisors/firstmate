@@ -1,0 +1,13 @@
+Target: secondmate 'mate' in real tmux window sess:fm-mate whose composer is wedged (holds 'leftover txt', ignores keys)
+== reconcile notify run 1:
+warning: fm-send: doorbell-skip (the steer is durably recorded but its doorbell was skipped because the target composer holds pending text; do not resend)
+sent: mate orphan_in_flight
+exit=
+inbox records: 1
+skip counter: 1
+
+== reconcile notify run 2 (must not resend):
+cooldown: mate 0
+exit=
+inbox records: 1
+== run 3 exit code: 0 ; inbox records: 1

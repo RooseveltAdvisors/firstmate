@@ -1,0 +1,7 @@
+== BASE 1f3e7696 fm-send 1 -> exit=0
+fm-send: doorbell skipped (composer visibly holds pending text); the steer is durably recorded at /tmp/fm-lab.JRQEBb/state/t3.inbox/001.msg and the watcher will re-ring
+== BASE 1f3e7696 fm-send 2 -> exit=0
+fm-send: doorbell skipped (composer visibly holds pending text); the steer is durably recorded at /tmp/fm-lab.JRQEBb/state/t3.inbox/002.msg and the watcher will re-ring
+== BASE 1f3e7696 fm-send 3 -> exit=0
+fm-send: doorbell skipped (composer visibly holds pending text); the steer is durably recorded at /tmp/fm-lab.JRQEBb/state/t3.inbox/003.msg and the watcher will re-ring
+counter/page files: none; wake queue t3 entries: 0
