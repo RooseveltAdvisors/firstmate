@@ -11,8 +11,15 @@
 #   2. Multi-line steers are legal and round-trip byte-exact.
 #   3. A re-send enqueues a NEW sequence and still never retypes a payload,
 #      so the terminal can never truncate, garble, or duplicate a steer.
-#   4. The composer pre-check is advisory: visibly pending text skips the ring
-#      with a notice, and the steer is still durably sent (exit 0).
+#   4. A composer holding pending text no longer blocks every wake: the send
+#      recovers the skip itself (submitting contentful text, clearing
+#      contentless junk) and the doorbell then rings with no skip reported.
+#      A recovery the backend refuses instead emits the loud, countable
+#      `fm-send: doorbell-skip` line and exit 4 - distinct from the silent
+#      success and from every other doorbell notice - which advances the
+#      per-task consecutive-skip counter. FM_SEND_SKIP_PAGE_MAX (default 3)
+#      consecutive skips queue exactly one check wake, and any later ring that
+#      is attempted resets the streak.
 #   5. A failed doorbell is still a sent steer (exit 0, record durable): the
 #      watcher's re-ring ladder owns delivery from the record on. A
 #      fire-and-forget record whose ring did not land is owed one retry ring.
@@ -43,8 +50,16 @@ TMP_ROOT=$(fm_test_tmproot fm-send-inbox)
 TMP_ROOT=$(cd "$TMP_ROOT" && pwd)
 
 # Stub tmux: logs literal typed text to FM_SEND_LOG and lets the submit and
-# composer paths reach clean verdicts. FM_FAKE_TMUX_COMPOSER=pending renders a
-# composer visibly holding text; FM_FAKE_TMUX_SEND_FAIL=1 fails send-keys.
+# composer paths reach clean verdicts. Env knobs:
+#   FM_FAKE_TMUX_SEND_FAIL=1    every send-keys fails
+#   FM_FAKE_TMUX_COMPOSER=pending  a statically pending composer that no key
+#                              clears: the clear-or-submit recovery is impossible
+#   FM_FAKE_TMUX_HELD_FILE=f    a live held composer: while f holds bytes the
+#                              composer renders them as pending, Enter submits
+#                              them (logged as `SUBMIT: <text>`) and clears f,
+#                              and C-u clears f - unless FM_FAKE_TMUX_KEY_FAIL
+#                              names that key, which is refused with exit 1
+#                              (the invalid_key class)
 make_stubs() { # <dir> -> echoes fakebin dir
   local dir=$1 fb="$1/fakebin"
   mkdir -p "$fb"
@@ -65,13 +80,37 @@ case "${1:-}" in
     done
     if [ "$literal" = 1 ]; then
       printf '%s\n' "${1:-}" >> "$FM_SEND_LOG"
+      exit 0
+    fi
+    key=${1:-}
+    if [ "${FM_FAKE_TMUX_KEY_FAIL:-}" = "$key" ]; then exit 1; fi
+    if [ -n "${FM_FAKE_TMUX_HELD_FILE:-}" ] && [ -s "$FM_FAKE_TMUX_HELD_FILE" ]; then
+      case "$key" in
+        Enter)
+          printf 'SUBMIT: %s\n' "$(cat "$FM_FAKE_TMUX_HELD_FILE")" >> "$FM_SEND_LOG"
+          : > "$FM_FAKE_TMUX_HELD_FILE"
+          ;;
+        C-u)
+          printf 'CLEAR: %s\n' "$(cat "$FM_FAKE_TMUX_HELD_FILE")" >> "$FM_SEND_LOG"
+          : > "$FM_FAKE_TMUX_HELD_FILE"
+          ;;
+      esac
     fi
     exit 0 ;;
   display-message)
     for a in "$@"; do case "$a" in *cursor_y*) printf '1\n'; exit 0 ;; esac; done
     printf 'fakepane\n'; exit 0 ;;
   capture-pane)
-    if [ "${FM_FAKE_TMUX_COMPOSER:-}" = pending ]; then
+    if [ -n "${FM_FAKE_TMUX_HELD_FILE:-}" ] && [ -s "$FM_FAKE_TMUX_HELD_FILE" ]; then
+      held=$(cat "$FM_FAKE_TMUX_HELD_FILE")
+      # Build the border with a literal UTF-8 repeat: tr truncates multibyte
+      # set members to their first byte, and a mangled border classifies as
+      # pending-unproven instead of the pending verdict under test.
+      border=
+      width=$(( ${#held} + 2 ))
+      while [ "$width" -gt 0 ]; do border="$border─"; width=$((width - 1)); done
+      printf '╭%s╮\n│ %s │\n╰%s╯\n' "$border" "$held" "$border"
+    elif [ "${FM_FAKE_TMUX_COMPOSER:-}" = pending ]; then
       printf '╭──────────────╮\n│ leftover txt │\n╰──────────────╯\n'
     else
       printf '╭────╮\n│    │\n╰────╯\n'
@@ -133,6 +172,8 @@ test_text_steer_rides_inbox() {
   typed=$(cat "$dir/send.log")
   assert_contains "$typed" "Firstmate instruction waiting: list \"\$FM_TASK_INBOX\"/*.msg in your 't1.inbox' steering inbox" \
     "the doorbell should direct the worker to drain the inbox"
+  assert_not_contains "$(cat "$err")" "doorbell" \
+    "a landed doorbell reports no notice at all - the success output stays byte-unchanged"
   case "$typed" in
   *"please rebase onto main"*) fail "the payload must never be typed:"$'\n'"$typed" ;;
   esac
@@ -215,18 +256,166 @@ test_resend_enqueues_new_sequence() {
   pass "fm-send inbox: a re-send is a new durable record, never a retyped payload"
 }
 
-test_pending_composer_skips_ring_advisorily() {
-  local dir err rc
-  dir=$(setup_case pendingskip)
+# The composer-hold fix, part 1: the SEND recovers the skip instead of
+# leaving the held line to block every later wake. Contentless junk is dropped
+# with Ctrl-U as part of this send, so the doorbell that follows lands.
+test_composer_junk_is_cleared_and_the_doorbell_rings() {
+  local dir err rc held typed
+  dir=$(setup_case junkclear)
   err="$dir/send.err"
-  run_send "$dir" "$err" FM_FAKE_TMUX_COMPOSER=pending -- t1 "steer past a stuck composer"
+  held="$dir/held.txt"
+  printf '%s' '...' > "$held"
+  run_send "$dir" "$err" FM_FAKE_TMUX_HELD_FILE="$held" -- t1 "steer past held junk"
   rc=$?
-  expect_code 0 "$rc" "a skipped ring is still a sent steer"
+  expect_code 0 "$rc" "a recovered composer still lands the doorbell"
   [ -f "$dir/home/state/t1.inbox/001.msg" ] || fail "the steer was not recorded"
-  [ ! -s "$dir/send.log" ] || fail "a visibly pending composer should skip the ring:"$'\n'"$(cat "$dir/send.log")"
-  assert_contains "$(cat "$err")" "watcher will re-ring" \
-    "the skip notice should point at the re-ring"
-  pass "fm-send inbox: a visibly pending composer skips the ring, and the steer stays durably sent"
+  [ ! -s "$held" ] || fail "the contentless held line should be gone"
+  typed=$(cat "$dir/send.log")
+  assert_contains "$typed" "Firstmate instruction waiting" \
+    "the doorbell should ring once the held junk is cleared"
+  assert_contains "$typed" "CLEAR:" \
+    "the contentless held line should be dropped with Ctrl-U"
+  assert_not_contains "$typed" "SUBMIT:" \
+    "contentless junk must be dropped, never submitted"
+  assert_not_contains "$(cat "$err")" "doorbell-skip" \
+    "a recovered ring must not report a skip"
+  [ ! -e "$dir/home/state/t1.doorbell-skip" ] || fail "a recovered ring must not count a skip"
+  pass "fm-send inbox: contentless composer junk is cleared as part of the send and the doorbell rings"
+}
+
+# Part 1, second half: contentful held text is SUBMITTED as part of the send -
+# it may be a steer whose Enter never landed, and only submitting both preserves
+# it and wakes the endpoint - and the doorbell rings behind it.
+test_composer_stale_text_is_submitted_and_the_doorbell_rings() {
+  local dir err rc held typed
+  dir=$(setup_case stalesubmit)
+  err="$dir/send.err"
+  held="$dir/held.txt"
+  printf '%s' "working: a stale line from an earlier send" > "$held"
+  run_send "$dir" "$err" FM_FAKE_TMUX_HELD_FILE="$held" -- t1 "steer behind a stale line"
+  rc=$?
+  expect_code 0 "$rc" "a submitted stale line still lands the doorbell"
+  [ -f "$dir/home/state/t1.inbox/001.msg" ] || fail "the steer was not recorded"
+  [ ! -s "$held" ] || fail "the submitted line should be gone from the composer"
+  typed=$(cat "$dir/send.log")
+  assert_contains "$typed" "SUBMIT: working: a stale line from an earlier send" \
+    "the held line should be submitted, never destroyed"
+  assert_contains "$typed" "Firstmate instruction waiting" \
+    "the doorbell should ring after the submit"
+  assert_not_contains "$(cat "$err")" "doorbell-skip" \
+    "a recovered ring must not report a skip"
+  [ ! -e "$dir/home/state/t1.doorbell-skip" ] || fail "a recovered ring must not count a skip"
+  pass "fm-send inbox: contentful composer text is submitted as part of the send and the doorbell rings"
+}
+
+# Parts 2 and 3: when the recovery cannot run - no key clears the composer, or
+# the backend refuses the clear key outright (the invalid_key class) - the skip
+# is loud and countable: its own line, its own exit code, one counter tick, and
+# no page yet. The exit and the line are pinned against the success output and
+# against the two other doorbell notices.
+test_composer_recovery_failure_is_a_loud_countable_skip() {
+  local dir err rc held wakes
+  dir=$(setup_case loudskip)
+  err="$dir/send.err"
+  run_send "$dir" "$err" FM_FAKE_TMUX_COMPOSER=pending -- t1 "steer into a wedged composer"
+  rc=$?
+  expect_code 4 "$rc" "an impossible recovery is the distinct skip exit, never success"
+  [ -f "$dir/home/state/t1.inbox/001.msg" ] || fail "the steer was not recorded"
+  [ ! -s "$dir/send.log" ] || \
+    fail "no doorbell may be typed when the recovery fails:"$'\n'"$(cat "$dir/send.log")"
+  assert_contains "$(cat "$err")" "fm-send: doorbell-skip" \
+    "the skip needs its own countable line"
+  assert_contains "$(cat "$err")" "clear-or-submit failed" \
+    "the skip line should name the failed recovery"
+  assert_contains "$(cat "$err")" "do not resend" \
+    "exit 4 must say the durable record already exists"
+  assert_contains "$(cat "$err")" "consecutive composer-held skips for t1: 1" \
+    "the skip should report its streak count"
+  assert_not_contains "$(cat "$err")" "doorbell did not reach" \
+    "the composer skip must be distinct from a failed doorbell"
+  assert_not_contains "$(cat "$err")" "doorbell not typed because" \
+    "the composer skip must be distinct from a dead pane"
+  [ "$(cat "$dir/home/state/t1.doorbell-skip" 2>/dev/null)" = 1 ] || \
+    fail "one blocked send should count one consecutive skip"
+  [ ! -e "$dir/home/state/t1.doorbell-skip.paged" ] || fail "a single skip must not page"
+  wakes=$(grep -c 't1.doorbell-skip' "$dir/home/state/.wake-queue" 2>/dev/null || true)
+  [ "${wakes:-0}" = 0 ] || fail "a single skip must not queue a page, got ${wakes:-0}"
+
+  # The shape agt-8 hit: the backend refuses the clear key itself.
+  dir=$(setup_case refusedclear)
+  err="$dir/send.err"
+  held="$dir/held.txt"
+  printf '%s' '!!!' > "$held"
+  run_send "$dir" "$err" FM_FAKE_TMUX_HELD_FILE="$held" FM_FAKE_TMUX_KEY_FAIL=C-u \
+    -- t1 "steer past a refused clear"
+  rc=$?
+  expect_code 4 "$rc" "a refused clear key is the loud skip, not a silent one"
+  assert_contains "$(cat "$err")" "fm-send: doorbell-skip" \
+    "a refused clear must still emit the countable skip line"
+  [ -f "$dir/home/state/t1.inbox/001.msg" ] || fail "the refused-clear steer was not recorded"
+  [ "$(cat "$dir/home/state/t1.doorbell-skip" 2>/dev/null)" = 1 ] || \
+    fail "a refused clear should count one consecutive skip"
+  pass "fm-send inbox: an impossible composer recovery is a loud, countable skip distinct from success"
+}
+
+# Part 3: the consecutive-skip counter pages once at the threshold, never
+# twice in one streak, and any later ring that was attempted resets it.
+test_consecutive_composer_skips_page_once_and_reset() {
+  local dir err n rc wakes
+  dir=$(setup_case skippage)
+  err="$dir/send.err"
+  for n in 1 2 3; do
+    run_send "$dir" "$err" FM_FAKE_TMUX_COMPOSER=pending -- t1 "steer $n"
+    rc=$?
+    [ "$rc" -eq 4 ] || fail "skip $n should exit with the countable skip code, got $rc"
+  done
+  [ "$(cat "$dir/home/state/t1.doorbell-skip" 2>/dev/null)" = 3 ] || \
+    fail "three blocked sends should count three, got $(cat "$dir/home/state/t1.doorbell-skip" 2>/dev/null)"
+  [ -e "$dir/home/state/t1.doorbell-skip.paged" ] || \
+    fail "the third consecutive skip should arm the page marker"
+  wakes=$(grep -c 't1.doorbell-skip' "$dir/home/state/.wake-queue" 2>/dev/null || true)
+  [ "${wakes:-0}" = 1 ] || fail "N consecutive skips should queue exactly one page, got ${wakes:-0}"
+  assert_contains "$(cat "$err")" "paged the supervisor at 3 consecutive skips" \
+    "the page should be named in the skip that queued it"
+
+  # A fourth skip counts but never pages twice in one streak.
+  run_send "$dir" "$err" FM_FAKE_TMUX_COMPOSER=pending -- t1 "steer 4"
+  rc=$?
+  [ "$rc" -eq 4 ] || fail "the fourth blocked send should still exit with the skip code, got $rc"
+  [ "$(cat "$dir/home/state/t1.doorbell-skip" 2>/dev/null)" = 4 ] || \
+    fail "the streak should keep counting"
+  wakes=$(grep -c 't1.doorbell-skip' "$dir/home/state/.wake-queue" 2>/dev/null || true)
+  [ "${wakes:-0}" = 1 ] || fail "one streak must page exactly once, got ${wakes:-0} page(s)"
+  assert_not_contains "$(cat "$err")" "paged the supervisor" \
+    "a streak must not page twice"
+
+  # Any ring that is attempted ends the streak, so later history cannot page.
+  run_send "$dir" "$err" -- t1 "steer with a healthy composer"
+  rc=$?
+  [ "$rc" -eq 0 ] || fail "a healthy composer should land the doorbell with exit 0, got $rc"
+  [ ! -e "$dir/home/state/t1.doorbell-skip" ] || fail "a landed ring must clear the skip counter"
+  [ ! -e "$dir/home/state/t1.doorbell-skip.paged" ] || fail "a landed ring must clear the page marker"
+  assert_not_contains "$(cat "$err")" "doorbell-skip" \
+    "the healthy send must report no skip at all"
+  pass "fm-send inbox: N consecutive skips page once, and a landed ring resets the streak"
+}
+
+# The threshold is FM_SEND_SKIP_PAGE_MAX, the same tunable shape as the other
+# rails: a caller can page sooner or later without touching the code.
+test_skip_page_threshold_is_tunable() {
+  local dir err n rc wakes
+  dir=$(setup_case skippage-tunable)
+  err="$dir/send.err"
+  for n in 1 2; do
+    run_send "$dir" "$err" FM_FAKE_TMUX_COMPOSER=pending FM_SEND_SKIP_PAGE_MAX=2 -- t1 "steer $n"
+    rc=$?
+    [ "$rc" -eq 4 ] || fail "blocked send $n should exit with the skip code, got $rc"
+  done
+  wakes=$(grep -c 't1.doorbell-skip' "$dir/home/state/.wake-queue" 2>/dev/null || true)
+  [ "${wakes:-0}" = 1 ] || fail "FM_SEND_SKIP_PAGE_MAX=2 should page on the second skip, got ${wakes:-0}"
+  assert_contains "$(cat "$err")" "paged the supervisor at 2 consecutive skips" \
+    "the page should name the configured threshold"
+  pass "fm-send inbox: FM_SEND_SKIP_PAGE_MAX moves the page threshold"
 }
 
 test_failed_ring_is_still_sent() {
@@ -255,7 +444,7 @@ test_fire_and_forget_unlanded_ring_owes_one_retry() {
   fm_write_secondmate_meta "$dir/home/state/domain.meta" "$dir/home" "sess:fm-t1" alpha claude
   run_send "$dir" "$err" FM_FAKE_TMUX_COMPOSER=pending -- \
     fm-domain --fire-and-forget 0123456789abcdef "reconcile your books"; rc=$?
-  expect_code 0 "$rc" "a skipped fire-and-forget ring is still a sent steer"
+  expect_code 4 "$rc" "a blocked fire-and-forget ring reports the countable skip"
   [ "$(cat "$dir/home/state/domain.inbox/.retry-ring" 2>/dev/null)" = 001.msg ] \
     || fail "a skipped fire-and-forget ring did not owe its one retry"
   assert_contains "$(cat "$err")" "the watcher will ring it once more" \
@@ -284,7 +473,7 @@ test_fire_and_forget_retry_stays_off_without_the_flag() {
   fm_write_secondmate_meta "$dir/home/state/domain.meta" "$dir/home" "sess:fm-t1" alpha claude
   run_send "$dir" "$err" FM_FAKE_TMUX_COMPOSER=pending -- \
     fm-domain --fire-and-forget 0123456789abcdef "reconcile your books"; rc=$?
-  expect_code 0 "$rc" "a skipped fire-and-forget ring is still a sent steer"
+  expect_code 4 "$rc" "a blocked fire-and-forget ring reports the countable skip"
   [ ! -e "$dir/home/state/domain.inbox/.retry-ring" ] \
     || fail "an absent flag still owed a fire-and-forget retry"
   assert_contains "$(cat "$err")" "the watcher will re-ring" \
@@ -508,7 +697,11 @@ test_text_steer_rides_inbox
 test_deep_home_doorbell_stays_short
 test_multiline_steer_is_legal
 test_resend_enqueues_new_sequence
-test_pending_composer_skips_ring_advisorily
+test_composer_junk_is_cleared_and_the_doorbell_rings
+test_composer_stale_text_is_submitted_and_the_doorbell_rings
+test_composer_recovery_failure_is_a_loud_countable_skip
+test_consecutive_composer_skips_page_once_and_reset
+test_skip_page_threshold_is_tunable
 test_failed_ring_is_still_sent
 test_fire_and_forget_unlanded_ring_owes_one_retry
 test_fire_and_forget_retry_stays_off_without_the_flag

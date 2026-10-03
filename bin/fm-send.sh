@@ -28,7 +28,15 @@
 # resend is appropriate (unresolvable target, an endpoint that cannot be
 # locked and revalidated or that retired or changed, an unwritable record, a
 # failed or lost remote transport) or a decision-close append failed after
-# delivery (the error then carries the exact manual close). The remote enqueue
+# delivery (the error then carries the exact manual close). The one nonzero
+# exit that invites NO resend is 4: the record IS durable, but its doorbell was
+# skipped because the target's composer held pending text and the clear-or-
+# submit recovery failed. A caller counts that skip - reported on stderr as its
+# own `fm-send: doorbell-skip ...` line, distinct from success, from a landed
+# doorbell, and from every resend-appropriate failure - instead of resending.
+# FM_SEND_SKIP_PAGE_MAX (default 3) consecutive composer-held skips for one
+# task queue one check wake per streak, so N skips page the supervisor instead
+# of riding the re-ring ladder's escalations forever. The remote enqueue
 # is idempotent: the remote leg deduplicates an exact re-run of the same
 # request onto the existing record (bin/fm-task-inbox-lib.sh), so after a lost
 # transport (ssh exit 255, completion unknown) fm-send retries the same leg
@@ -54,11 +62,16 @@
 # fire-and-forget record is excluded from that ladder; when config/wait-no-turns
 # is present and its ring here was skipped or failed, the watcher rings it
 # exactly once more.
-# bin/fm-task-inbox-lib.sh owns the record format, the doorbell line, and the
-# re-ring ladder. The composer pre-check before the ring is ADVISORY only: when
-# the composer visibly holds pending text the ring is skipped with a notice and
-# the watcher re-rings an ordinary record later; no composer verdict is
-# delivery proof on this plane, and a failed ring never fails the send.
+# bin/fm-task-inbox-lib.sh owns the record format, the doorbell line, the
+# re-ring ladder, and the composer-held recovery this plane runs first: when
+# the ring would defer to a composer holding pending text, fm-send clears or
+# submits that held text AS PART OF THE SEND (the library owns the submit-vs-
+# drop rule) and rings again, so one stale line cannot block every later wake
+# behind it. Only a recovery that fails still skips, loudly, and an endpoint
+# reported mid-turn is left alone with an ordinary advisory notice because its
+# worker is alive. No composer verdict is delivery proof on this plane, and a
+# doorbell that fails to type never fails the send; the composer-held skip is
+# the sole exception, exiting 4 so the skip is countable.
 #
 # TYPED - the LOCAL text that must reach the terminal itself: a harness-native
 # invocation (a leading "/", or a leading "$" to a codex target) must reach
@@ -337,6 +350,57 @@ fm_send_count_colons() { # <string>
   local s=$1 no_colons
   no_colons=${s//:/}
   printf '%s' $((${#s} - ${#no_colons}))
+}
+
+# Consecutive composer-held skip counter - the send/check side of the rail;
+# bin/fm-watch.sh is deliberately never involved. One count per task under
+# state/, incremented by every loud composer-held skip and deleted by any ring
+# that was actually attempted, so only a CONSECUTIVE streak pages. N is
+# FM_SEND_SKIP_PAGE_MAX (default 3): at N the send queues ONE check wake for
+# the supervisor per streak - the .paged marker is written before the wake, so
+# a repeated page can never become the escalation storm this rail exists to
+# stop - and both marker and counter clear when the streak ends. Counting is
+# best-effort: an unwritable counter never fails a send whose skip notice is
+# already on stderr.
+fm_send_skip_page_max() {
+  local max=${FM_SEND_SKIP_PAGE_MAX:-3}
+  case "$max" in
+  '' | *[!0-9]* | 0) max=3 ;;
+  esac
+  printf '%s' "$max"
+}
+
+# fm_send_skip_note <task-id>: advance the streak and page once at the
+# threshold. Sets FM_SEND_SKIP_COUNT to the new count and FM_SEND_SKIP_PAGED
+# to 1 when THIS call queued the page. Called directly, never in a
+# subshell, so those results reach the caller. The page's wake key mirrors the
+# counter file it reports, so bin/fm-wake-lib.sh's fm_wake_queue_prune_task
+# retires a page for a task teardown already closed.
+fm_send_skip_note() {
+  local id=$1 file count max
+  FM_SEND_SKIP_COUNT='?'
+  FM_SEND_SKIP_PAGED=0
+  file="$STATE/$id.doorbell-skip"
+  count=$(cat "$file" 2>/dev/null || true)
+  case "$count" in '' | *[!0-9]*) count=0 ;; esac
+  count=$((count + 1))
+  if printf '%s\n' "$count" > "$file" 2>/dev/null; then
+    FM_SEND_SKIP_COUNT=$count
+  fi
+  max=$(fm_send_skip_page_max)
+  if [ "$count" -ge "$max" ] && [ ! -e "$file.paged" ] && : > "$file.paged" 2>/dev/null; then
+    FM_SEND_SKIP_PAGED=1
+    fm_wake_append check "$file" \
+      "check: doorbell-skip: task=$id consecutive=$count - its composer holds pending text and clear-or-submit failed, so the steer is durably recorded but its doorbell never rang; inspect the endpoint" \
+      || true
+  fi
+}
+
+# fm_send_skip_reset <task-id>: any attempted ring ends the streak, so a
+# recovered, retyped, or differently-failed doorbell never pages on stale
+# history and a later streak can page again.
+fm_send_skip_reset() {
+  rm -f "$STATE/$1.doorbell-skip" "$STATE/$1.doorbell-skip.paged" 2>/dev/null || true
 }
 
 fm_send_resolve_target() { # <raw-target>
@@ -1082,11 +1146,34 @@ else
       fm_send_close_resolved_keys "$RESOLVE_ANSWER_TEXT" || exit 1
       fm_send_feed_resolved_holds "$RESOLVE_ANSWER_TEXT" || exit 1
     fi
-    # Ring the doorbell, best-effort: no ring outcome changes the exit status,
-    # because the watcher owns loss detection from here, either through its
-    # bounded re-ring ladder or direct unavailable-endpoint recovery.
+    # Ring the doorbell, best-effort: a doorbell that fails to type or reaches a
+    # dead pane never changes the exit status, because the watcher owns loss
+    # detection from here, either through its bounded re-ring ladder or direct
+    # unavailable-endpoint recovery. The ONE exception is the composer-held
+    # skip: it exits 4 so a caller can count it (header contract).
     ring_rc=0
     fm_task_inbox_ring "$TARGET_BACKEND" "$T" "$INBOX_RECORD" "$EXPECTED_LABEL" || ring_rc=$?
+    # Composer-held recovery: one stale line in the composer would skip this
+    # ring AND every later one, so the seat never wakes while every steer queues
+    # unread behind it. Clear-or-submit the held text as part of THIS send, then
+    # ring once more; the recovery runs at most once per send, and a failed
+    # recovery falls through to the loud, countable skip below rather than a
+    # silent one. An endpoint that reports mid-turn is left untouched: its
+    # worker is alive, so the ordinary advisory skip and the watcher's ladder
+    # own the next attempt.
+    doorbell_deferred=0
+    if [ "$ring_rc" -eq 1 ]; then
+      recovery_rc=0
+      fm_task_inbox_composer_clear_or_submit "$TARGET_BACKEND" "$T" "$EXPECTED_LABEL" || recovery_rc=$?
+      if [ "$recovery_rc" -eq 0 ]; then
+        ring_rc=0
+        fm_task_inbox_ring "$TARGET_BACKEND" "$T" "$INBOX_RECORD" "$EXPECTED_LABEL" || ring_rc=$?
+      fi
+      if [ "$ring_rc" -eq 1 ] \
+        && [ "$(fm_backend_busy_state "$TARGET_BACKEND" "$T" 2>/dev/null || true)" = busy ]; then
+        doorbell_deferred=1
+      fi
+    fi
     ring_retry="the watcher will re-ring"
     if [ -n "$FIRE_AND_FORGET_ID" ] \
       && [ -e "${FM_CONFIG_OVERRIDE:-$FM_HOME/config}/wait-no-turns" ]; then
@@ -1101,10 +1188,28 @@ else
       esac
     fi
     case "$ring_rc" in
-    1) echo "fm-send: doorbell skipped (composer visibly holds pending text); the steer is durably recorded at $INBOX_RECORD and $ring_retry" >&2 ;;
+    1)
+      if [ "$doorbell_deferred" = 1 ]; then
+        echo "fm-send: doorbell deferred (the agent in $T is mid-turn and its composer holds pending text); the steer is durably recorded at $INBOX_RECORD and $ring_retry" >&2
+        exit 0
+      fi
+      # Loud, countable skip: its own prefix, distinct from a landed doorbell,
+      # from a dead pane, and from the silent success above, so a caller can
+      # count skips mechanically instead of discovering them as 107 escalations.
+      fm_send_skip_note "$INBOX_TASK_ID"
+      skip_page_note=
+      if [ "${FM_SEND_SKIP_PAGED:-0}" = 1 ]; then
+        skip_page_note="; paged the supervisor at $(fm_send_skip_page_max) consecutive skips"
+      fi
+      echo "fm-send: doorbell-skip (the composer in $T holds pending text and clear-or-submit failed); the steer is durably recorded at $INBOX_RECORD and $ring_retry; the record is durable, so do not resend it; consecutive composer-held skips for $INBOX_TASK_ID: $FM_SEND_SKIP_COUNT$skip_page_note" >&2
+      exit 4
+      ;;
     2) echo "fm-send: doorbell did not reach $T; the steer is durably recorded at $INBOX_RECORD and $ring_retry" >&2 ;;
     3) echo "fm-send: doorbell not typed because the agent in $T has exited; the steer is durably recorded at $INBOX_RECORD for recovery (stuck-crewmate-recovery), and the watcher will not re-ring a dead pane" >&2 ;;
     esac
+    # Any attempted ring ends a composer-held skip streak: only consecutive
+    # composer-held skips count toward the page.
+    fm_send_skip_reset "$INBOX_TASK_ID"
     exit 0
   fi
   # Slash commands open a completion popup in some TUIs (verified on codex);
