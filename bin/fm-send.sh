@@ -38,7 +38,9 @@
 # (bin/fm-send-status-lib.sh), which treats 4 as delivered and warns.
 # FM_SEND_SKIP_PAGE_MAX (default 3) consecutive composer-held skips for one
 # task queue one check wake per streak, so N skips page the supervisor instead
-# of riding the re-ring ladder's escalations forever. The remote enqueue
+# of riding the re-ring ladder's escalations forever. An explicitly empty value
+# or a zero in any digit spelling (0, 00) disables paging for that home, so a
+# tuned-off rail never pages on its first skip. The remote enqueue
 # is idempotent: the remote leg deduplicates an exact re-run of the same
 # request onto the existing record (bin/fm-task-inbox-lib.sh), so after a lost
 # transport (ssh exit 255, completion unknown) fm-send retries the same leg
@@ -365,10 +367,18 @@ fm_send_count_colons() { # <string>
 # lands, so a failed page is retried by the next skip. Both marker and counter
 # clear when the streak ends. Counting is best-effort: an unwritable counter
 # never fails a send whose skip notice is already on stderr.
+# The threshold reads FM_SEND_SKIP_PAGE_MAX as follows: unset takes the default
+# of 3; an explicitly empty value or any all-digit zero (0, 00) DISABLES paging
+# by resolving to a threshold of 0, which the call site never crosses, so a
+# tuned-off rail can never page on the first skip; a non-numeric value keeps the
+# default, so a typo cannot silence the rail. Every digit spelling normalizes
+# through 10#, so 007 is seven and 00 is zero.
 fm_send_skip_page_max() {
-  local max=${FM_SEND_SKIP_PAGE_MAX:-3}
+  local max=${FM_SEND_SKIP_PAGE_MAX-3}
   case "$max" in
-  '' | *[!0-9]* | 0) max=3 ;;
+  '') max=0 ;;
+  *[!0-9]*) max=3 ;;
+  *) max=$((10#$max)) ;;
   esac
   printf '%s' "$max"
 }
@@ -393,7 +403,7 @@ fm_send_skip_note() {
     FM_SEND_SKIP_COUNT=$count
   fi
   max=$(fm_send_skip_page_max)
-  if [ "$count" -ge "$max" ] && [ ! -e "$file.paged" ]; then
+  if [ "$max" -gt 0 ] && [ "$count" -ge "$max" ] && [ ! -e "$file.paged" ]; then
     if fm_wake_append check "$file" \
       "check: doorbell-skip: task=$id consecutive=$count - its composer holds pending text and clear-or-submit failed, so the steer is durably recorded but its doorbell never rang; inspect the endpoint"; then
       : > "$file.paged" 2>/dev/null || true
