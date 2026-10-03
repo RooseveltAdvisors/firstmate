@@ -701,6 +701,8 @@ A pane holding a live agent, a foreground command, an editor, or an unreadable p
 Already-clear is idempotent success.
 The clear only drops hook authority: Herdr's own process-detection record (the one `agent explain` answers for) has no API that drops it, and a nested shell keeps it until that shell exits (measured on 0.9.3 with a real Pi `/quit` under `bash -i`).
 When that record survives, the verb reports `cleared-authority ... detection-record=held` and exits 0, because the pane was just proven an agent-less shell and the classifier above already reads it dead, so `exit` and `relaunch` proceed.
+A follow-up read that fails or is unreadable never reports success: the verb reports the clear unverified and exits nonzero.
+The shell proof cannot stop someone starting an agent in the pane between the proof and the request, so a follow-up read that finds the registration over a live agent reports that an agent concurrently started and points at `relaunch` to re-register it.
 
 The clear drops the pane's hook authority and its bound session record; it changes no process, no pane, no tab, no workspace, and no task record, so teardown, closing, and discard still stay with `bin/fm-teardown.sh` and their own guards.
 Dropping the bound session record costs session continuity: a later relaunch of a Pi-family task has no bound reference to hand the replacement as `--session`, so it starts a fresh Pi session instead of resuming the previous conversation.

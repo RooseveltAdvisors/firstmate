@@ -648,14 +648,16 @@ test_done_registration_with_a_live_agent_stays_alive() {
 # exact call order the function uses: pane get (1), agent get (2), api schema
 # (3), session list (4), pane process-info (5), the helper stub outside the
 # CLI, then the post-clear agent get (6) and, only when the record survives,
-# agent explain (7). Responses the flow never reaches are
+# the post-clear pane process-info (7) and agent explain (8). Responses the
+# flow never reaches are
 # simply left unconsumed.
 # shellcheck disable=SC2016 # $defs is a literal JSON Schema key.
 CLEAR_SCHEMA_OK='{"schemas":{"request":{"oneOf":[{"properties":{"method":{"const":"pane.clear_agent_authority","type":"string"}},"required":["method","params"],"type":"object"}],"$defs":{"PaneClearAgentAuthorityParams":{"properties":{"pane_id":{"type":"string"}},"required":["pane_id"],"type":"object"}}}}}'
 # shellcheck disable=SC2016 # $defs is a literal JSON Schema key.
 CLEAR_SCHEMA_OLD='{"schemas":{"request":{"oneOf":[],"$defs":{}}}}'
+CLEAR_AGENT_PROCESS_INFO='{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":4242,"foreground_process_group_id":4243,"foreground_processes":[{"pid":4243,"name":"node","argv0":"pi","argv":["pi"],"cmdline":"pi"}]}}}'
 
-clear_registration_case() {  # <dir-suffix> <registered|none> <process-info-body|-> <post-gone|post-stuck> [process-info-exit] [schema-json] [agent-explain-body]
+clear_registration_case() {  # <dir-suffix> <registered|none> <process-info-body|-> <post-gone|post-stuck|post-unreadable|post-agent> [process-info-exit] [schema-json] [agent-explain-body]
   local dir="$TMP_ROOT/clear-reg-$1" resp log fb n
   mkdir -p "$dir/responses"; resp="$dir/responses"; log="$dir/log"; : > "$log"
   printf '{"result":{"pane":{"pane_id":"w1:p2"}}}\n' > "$resp/1.out"
@@ -668,12 +670,18 @@ clear_registration_case() {  # <dir-suffix> <registered|none> <process-info-body
   printf '{"sessions":[{"name":"default","running":true,"socket_path":"/tmp/fm-clear-fake.sock"}]}\n' > "$resp/4.out"
   [ "$3" = - ] || printf '%s\n' "$3" > "$resp/5.out"
   [ -z "${5:-}" ] || printf '%s\n' "$5" > "$resp/5.exit"
-  if [ "$4" = post-gone ]; then
-    printf '{"error":{"code":"agent_not_found","message":"agent target w1:p2 not found"}}\n' > "$resp/6.out"
-  else
-    printf '{"result":{"agent":{"agent":"pi","agent_status":"%s"}}}\n' "${2:-done}" > "$resp/6.out"
+  case "$4" in
+    post-gone)
+      printf '{"error":{"code":"agent_not_found","message":"agent target w1:p2 not found"}}\n' > "$resp/6.out" ;;
+    post-unreadable) printf 'not json\n' > "$resp/6.out" ;;
+    *) printf '{"result":{"agent":{"agent":"pi","agent_status":"%s"}}}\n' "${2:-done}" > "$resp/6.out" ;;
+  esac
+  if [ "$4" = post-agent ]; then
+    printf '%s\n' "$CLEAR_AGENT_PROCESS_INFO" > "$resp/7.out"
+  elif [ "$3" != - ]; then
+    printf '%s\n' "$3" > "$resp/7.out"
   fi
-  [ -z "${7:-}" ] || printf '%s\n' "$7" > "$resp/7.out"
+  [ -z "${7:-}" ] || printf '%s\n' "$7" > "$resp/8.out"
   cat > "$dir/helper" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FM_HERDR_TEST_CLEAR_LOG"
@@ -717,8 +725,7 @@ test_clear_agent_registration_refuses_anything_but_an_agent_less_shell() {
   "$sleep_bin" 300 &
   shell_pid=$!
 
-  out=$(clear_registration_case refuse-agent "done" \
-    '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":4242,"foreground_process_group_id":4243,"foreground_processes":[{"pid":4243,"name":"node","argv0":"pi","argv":["pi"],"cmdline":"pi"}]}}}' post-gone)
+  out=$(clear_registration_case refuse-agent "done" "$CLEAR_AGENT_PROCESS_INFO" post-gone)
   clear_case_split "$out"
   [ "$CLEAR_VERDICT" = $'refused\ta live agent process is present in the pane' ] \
     || fail "a pane with a live agent must be refused, got '$CLEAR_VERDICT'"
@@ -792,6 +799,31 @@ test_clear_agent_registration_reports_a_surviving_detection_record() {
     "detection-held must tell the operator the seat still recovers"
   [ "$CLEAR_HELPER" = helper=1 ] || fail "the request should have been sent exactly once, got '$CLEAR_HELPER'"
   pass "herdr clear-registration: a detection record no API drops reports detection-held, not failed"
+}
+
+test_clear_agent_registration_never_reports_success_without_a_valid_read() {
+  local sleep_bin shell_pid out
+  sleep_bin=$(command -v sleep) || fail "sleep not found"
+  "$sleep_bin" 300 &
+  shell_pid=$!
+  # The request is accepted but the follow-up read is unreadable: even with
+  # `agent explain` answering, nothing proves the outcome.
+  out=$(clear_registration_case unverified "done" "$(shell_only_process_info "$shell_pid")" post-unreadable "" "" \
+    '{"agent":"pi","state":"idle","fallback_reason":"default_known_agent_idle_fallback"}')
+  clear_case_split "$out"
+  [ "${CLEAR_VERDICT%%$'\t'*}" = unverified ] \
+    || fail "an unreadable follow-up read must report unverified, got '$CLEAR_VERDICT'"
+  [ "$CLEAR_HELPER" = helper=1 ] || fail "the request should have been sent exactly once, got '$CLEAR_HELPER'"
+
+  # A live agent behind the still-present registration means one was started
+  # between the shell proof and the request.
+  out=$(clear_registration_case raced "done" "$(shell_only_process_info "$shell_pid")" post-agent)
+  kill "$shell_pid" 2>/dev/null || true
+  clear_case_split "$out"
+  [ "${CLEAR_VERDICT%%$'\t'*}" = concurrently-started ] \
+    || fail "a live agent after the clear must report concurrently-started, got '$CLEAR_VERDICT'"
+  assert_contains "$CLEAR_VERDICT" "relaunch" "concurrently-started must point at relaunch"
+  pass "herdr clear-registration: an unreadable re-read is unverified and a raced agent is concurrently-started"
 }
 
 # settle_registration_case: one pane classification over a scripted sequence
@@ -5974,6 +6006,7 @@ test_clear_agent_registration_refuses_anything_but_an_agent_less_shell
 test_clear_agent_registration_reports_already_clear_and_unsupported
 test_clear_agent_registration_reports_failure_when_the_clear_does_not_take
 test_clear_agent_registration_reports_a_surviving_detection_record
+test_clear_agent_registration_never_reports_success_without_a_valid_read
 test_transient_prompt_helper_settles_into_stale_agent
 test_exhausted_settle_window_keeps_a_non_shell_foreground_live
 test_registered_agent_with_an_agent_descendant_outside_the_foreground_stays_alive

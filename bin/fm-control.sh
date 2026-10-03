@@ -103,6 +103,11 @@
 #              drops it) reports cleared-authority with detection-record=held
 #              and exits 0: the shell was proven agent-less, so exit and
 #              relaunch already read the agent dead.
+#              A follow-up read that fails or is unreadable reports unverified
+#              and exits nonzero: success is never claimed without a valid
+#              read. A registration that still reads present over a live agent
+#              reports that an agent concurrently started in the pane between
+#              the shell proof and the request; relaunch re-registers it.
 #              HERDR-ONLY: every other backend reports no registration to
 #              clear. The reported outcome is the post-clear re-read, never
 #              the request's exit code. The verdict contract lives in
@@ -1118,6 +1123,8 @@ case "$VERB" in
       refused) die "refusing to clear task $ID's agent registration: $reason" ;;
       unsupported) die "task $ID's agent registration cannot be cleared from here: $reason" ;;
       failed) die "clearing task $ID's agent registration did not take: $reason" ;;
+      unverified) die "task $ID's registration clear could not be verified: $reason" ;;
+      concurrently-started) die "task $ID's registration was cleared but an agent concurrently started in the pane: $reason" ;;
       *) die "task $ID's registration clear returned '$verdict' rather than a positively classified outcome; refusing to report an unproven clear" ;;
     esac
     ;;

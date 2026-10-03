@@ -2516,6 +2516,11 @@ fm_backend_herdr_clear_agent_authority_capable() {  # <session>
 #   failed         - the request could not be sent or errored, or - the case
 #                    that makes the post-clear re-read load-bearing - it was
 #                    accepted but the registration still reads present.
+#   unverified     - the request was accepted but the follow-up `agent get`
+#                    failed or was unreadable, so neither success is proven.
+#   concurrently-started - the registration still reads present and the pane
+#                    now holds a live agent: one was started between the shell
+#                    proof and the request. Relaunch re-registers it.
 #
 # The proof is the SAME process-level read the recovery classifier uses
 # (fm_backend_herdr_pane_process_state), taken immediately before the request,
@@ -2573,6 +2578,21 @@ fm_backend_herdr_clear_agent_registration() {  # <target>
   code=$(printf '%s' "$out" | jq -r '.error.code // empty' 2>/dev/null)
   if [ "$code" = agent_not_found ]; then
     printf 'cleared\t'
+    return 0
+  fi
+  # Every other verdict needs a VALID read of a still-present registration;
+  # a failed or unreadable re-read proves nothing, so it never reports success.
+  case "$(printf '%s' "$out" | jq -r '.result.agent.agent_status // empty' 2>/dev/null)" in
+    working|idle|done|blocked) ;;
+    *)
+      printf 'unverified\tthe clear request was accepted but the follow-up registration read failed or was unreadable, so the outcome is unknown'
+      return 0
+      ;;
+  esac
+  # The shell proof above cannot stop someone typing an agent into the pane
+  # between the proof and the request; a live agent now means that race won.
+  if [ "$(fm_backend_herdr_pane_process_state "$FM_BACKEND_HERDR_SESSION" "$FM_BACKEND_HERDR_PANE")" = agent ]; then
+    printf 'concurrently-started\tan agent was started in the pane while the registration was being cleared, so its status binding may be gone; relaunch the task to re-register it'
   # Herdr's own process detection keeps a record no API drops (measured on
   # 0.9.3: a nested shell holds it until that shell exits); `agent explain`
   # answers only for a detected label, so a record it explains is detection,
