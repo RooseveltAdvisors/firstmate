@@ -5,6 +5,10 @@ Usage:
   fm-jev-decisions.py [--task <task>] [--status-file <path>] [--all] [--state-dir <dir>]
                       [--json] [--resolve-cmds] [--category <cat>]
                       [--min-noul <float>] [--limit <int>]
+
+The fm- task-id prefix rule comes from bin/fm-task-id-rule.conf (contract:
+its header), read directly by this file at import; no subprocess and no
+embedded copy of the rule.
 """
 from __future__ import annotations
 
@@ -28,6 +32,85 @@ TS_MODEL = os.environ.get("FM_JEV_TS_MODEL", "jev-latest")
 TS_TIMEOUT = float(os.environ.get("FM_JEV_TS_TIMEOUT", "5.0"))
 MAX_WORKERS = 8
 CANONICAL_HOME = Path("/opt/ra/firstmate")
+
+# The Python reader for the shared fm- task-id prefix rule. The rule data and
+# its contract live in the artifact's header; everything below is generic load
+# code: parse, validate, fail closed, expose the rule's operations. The bash
+# reader is bin/fm-task-id-rule-lib.sh, and neither side embeds a copy.
+TASK_ID_RULE_FILE = Path(__file__).resolve().parent / "fm-task-id-rule.conf"
+
+
+@dataclasses.dataclass(frozen=True)
+class TaskIdRule:
+    """The loaded rule: data from the artifact, operations for one selector."""
+
+    prefix: str
+    candidates: tuple[str, ...]
+    reject_contains: str
+
+    def rejected(self, selector: str) -> bool:
+        """Structurally never a task-id selector (an explicit endpoint escape hatch)."""
+        return self.reject_contains in selector
+
+    def strip(self, value: str) -> str:
+        """Exactly one leading prefix removed, or the value unchanged."""
+        return value[len(self.prefix) :] if value.startswith(self.prefix) else value
+
+    def candidate_ids(self, selector: str) -> list[str]:
+        """Candidate task ids in the artifact's order, no-op candidates skipped."""
+        out: list[str] = []
+        for transform in self.candidates:
+            if transform == "stripped":
+                stripped = self.strip(selector)
+                if stripped != selector:
+                    out.append(stripped)
+            else:
+                # `exact`, the only other transform load_task_id_rule accepts.
+                out.append(selector)
+        return out
+
+
+def load_task_id_rule(path: Path) -> TaskIdRule:
+    """Parse the key=value artifact; every malformed shape refuses (fail closed)."""
+
+    def fail(message: str) -> None:
+        sys.exit(f"error: shared task-id rule {path}: {message}")
+
+    try:
+        lines = path.read_text().splitlines()
+    except OSError as exc:
+        fail(f"missing or unreadable: {exc}")
+    values: dict[str, str] = {}
+    for line in lines:
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            fail(f"malformed line: {line}")
+        key, _, value = line.partition("=")
+        if key not in ("prefix", "candidates", "reject_contains"):
+            fail(f"unknown key: {key}")
+        if key in values:
+            fail(f"duplicate key: {key}")
+        values[key] = value
+    for key in ("prefix", "candidates", "reject_contains"):
+        if key not in values:
+            fail(f"missing key: {key}")
+        elif not values[key]:
+            fail(f"empty value: {key}")
+    candidates_raw = values["candidates"]
+    if candidates_raw.startswith(",") or candidates_raw.endswith(",") or ",," in candidates_raw:
+        fail(f"bad candidate list: {candidates_raw}")
+    for transform in candidates_raw.split(","):
+        if transform not in ("exact", "stripped"):
+            fail(f"unknown candidate transform: {transform}")
+    return TaskIdRule(
+        prefix=values["prefix"],
+        candidates=tuple(candidates_raw.split(",")),
+        reject_contains=values["reject_contains"],
+    )
+
+
+TASK_ID_RULE = load_task_id_rule(TASK_ID_RULE_FILE)
 
 DECISION_CRITERIA = {
     "stale_historical": (
@@ -326,11 +409,14 @@ def format_table(items: list[DecisionItem]) -> str:
 
 
 def send_ledger(state: Path, selector: str) -> Path | None:
-    """The status file fm-send --resolve-key closes for selector (fm_backend_task_id_for_selector + fm-send.sh:630)."""
-    if ":" in selector:
+    """The status file fm-send --resolve-key closes for selector.
+
+    The rule itself is single-sourced in bin/fm-task-id-rule.conf (contract:
+    its header); this reader parses that artifact directly and embeds no copy.
+    """
+    if TASK_ID_RULE.rejected(selector):
         return None
-    ids = [selector] + ([selector[3:]] if selector.startswith("fm-") else [])
-    for task_id in ids:
+    for task_id in TASK_ID_RULE.candidate_ids(selector):
         if (state / f"{task_id}.meta").is_file():
             return state / f"{task_id}.status"
     return None

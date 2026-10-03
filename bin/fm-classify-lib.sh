@@ -73,6 +73,13 @@ case $- in *u*) _fm_classify_nounset=on ;; *) _fm_classify_nounset=off ;; esac
 [ "$_fm_classify_nounset" = on ] || set +u
 unset _fm_classify_nounset
 
+# The shared fm- task-id prefix rule (contract: bin/fm-task-id-rule.conf
+# header); generic load code only, so the strip below cannot drift from the
+# selector rule.
+# shellcheck source=bin/fm-task-id-rule-lib.sh
+# shellcheck disable=SC1091
+. "$_FM_CLASSIFY_LIB_DIR/fm-task-id-rule-lib.sh"
+
 # Captain-relevant status verbs. A status line carrying any of these is work
 # firstmate must see. Lines without these verbs are no-verb signals: the watcher
 # absorbs them only with positive provably-working evidence, while the daemon uses
@@ -2152,7 +2159,7 @@ window_to_task() {
       return 0
     done
   fi
-  t="${w##*:}"; t="${t#fm-}"; printf '%s' "$t"
+  t=$(fm_task_id_rule_strip "${w##*:}"); printf '%s' "$t"
 }
 
 # --- home-owned status-append ledger ----------------------------------------
