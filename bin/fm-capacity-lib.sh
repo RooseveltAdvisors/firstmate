@@ -35,6 +35,8 @@
 
 # shellcheck source=bin/fm-tasks-axi-lib.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fm-tasks-axi-lib.sh"
+# shellcheck source=bin/fm-backlog-transition-lib.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fm-backlog-transition-lib.sh"
 
 fm_capacity_resolve_dir() {  # <dir>
   local dir=$1
@@ -101,12 +103,13 @@ fm_capacity_reason() {  # <pool> <in-use-count> [max]
 # with `--file` only for the markdown backend. Prints tasks-axi's combined
 # output; the exit status is tasks-axi's.
 fm_capacity_axi() {  # <data-dir> <verb> <id> [flag...]
-  local data=$1 verb=$2 id=$3 root
+  local data=$1 verb=$2 id=$3 root file
   shift 3
   data=$(fm_capacity_resolve_dir "$data") || return 1
   root=$(dirname "$data")
   if [ "$(fm_tasks_axi_backend "$root")" = markdown ]; then
-    (cd "$root" 2>/dev/null && tasks-axi "$verb" "$id" --file "$data/backlog.md" "$@" 2>&1)
+    file=$(fm_backlog_markdown_file "$data") || return 1
+    (cd "$root" 2>/dev/null && tasks-axi "$verb" "$id" --file "$file" "$@" 2>&1)
   else
     (cd "$root" 2>/dev/null && tasks-axi "$verb" "$id" "$@" 2>&1)
   fi

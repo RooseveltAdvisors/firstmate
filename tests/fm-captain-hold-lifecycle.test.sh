@@ -1849,7 +1849,7 @@ SH
 # close mode can turn it into a close or a release, and the obligation to verify
 # survives as a durable request instead of evaporating with the wake.
 test_reconcile_never_closes_through_the_keyed_answer_intake() {
-  local home out rc show list
+  local home out rc show list leftover
   home=$(make_home reconcile-intake)
   tasks_in "$home" add sample-reconcile-call "Captain call: still current?" --repo sample >/dev/null \
     || fail "could not create the reconcile call"
@@ -1896,6 +1896,8 @@ test_reconcile_never_closes_through_the_keyed_answer_intake() {
   list=$(run_captain "$home" reconcile list)
   assert_contains "$list" "sample-reconcile-call" "the reconcile obligation was not recorded durably: $list"
   assert_contains "$list" "reconcile-requests: 2" "the reconcile requests were not both recorded: $list"
+  leftover=$(find "$home/state" -maxdepth 1 \( -name '.meta-*.lock' -o -name '.control-*.lock' \) -print)
+  [ -z "$leftover" ] || fail "a reconcile batch left task locks behind: $leftover"
 
   request_reconciles "$home" board-src sample-reconcile-call \
     || fail "replaying a captured reconcile selection failed"
