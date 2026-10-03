@@ -292,6 +292,40 @@ ledger "$TDIR/overlap-state" ns active-overlap needs-decision "acme health partn
 FM_CONFIG_OVERRIDE="$TDIR/ns-config" FM_STATE_OVERRIDE="$TDIR/overlap-state" "$DECISION_SH" --task ns --json >/dev/null
 sent_note=$(python3 -c 'import json,sys; print(json.loads(open(sys.argv[1]).readline())["state"]["note"])' "$TDIR/requests.log")
 [ "$sent_note" = "[withheld] owes X" ] || fail "overlapping never-send values must leave no fragment: $sent_note"
+# 9b. A never-send value that shell quoting would respell (apostrophe, double quote, backslash)
+# leaves no recoverable trace when it sits in a task name or in the home path.
+no_trace() {
+  python3 - "$1" "$2" "$3" <<'PY' || fail "never-send value recoverable via $3: $2"
+import json, shlex, sys
+value, out = sys.argv[1].lower(), sys.argv[2]
+words = [out]
+for line in out.splitlines():
+    if not line.startswith("#"):
+        words += shlex.split(line)
+try:
+    words += [str(v) for row in json.loads(out) for v in row.values()]
+except ValueError:
+    pass
+assert not any(value in w.lower() for w in words)
+PY
+}
+i=0
+for v in "o'brien" 'say "hi"' 'back\slash'; do
+  i=$((i + 1))
+  printf '%s\n' "$v" > "$TDIR/ns-config/dispatch-never-send"
+  QS="$TDIR/quoted-state-$i"
+  ledger "$QS" "t-$v-ops" old-q blocked "superseded"
+  QHOME="$TDIR/home-$v"; mkdir -p "$QHOME"; ln -s "$ROOT/bin" "$QHOME/bin"
+  ledger "$TDIR/quoted-home-state-$i" plain old-q blocked "superseded"
+  for case in task home; do
+    if [ "$case" = task ]; then home=$FAKE; st=$QS; else home=$QHOME; st="$TDIR/quoted-home-state-$i"; fi
+    q() { FM_HOME="$home" FM_CONFIG_OVERRIDE="$TDIR/ns-config" "$DECISION_SH" --all --state-dir "$st" "$@"; }
+    qcmds=$(q --resolve-cmds)
+    [ "$qcmds" = "# No actionable resolve commands generated." ] || fail "quoted never-send value in $case kept a resolve cmd: $qcmds"
+    no_trace "$v" "$qcmds" "--resolve-cmds ($case)"
+    no_trace "$v" "$(q --json)" "--json ($case)"
+  done
+done
 mkdir -p "$TDIR/bad-config/dispatch-never-send"
 : > "$TDIR/requests.log"
 bad=$(FM_CONFIG_OVERRIDE="$TDIR/bad-config" FM_STATE_OVERRIDE="$TDIR/overlap-state" "$DECISION_SH" --task ns --json 2>/dev/null)

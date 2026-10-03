@@ -243,6 +243,11 @@ def shown(text: str, never_send: list[str] | None) -> str:
     return text if hidden == " ".join(text.split()) else hidden
 
 
+def leaks(values: list[str], never_send: list[str] | None) -> bool:
+    """True when any raw (unquoted) value would print a never-send value."""
+    return any(shown(value, never_send) != value for value in values)
+
+
 def parse_decision_lines(content: str, task: str | None) -> list[DecisionItem]:
     """Parse key<TAB>verb<TAB>note lines, prefixed by a task column when task is None."""
     items = []
@@ -284,7 +289,7 @@ def extract_decisions_from_bash(func: str, classify_lib: Path, target: Path, tas
 
 
 def classify_decision(
-    item: DecisionItem, api_key: str | None, never_send: list[str], send_prefix: str
+    item: DecisionItem, api_key: str | None, never_send: list[str], send_prefix: str | None
 ) -> DecisionItem:
     if not api_key:
         item.category = "unavailable"
@@ -353,10 +358,12 @@ def classify_decision(
                 item.suggested_action = "Confirm the pending reply is no longer owed before closing it"
             else:
                 item.suggested_action = "Archive or resolve superseded historical decision"
-                item.resolve_cmd = send_prefix + shlex.join(
-                    [item.task, "--resolve-key", item.key,
-                     "auto-resolved: superseded historical decision"]
-                )
+                # Checked before quoting: shell quoting changes how a value spells in the command.
+                if send_prefix is not None and not leaks([item.task, item.key], never_send):
+                    item.resolve_cmd = send_prefix + shlex.join(
+                        [item.task, "--resolve-key", item.key,
+                         "auto-resolved: superseded historical decision"]
+                    )
         elif item.category == "external_block":
             item.suggested_action = "Investigate external host, route, or credentials dependency"
         elif item.category == "policy_spend":
@@ -482,10 +489,11 @@ def main() -> None:
     except NeverSendUnreadable as exc:
         withheld_reason = f"{exc}; nothing sent"
         never_send = []
-    send_prefix = (
-        f"FM_HOME={shlex.quote(str(fm_root.resolve()))} "
-        f"FM_STATE_OVERRIDE={shlex.quote(str(send_state.resolve()))} "
-        f"{shlex.quote(str(fm_root.resolve() / 'bin' / 'fm-send.sh'))} "
+    prefix_paths = [str(fm_root.resolve()), str(send_state.resolve()), str(fm_root.resolve() / "bin" / "fm-send.sh")]
+    send_prefix = None if leaks(prefix_paths, never_send) else (
+        f"FM_HOME={shlex.quote(prefix_paths[0])} "
+        f"FM_STATE_OVERRIDE={shlex.quote(prefix_paths[1])} "
+        f"{shlex.quote(prefix_paths[2])} "
     )
 
     # Concurrently classify items. Mechanics here; interpretation is delegated to Jev per intent:
@@ -520,10 +528,10 @@ def main() -> None:
         filtered_items = [it for it in filtered_items if it.actionable_noul >= args.min_noul]
 
     # Local output carries the request's redaction; a row whose resolve command would print a
-    # never-send value gets none.
+    # never-send value gets none, checked on the unquoted words too so no quoting shape slips past.
     shown_list = None if withheld_reason else never_send
     for it in filtered_items:
-        if shown(it.resolve_cmd, shown_list) != it.resolve_cmd:
+        if leaks([it.resolve_cmd, *shlex.split(it.resolve_cmd)], shown_list):
             it.resolve_cmd = ""
         for field in ("task", "key", "verb", "note", "suggested_action", "error"):
             value = getattr(it, field)
