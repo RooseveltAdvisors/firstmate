@@ -525,7 +525,7 @@ SH
   pass "watcher Jev error fails open to today's escalate path"
 }
 
-# The gate matrix: no file and no env is on; a present file or a non-empty
+# The gate matrix: no file and no env is off; a present file or a non-empty
 # FM_JEV_WAKE_TRIAGE is on only for on/1/true/yes (any case), and the env
 # value beats the file. The fake Jev escalates, so the watcher exits either way
 # and only the Jev call differs.
@@ -560,7 +560,7 @@ gate_case() {  # <name> <file-first-line|-> <env> <expect on|off>
 
 test_watcher_gate_matrix() {
   local i=0 v
-  gate_case gate-default - '' on
+  gate_case gate-default - '' off
   for v in off '' garbage ONN tru 1x of; do
     i=$((i + 1)); gate_case "cfg-off-$i" "$v" '' off
   done
@@ -570,7 +570,7 @@ test_watcher_gate_matrix() {
   gate_case env-off-file-on on off off
   gate_case env-garbage - garbage off
   gate_case env-typo-file-on on of off
-  pass "Jev gate: default on; file and env on only for on/1/true/yes; env beats file"
+  pass "Jev gate: default off; file and env on only for on/1/true/yes; env beats file"
 }
 
 # FM_JEV_WAKE_TRIAGE is the documented override of config/jev-wake-triage in

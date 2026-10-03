@@ -612,8 +612,8 @@ The flag is a home-local supervision-noise preference and is not inherited by se
 
 ## Jev stale-escalation triage (config/jev-wake-triage)
 
-The Jev classifier on the watcher's stale-escalation path is on by default; the local, gitignored `config/jev-wake-triage` file or `FM_JEV_WAKE_TRIAGE` overrides it.
-With no `config/jev-wake-triage` file and `FM_JEV_WAKE_TRIAGE` unset or empty, the gate is on.
+The Jev classifier on the watcher's stale-escalation path is off by default; only an affirmative value in the local, gitignored `config/jev-wake-triage` file or in `FM_JEV_WAKE_TRIAGE` turns it on.
+With no `config/jev-wake-triage` file and `FM_JEV_WAKE_TRIAGE` unset or empty, the gate stays off and the watcher escalates exactly as it did before Jev.
 When the file exists, a first line of `on`, `1`, `true`, or `yes` (any case) turns it on; `off`, `0`, `false`, `no`, an empty file, an empty first line, or any other value (a typo such as `of` included) turns it off, so a present but unparseable file never opens the gate.
 A non-empty `FM_JEV_WAKE_TRIAGE` beats the file and follows the same rule: `on`/`1`/`true`/`yes` is on, and `off`/`0`/`false`/`no` or any other value is off.
 The gate runs only at the moment a provably-working stale pane would otherwise escalate, after the wait, worktree-write, and dead-record probes.
@@ -2385,7 +2385,7 @@ FM_SECONDMATE_LIVENESS_TIMEOUT=120   # seconds bounding one watcher-driven relau
 FM_SECONDMATE_LIVENESS_MAX_ATTEMPTS=3   # automatic relaunch attempts allowed per mate inside the window before the watcher parks auto-relaunch behind state/.secondmate-relaunch-bound-<id> and escalates once; a later live probe clears the marker and restores the full attempt budget (the ledger keeps its history behind a `rearmed` row); zero or invalid values use 3
 FM_SECONDMATE_LIVENESS_WINDOW_SECS=3600   # window the relaunch bound counts state/.secondmate-relaunch-<id> attempt lines over; the file is also the durable per-mate relaunch record; zero or invalid values use 3600
 FM_WEDGE_DEMAND_INSPECT_COUNT=3    # consecutive provably-working stale escalations on the same unchanged pane before demand-deep-inspection is added
-FM_JEV_WAKE_TRIAGE=                # override config/jev-wake-triage; on/1/true/yes enables the default-on Jev stale-escalation gate, any other non-empty value disables it, unset or empty defers to the file (absent file = on)
+FM_JEV_WAKE_TRIAGE=                # override config/jev-wake-triage; on/1/true/yes enables the default-off Jev stale-escalation gate, any other non-empty value disables it, unset or empty defers to the file (absent file = off)
 FM_WORKTREE_WRITE_PRUNE='.git node_modules .venv venv __pycache__ .mypy_cache .pytest_cache .ruff_cache .tox target dist build .next .cache vendor'   # directory names the wedge detector's task-worktree write probe skips; the default keeps .git out so a supervisor's own read-only git command can never look like crew progress; set it to the empty string to prune nothing, which widens the probe to the whole depth-bounded tree rather than disabling it
 FM_WORKTREE_WRITE_MAXDEPTH=6       # depth that same probe walks below the recorded worktree; it runs only at the moment a wedge escalation would otherwise fire, never on every poll; no probe knob applies to a secondmate, whose recorded worktree is a provisioned home the probe skips entirely
 FM_WORKTREE_WRITE_TIMEOUT=10       # wall-clock seconds that one walk may take, so a worktree on a hung mount cannot stall the watcher poll that started it; hitting the bound reads as no write evidence, which leaves the escalation schedule exactly as it was; a value that is not a positive integer falls back to the default
