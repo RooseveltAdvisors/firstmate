@@ -646,11 +646,12 @@ test_done_registration_with_a_live_agent_stays_alive() {
 # The guard, transport gate, and post-clear re-read of
 # fm_backend_herdr_clear_agent_registration, against the same canned CLI. The
 # exact call order the function uses: pane get (1), agent get (2), api schema
-# (3), session list (4), pane process-info (5), the helper stub outside the
-# CLI, then the post-clear agent get (6) and, only when the record survives,
-# the post-clear pane process-info (7) and agent explain (8). Responses the
-# flow never reaches are
-# simply left unconsumed.
+# (3), session list (4), the pre-clear session-ref agent get (5), pane
+# process-info (6), the helper stub outside the CLI, then the post-clear agent
+# get (7) and, only when the record survives, the post-clear pane process-info
+# (8) and agent explain (9). Responses the flow never reaches are simply left
+# unconsumed. CLEAR_CASE_REF sets the bound session id read at (5); empty
+# makes that read find no reference.
 # shellcheck disable=SC2016 # $defs is a literal JSON Schema key.
 CLEAR_SCHEMA_OK='{"schemas":{"request":{"oneOf":[{"properties":{"method":{"const":"pane.clear_agent_authority","type":"string"}},"required":["method","params"],"type":"object"}],"$defs":{"PaneClearAgentAuthorityParams":{"properties":{"pane_id":{"type":"string"}},"required":["pane_id"],"type":"object"}}}}}'
 # shellcheck disable=SC2016 # $defs is a literal JSON Schema key.
@@ -668,20 +669,23 @@ clear_registration_case() {  # <dir-suffix> <registered|none> <process-info-body
   fi
   printf '%s\n' "${6:-$CLEAR_SCHEMA_OK}" > "$resp/3.out"
   printf '{"sessions":[{"name":"default","running":true,"socket_path":"/tmp/fm-clear-fake.sock"}]}\n' > "$resp/4.out"
-  [ "$3" = - ] || printf '%s\n' "$3" > "$resp/5.out"
-  [ -z "${5:-}" ] || printf '%s\n' "$5" > "$resp/5.exit"
+  [ -z "${CLEAR_CASE_REF-sess-abc}" ] \
+    || printf '{"result":{"agent":{"agent":"pi","agent_status":"done","agent_session":{"kind":"id","value":"%s"}}}}\n' \
+      "${CLEAR_CASE_REF-sess-abc}" > "$resp/5.out"
+  [ "$3" = - ] || printf '%s\n' "$3" > "$resp/6.out"
+  [ -z "${5:-}" ] || printf '%s\n' "$5" > "$resp/6.exit"
   case "$4" in
     post-gone)
-      printf '{"error":{"code":"agent_not_found","message":"agent target w1:p2 not found"}}\n' > "$resp/6.out" ;;
-    post-unreadable) printf 'not json\n' > "$resp/6.out" ;;
-    *) printf '{"result":{"agent":{"agent":"pi","agent_status":"%s"}}}\n' "${2:-done}" > "$resp/6.out" ;;
+      printf '{"error":{"code":"agent_not_found","message":"agent target w1:p2 not found"}}\n' > "$resp/7.out" ;;
+    post-unreadable) printf 'not json\n' > "$resp/7.out" ;;
+    *) printf '{"result":{"agent":{"agent":"pi","agent_status":"%s"}}}\n' "${2:-done}" > "$resp/7.out" ;;
   esac
   if [ "$4" = post-agent ]; then
-    printf '%s\n' "$CLEAR_AGENT_PROCESS_INFO" > "$resp/7.out"
+    printf '%s\n' "$CLEAR_AGENT_PROCESS_INFO" > "$resp/8.out"
   elif [ "$3" != - ]; then
-    printf '%s\n' "$3" > "$resp/7.out"
+    printf '%s\n' "$3" > "$resp/8.out"
   fi
-  [ -z "${7:-}" ] || printf '%s\n' "$7" > "$resp/8.out"
+  [ -z "${7:-}" ] || printf '%s\n' "$7" > "$resp/9.out"
   cat > "$dir/helper" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FM_HERDR_TEST_CLEAR_LOG"
@@ -816,14 +820,27 @@ test_clear_agent_registration_never_reports_success_without_a_valid_read() {
   [ "$CLEAR_HELPER" = helper=1 ] || fail "the request should have been sent exactly once, got '$CLEAR_HELPER'"
 
   # A live agent behind the still-present registration means one was started
-  # between the shell proof and the request.
+  # between the shell proof and the request: the verdict must hand back the
+  # session reference captured before the clear, not lossy relaunch advice.
   out=$(clear_registration_case raced "done" "$(shell_only_process_info "$shell_pid")" post-agent)
-  kill "$shell_pid" 2>/dev/null || true
   clear_case_split "$out"
   [ "${CLEAR_VERDICT%%$'\t'*}" = concurrently-started ] \
     || fail "a live agent after the clear must report concurrently-started, got '$CLEAR_VERDICT'"
-  assert_contains "$CLEAR_VERDICT" "relaunch" "concurrently-started must point at relaunch"
-  pass "herdr clear-registration: an unreadable re-read is unverified and a raced agent is concurrently-started"
+  assert_contains "$CLEAR_VERDICT" "pi --session sess-abc" \
+    "concurrently-started must carry the pre-clear session ref and the resume command"
+  assert_contains "$CLEAR_VERDICT" "plain relaunch now starts a FRESH session" \
+    "concurrently-started must say a plain relaunch loses the conversation"
+
+  # With no readable pre-clear reference the verdict must say so, never
+  # present relaunch as restoration.
+  out=$(CLEAR_CASE_REF='' clear_registration_case raced-noref "done" "$(shell_only_process_info "$shell_pid")" post-agent)
+  kill "$shell_pid" 2>/dev/null || true
+  clear_case_split "$out"
+  [ "${CLEAR_VERDICT%%$'\t'*}" = concurrently-started ] \
+    || fail "a raced agent with no captured ref must still report concurrently-started, got '$CLEAR_VERDICT'"
+  assert_contains "$CLEAR_VERDICT" "it is unknown and a plain relaunch starts a FRESH session" \
+    "an unknown ref must be named and relaunch must not be presented as restoration"
+  pass "herdr clear-registration: an unreadable re-read is unverified and a raced agent gets its pre-clear session ref back"
 }
 
 # settle_registration_case: one pane classification over a scripted sequence

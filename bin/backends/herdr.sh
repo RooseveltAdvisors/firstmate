@@ -2520,15 +2520,20 @@ fm_backend_herdr_clear_agent_authority_capable() {  # <session>
 #                    failed or was unreadable, so neither success is proven.
 #   concurrently-started - the registration still reads present and the pane
 #                    now holds a live agent: one was started between the shell
-#                    proof and the request. Relaunch re-registers it.
+#                    proof and the request, and the clear dropped its binding.
+#                    The reason carries the session reference captured before
+#                    the clear and how to resume on it; a plain relaunch would
+#                    start a fresh session and lose that conversation.
 #
 # The proof is the SAME process-level read the recovery classifier uses
 # (fm_backend_herdr_pane_process_state), taken immediately before the request,
 # so refusal and clear describe one pane state; the task's control lock
 # (bin/fm-control.sh) serializes lifecycle actions on this task while that
-# window holds.
+# window holds. Residual window: direct input into the pane between that proof
+# and the request cannot be locked; it surfaces as concurrently-started with
+# the captured session reference, so the raced conversation stays resumable.
 fm_backend_herdr_clear_agent_registration() {  # <target>
-  local target=$1 presence process_state out code capable socket clearer response
+  local target=$1 presence process_state out code capable socket clearer response bound
   fm_backend_herdr_parse_target "$target" || {
     printf 'refused\tthe target is not a session:pane endpoint'
     return 0
@@ -2559,8 +2564,11 @@ fm_backend_herdr_clear_agent_registration() {  # <target>
     printf 'failed\tthe socket of the recorded session could not be resolved unambiguously'
     return 0
   }
-  # The agent-less proof sits immediately before the request: everything above
-  # this line is read-only, so the proof and the clear describe one pane state.
+  # The clear drops the pane's bound session record, so capture it first: it is
+  # the only way back to a conversation raced in after the proof below.
+  bound=$(fm_backend_herdr_pane_agent_session_ref "$FM_BACKEND_HERDR_SESSION" "$FM_BACKEND_HERDR_PANE") || bound=
+  # The agent-less proof is the immediate pre-clear gate: everything above this
+  # line is read-only, so the proof and the clear describe one pane state.
   process_state=$(fm_backend_herdr_pane_process_state "$FM_BACKEND_HERDR_SESSION" "$FM_BACKEND_HERDR_PANE")
   case "$process_state" in
     shell) ;;
@@ -2589,10 +2597,16 @@ fm_backend_herdr_clear_agent_registration() {  # <target>
       return 0
       ;;
   esac
-  # The shell proof above cannot stop someone typing an agent into the pane
-  # between the proof and the request; a live agent now means that race won.
+  # The pre-clear shell proof (the process_state gate above) cannot stop someone
+  # typing an agent into the pane before the request; a live agent now means
+  # that race won, so hand back the session reference captured before the clear.
   if [ "$(fm_backend_herdr_pane_process_state "$FM_BACKEND_HERDR_SESSION" "$FM_BACKEND_HERDR_PANE")" = agent ]; then
-    printf 'concurrently-started\tan agent was started in the pane while the registration was being cleared, so its status binding may be gone; relaunch the task to re-register it'
+    if [ -n "$bound" ]; then
+      printf 'concurrently-started\tan agent was started in the pane between the shell proof and the clear request, and the clear dropped its status binding; to keep its conversation, stop it and resume it on the same session in the pane (%s --session %s) so it re-registers - a plain relaunch now starts a FRESH session and loses that conversation' \
+        "${bound%%$'\t'*}" "${bound#*$'\t'}"
+    else
+      printf 'concurrently-started\tan agent was started in the pane between the shell proof and the clear request, and the clear dropped its status binding; the session reference could not be read before the clear, so it is unknown and a plain relaunch starts a FRESH session that does not restore that conversation'
+    fi
   # Herdr's own process detection keeps a record no API drops (measured on
   # 0.9.3: a nested shell holds it until that shell exits); `agent explain`
   # answers only for a detected label, so a record it explains is detection,

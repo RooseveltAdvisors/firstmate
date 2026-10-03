@@ -107,7 +107,11 @@
 #              and exits nonzero: success is never claimed without a valid
 #              read. A registration that still reads present over a live agent
 #              reports that an agent concurrently started in the pane between
-#              the shell proof and the request; relaunch re-registers it.
+#              the shell proof and the request, with the session reference
+#              captured before the clear: resume the harness on that same
+#              reference in the pane to keep the conversation, because a plain
+#              relaunch now starts a fresh session. Direct pane input in that
+#              window cannot be locked; this verdict is its documented recovery.
 #              HERDR-ONLY: every other backend reports no registration to
 #              clear. The reported outcome is the post-clear re-read, never
 #              the request's exit code. The verdict contract lives in

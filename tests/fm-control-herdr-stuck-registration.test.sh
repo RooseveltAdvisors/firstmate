@@ -259,8 +259,10 @@ test_clear_registration_clears_a_stuck_agent_less_shell() {
   [ -e "$dir/fixtures/cleared" ] || fail "the clear request was never sent"
   assert_contains "$(cat "$dir/fixtures/clear.calls")" "/tmp/fm-clear-fake.sock w1:p2" \
     "the clear request must carry the session socket and the exact pane id"
-  [ "$(grep -c '^agent get' "$dir/fixtures/calls.log")" -eq 2 ] \
-    || fail "clear-registration must verify with a second agent get read"
+  # Three reads: the presence check, the pre-clear session-ref capture, and the
+  # post-clear verification.
+  [ "$(grep -c '^agent get' "$dir/fixtures/calls.log")" -eq 3 ] \
+    || fail "clear-registration must capture the session ref and verify with a post-clear agent get read"
   pass "fm-control clear-registration: a stuck registration over a proven agent-less shell is cleared and verified"
 }
 
