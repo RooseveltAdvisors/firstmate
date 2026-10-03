@@ -29,7 +29,7 @@ fm_task_id_rule_load_error() { # <message>
 }
 
 fm_task_id_rule_load() {
-  local line key value prefix= candidates= reject= seen_prefix= seen_candidates= seen_reject= rest tok
+  local line key value prefix='' candidates='' reject='' seen_prefix='' seen_candidates='' seen_reject='' rest tok
 
   [ -r "$FM_TASK_ID_RULE_FILE" ] || fm_task_id_rule_load_error "missing or unreadable"
   while IFS= read -r line || [ -n "$line" ]; do
