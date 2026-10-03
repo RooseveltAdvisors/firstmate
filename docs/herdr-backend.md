@@ -702,9 +702,11 @@ Already-clear is idempotent success.
 The clear only drops hook authority: Herdr's own process-detection record (the one `agent explain` answers for) has no API that drops it, and a nested shell keeps it until that shell exits (measured on 0.9.3 with a real Pi `/quit` under `bash -i`).
 When that record survives, the verb reports `cleared-authority ... detection-record=held` and exits 0, because the pane was just proven an agent-less shell and the classifier above already reads it dead, so `exit` and `relaunch` proceed.
 A follow-up read that fails or is unreadable never reports success: the verb reports the clear unverified and exits nonzero.
-The shell proof cannot stop someone starting an agent in the pane between the proof and the request, so a follow-up read that finds the registration over a live agent reports that an agent concurrently started.
-That verdict carries the session reference read before the clear, so the operator resumes the harness on that same reference in the pane (`pi --session <ref>`) and keeps the conversation.
-A plain `relaunch` would start a fresh session, because the clear dropped the bound reference; when the reference could not be read before the clear, the verdict says it is unknown.
+The shell proof cannot stop someone starting an agent in the pane between the proof and the request, so a follow-up read that finds the registration over a live agent is described from fresh reads of the registration and the pane, never from the old agent's session.
+A registration still holding the session it held before the clear means the clear did not land, and the verb reports failure without recovery advice.
+A registration holding a different session is the racing agent's own binding, made after the clear and never cleared, so it needs no recovery.
+A registration holding no readable session reports the session ref unknown, because a plain `relaunch` after a dropped binding starts a fresh session and loses that conversation.
+An unreadable or ambiguous state is reported as unverified, pointing at `herdr agent get`, `herdr pane process-info`, and `herdr agent explain` rather than at any resume command.
 
 The clear drops the pane's hook authority and its bound session record; it changes no process, no pane, no tab, no workspace, and no task record, so teardown, closing, and discard still stay with `bin/fm-teardown.sh` and their own guards.
 Dropping the bound session record costs session continuity: a later relaunch of a Pi-family task has no bound reference to hand the replacement as `--session`, so it starts a fresh Pi session instead of resuming the previous conversation.

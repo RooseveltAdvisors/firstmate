@@ -106,12 +106,14 @@
 #              A follow-up read that fails or is unreadable reports unverified
 #              and exits nonzero: success is never claimed without a valid
 #              read. A registration that still reads present over a live agent
-#              reports that an agent concurrently started in the pane between
-#              the shell proof and the request, with the session reference
-#              captured before the clear: resume the harness on that same
-#              reference in the pane to keep the conversation, because a plain
-#              relaunch now starts a fresh session. Direct pane input in that
-#              window cannot be locked; this verdict is its documented recovery.
+#              is described from fresh reads of both: holding the same session
+#              as before the clear, the clear did not land; holding a
+#              different one, the racing agent registered after the clear and
+#              needs no recovery; holding none, the session ref is unknown and
+#              a plain relaunch would start a fresh session. All exit nonzero,
+#              and none hands back the old agent's session to resume. Direct
+#              pane input in that window cannot be locked; these verdicts are
+#              its documented outcome.
 #              HERDR-ONLY: every other backend reports no registration to
 #              clear. The reported outcome is the post-clear re-read, never
 #              the request's exit code. The verdict contract lives in
@@ -1128,7 +1130,7 @@ case "$VERB" in
       unsupported) die "task $ID's agent registration cannot be cleared from here: $reason" ;;
       failed) die "clearing task $ID's agent registration did not take: $reason" ;;
       unverified) die "task $ID's registration clear could not be verified: $reason" ;;
-      concurrently-started) die "task $ID's registration was cleared but an agent concurrently started in the pane: $reason" ;;
+      concurrently-started) die "task $ID's pane hosts an agent that started during the registration clear: $reason" ;;
       *) die "task $ID's registration clear returned '$verdict' rather than a positively classified outcome; refusing to report an unproven clear" ;;
     esac
     ;;

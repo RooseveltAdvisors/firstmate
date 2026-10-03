@@ -649,9 +649,11 @@ test_done_registration_with_a_live_agent_stays_alive() {
 # (3), session list (4), the pre-clear session-ref agent get (5), pane
 # process-info (6), the helper stub outside the CLI, then the post-clear agent
 # get (7) and, only when the record survives, the post-clear pane process-info
-# (8) and agent explain (9). Responses the flow never reaches are simply left
-# unconsumed. CLEAR_CASE_REF sets the bound session id read at (5); empty
-# makes that read find no reference.
+# (8), then agent explain (9) over a shell or the current session-ref agent get
+# (9) over a live agent. Responses the flow never reaches are simply left
+# unconsumed. CLEAR_CASE_REF sets the bound session id read at (5) and
+# CLEAR_CASE_NOW_REF the one read at (9) for post-agent; empty makes that read
+# find no reference.
 # shellcheck disable=SC2016 # $defs is a literal JSON Schema key.
 CLEAR_SCHEMA_OK='{"schemas":{"request":{"oneOf":[{"properties":{"method":{"const":"pane.clear_agent_authority","type":"string"}},"required":["method","params"],"type":"object"}],"$defs":{"PaneClearAgentAuthorityParams":{"properties":{"pane_id":{"type":"string"}},"required":["pane_id"],"type":"object"}}}}}'
 # shellcheck disable=SC2016 # $defs is a literal JSON Schema key.
@@ -682,6 +684,12 @@ clear_registration_case() {  # <dir-suffix> <registered|none> <process-info-body
   esac
   if [ "$4" = post-agent ]; then
     printf '%s\n' "$CLEAR_AGENT_PROCESS_INFO" > "$resp/8.out"
+    if [ -n "${CLEAR_CASE_NOW_REF-sess-new}" ]; then
+      printf '{"result":{"agent":{"agent":"pi","agent_status":"working","agent_session":{"kind":"id","value":"%s"}}}}\n' \
+        "${CLEAR_CASE_NOW_REF-sess-new}" > "$resp/9.out"
+    else
+      printf '{"result":{"agent":{"agent":"pi","agent_status":"working"}}}\n' > "$resp/9.out"
+    fi
   elif [ "$3" != - ]; then
     printf '%s\n' "$3" > "$resp/8.out"
   fi
@@ -817,30 +825,52 @@ test_clear_agent_registration_never_reports_success_without_a_valid_read() {
   clear_case_split "$out"
   [ "${CLEAR_VERDICT%%$'\t'*}" = unverified ] \
     || fail "an unreadable follow-up read must report unverified, got '$CLEAR_VERDICT'"
+  assert_contains "$CLEAR_VERDICT" "herdr agent get" "an unreadable outcome must point at the inspection commands"
+  assert_not_contains "$CLEAR_VERDICT" "--session" "an unreadable outcome must give no resume command"
   [ "$CLEAR_HELPER" = helper=1 ] || fail "the request should have been sent exactly once, got '$CLEAR_HELPER'"
 
-  # A live agent behind the still-present registration means one was started
-  # between the shell proof and the request: the verdict must hand back the
-  # session reference captured before the clear, not lossy relaunch advice.
+  # A racing agent whose own registration (a different session) reads after the
+  # clear: its binding was never cleared, so it needs no recovery.
   out=$(clear_registration_case raced "done" "$(shell_only_process_info "$shell_pid")" post-agent)
   clear_case_split "$out"
   [ "${CLEAR_VERDICT%%$'\t'*}" = concurrently-started ] \
     || fail "a live agent after the clear must report concurrently-started, got '$CLEAR_VERDICT'"
-  assert_contains "$CLEAR_VERDICT" "pi --session sess-abc" \
-    "concurrently-started must carry the pre-clear session ref and the resume command"
-  assert_contains "$CLEAR_VERDICT" "plain relaunch now starts a FRESH session" \
-    "concurrently-started must say a plain relaunch loses the conversation"
+  assert_contains "$CLEAR_VERDICT" "its binding was never cleared; no recovery needed for it" \
+    "a racing agent with its own intact binding must need no action"
+  assert_contains "$CLEAR_VERDICT" "session sess-new" "the verdict must name the CURRENT registration's session"
+  assert_not_contains "$CLEAR_VERDICT" "sess-abc" "the old agent's pre-clear session must never be cited"
+  assert_not_contains "$CLEAR_VERDICT" "stop" "a racing agent with an intact binding must not be stopped"
 
-  # With no readable pre-clear reference the verdict must say so, never
-  # present relaunch as restoration.
-  out=$(CLEAR_CASE_REF='' clear_registration_case raced-noref "done" "$(shell_only_process_info "$shell_pid")" post-agent)
-  kill "$shell_pid" 2>/dev/null || true
+  # A live agent over a registration holding no readable session: the ref is
+  # unknown, never the pre-clear capture.
+  out=$(CLEAR_CASE_NOW_REF='' clear_registration_case raced-noref "done" "$(shell_only_process_info "$shell_pid")" post-agent)
   clear_case_split "$out"
   [ "${CLEAR_VERDICT%%$'\t'*}" = concurrently-started ] \
-    || fail "a raced agent with no captured ref must still report concurrently-started, got '$CLEAR_VERDICT'"
-  assert_contains "$CLEAR_VERDICT" "it is unknown and a plain relaunch starts a FRESH session" \
-    "an unknown ref must be named and relaunch must not be presented as restoration"
-  pass "herdr clear-registration: an unreadable re-read is unverified and a raced agent gets its pre-clear session ref back"
+    || fail "a live agent over a session-less registration must report concurrently-started, got '$CLEAR_VERDICT'"
+  assert_contains "$CLEAR_VERDICT" "session ref unknown" "an unreadable current ref must be named unknown"
+  assert_contains "$CLEAR_VERDICT" "a plain relaunch after a dropped binding starts a FRESH session" \
+    "relaunch must not be presented as restoration"
+  assert_not_contains "$CLEAR_VERDICT" "sess-abc" "the old agent's pre-clear session must never be cited"
+  assert_not_contains "$CLEAR_VERDICT" "--session" "an unknown ref must give no resume command"
+
+  # The registration still holds the session it held before the clear: the
+  # clear did not land, said without recovery advice.
+  out=$(CLEAR_CASE_NOW_REF=sess-abc clear_registration_case not-landed "done" "$(shell_only_process_info "$shell_pid")" post-agent)
+  clear_case_split "$out"
+  [ "${CLEAR_VERDICT%%$'\t'*}" = failed ] \
+    || fail "an unchanged registration over a live agent must report failed, got '$CLEAR_VERDICT'"
+  assert_contains "$CLEAR_VERDICT" "the clear did not land" "an unchanged registration must say the clear did not land"
+  assert_not_contains "$CLEAR_VERDICT" "--session" "a clear that did not land must give no resume command"
+
+  # With no readable pre-clear ref the outcome cannot be compared: observation only.
+  out=$(CLEAR_CASE_REF='' clear_registration_case raced-nobound "done" "$(shell_only_process_info "$shell_pid")" post-agent)
+  kill "$shell_pid" 2>/dev/null || true
+  clear_case_split "$out"
+  [ "${CLEAR_VERDICT%%$'\t'*}" = unverified ] \
+    || fail "a live agent with no pre-clear ref to compare must report unverified, got '$CLEAR_VERDICT'"
+  assert_contains "$CLEAR_VERDICT" "herdr pane process-info" "an ambiguous outcome must point at the inspection commands"
+  assert_not_contains "$CLEAR_VERDICT" "--session" "an ambiguous outcome must give no resume command"
+  pass "herdr clear-registration: post-clear verdicts come from the current registration and pane, never the old agent's session"
 }
 
 # settle_registration_case: one pane classification over a scripted sequence
