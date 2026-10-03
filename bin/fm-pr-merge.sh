@@ -80,6 +80,20 @@
 # command's own output, marked as the forge's text and kept apart from this
 # script's verdict, including the refusal for an outcome that cannot be read;
 # a merge command that failed keeps its original error surfaced raw and first.
+# Before any GitHub merge, the pull request's own commit messages are read from
+# that same single live view and scanned for a co-author trailer: any line whose
+# start, ignoring case and leading whitespace, is co-authored-by: refuses the
+# merge, because a squash merge would carry that line into the base branch's
+# history. The refusal names every offending commit sha with its trailer line
+# and points at bin/fm-git-strip-ai-trailers.sh as the remedy: strip the
+# trailers from those commits, re-push them, then re-run this guard. The guard
+# is forward-only - it refuses, and never rewrites landed history. The commit
+# list comes from the same gh call as the other pre-merge conditions, so the
+# guard costs no extra network request, and a commit list that cannot be read
+# refuses rather than merging unguarded. The GitLab merge request read carries
+# no commit messages and no extra read is taken for it, so this guard does not
+# cover a GitLab merge request.
+#
 # GitLab adds no method flag at all: its merge method is the project's own
 # setting, which the merge API applies, and imposing squash there would override
 # that convention rather than mirror the GitHub default.
@@ -714,6 +728,13 @@ github_required_checks_missing() {
   ' 2>/dev/null || return 1
 }
 
+# The pull request's co-author trailer hits, one "<commit sha>\t<trailer line>"
+# entry per offending line, or the empty string for a pull request whose
+# commits carry none. github_verify_mergeable fills it from the same live view
+# it reads every other pre-merge condition from, and
+# require_no_coauthor_trailers judges it.
+FM_PR_GITHUB_COMMIT_TRAILERS=
+
 # Pre-merge conditions from a live PR view, base requirements, and head producers.
 # Sets FM_PR_MERGE_HEAD to the verified head on success. Returns 3, rather than
 # the usual 1, when mergeable=UNKNOWN is the only failing condition, so the
@@ -723,7 +744,7 @@ github_verify_mergeable() {
   local total=0 named=0 refusals='' mergeable_refusal=''
   local state='' draft='' mergeable='' merge_state='' live_head='' base=''
 
-  if ! json=$(gh pr view "$URL" --json state,isDraft,mergeable,mergeStateStatus,headRefOid,baseRefName,statusCheckRollup 2>/dev/null) \
+  if ! json=$(gh pr view "$URL" --json state,isDraft,mergeable,mergeStateStatus,headRefOid,baseRefName,commits,statusCheckRollup 2>/dev/null) \
     || [ -z "$json" ]; then
     echo "error: could not read the GitHub pull request state before merging" >&2
     return 1
@@ -767,6 +788,24 @@ FIELDS
   fi
   if ! red=$(github_checks_not_green "$json"); then
     echo "error: could not read the GitHub pull request state before merging" >&2
+    return 1
+  fi
+
+  # The commit messages a squash merge would carry, read from this same view so
+  # the co-author guard below needs no extra network request: one
+  # "<commit sha>\t<trailer line>" entry per line, in either case spelling, that
+  # starts with co-authored-by:. A payload whose commit list or commit oid
+  # cannot be read is a failed read and refuses, so the guard never lets an
+  # unverified commit list pass as clean.
+  if ! FM_PR_GITHUB_COMMIT_TRAILERS=$(printf '%s' "$json" | jq -r '
+      if (.commits | type) != "array" then error("no commit list") else . end
+      | .commits[]
+      | (.oid | if type == "string" and length > 0 then . else error("unreadable commit oid") end) as $sha
+      | (((.messageHeadline // "") | tostring) + "\n" + ((.messageBody // "") | tostring))
+      | split("\n")[]
+      | select(test("^[[:space:]]*co-authored-by:"; "i"))
+      | $sha + "\t" + .' 2>/dev/null); then
+    echo "error: could not read the GitHub pull request commit messages before merging" >&2
     return 1
   fi
 
@@ -1198,6 +1237,26 @@ require_recorded_pr_identity() {
   return 1
 }
 
+# Refuse a merge whose pull request commits carry a co-author trailer, naming
+# every offending commit sha with its trailer line and pointing at the fleet
+# stripper as the remedy. The hits are the "<commit sha>\t<trailer line>"
+# entries github_verify_mergeable read; an empty list is a clean pull request
+# and passes unchanged. Forward-only: this refuses the merge and rewrites
+# nothing.
+require_no_coauthor_trailers() {
+  local hits=$1 sha line
+  [ -n "$hits" ] || return 0
+  printf 'error: refusing to merge %s: its commits carry Co-authored-by / Co-Authored-By trailer lines that a squash merge would land in the base branch history\n' "$URL" >&2
+  while IFS=$'\t' read -r sha line; do
+    [ -n "$sha" ] || continue
+    printf 'error:  - %s %s\n' "$sha" "$line" >&2
+  done <<EOF
+$hits
+EOF
+  printf 'error: remedy: strip these trailers from the named commits with bin/fm-git-strip-ai-trailers.sh, push the rewritten commits, then re-run this merge\n' >&2
+  return 1
+}
+
 FM_PR_GITHUB_MERGE_ACCEPTED=false
 FM_PR_GITHUB_CALLER_METHOD=
 
@@ -1377,6 +1436,10 @@ case "$PROVIDER" in
       fi
       exit 1
     fi
+    # The last gate before the away-record lock and the forge command: a pull
+    # request whose commits carry a co-author trailer is refused here, before
+    # any merge API call.
+    require_no_coauthor_trailers "$FM_PR_GITHUB_COMMIT_TRAILERS" || exit 1
     # The away record is locked first, so this last presence and authority read
     # and the forge command below share one live-owner critical section.
     hold_away_record_for_merge || exit 1

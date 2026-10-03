@@ -89,6 +89,19 @@ write_github_required() {
   printf '[{"type":"deletion"}%s]\n' "${rules:+,$rules}" > "$case_dir/github-required-rules.json"
 }
 
+# The commit list the co-author guard reads out of the same live view. A case
+# writes its own entries to <case_dir>/github-commits.json before a writer runs;
+# every other case gets one clean commit, so a pull request with no trailer
+# behaves exactly as it did before the guard existed.
+github_commits_json() {
+  local case_dir=$1
+  if [ -f "$case_dir/github-commits.json" ]; then
+    cat "$case_dir/github-commits.json"
+  else
+    printf '%s' '[{"oid":"1111111111111111111111111111111111111111","messageHeadline":"clean subject","messageBody":""}]'
+  fi
+}
+
 # Live GitHub JSON for the pre-merge verify, plus gh-axi for the
 # post-merge fallback view. Merge itself is `gh pr merge --match-head-commit`.
 # Args: case_dir head_sha
@@ -96,7 +109,7 @@ write_github_live_json() {
   local case_dir=$1 head=$2
   printf '%s\n' "$head" > "$case_dir/github-head"
   cat > "$case_dir/github-view.json" <<JSON
-{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","headRefOid":"$head","baseRefName":"main","statusCheckRollup":[{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}]}
+{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","headRefOid":"$head","baseRefName":"main","statusCheckRollup":[{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}],"commits":$(github_commits_json "$case_dir")}
 JSON
 }
 
@@ -104,7 +117,7 @@ write_github_red_json() {
   local case_dir=$1 head=$2 name=$3
   printf '%s\n' "$head" > "$case_dir/github-head"
   cat > "$case_dir/github-view.json" <<JSON
-{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","headRefOid":"$head","baseRefName":"main","statusCheckRollup":[{"__typename":"CheckRun","name":"$name","status":"COMPLETED","conclusion":"FAILURE"}]}
+{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","headRefOid":"$head","baseRefName":"main","statusCheckRollup":[{"__typename":"CheckRun","name":"$name","status":"COMPLETED","conclusion":"FAILURE"}],"commits":$(github_commits_json "$case_dir")}
 JSON
 }
 
@@ -139,7 +152,7 @@ write_github_rollup_json() {
   done
   printf '%s\n' "$head" > "$case_dir/github-head"
   cat > "$case_dir/github-view.json" <<JSON
-{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","headRefOid":"$head","baseRefName":"main","statusCheckRollup":[$rollup]}
+{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","headRefOid":"$head","baseRefName":"main","statusCheckRollup":[$rollup],"commits":$(github_commits_json "$case_dir")}
 JSON
 }
 
@@ -554,6 +567,88 @@ test_pr_metadata_is_recorded_before_the_forge_call() {
   assert_grep 'pr=https://github.com/example/repo/pull/62' "$case_dir/meta-at-merge" \
     "records-ahead-of-forge-call: the merge ran before pr= was recorded"
   pass "fm-pr-merge records pr= before the forge call can land the merge"
+}
+
+# The co-author trailer guard at the merge boundary: a pull request whose
+# commits carry either case variant of the trailer is refused before any merge
+# API call, naming every offending commit sha with its trailer line and
+# pointing at bin/fm-git-strip-ai-trailers.sh as the remedy.
+test_github_coauthor_trailer_refuses_before_merge() {
+  local case_dir rc
+  case_dir=$(make_case coauthor-trailer-refuses)
+  mkdir -p "$case_dir/wt"
+  printf '%s\n' '[{"oid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","messageHeadline":"feat: one","messageBody":"body text\n\nCo-authored-by: Cursor <cursoragent@cursor.com>"},{"oid":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","messageHeadline":"feat: two","messageBody":"body text\n\nCo-Authored-By: Claude <noreply@anthropic.com>"}]' \
+    > "$case_dir/github-commits.json"
+  add_gh_mocks "$case_dir" deadbeefcafefeed0000000000000000deadbeef
+  : > "$case_dir/gh-axi.log"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/71 \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "coauthor-trailer-refuses: fm-pr-merge should refuse"
+  assert_grep 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' "$case_dir/stderr" \
+    "coauthor-trailer-refuses: the first offending commit sha was not named"
+  assert_grep 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' "$case_dir/stderr" \
+    "coauthor-trailer-refuses: the second offending commit sha was not named"
+  assert_grep 'Co-authored-by: Cursor <cursoragent@cursor.com>' "$case_dir/stderr" \
+    "coauthor-trailer-refuses: the Co-authored-by trailer line was not named"
+  assert_grep 'Co-Authored-By: Claude <noreply@anthropic.com>' "$case_dir/stderr" \
+    "coauthor-trailer-refuses: the Co-Authored-By trailer line was not named"
+  assert_grep 'bin/fm-git-strip-ai-trailers.sh' "$case_dir/stderr" \
+    "coauthor-trailer-refuses: the refusal did not name the fleet stripper as the remedy"
+  assert_no_grep 'pr merge' "$case_dir/gh.log" \
+    "coauthor-trailer-refuses: the merge API call ran despite the refusal"
+  pass "fm-pr-merge refuses a pull request whose commits carry co-author trailers"
+}
+
+# A pull request without a trailer proceeds exactly as it did before the guard:
+# the same merge command, the same exit code, no refusal on stderr.
+test_github_commits_without_trailers_merge_unchanged() {
+  local case_dir rc
+  case_dir=$(make_case coauthor-clean-merge)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" deadbeefcafefeed0000000000000000deadbeef
+  : > "$case_dir/gh-axi.log"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/72 \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "coauthor-clean-merge: a pull request without a trailer should merge"
+  assert_logged_gh_merge "$case_dir" 72 example/repo --squash
+  assert_no_grep 'Co-authored-by' "$case_dir/stderr" \
+    "coauthor-clean-merge: a clean pull request produced a trailer refusal"
+  pass "a pull request whose commits carry no co-author trailer merges unchanged"
+}
+
+# Fail-closed: a live view that carries no commit list cannot prove the pull
+# request clean, so the merge refuses instead of merging unguarded.
+test_github_unreadable_commit_list_refuses() {
+  local case_dir rc
+  case_dir=$(make_case coauthor-unreadable-commits)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" deadbeefcafefeed0000000000000000deadbeef
+  : > "$case_dir/gh-axi.log"
+  jq 'del(.commits)' "$case_dir/github-view.json" > "$case_dir/github-view.tmp"
+  mv "$case_dir/github-view.tmp" "$case_dir/github-view.json"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/73 \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "coauthor-unreadable-commits: an unreadable commit list must refuse"
+  assert_grep 'could not read the GitHub pull request commit messages' "$case_dir/stderr" \
+    "coauthor-unreadable-commits: the refusal did not name the unreadable commit messages"
+  assert_no_grep 'pr merge' "$case_dir/gh.log" \
+    "coauthor-unreadable-commits: the merge API call ran despite an unreadable commit list"
+  pass "fm-pr-merge refuses when the pull request commit list cannot be read"
 }
 
 test_merge_failure_propagates_after_recording() {
@@ -2363,6 +2458,9 @@ test_github_closed_unqueued_outcome_omits_retry_flags
 test_github_agreeing_queue_rules_keep_retry_guidance
 test_github_conflicting_queue_rules_report_ambiguity
 test_verified_merge_records_pr_and_head
+test_github_coauthor_trailer_refuses_before_merge
+test_github_commits_without_trailers_merge_unchanged
+test_github_unreadable_commit_list_refuses
 test_pr_metadata_is_recorded_before_the_forge_call
 test_merge_failure_propagates_after_recording
 test_github_open_unqueued_outcome_refuses
