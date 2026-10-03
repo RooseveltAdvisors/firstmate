@@ -371,6 +371,23 @@ fm_task_inbox_composer_content() {  # <backend> <target> [expected-label]
   fm_composer_extract_selected_content styled=0 "$cap"
 }
 
+# The same held text read on the full-viewport basis the composer-state verdict
+# itself uses (bin/fm-backend.sh's visible-capture dispatch), for the recovery
+# to fall back to when the bounded inbox read cannot see the composer. The two
+# reads disagree exactly when a slash-command popup or other overlay occupies
+# the bottom rows and pushes the composer above the bounded window: the state
+# read still sees pending, the bounded read returns nothing, and refusing there
+# would leave that held line blocking every later wake. A backend with no
+# verified viewport read fails this helper, which keeps the refusal (the loud,
+# counted skip) rather than answering with a history-backed screen.
+fm_task_inbox_composer_content_viewport() {  # <backend> <target>
+  local cap
+  fm_backend_source "$1" || return 1
+  cap=$(fm_backend_visible_capture "$1" "$2" 2>/dev/null) || return 1
+  [ -n "$cap" ] || return 1
+  fm_composer_extract_selected_content styled=0 "$cap"
+}
+
 # Whether the composer's content, ignoring line wrapping, is exactly <line>.
 fm_task_inbox_composer_holds() {  # <backend> <target> <line> [expected-label]
   local held
@@ -412,7 +429,16 @@ fm_task_inbox_composer_clear_or_submit() {  # <backend> <target> [expected-label
   [ "$busy" != busy ] || return 2
   cstate=$(fm_backend_composer_state "$backend" "$target" "$label" 2>/dev/null) || cstate=unknown
   [ "$cstate" = pending ] || return 0
-  held=$(fm_task_inbox_composer_content "$backend" "$target" "$label") || return 1
+  held=$(fm_task_inbox_composer_content "$backend" "$target" "$label") || held=
+  if [ -z "$held" ]; then
+    # The state verdict came from the endpoint's full viewport while the
+    # bounded inbox read can miss a composer an overlay pushed up the screen.
+    # Read the held text on the viewport basis before refusing, so such a
+    # composer is submitted or cleared instead of skipped forever; a backend
+    # with no verified viewport read keeps the refusal below.
+    held=$(fm_task_inbox_composer_content_viewport "$backend" "$target") || return 1
+    [ -n "$held" ] || return 1
+  fi
   skeleton=$(printf '%s' "$held" | LC_ALL=C tr -d '[:space:][:punct:]' \
     | LC_ALL=C tr -d '\000-\037\177')
   if [ -n "$skeleton" ]; then

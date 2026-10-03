@@ -18,7 +18,8 @@
 #      `fm-send: doorbell-skip` line and exit 4 - distinct from the silent
 #      success and from every other doorbell notice - which advances the
 #      per-task consecutive-skip counter. FM_SEND_SKIP_PAGE_MAX (default 3)
-#      consecutive skips queue exactly one check wake, and any later ring that
+#      consecutive skips queue exactly one check wake, an explicitly empty or
+#      zero threshold disables paging entirely, and any later ring that
 #      is attempted resets the streak.
 #   5. A failed doorbell is still a sent steer (exit 0, record durable): the
 #      watcher's re-ring ladder owns delivery from the record on. A
@@ -101,6 +102,17 @@ case "${1:-}" in
     for a in "$@"; do case "$a" in *cursor_y*) printf '1\n'; exit 0 ;; esac; done
     printf 'fakepane\n'; exit 0 ;;
   capture-pane)
+    # A bounded-window miss (FM_FAKE_TMUX_BOUNDED_MISS) renders an overlay that
+    # owns the bottom rows for the inbox composer read's -S -20 capture, so the
+    # held composer above it is visible only to the state and viewport reads.
+    case "$*" in
+    *'-S -20'*)
+      if [ "${FM_FAKE_TMUX_BOUNDED_MISS:-0}" = 1 ]; then
+        printf 'overlay palette rows\n(1) /clear\n(2) /compact\n'
+        exit 0
+      fi
+      ;;
+    esac
     if [ -n "${FM_FAKE_TMUX_HELD_FILE:-}" ] && [ -s "$FM_FAKE_TMUX_HELD_FILE" ]; then
       held=$(cat "$FM_FAKE_TMUX_HELD_FILE")
       # Build the border with a literal UTF-8 repeat: tr truncates multibyte
@@ -440,6 +452,71 @@ test_failed_page_is_retried_by_the_next_skip() {
   assert_contains "$(cat "$err")" "paged the supervisor at 2 consecutive skips" \
     "the retried page should be named"
   pass "fm-send inbox: a failed page leaves no marker and the next skip retries it"
+}
+
+# A threshold tuned off pages nothing: 0, 00, and an explicitly empty value
+# all mean no paging, so a disabled rail can never page on its first skip,
+# while a non-numeric value keeps the default instead of silencing the rail.
+test_zero_or_empty_skip_threshold_disables_paging() {
+  local dir err label val n rc wakes
+  for label in 0 00 empty; do
+    case "$label" in empty) val= ;; *) val=$label ;; esac
+    dir=$(setup_case "skippage-off-$label")
+    err="$dir/send.err"
+    for n in 1 2 3; do
+      run_send "$dir" "$err" FM_FAKE_TMUX_COMPOSER=pending "FM_SEND_SKIP_PAGE_MAX=$val" -- t1 "steer $n"
+      rc=$?
+      [ "$rc" -eq 4 ] || fail "FM_SEND_SKIP_PAGE_MAX='$val' skip $n should exit 4, got $rc"
+    done
+    [ "$(cat "$dir/home/state/t1.doorbell-skip" 2>/dev/null)" = 3 ] || \
+      fail "FM_SEND_SKIP_PAGE_MAX='$val' should still count the streak"
+    [ ! -e "$dir/home/state/t1.doorbell-skip.paged" ] || \
+      fail "FM_SEND_SKIP_PAGE_MAX='$val' must never arm a page"
+    assert_not_contains "$(cat "$err")" "paged the supervisor" \
+      "FM_SEND_SKIP_PAGE_MAX='$val' must never report a page"
+    wakes=$(grep -c 't1.doorbell-skip' "$dir/home/state/.wake-queue" 2>/dev/null || true)
+    [ "${wakes:-0}" = 0 ] || fail "FM_SEND_SKIP_PAGE_MAX='$val' queued ${wakes:-0} page(s)"
+  done
+
+  # A non-numeric value keeps the default rather than disabling the rail.
+  dir=$(setup_case skippage-typo)
+  err="$dir/send.err"
+  for n in 1 2 3; do
+    run_send "$dir" "$err" FM_FAKE_TMUX_COMPOSER=pending FM_SEND_SKIP_PAGE_MAX=notanumber -- t1 "steer $n"
+    rc=$?
+    [ "$rc" -eq 4 ] || fail "a non-numeric threshold should keep skipping with exit 4, got $rc"
+  done
+  wakes=$(grep -c 't1.doorbell-skip' "$dir/home/state/.wake-queue" 2>/dev/null || true)
+  [ "${wakes:-0}" = 1 ] || \
+    fail "a non-numeric threshold should keep the default page at 3, got ${wakes:-0}"
+  assert_contains "$(cat "$err")" "paged the supervisor at 3 consecutive skips" \
+    "a typo should still page at the documented default"
+  pass "fm-send inbox: a zero or empty FM_SEND_SKIP_PAGE_MAX disables paging and a typo keeps the default"
+}
+
+# A composer an overlay pushed above the bounded inbox read is still recovered:
+# the state verdict sees it in the viewport, so the recovery reads the held text
+# on that same basis, submits it, and the doorbell lands. Before the viewport
+# fallback this read failed and the skip fired, leaving the line blocking wakes.
+test_overlay_covered_composer_is_recovered_via_viewport_read() {
+  local dir err rc held typed
+  dir=$(setup_case overlaycovered)
+  err="$dir/send.err"
+  held="$dir/held.txt"
+  printf '%s' 'stale line above the overlay' > "$held"
+  run_send "$dir" "$err" FM_FAKE_TMUX_BOUNDED_MISS=1 FM_FAKE_TMUX_HELD_FILE="$held" -- \
+    t1 "steer past an overlay"
+  rc=$?
+  expect_code 0 "$rc" "a viewport-readable composer should still land the doorbell"
+  typed=$(cat "$dir/send.log")
+  assert_contains "$typed" "SUBMIT: stale line above the overlay" \
+    "the held line should be read on the viewport basis and submitted"
+  assert_contains "$typed" "Firstmate instruction waiting" \
+    "the doorbell should ring after the overlay-covered composer is recovered"
+  assert_not_contains "$(cat "$err")" "doorbell-skip" \
+    "a viewport-recovered composer must not report a skip"
+  [ ! -e "$dir/home/state/t1.doorbell-skip" ] || fail "a viewport recovery must not count a skip"
+  pass "fm-send inbox: an overlay-covered composer is recovered through the viewport read"
 }
 
 # Concurrent skips serialize on the counter's lock: none is lost and the
@@ -792,6 +869,8 @@ test_composer_stale_text_is_submitted_and_the_doorbell_rings
 test_composer_recovery_failure_is_a_loud_countable_skip
 test_consecutive_composer_skips_page_once_and_reset
 test_skip_page_threshold_is_tunable
+test_zero_or_empty_skip_threshold_disables_paging
+test_overlay_covered_composer_is_recovered_via_viewport_read
 test_failed_page_is_retried_by_the_next_skip
 test_concurrent_skips_count_every_skip_and_page_once
 test_deferral_breaks_the_skip_streak
