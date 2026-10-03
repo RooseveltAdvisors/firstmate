@@ -644,11 +644,64 @@ fm_backend_herdr_task_id_from_label() {  # <task-label>
   printf '%s' "$id"
 }
 
+# fm_backend_herdr_projection_journal_read: one-pass parse of a projection
+# journal. Emits "key=value" lines for every recognized key, each exactly
+# once, or fails when any recognized key is duplicated or the file cannot be
+# read. Unknown keys are ignored; values are never split or re-expanded.
+fm_backend_herdr_projection_journal_read() {  # <journal>
+  awk '
+    function fail(msg) { printf("error: %s\n", msg) > "/dev/stderr"; exit 1 }
+    BEGIN { bad = 0 }
+    {
+      line = $0
+      eq = index(line, "=")
+      if (eq < 2) next
+      key = substr(line, 1, eq - 1)
+      value = substr(line, eq + 1)
+      if (!(key in seen)) seen[key] = 0
+      seen[key]++
+      if (seen[key] > 1) fail("duplicate key " key " in projection journal")
+      recognized[key] = value
+    }
+    END {
+      if (bad) exit 1
+      for (key in recognized) printf("%s=%s\n", key, recognized[key])
+    }
+  ' "$1" 2>/dev/null
+}
+
 # fm_backend_herdr_projection_journal_snapshot: validate a version 1 attempt
 # journal or a version 2 exact projection binding without sourcing shell code.
 # Version 2 sets FM_BACKEND_HERDR_JOURNAL_* globals for same-process callers.
+# The parse is single-pass (one awk) regardless of the journal's field count.
 fm_backend_herdr_projection_journal_snapshot() {  # <journal> <task-id>
-  local journal=$1 id=$2 lines expected_label exact
+  local journal=$1 id=$2 lines expected_label exact parsed key value
+  local -A seen=()
+  parsed=$(fm_backend_herdr_projection_journal_read "$journal") || return 1
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    key=${line%%=*}
+    value=${line#*=}
+    case $key in
+      version|task_id|projection_id|home|session|workspace_id|tab_id|pane_id|parent_workspace_id|parent_label|workspace_label|task_label)
+        seen[$key]=$value
+        ;;
+    esac
+  done <<< "$parsed"
+  FM_BACKEND_HERDR_JOURNAL_VERSION=${seen[version]:-}
+  FM_BACKEND_HERDR_JOURNAL_TASK_ID=${seen[task_id]:-}
+  FM_BACKEND_HERDR_JOURNAL_PROJECTION_ID=${seen[projection_id]:-}
+  FM_BACKEND_HERDR_JOURNAL_HOME=${seen[home]:-}
+  FM_BACKEND_HERDR_JOURNAL_SESSION=${seen[session]:-}
+  FM_BACKEND_HERDR_JOURNAL_WORKSPACE_ID=${seen[workspace_id]:-}
+  FM_BACKEND_HERDR_JOURNAL_TAB_ID=${seen[tab_id]:-}
+  FM_BACKEND_HERDR_JOURNAL_PANE_ID=${seen[pane_id]:-}
+  FM_BACKEND_HERDR_JOURNAL_PARENT_WORKSPACE_ID=${seen[parent_workspace_id]:-}
+  FM_BACKEND_HERDR_JOURNAL_PARENT_LABEL=${seen[parent_label]:-}
+  FM_BACKEND_HERDR_JOURNAL_WORKSPACE_LABEL=${seen[workspace_label]:-}
+  FM_BACKEND_HERDR_JOURNAL_TASK_LABEL=${seen[task_label]:-}
+  [ -f "$journal" ] && [ ! -L "$journal" ] || return 1
+  lines=$(wc -l < "$journal" 2>/dev/null | tr -d '[:space:]')
   FM_BACKEND_HERDR_JOURNAL_VERSION=""
   FM_BACKEND_HERDR_JOURNAL_TASK_ID=""
   FM_BACKEND_HERDR_JOURNAL_PROJECTION_ID=""
