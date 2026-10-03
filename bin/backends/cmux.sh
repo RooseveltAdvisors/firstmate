@@ -120,12 +120,6 @@ FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 # shellcheck source=bin/fm-composer-lib.sh
 . "$FM_BACKEND_CMUX_ROOT/bin/fm-composer-lib.sh"
 
-# The shared fm- task-id prefix rule (contract: bin/fm-task-id-rule.conf
-# header); the label strip below is generic load code for it.
-# shellcheck source=bin/fm-task-id-rule-lib.sh
-# shellcheck disable=SC1091
-. "$FM_BACKEND_CMUX_ROOT/bin/fm-task-id-rule-lib.sh"
-
 # Verified minimum: the version the live pass ran against (docs/cmux-backend.md).
 FM_BACKEND_CMUX_MIN_MAJOR=0
 FM_BACKEND_CMUX_MIN_MINOR=64
@@ -324,7 +318,10 @@ fm_backend_cmux_home_label() {
 fm_backend_cmux_scoped_title() {  # <fm-task-label>
   local label=$1 rest home
   home=$(fm_backend_cmux_home_label)
-  rest=$(fm_task_id_rule_strip "$label")
+  case "$label" in
+    fm-*) rest=${label#fm-} ;;
+    *) rest=$label ;;
+  esac
   printf 'fm-%s-%s' "$home" "$rest"
 }
 

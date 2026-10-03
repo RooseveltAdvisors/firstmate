@@ -94,10 +94,6 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 . "$SCRIPT_DIR/fm-secondmate-nudge-lib.sh"
 # shellcheck source=bin/fm-pending-reply-lib.sh
 . "$SCRIPT_DIR/fm-pending-reply-lib.sh"
-# The shared fm- task-id prefix rule (contract: bin/fm-task-id-rule.conf
-# header); generic load code only.
-# shellcheck source=bin/fm-task-id-rule-lib.sh
-. "$SCRIPT_DIR/fm-task-id-rule-lib.sh"
 
 PERSIST_WAIT=${FM_SECONDMATE_PERSIST_WAIT:-900}
 PERSIST_POLL=${FM_SECONDMATE_PERSIST_POLL:-5}
@@ -110,9 +106,8 @@ for arg in "$@"; do
     -*) echo "error: unexpected argument '$arg'" >&2; usage >&2; exit 2 ;;
   esac
   # /updatefirstmate's action line names each mate by its fm-<id> selector; the
-  # bare id is equally acceptable so a hand-run stays natural. The strip itself
-  # belongs to the shared rule (bin/fm-task-id-rule.conf).
-  id=$(fm_task_id_rule_strip "$arg")
+  # bare id is equally acceptable so a hand-run stays natural.
+  id=${arg#fm-}
   case "$id" in ''|*[!A-Za-z0-9._-]*) echo "error: invalid second mate id: $arg" >&2; exit 2 ;; esac
   case " ${IDS[*]:-} " in
     *" $id "*) continue ;;

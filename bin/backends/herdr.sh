@@ -93,13 +93,6 @@ FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 # shellcheck source=bin/fm-agent-process-lib.sh
 . "$FM_BACKEND_HERDR_ROOT/bin/fm-agent-process-lib.sh"
 
-# The shared fm- task-id prefix rule (contract: bin/fm-task-id-rule.conf
-# header); the label strips below and the jq label filter are generic load
-# code for it.
-# shellcheck source=bin/fm-task-id-rule-lib.sh
-# shellcheck disable=SC1091
-. "$FM_BACKEND_HERDR_ROOT/bin/fm-task-id-rule-lib.sh"
-
 FM_BACKEND_HERDR_MIN_PROTOCOL=14
 # events.subscribe (the native pane.agent_status_changed push stream) and its
 # subscription_event schema first shipped at protocol 16 (verified: herdr
@@ -766,7 +759,9 @@ fm_backend_herdr_projection_concise_task_label() {  # <task-id>
     firstmate/*) task=${task#firstmate/} ;;
     2ndmate-*/*) task=${task#*/} ;;
   esac
-  task=$(fm_task_id_rule_strip "$task")
+  case "$task" in
+    fm-*) task=${task#fm-} ;;
+  esac
   printf '%s' "$task"
 }
 
@@ -3813,7 +3808,7 @@ fm_backend_herdr_list_live() {  # <session>
     pane_id=$(fm_backend_herdr_pane_for_tab "$session" "$wsid" "$tab_id") || continue
     [ -n "$pane_id" ] || continue
     printf '%s:%s\t%s\n' "$session" "$pane_id" "$label"
-  done < <(printf '%s' "$tabs" | jq -r --arg rule_prefix "$FM_TASK_ID_RULE_PREFIX" '.result.tabs[]? | select(.label | startswith($rule_prefix)) | "\(.tab_id)\t\(.label)"' 2>/dev/null)
+  done < <(printf '%s' "$tabs" | jq -r '.result.tabs[]? | select(.label | startswith("fm-")) | "\(.tab_id)\t\(.label)"' 2>/dev/null)
 }
 
 # --- native event push: pane.agent_status_changed subscriber -----------------
