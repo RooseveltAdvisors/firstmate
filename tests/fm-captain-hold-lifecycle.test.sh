@@ -1066,6 +1066,30 @@ EOF
   pass "release frees held work with the captain's words recorded and the body preserved"
 }
 
+# A home whose .tasks.toml configures a non-default [markdown] path keeps its
+# captain holds and answers in that file, the one every transition addresses.
+test_hold_and_release_use_the_configured_markdown_path() {
+  local home show
+  home=$(make_home configured-queue)
+  sed -i.bak 's|^path = "data/backlog.md"$|path = "data/queue.md"|' "$home/.tasks.toml"
+  grep -qx 'path = "data/queue.md"' "$home/.tasks.toml" || fail "fixture: configured path not written"
+  mv "$home/data/backlog.md" "$home/data/queue.md"
+  tasks_in "$home" add queue-widget "Ship the queue widget" --kind ship --repo sample >/dev/null \
+    || fail "could not create the work item in the configured backlog"
+  run_captain "$home" hold queue-widget --reason "captain go needed" >/dev/null \
+    || fail "captain hold failed on the configured backlog"
+  show=$(tasks_in "$home" show queue-widget --full)
+  assert_contains "$show" "held: yes" "the hold did not land in the configured backlog: $show"
+  printf 'Ship it.\n' > "$home/go.txt"
+  run_captain "$home" answer queue-widget --decision-file "$home/go.txt" --release >/dev/null \
+    || fail "answer --release failed on the configured backlog"
+  show=$(tasks_in "$home" show queue-widget --full)
+  assert_contains "$show" "held: no" "the release did not lift the hold in the configured backlog: $show"
+  assert_contains "$show" "Ship it." "the release lost the captain's words"
+  [ ! -e "$home/data/backlog.md" ] || fail "captain hold wrote a separate data/backlog.md"
+  pass "captain holds and releases address the configured [markdown] path"
+}
+
 # The hold-set stamp must be durable before the captain hold becomes visible.
 # A wrapper observes the real tasks-axi hold boundary, and a forced stamp-write
 # failure proves the command never publishes the hold without its timestamp.
@@ -4740,6 +4764,7 @@ test_completion_gate_attests_and_transfers
 test_answer_records_and_closes
 test_answer_serializes_on_the_per_task_record_lock
 test_release_frees_held_work
+test_hold_and_release_use_the_configured_markdown_path
 test_hold_stamp_precedes_hold_visibility
 test_interrupted_answer_preserves_hold_age
 test_deferral_leaves_captains_call_until_due

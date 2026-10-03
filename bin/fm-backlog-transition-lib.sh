@@ -331,7 +331,7 @@ fm_backlog_source_present() {  # <data-dir> <authorized-data-dir> [root authoriz
 # alike: sets FM_BACKLOG_AXI_ROOT to the cd target and FM_BACKLOG_AXI_FILE to
 # the markdown --file path, empty for every other backend. This is the single
 # place that decision is made. A markdown backlog is addressed as
-# <data>/backlog.md so the change lands in the home that owns the task
+# fm_backlog_markdown_file's file so the change lands in the home that owns the task
 # regardless of the caller's working directory; any other configured adapter
 # is addressed by that root alone, because --file would override the adapter's
 # own workspace path. The caller invokes fm_tasks_axi inside its own subshell

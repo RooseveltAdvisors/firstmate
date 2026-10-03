@@ -1547,7 +1547,14 @@ detect_no_mistakes_mirror() {
     clone="$PROJECTS/$name"
     [ -d "$clone" ] || continue
     check_no_mistakes_mirror_one "$name" "$clone" "$root"
-  done < <(awk '$1=="-" && $2!="" { print $2 }' "$DATA/projects.md" 2>/dev/null)
+  # A registry name may contain spaces; it ends at the first " [" or " - ",
+  # exactly as bin/fm-project-mode.sh matches it.
+  done < <(awk 'substr($0, 1, 2) == "- " {
+      n = substr($0, 3); i = index(n, " ["); j = index(n, " - ")
+      if (i && (!j || i < j)) j = i
+      if (j) n = substr(n, 1, j - 1)
+      if (n != "") print n
+    }' "$DATA/projects.md" 2>/dev/null)
 }
 
 detect_local_config() {

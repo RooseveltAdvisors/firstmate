@@ -373,7 +373,7 @@ tasks_axi() {
   fm_tasks_axi_export_actor
   backend=$(fm_tasks_axi_backend "$root") || return 2
   if [ "$backend" = markdown ]; then
-    file=$(fm_backlog_file "$data") || fail "$FM_BACKLOG_TRANSITION_ERROR"
+    file=$(fm_backlog_markdown_file "$data") || fail "$FM_BACKLOG_TRANSITION_ERROR"
     (cd "$root" && tasks-axi "$@" --file "$file")
   else
     (cd "$root" && tasks-axi "$@")
@@ -2019,7 +2019,7 @@ command_open() {  # <task-id> [--identity] [--distinguish-absent]
     exit 2
   fi
   if [ "$backend" = markdown ]; then
-    file=$(fm_backlog_file "$data") \
+    file=$(fm_backlog_markdown_file "$data") \
       || { printf 'fm-captain-hold: %s\n' "$FM_BACKLOG_TRANSITION_ERROR" >&2; exit 2; }
     if [ ! -e "$file" ] && [ ! -L "$file" ]; then
       # No backlog file at all: this home records no captain calls, so the task

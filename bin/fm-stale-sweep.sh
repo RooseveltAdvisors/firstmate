@@ -243,6 +243,12 @@ fm_stale_read_beads_config() {
     printf 'fm-stale-sweep: .tasks.toml [beads] carries no graph path\n' >&2
     return 1
   }
+  # A relative graph path is relative to the home that configures it, never
+  # to whatever directory the sweep happens to run from.
+  case "$FM_STALE_BD_PATH" in
+    /*) ;;
+    *) FM_STALE_BD_PATH=$FM_HOME/$FM_STALE_BD_PATH ;;
+  esac
   [ -d "$FM_STALE_BD_PATH" ] || {
     printf 'fm-stale-sweep: beads graph path %s is not a directory\n' "$FM_STALE_BD_PATH" >&2
     return 1
@@ -262,12 +268,19 @@ fm_stale_read_beads_config() {
 
 # --- owning-home resolution --------------------------------------------------
 
-# Local secondmate routes from data/secondmates.md: "- <id> - ... (home: <path>; ...)"
-# without a host: field. Remote routes are deliberately excluded: their homes
-# are not local directories and their liveness is the remote transport's to own.
+# Local secondmate routes from data/secondmates.md: "- <id> - ... (home: <path>; ...)".
+# Remote routes ("- <id> - ... (host: <h>; root: <r>; home: <path>; ...)") are
+# deliberately excluded even when <path> is mounted locally: their liveness is
+# the remote transport's to own.
 fm_stale_registry_homes() {
   [ -f "$DATA/secondmates.md" ] || return 0
-  sed -n '/^host:/d; s/^- \([^ ]\{1,\}\) - .*(home: \([^);]*\);.*/\1\t\2/p' "$DATA/secondmates.md" 2>/dev/null || true
+  sed -n '/^- [^ ]\{1,\} - .*(host: [^;)]*; root: [^;)]*; home: /d; s/^- \([^ ]\{1,\}\) - .*(home: \([^);]*\);.*/\1\t\2/p' "$DATA/secondmates.md" 2>/dev/null || true
+}
+
+# Remote routes as "<id>\t<home>", so a provenance home naming one is excluded too.
+fm_stale_remote_registry_homes() {
+  [ -f "$DATA/secondmates.md" ] || return 0
+  sed -n 's/^- \([^ ]\{1,\}\) - .*(host: [^;)]*; root: [^;)]*; home: \([^;)]*\);.*/\1\t\2/p' "$DATA/secondmates.md" 2>/dev/null || true
 }
 
 # The provenance home named inside a row's description, if any.
@@ -313,8 +326,9 @@ EOF
     return 0
   fi
   if prov_home=$(fm_stale_provenance_home "$desc"); then
-    if [ -d "$prov_home" ]; then
-      prov_rid=$(printf '%s\n' "$desc" | sed -n 's/.*from secondmate home \([^ ]*\) (.*/\1/p' | head -1)
+    prov_rid=$(printf '%s\n' "$desc" | sed -n 's/.*from secondmate home \([^ ]*\) (.*/\1/p' | head -1)
+    if [ -d "$prov_home" ] && ! fm_stale_remote_registry_homes \
+      | awk -F '\t' -v r="$prov_rid" -v h="$prov_home" '($1 == r && r != "") || $2 == h { f = 1 } END { exit !f }'; then
       FM_STALE_HOME_ACTOR=${prov_rid:-$(basename "$prov_home")}
       FM_STALE_RESOLVED_HOME=$prov_home
       return 0
@@ -759,11 +773,14 @@ action_check() {
     printf 'fm-stale-sweep: graph read failed\n'
     return 0
   fi
+  # Unconsidered candidates may hold dead rows, so a budget-stopped sweep
+  # leaves the gate open and the next poll checks again.
   if [ "$FM_STALE_UNCONSIDERED" -gt 0 ]; then
     printf 'budget stopped the sweep with %d candidates unconsidered; raise FM_STALE_SWEEP_BUDGET_SECS or run without the check gate\n' "$FM_STALE_UNCONSIDERED"
+  else
+    fm_stale_write_record "$now"
   fi
   count=$FM_STALE_COUNT_DEAD
-  fm_stale_write_record "$now"
   [ "$count" -gt 0 ] || return 0
   printf 'stale-sweep: %d dead-endpoint in_progress rows reclaimable - run bin/fm-stale-sweep.sh --apply\n' "$count"
   return 0

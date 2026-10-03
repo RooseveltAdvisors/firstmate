@@ -1390,8 +1390,9 @@ test_no_mistakes_mirror_check() {
 - ghost [no-mistakes] - registered but never cloned (added 2026-09-04)
 - well [no-mistakes] - healthy fixture (added 2026-09-04)
 - absent [no-mistakes] - uninitialized fixture (added 2026-09-04)
+- my project two [no-mistakes] - multi-word name fixture (added 2026-09-04)
 REG
-  for name in macro portal quick vault; do
+  for name in macro portal quick vault "my project two"; do
     git init -q -b main "$home/projects/$name"
     git -C "$home/projects/$name" remote add no-mistakes "$root_b/repos/$name.git"
   done
@@ -1408,9 +1409,10 @@ REG
     "$ROOT/bin/fm-bootstrap.sh")
   expect="NO_MISTAKES_MIRROR: macro remote=$root_b/repos/macro.git expected-root=$root_a (run no-mistakes init inside $home/projects/macro to point its gate at the active root)
 NO_MISTAKES_MIRROR: portal remote=$root_b/repos/portal.git expected-root=$root_a (run no-mistakes init inside $home/projects/portal to point its gate at the active root)
-NO_MISTAKES_MIRROR: absent remote=absent expected-root=$root_a (run no-mistakes init inside $home/projects/absent to point its gate at the active root)"
+NO_MISTAKES_MIRROR: absent remote=absent expected-root=$root_a (run no-mistakes init inside $home/projects/absent to point its gate at the active root)
+NO_MISTAKES_MIRROR: my project two remote=$root_b/repos/my project two.git expected-root=$root_a (run no-mistakes init inside $home/projects/my project two to point its gate at the active root)"
   [ "$out" = "$expect" ] \
-    || fail "mirror check: expected exactly the macro/portal/absent drift lines, got: $out"
+    || fail "mirror check: expected exactly the macro/portal/absent/multi-word drift lines, got: $out"
 
   # This home's own firstmate checkout is checked too, under the same root.
   case_dir="$TMP_ROOT/no-mistakes-mirror-root"

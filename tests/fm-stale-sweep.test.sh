@@ -494,6 +494,79 @@ test_check_mode_reports_the_budget_cut() {
   pass "check mode reports the budget cut alongside its reclaimable verdict"
 }
 
+# A relative [beads] path belongs to the home that configures it: a sweep run
+# from an unrelated directory must still find the graph.
+test_relative_graph_path_resolves_against_the_home() {
+  local rec out
+  rec=$(make_fixture relpath)
+  [ -n "$rec" ] || fail "fixture construction failed (see stderr above)"
+  read_fixture "$rec"
+  ln -s "$CASE_DIR/fm/.beads" "$HOME_DIR/.beads"
+  sed -i.bak 's|^path = ".*/fm/.beads"$|path = ".beads"|' "$HOME_DIR/.tasks.toml"
+  grep -qx 'path = ".beads"' "$HOME_DIR/.tasks.toml" || fail "fixture: relative graph path not written"
+  out=$(cd "$TMP_ROOT" && run_sweep 2>&1)
+  assert_row_matches 'fm-dead-row[[:space:]]+main home[[:space:]]+50h[[:space:]]+dead[[:space:]]+would reclaim' "$out" \
+    "a relative graph path must resolve against FM_HOME, not the caller's cwd: $out"
+  pass "a relative [beads] path resolves against the home from any cwd"
+}
+
+# A remote secondmate route is never swept locally, even when its home path is
+# mounted here: neither a registry route nor a provenance home naming it may
+# resolve to the local copy. Local homes still sweep normally.
+test_remote_routes_are_never_resolved_locally() {
+  local rec out
+  rec=$(make_fixture remote)
+  [ -n "$rec" ] || fail "fixture construction failed (see stderr above)"
+  read_fixture "$rec"
+  # fm-orphan-prov's provenance names secondmate "ghost" at ghost-home; mount
+  # that home locally and register ghost as a remote route.
+  mkdir -p "$CASE_DIR/ghost-home/state" "$CASE_DIR/mounted/state"
+  fm_write_meta "$CASE_DIR/mounted/state/fm-orphan-row.meta" \
+    "window=firstmate:%dead" "worktree=$CASE_DIR/wt-dead" "kind=ship" "harness=claude"
+  printf '%s\n' \
+    "- ghost - remote twin (host: gpu; root: /srv/fm; home: $CASE_DIR/ghost-home; scope: all; projects: -; added 2026-09-04)" \
+    "- mounted - remote mount (host: gpu; root: /srv/fm; home: $CASE_DIR/mounted; scope: all; projects: -; added 2026-09-04)" \
+    > "$HOME_DIR/data/secondmates.md"
+  out=$(run_sweep 2>&1)
+  assert_row_matches 'fm-orphan-prov[[:space:]]+-[[:space:]]+50h[[:space:]]+no-home' "$out" \
+    "a provenance home naming a remote route must not resolve locally: $out"
+  assert_row_matches 'fm-orphan-row[[:space:]]+-[[:space:]]+50h[[:space:]]+no-home' "$out" \
+    "a remote route's mounted home must not claim a row: $out"
+  assert_row_matches 'fm-dead-row[[:space:]]+main home[[:space:]]+50h[[:space:]]+dead[[:space:]]+would reclaim' "$out" \
+    "the local home must still sweep normally: $out"
+  pass "remote routes are excluded from local resolution while local homes still sweep"
+}
+
+# A budget-stopped check has not examined every candidate, so it must not
+# advance the interval record: the next poll checks again.
+test_budget_stopped_check_keeps_the_gate_open() {
+  local rec out t0 skew="$TMP_ROOT/skew/fakebin"
+  rec=$(make_fixture budgetstop)
+  [ -n "$rec" ] || fail "fixture construction failed (see stderr above)"
+  read_fixture "$rec"
+  # A date whose second "+%s" reading jumps far ahead, so the sweep's budget is
+  # spent before the first candidate is considered.
+  mkdir -p "$skew"
+  cat > "$skew/date" <<SH
+#!/usr/bin/env bash
+real=\$(PATH="$PATH" command -v date)
+if [ "\$*" = +%s ]; then
+  if [ -e "$TMP_ROOT/skew/started" ]; then echo \$(( \$("\$real" +%s) + 1000 )); exit 0; fi
+  : > "$TMP_ROOT/skew/started"
+fi
+exec "\$real" "\$@"
+SH
+  chmod +x "$skew/date"
+  t0=$(sweep_clock)
+  out=$(FM_HOME="$HOME_DIR" FM_STALE_SWEEP_NOW=$t0 PATH="$skew:$FAKEBIN:$PATH" "$SWEEP" check)
+  assert_contains "$out" "budget stopped the sweep with" "the budget stop must be reported: $out"
+  [ ! -e "$HOME_DIR/state/.stale-sweep" ] || fail "a budget-stopped check advanced the interval record"
+  out=$(FM_HOME="$HOME_DIR" FM_STALE_SWEEP_NOW=$((t0 + 600)) PATH="$FAKEBIN:$PATH" "$SWEEP" check)
+  assert_contains "$out" "stale-sweep: 2 dead-endpoint in_progress rows reclaimable" \
+    "the next poll must examine the unconsidered candidates: $out"
+  pass "a budget-stopped check keeps the interval gate open"
+}
+
 test_apply_names_the_resolved_homes_actor_when_two_homes_hold_meta() {
   require_tasks_axi_beads "the reclaim apply path" || return 0
   local rec out date
@@ -637,6 +710,9 @@ test_apply_names_the_resolved_homes_actor_when_two_homes_hold_meta
 test_check_mode_gates_on_the_interval_record
 test_check_mode_reports_the_budget_cut
 test_check_mode_bounds_the_graph_read
+test_relative_graph_path_resolves_against_the_home
+test_remote_routes_are_never_resolved_locally
+test_budget_stopped_check_keeps_the_gate_open
 test_arm_disarm_roundtrip
 
 echo "# all fm-stale-sweep tests passed"

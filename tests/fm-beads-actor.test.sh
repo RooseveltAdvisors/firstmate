@@ -34,23 +34,24 @@ SPAWN="$ROOT/bin/fm-spawn.sh"
 TEARDOWN="$ROOT/bin/fm-teardown.sh"
 TMP_ROOT=$(fm_test_tmproot fm-beads-actor)
 
-if ! { command -v tasks-axi >/dev/null 2>&1 \
-    && command -v bd >/dev/null 2>&1 \
-    && command -v jq >/dev/null 2>&1; }; then
-  printf 'ok - skipped (tasks-axi, bd, and jq are required to exercise the beads backend)\n'
-  exit 0
-fi
-
 # The npm-published tasks-axi ships the markdown backend only; only a
-# beads-capable build (the local fork) can drive this suite.
+# beads-capable build (the local fork) can drive this suite. Wherever the suite
+# runs without that backend it fails; only the explicit opt-out FM_LIVE_BEADS=0
+# (or FM_LIVE=0), which the required CI lane sets, turns that into a skip.
 probe_home="$TMP_ROOT/.probe"
 mkdir -p "$probe_home"
-printf '%s\n' 'backend = "beads"' '[beads]' 'path = ".beads"' "binary = \"$(command -v bd)\"" \
-  > "$probe_home/.tasks.toml"
-if ! { (cd "$probe_home" && bd init --prefix probe) >/dev/null 2>&1 \
+if ! { command -v tasks-axi >/dev/null 2>&1 \
+    && command -v bd >/dev/null 2>&1 \
+    && command -v jq >/dev/null 2>&1 \
+    && printf '%s\n' 'backend = "beads"' '[beads]' 'path = ".beads"' "binary = \"$(command -v bd)\"" \
+      > "$probe_home/.tasks.toml" \
+    && (cd "$probe_home" && bd init --prefix probe) >/dev/null 2>&1 \
     && (cd "$probe_home" && tasks-axi list) >/dev/null 2>&1; }; then
-  printf 'ok - skipped (tasks-axi lacks the beads backend)\n'
-  exit 0
+  if [ "${FM_LIVE_BEADS:-${FM_LIVE:-}}" = 0 ]; then
+    printf 'ok - skipped (FM_LIVE_BEADS=0: tasks-axi with the beads backend, bd, and jq are required)\n'
+    exit 0
+  fi
+  fail "tasks-axi with the beads backend, bd, and jq are required to exercise actor attribution (set FM_LIVE_BEADS=0 to skip)"
 fi
 
 # --- fixture ----------------------------------------------------------------
