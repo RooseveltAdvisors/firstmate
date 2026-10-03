@@ -86,9 +86,11 @@
 # squash or merge commit message). Any line whose start, ignoring case and
 # leading whitespace, is co-authored-by: refuses the merge, because a squash
 # merge would carry that line into the base branch's history. The refusal names
-# every offending commit sha or description with its trailer line and points
-# at bin/fm-git-strip-ai-trailers.sh as the remedy: strip the trailers from
-# those commits, re-push them, then re-run this guard. The guard is
+# every offending commit sha or description with its trailer line. The remedy
+# has two paths: an AI trailer is stripped from those commits with
+# bin/fm-git-strip-ai-trailers.sh and the commits re-pushed, while a human
+# co-author trailer must be removed by hand, because that stripper deliberately
+# leaves human trailers alone; then re-run this guard. The guard is
 # forward-only - it refuses, and never rewrites landed history. A commit list
 # that cannot be read in full refuses rather than merging unguarded, and extra
 # args that would supply the merge message themselves (--body, --body-file,
@@ -1301,7 +1303,8 @@ gitlab_read_coauthor_trailers() {
 
 # Refuse a merge whose squash message sources carry a co-author trailer, naming
 # every offending commit sha or description with its trailer line and pointing
-# at the fleet stripper as the remedy. An empty list is a clean pull request
+# at the fleet stripper for AI trailers; a human co-author trailer is removed
+# by hand, since the stripper never touches it. An empty list is a clean pull request
 # and passes unchanged. Forward-only: this refuses the merge and rewrites
 # nothing.
 require_no_coauthor_trailers() {
