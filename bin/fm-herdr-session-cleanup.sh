@@ -68,8 +68,8 @@ fm_herdr_cleanup_home_identity() {
 }
 
 # One-pass index of every presentation journal, built once per cleanup run.
-# Fields per row: id, journal path, candidate (1/0: valid snapshot, home and
-# session bound), token (projection id).
+# Fields per row: id, journal path, home/session bound (1/0), expected
+# workspace label, token (projection id).
 # Dead projection journals (no live workspace in Herdr references them) are
 # pruned here, outside every title loop.
 fm_herdr_cleanup_index_file=""

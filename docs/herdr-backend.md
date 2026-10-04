@@ -436,6 +436,13 @@ An unconfirmed close retains the journal.
 A confirmed close may retire it even when focus restoration reported an error after the close.
 A second run finds no matching title or journal and is a no-op.
 
+Each run reads this home's presentation journals once into an index, and every candidate title is matched against that index.
+While building the index, it prunes dead-projection journals so they do not accumulate across runs.
+A journal is dead only when it is valid, binds this home and named session, and no workspace in the named-session snapshot carries its token or, for version 2, its recorded workspace id.
+A version 1 journal is never dead while any projected title in the snapshot lacks a token.
+The prune removes a dead journal only while holding that task's spawn lock, with task metadata still absent and the journal's token unchanged; a busy lock skips the journal.
+The index build and the candidate loop share one wall budget, 30 seconds by default (`FM_HERDR_CLEANUP_BUDGET_SECS`); on expiry the run warns, stops early, and leaves the remaining journals and candidates for a later run.
+
 Any of these preserves the candidate and lets session startup continue with at most a concise warning:
 
 - A malformed or missing title or token.
