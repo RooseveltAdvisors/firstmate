@@ -18,9 +18,14 @@
 # Topology is first checked from one locked API snapshot, then every mutation
 # prerequisite is immediately rechecked before the existing exact-pane
 # focus-preserving close helper is called.
-# The script never closes a workspace. It removes only the matching journal,
-# and only after the exact pane is confirmed gone. Every error warns and returns
-# success so session startup continues conservatively.
+# The script never closes a workspace. It removes the matching journal only
+# after the exact pane is confirmed gone. Separately, while building the
+# journal index once per run, it prunes dead-projection journals: valid,
+# bound to this home and session, referenced by no live workspace in the
+# snapshot, and removed only while holding state/.spawn-<task>.lock with task
+# metadata still absent and the journal's projection token unchanged; a busy
+# lock skips the journal. Every error warns and returns success so session
+# startup continues conservatively.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -72,7 +77,7 @@ fm_herdr_cleanup_index_file=""
 fm_herdr_cleanup_index_build() { # <session> <home-real> [candidates] [deadline]
   fm_herdr_cleanup_index_file=$(mktemp "${TMPDIR:-/tmp}/fm-herdr-cleanup-index.XXXXXX") || return 1
   local session=$1 home_real=$2 candidates=${3:-} deadline=${4:-0}
-  local journal id expected journal_home home_ok is_alive has_untokened_projection=0
+  local journal id expected journal_home home_ok is_alive token has_untokened_projection=0
   local pruned_count=0 pruned_ids=""
 
   if [ -n "$candidates" ]; then
@@ -126,14 +131,19 @@ fm_herdr_cleanup_index_build() { # <session> <home-real> [candidates] [deadline]
 
     if [ "$is_alive" -eq 0 ]; then
       # Dead projection: no live workspace in Herdr references this projection.
-      # Must bind this home and session, have no active metadata, and no spawn lock.
-      if [ "$home_ok" -eq 1 ] \
-        && [ ! -e "$STATE/$id.meta" ] && [ ! -L "$STATE/$id.meta" ] \
-        && [ ! -d "$STATE/.spawn-$id.lock" ]; then
+      # Must bind this home and session, and is removed only while holding its
+      # spawn lock with metadata still absent and the journal unchanged.
+      [ "$home_ok" -eq 1 ] || continue
+      token=$FM_BACKEND_HERDR_JOURNAL_PROJECTION_ID
+      fm_lock_try_acquire "$STATE/.spawn-$id.lock" || continue
+      if [ ! -e "$STATE/$id.meta" ] && [ ! -L "$STATE/$id.meta" ] \
+        && fm_backend_herdr_projection_journal_snapshot "$journal" "$id" \
+        && [ "$FM_BACKEND_HERDR_JOURNAL_PROJECTION_ID" = "$token" ]; then
         rm -f -- "$journal"
         pruned_count=$((pruned_count + 1))
         [ "$pruned_count" -le 3 ] && pruned_ids="${pruned_ids:+$pruned_ids, }$id"
       fi
+      fm_lock_release "$STATE/.spawn-$id.lock" || true
       continue
     fi
 
