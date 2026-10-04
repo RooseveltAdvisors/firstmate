@@ -282,6 +282,36 @@ reset_fixture; : > "$FIXTURE_DIR/race"; assert_preserved "revalidation race"
 reset_fixture; printf '%s\n' "$TAB" > "$FIXTURE_DIR/active-tab"; assert_preserved "active target"
 reset_fixture; : > "$FIXTURE_DIR/focus-refuse"; assert_preserved "focus refusal"
 
+# Regression: seeded dead journals (both v1 and v2) get pruned while seeded live journal survives
+reset_fixture
+printf 'live\n' > "$FIXTURE_DIR/agent"
+write_v1 "dead-v1" "DeadTokV11234567890123"
+{
+  printf 'version=2\ntask_id=dead-v2\nprojection_id=DeadTokV21234567890123\n'
+  printf 'home=%s\nsession=test\nworkspace_id=wDead\ntab_id=wDead:t1\npane_id=wDead:p1\n' "$FM_HOME"
+  printf 'parent_workspace_id=w1\nparent_label=firstmate\nworkspace_label=└ dead-v2 · p:DeadTokV21234567890123\ntask_label=fm-dead-v2\n'
+} > "$FM_STATE_OVERRIDE/dead-v2.herdr-presentation"
+fm_herdr_session_cleanup >/dev/null 2>&1
+[ ! -e "$FM_STATE_OVERRIDE/dead-v1.herdr-presentation" ] || fail "seeded dead v1 journal was not pruned"
+[ ! -e "$FM_STATE_OVERRIDE/dead-v2.herdr-presentation" ] || fail "seeded dead v2 journal was not pruned"
+[ -f "$FM_STATE_OVERRIDE/$ID.herdr-presentation" ] || fail "seeded live journal was unexpectedly pruned"
+pass "seeded dead journal gets pruned while a seeded live journal survives"
+
+# Regression: a full pass completes inside the bound under load with accumulated dead journals
+reset_fixture
+for i in $(seq 1 200); do
+  printf 'version=1\ntask_id=load-%s\nprojection_id=LoadTok%015d\n' "$i" "$i" \
+    > "$FM_STATE_OVERRIDE/load-$i.herdr-presentation"
+done
+start_secs=$SECONDS
+FM_HERDR_CLEANUP_BUDGET_SECS=10 fm_herdr_session_cleanup >/dev/null 2>&1 || fail "cleanup pass under load failed"
+duration=$((SECONDS - start_secs))
+[ "$duration" -le 10 ] || fail "cleanup pass exceeded 10s bound under load: ${duration}s"
+[ ! -e "$FM_STATE_OVERRIDE/load-1.herdr-presentation" ] || fail "load dead journal was not pruned"
+[ ! -e "$FM_STATE_OVERRIDE/load-200.herdr-presentation" ] || fail "load dead journal was not pruned"
+[ ! -e "$FM_STATE_OVERRIDE/$ID.herdr-presentation" ] || fail "positive cleanup did not finish under load"
+pass "full cleanup pass completes inside the bound under load"
+
 INTEGRATION_ROOT="$TMP_ROOT/bootstrap-integration"
 mkdir -p "$INTEGRATION_ROOT/home/state" "$INTEGRATION_ROOT/home/data" "$INTEGRATION_ROOT/home/config"
 cp -R "$ROOT/bin" "$INTEGRATION_ROOT/bin"
