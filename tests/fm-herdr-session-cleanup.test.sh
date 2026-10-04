@@ -297,6 +297,15 @@ fm_herdr_session_cleanup >/dev/null 2>&1
 [ -f "$FM_STATE_OVERRIDE/$ID.herdr-presentation" ] || fail "seeded live journal was unexpectedly pruned"
 pass "seeded dead journal gets pruned while a seeded live journal survives"
 
+# Regression: a dead journal whose spawn lock is held is never pruned
+reset_fixture
+write_v1 "dead-busy" "DeadBusy12345678901234"
+mkdir "$FM_STATE_OVERRIDE/.spawn-dead-busy.lock"
+fm_herdr_session_cleanup >/dev/null 2>&1
+[ -f "$FM_STATE_OVERRIDE/dead-busy.herdr-presentation" ] || fail "dead journal pruned while its spawn lock was held"
+[ -d "$FM_STATE_OVERRIDE/.spawn-dead-busy.lock" ] || fail "prune released a spawn lock it did not own"
+pass "dead journal under a held spawn lock survives the prune"
+
 # Regression: a full pass completes inside the bound under load with accumulated dead journals
 reset_fixture
 for i in $(seq 1 200); do
