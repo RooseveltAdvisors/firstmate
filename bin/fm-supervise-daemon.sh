@@ -56,9 +56,9 @@
 #     PAUSE_RESURFACE_SECS, and a ci-parked lane whose endpoint is proven gone
 #     or agent-free is reported once rather than held behind the step. A wedged
 #     crewmate that is not waiting on an active `ci` step is therefore detected
-#     within STALE_ESCALATE_SECS + a tick, never lost (docs/architecture.md
-#     owns that wait-evidence contract). A declared wait - either a
-#     paused: external wait or a verified captain-held transfer, per
+#     within STALE_ESCALATE_SECS + a tick, never lost (.agents/skills/afk/SKILL.md
+#     Classification policy owns that wait-evidence contract). A declared
+#     wait - either a paused: external wait or a verified captain-held transfer, per
 #     fm-classify-lib.sh's combined predicate - instead gets its own longer
 #     PAUSE_RESURFACE_SECS recheck, never a wedge escalation, whether its pane
 #     reads idle or busy; only a status append that stops declaring the wait
@@ -109,8 +109,8 @@
 #                                   kinds.
 #          FM_STALE_ESCALATE_SECS   idle seconds before a stale pane reaches the
 #                                   wedge probes (default 240;
-#                                   docs/architecture.md owns escalation and
-#                                   deferral)
+#                                   .agents/skills/afk/SKILL.md Classification
+#                                   policy owns escalation and deferral)
 #          FM_PAUSE_RESURFACE_SECS  seconds a declared wait stays declared,
 #                                   idle or busy, before it re-surfaces as a
 #                                   recheck (default 14400, four hours); an
