@@ -38,9 +38,6 @@ fm_backend_source herdr
 
 fm_herdr_cleanup_warn() {
   printf 'warning: herdr session-start projection cleanup: %s\n' "$*" >&2
-  if [ "${FM_HERDR_CLEANUP_DEBUG:-0}" = 1 ]; then
-    printf 'warn: %s\n' "$*" >> "${FM_HERDR_CLEANUP_DEBUG_DIR:-/tmp}/fm-cleanup-debug.log"
-  fi
 }
 
 fm_herdr_cleanup_title_token() { # <workspace-title>
@@ -65,28 +62,18 @@ fm_herdr_cleanup_home_identity() {
   (cd "$FM_HOME" 2>/dev/null && pwd -P)
 }
 
-fm_herdr_cleanup_mtime() { # <file>
-  if [ "$(uname -s 2>/dev/null || true)" = Darwin ]; then
-    /usr/bin/stat -f %m "$1" 2>/dev/null || echo 0
-  else
-    stat -c %Y "$1" 2>/dev/null || echo 0
-  fi
-}
-
 # One-pass index of every presentation journal, built once per cleanup run.
 # Fields per row: id, journal path, candidate (1/0: valid snapshot, home and
 # session bound), token (projection id).
-# Dead projection journals (no live workspace in Herdr references them) and
-# malformed journals older than 7d are pruned here, outside every title loop.
+# Dead projection journals (no live workspace in Herdr references them) are
+# pruned here, outside every title loop.
 fm_herdr_cleanup_index_file=""
 
 fm_herdr_cleanup_index_build() { # <session> <home-real> [candidates] [deadline]
   fm_herdr_cleanup_index_file=$(mktemp "${TMPDIR:-/tmp}/fm-herdr-cleanup-index.XXXXXX") || return 1
   local session=$1 home_real=$2 candidates=${3:-} deadline=${4:-0}
   local journal id expected journal_home home_ok is_alive has_untokened_projection=0
-  local age_cut pruned_count=0 pruned_ids="" mtime
-
-  age_cut=$(( $(date +%s) - 604800 ))
+  local pruned_count=0 pruned_ids=""
 
   if [ -n "$candidates" ]; then
     if printf '%s\n' "$candidates" | awk -F '\t' '$2 ~ /^└ / && $2 !~ / · p:/ { found=1; exit } END { exit !found }'; then
@@ -103,19 +90,7 @@ fm_herdr_cleanup_index_build() { # <session> <home-real> [candidates] [deadline]
     id=$(basename "$journal" "$FM_BACKEND_HERDR_PRESENTATION_JOURNAL_SUFFIX")
     fm_task_id_creation_valid "$id" || continue
 
-    if ! fm_backend_herdr_projection_journal_snapshot "$journal" "$id"; then
-      # A journal that fails validation can never match a cleanup; prune it
-      # once it is older than the retention window so accumulation stays
-      # bounded. Fail-both-ways preserved: valid journals are never removed.
-      if [ -z "${FM_HERDR_CLEANUP_SKIP_PRUNE:-}" ]; then
-        mtime=$(fm_herdr_cleanup_mtime "$journal")
-        if [ "$mtime" -gt 0 ] && [ "$mtime" -lt "$age_cut" ]; then
-          rm -f -- "$journal"
-          fm_herdr_cleanup_warn "$id pruned: malformed projection journal older than 7d"
-        fi
-      fi
-      continue
-    fi
+    fm_backend_herdr_projection_journal_snapshot "$journal" "$id" || continue
 
     # Version 1 carries no home/session binding, so the binding check is
     # satisfied by construction; version 2 must bind the real home identity
@@ -154,11 +129,10 @@ fm_herdr_cleanup_index_build() { # <session> <home-real> [candidates] [deadline]
       # Must bind this home and session, have no active metadata, and no spawn lock.
       if [ "$home_ok" -eq 1 ] \
         && [ ! -e "$STATE/$id.meta" ] && [ ! -L "$STATE/$id.meta" ] \
-        && [ ! -d "$STATE/.spawn-$id.lock" ] \
-        && [ -z "${FM_HERDR_CLEANUP_SKIP_PRUNE:-}" ]; then
+        && [ ! -d "$STATE/.spawn-$id.lock" ]; then
         rm -f -- "$journal"
         pruned_count=$((pruned_count + 1))
-        pruned_ids="${pruned_ids:+$pruned_ids, }$id"
+        [ "$pruned_count" -le 3 ] && pruned_ids="${pruned_ids:+$pruned_ids, }$id"
       fi
       continue
     fi
@@ -168,6 +142,7 @@ fm_herdr_cleanup_index_build() { # <session> <home-real> [candidates] [deadline]
   done
 
   if [ "$pruned_count" -gt 0 ]; then
+    [ "$pruned_count" -gt 3 ] && pruned_ids="$pruned_ids, ..."
     fm_herdr_cleanup_warn "pruned $pruned_count dead projection journal(s): $pruned_ids"
   fi
 }
@@ -177,37 +152,17 @@ fm_herdr_cleanup_index_release() {
   fm_herdr_cleanup_index_file=""
 }
 
-fm_herdr_cleanup_journal_matches() { # <title> [session] [home-real]
-  local title=$1
-  if [ -n "$fm_herdr_cleanup_index_file" ] && [ -f "$fm_herdr_cleanup_index_file" ]; then
-    awk -F '\t' -v title="$title" \
-      '$4 == title && $3 == 1 \
-       { print $2 "\t" $1 "\t" $5 }' \
-      "$fm_herdr_cleanup_index_file" 2>/dev/null
-    return 0
-  fi
-  local session=${2:-} home_real=${3:-} journal id expected journal_home
-  [ -d "$STATE" ] && [ ! -L "$STATE" ] || return 1
-  for journal in "$STATE"/*"$FM_BACKEND_HERDR_PRESENTATION_JOURNAL_SUFFIX"; do
-    [ -f "$journal" ] && [ ! -L "$journal" ] || continue
-    id=$(basename "$journal" "$FM_BACKEND_HERDR_PRESENTATION_JOURNAL_SUFFIX")
-    fm_task_id_creation_valid "$id" || continue
-    fm_backend_herdr_projection_journal_snapshot "$journal" "$id" || continue
-    if [ "$FM_BACKEND_HERDR_JOURNAL_VERSION" = 2 ]; then
-      journal_home=$(fm_backend_herdr_projection_home_identity \
-        "$FM_BACKEND_HERDR_JOURNAL_HOME" 2>/dev/null) || continue
-      [ "$journal_home" = "$home_real" ] \
-        && [ "$FM_BACKEND_HERDR_JOURNAL_SESSION" = "$session" ] || continue
-    fi
-    expected=$(fm_backend_herdr_projection_workspace_label \
-      "$id" "$FM_BACKEND_HERDR_JOURNAL_PROJECTION_ID")
-    [ "$expected" = "$title" ] || continue
-    printf '%s\t%s\t%s\n' "$journal" "$id" "$FM_BACKEND_HERDR_JOURNAL_PROJECTION_ID"
-  done
+fm_herdr_cleanup_journal_matches() { # <title> <session> <home-real>
+  local title=$1 session=$2 home_real=$3
+  [ -n "$fm_herdr_cleanup_index_file" ] && [ -f "$fm_herdr_cleanup_index_file" ] || return 1
+  awk -F '\t' -v title="$title" \
+    '$4 == title && $3 == 1 \
+     { print $2 "\t" $1 "\t" $5 }' \
+    "$fm_herdr_cleanup_index_file" 2>/dev/null
 }
 
-fm_herdr_cleanup_unique_match() { # <title> [session] [home-real]
-  local title=$1 session=${2:-} home_real=${3:-} matches count record
+fm_herdr_cleanup_unique_match() { # <title> <session> <home-real>
+  local title=$1 session=$2 home_real=$3 matches count record
   FM_HERDR_CLEANUP_JOURNAL=
   FM_HERDR_CLEANUP_ID=
   FM_HERDR_CLEANUP_TOKEN=
@@ -462,21 +417,10 @@ fm_herdr_session_cleanup() {
       fm_herdr_cleanup_warn "candidate cleanup loop exceeded budget (${FM_HERDR_CLEANUP_BUDGET_SECS:-30}s); stopping early"
       break
     fi
-    fm_herdr_cleanup_debug_dump "$session" "$home_real"
     fm_herdr_cleanup_one "$session" "$workspace" "$title" "$home_real"
   done <<< "$candidates"
   fm_herdr_cleanup_index_release
   return 0
-}
-
-fm_herdr_cleanup_debug_dump() {
-  [ "${FM_HERDR_CLEANUP_DEBUG:-0}" = 1 ] || return 0
-  local dump=${FM_HERDR_CLEANUP_DEBUG_DIR:-/tmp}/fm-cleanup-debug.log
-  {
-    echo "=== cleanup run $(date -u +%FT%TZ) session=$1 home=$2"
-    echo "index file: $fm_herdr_cleanup_index_file"
-    cat "$fm_herdr_cleanup_index_file" 2>/dev/null
-  } >> "$dump"
 }
 
 if [ "${FM_HERDR_SESSION_CLEANUP_SOURCE_ONLY:-0}" != 1 ]; then
