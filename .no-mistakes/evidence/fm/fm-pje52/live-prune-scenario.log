@@ -1,0 +1,10 @@
+before: 303 journals
+cleanup output: warning: herdr session-start projection cleanup: pruned 300 dead projection journal(s): dead-100, dead-101, dead-102, ...
+warning: herdr session-start projection cleanup: live-busy preserved because its pane is not a provably idle childless shell
+elapsed: 12.182096079s
+after: 2 journals: dead-locked.herdr-presentation live-busy.herdr-presentation 
+ok - all 300 dead journals pruned in one pass
+ok - live busy projection: journal kept, workspace+pane untouched
+ok - dead journal under held spawn lock survives
+ok - stale idle projection closed and its journal removed in same pass
+ok - repeat pass idempotent (output: warning: herdr session-start projection cleanup: live-busy preserved because its pane is not a provably idle childless shell)

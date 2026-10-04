@@ -1,0 +1,11 @@
+layout: 15 live candidate titles x 150 accumulated journals
+BASE (42dd906d) cleanup: 26s, journals left: 150
+NEW (f8066865) cleanup: 6s, journals left: 0
+warning: herdr session-start projection cleanup: pruned 150 dead projection journal(s): dead-100, dead-101, dead-102, ...
+ok - index path faster than per-title rescan: 26s -> 6s
+ok - all 15 live candidates untouched
+budget=2s run: rc=0 elapsed=2s left=552
+warning: herdr session-start projection cleanup: projection journal index build exceeded budget; stopping early
+warning: herdr session-start projection cleanup: pruned 48 dead projection journal(s): dead-100, dead-101, dead-102, ...
+warning: herdr session-start projection cleanup: candidate cleanup loop exceeded budget (2s); stopping early
+ok - cleanup stops early at its wall budget and still exits 0
