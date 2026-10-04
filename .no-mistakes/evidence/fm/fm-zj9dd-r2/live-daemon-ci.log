@@ -1,0 +1,21 @@
+== fm-crew-state.sh, ci step running:
+state: working · source: run-step · ci running
+== fm-crew-state.sh, review step running:
+state: working · source: run-step · validating (running)
+== endpoint verdict:
+alive--- after housekeeping (ci step, stale 300s): escalations buffer:
+(empty)
+    stale marker age: 0s; paused marker: 1791155479
+--- after housekeeping (ci step, stale 300s, pause window 20000s old): escalations buffer:
+still waiting on CI 20000s (awaiting the forge checks, recheck on a long cadence; confirm the checks are still running): lab:fm-ci
+    stale marker age: 0s; paused marker: 1791155479
+--- after housekeeping (review step, stale 300s): escalations buffer:
+stale persisted 300s (possible wedge): lab:fm-ci
+    stale marker age: 0s; paused marker: none
+endpoint now: ambiguous
+--- after housekeeping (ci step, agent gone from pane): escalations buffer:
+(empty)
+    stale marker age: 0s; paused marker: 1791155480
+--- after housekeeping (ci step, agent gone, second crossing (expect no repeat)): escalations buffer:
+(empty)
+    stale marker age: 0s; paused marker: 1791155480

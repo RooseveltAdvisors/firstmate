@@ -1,0 +1,27 @@
+== fm-crew-state.sh, ci step running:
+state: working · source: run-step · ci running
+== fm-crew-state.sh, review step running:
+state: working · source: run-step · validating (running)
+== endpoint verdict:
+alive### phase: ci
+--- watcher stdout (ci):
+stale: lab:fm-ci (idle 4s - ci running, awaiting the forge checks - external pipeline step, awaiting the forge checks, rechecked on a long cadence not a wedge; confirm the checks are still running)
+### phase: review
+--- watcher stdout (review):
+watcher: already running pid 1478443
+watcher: already running pid 1478443
+check: rearm-resurface
+stale: lab:fm-ci (idle 4s, possible wedge, escalation 2)
+stale: lab:fm-ci (idle 4s, possible wedge, escalation 3, demand-deep-inspection: same pane has wedge-escalated 3 times in a row - do not re-absorb on the run-step/pane state alone)
+stale: lab:fm-ci (idle 4s, possible wedge, escalation 4, demand-deep-inspection: same pane has wedge-escalated 4 times in a row - do not re-absorb on the run-step/pane state alone)
+== wake log:
+### phase: ci
+1791155384	1	stale	lab:fm-ci	stale: lab:fm-ci (idle 4s - ci running, awaiting the forge checks - external pipeline step, awaiting the forge checks, rechecked on a long cadence not a wedge; confirm the checks are still running)
+### phase: review
+1791155428	2	stale	lab:fm-ci	stale: lab:fm-ci (idle 4s, possible wedge, escalation 1)
+1791155435	3	stale	lab:fm-ci	stale: lab:fm-ci (idle 4s, possible wedge, escalation 2)
+1791155442	4	stale	lab:fm-ci	stale: lab:fm-ci (idle 4s, possible wedge, escalation 3, demand-deep-inspection: same pane has wedge-escalated 3 times in a row - do not re-absorb on the run-step/pane state alone)
+1791155451	5	stale	lab:fm-ci	stale: lab:fm-ci (idle 4s, possible wedge, escalation 4, demand-deep-inspection: same pane has wedge-escalated 4 times in a row - do not re-absorb on the run-step/pane state alone)
+== state markers:
+.stale-lab_fm-ci
+.wedge-escalations-lab_fm-ci

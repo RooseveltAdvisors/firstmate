@@ -1,0 +1,12 @@
+== test_wedge_threshold_defers_to_a_ci_step
+ok - a lane parked at the ci step is rechecked on the long cadence instead of wedge-escalating, while a locally-working lane keeps the unchanged ladder
+rc=0
+== test_ci_transition_at_shared_wedge_boundary
+ok - unchanged ordinary, terminal, and busy panes detect a transition into ci at threshold
+rc=0
+== test_ci_step_does_not_hide_a_gone_endpoint
+ok - a proven-dead endpoint is still reported once even while its ci step is pending
+rc=0
+== test_crew_is_ci_waiting_classifier
+ok - crew_is_ci_waiting: the active and checks-green ci verdicts match, and neither changes crew_absorb_class
+rc=0

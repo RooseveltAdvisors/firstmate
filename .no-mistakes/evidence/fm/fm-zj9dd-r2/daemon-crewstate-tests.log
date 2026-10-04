@@ -1,0 +1,10 @@
+== daemon
+ok - the stale persistence recheck defers a ci-waiting lane and keeps the wedge ladder for a local step
+ok - a ci-parked lane with a proven-gone endpoint is reported once instead of deferred or wedged
+ok - a ci-deferred lane re-surfaces once per pause window without wedge wording, and a gone endpoint reports once
+ok - a transient stale wake keeps the ci-deferred lane's recheck window and still drops everyone else's
+failures=?
+rc=0
+== crew-state
+ok - CI wait predicate uses the real classifier and preserves local-work escalation
+rc=0
