@@ -19,10 +19,10 @@
 # prerequisite is immediately rechecked before the existing exact-pane
 # focus-preserving close helper is called.
 # The script never closes a workspace. It removes the matching journal only
-# after the exact pane is confirmed gone. Separately, from the journal index
-# read once per run, it prunes dead-projection journals: valid version 2,
-# bound to this home and session, whose token and workspace id appear on no
-# workspace in the snapshot, removed only while holding
+# after the exact pane is confirmed gone. Separately, while reading the journal
+# index once per run, it prunes each dead-projection journal as it is read:
+# valid version 2, bound to this home and session, whose token and workspace
+# id appear on no workspace in the snapshot, removed only while holding
 # state/.spawn-<task>.lock with task metadata still absent and the journal's
 # projection token unchanged; a busy lock skips the journal. A version 1
 # journal is never pruned, since its liveness cannot be disproved. The whole
@@ -76,17 +76,17 @@ fm_herdr_cleanup_expired() {
   [ "$SECONDS" -ge "$fm_herdr_cleanup_deadline" ]
 }
 
-# One pass over every presentation journal, then one awk join of that index
-# against the workspace snapshot. Prints "D<TAB>id<TAB>journal<TAB>token" for
-# each dead projection journal (version 2, bound to this home and session, its
-# token on no workspace label and its workspace id on no workspace), then
-# "J<TAB>workspace<TAB>title<TAB>journal<TAB>id<TAB>token" for each candidate
-# whose title matches exactly one live, bound journal. A version 1 journal
-# carries no workspace binding, so its liveness cannot be disproved and it is
-# never reported dead.
-fm_herdr_cleanup_join() { # <session> <home-real> <candidates>
-  local session=$1 home_real=$2 candidates=$3
-  local journal id expected journal_home home_ok row rows=""
+# One pass over every presentation journal. A dead projection journal
+# (version 2, bound to this home and session, its token on no workspace label
+# and its workspace id on no workspace) is pruned as soon as it is read, so a
+# pass stopped by the budget still makes progress. Every other bound journal is
+# collected into fm_herdr_cleanup_rows as "title<TAB>journal<TAB>id<TAB>token".
+# A version 1 journal carries no workspace binding, so its liveness cannot be
+# disproved and it is never pruned.
+fm_herdr_cleanup_index() { # <session> <home-real> <live-workspace-ids> <labels>
+  local session=$1 home_real=$2 live_ws=$'\n'$3$'\n' live_labels=$4
+  local journal id expected journal_home token row
+  fm_herdr_cleanup_rows=""
   for journal in "$STATE"/*"$FM_BACKEND_HERDR_PRESENTATION_JOURNAL_SUFFIX"; do
     [ -f "$journal" ] && [ ! -L "$journal" ] || continue
     if fm_herdr_cleanup_expired; then
@@ -96,36 +96,41 @@ fm_herdr_cleanup_join() { # <session> <home-real> <candidates>
     id=$(basename "$journal" "$FM_BACKEND_HERDR_PRESENTATION_JOURNAL_SUFFIX")
     fm_task_id_creation_valid "$id" || continue
     fm_backend_herdr_projection_journal_snapshot "$journal" "$id" || continue
+    token=$FM_BACKEND_HERDR_JOURNAL_PROJECTION_ID
     # Version 1 carries no home/session binding, so the binding check is
     # satisfied by construction; version 2 must bind the real home identity
     # and the live named session.
-    home_ok=1
     if [ "$FM_BACKEND_HERDR_JOURNAL_VERSION" = 2 ]; then
       journal_home=$(fm_backend_herdr_projection_home_identity \
         "$FM_BACKEND_HERDR_JOURNAL_HOME" 2>/dev/null) || journal_home=""
       { [ "$journal_home" = "$home_real" ] \
-        && [ "$FM_BACKEND_HERDR_JOURNAL_SESSION" = "$session" ]; } || home_ok=0
+        && [ "$FM_BACKEND_HERDR_JOURNAL_SESSION" = "$session" ]; } || continue
+      case "$live_labels" in *"p:$token"*) ;; *)
+        case "$live_ws" in *$'\n'"${FM_BACKEND_HERDR_JOURNAL_WORKSPACE_ID:-}"$'\n'*) ;; *)
+          fm_herdr_cleanup_prune "$id" "$journal" "$token"
+          continue ;;
+        esac ;;
+      esac
     fi
-    expected=$(fm_backend_herdr_projection_workspace_label \
-      "$id" "$FM_BACKEND_HERDR_JOURNAL_PROJECTION_ID")
-    printf -v row '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$journal" "$home_ok" "$expected" \
-      "$FM_BACKEND_HERDR_JOURNAL_PROJECTION_ID" "$FM_BACKEND_HERDR_JOURNAL_VERSION" \
-      "${FM_BACKEND_HERDR_JOURNAL_WORKSPACE_ID:-}"
-    rows=$rows$row
+    expected=$(fm_backend_herdr_projection_workspace_label "$id" "$token")
+    printf -v row '%s\t%s\t%s\t%s\n' "$expected" "$journal" "$id" "$token"
+    fm_herdr_cleanup_rows=$fm_herdr_cleanup_rows$row
   done
-  [ -n "$rows" ] || return 0
+}
+
+# One awk join of the journal index against the title candidates. Prints
+# "workspace<TAB>title<TAB>journal<TAB>id<TAB>token" for each candidate whose
+# title matches exactly one live, bound journal.
+fm_herdr_cleanup_join() { # <candidates> <rows>
+  [ -n "$2" ] || return 0
   awk -F '\t' '
-    FNR == NR { n++; ws[n] = $1; title[n] = $2; live_ws[$1] = 1; labels = labels "\n" $2; next }
-    {
-      dead = $6 == 2 && $3 == 1 && index(labels, "p:" $5) == 0 && !($7 in live_ws)
-      if (dead) { print "D\t" $1 "\t" $2 "\t" $5; next }
-      if ($3 == 1) { count[$4]++; rec[$4] = $2 "\t" $1 "\t" $5 }
-    }
+    FNR == NR { n++; ws[n] = $1; title[n] = $2; next }
+    { count[$1]++; rec[$1] = $2 "\t" $3 "\t" $4 }
     END {
       for (i = 1; i <= n; i++)
-        if (count[title[i]] == 1) print "J\t" ws[i] "\t" title[i] "\t" rec[title[i]]
+        if (count[title[i]] == 1) print ws[i] "\t" title[i] "\t" rec[title[i]]
     }
-  ' <(printf '%s\n' "$candidates") <(printf '%s' "$rows")
+  ' <(printf '%s\n' "$1") <(printf '%s' "$2")
 }
 
 # Remove one dead projection journal while holding its spawn lock, with task
@@ -336,7 +341,7 @@ fm_herdr_cleanup_one() { # <session> <workspace> <title> <journal> <task-id> <jo
 }
 
 fm_herdr_session_cleanup() {
-  local session home_real list candidates joined kind a b c d e journal found=0 budget
+  local session home_real list live_ws live_labels candidates joined a b c d e journal found=0 budget
   budget=$(fm_herdr_cleanup_budget_secs)
   fm_herdr_cleanup_deadline=$((SECONDS + budget))
   fm_herdr_cleanup_pruned_count=0
@@ -360,31 +365,33 @@ fm_herdr_session_cleanup() {
     fm_herdr_cleanup_warn "session '$session' workspace discovery failed; preserving every candidate"
     return 0
   }
-  candidates=$(printf '%s' "$list" | jq -er '
-    .result.workspaces
-    | select(type == "array")
-    | .[]
-    | select((.workspace_id | type) == "string" and (.workspace_id | length) > 0)
-    | select((.label | type) == "string" and (.label | length) > 0)
-    | [.workspace_id, .label] | @tsv
-  ' 2>/dev/null) || {
+  if ! { candidates=$(printf '%s' "$list" | jq -er '
+      .result.workspaces
+      | select(type == "array")
+      | .[]
+      | select((.workspace_id | type) == "string" and (.workspace_id | length) > 0)
+      | select((.label | type) == "string" and (.label | length) > 0)
+      | [.workspace_id, .label] | @tsv
+    ' 2>/dev/null) && live_ws=$(printf '%s' "$list" | jq -r '
+      .result.workspaces[] | .workspace_id? // empty | tostring
+    ' 2>/dev/null) && live_labels=$(printf '%s' "$list" | jq -r '
+      .result.workspaces[] | .label? // empty | tostring
+    ' 2>/dev/null); }; then
     fm_herdr_cleanup_warn "session '$session' workspace discovery was unreadable; preserving every candidate"
     return 0
-  }
-  joined=$(fm_herdr_cleanup_join "$session" "$home_real" "$candidates") || {
-    fm_herdr_cleanup_warn 'projection journal index could not be built; preserving every candidate'
+  fi
+  fm_herdr_cleanup_index "$session" "$home_real" "$live_ws" "$live_labels"
+  joined=$(fm_herdr_cleanup_join "$candidates" "$fm_herdr_cleanup_rows") || {
+    fm_herdr_cleanup_warn 'projection journal index could not be joined; preserving every candidate'
     return 0
   }
-  while IFS=$'\t' read -r kind a b c d e; do
-    [ -n "$kind" ] || continue
+  while IFS=$'\t' read -r a b c d e; do
+    [ -n "$a" ] || continue
     if fm_herdr_cleanup_expired; then
       fm_herdr_cleanup_warn "cleanup exceeded budget (${budget}s); stopping early"
       break
     fi
-    case "$kind" in
-      D) fm_herdr_cleanup_prune "$a" "$b" "$c" ;;
-      J) fm_herdr_cleanup_one "$session" "$a" "$b" "$c" "$d" "$e" ;;
-    esac
+    fm_herdr_cleanup_one "$session" "$a" "$b" "$c" "$d" "$e"
   done <<< "$joined"
   if [ "$fm_herdr_cleanup_pruned_count" -gt 0 ]; then
     [ "$fm_herdr_cleanup_pruned_count" -gt 3 ] && fm_herdr_cleanup_pruned_ids="$fm_herdr_cleanup_pruned_ids, ..."
@@ -394,9 +401,12 @@ fm_herdr_session_cleanup() {
 }
 
 # One wall budget bounds the whole pass. The cooperative deadline stops at
-# safe points; the entrypoint also runs the pass under fm_run_timed so a
-# blocking Herdr call cannot hold session start past the budget. Locks are
-# pid-owned, so a killed pass leaves them recoverable.
+# safe points; the entrypoint also runs the pass under fm_run_timed, bounded
+# a short grace past the budget so the safe-point stop wins the
+# race, and so a blocking Herdr call cannot hold session start much longer.
+# Locks are pid-owned, so a killed pass leaves them recoverable.
+fm_herdr_cleanup_grace_secs=3
+
 fm_herdr_cleanup_budget_secs() {
   case "${FM_HERDR_CLEANUP_BUDGET_SECS:-}" in
     ''|*[!0-9]*|0) printf '30' ;;
@@ -410,10 +420,11 @@ if [ "${FM_HERDR_SESSION_CLEANUP_SOURCE_ONLY:-0}" != 1 ]; then
     exit 0
   fi
   fm_herdr_cleanup_budget=$(fm_herdr_cleanup_budget_secs)
-  fm_run_timed "$fm_herdr_cleanup_budget" env FM_HERDR_CLEANUP_BOUNDED=1 \
+  fm_herdr_cleanup_bound=$((fm_herdr_cleanup_budget + fm_herdr_cleanup_grace_secs))
+  fm_run_timed "$fm_herdr_cleanup_bound" env FM_HERDR_CLEANUP_BOUNDED=1 \
     "${BASH_SOURCE[0]}" || {
     fm_timed_out $? \
-      && fm_herdr_cleanup_warn "pass exceeded its ${fm_herdr_cleanup_budget}s wall budget and was stopped"
+      && fm_herdr_cleanup_warn "pass exceeded its ${fm_herdr_cleanup_bound}s wall budget and was stopped"
   }
   exit 0
 fi

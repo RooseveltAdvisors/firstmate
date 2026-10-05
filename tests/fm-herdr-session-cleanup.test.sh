@@ -98,6 +98,9 @@ fixture_workspaces() {
   if [ -e "$FIXTURE_DIR/duplicate-token" ]; then
     printf ',{"workspace_id":"w3","label":"└ copy · p:%s","focused":false,"active_tab_id":"w3:t1","tab_count":1,"pane_count":1}' "$TOKEN"
   fi
+  if [ -e "$FIXTURE_DIR/unlabeled-live" ]; then
+    printf ',{"workspace_id":"wNoLabel","label":null,"focused":false,"active_tab_id":"wNoLabel:t1","tab_count":1,"pane_count":1}'
+  fi
   printf ']'
 }
 
@@ -305,6 +308,14 @@ fm_herdr_session_cleanup >/dev/null 2>&1
 [ -f "$FM_STATE_OVERRIDE/$ID.herdr-presentation" ] || fail "seeded live journal was unexpectedly pruned"
 pass "only a provably dead v2 journal is pruned"
 
+# Regression: a journal bound to a live workspace with no string label survives
+reset_fixture
+: > "$FIXTURE_DIR/unlabeled-live"
+write_task_v2 "live-nolabel" "NoLabel123456789012345" wNoLabel
+fm_herdr_session_cleanup >/dev/null 2>&1
+[ -f "$FM_STATE_OVERRIDE/live-nolabel.herdr-presentation" ] || fail "journal of a live unlabeled workspace was pruned"
+pass "a live workspace without a string label keeps its journal"
+
 # Regression: a dead journal whose spawn lock is held is never pruned
 reset_fixture
 write_task_v2 "dead-busy" "DeadBusy12345678901234" wDead
@@ -327,6 +338,17 @@ duration=$((SECONDS - start_secs))
 [ ! -e "$FM_STATE_OVERRIDE/load-100.herdr-presentation" ] || fail "load dead journal was not pruned"
 [ ! -e "$FM_STATE_OVERRIDE/$ID.herdr-presentation" ] || fail "positive cleanup did not finish under load"
 pass "full cleanup pass completes inside the bound under load"
+
+# Regression: a pass whose budget expires while reading journals still prunes
+reset_fixture
+for i in $(seq 1 150); do
+  write_task_v2 "starve-$i" "$(printf 'StarveT%015d' "$i")" "wStarve$i"
+done
+FM_HERDR_CLEANUP_BUDGET_SECS=2 fm_herdr_session_cleanup >/dev/null 2>&1 || fail "budget-stopped pass failed"
+left=$(find "$FM_STATE_OVERRIDE" -name 'starve-*.herdr-presentation' | wc -l | tr -d ' ')
+[ "$left" -lt 150 ] || fail "budget-stopped pass pruned nothing"
+[ "$left" -gt 0 ] || fail "budget did not stop the 150-journal pass early"
+pass "a budget-stopped pass still prunes the dead journals it read ($((150 - left)) of 150)"
 
 # Regression: a hung Herdr call cannot hold the script past its wall budget
 reset_fixture
