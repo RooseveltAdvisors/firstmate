@@ -1040,6 +1040,56 @@ test_stale_persistence_reports_a_gone_endpoint_before_deferring_ci() {
   pass "a ci-parked lane with a proven-gone endpoint is reported once instead of deferred or wedged"
 }
 
+# The same beat when the pane capture itself fails: a recorded CI endpoint that has
+# disappeared cannot be captured, so stale_window_is_busy answers "unreadable". That
+# answer must not drop the marker before the endpoint probe runs, or the gone agent
+# is never reported. The report fires once, worded and once-gated exactly as for the
+# captured case above.
+test_stale_persistence_reports_a_gone_endpoint_when_capture_fails() {
+  local dir state fakebin task win key i lines
+  dir=$(make_case stale-ci-gone-uncaptured)
+  state="$dir/state"; fakebin="$dir/fakebin"
+  task=ci-gone-uncaptured; win="sess:fm-$task"
+  key=$(printf '%s' "$task" | tr ':/.' '___')
+  fm_write_meta "$state/$task.meta" "window=$win" "backend=tmux"
+  printf 'working: implementation committed\n' > "$state/$task.status"
+  i=0
+  while [ "$i" -lt 3 ]; do
+    echo $(( $(date +%s) - 500 )) > "$state/.subsuper-stale-$key"
+    FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+      FM_FAKE_CREW_STATE='state: working · source: run-step · ci running · run: 01RUN' \
+      PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$win" FM_FAKE_TMUX_WINDOWS=fm-someone-else \
+      FM_FAKE_TMUX_FORBIDDEN_TARGET="$win" FM_FAKE_TMUX_CURRENT_COMMAND=bash \
+      FM_STATE_OVERRIDE="$state" FM_ESCALATE_BATCH_SECS=999999 housekeeping "$state"
+    i=$((i + 1))
+  done
+  lines=0
+  [ ! -s "$state/.subsuper-escalations" ] \
+    || lines=$(wc -l < "$state/.subsuper-escalations" | tr -d ' ')
+  [ "$lines" = 1 ] \
+    || fail "an uncapturable gone endpoint under a ci step produced $lines report(s): $(cat "$state/.subsuper-escalations" 2>/dev/null)"
+  grep -F 'agent missing' "$state/.subsuper-escalations" >/dev/null \
+    || fail "the uncapturable gone endpoint was not reported as itself: $(cat "$state/.subsuper-escalations")"
+  grep -F 'possible wedge' "$state/.subsuper-escalations" >/dev/null \
+    && fail "the uncapturable gone endpoint was worded a possible wedge"
+  [ "$(cat "$state/.subsuper-dead-reported-$key" 2>/dev/null)" = "missing $key" ] \
+    || fail "the uncapturable gone endpoint did not record its once-only marker"
+
+  # Not ci-waiting: a failed capture still just drops the marker, unchanged.
+  : > "$state/.subsuper-escalations"
+  echo $(( $(date +%s) - 500 )) > "$state/.subsuper-stale-$key"
+  FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_FAKE_CREW_STATE='state: working · source: run-step · validating (running)' \
+    PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$win" FM_FAKE_TMUX_WINDOWS=fm-someone-else \
+    FM_FAKE_TMUX_FORBIDDEN_TARGET="$win" FM_FAKE_TMUX_CURRENT_COMMAND=bash \
+    FM_STATE_OVERRIDE="$state" FM_ESCALATE_BATCH_SECS=999999 housekeeping "$state"
+  [ ! -s "$state/.subsuper-escalations" ] \
+    || fail "a failed capture on a local step escalated: $(cat "$state/.subsuper-escalations")"
+  [ ! -e "$state/.subsuper-stale-$key" ] \
+    || fail "a failed capture on a local step kept its stale marker"
+  pass "a ci-parked lane whose pane capture fails still reports its gone endpoint once"
+}
+
 # Away posture, a lane parked at no-mistakes' ci step, and an endpoint that still
 # reads live: the CI arm must not stay silent for the whole merge wait. It shares
 # the declared-wait arm's recheck window (state/.subsuper-paused-<key>) and cadence
@@ -1069,6 +1119,8 @@ test_ci_deferral_resurfaces_on_the_pause_cadence() {
     || fail "a mature ci-deferral window produced $lines digest(s): $(cat "$state/.subsuper-escalations" 2>/dev/null)"
   grep -F 'still waiting on CI' "$state/.subsuper-escalations" >/dev/null \
     || fail "the ci recheck did not name the wait it is on: $(cat "$state/.subsuper-escalations")"
+  grep -F 'confirm the checks are still running' "$state/.subsuper-escalations" >/dev/null \
+    || fail "a running-checks ci recheck lost its confirm-running action: $(cat "$state/.subsuper-escalations")"
   grep -F 'possible wedge' "$state/.subsuper-escalations" >/dev/null \
     && fail "the ci recheck was worded as a possible wedge"
   pause_age=$(( $(date +%s) - $(cat "$state/.subsuper-paused-$key" 2>/dev/null || echo 0) ))
@@ -1114,6 +1166,19 @@ test_ci_deferral_resurfaces_on_the_pause_cadence() {
     || fail "a gone endpoint re-reported after its first report ($lines digests in total)"
   grep -F 'possible wedge' "$state/.subsuper-escalations" >/dev/null \
     && fail "the ci lane was worded as a possible wedge at any point: $(cat "$state/.subsuper-escalations")"
+  # Checks already green: the digest names the merge/close wait, not running checks.
+  : > "$state/.subsuper-escalations"
+  echo $(( $(date +%s) - 500 )) > "$state/.subsuper-stale-$key"
+  echo $(( $(date +%s) - 5000 )) > "$state/.subsuper-paused-$key"
+  FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_FAKE_CREW_STATE='state: done · source: run-step · checks green: PR ready for review (still monitoring for merge/close): https://github.com/o/r/pull/2 · run: 01RUN' \
+    PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$win" FM_FAKE_TMUX_CURRENT_COMMAND=grok \
+    FM_FAKE_TMUX_CAPTURE="$pane" FM_STATE_OVERRIDE="$state" \
+    FM_ESCALATE_BATCH_SECS=999999 FM_PAUSE_RESURFACE_SECS=240 housekeeping "$state"
+  grep -F 'checks are green, waiting on merge/close' "$state/.subsuper-escalations" >/dev/null \
+    || fail "a checks-green ci recheck did not name the merge/close wait: $(cat "$state/.subsuper-escalations" 2>/dev/null)"
+  grep -F 'confirm the checks are still running' "$state/.subsuper-escalations" >/dev/null \
+    && fail "a checks-green ci recheck asked to confirm running checks"
   pass "a ci-deferred lane re-surfaces once per pause window without wedge wording, and a gone endpoint reports once"
 }
 
@@ -3495,6 +3560,7 @@ test_stale_diagnostic_wedge_survives_busy_housekeeping
 test_enriched_wedge_under_declared_wait_uses_pause_cadence
 test_stale_persistence_defers_a_ci_waiting_lane
 test_stale_persistence_reports_a_gone_endpoint_before_deferring_ci
+test_stale_persistence_reports_a_gone_endpoint_when_capture_fails
 test_ci_deferral_resurfaces_on_the_pause_cadence
 test_transient_stale_wake_keeps_the_ci_recheck_window
 test_stale_terminal_escalates

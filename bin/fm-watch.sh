@@ -1537,8 +1537,13 @@ wedge_timer_check() {  # <window> <since-file> <triage-label> <escalation-count-
           return 0
         fi
         if crew_is_ci_waiting "$task"; then
-          evidence=$(wait_record 'ci running, awaiting the forge checks - external pipeline step' \
-            'awaiting the forge checks' external 'confirm the checks are still running' '')
+          if [ "$CREW_CI_WAIT" = green ]; then
+            evidence=$(wait_record 'ci checks green, waiting on merge/close - external pipeline step' \
+              'waiting on merge/close' external 'checks are green; confirm the PR is still awaiting merge/close' '')
+          else
+            evidence=$(wait_record 'ci running, awaiting the forge checks - external pipeline step' \
+              'awaiting the forge checks' external 'confirm the checks are still running' '')
+          fi
           wedge_defer_wait "$win" "$since_file" "$label" "$age" "$evidence"
           return 0
         fi

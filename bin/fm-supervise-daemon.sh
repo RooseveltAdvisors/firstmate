@@ -1203,7 +1203,7 @@ _oldest_line_age() {  # <buf> -> seconds since the oldest buffered item first ar
 #  3) heartbeat scan: every HEARTBEAT_SCAN_SECS, run the catch-all status scan in
 #     the block below and escalate what it finds; that block owns its file set.
 housekeeping() {  # <state>
-  local state=$1 now due f key task win marker age last max_defer oldest pause_secs marker_epoch until bounded_until pause_reason agent_state detail id gen pause_age
+  local state=$1 now due f key task win marker age last max_defer oldest pause_secs marker_epoch until bounded_until pause_reason agent_state detail id gen pause_age busy ci_wait
   now=$(_now)
   pause_secs=${FM_PAUSE_RESURFACE_SECS:-$FM_PAUSE_RESURFACE_SECS_DEFAULT}
   migrate_watcher_pause_markers "$state"
@@ -1258,10 +1258,12 @@ housekeeping() {  # <state>
     age=$(( now - $(cat "$marker" 2>/dev/null || echo "$now") ))
     [ "$age" -ge "${FM_STALE_ESCALATE_SECS:-$STALE_ESCALATE_SECS_DEFAULT}" ] || continue
     stale_window_is_busy "$win" "$state"
-    case "$?" in
+    busy=$?
+    case "$busy" in
       0) rm -f "$marker" ;;
-      2) rm -f "$marker" ;;
       *)
+        # A failed capture (2) is often the gone endpoint itself, so a ci-waiting
+        # lane takes the endpoint probe before the marker is dropped.
         if crew_is_ci_waiting "$task"; then
           _now > "$marker"
           agent_state=$(fm_backend_agent_state "$(task_window_backend "$win" "$state")" "$win" 2>/dev/null)
@@ -1269,13 +1271,21 @@ housekeeping() {  # <state>
             dead) detail='the endpoint is still there with no agent running in it' ;;
             missing) detail='the recorded endpoint is gone' ;;
             *)
+              if [ "$busy" -eq 2 ]; then
+                rm -f "$marker"; continue
+              fi
               rm -f "$state/.subsuper-dead-reported-$key"
               pause_marker_record "$win" "$state"
               marker_epoch=$(cat "$state/.subsuper-paused-$key" 2>/dev/null || echo "$now")
               case "$marker_epoch" in ''|*[!0-9]*) marker_epoch=$now ;; esac
               pause_age=$(( now - marker_epoch ))
               if [ "$pause_age" -ge "$pause_secs" ]; then
-                if escalate_add "$state" "still waiting on CI ${pause_age}s (awaiting the forge checks, recheck on a long cadence; confirm the checks are still running): $win"; then
+                if [ "$CREW_CI_WAIT" = green ]; then
+                  ci_wait='checks are green, waiting on merge/close, recheck on a long cadence'
+                else
+                  ci_wait='awaiting the forge checks, recheck on a long cadence; confirm the checks are still running'
+                fi
+                if escalate_add "$state" "still waiting on CI ${pause_age}s ($ci_wait): $win"; then
                   _now > "$state/.subsuper-paused-$key"
                 fi
               fi
@@ -1293,6 +1303,9 @@ housekeeping() {  # <state>
             printf '%s %s' "$agent_state" "$id" > "$state/.subsuper-dead-reported-$key"
           fi
           continue
+        fi
+        if [ "$busy" -eq 2 ]; then
+          rm -f "$marker"; continue
         fi
         if escalate_add "$state" "stale persisted ${age}s (possible wedge): $win"; then
           stale_marker_remove "$win" "$state"

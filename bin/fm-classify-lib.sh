@@ -2592,14 +2592,19 @@ crew_gate_awaits_human_decision() {  # <id> -> <run-id> on stdout
 # window. The daemon's transient-stale pause-marker wipe guard does not - it takes
 # the read once per distinct-pane-hash stale wake that finds an open recheck
 # window, with no bound across a churning display.
+# On a match it sets CREW_CI_WAIT to `running` or `green` so a caller can word the
+# wait it actually found.
+# shellcheck disable=SC2034  # CREW_CI_WAIT is read by the sourcing scripts
 crew_is_ci_waiting() {  # <id>
   local id=$1 line
+  CREW_CI_WAIT=
   [ -n "$id" ] || return 1
   line=$("$FM_CREW_STATE_BIN" "$id" 2>/dev/null) || return 1
   case "$line" in
-    "state: working · source: run-step · ci running") return 0 ;;
-    "state: working · source: run-step · ci running · "*) return 0 ;;
-    "state: done · source: run-step · checks green: PR ready for review (still monitoring for merge/close)"*) return 0 ;;
+    "state: working · source: run-step · ci running"|"state: working · source: run-step · ci running · "*)
+      CREW_CI_WAIT=running; return 0 ;;
+    "state: done · source: run-step · checks green: PR ready for review (still monitoring for merge/close)"*)
+      CREW_CI_WAIT=green; return 0 ;;
   esac
   return 1
 }

@@ -3786,8 +3786,10 @@ test_wedge_threshold_defers_to_a_ci_step() {
   state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"; capture="$dir/pane.txt"
   FM_TEST_PAUSE_RESURFACE=240 wedge_threshold_round "$state" "$fakebin" "$out" "$capture" "$window" "$ci_green" exit \
     || fail "a checks-green ci lane never rechecked: $(cat "$out")"
-  grep -F 'ci running, awaiting the forge checks' "$out" >/dev/null \
+  grep -F 'ci checks green, waiting on merge/close' "$out" >/dev/null \
     || fail "a checks-green ci lane missed the external-wait recheck: $(cat "$out")"
+  grep -F 'confirm the checks are still running' "$out" >/dev/null \
+    && fail "a checks-green ci lane was asked to confirm running checks: $(cat "$out")"
   grep -F 'possible wedge' "$out" >/dev/null \
     && fail "a checks-green ci lane was reported as a possible wedge: $(cat "$out")"
   [ ! -e "$state/.wedge-escalations-$key" ] \
