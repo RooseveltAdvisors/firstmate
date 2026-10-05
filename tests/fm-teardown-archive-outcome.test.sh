@@ -7,6 +7,7 @@ set -eu
 TMP_ROOT=$(fm_test_tmproot fm-teardown-archive-outcome)
 ID=archive-task
 DONE='done [at=1791211800]: PR https://github.com/example/repo/pull/401 merge_sha=0123456789012345678901234567890123456789 workflows=CI sync=2026-10-05T14:50:00Z live=green'
+LATE='done [at=1791211801]: PR https://github.com/example/repo/pull/401 merge_sha=0123456789012345678901234567890123456789 workflows=CI sync=2026-10-05T14:50:01Z live=green'
 
 make_case() {
   local dir="$TMP_ROOT/$1"
@@ -25,6 +26,10 @@ SH
   chmod +x "$dir/fakebin/no-mistakes"
   cat > "$dir/fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
+if [ "${1:-}" = kill-window ] && [ -e "$FM_HOME/append-after-close" ]; then
+  cat "$FM_HOME/late-status" >> "$FM_HOME/state/archive-task.status"
+  rm -f "$FM_HOME/append-after-close"
+fi
 exit 0
 SH
   chmod +x "$dir/fakebin/tmux"
@@ -45,6 +50,14 @@ assert_present "$dir/data/$ID/outcome.md" "outcome did not survive teardown"
 cmp -s "$dir/expected" "$dir/data/$ID/outcome.md" || fail "done line was not archived byte-for-byte"
 assert_absent "$dir/state/$ID.status" "teardown left the status file"
 pass "fm-teardown archive: fake task tears down and its exact done line survives"
+
+dir=$(make_case append-after-close)
+printf '%s\n' "$LATE" > "$dir/late-status"
+touch "$dir/append-after-close"
+printf '%s\n' "$DONE" "$LATE" > "$dir/expected"
+run_case "$dir" > "$dir/out" 2> "$dir/err" || fail "late append teardown failed: $(cat "$dir/err")"
+cmp -s "$dir/expected" "$dir/data/$ID/outcome.md" || fail "late status append was not archived"
+pass "fm-teardown archive: status appended after endpoint close is preserved"
 
 dir=$(make_case unwritable)
 mkdir -p "$dir/data/$ID"
@@ -75,3 +88,37 @@ for source in empty shorter missing; do
   cmp -s "$dir/expected" "$dir/data/$ID/outcome.md" || fail "$source retry clobbered the outcome"
   pass "fm-teardown archive: $source status preserves the longer existing outcome"
 done
+
+dir=$(make_case symlink-status)
+printf '%s\n' "$DONE" > "$dir/private-status"
+rm "$dir/state/$ID.status"
+ln -s "$dir/private-status" "$dir/state/$ID.status"
+if run_case "$dir" > "$dir/out" 2> "$dir/err"; then
+  fail "symlinked status unexpectedly allowed teardown"
+fi
+[ -L "$dir/state/$ID.status" ] || fail "symlinked status was removed"
+assert_absent "$dir/data/$ID/outcome.md" "symlinked status unexpectedly created an outcome"
+pass "fm-teardown archive: symlinked status is refused without publishing its target"
+
+dir=$(make_case symlink-data-dir)
+outside="$dir/outside"
+mkdir -p "$outside"
+rm -rf "$dir/data/$ID"
+ln -s "$outside" "$dir/data/$ID"
+if run_case "$dir" > "$dir/out" 2> "$dir/err"; then
+  fail "symlinked outcome directory unexpectedly allowed teardown"
+fi
+[ -L "$dir/data/$ID" ] || fail "symlinked outcome directory was removed"
+assert_absent "$outside/outcome.md" "unsafe outcome directory received an archive"
+pass "fm-teardown archive: symlinked outcome directory is refused before publication"
+
+dir=$(make_case symlink-outcome)
+outside="$dir/outside"
+mkdir -p "$dir/data/$ID" "$outside"
+printf 'outside\n' > "$outside/outcome.md"
+ln -s "$outside/outcome.md" "$dir/data/$ID/outcome.md"
+if run_case "$dir" > "$dir/out" 2> "$dir/err"; then
+  fail "symlinked outcome unexpectedly allowed teardown"
+fi
+cmp -s <(printf 'outside\n') "$outside/outcome.md" || fail "unsafe outcome target was modified"
+pass "fm-teardown archive: symlinked outcome is refused before publication"

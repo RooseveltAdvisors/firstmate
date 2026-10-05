@@ -640,14 +640,44 @@ if [ "$TEARDOWN_META_KIND" = secondmate ]; then
 fi
 # Preserve the outcome before either local or remote retirement removes state.
 # Stage and verify the copy so a failed write cannot damage a prior archive.
+teardown_archive_destination_authorized() {
+  local task_dir="$DATA/$ID" destination="$DATA/$ID/outcome.md"
+  if [ -L "$task_dir" ] || { [ -e "$task_dir" ] && [ ! -d "$task_dir" ]; }; then
+    echo "error: cannot archive $ID: outcome directory is unsafe at $task_dir; teardown refused" >&2
+    return 1
+  fi
+  if ! fm_backlog_record_parent_authorized "$task_dir" "outcome directory" "$DATA" parent-only; then
+    echo "error: cannot archive $ID: ${FM_BACKLOG_TRANSITION_ERROR:-outcome directory is outside the authorized data home}; teardown refused" >&2
+    return 1
+  fi
+  if [ -e "$task_dir" ] && ! fm_backlog_record_parent_authorized "$task_dir" "outcome directory" "$DATA"; then
+    echo "error: cannot archive $ID: ${FM_BACKLOG_TRANSITION_ERROR:-outcome directory is outside the authorized data home}; teardown refused" >&2
+    return 1
+  fi
+  if [ -e "$destination" ] || [ -L "$destination" ]; then
+    if ! fm_backlog_record_present "$destination" "outcome archive" "$DATA"; then
+      echo "error: cannot archive $ID: ${FM_BACKLOG_TRANSITION_ERROR:-outcome archive is outside the authorized data home}; teardown refused" >&2
+      return 1
+    fi
+  fi
+}
+
 teardown_archive_outcome() {
   local source="$STATE/$ID.status" destination="$DATA/$ID/outcome.md" staged size existing_size
+  teardown_archive_destination_authorized || return 1
+  if [ -e "$source" ] || [ -L "$source" ]; then
+    if [ ! -f "$source" ] || [ -L "$source" ]; then
+      echo "error: cannot archive $ID: status log is not a regular non-symlink file; teardown refused" >&2
+      return 1
+    fi
+  fi
   if [ ! -e "$source" ] && [ ! -L "$source" ]; then
     [ -f "$destination" ] && [ -r "$destination" ] && return 0
     echo "error: cannot archive $ID: status and readable outcome are both missing; teardown refused" >&2
     return 1
   fi
   mkdir -p -- "$DATA/$ID" || return 1
+  teardown_archive_destination_authorized || return 1
   staged=$(mktemp "$DATA/$ID/.outcome.XXXXXX") || return 1
   if ! cp -- "$source" "$staged" || ! cmp -s -- "$source" "$staged"; then
     echo "error: cannot copy and verify $ID's outcome; teardown refused" >&2
@@ -3954,6 +3984,7 @@ retire_busy_state "$STATE" "$ID" "$BUSY_GEN" || exit 1
 # Opt-in fleet activity ledger (docs/fleet-ledger.md), before the status log is
 # retired so its last lines are captured; off costs one file test.
 [ ! -e "$CONFIG/fleet-ledger" ] || FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$CONFIG "$SCRIPT_DIR/fm-fleet-ledger.sh" cleaned_up "$ID" || true
+teardown_archive_outcome || exit 1
 status_retire_presentation_task "$STATE" "$ID" || exit 1
 fm_wake_queue_prune_task "$STATE" "$ID" "$T" 2>/dev/null || true
 rm -f "$STATE/$ID.turn-ended" "$STATE/$ID.progress" \
