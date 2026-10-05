@@ -1,0 +1,9 @@
+live_tmux_archive_refusal_exit=1
+product_stderr:
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /var/folders/jx/y0_s3zd556b5l8n965ndcfxr0000gp/T//fm-archive-live-failure.WVhNB0
+error: cannot archive archive-task: outcome directory is unsafe at /var/folders/jx/y0_s3zd556b5l8n965ndcfxr0000gp/T//fm-archive-live-failure.WVhNB0/data/archive-task; teardown refused
+status_retained=yes
+meta_retained=yes
+unsafe_archive_is_symlink=yes
+outside_outcome_published=no
+tmux_endpoint_after_refusal=present

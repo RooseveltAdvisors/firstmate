@@ -1,0 +1,10 @@
+ok - fm-teardown archive: fake task tears down and its exact done line survives
+ok - fm-teardown archive: status appended after endpoint close is preserved
+ok - fm-teardown archive: post-close failure preserves root state
+ok - fm-teardown archive: unwritable destination refuses with all task state present
+ok - fm-teardown archive: empty status preserves the longer existing outcome
+ok - fm-teardown archive: shorter status preserves the longer existing outcome
+ok - fm-teardown archive: missing status preserves the longer existing outcome
+ok - fm-teardown archive: symlinked status is refused without publishing its target
+ok - fm-teardown archive: symlinked outcome directory is refused before publication
+ok - fm-teardown archive: symlinked outcome is refused before publication

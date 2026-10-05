@@ -1,0 +1,8 @@
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /var/folders/jx/y0_s3zd556b5l8n965ndcfxr0000gp/T//fm-archive-live.4DjZGg
+teardown archive-task complete (window isolated:fm-archive-task, worktree /var/folders/jx/y0_s3zd556b5l8n965ndcfxr0000gp/T//fm-archive-live.4DjZGg/missing-worktree)
+Backlog: archive-task just finished (this home keeps no markdown backlog at /private/var/folders/jx/y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-archive-live.4DjZGg/data/backlog.md). Update /private/var/folders/jx/y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-archive-live.4DjZGg/data/backlog.md - move archive-task to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+live_tmux_teardown_exit=0
+archived_outcome:
+done [at=1791211800]: PR https://github.com/example/repo/pull/401 merge_sha=0123456789012345678901234567890123456789 workflows=CI sync=2026-10-05T14:50:00Z live=green
+status_after_teardown=absent
+tmux_endpoint_after_teardown=absent
