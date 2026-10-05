@@ -28,4 +28,4 @@ ALL TESTS PASSED
 ```
 
 Run all three trace-context suites from the repo root; each prints one `ok - ...` per assertion.
-A single live-backend end-to-end check - a real spawn confirming the pane received the `TRACEPARENT` export before the launch line, with nothing left after teardown - is a bounded manual step, deferred here because a live agent spawn disrupts a running fleet.
+A single live-backend end-to-end check - a real spawn confirming the pane received the `TRACEPARENT` export before the launch line, with no trace-context metadata left after teardown - is a bounded manual step, deferred here because a live agent spawn disrupts a running fleet.
