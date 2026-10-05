@@ -92,6 +92,10 @@
 # declared scratch and the report at data/<task-id>/report.md is the work
 # product. Teardown proceeds only once the report exists and the shared
 # unresolved-decision completion gate verifies its captain-held inventory.
+# Before removing state, teardown archives state/<task-id>.status to
+# data/<task-id>/outcome.md and refuses if the copy cannot be verified.
+# A longer existing outcome survives a shorter status; an absent status
+# requires an existing readable outcome before retirement can proceed.
 # Before destructive cleanup, teardown validates task check artifacts as
 # ordinary single-link files on the state device. It refuses and preserves
 # task state when that proof fails; otherwise it removes the task's check,
@@ -634,6 +638,39 @@ if [ "$TEARDOWN_META_KIND" = secondmate ]; then
   }
   SM_LIVENESS_LOCK="$STATE/.secondmate-liveness-$ID.lock"
 fi
+# Preserve the outcome before either local or remote retirement removes state.
+# Stage and verify the copy so a failed write cannot damage a prior archive.
+teardown_archive_outcome() {
+  local source="$STATE/$ID.status" destination="$DATA/$ID/outcome.md" staged size existing_size
+  if [ ! -e "$source" ] && [ ! -L "$source" ]; then
+    [ -f "$destination" ] && [ -r "$destination" ] && return 0
+    echo "error: cannot archive $ID: status and readable outcome are both missing; teardown refused" >&2
+    return 1
+  fi
+  mkdir -p -- "$DATA/$ID" || return 1
+  staged=$(mktemp "$DATA/$ID/.outcome.XXXXXX") || return 1
+  if ! cp -- "$source" "$staged" || ! cmp -s -- "$source" "$staged"; then
+    echo "error: cannot copy and verify $ID's outcome; teardown refused" >&2
+    rm -f -- "$staged"
+    return 1
+  fi
+  size=$(wc -c < "$staged") || { rm -f -- "$staged"; return 1; }
+  if [ -f "$destination" ]; then
+    existing_size=$(wc -c < "$destination") || { rm -f -- "$staged"; return 1; }
+    if [ "$existing_size" -gt "$size" ]; then
+      rm -f -- "$staged"
+      return 0
+    fi
+  fi
+  if ! mv -f -- "$staged" "$destination"; then
+    echo "error: cannot publish $ID's outcome; teardown refused" >&2
+    rm -f -- "$staged"
+    return 1
+  fi
+  [ -f "$destination" ] && [ -r "$destination" ]
+}
+teardown_archive_outcome || exit 1
+
 TEARDOWN_CLEANUP_RECOVERY=$(fm_meta_get "$META" cleanup_recovery)
 TEARDOWN_META_SPAWN_GEN=
 TEARDOWN_LEGACY_PENDING=0

@@ -677,7 +677,7 @@ fm_git_worktree() {
 # --- state/<id>.meta writers ------------------------------------------------
 
 # fm_write_meta <file> <key=val> ...: write the given key=val lines to a meta
-# file (truncating any prior content).
+# file (truncating any prior content), with an initial task status if absent.
 fm_write_meta() {
   local file=$1 kv
   shift
@@ -685,6 +685,9 @@ fm_write_meta() {
   for kv in "$@"; do
     printf '%s\n' "$kv" >> "$file"
   done
+  if [ ! -e "${file%.meta}.status" ]; then
+    : > "${file%.meta}.status"
+  fi
 }
 
 # fm_write_secondmate_meta <file> <home> [window] [projects] [harness]: write the
