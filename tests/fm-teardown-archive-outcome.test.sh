@@ -26,9 +26,16 @@ SH
   chmod +x "$dir/fakebin/no-mistakes"
   cat > "$dir/fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
-if [ "${1:-}" = kill-window ] && [ -e "$FM_HOME/append-after-close" ]; then
-  cat "$FM_HOME/late-status" >> "$FM_HOME/state/archive-task.status"
-  rm -f "$FM_HOME/append-after-close"
+if [ "${1:-}" = kill-window ]; then
+  if [ -e "$FM_HOME/append-after-close" ]; then
+    cat "$FM_HOME/late-status" >> "$FM_HOME/state/archive-task.status"
+    rm -f "$FM_HOME/append-after-close"
+  fi
+  if [ -e "$FM_HOME/fail-after-close" ]; then
+    touch "$FM_HOME/endpoint-closed"
+    rm -rf "$FM_HOME/data/archive-task"
+    ln -s "$FM_HOME/outside" "$FM_HOME/data/archive-task"
+  fi
 fi
 exit 0
 SH
@@ -58,6 +65,23 @@ printf '%s\n' "$DONE" "$LATE" > "$dir/expected"
 run_case "$dir" > "$dir/out" 2> "$dir/err" || fail "late append teardown failed: $(cat "$dir/err")"
 cmp -s "$dir/expected" "$dir/data/$ID/outcome.md" || fail "late status append was not archived"
 pass "fm-teardown archive: status appended after endpoint close is preserved"
+
+dir=$(make_case failure-after-close)
+mkdir -p "$dir/outside"
+printf '# check artifact\n' > "$dir/state/$ID.check.sh"
+touch "$dir/fail-after-close"
+if run_case "$dir" > "$dir/out" 2> "$dir/err"; then
+  fail "post-close archive failure unexpectedly allowed teardown"
+fi
+assert_present "$dir/endpoint-closed" "archive failure was not reached after endpoint close"
+assert_present "$dir/state/$ID.meta" "post-close archive failure removed metadata"
+assert_present "$dir/state/$ID.status" "post-close archive failure removed status"
+assert_present "$dir/state/$ID.check.sh" "post-close archive failure removed PR-check state"
+assert_present "$dir/state/$ID.turn-ended" "post-close archive failure removed turn-ended state"
+assert_present "$dir/state/$ID.progress" "post-close archive failure removed progress state"
+[ -L "$dir/data/$ID" ] || fail "post-close archive failure replaced the unsafe outcome directory"
+assert_absent "$dir/outside/outcome.md" "post-close archive failure published outside the data home"
+pass "fm-teardown archive: post-close failure preserves root state"
 
 dir=$(make_case unwritable)
 mkdir -p "$dir/data/$ID"
