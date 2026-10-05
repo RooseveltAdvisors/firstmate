@@ -438,10 +438,12 @@ A second run finds no matching title or journal and is a no-op.
 
 Each run reads this home's presentation journals once into an index, and every candidate title is matched against that index.
 While building the index, it prunes dead-projection journals so they do not accumulate across runs.
-A journal is dead only when it is valid, binds this home and named session, and no workspace in the named-session snapshot carries its token or, for version 2, its recorded workspace id.
-A version 1 journal is never dead while any projected title in the snapshot lacks a token.
+A journal is dead only when it is a valid version 2 journal, binds this home and named session, and no workspace in the named-session snapshot carries its token or its recorded workspace id.
+A version 1 journal is never pruned, because without a workspace binding its liveness cannot be disproved.
 The prune removes a dead journal only while holding that task's spawn lock, with task metadata still absent and the journal's token unchanged; a busy lock skips the journal.
-The index build and the candidate loop share one wall budget, 30 seconds by default (`FM_HERDR_CLEANUP_BUDGET_SECS`); on expiry the run warns, stops early, and leaves the remaining journals and candidates for a later run.
+The whole pass runs under one wall budget, 30 seconds by default (`FM_HERDR_CLEANUP_BUDGET_SECS`).
+At safe points between journals, candidates, and before each pane close, an expired budget makes the run warn, stop early, and leave the rest for a later run.
+The script also runs the pass under a hard bound of the same length, so a blocking Herdr call cannot hold session start past the budget.
 
 Any of these preserves the candidate and lets session startup continue with at most a concise warning:
 
