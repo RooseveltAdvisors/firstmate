@@ -339,15 +339,26 @@ duration=$((SECONDS - start_secs))
 [ ! -e "$FM_STATE_OVERRIDE/$ID.herdr-presentation" ] || fail "positive cleanup did not finish under load"
 pass "full cleanup pass completes inside the bound under load"
 
-# Regression: a pass whose budget expires while reading journals still prunes
+# Regression: a pass whose budget expires while reading journals still prunes.
+# Expiry is forced after 10 safe-point checks so the stop is deterministic.
 reset_fixture
 for i in $(seq 1 150); do
   write_task_v2 "starve-$i" "$(printf 'StarveT%015d' "$i")" "wStarve$i"
 done
-FM_HERDR_CLEANUP_BUDGET_SECS=2 fm_herdr_session_cleanup >/dev/null 2>&1 || fail "budget-stopped pass failed"
+STARVE_CHECKS="$TMP_ROOT/starve-checks"
+: > "$STARVE_CHECKS"
+starve_err=$(
+  # shellcheck disable=SC2329 # invoked indirectly by the cleanup pass.
+  fm_herdr_cleanup_expired() {
+    printf '.\n' >> "$STARVE_CHECKS"
+    [ "$(wc -l < "$STARVE_CHECKS")" -gt 10 ]
+  }
+  fm_herdr_session_cleanup 2>&1 >/dev/null
+) || fail "budget-stopped pass failed"
 left=$(find "$FM_STATE_OVERRIDE" -name 'starve-*.herdr-presentation' | wc -l | tr -d ' ')
 [ "$left" -lt 150 ] || fail "budget-stopped pass pruned nothing"
-[ "$left" -gt 0 ] || fail "budget did not stop the 150-journal pass early"
+[ "$left" -gt 0 ] || fail "forced budget expiry did not stop the pass early"
+case "$starve_err" in *"exceeded budget"*) ;; *) fail "early budget stop was not reported: $starve_err" ;; esac
 pass "a budget-stopped pass still prunes the dead journals it read ($((150 - left)) of 150)"
 
 # Regression: a hung Herdr call cannot hold the script past its wall budget
