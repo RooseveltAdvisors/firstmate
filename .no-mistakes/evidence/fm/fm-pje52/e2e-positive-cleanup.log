@@ -1,0 +1,5 @@
+ok - real named lab reproduced the exact restored one-tab one-pane childless no-agent shell shape
+ok - real named lab cleanup closes only the exact stale pane and preserves exact focus
+ok - real named lab cleanup is idempotent and leaves the default fleet session to the teardown tripwire
+evidence: herdr=0.9.3 protocol=22 default-session-tripwire=armed
+env -u NO_MISTAKES_GATE bash tests/fm-herdr-session-cleanup-e2e.test.sh  0.48s user 0.72s system 48% cpu 2.473 total

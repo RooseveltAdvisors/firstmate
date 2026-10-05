@@ -1,0 +1,16 @@
+journals before: 306
+--- run 1 (budget 2s, forward progress)
+warning: herdr session-start projection cleanup: projection journal index build exceeded budget; stopping early
+warning: herdr session-start projection cleanup: pruned 20 dead projection journal(s): dead100, dead101, dead102, ...
+wall=1.79s dead-left=280/300
+ok - budget-bounded run stays within bound and prunes some dead journals (20 of 300)
+--- repeated runs until all dead pruned (budget 30s)
+warning: herdr session-start projection cleanup: liveA preserved because its pane is not a provably idle childless shell
+warning: herdr session-start projection cleanup: pruned 280 dead projection journal(s): dead119, dead11, dead120, ...
+run 2 wall=27.36s dead-left=0
+ok - accumulated dead v2 journals fully pruned across bounded runs
+ok - positive cleanup still closes the stale idle projection and removes its journal amid 300 dead journals
+ok - live projection journals (label match and workspace-id-only match) and workspaces survive
+ok - v1 journal (liveness unprovable) survives
+ok - dead v2 journal with task meta present survives
+ok - dead v2 journal whose spawn lock is held survives
