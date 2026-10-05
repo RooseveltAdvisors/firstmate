@@ -333,7 +333,7 @@ Claude, Codex, OpenCode, Pi, pi-signed, Grok, Kimi, Cursor, and Muse share that 
 
 ### Endpoint close
 
-A reported close failure costs teardown every durable record of the task, so what each backend's close actually returns was measured before that status was given any authority.
+An endpoint-close failure still refuses cleanup with task state retained, while teardown archives that task's own status log before retiring it, so what each backend's close actually returns was measured before that status was given any authority.
 Verified on 2026-09-14 with tmux 3.7c by driving `fm_backend_kill` against real tmux endpoints, and the Orca arm by driving `fm_backend_orca_kill` under a search path with no `orca` on it.
 Zellij and cmux were not driven with their CLIs absent; the table below states what those arms report today rather than claiming a measurement.
 
@@ -380,10 +380,10 @@ The Orca close refuses under `--force` too.
 The step immediately after it removes the Orca worktree through the same CLI whose absence is the only thing that arm ever reports, so a forced continue would die there having removed nothing while claiming the records were already gone.
 The two child close sites inside forced secondmate cleanup also keep refusing: that path is only ever reached under `--force`, so honoring force there would delete the refusal rather than override it, and would contradict the adjacent Herdr child gate that stops forced cleanup for the same hazard.
 
-The retained record is this run's, not a durable guarantee.
+The retained endpoint record is this run's, not a durable guarantee.
 A task carrying a backlog transition writes its pending-close marker before the endpoint close, and the marker survives the refusal; the next `bin/fm-bootstrap.sh` replays it and removes the retained record.
 The pre-existing Herdr confirmed-gone gate has the identical property.
-The refusal message says so rather than promising a retention teardown does not own, so an operator reconciles the surviving endpoint instead of trusting the record to still be there later.
+The refusal message says so rather than promising a retention teardown does not own, so an operator reconciles the surviving endpoint instead of trusting the retained task state to remain forever; the archived outcome is the durable copy of the status log.
 
 Both directions are proven non-vacuous.
 Restoring the swallowed status makes the refusal case report `teardown <id> complete`, delete the endpoint record, and leave the window live.
