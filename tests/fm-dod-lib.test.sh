@@ -612,21 +612,21 @@ test_check_killed_at_the_bound_is_reported_distinctly() {
   local state reason rc saved
   landed_ship checkbound
   state="$TMP_ROOT/checkbound-state"
-  saved=$FM_VERIFY_TIMEOUT
-  FM_VERIFY_TIMEOUT=2
+  saved=$FM_VERIFY_PASS_TIMEOUT
+  FM_VERIFY_PASS_TIMEOUT=2
   declare_checks "$state" checkbound 'run: sleep 30'
   reason=$(accept_done ship no-mistakes "$WT" "$REPO" "$DONE_CI_READY" "$state" checkbound "$state/checkbound.meta")
   rc=$?
   [ "$rc" -eq 1 ] || fail "a check killed at the bound was accepted (exit $rc)"
   case "$reason" in
-    *"check bound"*) ;;
+    *"pass bound"*) ;;
     *) fail "a check killed at the bound was not reported as a bound expiry: $reason" ;;
   esac
 
   declare_checks "$state" checkbound 'run: exit 7'
   reason=$(accept_done ship no-mistakes "$WT" "$REPO" "$DONE_CI_READY" "$state" checkbound "$state/checkbound.meta")
   rc=$?
-  FM_VERIFY_TIMEOUT=$saved
+  FM_VERIFY_PASS_TIMEOUT=$saved
   [ "$rc" -eq 1 ] || fail "a failing run: check was accepted (exit $rc)"
   case "$reason" in
     *"exited nonzero"*) ;;
@@ -651,14 +651,14 @@ test_bound_mechanism_failure_is_not_reported_as_a_timeout() {
   rc=$?
   [ "$rc" -eq 1 ] || fail "a check whose bound mechanism failed before running was accepted (exit $rc)"
   case "$reason" in
-    *"check bound"* | *"pass bound"*) fail "a fast bound-mechanism failure was reported as a timeout: $reason" ;;
+    *"pass bound"*) fail "a fast bound-mechanism failure was reported as a timeout: $reason" ;;
     *"run: true exited nonzero"*) ;;
     *) fail "the bound-mechanism refusal lost its wording: $reason" ;;
   esac
   pass "a bound mechanism failure before the command runs is not reported as a timeout"
 }
 
-# The file: kind honors the same per-check bound as run: and http:: a check
+# The file: kind honors the same pass bound as run: and http:: a check
 # that cannot complete inside the bound refuses naming the bound instead of
 # hanging or reporting an ordinary failure.
 test_file_check_runs_under_the_per_check_bound() {
@@ -666,8 +666,8 @@ test_file_check_runs_under_the_per_check_bound() {
   landed_ship filebound
   state="$TMP_ROOT/filebound-state"
   printf 'deployed marker\n' > "$TMP_ROOT/filebound-target"
-  saved=$FM_VERIFY_TIMEOUT
-  FM_VERIFY_TIMEOUT=2
+  saved=$FM_VERIFY_PASS_TIMEOUT
+  FM_VERIFY_PASS_TIMEOUT=2
   declare_checks "$state" filebound "file: $TMP_ROOT/filebound-target deployed marker"
   reason=$(
     # shellcheck disable=SC2329  # reached indirectly through fm_dod_verify_file_check
@@ -675,13 +675,13 @@ test_file_check_runs_under_the_per_check_bound() {
     accept_done ship no-mistakes "$WT" "$REPO" "$DONE_CI_READY" "$state" filebound "$state/filebound.meta"
   )
   rc=$?
-  FM_VERIFY_TIMEOUT=$saved
+  FM_VERIFY_PASS_TIMEOUT=$saved
   [ "$rc" -eq 1 ] || fail "a file: check that could not finish inside the bound was accepted (exit $rc)"
   case "$reason" in
-    *"file: $TMP_ROOT/filebound-target hit the 2s check bound"*) ;;
+    *"file: $TMP_ROOT/filebound-target hit the FM_VERIFY_PASS_TIMEOUT pass bound (2s)"*) ;;
     *) fail "the file: bound expiry was not reported as a bound expiry: $reason" ;;
   esac
-  pass "a file: check runs under the per-check bound and names its expiry"
+  pass "a file: check runs under the pass bound and names its expiry"
 }
 
 # A file: target that exists but cannot be read is reported as unreadable, not

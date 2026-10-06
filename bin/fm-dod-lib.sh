@@ -709,10 +709,8 @@ fm_dod_named_head_reachable_outside_worktree() {  # <worktree> <project> <mode> 
 # names its own absolute paths.
 # FM_DOD_SKIP_DECLARED_VERIFICATION=1, set by the caller only around
 # fm_dod_accept_ship_done, applies the named-head gate while skipping declared
-# verification; bin/fm-pr-check.sh sets it only for its FM_PR_CHECK_MERGE=1
-# merge-time re-record, which is not a ready decision.
-FM_VERIFY_TIMEOUT=${FM_VERIFY_TIMEOUT:-30}
-case $FM_VERIFY_TIMEOUT in '' | 0* | *[!0-9]*) FM_VERIFY_TIMEOUT=30 ;; esac
+# verification; bin/fm-pr-check.sh sets it after its own direct check, and
+# bin/fm-inactive-reconcile.sh's per-poll ledger publish always sets it.
 FM_VERIFY_PASS_TIMEOUT=${FM_VERIFY_PASS_TIMEOUT:-5}
 case $FM_VERIFY_PASS_TIMEOUT in '' | 0* | *[!0-9]*) FM_VERIFY_PASS_TIMEOUT=5 ;; esac
 # The pass runs inside bin/fm-fleet-snapshot.sh's crew-state read (default 10s),
@@ -744,33 +742,27 @@ fm_dod_verify_file_check() {  # <bound> <path> <required-substring>
 
 # 0 when every check declared for <id> passes. 1 when one fails or the
 # declaration itself cannot be trusted; stdout then holds a one-line reason.
-# The verdict is memoized per declaration content, so one orchestrator process
-# evaluates a given declaration at most once.
 fm_dod_verify_declared_checks_pass() {  # <state> <id>
-  local state=$1 id=$2 spec device content size key reason
+  local state=$1 id=$2 spec device content size
   [ -n "$state" ] && [ -n "$id" ] || return 0
   spec="$state/$id.verify"
   [ -e "$spec" ] || [ -L "$spec" ] || return 0
   [ "$FM_VERIFY_PASS_TIMEOUT" -le "$FM_VERIFY_PASS_TIMEOUT_MAX" ] || {
-    FM_DOD_VERIFY_REASON="declared verification refused: FM_VERIFY_PASS_TIMEOUT=${FM_VERIFY_PASS_TIMEOUT}s exceeds the ${FM_VERIFY_PASS_TIMEOUT_MAX}s maximum, half of bin/fm-fleet-snapshot.sh's default 10s FM_SNAPSHOT_CREW_STATE_TIMEOUT crew-state read budget"
-    printf '%s\n' "$FM_DOD_VERIFY_REASON"
+    printf '%s\n' "declared verification refused: FM_VERIFY_PASS_TIMEOUT=${FM_VERIFY_PASS_TIMEOUT}s exceeds the ${FM_VERIFY_PASS_TIMEOUT_MAX}s maximum, half of bin/fm-fleet-snapshot.sh's default 10s FM_SNAPSHOT_CREW_STATE_TIMEOUT crew-state read budget"
     return 1
   }
   device=$(fm_pr_file_device "$state") || {
-    FM_DOD_VERIFY_REASON="declared verification cannot be read: $state is not readable"
-    printf '%s\n' "$FM_DOD_VERIFY_REASON"
+    printf '%s\n' "declared verification cannot be read: $state is not readable"
     return 1
   }
   fm_pr_private_file_valid "$spec" 600 "$device" || {
-    FM_DOD_VERIFY_REASON="declared verification is not a firstmate-private file: $spec"
-    printf '%s\n' "$FM_DOD_VERIFY_REASON"
+    printf '%s\n' "declared verification is not a firstmate-private file: $spec"
     return 1
   }
   # One bounded read both sizes and loads the declaration, so a file that grows
   # after the size check can never be loaded whole.
   content=$(head -c $((FM_VERIFY_MAX_BYTES + 1)) "$spec" && printf x) || {
-    FM_DOD_VERIFY_REASON="declared verification cannot be read: $spec"
-    printf '%s\n' "$FM_DOD_VERIFY_REASON"
+    printf '%s\n' "declared verification cannot be read: $spec"
     return 1
   }
   content=${content%x}
@@ -778,40 +770,21 @@ fm_dod_verify_declared_checks_pass() {  # <state> <id>
   # substitution drops NUL bytes, so NUL padding cannot slip past the cap.
   size=$(head -c $((FM_VERIFY_MAX_BYTES + 1)) "$spec" | wc -c)
   [ "$size" -le "$FM_VERIFY_MAX_BYTES" ] || {
-    FM_DOD_VERIFY_REASON="declared verification is larger than $FM_VERIFY_MAX_BYTES bytes: $spec"
-    printf '%s\n' "$FM_DOD_VERIFY_REASON"
+    printf '%s\n' "declared verification is larger than $FM_VERIFY_MAX_BYTES bytes: $spec"
     return 1
   }
   [ "$(printf '%s' "$content" | wc -c)" -eq "$size" ] || {
-    FM_DOD_VERIFY_REASON="declared verification contains NUL bytes or changed while read: $spec"
-    printf '%s\n' "$FM_DOD_VERIFY_REASON"
+    printf '%s\n' "declared verification contains NUL bytes or changed while read: $spec"
     return 1
   }
-  key="$state"$'\x1f'"$id"$'\x1f'"$content"
-  if [ "$key" = "${FM_DOD_VERIFY_KEY:-}" ]; then
-    [ "${FM_DOD_VERIFY_FAILED:-0}" = 0 ] || {
-      printf '%s\n' "${FM_DOD_VERIFY_REASON:-}"
-      return 1
-    }
-    return 0
-  fi
-  if reason=$(fm_dod_verify_spec_checks "$content"); then
-    FM_DOD_VERIFY_KEY=$key
-    FM_DOD_VERIFY_FAILED=0
-    FM_DOD_VERIFY_REASON=
-    return 0
-  fi
-  FM_DOD_VERIFY_KEY=$key
-  FM_DOD_VERIFY_FAILED=1
-  FM_DOD_VERIFY_REASON=$reason
-  printf '%s\n' "$reason"
-  return 1
+  fm_dod_verify_spec_checks "$content"
 }
 
 fm_dod_verify_spec_checks() {  # <declaration-content>
   local line verb rest target want body code
-  local deadline remaining check_bound started bound_name rc
+  local deadline check_bound started bound_name rc
   deadline=$(( $(date +%s) + FM_VERIFY_PASS_TIMEOUT ))
+  bound_name="the FM_VERIFY_PASS_TIMEOUT pass bound (${FM_VERIFY_PASS_TIMEOUT}s)"
   while IFS= read -r line || [ -n "$line" ]; do
     case ${line#"${line%%[![:space:]]*}"} in '' | '#'*) continue ;; esac
     verb=${line%%:*}
@@ -822,18 +795,11 @@ fm_dod_verify_spec_checks() {  # <declaration-content>
       printf '%s\n' "declared verification line names no target: $line"
       return 1
     }
-    remaining=$(( deadline - $(date +%s) ))
-    [ "$remaining" -gt 0 ] || {
-      printf '%s\n' "declared verification failed: the FM_VERIFY_PASS_TIMEOUT pass bound (${FM_VERIFY_PASS_TIMEOUT}s) expired"
+    check_bound=$(( deadline - $(date +%s) ))
+    [ "$check_bound" -gt 0 ] || {
+      printf '%s\n' "declared verification failed: $bound_name expired"
       return 1
     }
-    check_bound=$FM_VERIFY_TIMEOUT
-    [ "$check_bound" -le "$remaining" ] || check_bound=$remaining
-    if [ "$check_bound" -lt "$FM_VERIFY_TIMEOUT" ]; then
-      bound_name="the FM_VERIFY_PASS_TIMEOUT pass bound (${FM_VERIFY_PASS_TIMEOUT}s)"
-    else
-      bound_name="the ${FM_VERIFY_TIMEOUT}s check bound"
-    fi
     case $verb in
       run)
         started=$(date +%s)
