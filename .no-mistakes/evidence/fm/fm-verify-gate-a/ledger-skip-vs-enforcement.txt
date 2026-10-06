@@ -1,0 +1,6 @@
+## done: line: done: PR https://example.test/o/r/pull/9 checks green
+## declaration: http: http://10.255.255.1/ 200 live  (10.255.255.1 is non-routable: blackholed)
+## enforcement path (no skip)
+rc=1 elapsed=5.019977761s reason: declared verification failed: http: http://10.255.255.1/ hit the FM_VERIFY_PASS_TIMEOUT pass bound (5s)
+## per-poll ledger path (FM_DOD_SKIP_DECLARED_VERIFICATION=1, as bin/fm-inactive-reconcile.sh calls it)
+rc=0 elapsed=.011328335s out: 

@@ -1,0 +1,29 @@
+## lab tmux socket: /tmp/fm-lab.tSlo4O/tmux/tmux-1000/fm-lab,0,0
+## declaration: http: http://127.0.0.1:33877/ 200 the live fix is deployed
+## 1. site UP (good done:)
+state: done · source: status-log · PR https://example.test/o/r/pull/9 checks green
+exit=0
+## 2. site UP but serving wrong content (bad done:)
+state: blocked · source: status-log · declared verification failed: http: http://127.0.0.1:33877/ answered 200 without the live fix is deployed
+exit=0
+## 3. site DOWN, same task/commit/done:/declaration (bad done:)
+state: blocked · source: status-log · declared verification failed: http: http://127.0.0.1:33877/ could not be fetched
+exit=0
+## 4. declaration removed (no declaration gates nothing)
+state: done · source: status-log · PR https://example.test/o/r/pull/9 checks green
+exit=0
+## 5. failing run: declaration
+state: blocked · source: status-log · declared verification failed: run: test 1 = 2 exited nonzero
+exit=0
+## 6. passing run: + file: declaration
+state: done · source: status-log · PR https://example.test/o/r/pull/9 checks green
+exit=0
+## 7. world-readable (untrusted) declaration
+state: blocked · source: status-log · declared verification is not a firstmate-private file: /tmp/fm-lab.tSlo4O/state/declared.verify
+exit=0
+## 8. unknown check verb
+state: blocked · source: status-log · declared verification names an unknown check: bogus
+exit=0
+## 9. FM_VERIFY_PASS_TIMEOUT=9 above the cap
+state: blocked · source: status-log · declared verification refused: FM_VERIFY_PASS_TIMEOUT=9s exceeds the 5s maximum, half of bin/fm-fleet-snapshot.sh's default 10s FM_SNAPSHOT_CREW_STATE_TIMEOUT crew-state read budget
+exit=0

@@ -1,0 +1,39 @@
+ok - scout done: is not gated
+ok - unpushed ship done: is refused
+ok - no-mistakes pre-validation done: is not gated
+ok - named head on a remote-tracking ref is accepted
+ok - a moved remote branch that lacks the named head is refused
+ok - a 40-hex token in the note is not the named head
+ok - a recorded merged PR satisfies the gate after prune
+ok - the merged-PR short-circuit applies only to the recorded PR the done line names
+ok - a forge-recorded head for the named PR is accepted without a local object
+ok - a direct-PR recorded head does not cover a later unpushed commit
+ok - no-mistakes CI-ready done: with extra text is gated
+ok - keyed and spaced ship done: lines are gated
+ok - local-only linked named branch is reachable from the project clone
+ok - local-only detached HEAD only in the disposable copy is refused
+ok - standalone local-only done: requires the named head in the project clone
+ok - non-done lines are not gated
+ok - fenced and indented Captain lines are not authorized intent
+ok - PR-based DoD draft check uses gh-axi
+ok - promotion keeps a scout's recorded base branch and refuses local-only for it
+ok - worker role names the skill and its fallback skill file
+ok - the declared http check accepts a live site and refuses a dead one
+ok - a reachable site serving the wrong content or status still refuses the done:
+ok - declared run: and file: checks decide the done: in both directions
+ok - a stdin-reading run: check cannot consume the declaration's later checks
+ok - the verification pass bound refuses a hanging check, naming the bound
+ok - a bound expiry is reported distinctly from an instant nonzero exit
+ok - a bound mechanism failure before the command runs is not reported as a timeout
+ok - a file: check runs under the pass bound and names its expiry
+ok - an unreadable file: target is refused as unreadable, not as missing text
+ok - an oversized declaration is refused
+ok - a NUL-padded oversized declaration is refused
+ok - a configured pass bound below the maximum bounds the pass unchanged
+ok - a pass bound at the maximum bounds the pass unchanged
+ok - a pass bound above the maximum refuses and names both numbers
+ok - a declaration that fails to read refuses the done:
+ok - no declaration is no gate
+ok - a declaration that is not a firstmate-private file refuses the done:
+ok - a malformed declared check refuses the done: rather than being skipped
+all fm-dod-lib tests passed
