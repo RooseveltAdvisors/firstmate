@@ -824,10 +824,12 @@ fm_dod_verify_spec_checks() {  # <declaration-content>
           return 1
         }
         rc=0
-        body=$(curl -sS -L --max-time "$check_bound" -w '\n%{http_code}' "$target" 2>/dev/null) || rc=$?
+        body=$(curl -sS -L --max-time "$check_bound" --max-filesize "$FM_VERIFY_MAX_BYTES" -w '\n%{http_code}' "$target" 2>/dev/null) || rc=$?
         [ "$rc" -eq 0 ] || {
           if [ "$rc" -eq 28 ]; then
             printf '%s\n' "declared verification failed: http: $target hit $bound_name"
+          elif [ "$rc" -eq 63 ]; then
+            printf '%s\n' "declared verification failed: http: $target answered more than $FM_VERIFY_MAX_BYTES bytes"
           else
             printf '%s\n' "declared verification failed: http: $target could not be fetched"
           fi
@@ -873,6 +875,10 @@ fm_dod_verify_spec_checks() {  # <declaration-content>
         ;;
     esac
   done <<<"$1"
+  [ "$(date +%s)" -le "$deadline" ] || {
+    printf '%s\n' "declared verification failed: $bound_name expired"
+    return 1
+  }
 }
 # Every gated ship done: first passes the task's declared mechanical verification
 # (fm_dod_verify_declared_checks_pass) unless the caller set

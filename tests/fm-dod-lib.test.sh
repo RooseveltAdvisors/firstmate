@@ -522,6 +522,16 @@ test_declared_http_check_refuses_preview_only_content() {
     *) fail "the refusal did not report the status: $reason" ;;
   esac
 
+  head -c $((FM_VERIFY_MAX_BYTES + 1)) /dev/zero | tr '\0' '#' > "$TMP_ROOT/stale-site/big.html"
+  declare_checks "$state" stale "http: http://127.0.0.1:$port/big.html 200"
+  reason=$(accept_done ship no-mistakes "$WT" "$REPO" "$DONE_CI_READY" "$state" stale "$state/stale.meta")
+  rc=$?
+  [ "$rc" -eq 1 ] || fail "an oversized response on the declared URL was accepted (exit $rc)"
+  case "$reason" in
+    *"answered more than $FM_VERIFY_MAX_BYTES bytes") ;;
+    *) fail "the refusal did not report the size bound: $reason" ;;
+  esac
+
   kill "$SERVE_PID" 2>/dev/null
   wait "$SERVE_PID" 2>/dev/null
   pass "a reachable site serving the wrong content or status still refuses the done:"
