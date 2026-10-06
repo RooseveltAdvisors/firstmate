@@ -44,13 +44,13 @@ The worker that reported `done:` evaluates neither read.
 
 ## Where the ready decision enforces it
 
-Declared verification runs at every ready decision that reads a ship `done:`, through the one shared refusal in `fm_dod_verify_declared_checks_pass`.
+Declared verification runs at the enforcement points listed below, through the one shared refusal in `fm_dod_verify_declared_checks_pass`.
 `bin/fm-pr-check.sh` runs it before its named-head skip arm on every registration, so a registration whose forge-reported head already proves reachability still refuses a failing declared check.
 `bin/fm-crew-state.sh` runs it before emitting a terminal ship run-step `done` and on its status-log `done:` read, so a completed attributed run with a failing declaration reads `blocked` with the refusal reason.
-`bin/fm-inactive-reconcile.sh` runs it on the secondmate ledger publish, so an unreported terminal `done:` is not published past a failing declared check.
+The per-poll secondmate ledger publish in `bin/fm-inactive-reconcile.sh` skips declared verification and runs only the named-head gate, so a poll never waits on a network check.
 The merge-time re-record (`FM_PR_CHECK_MERGE=1` in `bin/fm-pr-check.sh`) is deliberately not an enforcement point for declared verification, in any shape: it is not a ready decision.
 It still runs the named-head gate exactly as before and still skips the draft refusal and the fleet-ledger write, because the invariant is measured at the ready decision rather than continuously; gating the captain's merge would turn a readiness gate into a continuous availability gate on a third party's action.
-The enforcement points listed above are unchanged: registration, the crew-state current-state reads, and the secondmate ledger publish all still run it.
+The enforcement points listed above are unchanged: registration and the crew-state current-state reads still run it.
 A task that declares no verification still behaves exactly as before at every one of them.
 
 ## Refreshing this record
