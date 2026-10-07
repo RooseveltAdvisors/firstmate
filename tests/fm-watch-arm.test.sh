@@ -1372,8 +1372,11 @@ test_arm_refuses_a_disposable_validation_checkout() {
 # The treehouse twin of the disposable-checkout refusal: a task worktree under
 # ~/.treehouse keeps re-arming watchers after its copy is stale, and each one
 # outlives the copy while forking from a path about to be deleted (the
-# fork-storm incident). The fixture reaches the real arm through a symlink whose
-# logical path sits under .treehouse/, with the harness bypass cleared.
+# fork-storm incident). The fixture runs a real copy of bin/ placed under
+# .treehouse/, with the harness bypass cleared. It copies rather than symlinks so
+# the copy's physical path does not depend on where this checkout lives (a
+# checkout under .no-mistakes/worktrees/ would trip the validation-checkout
+# guard first).
 test_arm_refuses_a_disposable_treehouse_worktree() {
   local dir home state fakebin armout status link
   dir=$(make_case treehouse-worktree-refusal)
@@ -1382,8 +1385,8 @@ test_arm_refuses_a_disposable_treehouse_worktree() {
   fakebin="$dir/fakebin"
   armout="$dir/arm.out"
   link="$dir/.treehouse/pool-1/slot-1/firstmate"
-  mkdir -p "$home/data" "$(dirname "$link")"
-  ln -s "$ROOT" "$link"
+  mkdir -p "$home/data" "$link"
+  cp -R "$ROOT/bin" "$link/bin"
 
   PATH="$fakebin:$PATH" FM_HOME="$home" FM_STATE_OVERRIDE="$state" FM_GATE_REFUSE_BYPASS='' \
     FM_POLL=1 FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
@@ -1418,7 +1421,7 @@ test_arm_allows_a_home_that_lives_in_a_treehouse_slot() {
   slot="$dir/.treehouse/pool-2/slot-2/firstmate"
   armout="$dir/arm.out"
   mkdir -p "$slot/data" "$slot/state" "$slot/config" "$slot/projects" "$(dirname "$slot")"
-  ln -s "$ROOT/bin" "$slot/bin"
+  cp -R "$ROOT/bin" "$slot/bin"
   fm_test_track_watcher_state "$slot/state"
 
   PATH="$fakebin:$PATH" FM_HOME="$slot" FM_GATE_REFUSE_BYPASS='' \
