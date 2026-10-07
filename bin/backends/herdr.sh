@@ -3997,6 +3997,8 @@ fm_backend_herdr_wait_transition() {  # <session> <timeout_secs> <state_dir> <pa
   [ "${#reader[@]}" -gt 0 ] || return 2
 
   local fifo_dir fifo reader_pid line ws status agent raw record hit rc=1 reader_rc=0
+  local wait_started wait_waited
+  wait_started=$SECONDS
   fifo_dir=$(mktemp -d "${TMPDIR:-/tmp}/fm-herdr-eventwait.XXXXXX") || return 2
   fifo="$fifo_dir/events"
   if ! mkfifo "$fifo" 2>/dev/null; then
@@ -4072,6 +4074,20 @@ fm_backend_herdr_wait_transition() {  # <session> <timeout_secs> <state_dir> <pa
   rm -rf "$fifo_dir" 2>/dev/null || true
   [ "$rc" -eq 0 ] && return 0
   [ "$rc" -eq 2 ] && return 2
-  [ "$reader_rc" -eq 0 ] && return 1
+  if [ "$reader_rc" -eq 0 ]; then
+    # A reader exit of 0 proves only that the wait ended cleanly, not that it
+    # blocked the budget: a stream that comes back empty or closed ends at
+    # once. Sleep the remainder of the budget here, so the documented "the
+    # caller has effectively already slept" holds on every path and a closed or
+    # unresponsive pane can never tight-loop the supervision cycle.
+    case "$timeout" in
+      '' | *[!0-9]*) ;;
+      *)
+        wait_waited=$((SECONDS - wait_started))
+        [ "$wait_waited" -ge "$timeout" ] || sleep "$((timeout - wait_waited))"
+        ;;
+    esac
+    return 1
+  fi
   return 2
 }

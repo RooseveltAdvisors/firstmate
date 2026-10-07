@@ -5846,6 +5846,28 @@ test_wait_transition_clean_timeout_returns_1() {
   pass "fm_backend_herdr_wait_transition: stock macOS Bash clean timeout closes fd 9 and returns 1"
 }
 
+# A reader exiting 0 only means the wait ended cleanly, not that it blocked the
+# budget: a stream that comes back empty or closed ends at once. The documented
+# contract is that a return of 1 means the caller has effectively already slept,
+# so the wait must span its own budget before returning - otherwise a closed or
+# unresponsive pane tight-loops the supervision cycle and forks a reader per
+# pass (the fork storm).
+test_wait_transition_early_stream_still_spans_the_budget() {
+  local dir state agent temp fb reader lines rc elapsed
+  dir="$TMP_ROOT/wt-early-stream"; state="$dir/state"; agent="$dir/agents"; temp="$dir/temp"; mkdir -p "$state" "$agent" "$temp"
+  fb=$(make_herdr_eventfake "$dir")
+  set_fake_agent "$agent" "wG:pQ" idle
+  reader=$(make_fake_reader "$dir"); lines="$dir/lines"; : > "$lines"   # no events, reader exits 0 at once
+  elapsed=$SECONDS
+  rc=$(PATH="$fb:$PATH" TMPDIR="$temp" FM_BACKEND_HERDR_EVENTS_FORCE=1 FM_FAKE_SESSION_NAME=sess FM_FAKE_SOCKET="$dir/x.sock" FM_FAKE_AGENT_DIR="$agent" \
+    FM_BACKEND_HERDR_EVENT_READER="$reader" FM_FAKE_READER_LINES="$lines" \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_wait_transition sess 3 "$1" sess:wG:pQ; echo $?' "$ROOT" "$state" | tail -1)
+  elapsed=$((SECONDS - elapsed))
+  [ "$rc" = 1 ] || fail "an empty, cleanly-ended stream must read as a clean timeout (rc 1), got $rc"
+  [ "$elapsed" -ge 3 ] || fail "an empty, cleanly-ended stream returned after ${elapsed}s of a 3s budget; the caller would tight-loop"
+  pass "fm_backend_herdr_wait_transition: a stream that ends at once still spans the wait budget (no tight loop)"
+}
+
 # shellcheck source=bin/fm-backend.sh
 . "$ROOT/bin/fm-backend.sh"
 
@@ -6079,3 +6101,4 @@ test_wait_transition_stream_absorb_clears_then_timeout
 test_wait_transition_reader_failure_returns_2
 test_wait_transition_bad_ack_returns_2_and_cleans_up
 test_wait_transition_clean_timeout_returns_1
+test_wait_transition_early_stream_still_spans_the_budget
