@@ -1,0 +1,6 @@
+ok - lsof errors leave worktree index.lock in place and refuse teardown
+ok - missing lsof falls back to reaping the tmux pane process group
+ok - an erroring lsof scan falls back to the backend process-group reap and teardown completes
+ok - a scan failure after identification force-kills the tracked process before teardown proceeds
+ok - a tracked process that survives the fallback force-kill refuses teardown
+ok - a reused pid with a different start time is never force-killed

@@ -1,0 +1,39 @@
+######## base ac0811c4 (pre-fix)
+== base-A-stale-task-worktree-arms-for-fleet-home
+   arm script: /tmp/fm-th.bzLf8P/base/.treehouse/pool-1/slot-1/firstmate/bin/fm-watch-arm.sh   FM_HOME=/tmp/fm-th.bzLf8P/base/fleethome
+   watcher: started pid=1510643 (beacon fresh)
+   arm rc=0 ; signal: /tmp/fm-th.bzLf8P/base/fleethome/state/probe.status
+== base-B-home-living-in-pool-slot
+   arm script: /tmp/fm-th.bzLf8P/base/.treehouse/pool-2/slot-2/firstmate/bin/fm-watch-arm.sh   FM_HOME=/tmp/fm-th.bzLf8P/base/.treehouse/pool-2/slot-2/firstmate
+   watcher: started pid=1513369 (beacon fresh)
+   arm rc=0 ; signal: /tmp/fm-th.bzLf8P/base/.treehouse/pool-2/slot-2/firstmate/state/probe.status
+== base-C-adversarial-slot-with-layout-arming-foreign-home
+   arm script: /tmp/fm-th.bzLf8P/base/.treehouse/pool-2/slot-2/firstmate/bin/fm-watch-arm.sh   FM_HOME=/tmp/fm-th.bzLf8P/base/fleethome
+   
+   arm rc=0 ; tail: check: rearm-resurface 
+== base-D-home-in-slot-via-symlinked-ancestor
+   arm script: /tmp/fm-th.bzLf8P/base/th-link/pool-2/slot-2/firstmate/bin/fm-watch-arm.sh   FM_HOME=/tmp/fm-th.bzLf8P/base/th-link/pool-2/slot-2/firstmate
+   
+   arm rc=0 ; tail: check: rearm-resurface 
+######## head e878bbf6 (fix)
+== head-A-stale-task-worktree-arms-for-fleet-home
+   arm script: /tmp/fm-th.bzLf8P/head/.treehouse/pool-1/slot-1/firstmate/bin/fm-watch-arm.sh   FM_HOME=/tmp/fm-th.bzLf8P/head/fleethome
+   watcher: FAILED - refusing to arm from a disposable treehouse worktree: /tmp/fm-th.bzLf8P/head/.treehouse/pool-1/slot-1/firstmate/bin
+   arm rc=1 ; tail: watcher: FAILED - refusing to arm from a disposable treehouse worktree: /tmp/fm-th.bzLf8P/head/.treehouse/pool-1/slot-1/firstmate/bin 
+== head-B-home-living-in-pool-slot
+   arm script: /tmp/fm-th.bzLf8P/head/.treehouse/pool-2/slot-2/firstmate/bin/fm-watch-arm.sh   FM_HOME=/tmp/fm-th.bzLf8P/head/.treehouse/pool-2/slot-2/firstmate
+   watcher: started pid=1568997 (beacon fresh)
+   arm rc=0 ; signal: /tmp/fm-th.bzLf8P/head/.treehouse/pool-2/slot-2/firstmate/state/probe.status
+== head-C-adversarial-slot-with-layout-arming-foreign-home
+   arm script: /tmp/fm-th.bzLf8P/head/.treehouse/pool-2/slot-2/firstmate/bin/fm-watch-arm.sh   FM_HOME=/tmp/fm-th.bzLf8P/head/fleethome
+   watcher: FAILED - refusing to arm from a disposable treehouse worktree: /tmp/fm-th.bzLf8P/head/.treehouse/pool-2/slot-2/firstmate/bin
+   arm rc=1 ; tail: watcher: FAILED - refusing to arm from a disposable treehouse worktree: /tmp/fm-th.bzLf8P/head/.treehouse/pool-2/slot-2/firstmate/bin 
+== head-D-home-in-slot-via-symlinked-ancestor
+   arm script: /tmp/fm-th.bzLf8P/head/th-link/pool-2/slot-2/firstmate/bin/fm-watch-arm.sh   FM_HOME=/tmp/fm-th.bzLf8P/head/th-link/pool-2/slot-2/firstmate
+   
+   arm rc=0 ; tail: check: rearm-resurface 
+== head-D (fresh slot) home in pool slot reached through symlinked ancestor /tmp/fm-th.bzLf8P/head/th-link -> .treehouse
+   arm script: /tmp/fm-th.bzLf8P/head/th-link/pool-3/slot-3/firstmate/bin/fm-watch-arm.sh FM_HOME=/tmp/fm-th.bzLf8P/head/th-link/pool-3/slot-3/firstmate
+   watcher: started pid=1738725 (beacon fresh)
+   signal: /tmp/fm-th.bzLf8P/head/th-link/pool-3/slot-3/firstmate/state/probe.status
+   rc=0

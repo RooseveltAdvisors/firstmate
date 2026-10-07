@@ -1,0 +1,4 @@
+### BASE ac0811c4:
+supervision cycles in 6s at POLL=2: 641 ; event-reader launches: 641
+### HEAD a68bdb8c:
+supervision cycles in 6s at POLL=2: 3 ; event-reader launches: 3

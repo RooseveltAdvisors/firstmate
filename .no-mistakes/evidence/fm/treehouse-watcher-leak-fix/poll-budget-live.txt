@@ -1,0 +1,3 @@
+Real bin/fm-watch.sh event_wait_or_sleep loop; herdr backend wait returns 1 immediately (closed/empty event stream).
+### BASE ac0811c4 (pre-fix): supervision cycles in 6s at POLL=2: 671 ; event-reader launches: 671
+### HEAD e878bbf6 (fix):     supervision cycles in 6s at POLL=2: 3 ; event-reader launches: 3

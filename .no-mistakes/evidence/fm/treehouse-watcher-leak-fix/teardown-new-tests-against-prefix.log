@@ -1,0 +1,4 @@
+ok - teardown retires a v1 presentation journal once its token workspace is confirmed gone
+ok - teardown retains a v1 presentation journal while its token workspace is still present
+ok - teardown retains a v1 presentation journal when the workspace query is ambiguous
+not ok - lsof-error-pgid-fallback: teardown must not refuse; the process-group fallback owns cleanup: expected exit 0, got 1

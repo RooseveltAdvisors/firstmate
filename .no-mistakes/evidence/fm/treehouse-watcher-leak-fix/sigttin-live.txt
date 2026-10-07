@@ -1,0 +1,8 @@
+### BASE ac0811c4 (pre-fix)
+mode=run completed=no elapsed=4.3s frozen_cat_observations=26 none
+mode=bash completed=yes elapsed=0.0s frozen_cat_observations=0 rc=149
+mode=exec completed=no elapsed=4.0s frozen_cat_observations=12 none
+### HEAD e878bbf6 (fix)
+mode=run completed=yes elapsed=0.1s frozen_cat_observations=0 rc=0
+mode=bash completed=yes elapsed=0.0s frozen_cat_observations=0 rc=0
+mode=exec completed=yes elapsed=0.1s frozen_cat_observations=0 rc=0

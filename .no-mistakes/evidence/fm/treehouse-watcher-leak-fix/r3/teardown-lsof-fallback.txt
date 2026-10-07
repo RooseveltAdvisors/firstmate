@@ -1,0 +1,16 @@
+ok - herdr flat teardown refuses before returning the isolated copy under lock contention and the retry completes cleanly
+ok - forced secondmate teardown holds every descendant lifecycle and metadata lock
+ok - provably-stale worktree index.lock (old, no live holder) is cleared and teardown succeeds
+ok - live-held worktree index.lock is never removed and teardown refuses
+ok - lsof errors leave worktree index.lock in place and refuse teardown
+ok - stale lock cleanup rechecks and refuses dirty worktree before return
+ok - normal repo index.lock is resolved from the worktree and cleared when stale
+ok - lock mtime read failures leave worktree index.lock in place and refuse teardown
+ok - transient index.lock cleared after first failed return is retried successfully without force-remove
+ok - persistent index.lock exhausts retries and refuses without force-removing the lock
+ok - missing lsof falls back to reaping the tmux pane process group
+ok - an erroring lsof scan falls back to the backend process-group reap and teardown completes
+ok - a scan failure after identification force-kills the tracked process before teardown proceeds
+ok - a tracked process that survives the fallback force-kill refuses teardown
+ok - a reused pid with a different start time is never force-killed
+ok - a process exiting during identity lookup does not block teardown

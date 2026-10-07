@@ -1,0 +1,33 @@
+######## base ac0811c4
+== base-A-stale-task-worktree-arms-for-fleet-home
+   arm: /tmp/tmp.sNRjmh4dxA/rb/.treehouse/pool-1/slot-1/firstmate/bin/fm-watch-arm.sh  FM_HOME=/tmp/tmp.sNRjmh4dxA/rb/fleethome
+   watcher: started pid=171715 (beacon fresh)
+   arm rc=0 ; last: signal: /tmp/tmp.sNRjmh4dxA/rb/fleethome/state/probe.status
+== base-B-home-living-in-pool-slot
+   arm: /tmp/tmp.sNRjmh4dxA/rb/.treehouse/pool-2/slot-2/firstmate/bin/fm-watch-arm.sh  FM_HOME=/tmp/tmp.sNRjmh4dxA/rb/.treehouse/pool-2/slot-2/firstmate
+   watcher: started pid=177894 (beacon fresh)
+   arm rc=0 ; last: signal: /tmp/tmp.sNRjmh4dxA/rb/.treehouse/pool-2/slot-2/firstmate/state/probe.status
+== base-C-slot-with-layout-arming-foreign-home
+   arm: /tmp/tmp.sNRjmh4dxA/rb/.treehouse/pool-2/slot-2/firstmate/bin/fm-watch-arm.sh  FM_HOME=/tmp/tmp.sNRjmh4dxA/rb/fleethome
+   arm rc=0 ; last: 
+== base-D-home-in-slot-via-symlinked-ancestor
+   arm: /tmp/tmp.sNRjmh4dxA/rb/th-link/pool-3/slot-3/firstmate/bin/fm-watch-arm.sh  FM_HOME=/tmp/tmp.sNRjmh4dxA/rb/th-link/pool-3/slot-3/firstmate
+   watcher: started pid=186413 (beacon fresh)
+   arm rc=0 ; last: signal: /tmp/tmp.sNRjmh4dxA/rb/th-link/pool-3/slot-3/firstmate/state/probe.status
+######## head a68bdb8c
+== head-A-stale-task-worktree-arms-for-fleet-home
+   arm: /tmp/tmp.sNRjmh4dxA/rh/.treehouse/pool-1/slot-1/firstmate/bin/fm-watch-arm.sh  FM_HOME=/tmp/tmp.sNRjmh4dxA/rh/fleethome
+   watcher: FAILED - refusing to arm from a disposable treehouse worktree: /tmp/tmp.sNRjmh4dxA/rh/.treehouse/pool-1/slot-1/firstmate/bin
+   arm rc=1 ; last: watcher: FAILED - refusing to arm from a disposable treehouse worktree: /tmp/tmp.sNRjmh4dxA/rh/.treehouse/pool-1/slot-1/firstmate/bin
+== head-B-home-living-in-pool-slot
+   arm: /tmp/tmp.sNRjmh4dxA/rh/.treehouse/pool-2/slot-2/firstmate/bin/fm-watch-arm.sh  FM_HOME=/tmp/tmp.sNRjmh4dxA/rh/.treehouse/pool-2/slot-2/firstmate
+   watcher: started pid=194319 (beacon fresh)
+   arm rc=0 ; last: signal: /tmp/tmp.sNRjmh4dxA/rh/.treehouse/pool-2/slot-2/firstmate/state/probe.status
+== head-C-slot-with-layout-arming-foreign-home
+   arm: /tmp/tmp.sNRjmh4dxA/rh/.treehouse/pool-2/slot-2/firstmate/bin/fm-watch-arm.sh  FM_HOME=/tmp/tmp.sNRjmh4dxA/rh/fleethome
+   watcher: FAILED - refusing to arm from a disposable treehouse worktree: /tmp/tmp.sNRjmh4dxA/rh/.treehouse/pool-2/slot-2/firstmate/bin
+   arm rc=1 ; last: watcher: FAILED - refusing to arm from a disposable treehouse worktree: /tmp/tmp.sNRjmh4dxA/rh/.treehouse/pool-2/slot-2/firstmate/bin
+== head-D-home-in-slot-via-symlinked-ancestor
+   arm: /tmp/tmp.sNRjmh4dxA/rh/th-link/pool-3/slot-3/firstmate/bin/fm-watch-arm.sh  FM_HOME=/tmp/tmp.sNRjmh4dxA/rh/th-link/pool-3/slot-3/firstmate
+   watcher: started pid=200016 (beacon fresh)
+   arm rc=0 ; last: signal: /tmp/tmp.sNRjmh4dxA/rh/th-link/pool-3/slot-3/firstmate/state/probe.status
