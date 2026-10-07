@@ -2198,15 +2198,33 @@ reap_task_backend_process_group() {  # <label>
 }
 
 # The lsof scan could not produce a safe result: lsof failed, timed out under
-# load, or its output was unusable. Take the same backend process-group fallback
-# the missing-lsof path takes, and let the teardown proceed: refusing here left
-# the task's worktree and its processes behind forever (the stale-pool-slot
-# leak), while the fallback reaps the task's own pane group. Prints why, reaps,
-# and always succeeds.
+# load, or its output was unusable. Force-kill every leaked process this reap
+# already identified (the caller's tracked_pids/tracked_identities) that still
+# matches its recorded identity, take the same backend process-group fallback
+# the missing-lsof path takes, then re-verify: teardown proceeds only when no
+# identified process survives. Refusing on every scan error left the task's
+# worktree and its processes behind forever (the stale-pool-slot leak), while
+# proceeding with a known survivor would orphan it under a deleted cwd.
 reap_task_pids_scan_fallback() {  # <label>
+  local i pid killed=0 survivors=""
   echo "teardown: lsof could not enumerate leaked processes under ${TASK_PIDS_FAILED_DIR:-<missing>} for $ID; falling back to the $BACKEND process-group cleanup" >&2
+  for i in "${!tracked_pids[@]}"; do
+    pid=${tracked_pids[$i]}
+    if task_process_identity_matches "$pid" "${tracked_identities[$i]}"; then
+      kill -KILL "$pid" 2>/dev/null || true
+      killed=1
+    fi
+  done
   reap_task_backend_process_group "$1"
-  return 0
+  [ "$killed" -eq 1 ] || return 0
+  sleep 1
+  for i in "${!tracked_pids[@]}"; do
+    pid=${tracked_pids[$i]}
+    task_process_identity_matches "$pid" "${tracked_identities[$i]}" && survivors="$survivors $pid"
+  done
+  [ -z "$survivors" ] && return 0
+  echo "REFUSED: leaked $1 process(es) for $ID survived a force-kill after the lsof scan failed:$survivors; preserving the worktree/tasktmp for manual inspection or retry." >&2
+  return 1
 }
 
 # Reap every process rooted (by cwd) under this task's own worktree or tasktmp
@@ -2214,12 +2232,12 @@ reap_task_pids_scan_fallback() {  # <label>
 # first, then KILL after a short grace period for anything still alive; a
 # process that exits on its own between the two passes is simply absent from
 # the recheck. A missing lsof, or an lsof scan that fails or times out under
-# load, uses the backend process-group fallback and proceeds; only leaked
-# processes that survive every reap attempt still refuse before destructive
-# teardown.
+# load, force-kills the processes already identified, uses the backend
+# process-group fallback, and proceeds; leaked processes that survive every
+# reap attempt still refuse before destructive teardown.
 reap_task_worktree_processes() {  # <label> <dir>...
   local label=$1 pids pid identity current_pids i pass=1 max_passes=3
-  local -a tracked_pids tracked_identities remaining_pids remaining_identities
+  local -a tracked_pids=() tracked_identities=() remaining_pids remaining_identities
   shift
   if ! command -v lsof >/dev/null 2>&1; then
     reap_task_backend_process_group "$label"
@@ -2228,7 +2246,7 @@ reap_task_worktree_processes() {  # <label> <dir>...
   while [ "$pass" -le "$max_passes" ]; do
     if ! task_pids_under_roots "$@"; then
       reap_task_pids_scan_fallback "$label"
-      return 0
+      return
     fi
     pids=$TASK_PIDS
     [ -n "$pids" ] || return 0
@@ -2239,7 +2257,7 @@ reap_task_worktree_processes() {  # <label> <dir>...
       if ! identity=$(task_process_identity "$pid"); then
         if ! task_pids_under_roots "$@"; then
           reap_task_pids_scan_fallback "$label"
-          return 0
+          return
         fi
         if task_pid_list_contains "$TASK_PIDS" "$pid"; then
           echo "REFUSED: cannot verify leaked process $pid identity for $ID; preserving the worktree/tasktmp for manual inspection or retry." >&2
@@ -2258,7 +2276,7 @@ EOF
     fi
     if ! task_pids_under_roots "$@"; then
       reap_task_pids_scan_fallback "$label"
-      return 0
+      return
     fi
     current_pids=$TASK_PIDS
     echo "teardown: reaping leaked $label process(es) for $ID: $(printf '%s' "$pids" | tr '\n' ' ')" >&2
@@ -2273,7 +2291,7 @@ EOF
     sleep 1
     if ! task_pids_under_roots "$@"; then
       reap_task_pids_scan_fallback "$label"
-      return 0
+      return
     fi
     current_pids=$TASK_PIDS
     remaining_pids=()
@@ -2291,7 +2309,7 @@ EOF
       echo "teardown: force-killing leaked $label process(es) for $ID: ${remaining_pids[*]}" >&2
       if ! task_pids_under_roots "$@"; then
         reap_task_pids_scan_fallback "$label"
-        return 0
+        return
       fi
       current_pids=$TASK_PIDS
       for i in "${!remaining_pids[@]}"; do
@@ -2307,7 +2325,7 @@ EOF
   done
   if ! task_pids_under_roots "$@"; then
     reap_task_pids_scan_fallback "$label"
-    return 0
+    return
   fi
   [ -z "$TASK_PIDS" ] && return 0
   echo "REFUSED: leaked $label processes for $ID remain after $max_passes reap attempts; preserving the worktree/tasktmp for manual inspection or retry." >&2

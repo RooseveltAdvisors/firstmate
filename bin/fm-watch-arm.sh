@@ -135,7 +135,12 @@ if [ "${FM_GATE_REFUSE_BYPASS:-}" != 1 ]; then
     */.treehouse/*)
       arm_copy_root=$(dirname "$SCRIPT_DIR")
       arm_state_in_copy=0
-      case "$arm_state" in "$arm_copy_root"/*) arm_state_in_copy=1 ;; esac
+      for arm_root in "$arm_copy_root" "$(cd -P -- "$arm_copy_root" 2>/dev/null && pwd -P)"; do
+        [ -n "$arm_root" ] || continue
+        for arm_state_form in "$arm_state" "$arm_state_dir"; do
+          case "$arm_state_form" in "$arm_root"/*) arm_state_in_copy=1 ;; esac
+        done
+      done
       if ! { [ "$arm_state_in_copy" -eq 1 ] \
              && [ -d "$arm_copy_root/data" ] && [ -d "$arm_copy_root/state" ] \
              && [ -d "$arm_copy_root/config" ] && [ -d "$arm_copy_root/projects" ]; } \
