@@ -4077,6 +4077,99 @@ EOF
   pass "an erroring lsof scan falls back to the backend process-group reap and teardown completes"
 }
 
+# A scan that fails after the reap already identified a leaked process must
+# not hand an identified survivor to worktree removal: the fallback force-kills
+# it first. The fixture's lsof is real until the TERM-ignoring leaked process
+# receives TERM, then every cwd scan fails, so the post-grace rescan takes the
+# fallback with that process already tracked. The default tmux stub reports no
+# pane pid, so only the fallback's own KILL can end the process.
+test_lsof_error_after_identification_force_kills_the_tracked_process() {
+  local case_dir rc pid marker real_lsof
+  case_dir=$(make_case lsof-error-tracked-kill)
+  write_meta "$case_dir" no-mistakes ship
+  land_shippable_commit "$case_dir"
+  marker="$case_dir/termed"
+  real_lsof=$(command -v lsof) || fail "lsof-error-tracked-kill: lsof is required"
+  cat > "$case_dir/fakebin/lsof" <<EOF
+#!/usr/bin/env bash
+case " \$* " in
+  *" -d cwd "*) [ ! -f "$marker" ] || exit 2 ;;
+esac
+exec "$real_lsof" "\$@"
+EOF
+  cat > "$case_dir/fakebin/treehouse" <<EOF
+#!/usr/bin/env bash
+printf 'return\n' >> "$case_dir/treehouse.log"
+EOF
+  chmod +x "$case_dir/fakebin/lsof" "$case_dir/fakebin/treehouse"
+
+  ( cd "$case_dir/wt" && exec perl -e '
+      my $file = shift;
+      $SIG{TERM} = sub { open my $fh, ">", $file or die "open"; close $fh; };
+      sleep 1 while 1;
+    ' "$marker" ) &
+  pid=$!
+  disown
+  sleep 0.3
+  kill -0 "$pid" 2>/dev/null || fail "lsof-error-tracked-kill: setup sleeper did not start"
+
+  rc=0
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+
+  if kill -0 "$pid" 2>/dev/null; then
+    kill -KILL "$pid" 2>/dev/null || true
+    fail "lsof-error-tracked-kill: the identified leaked process survived the scan-failure fallback"
+  fi
+  assert_present "$marker" "lsof-error-tracked-kill: the leaked process never received TERM"
+  expect_code 0 "$rc" "lsof-error-tracked-kill: teardown should complete once the tracked process is killed"
+  assert_grep "falling back to the tmux process-group cleanup" "$case_dir/stderr" \
+    "lsof-error-tracked-kill: teardown did not take the scan-failure fallback"
+  assert_present "$case_dir/treehouse.log" \
+    "lsof-error-tracked-kill: teardown did not complete the worktree return"
+  pass "a scan failure after identification force-kills the tracked process before teardown proceeds"
+}
+
+# An identified process that still matches its identity after the fallback's
+# force-kill must keep the worktree: proceeding would orphan it under a deleted
+# cwd. The fake pid never exists, so KILL cannot end it and its identity keeps
+# matching; lsof lists it for the first two cwd scans, then fails.
+test_lsof_error_with_a_surviving_tracked_process_refuses() {
+  local case_dir rc wt_path fake_pid=99999997
+  case_dir=$(make_case lsof-error-tracked-survivor)
+  write_meta "$case_dir" no-mistakes ship
+  land_shippable_commit "$case_dir"
+  wt_path=$(cd "$case_dir/wt" && pwd -P)
+  cat > "$case_dir/fakebin/lsof" <<EOF
+#!/usr/bin/env bash
+count=0
+[ ! -f "$case_dir/lsof-count" ] || count=\$(cat "$case_dir/lsof-count")
+count=\$((count + 1))
+printf '%s\n' "\$count" > "$case_dir/lsof-count"
+[ "\$count" -le 2 ] || exit 2
+printf 'p%s\nfcwd\nn%s\n' '$fake_pid' '$wt_path'
+EOF
+  cat > "$case_dir/fakebin/ps" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = -p ] && [ "${2:-}" = "${FM_FAKE_PERSISTENT_PID:-}" ] \
+   && [ "${3:-}" = -o ] && [ "${4:-}" = lstart= ]; then
+  printf 'Tue Aug  4 10:00:00 2026\n'
+  exit 0
+fi
+exec "$REAL_PS_FOR_TEST" "$@"
+SH
+  chmod +x "$case_dir/fakebin/lsof" "$case_dir/fakebin/ps"
+
+  rc=0
+  FM_PROC_ROOT_OVERRIDE="$case_dir/no-proc" FM_FAKE_PERSISTENT_PID="$fake_pid" \
+    run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+
+  expect_code 1 "$rc" "lsof-error-tracked-survivor: teardown should refuse"
+  assert_grep "survived a force-kill" "$case_dir/stderr" \
+    "lsof-error-tracked-survivor: teardown did not report the surviving process"
+  assert_present "$case_dir/wt" "lsof-error-tracked-survivor: teardown removed the worktree"
+  pass "a tracked process that survives the fallback force-kill refuses teardown"
+}
+
 test_reused_pid_identity_is_not_force_killed() {
   local case_dir rc pid
   case_dir=$(make_case reused-pid-identity)
@@ -4623,6 +4716,8 @@ test_leaked_worktree_process_is_reaped
 test_leaked_tasktmp_process_is_reaped
 test_lsof_absent_reaps_tmux_process_group
 test_lsof_error_falls_back_to_the_process_group_reap
+test_lsof_error_after_identification_force_kills_the_tracked_process
+test_lsof_error_with_a_surviving_tracked_process_refuses
 test_reused_pid_identity_is_not_force_killed
 test_exec_changed_process_is_still_reaped
 test_process_spawned_during_grace_is_reaped_on_later_pass

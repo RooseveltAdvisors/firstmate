@@ -2206,7 +2206,7 @@ reap_task_backend_process_group() {  # <label>
 # worktree and its processes behind forever (the stale-pool-slot leak), while
 # proceeding with a known survivor would orphan it under a deleted cwd.
 reap_task_pids_scan_fallback() {  # <label>
-  local i pid killed=0 survivors=""
+  local i pid state killed=0 survivors=""
   echo "teardown: lsof could not enumerate leaked processes under ${TASK_PIDS_FAILED_DIR:-<missing>} for $ID; falling back to the $BACKEND process-group cleanup" >&2
   for i in "${!tracked_pids[@]}"; do
     pid=${tracked_pids[$i]}
@@ -2220,7 +2220,10 @@ reap_task_pids_scan_fallback() {  # <label>
   sleep 1
   for i in "${!tracked_pids[@]}"; do
     pid=${tracked_pids[$i]}
-    task_process_identity_matches "$pid" "${tracked_identities[$i]}" && survivors="$survivors $pid"
+    task_process_identity_matches "$pid" "${tracked_identities[$i]}" || continue
+    state=$(ps -o stat= -p "$pid" 2>/dev/null | tr -d '[:space:]')
+    case "$state" in Z*) continue ;; esac
+    survivors="$survivors $pid"
   done
   [ -z "$survivors" ] && return 0
   echo "REFUSED: leaked $1 process(es) for $ID survived a force-kill after the lsof scan failed:$survivors; preserving the worktree/tasktmp for manual inspection or retry." >&2
