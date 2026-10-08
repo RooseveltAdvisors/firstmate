@@ -1345,15 +1345,18 @@ github_fetch_squash_body() {
 
 # Read the server-side squash body GitHub proposes to synthesize, strip any
 # AI co-author trailers from it, and write the sanitized body to a temp file.
-# If no trailers were stripped, leaves the body unoverridden.
+# A body with nothing to strip leaves FM_PR_SQUASH_BODY_FILE empty, so GitHub's
+# own body is kept. Returns nonzero only when the body could not be sanitized.
 github_sanitize_squash_body() {
-  local raw_body cleaned
-  if ! raw_body=$(github_fetch_squash_body); then
-    return 1
-  fi
-  [ -n "$raw_body" ] || return 1
+  local raw_body
+  FM_PR_SQUASH_BODY_FILE=
+  raw_body=$(github_fetch_squash_body) || return 1
+  [ -n "$raw_body" ] || return 0
 
-  FM_PR_SQUASH_BODY_FILE=$(mktemp "${TMPDIR:-/tmp}/fm-pr-squash-body.XXXXXX") || return 1
+  FM_PR_SQUASH_BODY_FILE=$(mktemp "${TMPDIR:-/tmp}/fm-pr-squash-body.XXXXXX") || {
+    FM_PR_SQUASH_BODY_FILE=
+    return 1
+  }
   printf '%s\n' "$raw_body" > "$FM_PR_SQUASH_BODY_FILE"
   cp "$FM_PR_SQUASH_BODY_FILE" "$FM_PR_SQUASH_BODY_FILE.orig"
 
@@ -1366,25 +1369,7 @@ github_sanitize_squash_body() {
   if cmp -s "$FM_PR_SQUASH_BODY_FILE.orig" "$FM_PR_SQUASH_BODY_FILE"; then
     rm -f "$FM_PR_SQUASH_BODY_FILE" "$FM_PR_SQUASH_BODY_FILE.orig"
     FM_PR_SQUASH_BODY_FILE=
-    return 1
-  fi
-
-  cleaned=$(awk '
-    { lines[NR] = $0 }
-    END {
-      last = NR
-      while (last > 0 && lines[last] ~ /^[[:space:]]*$/) last--
-      if (last > 0 && lines[last] ~ /^[[:space:]]*[-_]{3,}[[:space:]]*$/) {
-        last--
-        while (last > 0 && lines[last] ~ /^[[:space:]]*$/) last--
-      }
-      for (i = 1; i <= last; i++) print lines[i]
-    }
-  ' "$FM_PR_SQUASH_BODY_FILE")
-  if [ -n "$cleaned" ]; then
-    printf '%s\n' "$cleaned" > "$FM_PR_SQUASH_BODY_FILE"
-  else
-    : > "$FM_PR_SQUASH_BODY_FILE"
+    return 0
   fi
   rm -f "$FM_PR_SQUASH_BODY_FILE.orig"
   return 0
@@ -1461,8 +1446,13 @@ case "$PROVIDER" in
     fi
     if { [ "${#merge_args[@]}" -gt 0 ] && [ "${merge_args[0]}" = --squash ]; } \
       || [ "$FM_PR_GITHUB_CALLER_METHOD" = squash ]; then
-      if ! caller_has_body_arg "$@"; then
-        if github_sanitize_squash_body; then
+      if ! caller_has_body_arg "$@" \
+        && [ ! -e "${FM_CONFIG_OVERRIDE:-$FM_HOME/config}/keep-ai-trailers" ] \
+        && [ ! -L "${FM_CONFIG_OVERRIDE:-$FM_HOME/config}/keep-ai-trailers" ]; then
+        if ! github_sanitize_squash_body; then
+          printf 'warning: could not sanitize the GitHub squash body for %s; merging with GitHub'"'"'s default body, which may carry AI co-author trailers\n' \
+            "$URL" >&2
+        elif [ -n "$FM_PR_SQUASH_BODY_FILE" ]; then
           merge_args+=(--body-file "$FM_PR_SQUASH_BODY_FILE")
         fi
       fi
