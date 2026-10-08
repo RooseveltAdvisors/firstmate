@@ -192,9 +192,29 @@ test_a_redirected_receipt_is_refused_not_answered() {
   pass "a receipt reached through a symlink is refused rather than answered"
 }
 
+test_a_dangling_receipt_symlink_is_refused_not_never() {
+  local home out err status
+  home=$(make_home dangling)
+  out="$home/out.txt"
+  err="$home/err.txt"
+  mkdir -p "$home/state/verified"
+  ln -s "$TMP_ROOT/nonexistent.receipt" "$home/state/verified/api.receipt"
+  status=$(run_verified "$home" "$out" "$err" check api --head "$HEAD_A")
+  expect_code 1 "$status" "check a dangling receipt symlink"
+  assert_not_contains "$(cat "$out")" "verified:" "a dangling receipt symlink answered verified"
+  assert_not_contains "$(cat "$out")" "never:" "a dangling receipt symlink answered never"
+  status=$(run_verified "$home" "$out" "$err" show api)
+  expect_code 1 "$status" "show a dangling receipt symlink"
+  assert_not_contains "$(cat "$out")" "verified:" "show of a dangling receipt symlink answered verified"
+  assert_not_contains "$(cat "$out")" "never:" "show of a dangling receipt symlink answered never"
+
+  pass "a dangling receipt symlink is refused rather than answered never"
+}
+
 test_pass_stale_never_and_fail_each_have_their_own_code
 test_check_refuses_without_a_head
 test_record_is_read_back_and_replaced_not_appended
 test_show_reports_a_missing_receipt_plainly
 test_prose_in_the_home_never_answers_the_question
 test_a_redirected_receipt_is_refused_not_answered
+test_a_dangling_receipt_symlink_is_refused_not_never

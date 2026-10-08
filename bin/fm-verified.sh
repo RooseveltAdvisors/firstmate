@@ -229,7 +229,7 @@ cmd_check() {  # <subject> --head <sha>
 
   require_state_dir
   file=$(receipt_path "$subject")
-  if [ ! -e "$file" ]; then
+  if [ ! -e "$file" ] && [ ! -L "$file" ]; then
     state=never
     code=4
     RECEIPT_HEAD=none
@@ -261,7 +261,7 @@ cmd_show() {  # <subject>
   [ "$#" -le 1 ] || die 2 "show takes only <subject>"
   require_state_dir
   file=$(receipt_path "$subject")
-  if [ ! -e "$file" ]; then
+  if [ ! -e "$file" ] && [ ! -L "$file" ]; then
     printf 'never: subject=%s has no verification receipt\n' "$subject"
     exit 4
   fi
