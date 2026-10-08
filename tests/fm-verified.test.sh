@@ -208,6 +208,20 @@ test_a_dangling_receipt_symlink_is_refused_not_never() {
   assert_not_contains "$(cat "$out")" "verified:" "show of a dangling receipt symlink answered verified"
   assert_not_contains "$(cat "$out")" "never:" "show of a dangling receipt symlink answered never"
 
+  rm -rf "$home/state/verified"
+  ln -s "$TMP_ROOT/nonexistent-dir" "$home/state/verified"
+  status=$(run_verified "$home" "$out" "$err" record api --head "$HEAD_A" --verdict pass)
+  expect_code 1 "$status" "record through a dangling receipt directory symlink"
+  status=$(run_verified "$home" "$out" "$err" check api --head "$HEAD_A")
+  expect_code 1 "$status" "check through a dangling receipt directory symlink"
+  assert_not_contains "$(cat "$out")" "verified:" "a dangling receipt directory symlink answered verified"
+  assert_not_contains "$(cat "$out")" "never:" "a dangling receipt directory symlink answered never"
+  status=$(run_verified "$home" "$out" "$err" show api)
+  expect_code 1 "$status" "show through a dangling receipt directory symlink"
+  assert_not_contains "$(cat "$out")" "verified:" "show through a dangling receipt directory symlink answered verified"
+  assert_not_contains "$(cat "$out")" "never:" "show through a dangling receipt directory symlink answered never"
+  [ ! -e "$TMP_ROOT/nonexistent-dir" ] || fail "record wrote through a dangling receipt directory symlink"
+
   pass "a dangling receipt symlink is refused rather than answered never"
 }
 

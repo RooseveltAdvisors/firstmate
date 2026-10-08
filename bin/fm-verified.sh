@@ -95,7 +95,7 @@ require_state_dir() {
     || die 1 "state directory is unavailable: $STATE"
   # A symlinked receipt directory would redirect every read and write out of
   # the home, which is a way to answer this question with someone else's bytes.
-  [ ! -e "$RECEIPTS" ] || { [ -d "$RECEIPTS" ] && [ ! -L "$RECEIPTS" ]; } \
+  { [ ! -e "$RECEIPTS" ] && [ ! -L "$RECEIPTS" ]; } || { [ -d "$RECEIPTS" ] && [ ! -L "$RECEIPTS" ]; } \
     || die 1 "receipt directory is unavailable: $RECEIPTS"
 }
 
