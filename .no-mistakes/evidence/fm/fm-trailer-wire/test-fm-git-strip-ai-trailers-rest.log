@@ -1,0 +1,34 @@
+ok - a Cursor --trailer commit object has no AI co-author and keeps the captain identity
+ok - a human Co-authored-by trailer survives next to a stripped Cursor trailer
+ok - a human co-author at a vendor domain survives; only the exact bot address is stripped
+ok - the fleet's firstmate-worker trailer is stripped while a human firstmate-named co-author survives
+ok - a hook manager resolving the pane hooks dir fails instead of displacing the strip
+ok - a relaunch reinstall replaces the read-only strip dir and still strips
+ok - install chains the previous commit-msg hook after stripping
+ok - a relative project core.hooksPath resolves against the worktree and still runs
+ok - an inherited GIT_CONFIG hooksPath does not become the chained previous hooks
+ok - a project hook that appears after install still runs for the rest of the task
+ok - a pane GIT_CONFIG hooksPath still chains the repository git is actually in
+ok - an empty project core.hooksPath runs no repository hook and still strips the trailer
+skip - unresolvable (pre-existing git 2.43 failure, also on base)
+skip - valueless
+ok - the repository's pre-push runs and can refuse under every hooksPath override channel
+ok - a git -c hooksPath override still strips the trailer and chains the project's hooks
+ok - commit-msg file mode strips the trailer and keeps the subject
+ok - a commit made without the pane environment is still stripped
+ok - no AI trailer survives anywhere in the branch history
+ok - the worktree binding does not reach the primary checkout
+ok - unbind releases only the binding naming its hooks directory, silently otherwise
+ok - release unbinds the binding that names the directory, then deletes it
+ok - a plain clone is bound the same way a linked worktree is
+ok - a commit in a no-mistakes run worktree is stripped through the mirror commit-msg
+ok - the mirror commit-msg fails open when the strip errors or is missing
+ok - install-mirror chains the prior hook so it still runs after the strip
+ok - install-mirror refuses an unchainable commit-msg instead of overwriting it
+ok - an install from a moved Firstmate copy repairs the installed mirror hook
+ok - concurrent install-mirror deliveries keep the foreign commit-msg and the strip
+ok - the install lock is skipped at any age and leaves nothing behind after delivery
+ok - the install lock is released when a delivery is terminated by TERM or INT
+ok - fm-nm-run-lib.sh delivers the strip to the registered mirror and fails open
+ok - delivery follows the linked worktree's own repos row, not its main clone's
+# all fm-git-strip-ai-trailers tests passed

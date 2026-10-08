@@ -1,0 +1,54 @@
+
+=== S1 spawn-style install: /home/jon/.no-mistakes/worktrees/46339c0817e0/01M4EWJY87V9ZVFE3YGV7M13R4/bin/fm-git-strip-ai-trailers.sh install state/t1.git-hooks <task-wt>
+install rc=0
+task-wt worktree-scoped core.hooksPath: /tmp/fm-e2e.P773/home/state/t1.git-hooks
+primary checkout effective core.hooksPath: ''
+
+=== S1 commit in task worktree from a process with NO pane GIT_CONFIG env (env -i)
+--- resulting commit object message:
+feat: worker commit
+
+Co-authored-by: Jane Human <jane@example.com>
+
+--- project's own commit-msg hook chained: PROJECT-HOOK-RAN
+
+=== S2 primary checkout is NOT bound (commit there keeps trailer; primary untouched)
+Co-Authored-By: Claude <noreply@anthropic.com>
+
+=== S3 no-mistakes mirror delivery via fm-nm-run-lib fm_nm_ensure_mirror_commit_msg
+deliver rc=0
+pre-receive/post-receive byte-identical: YES
+--- new hook files:
+2a3
+> commit-msg.fm-prev
+#!/bin/sh
+# fm-git-strip-ai-trailers mirror commit-msg
+# Fail OPEN on every path: this hook runs for every no-mistakes pipeline
+
+=== S3 daemon-style pipeline commit in NM run worktree (worktree core.hooksPath -> mirror hooks, empty env)
+fatal: this operation must be run in a work tree
+fatal: this operation must be run in a work tree
+feat: worker commit
+
+Co-authored-by: Jane Human <jane@example.com>
+
+foreign mirror commit-msg chained: 
+
+=== S3b reinstall is a no-op
+rc=0
+unchanged: YES
+
+=== S4 FULL-HISTORY grep of branch fm/task as it would be pushed
+0
+Co-authored-by: Jane Human <jane@example.com>
+
+=== S5 adversarial: mirror hook fails OPEN when strip script missing
+hook rc with missing strip=0 (message left unchanged)
+
+=== S6 teardown release: successor binding is left alone; own binding released then dir deleted
+release rc=0
+binding after release of t1 (successor t2 should remain): /tmp/fm-e2e.P773/home/state/t2.git-hooks
+t1 dir deleted
+binding after releasing own t3: ''
+
+sandbox removed
