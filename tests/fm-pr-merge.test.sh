@@ -250,7 +250,9 @@ case "${1:-} ${2:-}" in
     fi
     case " $* " in
       *viewerMergeBodyText*)
-        if [ -n "${FM_TEST_GH_VIEWER_MERGE_BODY:-}" ]; then
+        if [ -f "${FM_TEST_GH_VIEWER_MERGE_BODY_FAIL:-}" ]; then
+          exit 1
+        elif [ -n "${FM_TEST_GH_VIEWER_MERGE_BODY:-}" ]; then
           printf '%s\n' "$FM_TEST_GH_VIEWER_MERGE_BODY"
         elif [ -f "${FM_TEST_GH_VIEWER_MERGE_BODY_FILE:-}" ]; then
           cat "$FM_TEST_GH_VIEWER_MERGE_BODY_FILE"
@@ -490,6 +492,7 @@ run_pr_merge() {
   FM_TEST_GH_GRAPHQL_FAIL="$case_dir/github-graphql-fail" \
   FM_TEST_GH_VIEWER_MERGE_BODY="${FM_TEST_GH_VIEWER_MERGE_BODY:-}" \
   FM_TEST_GH_VIEWER_MERGE_BODY_FILE="${FM_TEST_GH_VIEWER_MERGE_BODY_FILE:-}" \
+  FM_TEST_GH_VIEWER_MERGE_BODY_FAIL="$case_dir/github-viewer-merge-body-fail" \
   FM_TEST_GH_RULES_FAIL="$case_dir/github-rules-fail" \
   FM_TEST_GH_RULES_FAIL_BODY="$case_dir/github-rules-fail-body" \
   FM_TEST_GH_BRANCH="$case_dir/github-branch.json" \
@@ -3887,18 +3890,16 @@ test_github_squash_merge_strips_ai_trailers_from_squash_body() {
   pass "fm-pr-merge sanitizes GitHub squash body to strip AI co-author trailers while keeping human co-authors"
 }
 
-test_github_squash_merge_cleans_trailing_separator() {
-  local case_dir rc head body_file
+test_github_squash_merge_keep_ai_trailers_skips_sanitize() {
+  local case_dir rc head
   head=b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4
-  case_dir=$(make_case github-squash-trailing-separator)
+  case_dir=$(make_case github-squash-keep-ai-trailers)
   mkdir -p "$case_dir/wt"
   add_gh_mocks "$case_dir" "$head"
+  : > "$case_dir/home/config/keep-ai-trailers"
 
   FM_TEST_GH_VIEWER_MERGE_BODY=$(printf '%s\n' \
-    '* commit 1: first change' \
-    '* commit 2: second change' \
-    '' \
-    '---' \
+    '* commit 1' \
     'Co-authored-by: firstmate-worker <worker@firstmate.local>')
 
   set +e
@@ -3907,13 +3908,32 @@ test_github_squash_merge_cleans_trailing_separator() {
   rc=$?
   set -e
 
-  expect_code 0 "$rc" "github-squash-sep: squash merge should succeed: $(cat "$case_dir/stderr")"
-  body_file="$case_dir/gh.log.body-file"
-  [ -f "$body_file" ] || fail "github-squash-sep: captured body file was not found"
-  assert_no_grep 'firstmate-worker' "$body_file" "github-squash-sep: AI trailer survived"
-  assert_no_grep '---' "$body_file" "github-squash-sep: trailing separator was not cleaned up"
-  assert_grep '* commit 1: first change' "$body_file" "github-squash-sep: commit message lost"
-  pass "fm-pr-merge cleans up trailing separator when only AI trailers were stripped"
+  expect_code 0 "$rc" "github-squash-keep: squash merge should succeed: $(cat "$case_dir/stderr")"
+  assert_logged_gh_merge "$case_dir" 113 example/repo --squash
+  assert_no_grep '--body-file' "$case_dir/gh.log" \
+    "github-squash-keep: --body-file was passed despite config/keep-ai-trailers"
+  pass "fm-pr-merge leaves the GitHub squash body alone when config/keep-ai-trailers is present"
+}
+
+test_github_squash_merge_warns_when_sanitize_fails() {
+  local case_dir rc head
+  head=b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5
+  case_dir=$(make_case github-squash-sanitize-fails)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" "$head"
+  : > "$case_dir/github-viewer-merge-body-fail"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/114 \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "github-squash-fail: squash merge should still succeed: $(cat "$case_dir/stderr")"
+  assert_logged_gh_merge "$case_dir" 114 example/repo --squash
+  assert_grep 'warning: could not sanitize the GitHub squash body' "$case_dir/stderr" \
+    "github-squash-fail: the sanitize failure was not reported"
+  pass "fm-pr-merge warns when the GitHub squash body cannot be sanitized"
 }
 
 test_github_squash_merge_preserves_clean_squash_body_without_body_file() {
@@ -4021,7 +4041,8 @@ test_app_bound_required_status_context_matches_by_name
 test_required_partial_reads_report_all_failures
 
 test_github_squash_merge_strips_ai_trailers_from_squash_body
-test_github_squash_merge_cleans_trailing_separator
+test_github_squash_merge_keep_ai_trailers_skips_sanitize
+test_github_squash_merge_warns_when_sanitize_fails
 test_github_squash_merge_preserves_clean_squash_body_without_body_file
 test_github_squash_merge_honors_caller_body
 
