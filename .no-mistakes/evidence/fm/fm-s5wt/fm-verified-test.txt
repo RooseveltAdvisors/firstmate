@@ -1,0 +1,7 @@
+ok - verified, stale, never and failed each exit with their own code
+ok - check refuses to answer without a head that names one commit
+ok - a receipt reads back through show and check, and a re-record replaces it
+ok - show reports a missing receipt plainly
+ok - no status line or report in the home can answer the verification question
+ok - a receipt reached through a symlink is refused rather than answered
+ok - a dangling receipt symlink is refused rather than answered never

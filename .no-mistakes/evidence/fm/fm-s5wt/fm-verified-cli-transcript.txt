@@ -1,0 +1,93 @@
+## S1 record pass at A, check at A
+$ fm-verified.sh record api --head 1095e0588ed3281cf36762d6f0da349fe11f7e01 --verdict pass --evidence /tmp/ev.log --note lab run
+recorded: api verdict=pass head=1095e0588ed3281cf36762d6f0da349fe11f7e01 at=2026-10-08T08:29:35Z
+[exit 0]
+--- receipt file:
+fm-verified-v1
+subject=api
+head=1095e0588ed3281cf36762d6f0da349fe11f7e01
+verdict=pass
+recorded=2026-10-08T08:29:35Z
+evidence=/tmp/ev.log
+note=lab run
+$ fm-verified.sh check api --head 1095e0588ed3281cf36762d6f0da349fe11f7e01
+verified: subject=api recorded-head=1095e0588ed3281cf36762d6f0da349fe11f7e01 asked-head=1095e0588ed3281cf36762d6f0da349fe11f7e01 recorded-verdict=pass recorded-at=2026-10-08T08:29:35Z
+[exit 0]
+$ fm-verified.sh check api --head 1095E0588ED3281CF36762D6F0DA349FE11F7E01
+verified: subject=api recorded-head=1095e0588ed3281cf36762d6f0da349fe11f7e01 asked-head=1095e0588ed3281cf36762d6f0da349fe11f7e01 recorded-verdict=pass recorded-at=2026-10-08T08:29:35Z
+[exit 0]
+## S2 check at different head B -> stale
+$ fm-verified.sh check api --head 2ce57d0067d4e860e8969fa8fa8289771b855ec5
+stale: subject=api recorded-head=1095e0588ed3281cf36762d6f0da349fe11f7e01 asked-head=2ce57d0067d4e860e8969fa8fa8289771b855ec5 recorded-verdict=pass recorded-at=2026-10-08T08:29:35Z
+[exit 3]
+## S3 short-prefix of recorded head is NOT a match
+$ fm-verified.sh check api --head 1095e05
+stale: subject=api recorded-head=1095e0588ed3281cf36762d6f0da349fe11f7e01 asked-head=1095e05 recorded-verdict=pass recorded-at=2026-10-08T08:29:35Z
+[exit 3]
+## S4 check without --head refused
+$ fm-verified.sh check api
+fm-verified: check needs --head <sha>: a verification is only ever true of one commit
+[exit 2]
+## S5 non-sha heads refused
+$ fm-verified.sh check api --head HEAD
+fm-verified: --head must be 7 to 64 hexadecimal characters naming one commit
+[exit 2]
+$ fm-verified.sh check api --head main
+fm-verified: --head must be 7 to 64 hexadecimal characters naming one commit
+[exit 2]
+$ fm-verified.sh record api --head abc12 --verdict pass
+fm-verified: --head must be 7 to 64 hexadecimal characters naming one commit
+[exit 2]
+## S6 never-verified subject
+$ fm-verified.sh check other --head 1095e0588ed3281cf36762d6f0da349fe11f7e01
+never: subject=other recorded-head=none asked-head=1095e0588ed3281cf36762d6f0da349fe11f7e01 recorded-verdict=none recorded-at=none
+[exit 4]
+$ fm-verified.sh show other
+never: subject=other has no verification receipt
+[exit 4]
+## S7 fail receipt at A -> failed; record replaces whole
+$ fm-verified.sh record api --head 1095e0588ed3281cf36762d6f0da349fe11f7e01 --verdict fail
+recorded: api verdict=fail head=1095e0588ed3281cf36762d6f0da349fe11f7e01 at=2026-10-08T08:29:35Z
+[exit 0]
+$ fm-verified.sh check api --head 1095e0588ed3281cf36762d6f0da349fe11f7e01
+failed: subject=api recorded-head=1095e0588ed3281cf36762d6f0da349fe11f7e01 asked-head=1095e0588ed3281cf36762d6f0da349fe11f7e01 recorded-verdict=fail recorded-at=2026-10-08T08:29:35Z
+[exit 5]
+$ fm-verified.sh show api
+fm-verified-v1
+subject=api
+head=1095e0588ed3281cf36762d6f0da349fe11f7e01
+verdict=fail
+recorded=2026-10-08T08:29:35Z
+[exit 0]
+## S8 path-unsafe subject refused
+$ fm-verified.sh record ../escape --head 1095e0588ed3281cf36762d6f0da349fe11f7e01 --verdict pass
+fm-verified: subject must be a path-safe slug: ../escape
+[exit 2]
+$ fm-verified.sh check .hidden --head 1095e0588ed3281cf36762d6f0da349fe11f7e01
+fm-verified: subject must be a path-safe slug: .hidden
+[exit 2]
+## S9 dangling symlink receipt -> exit 1, no verdict
+$ fm-verified.sh check dang --head 1095e0588ed3281cf36762d6f0da349fe11f7e01
+fm-verified: receipt is unsafe to read: /tmp/fm-lab.w8rknl/state/verified/dang.receipt
+[exit 1]
+$ fm-verified.sh show dang
+fm-verified: receipt is unsafe to read: /tmp/fm-lab.w8rknl/state/verified/dang.receipt
+[exit 1]
+## S10 dangling state/verified dir -> exit 1 for all verbs
+$ fm-verified.sh record x --head 1095e0588ed3281cf36762d6f0da349fe11f7e01 --verdict pass
+fm-verified: receipt directory is unavailable: /tmp/fm-lab.w8rknl/state/verified
+[exit 1]
+$ fm-verified.sh check api --head 1095e0588ed3281cf36762d6f0da349fe11f7e01
+fm-verified: receipt directory is unavailable: /tmp/fm-lab.w8rknl/state/verified
+[exit 1]
+$ fm-verified.sh show api
+fm-verified: receipt directory is unavailable: /tmp/fm-lab.w8rknl/state/verified
+[exit 1]
+## S11 live symlinked receipt -> exit 1
+$ fm-verified.sh check live --head 1095e0588ed3281cf36762d6f0da349fe11f7e01
+fm-verified: receipt is unsafe to read: /tmp/fm-lab.w8rknl/state/verified/live.receipt
+[exit 1]
+## S12 no network/git: check works with PATH lacking git
+$ PATH=/usr/bin:/bin (git hidden via empty dir shim test)
+failed: subject=api recorded-head=1095e0588ed3281cf36762d6f0da349fe11f7e01 asked-head=1095e0588ed3281cf36762d6f0da349fe11f7e01 recorded-verdict=fail recorded-at=2026-10-08T08:29:35Z
+[exit 5]
