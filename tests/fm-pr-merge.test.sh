@@ -207,6 +207,17 @@ case "${1:-} ${2:-}" in
     esac
     ;;
   "pr merge")
+    prev_arg=''
+    for arg in "$@"; do
+      case "$prev_arg" in
+        --body-file|-F)
+          if [ -f "$arg" ]; then
+            cp "$arg" "$FM_TEST_GH_LOG.body-file"
+          fi
+          ;;
+      esac
+      prev_arg=$arg
+    done
     if [ -n "${FM_TEST_META_AT_MERGE:-}" ] && [ -f "${FM_STATE_OVERRIDE:-}/task-x1.meta" ]; then
       cat "$FM_STATE_OVERRIDE/task-x1.meta" > "$FM_TEST_META_AT_MERGE"
     fi
@@ -237,6 +248,16 @@ case "${1:-} ${2:-}" in
       echo 'error: could not reach the GitHub API' >&2
       exit 1
     fi
+    case " $* " in
+      *viewerMergeBodyText*)
+        if [ -n "${FM_TEST_GH_VIEWER_MERGE_BODY:-}" ]; then
+          printf '%s\n' "$FM_TEST_GH_VIEWER_MERGE_BODY"
+        elif [ -f "${FM_TEST_GH_VIEWER_MERGE_BODY_FILE:-}" ]; then
+          cat "$FM_TEST_GH_VIEWER_MERGE_BODY_FILE"
+        fi
+        exit 0
+        ;;
+    esac
     cat "$FM_TEST_GH_OUTCOME"
     exit 0
     ;;
@@ -467,6 +488,8 @@ run_pr_merge() {
   FM_TEST_GH_MERGE_RC_FILE="$case_dir/github-merge-rc" \
   FM_TEST_GH_MERGE_OUTPUT="$(cat "$case_dir/github-merge-output" 2>/dev/null || true)" \
   FM_TEST_GH_GRAPHQL_FAIL="$case_dir/github-graphql-fail" \
+  FM_TEST_GH_VIEWER_MERGE_BODY="${FM_TEST_GH_VIEWER_MERGE_BODY:-}" \
+  FM_TEST_GH_VIEWER_MERGE_BODY_FILE="${FM_TEST_GH_VIEWER_MERGE_BODY_FILE:-}" \
   FM_TEST_GH_RULES_FAIL="$case_dir/github-rules-fail" \
   FM_TEST_GH_RULES_FAIL_BODY="$case_dir/github-rules-fail-body" \
   FM_TEST_GH_BRANCH="$case_dir/github-branch.json" \
@@ -3832,6 +3855,116 @@ test_allow_missing_follows_the_allow_red_rules() {
   pass "fm-pr-merge --allow-missing is single use, attended-only, and GitHub-only like --allow-red"
 }
 
+test_github_squash_merge_strips_ai_trailers_from_squash_body() {
+  local case_dir rc head body_file
+  head=b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1
+  case_dir=$(make_case github-squash-strip-ai-trailers)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" "$head"
+
+  FM_TEST_GH_VIEWER_MERGE_BODY=$(printf '%s\n' \
+    '* commit 1: first change' \
+    '* commit 2: second change' \
+    '' \
+    'Co-authored-by: firstmate-worker <worker@firstmate.local>' \
+    'Co-authored-by: Jane Doe <jane@example.com>')
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/110 \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "github-squash-strip: squash merge should succeed: $(cat "$case_dir/stderr")"
+  assert_grep "pr merge 110 --repo example/repo --match-head-commit $head --squash --body-file" "$case_dir/gh.log" \
+    "github-squash-strip: --body-file was not passed to gh pr merge"
+
+  body_file="$case_dir/gh.log.body-file"
+  [ -f "$body_file" ] || fail "github-squash-strip: captured body file was not found"
+  assert_grep 'Jane Doe' "$body_file" "github-squash-strip: human co-author was stripped"
+  assert_no_grep 'firstmate-worker' "$body_file" "github-squash-strip: AI trailer survived in squash body"
+  assert_no_grep 'worker@firstmate.local' "$body_file" "github-squash-strip: AI worker email survived in squash body"
+  pass "fm-pr-merge sanitizes GitHub squash body to strip AI co-author trailers while keeping human co-authors"
+}
+
+test_github_squash_merge_cleans_trailing_separator() {
+  local case_dir rc head body_file
+  head=b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4
+  case_dir=$(make_case github-squash-trailing-separator)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" "$head"
+
+  FM_TEST_GH_VIEWER_MERGE_BODY=$(printf '%s\n' \
+    '* commit 1: first change' \
+    '* commit 2: second change' \
+    '' \
+    '---' \
+    'Co-authored-by: firstmate-worker <worker@firstmate.local>')
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/113 \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "github-squash-sep: squash merge should succeed: $(cat "$case_dir/stderr")"
+  body_file="$case_dir/gh.log.body-file"
+  [ -f "$body_file" ] || fail "github-squash-sep: captured body file was not found"
+  assert_no_grep 'firstmate-worker' "$body_file" "github-squash-sep: AI trailer survived"
+  assert_no_grep '---' "$body_file" "github-squash-sep: trailing separator was not cleaned up"
+  assert_grep '* commit 1: first change' "$body_file" "github-squash-sep: commit message lost"
+  pass "fm-pr-merge cleans up trailing separator when only AI trailers were stripped"
+}
+
+test_github_squash_merge_preserves_clean_squash_body_without_body_file() {
+  local case_dir rc head
+  head=b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2
+  case_dir=$(make_case github-squash-clean-no-body-file)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" "$head"
+
+  FM_TEST_GH_VIEWER_MERGE_BODY=$(printf '%s\n' \
+    '* commit 1: clean change' \
+    '* commit 2: another clean change')
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/111 \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "github-squash-clean: squash merge should succeed: $(cat "$case_dir/stderr")"
+  assert_logged_gh_merge "$case_dir" 111 example/repo --squash
+  assert_no_grep '--body-file' "$case_dir/gh.log" \
+    "github-squash-clean: --body-file was passed when squash body was already clean"
+  pass "fm-pr-merge does not pass --body-file when GitHub squash body has no AI trailers"
+}
+
+test_github_squash_merge_honors_caller_body() {
+  local case_dir rc head
+  head=b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3
+  case_dir=$(make_case github-squash-caller-body)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" "$head"
+
+  FM_TEST_GH_VIEWER_MERGE_BODY=$(printf '%s\n' \
+    '* commit 1' \
+    'Co-authored-by: firstmate-worker <worker@firstmate.local>')
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/112 -- --body "Explicit caller body" \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "github-squash-caller-body: squash merge should succeed: $(cat "$case_dir/stderr")"
+  assert_grep '--body Explicit caller body' "$case_dir/gh.log" \
+    "github-squash-caller-body: caller --body was not forwarded"
+  assert_no_grep '--body-file' "$case_dir/gh.log" \
+    "github-squash-caller-body: --body-file was passed despite caller providing --body"
+  pass "fm-pr-merge respects caller explicit body arguments without overriding with --body-file"
+}
+
 test_gitlab_head_override_args_refuse_before_recording
 test_secondmate_merge_reports_upward_once
 test_secondmate_merge_reports_on_the_local_route
@@ -3886,3 +4019,9 @@ test_allow_missing_follows_the_allow_red_rules
 test_required_producer_identity
 test_app_bound_required_status_context_matches_by_name
 test_required_partial_reads_report_all_failures
+
+test_github_squash_merge_strips_ai_trailers_from_squash_body
+test_github_squash_merge_cleans_trailing_separator
+test_github_squash_merge_preserves_clean_squash_body_without_body_file
+test_github_squash_merge_honors_caller_body
+

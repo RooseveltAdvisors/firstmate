@@ -195,7 +195,7 @@ strip_msgfile() {
     rm -f "$tmp"
     return 1
   }
-  mv "$tmp" "$src"
+  mv -f "$tmp" "$src"
 }
 
 quote_for_hook() {
@@ -517,16 +517,16 @@ EOF
   if mirror_commit_msg_is_ours "$existing"; then
     :
   elif [ -e "$existing" ] || [ -L "$existing" ]; then
-    mv "$existing" "$prev" || {
+    mv -f "$existing" "$prev" || {
       rm -f "$tmp"
       return 1
     }
     parked=1
   fi
-  if ! mv "$tmp" "$existing"; then
+  if ! mv -f "$tmp" "$existing"; then
     rm -f "$tmp"
     if [ "$parked" -eq 1 ]; then
-      mv "$prev" "$existing" 2>/dev/null || true
+      mv -f "$prev" "$existing" 2>/dev/null || true
     fi
     return 1
   fi
