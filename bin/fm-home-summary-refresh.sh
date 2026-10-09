@@ -16,7 +16,7 @@
 # A home-local refresh lock serializes concurrent triggers so an older in-flight
 # summary cannot overwrite one computed after a later status change. The shared
 # timeout owner bounds the complete refresh with FM_HOME_SUMMARY_TIMEOUT
-# (default: profile-informed bound of 120 seconds plus 0.5s per task in state).
+# (default: 120 seconds plus 0.5s per task in state, capped at 300 seconds).
 # Repeated best-effort failures back off exponentially before retrying
 # (FM_HOME_SUMMARY_BACKOFF, FM_HOME_SUMMARY_BACKOFF_BASE=30,
 # FM_HOME_SUMMARY_BACKOFF_MAX=900). No reader can observe temporary output through the
@@ -73,16 +73,15 @@ esac
 case "$ERROR_LOG_MAX_BYTES" in
   ''|*[!0-9]*|0) ERROR_LOG_MAX_BYTES=65536 ;;
 esac
-if [ -n "$HOME_SUMMARY_TIMEOUT" ]; then
-  case "$HOME_SUMMARY_TIMEOUT" in
-    ''|*[!0-9]*|0) HOME_SUMMARY_TIMEOUT=60 ;;
-  esac
-else
-  task_count=$(find "$STATE" -maxdepth 1 -name "*.meta" 2>/dev/null | wc -l)
-  case "$task_count" in ''|*[!0-9]*) task_count=0 ;; esac
-  # 120s base on slow hosts, plus 0.5s per task bounds prefetch and serial task json formatting
-  HOME_SUMMARY_TIMEOUT=$(( 120 + task_count / 2 ))
-fi
+case "$HOME_SUMMARY_TIMEOUT" in
+  ''|*[!0-9]*|0)
+    task_count=$(find "$STATE" -maxdepth 1 -name "*.meta" 2>/dev/null | wc -l)
+    case "$task_count" in ''|*[!0-9]*) task_count=0 ;; esac
+    # 120s base on slow hosts, plus 0.5s per task bounds prefetch and serial task json formatting, capped for synchronous callers
+    HOME_SUMMARY_TIMEOUT=$(( 120 + task_count / 2 ))
+    [ "$HOME_SUMMARY_TIMEOUT" -le 300 ] || HOME_SUMMARY_TIMEOUT=300
+    ;;
+esac
 case "$HOME_SUMMARY_IF_IDLE" in
   0|1) ;;
   *) HOME_SUMMARY_IF_IDLE=0 ;;
@@ -235,33 +234,26 @@ home_summary_backoff_active() {
       "$LEDGER" 2>/dev/null | head -1)
   fi
 
-  local counted failures last_stamp
-  counted=$(LC_ALL=C awk -v since="$since" '
+  local failures
+  failures=$(LC_ALL=C awk -v since="$since" '
     match($0, /^\[[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z\]/) {
       stamp = substr($0, 2, RLENGTH - 2)
       if (since == "" || stamp > since) {
         n += 1
-        last = stamp
       } else if (stamp == since) {
         same_second += 1
       }
     }
     END {
       if (since != "" && n > 0) n += same_second
-      printf "%d\t%s", n + 0, last
+      printf "%d", n + 0
     }' "$ERROR_LOG" 2>/dev/null) || return 1
-
-  failures=${counted%%$'\t'*}
-  last_stamp=${counted#*$'\t'}
 
   case "$failures" in ''|*[!0-9]*) return 1 ;; esac
   [ "$failures" -ge 2 ] || return 1
-  [ -n "$last_stamp" ] || return 1
 
   local last_epoch now_epoch
-  last_epoch=$(date -u -d "$last_stamp" +%s 2>/dev/null \
-    || date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$last_stamp" +%s 2>/dev/null \
-    || return 1)
+  last_epoch=$(date -u -r "$ERROR_LOG" +%s 2>/dev/null) || return 1
   now_epoch=$(date -u +%s 2>/dev/null || date +%s)
   case "$last_epoch" in ''|*[!0-9]*) return 1 ;; esac
   case "$now_epoch" in ''|*[!0-9]*) return 1 ;; esac

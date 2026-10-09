@@ -1196,3 +1196,17 @@ PATH="$FAIL_WORKER_BIN:$FAKEBIN:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$BACKOF
   CALLED_MARKER_PATH="$CALLED_MARKER" "$WRITER" --best-effort || fail "post-publication first failure failed best-effort"
 [ -e "$CALLED_MARKER" ] || fail "post-publication call did not execute immediately"
 pass "exponential backoff suppresses repeated best-effort retries and clears on publication"
+
+ANCHOR_HOME="$TMP_ROOT/backoff-anchor-home"
+mkdir -p "$ANCHOR_HOME/state" "$ANCHOR_HOME/data" "$ANCHOR_HOME/config" \
+  "$ANCHOR_HOME/projects"
+printf '# Seeded Firstmate home\n' > "$ANCHOR_HOME/AGENTS.md"
+printf 'anchor\n' > "$ANCHOR_HOME/.fm-secondmate-home"
+cp "$BACKOFF_HOME/data/backlog.md" "$ANCHOR_HOME/data/backlog.md"
+printf '[2000-01-01T00:00:00Z] refresh exceeded its 120-second deadline\n[2000-01-01T00:00:01Z] refresh exceeded its 120-second deadline\n' \
+  > "$ANCHOR_HOME/state/.home-summary-refresh.log"
+rm -f "$CALLED_MARKER"
+PATH="$FAIL_WORKER_BIN:$FAKEBIN:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$ANCHOR_HOME" \
+  CALLED_MARKER_PATH="$CALLED_MARKER" "$WRITER" --best-effort || fail "anchored backoff best-effort failed"
+[ ! -e "$CALLED_MARKER" ] || fail "backoff measured from the attempt start stamp instead of when the failure was recorded"
+pass "backoff window starts when the failure was recorded, not when the attempt started"
