@@ -283,9 +283,12 @@ test_unresolvable_project_hookspath_still_refuses() {
   make_repo "$repo"
   printf 'note\n' >>"$repo/README.md"
   git -C "$repo" add README.md
-  git -C "$repo" config core.hooksPath '~fm-no-such-user-6171/hooks'
   hooks="$TMP_ROOT/hooks-unresolvable"
-  "$STRIP" install "$hooks" "$repo" || fail "install should succeed with an unresolvable core.hooksPath"
+  "$STRIP" install "$hooks" "$repo" || fail "install should succeed"
+  # Set after install: install writes the worktree binding, and git versions
+  # differ on whether any config read or write survives an unexpandable value.
+  # This case is about the commit-time lookup, which must refuse.
+  git -C "$repo" config core.hooksPath '~fm-no-such-user-6171/hooks'
   head=$(git -C "$repo" rev-parse HEAD)
   err=$(with_hooks_env "$hooks" git -C "$repo" commit -q -m 'fix: unresolvable hooksPath' 2>&1) &&
     fail "a commit succeeded although the repository's hooks directory cannot be resolved"
