@@ -242,7 +242,7 @@ refuse() {
 }
 proj=
 for scope in --local --global --system; do
-  if proj=\$(unset GIT_CONFIG_PARAMETERS; git config "\$scope" --get core.hooksPath); then
+  if proj=\$(unset GIT_CONFIG_PARAMETERS; git config "\$scope" --get --type=path core.hooksPath); then
     [ -n "\$proj" ] || exit 0
     break
   elif [ \$? -ne 1 ]; then
