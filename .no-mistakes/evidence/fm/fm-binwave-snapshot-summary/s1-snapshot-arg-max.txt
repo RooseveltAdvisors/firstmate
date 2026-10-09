@@ -1,0 +1,13 @@
+== backlog.md: 216819 bytes, 1500 in-flight tasks
+== BASE (19fcbbde) fm-fleet-snapshot.sh --contribution-input
+exit=0
+/tmp/fm-base.w2dFWb/bin/fm-fleet-snapshot.sh: line 1997: /home/linuxbrew/.linuxbrew/bin/jq: Argument list too long
+
+== BASE fm-contributions.sh poll-input path (get_input) via snapshot
+== HEAD (2d162a7c) fm-fleet-snapshot.sh --contribution-input
+exit=0
+output bytes: 1863639
+{"records":1500,"tasks":50,"present":true}
+== HEAD fm-contributions.sh snapshot on that input
+exit=0
+["captain_omitted","checked","complete","counts","known","missing_verdicts","proven_clear","stale_verdicts","unmeasured","unreadable_records","valid_until"]

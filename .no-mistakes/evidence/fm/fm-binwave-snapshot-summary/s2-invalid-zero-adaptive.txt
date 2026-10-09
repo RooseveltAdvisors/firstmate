@@ -1,0 +1,5 @@
+== invalid-zero-adaptive: 50 task metas, FM_HOME_SUMMARY_TIMEOUT=0, refresh lock held by a stuck peer
+Terminated
+exit=0 elapsed=145s
+-- state/.home-summary-refresh.log:
+[2026-10-09T05:04:11Z] refresh exceeded its 145-second deadline

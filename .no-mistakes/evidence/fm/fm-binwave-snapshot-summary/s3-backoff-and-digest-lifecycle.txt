@@ -1,0 +1,25 @@
+== stuck peer holds the refresh lock; FM_HOME_SUMMARY_TIMEOUT=5, FM_HOME_SUMMARY_BACKOFF_BASE=4
+best-effort #1: Terminated
+exit=0 took=5016ms log_lines=1
+best-effort #2: Terminated
+exit=0 took=5018ms log_lines=2
+-- failure log:
+[2026-10-09T05:07:03Z] refresh exceeded its 5-second deadline
+[2026-10-09T05:07:08Z] refresh exceeded its 5-second deadline
+-- session-start digest (fm-bootstrap detect-only, local):
+HOME_SUMMARY: this home has never published state/home-summary.json; 2 failed attempt(s) recorded in state/.home-summary-refresh.log, last: refresh exceeded its 5-second deadline
+best-effort #3 immediately after #2 (attempt-start stamp >=5s old > 4s base; expect SKIP): exit=0 took=5ms log_lines=2
+best-effort #4 after 4s window expired (expect RETRY): Terminated
+exit=0 took=5019ms log_lines=3
+best-effort #5 right after (3 failures -> 8s window; expect SKIP): exit=0 took=5ms log_lines=3
+non-best-effort refresh during backoff (expect RUN, bypass backoff): Terminated
+fm-home-summary-refresh: refresh exceeded its 3-second deadline
+exit=124 took=3006ms log_lines=3
+-- stuck peer exits (pid 1802776)
+Terminated
+explicit refresh: exit=0 took=107ms log_lines=3
+{"schema":"fm-secondmate-home-summary.v1","generated":"2026-10-09T05:07:28Z"}
+-- session-start digest after publication:
+(no HOME_SUMMARY line)
+best-effort after publication (expect RUN + republish): exit=0 took=85ms log_lines=3
+{"generated":"2026-10-09T05:07:29Z"}

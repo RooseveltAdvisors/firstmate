@@ -1,0 +1,10 @@
+== BASE fm-contributions.sh poll (consumer of --contribution-input), 1500-task backlog
+exit=0
+/tmp/fm-base.w2dFWb/bin/fm-fleet-snapshot.sh: line 1997: /home/linuxbrew/.linuxbrew/bin/jq: Argument list too long
+
+== HEAD fm-contributions.sh poll
+exit=0
+
+== HEAD full snapshot --json still works
+exit=0
+{"schema":"fm-fleet-snapshot.v1","backlog_records":1500}
