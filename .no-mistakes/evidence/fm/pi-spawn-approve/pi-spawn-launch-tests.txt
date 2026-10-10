@@ -1,0 +1,4 @@
+ok - seeded Pi/pi-signed secondmate launches carry session --approve when advertised
+ok - ordinary Pi worker launches omit --approve
+ok - Pi and pi-signed ship and scout launches ignore project trust with --no-approve, secondmates keep --approve
+ok - Pi approve probing omits --approve when help does not advertise it

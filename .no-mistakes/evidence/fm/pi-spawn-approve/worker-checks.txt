@@ -1,0 +1,12 @@
+pi                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  
+
+0
+ls: cannot access '/tmp/fmpi.nN9rM4/project-ext-ran': No such file or directory
+.pi/extensions/marker.ts
+home-summary.json
+labpi967742-worker.busy-gen
+labpi967742-worker.busy-state
+labpi967742-worker.git-hooks
+labpi967742-worker.meta
+labpi967742-worker.pi-ext.ts
+labpi967742-worker.turn-ended

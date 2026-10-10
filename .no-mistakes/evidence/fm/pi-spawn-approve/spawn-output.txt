@@ -1,0 +1,2 @@
+spawned labpi967742-worker harness=pi kind=ship mode=local-only yolo=on window=firstmate:fm-labpi967742-worker worktree=/tmp/fmpi.nN9rM4/treehouse/.treehouse/notes-d8360f/1/notes
+spawn exit=0

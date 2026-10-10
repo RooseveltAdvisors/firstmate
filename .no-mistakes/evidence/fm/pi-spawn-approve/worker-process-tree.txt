@@ -1,0 +1,6 @@
+zsh
+  `-treehouse get
+      |-zsh -i -l
+      |   `-pi
+      |       `-10*[{pi}]
+      `-7*[{treehouse}]
