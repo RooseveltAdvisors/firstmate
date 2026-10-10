@@ -104,7 +104,7 @@ This is a deliberate, source-owned choice:
   If the backend reports that failed trace input could not be cleared, Firstmate refuses to append the launch command rather than risk launching with an unknown partial carrier.
   If recording the carrier fails after export, Firstmate unsets `TRACEPARENT` in the launch command and still launches the task, so the child never receives an identity absent from its metadata.
 - **Metadata-only.**
-  The value lives in the ephemeral pane shell and in `state/<id>.meta`; teardown removes state as before, so there is no new durable surface and no schema migration.
+  The value lives in the ephemeral pane shell and in `state/<id>.meta`; teardown removes those trace-specific values as before, so trace propagation adds no trace-specific durable surface or schema migration.
 
 ## Relationship to OpenTelemetry and later increments
 
