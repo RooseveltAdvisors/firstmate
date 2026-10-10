@@ -1,0 +1,68 @@
+
+### 1. read: one dead (stale beat 4000s), one healthy (beat refreshed every sweep)
+$ fm-lane-liveness.sh read  (t=16:02:07)
+thresholds W=900s D=1800s E=600s M=50% SELF=900s
+lane=stuck source=local verdict=dead pending_count=0 handled_count=0 inbox_drain_age_s=- pending_reply_missed=- pending_reply_resolved=- error_signature_class=none watcher_beat_age_s=4000 agent_status=dead route_evidence_count=0 drained_while_error_active=no mover=- inbox=/tmp/fm-lab.JNhdFU/state/stuck.inbox reason=supervision beat age 4000s over W=900s
+lane=healthy source=local verdict=alive pending_count=0 handled_count=0 inbox_drain_age_s=- pending_reply_missed=- pending_reply_resolved=- error_signature_class=none watcher_beat_age_s=0 agent_status=dead route_evidence_count=0 drained_while_error_active=no mover=- inbox=/tmp/fm-lab.JNhdFU/state/healthy.inbox
+[exit=0]
+
+### 2. first check: dead lane wakes the supervisor
+$ fm-lane-liveness.sh check  (t=16:02:09)
+lane-liveness: lane=stuck source=local verdict=dead pending_count=0 handled_count=0 inbox_drain_age_s=- pending_reply_missed=- pending_reply_resolved=- error_signature_class=none watcher_beat_age_s=4002 agent_status=dead route_evidence_count=0 drained_while_error_active=no mover=- inbox=/tmp/fm-lab.JNhdFU/state/stuck.inbox reason=supervision beat age 4002s over W=900s
+[exit=0]
+reported record:
+stuck dead 1791662529
+
+### 3. immediate re-check: unchanged failure, report fresh (<REFIRE=8s) -> silent
+$ fm-lane-liveness.sh check  (t=16:02:11)
+[exit=0]
+
+### 4. wait 9s real time (> REFIRE): unchanged failure re-fires
+$ fm-lane-liveness.sh check  (t=16:02:22)
+lane-liveness: lane=stuck source=local verdict=dead pending_count=0 handled_count=0 inbox_drain_age_s=- pending_reply_missed=- pending_reply_resolved=- error_signature_class=none watcher_beat_age_s=4015 agent_status=dead route_evidence_count=0 drained_while_error_active=no mover=- inbox=/tmp/fm-lab.JNhdFU/state/stuck.inbox reason=supervision beat age 4015s over W=900s
+[exit=0]
+reported record (epoch refreshed):
+stuck dead 1791662542
+
+### 5. immediate re-check: silent again (once per window, not every sweep)
+$ fm-lane-liveness.sh check  (t=16:02:24)
+[exit=0]
+
+### 6. adversarial: legacy 2-field record with no epoch (pre-upgrade state) -> must re-fire, not stay silent forever
+$ fm-lane-liveness.sh check  (t=16:02:26)
+lane-liveness: lane=stuck source=local verdict=dead pending_count=0 handled_count=0 inbox_drain_age_s=- pending_reply_missed=- pending_reply_resolved=- error_signature_class=none watcher_beat_age_s=4019 agent_status=dead route_evidence_count=0 drained_while_error_active=no mover=- inbox=/tmp/fm-lab.JNhdFU/state/stuck.inbox reason=supervision beat age 4019s over W=900s
+[exit=0]
+stuck dead 1791662546
+
+### 7. recovery: stuck lane beat refreshed -> reported once as recovered
+$ fm-lane-liveness.sh check  (t=16:02:28)
+lane-liveness: stuck recovered to alive
+[exit=0]
+
+### 8. adversarial: alive lane past REFIRE never re-fires (no noise on health)
+$ fm-lane-liveness.sh check  (t=16:02:38)
+[exit=0]
+
+### 9. adversarial: malformed REFIRE value
+$ fm-lane-liveness.sh check  (t=16:02:40)
+error: response-lanes.conf line 1: REFIRE needs a whole number
+[exit=2]
+
+### 10. recovery ladder dry-run plan with RECOVERY unset (off-switch default)
+$ fm-lane-recover.sh plan
+recovery=off ceiling=2 cooldown=3600s mode=dry-run
+lane=stuck verdict=dead rung=escalate_captain action=would-park reason=rail verdict dead with no provider fault and an endpoint this ladder may not relaunch (state unverified-harness): recorded harness 'echo' is unverified for recovery (backend=tmux); supervision beat age 4000s is the evidence, and rearming another home's watcher has no scriptable primitive (fm_watch_arm_pi and fm_watch_arm_omp are in-harness tools of that home), so this escalates rather than pretending to repair it
+lane=healthy verdict=alive rung=none action=nothing reason=lane is alive, so the ladder has nothing to do
+[exit=0]
+$ fm-lane-recover.sh run
+refusing to act: RECOVERY=off in /tmp/fm-lab.JNhdFU/config/response-lanes.conf. The ladder acts only at RECOVERY=acting; this is the off-switch.
+Printing the plan instead, which changes nothing.
+recovery=off ceiling=2 cooldown=3600s mode=dry-run
+lane=stuck verdict=dead rung=escalate_captain action=would-park reason=rail verdict dead with no provider fault and an endpoint this ladder may not relaunch (state unverified-harness): recorded harness 'echo' is unverified for recovery (backend=tmux); supervision beat age 4002s is the evidence, and rearming another home's watcher has no scriptable primitive (fm_watch_arm_pi and fm_watch_arm_omp are in-harness tools of that home), so this escalates rather than pretending to repair it
+lane=healthy verdict=alive rung=none action=nothing reason=lane is alive, so the ladder has nothing to do
+[exit=0]
+tmux windows still present (nothing relaunched):
+stuck zsh
+healthy zsh
+
+lab torn down: yes

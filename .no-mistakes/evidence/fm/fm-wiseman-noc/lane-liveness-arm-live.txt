@@ -1,0 +1,12 @@
+$ arm
+armed: state/lane-liveness.check.sh state/lane-liveness-self.check.sh
+[exit=0]
+$ ls -R config/checks state | head -40
+./state
+./state/lane-liveness-self.check-trust
+./state/lane-liveness.check-trust
+./state/lane-liveness-self.check.sh
+./state/lane-liveness.check.sh
+$ disarm
+disarmed: lane-liveness lane-liveness-self
+[exit=0]
