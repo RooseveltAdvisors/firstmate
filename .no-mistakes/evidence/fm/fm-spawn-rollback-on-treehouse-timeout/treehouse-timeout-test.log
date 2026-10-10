@@ -1,0 +1,2 @@
+ok - a treehouse wait timeout leaves ship and scout items queued with no record
+ok - dispatch commits neither record nor backlog state before launch delivery succeeds
