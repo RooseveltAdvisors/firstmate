@@ -1,0 +1,8 @@
+ok - inverted codex verdict: quota-axi 89% wins
+ok - a stale 0% reading launches as requested
+ok - inverted opencode-go verdict: quota-axi 0% is exhausted
+ok - exhausted or stale divert target is never selected
+ok - unmeasurable lanes launch as requested with a loud named diagnostic and never divert
+ok - null quota-axi fields resolve to unknown without a traceback
+ok - a harness quota-axi does not measure launches as requested
+bash tests/fm-jev-quota-prober.test.sh  0.97s user 0.73s system 103% cpu 1.638 total
