@@ -21,8 +21,8 @@ Verdicts and exit codes (single-harness mode prints `<verdict> <harness> <model>
   exhausted  1  quota-axi reports the lane exhausted and no divert was chosen.
 
 select_divert() only picks a divert target quota-axi reports fresh and healthy
-from candidates configured via --divert-lane, --divert-config, or
-config/quota-divert-lanes. Default candidate pool is empty.
+from candidates configured via --divert-lane or --divert-config, each a
+`<harness> <model>` or `<harness>:<model>` lane. There is no default pool.
 bin/fm-spawn.sh re-probes the printed target and refuses it unless healthy.
 
 Test seam: with FM_TEST_SEAM=1, FM_TEST_QUOTA_SNAPSHOT=<quota-axi --json file>
@@ -48,22 +48,15 @@ from pathlib import Path
 HEALTHY, EXHAUSTED, UNKNOWN, UNMETERED, DIVERTED = "healthy", "exhausted", "unknown", "unmetered", "diverted"
 EXIT_CODES = {HEALTHY: 0, UNMETERED: 0, DIVERTED: 0, UNKNOWN: 0, EXHAUSTED: 1}
 
-# Divert candidates default to empty. Candidates are configured by the operator
-# or captain via config/quota-divert-lanes or --divert-lane / --divert-config.
-DIVERT_LANES: tuple[tuple[str, str], ...] = ()
-
-
 def parse_lane(raw: str) -> tuple[str, str] | None:
     raw = raw.strip()
     if not raw or raw.startswith("#"):
         return None
-    if ":" in raw:
-        h, m = raw.split(":", 1)
-        return (h.strip().lower(), m.strip())
-    parts = raw.split(None, 1)
-    if len(parts) == 2:
-        return (parts[0].strip().lower(), parts[1].strip())
-    return (parts[0].strip().lower(), "")
+    h, sep, m = raw.partition(":") if ":" in raw else raw.partition(" ")
+    h, m = h.strip().lower(), m.strip()
+    if not sep or not h or not m:
+        return None
+    return (h, m)
 
 
 def load_divert_file(path: str | Path) -> list[tuple[str, str]]:
@@ -203,10 +196,9 @@ def probe(harness: str, model: str) -> dict:
 
 def select_divert(
     original: tuple[str, str],
-    candidates: Sequence[tuple[str, str]] | None = None,
+    candidates: Sequence[tuple[str, str]],
 ) -> tuple[str, str] | None:
-    pool = DIVERT_LANES if candidates is None else candidates
-    for lane in pool:
+    for lane in candidates:
         if lane == original:
             continue
         res = probe(*lane)
@@ -258,13 +250,9 @@ def main() -> int:
         return EXIT_CODES[res["status"]]
 
     if res["status"] == EXHAUSTED and args.auto_divert:
-        divert_candidates: list[tuple[str, str]] = list(DIVERT_LANES)
+        divert_candidates: list[tuple[str, str]] = []
         if args.divert_config:
             divert_candidates.extend(load_divert_file(args.divert_config))
-        elif os.environ.get("CONFIG") and (Path(os.environ["CONFIG"]) / "quota-divert-lanes").is_file():
-            divert_candidates.extend(load_divert_file(Path(os.environ["CONFIG"]) / "quota-divert-lanes"))
-        elif os.environ.get("FM_HOME") and (Path(os.environ["FM_HOME"]) / "config" / "quota-divert-lanes").is_file():
-            divert_candidates.extend(load_divert_file(Path(os.environ["FM_HOME"]) / "config" / "quota-divert-lanes"))
 
         for dl in args.divert_lane:
             parsed = parse_lane(dl)

@@ -1097,6 +1097,14 @@ test_jev_prober_opt_in_gate_off_by_default() {
   assert_contains "$(cat "$LAUNCH_LOG")" "codex --model 'gpt-5'" "codex was not launched"
   rm -f "$LAUNCH_LOG" "$HOME_DIR/state/$id.meta"
 
+  # The FM_TEST_QUOTA_PROBER seam is inert without FM_TEST_SEAM=1.
+  out=$(FM_TEST_SEAM=0 FM_TEST_QUOTA_PROBER=1 FM_TEST_QUOTA_SNAPSHOT="$CASE_DIR/quota.json" \
+    run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model gpt-5 2>&1)
+  status=$?
+  expect_code 0 "$status" "a leaked FM_TEST_QUOTA_PROBER outside the suite does not opt in: $out"
+  assert_contains "$(cat "$LAUNCH_LOG")" "codex --model 'gpt-5'" "codex was not launched"
+  rm -f "$LAUNCH_LOG" "$HOME_DIR/state/$id.meta"
+
   # Present config/quota-prober opts in; exhausted codex is refused.
   touch "$HOME_DIR/config/quota-prober"
   out=$(FM_TEST_QUOTA_SNAPSHOT="$CASE_DIR/quota.json" \

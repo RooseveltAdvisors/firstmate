@@ -48,7 +48,7 @@ probe() {
   local snap=$1
   shift
   RC=0
-  FM_TEST_SEAM=1 FM_TEST_QUOTA_SNAPSHOT="$snap" FM_HOME="$TMP/home" \
+  FM_TEST_SEAM=1 FM_TEST_QUOTA_SNAPSHOT="$snap" \
     "$PROBER" "$@" > "$TMP/out" 2> "$TMP/err" || RC=$?
   OUT=$(cat "$TMP/out")
   ERR=$(cat "$TMP/err")
@@ -108,6 +108,9 @@ lanes = (("pi", "opencode-go/glm-5.3-flash"), ("pi", "zai/glm-5"), ("kimi", "k3"
 assert p.select_divert(("codex", "gpt-5.6-luna"), candidates=lanes) == ("kimi", "k3"), p.select_divert(("codex", "gpt-5.6-luna"), candidates=lanes)
 lanes = (("pi", "opencode-go/glm-5.3-flash"), ("pi", "zai/glm-5"))
 assert p.select_divert(("codex", "gpt-5.6-luna"), candidates=lanes) is None
+assert p.parse_lane("claude") is None
+assert p.parse_lane("pi:") is None
+assert p.parse_lane("PI opencode-go/glm-5.3-flash") == ("pi", "opencode-go/glm-5.3-flash")
 EOF
   expect_code 0 "$RC" "divert selection check: $(cat "$TMP/out")"
   pass "exhausted or stale divert target is never selected"

@@ -2403,32 +2403,23 @@ if [ "$KIND" = secondmate ] && [ -z "$ARG3" ]; then
   fi
 fi
 # Jev Pattern 9: pre-flight quota verdict (opt-in via config/quota-prober).
-# When config/quota-prober (or config/quota-preflight) is absent, pre-flight
-# quota probing is skipped (the default). A present file opts in unless it
-# contains "off" or "0".
-# Test seam: FM_TEST_QUOTA_PROBER=1 forces opt-in. FM_TEST_SEAM=1 with
+# When config/quota-prober is absent, pre-flight quota probing is skipped (the
+# default). A present file opts in unless it contains "off" or "0".
+# Test seam: with FM_TEST_SEAM=1, FM_TEST_QUOTA_PROBER=1 forces opt-in and
 # FM_TEST_DISABLE_JEV_PROBER=1 disables.
 # Divert candidates are configured by the captain in config/quota-divert-lanes.
 # Only exhausted refuses. Healthy, unmetered, unknown and a prober that returned
 # no verdict launch as requested. Nothing diverts unless candidates are configured
 # and the target is proven healthy in quota-axi.
 _quota_prober_optin=0
-if [ "${FM_TEST_QUOTA_PROBER:-0}" = 1 ]; then
+if [ "${FM_TEST_SEAM:-0}" = 1 ] && [ "${FM_TEST_QUOTA_PROBER:-0}" = 1 ]; then
   _quota_prober_optin=1
-else
-  _quota_cfg=
-  if [ -f "$CONFIG/quota-prober" ]; then
-    _quota_cfg="$CONFIG/quota-prober"
-  elif [ -f "$CONFIG/quota-preflight" ]; then
-    _quota_cfg="$CONFIG/quota-preflight"
-  fi
-  if [ -n "$_quota_cfg" ]; then
-    _val=$(tr -d '[:space:]' < "$_quota_cfg" 2>/dev/null | tr '[:upper:]' '[:lower:]') || _val=""
-    case "$_val" in
-    off|0) _quota_prober_optin=0 ;;
-    *) _quota_prober_optin=1 ;;
-    esac
-  fi
+elif [ -f "$CONFIG/quota-prober" ]; then
+  _val=$(tr -d '[:space:]' < "$CONFIG/quota-prober" 2>/dev/null | tr '[:upper:]' '[:lower:]') || _val=""
+  case "$_val" in
+  off|0) _quota_prober_optin=0 ;;
+  *) _quota_prober_optin=1 ;;
+  esac
 fi
 if [ "${FM_TEST_SEAM:-0}" = 1 ] && [ "${FM_TEST_DISABLE_JEV_PROBER:-0}" = 1 ]; then
   _quota_prober_optin=0
@@ -2440,12 +2431,6 @@ if [ "$_quota_prober_optin" = 1 ] && [ -x "$SCRIPT_DIR/fm-jev-quota-prober.sh" ]
   _divert_args=()
   if [ -f "$CONFIG/quota-divert-lanes" ]; then
     _divert_args=(--divert-config "$CONFIG/quota-divert-lanes" --auto-divert)
-  elif [ -n "${FM_TEST_QUOTA_DIVERT_LANES:-}" ]; then
-    _divert_args=()
-    for _dl in $FM_TEST_QUOTA_DIVERT_LANES; do
-      _divert_args+=(--divert-lane "$_dl")
-    done
-    _divert_args+=(--auto-divert)
   fi
   _jev_out=$("$SCRIPT_DIR/fm-jev-quota-prober.sh" --harness "$HARNESS" ${MODEL:+--model "$MODEL"} ${_divert_args[@]+"${_divert_args[@]}"}) || _jev_rc=$?
   read -r _jev_verdict _jev_harness _jev_model <<< "$_jev_out" || :

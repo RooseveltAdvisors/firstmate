@@ -52,7 +52,7 @@ export FM_GATE_REFUSE_BYPASS=1
 # leaked harness pin alone stays inert outside a suite.
 export FM_TEST_SEAM=1
 
-# A spawn with config/quota-prober or FM_TEST_QUOTA_PROBER=1 runs
+# A spawn with config/quota-prober (or FM_TEST_QUOTA_PROBER=1 under the seam) runs
 # bin/fm-jev-quota-prober.sh, which refuses a lane quota-axi reports exhausted.
 # Under the test seam it reads this all-healthy quota-axi snapshot instead of
 # the host's quota-axi; a case that needs other quota evidence points
