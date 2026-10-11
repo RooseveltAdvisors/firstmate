@@ -748,6 +748,24 @@ EOF
   assert_grep '- spaced app [direct-PR] - spaced project with posture' "$design/data/projects.md" \
     "seed did not preserve the parent registry line for a spaced project name"
 
+  # 3. A name containing " - " must match its whole row, and reseeding must
+  #    replace that row instead of duplicating it.
+  mkdir -p "$home/projects/dash - app"
+  fm_git_init_commit "$home/projects/dash - app"
+  fm_git_add_origin "$home/projects/dash - app" "$TMP_ROOT/remotes/seed-dash-app.git"
+  cat >> "$home/data/projects.md" <<EOF
+- dash - app [direct-PR] - dashed project with posture (added 2026-06-22)
+EOF
+  local i
+  for i in 1 2; do
+    FM_HOME="$home" FM_SECONDMATE_CHARTER='feature design for dash app' \
+      FM_SECONDMATE_SCOPE='feature design for dash app' \
+      "$ROOT/bin/fm-home-seed.sh" design "$design" "dash - app" >/dev/null \
+      || fail "seed $i with a dashed project name failed"
+  done
+  [ "$(grep -cF -- '- dash - app [direct-PR] - dashed project with posture' "$design/data/projects.md")" = 1 ] \
+    || fail "seed did not keep exactly one parent registry line for a dashed project name: $(cat "$design/data/projects.md")"
+
   pass "home seeding handles spaced project names in project-less refusal and registry queries"
 }
 
