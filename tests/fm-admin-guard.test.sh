@@ -58,6 +58,10 @@ test_cli_admin_refusals() {
     '(gh pr merge 5 --admin)' 'cd repo; $(which gh) pr merge 5 --admin' \
     'GH_TOKEN=x sudo gh-axi pr merge 5 --admin' \
     "$(printf "cat <<EOF > notes\nbody\nEOF\ngh pr merge 5 --admin")" \
+    "$(printf "cat <<'END.TXT' > f\nbody\nEND.TXT\ngh pr merge 5 --admin")" \
+    "$(printf 'cat <<END-1 > f\nbody\nEND-1\ngh pr merge 5 --admin')" \
+    "$(printf 'x=$((1<<2))\ngh pr merge 5 --admin')" \
+    "$(printf 'echo $(( (1 << 3) ))\ngh pr merge 5 --admin')" \
     'echo \"; gh pr merge 5 --admin'; do
     rc=0
     run_guard --command "$wrapped" || rc=$?
