@@ -411,6 +411,44 @@ change_read_record_bounded() {  # <host> <number>
   FM_PR_RECORD_MERGED=$merged
 }
 
+pr_checks_green_bounded() {  # <owner> <repo> <number>
+  local checks
+  # shellcheck disable=SC2016  # The inner script expands after bash -c receives positional args.
+  if ! checks=$(fm_run_timed 5 bash -c '
+    . "$1"
+    fm_pr_github_checks_state "$2" "$3" "$4" || exit 1
+    printf "%s\n" "$FM_PR_CHECKS_STATE"
+  ' _ "$SCRIPT_DIR/fm-pr-lib.sh" "$1" "$2" "$3" 2>/dev/null); then
+    return 1
+  fi
+  [ "$checks" = green ] || [ "$checks" = SUCCESS ]
+}
+
+nm_forge_checks_green() {
+  [ "${FM_CREW_STATE_NO_FORGE:-0}" = 1 ] && return 1
+  local raw_pr provider path number owner repo
+  raw_pr=$(strip_quotes "$(nm_field pr)")
+  if fm_pr_url_parse "$raw_pr"; then
+    provider=$FM_PR_PROVIDER
+    path=$FM_PR_PATH
+    number=$FM_PR_NUMBER
+  elif [ -n "${META:-}" ] && fm_pr_metadata_identity_parse "$META"; then
+    provider=$FM_PR_META_PROVIDER
+    path=$FM_PR_META_PATH
+    number=$FM_PR_META_NUMBER
+  else
+    return 1
+  fi
+  case "$provider" in
+    github)
+      owner=${path%%/*}
+      repo=${path#*/}
+      pr_checks_green_bounded "$owner" "$repo" "$number"
+      ;;
+    *) return 1 ;;
+  esac
+}
+
 passed_pr_detail() {
   local provider url host path number owner repo raw_pr state_lc
   raw_pr=$(strip_quotes "$(nm_field pr)")
@@ -861,7 +899,7 @@ nm_effective_ci_step_status() {
 # ignores the line the same way, v1.32.2 through v1.79.0). Reading it as
 # not-ready held a green PR at working for as long as main kept advancing.
 nm_ci_checks_state() {
-  local run_id ci_log marker
+  local run_id ci_log marker last_verdict trailing_after_pass
   run_id=$(strip_quotes "$(nm_field id)")
   [ -n "$run_id" ] || { printf 'unknown'; return; }
   ci_log=$(nm_run axi logs --step ci --run "$run_id" --full) || true
@@ -869,8 +907,27 @@ nm_ci_checks_state() {
   marker=$(printf '%s\n' "$ci_log" \
     | grep -E 'CI checks passed|no CI checks reported - still monitoring|no CI checks reported yet|checks failed|issues detected|CI checks running' \
     | tail -1)
+
   case "$marker" in
-    *"checks passed"*|*"no CI checks reported - still monitoring"*) printf 'green' ;;
+    *"checks passed"*|*"no CI checks reported - still monitoring"*)
+      # When the ci log's last authoritative verdict is PASSED despite a later
+      # base-advance re-arm marker and no subsequent failure, resolve against
+      # forge-green.
+      trailing_after_pass=$(printf '%s\n' "$ci_log" | awk '
+        /CI checks passed|no CI checks reported - still monitoring/ { in_pass = 1; trail = ""; next }
+        in_pass { trail = trail "\n" $0 }
+        END { print trail }
+      ')
+      if printf '%s\n' "$trailing_after_pass" | grep -qE 'base branch advanced.*re-arming CI monitor timeout'; then
+        if nm_forge_checks_green; then
+          printf 'green'
+        else
+          printf 'not-ready'
+        fi
+        return
+      fi
+      printf 'green'
+      ;;
     *"no CI checks reported yet"*|*"checks failed"*|*"issues detected"*|*"CI checks running"*) printf 'not-ready' ;;
     *) printf 'unknown' ;;
   esac

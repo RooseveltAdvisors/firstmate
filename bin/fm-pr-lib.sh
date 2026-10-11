@@ -1001,6 +1001,73 @@ fm_pr_github_read_record() {  # <owner> <repo> <number>
   fm_pr_github_read_record_with_gh_axi "$@"
 }
 
+fm_pr_github_checks_state_with_gh() {  # <owner> <repo> <number>
+  local owner=$1 repo=$2 number=$3 checks_state output
+  FM_PR_CHECKS_STATE=
+
+  # shellcheck disable=SC2016  # GraphQL variables are literal query syntax.
+  if checks_state=$(gh api graphql \
+    -f query='query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){commits(last:1){nodes{commit{statusCheckRollup{state}}}}}}}' \
+    -F "owner=$owner" -F "repo=$repo" -F "number=$number" \
+    --jq '.data.repository.pullRequest.commits.nodes[0].commit.statusCheckRollup.state // ""' \
+    2>/dev/null) && [ -n "$checks_state" ]; then
+    case "$checks_state" in
+      SUCCESS)
+        # Consumed by bin/fm-crew-state.sh pr_checks_green_bounded.
+        # shellcheck disable=SC2034
+        FM_PR_CHECKS_STATE=green
+        return 0
+        ;;
+      *)
+        # Consumed by bin/fm-crew-state.sh pr_checks_green_bounded.
+        # shellcheck disable=SC2034
+        FM_PR_CHECKS_STATE=not-ready
+        return 1
+        ;;
+    esac
+  fi
+
+  if output=$(gh pr checks "$number" -R "$owner/$repo" --json bucket 2>/dev/null); then
+    if printf '%s\n' "$output" | jq -e 'length > 0 and (map(.bucket) | all(. == "pass" or . == "skipping"))' >/dev/null 2>&1; then
+      # Consumed by bin/fm-crew-state.sh pr_checks_green_bounded.
+      # shellcheck disable=SC2034
+      FM_PR_CHECKS_STATE=green
+      return 0
+    fi
+    # Consumed by bin/fm-crew-state.sh pr_checks_green_bounded.
+    # shellcheck disable=SC2034
+    FM_PR_CHECKS_STATE=not-ready
+    return 1
+  fi
+  return 1
+}
+
+fm_pr_github_checks_state_with_gh_axi() {  # <owner> <repo> <number>
+  local owner=$1 repo=$2 number=$3 output
+  FM_PR_CHECKS_STATE=
+  if output=$(gh-axi pr checks "$number" -R "$owner/$repo" 2>/dev/null); then
+    if printf '%s\n' "$output" | grep -q 'summary:.* 0 failed'; then
+      # Consumed by bin/fm-crew-state.sh pr_checks_green_bounded.
+      # shellcheck disable=SC2034
+      FM_PR_CHECKS_STATE=green
+      return 0
+    fi
+    # Consumed by bin/fm-crew-state.sh pr_checks_green_bounded.
+    # shellcheck disable=SC2034
+    FM_PR_CHECKS_STATE=not-ready
+    return 1
+  fi
+  return 1
+}
+
+fm_pr_github_checks_state() {  # <owner> <repo> <number>
+  if command -v gh >/dev/null 2>&1 && fm_pr_github_checks_state_with_gh "$@"; then
+    return 0
+  fi
+  command -v gh-axi >/dev/null 2>&1 || return 1
+  fm_pr_github_checks_state_with_gh_axi "$@"
+}
+
 fm_pr_gitlab_read_record() {  # <host> <path> <number>
   local host=$1 path=$2 number=$3 project_url json fields line
   local total=0 named=0 state='' merged=''
