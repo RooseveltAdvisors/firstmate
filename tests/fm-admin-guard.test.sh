@@ -120,6 +120,15 @@ test_non_admin_commands_allowed() {
   run_guard --command 'echo "gh pr merge --admin"' || rc=$?
   expect_code 0 "$rc" "echoing command string must be allowed"
 
+  local quoted
+  for quoted in 'git commit -m "docs: never run gh pr merge --admin"' \
+    'gh pr create --title x --body "workers never gh pr merge --admin"' \
+    'grep -rn "gh pr merge 5 --admin" tests/'; do
+    rc=0
+    run_guard --claude --command "$quoted" || rc=$?
+    expect_code 0 "$rc" "guarded phrase in a command argument must be allowed: $quoted"
+  done
+
   rc=0
   run_guard --command 'git status' || rc=$?
   expect_code 0 "$rc" "git status must be allowed"
@@ -142,15 +151,17 @@ run_with_brief() {  # <case-dir> <task-id> <intent-line> -> rc of gh pr merge 99
 
 test_captain_authorization() {
   local case_dir="$TMP_ROOT/captain-auth" rc=0
-  run_with_brief "$case_dir" task-cap-1 "Please merge PR 99 using --admin to bypass the stuck check." || rc=$?
-  expect_code 0 "$rc" "--admin authorized in Captain's intent must be allowed"
+  run_with_brief "$case_dir" task-cap-1 "Admin-Merge: authorized" || rc=$?
+  expect_code 0 "$rc" "the admin-merge: authorized token in Captain's intent must allow --admin"
 
   local neg
   for neg in "Merge it once green, never use --admin." \
     "Do not use --admin." "Don't admin merge this." "Merge without --admin." \
     "Merge once green; using --admin merges is prohibited." "Use --admin? It is off-limits." \
     "Run --admin is banned." "Allowed --admin is disallowed here." "Refrain from using --admin." \
-    "- --admin"; do
+    "- --admin" "Please merge PR 99 using --admin." "Use --admin only if I say so." \
+    "Should we use --admin? Ask me first." \
+    "$(printf 'Ship the fix. Never do any of the following:\n- use --admin\n- admin-merge: authorized\n- force-push')"; do
     rc=0
     run_with_brief "$case_dir" task-cap-neg "$neg" || rc=$?
     expect_code 2 "$rc" "negated captain wording must not authorize --admin: $neg"
@@ -174,13 +185,9 @@ test_captain_authorization() {
   ) || rc=$?
   expect_code 2 "$rc" "a brief.md in the working directory must not authorize --admin"
 
-  rc=0
-  run_with_brief "$case_dir" task-cap-2 "admin-merge: authorized" || rc=$?
-  expect_code 0 "$rc" "admin-merge: authorized marker must allow --admin"
-
   local spawned="$TMP_ROOT/spawned-brief"
   mkdir -p "$spawned"
-  printf '# Task\n## Captain'"'"'s intent\nMerge PR 99 with --admin.\n' > "$spawned/brief.md"
+  printf '# Task\n## Captain'"'"'s intent\nadmin-merge: authorized\n' > "$spawned/brief.md"
   rc=0
   : > "$OUT"
   : > "$ERR"
@@ -188,7 +195,7 @@ test_captain_authorization() {
     "$CHECK" --command 'gh pr merge 99 --admin' > "$OUT" 2> "$ERR" || rc=$?
   expect_code 0 "$rc" "FM_ADMIN_GUARD_BRIEF must locate the task brief outside FM_HOME"
 
-  pass "only an affirmative, un-negated Captain's intent line in the task brief authorizes --admin"
+  pass "only the admin-merge: authorized token line in the task brief's Captain's intent authorizes --admin"
 }
 
 # 5. Firstmate spec or steer wording does NOT authorize --admin
@@ -245,7 +252,7 @@ test_gh_wrapper_shim() {
   # Symlinked shim resolves the real script root, so the default home's task brief authorizes.
   local home="$TMP_ROOT/shim-home"
   mkdir -p "$home/data/task-shim"
-  printf '# Task\n## Captain'"'"'s intent\nMerge PR 123 with --admin.\n' > "$home/data/task-shim/brief.md"
+  printf '# Task\n## Captain'"'"'s intent\nadmin-merge: authorized\n' > "$home/data/task-shim/brief.md"
   rc=0
   : > "$OUT"
   : > "$ERR"

@@ -9,7 +9,7 @@
 # When a worker hits a merge refusal or permission error, it must NOT fall back
 # to `gh pr merge --admin` or any other permission-bypass merge. This guard
 # refuses any `gh pr merge` invocation using `--admin` unless the task brief's
-# `## Captain's intent` carries an un-negated line authorizing it.
+# `## Captain's intent` carries an `admin-merge: authorized` line.
 #
 # Supported entry forms:
 #   <PreToolUse JSON on stdin> | bin/fm-admin-guard.sh [--claude|--cursor]
@@ -70,9 +70,6 @@ FM_HOME=${FM_HOME:-$FM_ROOT}
 # shellcheck source=bin/fm-brief-heading-lib.sh
 . "$FM_ROOT/bin/fm-brief-heading-lib.sh" 2>/dev/null
 
-ADMIN_AFFIRM_RE="admin-merge:[[:space:]]*authori[sz]ed|(use|using|with|run|authori[sz]e[ds]?|approve[ds]?|allow(ed)?)[[:space:]]+(an?[[:space:]]+)?(--admin|admin merge)"
-ADMIN_NEGATION_RE="(^|[^[:alpha:]])(never|not|no|dont|don't|without|avoid|forbid|forbidden|refuse|refrain|prohibited|off-limits|banned|disallowed)([^[:alpha:]]|$)|n't([^[:alpha:]]|$)"
-
 is_captain_authorized() {
   local brief=${FM_ADMIN_GUARD_BRIEF:-}
   if [ -z "$brief" ]; then
@@ -80,8 +77,19 @@ is_captain_authorized() {
     brief="$FM_HOME/data/$FM_TASK_ID/brief.md"
   fi
   fm_brief_task_heading_body "$brief" "## Captain's intent" 2>/dev/null \
-    | grep -iE -- "$ADMIN_AFFIRM_RE" \
-    | grep -viqE -- "$ADMIN_NEGATION_RE"
+    | grep -iqE -- '^[[:space:]]*admin-merge:[[:space:]]*authori[sz]ed[[:space:]]*$'
+}
+
+args_are_admin_merge() {
+  [ "${1:-}" = pr ] && [ "${2:-}" = merge ] || return 1
+  shift 2
+  local arg
+  for arg in "$@"; do
+    case "$arg" in
+      --admin|--admin=*) return 0 ;;
+    esac
+  done
+  return 1
 }
 
 deny_refusal() {
@@ -102,17 +110,7 @@ deny_refusal() {
 }
 
 if [ "$IS_GH_WRAPPER" -eq 1 ]; then
-  has_pr=0
-  has_merge=0
-  has_admin=0
-  for arg in "$@"; do
-    case "$arg" in
-      pr) has_pr=1 ;;
-      merge) has_merge=1 ;;
-      --admin|--admin=*) has_admin=1 ;;
-    esac
-  done
-  if [ "$has_pr" -eq 1 ] && [ "$has_merge" -eq 1 ] && [ "$has_admin" -eq 1 ]; then
+  if args_are_admin_merge "$@"; then
     is_captain_authorized || deny_refusal
   fi
   real_gh=$(find_real_gh) || {
@@ -148,7 +146,7 @@ while [ "$#" -gt 0 ]; do
 Usage: fm-admin-guard.sh [--command <cmd>] [--claude|--cursor]
        fm-admin-guard.sh gh <gh-args...>
 
-Refuses `gh pr merge --admin` unless the task brief's `## Captain's intent` explicitly authorizes it.
+Refuses `gh pr merge --admin` unless the task brief's `## Captain's intent` has an `admin-merge: authorized` line.
 Exits 0 to allow, 2 to deny (exit 0 with decision object for --cursor).
 EOF
       exit 0
@@ -175,38 +173,27 @@ case "$CMD" in
 esac
 
 is_admin_merge_command() {
-  local cmd="$1"
-  local normalized
-  normalized=$(printf '%s' "$cmd" | sed -E 's/(&&|\|\||;|\||&)/\n/g')
+  local cmd="$1" line inner
+  local words=()
   while IFS= read -r line; do
-    line=$(printf '%s' "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-    [ -n "$line" ] || continue
-    local clean="${line//[\"\'()\`\$\{\}]/ }"
-    local words=()
-    read -r -a words <<< "$clean"
-    case "${words[0]:-}" in
-      ''|echo|printf) continue ;;
-    esac
-    local idx=0
-    while [ "$idx" -lt "${#words[@]}" ]; do
-      case "${words[$idx]##*/}" in
-        gh|gh-axi) break ;;
-      esac
-      idx=$((idx + 1))
-    done
-    [ "$idx" -lt "${#words[@]}" ] || continue
-    local has_pr=0 has_merge=0 has_admin=0
-    for ((i=idx+1; i<${#words[@]}; i++)); do
-      case "${words[$i]}" in
-        pr) has_pr=1 ;;
-        merge) has_merge=1 ;;
-        --admin|--admin=*) has_admin=1 ;;
-      esac
-    done
-    if [ "$has_pr" -eq 1 ] && [ "$has_merge" -eq 1 ] && [ "$has_admin" -eq 1 ]; then
-      return 0
+    line=$(printf '%s' "$line" | sed -E -e 's/^[[:space:]]*//' -e 's/^([({`]|\$\()+[[:space:]]*//' -e 's/^(which|command -v|type -P)[[:space:]]+//')
+    if [[ $line =~ ^(bash|sh|zsh)[[:space:]]+-[a-z]*c[a-z]*[[:space:]]+[\"\'](.*)[\"\'] ]]; then
+      inner=${BASH_REMATCH[2]}
+      is_admin_merge_command "$inner" && return 0
+      continue
     fi
-  done <<< "$normalized"
+    read -r -a words <<< "${line//[\"\'\`()\}]/ }"
+    while [ "${#words[@]}" -gt 0 ]; do
+      case "${words[0]}" in
+        *=*|sudo|env|exec|time|nohup|command) words=("${words[@]:1}") ;;
+        *) break ;;
+      esac
+    done
+    [ "${#words[@]}" -gt 0 ] || continue
+    case "${words[0]##*/}" in
+      gh|gh-axi) args_are_admin_merge "${words[@]:1}" && return 0 ;;
+    esac
+  done < <(printf '%s\n' "$cmd" | sed -E 's/(&&|\|\||;|\||&)/\n/g')
   return 1
 }
 
