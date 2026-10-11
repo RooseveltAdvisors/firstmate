@@ -374,6 +374,32 @@ test_remote_retry_failure_preserves_ambiguous_expectation() {
   pass "fm-send remote: a failed retry cannot erase an earlier ambiguous delivery"
 }
 
+test_remote_retry_wedged_composer_counts_skip() {
+  local dir fb ssh_log home rhome rc err pend
+  dir="$TMP_ROOT/remote-ambiguous-then-wedged"; mkdir -p "$dir"
+  fb=$(make_stubs "$dir"); ssh_log="$dir/ssh.log"; : > "$ssh_log"
+  rhome=$(setup_remote_secondmate_home remote-ambiguous-then-wedged)
+  home=$(setup_remote_parent_home remote-ambiguous-then-wedged "$rhome")
+
+  rc=0
+  send_env "$fb" "$home" "$ssh_log" FM_FAKE_SSH_AFTER_AMBIGUOUS_RC=4 \
+    "$SEND" rsm "please rename the metric" >"$dir/out" 2>"$dir/err" || rc=$?
+  err=$(cat "$dir/err")
+  expect_code 4 "$rc" "a retry that reaches a wedged composer must exit 4, got $rc: $err"
+  assert_contains "$err" "consecutive composer-held skips for rsm: 1" \
+    "a retry that reaches a wedged composer must count the skip"
+  assert_not_contains "$err" "unconfirmed" \
+    "a retry confirmed as durable must not be reported as unconfirmed"
+  [ "$(cat "$home/state/rsm.doorbell-skip" 2>/dev/null)" = 1 ] \
+    || fail "the retry's skip should record streak count 1"
+  pend=$(pending_record "$home")
+  [ -z "$pend" ] || [ "$(grep '^phase=' "$pend" | tail -1 | cut -d= -f2-)" != delivery_unknown ] \
+    || fail "a durable retry must not leave the expectation delivery_unknown: $(cat "$pend")"
+  [ "$(remote_inbox_records "$rhome" | grep -c . || true)" = 1 ] \
+    || fail "the first attempt's durable record must remain the sole remote record"
+  pass "fm-send remote: a retry that reaches a wedged composer counts the skip as durable delivery"
+}
+
 test_remote_fire_and_forget_never_arms_reply_recovery() {
   local dir fb ssh_log home rhome rc count delivery action
   dir="$TMP_ROOT/remote-fire-and-forget"; mkdir -p "$dir"
@@ -942,6 +968,7 @@ test_local_pending_does_not_close_resolve_key() {
 test_remote_steer_lands_in_remote_inbox
 test_remote_rerun_is_idempotent
 test_remote_retry_failure_preserves_ambiguous_expectation
+test_remote_retry_wedged_composer_counts_skip
 test_remote_fire_and_forget_never_arms_reply_recovery
 test_remote_send_revalidates_after_retirement_lock
 test_remote_send_revalidates_parent_route_after_retirement_lock

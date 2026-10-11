@@ -1060,7 +1060,7 @@ else
         fm-remote-secondmate-control.sh send "${REMOTE_SEND_ARGS[@]}" </dev/null || remote_rc=$?
     fi
     fm_lock_release "$REMOTE_META_LOCK"
-    if [ "$remote_rc" -ne 0 ] && [ "$remote_completion_unknown" -eq 1 ]; then
+    if [ "$remote_rc" -ne 0 ] && [ "$remote_rc" -ne 4 ] && [ "$remote_completion_unknown" -eq 1 ]; then
       if [ -n "$FIRE_AND_FORGET_ID" ]; then
         echo "error: fire-and-forget steer to remote secondmate $TARGET_REMOTE_ID is unconfirmed (delivery-id=$FIRE_AND_FORGET_ID); retry only with the same delivery id" >&2
         exit 3
