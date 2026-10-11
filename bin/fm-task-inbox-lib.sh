@@ -71,9 +71,10 @@
 # above is only safe while the held line is transient. When the SAME condition
 # holds on every later attempt - one stale line left in an idle composer - the
 # ring skips forever, the ladder's re-rings skip too, and the seat never wakes
-# while every steering record queues unread behind it. bin/fm-send.sh therefore
-# recovers the skip as part of the send itself: clear-or-submit the held text,
-# then ring again. That recovery is a sanctioned mutation of a worker's
+# while every steering record queues unread behind it. bin/fm-send.sh (and
+# bin/fm-remote-secondmate-control.sh's send leg for a remote secondmate)
+# therefore recovers the skip as part of the send itself: clear-or-submit the
+# held text, then ring again. That recovery is a sanctioned mutation of a worker's
 # composer and lives HERE with the doorbell contract, but only the SEND side
 # calls it - the watcher's ladder keeps its narrow skip, because a periodic
 # re-ring must never submit or drop a worker's draft on its own schedule.
