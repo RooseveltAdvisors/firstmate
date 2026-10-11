@@ -2181,6 +2181,30 @@ EOF
     pass "gh-axi pending checks keep run failed"
   ) || fail "rearm with gh-axi pending checks failed"
 
+  # Negative control: gh unavailable and gh-axi reporting failed checks with a non-zero exit
+  (
+    reset_fakes
+    local d out
+    d=$(new_case rearm-axi-failed)
+    make_repo_on_branch "$d/wt" fm/rearm-axi-failed
+    make_fakebin "$d" >/dev/null
+    fm_write_meta "$d/state/rearm-axi-failed.meta" "window=fm:fm-rearm-axi-failed" "worktree=$d/wt" "kind=ship"
+    FM_FAKE_AXI_STATUS="$(run_failed_ci_orphan fm/rearm-axi-failed)"
+    FM_FAKE_PR_STATE=OPEN
+    FM_FAKE_PR_MERGED=false
+    FM_FAKE_PR_CHECKS=FAILURE
+    FM_FAKE_GH_CHECKS_UNAVAILABLE=1
+    FM_FAKE_CI_LOGS=$(cat <<'EOF'
+all CI checks passed - still monitoring until merged or closed
+base branch advanced (aaaaaaa..bbbbbbb), re-arming CI monitor timeout
+EOF
+)
+    out=$(FM_HOME="$d" run_crew_state "$d" rearm-axi-failed)
+    assert_contains "$out" "state: failed" "gh-axi failed checks keep failed run failed: $out"
+    assert_not_contains "$out" "state: done" "gh-axi failed checks must not reclassify to done"
+    pass "gh-axi failed checks keep run failed"
+  ) || fail "rearm with gh-axi failed checks failed"
+
   # Negative control: a definite gh pending answer must not fall through to gh-axi
   (
     reset_fakes

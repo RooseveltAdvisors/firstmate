@@ -1046,21 +1046,20 @@ fm_pr_github_checks_state_with_gh() {  # <owner> <repo> <number>
 fm_pr_github_checks_state_with_gh_axi() {  # <owner> <repo> <number>
   local owner=$1 repo=$2 number=$3 output summary passed total
   FM_PR_CHECKS_STATE=
-  if output=$(gh-axi pr checks "$number" -R "$owner/$repo" 2>/dev/null); then
-    summary=$(printf '%s\n' "$output" | sed -n 's/^summary: *//p' | head -1)
-    passed=$(printf '%s\n' "$summary" | sed -n 's/^[^0-9]*\([0-9][0-9]*\) passed.*/\1/p')
-    total=$(printf '%s\n' "$summary" | sed -n 's/.*[^0-9]\([0-9][0-9]*\) total.*/\1/p')
-    if [ -n "$passed" ] && [ "${total:-0}" -gt 0 ] && [ "$passed" = "$total" ]; then
-      # Consumed by bin/fm-crew-state.sh pr_checks_state_bounded.
-      # shellcheck disable=SC2034
-      FM_PR_CHECKS_STATE=green
-      return 0
-    fi
+  output=$(gh-axi pr checks "$number" -R "$owner/$repo" 2>/dev/null) || true
+  summary=$(printf '%s\n' "$output" | sed -n 's/^summary: *//p' | head -1)
+  passed=$(printf '%s\n' "$summary" | sed -n 's/^[^0-9]*\([0-9][0-9]*\) passed.*/\1/p')
+  total=$(printf '%s\n' "$summary" | sed -n 's/.*[^0-9]\([0-9][0-9]*\) total.*/\1/p')
+  [ -n "$passed" ] && [ -n "$total" ] && [ "$total" -gt 0 ] || return 1
+  if [ "$passed" = "$total" ]; then
     # Consumed by bin/fm-crew-state.sh pr_checks_state_bounded.
     # shellcheck disable=SC2034
-    FM_PR_CHECKS_STATE=not-ready
-    return 1
+    FM_PR_CHECKS_STATE=green
+    return 0
   fi
+  # Consumed by bin/fm-crew-state.sh pr_checks_state_bounded.
+  # shellcheck disable=SC2034
+  FM_PR_CHECKS_STATE=not-ready
   return 1
 }
 
