@@ -655,7 +655,10 @@ test_hold_creates_a_captain_row_when_beads_requires_due_without_custom_type() {
   fixture=$(make_beads_home due-required-no-custom-type)
   home=${fixture%%|*}
   beads=${fixture##*|}
-  printf '\ndue:\n    required: true\n' >> "$beads/config.yaml"
+  # make_beads_home opts the graph out of due.required; flip that key in place,
+  # since bd honours the first of two duplicate `due:` blocks.
+  sed 's/^  required: false$/  required: true/' "$beads/config.yaml" > "$beads/config.yaml.new" \
+    && mv "$beads/config.yaml.new" "$beads/config.yaml"
   if bdrow "$beads" create "raw task" --id fm-raw-task --type task --json >/dev/null 2>&1; then
     fail "bd created a task without --due; the due.required fixture is not in force"
   fi
