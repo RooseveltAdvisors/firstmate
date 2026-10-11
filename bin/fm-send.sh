@@ -592,6 +592,59 @@ fm_send_resolve_close_note() { # <key> <excerpt>
   printf 'answered: %s' "$excerpt"
 }
 
+# Probe formatting for a resolved line without writing a sidecar during preflight.
+fm_send_probe_resolved_line() { # <state> <task> <key> <close_note> <max_len>
+  local state=$1 task=$2 key=$3 note=$4 max_len=$5
+  local line="resolved [key=$key]: $note"
+  local dummy_pointer keep
+
+  if [ "${#line}" -le "$max_len" ]; then
+    FM_SEND_RESOLVED_LINE=$line
+    return 0
+  fi
+
+  dummy_pointer=" [full text: $state/.resolutions/${task}-${key}-20260101T000000.XXXXXX]"
+  keep=$((max_len - ${#dummy_pointer}))
+  [ "$keep" -ge 0 ] || keep=0
+  FM_SEND_RESOLVED_LINE="${line:0:$keep}$dummy_pointer"
+}
+
+# Persist a resolved line with full text or pointer to full text.
+# If the line fits within max_len, sets FM_SEND_RESOLVED_LINE to the full line.
+# If the line exceeds max_len, saves the full note to a sidecar file and records
+# its location in the status line via [full text: <path>].
+# If sidecar persistence fails, emits a loud warning on stderr and records a
+# durable [TRUNCATED-ON-WRITE: full-text store failed] marker.
+fm_send_persist_resolved_line() { # <state> <task> <key> <close_note> <max_len>
+  local state=$1 task=$2 key=$3 note=$4 max_len=$5
+  local line="resolved [key=$key]: $note"
+  local dir file pointer keep marker
+
+  if [ "${#line}" -le "$max_len" ]; then
+    FM_SEND_RESOLVED_LINE=$line
+    return 0
+  fi
+
+  dir="$state/.resolutions"
+  if mkdir -p "$dir" 2>/dev/null && file=$(mktemp "$dir/${task}-${key}-$(date +%Y%m%dT%H%M%S).XXXXXX" 2>/dev/null); then
+    if printf '%s\n' "$note" > "$file"; then
+      pointer=" [full text: $file]"
+      keep=$((max_len - ${#pointer}))
+      if [ "$keep" -ge 0 ]; then
+        FM_SEND_RESOLVED_LINE="${line:0:$keep}$pointer"
+        return 0
+      fi
+    fi
+    rm -f "$file"
+  fi
+
+  echo "warning: could not persist full text for decision key '$key' to sidecar, truncated on write" >&2
+  marker=' [TRUNCATED-ON-WRITE: full-text store failed]'
+  keep=$((max_len - ${#marker}))
+  [ "$keep" -ge 0 ] || keep=0
+  FM_SEND_RESOLVED_LINE="${line:0:$keep}$marker"
+}
+
 if [ -n "$FIRE_AND_FORGET_ID" ]; then
   printf '%s' "$FIRE_AND_FORGET_ID" | grep -Eq '^[a-f0-9]{16}$' ||
     {
@@ -674,9 +727,9 @@ if [ -n "$RESOLVE_KEYS" ]; then
       exit 1
     fi
     probe_line="resolved [key=$k]: $probe"
-    fm_cap_line_var "$probe_line" "$RESOLVE_CLOSE_MAX"
-    probe_key=$(_fm_decision_key "$FM_LINE_CAP_LINE") || probe_key=
-    if [ "$(status_line_verb "$FM_LINE_CAP_LINE")" != resolved ] || [ "$probe_key" != "$k" ]; then
+    fm_send_probe_resolved_line "$STATE" "$RESOLVE_TASK_ID" "$k" "$probe" "$RESOLVE_CLOSE_MAX"
+    probe_key=$(_fm_decision_key "$FM_SEND_RESOLVED_LINE") || probe_key=
+    if [ "$(status_line_verb "$FM_SEND_RESOLVED_LINE")" != resolved ] || [ "$probe_key" != "$k" ]; then
       echo "error: --resolve-key cannot close a decision key of length ${#k}: its ${#probe_line}-character close record exceeds the $FM_LINE_CAP_DEFAULT-character status-line cap, and truncation would remove the structural key delimiter. Refusing rather than writing an ineffective close; nothing was sent." >&2
       exit 1
     fi
@@ -700,8 +753,8 @@ fm_send_close_resolved_keys() { # <answer-text>
   note=$(printf '%s' "$note" | tr '\n\r\t' '   ' | LC_ALL=C tr -d '\000-\037\177')
   for k in $RESOLVE_STATUS_KEYS; do
     close_note=$(fm_send_resolve_close_note "$k" "$note")
-    fm_cap_line_var "resolved [key=$k]: $close_note" "$RESOLVE_CLOSE_MAX"
-    close_lines+=("$FM_LINE_CAP_LINE")
+    fm_send_persist_resolved_line "$STATE" "$RESOLVE_TASK_ID" "$k" "$close_note" "$RESOLVE_CLOSE_MAX"
+    close_lines+=("$FM_SEND_RESOLVED_LINE")
   done
   [ "${#close_lines[@]}" -gt 0 ] || return 0
   append_rc=0
