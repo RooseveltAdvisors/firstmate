@@ -1,0 +1,9 @@
+=== s3-watcher-killed: beat age=312s, watch.lock pid=856762 alive=no
+--- real bin/fm-turnend-guard.sh (shared predicate) exit code:
+guard_exit=2
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  TURN WOULD END BLIND - SUPERVISION IS OFF
+--- real pi -p with .pi/extensions/fm-primary-turnend-guard.ts (json events, user messages only):
+pi_exit=124
+jsonl lines mentioning 'TURN WOULD END BLIND' (guard follow-up injected): 5
+agent_start events: 2
