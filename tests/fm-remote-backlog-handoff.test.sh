@@ -701,7 +701,7 @@ printf '## Queued\n\n## Done\n' > "$RECV_HOME/data/backlog.md"
 printf '## Queued\n- [ ] decoy-recv - received despite a cwd beads config (repo: alpha)\n\n## Done\n' \
   > "$RECV_HOME/state/handoff/ios.outbox.md"
 recv_bytes=$(LC_ALL=C wc -c < "$RECV_HOME/state/handoff/ios.outbox.md" | tr -d ' ')
-recv_hash=$( (command -v shasum >/dev/null 2>&1 && shasum -a 256 || sha256sum) < "$RECV_HOME/state/handoff/ios.outbox.md" | awk '{print $1}')
+recv_hash=$(sha256_file "$RECV_HOME/state/handoff/ios.outbox.md")
 printf '1\n%s\n%s\n' "$recv_bytes" "$recv_hash" > "$RECV_HOME/state/handoff/.ios.upload-generation"
 printf 'backend = "beads"\n\n[beads]\ndb = "%s/missing/beads.db"\n' "$RECV_DECOY" > "$RECV_DECOY/.tasks.toml"
 recv_out=$(cd "$RECV_DECOY" && FM_HOME="$RECV_HOME" "$ROOT/bin/fm-backlog-receive.sh" \
