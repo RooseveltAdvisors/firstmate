@@ -84,7 +84,7 @@ test_stale_zero_is_unknown() {
 
 test_exhausted_divert_target_never_selected() {
   snapshot "$TMP/both-dry.json" "$(row codex 0)" "$(row opencode-go 0)"
-  probe "$TMP/both-dry.json" --harness codex --model gpt-5.6-luna --auto-divert
+  probe "$TMP/both-dry.json" --harness codex --model gpt-5.6-luna --divert-lane "pi opencode-go/glm-5.3-flash" --auto-divert
   expect_code 1 "$RC" "exhausted lane with only an exhausted divert target"
   assert_equals "exhausted codex gpt-5.6-luna" "$OUT" "no divert line is printed"
   assert_not_contains "$OUT" "diverted" "the exhausted opencode-go lane is not selected"
@@ -92,7 +92,7 @@ test_exhausted_divert_target_never_selected() {
 
   # Positive control: the same lane diverts once quota-axi reports it healthy.
   snapshot "$TMP/og-ok.json" "$(row codex 0)" "$(row opencode-go 40)"
-  probe "$TMP/og-ok.json" --harness codex --model gpt-5.6-luna --auto-divert
+  probe "$TMP/og-ok.json" --harness codex --model gpt-5.6-luna --divert-lane "pi opencode-go/glm-5.3-flash" --auto-divert
   expect_code 0 "$RC" "healthy divert target"
   assert_equals "diverted pi opencode-go/glm-5.3-flash" "$OUT" "healthy divert target is selected"
 
@@ -104,13 +104,31 @@ import importlib.util, sys
 spec = importlib.util.spec_from_file_location("prober", sys.argv[1])
 p = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(p)
-p.DIVERT_LANES = (("pi", "opencode-go/glm-5.3-flash"), ("pi", "zai/glm-5"), ("kimi", "k3"))
-assert p.select_divert(("codex", "gpt-5.6-luna")) == ("kimi", "k3"), p.select_divert(("codex", "gpt-5.6-luna"))
-p.DIVERT_LANES = (("pi", "opencode-go/glm-5.3-flash"), ("pi", "zai/glm-5"))
-assert p.select_divert(("codex", "gpt-5.6-luna")) is None
+lanes = (("pi", "opencode-go/glm-5.3-flash"), ("pi", "zai/glm-5"), ("kimi", "k3"))
+assert p.select_divert(("codex", "gpt-5.6-luna"), candidates=lanes) == ("kimi", "k3"), p.select_divert(("codex", "gpt-5.6-luna"), candidates=lanes)
+lanes = (("pi", "opencode-go/glm-5.3-flash"), ("pi", "zai/glm-5"))
+assert p.select_divert(("codex", "gpt-5.6-luna"), candidates=lanes) is None
 EOF
   expect_code 0 "$RC" "divert selection check: $(cat "$TMP/out")"
   pass "exhausted or stale divert target is never selected"
+}
+
+test_unconfigured_divert_refuses_without_diverting() {
+  snapshot "$TMP/no-divert.json" "$(row codex 0)" "$(row opencode-go 40)"
+  probe "$TMP/no-divert.json" --harness codex --model gpt-5.6-luna --auto-divert
+  expect_code 1 "$RC" "exhausted lane with no divert lanes configured"
+  assert_equals "exhausted codex gpt-5.6-luna" "$OUT" "refused when no divert lane is configured"
+  assert_contains "$ERR" "no divert lane is healthy in quota-axi" "the refusal is named"
+  pass "an exhausted lane without configured divert lanes refuses"
+}
+
+test_divert_lanes_from_config_file() {
+  snapshot "$TMP/cfg-divert.json" "$(row codex 0)" "$(row opencode-go 40)"
+  printf '%s\n' "# configured divert candidates" "pi opencode-go/glm-5.3-flash" > "$TMP/divert-lanes.txt"
+  probe "$TMP/cfg-divert.json" --harness codex --model gpt-5.6-luna --divert-config "$TMP/divert-lanes.txt" --auto-divert
+  expect_code 0 "$RC" "healthy divert target from config file"
+  assert_equals "diverted pi opencode-go/glm-5.3-flash" "$OUT" "diverts to lane configured in file"
+  pass "divert candidates loaded from config file"
 }
 
 test_unknown_is_permissive_and_loud() {
@@ -165,6 +183,8 @@ test_inverted_codex_verdict_quota_axi_wins
 test_inverted_opencode_go_verdict_quota_axi_wins
 test_stale_zero_is_unknown
 test_exhausted_divert_target_never_selected
+test_unconfigured_divert_refuses_without_diverting
+test_divert_lanes_from_config_file
 test_unknown_is_permissive_and_loud
 test_null_quota_fields_are_unknown
 test_unmetered_harness_launches_as_requested

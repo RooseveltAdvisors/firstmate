@@ -20,7 +20,9 @@ Verdicts and exit codes (single-harness mode prints `<verdict> <harness> <model>
                 the launch proceeds as requested. Never diverts.
   exhausted  1  quota-axi reports the lane exhausted and no divert was chosen.
 
-select_divert() only picks a divert target quota-axi reports fresh and healthy;
+select_divert() only picks a divert target quota-axi reports fresh and healthy
+from candidates configured via --divert-lane, --divert-config, or
+config/quota-divert-lanes. Default candidate pool is empty.
 bin/fm-spawn.sh re-probes the printed target and refuses it unless healthy.
 
 Test seam: with FM_TEST_SEAM=1, FM_TEST_QUOTA_SNAPSHOT=<quota-axi --json file>
@@ -40,14 +42,44 @@ import os
 import shutil
 import subprocess
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 HEALTHY, EXHAUSTED, UNKNOWN, UNMETERED, DIVERTED = "healthy", "exhausted", "unknown", "unmetered", "diverted"
 EXIT_CODES = {HEALTHY: 0, UNMETERED: 0, DIVERTED: 0, UNKNOWN: 0, EXHAUSTED: 1}
 
-# Captain 2026-09-21: Grok is firstmate-only. Never divert crews/no-mistakes to Grok.
-# Ordered divert candidates. bin/fm-spawn.sh rebuilds launch resolution only for pi.
-DIVERT_LANES = (("pi", "opencode-go/glm-5.3-flash"),)
+# Divert candidates default to empty. Candidates are configured by the operator
+# or captain via config/quota-divert-lanes or --divert-lane / --divert-config.
+DIVERT_LANES: tuple[tuple[str, str], ...] = ()
+
+
+def parse_lane(raw: str) -> tuple[str, str] | None:
+    raw = raw.strip()
+    if not raw or raw.startswith("#"):
+        return None
+    if ":" in raw:
+        h, m = raw.split(":", 1)
+        return (h.strip().lower(), m.strip())
+    parts = raw.split(None, 1)
+    if len(parts) == 2:
+        return (parts[0].strip().lower(), parts[1].strip())
+    return (parts[0].strip().lower(), "")
+
+
+def load_divert_file(path: str | Path) -> list[tuple[str, str]]:
+    p = Path(path)
+    if not p.is_file():
+        return []
+    lanes: list[tuple[str, str]] = []
+    try:
+        content = p.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    for line in content.splitlines():
+        lane = parse_lane(line)
+        if lane:
+            lanes.append(lane)
+    return lanes
 
 # Harnesses whose quota-axi provider is the harness itself.
 HARNESS_PROVIDERS = {"claude", "codex", "grok", "kimi", "cursor", "agy", "devin"}
@@ -169,8 +201,12 @@ def probe(harness: str, model: str) -> dict:
     return result
 
 
-def select_divert(original: tuple[str, str]) -> tuple[str, str] | None:
-    for lane in DIVERT_LANES:
+def select_divert(
+    original: tuple[str, str],
+    candidates: Sequence[tuple[str, str]] | None = None,
+) -> tuple[str, str] | None:
+    pool = DIVERT_LANES if candidates is None else candidates
+    for lane in pool:
         if lane == original:
             continue
         res = probe(*lane)
@@ -190,6 +226,8 @@ def main() -> int:
     parser.add_argument("--harness", help="Harness to probe (e.g. pi, codex, cursor)")
     parser.add_argument("--model", default="", help="Model to probe (e.g. opencode-go/glm-5.3-flash)")
     parser.add_argument("--auto-divert", action="store_true", help="On an exhausted lane, print a quota-axi-healthy divert lane")
+    parser.add_argument("--divert-lane", action="append", default=[], help="Candidate lane for --auto-divert (e.g. 'pi opencode-go/glm-5.3-flash')")
+    parser.add_argument("--divert-config", default="", help="Path to file listing candidate divert lanes, one per line")
     parser.add_argument("--check-all", action="store_true", help="Probe all standard fleet harnesses")
     parser.add_argument("--json", action="store_true", help="Output JSON")
     args = parser.parse_args()
@@ -220,7 +258,20 @@ def main() -> int:
         return EXIT_CODES[res["status"]]
 
     if res["status"] == EXHAUSTED and args.auto_divert:
-        lane = select_divert((res["harness"], res["model"]))
+        divert_candidates: list[tuple[str, str]] = list(DIVERT_LANES)
+        if args.divert_config:
+            divert_candidates.extend(load_divert_file(args.divert_config))
+        elif os.environ.get("CONFIG") and (Path(os.environ["CONFIG"]) / "quota-divert-lanes").is_file():
+            divert_candidates.extend(load_divert_file(Path(os.environ["CONFIG"]) / "quota-divert-lanes"))
+        elif os.environ.get("FM_HOME") and (Path(os.environ["FM_HOME"]) / "config" / "quota-divert-lanes").is_file():
+            divert_candidates.extend(load_divert_file(Path(os.environ["FM_HOME"]) / "config" / "quota-divert-lanes"))
+
+        for dl in args.divert_lane:
+            parsed = parse_lane(dl)
+            if parsed:
+                divert_candidates.append(parsed)
+
+        lane = select_divert((res["harness"], res["model"]), candidates=divert_candidates)
         if lane:
             print(f"jev-quota-prober: {res['harness']}:{res['model'] or '-'} exhausted ({res['reason']}); "
                   f"diverting to {lane[0]}:{lane[1]}", file=sys.stderr)
