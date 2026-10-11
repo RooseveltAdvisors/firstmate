@@ -1,0 +1,37 @@
+ ▐▛███▛█   Claude Code v2.1.296
+▝▜██████▀  Opus 5.5 · Claude Max
+ ▝▝   ▝▝   ~/.no-mistakes/worktrees/46339c0817e0/01M4NZJJV6RP1J5C52SEJQNZQ3
+❯ Read-only question, do not edit or run lifecycle scripts. Open the agent-skill-trigger-index skill (.agents/skills/agent-skill-trigger-index/SKILL.md) and use it as the navigation map, following
+  its pointers to the owning skill descriptions. For each case, name the one skill that should load and quote the exact phrase from that skill frontmatter description that covers it: (A) a live
+  crewmate reports its no-mistakes pipeline is dead or unreachable; (B) reconciling Orca-backed task metadata; (C) a standalone fm-startup-network.sh run prints a diagnostic line; (D) archiving a
+  Codex App thread. End your reply with the line INDEX-NAV-DONE.
+  Read 1 file (ctrl+o to expand)
+● Need descriptions for firstmate-orca and firstmate-codexapp (others visible in listing, but verify exact text).
+● Bash(cd /home/jon/.no-mistakes/worktrees/46339c0817e0/01M4NZJJV6RP1J5C52SEJQNZQ3/.agents/skills && for s in firstmate-orca firstmate-codexapp stuck-crewmate-recovery…)
+  ⎿  == firstmate-orca
+     description: Agent-only operator checklist for Firstmate's Orca runtime backend. Use when switching to Orca, spawning or supervising Orca-backed work, smoke-testing Orca backend behavior, de
+     bugging Orca task state, or reconciling Orca-backed task metadata.
+     … +6 lines (ctrl+o to expand)
+● Bash(for s in firstmate-codexapp stuck-crewmate-recovery bootstrap-diagnostics; do echo "== $s"; sed -n '/^description:/,/^[a-z_-]*:/p' $s/SKILL.md | head -20; done)
+  ⎿  == firstmate-codexapp
+     description: >-
+       Agent-only playbook for coordinating visible Codex Desktop threads alongside Firstmate without pretending they are a selectable shell backend.
+     … +20 lines (ctrl+o to expand)
+● Captain, here's where the trigger index points for each case. I only read files; nothing was edited and no lifecycle scripts were run.
+  (A) A live crewmate reports its no-mistakes pipeline is dead or unreachable → stuck-crewmate-recovery
+  ▎ "Also use on the inverse case: a live crewmate reporting the no-mistakes pipeline dead, unreachable, or timed out."
+  (B) Reconciling Orca-backed task metadata → firstmate-orca
+  ▎ "Use when switching to Orca, spawning or supervising Orca-backed work, smoke-testing Orca backend behavior, debugging Orca task state, or reconciling Orca-backed task metadata."
+  (C) A standalone fm-startup-network.sh run prints a diagnostic line → bootstrap-diagnostics
+  ▎ "or when a standalone bin/fm-bootstrap.sh or bin/fm-startup-network.sh run prints one of those lines."
+  This applies only if the line is one of the actionable codes the description lists, such as NETWORK_CHECKS or NEEDS_GH_AUTH. The same description says: "A silent bootstrap section, or any other
+  BOOTSTRAP_INFO fact, means no skill load."
+  (D) Archiving a Codex App thread → firstmate-codexapp
+  ▎ "Use before creating, reading, steering, archiving, debugging, or reviewing a Codex App visible thread for Firstmate work"
+  INDEX-NAV-DONE
+✻ Brewed for 13s · done 1:22 PM
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  cl Only Edit Lifecycle Scripts arcs Opus 5.5(1M) 10% ↑ 100K(+2·97K) ↓ 2K(+544) 31%(17m)/47%(4d20h)                                                                                ◐ medium · /effort
+  ⏸ manual mode on · ← 1 agent
