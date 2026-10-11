@@ -1,0 +1,88 @@
+=== S1: slash-leading --resolve-key answer to a claude worker (fixed build) ===
+$ fm-send t1 --resolve-key api-shape "/compact then go with REST"
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.vocbVC
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the requested message WILL still be sent.
+●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+fm-send: doorbell not typed because the agent in sess:fm-t1 has exited; the steer is durably recorded at /tmp/fm-lab.vocbVC/state/t1.inbox/001.msg for recovery (stuck-crewmate-recovery), and the watcher will not re-ring a dead pane
+exit=0
+  pending: 1  handled: 0
+  record:
+    schema=fm-task-inbox.v1
+    at=2026-10-11T05:08:35Z
+    --
+    /compact then go with REST  status: resolved [key=api-shape] [at=1791695315]: answered: /compact then go with REST
+  open decisions after: (no open decision keys)
+  worker pane last lines:
+    bash-5.2$
+
+=== S2: codex dollar-leading answer ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.vocbVC
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+fm-send: doorbell not typed because the agent in sess:fm-t2 has exited; the steer is durably recorded at /tmp/fm-lab.vocbVC/state/t2.inbox/001.msg for recovery (stuck-crewmate-recovery), and the watcher will not re-ring a dead pane
+exit=0
+  pending: 1  handled: 0
+  status: resolved [key=creds] [at=1791695318]: answered: $Skill refreshed the token
+
+=== S3: mistyped key on a parser-native answer (must fail loudly, no record) ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.vocbVC
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+error: --resolve-key 'mistyped': no open decision or blocker with that key in /tmp/fm-lab.vocbVC/state/t4.status, and no captain-held task 'mistyped' or 't4-decision-mistyped' still open (already closed or mistyped). Re-check the OPEN DECISIONS listing, then resend without that key or with the right one; nothing was sent.
+exit=1
+  pending: 0  handled: 0
+  status: needs-decision [key=api-shape]: pick REST or RPC
+  worker pane last lines:
+    bash-5.2$
+
+=== S4: worker consumes t1's record (mv to handled/ per inbox contract); operator disambiguation ===
+  t1 (queued then consumed):
+  pending: 0  handled: 1
+  t4 (refused, never queued):
+  pending: 0  handled: 0
+
+=== S5: same slash text WITHOUT --resolve-key stays typed ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.vocbVC
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+error: text not submitted to sess:fm-t3 (delivery unconfirmed; verdict=unknown; tried meta=/tmp/fm-lab.vocbVC/state/t3.meta; backend=from-meta)
+exit=1
+  pending: 0  handled: 0
+  worker pane last lines:
+    bash: /compact: No such file or directory
+    bash-5.2$
+
+=== S6: BASE commit 4735ddc6, same slash answer (defect reproduction) ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.vocbVC
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+error: text not submitted to sess:fm-t5 (delivery unconfirmed; verdict=unknown; tried meta=/tmp/fm-lab.vocbVC/state/t5.meta; backend=from-meta)
+exit=1
+  pending: 0  handled: 0
+  status: needs-decision [key=api-shape]: pick REST or RPC
+=== S6 (BEFORE, base 4735ddc6): slash answer to a LIVE claude worker ===
+$ fm-send c5 --resolve-key api-shape "/compact then go with REST"
+exit=0
+  pending: 0  handled: 0
+  status: resolved [key=api-shape] [at=1791695368]: answered: /compact then go with REST
+  worker pane:
+     ▝▝   ▝▝   ~/.no-mistakes/worktrees/46339c0817e0/01M4MN9G1TGQSGM6F1Y9WGXD0H
+    ❯ /compact then go with REST
+      ⎿  Not enough messages to compact.
+    ❯ 
+      cl arcs Opus 5.5(1M) 8%(2h20m)/37%(5d8h)
+      ⏸ manual mode on · ← 1 agent
+
+=== S1b (AFTER, fixed build): same slash answer to a LIVE claude worker ===
+exit=0
+  pending: 1  handled: 0
+  record body: /compact then go with REST
+  status: resolved [key=api-shape] [at=1791695372]: answered: /compact then go with REST
+  worker pane:
+     A variable in this command can't be checked before it runs
+     Do you want to proceed?
+     ❯ 1. Yes
+       2. Yes, and switch to auto mode · auto mode handles these prompts for you
+       3. No
+     Esc to cancel · Tab to amend
