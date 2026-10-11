@@ -155,6 +155,7 @@ case "${1:-} ${2:-}" in
     [ "${FM_FAKE_PR_READ_FAIL:-0}" = 1 ] && exit 1
     query=$(printf '%s ' "$@")
     if [[ "$query" == *"statusCheckRollup"* ]]; then
+      [ "${FM_FAKE_GH_CHECKS_UNAVAILABLE:-0}" = 1 ] && exit 1
       [ -n "$checks" ] || exit 1
       printf '%s\n' "$checks"
       exit 0
@@ -164,6 +165,7 @@ case "${1:-} ${2:-}" in
   "pr checks"*)
     [ -z "${FM_FAKE_PR_READ_LOG:-}" ] || printf 'gh\n' >> "$FM_FAKE_PR_READ_LOG"
     [ "${FM_FAKE_PR_READ_FAIL:-0}" = 1 ] && exit 1
+    [ "${FM_FAKE_GH_CHECKS_UNAVAILABLE:-0}" = 1 ] && exit 1
     checks=${FM_FAKE_PR_CHECKS:-SUCCESS}
     if [ "$checks" = SUCCESS ] || [ "$checks" = green ]; then
       printf '[{"name":"ci","bucket":"pass","state":"SUCCESS"}]\n'
@@ -190,6 +192,9 @@ case "${1:-} ${2:-}" in
     checks=${FM_FAKE_PR_CHECKS:-SUCCESS}
     if [ "$checks" = SUCCESS ] || [ "$checks" = green ]; then
       printf 'summary: "1 passed, 0 failed, 1 total"\nchecks[1]{name,conclusion}:\n  ci,pass\n'
+      exit 0
+    elif [ "$checks" = PENDING ]; then
+      printf 'summary: "0 passed, 0 failed, 1 pending, 1 total"\nchecks[1]{name,conclusion}:\n  ci,pending\n'
       exit 0
     else
       printf 'summary: "0 passed, 1 failed, 1 total"\nchecks[1]{name,conclusion}:\n  ci,fail\n'
@@ -374,6 +379,7 @@ reset_fakes() {
   FM_FAKE_PR_READ_LOG=
   FM_FAKE_PR_STATE_AXI=merged
   FM_FAKE_PR_CHECKS=""
+  FM_FAKE_GH_CHECKS_UNAVAILABLE=0
   FM_FAKE_GLAB_STATE=merged
   FM_FAKE_GLAB_READ_FAIL=0
   FM_FAKE_GLAB_READ_LOG=
@@ -387,7 +393,7 @@ reset_fakes() {
   export FM_FAKE_HERDR_BUSY FM_FAKE_HERDR_MISSING FM_FAKE_HERDR_READ_FAIL FM_FAKE_HERDR_HUSK FM_FAKE_HERDR_AGENT_STATUS FM_FAKE_HERDR_PROCESS FM_FAKE_HERDR_SHELL_PID FM_FAKE_CI_LOGS
   export FM_FAKE_DAEMON_DOWN FM_FAKE_DAEMON_TIMEOUT FM_FAKE_DAEMON_PROBE_LOG FM_FAKE_AXI_HOME
   export FM_FAKE_AXI_HOME_ERROR FM_FAKE_AXI_STATUS_RUN_ERROR FM_FAKE_AXI_STATUS_ERROR
-  export FM_FAKE_PR_STATE FM_FAKE_PR_MERGED FM_FAKE_PR_READ_FAIL FM_FAKE_PR_READ_LOG FM_FAKE_PR_STATE_AXI FM_FAKE_PR_CHECKS
+  export FM_FAKE_PR_STATE FM_FAKE_PR_MERGED FM_FAKE_PR_READ_FAIL FM_FAKE_PR_READ_LOG FM_FAKE_PR_STATE_AXI FM_FAKE_PR_CHECKS FM_FAKE_GH_CHECKS_UNAVAILABLE
   export FM_FAKE_GLAB_STATE FM_FAKE_GLAB_READ_FAIL FM_FAKE_GLAB_READ_LOG
   export FM_FAKE_GERRIT_STATUS FM_FAKE_GERRIT_CHANGE FM_FAKE_GERRIT_URL_JSON
   export FM_FAKE_GERRIT_READ_FAIL FM_FAKE_GERRIT_READ_LOG
@@ -1275,6 +1281,10 @@ EOF
   assert_contains "$out" "checks green: PR ready for review" "re-armed green monitoring reads held for merge"
   assert_contains "$out" "https://github.com/o/r/pull/2" "the held-for-merge reading names the run's PR"
   assert_not_contains "$out" "state: working" "a re-arm line must not read as checks not ready"
+  out=$(FM_FAKE_PR_CHECKS=FAILURE run_crew_state "$d" feat-cirearm)
+  assert_contains "$out" "state: done" "live re-armed green reads the log verdict, not the forge: $out"
+  out=$(FM_CREW_STATE_NO_FORGE=1 run_crew_state "$d" feat-cirearm)
+  assert_contains "$out" "state: done" "live re-armed green stays green with the forge off: $out"
   pass "base-advance re-arm after green stays checks green"
 }
 
@@ -2122,6 +2132,54 @@ EOF
     assert_not_contains "$out" "state: done" "NO_FORGE must not reclassify to done"
     pass "NO_FORGE flag suppresses reclassification"
   ) || fail "rearm with NO_FORGE failed"
+
+  # Negative control: gh unavailable and gh-axi reporting pending checks
+  (
+    reset_fakes
+    local d out
+    d=$(new_case rearm-axi-pending)
+    make_repo_on_branch "$d/wt" fm/rearm-axi-pending
+    make_fakebin "$d" >/dev/null
+    fm_write_meta "$d/state/rearm-axi-pending.meta" "window=fm:fm-rearm-axi-pending" "worktree=$d/wt" "kind=ship"
+    FM_FAKE_AXI_STATUS="$(run_failed_ci_orphan fm/rearm-axi-pending)"
+    FM_FAKE_PR_STATE=OPEN
+    FM_FAKE_PR_MERGED=false
+    FM_FAKE_PR_CHECKS=PENDING
+    FM_FAKE_GH_CHECKS_UNAVAILABLE=1
+    FM_FAKE_CI_LOGS=$(cat <<'EOF'
+all CI checks passed - still monitoring until merged or closed
+base branch advanced (aaaaaaa..bbbbbbb), re-arming CI monitor timeout
+EOF
+)
+    out=$(FM_HOME="$d" run_crew_state "$d" rearm-axi-pending)
+    assert_contains "$out" "state: failed" "gh-axi pending checks keep failed run failed: $out"
+    assert_not_contains "$out" "state: done" "gh-axi pending checks must not reclassify to done"
+    pass "gh-axi pending checks keep run failed"
+  ) || fail "rearm with gh-axi pending checks failed"
+
+  # Negative control: a definite gh pending answer must not fall through to gh-axi
+  (
+    reset_fakes
+    local d out
+    d=$(new_case rearm-gh-pending)
+    make_repo_on_branch "$d/wt" fm/rearm-gh-pending
+    make_fakebin "$d" >/dev/null
+    fm_write_meta "$d/state/rearm-gh-pending.meta" "window=fm:fm-rearm-gh-pending" "worktree=$d/wt" "kind=ship"
+    FM_FAKE_AXI_STATUS="$(run_failed_ci_orphan fm/rearm-gh-pending)"
+    FM_FAKE_PR_STATE=OPEN
+    FM_FAKE_PR_MERGED=false
+    FM_FAKE_PR_CHECKS=PENDING
+    FM_FAKE_PR_READ_LOG="$d/reads.log"
+    FM_FAKE_CI_LOGS=$(cat <<'EOF'
+all CI checks passed - still monitoring until merged or closed
+base branch advanced (aaaaaaa..bbbbbbb), re-arming CI monitor timeout
+EOF
+)
+    out=$(FM_HOME="$d" run_crew_state "$d" rearm-gh-pending)
+    assert_contains "$out" "state: failed" "gh pending checks keep failed run failed: $out"
+    assert_not_contains "$(cat "$d/reads.log" 2>/dev/null)" "gh-axi" "a definite gh answer must not fall through to gh-axi"
+    pass "gh pending checks keep run failed without gh-axi fallthrough"
+  ) || fail "rearm with gh pending checks failed"
 
   # Negative control: genuine CI failure after green must not reclassify
   (

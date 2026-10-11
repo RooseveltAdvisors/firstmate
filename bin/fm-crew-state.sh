@@ -761,7 +761,9 @@ nm_run_activity_is_recent() {
 # orphaned-CI-monitor gap (2026-09-05 jr-voice): a run held for a captain
 # merge decision polls until the shared daemon restarts under it and marks
 # the run failed, although GitHub's own check state - the actual shippability
-# authority - is green and every substantive step completed.
+# authority - is green and every substantive step completed. When main
+# advanced after that green marker, the forge's current check state must also
+# read green before a terminal run counts as held for merge.
 nm_failed_run_is_green_held_ci() {
   local rows row rest step status saw_ci_failed
   rows=$(nm_steps_rows)
@@ -789,7 +791,9 @@ nm_failed_run_is_green_held_ci() {
 $rows
 EOF
   [ "$saw_ci_failed" = 1 ] || return 1
-  [ "$(nm_ci_checks_state)" = green ]
+  [ "$(nm_ci_checks_state)" = green ] || return 1
+  nm_ci_rearmed_after_green || return 0
+  nm_forge_checks_green
 }
 
 # Apply the header's terminal-delivery safeguard. The earlier green log cannot
@@ -899,7 +903,7 @@ nm_effective_ci_step_status() {
 # ignores the line the same way, v1.32.2 through v1.79.0). Reading it as
 # not-ready held a green PR at working for as long as main kept advancing.
 nm_ci_checks_state() {
-  local run_id ci_log marker last_verdict trailing_after_pass
+  local run_id ci_log marker
   run_id=$(strip_quotes "$(nm_field id)")
   [ -n "$run_id" ] || { printf 'unknown'; return; }
   ci_log=$(nm_run axi logs --step ci --run "$run_id" --full) || true
@@ -907,30 +911,23 @@ nm_ci_checks_state() {
   marker=$(printf '%s\n' "$ci_log" \
     | grep -E 'CI checks passed|no CI checks reported - still monitoring|no CI checks reported yet|checks failed|issues detected|CI checks running' \
     | tail -1)
-
   case "$marker" in
-    *"checks passed"*|*"no CI checks reported - still monitoring"*)
-      # When the ci log's last authoritative verdict is PASSED despite a later
-      # base-advance re-arm marker and no subsequent failure, resolve against
-      # forge-green.
-      trailing_after_pass=$(printf '%s\n' "$ci_log" | awk '
-        /CI checks passed|no CI checks reported - still monitoring/ { in_pass = 1; trail = ""; next }
-        in_pass { trail = trail "\n" $0 }
-        END { print trail }
-      ')
-      if printf '%s\n' "$trailing_after_pass" | grep -qE 'base branch advanced.*re-arming CI monitor timeout'; then
-        if nm_forge_checks_green; then
-          printf 'green'
-        else
-          printf 'not-ready'
-        fi
-        return
-      fi
-      printf 'green'
-      ;;
+    *"checks passed"*|*"no CI checks reported - still monitoring"*) printf 'green' ;;
     *"no CI checks reported yet"*|*"checks failed"*|*"issues detected"*|*"CI checks running"*) printf 'not-ready' ;;
     *) printf 'unknown' ;;
   esac
+}
+
+# 0 when a base-advance re-arm line follows the ci log's last green marker.
+nm_ci_rearmed_after_green() {
+  local run_id
+  run_id=$(strip_quotes "$(nm_field id)")
+  [ -n "$run_id" ] || return 1
+  nm_run axi logs --step ci --run "$run_id" --full 2>/dev/null | awk '
+    /CI checks passed|no CI checks reported - still monitoring/ { rearmed = 0; next }
+    /base branch advanced.*re-arming CI monitor timeout/ { rearmed = 1 }
+    END { exit !rearmed }
+  '
 }
 # Coarse fallback when the bare `axi status` answer is not this branch's own
 # matching run: either it names another branch (routine once several crews

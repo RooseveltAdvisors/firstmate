@@ -1027,7 +1027,8 @@ fm_pr_github_checks_state_with_gh() {  # <owner> <repo> <number>
     esac
   fi
 
-  if output=$(gh pr checks "$number" -R "$owner/$repo" --json bucket 2>/dev/null); then
+  output=$(gh pr checks "$number" -R "$owner/$repo" --json bucket 2>/dev/null) || true
+  if [ -n "$output" ]; then
     if printf '%s\n' "$output" | jq -e 'length > 0 and (map(.bucket) | all(. == "pass" or . == "skipping"))' >/dev/null 2>&1; then
       # Consumed by bin/fm-crew-state.sh pr_checks_green_bounded.
       # shellcheck disable=SC2034
@@ -1043,10 +1044,13 @@ fm_pr_github_checks_state_with_gh() {  # <owner> <repo> <number>
 }
 
 fm_pr_github_checks_state_with_gh_axi() {  # <owner> <repo> <number>
-  local owner=$1 repo=$2 number=$3 output
+  local owner=$1 repo=$2 number=$3 output summary passed total
   FM_PR_CHECKS_STATE=
   if output=$(gh-axi pr checks "$number" -R "$owner/$repo" 2>/dev/null); then
-    if printf '%s\n' "$output" | grep -q 'summary:.* 0 failed'; then
+    summary=$(printf '%s\n' "$output" | sed -n 's/^summary: *//p' | head -1)
+    passed=$(printf '%s\n' "$summary" | sed -n 's/^[^0-9]*\([0-9][0-9]*\) passed.*/\1/p')
+    total=$(printf '%s\n' "$summary" | sed -n 's/.*[^0-9]\([0-9][0-9]*\) total.*/\1/p')
+    if [ -n "$passed" ] && [ "${total:-0}" -gt 0 ] && [ "$passed" = "$total" ]; then
       # Consumed by bin/fm-crew-state.sh pr_checks_green_bounded.
       # shellcheck disable=SC2034
       FM_PR_CHECKS_STATE=green
@@ -1061,8 +1065,9 @@ fm_pr_github_checks_state_with_gh_axi() {  # <owner> <repo> <number>
 }
 
 fm_pr_github_checks_state() {  # <owner> <repo> <number>
-  if command -v gh >/dev/null 2>&1 && fm_pr_github_checks_state_with_gh "$@"; then
-    return 0
+  if command -v gh >/dev/null 2>&1; then
+    fm_pr_github_checks_state_with_gh "$@" && return 0
+    [ -z "$FM_PR_CHECKS_STATE" ] || return 1
   fi
   command -v gh-axi >/dev/null 2>&1 || return 1
   fm_pr_github_checks_state_with_gh_axi "$@"
