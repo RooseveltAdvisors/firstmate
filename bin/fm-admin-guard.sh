@@ -8,8 +8,8 @@
 #
 # When a worker hits a merge refusal or permission error, it must NOT fall back
 # to `gh pr merge --admin` or any other permission-bypass merge. This guard
-# refuses any `gh pr merge` invocation using `--admin` unless a captain-sourced
-# instruction explicitly carries that authorization.
+# refuses any `gh pr merge` invocation using `--admin` unless the task brief's
+# `## Captain's intent` carries an un-negated line authorizing it.
 #
 # Supported entry forms:
 #   <PreToolUse JSON on stdin> | bin/fm-admin-guard.sh [--claude|--cursor]
@@ -63,77 +63,34 @@ find_real_gh() {
   return 1
 }
 
-SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd -P) || exit 0
-FM_ROOT=${FM_ROOT_OVERRIDE:-$(CDPATH='' cd -- "$SCRIPT_DIR/.." 2>/dev/null && pwd -P)} || exit 0
+SELF=$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null)
+FM_ROOT=$(CDPATH='' cd -- "${SELF%/*}/.." 2>/dev/null && pwd -P)
 FM_HOME=${FM_HOME:-$FM_ROOT}
 
+# shellcheck source=bin/fm-brief-heading-lib.sh
+. "$FM_ROOT/bin/fm-brief-heading-lib.sh" 2>/dev/null
+
+ADMIN_NEGATION_RE="(^|[^[:alpha:]])(never|not|no|dont|don't|without|avoid|forbid|forbidden|refuse)([^[:alpha:]]|$)|n't([^[:alpha:]]|$)"
+
 is_captain_authorized() {
-  if [ "${FM_CAPTAIN_ADMIN_OVERRIDE:-0}" = "1" ] || [ "${FM_CAPTAIN_ADMIN_AUTH:-0}" = "1" ]; then
-    return 0
-  fi
-  local brief=""
-  local candidates=()
-  if [ -n "${FM_TASK_ID:-}" ]; then
-    candidates+=(
-      "${FM_HOME}/data/$FM_TASK_ID/brief.md"
-      "${FM_HOME}/data/$FM_TASK_ID/launch-brief.md"
-      "${FM_ROOT}/data/$FM_TASK_ID/brief.md"
-      "data/$FM_TASK_ID/brief.md"
-      "../data/$FM_TASK_ID/brief.md"
-    )
-  fi
-  candidates+=(
-    "brief.md"
-    "launch-brief.md"
-    "../brief.md"
-    "../launch-brief.md"
-  )
-  for c in "${candidates[@]}"; do
-    if [ -f "$c" ] && [ -r "$c" ]; then
-      brief="$c"
-      break
-    fi
-  done
-  [ -n "$brief" ] || return 1
-
-  local captain_text=""
-  captain_text=$(awk '
-    BEGIN { in_intent = 0 }
-    /^## Captain'\''s intent/ { in_intent = 1; next }
-    /^## / && in_intent { exit }
-    in_intent { print }
-  ' "$brief" 2>/dev/null || true)
-
-  local marked=""
-  marked=$(awk '
-    /^\[captain\]/ { sub(/^\[captain\][[:space:]]*/, ""); print }
-    /^Captain:/ { sub(/^Captain:[[:space:]]*/, ""); print }
-  ' "$brief" 2>/dev/null || true)
-
-  captain_text="$captain_text"$'\n'"$marked"
-
-  case "$captain_text" in
-    *--admin*|*"admin merge"*)
-      return 0
-      ;;
-  esac
-  return 1
+  [ -n "${FM_TASK_ID:-}" ] || return 1
+  fm_brief_task_heading_body "$FM_HOME/data/$FM_TASK_ID/brief.md" "## Captain's intent" 2>/dev/null \
+    | grep -iE -- '--admin|admin merge' \
+    | grep -viqE -- "$ADMIN_NEGATION_RE"
 }
 
 deny_refusal() {
   local reason="error: [hard-rule-2] worker cannot use --admin or bypass permissions; only captain explicit authorization confers merge authority."
-  if [ "$IS_GH_WRAPPER" -eq 1 ] && [ "$CLAUDE_MODE" -eq 0 ] && [ "$CURSOR_MODE" -eq 0 ]; then
+  if [ "$IS_GH_WRAPPER" -eq 1 ]; then
     printf '%s\n' "$reason" >&2
     exit 2
   fi
+  local escaped
+  escaped=$(printf '%s' "$reason" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | tr '\n' ' ')
   if [ "$CURSOR_MODE" -eq 1 ]; then
-    local escaped
-    escaped=$(printf '%s' "$reason" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | tr '\n' ' ')
     printf '{"permission":"deny","user_message":"%s"}\n' "$escaped"
     exit 0
   fi
-  local escaped
-  escaped=$(printf '%s' "$reason" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | tr '\n' ' ')
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"%s"}\n' "$escaped" >&2
   [ "$CLAUDE_MODE" -eq 1 ] || printf '{"decision":"deny","reason":"%s"}\n' "$escaped"
   exit 2
@@ -151,9 +108,7 @@ if [ "$IS_GH_WRAPPER" -eq 1 ]; then
     esac
   done
   if [ "$has_pr" -eq 1 ] && [ "$has_merge" -eq 1 ] && [ "$has_admin" -eq 1 ]; then
-    if ! is_captain_authorized; then
-      deny_refusal
-    fi
+    is_captain_authorized || deny_refusal
   fi
   real_gh=$(find_real_gh) || {
     echo "error: gh executable not found on PATH" >&2
@@ -186,43 +141,19 @@ while [ "$#" -gt 0 ]; do
     -h|--help)
       cat <<'EOF'
 Usage: fm-admin-guard.sh [--command <cmd>] [--claude|--cursor]
-       fm-admin-guard.sh [gh] <gh-args...>
+       fm-admin-guard.sh gh <gh-args...>
 
-Refuses `gh pr merge --admin` unless captain-sourced instruction explicitly authorizes it.
+Refuses `gh pr merge --admin` unless the task brief's `## Captain's intent` explicitly authorizes it.
 Exits 0 to allow, 2 to deny (exit 0 with decision object for --cursor).
 EOF
       exit 0
       ;;
     *)
-      # Unrecognized flags/args: if they look like gh pr merge, treat as wrapper mode
-      IS_GH_WRAPPER=1
-      break
+      echo "error: unknown argument: $1" >&2
+      exit 2
       ;;
   esac
 done
-
-if [ "$IS_GH_WRAPPER" -eq 1 ]; then
-  has_pr=0
-  has_merge=0
-  has_admin=0
-  for arg in "$@"; do
-    case "$arg" in
-      pr) has_pr=1 ;;
-      merge) has_merge=1 ;;
-      --admin|--admin=*) has_admin=1 ;;
-    esac
-  done
-  if [ "$has_pr" -eq 1 ] && [ "$has_merge" -eq 1 ] && [ "$has_admin" -eq 1 ]; then
-    if ! is_captain_authorized; then
-      deny_refusal
-    fi
-  fi
-  real_gh=$(find_real_gh) || {
-    echo "error: gh executable not found on PATH" >&2
-    exit 127
-  }
-  exec "$real_gh" "$@"
-fi
 
 if [ "$CMD_SET" -eq 0 ]; then
   PAYLOAD=$(cat 2>/dev/null || true)
@@ -281,9 +212,7 @@ is_admin_merge_command() {
 }
 
 if is_admin_merge_command "$CMD"; then
-  if ! is_captain_authorized; then
-    deny_refusal
-  fi
+  is_captain_authorized || deny_refusal
 fi
 
 exit 0

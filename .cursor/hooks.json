@@ -28,12 +28,6 @@
         "type": "command",
         "command": "\"$CURSOR_PROJECT_DIR\"/bin/fm-cd-pretool-check.sh --cursor",
         "timeout": 10
-      },
-      {
-        "matcher": "Shell",
-        "type": "command",
-        "command": "\"$CURSOR_PROJECT_DIR\"/bin/fm-admin-guard.sh --cursor",
-        "timeout": 10
       }
     ],
     "beforeSubmitPrompt": [

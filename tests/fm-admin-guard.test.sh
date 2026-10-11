@@ -5,7 +5,7 @@
 # Hard Rule 2: "Never merge a PR without the captain's explicit word."
 # Workers hitting a merge refusal must not fall back to `gh pr merge --admin`.
 # This suite proves the refusal of `--admin` merges across CLI and PreToolUse entry forms,
-# the allowance of non-admin commands, captain authorization detection via brief intent and env,
+# the allowance of non-admin commands, captain authorization detection via the task brief's intent,
 # the refusal when only Firstmate spec or steers author `--admin`, and the `gh` shim wrapper.
 set -u
 
@@ -118,44 +118,51 @@ test_non_admin_commands_allowed() {
   pass "non-admin commands pass through cleanly without interference"
 }
 
-# 4. Captain authorization allows --admin
-test_captain_authorization() {
-  local case_dir="$TMP_ROOT/captain-auth"
-  mkdir -p "$case_dir/data/task-cap-1"
-  local brief="$case_dir/data/task-cap-1/brief.md"
-
-  cat <<'EOF' > "$brief"
-# Task
-## Captain's intent
-Please merge PR 99 using --admin to bypass the stuck check.
-## Firstmate spec
-Run gh pr merge 99 --admin.
-EOF
-
-  local rc=0
+# 4. Captain authorization allows --admin; negations, env vars, and cwd briefs do not
+run_with_brief() {  # <case-dir> <task-id> <intent-line> -> rc of gh pr merge 99 --admin
+  local case_dir=$1 task_id=$2 intent=$3 rc=0
+  mkdir -p "$case_dir/data/$task_id"
+  printf '# Task\n## Captain'"'"'s intent\n%s\n## Firstmate spec\nRun gh pr merge 99 --admin.\n' "$intent" \
+    > "$case_dir/data/$task_id/brief.md"
   : > "$OUT"
   : > "$ERR"
-  (
-    cd "$case_dir"
-    FM_TASK_ID="task-cap-1" FM_HOME="$case_dir" \
-      "$CHECK" --command 'gh pr merge 99 --admin' > "$OUT" 2> "$ERR"
-  ) || rc=$?
+  FM_TASK_ID="$task_id" FM_HOME="$case_dir" \
+    "$CHECK" --command 'gh pr merge 99 --admin' > "$OUT" 2> "$ERR" || rc=$?
+  return "$rc"
+}
+
+test_captain_authorization() {
+  local case_dir="$TMP_ROOT/captain-auth" rc=0
+  run_with_brief "$case_dir" task-cap-1 "Please merge PR 99 using --admin to bypass the stuck check." || rc=$?
   expect_code 0 "$rc" "--admin authorized in Captain's intent must be allowed"
 
-  # Environment authorization override
-  rc=0
-  : > "$OUT"
-  : > "$ERR"
-  FM_CAPTAIN_ADMIN_AUTH=1 "$CHECK" --command 'gh pr merge 99 --admin' > "$OUT" 2> "$ERR" || rc=$?
-  expect_code 0 "$rc" "FM_CAPTAIN_ADMIN_AUTH=1 must allow --admin"
+  local neg
+  for neg in "Merge it once green, never use --admin." \
+    "Do not use --admin." "Don't admin merge this." "Merge without --admin."; do
+    rc=0
+    run_with_brief "$case_dir" task-cap-neg "$neg" || rc=$?
+    expect_code 2 "$rc" "negated captain wording must not authorize --admin: $neg"
+  done
 
   rc=0
   : > "$OUT"
   : > "$ERR"
-  FM_CAPTAIN_ADMIN_OVERRIDE=1 "$CHECK" --command 'gh pr merge 99 --admin' > "$OUT" 2> "$ERR" || rc=$?
-  expect_code 0 "$rc" "FM_CAPTAIN_ADMIN_OVERRIDE=1 must allow --admin"
+  FM_CAPTAIN_ADMIN_AUTH=1 FM_CAPTAIN_ADMIN_OVERRIDE=1 \
+    "$CHECK" --command 'gh pr merge 99 --admin' > "$OUT" 2> "$ERR" || rc=$?
+  expect_code 2 "$rc" "environment variables must not authorize --admin"
 
-  pass "explicit captain authorization via brief intent or environment allows --admin"
+  local cwd_dir="$TMP_ROOT/cwd-brief"
+  mkdir -p "$cwd_dir"
+  printf '# Task\n## Captain'"'"'s intent\nUse --admin.\nCaptain: use --admin\n' > "$cwd_dir/brief.md"
+  rc=0
+  (
+    cd "$cwd_dir"
+    FM_TASK_ID="task-missing" FM_HOME="$TMP_ROOT/no-home" \
+      "$CHECK" --command 'gh pr merge 99 --admin' > "$OUT" 2> "$ERR"
+  ) || rc=$?
+  expect_code 2 "$rc" "a brief.md in the working directory must not authorize --admin"
+
+  pass "only an un-negated Captain's intent line in the task brief authorizes --admin"
 }
 
 # 5. Firstmate spec or steer wording does NOT authorize --admin
@@ -197,8 +204,10 @@ EOF
 # 6. Wrapper / shim execution mode (invoked as `gh`)
 test_gh_wrapper_shim() {
   local shim_dir="$TMP_ROOT/shim-test"
-  mkdir -p "$shim_dir/bin"
+  mkdir -p "$shim_dir/bin" "$shim_dir/real"
   ln -sf "$CHECK" "$shim_dir/bin/gh"
+  printf '#!/bin/sh\necho "real-gh $*"\n' > "$shim_dir/real/gh"
+  chmod +x "$shim_dir/real/gh"
 
   local rc=0
   : > "$OUT"
@@ -207,6 +216,25 @@ test_gh_wrapper_shim() {
   expect_code 2 "$rc" "gh shim must refuse pr merge --admin with code 2"
   assert_grep "hard-rule-2" "$ERR" "gh shim refusal must cite hard-rule-2"
 
+  # Symlinked shim resolves the real script root, so the default home's task brief authorizes.
+  local home="$TMP_ROOT/shim-home"
+  mkdir -p "$home/data/task-shim"
+  printf '# Task\n## Captain'"'"'s intent\nMerge PR 123 with --admin.\n' > "$home/data/task-shim/brief.md"
+  rc=0
+  : > "$OUT"
+  : > "$ERR"
+  PATH="$shim_dir/bin:$shim_dir/real:$PATH" FM_TASK_ID=task-shim FM_HOME="$home" \
+    gh pr merge 123 --admin > "$OUT" 2> "$ERR" || rc=$?
+  expect_code 0 "$rc" "authorized gh shim merge must reach the real gh"
+  assert_grep "real-gh pr merge 123 --admin" "$OUT" "shim must exec the real gh with the original args"
+
+  rc=0
+  : > "$OUT"
+  : > "$ERR"
+  PATH="$shim_dir/bin:$shim_dir/real:$PATH" gh --help > "$OUT" 2> "$ERR" || rc=$?
+  expect_code 0 "$rc" "shim must pass --help through to real gh"
+  assert_grep "real-gh --help" "$OUT" "shim --help must reach the real gh"
+
   # Also test invocation via argv: fm-admin-guard.sh gh pr merge --admin
   rc=0
   : > "$OUT"
@@ -214,7 +242,7 @@ test_gh_wrapper_shim() {
   "$CHECK" gh pr merge 123 --admin > "$OUT" 2> "$ERR" || rc=$?
   expect_code 2 "$rc" "fm-admin-guard.sh gh pr merge --admin must refuse with code 2"
 
-  pass "gh shim wrapper intercepts and refuses unauthorized --admin merges"
+  pass "gh shim wrapper intercepts unauthorized --admin merges and passes others to real gh"
 }
 
 # 7. Lint cleanliness check
