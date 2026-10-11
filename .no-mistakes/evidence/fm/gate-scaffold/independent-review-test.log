@@ -1,0 +1,41 @@
+ok - a Codex-built task selects an available reviewer from a different recorded family
+ok - a Claude-built task selects an available reviewer from a different recorded family
+ok - a model-routing harness derives family from its recorded model rather than its adapter name
+ok - a Muse-built task resolves its fixed provider family and starts review
+ok - Cursor derives only verified routed families and refuses unknown models
+ok - a deliberately defective pull request is rejected with its concrete blocking finding
+ok - a sound pull request passes with a traveling verdict bound to its exact head
+ok - verdict text rejects terminal control bytes before recording or presentation
+ok - a verdict never clears a pull request head it was not produced against
+ok - advancing the named base invalidates a verdict when the exact diff changes
+ok - no available different-family reviewer produces a loud refusal and no ready state
+ok - selection considers available verified fixed-family adapters beyond the first two candidates
+ok - a second rejection opens the circuit instead of producing a third patch round
+ok - each review round receives only the cold criteria and exact diff, never builder or prior-review reasoning
+ok - an unresolved builder family refuses without guessing and identifies the missing fact
+ok - independent review is scoped to finished open pull requests, never drafts or merged work
+ok - independent review never starts for work in progress without its finished-PR signal
+ok - readiness requires current, mode-specific pull-request completion
+ok - finished pull-request status requires an exact URL token
+ok - the review bundle is diffed against its recorded target branch
+ok - a missing forge target base refuses before review starts
+ok - a finished GitLab merge request uses the same exact-head independent-review boundary
+ok - a recorded result clears a head only after the reviewer completes the supervised path
+ok - verdict promotion reports storage failure separately from incomplete review
+ok - an abandoned unpromoted proposal can retire and retry
+ok - promotion requires the completion line to name the same verdict the reviewer submitted
+ok - both generated Herdr brief shapes terminate criteria and start review
+ok - a near-miss generated heading refuses without recording or spawning
+ok - an unterminated Task section refuses before review starts
+ok - failed-round retirement removes its artifacts and permits a fresh launch
+ok - owned interrupted round artifacts recover idempotently on retry
+ok - reviewer data publishes atomically with its ownership marker
+ok - recovery refuses to delete reviewer data owned by another task
+ok - full parent identities derive distinct bounded reviewer ids
+ok - reviewer id derivation refuses an empty successful hash pipeline result
+ok - a launching round can retire transactionally and retry
+ok - promoted verdict history cannot be retired or reset
+ok - review transitions serialize promotion and preserve the two-round circuit breaker
+ok - an unrecognized top-level heading refuses instead of silently truncating the criteria
+ok - a task whose criteria follow a collision-looking line keeps its criteria
+ok - an authorized finding is never dropped by the gate

@@ -1,0 +1,132 @@
+=== S1: authored headings that collide with scaffold names keep the criteria ===
+
+$ fm-independent-review.sh ready task-a https://github.com/example/repo/pull/1
+independent review started: round 1 reviewer=ir-d6d3b5da252742a0a205101cc9251add907e0697883d0f835a9cc932c69ec family=anthropic head=2dc144b4296504760e826a9ee1779621e79a5caa
+[exit 3]
+
+$ cat <round-1 criteria copy>
+Ship the audit logger.
+
+# Setup
+Operators must set AUDIT_DIR before first run.
+
+# Rules
+1. Every denied request writes an audit line.
+
+# Project memory
+Record the audit file format in docs.
+
+# Definition of done
+AUTHORED_DONE_SENTINEL: audit lines are append-only.
+
+
+$ grep -c SENTINEL <reviewer brief>
+(no sentinel)
+
+=== S2: real generated scaffold heading still terminates the task section (no builder leak) ===
+
+$ fm-independent-review.sh ready task-a https://github.com/example/repo/pull/1
+independent review started: round 1 reviewer=ir-d6d3b5da252742a0a205101cc9251add907e0697883d0f835a9cc932c69ec family=anthropic head=2dc144b4296504760e826a9ee1779621e79a5caa
+[exit 3]
+
+$ cat <round-1 criteria copy>
+Only criteria here.
+
+
+=== S3: unknown top-level heading and missing terminator refuse loudly ===
+
+$ fm-independent-review.sh ready task-a https://github.com/example/repo/pull/1
+error: original task criteria contain an unrecognized top-level heading: # Builder notes
+error: could not establish original task criteria from /tmp/fm-ir-drive.rz2uUd/s3/home/data/task-a/brief.md
+[exit 1]
+
+$ fm-independent-review.sh ready task-a https://github.com/example/repo/pull/1
+error: original task criteria reach EOF without a recognized generated terminator
+error: could not establish original task criteria from /tmp/fm-ir-drive.rz2uUd/s3/home/data/task-a/brief.md
+[exit 1]
+
+$ ls round files
+(no round recorded)
+
+=== S4: authorized finding survives a later clear round and blocks the gate ===
+
+$ fm-independent-review.sh ready task-a https://github.com/example/repo/pull/1
+independent review started: round 1 reviewer=ir-758c5d97e66c312f3371648c83bc96e8bd99d09c6ff95e37a90aa4a9b3105 family=anthropic head=0f7185bedc88668470e83cbc537e735de1ec56d2
+[exit 3]
+
+$ fm-independent-review.sh ready task-a https://github.com/example/repo/pull/1
+error: independent review by ir-758c5d97e66c312f3371648c83bc96e8bd99d09c6ff95e37a90aa4a9b3105 rejected head 0f7185bedc88668470e83cbc537e735de1ec56d2: authorization accepts every input
+blocker: correctness: authorize.sh returns success for unauthorized values
+[exit 1]
+
+$ cat state/task-a.independent-review.authorized-findings
+format=firstmate-independent-review-authorized-findings-v1
+task=task-a
+finding_count=1
+finding_1_category=correctness
+finding_1=authorize.sh returns success for unauthorized values
+finding_1_status=pending
+
+$ fm-independent-review.sh ready task-a https://github.com/example/repo/pull/1
+independent review started: round 2 reviewer=ir-6841e0f2f64986299a586002b0bdd9844a12ec639724448035cc9dd9879a5 family=anthropic head=ea16becca7502fa39ed79f873c1d5d06674e317e
+[exit 3]
+
+$ fm-independent-review.sh submit task-a ir-6841e0f2f64986299a586002b0bdd9844a12ec639724448035cc9dd9879a5 ea16becca7502fa39ed79f873c1d5d06674e317e clear looks fine
+recorded independent review result: task=task-a round=2 verdict=clear head=ea16becca7502fa39ed79f873c1d5d06674e317e
+[exit 0]
+
+$ fm-independent-review.sh ready task-a https://github.com/example/repo/pull/1 --head-file /tmp/fm-ir-drive.rz2uUd/s4/home/state/reviewed-head
+error: independent review cannot clear: authorized finding was dropped without resolution
+blocker: correctness: authorize.sh returns success for unauthorized values
+[exit 1]
+
+$ test -e reviewed-head
+ABSENT
+
+=== S5 (adversarial): tampered/invalid findings file fails closed ===
+
+$ fm-independent-review.sh ready task-a https://github.com/example/repo/pull/1 --head-file /tmp/fm-ir-drive.rz2uUd/s4/home/state/reviewed-head
+error: could not validate authorized findings file for task-a
+[exit 1]
+
+$ fm-independent-review.sh ready task-a https://github.com/example/repo/pull/1 --head-file /tmp/fm-ir-drive.rz2uUd/s4/home/state/reviewed-head
+error: could not validate authorized findings file for task-a
+[exit 1]
+
+$ fm-independent-review.sh ready task-a https://github.com/example/repo/pull/1 --head-file /tmp/fm-ir-drive.rz2uUd/s4/home/state/reviewed-head
+error: could not validate authorized findings file for task-a
+[exit 1]
+
+$ test -e reviewed-head
+ABSENT
+
+=== S6: operator resolve-finding with reason clears gate; bad input refused ===
+
+$ fm-independent-review.sh resolve-finding task-a no such finding x
+error: authorized finding not found for task task-a: no such finding
+[exit 1]
+
+$ fm-independent-review.sh add-finding task-a --block flag form must be rejected
+error: invalid blocking category: --block
+[exit 1]
+
+$ fm-independent-review.sh resolve-finding task-a authorize.sh returns success for unauthorized values fixed by allowlist check
+resolved authorized finding for task-a: authorize.sh returns success for unauthorized values
+[exit 0]
+
+$ cat findings
+format=firstmate-independent-review-authorized-findings-v1
+task=task-a
+finding_count=1
+finding_1_category=correctness
+finding_1=authorize.sh returns success for unauthorized values
+finding_1_status=resolved
+finding_1_resolution=fixed by allowlist check
+
+$ fm-independent-review.sh ready task-a https://github.com/example/repo/pull/1 --head-file /tmp/fm-ir-drive.rz2uUd/s4/home/state/reviewed-head
+Independent review: ir-6841e0f2f64986299a586002b0bdd9844a12ec639724448035cc9dd9879a5 via claude (anthropic family) - looks fine
+[exit 0]
+
+$ cat reviewed-head; round-2 head
+ea16becca7502fa39ed79f873c1d5d06674e317e
+ea16becca7502fa39ed79f873c1d5d06674e317e
