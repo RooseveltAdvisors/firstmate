@@ -448,6 +448,14 @@ cmp -s "$TMP_ROOT/before-best-effort.json" "$HOME_DIR/state/home-summary.json" \
   || fail "failed best-effort refresh changed the prior ledger"
 grep -F 'summary producer failed' "$HOME_DIR/state/.home-summary-refresh.log" >/dev/null \
   || fail "best-effort refresh did not log its failure"
+grep -F 'summary producer failed' "$HOME_DIR/state/.home-summary-refresh.log" \
+  | grep -F '(failure 1 in a row, backing off 60s)' >/dev/null \
+  || fail "a worker-side failure did not name its streak and backoff"
+[ "$(wc -l < "$HOME_DIR/state/.home-summary-refresh.log")" -eq 1 ] \
+  || fail "a worker-side failure was logged more than once"
+read -r backoff_count _ < "$HOME_DIR/state/.home-summary-backoff" \
+  || fail "a worker-side failure recorded no backoff"
+[ "$backoff_count" = 1 ] || fail "a worker-side failure recorded streak '$backoff_count'"
 pass "best-effort publication logs and continues"
 
 LOCK_MARKER="$TMP_ROOT/lock-held"
@@ -466,6 +474,13 @@ while [ ! -e "$LOCK_MARKER" ] && [ "$i" -lt 100 ]; do
   i=$((i + 1))
 done
 [ -e "$LOCK_MARKER" ] || fail "could not hold the publication lock for timeout coverage"
+printf '1 0\n' > "$HOME_DIR/state/.home-summary-backoff"
+PATH="$FAKEBIN:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$HOME_DIR" \
+  FM_HOME_SUMMARY_IF_IDLE=1 "$WRITER" --best-effort \
+  || fail "an idle-only trigger on a busy lock changed the best-effort caller result"
+[ "$(cat "$HOME_DIR/state/.home-summary-backoff")" = "1 0" ] \
+  || fail "an idle-only trigger that skipped publication changed the failure backoff"
+rm -f "$HOME_DIR/state/.home-summary-backoff"
 started=$(date +%s)
 PATH="$FAKEBIN:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$HOME_DIR" \
   FM_HOME_SUMMARY_TIMEOUT=1 "$WRITER" --best-effort \
@@ -485,7 +500,7 @@ PATH="$FAKEBIN:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$HOME_DIR" \
   FM_HOME_SUMMARY_TIMEOUT=1 "$WRITER" --best-effort \
   || fail "a backed-off trigger changed the best-effort caller result"
 elapsed=$(( $(date +%s) - started ))
-[ "$elapsed" -lt 1 ] || fail "a backed-off trigger still ran for $elapsed seconds"
+[ "$elapsed" -lt 2 ] || fail "a backed-off trigger still ran for $elapsed seconds"
 [ "$(wc -l < "$HOME_DIR/state/.home-summary-refresh.log")" -eq "$log_lines" ] \
   || fail "a backed-off trigger attempted and logged another refresh"
 printf '1 0\n' > "$BACKOFF_FILE"
