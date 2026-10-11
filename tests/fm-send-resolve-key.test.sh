@@ -793,8 +793,8 @@ test_stamped_close_line_stays_within_the_status_line_cap() {
     fail "the appended close contains a bare [truncated] marker: $line"
   fi
   sidecar=$(printf '%s\n' "$line" | sed -n 's/.*\[full text: \([^]]*\)\].*/\1/p')
-  [ -f "$sidecar" ] || fail "the sidecar file does not exist: $sidecar"
-  grep -qF "$answer" "$sidecar" || fail "the sidecar file does not contain the full answer"
+  [ -f "$home/state/$sidecar" ] || fail "the sidecar file does not exist: $sidecar"
+  grep -qF "$answer" "$home/state/$sidecar" || fail "the sidecar file does not contain the full answer"
   pass "fm-send --resolve-key: a stamped close line stays inside the status-line cap"
 }
 
@@ -948,33 +948,59 @@ test_resolve_key_persist_full_or_pointer_and_loud_on_truncate() {
   assert_contains "$line" "[full text: " "long ruling should record full text pointer"
   assert_not_contains "$line" "[truncated]" "long ruling must never use bare [truncated]"
   sidecar=$(printf '%s\n' "$line" | sed -n 's/.*\[full text: \([^]]*\)\].*/\1/p')
-  [ -f "$sidecar" ] || fail "sidecar file missing: $sidecar"
-  grep -qF "$answer" "$sidecar" || fail "sidecar must contain the complete ruling words"
+  [ -f "$home/state/$sidecar" ] || fail "sidecar file missing: $sidecar"
+  grep -qF "$answer" "$home/state/$sidecar" || fail "sidecar must contain the complete ruling words"
 
   # 3. Loud on truncate: when sidecar persistence fails, emit warning and durable marker.
-  dir="$TMP_ROOT/loud-truncate"; mkdir -p "$dir"
-  fb=$(make_stubs "$dir"); log="$dir/send.log"; err="$dir/send.err"
-  home=$(setup_home loud-truncate)
-  fm_write_meta "$home/state/t1.meta" "window=sess:fm-t1" "kind=ship"
-  printf 'needs-decision [key=fail-rule]: pending ruling\n' > "$home/state/t1.status"
-  mkdir -p "$home/state/.resolutions"
-  chmod 555 "$home/state/.resolutions"
+  # Root ignores the read-only directory, so the forced failure cannot happen there.
+  if [ "$(id -u)" != 0 ]; then
+    dir="$TMP_ROOT/loud-truncate"; mkdir -p "$dir"
+    fb=$(make_stubs "$dir"); log="$dir/send.log"; err="$dir/send.err"
+    home=$(setup_home loud-truncate)
+    fm_write_meta "$home/state/t1.meta" "window=sess:fm-t1" "kind=ship"
+    printf 'needs-decision [key=fail-rule]: pending ruling\n' > "$home/state/t1.status"
+    mkdir -p "$home/state/.resolutions"
+    chmod 555 "$home/state/.resolutions"
 
-  env PATH="$fb:$PATH" \
-    FM_ROOT_OVERRIDE="$home" FM_HOME="$home" FM_SEND_LOG="$log" FM_SEND_SETTLE=0 \
-    "$SEND" t1 --resolve-key fail-rule "$answer" >/dev/null 2>"$err"; rc=$?
-  expect_code 0 "$rc" "answering even when sidecar fails should still deliver and close"
-  assert_contains "$(cat "$err")" "warning: could not persist full text for decision key 'fail-rule' to sidecar, truncated on write" \
-    "failure to persist full text must emit visible warning on stderr"
-  line=$(grep -F 'resolved [key=fail-rule]' "$home/state/t1.status") \
-    || fail "closing line missing"
-  assert_contains "$line" "[TRUNCATED-ON-WRITE: full-text store failed]" \
-    "status line must record durable loud marker"
-  assert_not_contains "$line" "[truncated]" \
-    "status line must never record bare [truncated]"
-  chmod 755 "$home/state/.resolutions"
+    env PATH="$fb:$PATH" \
+      FM_ROOT_OVERRIDE="$home" FM_HOME="$home" FM_SEND_LOG="$log" FM_SEND_SETTLE=0 \
+      "$SEND" t1 --resolve-key fail-rule "$answer" >/dev/null 2>"$err"; rc=$?
+    chmod 755 "$home/state/.resolutions"
+    expect_code 0 "$rc" "answering even when sidecar fails should still deliver and close"
+    assert_contains "$(cat "$err")" "warning: could not persist full text for decision key 'fail-rule' to sidecar, truncated on write" \
+      "failure to persist full text must emit visible warning on stderr"
+    line=$(grep -F 'resolved [key=fail-rule]' "$home/state/t1.status") \
+      || fail "closing line missing"
+    assert_contains "$line" "[TRUNCATED-ON-WRITE: full-text store failed]" \
+      "status line must record durable loud marker"
+    assert_not_contains "$line" "[truncated]" \
+      "status line must never record bare [truncated]"
+  fi
 
   pass "fm-send --resolve-key: persists full-or-pointer and is loud-on-truncate"
+}
+
+# The sidecar pointer must not grow with the home path: a deep FM_HOME plus a
+# moderate key once pushed the absolute pointer past the cap's room for the
+# structural key prefix, refusing a long answer that a short one would close.
+test_long_home_path_still_closes_a_long_answer() {
+  local dir fb log home rc answer line sidecar
+  dir="$TMP_ROOT/long-home"; mkdir -p "$dir"
+  fb=$(make_stubs "$dir"); log="$dir/send.log"
+  home=$(setup_home "long-home-$(printf 'deep%.0s' {1..30})")
+  fm_write_meta "$home/state/t1.meta" "window=sess:fm-t1" "kind=ship"
+  printf 'needs-decision [key=advisor-retirement]: retire advisors?\n' > "$home/state/t1.status"
+  answer="Captain ruling: $(printf 'retire every advisor secondmate now. %.0s' {1..8})"
+
+  run_send "$fb" "$home" "$log" t1 --resolve-key advisor-retirement "$answer"; rc=$?
+  expect_code 0 "$rc" "a long answer under a deep home path should close, not refuse"
+  line=$(grep -F 'resolved [key=advisor-retirement]' "$home/state/t1.status") \
+    || fail "the closing resolved line is missing:"$'\n'"$(cat "$home/state/t1.status")"
+  [ "${#line}" -le 220 ] || fail "the appended close is ${#line} characters, past the cap: $line"
+  sidecar=$(printf '%s\n' "$line" | sed -n 's/.*\[full text: \([^]]*\)\].*/\1/p')
+  [ -f "$home/state/$sidecar" ] || fail "the sidecar file does not exist: $sidecar"
+  grep -qF "$answer" "$home/state/$sidecar" || fail "the sidecar file does not contain the full answer"
+  pass "fm-send --resolve-key: a deep home path still closes a long answer through the sidecar"
 }
 
 test_answer_send_closes_open_decision
@@ -1002,3 +1028,4 @@ test_failed_close_recovery_command_is_shell_safe
 test_remote_reserved_pending_reply_key_closes_locally
 test_decision_answer_partition_relocates_under_the_record
 test_resolve_key_persist_full_or_pointer_and_loud_on_truncate
+test_long_home_path_still_closes_a_long_answer
