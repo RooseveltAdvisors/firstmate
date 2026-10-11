@@ -176,9 +176,11 @@
 # as composer bytes a held composer can swallow. So an accepted answer queues
 # durably or fails loudly; it never exits 0 with no record. A key that is not
 # open still refuses before anything is sent, and says so.
-# OPERATOR: a zero pending count is ambiguous between already-consumed and
-# never-queued - the check is `ls state/<task>.inbox/*.msg`, never the exit
-# code.
+# OPERATOR: a zero pending count alone cannot tell already-consumed from
+# never-queued, because the worker moves a consumed record into handled/. The
+# check is both `ls state/<task>.inbox/*.msg` and
+# `ls state/<task>.inbox/handled/*.msg`, never the exit code: a record in
+# either place was queued; none in both was never queued.
 # The close is a LOCAL append for every target kind -
 # crewmate, scout, local secondmate, and remote secondmate alike - because the
 # open-decision ledger fm-wake-drain folds lives in this home's own state dir
@@ -695,8 +697,8 @@ if [ -n "$RESOLVE_KEYS" ]; then
 fi
 
 # Close each answered decision in this home's ledger, only after the answer is
-# durably sent: enqueued on the inbox plane, submit-confirmed on the typed
-# plane. An append failure exits nonzero with the manual close
+# durably sent: enqueued on the inbox plane (every --resolve-key answer rides
+# it). An append failure exits nonzero with the manual close
 # command; the decision then stays open and re-surfaces, never silently lost.
 # All of one answer's closes are this home's own bookkeeping, written by the
 # very turn that answered the decisions, so they go through ONE guarded
@@ -1215,12 +1217,6 @@ else
       fi
       exit 1
     fi
-  fi
-  # Delivery is fully confirmed: close each answered decision in this home's
-  # ledger (answerer-closes; see the header contract).
-  if [ -n "$RESOLVE_KEYS" ]; then
-    fm_send_close_resolved_keys "$RESOLVE_ANSWER_TEXT" || exit 1
-    fm_send_feed_resolved_holds "$RESOLVE_ANSWER_TEXT" || exit 1
   fi
   # Submit landed with exact empty. Confirmation only proves the text was
   # accepted; the harness still needs a beat to spin up the

@@ -973,9 +973,10 @@ test_parser_native_answer_lands_durably() {
 
 # The other half of the durability contract: a key that is not open must not
 # quietly deliver an answer whose decision stays open. It refuses BEFORE any
-# send, exits nonzero, makes no success claim, and leaves no record - so the
-# operator's `ls state/<task>.inbox/*.msg` zero reading is truthful rather than
-# ambiguous. (test_not_open_key_refuses_before_send covers the plain-text shape;
+# send, exits nonzero, makes no success claim, and leaves no record in either
+# state/<task>.inbox/*.msg or state/<task>.inbox/handled/*.msg - so the
+# operator's zero reading across both means never queued, not consumed.
+# (test_not_open_key_refuses_before_send covers the plain-text shape;
 # this pins the parser-native shape the plane fix newly routes through the
 # inbox, so the refusal cannot regress into an enqueue-anyway.)
 # Contract pinned: mistyped key = fail-loudly form (nonzero, no record, no false success); matching key = durable-queue form (test_parser_native_answer_lands_durably).
@@ -996,7 +997,7 @@ test_not_open_key_refuses_parser_native_answer() {
   fi
   assert_contains "$(cat "$err")" "nothing was sent" \
     "the refusal should state that nothing was sent"
-  if ls "$home/state/t4.inbox"/*.msg >/dev/null 2>&1; then
+  if ls "$home/state/t4.inbox"/*.msg "$home/state/t4.inbox/handled"/*.msg >/dev/null 2>&1; then
     fail "the refused answer still wrote an inbox record"
   fi
   sed -E 's/ \[at=[0-9]+\]//' "$home/state/t4.status" | grep -qF 'resolved [key=' \
