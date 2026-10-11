@@ -172,6 +172,30 @@ case "$CMD" in
   *) exit 0 ;;
 esac
 
+split_command_segments() {
+  local s=$1 out="" q="" c i
+  for ((i = 0; i < ${#s}; i++)); do
+    c=${s:i:1}
+    if [ -n "$q" ]; then
+      if [ "$q" = '"' ] && [ "$c" = "\\" ]; then
+        out+=${s:i:2}
+        i=$((i + 1))
+        continue
+      fi
+      [ "$c" = "$q" ] && q=""
+      [ "$c" = $'\n' ] && c=' '
+      out+=$c
+      continue
+    fi
+    case "$c" in
+      "'"|'"') q=$c; out+=$c ;;
+      ';'|'&'|'|'|$'\n') printf '%s\n' "$out"; out="" ;;
+      *) out+=$c ;;
+    esac
+  done
+  printf '%s\n' "$out"
+}
+
 is_admin_merge_command() {
   local cmd="$1" line inner
   local words=()
@@ -193,7 +217,7 @@ is_admin_merge_command() {
     case "${words[0]##*/}" in
       gh|gh-axi) args_are_admin_merge "${words[@]:1}" && return 0 ;;
     esac
-  done < <(printf '%s\n' "$cmd" | sed -E 's/(&&|\|\||;|\||&)/\n/g')
+  done < <(split_command_segments "$cmd")
   return 1
 }
 

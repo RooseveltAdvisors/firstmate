@@ -123,7 +123,10 @@ test_non_admin_commands_allowed() {
   local quoted
   for quoted in 'git commit -m "docs: never run gh pr merge --admin"' \
     'gh pr create --title x --body "workers never gh pr merge --admin"' \
-    'grep -rn "gh pr merge 5 --admin" tests/'; do
+    'grep -rn "gh pr merge 5 --admin" tests/' \
+    'git commit -m "guard: refuse --admin; gh pr merge 5 --admin now exits 2"' \
+    "git commit -m 'a && gh pr merge 5 --admin | b'" \
+    "$(printf 'gh pr create --title x --body "intro\ngh pr merge 5 --admin\nend"')"; do
     rc=0
     run_guard --claude --command "$quoted" || rc=$?
     expect_code 0 "$rc" "guarded phrase in a command argument must be allowed: $quoted"
