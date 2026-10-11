@@ -1,0 +1,18 @@
+=== cancelled-rearm-green (PR #6460 live rollup: SUCCESS; status=cancelled outcome=cancelled )
+  state: done · source: run-step · checks green: PR held for merge (ci monitor ended): https://github.com/kunchenguid/firstmate/pull/6460
+=== cancelled-statusonly-rearm-green (PR #6460 live rollup: SUCCESS; status=cancelled outcome=<none> )
+  state: done · source: run-step · checks green: PR held for merge (ci monitor ended): https://github.com/kunchenguid/firstmate/pull/6460
+=== cancelled-plain-green (PR #6460 live rollup: SUCCESS; status=cancelled outcome=cancelled )
+  state: done · source: run-step · checks green: PR held for merge (ci monitor ended): https://github.com/kunchenguid/firstmate/pull/6460
+=== cancelled-rearm-red (PR #7057 live rollup: FAILURE; status=cancelled outcome=cancelled )
+  state: done · source: run-step · checks green: PR held for merge (ci monitor ended): https://github.com/kunchenguid/firstmate/pull/7057
+=== cancelled-rearm-noforge (PR #6460 live rollup: SUCCESS; status=cancelled outcome=cancelled FM_CREW_STATE_NO_FORGE=1)
+  state: unknown · source: run-step · run cancelled: no verdict
+=== cancelled-rearm-relapse (PR #6460 live rollup: SUCCESS; status=cancelled outcome=cancelled )
+  state: unknown · source: run-step · run cancelled: no verdict
+=== live-rearm-forge-red (PR #7057 live rollup: FAILURE; status=running outcome=<none> )
+  state: done · source: run-step · checks green: PR ready for review (still monitoring for merge/close): https://github.com/kunchenguid/firstmate/pull/7057
+=== live-rearm-noforge (PR #6460 live rollup: SUCCESS; status=running outcome=<none> FM_CREW_STATE_NO_FORGE=1)
+  state: done · source: run-step · checks green: PR ready for review (still monitoring for merge/close): https://github.com/kunchenguid/firstmate/pull/6460
+=== live-rearm-gitlab (PR #0 live rollup: {"data":{"repository":{"pullRequest":null}},"errors":[{"type":"NOT_FOUND","path":["repository","pullRequest"],"locations":[{"line":1,"column":56}],"message":"Could not resolve to a PullRequest with the number of 0."}]}; status=running outcome=<none> )
+  state: done · source: run-step · checks green: PR ready for review (still monitoring for merge/close): https://gitlab.com/o/r/-/merge_requests/2
