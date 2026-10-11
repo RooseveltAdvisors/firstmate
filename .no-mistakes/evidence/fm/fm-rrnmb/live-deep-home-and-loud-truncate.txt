@@ -1,0 +1,17 @@
+=== Scenario: deep FM_HOME path (review-1 regression) ===
+STATE path length: 197
+$ fm-send.sh t1 --resolve-key advisor-retirement "<312-char ruling>"
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.IyisWc/deep-nested-home-dir/deep-nested-home-dir/deep-nested-home-dir/deep-nested-home-dir/deep-nested-home-dir/deep-nested-home-dir/deep-nested-home-dir/deep-nested-home-dir/home
+exit=0
+closing line (220 chars): resolved [key=advisor-retirement] [at=1791695827]: answered: Captain ruling: retire every advisor secondmate now. retire every advisor secondmate now. retire every advisor [full text: .resolutions/20261011T011707.CJJDs2]
+sidecar: $STATE/.resolutions/20261011T011707.CJJDs2
+answered: Captain ruling: retire every advisor secondmate now. retire every advisor secondmate now. retire every advisor secondmate now. retire every advisor secondmate now. retire every advisor secondmate now. retire every advisor secondmate now. retire every advisor secondmate now. retire every advisor secondmate now. 
+(no open decisions: key closed)
+
+=== Scenario: sidecar store fails (read-only .resolutions) -> loud warning + durable marker ===
+id -u: 1000
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.IyisWc/ro-home
+warning: could not persist full text for decision key 'fail-rule' to sidecar, truncated on write
+exit=0
+closing line (220 chars): resolved [key=fail-rule] [at=1791695832]: answered: Captain ruling: retire every advisor secondmate now. retire every advisor secondmate now. retire every advisor secondmate n [TRUNCATED-ON-WRITE: full-text store failed]
+(no open decisions: key closed)

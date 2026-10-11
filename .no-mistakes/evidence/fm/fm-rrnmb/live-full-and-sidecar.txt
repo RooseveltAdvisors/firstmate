@@ -1,0 +1,51 @@
+$ fm-send.sh t1 --resolve-key short-rule "Captain ruling: choose option B and proceed safely."
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.IyisWc
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the requested message WILL still be sent.
+●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+exit=0
+
+$ fm-send.sh t1 --resolve-key advisor-retirement "<415-char ruling>"   (FM_HOME=/tmp/fm-lab.IyisWc)
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.IyisWc
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+exit=0
+
+--- $STATE/t1.status ---
+needs-decision [key=short-rule]: choose approach
+needs-decision [key=advisor-retirement]: retire advisors?
+resolved [key=short-rule] [at=1791695805]: answered: Captain ruling: choose option B and proceed safely.
+resolved [key=advisor-retirement] [at=1791695808]: answered: Captain ruling 2026-09-22: all advisor secondmates are retired; the fleet no longer uses advisors. Thread clos [full text: .resolutions/20261011T011648.XXQHMK]
+
+--- line lengths ---
+48: needs-decision [key=short-rule]: choose appro
+57: needs-decision [key=advisor-retirement]: reti
+104: resolved [key=short-rule] [at=1791695805]: an
+220: resolved [key=advisor-retirement] [at=1791695
+
+--- sidecar dir ---
+total 12
+drwxrwxr-x 2 jon jon 4096 Oct 11 01:16 .
+drwxrwxr-x 4 jon jon 4096 Oct 11 01:16 ..
+-rw------- 1 jon jon  426 Oct 11 01:16 20261011T011648.XXQHMK
+--- cat $STATE/.resolutions/20261011T011648.XXQHMK ---
+answered: Captain ruling 2026-09-22: all advisor secondmates are retired; the fleet no longer uses advisors. Thread closed with standing order to drain queues and redirect all incoming requests to main. Retire every advisor secondmate now. Retire every advisor secondmate now. Retire every advisor secondmate now. Retire every advisor secondmate now. Retire every advisor secondmate now. Retire every advisor secondmate now. 
+/dev/fd/63 /tmp/fm-lab.IyisWc/state/.resolutions/20261011T011648.XXQHMK differ: byte 1, line 1
+
+--- worker inbox ---
+001.msg
+002.msg
+handled
+
+--- fm-wake-drain OPEN DECISIONS ---
+(no open decisions listed: both keys closed)
+
+--- target pane (real tmux, lab socket) ---
+steering inbox, read and act on each in numeric order, then mv each into its han
+dled/.
+: Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your 't1.inbox'
+steering inbox, read and act on each in numeric order, then mv each into its han
+dled/.
