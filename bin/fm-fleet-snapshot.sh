@@ -657,7 +657,7 @@ prefetch_task_observations() {  # <meta> <id>
     current_pid=$!
     kind=$(meta_value "$meta" kind)
     backend=$(fm_backend_of_meta "$meta")
-    target=$(fm_backend_target_of_meta "$meta" --include-parked)
+    target=$(fm_backend_target_of_meta "$meta")
     if [ -n "$target" ]; then
       if fm_backend_target_exists "$backend" "$target" "fm-$id" >/dev/null 2>&1; then
         endpoint_exists=true
@@ -773,7 +773,7 @@ task_json_lines() {
       target=$(meta_value "$meta" remote_target)
     else
       backend=$(fm_backend_of_meta "$meta")
-      target=$(fm_backend_target_of_meta "$meta" --include-parked)
+      target=$(fm_backend_target_of_meta "$meta")
     fi
     status_log="$SNAPSHOT_TASK_DIR/$id.status"
     report_path="$SNAPSHOT_TASK_DIR/$id.report"

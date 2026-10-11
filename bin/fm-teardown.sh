@@ -3208,7 +3208,7 @@ cleanup_firstmate_home_children() {
     if [ "$child_backend" = orca ]; then
       child_t=$(meta_value "$child_meta" terminal)
     else
-      child_t=$(fm_backend_target_of_meta "$child_meta" --include-parked)
+      child_t=$(fm_backend_target_of_meta "$child_meta")
     fi
     if [ "$child_backend" = orca ] && [ "$child_kind" != secondmate ]; then
       child_orca_worktree_id=$(require_orca_worktree_id "$child_meta") || return 1
