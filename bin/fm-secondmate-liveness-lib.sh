@@ -44,9 +44,13 @@
 # Concurrency: fm_secondmate_liveness_lock serializes probe+kill+relaunch per
 # task across the bootstrap sweep and the watcher tick, so a concurrent
 # relaunch can never be observed mid-flight as a dead endpoint and killed.
+# A live fm-spawn holding the per-task spawn lock (.spawn-<id>.lock) is
+# reported as STATUS=skipped STATE=in-progress, never as a failure, both at
+# probe time and when fm-spawn refuses the relaunch as already in progress.
 # The attempt ledger (.secondmate-relaunch-<id>, one line per attempt plus one
-# per outcome) is both the durable relaunch record and the input to the
-# watcher's relaunch bound; teardown removes it.
+# per outcome; a contended attempt is rolled back so it spends no budget) is
+# both the durable relaunch record and the input to the watcher's relaunch
+# bound; teardown removes it.
 
 set -u
 
