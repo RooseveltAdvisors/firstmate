@@ -70,12 +70,17 @@ FM_HOME=${FM_HOME:-$FM_ROOT}
 # shellcheck source=bin/fm-brief-heading-lib.sh
 . "$FM_ROOT/bin/fm-brief-heading-lib.sh" 2>/dev/null
 
-ADMIN_NEGATION_RE="(^|[^[:alpha:]])(never|not|no|dont|don't|without|avoid|forbid|forbidden|refuse)([^[:alpha:]]|$)|n't([^[:alpha:]]|$)"
+ADMIN_AFFIRM_RE="admin-merge:[[:space:]]*authori[sz]ed|(use|using|with|run|authori[sz]e[ds]?|approve[ds]?|allow(ed)?)[[:space:]]+(an?[[:space:]]+)?(--admin|admin merge)"
+ADMIN_NEGATION_RE="(^|[^[:alpha:]])(never|not|no|dont|don't|without|avoid|forbid|forbidden|refuse|refrain|prohibited|off-limits|banned|disallowed)([^[:alpha:]]|$)|n't([^[:alpha:]]|$)"
 
 is_captain_authorized() {
-  [ -n "${FM_TASK_ID:-}" ] || return 1
-  fm_brief_task_heading_body "$FM_HOME/data/$FM_TASK_ID/brief.md" "## Captain's intent" 2>/dev/null \
-    | grep -iE -- '--admin|admin merge' \
+  local brief=${FM_ADMIN_GUARD_BRIEF:-}
+  if [ -z "$brief" ]; then
+    [ -n "${FM_TASK_ID:-}" ] || return 1
+    brief="$FM_HOME/data/$FM_TASK_ID/brief.md"
+  fi
+  fm_brief_task_heading_body "$brief" "## Captain's intent" 2>/dev/null \
+    | grep -iE -- "$ADMIN_AFFIRM_RE" \
     | grep -viqE -- "$ADMIN_NEGATION_RE"
 }
 
@@ -176,26 +181,20 @@ is_admin_merge_command() {
   while IFS= read -r line; do
     line=$(printf '%s' "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
     [ -n "$line" ] || continue
-    local clean="${line//[\"\']/}"
+    local clean="${line//[\"\'()\`\$\{\}]/ }"
     local words=()
     read -r -a words <<< "$clean"
-    [ "${#words[@]}" -gt 0 ] || continue
+    case "${words[0]:-}" in
+      ''|echo|printf) continue ;;
+    esac
     local idx=0
     while [ "$idx" -lt "${#words[@]}" ]; do
-      local w="${words[$idx]}"
-      case "$w" in
-        *=*) ((idx++)) ;;
-        sudo|env|exec|time|nohup) ((idx++)) ;;
-        *) break ;;
+      case "${words[$idx]##*/}" in
+        gh|gh-axi) break ;;
       esac
+      idx=$((idx + 1))
     done
     [ "$idx" -lt "${#words[@]}" ] || continue
-    local bin="${words[$idx]}"
-    local bin_base="${bin##*/}"
-    case "$bin_base" in
-      gh|gh-axi) ;;
-      *) continue ;;
-    esac
     local has_pr=0 has_merge=0 has_admin=0
     for ((i=idx+1; i<${#words[@]}; i++)); do
       case "${words[$i]}" in

@@ -53,6 +53,15 @@ test_cli_admin_refusals() {
   run_guard --command 'git status && gh pr merge 123 --admin' || rc=$?
   expect_code 2 "$rc" "chained gh pr merge 123 --admin must be refused"
 
+  local wrapped
+  for wrapped in 'command gh pr merge 5 --admin' "bash -lc 'gh pr merge 5 --admin'" \
+    '(gh pr merge 5 --admin)' 'cd repo; $(which gh) pr merge 5 --admin' \
+    'GH_TOKEN=x sudo gh-axi pr merge 5 --admin'; do
+    rc=0
+    run_guard --command "$wrapped" || rc=$?
+    expect_code 2 "$rc" "wrapped admin merge must be refused: $wrapped"
+  done
+
   pass "CLI --command admin merge forms are deterministically refused with code 2"
 }
 
@@ -138,7 +147,10 @@ test_captain_authorization() {
 
   local neg
   for neg in "Merge it once green, never use --admin." \
-    "Do not use --admin." "Don't admin merge this." "Merge without --admin."; do
+    "Do not use --admin." "Don't admin merge this." "Merge without --admin." \
+    "Merge once green; using --admin merges is prohibited." "Use --admin? It is off-limits." \
+    "Run --admin is banned." "Allowed --admin is disallowed here." "Refrain from using --admin." \
+    "- --admin"; do
     rc=0
     run_with_brief "$case_dir" task-cap-neg "$neg" || rc=$?
     expect_code 2 "$rc" "negated captain wording must not authorize --admin: $neg"
@@ -162,7 +174,21 @@ test_captain_authorization() {
   ) || rc=$?
   expect_code 2 "$rc" "a brief.md in the working directory must not authorize --admin"
 
-  pass "only an un-negated Captain's intent line in the task brief authorizes --admin"
+  rc=0
+  run_with_brief "$case_dir" task-cap-2 "admin-merge: authorized" || rc=$?
+  expect_code 0 "$rc" "admin-merge: authorized marker must allow --admin"
+
+  local spawned="$TMP_ROOT/spawned-brief"
+  mkdir -p "$spawned"
+  printf '# Task\n## Captain'"'"'s intent\nMerge PR 99 with --admin.\n' > "$spawned/brief.md"
+  rc=0
+  : > "$OUT"
+  : > "$ERR"
+  FM_ADMIN_GUARD_BRIEF="$spawned/brief.md" FM_HOME="$TMP_ROOT/no-home" \
+    "$CHECK" --command 'gh pr merge 99 --admin' > "$OUT" 2> "$ERR" || rc=$?
+  expect_code 0 "$rc" "FM_ADMIN_GUARD_BRIEF must locate the task brief outside FM_HOME"
+
+  pass "only an affirmative, un-negated Captain's intent line in the task brief authorizes --admin"
 }
 
 # 5. Firstmate spec or steer wording does NOT authorize --admin

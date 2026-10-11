@@ -4766,7 +4766,7 @@ BUSY_GEN=
     fi
     pretool_entry=
     if [ "$KIND" != secondmate ]; then
-      j_pretool=$(json_escape "exec $(shell_quote "$FM_ROOT/bin/fm-admin-guard.sh") --claude")
+      j_pretool=$(json_escape "FM_ADMIN_GUARD_BRIEF=$(shell_quote "$DATA/$ID/brief.md") exec $(shell_quote "$FM_ROOT/bin/fm-admin-guard.sh") --claude")
       pretool_entry="\"PreToolUse\":[{\"matcher\":\"Bash\",\"hooks\":[{\"type\":\"command\",\"command\":\"$j_pretool\"}]}], "
     fi
     hooks_json="\"hooks\":{${pretool_entry}\"UserPromptSubmit\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"$j_submit\"}]}],${stop_entry}\"StopFailure\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"$j_stopfail\"}]}],\"SessionEnd\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"$j_sessionend\"}]}]}"
@@ -5577,6 +5577,7 @@ fi
 # syntax of its own.
 if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
   spawn_send_text_line "$T" "export FM_TASK_ID=$ID"
+  spawn_send_text_line "$T" "export FM_ADMIN_GUARD_BRIEF=$(shell_quote "$DATA/$ID/brief.md") PATH=$(shell_quote "$TASK_TMP/bin"):\"\$PATH\""
 fi
 # Send through the exact channel that already ships GOTMPDIR, so every backend
 # and harness - ship, scout, and secondmate - gets it before launch. Skipped
@@ -5604,7 +5605,7 @@ if [ "$LAUNCH_ENV_ENABLED" = 1 ]; then
     TMPDIR TMP TEMP GOTMPDIR TMUX TMUX_PANE HERDR_ENV HERDR_SESSION HERDR_SOCKET_PATH \
     HERDR_PANE_ID CMUX_WORKSPACE_ID CMUX_SURFACE_ID CMUX_TAB_ID CMUX_PANEL_ID \
     CMUX_SOCKET_PATH ZELLIJ ZELLIJ_SESSION_NAME ZELLIJ_PANE_ID FM_ZELLIJ_SESSION \
-    FM_TASK_ID COMPACT_ADVISER_DISABLE LAVISH_AXI_HOST \
+    FM_TASK_ID FM_ADMIN_GUARD_BRIEF COMPACT_ADVISER_DISABLE LAVISH_AXI_HOST \
     $LAUNCH_ENV_NAMES; do
     # Only validated names enter shell syntax. Values expand once, quoted, in
     # the pane shell and never become source text or spawn-process snapshots.
@@ -5622,9 +5623,6 @@ if [ "$LAUNCH_ENV_ENABLED" = 1 ]; then
   # $LAUNCH is what gives the wrapping `/bin/sh` itself the switch, not only the
   # agent command it runs.
   LAUNCH_ENV_PREFIX="$LAUNCH_ENV_PREFIX COMPACT_ADVISER_DISABLE=1"
-  if [ "$KIND" != secondmate ]; then
-    LAUNCH_ENV_PREFIX="$LAUNCH_ENV_PREFIX PATH=\"$TASK_TMP/bin:\$PATH\""
-  fi
   if [ -n "$SPAWN_TRACEPARENT" ]; then
     # shellcheck disable=SC2016
     LAUNCH_ENV_PREFIX="$LAUNCH_ENV_PREFIX "'${TRACEPARENT+"TRACEPARENT=$TRACEPARENT"}'
