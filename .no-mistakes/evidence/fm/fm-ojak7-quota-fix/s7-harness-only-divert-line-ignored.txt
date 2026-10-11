@@ -1,0 +1,7 @@
+$ FM_HOME=/tmp/fm-lab.wPuU0u bin/fm-spawn.sh lab-ho-g1 /tmp/fm-lab.wPuU0u/proj --mode local-only --yolo off --harness codex --model gpt-5   [config: quota-divert-lanes=pi quota-prober='' ] [quota-axi fixture: q-codex-dead-pi-ok.json]
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.wPuU0u
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+jev-quota-prober: codex:gpt-5 exhausted (quota-axi codex: all_models runway exhausted_now) and no divert lane is healthy in quota-axi
+error: jev-quota-prober refused codex:gpt-5 (verdict: exhausted); not launching
+exit=1
+worker windows for lab-ho-g1: 0

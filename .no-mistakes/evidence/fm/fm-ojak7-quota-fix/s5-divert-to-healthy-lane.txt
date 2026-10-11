@@ -1,0 +1,19 @@
+$ FM_HOME=/tmp/fm-lab.wPuU0u bin/fm-spawn.sh lab-div-e2 /tmp/fm-lab.wPuU0u/proj --mode local-only --yolo off --harness codex --model gpt-5   [config: quota-divert-lanes=$'# Candidate fallback lanes\npi opencode-go/glm-5.3-flash' quota-prober='' ] [quota-axi fixture: q-codex-dead-pi-ok.json]
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.wPuU0u
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+jev-quota-prober: codex:gpt-5 exhausted (quota-axi codex: all_models runway exhausted_now); diverting to pi:opencode-go/glm-5.3-flash
+jev-quota-prober: diverted codex:gpt-5 to quota-axi-healthy lane pi:opencode-go/glm-5.3-flash
+warning: /tmp/fm-lab.wPuU0u/data/lab-div-e2/launch-brief.md records no ship branch; defaulting to legacy branch fm/lab-div-e2
+warning: /tmp/fm-lab.wPuU0u/data/lab-div-e2/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
+notice: lab-div-e2 ships mode=local-only while the standing posture for proj is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+spawned lab-div-e2 harness=pi kind=ship mode=local-only yolo=off window=primary:fm-lab-div-e2 worktree=/tmp/fm-lab.wPuU0u/treehouse/.treehouse/proj-e6ace8/1/proj
+exit=0
+--- quota-axi invocations:
+quota-axi --provider codex --json --max-age 60s
+quota-axi --provider opencode-go --json --max-age 60s
+quota-axi --provider opencode-go --json --max-age 60s
+--- worker launch (lab pi stub log):
+LAUNCHED pi --tui-mode regular --model opencode-go/glm-5.3-flash -e /tmp/fm-lab.wPuU0u/state/lab-div-e2.pi-ext.ts ⁣FIRSTMATE_OP: v1 launch
+--- state/lab-div-e2.meta:
+harness=pi
+model=opencode-go/glm-5.3-flash

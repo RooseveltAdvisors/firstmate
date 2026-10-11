@@ -1,0 +1,9 @@
+# primary shell env: LEAK=1 -> FM_TEST_QUOTA_PROBER=1 exported into spawn, FM_TEST_SEAM=0, no config/quota-prober; fixture marks opencode-go exhausted
+$ FM_HOME=/tmp/fm-lab.wPuU0u bin/fm-spawn.sh lab-leak-h1 /tmp/fm-lab.wPuU0u/proj --mode local-only --yolo off --harness pi --model opencode-go/glm-5.3-flash   [config: ] [quota-axi fixture: q-codex-dead.json]
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.wPuU0u
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+warning: /tmp/fm-lab.wPuU0u/data/lab-leak-h1/launch-brief.md records no ship branch; defaulting to legacy branch fm/lab-leak-h1
+warning: /tmp/fm-lab.wPuU0u/data/lab-leak-h1/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
+notice: lab-leak-h1 ships mode=local-only while the standing posture for proj is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+spawned lab-leak-h1 harness=pi kind=ship mode=local-only yolo=off window=primary:fm-lab-leak-h1 worktree=/tmp/fm-lab.wPuU0u/treehouse/.treehouse/proj-e6ace8/1/proj
+exit=0

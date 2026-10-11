@@ -1,0 +1,21 @@
+$ FM_HOME=/tmp/fm-lab.wPuU0u bin/fm-spawn.sh lab-ok-d1 /tmp/fm-lab.wPuU0u/proj --mode local-only --yolo off --harness codex --model gpt-5   [config: quota-prober='' ] [quota-axi fixture: q-codex-ok.json]
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.wPuU0u
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+warning: /tmp/fm-lab.wPuU0u/data/lab-ok-d1/launch-brief.md records no ship branch; defaulting to legacy branch fm/lab-ok-d1
+warning: /tmp/fm-lab.wPuU0u/data/lab-ok-d1/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
+notice: lab-ok-d1 ships mode=local-only while the standing posture for proj is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+spawned lab-ok-d1 harness=codex kind=ship mode=local-only yolo=off window=primary:fm-lab-ok-d1 worktree=/tmp/fm-lab.wPuU0u/treehouse/.treehouse/proj-e6ace8/1/proj
+exit=0
+--- quota-axi invocations:
+quota-axi --provider codex --json --max-age 60s
+--- worker pane: real codex launched for codex:gpt-5
+  decision will be saved.
+› 1. Trust and continue
+  2. Quit
+  enter continue · esc quit

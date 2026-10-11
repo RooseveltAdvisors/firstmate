@@ -1,0 +1,7 @@
+$ FM_HOME=/tmp/fm-lab.wPuU0u bin/fm-spawn.sh lab-dead-b1 /tmp/fm-lab.wPuU0u/proj --mode local-only --yolo off --harness codex --model gpt-5   [config: quota-prober='' ] [quota-axi fixture: q-codex-dead.json]
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.wPuU0u
+error: jev-quota-prober refused codex:gpt-5 (verdict: exhausted); not launching
+exit=1
+--- quota-axi invocations:
+quota-axi --provider codex --json --max-age 60s
+--- state for lab-dead-b1: 0 files; worker windows: 0

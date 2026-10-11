@@ -1,0 +1,9 @@
+ok - inverted codex verdict: quota-axi 89% wins
+ok - inverted opencode-go verdict: quota-axi 0% is exhausted
+ok - a stale 0% reading launches as requested instead of refusing
+ok - exhausted or stale divert target is never selected
+ok - an exhausted lane without configured divert lanes refuses
+ok - divert candidates loaded from config file
+ok - unmeasurable lanes launch as requested with a loud named diagnostic and never divert
+ok - null quota-axi fields resolve to unknown without a traceback
+ok - a harness quota-axi does not measure launches as requested
