@@ -2110,28 +2110,51 @@ EOF
     pass "red forge checks keep run failed"
   ) || fail "rearm with red forge checks failed"
 
-  # Negative control: FM_CREW_STATE_NO_FORGE=1 must not reclassify to done
+  # Fallback: non-GitHub forge (GitLab) falls back to CI log green marker
   (
     reset_fakes
     local d out
-    d=$(new_case rearm-noforge)
-    make_repo_on_branch "$d/wt" fm/rearm-noforge
+    d=$(new_case rearm-gitlab)
+    make_repo_on_branch "$d/wt" fm/rearm-gitlab
     make_fakebin "$d" >/dev/null
-    fm_write_meta "$d/state/rearm-noforge.meta" "window=fm:fm-rearm-noforge" "worktree=$d/wt" "kind=ship"
-    FM_FAKE_AXI_STATUS="$(run_failed_ci_orphan fm/rearm-noforge)"
-    FM_FAKE_PR_STATE=OPEN
-    FM_FAKE_PR_MERGED=false
-    FM_FAKE_PR_CHECKS=SUCCESS
+    fm_write_meta "$d/state/rearm-gitlab.meta" "window=fm:fm-rearm-gitlab" "worktree=$d/wt" "kind=ship"
+    FM_FAKE_AXI_STATUS="$(run_failed_ci_orphan fm/rearm-gitlab)"
+    FM_FAKE_AXI_STATUS=${FM_FAKE_AXI_STATUS//https:\/\/github.com\/o\/r\/pull\/203/https:\/\/gitlab.com\/o\/r\/-\/merge_requests\/203}
+    FM_FAKE_GLAB_STATE=opened
     FM_FAKE_CI_LOGS=$(cat <<'EOF'
 all CI checks passed - still monitoring until merged or closed
 base branch advanced (aaaaaaa..bbbbbbb), re-arming CI monitor timeout
 EOF
 )
-    out=$(FM_CREW_STATE_NO_FORGE=1 FM_HOME="$d" run_crew_state "$d" rearm-noforge)
-    assert_contains "$out" "state: failed" "NO_FORGE flag suppresses forge green reclass: $out"
-    assert_not_contains "$out" "state: done" "NO_FORGE must not reclassify to done"
-    pass "NO_FORGE flag suppresses reclassification"
-  ) || fail "rearm with NO_FORGE failed"
+    out=$(FM_HOME="$d" run_crew_state "$d" rearm-gitlab)
+    assert_contains "$out" "state: done" "GitLab falls back to green CI log: $out"
+    assert_contains "$out" "held for merge" "GitLab reads held for merge"
+    pass "GitLab falls back to green CI log"
+  ) || fail "rearm with GitLab failed"
+
+  # Fallback: forge check query unavailable falls back to CI log green marker
+  (
+    reset_fakes
+    local d out
+    d=$(new_case rearm-checks-unavailable)
+    make_repo_on_branch "$d/wt" fm/rearm-checks-unavailable
+    make_fakebin "$d" >/dev/null
+    rm "$d/fakebin/gh-axi"
+    fm_write_meta "$d/state/rearm-checks-unavailable.meta" "window=fm:fm-rearm-checks-unavailable" "worktree=$d/wt" "kind=ship"
+    FM_FAKE_AXI_STATUS="$(run_failed_ci_orphan fm/rearm-checks-unavailable)"
+    FM_FAKE_PR_STATE=OPEN
+    FM_FAKE_PR_MERGED=false
+    FM_FAKE_GH_CHECKS_UNAVAILABLE=1
+    FM_FAKE_CI_LOGS=$(cat <<'EOF'
+all CI checks passed - still monitoring until merged or closed
+base branch advanced (aaaaaaa..bbbbbbb), re-arming CI monitor timeout
+EOF
+)
+    out=$(FM_HOME="$d" run_crew_state "$d" rearm-checks-unavailable)
+    assert_contains "$out" "state: done" "unavailable check query falls back to green CI log: $out"
+    assert_contains "$out" "held for merge" "unavailable check query reads held for merge"
+    pass "unavailable check query falls back to green CI log"
+  ) || fail "rearm with unavailable check query failed"
 
   # Negative control: gh unavailable and gh-axi reporting pending checks
   (
@@ -2255,6 +2278,13 @@ EOF
   assert_not_contains "$out" "state: failed" "example aborted run must not read as failed"
   assert_not_contains "$out" "state: unknown" "example aborted run must not read as unknown"
   pass "example aborted run reads held-for-merge done"
+
+  # Counterpart: if forge checks are red after the re-arm, the aborted run stays unknown
+  FM_FAKE_PR_CHECKS=FAILURE
+  out=$(FM_HOME="$d" run_crew_state "$d" house-stream)
+  assert_contains "$out" "state: unknown" "aborted run with red forge checks reads unknown: $out"
+  assert_not_contains "$out" "state: done" "aborted run with red forge checks must not read as done"
+  pass "example aborted run with red forge checks stays unknown"
 }
 
 # (e) cross-branch attribution: `axi status` returns ANOTHER branch's run (the
