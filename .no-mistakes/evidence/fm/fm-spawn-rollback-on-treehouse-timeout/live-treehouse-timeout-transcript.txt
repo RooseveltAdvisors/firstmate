@@ -1,0 +1,28 @@
+=== ship spawn: live-th-timeout-ship (start 14:29:56)
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.oLazYp
+warning: /tmp/fm-lab.oLazYp/data/live-th-timeout-ship/launch-brief.md records no ship branch; defaulting to legacy branch fm/live-th-timeout-ship
+error: treehouse get did not enter an isolated worktree within 60s (last seen '/tmp/fm-lab.oLazYp/work/project': it is the spawning project itself; spawning project '/tmp/fm-lab.oLazYp/work/project'); inspect window firstmate:fm-live-th-timeout-ship
+exit=1 (end 14:30:58)
+task record: ls: cannot access '/tmp/fm-lab.oLazYp/state/live-th-timeout-ship.meta': No such file or directory
+backlog state: queued
+=== scout spawn: live-th-timeout-scout (start 14:30:58)
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.oLazYp
+error: treehouse get did not enter an isolated worktree within 60s (last seen '/tmp/fm-lab.oLazYp/work/project': it is the spawning project itself; spawning project '/tmp/fm-lab.oLazYp/work/project'); inspect window firstmate:fm-live-th-timeout-scout
+exit=1 (end 14:32:00)
+task record: ls: cannot access '/tmp/fm-lab.oLazYp/state/live-th-timeout-scout.meta': No such file or directory
+backlog state: queued
+--- final backlog.md
+# Backlog
+
+## In flight
+
+## Queued
+- [ ] live-th-timeout-ship - item for live-th-timeout-ship (kind: ship) (since 2026-10-11)
+
+- [ ] live-th-timeout-scout - item for live-th-timeout-scout (kind: scout) (since 2026-10-11)
+## Done
+--- lab tmux windows
+@0 firstmate /home/jon/.no-mistakes/worktrees/46339c0817e0/01M4P3JJXEGEABHMC70JRQ79GX
+@1 fm-live-th-timeout-ship /tmp/fm-lab.oLazYp/work/project
+@2 fm-live-th-timeout-scout /tmp/fm-lab.oLazYp/work/project
+DRIVE-DONE
