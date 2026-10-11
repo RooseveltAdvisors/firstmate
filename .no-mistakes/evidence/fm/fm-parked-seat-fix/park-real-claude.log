@@ -1,0 +1,18 @@
+--- pane before park (tail):
+ ▝▝   ▝▝   ~/.no-mistakes/worktrees/46339c0817e0/01M4MS06G9S33D5BZ6SM6RFZQW
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ Try "edit herdr.sh to..."
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  cl arcs Opus 5.5(1M)                                                                                                                                                              ◐ medium · /effort
+  ⏸ manual mode on · ← 1 agent
+--- pane_current_command before: claude
+=== park running claude seat
+parked c1 exit_result=stopped harness=claude backend=tmux endpoint=fmses:fm-c1 worktree=/home/jon/.no-mistakes/worktrees/46339c0817e0/01M4MS06G9S33D5BZ6SM6RFZQW note="hold for review"
+rc=0
+--- pane_current_command after: bash
+--- window still exists: yes
+parked=1
+parked_at=2026-10-11T06:17:34Z
+parked_note=hold for review
+(stale markers cleared)
+state: parked · source: none · seat parked with unlanded work · hold for review

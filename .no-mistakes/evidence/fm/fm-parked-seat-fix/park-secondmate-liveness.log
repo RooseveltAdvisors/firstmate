@@ -1,0 +1,8 @@
+=== tick: sm1 parked, sm2 unparked (both endpoints gone)
+check: secondmate sm2 auto-relaunch paused after 0 attempts in 3600s; endpoint still missing - relaunch it manually or retire the route
+  bound markers: .secondmate-relaunch-bound-sm2
+=== unpark sm1 via fm-control, tick again
+unparked sm1 harness=claude backend=tmux endpoint=gone:fm-sm1 worktree=/tmp/fm-lab.yqCnjc/sub-sm1
+check: secondmate sm1 auto-relaunch paused after 0 attempts in 3600s; endpoint still missing - relaunch it manually or retire the route
+  bound markers: .secondmate-relaunch-bound-sm1
+.secondmate-relaunch-bound-sm2

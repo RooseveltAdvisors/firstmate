@@ -1,0 +1,88 @@
+=== S0 baseline: both seats unparked and stopped; real watcher run
+  [watcher rc=0 (124=blocked, no wake)]
+    out: stale: fmses:fm-t1
+--- stale markers after baseline:
+.count-fmses_fm-t1
+.count-fmses_fm-t2
+.hash-fmses_fm-t1
+.hash-fmses_fm-t2
+.stale-fmses_fm-t1
+
+=== S1 park t1 (stopped seat) with note
+parked t1 exit_result=already-stopped harness=claude backend=tmux endpoint=fmses:fm-t1 worktree=/tmp/fm-lab.kE0OMc/wt-t1 note="waiting on upstream fix"
+rc=0
+--- t1.meta:
+window=fmses:fm-t1
+endpoint_task_id=t1
+worktree=/tmp/fm-lab.kE0OMc/wt-t1
+project=/tmp/fm-lab.kE0OMc/proj
+harness=claude
+kind=ship
+mode=no-mistakes
+yolo=off
+model=default
+effort=default
+backend=tmux
+parked=1
+parked_at=2026-10-11T06:15:47Z
+parked_note=waiting on upstream fix
+--- t1 markers left:
+(none)
+--- worktree HEAD preserved: yes
+
+=== S2 crew-state on parked t1 and unparked t2
+state: parked · source: none · seat parked with unlanded work · waiting on upstream fix
+
+state: unknown · source: pane · harness state unavailable (unknown missing)
+
+
+=== S3 real watcher with t1 parked, t2 unparked (clear t2 markers so it re-wakes)
+  [watcher rc=0 (124=blocked, no wake)]
+    out: check: rearm-resurface
+  [watcher rc=0 (124=blocked, no wake)]
+    out: stale: fmses:fm-t2
+--- t1 markers after watcher runs:
+(none — parked t1 never probed)
+
+=== S4 adversarial: park only t2 -> watcher has nothing stale to report
+parked t2 exit_result=already-stopped harness=claude backend=tmux endpoint=fmses:fm-t2 worktree=/tmp/fm-lab.kE0OMc/wt-t1
+rc=0
+  [watcher rc=0 (124=blocked, no wake)]
+    out: check: rearm-resurface
+  [watcher rc=124 (124=blocked, no wake)]
+  [watcher rc=124 (124=blocked, no wake)]
+    out: Terminated
+--- probe markers for any seat:
+(none — no parked seat probed)
+
+=== S5 unpark t1 -> watcher probes it again and surfaces stale
+unparked t1 harness=claude backend=tmux endpoint=fmses:fm-t1 worktree=/tmp/fm-lab.kE0OMc/wt-t1
+rc=0
+(no parked keys in t1.meta)
+  [watcher rc=0 (124=blocked, no wake)]
+    out: stale: fmses:fm-t1
+  [watcher rc=0 (124=blocked, no wake)]
+    out: check: rearm-resurface
+state: unknown · source: pane · harness state unavailable (unknown missing)
+
+
+=== S6 adversarial: --note on non-park verb refused; unknown verb refused
+error: --note and --note-file apply to 'relaunch' and 'park' only
+rc=1
+error: 'bogus' is not a control verb
+allowed verbs:
+  interrupt
+  exit
+  relaunch
+  park
+  unpark
+rc=2
+
+=== S7 teardown refuses parked t2? (t2 shares worktree with unlanded commit)
+REFUSED: worktree /tmp/fm-lab.kE0OMc/wt-t1 has work not on any remote and not landed.
+unpushed commits:
+1013023 unlanded wip
+04b074b init
+Push the branch, land its PR, or get the captain's explicit OK to discard, then --force.
+rc=1
+--- worktree still present: yes; HEAD preserved: yes
