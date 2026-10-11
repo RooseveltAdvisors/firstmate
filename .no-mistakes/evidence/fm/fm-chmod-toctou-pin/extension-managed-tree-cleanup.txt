@@ -1,0 +1,7 @@
+## S7: real `fm-extension.mjs bind` while package source mutates during copy
+## -> host hits integrity-mismatch and runs removeManagedTree on its read-only (0555) nested temp tree
+attempt 1: error[binding-failed]: error[integrity-mismatch]: package changed while it was copied into the managed store | leftover .install- trees: 0; packages dir: 0 entries
+attempt 2: error[binding-failed]: error[integrity-mismatch]: package changed while it was copied into the managed store | leftover .install- trees: 0; packages dir: 0 entries
+attempt 3: error[binding-failed]: error[integrity-mismatch]: package changed while it was copied into the managed store | leftover .install- trees: 0; packages dir: 0 entries
+integrity-mismatch cleanup hits: 14 / 25; total leftover temp trees across all attempts: 0
+other outcomes: 11 x "bound: pin-probe@1.2.3" (consistent snapshot copied; normal bind path works)

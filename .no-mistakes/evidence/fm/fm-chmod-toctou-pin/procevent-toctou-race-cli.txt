@@ -1,0 +1,9 @@
+## S5: swap state root for a 777 dir AFTER fd pinned+validated, right before chmod
+error: process-event state root is not a private directory
+exit=1
+replacement now at path: 777 (must stay 777)   pinned original: 755 (tightened)
+
+## S6: swap state root AFTER open, BEFORE pinned validation
+error: process-event state root is not a private directory
+exit=1
+replacement at path: 777 (must stay 777)   original: 775 (must stay 775)

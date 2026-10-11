@@ -1,0 +1,18 @@
+## S1: umask-002 state root, owned -> tightened, idempotent
+before: 775
+no sources registered
+exit=0 after: 755
+no sources registered
+exit=0 repeat: 755
+
+## S2: state root is a symlink to a 777 dir -> refused, target untouched
+no sources registered
+exit=0 victim mode: 755
+
+## S3: chmod fails -> fail closed
+error: process-event state root is not a private directory
+exit=1 mode: 775
+
+## S4: already-private root untouched
+no sources registered
+exit=0 mode: 700
