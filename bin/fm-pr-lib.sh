@@ -1013,13 +1013,13 @@ fm_pr_github_checks_state_with_gh() {  # <owner> <repo> <number>
     2>/dev/null) && [ -n "$checks_state" ]; then
     case "$checks_state" in
       SUCCESS)
-        # Consumed by bin/fm-crew-state.sh pr_checks_green_bounded.
+        # Consumed by bin/fm-crew-state.sh pr_checks_state_bounded.
         # shellcheck disable=SC2034
         FM_PR_CHECKS_STATE=green
         return 0
         ;;
       *)
-        # Consumed by bin/fm-crew-state.sh pr_checks_green_bounded.
+        # Consumed by bin/fm-crew-state.sh pr_checks_state_bounded.
         # shellcheck disable=SC2034
         FM_PR_CHECKS_STATE=not-ready
         return 1
@@ -1030,12 +1030,12 @@ fm_pr_github_checks_state_with_gh() {  # <owner> <repo> <number>
   output=$(gh pr checks "$number" -R "$owner/$repo" --json bucket 2>/dev/null) || true
   if [ -n "$output" ]; then
     if printf '%s\n' "$output" | jq -e 'length > 0 and (map(.bucket) | all(. == "pass" or . == "skipping"))' >/dev/null 2>&1; then
-      # Consumed by bin/fm-crew-state.sh pr_checks_green_bounded.
+      # Consumed by bin/fm-crew-state.sh pr_checks_state_bounded.
       # shellcheck disable=SC2034
       FM_PR_CHECKS_STATE=green
       return 0
     fi
-    # Consumed by bin/fm-crew-state.sh pr_checks_green_bounded.
+    # Consumed by bin/fm-crew-state.sh pr_checks_state_bounded.
     # shellcheck disable=SC2034
     FM_PR_CHECKS_STATE=not-ready
     return 1
@@ -1051,12 +1051,12 @@ fm_pr_github_checks_state_with_gh_axi() {  # <owner> <repo> <number>
     passed=$(printf '%s\n' "$summary" | sed -n 's/^[^0-9]*\([0-9][0-9]*\) passed.*/\1/p')
     total=$(printf '%s\n' "$summary" | sed -n 's/.*[^0-9]\([0-9][0-9]*\) total.*/\1/p')
     if [ -n "$passed" ] && [ "${total:-0}" -gt 0 ] && [ "$passed" = "$total" ]; then
-      # Consumed by bin/fm-crew-state.sh pr_checks_green_bounded.
+      # Consumed by bin/fm-crew-state.sh pr_checks_state_bounded.
       # shellcheck disable=SC2034
       FM_PR_CHECKS_STATE=green
       return 0
     fi
-    # Consumed by bin/fm-crew-state.sh pr_checks_green_bounded.
+    # Consumed by bin/fm-crew-state.sh pr_checks_state_bounded.
     # shellcheck disable=SC2034
     FM_PR_CHECKS_STATE=not-ready
     return 1

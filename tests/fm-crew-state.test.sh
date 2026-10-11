@@ -2051,7 +2051,8 @@ daemon shutting down"
 # When a terminal run's ci log has an authoritative passed marker followed by
 # a base-branch advance re-arm marker, verify against forge checks.
 # If forge checks are green, reclassify as done held-for-merge.
-# If forge checks fail or forge is disabled, do not reclassify.
+# If forge checks fail or are pending, do not reclassify; an unreachable,
+# non-GitHub, or disabled forge falls back to the green log and reclassifies.
 test_rearm_after_green_resolves_against_forge_green() {
   local route failures=0
   for route in cancelled-outcome cancelled-status failed-outcome failed-status; do
