@@ -1,0 +1,46 @@
+== S1: best-effort trigger hits the deadline (lock held by a slow refresh, FM_HOME_SUMMARY_TIMEOUT=2)
+held
+Terminated
+  rc=0 elapsed=2s
+  backoff file: 1 1791693874  now=1791693814
+  log lines: 1
+  last log: [2026-10-11T04:43:32Z] refresh exceeded its 2-second deadline (failure 1 in a row, backing off 60s)
+== S2: best-effort trigger inside the backoff window exits 0 without running
+  rc=0 elapsed=0s log-lines-before=1
+  backoff file: 1 1791693874  now=1791693814
+  log lines: 1
+  last log: [2026-10-11T04:43:32Z] refresh exceeded its 2-second deadline (failure 1 in a row, backing off 60s)
+== S3: direct caller inside the window still attempts and fails loudly
+Terminated
+fm-home-summary-refresh: refresh exceeded its 2-second deadline
+  rc=124 elapsed=2s
+  backoff file: 1 1791693874  now=1791693816
+  log lines: 1
+  last log: [2026-10-11T04:43:32Z] refresh exceeded its 2-second deadline (failure 1 in a row, backing off 60s)
+== S4: window expires (rewrite until=0), second consecutive failure doubles to 120s
+Terminated
+  rc=0
+  backoff file: 2 1791693938  now=1791693818
+  log lines: 2
+  last log: [2026-10-11T04:43:36Z] refresh exceeded its 2-second deadline (failure 2 in a row, backing off 120s)
+== S5: idle-only watcher trigger while the lock is busy leaves the record untouched
+  rc=0 before='2 0'
+  backoff file: 2 0  now=1791693818
+  log lines: 2
+  last log: [2026-10-11T04:43:36Z] refresh exceeded its 2-second deadline (failure 2 in a row, backing off 120s)
+== S6: long streak caps at 3600s
+Terminated
+  rc=0
+  backoff file: 10 1791697420  now=1791693820
+  log lines: 3
+  last log: [2026-10-11T04:43:38Z] refresh exceeded its 2-second deadline (failure 10 in a row, backing off 3600s)
+== S7: lock free, window expired, real producer publishes, record cleared
+  rc=0 generated_epoch 1791693795 -> 1791693822
+  backoff file: <absent>  now=1791693822
+  log lines: 3
+  last log: [2026-10-11T04:43:38Z] refresh exceeded its 2-second deadline (failure 10 in a row, backing off 3600s)
+== S8: worker-side producer failure (stub failing producer in a copied bin) counts toward backoff, logged once
+  rc=0 log-lines-before=3
+  backoff file: 1 1791693882  now=1791693822
+  log lines: 4
+  last log: [2026-10-11T04:43:42Z] summary producer failed with exit 7: producer exploded  (failure 1 in a row, backing off 60s)
