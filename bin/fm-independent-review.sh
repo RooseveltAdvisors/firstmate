@@ -47,7 +47,11 @@
 #     <clear|reject> <summary> [--block <category> <finding>]... \
 #     [--follow-up <note>]...
 #   fm-independent-review.sh add-finding <task-id> <category> <finding>
-#   fm-independent-review.sh resolve-finding <task-id> <finding>
+#   fm-independent-review.sh resolve-finding <task-id> <finding> [<reason>]
+#
+# add-finding and resolve-finding are supervisor/operator commands for firstmate
+# or the captain, not for the builder or reviewer of the task.
+# resolve-finding records the optional reason beside the resolved finding.
 #
 # Exit status for `ready`:
 #   0  current head has a clear independent verdict
@@ -547,8 +551,17 @@ authorized_findings_file_valid() {
   [ "$(meta_value "$file" task)" = "$id" ] || return 1
 }
 
+copy_authorized_finding() {
+  local file=$1 idx=$2 resolution
+  printf 'finding_%s_category=%s\n' "$idx" "$(meta_value "$file" "finding_${idx}_category")"
+  printf 'finding_%s=%s\n' "$idx" "$(meta_value "$file" "finding_${idx}")"
+  printf 'finding_%s_status=%s\n' "$idx" "$(meta_value "$file" "finding_${idx}_status")"
+  resolution=$(meta_value "$file" "finding_${idx}_resolution")
+  [ -z "$resolution" ] || printf 'finding_%s_resolution=%s\n' "$idx" "$resolution"
+}
+
 record_authorized_finding() {
-  local id=$1 category=$2 finding=$3 file tmp count idx existing_cat existing_fnd existing_status found=0
+  local id=$1 category=$2 finding=$3 file tmp count idx existing_fnd found=0
   file=$(authorized_findings_file "$id")
   tmp=$(mktemp "$STATE/.fm-independent-review-findings.XXXXXX") || return 1
   if [ -f "$file" ]; then
@@ -570,17 +583,12 @@ record_authorized_finding() {
         printf 'task=%s\n' "$id"
         printf 'finding_count=%s\n' "$count"
         while [ "$idx" -le "${count:-0}" ]; do
-          existing_cat=$(meta_value "$file" "finding_${idx}_category")
-          existing_fnd=$(meta_value "$file" "finding_${idx}")
-          existing_status=$(meta_value "$file" "finding_${idx}_status")
-          if [ "$existing_fnd" = "$finding" ]; then
+          if [ "$(meta_value "$file" "finding_${idx}")" = "$finding" ]; then
             printf 'finding_%s_category=%s\n' "$idx" "$category"
             printf 'finding_%s=%s\n' "$idx" "$finding"
             printf 'finding_%s_status=pending\n' "$idx"
           else
-            printf 'finding_%s_category=%s\n' "$idx" "$existing_cat"
-            printf 'finding_%s=%s\n' "$idx" "$existing_fnd"
-            printf 'finding_%s_status=%s\n' "$idx" "$existing_status"
+            copy_authorized_finding "$file" "$idx"
           fi
           idx=$((idx + 1))
         done
@@ -600,12 +608,7 @@ record_authorized_finding() {
     printf 'finding_count=%s\n' "$count"
     idx=1
     while [ "$idx" -lt "$count" ]; do
-      existing_cat=$(meta_value "$file" "finding_${idx}_category")
-      existing_fnd=$(meta_value "$file" "finding_${idx}")
-      existing_status=$(meta_value "$file" "finding_${idx}_status")
-      printf 'finding_%s_category=%s\n' "$idx" "$existing_cat"
-      printf 'finding_%s=%s\n' "$idx" "$existing_fnd"
-      printf 'finding_%s_status=%s\n' "$idx" "$existing_status"
+      copy_authorized_finding "$file" "$idx"
       idx=$((idx + 1))
     done
     printf 'finding_%s_category=%s\n' "$count" "$category"
@@ -617,7 +620,7 @@ record_authorized_finding() {
 }
 
 resolve_authorized_finding() {
-  local id=$1 finding=$2 file tmp count idx existing_cat existing_fnd existing_status found=0
+  local id=$1 finding=$2 reason=$3 file tmp count idx existing_fnd found=0
   file=$(authorized_findings_file "$id")
   [ -f "$file" ] || { fail "no authorized findings recorded for task $id"; return 1; }
   authorized_findings_file_valid "$id" || { fail "could not validate authorized findings file for $id"; return 1; }
@@ -640,17 +643,13 @@ resolve_authorized_finding() {
     printf 'finding_count=%s\n' "$count"
     idx=1
     while [ "$idx" -le "${count:-0}" ]; do
-      existing_cat=$(meta_value "$file" "finding_${idx}_category")
-      existing_fnd=$(meta_value "$file" "finding_${idx}")
-      existing_status=$(meta_value "$file" "finding_${idx}_status")
-      if [ "$existing_fnd" = "$finding" ]; then
-        printf 'finding_%s_category=%s\n' "$idx" "$existing_cat"
-        printf 'finding_%s=%s\n' "$idx" "$existing_fnd"
+      if [ "$(meta_value "$file" "finding_${idx}")" = "$finding" ]; then
+        printf 'finding_%s_category=%s\n' "$idx" "$(meta_value "$file" "finding_${idx}_category")"
+        printf 'finding_%s=%s\n' "$idx" "$finding"
         printf 'finding_%s_status=resolved\n' "$idx"
+        [ -z "$reason" ] || printf 'finding_%s_resolution=%s\n' "$idx" "$reason"
       else
-        printf 'finding_%s_category=%s\n' "$idx" "$existing_cat"
-        printf 'finding_%s=%s\n' "$idx" "$existing_fnd"
-        printf 'finding_%s_status=%s\n' "$idx" "$existing_status"
+        copy_authorized_finding "$file" "$idx"
       fi
       idx=$((idx + 1))
     done
@@ -663,7 +662,6 @@ has_unresolved_authorized_findings() {
   local id=$1 file count idx status
   file=$(authorized_findings_file "$id")
   [ -f "$file" ] || return 1
-  authorized_findings_file_valid "$id" || return 1
   count=$(meta_value "$file" finding_count)
   idx=1
   while [ "$idx" -le "${count:-0}" ]; do
@@ -680,7 +678,6 @@ print_unresolved_authorized_findings() {
   local id=$1 file count idx category finding status
   file=$(authorized_findings_file "$id")
   [ -f "$file" ] || return 0
-  authorized_findings_file_valid "$id" || return 1
   count=$(meta_value "$file" finding_count)
   idx=1
   while [ "$idx" -le "${count:-0}" ]; do
@@ -695,19 +692,9 @@ print_unresolved_authorized_findings() {
 }
 
 add_finding_command() {
-  local id=${1:-} category='' finding=''
-  [ "$#" -ge 3 ] || { usage >&2; return 2; }
+  local id=${1:-} category=${2:-} finding=${3:-}
+  [ "$#" -eq 3 ] || { usage >&2; return 2; }
   fm_pr_task_id_valid "$id" || { fail 'invalid independent review task id'; return 1; }
-  shift
-  if [ "$1" = "--block" ] || [ "$1" = "--category" ]; then
-    [ "$#" -eq 3 ] || { usage >&2; return 2; }
-    category=$2
-    finding=$3
-  else
-    [ "$#" -eq 2 ] || { usage >&2; return 2; }
-    category=$1
-    finding=$2
-  fi
   case "$category" in correctness|security|privacy|data-loss|acceptance) ;; *) fail "invalid blocking category: $category"; return 1 ;; esac
   one_line "$finding" && [ "${#finding}" -le 1000 ] || { fail 'finding must be one line and at most 1000 characters'; return 1; }
   record_authorized_finding "$id" "$category" "$finding" || return 1
@@ -715,11 +702,12 @@ add_finding_command() {
 }
 
 resolve_finding_command() {
-  local id=${1:-} finding=${2:-}
-  [ "$#" -eq 2 ] || { usage >&2; return 2; }
+  local id=${1:-} finding=${2:-} reason=${3:-}
+  [ "$#" -eq 2 ] || [ "$#" -eq 3 ] || { usage >&2; return 2; }
   fm_pr_task_id_valid "$id" || { fail 'invalid independent review task id'; return 1; }
   one_line "$finding" && [ "${#finding}" -le 1000 ] || { fail 'finding must be one line and at most 1000 characters'; return 1; }
-  resolve_authorized_finding "$id" "$finding" || return 1
+  [ -z "$reason" ] || { one_line "$reason" && [ "${#reason}" -le 1000 ]; } || { fail 'resolution reason must be one line and at most 1000 characters'; return 1; }
+  resolve_authorized_finding "$id" "$finding" "$reason" || return 1
   printf 'resolved authorized finding for %s: %s\n' "$id" "$finding"
 }
 
@@ -1317,6 +1305,12 @@ ready_command() {
               fail 'independent review verdict used the builder model family'
               return 1
             }
+            if [ -e "$(authorized_findings_file "$id")" ] || [ -L "$(authorized_findings_file "$id")" ]; then
+              authorized_findings_file_valid "$id" || {
+                fail "could not validate authorized findings file for $id"
+                return 1
+              }
+            fi
             if has_unresolved_authorized_findings "$id"; then
               printf 'error: independent review cannot clear: authorized finding was dropped without resolution\n' >&2
               print_unresolved_authorized_findings "$id"

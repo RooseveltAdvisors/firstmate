@@ -1418,7 +1418,10 @@ test_authorized_finding_is_never_dropped_by_gate() {
     "$dir/home/state/task-a.independent-review.authorized-findings" \
     'add-finding failed to record finding'
 
-  run_review "$dir" resolve-finding task-a 'authorize.sh returns success for unauthorized values' >/dev/null
+  run_review "$dir" resolve-finding task-a 'authorize.sh returns success for unauthorized values' 'fixed by allowlist check' >/dev/null
+  assert_grep 'finding_1_resolution=fixed by allowlist check' \
+    "$dir/home/state/task-a.independent-review.authorized-findings" \
+    'resolve-finding did not record the resolution reason'
   set +e
   out=$(run_review "$dir" ready task-a https://github.com/example/repo/pull/1 2>&1)
   rc=$?
@@ -1427,7 +1430,22 @@ test_authorized_finding_is_never_dropped_by_gate() {
   assert_contains "$out" 'review-diff-not-bound-to-target-base-state' \
     'refusal did not name the second unresolved finding'
 
+  ln "$dir/home/state/task-a.independent-review.authorized-findings" "$dir/findings-link"
+  set +e
+  out=$(run_review "$dir" ready task-a https://github.com/example/repo/pull/1 --head-file "$dir/home/state/reviewed-head" 2>&1)
+  rc=$?
+  set -e
+  expect_code 1 "$rc" 'gate must fail closed on an invalid authorized findings file'
+  assert_contains "$out" 'could not validate authorized findings file for task-a' \
+    'invalid authorized findings refusal was not named'
+  assert_absent "$dir/home/state/reviewed-head" \
+    'head file must not be written when the authorized findings file is invalid'
+  rm -f -- "$dir/findings-link"
+
   run_review "$dir" resolve-finding task-a 'review-diff-not-bound-to-target-base-state' >/dev/null
+  assert_grep 'finding_1_resolution=fixed by allowlist check' \
+    "$dir/home/state/task-a.independent-review.authorized-findings" \
+    'a later resolution dropped an earlier resolution reason'
   set +e
   out=$(run_review "$dir" ready task-a https://github.com/example/repo/pull/1 --head-file "$dir/home/state/reviewed-head" 2>&1)
   rc=$?
