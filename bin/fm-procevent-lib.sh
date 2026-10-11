@@ -1033,11 +1033,25 @@ fm_procevent_state_root_resolve() {  # <state-root>
 # umask 077 when it gets there first. Clearing the group and other write bits is
 # only ever a tightening, and it converges on repeat. A root we do not own, or
 # one we cannot tighten, still fails closed through the same validation.
+# To prevent a state-root TOCTOU swap from redirecting the permission change to
+# an unrelated inode, the directory is opened once and chmod is executed against
+# the file descriptor (/proc/self/fd/N) before re-validating the path.
 fm_procevent_state_root_establish_private() {  # <canonical-state-root>
-  local directory=$1
+  local directory=$1 fd_path rc
   [ -d "$directory" ] && [ ! -L "$directory" ] || return 1
   fm_procevent_directory_owned_by_current_user "$directory" || return 1
-  chmod go-w "$directory" 2>/dev/null || return 1
+  exec 9< "$directory" 2>/dev/null || return 1
+  if [ -e /proc/self/fd/9 ]; then
+    fd_path=/proc/self/fd/9
+  elif [ -e /dev/fd/9 ]; then
+    fd_path=/dev/fd/9
+  else
+    fd_path=$directory
+  fi
+  chmod go-w "$fd_path" 2>/dev/null
+  rc=$?
+  exec 9<&-
+  [ "$rc" -eq 0 ] || return 1
   fm_procevent_private_directory_valid "$directory" 0
 }
 

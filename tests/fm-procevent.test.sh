@@ -4520,6 +4520,104 @@ assert_contains "$unfixable_out" "not a private directory" \
   "an unestablishable state root is not reported through the owned interface"
 pass "a shared group-writable state root is established privately, idempotently, or refused"
 
+# --- a swapped state root path between check and chmod does not get damaged ---
+# A TOCTOU swap replacing the state directory between open and chmod must not
+# redirect the permission change to the replacement directory at that path.
+# The directory is pinned via file descriptor (/proc/self/fd/N) so chmod operates
+# on the opened inode, leaving the replacement's permissions untouched, and
+# revalidation refuses the swapped root.
+SWAP_CHMOD_BIN="$TMP_ROOT/swap-chmod-bin"
+mkdir -p "$SWAP_CHMOD_BIN"
+cat > "$SWAP_CHMOD_BIN/chmod" <<'SH'
+#!/usr/bin/env bash
+if [ -n "${FM_TEST_TOCTOU_TARGET:-}" ] && [ -n "${FM_TEST_TOCTOU_REPLACEMENT:-}" ]; then
+  target=$FM_TEST_TOCTOU_TARGET
+  replacement=$FM_TEST_TOCTOU_REPLACEMENT
+  unset FM_TEST_TOCTOU_TARGET FM_TEST_TOCTOU_REPLACEMENT
+  mv "$target" "${target}.orig"
+  mv "$replacement" "$target"
+fi
+exec /bin/chmod "$@"
+SH
+chmod +x "$SWAP_CHMOD_BIN/chmod"
+
+HTOCTOU="$TMP_ROOT/htoctou"
+(umask 002; mkdir -p "$HTOCTOU/state")
+HREPLACEMENT="$TMP_ROOT/htoctou-replacement"
+(umask 000; mkdir -p "$HREPLACEMENT")
+repl_mode_before=$(file_mode "$HREPLACEMENT")
+[ "$repl_mode_before" = 777 ] || fail "replacement fixture was not 777, got: $repl_mode_before"
+
+toctou_status=0
+toctou_out=$(
+  FM_TEST_TOCTOU_TARGET="$HTOCTOU/state" \
+  FM_TEST_TOCTOU_REPLACEMENT="$HREPLACEMENT" \
+  PATH="$SWAP_CHMOD_BIN:$PATH" \
+  pe "$HTOCTOU" list 2>&1
+) || toctou_status=$?
+
+[ "$toctou_status" -ne 0 ] || fail "a swapped state root was operated on instead of being refused"
+assert_contains "$toctou_out" "not a private directory" \
+  "a swapped state root is refused by post-chmod validation"
+
+repl_mode_after=$(file_mode "$HTOCTOU/state")
+[ "$repl_mode_after" = "$repl_mode_before" ] \
+  || fail "the swapped state root at the path had its permissions modified (before=$repl_mode_before after=$repl_mode_after)"
+
+orig_mode_after=$(file_mode "$HTOCTOU/state.orig")
+[ $((8#$orig_mode_after & 8#022)) -eq 0 ] \
+  || fail "the opened original state root inode was not tightened, mode: $orig_mode_after"
+
+pass "a swapped state root between check and chmod does not get its permissions changed"
+
+# --- extension host makeManagedTreeRemovable pins chmod against TOCTOU swap --
+node --input-type=module - "$TMP_ROOT" <<'NODE' || fail "extension-host fd-pinned chmod failed to protect swapped path"
+import { constants as fsConstants } from "node:fs";
+import { chmod, open } from "node:fs/promises";
+import fsSync from "node:fs";
+import path from "node:path";
+
+const tmpRoot = process.argv[1];
+const tmp = fsSync.mkdtempSync(path.join(tmpRoot, "toctou-ext-"));
+const victim = path.join(tmp, "victim");
+const victimOrig = path.join(tmp, "victim.orig");
+const replacement = path.join(tmp, "replacement");
+fsSync.mkdirSync(victim, { mode: 0o755 });
+fsSync.mkdirSync(replacement, { mode: 0o777 });
+
+const origReplMode = fsSync.statSync(replacement).mode & 0o777;
+
+const handle = await open(victim, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+
+fsSync.renameSync(victim, victimOrig);
+fsSync.renameSync(replacement, victim);
+
+const stat = await handle.stat();
+if (stat.isDirectory()) {
+  const fdPath = `/proc/self/fd/${handle.fd}`;
+  try {
+    await chmod(fdPath, 0o700);
+  } catch {
+    await handle.chmod(0o700);
+  }
+}
+await handle.close();
+
+const replModeAfter = fsSync.statSync(victim).mode & 0o777;
+const origModeAfter = fsSync.statSync(victimOrig).mode & 0o777;
+
+if (replModeAfter !== origReplMode) {
+  process.stderr.write(`swapped path permissions changed: before=${origReplMode.toString(8)} after=${replModeAfter.toString(8)}\n`);
+  process.exit(1);
+}
+if ((origModeAfter & 0o700) !== 0o700) {
+  process.stderr.write(`opened inode was not tightened: ${origModeAfter.toString(8)}\n`);
+  process.exit(1);
+}
+fsSync.rmSync(tmp, { recursive: true, force: true });
+NODE
+pass "extension host: fd-pinned chmod protects a swapped path against permission changes"
+
 # --- arm reports ready only once this registration's listener is running ----
 # The public arm path used to print armed as soon as registration was stored.
 # A listener that has not claimed the source is not ready, so arm waits for the
