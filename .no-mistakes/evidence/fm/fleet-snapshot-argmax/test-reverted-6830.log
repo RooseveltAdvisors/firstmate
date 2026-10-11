@@ -1,0 +1,3 @@
+ok - watcher-carried status append publishes the real home summary
+/home/jon/.no-mistakes/worktrees/46339c0817e0/01M4MKH9ZFR69T7DASMCEYT37W/bin/fm-fleet-snapshot.sh: line 1997: /home/linuxbrew/.linuxbrew/bin/jq: Argument list too long
+not ok - large contribution input did not preserve the backlog records

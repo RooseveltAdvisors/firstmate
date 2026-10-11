@@ -1,0 +1,27 @@
+backlog bytes: 213726
+== HEAD bin/fm-fleet-snapshot.sh --contribution-input (large) ==
+rc=0 stderr:
+{"keys":["backlog","tasks"],"records":1200,"first":"orphan-1-iiiiiiiiiii"}
+== pre-#6830 script --contribution-input (large) ==
+rc=1 stderr:
+/tmp/fm-lab.LH8aiB/oldbin/fm-fleet-snapshot.sh: line 217: /tmp/fm-lab.LH8aiB/oldbin/fm-backend.sh: No such file or directory
+/tmp/fm-lab.LH8aiB/oldbin/fm-fleet-snapshot.sh: line 220: /tmp/fm-lab.LH8aiB/oldbin/fm-classify-lib.sh: No such file or directory
+/tmp/fm-lab.LH8aiB/oldbin/fm-fleet-snapshot.sh: line 223: /tmp/fm-lab.LH8aiB/oldbin/fm-ff-lib.sh: No such file or directory
+/tmp/fm-lab.LH8aiB/oldbin/fm-fleet-snapshot.sh: line 226: /tmp/fm-lab.LH8aiB/oldbin/fm-timeout-lib.sh: No such file or directory
+/tmp/fm-lab.LH8aiB/oldbin/fm-fleet-snapshot.sh: line 229: /tmp/fm-lab.LH8aiB/oldbin/fm-landed-lib.sh: No such file or directory
+/tmp/fm-lab.LH8aiB/oldbin/fm-fleet-snapshot.sh: line 231: /tmp/fm-lab.LH8aiB/oldbin/fm-merge-authority-lib.sh: No such file or directory
+/tmp/fm-lab.LH8aiB/oldbin/fm-fleet-snapshot.sh: line 233: /tmp/fm-lab.LH8aiB/oldbin/fm-hold-reason-lib.sh: No such file or directory
+/tmp/fm-lab.LH8aiB/oldbin/fm-fleet-snapshot.sh: line 576: fm_hold_reason_decode_stream: command not found
+fm-fleet-snapshot: backlog read failed
+stdout bytes: 0
+== pre-#6830 script --contribution-input (large, 213726-byte backlog) ==
+rc=0 stdout bytes: 0
+/tmp/fm-lab.LH8aiB/oldbin/fm-fleet-snapshot.sh: line 1997: /home/linuxbrew/.linuxbrew/bin/jq: Argument list too long
+== small backlog --contribution-input: HEAD vs pre-#6830 byte-identical? ==
+/tmp/fm-lab.LH8aiB/n.json /tmp/fm-lab.LH8aiB/o.json differ: byte 24, line 3
+== small backlog --json: HEAD vs pre-#6830 byte-identical? ==
+/tmp/fm-lab.LH8aiB/n.json /tmp/fm-lab.LH8aiB/o.json differ: byte 440, line 15
+== small backlog: semantic (jq -S) compare HEAD vs pre-#6830 ==
+--contribution-input: semantically identical
+--json: semantically identical
+(raw key order varies run-to-run in both versions, so byte compare is not meaningful)
