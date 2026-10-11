@@ -1,0 +1,59 @@
+######## base (4cca7d07)
+== S1 seed spaced project 'spaced app'
+$ fm-home-seed.sh design $T/w-base/design spaced app
+exit=1
+error: failed to initialize no-mistakes for spaced app at $T/w-base/design/projects/spaced app
+-- design/data/projects.md:
+== S1b posture resolution in seeded home:
+warn: no registry at $T/w-base/design/data/projects.md; defaulting spaced app to no-mistakes off
+no-mistakes off
+== S2 seed 'dash - app' twice (reseed must replace row)
+$ fm-home-seed.sh design $T/w-base/design dash - app
+exit=1
+error: failed to initialize no-mistakes for dash - app at $T/w-base/design/projects/dash - app
+$ fm-home-seed.sh design $T/w-base/design dash - app
+exit=1
+error: failed to initialize no-mistakes for dash - app at $T/w-base/design/projects/dash - app
+-- design/data/projects.md:
+cat: $T/w-base/design/data/projects.md: No such file or directory
+== S3 prefix guard: 'spaced' (not registered) must not match 'spaced app' row
+$ fm-home-seed.sh d3 $T/w-base/d3 spaced
+exit=1
+warn: project "spaced" not in registry; defaulting to no-mistakes off
+warn: project "spaced" not in registry; defaulting to no-mistakes off
+warn: project "spaced" not in registry; defaulting to no-mistakes off
+error: failed to initialize no-mistakes for spaced at $T/w-base/d3/projects/spaced
+== S4 --no-projects refusal on home whose registry has spaced name
+$ fm-home-seed.sh fdev $T/w-base/sub --no-projects
+exit=1
+error: cannot seed project-less secondmate home $T/w-base/sub because it contains project data
+error: data/projects.md entries: spaced
+error: retire or clean this home first before seeding with --no-projects
+######## target (96200910)
+== S1 seed spaced project 'spaced app'
+$ fm-home-seed.sh design $T/w-target/design spaced app
+exit=0
+-- design/data/projects.md:
+- spaced app [direct-PR] - spaced project with posture
+== S1b posture resolution in seeded home:
+direct-PR off
+== S2 seed 'dash - app' twice (reseed must replace row)
+$ fm-home-seed.sh design $T/w-target/design dash - app
+exit=0
+$ fm-home-seed.sh design $T/w-target/design dash - app
+exit=0
+-- design/data/projects.md:
+- spaced app [direct-PR] - spaced project with posture
+- dash - app [direct-PR +yolo] - dashed project with posture
+== S3 prefix guard: 'spaced' (not registered) must not match 'spaced app' row
+$ fm-home-seed.sh d3 $T/w-target/d3 spaced
+exit=1
+warn: project "spaced" not in registry; defaulting to no-mistakes off
+warn: project "spaced" not in registry; defaulting to no-mistakes off
+error: failed to initialize no-mistakes for spaced at $T/w-target/d3/projects/spaced
+== S4 --no-projects refusal on home whose registry has spaced name
+$ fm-home-seed.sh fdev $T/w-target/sub --no-projects
+exit=1
+error: cannot seed project-less secondmate home $T/w-target/sub because it contains project data
+error: data/projects.md entries: spaced app
+error: retire or clean this home first before seeding with --no-projects
