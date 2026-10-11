@@ -1088,7 +1088,7 @@ else
       printf '\n' >&2
       exit 1
     fi
-    if [ "$remote_rc" -ne 0 ]; then
+    if [ "$remote_rc" -ne 0 ] && [ "$remote_rc" -ne 4 ]; then
       fm_send_known_undelivered_cleanup ||
         echo "error: known-undelivered pending-reply state could not be reset for $TARGET_TASK_ID" >&2
       echo "error: steer not sent to remote secondmate $TARGET_REMOTE_ID (the remote steering-inbox record could not be written; the remote leg's stderr above has the reason)" >&2
@@ -1111,6 +1111,17 @@ else
       fm_send_close_resolved_keys "$RESOLVE_ANSWER_TEXT" || exit 1
       fm_send_feed_resolved_holds "$RESOLVE_ANSWER_TEXT" || exit 1
     fi
+    if [ "$remote_rc" -eq 4 ]; then
+      fm_send_skip_note "$TARGET_REMOTE_ID"
+      skip_page_note=
+      case "${FM_SEND_SKIP_PAGED:-0}" in
+      1) skip_page_note="; paged the supervisor at $(fm_send_skip_page_max) consecutive skips" ;;
+      2) skip_page_note="; the supervisor page could not be queued, so the next skip retries it" ;;
+      esac
+      echo "fm-send: doorbell-skip (the composer in remote secondmate $TARGET_REMOTE_ID holds pending text and clear-or-submit failed); the steer is durably recorded in the remote inbox; the record is durable, so do not resend it; consecutive composer-held skips for $TARGET_REMOTE_ID: $FM_SEND_SKIP_COUNT$skip_page_note" >&2
+      exit 4
+    fi
+    fm_send_skip_reset "$TARGET_REMOTE_ID"
     exit 0
   fi
   if [ "$INBOX_PLANE" = 1 ]; then

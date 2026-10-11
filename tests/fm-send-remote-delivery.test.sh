@@ -29,6 +29,9 @@
 #      slash) keeps its exit-3 delivered-unconfirmed contract, never closes a
 #      --resolve-key decision unconfirmed, and keeps a marked expectation
 #      armed.
+#   9. A wedged remote composer cannot skip silently: it produces countable
+#      exit-4 skips, pages the supervisor at threshold, and resets the streak
+#      on a healthy ring or mid-turn deferral.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -707,6 +710,133 @@ test_remote_send_budget_bounds_busy_lane() {
   pass "fm-send remote: the remote leg is budget-bounded and stays idempotent across the bound"
 }
 
+test_remote_wedged_composer_pages_and_skips() {
+  local dir fb ssh_log home rhome rc err wakes status_file
+
+  dir="$TMP_ROOT/remote-wedged"; mkdir -p "$dir"
+  fb=$(make_stubs "$dir"); ssh_log="$dir/ssh.log"; : > "$ssh_log"
+  rhome=$(setup_remote_secondmate_home remote-wedged)
+  home=$(setup_remote_parent_home remote-wedged "$rhome")
+  status_file="$dir/agent-status"
+  printf 'idle\n' > "$status_file"
+
+  # Stub herdr on PATH for the remote control command executed by fake-ssh:
+  cat > "$fb/herdr" <<SH
+#!/usr/bin/env bash
+set -u
+case "\${1:-} \${2:-}" in
+  "status --json") printf '{"client":{"version":"0.7.5","protocol":16},"server":{"running":true}}\n' ;;
+  "pane get") printf '{"result":{"pane":{"pane_id":"%s"}}}\n' "\${3:-}" ;;
+  "pane read")
+    if [ -f "$dir/composer-cleared" ]; then
+      printf '╭────╮\n│    │\n╰────╯\n'
+    else
+      printf '╭──────────────╮\n│ leftover txt │\n╰──────────────╯\n'
+    fi
+    ;;
+  "pane send-keys"|"pane send-text")
+    if [ -f "$dir/recover-on-enter" ]; then
+      case "\$*" in
+        *enter*) : > "$dir/composer-cleared" ;;
+      esac
+    fi
+    exit 0
+    ;;
+  "agent get") printf '{"result":{"agent":{"agent_status":"%s"}}}\n' "\$(cat "$status_file")" ;;
+  "pane process-info") printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":100,"foreground_process_group_id":200,"foreground_processes":[{"pid":200,"name":"claude","argv":["claude"]}]}}}\n' "\${4:-}" ;;
+esac
+exit 0
+SH
+  chmod +x "$fb/herdr"
+
+  # 1. First send: composer is wedged with leftover text that cannot be cleared.
+  # The steer lands in the remote inbox, clear-or-submit fails, exit is 4,
+  # skip count is 1, and no page is sent yet.
+  rc=0
+  send_env "$fb" "$home" "$ssh_log" FM_SEND_SKIP_PAGE_MAX=2 \
+    "$SEND" rsm "first steer to wedged remote" >"$dir/out1" 2>"$dir/err1" || rc=$?
+  err=$(cat "$dir/err1")
+  expect_code 4 "$rc" "a wedged remote composer must exit 4, got $rc: $err"
+  assert_contains "$err" "doorbell-skip" \
+    "a wedged remote composer must emit the countable skip line"
+  assert_contains "$err" "consecutive composer-held skips for rsm: 1" \
+    "the first skip should report streak count 1"
+  [ -f "$rhome/state/parent-route/rsm.inbox/001.msg" ] \
+    || fail "the steer must still be durably recorded in the remote inbox on exit 4"
+  [ "$(cat "$home/state/rsm.doorbell-skip" 2>/dev/null)" = 1 ] \
+    || fail "the first skip should record streak count 1"
+  [ ! -e "$home/state/rsm.doorbell-skip.paged" ] \
+    || fail "the first skip must not arm the paged marker"
+  wakes=$(grep -c 'rsm.doorbell-skip' "$home/state/.wake-queue" 2>/dev/null || true)
+  [ "${wakes:-0}" = 0 ] || fail "the first skip must not queue a page"
+
+  # 2. Second send: still wedged. With FM_SEND_SKIP_PAGE_MAX=2, this consecutive
+  # skip reaches the threshold and queues a page to the supervisor!
+  rc=0
+  send_env "$fb" "$home" "$ssh_log" FM_SEND_SKIP_PAGE_MAX=2 \
+    "$SEND" rsm "second steer to wedged remote" >"$dir/out2" 2>"$dir/err2" || rc=$?
+  err=$(cat "$dir/err2")
+  expect_code 4 "$rc" "the second wedged send must still exit 4, got $rc: $err"
+  assert_contains "$err" "consecutive composer-held skips for rsm: 2" \
+    "the second skip should report streak count 2"
+  assert_contains "$err" "paged the supervisor at 2 consecutive skips" \
+    "the second skip should report the supervisor page"
+  [ -f "$rhome/state/parent-route/rsm.inbox/002.msg" ] \
+    || fail "the second steer must be durably recorded in the remote inbox"
+  [ "$(cat "$home/state/rsm.doorbell-skip" 2>/dev/null)" = 2 ] \
+    || fail "the second skip should record streak count 2"
+  [ -e "$home/state/rsm.doorbell-skip.paged" ] \
+    || fail "the second skip must arm the paged marker"
+  wakes=$(grep -c 'rsm.doorbell-skip' "$home/state/.wake-queue" 2>/dev/null || true)
+  [ "${wakes:-0}" = 1 ] || fail "the second consecutive skip must queue exactly one page"
+
+  # 3. Third send: mid-turn agent (agent_status: working) defers the doorbell,
+  # breaking the streak and resetting the counter and page marker.
+  printf 'working\n' > "$status_file"
+  rc=0
+  send_env "$fb" "$home" "$ssh_log" FM_SEND_SKIP_PAGE_MAX=2 \
+    "$SEND" rsm "third steer while mid-turn" >"$dir/out3" 2>"$dir/err3" || rc=$?
+  err=$(cat "$dir/err3")
+  expect_code 0 "$rc" "a mid-turn remote agent defers the doorbell and exits 0, got $rc: $err"
+  assert_contains "$err" "doorbell deferred" \
+    "a mid-turn remote agent should report doorbell deferred"
+  [ ! -e "$home/state/rsm.doorbell-skip" ] \
+    || fail "a deferred doorbell must reset the skip streak"
+  [ ! -e "$home/state/rsm.doorbell-skip.paged" ] \
+    || fail "a deferred doorbell must clear the paged marker"
+
+  # 4. Fourth send: healthy composer (cleared) rings successfully and exits 0.
+  printf 'idle\n' > "$status_file"
+  : > "$dir/composer-cleared"
+  rc=0
+  send_env "$fb" "$home" "$ssh_log" FM_SEND_SKIP_PAGE_MAX=2 \
+    "$SEND" rsm "fourth steer healthy composer" >"$dir/out4" 2>"$dir/err4" || rc=$?
+  err=$(cat "$dir/err4")
+  expect_code 0 "$rc" "a healthy composer rings and exits 0, got $rc: $err"
+  assert_not_contains "$err" "doorbell-skip" \
+    "a healthy send must not report a skip"
+  assert_not_contains "$err" "doorbell deferred" \
+    "a healthy send must not report a deferral"
+  [ ! -e "$home/state/rsm.doorbell-skip" ] \
+    || fail "a healthy send must keep the skip counter clean"
+
+  # 5. Fifth send: remote composer holds submitted text that clear-or-submit recovers.
+  # It recovers, re-rings, and exits 0 without skipping.
+  rm -f "$dir/composer-cleared"
+  : > "$dir/recover-on-enter"
+  rc=0
+  send_env "$fb" "$home" "$ssh_log" FM_SEND_SKIP_PAGE_MAX=2 \
+    "$SEND" rsm "fifth steer recovered by clear-or-submit" >"$dir/out5" 2>"$dir/err5" || rc=$?
+  err=$(cat "$dir/err5")
+  expect_code 0 "$rc" "a recovered remote composer rings and exits 0, got $rc: $err"
+  assert_not_contains "$err" "doorbell-skip" \
+    "a recovered remote composer must not report a skip"
+  [ -f "$dir/composer-cleared" ] \
+    || fail "clear-or-submit should have cleared the remote composer on Enter"
+
+  pass "fm-send remote: a wedged remote composer produces countable exit-4 skips, pages at threshold, and resets on healthy ring"
+}
+
 test_local_secondmate_pending_keeps_expectation_armed() {
   local dir fb log home rc rec corr
   dir="$TMP_ROOT/local-pending-expectation"; mkdir -p "$dir"
@@ -822,6 +952,7 @@ test_remote_real_failure_still_fails
 test_remote_exit3_no_longer_delivered
 test_remote_transport_loss_preserves_expectation
 test_remote_send_budget_bounds_busy_lane
+test_remote_wedged_composer_pages_and_skips
 test_local_pending_reports_delivered_unconfirmed
 test_local_pending_does_not_close_resolve_key
 test_local_secondmate_pending_keeps_expectation_armed
