@@ -677,6 +677,8 @@ seed_rollback() {
   fi
 }
 
+# Whole-name registry row match; must stay identical to the rule in
+# bin/fm-project-mode.sh so seeding and posture resolution agree on spaced names.
 # shellcheck disable=SC2016
 REGISTRY_ROW_IS_AWK='
   function row_is(n,   prefix, after) {
