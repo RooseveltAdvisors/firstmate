@@ -1,0 +1,30 @@
+## installed PreToolUse hook command
+FM_ADMIN_GUARD_BRIEF='/tmp/fmlab.EdVRTf/home/data/labba20783e1be4-worker/brief.md' exec '/tmp/fmlab.EdVRTf/home/bin/fm-admin-guard.sh' --claude
+
+## hook: gh pr merge 1 --admin
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"error: [hard-rule-2] worker cannot use --admin or bypass permissions; only captain explicit authorization confers merge authority."}
+exit=2
+
+## hook: cd x && command gh pr merge 1 --squash --admin
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"error: [hard-rule-2] worker cannot use --admin or bypass permissions; only captain explicit authorization confers merge authority."}
+exit=2
+
+## hook: git commit -m "docs: refuse --admin; gh pr merge 5 --admin is blocked"
+exit=0
+
+## hook: gh pr merge 1 --squash
+exit=0
+
+## shim in worker env: gh pr merge 1 --admin
+error: [hard-rule-2] worker cannot use --admin or bypass permissions; only captain explicit authorization confers merge authority.
+exit=2
+
+## brief Captain's intent (unchanged = no authorization)
+## Captain's intent
+Lab gated worker for a live supervision lab. Add count_notes(), which returns how many notes are stored, to notes/__init__.py with a unit test, but only after the gate file /tmp/fmlab.EdVRTf/home/data/labba20783e1be4-worker/gate exists and you receive a message to resume.
+
+## Firstmate spec
+
+## shim with authorized brief copy: falls through to real gh
+none of the git remotes configured for this repository point to a known GitHub host. To tell gh about a new GitHub host, please use `gh auth login`
+exit=1
