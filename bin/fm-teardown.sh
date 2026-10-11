@@ -1796,6 +1796,23 @@ cleanup_stale_lock_for_safety_check() {
 
 # Return a worktree/home via `treehouse return --force`, tolerating a transient or
 # stale git index.lock left by a killed crew process. See the script header.
+# The shared Treehouse project lock path for <project> when this process
+# already holds it - the task's own slot lock or a forced child's - so the
+# capacity release reuses it instead of re-taking a lock it holds. Prints
+# nothing when the lock is not held here.
+teardown_held_project_lock() {  # <project>
+  local lock target
+  [ -n "$1" ] && [ -d "$1" ] || return 0
+  lock=$(fm_treehouse_project_lock_path "$1" 2>/dev/null) || return 0
+  if [ "$TREEHOUSE_PROJECT_LOCK_HELD" = 1 ] && [ "$TREEHOUSE_PROJECT_LOCK" = "$lock" ]; then
+    printf '%s\n' "$lock"
+    return 0
+  fi
+  for target in "${DESCENDANT_TREEHOUSE_LOCK_PATHS[@]+"${DESCENDANT_TREEHOUSE_LOCK_PATHS[@]}"}"; do
+    [ "$target" != "$lock" ] || { printf '%s\n' "$lock"; return 0; }
+  done
+}
+
 teardown_treehouse_return() {
   local dir=$1 cd_dir=$2 label=$3 post_cleanup_check=${4:-}
   local out lock attempt=0 max_retries lock_desc
@@ -2683,7 +2700,7 @@ remove_firstmate_home() {
       restore_firstmate_home_process_events "$abs_home_path" "$label" "$process_event_backup" || return $?
       return 1
     }
-    fm_capacity_release_after_return "$CONFIG" "$DATA" "$abs_home_path" "$FM_ROOT"
+    fm_capacity_release_after_return "$CONFIG" "$DATA" "$abs_home_path" "$FM_ROOT" "$(teardown_held_project_lock "$FM_ROOT")"
     [ -z "$process_event_backup" ] || rm -rf -- "$process_event_backup"
     return 0
   fi
@@ -3290,7 +3307,7 @@ cleanup_firstmate_home_children() {
         if [ -n "$child_proj" ] && [ -d "$child_proj" ] && command -v treehouse >/dev/null 2>&1; then
           if teardown_treehouse_return "$child_wt" "$child_proj" "child worktree"; then
             fm_treehouse_slot_owner_release "$child_wt" "$child_id"
-            fm_capacity_release_after_return "$CONFIG" "$DATA" "$child_wt" "$child_proj"
+            fm_capacity_release_after_return "$CONFIG" "$DATA" "$child_wt" "$child_proj" "$(teardown_held_project_lock "$child_proj")"
           else
             child_return_rc=$?
             if [ "$child_return_rc" -eq "$TEARDOWN_TREEHOUSE_LOCK_REFUSED" ]; then
@@ -3636,7 +3653,7 @@ elif [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
   # dispatchable again instead of waiting for the next backlog re-evaluation.
   # Best-effort by design - a failed release leaves the hold recorded for the
   # next teardown to retry, never aborting this one.
-  fm_capacity_release_after_return "$CONFIG" "$DATA" "$WT" "$PROJ"
+  fm_capacity_release_after_return "$CONFIG" "$DATA" "$WT" "$PROJ" "$(teardown_held_project_lock "$PROJ")"
 fi
 
 HERDR_PRESENTATION_JOURNAL="$STATE/$ID.herdr-presentation"

@@ -9,7 +9,8 @@
 #   bin/fm-spawn.sh detects treehouse's exact "all N worktrees are in use"
 #   refusal during the treehouse-get wait and holds the item through
 #   fm_capacity_hold; fm_capacity_release_after_return releases the oldest hold
-#   recorded for the freed pool right after this home returns a slot to it -
+#   recorded for the freed pool, in this home first and otherwise in any other
+#   local home that can reach the pool, right after this home returns a slot -
 #   bin/fm-teardown.sh after its task-worktree, secondmate-home, and forced
 #   child-worktree returns, bin/fm-home-seed.sh after the seed rollback's
 #   treehouse return.
@@ -33,6 +34,9 @@
 # Every mutation runs from the owning home's backlog root with `--file` only
 # for the markdown backend, mirroring fm_backlog_row_show's backend awareness
 # in bin/fm-backlog-transition-lib.sh so backend-owned state stays discoverable.
+# fm_capacity_release_after_return also needs bin/fm-wake-lib.sh and
+# bin/fm-secondmate-registry-lib.sh sourced by the caller, for the shared
+# project lock and the local home registry its cross-home scan uses.
 # Usage: . bin/fm-capacity-lib.sh
 
 # shellcheck source=bin/fm-tasks-axi-lib.sh
@@ -131,14 +135,21 @@ fm_capacity_hold() {  # <data-dir> <id> <reason>
 # reported on stderr and leaves the hold in place for the next teardown to
 # retry.
 FM_CAPACITY_RELEASED_ID=
-fm_capacity_release_oldest() {  # <data-dir> <pool>
+FM_CAPACITY_OLDEST_ID=
+FM_CAPACITY_OLDEST_CREATED=
+# Find the oldest capacity hold recorded for <pool> in <data-dir>'s backlog,
+# by the ordering fm_capacity_release_oldest documents, without changing it.
+# Sets FM_CAPACITY_OLDEST_ID and FM_CAPACITY_OLDEST_CREATED, both empty when
+# nothing matches. A failed read is reported on stderr and matches nothing.
+fm_capacity_oldest_hold() {  # <data-dir> <pool>
   local data=$1 pool=$2 out line prefix reason created id
   local best_id='' best_created=''
-  FM_CAPACITY_RELEASED_ID=
+  FM_CAPACITY_OLDEST_ID=
+  FM_CAPACITY_OLDEST_CREATED=
   data=$(fm_capacity_resolve_dir "$data") || return 0
   command -v tasks-axi >/dev/null 2>&1 || return 0
   out=$(fm_capacity_axi "$data" list --state held --fields created,hold_kind,hold_reason) || {
-    printf 'teardown: capacity release could not read held rows: %s\n' "$(printf '%s\n' "$out" | sed -n '1p')" >&2
+    printf 'teardown: capacity release could not read held rows in %s: %s\n' "$data" "$(printf '%s\n' "$out" | sed -n '1p')" >&2
     return 0
   }
   while IFS= read -r line; do
@@ -169,38 +180,137 @@ fm_capacity_release_oldest() {  # <data-dir> <pool>
   done <<EOF
 $out
 EOF
-  [ -n "$best_id" ] || return 0
-  if ! fm_capacity_axi "$data" unhold "$best_id" >/dev/null; then
-    printf 'teardown: capacity release of %s failed; the hold stays recorded\n' "$best_id" >&2
+  FM_CAPACITY_OLDEST_ID=$best_id
+  FM_CAPACITY_OLDEST_CREATED=$best_created
+}
+
+fm_capacity_release_oldest() {  # <data-dir> <pool>
+  local data=$1 pool=$2
+  FM_CAPACITY_RELEASED_ID=
+  data=$(fm_capacity_resolve_dir "$data") || return 0
+  fm_capacity_oldest_hold "$data" "$pool"
+  [ -n "$FM_CAPACITY_OLDEST_ID" ] || return 0
+  fm_capacity_unhold "$data" "$FM_CAPACITY_OLDEST_ID" "$pool"
+}
+
+# Lift one capacity hold in <data-dir>'s backlog and report it. Never fatal.
+fm_capacity_unhold() {  # <data-dir> <id> <pool> [home-note]
+  local data=$1 id=$2 pool=$3 note=${4:-}
+  if ! fm_capacity_axi "$data" unhold "$id" >/dev/null; then
+    printf 'teardown: capacity release of %s%s failed; the hold stays recorded\n' "$id" "$note" >&2
     return 0
   fi
   # Part of this library's output contract: fm-teardown.sh reads it after a
   # successful release, so ShellCheck's in-file use check is a false positive.
   # shellcheck disable=SC2034
-  FM_CAPACITY_RELEASED_ID=$best_id
-  printf 'ready: %s - capacity hold released for pool %s\n' "$best_id" "$pool"
+  FM_CAPACITY_RELEASED_ID=$id
+  printf 'ready: %s - capacity hold released for pool %s%s\n' "$id" "$pool" "$note"
+}
+
+# The other local homes that can reach this machine's pools: the local root
+# home (bin/fm-wake-lib.sh's fm_firstmate_root_home) and every home reachable
+# from it through local data/secondmates.md routes, excluding <self-home>.
+# Remote routes are skipped because their backlog lives on another machine and
+# their pools are not this machine's. Prints one resolved home per line.
+fm_capacity_sibling_homes() {  # <self-home>
+  local self root queue home line seen depth=0
+  self=$(fm_capacity_resolve_dir "$1") || self=$1
+  root=$(fm_firstmate_root_home "$self" 2>/dev/null) || return 0
+  queue=$root
+  seen="|$root|"
+  while [ -n "$queue" ] && [ "$depth" -le 64 ]; do
+    home=${queue%%$'\n'*}
+    if [ "$home" = "$queue" ]; then queue=; else queue=${queue#*$'\n'}; fi
+    depth=$((depth + 1))
+    [ "$home" = "$self" ] || printf '%s\n' "$home"
+    [ -f "$home/data/secondmates.md" ] || continue
+    while IFS= read -r line; do
+      secondmate_registry_parse_line "$line" || continue
+      [ "$SECONDMATE_REGISTRY_REMOTE" = 0 ] || continue
+      line=$(fm_capacity_resolve_dir "$SECONDMATE_REGISTRY_HOME") || continue
+      case "$seen" in *"|$line|"*) continue ;; esac
+      seen="$seen$line|"
+      queue=${queue:+$queue$'\n'}$line
+    done < "$home/data/secondmates.md"
+  done
+}
+
+# Release the oldest capacity hold any OTHER local home recorded for <pool>,
+# one release at most. The caller must hold the shared Treehouse project lock
+# (bin/fm-wake-lib.sh's fm_treehouse_project_lock_path), which is what makes a
+# write to another home's backlog race-safe: every capacity hold is recorded by
+# bin/fm-spawn.sh and every capacity release runs under that one machine-wide
+# lock, whichever home performs it, so no hold can be recorded or released for
+# this pool between this scan and its unhold. Rows of unrelated work in the
+# same backlog are serialized by tasks-axi's own backlog lock, and a refused
+# write leaves the hold recorded and reports it. A manual-backend sibling is
+# never scanned, matching the same-home rule.
+fm_capacity_release_oldest_elsewhere() {  # <self-home> <pool>
+  local self=$1 pool=$2 home best_home='' best_id='' best_created=''
+  FM_CAPACITY_RELEASED_ID=
+  while IFS= read -r home; do
+    [ -n "$home" ] || continue
+    ! fm_backlog_backend_manual "$home/config" || continue
+    [ -d "$home/data" ] || continue
+    fm_capacity_oldest_hold "$home/data" "$pool"
+    [ -n "$FM_CAPACITY_OLDEST_ID" ] || continue
+    if [ -z "$best_id" ] || [ "$FM_CAPACITY_OLDEST_CREATED" \< "$best_created" ] \
+       || { [ "$FM_CAPACITY_OLDEST_CREATED" = "$best_created" ] && [ "$FM_CAPACITY_OLDEST_ID" \< "$best_id" ]; }; then
+      best_home=$home
+      best_id=$FM_CAPACITY_OLDEST_ID
+      best_created=$FM_CAPACITY_OLDEST_CREATED
+    fi
+  done <<EOF
+$(fm_capacity_sibling_homes "$self")
+EOF
+  [ -n "$best_id" ] || return 0
+  fm_capacity_unhold "$best_home/data" "$best_id" "$pool" " in home $best_home"
 }
 
 # Release the oldest capacity hold for the pool whose slot <worktree> just went
 # back to it, scanning the project-root fallback identity <project> when the
 # worktree-derived pool scan matches nothing, and print which item became
-# ready. The scan reads only <data-dir>, the returning home's own backlog, so a
-# hold another home recorded for the same pool stays recorded. Never fatal and
-# silent when the pool cannot be computed: the release is the returning side's
-# best effort, never the caller's decision point. A home whose
-# config/backlog-backend selects manual editing is skipped outright: spawn
-# records no hold there, so release must not mutate a hand-kept backlog.
-fm_capacity_release_after_return() {  # <config-dir> <data-dir> <worktree> <project>
-  local config=$1 data=$2 worktree=$3 project=$4 pool fallback
+# ready. <data-dir>, the returning home's own backlog, is scanned first. When it
+# holds nothing for the pool, the other local homes are scanned (see
+# fm_capacity_release_oldest_elsewhere) under the shared Treehouse project lock
+# for <project>: <held-lock> names that lock when the caller already holds it,
+# and otherwise this function takes it for the scan and releases it after. A
+# busy lock skips the cross-home scan with one stderr line, because its holder
+# is a spawn that will consume the freed slot or a return that runs its own
+# release. Never fatal and silent when the pool cannot be computed: the release
+# is the returning side's best effort, never the caller's decision point. A
+# home whose config/backlog-backend selects manual editing is skipped outright:
+# spawn records no hold there, so release must not mutate a hand-kept backlog.
+fm_capacity_release_after_return() {  # <config-dir> <data-dir> <worktree> <project> [held-lock]
+  local config=$1 data=$2 worktree=$3 project=$4 held=${5:-} pool fallback lock took=0
   FM_CAPACITY_RELEASED_ID=
   ! fm_backlog_backend_manual "$config" || return 0
   pool=$(fm_capacity_pool_of_worktree "$worktree" 2>/dev/null || true)
   [ -n "$pool" ] || return 0
-  fm_capacity_release_oldest "$data" "$pool" || true
-  if [ -z "$FM_CAPACITY_RELEASED_ID" ] && [ -n "$project" ]; then
+  fallback=
+  if [ -n "$project" ]; then
     fallback=$(fm_capacity_canonical_or_raw "$project" 2>/dev/null || true)
-    if [ -n "$fallback" ] && [ "$fallback" != "$pool" ]; then
-      fm_capacity_release_oldest "$data" "$fallback" || true
-    fi
+    [ "$fallback" != "$pool" ] || fallback=
   fi
+  fm_capacity_release_oldest "$data" "$pool" || true
+  if [ -z "$FM_CAPACITY_RELEASED_ID" ] && [ -n "$fallback" ]; then
+    fm_capacity_release_oldest "$data" "$fallback" || true
+  fi
+  [ -z "$FM_CAPACITY_RELEASED_ID" ] || return 0
+  # Only a genuine Treehouse slot has the shared project lock behind it, the
+  # same rule spawn and teardown use before taking that lock.
+  [ -n "$project" ] && fm_treehouse_pool_slot "$project" "$worktree" || return 0
+  lock=$(fm_treehouse_project_lock_path "$project" 2>/dev/null) || return 0
+  if [ "$lock" != "$held" ]; then
+    if ! fm_lock_try_acquire "$lock"; then
+      printf 'teardown: capacity release skipped other homes for pool %s: the shared Treehouse project lock is busy\n' "$pool" >&2
+      return 0
+    fi
+    took=1
+  fi
+  fm_capacity_release_oldest_elsewhere "$(dirname "$(fm_capacity_resolve_dir "$data" || printf '%s' "$data")")" "$pool" || true
+  if [ -z "$FM_CAPACITY_RELEASED_ID" ] && [ -n "$fallback" ]; then
+    fm_capacity_release_oldest_elsewhere "$(dirname "$(fm_capacity_resolve_dir "$data" || printf '%s' "$data")")" "$fallback" || true
+  fi
+  [ "$took" = 0 ] || fm_lock_release "$lock" || true
 }

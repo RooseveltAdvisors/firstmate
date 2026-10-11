@@ -18,6 +18,12 @@
 # capacity hold recorded for that pool, leaving a same-pool newer hold, a
 # different-pool hold, and a non-capacity hold all in place. A manual-backend
 # home proves teardown never touches the hand-kept backlog.
+#
+# Cross-home side: a root home returns a slot of a genuine Treehouse pool while
+# only its registered local secondmate home recorded holds for that pool, and
+# the release must lift exactly that home's oldest one, prefer the returning
+# home's own hold when it has one, and refuse to scan while another process
+# holds the shared project lock.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -456,11 +462,121 @@ test_teardown_on_manual_home_leaves_capacity_holds_untouched() {
   pass "returning a worktree in a manual-backend home leaves its backlog untouched"
 }
 
+# Cross-home release: the teardown fixture above becomes the ROOT home, its own
+# capacity holds are lifted so it records nothing for the pool, and a local
+# secondmate home registered in its data/secondmates.md records the holds
+# instead - the shape a secondmate's dispatch leaves when it found the shared
+# pool full. The pool carries a treehouse-state.json so the returned worktree
+# is a genuine Treehouse slot and the shared project lock is really taken.
+make_cross_home_case() {  # <name>
+  local name=$1 case_dir home sm pool backlog
+  case_dir=$(make_teardown_case "$name")
+  home=$case_dir
+  pool="$case_dir/pool"
+  printf '{}\n' > "$pool/treehouse-state.json"
+  backlog="$home/data/backlog.md"
+  for id in task-a task-b task-c; do
+    tasks-axi unhold "$id" --file "$backlog" >/dev/null
+  done
+  sm="$case_dir/sm-home"
+  mkdir -p "$sm/state" "$sm/config" "$sm/data"
+  printf '%s\n' "- sm-pool - pool fixture mate (home: $sm; scope: capacity fixture; projects: project; added 2026-10-11)" \
+    > "$home/data/secondmates.md"
+  backlog="$sm/data/backlog.md"
+  printf '%s\n' '# Backlog' '' '## In flight' '' '## Queued' '' '## Done' > "$backlog"
+  printf '%s\n' 'backend = "markdown"' > "$sm/.tasks.toml"
+  tasks-axi add sm-a "secondmate oldest held" --kind ship --file "$backlog" >/dev/null
+  tasks-axi add sm-b "secondmate newer held" --kind ship --file "$backlog" >/dev/null
+  tasks-axi hold sm-a --reason "pool $pool full 4/4" --kind load --file "$backlog" >/dev/null
+  tasks-axi hold sm-b --reason "pool $pool full 4/4" --kind load --file "$backlog" >/dev/null
+  printf '%s\n' "$case_dir"
+}
+
+sm_held_field() {  # <case-dir> <id>
+  tasks-axi show "$2" --file "$1/sm-home/data/backlog.md" 2>/dev/null |
+    sed -n 's/^  held: *//p' | head -1
+}
+
+run_cross_home_teardown() {  # <case-dir>
+  local case_dir=$1 rc
+  set +e
+  FM_HOME="$case_dir" \
+  FM_ROOT_OVERRIDE="$ROOT" \
+  FM_STATE_OVERRIDE="$case_dir/state" \
+  FM_DATA_OVERRIDE="$case_dir/data" \
+  FM_CONFIG_OVERRIDE="$case_dir/config" \
+  PATH="$case_dir/fakebin:$PATH" \
+    "$TEARDOWN" task-x1 > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  return "$rc"
+}
+
+test_teardown_releases_a_capacity_hold_another_home_recorded() {
+  local case_dir rc pool
+  case_dir=$(make_cross_home_case cross-z6)
+  pool="$case_dir/pool"
+  rc=0
+  run_cross_home_teardown "$case_dir" || rc=$?
+  expect_code 0 "$rc" "landed task teardown should succeed (stderr: $(cat "$case_dir/stderr"))"
+  assert_contains "$(cat "$case_dir/stdout")" \
+    "ready: sm-a - capacity hold released for pool $pool in home $case_dir/sm-home" \
+    "teardown must name the other home whose hold it released"
+  [ "$(sm_held_field "$case_dir" sm-a)" = no ] || fail "the other home's oldest hold for the freed pool was not released"
+  [ "$(sm_held_field "$case_dir" sm-b)" = yes ] || fail "one returned slot released more than one hold"
+  [ "$(held_field "$case_dir" task-d)" = yes ] || fail "the returning home's non-capacity hold was wrongly released"
+  pass "a slot one home returns releases the oldest hold another local home recorded for that pool"
+}
+
+test_teardown_prefers_its_own_capacity_hold_over_another_homes() {
+  local case_dir rc pool
+  case_dir=$(make_cross_home_case cross-own-z7)
+  pool="$case_dir/pool"
+  tasks-axi hold task-b --reason "pool $pool full 4/4" --kind load --file "$case_dir/data/backlog.md" >/dev/null
+  rc=0
+  run_cross_home_teardown "$case_dir" || rc=$?
+  expect_code 0 "$rc" "landed task teardown should succeed (stderr: $(cat "$case_dir/stderr"))"
+  assert_contains "$(cat "$case_dir/stdout")" "ready: task-b - capacity hold released for pool $pool" \
+    "the returning home's own hold must be released first"
+  [ "$(sm_held_field "$case_dir" sm-a)" = yes ] || fail "another home's hold was released although this home held one"
+  pass "a home that recorded its own hold for the freed pool releases it before scanning other homes"
+}
+
+# The secondmate-home and seed-rollback returns run without the shared project
+# lock, so the release takes it for the cross-home scan. While another process
+# holds it - a spawn or return already serializing this pool - the scan must
+# not run, must say so, and must leave the other home's hold recorded.
+test_cross_home_release_skips_loudly_while_the_project_lock_is_busy() {
+  local case_dir pool lock holder out
+  case_dir=$(make_cross_home_case cross-busy-z8)
+  pool="$case_dir/pool"
+  lock=$(FM_HOME="$case_dir" bash -c '. "$1/bin/fm-wake-lib.sh"; fm_treehouse_project_lock_path "$2"' _ "$ROOT" "$case_dir/project") \
+    || fail "could not resolve the shared project lock"
+  FM_HOME="$case_dir" bash -c '. "$1/bin/fm-wake-lib.sh"; fm_lock_try_acquire "$2" || exit 1; : > "$3"; sleep 60' \
+    _ "$ROOT" "$lock" "$case_dir/holding" &
+  holder=$!
+  for _ in $(seq 1 100); do [ -e "$case_dir/holding" ] && break; sleep 0.1; done
+  [ -e "$case_dir/holding" ] || { kill "$holder" 2>/dev/null; fail "the competing lock holder never took the lock"; }
+  out=$(FM_HOME="$case_dir" PATH="$case_dir/fakebin:$PATH" bash -c '
+    . "$1/bin/fm-wake-lib.sh"; . "$1/bin/fm-secondmate-registry-lib.sh"; . "$1/bin/fm-tasks-axi-lib.sh"
+    . "$1/bin/fm-capacity-lib.sh"
+    fm_capacity_release_after_return "$2/config" "$2/data" "$2/pool/7/wt" "$2/project"' _ "$ROOT" "$case_dir" 2>&1)
+  kill "$holder" 2>/dev/null || true
+  wait "$holder" 2>/dev/null || true
+  assert_contains "$out" "capacity release skipped other homes for pool $pool: the shared Treehouse project lock is busy" \
+    "a busy project lock must be reported, not silently skipped"
+  [ "$(sm_held_field "$case_dir" sm-a)" = yes ] || fail "a hold in another home was released without the shared project lock"
+  pass "the cross-home release never writes another home's backlog without the shared project lock"
+}
+
 test_pool_full_refusal_holds_and_exits_two
 test_pool_full_refusal_on_manual_home_exits_two_without_hold
 test_pool_full_refusal_reports_an_endpoint_it_could_not_close
 test_teardown_releases_oldest_capacity_hold_for_the_pool
 test_teardown_releases_fallback_identity_hold_when_pool_scan_matches_nothing
 test_teardown_on_manual_home_leaves_capacity_holds_untouched
+test_teardown_releases_a_capacity_hold_another_home_recorded
+test_teardown_prefers_its_own_capacity_hold_over_another_homes
+test_cross_home_release_skips_loudly_while_the_project_lock_is_busy
 
 echo "# all fm-capacity-hold tests passed"
