@@ -25,6 +25,8 @@ set -u
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=tests/fixtures.sh
+. "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
 # shellcheck source=bin/fm-timeout-lib.sh
 . "$ROOT/bin/fm-timeout-lib.sh"
 
@@ -1425,8 +1427,7 @@ case "\${1:-}" in display-message) printf 'firstmate\n'; exit 0 ;; esac
 exit 0
 SH
     chmod +x "$case_dir/fakebin/tmux"
-    printf '#!/usr/bin/env bash\nexit 0\n' > "$case_dir/fakebin/sleep"
-    chmod +x "$case_dir/fakebin/sleep"
+    fm_test_fake_sleep_noop "$case_dir/fakebin"
 
     rc=0
     if [ "$kind" = scout ]; then
