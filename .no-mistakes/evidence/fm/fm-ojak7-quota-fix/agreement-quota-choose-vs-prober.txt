@@ -1,0 +1,6 @@
+# Same live quota-axi snapshot fed to both fm-quota-choose.sh and the prober (FM_TEST_SEAM snapshot input)
+cursor:gpt-5.6-luna-high  quota-choose: 'none' rc=1   prober: 'exhausted cursor gpt-5.6-luna-high' rc=1
+codex:gpt-5.6-luna  quota-choose: 'codex gpt-5.6-luna' rc=0   prober: 'healthy codex gpt-5.6-luna' rc=0
+pi:opencode-go/glm-5.3-flash  quota-choose: 'none' rc=1   prober: 'exhausted pi opencode-go/glm-5.3-flash' rc=1
+pi:zai-general/glm-5.3-flash  quota-choose: 'none' rc=1   prober: 'healthy pi zai-general/glm-5.3-flash' rc=0
+claude:claude-opus-5-5  quota-choose: 'claude claude-opus-5-5' rc=0   prober: 'healthy claude claude-opus-5-5' rc=0

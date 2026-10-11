@@ -1,0 +1,30 @@
+$ bin/fm-jev-quota-prober.sh --check-all
+jev-quota-prober: quota-axi verdict unavailable for agy:gemini-3.8-flash-high: quota-axi agy: no measured quota scope or window; launching as requested
+Fleet Pre-Flight Harness Runway (source: quota-axi):
+  exhausted cursor (gpt-5.6-luna-high): quota-axi cursor: all_models runway exhausted_now
+  healthy   codex (gpt-5.6-luna): quota-axi codex: all_models 100% remaining
+  exhausted pi (opencode-go/glm-5.3-flash): quota-axi opencode-go: all_models runway exhausted_now
+  healthy   pi (zai-general/glm-5.3-flash): quota-axi zai: all_models 68% remaining
+  unknown   agy (gemini-3.8-flash-high): quota-axi agy: no measured quota scope or window
+rc=0
+
+$ bin/fm-jev-quota-prober.sh --harness cursor --model gpt-5.6-luna-high --auto-divert
+jev-quota-prober: cursor:gpt-5.6-luna-high exhausted (quota-axi cursor: all_models runway exhausted_now) and no divert lane is healthy in quota-axi
+exhausted cursor gpt-5.6-luna-high
+rc=1
+
+$ bin/fm-jev-quota-prober.sh --harness pi --model opencode-go/glm-5.3-flash --auto-divert
+jev-quota-prober: pi:opencode-go/glm-5.3-flash exhausted (quota-axi opencode-go: all_models runway exhausted_now) and no divert lane is healthy in quota-axi
+exhausted pi opencode-go/glm-5.3-flash
+rc=1
+
+$ bin/fm-jev-quota-prober.sh --harness codex --model gpt-5.6-luna
+healthy codex gpt-5.6-luna
+rc=0
+
+$ quota-axi raw verdicts (all_models effectiveAvailability)
+cursor - all_models 0 exhausted_now
+cursor - grok_bot 98 through_reset
+opencode-go - all_models 0 exhausted_now
+codex - all_models 100 through_reset
+zai - all_models 68 projected_exhaustion

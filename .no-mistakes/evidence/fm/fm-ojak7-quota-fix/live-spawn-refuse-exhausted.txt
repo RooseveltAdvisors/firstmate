@@ -1,0 +1,8 @@
+$ fm-spawn.sh jev-live-cursor <lab project> --mode local-only --yolo off --harness cursor --model gpt-5.6-luna-high   (real quota-axi: cursor exhausted_now, opencode-go divert exhausted_now)
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.DzqhQu
+jev-quota-prober: cursor:gpt-5.6-luna-high exhausted (quota-axi cursor: all_models runway exhausted_now) and no divert lane is healthy in quota-axi
+error: jev-quota-prober refused cursor:gpt-5.6-luna-high (verdict: exhausted); not launching
+rc=1
+state files:
+worktrees:
+/tmp/fm-lab.DzqhQu/projects/demo  355975c [main]

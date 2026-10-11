@@ -1,0 +1,10 @@
+$ fm-spawn.sh jev-live-codex <lab project> --mode local-only --yolo off --harness codex --model gpt-5.6-luna   (real quota-axi: codex 100%)
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.DzqhQu
+warning: /tmp/fm-lab.DzqhQu/data/jev-live-codex/launch-brief.md records no ship branch; defaulting to legacy branch fm/jev-live-codex
+warning: /tmp/fm-lab.DzqhQu/data/jev-live-codex/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
+notice: jev-live-codex ships mode=local-only while the standing posture for demo is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+spawned jev-live-codex harness=codex kind=ship mode=local-only yolo=off window=firstmate:fm-jev-live-codex worktree=/home/jon/.treehouse/demo-03cd55/1/demo
+rc=0
+meta:
+harness=codex
+model=gpt-5.6-luna
