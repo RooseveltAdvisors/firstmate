@@ -1,0 +1,10 @@
+ok - confined put rejects incomplete and superseded payload generations
+ok - confined put rejects directory replacement without external writes
+handoff output:
+stored: state/handoff/ios.outbox.md bytes=149
+error: "beads show failed: exit 1: warning: no beads configuration found in /home/jon/.beads; using default database name \"beads\"\nError: failed to open database: embeddeddolt: init schema: embeddeddolt: open db: failed to load database \"beads\": openat LOCK: path escapes from parent"
+code: UNKNOWN
+help[1]: "Check the beads CLI and workspace, then retry"
+error: atomic backlog receipt failed; delivered outbox is preserved for retry
+error: handoff receipt by ios was unavailable or completion is unknown; outbox preserved at /tmp/fm-remote-handoff.8DzV22/parent/data/handoff/ios.outbox.md
+not ok - remote atomic receipt created no destination backlog before the dropped acknowledgement

@@ -1,0 +1,4 @@
+not ok - handoff to a live receiver failed: error: "beads show failed: exit 1: warning: no beads configuration found in /home/jon/.beads; using default database name \"beads\"\nError: failed to open database: embeddeddolt: init schema: embeddeddolt: open db: failed to load database \"beads\": openat LOCK: path escapes from parent"
+code: UNKNOWN
+help[1]: "Check the beads CLI and workspace, then retry"
+error: tasks-axi mv failed; nothing was moved.

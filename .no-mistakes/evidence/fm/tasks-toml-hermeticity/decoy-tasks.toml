@@ -1,0 +1,4 @@
+backend = "beads"
+
+[beads]
+db = "/nonexistent/fm-decoy/beads.db"

@@ -1,0 +1,3 @@
+ok - confined put rejects incomplete and superseded payload generations
+ok - confined put rejects directory replacement without external writes
+not ok - ambiguous handoff left ios-a dispatchable in the primary backlog
