@@ -1,0 +1,124 @@
+=== SCENARIO live-running-red | pr=https://github.com/kunchenguid/firstmate/pull/7068 | run status=running | forge=real
+--- ci log:
+all CI checks passed - still monitoring until merged or closed
+base branch advanced (e31bc6e620ca..1f3e769616fd), re-arming CI monitor timeout
+--- gh on PATH: /home/linuxbrew/.linuxbrew/bin/gh ; gh-axi: /home/jon/.npm-global/bin/gh-axi
+--- fm-crew-state.sh live-running-red:
+state: done · source: run-step · checks green: PR ready for review (still monitoring for merge/close): https://github.com/kunchenguid/firstmate/pull/7068
+
+=== SCENARIO red-checks-unavailable | pr=https://github.com/kunchenguid/firstmate/pull/7068 | run status=cancelled | forge=checksfail
+--- ci log:
+CI checks running, waiting for results...
+all CI checks passed - still monitoring until merged or closed
+base branch advanced (e31bc6e620ca..1f3e769616fd), re-arming CI monitor timeout
+error: context canceled
+--- gh on PATH: /tmp/fmcs-live/case.gdAg/red-checks-unavailable/fakebin/gh ; gh-axi: /tmp/fmcs-live/case.gdAg/red-checks-unavailable/fakebin/gh-axi
+--- fm-crew-state.sh red-checks-unavailable:
+state: done · source: run-step · checks green: PR held for merge (ci monitor ended): https://github.com/kunchenguid/firstmate/pull/7068
+
+=== SCENARIO red-checks-timeout | pr=https://github.com/kunchenguid/firstmate/pull/7068 | run status=cancelled | forge=checkshang
+--- ci log:
+CI checks running, waiting for results...
+all CI checks passed - still monitoring until merged or closed
+base branch advanced (e31bc6e620ca..1f3e769616fd), re-arming CI monitor timeout
+error: context canceled
+--- gh on PATH: /tmp/fmcs-live/case.gdAg/red-checks-timeout/fakebin/gh ; gh-axi: /tmp/fmcs-live/case.gdAg/red-checks-timeout/fakebin/gh-axi
+--- fm-crew-state.sh red-checks-timeout:
+state: done · source: run-step · checks green: PR held for merge (ci monitor ended): https://github.com/kunchenguid/firstmate/pull/7068
+
+=== SCENARIO green-cancelled | pr=https://github.com/kunchenguid/firstmate/pull/6460 | run status=cancelled | forge=real
+--- ci log:
+CI checks running, waiting for results...
+all CI checks passed - still monitoring until merged or closed
+base branch advanced (e31bc6e620ca..1f3e769616fd), re-arming CI monitor timeout
+error: context canceled
+--- gh on PATH: /home/linuxbrew/.linuxbrew/bin/gh ; gh-axi: /home/jon/.npm-global/bin/gh-axi
+--- fm-crew-state.sh green-cancelled:
+state: done · source: run-step · checks green: PR held for merge (ci monitor ended): https://github.com/kunchenguid/firstmate/pull/6460
+
+=== SCENARIO red-cancelled | pr=https://github.com/kunchenguid/firstmate/pull/7068 | run status=cancelled | forge=real
+--- ci log:
+CI checks running, waiting for results...
+all CI checks passed - still monitoring until merged or closed
+base branch advanced (e31bc6e620ca..1f3e769616fd), re-arming CI monitor timeout
+error: context canceled
+--- gh on PATH: /home/linuxbrew/.linuxbrew/bin/gh ; gh-axi: /home/jon/.npm-global/bin/gh-axi
+--- fm-crew-state.sh red-cancelled:
+state: unknown · source: run-step · run cancelled: no verdict
+
+=== SCENARIO red-failed | pr=https://github.com/kunchenguid/firstmate/pull/7068 | run status=failed | forge=real
+--- ci log:
+CI checks running, waiting for results...
+all CI checks passed - still monitoring until merged or closed
+base branch advanced (e31bc6e620ca..1f3e769616fd), re-arming CI monitor timeout
+error: context canceled
+--- gh on PATH: /home/linuxbrew/.linuxbrew/bin/gh ; gh-axi: /home/jon/.npm-global/bin/gh-axi
+--- fm-crew-state.sh red-failed:
+state: failed · source: run-step · run failed
+
+=== SCENARIO red-ghaxi-only | pr=https://github.com/kunchenguid/firstmate/pull/7068 | run status=cancelled | forge=nogh
+--- ci log:
+CI checks running, waiting for results...
+all CI checks passed - still monitoring until merged or closed
+base branch advanced (e31bc6e620ca..1f3e769616fd), re-arming CI monitor timeout
+error: context canceled
+--- gh on PATH: none ; gh-axi: /home/jon/.npm-global/bin/gh-axi
+--- fm-crew-state.sh red-ghaxi-only:
+state: unknown · source: run-step · run cancelled: no verdict
+
+=== SCENARIO green-ghaxi-only | pr=https://github.com/kunchenguid/firstmate/pull/6460 | run status=cancelled | forge=nogh
+--- ci log:
+CI checks running, waiting for results...
+all CI checks passed - still monitoring until merged or closed
+base branch advanced (e31bc6e620ca..1f3e769616fd), re-arming CI monitor timeout
+error: context canceled
+--- gh on PATH: none ; gh-axi: /home/jon/.npm-global/bin/gh-axi
+--- fm-crew-state.sh green-ghaxi-only:
+state: unknown · source: run-step · run cancelled: no verdict
+
+=== SCENARIO red-forge-unreach | pr=https://github.com/kunchenguid/firstmate/pull/7068 | run status=cancelled | forge=none
+--- ci log:
+CI checks running, waiting for results...
+all CI checks passed - still monitoring until merged or closed
+base branch advanced (e31bc6e620ca..1f3e769616fd), re-arming CI monitor timeout
+error: context canceled
+--- gh on PATH: none ; gh-axi: none
+--- fm-crew-state.sh red-forge-unreach:
+state: unknown · source: run-step · run cancelled: no verdict
+
+=== SCENARIO red-noforge-flag | pr=https://github.com/kunchenguid/firstmate/pull/7068 | run status=cancelled | forge=noforge
+--- ci log:
+CI checks running, waiting for results...
+all CI checks passed - still monitoring until merged or closed
+base branch advanced (e31bc6e620ca..1f3e769616fd), re-arming CI monitor timeout
+error: context canceled
+--- gh on PATH: /home/linuxbrew/.linuxbrew/bin/gh ; gh-axi: /home/jon/.npm-global/bin/gh-axi
+--- fm-crew-state.sh red-noforge-flag:
+state: unknown · source: run-step · run cancelled: no verdict
+
+=== SCENARIO gitlab-cancelled | pr=https://gitlab.com/o/r/-/merge_requests/203 | run status=cancelled | forge=real
+--- ci log:
+CI checks running, waiting for results...
+all CI checks passed - still monitoring until merged or closed
+base branch advanced (e31bc6e620ca..1f3e769616fd), re-arming CI monitor timeout
+error: context canceled
+--- gh on PATH: /home/linuxbrew/.linuxbrew/bin/gh ; gh-axi: /home/jon/.npm-global/bin/gh-axi
+--- fm-crew-state.sh gitlab-cancelled:
+state: unknown · source: run-step · run cancelled: no verdict
+
+=== SCENARIO red-relapse | pr=https://github.com/kunchenguid/firstmate/pull/7068 | run status=cancelled | forge=real
+--- ci log:
+all CI checks passed - still monitoring until merged or closed
+base branch advanced (a..b), re-arming CI monitor timeout
+issues detected: 1 CI check failing
+--- gh on PATH: /home/linuxbrew/.linuxbrew/bin/gh ; gh-axi: /home/jon/.npm-global/bin/gh-axi
+--- fm-crew-state.sh red-relapse:
+state: unknown · source: run-step · run cancelled: no verdict
+
+=== SCENARIO red-no-rearm | pr=https://github.com/kunchenguid/firstmate/pull/7068 | run status=cancelled | forge=real
+--- ci log:
+all CI checks passed - still monitoring until merged or closed
+--- gh on PATH: /home/linuxbrew/.linuxbrew/bin/gh ; gh-axi: /home/jon/.npm-global/bin/gh-axi
+--- fm-crew-state.sh red-no-rearm:
+state: done · source: run-step · checks green: PR held for merge (ci monitor ended): https://github.com/kunchenguid/firstmate/pull/7068
+

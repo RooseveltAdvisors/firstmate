@@ -1,0 +1,5 @@
+--- real gh-axi classifier (product's direct gh rollup/pr-checks queries fail; gh-axi's own 'gh pr view --json statusCheckRollup' reaches GitHub):
+summary: "21 passed, 0 failed, 21 total"
+PR #6460: rc=0 FM_PR_CHECKS_STATE=green
+summary: "19 passed, 1 failed, 20 total"
+PR #7068: rc=1 FM_PR_CHECKS_STATE=not-ready
