@@ -472,15 +472,38 @@ PATH="$FAKEBIN:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$HOME_DIR" \
   || fail "lock timeout changed the best-effort caller result"
 elapsed=$(( $(date +%s) - started ))
 [ "$elapsed" -lt 4 ] || fail "best-effort refresh waited $elapsed seconds on its lock"
+BACKOFF_FILE="$HOME_DIR/state/.home-summary-backoff"
+grep -F 'refresh exceeded its 1-second deadline (failure 1 in a row, backing off 60s)' \
+  "$HOME_DIR/state/.home-summary-refresh.log" >/dev/null \
+  || fail "the first deadline failure did not name its streak and backoff"
+read -r backoff_count backoff_until < "$BACKOFF_FILE" || fail "the first failure recorded no backoff"
+[ "$backoff_count" = 1 ] && [ "$backoff_until" -gt "$(date +%s)" ] \
+  || fail "the first failure recorded backoff '$backoff_count $backoff_until'"
+log_lines=$(wc -l < "$HOME_DIR/state/.home-summary-refresh.log")
+started=$(date +%s)
+PATH="$FAKEBIN:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$HOME_DIR" \
+  FM_HOME_SUMMARY_TIMEOUT=1 "$WRITER" --best-effort \
+  || fail "a backed-off trigger changed the best-effort caller result"
+elapsed=$(( $(date +%s) - started ))
+[ "$elapsed" -lt 1 ] || fail "a backed-off trigger still ran for $elapsed seconds"
+[ "$(wc -l < "$HOME_DIR/state/.home-summary-refresh.log")" -eq "$log_lines" ] \
+  || fail "a backed-off trigger attempted and logged another refresh"
+printf '1 0\n' > "$BACKOFF_FILE"
 PATH="$FAKEBIN:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$HOME_DIR" \
   FM_HOME_SUMMARY_TIMEOUT=1 "$WRITER" --best-effort \
   || fail "repeated lock timeout changed the best-effort caller result"
 [ "$(grep -c 'refresh exceeded its 1-second deadline' "$HOME_DIR/state/.home-summary-refresh.log" 2>/dev/null || true)" -ge 2 ] \
   || fail "repeated publication lock timeouts vanished from failure reporting"
+grep -F '(failure 2 in a row, backing off 120s)' "$HOME_DIR/state/.home-summary-refresh.log" >/dev/null \
+  || fail "the second consecutive failure did not double its backoff"
 kill "$LOCK_HOLDER_PID" >/dev/null 2>&1 || true
 wait "$LOCK_HOLDER_PID" >/dev/null 2>&1 || true
 LOCK_HOLDER_PID=
 pass "best-effort refresh bounds publication lock acquisition"
+PATH="$FAKEBIN:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$HOME_DIR" "$WRITER" \
+  || fail "a direct refresh did not attempt while best-effort triggers were backed off"
+[ ! -e "$BACKOFF_FILE" ] || fail "a successful publication left the failure backoff in place"
+pass "consecutive best-effort failures back off exponentially and a publication clears it"
 
 HANGBIN="$TMP_ROOT/hangbin"
 REAL_JQ=$(command -v jq)
@@ -506,6 +529,7 @@ grep -F 'refresh exceeded its 1-second deadline' \
   "$HOME_DIR/state/.home-summary-refresh.log" >/dev/null \
   || fail "publication validation timeout was not logged"
 pass "best-effort refresh bounds validation and publication"
+rm -f -- "$BACKOFF_FILE"
 
 MKBIN="$TMP_ROOT/mkdir-hangbin"
 REAL_MKDIR=$(command -v mkdir)
@@ -530,6 +554,7 @@ elapsed=$(( $(date +%s) - started ))
 [ "$elapsed" -lt 6 ] \
   || fail "best-effort refresh waited $elapsed seconds before bounded state initialization"
 pass "best-effort refresh bounds state initialization"
+rm -f -- "$BACKOFF_FILE"
 
 SIGNALBIN="$TMP_ROOT/signalbin"
 SIGNAL_MARKER="$TMP_ROOT/worker-signaled"
