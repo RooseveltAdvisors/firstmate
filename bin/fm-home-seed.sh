@@ -680,7 +680,16 @@ seed_rollback() {
 registry_line_for_project() {
   local project=$1 line
   [ -f "$DATA/projects.md" ] || return 1
-  line=$(awk -v n="$project" '$1=="-" && $2==n { print; exit }' "$DATA/projects.md")
+  line=$(awk -v n="$project" '
+    substr($0, 1, 2) == "- " {
+      rest = substr($0, 3)
+      cut = index(rest, " [")
+      dash = index(rest, " - ")
+      if (dash > 0 && (cut == 0 || dash < cut)) cut = dash
+      name = cut > 0 ? substr(rest, 1, cut - 1) : rest
+      if (name == n) { print; exit }
+    }
+  ' "$DATA/projects.md")
   [ -n "$line" ] || return 1
   printf '%s\n' "$line"
 }
@@ -709,7 +718,15 @@ sync_project_registry() {
         split(names, a, "\034")
         for (i in a) selected[a[i]]=1
       }
-      !($1=="-" && ($2 in selected)) { print }
+      substr($0, 1, 2) == "- " {
+        rest = substr($0, 3)
+        cut = index(rest, " [")
+        dash = index(rest, " - ")
+        if (dash > 0 && (cut == 0 || dash < cut)) cut = dash
+        name = cut > 0 ? substr(rest, 1, cut - 1) : rest
+        if (name in selected) next
+      }
+      { print }
     ' "$sub_reg" > "$tmp"
   else
     : > "$tmp"
@@ -784,7 +801,16 @@ refuse_populated_projectless_home() {
     clones+=("$(basename "$project_path")")
   done
   if [ -f "$home/data/projects.md" ]; then
-    registry_entries=$(awk '$1 == "-" && $2 != "" { print $2 }' "$home/data/projects.md") || {
+    registry_entries=$(awk '
+      substr($0, 1, 2) == "- " {
+        rest = substr($0, 3)
+        cut = index(rest, " [")
+        dash = index(rest, " - ")
+        if (dash > 0 && (cut == 0 || dash < cut)) cut = dash
+        name = cut > 0 ? substr(rest, 1, cut - 1) : rest
+        if (name != "") print name
+      }
+    ' "$home/data/projects.md") || {
       echo "error: cannot inspect existing project registry at $home/data/projects.md; resolve its access permissions or retire or clean this home before seeding with --no-projects" >&2
       return 1
     }
