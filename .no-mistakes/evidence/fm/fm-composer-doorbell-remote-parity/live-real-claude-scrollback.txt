@@ -1,0 +1,4 @@
+6:❯ reply with just the word ok
+7:● ok
+9:❯ : Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your 'rsm.inbox' steering inbox, read and act on each
+16:❯

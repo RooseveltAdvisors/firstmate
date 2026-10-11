@@ -1,0 +1,13 @@
+### ssh-255 then retry onto wedged composer (real remote leg executed on both attempts; first reply lost)
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-wedge.u7kdii/parent
+notice: doorbell-skip (the composer in fm-remote:w1:p1 holds pending text and clear-or-submit failed); the steer is durably recorded at /tmp/fm-wedge.u7kdii/rhome/state/parent-route/rsm.inbox/006.msg
+notice: doorbell-skip (the composer in fm-remote:w1:p1 holds pending text and clear-or-submit failed); the steer is durably recorded at /tmp/fm-wedge.u7kdii/rhome/state/parent-route/rsm.inbox/006.msg
+fm-send: doorbell-skip (the composer in remote secondmate rsm holds pending text and clear-or-submit failed); the steer is durably recorded in the remote inbox; the record is durable, so do not resend it; consecutive composer-held skips for rsm: 4
+fm-send exit=4
+transport attempts: 2
+skip counter: 4
+paged marker: /tmp/fm-wedge.u7kdii/parent/state/rsm.doorbell-skip.paged
+wake-queue skip pages: 1
+remote inbox records: 001.msg 002.msg 003.msg 004.msg 005.msg 006.msg handled 
+records containing this steer: 1
+pending-reply phase: phase=awaiting_report

@@ -1,0 +1,232 @@
+pane get w1:p1 --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+pane process-info --pane w1:p1 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source visible --format ansi --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source recent --lines 200 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source visible --format ansi --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source recent --lines 200 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane send-keys w1:p1 enter --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source visible --format ansi --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source recent --lines 200 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane send-keys w1:p1 enter --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source visible --format ansi --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+pane get w1:p1 --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+pane process-info --pane w1:p1 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source visible --format ansi --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source recent --lines 200 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source visible --format ansi --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source recent --lines 200 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane send-keys w1:p1 enter --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source visible --format ansi --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source recent --lines 200 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane send-keys w1:p1 enter --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source visible --format ansi --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+pane get w1:p1 --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+pane process-info --pane w1:p1 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source visible --format ansi --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source recent --lines 200 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source visible --format ansi --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source recent --lines 200 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane send-keys w1:p1 enter --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source visible --format ansi --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source recent --lines 200 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane send-keys w1:p1 enter --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source visible --format ansi --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+pane get w1:p1 --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+pane process-info --pane w1:p1 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source visible --format ansi --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source recent --lines 200 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source visible --format ansi --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source recent --lines 200 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane send-keys w1:p1 enter --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source visible --format ansi --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source recent --lines 200 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane send-keys w1:p1 enter --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source visible --format ansi --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+pane get w1:p1 --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+pane process-info --pane w1:p1 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source visible --format ansi --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source recent --lines 200 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source visible --format ansi --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source recent --lines 200 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane send-keys w1:p1 enter --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source visible --format ansi --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source recent --lines 200 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane send-keys w1:p1 enter --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source visible --format ansi --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+pane get w1:p2 --session fm-lab-docbell-1711182-28321
+agent get w1:p2 --session fm-lab-docbell-1711182-28321
+pane process-info --pane w1:p2 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p2 --source visible --format ansi --session fm-lab-docbell-1711182-28321
+agent get w1:p2 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p2 --source recent --lines 200 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+agent get w1:p2 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p2 --source visible --format ansi --session fm-lab-docbell-1711182-28321
+agent get w1:p2 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p2 --source recent --lines 200 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane send-keys w1:p2 enter --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p2 --source visible --format ansi --session fm-lab-docbell-1711182-28321
+agent get w1:p2 --session fm-lab-docbell-1711182-28321
+pane get w1:p2 --session fm-lab-docbell-1711182-28321
+agent get w1:p2 --session fm-lab-docbell-1711182-28321
+pane process-info --pane w1:p2 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p2 --source visible --format ansi --session fm-lab-docbell-1711182-28321
+agent get w1:p2 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p2 --source visible --format ansi --session fm-lab-docbell-1711182-28321
+agent get w1:p2 --session fm-lab-docbell-1711182-28321
+agent get w1:p2 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p2 --source visible --format ansi --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane send-text w1:p2 : Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your 'rsm.inbox' steering inbox, read and act on each in numeric order, then mv each into its handled/. --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p2 --source visible --format ansi --session fm-lab-docbell-1711182-28321
+agent get w1:p2 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p2 --source recent --lines 200 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane send-keys w1:p2 enter --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p2 --source visible --format ansi --session fm-lab-docbell-1711182-28321
+agent get w1:p2 --session fm-lab-docbell-1711182-28321
+pane get w1:p1 --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+pane process-info --pane w1:p1 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source visible --format ansi --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source recent --lines 200 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source visible --format ansi --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source recent --lines 200 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane send-keys w1:p1 enter --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source visible --format ansi --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source recent --lines 200 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane send-keys w1:p1 enter --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p1 --source visible --format ansi --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+agent get w1:p1 --session fm-lab-docbell-1711182-28321
+pane get w1:p2 --session fm-lab-docbell-1711182-28321
+agent get w1:p2 --session fm-lab-docbell-1711182-28321
+pane process-info --pane w1:p2 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p2 --source visible --format ansi --session fm-lab-docbell-1711182-28321
+agent get w1:p2 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+pane read w1:p2 --source recent --lines 200 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+agent get w1:p2 --session fm-lab-docbell-1711182-28321
+pane process-info --pane w1:p2 --session fm-lab-docbell-1711182-28321
+status --json --session fm-lab-docbell-1711182-28321
+agent get w1:p2 --session fm-lab-docbell-1711182-28321
+pane process-info --pane w1:p2 --session fm-lab-docbell-1711182-28321

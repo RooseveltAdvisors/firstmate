@@ -1,0 +1,23 @@
+### real Claude pane w1:p2: composer holds unsent 'reply with just the word ok', agent idle
+before: skip counter=4
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-wedge.u7kdii/parent
+fm-send exit=0
+skip counter: absent
+paged marker: absent
+wake-queue skip pages: 1
+remote inbox records: 001.msg 002.msg 003.msg 004.msg 005.msg 006.msg 007.msg handled 
+Claude pane after send (real Herdr read):
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Bash command
+ Tip: auto mode handles these prompts for you — choose "switch to auto mode" below
+ List and read steering inbox messages
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ │ echo "INBOX=$FM_TASK_INBOX"; ls -la "$FM_TASK_INBOX"/ 2>&1; for f in $(ls "$FM_TASK_INBOX"/*.msg 2>/dev/null | sort
+ │ -V); do echo "=== $f"; cat "$f"; done
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ A variable in this command can't be checked before it runs
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and switch to auto mode · auto mode handles these prompts for you
+   3. No
+ Esc to cancel · Tab to amend

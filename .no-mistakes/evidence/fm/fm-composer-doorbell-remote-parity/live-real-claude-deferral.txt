@@ -1,0 +1,9 @@
+### deferral: real Claude mid-turn (agent_status=working) with composer holding 'held while busy'; prior streak=1
+notice: doorbell deferred (the agent in fm-remote:w1:p2 is mid-turn and its composer holds pending text); the steer is durably recorded at /tmp/fm-wedge.u7kdii/rhome/state/parent-route/rsm.inbox/009.msg
+fm-send exit=0
+skip counter: absent
+paged marker: absent
+wake-queue skip pages: 1
+remote inbox records: 001.msg 002.msg 003.msg 004.msg 005.msg 006.msg 007.msg 008.msg 009.msg handled 
+❯ Write a 700 word essay about lighthouses. Do not use any tools.
+❯ held while busy

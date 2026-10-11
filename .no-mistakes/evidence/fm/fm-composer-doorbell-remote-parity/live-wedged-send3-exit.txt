@@ -1,0 +1,13 @@
+### wedged send 3 (still wedged; streak continues past threshold)
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-wedge.u7kdii/parent
+WARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.
+notice: doorbell-skip (the composer in fm-remote:w1:p1 holds pending text and clear-or-submit failed); the steer is durably recorded at /tmp/fm-wedge.u7kdii/rhome/state/parent-route/rsm.inbox/005.msg
+fm-send: doorbell-skip (the composer in remote secondmate rsm holds pending text and clear-or-submit failed); the steer is durably recorded in the remote inbox; the record is durable, so do not resend it; consecutive composer-held skips for rsm: 3
+fm-send exit=4
+skip counter: 3
+paged marker: /tmp/fm-wedge.u7kdii/parent/state/rsm.doorbell-skip.paged
+wake-queue skip pages: 1
+remote inbox records: 001.msg 002.msg 003.msg 004.msg 005.msg handled 
+keys delivered to pane (od):  \n \n \n \n \n \n 
+wake-queue page line:
+1791728014	1	check	/tmp/fm-wedge.u7kdii/parent/state/rsm.doorbell-skip	check: doorbell-skip: task=rsm consecutive=2 - its composer holds pending text and clear-or-submit failed, so the steer is durably recorded but its doorbell never rang; inspect the endpoint

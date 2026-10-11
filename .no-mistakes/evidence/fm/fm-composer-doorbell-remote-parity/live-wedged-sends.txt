@@ -1,0 +1,12 @@
+### wedged send 1 (real Herdr lab pane w1:p1 replaying a captured Claude composer that swallows keys)
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-wedge.u7kdii/parent
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+notice: doorbell-skip (the composer in fm-remote:w1:p1 holds pending text and clear-or-submit failed); the steer is durably recorded at /tmp/fm-wedge.u7kdii/rhome/state/parent-route/rsm.inbox/003.msg
+fm-send: doorbell-skip (the composer in remote secondmate rsm holds pending text and clear-or-submit failed); the steer is durably recorded in the remote inbox; the record is durable, so do not resend it; consecutive composer-held skips for rsm: 1
+
+### wedged send 2 (real Herdr lab pane w1:p1 replaying a captured Claude composer that swallows keys)
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-wedge.u7kdii/parent
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+notice: doorbell-skip (the composer in fm-remote:w1:p1 holds pending text and clear-or-submit failed); the steer is durably recorded at /tmp/fm-wedge.u7kdii/rhome/state/parent-route/rsm.inbox/004.msg
+fm-send: doorbell-skip (the composer in remote secondmate rsm holds pending text and clear-or-submit failed); the steer is durably recorded in the remote inbox; the record is durable, so do not resend it; consecutive composer-held skips for rsm: 2; paged the supervisor at 2 consecutive skips
+
