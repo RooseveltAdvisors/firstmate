@@ -166,6 +166,7 @@ test_watcher_omits_parked_windows() {
 
   # When unparked: recorded_windows includes the task window
   windows=$(
+    # shellcheck disable=SC2034 # read by the sourced watcher at call time
     FM_HOME="$home" STATE="$state" SCRIPT_DIR="$ROOT/bin"
     # shellcheck source=/dev/null
     . "$WATCH"
@@ -179,6 +180,7 @@ test_watcher_omits_parked_windows() {
 
   # When parked: recorded_windows DOES NOT include the task window
   windows=$(
+    # shellcheck disable=SC2034 # read by the sourced watcher at call time
     FM_HOME="$home" STATE="$state" SCRIPT_DIR="$ROOT/bin"
     # shellcheck source=/dev/null
     . "$WATCH"
@@ -192,6 +194,7 @@ test_watcher_omits_parked_windows() {
   # Unpark and verify recorded_windows probes the window again
   run_control "$dir" t1 unpark >/dev/null || fail "unparking task should succeed"
   windows=$(
+    # shellcheck disable=SC2034 # read by the sourced watcher at call time
     FM_HOME="$home" STATE="$state" SCRIPT_DIR="$ROOT/bin"
     # shellcheck source=/dev/null
     . "$WATCH"
