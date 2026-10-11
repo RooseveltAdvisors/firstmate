@@ -1,0 +1,7 @@
+ok - spawn: invalid FM_HOME exits non-zero with honest error message
+ok - spawn: unknown backend exits non-zero with honest error message
+ok - spawn: lock contention exits non-zero with honest error message
+ok - spawn: invalid effort exits non-zero with honest error message
+ok - spawn: relaunch without existing meta exits non-zero with honest error message
+# all fm-spawn-honest-exits tests passed
+rc=0

@@ -1,0 +1,17 @@
+### Scenario A: unresolvable FM_HOME
+$ FM_HOME=does-not-exist-<pid> bin/fm-spawn.sh --secondmate sm1
+error: FM_HOME directory cannot be resolved: does-not-exist-670986
+error: failed to resolve FM_HOME directory
+exit=1
+
+### Scenario B: spawn lock held by a live process
+lock holder pid: 671092
+$ FM_HOME=$LAB bin/fm-spawn.sh --secondmate sm1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.ImSzI4
+error: another spawn is already creating task sm1
+exit=1
+
+### Scenario C: liveness probe + relaunch while spawn lock held (attempt budget not burned)
+probe:    STATUS=skipped STATE=in-progress REASON=spawn in progress for secondmate sm1
+relaunch: rc=1 STATUS=skipped STATE=in-progress REASON=spawn in progress for secondmate sm1
+relaunch ledger: <absent - no attempt recorded>
