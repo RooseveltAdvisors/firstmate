@@ -351,8 +351,18 @@ fm_backend_of_meta() {  # <meta-file>
   printf '%s' "${v:-tmux}"
 }
 
-fm_backend_target_of_meta() {  # <meta-file>
-  local meta=$1 backend terminal window
+fm_backend_target_of_meta() {  # [--include-parked] <meta-file>
+  local meta='' include_parked=0 backend terminal window arg
+  for arg in "$@"; do
+    case "$arg" in
+      --include-parked) include_parked=1 ;;
+      *) [ -z "$meta" ] && meta=$arg ;;
+    esac
+  done
+  [ -n "$meta" ] || return 0
+  if [ "$include_parked" -eq 0 ] && [ "$(fm_meta_get "$meta" parked)" = 1 ]; then
+    return 0
+  fi
   backend=$(fm_backend_of_meta "$meta")
   if [ "$backend" = orca ]; then
     terminal=$(fm_meta_get "$meta" terminal)
@@ -717,7 +727,7 @@ fm_backend_resolve_selector() {  # <raw-target> <state-dir>
   esac
   meta=$(fm_backend_meta_for_selector "$raw" "$state" 2>/dev/null || true)
   if [ -n "$meta" ]; then
-    window=$(fm_backend_target_of_meta "$meta")
+    window=$(fm_backend_target_of_meta "$meta" --include-parked)
     [ -n "$window" ] || { echo "error: no backend target recorded in $meta" >&2; return 1; }
     printf '%s' "$window"
     return 0
@@ -730,7 +740,7 @@ fm_backend_resolve_selector() {  # <raw-target> <state-dir>
     *)
       meta=$(fm_backend_meta_for_window "$raw" "$state" 2>/dev/null || true)
       if [ -n "$meta" ]; then
-        window=$(fm_backend_target_of_meta "$meta")
+        window=$(fm_backend_target_of_meta "$meta" --include-parked)
         [ -n "$window" ] || { echo "error: no backend target recorded in $meta" >&2; return 1; }
         printf '%s' "$window"
         return 0
