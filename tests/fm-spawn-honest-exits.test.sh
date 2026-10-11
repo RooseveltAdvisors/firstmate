@@ -11,9 +11,9 @@ TMP_ROOT=$(fm_test_tmproot fm-spawn-honest-exits)
 
 test_spawn_refuses_invalid_fm_home_with_error() {
   local out rc=0
-  out=$(env -u FM_HOME FM_SPAWN_NO_GUARD=1 "$SPAWN" --secondmate sm1 2>&1) || rc=$?
+  out=$(cd "$TMP_ROOT" && FM_SPAWN_NO_GUARD=1 FM_HOME="does-not-exist-$$" "$SPAWN" --secondmate sm1 2>&1) || rc=$?
   [ "$rc" -ne 0 ] || fail "spawn without valid FM_HOME should exit non-zero"
-  assert_contains "$out" "error: " "spawn must print an honest error on invalid FM_HOME"
+  assert_contains "$out" "error: failed to resolve FM_HOME directory" "spawn must print an honest error on invalid FM_HOME"
   pass "spawn: invalid FM_HOME exits non-zero with honest error message"
 }
 

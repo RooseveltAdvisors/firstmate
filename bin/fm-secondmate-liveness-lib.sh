@@ -82,15 +82,11 @@ fm_secondmate_liveness_unlock() {  # <id>
 }
 
 fm_sm_live_spawn_in_progress() {  # <id>
-  local spawn_lock="$STATE/.spawn-$1.lock"
-  if [ -e "$spawn_lock" ] || [ -L "$spawn_lock" ]; then
-    fm_sm_live_require_locks || return 1
-    if ! fm_lock_try_acquire "$spawn_lock"; then
-      return 0
-    fi
-    fm_lock_release "$spawn_lock" 2>/dev/null || true
-  fi
-  return 1
+  local spawn_lock="$STATE/.spawn-$1.lock" pid
+  [ -e "$spawn_lock" ] || [ -L "$spawn_lock" ] || return 1
+  fm_sm_live_require_locks || return 1
+  pid=$(cat "$spawn_lock/pid" 2>/dev/null || true)
+  fm_pid_alive "$pid" || fm_lock_mid_acquire_is_fresh "$spawn_lock" "$pid"
 }
 
 fm_sm_live_first_line() {
@@ -328,7 +324,7 @@ fm_secondmate_liveness_relaunch() {  # <meta> <id> [timeout-secs]
       *"another spawn is already creating task"*)
         local tmp="$STATE/.secondmate-relaunch-$id.tmp.$$"
         if [ -f "$STATE/.secondmate-relaunch-$id" ]; then
-          if sed '$ { /\tattempt$/d; }' "$STATE/.secondmate-relaunch-$id" > "$tmp" 2>/dev/null; then
+          if awk -F '\t' 'NR > 1 { print prev } { prev = $0; last = $2 } END { if (NR && last != "attempt") print prev }' "$STATE/.secondmate-relaunch-$id" > "$tmp" 2>/dev/null; then
             mv -f "$tmp" "$STATE/.secondmate-relaunch-$id"
           else
             rm -f "$tmp" 2>/dev/null
