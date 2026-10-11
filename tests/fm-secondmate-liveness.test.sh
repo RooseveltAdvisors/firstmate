@@ -450,17 +450,14 @@ test_relaunch_lock_contention_does_not_burn_attempts() {
   done
   [ -d "$w/home/state/.spawn-sm1.lock" ] || fail "failed to acquire spawn lock"
 
-  (
-    STATE="$w/home/state"
-    FM_ROOT="$ROOT"
-    . "$ROOT/bin/fm-secondmate-liveness-lib.sh"
+  STATE="$w/home/state" FM_ROOT="$ROOT" bash -c '
+    . "$0/bin/fm-secondmate-liveness-lib.sh"
     fm_secondmate_liveness_lock sm1 || exit 2
-    fm_secondmate_liveness_relaunch "$meta" sm1
+    fm_secondmate_liveness_relaunch "$1" sm1
     rc=$?
     [ "$FM_SM_LIVE_STATUS" = skipped ] || exit 3
     [ "$FM_SM_LIVE_STATE" = in-progress ] || exit 4
-    exit "$rc"
-  )
+    exit "$rc"' "$ROOT" "$meta"
   rc=$?
   kill "$holder" 2>/dev/null || true
   wait "$holder" 2>/dev/null || true
@@ -477,17 +474,14 @@ echo "error: another spawn is already creating task sm1" >&2
 exit 1
 SH
   chmod +x "$fake_root/bin/fm-spawn.sh"
-  (
-    STATE="$w/home/state"
-    FM_ROOT="$fake_root"
-    . "$ROOT/bin/fm-secondmate-liveness-lib.sh"
+  STATE="$w/home/state" FM_ROOT="$fake_root" bash -c '
+    . "$0/bin/fm-secondmate-liveness-lib.sh"
     fm_secondmate_liveness_lock sm1 || exit 2
-    fm_secondmate_liveness_relaunch "$meta" sm1
+    fm_secondmate_liveness_relaunch "$1" sm1
     rc=$?
     [ "$FM_SM_LIVE_STATUS" = skipped ] || exit 3
     [ "$FM_SM_LIVE_STATE" = in-progress ] || exit 4
-    exit "$rc"
-  )
+    exit "$rc"' "$ROOT" "$meta"
   rc=$?
   [ "$rc" -eq 1 ] || fail "relaunch during contention should return 1 on skipped in-progress, got $rc"
   attempts=$(STATE="$w/home/state" bash -c '. "$0/bin/fm-secondmate-liveness-lib.sh" && fm_secondmate_liveness_recent_attempts sm1 3600' "$ROOT")
