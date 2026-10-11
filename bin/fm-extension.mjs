@@ -641,12 +641,7 @@ async function makeManagedTreeRemovable(root) {
     const stat = await handle.stat();
     if (stat.isDirectory()) {
       isDir = true;
-      const fdPath = `/proc/self/fd/${handle.fd}`;
-      try {
-        await chmod(fdPath, 0o700);
-      } catch {
-        await handle.chmod(0o700).catch(() => {});
-      }
+      await handle.chmod(0o700);
     }
   } finally {
     await handle.close();

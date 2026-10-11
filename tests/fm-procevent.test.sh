@@ -4570,53 +4570,48 @@ orig_mode_after=$(file_mode "$HTOCTOU/state.orig")
 
 pass "a swapped state root between check and chmod does not get its permissions changed"
 
-# --- extension host makeManagedTreeRemovable pins chmod against TOCTOU swap --
-node --input-type=module - "$TMP_ROOT" <<'NODE' || fail "extension-host fd-pinned chmod failed to protect swapped path"
-import { constants as fsConstants } from "node:fs";
-import { chmod, open } from "node:fs/promises";
-import fsSync from "node:fs";
-import path from "node:path";
+# A swap after the root is opened but before the pinned object is validated
+# leaves the path naming a different inode than the descriptor, so neither the
+# pinned original nor the replacement now at the path has its mode changed.
+SWAP_STAT_BIN="$TMP_ROOT/swap-stat-bin"
+mkdir -p "$SWAP_STAT_BIN"
+REAL_STAT=$(command -v stat)
+cat > "$SWAP_STAT_BIN/stat" <<SH
+#!/usr/bin/env bash
+case " \$* " in
+  *'/fd/9 '*)
+    if [ -n "\${FM_TEST_TOCTOU_TARGET:-}" ] && [ -n "\${FM_TEST_TOCTOU_REPLACEMENT:-}" ]; then
+      mv "\$FM_TEST_TOCTOU_TARGET" "\${FM_TEST_TOCTOU_TARGET}.orig"
+      mv "\$FM_TEST_TOCTOU_REPLACEMENT" "\$FM_TEST_TOCTOU_TARGET"
+    fi
+    ;;
+esac
+exec "$REAL_STAT" "\$@"
+SH
+chmod +x "$SWAP_STAT_BIN/stat"
 
-const tmpRoot = process.argv[1];
-const tmp = fsSync.mkdtempSync(path.join(tmpRoot, "toctou-ext-"));
-const victim = path.join(tmp, "victim");
-const victimOrig = path.join(tmp, "victim.orig");
-const replacement = path.join(tmp, "replacement");
-fsSync.mkdirSync(victim, { mode: 0o755 });
-fsSync.mkdirSync(replacement, { mode: 0o777 });
+HPRESWAP="$TMP_ROOT/hpreswap"
+(umask 002; mkdir -p "$HPRESWAP/state")
+preswap_orig_before=$(file_mode "$HPRESWAP/state")
+HPRESWAP_REPL="$TMP_ROOT/hpreswap-replacement"
+(umask 000; mkdir -p "$HPRESWAP_REPL")
 
-const origReplMode = fsSync.statSync(replacement).mode & 0o777;
+preswap_status=0
+preswap_out=$(
+  FM_TEST_TOCTOU_TARGET="$HPRESWAP/state" \
+  FM_TEST_TOCTOU_REPLACEMENT="$HPRESWAP_REPL" \
+  PATH="$SWAP_STAT_BIN:$PATH" \
+  pe "$HPRESWAP" list 2>&1
+) || preswap_status=$?
 
-const handle = await open(victim, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
-
-fsSync.renameSync(victim, victimOrig);
-fsSync.renameSync(replacement, victim);
-
-const stat = await handle.stat();
-if (stat.isDirectory()) {
-  const fdPath = `/proc/self/fd/${handle.fd}`;
-  try {
-    await chmod(fdPath, 0o700);
-  } catch {
-    await handle.chmod(0o700);
-  }
-}
-await handle.close();
-
-const replModeAfter = fsSync.statSync(victim).mode & 0o777;
-const origModeAfter = fsSync.statSync(victimOrig).mode & 0o777;
-
-if (replModeAfter !== origReplMode) {
-  process.stderr.write(`swapped path permissions changed: before=${origReplMode.toString(8)} after=${replModeAfter.toString(8)}\n`);
-  process.exit(1);
-}
-if ((origModeAfter & 0o700) !== 0o700) {
-  process.stderr.write(`opened inode was not tightened: ${origModeAfter.toString(8)}\n`);
-  process.exit(1);
-}
-fsSync.rmSync(tmp, { recursive: true, force: true });
-NODE
-pass "extension host: fd-pinned chmod protects a swapped path against permission changes"
+[ "$preswap_status" -ne 0 ] || fail "a root swapped before pinned validation was operated on"
+assert_contains "$preswap_out" "not a private directory" \
+  "a root swapped before pinned validation is refused through the owned interface"
+[ "$(file_mode "$HPRESWAP/state")" = 777 ] \
+  || fail "the replacement swapped in before pinned validation had its mode changed"
+[ "$(file_mode "$HPRESWAP/state.orig")" = "$preswap_orig_before" ] \
+  || fail "the pinned original was chmodded although it no longer matched the path"
+pass "a state root swapped before pinned validation is refused without any chmod"
 
 # --- arm reports ready only once this registration's listener is running ----
 # The public arm path used to print armed as soon as registration was stored.
