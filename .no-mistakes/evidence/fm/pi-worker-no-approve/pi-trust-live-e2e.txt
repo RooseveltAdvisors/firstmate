@@ -1,0 +1,6 @@
+# live pi version: 1.1.0
+ok - fresh seeded Pi secondmate-shaped home stalls on Trust project folder? without --approve
+ok - seeded home with --approve starts past the trust dialog without rewriting trust.json
+ok - unseeded path without --approve still prompts on Trust project folder?
+ok - worker worktree with --no-approve starts past the trust dialog without running project .pi code or rewriting trust.json
+# all fm-pi-seeded-home-trust-live-e2e checks passed (4)
