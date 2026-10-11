@@ -4601,6 +4601,10 @@ if ! (umask 077 && mkdir "$TASK_TMP") 2>/dev/null; then
   fi
 fi
 mkdir -p "$TASK_TMP/gotmp"
+if [ "$KIND" != secondmate ]; then
+  mkdir -p "$TASK_TMP/bin"
+  ln -sf "$FM_ROOT/bin/fm-admin-guard.sh" "$TASK_TMP/bin/gh"
+fi
 
 # Per-harness turn-end hook where enabled: a file that touches
 # state/<id>.turn-ended when the agent finishes a turn. Worktree-resident hooks
@@ -4760,7 +4764,12 @@ BUSY_GEN=
       j_stop=$(json_escape "${stop_turnend}$busy_cmd_prefix idle $busy_suffix --event stop 2>/dev/null || true")
       stop_entry="\"Stop\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"$j_stop\"}]}],"
     fi
-    hooks_json="\"hooks\":{\"UserPromptSubmit\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"$j_submit\"}]}],${stop_entry}\"StopFailure\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"$j_stopfail\"}]}],\"SessionEnd\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"$j_sessionend\"}]}]}"
+    pretool_entry=
+    if [ "$KIND" != secondmate ]; then
+      j_pretool=$(json_escape "exec $(shell_quote "$FM_ROOT/bin/fm-admin-guard.sh") --claude")
+      pretool_entry="\"PreToolUse\":[{\"matcher\":\"Bash\",\"hooks\":[{\"type\":\"command\",\"command\":\"$j_pretool\"}]}], "
+    fi
+    hooks_json="\"hooks\":{${pretool_entry}\"UserPromptSubmit\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"$j_submit\"}]}],${stop_entry}\"StopFailure\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"$j_stopfail\"}]}],\"SessionEnd\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"$j_sessionend\"}]}]}"
     if [ "$KIND" = secondmate ]; then
       session_keys='"feedbackDrafts":"off",'
       if [ "$KEEP_AI_TRAILERS" != 1 ]; then
@@ -5613,6 +5622,9 @@ if [ "$LAUNCH_ENV_ENABLED" = 1 ]; then
   # $LAUNCH is what gives the wrapping `/bin/sh` itself the switch, not only the
   # agent command it runs.
   LAUNCH_ENV_PREFIX="$LAUNCH_ENV_PREFIX COMPACT_ADVISER_DISABLE=1"
+  if [ "$KIND" != secondmate ]; then
+    LAUNCH_ENV_PREFIX="$LAUNCH_ENV_PREFIX PATH=\"$TASK_TMP/bin:\$PATH\""
+  fi
   if [ -n "$SPAWN_TRACEPARENT" ]; then
     # shellcheck disable=SC2016
     LAUNCH_ENV_PREFIX="$LAUNCH_ENV_PREFIX "'${TRACEPARENT+"TRACEPARENT=$TRACEPARENT"}'
