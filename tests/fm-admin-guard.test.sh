@@ -56,7 +56,9 @@ test_cli_admin_refusals() {
   local wrapped
   for wrapped in 'command gh pr merge 5 --admin' "bash -lc 'gh pr merge 5 --admin'" \
     '(gh pr merge 5 --admin)' 'cd repo; $(which gh) pr merge 5 --admin' \
-    'GH_TOKEN=x sudo gh-axi pr merge 5 --admin'; do
+    'GH_TOKEN=x sudo gh-axi pr merge 5 --admin' \
+    "$(printf "cat <<EOF > notes\nbody\nEOF\ngh pr merge 5 --admin")" \
+    'echo \"; gh pr merge 5 --admin'; do
     rc=0
     run_guard --command "$wrapped" || rc=$?
     expect_code 2 "$rc" "wrapped admin merge must be refused: $wrapped"
@@ -126,7 +128,9 @@ test_non_admin_commands_allowed() {
     'grep -rn "gh pr merge 5 --admin" tests/' \
     'git commit -m "guard: refuse --admin; gh pr merge 5 --admin now exits 2"' \
     "git commit -m 'a && gh pr merge 5 --admin | b'" \
-    "$(printf 'gh pr create --title x --body "intro\ngh pr merge 5 --admin\nend"')"; do
+    "$(printf 'gh pr create --title x --body "intro\ngh pr merge 5 --admin\nend"')" \
+    "$(printf "git commit -F - <<'EOF'\nguard notes\ngh pr merge 5 --admin is refused\nEOF")" \
+    "$(printf 'gh pr create --body-file - <<-EOF\n\tsay "x\n\tgh pr merge 5 --admin\n\tEOF\ngit status')"; do
     rc=0
     run_guard --claude --command "$quoted" || rc=$?
     expect_code 0 "$rc" "guarded phrase in a command argument must be allowed: $quoted"

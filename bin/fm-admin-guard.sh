@@ -173,7 +173,7 @@ case "$CMD" in
 esac
 
 split_command_segments() {
-  local s=$1 out="" q="" c i
+  local s=$1 out="" q="" c i j line delim=""
   for ((i = 0; i < ${#s}; i++)); do
     c=${s:i:1}
     if [ -n "$q" ]; then
@@ -188,8 +188,35 @@ split_command_segments() {
       continue
     fi
     case "$c" in
+      "\\")
+        out+=${s:i:2}
+        i=$((i + 1))
+        ;;
       "'"|'"') q=$c; out+=$c ;;
-      ';'|'&'|'|'|$'\n') printf '%s\n' "$out"; out="" ;;
+      '<')
+        if { [ "$i" -eq 0 ] || [ "${s:i-1:1}" != '<' ]; } \
+          && [[ ${s:i} =~ ^[\<][\<]-?[[:space:]]*[\"\']?([A-Za-z0-9_]+) ]]; then
+          delim=${BASH_REMATCH[1]}
+        fi
+        out+=$c
+        ;;
+      $'\n')
+        printf '%s\n' "$out"
+        out=""
+        if [ -n "$delim" ]; then
+          j=$((i + 1))
+          while [ "$j" -lt "${#s}" ]; do
+            line=${s:j}
+            line=${line%%$'\n'*}
+            j=$((j + ${#line} + 1))
+            line=${line#"${line%%[!$'\t']*}"}
+            [ "$line" = "$delim" ] && break
+          done
+          i=$((j - 1))
+          delim=""
+        fi
+        ;;
+      ';'|'&'|'|') printf '%s\n' "$out"; out="" ;;
       *) out+=$c ;;
     esac
   done
