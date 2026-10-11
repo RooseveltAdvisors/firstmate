@@ -7,8 +7,8 @@ its quota-axi provider, reads that provider's row, and applies the same
 applicable-scope rule as bin/fm-quota-choose.sh: any applicable runway
 `exhausted_now` or known effective percent remaining of 0 is exhausted, a known
 percent above 0 is healthy. When quota-axi marks the reading stale and reports
-no known scope, the window percentRemaining quota-axi still reports (its last
-reading) decides, and the verdict names it stale.
+no known scope, a last window percentRemaining above 0 is healthy and a stale 0
+is unknown (the window may have reset since), and the verdict names it stale.
 
 Verdicts and exit codes (single-harness mode prints `<verdict> <harness> <model>`):
   healthy    0  quota-axi reports runway for the lane.
@@ -144,7 +144,7 @@ def verdict_from_row(row: dict, model: str) -> dict:
     if stale and windows:
         worst = min(windows, key=lambda w: w["percentRemaining"])
         pct = worst["percentRemaining"]
-        return {"status": HEALTHY if pct > 0 else EXHAUSTED, "percent": pct, "fresh": False,
+        return {"status": HEALTHY if pct > 0 else UNKNOWN, "percent": pct, "fresh": False,
                 "detail": f"{worst.get('id', 'window')} {pct}% remaining (stale reading)"}
     return {"status": UNKNOWN, "percent": None, "fresh": False, "detail": "no measured quota scope or window"}
 

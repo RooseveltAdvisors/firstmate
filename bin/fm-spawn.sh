@@ -2381,6 +2381,71 @@ case "$ARG3" in
   ;;
 esac
 
+# config/secondmate-harness may carry optional model/effort tokens alongside the
+# harness ("<harness> [<model>] [<effort>]"). They apply only when this is a
+# --secondmate spawn and no explicit per-spawn harness/raw launch was supplied, so
+# the harness itself came from the secondmate config fallback chain. Resolving
+# here on every spawn makes the pin durable across respawns. Precedence: explicit
+# --model/--effort flags still win over the file's tokens.
+if [ "$KIND" = secondmate ] && [ -z "$ARG3" ]; then
+  if [ "$MODEL_SET" -eq 0 ]; then
+    SM_MODEL=$("$SCRIPT_DIR/fm-harness.sh" secondmate-model)
+    [ -z "$SM_MODEL" ] || MODEL=$SM_MODEL
+  fi
+  if [ "$EFFORT_SET" -eq 0 ]; then
+    SM_EFFORT=$("$SCRIPT_DIR/fm-harness.sh" secondmate-effort)
+    if [ -n "$SM_EFFORT" ]; then
+      case "$SM_EFFORT" in
+      low | medium | high | xhigh | max | ultra) EFFORT=$SM_EFFORT ;;
+      *) echo "warning: config/secondmate-harness effort token '$SM_EFFORT' is not one of low, medium, high, xhigh, max, ultra; ignoring" >&2 ;;
+      esac
+    fi
+  fi
+fi
+# Jev Pattern 9: pre-flight quota verdict. bin/fm-jev-quota-prober.py's header
+# owns the verdicts; quota-axi is their only source and the prober's stderr
+# (unknown and refusal diagnostics) stays visible. Only exhausted refuses;
+# healthy, unmetered, unknown and a prober that returned no verdict launch as
+# requested, and nothing diverts blindly.
+# A divert target is re-probed here and must itself come back healthy, so an
+# exhausted lane cannot be launched even if a future prober path returned one.
+# It runs before every per-harness check and resolution below, so a diverted
+# lane passes through them exactly as a direct spawn of that lane would.
+# The disable switch is a test seam only and is inert outside the suite.
+if ! { [ "${FM_TEST_SEAM:-}" = 1 ] && [ "${FM_TEST_DISABLE_JEV_PROBER:-0}" = 1 ]; } && [ -x "$SCRIPT_DIR/fm-jev-quota-prober.sh" ]; then
+  _pre_divert_harness=$HARNESS
+  _jev_rc=0
+  _jev_out=$("$SCRIPT_DIR/fm-jev-quota-prober.sh" --harness "$HARNESS" ${MODEL:+--model "$MODEL"} --auto-divert) || _jev_rc=$?
+  read -r _jev_verdict _jev_harness _jev_model <<< "$_jev_out" || :
+  case "${_jev_verdict:-}" in
+  healthy | unmetered | unknown) ;;
+  diverted)
+    _jev_check=$("$SCRIPT_DIR/fm-jev-quota-prober.sh" --harness "$_jev_harness" --model "$_jev_model") || :
+    if [ "$_jev_check" != "healthy $_jev_harness $_jev_model" ]; then
+      echo "error: jev-quota-prober divert target $_jev_harness:$_jev_model is not healthy in quota-axi (${_jev_check:-no verdict}); not launching" >&2
+      exit 1
+    fi
+    echo "jev-quota-prober: diverted $HARNESS${MODEL:+:$MODEL} to quota-axi-healthy lane $_jev_harness:$_jev_model" >&2
+    HARNESS=$_jev_harness
+    MODEL=$_jev_model
+    if [ "$HARNESS" != "$_pre_divert_harness" ] || [ "$RAW_LAUNCH" = 1 ]; then
+      LAUNCH=$(launch_template "$HARNESS" "$KIND") || {
+        echo "error: no launch template for diverted harness '$HARNESS'" >&2
+        exit 1
+      }
+      RAW_LAUNCH=0
+    fi
+    ;;
+  exhausted)
+    echo "error: jev-quota-prober refused $HARNESS${MODEL:+:$MODEL} (verdict: exhausted); not launching" >&2
+    exit 1
+    ;;
+  *)
+    echo "jev-quota-prober: prober returned no verdict for $HARNESS:${MODEL:--} (exit $_jev_rc); quota guard absent for this launch, launching as requested" >&2
+    ;;
+  esac
+fi
+
 # muse, gemini, agy, and devin are verified as CREWMATE/SCOUT adapters only. A secondmate is
 # a firstmate instance, so it needs a primary supervision protocol.
 # gemini has none: docs/supervision-protocols/ carries no gemini wake protocol
@@ -2416,12 +2481,17 @@ if [ "$KIND" != secondmate ]; then
   EXCLUDE_TOOLS=$(fm_exclude_tools_check "$HARNESS" "$RAW_LAUNCH" "$CONFIG") || exit 1
 fi
 
-# pi launch prep runs once for a direct pi spawn and again after a Jev divert
-# lands on pi, so it lives in this one function (see the divert block below).
-resolve_pi_harness_launch() {
+case "$HARNESS" in
+devin)
+  DEVIN_BIN=$(command -v devin) || {
+    echo "error: devin executable not found on PATH" >&2
+    exit 1
+  }
+  ;;
+pi | pi-signed)
   PI_BIN=$(resolve_pi_executable "$HARNESS") || {
     echo "error: $HARNESS executable not found on PATH; install it or select a different verified harness" >&2
-    return 1
+    exit 1
   }
   PI_TUI_MODE=
   if pi_supports_tui_mode "$PI_BIN"; then
@@ -2441,17 +2511,6 @@ resolve_pi_harness_launch() {
   [ -z "$EXCLUDE_TOOLS" ] || PI_EXCLUDE=" --exclude-tools $(shell_quote "$EXCLUDE_TOOLS")"
   LAUNCH=${LAUNCH//__PIEXCLUDE__/$PI_EXCLUDE}
   LAUNCH="FM_PI_HARNESS=$HARNESS $LAUNCH"
-}
-
-case "$HARNESS" in
-devin)
-  DEVIN_BIN=$(command -v devin) || {
-    echo "error: devin executable not found on PATH" >&2
-    exit 1
-  }
-  ;;
-pi | pi-signed)
-  resolve_pi_harness_launch || exit 1
   ;;
 cursor)
   # `cursor` is not the CLI name, and the legacy alias `agent` is far too
@@ -2488,27 +2547,6 @@ agy)
   ;;
 esac
 
-# config/secondmate-harness may carry optional model/effort tokens alongside the
-# harness ("<harness> [<model>] [<effort>]"). They apply only when this is a
-# --secondmate spawn and no explicit per-spawn harness/raw launch was supplied, so
-# the harness itself came from the secondmate config fallback chain. Resolving
-# here on every spawn makes the pin durable across respawns. Precedence: explicit
-# --model/--effort flags still win over the file's tokens.
-if [ "$KIND" = secondmate ] && [ -z "$ARG3" ]; then
-  if [ "$MODEL_SET" -eq 0 ]; then
-    SM_MODEL=$("$SCRIPT_DIR/fm-harness.sh" secondmate-model)
-    [ -z "$SM_MODEL" ] || MODEL=$SM_MODEL
-  fi
-  if [ "$EFFORT_SET" -eq 0 ]; then
-    SM_EFFORT=$("$SCRIPT_DIR/fm-harness.sh" secondmate-effort)
-    if [ -n "$SM_EFFORT" ]; then
-      case "$SM_EFFORT" in
-      low | medium | high | xhigh | max | ultra) EFFORT=$SM_EFFORT ;;
-      *) echo "warning: config/secondmate-harness effort token '$SM_EFFORT' is not one of low, medium, high, xhigh, max, ultra; ignoring" >&2 ;;
-      esac
-    fi
-  fi
-fi
 # Ultra is an explicit native capability, never a Pi thinking-level alias.
 # Validate the fully resolved profile before worktree or endpoint provisioning.
 if [ "$EFFORT" = ultra ]; then
@@ -2541,56 +2579,6 @@ if [ -n "$WORKER_ACCOUNT" ] && [ "$HARNESS" = claude ]; then
   else
     unset CLAUDE_CONFIG_DIR
   fi
-fi
-
-# Jev Pattern 9: pre-flight quota verdict. bin/fm-jev-quota-prober.py's header
-# owns the verdicts; quota-axi is their only source and the prober's stderr
-# (unknown and refusal diagnostics) stays visible. Only exhausted refuses;
-# healthy, unmetered, unknown and a prober that returned no verdict launch as
-# requested, and nothing diverts blindly.
-# A divert target is re-probed here and must itself come back healthy, so an
-# exhausted lane cannot be launched even if a future prober path returned one.
-# The disable switch is a test seam only and is inert outside the suite.
-if ! { [ "${FM_TEST_SEAM:-}" = 1 ] && [ "${FM_TEST_DISABLE_JEV_PROBER:-0}" = 1 ]; } && [ -x "$SCRIPT_DIR/fm-jev-quota-prober.sh" ]; then
-  _pre_divert_harness=$HARNESS
-  _jev_rc=0
-  _jev_out=$("$SCRIPT_DIR/fm-jev-quota-prober.sh" --harness "$HARNESS" ${MODEL:+--model "$MODEL"} --auto-divert) || _jev_rc=$?
-  read -r _jev_verdict _jev_harness _jev_model <<< "$_jev_out" || :
-  case "${_jev_verdict:-}" in
-  healthy | unmetered | unknown) ;;
-  diverted)
-    _jev_check=$("$SCRIPT_DIR/fm-jev-quota-prober.sh" --harness "$_jev_harness" --model "$_jev_model") || :
-    if [ "$_jev_check" != "healthy $_jev_harness $_jev_model" ]; then
-      echo "error: jev-quota-prober divert target $_jev_harness:$_jev_model is not healthy in quota-axi (${_jev_check:-no verdict}); not launching" >&2
-      exit 1
-    fi
-    echo "jev-quota-prober: diverted $HARNESS${MODEL:+:$MODEL} to quota-axi-healthy lane $_jev_harness:$_jev_model" >&2
-    HARNESS=$_jev_harness
-    MODEL=$_jev_model
-    if [ "$HARNESS" != "$_pre_divert_harness" ]; then
-      # The launch template and per-harness resolution above were chosen
-      # for the original harness. A cross-harness divert must rebuild both,
-      # or the __PIBIN__ substitution below reads PI_BIN unbound under
-      # set -u and every diverted-to-pi spawn dies before launch. Divert
-      # targets are the prober's DIVERT_LANES (pi) only; another
-      # target harness needs its own resolution case added here.
-      LAUNCH=$(launch_template "$HARNESS" "$KIND") || {
-        echo "error: no launch template for diverted harness '$HARNESS'" >&2
-        exit 1
-      }
-      case "$HARNESS" in
-      pi | pi-signed) resolve_pi_harness_launch || exit 1 ;;
-      esac
-    fi
-    ;;
-  exhausted)
-    echo "error: jev-quota-prober refused $HARNESS${MODEL:+:$MODEL} (verdict: exhausted); not launching" >&2
-    exit 1
-    ;;
-  *)
-    echo "jev-quota-prober: prober returned no verdict for $HARNESS:${MODEL:--} (exit $_jev_rc); quota guard absent for this launch, launching as requested" >&2
-    ;;
-  esac
 fi
 
 secondmate_registry_value() {

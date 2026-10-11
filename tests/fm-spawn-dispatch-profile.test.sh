@@ -1025,6 +1025,24 @@ test_jev_prober_diverts_exhausted_codex_to_healthy_pi_lane() {
   pass "spawn diverts an exhausted lane only to a quota-axi-healthy target"
 }
 
+test_jev_prober_divert_resolves_worker_account_for_target_lane() {
+  local rec id out status
+  id=profile-jev-pinned-z6
+  rec=$(make_spawn_case jev-pinned claude "$id")
+  read_case_record "$rec"
+  printf '%s\n' "$CASE_DIR/claude-root" > "$HOME_DIR/config/claude-account"
+  quota_snapshot "$CASE_DIR/quota.json" claude=0 opencode-go=40
+
+  out=$(FM_TEST_DISABLE_JEV_PROBER=0 FM_TEST_QUOTA_SNAPSHOT="$CASE_DIR/quota.json" \
+    run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model opus 2>&1)
+  status=$?
+  expect_code 0 "$status" "a divert off a pinned Claude lane should launch the pi lane: $out"
+  assert_contains "$(cat "$LAUNCH_LOG")" "--model 'opencode-go/glm-5.3-flash'" "divert did not launch the healthy pi lane"
+  assert_not_contains "$(cat "$LAUNCH_LOG")" "$CASE_DIR/claude-root" "the diverted pi lane inherited the Claude account pin"
+  assert_meta_profile "$HOME_DIR/state/$id.meta" pi opencode-go/glm-5.3-flash default
+  pass "a diverted lane resolves its own worker account, not the original lane's pin"
+}
+
 test_jev_prober_unknown_launches_as_requested() {
   local rec id out status
   id=profile-jev-unknown-z4
@@ -2339,6 +2357,7 @@ test_pi_threads_model_and_max_effort
 test_jev_prober_uses_quota_axi_over_inverted_codex_signal
 test_jev_prober_refuses_exhausted_lane_with_exhausted_divert_target
 test_jev_prober_diverts_exhausted_codex_to_healthy_pi_lane
+test_jev_prober_divert_resolves_worker_account_for_target_lane
 test_jev_prober_unknown_launches_as_requested
 test_jev_prober_without_verdict_launches_as_requested
 test_pi_tui_mode_probe_is_safe_for_old_and_new_pi
