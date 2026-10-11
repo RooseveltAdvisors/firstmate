@@ -1,0 +1,14 @@
+## live real herdr herdr 0.9.3, lab session fm-lab-verdict-3610245-32509
+split pane: w1:p2
+{"pane":"w1:p2"}
+verdict for live pane fm-lab-verdict-3610245-32509:w1:p2 -> open   (expect open)
+{"id":"cli:pane:close","result":{"type":"ok"}}
+{"error":{"code":"pane_not_found","message":"pane w1:p2 not found"},"id":"cli:pane:get"}
+verdict for closed pane fm-lab-verdict-3610245-32509:w1:p2 -> gone   (expect gone)
+verdict for unparseable target 'no-pane-separator' -> unconfirmed   (expect unconfirmed)
+verdict with unsourceable adapter dir, live pane fm-lab-verdict-3610245-32509:w1:p1 -> unconfirmed   (expect unconfirmed)
+verdict for live root pane fm-lab-verdict-3610245-32509:w1:p1 -> open   (expect open)
+{"session":{"default":false,"name":"fm-lab-verdict-3610245-32509","running":false,"session_dir":"/home/jon/.config/herdr/sessions/fm-lab-verdict-3610245-32509","socket_path":"/home/jon/.config/herdr/sessions/fm-lab-verdict-3610245-32509/herdr.sock"},"stopped":true}
+lab server stopped rc=0
+verdict for pane on stopped server fm-lab-verdict-3610245-32509:w1:p1 -> unconfirmed   (expect unconfirmed)
+teardown rc=0

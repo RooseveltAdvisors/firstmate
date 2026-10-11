@@ -1,0 +1,6 @@
+ok - the completion gate attests an inventory resolved through a migrated beads row
+ok - an unresolvable legacy id is refused once, naming the id
+ok - a pre-collapse key resolves through its derived identity's migration marker
+ok - captain-hold mutations address the beads backend without a markdown override
+ok - hold creates a captain row when Beads requires due and has no captain type
+# remaining lifecycle cases done

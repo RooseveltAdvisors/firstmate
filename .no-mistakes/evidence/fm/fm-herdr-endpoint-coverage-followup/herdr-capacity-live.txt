@@ -1,0 +1,19 @@
+lab session: fm-lab-capfull-1368867-27489
+--- panes before spawn
+[]
+$ fm-spawn.sh cap-x1 <project> --backend herdr --mode no-mistakes --yolo off
+warning: /tmp/fm-capl.9s4fLl/home/data/cap-x1/launch-brief.md records no ship branch; defaulting to legacy branch fm/cap-x1
+warning: /tmp/fm-capl.9s4fLl/home/data/cap-x1/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+warning: herdr presentation parent is absent or ambiguous; using the ordinary flat layout without projection
+held: cap-x1 - pool /tmp/fm-capl.9s4fLl/pool full 3/4; item left queued for redispatch when a worktree frees; endpoint fm-lab-capfull-1368867-27489:w1:p2 closed so the redispatch can create it again
+spawn exit=2
+--- panes after spawn
+[]
+--- state files
+--- backlog item
+  state: queued
+  held: yes
+  hold_reason: pool /tmp/fm-capl.9s4fLl/pool full 3/4
+  hold_kind: load
+  hold_until: "-"
+teardown exit=0

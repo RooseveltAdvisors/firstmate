@@ -1,0 +1,13 @@
+[pre-fix-773789fc] /tmp/nm-prefix.EYwzAk/bin/fm-captain-hold.sh reconcile-requests over sample-a-call, sample-b-call
+sample-a-call	requested=2026-10-11T07:07:47Z	source=captured board result
+sample-b-call	requested=2026-10-11T07:07:47Z	source=captured board result
+reconcile-requests: 2
+[pre-fix-773789fc] leftover per-task record locks after exit: state/.meta-sample-a-call.lock
+state/.meta-sample-a-call.lock.owner.9XMrvV
+  owner: 1288857 
+  owner: 1288857 
+[branch-head] /home/jon/.no-mistakes/worktrees/46339c0817e0/01M4MSBF07BJG1YC41Y128PFFE/bin/fm-captain-hold.sh reconcile-requests over sample-a-call, sample-b-call
+sample-a-call	requested=2026-10-11T07:07:49Z	source=captured board result
+sample-b-call	requested=2026-10-11T07:07:49Z	source=captured board result
+reconcile-requests: 2
+[branch-head] leftover per-task record locks after exit: <none>

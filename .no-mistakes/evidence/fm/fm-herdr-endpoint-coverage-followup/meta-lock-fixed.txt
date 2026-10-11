@@ -1,0 +1,7 @@
+$ printf 'sample-alpha-call\nsample-beta-call\n' | fm-captain-hold.sh reconcile-requests --source-id board-src --source 'captured board'
+reconcile: sample-alpha-call
+reconcile: sample-beta-call
+reconcile-requests: created=2 skipped=0
+exit=0
+record locks left in state/:
+RESULT: CLEAN
