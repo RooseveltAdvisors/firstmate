@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Dispatch and enforce one cold different-family review for a finished pull request.
 #
-# `ready` is the readiness boundary used by fm-pr-check.sh.
+# `ready` is the readiness boundary; no gate script calls it yet.
 # It inspects the forge without writing to it, resolves the builder family from
 # state/<id>.meta, starts a fresh reviewer when needed, and returns success only
 # for a clear verdict bound to the pull request's exact current head.
