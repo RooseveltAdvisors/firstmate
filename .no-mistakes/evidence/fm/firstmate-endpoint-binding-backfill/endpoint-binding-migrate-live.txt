@@ -1,0 +1,33 @@
+== tmux windows in lab server
+fm-dead zsh /tmp/fm-lab.6CZB7K/wt-good
+fm-good claude /tmp/fm-lab.6CZB7K/wt-good
+fm-mismatch claude /tmp/fm-lab.6CZB7K/wt-other
+notfm zsh /tmp/fm-lab.6CZB7K/wt-good
+== run 0: without session lock
+ENDPOINT_BINDING_MIGRATION: session lock is not owned by this session; migration did not run
+rc=1
+harness pid=3696911
+== run 1
+ENDPOINT_BINDING_MIGRATION: stamped 1; refused 3 (terminal reason recorded as endpoint_binding_verdict in each refused record)
+rc=0
+-- good.meta:
+endpoint_task_id=good
+-- dead.meta:
+endpoint_binding_verdict=terminal: dead endpoint
+-- gone.meta:
+endpoint_binding_verdict=terminal: missing endpoint
+-- mismatch.meta:
+(no binding/verdict)
+-- shape.meta:
+endpoint_binding_verdict=terminal: record shape: endpoint metadata refused by the shared endpoint validator
+-- zj.meta:
+(no binding/verdict)
+-- bound.meta:
+endpoint_task_id=bound
+== run 2 (rerun, expect silence)
+rc=0 output=[]
+== run 3: mismatch window moves to correct worktree (retryable record now stamps)
+ENDPOINT_BINDING_MIGRATION: stamped 1; refused 0 (terminal reason recorded as endpoint_binding_verdict in each refused record)
+rc=0
+endpoint_task_id=mismatch
+(no candidate temp files left)

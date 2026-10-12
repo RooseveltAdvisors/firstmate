@@ -1,0 +1,29 @@
+=== Round-2 re-drive (fix 1cc18ccd): Herdr lab fm-lab-ebm3-4166745-15265, recorded pane absent
+--- scenario: lab server stopped before run; server state probe:
+{"sessions":[{"default":true,"name":"default","running":true,"session_dir":"/home/jon/.config/herdr","socket_path":"/home/jon/.config/herdr/herdr.sock"},{"default":false,"name":"adhoc","running":false,"session_dir":"/home/jon/.config/herdr/sessions/adhoc","socket_path":"/home/jon/.config/herdr/sessi
+migration rc=0 elapsed=2s output=[ENDPOINT_BINDING_MIGRATION: stamped 0; refused 1 (terminal reason recorded as endpoint_binding_verdict in each refused record)]
+record: endpoint_binding_verdict=terminal: missing endpoint
+rerun rc=0 elapsed=0s output=[]
+--- scenario: lab server running before run; server state probe:
+{"sessions":[{"default":true,"name":"default","running":true,"session_dir":"/home/jon/.config/herdr","socket_path":"/home/jon/.config/herdr/herdr.sock"},{"default":false,"name":"adhoc","running":false,"session_dir":"/home/jon/.config/herdr/sessions/adhoc","socket_path":"/home/jon/.config/herdr/sessi
+migration rc=0 elapsed=2s output=[ENDPOINT_BINDING_MIGRATION: stamped 0; refused 1 (terminal reason recorded as endpoint_binding_verdict in each refused record)]
+record: endpoint_binding_verdict=terminal: missing endpoint
+rerun rc=0 elapsed=1s output=[]
+--- candidate temp files left: 0
+teardown rc=0
+=== ROUND 2 detailed re-run
+=== Round-2 re-drive (fix 1cc18ccd): Herdr lab fm-lab-ebm3-13082-18344, recorded pane absent
+--- scenario: lab server stopped before run: {"name":"fm-lab-ebm3-13082-18344","running":false}
+default session: {"name":"default","running":true}
+migration rc=0 elapsed=2s output=[ENDPOINT_BINDING_MIGRATION: stamped 0; refused 1 (terminal reason recorded as endpoint_binding_verdict in each refused record)]
+lab after run: {"name":"fm-lab-ebm3-13082-18344","running":true}
+record: endpoint_binding_verdict=terminal: missing endpoint
+rerun rc=0 elapsed=1s output=[]
+--- scenario: lab server running before run: {"name":"fm-lab-ebm3-13082-18344","running":true}
+default session: {"name":"default","running":true}
+migration rc=0 elapsed=2s output=[ENDPOINT_BINDING_MIGRATION: stamped 0; refused 1 (terminal reason recorded as endpoint_binding_verdict in each refused record)]
+lab after run: {"name":"fm-lab-ebm3-13082-18344","running":true}
+record: endpoint_binding_verdict=terminal: missing endpoint
+rerun rc=0 elapsed=0s output=[]
+--- candidate temp files left: 0
+teardown rc=0

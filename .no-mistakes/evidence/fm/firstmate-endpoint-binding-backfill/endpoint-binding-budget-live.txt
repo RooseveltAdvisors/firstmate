@@ -1,0 +1,6 @@
+== 20 closed-window tmux records + 20 zellij records sort before live zzlive
+ENDPOINT_BINDING_MIGRATION: stamped 1; refused 20 (terminal reason recorded as endpoint_binding_verdict in each refused record)
+rc=0
+zzlive: endpoint_task_id=zzlive
+a-records with missing verdict: 20/20
+zellij records touched: 0/20

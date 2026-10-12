@@ -1,0 +1,35 @@
+== lab session fm-lab-ebm-198134-30677 running before migration?
+== default session running before: true
+== run 1 (stopped lab server, pane never existed)
+rc=124
+(no binding/verdict)
+== lab session running after: true
+== run 2 (rerun silent)
+rc=143 output=[]
+ lab Herdr server RUNNING, recorded pane absent
+lab running: true
+ENDPOINT_BINDING_MIGRATION: stamped 0; refused 1 (terminal reason recorded as endpoint_binding_verdict in each refused record)
+rc=0 elapsed=2s
+endpoint_binding_verdict=terminal: missing endpoint
+rerun rc=0 output=[]
+
+=== Scenario H2: lab Herdr server STOPPED (absence recheck must start it), recorded pane absent
+lab running: false
+after 20s migration still running: yes
+orphaned server-wrapper bash pid=1809143 children: 1809186 /bin/zsh -c source /home/jon/.claude/shell-snapshots/snapshot-zsh-179181
+1809188 tee -a /home/jon/.no-mistakes/evidence/01M4R5KM0PXHRPKNVW96NP1BR4/endpoi
+wrapper open pipe fds:
+rc=124 elapsed=45s (124 = killed by timeout)
+(no binding/verdict)
+
+=== H2 fd evidence (server stopped before run)
+herdr server pid=2079871; its parent (forked function wrapper) pid=2079867: bash bin/fm-endpoint-binding-migrate.sh
+wrapper pipe fds:
+10 -> pipe:[3214786878]
+11 -> pipe:[3214794022]
+blocked migration subshells reading a pipe:
+pid 2065056 wchan=sigsuspend fds: 
+pid 2074638 wchan=anon_pipe_read fds: 1pipe:[3214786878] 11pipe:[3214850373] 2pipe:[3214786878] 
+pid 2074641 wchan=sigsuspend fds: 2pipe:[3214786878] 
+pid 2074648 wchan=anon_pipe_read fds: 2pipe:[3214786878] 3pipe:[3214794022] 
+migration rc=124 (124 = killed by timeout); verdict: none
