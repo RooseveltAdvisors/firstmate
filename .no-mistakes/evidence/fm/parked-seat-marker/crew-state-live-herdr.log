@@ -1,0 +1,26 @@
+lab pane: w1:p1
+== H1: herdr shell-only pane (agent stopped), before park ==
+classifier: dead
+$ bin/fm-crew-state.sh t1
+state: unknown · source: pane · harness state unavailable (unknown missing)
+[exit=0]
+== H2: park it ==
+$ bin/fm-control.sh t1 park --until 2026-10-12T08:38Z --reason held for a later dispatch
+parked t1 until=2026-10-12T08:38Z agent=dead backend=herdr endpoint=fm-lab-park-hd-2657958-18263:w1:p1 worktree=/tmp/fm-park-work.1CFu5m/wt
+[exit=0]
+$ bin/fm-crew-state.sh t1
+state: unknown · source: pane · harness state unavailable (unknown missing)
+[exit=0]
+== H3: pane closed (endpoint missing), still parked ==
+classifier: missing
+$ bin/fm-crew-state.sh t1
+state: paused · source: status-log · parked by the supervisor with the seat stopped - held for a later dispatch until 2026-10-12T08:38Z · seat stopped
+[exit=0]
+== H4: park expired ==
+$ bin/fm-crew-state.sh t1
+state: unknown · source: none · backend target gone: fm-lab-park-hd-2657958-18263:w1:p1
+[exit=0]
+status log:
+paused [at=1791787087]: parked by the supervisor with the seat stopped - held for a later dispatch until 2026-10-12T08:38Z
+paused [at=1]: parked by the supervisor with the seat stopped - old until 2000-01-01T00:00Z
+lab teardown rc=0

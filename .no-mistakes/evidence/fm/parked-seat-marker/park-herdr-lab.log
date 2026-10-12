@@ -1,0 +1,23 @@
+== herdr lab session=fm-lab-park-shell-1287523-29647 pane=w1:p1 (plain shell, no agent)
+{"pane_id":"w1:p1","agent":null,"agent_status":"unknown"}
+
+== H1: crew-state before park
+$ bin/fm-crew-state.sh h1
+state: unknown · source: pane · harness state unavailable (unknown missing)
+[rc=0]
+== H2: park
+$ bin/fm-control.sh h1 park --until 2099-01-01T00:00Z --reason waiting on upstream fix
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.IOdm1A
+parked h1 until=2099-01-01T00:00Z agent=dead backend=herdr endpoint=fm-lab-park-shell-1287523-29647:w1:p1 worktree=/tmp/fm-lab.IOdm1A/wt-h1
+[rc=0]
+paused [at=1791787515]: parked by the supervisor with the seat stopped - waiting on upstream fix until 2099-01-01T00:00Z
+-- pane still present: yes; unlanded.txt: yes
+== H3: crew-state after park (readable shell pane)
+$ bin/fm-crew-state.sh h1
+state: paused · source: status-log · parked by the supervisor with the seat stopped - waiting on upstream fix until 2099-01-01T00:00Z · seat stopped
+[rc=0]
+== H4: expired park
+$ bin/fm-crew-state.sh h1
+state: unknown · source: pane · harness state unavailable (unknown missing)
+[rc=0]
+[teardown rc=0]

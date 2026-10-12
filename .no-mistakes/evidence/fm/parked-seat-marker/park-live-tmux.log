@@ -1,0 +1,69 @@
+== S0 crew-state before park (stopped seat) ==
+$ bin/fm-crew-state.sh t1
+state: unknown · source: pane · harness state unavailable (unknown missing)
+[exit=0]
+== S2 adversarial refusals ==
+$ bin/fm-control.sh t1 park --reason held
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.ZwptPf
+error: park requires --until <YYYY-MM-DDTHH:MM[:SS]Z>; a parked seat must name when it is rechecked
+[exit=1]
+$ bin/fm-control.sh t1 park --until 2000-01-01T00:00Z --reason held
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.ZwptPf
+error: --until '2000-01-01T00:00Z' is not in the future
+[exit=1]
+$ bin/fm-control.sh t1 park --until tomorrow --reason held
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.ZwptPf
+error: --until 'tomorrow' is not a UTC time of the form YYYY-MM-DDTHH:MM[:SS]Z
+[exit=1]
+$ bin/fm-control.sh t1 park --until 2099-01-01T00:00Z
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.ZwptPf
+error: park requires a non-empty --reason
+[exit=1]
+$ bin/fm-control.sh t1 exit --until 2099-01-01T00:00Z
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.ZwptPf
+error: --until and --reason apply to 'park' only
+[exit=1]
+$ bin/fm-control.sh m1 park --until 2099-01-01T00:00Z --reason held
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.ZwptPf
+error: task m1 is a secondmate, whose idle endpoint is healthy by design and never needs parking
+[exit=1]
+status log after refusals:
+(no status log written)
+== S1 park the stopped seat ==
+$ bin/fm-control.sh t1 park --until 2026-10-12T08:35Z --reason held for a later dispatch
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.ZwptPf
+parked t1 until=2026-10-12T08:35Z agent=dead backend=tmux endpoint=fmses:fm-t1 worktree=/tmp/fm-park-work.RyiPFY/wt
+[exit=0]
+status log:
+paused [at=1791786911]: parked by the supervisor with the seat stopped - held for a later dispatch until 2026-10-12T08:35Z
+meta unchanged: yes
+worktree HEAD unchanged: yes
+tmux windows:
+fm-t1 bash
+fm-m1 bash
+fm-live claude
+== S3 crew-state while parked ==
+$ bin/fm-crew-state.sh t1
+state: unknown · source: pane · harness state unavailable (unknown missing)
+[exit=0]
+== S4 teardown still refuses unlanded work ==
+$ bin/fm-teardown.sh t1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.ZwptPf
+REFUSED: worktree /tmp/fm-park-work.RyiPFY/wt has work not on any remote and not landed.
+unpushed commits:
+a3d2e28 unlanded work
+Push the branch, land its PR, or get the captain's explicit OK to discard, then --force.
+[exit=1]
+worktree still present: yes; HEAD unchanged: yes
+== S5 expired park falls back ==
+$ bin/fm-crew-state.sh t1
+state: unknown · source: pane · harness state unavailable (unknown missing)
+[exit=0]
+dead
+== S6 missing endpoint parked ==
+debug display:
+%0
+$ bin/fm-crew-state.sh t1
+state: unknown · source: pane · harness state unavailable (unknown missing)
+[exit=0]
+missing

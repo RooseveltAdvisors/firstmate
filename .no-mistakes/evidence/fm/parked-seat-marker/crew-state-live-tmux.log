@@ -1,0 +1,28 @@
+== A: park a stopped seat (shell-only pane, window still present) ==
+$ bin/fm-control.sh t1 park --until 2026-10-12T08:35Z --reason held for a later dispatch
+parked t1 until=2026-10-12T08:35Z agent=dead backend=tmux endpoint=fmpark:fm-t1 worktree=/tmp/fm-park-work.v1yFAo/wt
+[exit=0]
+classifier: dead
+$ bin/fm-crew-state.sh t1
+state: unknown · source: pane · harness state unavailable (unknown missing)
+[exit=0]
+== B: same parked seat, endpoint window now gone (session killed) ==
+classifier: missing
+$ bin/fm-crew-state.sh t1
+state: unknown · source: pane · harness state unavailable (unknown missing)
+[exit=0]
+== C: park expired (recheck time passed) -> death verdict returns ==
+$ bin/fm-crew-state.sh t1
+state: unknown · source: pane · harness state unavailable (unknown missing)
+[exit=0]
+== D: re-park the missing endpoint via the verb ==
+$ bin/fm-control.sh t1 park --until 2026-10-12T08:35Z --reason re-parked
+parked t1 until=2026-10-12T08:35Z agent=missing backend=tmux endpoint=fmpark:fm-t1 worktree=/tmp/fm-park-work.v1yFAo/wt
+[exit=0]
+$ bin/fm-crew-state.sh t1
+state: unknown · source: pane · harness state unavailable (unknown missing)
+[exit=0]
+status log:
+paused [at=1791786958]: parked by the supervisor with the seat stopped - held for a later dispatch until 2026-10-12T08:35Z
+paused [at=1]: parked by the supervisor with the seat stopped - old until 2000-01-01T00:00Z
+paused [at=1791786959]: parked by the supervisor with the seat stopped - re-parked until 2026-10-12T08:35Z

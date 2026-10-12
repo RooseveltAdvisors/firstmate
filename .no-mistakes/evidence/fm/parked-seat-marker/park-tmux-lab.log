@@ -1,0 +1,77 @@
+== pane commands
+fm-t1 zsh
+fm-m1 zsh
+fm-live claude
+== S1: crew-state before park (stopped seat, readable shell pane)
+$ bin/fm-crew-state.sh t1
+state: unknown · source: pane · harness state unavailable (unknown missing)
+[rc=0]
+== S2: park the stopped seat
+$ bin/fm-control.sh t1 park --until 2099-01-01T00:00Z --reason held for a later dispatch
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.lYO6Oh
+parked t1 until=2099-01-01T00:00Z agent=dead backend=tmux endpoint=fmses:fm-t1 worktree=/tmp/fm-lab.lYO6Oh/wt-t1
+[rc=0]
+-- status log tail:
+paused [at=1791787473]: parked by the supervisor with the seat stopped - held for a later dispatch until 2099-01-01T00:00Z
+-- meta unchanged: yes
+-- worktree HEAD unchanged: yes; unlanded.txt present: yes
+-- tmux window still present: 1
+== S3: crew-state after park (readable shell pane, future until)
+$ bin/fm-crew-state.sh t1
+state: paused · source: status-log · parked by the supervisor with the seat stopped - held for a later dispatch until 2099-01-01T00:00Z · seat stopped
+[rc=0]
+== S4: expired park falls back to death verdict
+$ bin/fm-crew-state.sh t1
+state: unknown · source: pane · harness state unavailable (unknown missing)
+[rc=0]
+== S5: missing endpoint (window killed) with future park
+$ bin/fm-crew-state.sh t1
+state: paused · source: status-log · parked by the supervisor with the seat stopped - held for a later dispatch until 2099-01-01T00:00Z · seat stopped
+[rc=0]
+== S6: refusals
+$ bin/fm-control.sh live park --until 2099-01-01T00:00Z --reason r
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.lYO6Oh
+error: task live's agent is still running; a live worker declares its own wait, so stop it with 'exit' first if the seat is meant to be parked
+[rc=1]
+$ bin/fm-control.sh m1 park --until 2099-01-01T00:00Z --reason r
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.lYO6Oh
+error: task m1 is a secondmate, whose idle endpoint is healthy by design and never needs parking
+[rc=1]
+$ bin/fm-control.sh m1 park --until 2000-01-01T00:00Z --reason r
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.lYO6Oh
+error: --until '2000-01-01T00:00Z' is not in the future
+[rc=1]
+$ bin/fm-control.sh m1 park --reason r
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.lYO6Oh
+error: park requires --until <YYYY-MM-DDTHH:MM[:SS]Z>; a parked seat must name when it is rechecked
+[rc=1]
+$ bin/fm-control.sh m1 park --until tomorrow --reason r
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.lYO6Oh
+error: --until 'tomorrow' is not a UTC time of the form YYYY-MM-DDTHH:MM[:SS]Z
+[rc=1]
+$ bin/fm-control.sh m1 park --until 2099-01-01T00:00Z
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.lYO6Oh
+error: park requires a non-empty --reason
+[rc=1]
+$ bin/fm-control.sh m1 exit --until 2099-01-01T00:00Z
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.lYO6Oh
+error: --until and --reason apply to 'park' only
+[rc=1]
+-- live/m1 status logs written: none
+== S7: teardown still refuses unlanded work after park
+$ bin/fm-teardown.sh t1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.lYO6Oh
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  3 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: worktree /tmp/fm-lab.lYO6Oh/wt-t1 has work not on any remote and not landed.
+unpushed commits:
+1717eaa unlanded work
+1215bdc init
+Push the branch, land its PR, or get the captain's explicit OK to discard, then --force.
+[rc=1]
+-- worktree still present: yes
