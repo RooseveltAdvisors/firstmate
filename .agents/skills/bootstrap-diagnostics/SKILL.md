@@ -1,9 +1,8 @@
 ---
 name: bootstrap-diagnostics
 description: >-
-  Agent-only handling playbook for session-start bootstrap diagnostics.
-  Use whenever the session-start digest's bootstrap or network-checks section prints an actionable diagnostic line - MISSING, MISSING_MANUAL, PRESENTATION_UNAVAILABLE, BACKEND_INVALID, NEEDS_GH_AUTH, TANGLE, STARTUP_MEMORY_BUDGET, CREW_DISPATCH invalid, FLEET_SYNC, NETWORK_CHECKS, ENDPOINT_BINDING_MIGRATION, HOME_SUMMARY, BACKLOG_RECONCILE, SECONDMATE_SYNC, SECONDMATE_LIVENESS, SECONDMATE_HANDOFF, NUDGE_SECONDMATES, or FMX - or reports that an interrupted backlog cleanup may have left an endpoint or local copy, or when a standalone bin/fm-bootstrap.sh or bin/fm-startup-network.sh run prints one of those lines.
-  A silent bootstrap section, or any other BOOTSTRAP_INFO fact, means no skill load.
+  Load when the session-start digest's bootstrap or network-checks section prints an actionable diagnostic line, or when a standalone `bin/fm-bootstrap.sh` or `bin/fm-startup-network.sh` run prints one.
+  A silent bootstrap section, or any `BOOTSTRAP_INFO` fact, means no skill load.
 user-invocable: false
 metadata:
   internal: true
@@ -35,8 +34,13 @@ When any diagnostic needs captain attention, report the plain consequence and re
 - `TANGLE: <remediation>` - the primary checkout is stranded on a feature branch instead of its default branch; `AGENTS.md` section 8 explains why this guard exists and what it protects.
   The work is safe on that branch ref; restore the primary to its default branch with the printed `git -C <root> checkout <default>`, then re-validate that branch in a proper worktree.
   This is the only sanctioned firstmate-initiated git write to the primary, and it is a non-destructive branch switch that strands nothing.
+- `NO_MISTAKES_MIRROR: <project> remote=<url>|absent expected-root=<root>` - the named no-mistakes-posture project clone, or this home's own firstmate checkout, has a `no-mistakes` gate remote that is absent or lives outside the data root the installed CLI resolves (`$NM_HOME` when set non-empty, else `~/.no-mistakes`), so its pipeline pushes go to a mirror root no daemon serves.
+  The line's clone path is the operator's fix site: rerun `no-mistakes init` inside that clone (it repairs the remote and re-records the repo) when work on that project authorizes touching it, then rerun session start to confirm the line is gone.
+  Bootstrap itself never modifies a clone and never runs init; do not silence the line by hand-editing a clone's git remote, which would desync the no-mistakes database record `no-mistakes init` maintains.
 - `STARTUP_MEMORY_BUDGET: invalid config/startup-memory-budget - <reason>` - the visible startup-memory budget is not a safe one-line positive decimal file; do not infer the default or propagate it.
   Correct the local primary file, then rerun session start so the normal convergence path can deliver the validated value to secondmate homes.
+- `TASKS_CONFIG: <why this home has no .tasks.toml>` - bootstrap could not give this home a `.tasks.toml`, so `tasks-axi` falls back to its built-in defaults and stops addressing `data/backlog.md`, its archive, and `done_keep`.
+  Treat routine backlog work as unsafe until it is fixed: restore the tracked `.tasks.toml.example` in the code root or make the home writable, then rerun session start.
 - `CREW_DISPATCH: invalid config/crew-dispatch.json - <reason>` - the optional dispatch profile file exists but failed low-cost bootstrap validation; stop profile-based dispatch, report the actionable error, and require correction of the malformed schema, unverified harness name, or invalid harness/effort pair rather than falling back around it or selecting a bad profile.
 - `FLEET_SYNC: <repo>: skipped: <reason>` - a benign one-off skip (offline, no origin, local-only); bootstrap continued, investigate only if it blocks work.
   A skip can also report the bounded fleet-refresh timeout (`FM_FLEET_SYNC_BOOTSTRAP_TIMEOUT`, or a fleet-size-aware default with a 20 second floor); a timeout never blocks startup.
@@ -65,8 +69,6 @@ When any diagnostic needs captain attention, report the plain consequence and re
 - `BACKLOG_RECONCILE: code-root <file> is not this home's <file>; ...` - a tasks-axi write addressed the code root instead of this home, so the queue has already forked and either copy may hold rows the other lacks; [`docs/configuration.md`](../../../docs/configuration.md) ("Backlog backend") owns why.
   Neither copy is a safe winner: union-merge them into this home's file by task id, resolve each conflicting id to its most recent real transition, check this home's archive before treating a missing Done row as lost, and verify the merged id set equals the union of both inputs before installing it.
   Then move the code-root file aside rather than deleting it, tell the captain which rows were recovered, and run every later backlog command through `bin/fm-tasks-axi.sh`; re-linking the code-root copy is never the fix, because the next cwd-relative tasks-axi write replaces the link again.
-- `ENDPOINT_BINDING_MIGRATION: scan incomplete; rerun migration` means the current home's idempotent endpoint-binding scan did not complete.
-  Preserve the per-task skip output, inspect the named failure, and rerun `bin/fm-endpoint-binding-migrate.sh` while holding the session lock; the scan has no durable migration state and does not overwrite existing bindings.
 - `SECONDMATE_SYNC: secondmate <id>: skipped: <reason>` - secondmate convergence left a live home on its existing checkout because the home was dirty, diverged, unsafe, on the wrong branch, missing its placement-specific target commit, unreachable, or otherwise not fast-forwardable, or because inherited local-material propagation failed; bootstrap continued, but inspect the reason because the secondmate's tracked instructions, inherited settings, or shared captain preferences may be stale after a primary update.
 - `SECONDMATE_LIVENESS: secondmate <id>: skipped: <reason>|respawn failed after <cause>: <reason>` - the session-start liveness sweep could not guarantee that the registered secondmate is running a real agent process.
   Investigate the reason because that secondmate is not guaranteed live.

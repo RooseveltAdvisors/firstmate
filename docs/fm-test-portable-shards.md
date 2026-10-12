@@ -26,6 +26,29 @@ That post-fix value has only one sample in this baseline, so further green runs 
 The native-Windows-only `tests/fm-pi-windows-shell-invocation.test.sh` retains its separate 5121 ms measurement from 2026-09-06T21:02Z instead of a portable capability skip.
 The session-start hint retains its pre-optimization maximum until CI measures the shorter fixture-only home-summary bound; do not discount a local speedup from CI packing weights.
 
+### House main refresh (2026-09-30)
+
+House main carries a serial set of **498** members - upstream's 201 plus the Jev guard
+fleet - so upstream's refresh above does not cover most house members and the hint
+coverage guard fails on house CI (`296 of 498 portable serial scripts have no measured
+duration hint`, max 15%). Refreshed `portable_serial_weight_hints` from the
+`fm-test-timing-portable-serial-*` artifacts of eight house-fork CI runs on `ubuntu-latest`
+(main): 36703559612, 36627768210, 36627563662, 36416232300, 36388227376, 36348237890,
+36340830763, 36331959069 - keeping only `.exit == 0` samples and taking the slowest per
+script, exactly as the recipe below prescribes.
+
+Each member's hint is the **slowest evidence across both sources**: `max(measurement,
+previously documented hint)`, so upstream's documented values and the two platform
+exceptions survive where house CI has no sample. `tests/fm-pi-windows-shell-invocation.test.sh`
+keeps its native-Windows 5121 ms; `tests/fm-supervision-host.test.sh` moves from the
+single 789123 ms baseline sample to **1163984 ms**, the slowest of nine house samples
+(range 456806-1163984), which is the variance the note above said later runs must
+establish.
+
+Result: 487 of 498 members hinted, 11 without any CI evidence (2.2%, guard limit 15%),
+`serial_max_ms=1163984` against `serial_budget_ms=1200000`. The 11 unhinted members
+should be picked up by the next green run's artifacts rather than guessed.
+
 ## Parallel lanes
 
 The two parallel lanes use longest-processing-time assignment over those hints, with the Pi typecheck pinned to the job that installs its prerequisite.

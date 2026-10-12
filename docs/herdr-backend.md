@@ -97,6 +97,7 @@ Removing or upgrading the shadowing client is the durable fix.
 ## Watching and task containers
 
 The ordinary topology puts one task tab per endpoint in the exact workspace of the Firstmate or secondmate that launches it.
+A new worker's task tab is labeled `<short title> (<id>)`, derived from its backlog row title or, without one, its task brief; historical `fm-<id>` task tabs remain valid and discoverable, and existing task operations never rename them.
 When the launcher has no Herdr workspace to inherit, the adapter maintains one durable home-labeled workspace instead.
 
 | Home | Workspace label |
@@ -266,7 +267,7 @@ It falls back to a unique home-label lookup only for a Firstmate outside Herdr.
 Projected children are never collapsed back into that parent.
 The parent is the placement and ordering reference the projection is bound under.
 
-The normal `fm-<id>` task tab is created in the exact new workspace returned by Herdr.
+The normal task tab is created in the exact new workspace returned by Herdr.
 Only the exact seeded default tab returned by the same workspace-create response can be pruned.
 Before and after create, prune, order, abort cleanup, and normal cleanup, Firstmate verifies exact workspace, tab, pane, and active-focus ids.
 An ambiguous response grants no mutation or cleanup authority.
@@ -438,6 +439,15 @@ An unconfirmed close retains the journal.
 A confirmed close may retire it even when focus restoration reported an error after the close.
 A second run finds no matching title or journal and is a no-op.
 
+Each run reads this home's presentation journals once into an index, and every candidate title is matched against that index.
+While building the index, it prunes each dead-projection journal as soon as it reads it, so even a run stopped by the budget shrinks the backlog and journals do not accumulate across runs.
+A journal is dead only when it is a valid version 2 journal, binds this home and named session, and no workspace in the named-session snapshot, whatever its label, carries its token or its recorded workspace id.
+A version 1 journal is never pruned, because without a workspace binding its liveness cannot be disproved.
+The prune removes a dead journal only while holding that task's spawn lock, with task metadata still absent and the journal's token unchanged; a busy lock skips the journal.
+The whole pass runs under one wall budget, 30 seconds by default (`FM_HERDR_CLEANUP_BUDGET_SECS`).
+At safe points between journals, candidates, and before each pane close, an expired budget makes the run warn, stop early, and leave the rest for a later run.
+The script also runs the pass under a hard bound 3 seconds longer than the budget, so the safe-point stop runs before the hard kill and a blocking Herdr call cannot hold session start past that bound.
+
 Any of these preserves the candidate and lets session startup continue with at most a concise warning:
 
 - A malformed or missing title or token.
@@ -480,7 +490,7 @@ Any of these preserves the candidate and lets session startup continue with at m
 | Test | What it covers |
 | --- | --- |
 | `tests/fm-backend-herdr-presentation-e2e.test.sh` | Multi-home ordering, concurrency, lock contention, legacy coexistence, focus preservation, exact same-identity restart replacement, ambiguous bindings and tokens, and exact-pane cleanup through the guarded lab path. |
-| `tests/fm-herdr-session-cleanup.test.sh` | Every discovery, ownership, topology, process, locking, revalidation, focus, retirement, and continue-on-error boundary. |
+| `tests/fm-herdr-session-cleanup.test.sh` | Every discovery, ownership, topology, process, locking, revalidation, focus, retirement, dead-journal prune, wall-budget, and continue-on-error boundary. |
 | `tests/fm-herdr-session-cleanup-e2e.test.sh` | The restored-shell cleanup in a guarded non-default named lab. |
 | `tests/fm-backend-herdr-focus-flash-e2e.test.sh` | Reproduces the raw explicit-close focus steal on the installed release, and proves the focus-safe emptying-close plan removes a doomed workspace with no wrong-focus interval. |
 | `tests/fm-backend-herdr-stale-active-tab-e2e.test.sh` | Proves a persisted-focused tab still closes when no foreground client is attached. |
@@ -511,11 +521,13 @@ herdr_session=<session>
 herdr_workspace_id=<workspace-id>
 herdr_tab_id=<tab-id>
 herdr_pane_id=<pane-id>
+herdr_task_label=<short title> (<id>)
 ```
 
 A Herdr pane id contains a colon, so the adapter splits `window=` on the first colon only.
 The recorded pane is the operational fast path.
 Workspace and tab ids support verification and cleanup but are not inferred from mutable labels during normal operation.
+The recorded `herdr_task_label` survives a relaunch unchanged, because a relaunch adopts the recorded tab without renaming it.
 
 ## Current transport behavior
 

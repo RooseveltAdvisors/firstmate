@@ -1,9 +1,7 @@
 ---
 name: secondmate-provisioning
 description: >-
-  Agent-only reference for persistent secondmate setup and retirement.
-  Use when creating, seeding, validating, launching, recovering, handing backlog to, pushing inherited local material into, or retiring a secondmate home, or when editing data/secondmates.md.
-  Covers local leases, whole-home remote routes, transactional seeding, record intake for an existing or inherited domain, project clone restrictions, secondmate harness pins, inherited local-material push, idle charter, handoff helper, and teardown safety.
+  Load before creating, seeding, validating, launching, recovering, handing backlog to, pushing inherited local material into, or retiring a secondmate home, and before editing data/secondmates.md.
 user-invocable: false
 metadata:
   internal: true
@@ -14,6 +12,7 @@ metadata:
 Use this reference before creating, seeding, validating, launching, handing backlog to, recovering, pushing inherited local material into, or retiring a persistent secondmate, and before editing `data/secondmates.md`.
 
 Keep the always-inline routing rules in `AGENTS.md` authoritative: route by natural-language `scope:`, local-only projects stay with the main firstmate, and secondmates are idle by default.
+An empty queue never authorizes a survey, audit, or self-directed improvement sweep.
 
 ## Routing table
 
@@ -226,6 +225,7 @@ If meta is missing but `data/secondmates.md` still registers the secondmate, res
 For a remote route, the same command probes and relaunches only on the configured host.
 An SSH transport failure or unreadable remote endpoint remains unknown and must be reconciled on that host; never launch a local replacement.
 `stuck-crewmate-recovery`'s remote-secondmate note owns why the endpoint-dead and send-failed verdicts that seem to justify this are themselves unreliable.
+Ordinary supervision continues the session-start guarantee mid-session: the watcher's cadence-gated liveness tick over `bin/fm-secondmate-liveness-lib.sh` relaunches a mate that dies without waiting for the next session start.
 Respawn re-resolves the secondmate harness from current config, uses the same guarded pre-launch sync, and re-propagates inherited local material, so recovered secondmates converge inherited config items and shared captain preferences whenever their home validates; tracked-file sync remains guarded separately.
 If the secondmate is already running and only inherited local material changed, prefer `bin/fm-config-push.sh` over respawning.
 To move a live LOCAL secondmate onto a newly pinned harness, model, or effort without a full recovery, set `config/secondmate-harness` and then relaunch it with `bin/fm-control.sh <id> relaunch`, which re-resolves that pin, stops the agent, and launches the replacement in the same home ([`docs/agent-control.md`](../../../docs/agent-control.md)).
@@ -244,10 +244,18 @@ It never initiates a survey or audit during recovery.
 
 A secondmate is persistent by default.
 An empty queue is healthy and does not trigger teardown.
-Run `bin/fm-teardown.sh <id>` for `kind=secondmate` only when the captain or main firstmate explicitly decides to retire that persistent second mate.
+Run `bin/fm-teardown.sh <id> --retire-secondmate <id>` for `kind=secondmate` only when the captain or main firstmate explicitly decides to retire that persistent second mate.
+
+That flag is the decision, and its value must be the exact home being retired.
+Without it teardown refuses and changes nothing, so a cleanup list a caller assembled cannot retire standing homes as a side effect, and `--force` never substitutes for it: discarding work and choosing which home to retire are separate decisions.
+Offering the flag for any other kind also refuses, because that mismatch means the target was selected wrong.
+Teardown acts on one target per invocation; extra task ids are refused before anything is locked, naming the count and any secondmates among them, so a mistaken selection list is caught while every seat is still alive.
+Choose targets from `bin/fm-fleet-view.sh --cleanup-candidates`, which labels every live task with its kind and prints the command that kind takes.
+Never select them by matching a worktree path: a path suffix cannot tell a crewmate worktree of the firstmate project from a secondmate home, and both are laid out the same way.
 
 The safety check is the secondmate's own home.
 Teardown refuses while its `state/*.meta` contains in-flight work.
+An empty queue is not that check and never authorizes retirement; it is a healthy second mate waiting for routed work.
 Non-forced retirement also refuses while any parent pending-reply for that id is still unresolved.
 A remote route delegates the in-flight guard to its configured host and additionally refuses while the primary has a pending handoff outbox.
 SSH exit 255 preserves the route and local records because remote completion is unknown.

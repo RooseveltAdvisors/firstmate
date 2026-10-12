@@ -37,8 +37,16 @@
 # Record format (fm_task_inbox_write / fm_task_inbox_body):
 #   schema=fm-task-inbox.v1
 #   at=<utc timestamp>
+# The self-describing doorbell line supports two delivery modes recorded in
+# the record header:
 #   delivery=fire-and-forget   present only when the re-ring ladder must ignore it
 #                              (it still gets one retry ring; see below)
+#   delivery=follow-up         non-interrupting: the ring is deferred while the
+#                              target's agent is working (hold-until-idle - the
+#                              ladder re-rings at the next turn boundary); the
+#                              default (no header) rings regardless, matching
+#                              the HarnessProfile steer semantics from beads
+#                              PR #33 (wiseman-kq7).
 #   --
 #   <exact message text; newlines are legal; a marked secondmate request keeps
 #    its from-firstmate marker and corr token verbatim in this body>
@@ -209,7 +217,7 @@ _fm_task_inbox_write_record_locked() {  # <inbox-dir> <text> [delivery-mode]
   {
     printf 'schema=%s\n' "$FM_TASK_INBOX_SCHEMA"
     printf 'at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    [ "$delivery_mode" != fire-and-forget ] || printf 'delivery=fire-and-forget\n'
+    [ -n "$delivery_mode" ] && { [ "$delivery_mode" = fire-and-forget ] || [ "$delivery_mode" = follow-up ]; } && printf 'delivery=%s\n' "$delivery_mode"
     printf -- '--\n'
     printf '%s' "$text"
   } > "$tmp" && mv "$tmp" "$rec" || status=1
@@ -354,10 +362,19 @@ fm_task_inbox_doorbell_line() {  # <record-path>
 # rather than skipped; skipping it would block every later ring. On both paths
 # a lost first Enter gets one confirmed retry.
 fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label]
-  local backend=$1 target=$2 rec=$3 label=${4:-} line cstate verdict
+  local backend=$1 target=$2 rec=$3 label=${4:-} line cstate verdict dmode
   case "$(fm_backend_agent_state "$backend" "$target" 2>/dev/null || true)" in
     dead|missing) return 3 ;;
   esac
+  # follow-up delivery is non-interrupting: while the target's agent is mid-turn
+  # the ring defers and the ladder re-rings at the next turn boundary
+  # (hold-until-idle, per the HarnessProfile semantics from beads PR #33).
+  dmode=$(fm_task_inbox_delivery_mode "$rec" 2>/dev/null || true)
+  if [ "$dmode" = follow-up ]; then
+    case "$(fm_backend_agent_state "$backend" "$target" 2>/dev/null || true)" in
+      working) return 1 ;;
+    esac
+  fi
   if ! line=$(fm_task_inbox_doorbell_line "$rec"); then
     return 2
   fi
@@ -397,6 +414,10 @@ fm_task_inbox_composer_holds() {  # <backend> <target> <line> [expected-label]
 }
 
 fm_task_inbox_is_fire_and_forget() {  # <record-path>
+  [ "$(fm_task_inbox_delivery_mode "$1" 2>/dev/null || true)" = fire-and-forget ]
+}
+
+fm_task_inbox_delivery_mode() {  # <record-path>
   local rec=$1
   if [ ! -f "$rec" ]; then
     rec="${rec%/*}/handled/${rec##*/}"
@@ -404,8 +425,9 @@ fm_task_inbox_is_fire_and_forget() {  # <record-path>
   fi
   awk '
     $0 == "--" { exit }
-    $0 == "delivery=fire-and-forget" { found=1 }
-    END { exit(found ? 0 : 1) }
+    /^delivery=follow-up$/ { found=1; print "follow-up"; exit }
+    /^delivery=fire-and-forget$/ { found=1; print "fire-and-forget"; exit }
+    END { if (!found) exit 1 }
   ' "$rec"
 }
 

@@ -52,11 +52,22 @@ export FM_GATE_REFUSE_BYPASS=1
 # leaked harness pin alone stays inert outside a suite.
 export FM_TEST_SEAM=1
 
+# Every spawn runs bin/fm-jev-quota-prober.sh, which refuses a lane quota-axi
+# reports exhausted. Under the seam above it reads this all-healthy quota-axi
+# snapshot instead of the host's quota-axi; a case that needs other quota
+# evidence points FM_TEST_QUOTA_SNAPSHOT at its own file.
+export FM_TEST_QUOTA_SNAPSHOT="${FM_TEST_QUOTA_SNAPSHOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/assets/quota-axi-healthy.json}"
+
 # Clear the task-worker marker bin/fm-spawn.sh exports into ship and scout
 # panes. This suite builds git-init fixture repositories whose primary checkout
 # it runs a copied bin/fm-test-run.sh in, and that runner refuses the primary
 # under the marker. A case that verifies the refusal sets FM_TASK_ID itself.
 unset FM_TASK_ID
+
+# Isolate the Jev wake-triage key. A leaked TYPESAFE_API_KEY in the operator
+# shell would send live typesafe.ai calls from watcher tests on the fail-open
+# path; those suites unset it here and the helper never reads .env.
+unset TYPESAFE_API_KEY TYPESAFE_API_KEY_PRIVATE
 
 # Clear the tasks-axi env overrides. An operator shell exports TASKS_AXI_FILE
 # (and may export TASKS_AXI_BACKEND) at its real home's backlog, and tasks-axi
@@ -466,6 +477,29 @@ exit 0
 SH
     chmod +x "$fakebin/$tool"
   done
+}
+
+# fm_base_path_without_node <dir> [base_path]
+# Builds <dir>/base-no-node as a symlink farm of every executable on base_path
+# EXCEPT node, and echoes that dir. A case that removes the fake node from its
+# fakebin to force a MISSING diagnostic must also keep the real host node out of
+# the lookup path (CI runners have no /bin/node; hosts with one would silently
+# answer and the MISSING contract would never fire). Usage:
+#   no_node_base=$(fm_base_path_without_node "$case_dir")
+#   PATH="$fakebin:$no_node_base" ...
+fm_base_path_without_node() {
+  local dir=$1 base=${2:-${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}}
+  local out="$dir/base-no-node" IFS=: d tool
+  mkdir -p "$out"
+  for d in $base; do
+    [ -d "$d" ] || continue
+    for tool in "$d"/*; do
+      [ -e "$tool" ] || continue
+      [ "${tool##*/}" = node ] && continue
+      [ -e "$out/${tool##*/}" ] || ln -s "$tool" "$out/${tool##*/}"
+    done
+  done
+  printf '%s\n' "$out"
 }
 
 # fm_fake_crash_injector <fakebin>

@@ -20,6 +20,14 @@ if [ -z "${FM_ROOT_OVERRIDE:-}" ]; then
   export FM_ROOT_OVERRIDE
 fi
 
+# Disable heavy background Jev sweeps in test harnesses
+while IFS= read -r _var; do
+  [ -n "$_var" ] || continue
+  export "$_var=1"
+done < <(grep 'FM_DISABLE_JEV_' "$ROOT/bin/fm-watch.sh" 2>/dev/null | sed -n 's/.*FM_DISABLE_JEV_\([A-Z0-9_]*\).*/FM_DISABLE_JEV_\1/p' | sort -u)
+unset _var
+
+
 # Wedge-alarm notifier recorder (safety seam). The away-mode wedge alarm fires a
 # real OS-level desktop notification by default. Point its FM_WEDGE_ALARM_EXEC
 # seam at a recorder for every

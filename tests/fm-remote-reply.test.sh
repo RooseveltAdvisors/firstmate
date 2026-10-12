@@ -13,7 +13,10 @@ PARENT="$TMP_ROOT/parent"
 REMOTE="$TMP_ROOT/remote"
 FAKEBIN=$(fm_fakebin "$TMP_ROOT/fake")
 CLAIMS="$TMP_ROOT/claims"
-mkdir -p "$PARENT/data" "$PARENT/state" "$REMOTE/state" "$REMOTE/data/reply" "$CLAIMS"
+# The process-event state-root contract requires a private directory, so the
+# state roots must not inherit an ambient group-writable umask.
+(umask 077; mkdir -p "$PARENT/state" "$REMOTE/state")
+mkdir -p "$PARENT/data" "$REMOTE/data/reply" "$CLAIMS"
 # shellcheck source=bin/fm-remote-job-lib.sh
 . "$ROOT/bin/fm-remote-job-lib.sh"
 # The recorded worker pid is the serving child, not its restart supervisor, so
@@ -102,13 +105,16 @@ stop_reply_listener() {
 
 # Block until this generation's capture has been applied. A live listener keeps
 # its claim across polls, so start is only launched when nothing owns the source.
+# A runner that ends its poll without a clean empty window (a slow or failed
+# read) exits and leaves restart to the watcher's reconcile; this wait stands in
+# for that repair and rechecks ownership every second, not only once up front.
 await_reply_result() { # <result-path>
-  local result=$1 handled=${1%.result}.handled _
-  if [ "$(reply_owner)" != live ]; then
-    remote_env "$ROOT/bin/fm-procevent.sh" start "$SID" >/dev/null 2>&1 &
-  fi
-  for _ in $(seq 1 800); do
+  local result=$1 handled=${1%.result}.handled i
+  for i in $(seq 0 799); do
     [ -s "$result" ] && [ -f "$handled" ] && return 0
+    if [ $((i % 20)) -eq 0 ] && [ "$(reply_owner)" != live ]; then
+      remote_env "$ROOT/bin/fm-procevent.sh" start "$SID" >/dev/null 2>&1 &
+    fi
     sleep 0.05
   done
   return 1

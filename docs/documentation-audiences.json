@@ -129,6 +129,10 @@
       "audience": "agent-runtime"
     },
     {
+      "path": ".agents/skills/captain-etiquette/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
       "path": ".agents/skills/captain-hold-lifecycle/SKILL.md",
       "audience": "agent-runtime"
     },
@@ -249,11 +253,27 @@
       "audience": "agent-runtime"
     },
     {
+      "path": ".agents/skills/session-start/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": ".agents/skills/sos-dispatch-loop/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
       "path": ".agents/skills/stow/SKILL.md",
       "audience": "agent-runtime"
     },
     {
       "path": ".agents/skills/stuck-crewmate-recovery/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": ".agents/skills/supervision-protocol/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": ".agents/skills/task-lifecycle/SKILL.md",
       "audience": "agent-runtime"
     },
     {
@@ -309,6 +329,10 @@
       "audience": "operator-current"
     },
     {
+      "path": "docs/captain-hold-lifecycle.md",
+      "audience": "maintainer-architecture"
+    },
+    {
       "path": "docs/cd-guard.md",
       "audience": "maintainer-architecture"
     },
@@ -325,15 +349,7 @@
       "audience": "operator-current"
     },
     {
-      "path": "docs/captain-hold-lifecycle.md",
-      "audience": "maintainer-architecture"
-    },
-    {
       "path": "docs/documentation-audiences.md",
-      "audience": "maintainer-architecture"
-    },
-    {
-      "path": "docs/extension-bindings.md",
       "audience": "maintainer-architecture"
     },
     {
@@ -357,6 +373,14 @@
       "audience": "operator-example"
     },
     {
+      "path": "docs/extension-bindings.md",
+      "audience": "maintainer-architecture"
+    },
+    {
+      "path": "docs/fleet-ledger.md",
+      "audience": "operator-current"
+    },
+    {
       "path": "docs/fm-test-isolation-proof.md",
       "audience": "maintainer-verification"
     },
@@ -377,11 +401,11 @@
       "audience": "maintainer-verification"
     },
     {
-      "path": "docs/fleet-ledger.md",
+      "path": "docs/herdr-backend.md",
       "audience": "operator-current"
     },
     {
-      "path": "docs/herdr-backend.md",
+      "path": "docs/house-main-residue.md",
       "audience": "operator-current"
     },
     {
@@ -401,12 +425,12 @@
       "audience": "operator-current"
     },
     {
-      "path": "docs/secondmate-parent-channel.md",
-      "audience": "maintainer-architecture"
-    },
-    {
       "path": "docs/scripts.md",
       "audience": "operator-current"
+    },
+    {
+      "path": "docs/secondmate-parent-channel.md",
+      "audience": "maintainer-architecture"
     },
     {
       "path": "docs/sessionstart-nudge.md",
@@ -414,6 +438,10 @@
     },
     {
       "path": "docs/subagent-guard.md",
+      "audience": "maintainer-architecture"
+    },
+    {
+      "path": "docs/supervision-host.md",
       "audience": "maintainer-architecture"
     },
     {
@@ -453,10 +481,6 @@
       "audience": "agent-runtime"
     },
     {
-      "path": "docs/supervision-host.md",
-      "audience": "maintainer-architecture"
-    },
-    {
       "path": "docs/tmux-backend.md",
       "audience": "operator-current"
     },
@@ -482,6 +506,10 @@
     },
     {
       "path": "docs/verification/dispatch-resolve.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "docs/verification/jev-wake-triage.md",
       "audience": "maintainer-verification"
     },
     {
