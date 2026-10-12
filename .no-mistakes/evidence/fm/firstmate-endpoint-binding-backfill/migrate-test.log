@@ -1,0 +1,6 @@
+ok - endpoint binding scan stamps only a verified live identity
+ok - rerunning after interruption converges without migration state
+ok - endpoint binding scan reports per-record refusal reasons without stamping
+ok - hidden metadata records are reported out of scope and never stamped
+ok - a contended record is skipped with a reason and converges on rerun
+ok - stamping preserves the record PR metadata contract without blank lines

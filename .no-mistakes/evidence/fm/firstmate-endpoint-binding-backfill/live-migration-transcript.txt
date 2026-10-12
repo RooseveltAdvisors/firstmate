@@ -1,0 +1,84 @@
+## lab tmux server (private socket fm-lab):
+  firstmate:base cmd=zsh cwd=/tmp/fm-lab.QgIwI1
+  firstmate:fm-good cmd=claude cwd=/tmp/fm-lab.QgIwI1/wt-good
+  firstmate:fm-pr cmd=claude cwd=/tmp/fm-lab.QgIwI1/wt-pr
+  firstmate:fm-mismatch cmd=claude cwd=/tmp/fm-lab.QgIwI1/wt-other
+  firstmate:fm-dup cmd=claude cwd=/tmp/fm-lab.QgIwI1/wt-dup
+  firstmate:fm-dup cmd=claude cwd=/tmp/fm-lab.QgIwI1/wt-dup
+  firstmate-decoy:fm-prefix cmd=claude cwd=/tmp/fm-lab.QgIwI1/wt-good
+
+=== G: lock held by a different live claude session (pid 3946325, not in our ancestry) ===
+/home/jon/.no-mistakes/worktrees/46339c0817e0/01M4PW7T015376X57AXV72SCBF/bin/fm-session-lock-lib.sh: line 319: state: unbound variable
+rc=1
+state unchanged after non-owner run
+
+=== Owner run 1 (lock held by this session) ===
+task bound: untouched - endpoint_task_id already present
+task dead: skipped - dead endpoint
+task dup: skipped - ambiguous live endpoint identity
+task good: skipped - ambiguous live endpoint identity is claimed by multiple task records
+record .meta: skipped - hidden metadata record is out of scope
+task mismatch: skipped - task identity mismatch: live endpoint worktree does not match recorded worktree
+task prefix: skipped - dead endpoint
+task pr: stamped - exact live endpoint identity verified
+ENDPOINT_BINDING_MIGRATION: scanned 8 record(s); stamped 1
+rc=0
+--- good.meta
+window=firstmate:fm-good
+worktree=/tmp/fm-lab.QgIwI1/wt-good
+project=/tmp/fm-lab.QgIwI1/projects
+kind=ship
+--- pr.meta
+window=firstmate:fm-pr
+worktree=/tmp/fm-lab.QgIwI1/wt-pr
+project=/tmp/fm-lab.QgIwI1/projects
+kind=ship
+endpoint_task_id=pr
+pr=https://github.com/example/repo/pull/7
+pr_head=abc123
+--- dead.meta
+window=firstmate:fm-dead
+worktree=/tmp/fm-lab.QgIwI1/wt-good
+project=/tmp/fm-lab.QgIwI1/projects
+kind=ship
+--- mismatch.meta
+window=firstmate:fm-mismatch
+worktree=/tmp/fm-lab.QgIwI1/wt-mismatch
+project=/tmp/fm-lab.QgIwI1/projects
+kind=ship
+--- dup.meta
+window=firstmate:fm-dup
+worktree=/tmp/fm-lab.QgIwI1/wt-dup
+project=/tmp/fm-lab.QgIwI1/projects
+kind=ship
+--- prefix.meta
+window=firstmate-de:fm-prefix
+worktree=/tmp/fm-lab.QgIwI1/wt-good
+project=/tmp/fm-lab.QgIwI1/projects
+kind=ship
+--- bound.meta
+window=firstmate:fm-bound
+endpoint_task_id=bound
+worktree=/tmp/fm-lab.QgIwI1/wt-good
+project=/tmp/fm-lab.QgIwI1/projects
+kind=ship
+--- .meta (hidden)
+window=firstmate:fm-good
+worktree=/tmp/fm-lab.QgIwI1/wt-good
+(no migration candidate temp files left)
+
+=== PR metadata contract on stamped pr.meta ===
+fm_pr_metadata_identity_parse_rc=1
+
+=== Owner run 2 (rerun converges, no further change) ===
+task bound: untouched - endpoint_task_id already present
+task dead: skipped - dead endpoint
+task dup: skipped - ambiguous live endpoint identity
+task good: skipped - ambiguous live endpoint identity is claimed by multiple task records
+record .meta: skipped - hidden metadata record is out of scope
+task mismatch: skipped - task identity mismatch: live endpoint worktree does not match recorded worktree
+task prefix: skipped - dead endpoint
+task pr: untouched - endpoint_task_id already present
+ENDPOINT_BINDING_MIGRATION: scanned 8 record(s); stamped 0
+rc=0
+rerun made no changes

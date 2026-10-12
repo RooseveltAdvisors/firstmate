@@ -1,0 +1,5 @@
+window=firstmate:fm-bound
+endpoint_task_id=bound
+worktree=/tmp/fm-lab.7ryZhP/wt/good
+project=/tmp/fm-lab.7ryZhP/proj
+kind=scout

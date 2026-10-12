@@ -1,0 +1,6 @@
+window=firstmate:fm-pr
+worktree=/tmp/fm-lab.7ryZhP/wt/pr
+project=/tmp/fm-lab.7ryZhP/proj
+kind=scout
+pr=https://github.com/owner/repo/pull/7
+pr_head=0123456789abcdef0123456789abcdef01234567

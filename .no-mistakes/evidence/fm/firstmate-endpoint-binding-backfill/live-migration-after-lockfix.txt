@@ -1,0 +1,48 @@
+=== PR metadata contract BEFORE stamp ===
+parse_rc=0
+
+=== G: lock held by a different live claude session (pid 3946325), no shared session id ===
+ENDPOINT_BINDING_MIGRATION: session lock is not owned by this session; migration did not run
+rc=1
+STATE CHANGED
+
+=== Same trusted session id recorded beside a live non-ancestor lock pid ===
+task good: stamped - exact live endpoint identity verified
+record .hidden.meta: skipped - hidden metadata record is out of scope
+task pr: stamped - exact live endpoint identity verified
+ENDPOINT_BINDING_MIGRATION: scanned 3 record(s); stamped 2
+rc=0
+--- good.meta
+window=firstmate:fm-good
+worktree=/tmp/fm-lab.QgIwI1/wt-good
+project=/tmp/fm-lab.QgIwI1/projects
+kind=ship
+endpoint_task_id=good
+--- pr.meta
+window=firstmate:fm-pr
+worktree=/tmp/fm-lab.QgIwI1/wt-pr
+project=/tmp/fm-lab.QgIwI1/projects
+kind=ship
+endpoint_task_id=pr
+pr=https://github.com/example/repo/pull/7
+pr_head=0123456789abcdef0123456789abcdef01234567
+=== PR metadata contract AFTER stamp ===
+parse_rc=0
+
+=== G (re-check, metas only): foreign live owner ===
+ENDPOINT_BINDING_MIGRATION: session lock is not owned by this session; migration did not run
+rc=1
+good.meta byte-identical: not stamped by non-owner
+
+=== Bootstrap (local phase) under a READ-ONLY session: migration must not run ===
+(no ENDPOINT_BINDING output)
+good.meta byte-identical after read-only bootstrap
+
+=== Bootstrap (local phase) as lock owner: migration runs inside bootstrap ===
+task good: stamped - exact live endpoint identity verified
+ENDPOINT_BINDING_MIGRATION: scanned 1 record(s); stamped 1
+window=firstmate:fm-good
+worktree=/tmp/fm-lab.QgIwI1/wt-good
+project=/tmp/fm-lab.QgIwI1/projects
+kind=ship
+endpoint_task_id=good

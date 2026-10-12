@@ -1,0 +1,5 @@
+window=firstmate:fm-busy
+worktree=/tmp/fm-lab.7ryZhP/wt/mismatch
+project=/tmp/fm-lab.7ryZhP/proj
+kind=scout
+endpoint_task_id=busy

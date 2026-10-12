@@ -1,0 +1,10 @@
+task bound: untouched - endpoint_task_id already present
+task busy2: stamped - exact live endpoint identity verified
+task busy: untouched - endpoint_task_id already present
+task dead: skipped - dead endpoint
+task gone: skipped - dead endpoint
+task good: untouched - endpoint_task_id already present
+record .meta: skipped - hidden metadata record is out of scope
+task mismatch: skipped - task identity mismatch: live endpoint worktree does not match recorded worktree
+task pr: untouched - endpoint_task_id already present
+ENDPOINT_BINDING_MIGRATION: scanned 9 record(s); stamped 1
