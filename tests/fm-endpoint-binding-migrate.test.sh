@@ -172,6 +172,82 @@ test_retryable_probes_are_bounded_per_start() {
   pass 'retryable probes are bounded per start'
 }
 
+make_herdr_case() {
+  local dir
+  dir=$(make_case "$1")
+  cat > "$dir/fakebin/herdr" <<'SH'
+#!/usr/bin/env bash
+running() {
+  [ "$FM_FAKE_HERDR" = absent ] || [ -e "$FM_HERDR_STARTED" ]
+}
+case "$1 $2" in
+  'server --session')
+    touch "$FM_HERDR_SERVER_CALLED"
+    [ "$FM_FAKE_HERDR" = nostart ] || touch "$FM_HERDR_STARTED"
+    ;;
+  'status --json')
+    if running; then printf '{"server":{"running":true}}\n'; else printf '{"server":{"running":false}}\n'; fi
+    ;;
+  'workspace list') printf '{"result":{"workspaces":[]}}\n' ;;
+  'pane get')
+    if [ "$FM_FAKE_HERDR" = absent ]; then
+      printf '{"error":{"code":"pane_not_found"}}\n'
+    else
+      printf 'connection refused\n' >&2
+      exit 1
+    fi
+    ;;
+  *) exit 1 ;;
+esac
+SH
+  cat > "$dir/fakebin/sleep" <<'SH'
+#!/usr/bin/env bash
+exec "$FM_REAL_SLEEP" 0.05
+SH
+  chmod +x "$dir/fakebin/herdr" "$dir/fakebin/sleep"
+  fm_write_meta "$dir/home/state/hd.meta" \
+    'backend=herdr' 'window=sess:p1' 'herdr_session=sess' 'herdr_workspace_id=w1' \
+    'herdr_tab_id=t1' 'herdr_pane_id=p1' "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  printf '%s\n' "$dir"
+}
+
+run_herdr() {
+  local dir=$1 mode=$2
+  FM_FAKE_HERDR=$mode FM_REAL_SLEEP=$(command -v sleep) FM_HERDR_STARTED="$dir/herdr.started" \
+    FM_HERDR_SERVER_CALLED="$dir/herdr.server" run_locked "$dir"
+}
+
+test_herdr_absent_pane_is_terminal() {
+  local dir out
+  dir=$(make_herdr_case herdr-absent)
+  out=$(run_herdr "$dir" absent) || fail "herdr absent scan failed: $out"
+  grep -qx 'endpoint_binding_verdict=terminal: missing endpoint' "$dir/home/state/hd.meta" \
+    || fail 'reachable herdr missing pane was not recorded as terminal'
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/hd.meta" || fail 'absent herdr pane was stamped'
+  pass 'a herdr pane positively absent on a running server is a terminal missing endpoint'
+}
+
+test_herdr_stopped_server_recheck_stays_retryable() {
+  local dir out
+  dir=$(make_herdr_case herdr-stopped)
+  out=$(run_herdr "$dir" restart-unreadable) || fail "herdr stopped scan failed: $out"
+  [ -e "$dir/herdr.server" ] || fail 'stopped-server missing was not rechecked with the server running'
+  ! grep -q '^endpoint_binding_verdict=\|^endpoint_task_id=' "$dir/home/state/hd.meta" \
+    || fail 'a stopped-server missing with an unreadable recheck was persisted'
+  [ -z "$out" ] || fail "retryable herdr scan printed output: $out"
+  pass 'a stopped-server herdr missing whose recheck is unreadable stays retryable'
+}
+
+test_herdr_failed_server_ensure_stays_retryable() {
+  local dir out
+  dir=$(make_herdr_case herdr-nostart)
+  out=$(run_herdr "$dir" nostart) || fail "herdr nostart scan failed: $out"
+  [ -e "$dir/herdr.server" ] || fail 'recheck did not try to start the herdr server'
+  ! grep -q '^endpoint_binding_verdict=\|^endpoint_task_id=' "$dir/home/state/hd.meta" \
+    || fail 'a failed server ensure was persisted as a verdict'
+  pass 'a herdr recheck whose server never starts stays retryable'
+}
+
 test_rerun_converges_after_interruption() {
   local dir out rc
   dir=$(make_case interruption)
@@ -299,6 +375,9 @@ test_rerun_is_silent_and_never_reprobes_verdicts
 test_missing_endpoints_are_terminal_and_free
 test_record_shape_refusal_is_terminal
 test_retryable_probes_are_bounded_per_start
+test_herdr_absent_pane_is_terminal
+test_herdr_stopped_server_recheck_stays_retryable
+test_herdr_failed_server_ensure_stays_retryable
 test_rerun_converges_after_interruption
 test_refusal_reasons_are_per_record
 test_hidden_records_are_out_of_scope
