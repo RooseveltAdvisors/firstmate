@@ -3254,6 +3254,32 @@ test_parked_stopped_seat_reports_its_declared_wait() {
   pass "a parked stopped seat reports paused until its recheck time passes"
 }
 
+# The common park case: `exit` leaves the seat's shell pane open, so the pane is
+# readable but holds no agent (classifier dead). It must still read paused.
+test_parked_stopped_seat_with_readable_shell_pane() {
+  command -v jq >/dev/null 2>&1 || { pass "parked readable-pane test skipped without jq"; return; }
+  reset_fakes
+  local d; d=$(new_case parked-shell-pane)
+  make_repo_on_branch "$d/wt" fm/feat-parked-shell
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-parked-shell.meta" "window=default:w1:p2" "worktree=$d/wt" "kind=ship" \
+    "backend=herdr" "harness=pi"
+  printf 'paused [at=1]: parked by the supervisor with the seat stopped - overnight until 2099-01-01T00:00Z\n' \
+    > "$d/state/feat-parked-shell.status"
+  FM_FAKE_TMUX_MISSING=1
+  FM_FAKE_HERDR_HUSK=1
+  FM_FAKE_HERDR_PROCESS=shell
+  local out; out=$(run_crew_state "$d" feat-parked-shell)
+  assert_contains "$out" "state: paused" "a parked seat with its shell pane open reports its declared wait"
+  assert_contains "$out" "seat stopped" "the detail says the seat is stopped"
+  # Control: an expired park on the same readable shell pane is not paused.
+  printf 'paused [at=1]: parked by the supervisor with the seat stopped - overnight until 2000-01-01T00:00Z\n' \
+    > "$d/state/feat-parked-shell.status"
+  out=$(run_crew_state "$d" feat-parked-shell)
+  assert_not_contains "$out" "state: paused" "an expired park on a readable shell pane is not paused"
+  pass "a parked stopped seat with a readable shell pane reports paused until its recheck time"
+}
+
 test_dead_window_ignores_stale_status_log() {
   reset_fakes
   local d; d=$(new_case dead-window)
@@ -5957,6 +5983,7 @@ test_no_run_idle_secondmate_resolved_event_not_state
 test_dead_window_ignores_stale_status_log
 test_gone_window_in_live_session_ignores_stale_status_log
 test_parked_stopped_seat_reports_its_declared_wait
+test_parked_stopped_seat_with_readable_shell_pane
 test_no_run_tmux_unreadable_reads_unreachable_not_gone
 test_dead_window_still_reports_terminal_run_step
 test_dead_window_still_reports_active_run_step
