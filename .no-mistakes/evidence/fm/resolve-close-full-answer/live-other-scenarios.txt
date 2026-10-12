@@ -1,0 +1,30 @@
+=== Scenario: short answer stored whole, no pointer, no file
+$ bin/fm-send.sh t1 --resolve-key api-shape "go with REST"
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.GNoIYE
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+exit=
+needs-decision [key=api-shape]: REST or gRPC
+resolved [key=api-shape] [at=1791780311]: answered: go with REST
+resolved-answers files before=1 after=1
+
+=== Scenario: full answer cannot be stored -> decision left open, loud error, no truncated close
+$ bin/fm-send.sh t1 --resolve-key budget "<400-char ruling>"  (state/resolved-answers is a plain file)
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.giWxFJ
+mkdir: cannot create directory ‘/tmp/fm-lab.giWxFJ/state/resolved-answers’: File exists
+error: the answer was delivered to sess:fm-t1, but its complete text could not be stored at /tmp/fm-lab.giWxFJ/state/resolved-answers/db54880321d9c081.txt, so decision key(s) 'budget' were left open rather than closed with a truncated record. Fix that directory, then close the key(s) with the full answer recorded - do not resend the answer.
+exit=
+--- status file:
+needs-decision [key=budget]: approve the Q4 spend
+--- drain:
+OPEN DECISIONS (still open, folded from the durable status logs - not just the latest line):
+t1 [key=budget] needs-decision: approve the Q4 spend
+OPEN DECISIONS: close one by answering it: bin/fm-send.sh <task> --resolve-key <key> '<answer>'
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+
+=== Scenario: overlong decision key still refused before sending
+$ bin/fm-send.sh t1 --resolve-key <200-char key> "yes"
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.GNoIYE
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+error: --resolve-key cannot close a decision key of length 200: its 230-character close record exceeds the 220-character status-line cap, and truncation would remove the structural key delimiter. Refusing rather than writing an ineffective close; nothing was sent.
+exit=
+closes written for long key: 0

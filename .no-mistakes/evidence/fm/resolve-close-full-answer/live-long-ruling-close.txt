@@ -1,0 +1,30 @@
+$ bin/fm-send.sh t1 --resolve-key advisor-seats "<long captain ruling, 598 chars, 2 lines>"
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.GNoIYE
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the requested message WILL still be sent.
+●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+exit=0
+
+--- state/t1.status
+needs-decision [key=advisor-seats]: keep or retire the advisor secondmates
+resolved [key=advisor-seats] [at=1791780281]: answered: Captain ruling: all advisor secondmates retire at their next natural relaunch. Keep the scout [truncated] [full answer: state/resolved-answers/ad31ce48b9133379.txt]
+
+--- close line length:
+220
+--- state/resolved-answers/
+total 12
+drwxrwxr-x 2 jon jon 4096 Oct 12 00:44 .
+drwxrwxr-x 4 jon jon 4096 Oct 12 00:44 ..
+-rw------- 1 jon jon  599 Oct 12 00:44 ad31ce48b9133379.txt
+--- /tmp/fm-lab.GNoIYE/state/resolved-answers/ad31ce48b9133379.txt
+Captain ruling: all advisor secondmates retire at their next natural relaunch.
+Keep the scout seats; move their open beads to the primary backlog first. detail-1 detail-2 detail-3 detail-4 detail-5 detail-6 detail-7 detail-8 detail-9 detail-10 detail-11 detail-12 detail-13 detail-14 detail-15 detail-16 detail-17 detail-18 detail-19 detail-20 detail-21 detail-22 detail-23 detail-24 detail-25 detail-26 detail-27 detail-28 detail-29 detail-30 detail-31 detail-32 detail-33 detail-34 detail-35 detail-36 detail-37 detail-38 detail-39 detail-40 END-OF-RULING. Reply ack only, do not take any action.
+
+--- byte-identical to sent answer?
+YES
+--- sha256 prefix of answer:
+ad31ce48b9133379
