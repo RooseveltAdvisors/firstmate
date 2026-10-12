@@ -53,104 +53,52 @@ regular_file() {
   [ -f "$1" ] && [ ! -L "$1" ]
 }
 
-reason_one_line() {
-  printf '%s' "$1" | tr '\n' ' '
-}
-
-refuse() {
-  REFUSAL=$(reason_one_line "$1")
-}
-
-refuse_endpoint_state() {
-  local backend=$1 state=$2
-  case "$state" in
-    dead|missing) refuse "dead endpoint" ;;
-    ambiguous) refuse "ambiguous live endpoint identity" ;;
-    unreadable) refuse "endpoint identity is unreadable" ;;
-    unverified) refuse "backend '$backend' has no verified endpoint identity" ;;
-    *) refuse "endpoint identity returned unexpected state '$state'" ;;
-  esac
-}
-
 FM_ENDPOINT_VERIFIED_WORKTREE=
 verify_live_task_worktree() {
   local meta=$1 backend=$2 target=$3 recorded live recorded_real live_real exact_target state
   local target_session target_window
   FM_ENDPOINT_VERIFIED_WORKTREE=
-  recorded=$(fm_backend_meta_exact_value "$meta" worktree) || {
-    refuse "recorded task worktree identity is unreadable"
-    return 1
-  }
+  recorded=$(fm_backend_meta_exact_value "$meta" worktree) || return 1
   case "$backend" in
     tmux)
       target_session=$(printf '%s' "$target" | cut -d: -f1)
       target_window=$(printf '%s' "$target" | cut -d: -f2-)
       exact_target="=$target_session:=$target_window"
-      fm_backend_source tmux || {
-        refuse "live endpoint worktree identity is unreadable"
-        return 1
-      }
+      fm_backend_source tmux || return 1
       live=$(fm_backend_tmux_current_path "$exact_target")
       ;;
     herdr)
-      fm_backend_source herdr || {
-        refuse "live endpoint worktree identity is unreadable"
-        return 1
-      }
+      fm_backend_source herdr || return 1
       live=$(fm_backend_herdr_current_path "$target")
       ;;
-    *)
-      refuse "backend '$backend' has no verified legacy task worktree identity"
-      return 1
-      ;;
+    *) return 1 ;;
   esac
-  [ -n "$live" ] || {
-    refuse "live endpoint worktree identity is unreadable"
-    return 1
-  }
+  [ -n "$live" ] || return 1
   state=$(fm_backend_agent_state "$backend" "$target" 2>/dev/null || printf 'unreadable')
   [ "$state" = alive ] || {
-    refuse_endpoint_state "$backend" "$state"
+    [ "$state" != dead ] || ENDPOINT_DEAD=1
     return 1
   }
-  recorded_real=$(CDPATH='' cd -- "$recorded" 2>/dev/null && pwd -P) || {
-    refuse "recorded task worktree identity is unreadable"
-    return 1
-  }
-  live_real=$(CDPATH='' cd -- "$live" 2>/dev/null && pwd -P) || {
-    refuse "live endpoint worktree identity is unreadable"
-    return 1
-  }
-  [ "$live_real" = "$recorded_real" ] || {
-    refuse "task identity mismatch: live endpoint worktree does not match recorded worktree"
-    return 1
-  }
+  recorded_real=$(CDPATH='' cd -- "$recorded" 2>/dev/null && pwd -P) || return 1
+  live_real=$(CDPATH='' cd -- "$live" 2>/dev/null && pwd -P) || return 1
+  [ "$live_real" = "$recorded_real" ] || return 1
   FM_ENDPOINT_VERIFIED_WORKTREE=$recorded_real
 }
 
 verify_legacy_endpoint() {
-  local meta=$1 id=$2 backend target state validation
+  local meta=$1 id=$2 backend target state
   backend=$(fm_backend_of_meta "$meta")
   if [ "$backend" = herdr ] && ! verify_legacy_herdr_label "$meta" "$id"; then
     return 1
   fi
-  if validation=$(fm_backend_validate_task_endpoint "$meta" "$id" 2>&1); then
-    if ! fm_backend_validate_task_endpoint "$meta" "$id" >/dev/null 2>&1; then
-      return 1
-    fi
-  else
-    refuse "shared endpoint validation refused: $(reason_one_line "$validation")"
-    return 1
-  fi
+  fm_backend_validate_task_endpoint "$meta" "$id" >/dev/null 2>&1 || return 1
+  fm_backend_validate_task_endpoint "$meta" "$id" >/dev/null 2>&1 || return 1
   backend=$FM_BACKEND_VALIDATED_BACKEND
   target=$FM_BACKEND_VALIDATED_TARGET
-  [ -n "$backend" ] && [ -n "$target" ] || {
-    refuse "identity mismatch: backend target was empty"
-    return 1
-  }
+  [ -n "$backend" ] && [ -n "$target" ] || return 1
   state=$(fm_backend_agent_state "$backend" "$target" 2>/dev/null || printf 'unreadable')
   [ "$state" = alive ] || {
-    refuse_endpoint_state "$backend" "$state"
+    [ "$state" != dead ] || ENDPOINT_DEAD=1
     return 1
   }
   verify_live_task_worktree "$meta" "$backend" "$target"
@@ -158,33 +106,17 @@ verify_legacy_endpoint() {
 
 verify_legacy_herdr_label() {
   local meta=$1 id=$2 target session live_target live_label live_count=0 recorded_target
-  target=$(fm_backend_meta_exact_value "$meta" window) || {
-    refuse "shared endpoint validation refused: REFUSED: legacy Herdr endpoint metadata lacks an exact live task label; preserving task state."
-    return 1
-  }
+  target=$(fm_backend_meta_exact_value "$meta" window) || return 1
   session=${target%%:*}
-  fm_backend_source herdr || {
-    refuse "shared endpoint validation refused: REFUSED: legacy Herdr endpoint metadata lacks an exact live task label; preserving task state."
-    return 1
-  }
+  fm_backend_source herdr || return 1
   while IFS=$'\t' read -r live_target live_label; do
     [ "$live_label" = "fm-$id" ] || continue
     live_count=$((live_count + 1))
     target=$live_target
   done < <(fm_backend_herdr_list_live "$session")
-  if [ "$live_count" -eq 0 ]; then
-    refuse "shared endpoint validation refused: REFUSED: legacy Herdr endpoint metadata lacks an exact live task label; preserving task state."
-    return 1
-  fi
-  if [ "$live_count" -ne 1 ]; then
-    refuse "shared endpoint validation refused: REFUSED: legacy Herdr endpoint has an ambiguous live fm-$id label; preserving task state."
-    return 1
-  fi
+  [ "$live_count" -eq 1 ] || return 1
   recorded_target=$(fm_backend_meta_exact_value "$meta" window) || return 1
-  if [ "$target" != "$recorded_target" ]; then
-    refuse "shared endpoint validation refused: REFUSED: live fm-$id label resolves to a different Herdr endpoint; preserving task state."
-    return 1
-  fi
+  [ "$target" = "$recorded_target" ]
 }
 
 endpoint_claim_conflicts() {
@@ -236,7 +168,7 @@ publish_candidate() {
 
 STAMP_COUNT=0
 REFUSE_COUNT=0
-# ponytail: fixed per-start probe cap; unprobed legacy records wait for the next start.
+# ponytail: fixed per-start probe cap in glob order; retryable records past the cap wait for a start where earlier ones resolve.
 PROBE_BUDGET=16
 candidate=
 cleanup() {
@@ -282,13 +214,11 @@ for meta in "$STATE"/*.meta; do
     fm_lock_release "$meta_lock" || true
     exit 1
   }
-  REFUSAL=
+  ENDPOINT_DEAD=0
   verified=0
   if verify_legacy_endpoint "$candidate" "$id"; then
-    if endpoint_claim_conflicts "$meta" "$id" "$FM_BACKEND_VALIDATED_BACKEND" \
+    if ! endpoint_claim_conflicts "$meta" "$id" "$FM_BACKEND_VALIDATED_BACKEND" \
       "$FM_BACKEND_VALIDATED_TARGET" "$FM_ENDPOINT_VERIFIED_WORKTREE"; then
-      refuse "ambiguous live endpoint identity is claimed by multiple task records"
-    else
       require_session_lock || {
         fm_lock_release "$meta_lock" || true
         exit 1
@@ -299,9 +229,9 @@ for meta in "$STATE"/*.meta; do
   if [ "$verified" -eq 1 ]; then
     key=endpoint_task_id
     value=$id
-  elif [ -n "$REFUSAL" ]; then
+  elif [ "$ENDPOINT_DEAD" -eq 1 ]; then
     key=endpoint_binding_verdict
-    value="refused: $REFUSAL"
+    value="terminal: dead endpoint"
     candidate_for "$meta" "$key=$value" "$candidate" || {
       fm_lock_release "$meta_lock" || true
       exit 1
@@ -326,6 +256,6 @@ for meta in "$STATE"/*.meta; do
 done
 
 if [ $((STAMP_COUNT + REFUSE_COUNT)) -gt 0 ]; then
-  printf 'ENDPOINT_BINDING_MIGRATION: stamped %s; refused %s (reason recorded as endpoint_binding_verdict in each refused record)\n' \
+  printf 'ENDPOINT_BINDING_MIGRATION: stamped %s; refused %s (terminal reason recorded as endpoint_binding_verdict in each refused record)\n' \
     "$STAMP_COUNT" "$REFUSE_COUNT"
 fi

@@ -29,6 +29,8 @@ SH
 if [ "$1" = list-windows ]; then
   if [ "${FM_FAKE_MODE:-}" = refusals ]; then
     printf '%s\n' fm-ambiguous fm-ambiguous fm-unreadable fm-mismatch
+  elif [ "${FM_FAKE_MODE:-}" = budget ]; then
+    for i in $(seq 1 20); do printf 'fm-dead%s\n' "$i"; done
   else
     printf '%s\n' fm-good fm-dead fm-bound
   fi
@@ -93,9 +95,9 @@ test_evidence_bound_scan() {
     || fail 'existing binding changed'
   ! compgen -G "$dir/home/state/.fm-endpoint-binding-*" >/dev/null \
     || fail 'scan left migration state behind'
-  grep -qx 'endpoint_binding_verdict=refused: dead endpoint' "$dir/home/state/dead.meta" \
+  grep -qx 'endpoint_binding_verdict=terminal: dead endpoint' "$dir/home/state/dead.meta" \
     || fail 'dead endpoint verdict was not recorded'
-  [ "$out" = 'ENDPOINT_BINDING_MIGRATION: stamped 1; refused 1 (reason recorded as endpoint_binding_verdict in each refused record)' ] \
+  [ "$out" = 'ENDPOINT_BINDING_MIGRATION: stamped 1; refused 1 (terminal reason recorded as endpoint_binding_verdict in each refused record)' ] \
     || fail "changed scan did not print exactly one summary line: $out"
   pass 'endpoint binding scan stamps only a verified live identity'
 }
@@ -116,7 +118,7 @@ SH
   out=$(FM_PROBE_LOG="$dir/probe.log" run_locked "$dir") || fail "rerun failed: $out"
   [ -z "$out" ] || fail "unchanged rerun printed output: $out"
   [ ! -e "$dir/probe.log" ] || fail 'rerun probed the backend for records that already carry a verdict'
-  grep -qx 'endpoint_binding_verdict=refused: dead endpoint' "$dir/home/state/dead.meta" \
+  grep -qx 'endpoint_binding_verdict=terminal: dead endpoint' "$dir/home/state/dead.meta" \
     || fail 'recorded verdict changed on rerun'
   pass 'a rerun with nothing to change is silent and never re-probes recorded verdicts'
 }
@@ -126,12 +128,12 @@ test_probe_budget_is_bounded_per_start() {
   dir=$(make_case budget)
   for i in $(seq 1 20); do
     fm_write_meta "$dir/home/state/dead$i.meta" \
-      'window=firstmate:fm-dead' "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+      "window=firstmate:fm-dead$i" "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
   done
-  out=$(run_locked "$dir") || fail "budget scan failed: $out"
+  out=$(FM_FAKE_MODE=budget run_locked "$dir") || fail "budget scan failed: $out"
   count=$(grep -l '^endpoint_binding_verdict=' "$dir"/home/state/dead*.meta | wc -l)
   [ "$count" -eq 16 ] || fail "first start probed $count records, expected 16"
-  out=$(run_locked "$dir") || fail "second budget scan failed: $out"
+  out=$(FM_FAKE_MODE=budget run_locked "$dir") || fail "second budget scan failed: $out"
   count=$(grep -l '^endpoint_binding_verdict=' "$dir"/home/state/dead*.meta | wc -l)
   [ "$count" -eq 20 ] || fail "second start left unprobed records: $count"
   pass 'legacy record probes are bounded per start and resume on the next start'
@@ -192,16 +194,10 @@ test_refusal_reasons_are_per_record() {
     || fail 'unverified endpoint was stamped'
   ! grep -q '^endpoint_task_id=' "$dir/home/state/mismatch.meta" \
     || fail 'mismatched endpoint was stamped'
-  grep -qx 'endpoint_binding_verdict=refused: ambiguous live endpoint identity' "$dir/home/state/ambiguous.meta" \
-    || fail 'ambiguous endpoint reason was not recorded'
-  grep -qx 'endpoint_binding_verdict=refused: endpoint identity is unreadable' "$dir/home/state/unreadable.meta" \
-    || fail 'unreadable endpoint reason was not recorded'
-  grep -qx "endpoint_binding_verdict=refused: backend 'zellij' has no verified endpoint identity" "$dir/home/state/unverified.meta" \
-    || fail 'unverified endpoint reason was not recorded'
-  grep -qx 'endpoint_binding_verdict=refused: task identity mismatch: live endpoint worktree does not match recorded worktree' "$dir/home/state/mismatch.meta" \
-    || fail 'mismatched endpoint reason was not recorded'
-  assert_contains "$out" 'stamped 0; refused 4' 'refusals were not summarized'
-  pass 'endpoint binding scan records per-record refusal verdicts without stamping'
+  ! grep -q '^endpoint_binding_verdict=' "$dir"/home/state/*.meta \
+    || fail 'a failed or inconclusive observation was persisted as a terminal verdict'
+  [ -z "$out" ] || fail "retryable refusals printed output: $out"
+  pass 'retryable refusals are never stamped or persisted, so the next start re-probes them'
 }
 
 test_hidden_records_are_out_of_scope() {
