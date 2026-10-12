@@ -71,7 +71,7 @@ note_endpoint_state() {  # <backend> <target> <state>
 
 FM_ENDPOINT_VERIFIED_WORKTREE=
 verify_live_task_worktree() {
-  local meta=$1 backend=$2 target=$3 recorded live recorded_real live_real exact_target state
+  local meta=$1 backend=$2 target=$3 recorded live recorded_real live_real exact_target
   local target_session target_window
   FM_ENDPOINT_VERIFIED_WORKTREE=
   recorded=$(fm_backend_meta_exact_value "$meta" worktree) || return 1
@@ -90,11 +90,6 @@ verify_live_task_worktree() {
     *) return 1 ;;
   esac
   [ -n "$live" ] || return 1
-  state=$(fm_backend_agent_state "$backend" "$target" 2>/dev/null || printf 'unreadable')
-  [ "$state" = alive ] || {
-    note_endpoint_state "$backend" "$target" "$state"
-    return 1
-  }
   recorded_real=$(CDPATH='' cd -- "$recorded" 2>/dev/null && pwd -P) || return 1
   live_real=$(CDPATH='' cd -- "$live" 2>/dev/null && pwd -P) || return 1
   [ "$live_real" = "$recorded_real" ] || return 1
