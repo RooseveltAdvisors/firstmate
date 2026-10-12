@@ -1,0 +1,63 @@
+== A: slash answer, claude target ==
+$ fm-send.sh t1 --resolve-key api-shape /compact then go with REST
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.YQT5iC
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  4 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the requested message WILL still be sent.
+●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+fm-send: doorbell not typed because the agent in sess:fm-t1 has exited; the steer is durably recorded at /tmp/fm-lab.YQT5iC/state/t1.inbox/001.msg for recovery (stuck-crewmate-recovery), and the watcher will not re-ring a dead pane
+exit=0
+-- inbox:
+/tmp/fm-lab.YQT5iC/state/t1.inbox:
+001.msg
+handled
+
+/tmp/fm-lab.YQT5iC/state/t1.inbox/handled:
+schema=fm-task-inbox.v1
+at=2026-10-12T05:05:04Z
+--
+/compact then go with REST-- status:
+needs-decision [key=api-shape]: pick REST or RPC
+resolved [key=api-shape] [at=1791781504]: answered: /compact then go with REST
+
+== B: dollar answer, codex target ==
+$ fm-send.sh t2 --resolve-key creds $Skill refreshed the token
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.YQT5iC
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+fm-send: doorbell not typed because the agent in sess:fm-t2 has exited; the steer is durably recorded at /tmp/fm-lab.YQT5iC/state/t2.inbox/001.msg for recovery (stuck-crewmate-recovery), and the watcher will not re-ring a dead pane
+exit=0
+-- inbox:
+/tmp/fm-lab.YQT5iC/state/t2.inbox:
+001.msg
+handled
+
+/tmp/fm-lab.YQT5iC/state/t2.inbox/handled:
+schema=fm-task-inbox.v1
+at=2026-10-12T05:05:05Z
+--
+$Skill refreshed the token-- status:
+blocked [key=creds]: need the token
+resolved [key=creds] [at=1791781506]: answered: $Skill refreshed the token
+
+== C: slash steer WITHOUT --resolve-key ==
+$ fm-send.sh t3 /compact then go with REST
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.YQT5iC
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+error: text not submitted to sess:fm-t3 (delivery unconfirmed; verdict=unknown; tried meta=/tmp/fm-lab.YQT5iC/state/t3.meta; backend=from-meta)
+exit=1
+-- inbox:
+ls: cannot access '/tmp/fm-lab.YQT5iC/state/t3.inbox': No such file or directory
+
+== D: not-open key, slash answer ==
+$ fm-send.sh t4 --resolve-key mistyped /compact then go with REST
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.YQT5iC
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+error: --resolve-key 'mistyped': no open decision or blocker with that key in /tmp/fm-lab.YQT5iC/state/t4.status, and no captain-held task 'mistyped' or 't4-decision-mistyped' still open (already closed or mistyped). Re-check the OPEN DECISIONS listing, then resend without that key or with the right one; nothing was sent.
+exit=1
+-- inbox:
+ls: cannot access '/tmp/fm-lab.YQT5iC/state/t4.inbox': No such file or directory
+-- status:
+needs-decision [key=api-shape]: pick REST or RPC

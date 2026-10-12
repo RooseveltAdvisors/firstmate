@@ -1,0 +1,16 @@
+== E: enqueue fails (state/t5.inbox is a file) ==
+$ 01M4Q7SH0D1YKVN921JNZJREM5/fm-send.sh t5 --resolve-key creds /vault fetch deploy-token
+mkdir: cannot create directory ‘/tmp/fm-lab.YQT5iC/state/t5.inbox’: Not a directory
+error: steer not sent to t5: its inbox record could not be written under /tmp/fm-lab.YQT5iC/state/t5.inbox
+exit=1
+-- status:
+blocked [key=creds]: need the deploy token
+
+== F (baseline a1ecefb4, pre-fix): slash answer ==
+$ base/fm-send.sh t6 --resolve-key api-shape /compact then go with REST
+error: text not submitted to sess:fm-t1 (delivery unconfirmed; verdict=unknown; tried meta=/tmp/fm-lab.YQT5iC/state/t6.meta; backend=from-meta)
+exit=1
+-- inbox:
+ls: cannot access '/tmp/fm-lab.YQT5iC/state/t6.inbox': No such file or directory
+-- status:
+needs-decision [key=api-shape]: pick REST or RPC
