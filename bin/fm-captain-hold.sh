@@ -63,14 +63,14 @@
 # the close succeeds (the previous body is preserved and archived through
 # tasks-axi --archive-body). It then closes the task through the guarded
 # backlog close owned by bin/fm-backlog-transition-lib.sh, carrying
-# `--note "answered: <first line of the decision>"` as the close's done-class
-# reason so the closed row records why it closed - except when a pending
-# retention carries a retained Gerrit change, which closes the row with that
-# change's URL as its recorded note instead - or, with `--release`, lifts
+# `--note "answered: <first line of the decision>"` (or `--note "reconciled: <first line of the evidence>"` for reconciliation)
+# as the close's done-class reason so the closed row records why it closed - except
+# when a pending retention carries a retained Gerrit change, which closes the row
+# with that change's URL as its recorded note instead - or, with `--release`, lifts
 # the hold with `tasks-axi unhold` so a captain-gated WORK item resumes instead
 # of closing - and restores resolution-first body ordering. An exact retry also
 # completes unfinished ordering normalization and is idempotent only when its
-# requested close mode matches the newest record; a changed decision or a mode
+# requested close mode matches the newest record - a changed decision or a mode
 # mismatch is rejected.
 # A re-held task may record a new answer on top. On a task already closed outside this script,
 # `answer` records the missing resolution block (the old `repair` path) only
@@ -1097,14 +1097,40 @@ answered_close_note() {  # <decision-text>
   printf 'answered: %s' "${first:0:300}"
 }
 
-close_answered() {  # <task-id> <release-0-or-1>
-  if [ "$2" = 1 ]; then
+# The recorded close note for an evidence-backed reconciliation close. Verified
+# evidence IS the authority for this close, so it travels with the close itself
+# and tasks-axi records it on the closed task under the dedicated reconciled kind -
+# keeping the record truthful without claiming the captain answered. The complete
+# evidence is already preserved in the task body by write_resolution_record -
+# a close note is single line and bounded, so this carries the evidence's first
+# line as its summary.
+reconciled_close_note() {  # <decision-text>
+  local first
+  first=$(printf '%s\n' "$1" | sed -n '1p' | LC_ALL=C tr -d '\000-\037\177')
+  first=${first#"${first%%[![:space:]]*}"}
+  first=${first%"${first##*[![:space:]]}"}
+  if [ -z "$first" ]
+  then
+    first="reconciliation evidence recorded in the task body"
+  fi
+  printf 'reconciled: %s' "${first:0:300}"
+}
+
+close_answered() {  # <task-id> <release-0-or-1> [mode]
+  local mode=${3:-answered}
+  if [ "$2" = 1 ]
+  then
     tasks_axi unhold "$1" >/dev/null
   else
     apply_pending_retained_artifact "$1" || return 1
-    if [ "${#RETAINED_CLOSE_ARGS[@]}" -gt 0 ]; then
+    if [ "${#RETAINED_CLOSE_ARGS[@]}" -gt 0 ]
+    then
       fm_backlog_done "$DATA" "$1" "$STATE" \
         "${RETAINED_CLOSE_ARGS[@]}" >/dev/null
+    elif [ "$mode" = reconciled ]
+    then
+      fm_backlog_done "$DATA" "$1" "$STATE" \
+        --note "$(reconciled_close_note "$DECISION_TEXT")" >/dev/null
     else
       fm_backlog_done "$DATA" "$1" "$STATE" \
         --note "$(answered_close_note "$DECISION_TEXT")" >/dev/null
@@ -1690,7 +1716,7 @@ reconcile_close() {
   else
     write_resolution_record "$id" reconciled "$body"
   fi
-  close_answered "$id" 0 || fail "could not close reconciled captain-held task $id${FM_BACKLOG_TRANSITION_ERROR:+ ($FM_BACKLOG_TRANSITION_ERROR)}"
+  close_answered "$id" 0 reconciled || fail "could not close reconciled captain-held task $id${FM_BACKLOG_TRANSITION_ERROR:+ ($FM_BACKLOG_TRANSITION_ERROR)}"
   remove_interrupted_answer_stamp "$id"
   task_show_or_fail "$id" "task $id disappeared after closing"
   body_has_resolution_record "$(show_field "$show" body)" \

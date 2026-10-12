@@ -22,7 +22,8 @@
 # bin/fm-backlog-transition-lib.sh rather than reaching tasks-axi bare: a close
 # records exactly one done-class reason - --pr <url>, --note "local main",
 # --report <path> (scout rows only), --note "superseded by <id>",
-# --note "cancelled: <word>", or --note "answered: <word>" - and a
+# --note "cancelled: <word>", --note "answered: <word>", or
+# --note "reconciled: <evidence>" - and a
 # repo-carrying ship or scout row closes only while a worker record still
 # proves a worker existed for it, or under the captain's own word.
 # tasks-axi's own `done` flags outside that contract
@@ -126,8 +127,9 @@ absolute_from_caller() {  # <path-value>
 run_guarded_close() {  # <command> <id> [flag...]
   local cmd=$1 id=$2 gate_status
   shift 2
-  if fm_backlog_transition_applies "$CONFIG" "$DATA" ''; then
-    [ "$#" -gt 0 ] || fail "refusing to close $id: this close carries no done-class reason; a close records one - --pr <url>, --note 'local main', --report <path>, --note 'superseded by <id>', --note 'cancelled: <captain word>', or --note 'answered: <captain word>'"
+  if fm_backlog_transition_applies "$CONFIG" "$DATA" ''
+  then
+    [ "$#" -gt 0 ] || fail "refusing to close $id: this close carries no done-class reason - a close records one - --pr <url>, --note 'local main', --report <path>, --note 'superseded by <id>', --note 'cancelled: <captain word>', --note 'answered: <captain word>', or --note 'reconciled: <evidence>'"
     fm_backlog_done "$DATA" "$id" "$STATE" "$@" \
       || fail "${FM_BACKLOG_TRANSITION_ERROR:-tasks-axi $cmd $id failed}"
     [ -z "$FM_BACKLOG_MUTATE_OUTPUT" ] || printf '%s\n' "$FM_BACKLOG_MUTATE_OUTPUT"

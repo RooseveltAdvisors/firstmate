@@ -3158,7 +3158,8 @@ close_with() {  # <case-dir> <id> <arg>...
 test_a_close_accepts_every_done_class_reason() {
   local case_dir id
   case_dir=$(make_home close-kinds-accepted)
-  for id in landed-pr-c1 landed-local-c2 superseded-c4 cancelled-c5 answered-c6; do
+  for id in landed-pr-c1 landed-local-c2 superseded-c4 cancelled-c5 answered-c6 reconciled-c7
+  do
     add_item "$case_dir" "$id"
     start_item "$case_dir" "$id"
   done
@@ -3177,8 +3178,11 @@ test_a_close_accepts_every_done_class_reason() {
     || fail "a cancelled reason carrying the captain word was refused"
   close_with "$case_dir" answered-c6 --note 'answered: the captain said ship it' \
     || fail "an answered reason carrying the captain word was refused"
+  close_with "$case_dir" reconciled-c7 --note 'reconciled: published 0.1.38 makes this moot' \
+    || fail "a reconciled reason carrying evidence was refused"
 
-  for id in landed-pr-c1 landed-local-c2 scout-report-c3 superseded-c4 cancelled-c5 answered-c6; do
+  for id in landed-pr-c1 landed-local-c2 scout-report-c3 superseded-c4 cancelled-c5 answered-c6 reconciled-c7
+  do
     [ "$(row_state "$case_dir" "$id")" = "done" ] \
       || fail "a done-class close left $id in state $(row_state "$case_dir" "$id")"
   done
@@ -3297,6 +3301,40 @@ test_an_answered_close_is_the_same_captain_authority() {
   assert_contains "$out" "the captain said ship it" \
     "the captain answer that authorized the close was not recorded on the task"
   pass "an answered close carries the same captain authority and is recorded"
+}
+
+test_a_reconciled_close_satisfies_the_worker_record_gate() {
+  local case_dir out
+  case_dir=$(make_home close-reconciled)
+  add_project_item "$case_dir" reconciled-hold-c13 ship
+  start_item "$case_dir" reconciled-hold-c13
+
+  # A blank evidence note is not verified evidence, so it overrides nothing.
+  if close_with "$case_dir" reconciled-hold-c13 --note 'reconciled: ' >/dev/null 2>&1
+  then
+    fail "a blank reconciled note was accepted as evidence"
+  fi
+  if [ "$(row_state "$case_dir" reconciled-hold-c13)" != in_flight ]
+  then
+    fail "a blank reconciled note still closed the row"
+  fi
+
+  # Reconciling a hold closes real project work with no worker record, on verified
+  # evidence, satisfying the worker-record gate without claiming the captain answered.
+  if ! close_with "$case_dir" reconciled-hold-c13 --note 'reconciled: published 0.1.38 makes this moot'
+  then
+    fail "a reconciled close did not clear the worker-record gate"
+  fi
+  if [ "$(row_state "$case_dir" reconciled-hold-c13)" != "done" ]
+  then
+    fail "a reconciled close did not close the row"
+  fi
+  out=$(tasks-axi show reconciled-hold-c13 --file "$(backlog_of "$case_dir")" 2>&1)
+  assert_contains "$out" "published 0.1.38 makes this moot" \
+    "the reconciliation evidence that authorized the close was not recorded on the task"
+  assert_not_contains "$out" "answered:" \
+    "the reconciled close note carried the answered: label"
+  pass "a reconciled close satisfies the worker-record gate on evidence and is recorded"
 }
 
 test_the_captain_word_is_the_one_override_and_is_recorded() {
@@ -3507,5 +3545,6 @@ test_a_close_refuses_a_reason_outside_the_done_class
 test_project_work_is_not_closed_without_a_worker_record
 test_the_captain_word_is_the_one_override_and_is_recorded
 test_an_answered_close_is_the_same_captain_authority
+test_a_reconciled_close_satisfies_the_worker_record_gate
 test_a_close_refuses_when_the_row_cannot_be_verified
 test_a_report_close_is_for_scout_rows_only

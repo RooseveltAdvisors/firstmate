@@ -574,6 +574,23 @@ fm_backlog_close_captain_word() {  # <arg>...
   printf '%s\n' "$word"
 }
 
+# Print the reconciliation evidence this close carries, or return 1 when it
+# carries none. `reconciled` closes a call that went moot and carries verified
+# evidence - the note carries the evidence's summary, keeping the durable record
+# truthful without falsely claiming the captain answered.
+fm_backlog_close_reconciled_note() {  # <arg>...
+  local evidence
+  [ "$#" -eq 2 ] || return 1
+  [ "$1" = --note ] || return 1
+  if [ "${2#reconciled: }" = "$2" ]
+  then
+    return 1
+  fi
+  evidence=${2#reconciled: }
+  fm_backlog_captain_word_valid "$evidence" || return 1
+  printf '%s\n' "$evidence"
+}
+
 # THE close-kind contract, stated once and enforced on every firstmate-managed
 # close path: the programmatic callers (bin/fm-teardown.sh and
 # bin/fm-captain-hold.sh, through fm_backlog_done and the close transition) and
@@ -589,11 +606,18 @@ fm_backlog_close_captain_word() {  # <arg>...
 #   superseded  --note "superseded by <id>"  another task carries the work now
 #   cancelled   --note "cancelled: <word>"   the captain called it off
 #   answered    --note "answered: <word>"    answering a captain hold closed it
+#   reconciled  --note "reconciled: <evidence>" an evidence-backed hold reconciliation closed it
 #
 # `answered` exists because closing an answered captain hold is a real close of a
 # real task that none of the other kinds describe truthfully: it did not land,
 # it is not a report, nothing superseded it, and it was not cancelled - calling
 # it cancelled would put a false label in a durable record.
+#
+# `reconciled` exists because closing a moot captain call on verified evidence
+# is also a real close of a real task that did not land, is not a report, and
+# was not cancelled, but unlike `answered` it carries external evidence rather
+# than what the captain said - calling it answered would falsely attribute the
+# resolution to the captain.
 #
 # Mode selects which kinds may appear and how the local-land note is spelled.
 # `live` is the full set with the raw note, and is what a close actually runs.
@@ -649,6 +673,11 @@ fm_backlog_close_args_valid() {  # <live|staged> <arg>...
       arg_value=$2
       [ "$arg_value" != "$note_spelling" ] || return 0
       [ "$mode" = live ] || return 1
+      if [ "${arg_value#reconciled: }" != "$arg_value" ]
+      then
+        fm_backlog_close_reconciled_note --note "$arg_value" >/dev/null || return 1
+        return 0
+      fi
       case "$arg_value" in
         'superseded by '*)
           superseded_id=${arg_value#'superseded by '}
@@ -737,12 +766,14 @@ fm_backlog_close_args_valid() {  # <live|staged> <arg>...
 # it is for: a close invented for project work no worker ever touched.
 #
 # The one way past it is the captain's own word, which the close records
-# (fm_backlog_close_captain_word). A row that cannot be read is never assumed
-# worked or unworked: a clean not-found and a source that is itself unreadable
-# are left to the close to fail on with their own reason, while any other failed
-# read - a bound hit, a wedged or transient backend - refuses the close outright
-# with its own distinct reason, so backend slowness is never reported as an
-# unworked row and a close is never inferred from a read that failed.
+# (fm_backlog_close_captain_word), or verified reconciliation evidence for a
+# moot call (fm_backlog_close_reconciled_note). A row that cannot be read is
+# never assumed worked or unworked: a clean not-found and a source that is
+# itself unreadable are left to the close to fail on with their own reason, while
+# any other failed read - a bound hit, a wedged or transient backend - refuses
+# the close outright with its own distinct reason, so backend slowness is never
+# reported as an unworked row and a close is never inferred from a read that
+# failed.
 fm_backlog_close_worker_record_required() {  # <data-dir> <id> <state-dir> <arg>...
   local data=$1 id=$2 state=$3 meta marker
   shift 3
@@ -762,7 +793,8 @@ fm_backlog_close_worker_record_required() {  # <data-dir> <id> <state-dir> <arg>
   marker=$(fm_backlog_close_marker_path "$state" "$id") || return 1
   [ ! -e "$marker" ] && [ ! -L "$marker" ] || return 0
   fm_backlog_close_captain_word "$@" >/dev/null && return 0
-  FM_BACKLOG_TRANSITION_ERROR="refusing to close $id: it is project work in $FM_BACKLOG_ROW_REPO with no worker record, so nothing ever worked it; close it with --note 'cancelled: <captain word>' or --note 'answered: <captain word>' to record the captain's own decision"
+  fm_backlog_close_reconciled_note "$@" >/dev/null && return 0
+  FM_BACKLOG_TRANSITION_ERROR="refusing to close $id: it is project work in $FM_BACKLOG_ROW_REPO with no worker record, so nothing ever worked it - close it with --note 'cancelled: <captain word>', --note 'answered: <captain word>', or --note 'reconciled: <evidence>' to record what closed it"
   return 1
 }
 
@@ -778,8 +810,9 @@ fm_backlog_done() {  # <data-dir> <id> <state-dir> [flag...]
   local data=$1 id=$2 state=$3 arg previous_arg=''
   local -a done_args=()
   shift 3
-  if ! fm_backlog_close_args_valid live "$@"; then
-    FM_BACKLOG_TRANSITION_ERROR="refusing to close $id: a close records one done-class reason - --pr <url>, --note 'local main', --report <path>, --note 'superseded by <id>', --note 'cancelled: <captain word>', or --note 'answered: <captain word>'"
+  if ! fm_backlog_close_args_valid live "$@"
+  then
+    FM_BACKLOG_TRANSITION_ERROR="refusing to close $id: a close records one done-class reason - --pr <url>, --note 'local main', --report <path>, --note 'superseded by <id>', --note 'cancelled: <captain word>', --note 'answered: <captain word>', or --note 'reconciled: <evidence>'"
     return 1
   fi
   fm_backlog_close_worker_record_required "$data" "$id" "$state" "$@" || return 1

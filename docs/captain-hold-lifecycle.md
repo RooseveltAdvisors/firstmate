@@ -85,7 +85,7 @@ It then works in this order:
 3. It then restores the successful record's resolution-first body ordering.
    The previous body remains preserved below the block and archived through tasks-axi `--archive-body`.
 
-The close itself runs through the guarded backlog close owned by `bin/fm-backlog-transition-lib.sh`, which records the answer's first line as the close's `answered:` done-class reason - except when a pending retention carries a retained Gerrit change, where the row closes with that change's URL as its recorded note instead - or `tasks-axi unhold` under `answer --release`, so a captain-gated work item resumes instead of closing.
+The close itself runs through the guarded backlog close owned by `bin/fm-backlog-transition-lib.sh`, which records the answer's first line as the close's `answered:` done-class reason - except when a pending retention carries a retained Gerrit change, where the row closes with that change's URL as its recorded note instead - or `tasks-axi unhold` under `answer --release`, so a captain-gated work item resumes instead of closing. An evidence-backed reconciliation close similarly routes through `bin/fm-backlog-transition-lib.sh`, recording the evidence's first line under the dedicated `reconciled:` done-class reason.
 
 If the close is interrupted, the still-held task therefore keeps its original age basis.
 A matching retry also completes any resolution-first normalization left unfinished after the close itself succeeded.
@@ -583,7 +583,7 @@ The reconcile path is pinned in the same suite:
 
 It also proves the two verification outcomes:
 
-- An evidence-backed `reconciled` close records the evidence under its own label and never as the captain's words.
+- An evidence-backed `reconciled` close records the evidence under its own label and never as the captain's words, using the dedicated `reconciled:` done-class reason.
 - A note leaves the call queued, held, and dated.
 
 Around those outcomes, it proves:
