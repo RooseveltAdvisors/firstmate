@@ -1,0 +1,39 @@
+# fm-session-start.sh output lines mentioning ENDPOINT
+ENDPOINT_BINDING_MIGRATION: stamped 1; refused 3 (terminal reason recorded as endpoint_binding_verdict in each refused record)
+# lock pid: 789406  (lab claude primary)
+== bound.meta
+window=firstmate:fm-bound
+endpoint_task_id=bound
+worktree=/tmp/fm-lab.LZaGTi/wt-dead
+project=/tmp/fm-lab.LZaGTi/proj
+kind=scout
+== dead.meta
+window=firstmate:fm-dead
+worktree=/tmp/fm-lab.LZaGTi/wt-dead
+project=/tmp/fm-lab.LZaGTi/proj
+kind=scout
+endpoint_binding_verdict=terminal: dead endpoint
+== gone.meta
+window=firstmate:fm-gone
+worktree=/tmp/fm-lab.LZaGTi/wt-dead
+project=/tmp/fm-lab.LZaGTi/proj
+kind=scout
+endpoint_binding_verdict=terminal: missing endpoint
+== live.meta
+window=firstmate:fm-live
+worktree=/tmp/fm-lab.LZaGTi/wt-live
+project=/tmp/fm-lab.LZaGTi/proj
+kind=scout
+endpoint_task_id=live
+pr=
+== mm.meta
+window=firstmate:fm-mm
+worktree=/tmp/fm-lab.LZaGTi/wt-live
+project=/tmp/fm-lab.LZaGTi/proj
+kind=scout
+== shape.meta
+window=firstmate:not-shape
+worktree=/tmp/fm-lab.LZaGTi/wt-dead
+project=/tmp/fm-lab.LZaGTi/proj
+kind=scout
+endpoint_binding_verdict=terminal: record shape: endpoint metadata refused by the shared endpoint validator

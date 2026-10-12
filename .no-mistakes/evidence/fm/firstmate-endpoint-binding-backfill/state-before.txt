@@ -1,0 +1,36 @@
+# tmux windows on lab socket
+firstmate:fm-dead zsh /tmp/fm-lab.LZaGTi/wt-dead
+firstmate:fm-live claude /tmp/fm-lab.LZaGTi/wt-live
+firstmate:fm-mm claude /tmp/fm-lab.LZaGTi/wt-other
+== bound.meta
+window=firstmate:fm-bound
+endpoint_task_id=bound
+worktree=/tmp/fm-lab.LZaGTi/wt-dead
+project=/tmp/fm-lab.LZaGTi/proj
+kind=scout
+== dead.meta
+window=firstmate:fm-dead
+worktree=/tmp/fm-lab.LZaGTi/wt-dead
+project=/tmp/fm-lab.LZaGTi/proj
+kind=scout
+== gone.meta
+window=firstmate:fm-gone
+worktree=/tmp/fm-lab.LZaGTi/wt-dead
+project=/tmp/fm-lab.LZaGTi/proj
+kind=scout
+== live.meta
+window=firstmate:fm-live
+worktree=/tmp/fm-lab.LZaGTi/wt-live
+project=/tmp/fm-lab.LZaGTi/proj
+kind=scout
+pr=
+== mm.meta
+window=firstmate:fm-mm
+worktree=/tmp/fm-lab.LZaGTi/wt-live
+project=/tmp/fm-lab.LZaGTi/proj
+kind=scout
+== shape.meta
+window=firstmate:not-shape
+worktree=/tmp/fm-lab.LZaGTi/wt-dead
+project=/tmp/fm-lab.LZaGTi/proj
+kind=scout

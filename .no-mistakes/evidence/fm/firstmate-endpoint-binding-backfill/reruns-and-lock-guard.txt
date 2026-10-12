@@ -1,0 +1,24 @@
+# second start (mm worktree corrected) and third start, run inside lab primary
+ENDPOINT_BINDING_MIGRATION: stamped 1; refused 0 (terminal reason recorded as endpoint_binding_verdict in each refused record)
+run2 exit=0
+run3 exit=0
+# meta mtime diff between first and third start
+5c5
+< /tmp/fm-lab.LZaGTi/state/mm.meta 1791775292
+---
+> /tmp/fm-lab.LZaGTi/state/mm.meta 1791775780
+== mm.meta
+window=firstmate:fm-mm
+worktree=/tmp/fm-lab.LZaGTi/wt-live
+project=/tmp/fm-lab.LZaGTi/proj
+kind=scout
+endpoint_task_id=mm
+
+# foreign caller (not lock owner):
+ENDPOINT_BINDING_MIGRATION: session lock is not owned by this session; migration did not run
+exit=1
+== new.meta after foreign call
+window=firstmate:fm-live2
+worktree=/tmp/fm-lab.LZaGTi/wt-live
+project=/tmp/fm-lab.LZaGTi/proj
+kind=scout
