@@ -1,0 +1,62 @@
+
+=== S1 install binds strip to task worktree ===
+install rc=0
+worktree-scoped core.hooksPath: /tmp/fmlive.4hVc/hooks
+main checkout core.hooksPath (should be empty): ''
+
+=== S1 commit from env WITHOUT pane GIT_CONFIG_* in task worktree ===
+0
+commit rc=0
+feat: thing
+
+Co-authored-by: Alice Human <alice@example.com>
+
+
+=== S1b commit in main checkout is not touched (binding is worktree-only) ===
+3
+
+=== S2 project hooks still chain (local core.hooksPath via include.path) ===
+PROJECT-PRE-COMMIT-RAN
+feat: thing
+
+Co-authored-by: Alice Human <alice@example.com>
+Project-Note: added-by-project-commit-msg
+
+
+=== S3 adversarial: git -c core.hooksPath=<ours> (GIT_CONFIG_PARAMETERS) still runs project pre-commit ===
+PROJECT-PRE-COMMIT-RAN
+feat: thing
+
+Co-authored-by: Alice Human <alice@example.com>
+Project-Note: added-by-project-commit-msg
+
+
+=== S4 adversarial: valueless local core.hooksPath -> refuse, HEAD unmoved ===
+error: missing value for 'core.hookspath'
+fatal: bad config variable 'core.hookspath' in file '/tmp/fmlive.4hVc/repo/.git/config' at line 9
+error: missing value for 'core.hookspath'
+fatal: bad config variable 'core.hookspath' in file '/tmp/fmlive.4hVc/repo/.git/config' at line 9
+rc=128 head-moved=yes
+
+=== S5 release: binding removed + hooks dir deleted; successor binding untouched ===
+release rc=0
+binding after release: '' dir-exists=no
+successor binding kept: /some/successor
+release on gone worktree rc=0
+
+=== S6 install-mirror: only commit-msg written, receive hooks byte-identical, existing commit-msg chained ===
+install-mirror rc=0
+commit-msg
+commit-msg.fm-prev
+post-receive
+pre-receive
+receive hooks byte-identical: yes
+reinstall rc=0 unchanged=yes
+feat: thing
+
+Co-authored-by: Alice Human <alice@example.com>
+Prev-Hook: ran
+
+
+=== S6b mirror hook fails open when strip script vanishes ===
+commit rc=0 head=fail-open check
