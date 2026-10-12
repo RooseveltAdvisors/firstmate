@@ -274,7 +274,7 @@ fm_session_lock_anchor_pid() {
 # held by a harness outside this ancestry under another (or no) session id, or
 # an ancestry that cannot be resolved all fail closed.
 fm_session_lock_owned_by_self() {
-  local lock=$1/.lock lock_pid pids pid
+  local state=$1 lock=$1/.lock lock_pid pids pid
   lock_pid=$(
     lock_file=$lock
     lock_value=
