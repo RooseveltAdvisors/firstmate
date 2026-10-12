@@ -150,7 +150,9 @@
 #      `resolved` never become current state or detail.
 #   5. Missing meta or torn-down worktree: report unknown · none. If no run is
 #      attributed to this crew, a dead endpoint also reports unknown · none rather
-#      than trusting a stale status log. On tmux and herdr, which own a
+#      than trusting a stale status log, except that a stopped seat whose
+#      declared pause names a recheck time still ahead reports paused ·
+#      status-log (bin/fm-control.sh park). On tmux and herdr, which own a
 #      recovery-grade classifier, only its positive death evidence reads as gone
 #      (the endpoint is authoritatively absent, or its pane holds no agent); an
 #      endpoint that merely failed to answer reports unknown · none as
@@ -1300,6 +1302,19 @@ if ! pane_readable "$BACKEND_TARGET"; then
   case "$TASK_BACKEND" in
     tmux|herdr) AGENT_STATE=$(fm_backend_agent_state "$TASK_BACKEND" "$BACKEND_TARGET") ;;
     *) AGENT_STATE=none ;;
+  esac
+  # A confidently stopped seat whose declared pause names a recheck time that
+  # has not passed is parked on purpose (bin/fm-control.sh park), the same
+  # admission the watcher's pause cadence makes for a dead crew. Report that
+  # declared wait rather than unknown; once the stated time passes, the
+  # death-class verdicts below apply again.
+  case "$TASK_BACKEND:$AGENT_STATE" in
+    tmux:missing|herdr:missing|tmux:dead|herdr:dead)
+      PARK_LINE=$(status_declared_wait_line "$LOG")
+      if PARK_UNTIL=$(status_paused_until "$PARK_LINE") && [ "$(date +%s)" -lt "$PARK_UNTIL" ]; then
+        emit paused status-log "$(status_line_note "$PARK_LINE")${SEP}seat stopped"
+      fi
+      ;;
   esac
   case "$TASK_BACKEND:$AGENT_STATE" in
     tmux:alive|herdr:alive)
