@@ -479,6 +479,7 @@ Task meta records `backend=` only for a non-default backend; an absent `backend=
   Dead, ambiguous, unreadable, unsupported, or mismatched endpoint identities are never stamped, and existing bindings are never overwritten.
   Only positive facts are terminal: a dead or missing endpoint from a reachable backend (a Herdr `missing` is rechecked with its session server running first), or record metadata the shared endpoint validator refuses; the record gains a class-named `endpoint_binding_verdict=terminal: <class>` and later starts never probe it again.
   Every failure to observe, including unreadable, ambiguous, unverified, mismatched, or multiply-claimed endpoints, is retryable and never persisted, because a read that could not complete is never evidence of death.
+  Records on a known backend the migration cannot verify (anything other than tmux and Herdr) are skipped from their recorded `backend=` without a probe, a budget charge, or a verdict, so they re-enter probing if verification support lands.
   Each start allows at most 16 retryable probes, prints nothing when no record changed, and otherwise prints one `ENDPOINT_BINDING_MIGRATION:` summary line; rerunning after an interruption safely converges the remaining records.
 
 - A herdr task additionally records `herdr_session=`, `herdr_workspace_id=`, `herdr_tab_id=`, `herdr_pane_id=`, and `herdr_task_label=`.
