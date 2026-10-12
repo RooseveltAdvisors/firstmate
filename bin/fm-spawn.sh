@@ -2611,7 +2611,7 @@ if ! { [ "${FM_TEST_SEAM:-}" = 1 ] && [ "${FM_TEST_DISABLE_JEV_PROBER:-0}" = 1 ]
 fi
 
 # Jev Pattern 11: Auto-reconcile dormant completed babysitter seats
-if [ "${FM_TEST_DISABLE_JEV_RECONCILER:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-seat-reconciler.sh" ]; then
+if [ "${FM_DISABLE_JEV_SEAT_RECONCILER:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-seat-reconciler.sh" ]; then
   "$SCRIPT_DIR/fm-jev-seat-reconciler.sh" --reconcile >/dev/null 2>&1 || true
 fi
 
@@ -3219,6 +3219,8 @@ else
   WT=""
   BRIEF="$DATA/$ID/brief.md"
 fi
+# The captain's brief; a worker's BRIEF later becomes the rendered launch brief.
+SOURCE_BRIEF=$BRIEF
 # Project capacity admission (bin/fm-project-capacity-lib.sh owns the
 # declaration, what holds a place, and why this is race-safe). A fresh worker
 # for a project whose declared capacity is already held is deferred here, before
@@ -3313,7 +3315,6 @@ if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
   fi
   # Use the existing launch-brief overlay for every worker kind, including
   # pre-scope briefs and relaunches. Charters never enter this worker path.
-  SOURCE_BRIEF=$BRIEF
   BRIEF="$DATA/$ID/launch-brief.md"
   BRIEF_TMP="$DATA/$ID/.launch-brief.md.${BASHPID:-$$}"
   {
@@ -3788,10 +3789,10 @@ if [ "$BACKEND" = herdr ]; then
       /^# Task[[:space:]]*$/ { in_task=1; next }
       in_task && /^#/ { exit }
       in_task && NF { print; exit }
-    ' "$BRIEF")
+    ' "$SOURCE_BRIEF")
   fi
   if [ -z "$HERDR_TASK_TITLE" ]; then
-    HERDR_TASK_TITLE=$(awk '!/^#/ && NF { print; exit }' "$BRIEF")
+    HERDR_TASK_TITLE=$(awk '!/^#/ && NF { print; exit }' "$SOURCE_BRIEF")
   fi
   HERDR_TASK_LABEL=$(fm_backend_herdr_task_label "$HERDR_TASK_TITLE" "$ID")
 fi
@@ -4747,7 +4748,7 @@ esac
 # can plant or swap a file in it. The staged launch command lives in a sibling
 # directory namespaced by home identity, not in this shared per-id root.
 TASK_TMP="/tmp/fm-$ID"
-[ -x "$SCRIPT_DIR/fm-jev-temp-sanitizer.sh" ] && "$SCRIPT_DIR/fm-jev-temp-sanitizer.sh" --target "$ID" --sanitize >/dev/null 2>&1 || true
+[ "${FM_DISABLE_JEV_TEMP_SANITIZER:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-temp-sanitizer.sh" ] && "$SCRIPT_DIR/fm-jev-temp-sanitizer.sh" --target "$ID" --sanitize >/dev/null 2>&1 || true
 if ! (umask 077 && mkdir "$TASK_TMP") 2>/dev/null; then
   if [ -L "$TASK_TMP" ] || [ ! -d "$TASK_TMP" ] || [ ! -O "$TASK_TMP" ] ||
     [ -n "$(find "$TASK_TMP" -prune \( -perm -g=w -o -perm -o=w \) -print 2>/dev/null)" ] ||

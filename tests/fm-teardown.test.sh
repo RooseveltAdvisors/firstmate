@@ -1562,7 +1562,7 @@ test_forced_secondmate_child_scout_nested_clone_returns_clean() {
   add_treehouse_clean_fd "$case_dir"
 
   rc=0
-  run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  run_teardown "$case_dir" --force --retire-secondmate task-x1 > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
 
   expect_code 0 "$rc" "secondmate-child-nested-clean: forced secondmate teardown should succeed"
   [ -z "$(git -C "$child_wt" status --porcelain --untracked-files=all)" ] \
@@ -1614,7 +1614,7 @@ test_forced_secondmate_dirty_child_return_warns_and_completes() {
   add_treehouse_that_leaves_residue "$case_dir"
 
   rc=0
-  run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  run_teardown "$case_dir" --force --retire-secondmate task-x1 > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
 
   expect_code 4 "$rc" "secondmate-child-dirty-return: a lost child slot should exit 4 after retirement"
   assert_grep "lost this slot" "$case_dir/stderr" \

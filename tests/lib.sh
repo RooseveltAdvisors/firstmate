@@ -52,6 +52,16 @@ export FM_GATE_REFUSE_BYPASS=1
 # leaked harness pin alone stays inert outside a suite.
 export FM_TEST_SEAM=1
 
+# The watcher, spawn, PR, merge and teardown paths run the house Jev hooks
+# (bin/fm-jev-*.sh) against the real host - git refs, worktrees, disk, herdr
+# sessions, forge APIs. In a test home that touches the host, stalls the watcher
+# poll, and adds forge calls a case counts. Disable every gated hook in bin/.
+while IFS= read -r _var; do
+  [ -n "$_var" ] || continue
+  export "$_var=1"
+done < <(grep -oh 'FM_DISABLE_JEV_[A-Z0-9_]*' "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"/bin/*.sh 2>/dev/null | sort -u)
+unset _var
+
 # Every spawn runs bin/fm-jev-quota-prober.sh, which refuses a lane quota-axi
 # reports exhausted. Under the seam above it reads this all-healthy quota-axi
 # snapshot instead of the host's quota-axi; a case that needs other quota

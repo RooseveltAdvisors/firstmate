@@ -12,6 +12,9 @@ VERIFY_PY="$ROOT/bin/fm-jev-done-verify.py"
 [ -x "$VERIFY_PY" ] || fail "bin/fm-jev-done-verify.py missing or not executable"
 
 TDIR=$(fm_test_tmproot fm-jev-done-test)
+# Task meta, status and telemetry resolve from this home, never the host's.
+export FM_STATE_OVERRIDE="$TDIR/state"
+mkdir -p "$FM_STATE_OVERRIDE"
 
 # 1. Ephemeral residue rejection
 set +e
@@ -40,6 +43,12 @@ out_clean=$("$VERIFY_SH" --task "fm-claimmd-billing" --status-line "done: PR htt
 assert_contains "$out_clean" "VERDICT: verified" "clean task verified"
 
 # 4. Unpushed branch rejection (Tier 1)
+UNPUSHED_WT="$TDIR/unpushed-wt"
+git init -q -b main "$UNPUSHED_WT"
+git -C "$UNPUSHED_WT" commit -q --allow-empty -m "initial commit"
+git -C "$UNPUSHED_WT" checkout -q -b fm/fm-uiq-dup-merge
+git -C "$UNPUSHED_WT" commit -q --allow-empty -m "dry-run"
+printf 'worktree=%s\n' "$UNPUSHED_WT" > "$FM_STATE_OVERRIDE/fm-uiq-dup-merge.meta"
 set +e
 out_unpushed=$("$VERIFY_SH" --task "fm-uiq-dup-merge" --status-line "done: dry-run committed on branch fm/fm-uiq-dup-merge" 2>&1)
 rc_unpushed=$?

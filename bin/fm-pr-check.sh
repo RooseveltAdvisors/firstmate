@@ -151,32 +151,32 @@ if { [ -z "$PR_HEAD" ] || ! fm_dod_forge_head_is_named_head "$MODE"; } \
 fi
 
 # Pattern 10: Jev Zero-CI & Workflow Landing Gate Verifier
-if [ -x "$FM_ROOT/bin/fm-jev-ci-workflow-guard.sh" ] && [ -n "$WT" ] && [ -d "$WT" ]; then
+if [ "${FM_DISABLE_JEV_CI_WORKFLOW_GUARD:-0}" != 1 ] && [ -x "$FM_ROOT/bin/fm-jev-ci-workflow-guard.sh" ] && [ -n "$WT" ] && [ -d "$WT" ]; then
   "$FM_ROOT/bin/fm-jev-ci-workflow-guard.sh" --repo-dir "$WT" --pr "$URL" --json > "$STATE/pr-$ID.ci-guard.json" 2>/dev/null || true
 fi
 
 # Pattern 12: Jev PR Failure Classifier & Root-Cause Triage Engine
-if [ -x "$FM_ROOT/bin/fm-jev-pr-triage.sh" ] && command -v gh >/dev/null 2>&1; then
+if [ "${FM_DISABLE_JEV_TRIAGE:-0}" != 1 ] && [ -x "$FM_ROOT/bin/fm-jev-pr-triage.sh" ] && command -v gh >/dev/null 2>&1; then
   "$FM_ROOT/bin/fm-jev-pr-triage.sh" --pr "$URL" --json > "$STATE/pr-$ID.triage.json" 2>/dev/null || true
 fi
 
 # Pattern 13: Jev Flake vs Regression Disambiguator & Auto-Rerun Gatekeeper
-if [ -x "$FM_ROOT/bin/fm-jev-flake-detector.sh" ] && command -v gh >/dev/null 2>&1; then
+if [ "${FM_DISABLE_JEV_TRIAGE:-0}" != 1 ] && [ -x "$FM_ROOT/bin/fm-jev-flake-detector.sh" ] && command -v gh >/dev/null 2>&1; then
   "$FM_ROOT/bin/fm-jev-flake-detector.sh" --pr "$URL" --json > "$STATE/pr-$ID.flake.json" 2>/dev/null || true
 fi
 
 # Pattern 16: Jev Memory & Instruction Token Budget Enforcer
-if [ -x "$FM_ROOT/bin/fm-jev-token-budget.sh" ] && [ -n "$WT" ] && [ -d "$WT" ]; then
+if [ "${FM_DISABLE_JEV_TRIAGE:-0}" != 1 ] && [ -x "$FM_ROOT/bin/fm-jev-token-budget.sh" ] && [ -n "$WT" ] && [ -d "$WT" ]; then
   "$FM_ROOT/bin/fm-jev-token-budget.sh" --repo-path "$WT" --json > "$STATE/pr-$ID.token-budget.json" 2>/dev/null || true
 fi
 
 # Pattern 17: Jev Continuous Test Flake Quarantine & Auto-Bisect
-if [ -x "$FM_ROOT/bin/fm-jev-quarantine.sh" ] && command -v gh >/dev/null 2>&1; then
+if [ "${FM_DISABLE_JEV_TRIAGE:-0}" != 1 ] && [ -x "$FM_ROOT/bin/fm-jev-quarantine.sh" ] && command -v gh >/dev/null 2>&1; then
   "$FM_ROOT/bin/fm-jev-quarantine.sh" --pr "$URL" --json > "$STATE/pr-$ID.quarantine.json" 2>/dev/null || true
 fi
 
 # Pattern 23: Jev Autonomous CI Runner Health & Shard Load Balancer
-if [ "$PROVIDER" = github ] && [ -x "$FM_ROOT/bin/fm-jev-runner-balancer.sh" ] && command -v gh >/dev/null 2>&1; then
+if [ "$PROVIDER" = github ] && [ "${FM_DISABLE_JEV_RUNNER_BALANCER:-0}" != 1 ] && [ -x "$FM_ROOT/bin/fm-jev-runner-balancer.sh" ] && command -v gh >/dev/null 2>&1; then
   "$FM_ROOT/bin/fm-jev-runner-balancer.sh" --repo "$PROJECT_PATH" --json > "$STATE/pr-$ID.runner-balancer.json" 2>/dev/null || true
 fi
 META_TMP=

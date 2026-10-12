@@ -179,15 +179,9 @@ config_rc=\$?
 if [ \$config_rc -eq 0 ] && [ -z "\$hooks_path" ]; then
   exit 0
 fi
-(unset GIT_CONFIG_PARAMETERS; git rev-parse --path-format=absolute --git-path hooks >/dev/null) 2>/dev/null
+(unset GIT_CONFIG_PARAMETERS; git rev-parse --path-format=absolute --git-path hooks >/dev/null)
 echo "fm-git-strip-ai-trailers: cannot resolve this repository's hooks directory; refusing to skip its \$name hook" >&2
 exit 1
-if [ "\$orig" = "\$ours" ]; then
-  exit 0
-fi
-if [ -x "\$orig/\$name" ]; then
-  exec "\$orig/\$name" "\$@"
-fi
 EOF
 }
 

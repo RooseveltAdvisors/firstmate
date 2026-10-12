@@ -859,7 +859,7 @@ EOF
   printf 'verified: %s is open and mergeable, with every unwaived required check reported and every unwaived check green at head %s\n' \
     "$URL" "$live_head" >&2
   # Pattern 10: Jev Zero-CI & Workflow Landing Gate Verifier hook
-  if [ -x "$SCRIPT_DIR/fm-jev-ci-workflow-guard.sh" ]; then
+  if [ "${FM_DISABLE_JEV_CI_WORKFLOW_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-ci-workflow-guard.sh" ]; then
     "$SCRIPT_DIR/fm-jev-ci-workflow-guard.sh" --pr "$PR_NUMBER" --repo "$PR_OWNER/$PR_REPO" 2>&1 | while IFS= read -r guard_line; do
       printf 'jev-ci-guard: %s\n' "$guard_line" >&2
     done || true
@@ -1489,7 +1489,7 @@ case "$outcome_rc" in
 esac
 
 # Pattern 15: Jev Post-Merge Worktree Convergence Audit (Fail-Open)
-if [ -x "$SCRIPT_DIR/fm-jev-worktree-sync.sh" ]; then
+if [ -x "$SCRIPT_DIR/fm-jev-worktree-sync.sh" ] && [ "${FM_DISABLE_JEV_WORKTREE_SYNC:-0}" != 1 ]; then
   printf 'jev-worktree-sync: auditing active worktrees for %s...\n' "${PR_REPO:-fleet}"
   "$SCRIPT_DIR/fm-jev-worktree-sync.sh" --repo-name "${PR_REPO:-}" 2>&1 || true
 fi

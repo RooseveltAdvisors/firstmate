@@ -48,6 +48,11 @@ make_stub() {  # <case-dir>
 #!/usr/bin/env bash
 set -u
 D=$FM_FAKE_DIR
+# bin/backends/tmux.sh may target with tmux's exact-match '=' prefixes
+# (=session:=window); resolve them to the same pane as the bare target.
+args=()
+for a in "$@"; do a=${a/#=/}; args+=("${a/:=/:}"); done
+set -- ${args[@]+"${args[@]}"}
 case "${1:-}" in
   send-keys)
     shift

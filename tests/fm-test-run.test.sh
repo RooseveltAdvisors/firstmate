@@ -1198,7 +1198,9 @@ test_portable_serial_packing_budget_boundary() {
   repo="$tmp/repo"
   mkdir -p "$repo/bin" "$repo/tests"
   # Preserve the real inventory and packing policy without executing suites.
-  # Only the fixture's measured timing input changes at the boundary.
+  # Only the fixture's measured timing input changes at the boundary: every
+  # other serial hint shrinks to 1ms so the boundary script packs alone in its
+  # shard, whatever headroom the real lane has left.
   while IFS= read -r script; do
     printf '#!/usr/bin/env bash\nexit 0\n' >"$repo/$script"
   done < <("$RUNNER" --list --all)
@@ -1210,11 +1212,15 @@ test_portable_serial_packing_budget_boundary() {
 from pathlib import Path
 import re, sys
 runner = Path(sys.argv[1])
-runner.write_text(re.sub(
-    r"(?m)^tests/fm-watch-triage\.test\.sh [0-9]+$",
+head, sep, rest = runner.read_text().partition("portable_serial_weight_hints() {\n")
+table, end, tail = rest.partition("\nEOF\n")
+table = re.sub(r"(?m)^(tests/\S+\.test\.sh) [0-9]+$", r"\1 1", table)
+table = re.sub(
+    r"(?m)^tests/fm-watch-triage\.test\.sh 1$",
     f"tests/fm-watch-triage.test.sh {sys.argv[2]}",
-    runner.read_text(),
-))
+    table,
+)
+runner.write_text(head + sep + table + end + tail)
 PY
     out=$(bash "$repo/bin/fm-test-run.sh" --check-coverage 2>&1) && rc=0 || rc=$?
     if [ "$weight" -eq 1200000 ]; then
