@@ -9,6 +9,14 @@ GUARD_SH="$FM_ROOT/bin/fm-jev-rpc-buffer-guard.sh"
 pass() { echo "ok - $*"; }
 fail() { echo "not ok - $*" >&2; exit 1; }
 
+# Audit a fixture state directory, never the host's live queues: one seat with
+# six pending messages - under the default per-inbox ceiling, over a ceiling of 5.
+FM_STATE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/fm-jev-rpc-buffer.XXXXXX")
+export FM_STATE_DIR
+trap 'rm -rf "$FM_STATE_DIR"' EXIT
+mkdir "$FM_STATE_DIR/seat.inbox"
+for n in 1 2 3 4 5 6; do : > "$FM_STATE_DIR/seat.inbox/00$n.msg"; done
+
 # 1. ShellCheck validation
 if command -v shellcheck >/dev/null 2>&1; then
   shellcheck "$GUARD_SH" || fail "shellcheck failed on fm-jev-rpc-buffer-guard.sh"

@@ -475,6 +475,12 @@ A backend spawn refusal from a missing dependency, version gate, or unauthentica
 Task meta records `backend=` only for a non-default backend; an absent `backend=` means `tmux`, preserving existing default-path meta files.
 
 - Every new task records `endpoint_task_id=` as the cleanup binding between the metadata filename and its opaque runtime endpoint.
+  Locked session-start bootstrap runs `fm-endpoint-binding-migrate.sh` against only the current home's legacy task metadata and adds that binding only after the existing endpoint verifier proves the exact live endpoint, liveness, and recorded worktree identity agree for the task.
+  Dead, ambiguous, unreadable, unsupported, or mismatched endpoint identities are never stamped, and existing bindings are never overwritten.
+  Only positive facts are terminal: a dead or missing endpoint from a reachable backend (a Herdr `missing` is rechecked with its session server running first), or record metadata the shared endpoint validator refuses; the record gains a class-named `endpoint_binding_verdict=terminal: <class>` and later starts never probe it again.
+  Every failure to observe, including unreadable, ambiguous, unverified, mismatched, or multiply-claimed endpoints, is retryable and never persisted, because a read that could not complete is never evidence of death.
+  Records on a known backend the migration cannot verify (anything other than tmux and Herdr) are skipped from their recorded `backend=` without a probe, a budget charge, or a verdict, so they re-enter probing if verification support lands.
+  Each start allows at most 16 retryable probes, prints nothing when no record changed, and otherwise prints one `ENDPOINT_BINDING_MIGRATION:` summary line; rerunning after an interruption safely converges the remaining records.
 
 - A herdr task additionally records `herdr_session=`, `herdr_workspace_id=`, `herdr_tab_id=`, `herdr_pane_id=`, and `herdr_task_label=`.
 
@@ -850,10 +856,19 @@ Kimi continues to use the captain's normal Kimi home, including the existing con
 The Kimi installer requires an existing regular non-symlink `~/.kimi-code/config.toml`, `python3` with `tomllib`, and `jq`; it validates but never serializes the captain's TOML and refuses before writing when the config is missing, malformed, or surprising or when either tool requirement is unavailable.
 
 Its `remove` action excises only the marker-delimited Firstmate region and removes Firstmate's hook files.
-For Pi and pi-signed secondmate launches, `fm-spawn.sh` starts the selected executable with `-e` pointed at the secondmate home's own tracked `.pi/extensions/fm-primary-pi-watch.ts` and `.pi/extensions/fm-primary-turnend-guard.ts`, both already present from the secondmate home's git worktree.
+For Pi and pi-signed secondmate launches, `fm-spawn.sh` starts the selected executable with `-e` pointed at the secondmate home's own tracked `.pi/extensions/fm-primary-pi-watch.ts` and `.pi/extensions/fm-primary-turnend-guard.ts`, both already present from the secondmate home's git worktree, plus the parent home's `state/<id>.pi-ext.ts` busy extension.
 Pi-family secondmates can start unattended in Firstmate-seeded homes without accepting project trust manually; [`fm-spawn.sh --help`](../bin/fm-spawn.sh) owns the capability requirement, session-only approval scope, and older-version fallback, with [regression evidence](verification/runtime-backends.md#pi-seeded-secondmate-project-trust).
 
-For omp secondmate launches, `fm-spawn.sh` passes no `-e` at all: omp auto-discovers the home's tracked `.omp/extensions/` with no trust gate, and naming a discovered file with `-e` as well loads it twice; every omp launch instead carries the tracked `.omp/fm-worker-overlay.yml` posture overlay through `--config`, which [`fm-spawn.sh --help`](../bin/fm-spawn.sh) owns.
+For omp secondmate launches, `fm-spawn.sh` names only the parent home's `state/<id>.omp-ext.ts` busy extension with `-e`: omp auto-discovers the home's tracked `.omp/extensions/` with no trust gate, and naming a discovered file with `-e` as well loads it twice; every omp launch also carries the tracked `.omp/fm-worker-overlay.yml` posture overlay through `--config`, which [`fm-spawn.sh --help`](../bin/fm-spawn.sh) owns.
+
+For a Claude secondmate, `fm-spawn.sh` writes the busy hooks into the parent home's `state/<id>.claude-settings.json` and passes that file as Claude Code's one `--settings` value.
+The same file carries `feedbackDrafts` and, unless `config/keep-ai-trailers` is present, the attribution policy every other Claude launch puts in its inline `--settings` JSON.
+Claude Code applies `--settings` for that session and does not write the file into the mate home.
+A key the file sets overrides the same key in user, project, and local settings.
+A key it omits keeps the file-based value, so a `.claude/settings.local.json` already in the home is left untouched.
+Hook entries merge across settings files rather than replacing each other, so the home's tracked Stop guard still runs beside these hooks.
+The CLI reference documents the one file-or-JSON flag, the settings page documents session precedence, and the hooks page documents the hooks merge: <https://code.claude.com/docs/en/cli-reference>, <https://code.claude.com/docs/en/settings>, <https://code.claude.com/docs/en/hooks>.
+[`fm-spawn.sh`](../bin/fm-spawn.sh) owns the file and the flag.
 
 ## Claude permission mode (config/claude-permission-mode)
 
@@ -871,7 +886,7 @@ The token is the file's whitespace-trimmed content.
 An absent file defaults to bypass, so an unconfigured home launches with the bypass permission flag.
 Auto is Claude Code's classifier-reviewed permission mode, for a captain who refuses to run workers in bypass mode.
 Only the permission flag changes between the two modes.
-The environment prefix, inline settings, model, effort flags, and the task-channel `--add-dir` grant below stay the same in both.
+The environment prefix, session settings, model, effort flags, and the task-channel `--add-dir` grant below stay the same in both.
 
 Every Claude launch, in both modes, also passes `--add-dir` for exactly this task's Firstmate channel directories, resolved to real paths: a secondmate gets the parent home's `state/<id>.inbox` it reads its steers from; a ship or scout worker gets this home's `state/operational-inbox` (its launch record), `state/<id>.inbox` (its steers), `data/<id>` (its brief and report), and the code root's `.agents/skills`.
 The grant exists because Claude Code path-checks the Read/Glob/Grep file tools against cwd plus `--add-dir`, and since 2.1.257 the first outside read in `auto` mode parks the pane on a one-time interactive question, while a "Block" answer there writes `permissions.blockReadsOutsideWorkingDirectories` into user settings and then refuses the same reads under bypass too.
@@ -1079,6 +1094,29 @@ A repository whose config sets `core.hooksPath` to the empty string runs no proj
 When stripping is enabled, the hooks directory is read-only, so a hook manager run inside a fleet pane (lefthook's npm postinstall, `pre-commit install`) fails instead of displacing the strip; install a project's hooks from outside the pane, where the wrappers chain them.
 The flag is a home-wide attribution choice, so it is inherited into secondmate homes under the [`secondmate-provisioning`](../.agents/skills/secondmate-provisioning/SKILL.md) inherited-local-material contract and a secondmate's own workers keep AI trailers too.
 Per-machine Cursor `cli-config.json` attribution-off is not this contract: it does not travel with Firstmate, defaults back to on when unset, and only feeds the CLI's request to the server, so it suppresses the trailer rather than preventing it.
+
+## Project capacity (config/project-capacity)
+
+The optional local, gitignored `config/project-capacity` tells Firstmate how many workers a project can run at once on this machine, for a project whose machine-local resource - a heavy test suite, a local editor stack, a device - only serves a few workers at a time.
+Without it, dispatch stays uncapped as `AGENTS.md` section 7 describes, and a surplus worker is launched only to spend full-context turns waiting for the resource.
+The file lives in the machine's root Firstmate home, so every local secondmate home reads the same limit, and it holds one line per project:
+
+```text
+# heavy suite serves two workers
+my-project 2
+```
+
+The name is the project's registered name, which is its clone directory name and may contain spaces, and the number, the last field on the line, is a positive integer.
+A line that is only `#`, or that begins with `#` followed by whitespace, is a comment, as is a `#` line whose last field is not an integer.
+A project name may begin with `#` when that `#` is written immediately against the rest of the name and the line ends with the project's capacity.
+A name that is `#`, or that begins with `#` and a space, cannot be declared, because that line is a comment.
+A place is held by every ship or scout on that project in the root home or any local secondmate home registered under it, including one working in a separate clone of the same origin, until its ready PR is recorded or it is cleaned up; a local-only ship or a scout holds its place until cleanup.
+The declaration is matched by the spawning clone's directory name, so clones of the same origin share the cap only when they use that same directory name.
+A clone of that origin under a different directory name finds no declaration and is not capped, though its workers are still counted as holders for a same-origin clone that is capped.
+When every place is held, `bin/fm-spawn.sh` launches nothing, creates no record, leaves the backlog item queued, prints one `deferred:` line naming the holders, and exits 75, so Firstmate dispatches the item again once a place frees.
+A malformed or unreadable file refuses every fresh ship or scout spawn until it is fixed, rather than guessing the intended limit, and so does a local home's state directory or task record that cannot be read while counting a capped project's holders.
+Firstmate cannot see which part of a worker's life uses the resource, so the number bounds whole workers from launch to handoff, and the tightest resource every worker needs should decide it.
+[`bin/fm-project-capacity-lib.sh`](../bin/fm-project-capacity-lib.sh) owns the file format, what holds a place, and why concurrent spawns cannot both take the last one.
 
 ## Crew dispatch profiles (config/crew-dispatch.json)
 

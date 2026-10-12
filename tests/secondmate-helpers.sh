@@ -54,6 +54,9 @@ case "${1:-}" in
       if [ "$prev" = -t ]; then session=$arg; break; fi
       prev=$arg
     done
+    # bin/backends/tmux.sh targets sessions with tmux's exact-match '='
+    # prefix; strip it like real tmux does before matching.
+    session=${session#=}
     while IFS= read -r recorded; do
       [ -n "$recorded" ] || continue
       if [ -z "$session" ]; then

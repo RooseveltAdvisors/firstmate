@@ -33,7 +33,7 @@ echo "ok - json schema valid"
 echo "ok - --check passed cleanly"
 
 # 5. Low warning threshold flags properly
-if "$GUARD_SH" --warning-pct 0.000001 --check >/dev/null 2>&1; then
+if "$GUARD_SH" --warning-pct 0 --check >/dev/null 2>&1; then
     echo "FAILED: low warning threshold should have exited non-zero"
     exit 1
 else

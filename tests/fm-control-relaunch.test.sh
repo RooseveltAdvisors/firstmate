@@ -985,6 +985,49 @@ test_secondmate_relaunch_picks_up_the_configured_harness_pin() {
   pass "fm-control relaunch: a secondmate relaunch re-resolves its durable configured harness pin"
 }
 
+test_secondmate_claude_relaunch_keeps_local_settings() {
+  local dir home prior settings out rc
+  dir=$(new_case smlocal sml)
+  home="$dir/home"
+  mkdir -p "$home/config" "$home/data/sml"
+  printf 'codex\n' > "$home/config/secondmate-harness"
+  printf '# secondmate brief\n' > "$home/data/sml/brief.md"
+  fm_git_worktree "$dir/proj" "$dir/smhome" sm-local-branch
+  mkdir -p "$dir/smhome/state" "$dir/smhome/data" "$dir/smhome/bin" "$dir/smhome/.claude"
+  printf 'sml\n' > "$dir/smhome/.fm-secondmate-home"
+  printf '# agents\n' > "$dir/smhome/AGENTS.md"
+  prior='{"permissions":{"allow":["Bash(echo hi)"]}}'
+  printf '%s\n' "$prior" > "$dir/smhome/.claude/settings.local.json"
+  printf '%s\n' '{"feedbackDrafts":"on"}' > "$home/state/sml.claude-settings.json"
+  printf 'gen=retired\n' > "$dir/smhome/.fm-busy-stop"
+  {
+    echo "window=fmses:fm-sml"
+    echo "endpoint_task_id=sml"
+    echo "worktree=$dir/smhome"
+    echo "project=$dir/smhome"
+    echo "harness=claude"
+    echo "kind=secondmate"
+    echo "mode=secondmate"
+    echo "yolo=off"
+    echo "model=default"
+    echo "effort=default"
+    echo "home=$dir/smhome"
+  } > "$home/state/sml.meta"
+  printf '%s\n' "fm-sml" > "$dir/fake/windows"
+  printf '%s' "$dir/smhome" > "$dir/fake/cwd"
+  printf 'codex' > "$dir/fake/becomes"
+  out=$(run_control "$dir" sml relaunch); rc=$?
+  expect_code 0 "$rc" "a claude secondmate relaunch should retire wiring without touching local settings"$'\n'"$out"
+  settings="$dir/smhome/.claude/settings.local.json"
+  [ "$(cat "$settings")" = "$prior" ] \
+    || fail "relaunch rewrote the mate home's settings.local.json"
+  [ ! -e "$home/state/sml.claude-settings.json" ] \
+    || fail "relaunch left the retired claude settings file in place"
+  [ ! -e "$dir/smhome/.fm-busy-stop" ] \
+    || fail "relaunch left the retired Stop pointer in the mate home"
+  pass "fm-control relaunch: a claude secondmate keeps settings.local.json and retires the state settings file and the Stop pointer"
+}
+
 test_secondmate_relaunch_ignores_invalid_configured_effort_before_stop() {
   local dir home out rc
   dir=$(new_case invalid-effort sm6)
@@ -1841,12 +1884,12 @@ test_spawn_relaunch_refuses_a_pending_authoritative_close() {
   pass "fm-spawn --relaunch: pending closes refuse before replacement begins"
 }
 
-# make_herdr_stub <case-dir>: a canned Herdr CLI for the relaunch path. The
+# make_herdr_relaunch_stub <case-dir>: a canned Herdr CLI for the relaunch path. The
 # recorded pane is present and agent-free (a valid relaunch candidate), its
 # shell reports the worktree recorded in $FM_FAKE_DIR/cwd (mirroring the tmux
 # stub's cwd contract), and every invocation is logged to herdr-log so a test
 # can assert the adapter never relabeled the adopted endpoint's tab.
-make_herdr_stub() {
+make_herdr_relaunch_stub() {
   cat > "$1/fakebin/herdr" <<'SH'
 #!/usr/bin/env bash
 set -u
@@ -1913,7 +1956,7 @@ test_spawn_relaunch_preserves_the_recorded_herdr_task_label() {
   local dir wt out rc
   dir=$(new_case herdr-label rl50)
   add_ship_task "$dir" rl50 claude
-  make_herdr_stub "$dir"
+  make_herdr_relaunch_stub "$dir"
   wt=$(meta_field "$dir" rl50 worktree)
   cat > "$dir/home/state/rl50.meta" <<EOF
 window=fake-herdr-session:pane-rl50
@@ -2594,6 +2637,7 @@ test_prior_harness_turnend_registry_entry_is_cleared
 test_wiring_removal_failure_refuses_before_replacement_arm
 test_turnend_auth_paths_are_owned_by_the_control_adapter
 test_secondmate_relaunch_picks_up_the_configured_harness_pin
+test_secondmate_claude_relaunch_keeps_local_settings
 test_secondmate_relaunch_ignores_invalid_configured_effort_before_stop
 test_secondmate_relaunch_onto_a_crewmate_only_adapter_refuses_before_stop
 test_explicit_secondmate_harness_ignores_configured_profile_axes

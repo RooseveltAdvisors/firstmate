@@ -59,8 +59,25 @@ assert res4["action"] == "PROCEED_TO_MERGE"
 ' || fail "classification unit tests failed"
 ok "check classification unit tests passed"
 
-printf '3. Verify live triage on Portal PR #1780...\n'
-out=$("$TRIAGE" --pr 1780 --repo ArcsHealth/Portal --json) || fail "live triage on PR 1780 failed"
+# Triage reads the PR through gh; answer it from a canned rollup of twelve
+# checks instead of a live forge (CI has no token for another repo's PR).
+FAKEBIN=$(mktemp -d "${TMPDIR:-/tmp}/fm-jev-pr-triage.XXXXXX")
+trap 'rm -rf "$FAKEBIN"' EXIT
+cat > "$FAKEBIN/gh" <<'SH'
+#!/usr/bin/env bash
+[ "$1 $2 $3" = "pr view 1780" ] || exit 1
+checks=
+for n in 1 2 3 4 5 6 7 8 9 10 11; do
+  checks="$checks{\"name\":\"CI/Test Suite ($n/11)\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"},"
+done
+checks="$checks{\"name\":\"Require no-mistakes/PR review attestation\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"}"
+printf '{"title":"t","state":"OPEN","mergeable":"MERGEABLE","headRefOid":"abc","url":"https://github.com/ArcsHealth/Portal/pull/1780","statusCheckRollup":[%s]}\n' "$checks"
+SH
+chmod +x "$FAKEBIN/gh"
+export PATH="$FAKEBIN:$PATH"
+
+printf '3. Verify triage on Portal PR #1780...\n'
+out=$("$TRIAGE" --pr 1780 --repo ArcsHealth/Portal --json) || fail "triage on PR 1780 failed"
 echo "$out" | python3 -c '
 import json, sys
 data = json.load(sys.stdin)
@@ -69,7 +86,7 @@ assert "triage" in data
 assert data["triage"]["counts"]["total"] >= 10
 assert data["triage"]["verdict"] in ("IN_FLIGHT", "BLOCKED_ON_BOT_GATE", "CODE_REGRESSION", "ALL_GREEN")
 ' || fail "malformed triage JSON"
-ok "live PR #1780 triaged successfully"
+ok "PR #1780 triaged successfully"
 
 printf '4. Verify Markdown formatting...\n'
 md_out=$("$TRIAGE" --pr 1780 --repo ArcsHealth/Portal --format markdown)
