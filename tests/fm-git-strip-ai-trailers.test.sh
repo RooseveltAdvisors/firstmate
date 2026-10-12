@@ -202,6 +202,23 @@ test_relative_project_hookspath_still_runs() {
   pass "a relative project core.hooksPath resolves against the worktree and still runs"
 }
 
+test_included_project_hookspath_still_runs() {
+  local repo hooks
+  repo="$TMP_ROOT/included-hookspath"
+  make_repo "$repo"
+  mkdir -p "$repo/.included-hooks"
+  write_marker_hook "$repo/.included-hooks/pre-commit" included-pre-commit
+  printf '[core]\n\thooksPath = %s\n' "$repo/.included-hooks" >"$TMP_ROOT/included-hookspath.gitconfig"
+  git -C "$repo" config include.path "$TMP_ROOT/included-hookspath.gitconfig"
+  hooks="$TMP_ROOT/hooks-included"
+  "$STRIP" install "$hooks" "$repo" || fail "install should succeed with an included core.hooksPath"
+  printf 'note\n' >>"$repo/README.md"
+  git -C "$repo" add README.md
+  with_hooks_env "$hooks" git -C "$repo" commit -q -m 'fix: included hookspath'
+  [ -f "$repo/included-pre-commit.ran" ] || fail "the core.hooksPath set through include.path was not chained"
+  pass "a core.hooksPath set through include.path is still chained"
+}
+
 test_inherited_hookspath_env_does_not_decide_the_chain() {
   local repo hooks parent
   repo="$TMP_ROOT/nested-spawn"
@@ -897,6 +914,7 @@ test_hook_manager_cannot_displace_the_strip
 test_reinstall_replaces_a_read_only_install
 test_previous_commit_msg_hook_still_runs
 test_relative_project_hookspath_still_runs
+test_included_project_hookspath_still_runs
 test_inherited_hookspath_env_does_not_decide_the_chain
 test_project_hook_generated_after_install_still_runs
 test_pane_hookspath_does_not_reroute_another_repository
