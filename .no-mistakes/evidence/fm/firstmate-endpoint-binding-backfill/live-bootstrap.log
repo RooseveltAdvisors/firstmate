@@ -1,0 +1,6 @@
+== bootstrap #1 (ENDPOINT_BINDING lines only)
+ENDPOINT_BINDING_MIGRATION: stamped 1; refused 1 (terminal reason recorded as endpoint_binding_verdict in each refused record)
+$LAB/state/closed.meta:endpoint_binding_verdict=terminal: missing endpoint
+$LAB/state/live.meta:endpoint_task_id=live
+== bootstrap #2 (ENDPOINT_BINDING lines only)
+  (none - converged silent)

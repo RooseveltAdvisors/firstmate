@@ -1,0 +1,12 @@
+lab session: fm-lab-epbind-359205-8662
+== server status
+{"id":"cli:workspace:list","result":{"type":"workspace_list","workspaces":[]}}
+
+== migrate run 1
+ENDPOINT_BINDING_MIGRATION: stamped 0; refused 1 (terminal reason recorded as endpoint_binding_verdict in each refused record)
+  rc=0
+  endpoint_binding_verdict=terminal: missing endpoint
+== migrate run 2
+  rc=0 stdout=[]
+== teardown
+  teardown rc=0

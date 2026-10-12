@@ -1,0 +1,48 @@
+== live tmux inventory (private socket)
+  fm-good cmd=claude cwd=/tmp/fm-lab.4vrbF8/wt-good
+  fm-shell cmd=zsh cwd=/tmp/fm-lab.4vrbF8/wt-shell
+  fm-late cmd=claude cwd=/tmp/fm-lab.4vrbF8/wt-late
+== run 0: lock NOT owned by this session
+ENDPOINT_BINDING_MIGRATION: session lock is not owned by this session; migration did not run
+  rc=1
+== run 1 (lock owned by live claude harness pid 3604075)
+ENDPOINT_BINDING_MIGRATION: stamped 2; refused 23 (terminal reason recorded as endpoint_binding_verdict in each refused record)
+  rc=0
+  a01.meta   endpoint_binding_verdict=terminal: missing endpoint 
+  a02.meta   endpoint_binding_verdict=terminal: missing endpoint 
+  a03.meta   endpoint_binding_verdict=terminal: missing endpoint 
+  a04.meta   endpoint_binding_verdict=terminal: missing endpoint 
+  a05.meta   endpoint_binding_verdict=terminal: missing endpoint 
+  a06.meta   endpoint_binding_verdict=terminal: missing endpoint 
+  a07.meta   endpoint_binding_verdict=terminal: missing endpoint 
+  a08.meta   endpoint_binding_verdict=terminal: missing endpoint 
+  a09.meta   endpoint_binding_verdict=terminal: missing endpoint 
+  a10.meta   endpoint_binding_verdict=terminal: missing endpoint 
+  a11.meta   endpoint_binding_verdict=terminal: missing endpoint 
+  a12.meta   endpoint_binding_verdict=terminal: missing endpoint 
+  a13.meta   endpoint_binding_verdict=terminal: missing endpoint 
+  a14.meta   endpoint_binding_verdict=terminal: missing endpoint 
+  a15.meta   endpoint_binding_verdict=terminal: missing endpoint 
+  a16.meta   endpoint_binding_verdict=terminal: missing endpoint 
+  a17.meta   endpoint_binding_verdict=terminal: missing endpoint 
+  a18.meta   endpoint_binding_verdict=terminal: missing endpoint 
+  a19.meta   endpoint_binding_verdict=terminal: missing endpoint 
+  a20.meta   endpoint_binding_verdict=terminal: missing endpoint 
+  bad.meta   endpoint_binding_verdict=terminal: record shape: endpoint metadata refused by the shared endpoint validator 
+  bound.meta endpoint_task_id=bound 
+  gone.meta  endpoint_binding_verdict=terminal: missing endpoint 
+  good.meta  endpoint_task_id=good 
+  late.meta  endpoint_task_id=late 
+  mism.meta  
+  orc.meta   
+  shell.meta endpoint_binding_verdict=terminal: dead endpoint 
+== orc record unchanged?
+  backend=orca
+  window=firstmate:fm-orc
+  worktree=/tmp/fm-lab.4vrbF8/wt-good
+  project=/tmp/fm-lab.4vrbF8/proj
+  kind=scout
+== run 2 (converge)
+  rc=0 stdout=[]
+== stray candidates:
+  none
