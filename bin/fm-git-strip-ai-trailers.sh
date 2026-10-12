@@ -224,7 +224,8 @@ write_executable() {
 # other scope, so asking git for the effective core.hooksPath here would just
 # return this launch's own directory and chaining would stop. The scopes below
 # the binding are read instead - local, then global, then system, highest
-# precedence first - and git's default common-dir hooks path is used when none
+# precedence first, each following its include.path/includeIf files, which a
+# scoped git config read skips unless asked - and git's default common-dir hooks path is used when none
 # of them sets one, which is what the repository would resolve had this launch
 # never bound anything. A husky or lefthook directory that only appears after
 # npm install lands in local scope, so it is still found. Skip when the
