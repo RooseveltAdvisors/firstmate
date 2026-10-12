@@ -216,6 +216,11 @@ for meta in "$STATE"/*.meta; do
   if ! regular_file "$meta" || ! valid_task_id "$id" || ! unmigrated "$meta"; then
     continue
   fi
+  record_backend=$(fm_backend_of_meta "$meta")
+  case "$record_backend" in
+    tmux|herdr) ;;
+    *) fm_backend_is_known "$record_backend" && continue ;;
+  esac
   [ "$PROBE_BUDGET" -gt 0 ] || break
   require_session_lock || exit 1
   meta_lock=$(fm_meta_lock_path "$meta") || exit 1

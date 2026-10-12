@@ -172,6 +172,24 @@ test_retryable_probes_are_bounded_per_start() {
   pass 'retryable probes are bounded per start'
 }
 
+test_unsupported_backends_are_skipped_before_budget() {
+  local dir out i
+  dir=$(make_case missing)
+  for i in $(seq -w 1 20); do
+    fm_write_meta "$dir/home/state/b$i.meta" \
+      "window=zellij:$i" 'backend=zellij' 'zellij_session=zellij' 'zellij_tab_id=1' \
+      "zellij_pane_id=$i" "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  done
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  out=$(FM_FAKE_MODE=missing run_locked "$dir") || fail "unsupported scan failed: $out"
+  ! grep -q '^endpoint_binding_verdict=\|^endpoint_task_id=' "$dir"/home/state/b*.meta \
+    || fail 'an unsupported-backend record was stamped or given a verdict'
+  grep -qx 'endpoint_task_id=good' "$dir/home/state/good.meta" \
+    || fail 'unsupported-backend records consumed the probe budget before the live task'
+  pass 'unsupported backends are skipped without a verdict or a probe budget charge'
+}
+
 make_herdr_case() {
   local dir
   dir=$(make_case "$1")
@@ -375,6 +393,7 @@ test_rerun_is_silent_and_never_reprobes_verdicts
 test_missing_endpoints_are_terminal_and_free
 test_record_shape_refusal_is_terminal
 test_retryable_probes_are_bounded_per_start
+test_unsupported_backends_are_skipped_before_budget
 test_herdr_absent_pane_is_terminal
 test_herdr_stopped_server_recheck_stays_retryable
 test_herdr_failed_server_ensure_stays_retryable
