@@ -1,0 +1,6 @@
+spawned happy1 harness=sleep kind=ship mode=local-only yolo=off window=primary:fm-happy1 worktree=/home/jon/.treehouse/proj-3dcc69/1/proj
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.dgUGia
+warning: /tmp/fm-lab.dgUGia/data/happy1/launch-brief.md records no ship branch; defaulting to legacy branch fm/happy1
+warning: /tmp/fm-lab.dgUGia/data/happy1/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
+notice: happy1 ships mode=local-only while the standing posture for proj is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+RC=0

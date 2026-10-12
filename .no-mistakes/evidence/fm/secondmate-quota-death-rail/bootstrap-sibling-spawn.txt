@@ -1,0 +1,9 @@
+### lab tmux windows before
+primary: bash bash @0
+primary:fm-happy1 sleep @1
+primary:fm-sm1 bash @2
+### fm-bootstrap.sh output (spawn lock for sm1 held by live pid)
+PRESENTATION_UNAVAILABLE: lavish-axi (requires >=0.1.77; install: npm install -g lavish-axi && lavish-axi setup hooks) - nonvisual work may proceed with plain-text decisions and reports; install or upgrade before using Lavish
+SECONDMATE_LIVENESS: secondmate sm1: skipped: a spawn of sm1 is already in progress (pid 3358036); relaunch left to it
+SECONDMATE_SYNC: secondmate sm1: skipped: primary default-branch commit cannot be resolved
+RC=0

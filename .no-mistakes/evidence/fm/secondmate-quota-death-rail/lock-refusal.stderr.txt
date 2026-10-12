@@ -1,0 +1,5 @@
+### spawn lock held by sibling
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.dgUGia
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+error: another spawn is already creating task lock3
+RC=1
