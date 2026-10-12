@@ -93,9 +93,48 @@ test_evidence_bound_scan() {
     || fail 'existing binding changed'
   ! compgen -G "$dir/home/state/.fm-endpoint-binding-*" >/dev/null \
     || fail 'scan left migration state behind'
-  assert_contains "$out" 'task good: stamped - exact live endpoint identity verified' 'stamp was not reported'
-  assert_contains "$out" 'task dead: skipped - dead endpoint' 'dead endpoint was not reported'
+  grep -qx 'endpoint_binding_verdict=refused: dead endpoint' "$dir/home/state/dead.meta" \
+    || fail 'dead endpoint verdict was not recorded'
+  [ "$out" = 'ENDPOINT_BINDING_MIGRATION: stamped 1; refused 1 (reason recorded as endpoint_binding_verdict in each refused record)' ] \
+    || fail "changed scan did not print exactly one summary line: $out"
   pass 'endpoint binding scan stamps only a verified live identity'
+}
+
+test_rerun_is_silent_and_never_reprobes_verdicts() {
+  local dir out
+  dir=$(make_case converge)
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  fm_write_meta "$dir/home/state/dead.meta" \
+    'window=firstmate:fm-dead' "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  out=$(run_locked "$dir") || fail "first scan failed: $out"
+  cat > "$dir/fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+printf 'probed\n' >> "$FM_PROBE_LOG"
+exit 1
+SH
+  out=$(FM_PROBE_LOG="$dir/probe.log" run_locked "$dir") || fail "rerun failed: $out"
+  [ -z "$out" ] || fail "unchanged rerun printed output: $out"
+  [ ! -e "$dir/probe.log" ] || fail 'rerun probed the backend for records that already carry a verdict'
+  grep -qx 'endpoint_binding_verdict=refused: dead endpoint' "$dir/home/state/dead.meta" \
+    || fail 'recorded verdict changed on rerun'
+  pass 'a rerun with nothing to change is silent and never re-probes recorded verdicts'
+}
+
+test_probe_budget_is_bounded_per_start() {
+  local dir out i count
+  dir=$(make_case budget)
+  for i in $(seq 1 20); do
+    fm_write_meta "$dir/home/state/dead$i.meta" \
+      'window=firstmate:fm-dead' "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  done
+  out=$(run_locked "$dir") || fail "budget scan failed: $out"
+  count=$(grep -l '^endpoint_binding_verdict=' "$dir"/home/state/dead*.meta | wc -l)
+  [ "$count" -eq 16 ] || fail "first start probed $count records, expected 16"
+  out=$(run_locked "$dir") || fail "second budget scan failed: $out"
+  count=$(grep -l '^endpoint_binding_verdict=' "$dir"/home/state/dead*.meta | wc -l)
+  [ "$count" -eq 20 ] || fail "second start left unprobed records: $count"
+  pass 'legacy record probes are bounded per start and resume on the next start'
 }
 
 test_rerun_converges_after_interruption() {
@@ -153,18 +192,19 @@ test_refusal_reasons_are_per_record() {
     || fail 'unverified endpoint was stamped'
   ! grep -q '^endpoint_task_id=' "$dir/home/state/mismatch.meta" \
     || fail 'mismatched endpoint was stamped'
-  assert_contains "$out" 'task ambiguous: skipped - ambiguous live endpoint identity' \
-    'ambiguous endpoint reason was not reported'
-  assert_contains "$out" 'task unreadable: skipped - endpoint identity is unreadable' \
-    'unreadable endpoint reason was not reported'
-  assert_contains "$out" "task unverified: skipped - backend 'zellij' has no verified endpoint identity" \
-    'unverified endpoint reason was not reported'
-  assert_contains "$out" 'task mismatch: skipped - task identity mismatch: live endpoint worktree does not match recorded worktree' \
-    'mismatched endpoint reason was not reported'
-  pass 'endpoint binding scan reports per-record refusal reasons without stamping'
+  grep -qx 'endpoint_binding_verdict=refused: ambiguous live endpoint identity' "$dir/home/state/ambiguous.meta" \
+    || fail 'ambiguous endpoint reason was not recorded'
+  grep -qx 'endpoint_binding_verdict=refused: endpoint identity is unreadable' "$dir/home/state/unreadable.meta" \
+    || fail 'unreadable endpoint reason was not recorded'
+  grep -qx "endpoint_binding_verdict=refused: backend 'zellij' has no verified endpoint identity" "$dir/home/state/unverified.meta" \
+    || fail 'unverified endpoint reason was not recorded'
+  grep -qx 'endpoint_binding_verdict=refused: task identity mismatch: live endpoint worktree does not match recorded worktree' "$dir/home/state/mismatch.meta" \
+    || fail 'mismatched endpoint reason was not recorded'
+  assert_contains "$out" 'stamped 0; refused 4' 'refusals were not summarized'
+  pass 'endpoint binding scan records per-record refusal verdicts without stamping'
 }
 
-test_hidden_records_are_reported_out_of_scope() {
+test_hidden_records_are_out_of_scope() {
   local dir out
   dir=$(make_case hidden)
   fm_write_meta "$dir/home/state/good.meta" \
@@ -181,11 +221,7 @@ test_hidden_records_are_reported_out_of_scope() {
     || fail 'hidden metadata record was stamped'
   grep -qx 'endpoint_task_id=good' "$dir/home/state/good.meta" \
     || fail 'scan did not continue past hidden metadata records'
-  assert_contains "$out" 'record .meta: skipped - hidden metadata record is out of scope' \
-    'hidden metadata record was not reported'
-  assert_contains "$out" 'record .hidden.meta: skipped - hidden metadata record is out of scope' \
-    'hidden metadata record was not reported'
-  pass 'hidden metadata records are reported out of scope and never stamped'
+  pass 'hidden metadata records are out of scope and never stamped'
 }
 
 test_locked_record_is_skipped_without_waiting() {
@@ -198,16 +234,15 @@ test_locked_record_is_skipped_without_waiting() {
   printf '%s\n' "$$" > "$lock/pid"
 
   out=$(run_locked "$dir") || fail "contended scan failed: $out"
-  ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
-    || fail 'record held by another operation was stamped'
-  assert_contains "$out" 'task good: skipped - metadata record is locked by another operation; rerun migration' \
-    'contended record reason was not reported'
+  ! grep -q '^endpoint_task_id=\|^endpoint_binding_verdict=' "$dir/home/state/good.meta" \
+    || fail 'record held by another operation was changed'
+  [ -z "$out" ] || fail "contended scan printed output: $out"
 
   rm -rf "$lock"
   out=$(run_locked "$dir") || fail "rerun after contention failed: $out"
   grep -qx 'endpoint_task_id=good' "$dir/home/state/good.meta" \
     || fail 'rerun did not converge the contended record'
-  pass 'a contended record is skipped with a reason and converges on rerun'
+  pass 'a contended record is skipped silently and converges on rerun'
 }
 
 test_stamped_record_keeps_pr_metadata_valid() {
@@ -231,8 +266,10 @@ test_stamped_record_keeps_pr_metadata_valid() {
 }
 
 test_evidence_bound_scan
+test_rerun_is_silent_and_never_reprobes_verdicts
+test_probe_budget_is_bounded_per_start
 test_rerun_converges_after_interruption
 test_refusal_reasons_are_per_record
-test_hidden_records_are_reported_out_of_scope
+test_hidden_records_are_out_of_scope
 test_locked_record_is_skipped_without_waiting
 test_stamped_record_keeps_pr_metadata_valid

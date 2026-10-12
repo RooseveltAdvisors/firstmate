@@ -476,8 +476,8 @@ Task meta records `backend=` only for a non-default backend; an absent `backend=
 
 - Every new task records `endpoint_task_id=` as the cleanup binding between the metadata filename and its opaque runtime endpoint.
   Locked session-start bootstrap runs `fm-endpoint-binding-migrate.sh` against only the current home's legacy task metadata and adds that binding only after the existing endpoint verifier proves the exact live endpoint, liveness, and recorded worktree identity agree for the task.
-  Dead, ambiguous, unreadable, unsupported, or mismatched endpoint identities remain unchanged and are reported with a per-task reason, while existing bindings are never overwritten.
-  The migration is an idempotent scan with no durable migration state, so rerunning it after an interruption safely converges the remaining records.
+  Dead, ambiguous, unreadable, unsupported, or mismatched endpoint identities are never stamped; the record instead gains a one-time `endpoint_binding_verdict=refused: <reason>` so later starts never probe it again, while existing bindings are never overwritten.
+  Each start probes at most 16 unmigrated records, prints nothing when no record changed, and otherwise prints one `ENDPOINT_BINDING_MIGRATION:` summary line; rerunning after an interruption safely converges the remaining records.
 
 - A herdr task additionally records `herdr_session=`, `herdr_workspace_id=`, `herdr_tab_id=`, `herdr_pane_id=`, and `herdr_task_label=`.
 

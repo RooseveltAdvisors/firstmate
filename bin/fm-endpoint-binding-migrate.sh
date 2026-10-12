@@ -57,28 +57,28 @@ reason_one_line() {
   printf '%s' "$1" | tr '\n' ' '
 }
 
-record_outcome() {
-  printf '%s\n' "$1"
-  OUTCOME_COUNT=$((OUTCOME_COUNT + 1))
+refuse() {
+  REFUSAL=$(reason_one_line "$1")
 }
 
-record_endpoint_state_refusal() {
-  local id=$1 backend=$2 state=$3
+refuse_endpoint_state() {
+  local backend=$1 state=$2
   case "$state" in
-    dead|missing) record_outcome "task $id: skipped - dead endpoint" ;;
-    ambiguous) record_outcome "task $id: skipped - ambiguous live endpoint identity" ;;
-    unreadable) record_outcome "task $id: skipped - endpoint identity is unreadable" ;;
-    unverified) record_outcome "task $id: skipped - backend '$backend' has no verified endpoint identity" ;;
-    *) record_outcome "task $id: skipped - endpoint identity returned unexpected state '$state'" ;;
+    dead|missing) refuse "dead endpoint" ;;
+    ambiguous) refuse "ambiguous live endpoint identity" ;;
+    unreadable) refuse "endpoint identity is unreadable" ;;
+    unverified) refuse "backend '$backend' has no verified endpoint identity" ;;
+    *) refuse "endpoint identity returned unexpected state '$state'" ;;
   esac
 }
 
 FM_ENDPOINT_VERIFIED_WORKTREE=
 verify_live_task_worktree() {
-  local meta=$1 id=$2 backend=$3 target=$4 recorded live recorded_real live_real exact_target state
+  local meta=$1 backend=$2 target=$3 recorded live recorded_real live_real exact_target state
+  local target_session target_window
   FM_ENDPOINT_VERIFIED_WORKTREE=
   recorded=$(fm_backend_meta_exact_value "$meta" worktree) || {
-    record_outcome "task $id: skipped - recorded task worktree identity is unreadable"
+    refuse "recorded task worktree identity is unreadable"
     return 1
   }
   case "$backend" in
@@ -87,42 +87,42 @@ verify_live_task_worktree() {
       target_window=$(printf '%s' "$target" | cut -d: -f2-)
       exact_target="=$target_session:=$target_window"
       fm_backend_source tmux || {
-        record_outcome "task $id: skipped - live endpoint worktree identity is unreadable"
+        refuse "live endpoint worktree identity is unreadable"
         return 1
       }
       live=$(fm_backend_tmux_current_path "$exact_target")
       ;;
     herdr)
       fm_backend_source herdr || {
-        record_outcome "task $id: skipped - live endpoint worktree identity is unreadable"
+        refuse "live endpoint worktree identity is unreadable"
         return 1
       }
       live=$(fm_backend_herdr_current_path "$target")
       ;;
     *)
-      record_outcome "task $id: skipped - backend '$backend' has no verified legacy task worktree identity"
+      refuse "backend '$backend' has no verified legacy task worktree identity"
       return 1
       ;;
   esac
   [ -n "$live" ] || {
-    record_outcome "task $id: skipped - live endpoint worktree identity is unreadable"
+    refuse "live endpoint worktree identity is unreadable"
     return 1
   }
   state=$(fm_backend_agent_state "$backend" "$target" 2>/dev/null || printf 'unreadable')
   [ "$state" = alive ] || {
-    record_endpoint_state_refusal "$id" "$backend" "$state"
+    refuse_endpoint_state "$backend" "$state"
     return 1
   }
   recorded_real=$(CDPATH='' cd -- "$recorded" 2>/dev/null && pwd -P) || {
-    record_outcome "task $id: skipped - recorded task worktree identity is unreadable"
+    refuse "recorded task worktree identity is unreadable"
     return 1
   }
   live_real=$(CDPATH='' cd -- "$live" 2>/dev/null && pwd -P) || {
-    record_outcome "task $id: skipped - live endpoint worktree identity is unreadable"
+    refuse "live endpoint worktree identity is unreadable"
     return 1
   }
   [ "$live_real" = "$recorded_real" ] || {
-    record_outcome "task $id: skipped - task identity mismatch: live endpoint worktree does not match recorded worktree"
+    refuse "task identity mismatch: live endpoint worktree does not match recorded worktree"
     return 1
   }
   FM_ENDPOINT_VERIFIED_WORKTREE=$recorded_real
@@ -136,36 +136,35 @@ verify_legacy_endpoint() {
   fi
   if validation=$(fm_backend_validate_task_endpoint "$meta" "$id" 2>&1); then
     if ! fm_backend_validate_task_endpoint "$meta" "$id" >/dev/null 2>&1; then
-      record_outcome "task $id: skipped - shared endpoint metadata changed during validation"
       return 1
     fi
   else
-    record_outcome "task $id: skipped - shared endpoint validation refused: $(reason_one_line "$validation")"
+    refuse "shared endpoint validation refused: $(reason_one_line "$validation")"
     return 1
   fi
   backend=$FM_BACKEND_VALIDATED_BACKEND
   target=$FM_BACKEND_VALIDATED_TARGET
   [ -n "$backend" ] && [ -n "$target" ] || {
-    record_outcome "task $id: skipped - identity mismatch: backend target was empty"
+    refuse "identity mismatch: backend target was empty"
     return 1
   }
   state=$(fm_backend_agent_state "$backend" "$target" 2>/dev/null || printf 'unreadable')
   [ "$state" = alive ] || {
-    record_endpoint_state_refusal "$id" "$backend" "$state"
+    refuse_endpoint_state "$backend" "$state"
     return 1
   }
-  verify_live_task_worktree "$meta" "$id" "$backend" "$target"
+  verify_live_task_worktree "$meta" "$backend" "$target"
 }
 
 verify_legacy_herdr_label() {
   local meta=$1 id=$2 target session live_target live_label live_count=0 recorded_target
   target=$(fm_backend_meta_exact_value "$meta" window) || {
-    record_outcome "task $id: skipped - shared endpoint validation refused: REFUSED: legacy Herdr endpoint metadata lacks an exact live task label; preserving task state."
+    refuse "shared endpoint validation refused: REFUSED: legacy Herdr endpoint metadata lacks an exact live task label; preserving task state."
     return 1
   }
   session=${target%%:*}
   fm_backend_source herdr || {
-    record_outcome "task $id: skipped - shared endpoint validation refused: REFUSED: legacy Herdr endpoint metadata lacks an exact live task label; preserving task state."
+    refuse "shared endpoint validation refused: REFUSED: legacy Herdr endpoint metadata lacks an exact live task label; preserving task state."
     return 1
   }
   while IFS=$'\t' read -r live_target live_label; do
@@ -174,16 +173,16 @@ verify_legacy_herdr_label() {
     target=$live_target
   done < <(fm_backend_herdr_list_live "$session")
   if [ "$live_count" -eq 0 ]; then
-    record_outcome "task $id: skipped - shared endpoint validation refused: REFUSED: legacy Herdr endpoint metadata lacks an exact live task label; preserving task state."
+    refuse "shared endpoint validation refused: REFUSED: legacy Herdr endpoint metadata lacks an exact live task label; preserving task state."
     return 1
   fi
   if [ "$live_count" -ne 1 ]; then
-    record_outcome "task $id: skipped - shared endpoint validation refused: REFUSED: legacy Herdr endpoint has an ambiguous live fm-$id label; preserving task state."
+    refuse "shared endpoint validation refused: REFUSED: legacy Herdr endpoint has an ambiguous live fm-$id label; preserving task state."
     return 1
   fi
   recorded_target=$(fm_backend_meta_exact_value "$meta" window) || return 1
   if [ "$target" != "$recorded_target" ]; then
-    record_outcome "task $id: skipped - shared endpoint validation refused: REFUSED: live fm-$id label resolves to a different Herdr endpoint; preserving task state."
+    refuse "shared endpoint validation refused: REFUSED: live fm-$id label resolves to a different Herdr endpoint; preserving task state."
     return 1
   fi
 }
@@ -212,29 +211,33 @@ endpoint_claim_conflicts() {
 }
 
 candidate_for() {
-  local meta=$1 id=$2 candidate=$3
-  binding=$id awk '
-    !inserted && /^pr=/ { print "endpoint_task_id=" ENVIRON["binding"]; inserted = 1 }
+  local meta=$1 line=$2 candidate=$3
+  line=$line awk '
+    !inserted && /^pr=/ { print ENVIRON["line"]; inserted = 1 }
     { print }
-    END { if (!inserted) print "endpoint_task_id=" ENVIRON["binding"] }
+    END { if (!inserted) print ENVIRON["line"] }
   ' "$meta" > "$candidate" || return 1
   chmod 600 "$candidate"
 }
 
-publish_candidate() {
-  local meta=$1 id=$2 candidate=$3 binding_count binding
-  regular_file "$meta" || return 1
-  binding_count=$(grep -c '^endpoint_task_id=' "$meta" 2>/dev/null || true)
-  [ "$binding_count" -eq 0 ] || return 2
-  mv -f -- "$candidate" "$meta" || return 1
-  regular_file "$meta" || return 1
-  binding_count=$(grep -c '^endpoint_task_id=' "$meta" 2>/dev/null || true)
-  binding=$(fm_meta_get "$meta" endpoint_task_id)
-  [ "$binding_count" -eq 1 ] && [ "$binding" = "$id" ]
+unmigrated() {
+  ! grep -q '^endpoint_task_id=\|^endpoint_binding_verdict=' "$1" 2>/dev/null
 }
 
-OUTCOME_COUNT=0
+publish_candidate() {
+  local meta=$1 key=$2 value=$3 candidate=$4
+  regular_file "$meta" || return 1
+  unmigrated "$meta" || return 2
+  mv -f -- "$candidate" "$meta" || return 1
+  regular_file "$meta" || return 1
+  [ "$(grep -c "^$key=" "$meta" 2>/dev/null || true)" -eq 1 ] \
+    && [ "$(fm_meta_get "$meta" "$key")" = "$value" ]
+}
+
 STAMP_COUNT=0
+REFUSE_COUNT=0
+# ponytail: fixed per-start probe cap; unprobed legacy records wait for the next start.
+PROBE_BUDGET=16
 candidate=
 cleanup() {
   rm -f -- "$candidate" 2>/dev/null || true
@@ -256,92 +259,73 @@ done
 for meta in "$STATE"/*.meta; do
   base=${meta##*/}
   case "$base" in
-    .*)
-      record_outcome "record $(reason_one_line "$base"): skipped - hidden metadata record is out of scope"
-      continue
-      ;;
+    .*) continue ;;
   esac
   id=$(basename "$meta" .meta)
-  if [ -L "$meta" ]; then
-    record_outcome "task $(reason_one_line "$id"): skipped - metadata record is a symlink; endpoint identity is unverifiable"
+  if ! regular_file "$meta" || ! valid_task_id "$id" || ! unmigrated "$meta"; then
     continue
   fi
-  if [ ! -f "$meta" ]; then
-    record_outcome "task $(reason_one_line "$id"): skipped - metadata record is not a regular file; endpoint identity is unverifiable"
-    continue
-  fi
-  if ! valid_task_id "$id"; then
-    record_outcome "task $(reason_one_line "$id"): skipped - invalid task id"
-    continue
-  fi
+  [ "$PROBE_BUDGET" -gt 0 ] || break
   require_session_lock || exit 1
   meta_lock=$(fm_meta_lock_path "$meta") || exit 1
-  if ! fm_lock_try_acquire "$meta_lock"; then
-    record_outcome "task $id: skipped - metadata record is locked by another operation; rerun migration"
-    continue
-  fi
+  fm_lock_try_acquire "$meta_lock" || continue
   if ! regular_file "$meta" || ! cat -- "$meta" >/dev/null 2>&1; then
-    record_outcome "task $id: skipped - metadata record is unreadable; endpoint identity is unverifiable"
     fm_lock_release "$meta_lock" || exit 1
     continue
   fi
-  binding_count=$(grep -c '^endpoint_task_id=' "$meta" 2>/dev/null || true)
-  if [ "$binding_count" -gt 0 ]; then
-    binding=$(fm_meta_get "$meta" endpoint_task_id)
-    if [ "$binding_count" -eq 1 ] && [ "$binding" = "$id" ]; then
-      record_outcome "task $id: untouched - endpoint_task_id already present"
-    elif [ "$binding_count" -gt 1 ]; then
-      record_outcome "task $id: skipped - existing endpoint_task_id binding is duplicated"
-    elif [ -z "$binding" ]; then
-      record_outcome "task $id: skipped - existing endpoint_task_id binding is empty"
-    else
-      record_outcome "task $id: skipped - existing endpoint_task_id binding mismatches task identity"
-    fi
-    fm_lock_release "$meta_lock" || exit 1
-    continue
-  fi
+  PROBE_BUDGET=$((PROBE_BUDGET - 1))
   candidate=$(mktemp "$STATE/.fm-endpoint-binding-candidate.XXXXXX") || {
     fm_lock_release "$meta_lock" || true
     exit 1
   }
-  candidate_for "$meta" "$id" "$candidate" || {
+  candidate_for "$meta" "endpoint_task_id=$id" "$candidate" || {
     fm_lock_release "$meta_lock" || true
     exit 1
   }
-  if ! verify_legacy_endpoint "$candidate" "$id"; then
-    clear_temp
-    fm_lock_release "$meta_lock" || exit 1
-    continue
+  REFUSAL=
+  verified=0
+  if verify_legacy_endpoint "$candidate" "$id"; then
+    if endpoint_claim_conflicts "$meta" "$id" "$FM_BACKEND_VALIDATED_BACKEND" \
+      "$FM_BACKEND_VALIDATED_TARGET" "$FM_ENDPOINT_VERIFIED_WORKTREE"; then
+      refuse "ambiguous live endpoint identity is claimed by multiple task records"
+    else
+      require_session_lock || {
+        fm_lock_release "$meta_lock" || true
+        exit 1
+      }
+      verify_legacy_endpoint "$candidate" "$id" && verified=1
+    fi
   fi
-  if endpoint_claim_conflicts "$meta" "$id" "$FM_BACKEND_VALIDATED_BACKEND" \
-    "$FM_BACKEND_VALIDATED_TARGET" "$FM_ENDPOINT_VERIFIED_WORKTREE"; then
-    record_outcome "task $id: skipped - ambiguous live endpoint identity is claimed by multiple task records"
-    clear_temp
-    fm_lock_release "$meta_lock" || exit 1
-    continue
-  fi
-  require_session_lock || {
-    fm_lock_release "$meta_lock" || true
-    exit 1
-  }
-  if ! verify_legacy_endpoint "$candidate" "$id"; then
-    clear_temp
-    fm_lock_release "$meta_lock" || exit 1
-    continue
-  fi
-  publish_candidate "$meta" "$id" "$candidate"
-  publish_rc=$?
-  if [ "$publish_rc" -eq 2 ]; then
-    record_outcome "task $id: skipped - metadata changed during scan; rerun migration"
-  elif [ "$publish_rc" -ne 0 ]; then
-    fm_lock_release "$meta_lock" || true
-    exit 1
+  if [ "$verified" -eq 1 ]; then
+    key=endpoint_task_id
+    value=$id
+  elif [ -n "$REFUSAL" ]; then
+    key=endpoint_binding_verdict
+    value="refused: $REFUSAL"
+    candidate_for "$meta" "$key=$value" "$candidate" || {
+      fm_lock_release "$meta_lock" || true
+      exit 1
+    }
   else
-    record_outcome "task $id: stamped - exact live endpoint identity verified"
+    clear_temp
+    fm_lock_release "$meta_lock" || exit 1
+    continue
+  fi
+  publish_candidate "$meta" "$key" "$value" "$candidate"
+  publish_rc=$?
+  if [ "$publish_rc" -eq 0 ] && [ "$verified" -eq 1 ]; then
     STAMP_COUNT=$((STAMP_COUNT + 1))
+  elif [ "$publish_rc" -eq 0 ]; then
+    REFUSE_COUNT=$((REFUSE_COUNT + 1))
+  elif [ "$publish_rc" -ne 2 ]; then
+    fm_lock_release "$meta_lock" || true
+    exit 1
   fi
   clear_temp
   fm_lock_release "$meta_lock" || exit 1
 done
 
-printf 'ENDPOINT_BINDING_MIGRATION: scanned %s record(s); stamped %s\n' "$OUTCOME_COUNT" "$STAMP_COUNT"
+if [ $((STAMP_COUNT + REFUSE_COUNT)) -gt 0 ]; then
+  printf 'ENDPOINT_BINDING_MIGRATION: stamped %s; refused %s (reason recorded as endpoint_binding_verdict in each refused record)\n' \
+    "$STAMP_COUNT" "$REFUSE_COUNT"
+fi
