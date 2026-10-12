@@ -201,7 +201,11 @@ running() {
 case "$1 $2" in
   'server --session')
     touch "$FM_HERDR_SERVER_CALLED"
-    [ "$FM_FAKE_HERDR" = nostart ] || touch "$FM_HERDR_STARTED"
+    [ "$FM_FAKE_HERDR" = nostart ] && exit 0
+    touch "$FM_HERDR_STARTED"
+    # A real server outlives its launcher; stay up so a caller holding its pipe would hang.
+    printf '%s\n' "$$" > "$FM_HERDR_SERVER_CALLED"
+    exec "$FM_REAL_SLEEP" 20
     ;;
   'status --json')
     if running; then printf '{"server":{"running":true}}\n'; else printf '{"server":{"running":false}}\n'; fi
@@ -248,7 +252,10 @@ test_herdr_absent_pane_is_terminal() {
 test_herdr_stopped_server_recheck_stays_retryable() {
   local dir out
   dir=$(make_herdr_case herdr-stopped)
+  SECONDS=0
   out=$(run_herdr "$dir" restart-unreadable) || fail "herdr stopped scan failed: $out"
+  [ "$SECONDS" -lt 10 ] || fail 'migration waited on the started herdr server to exit'
+  kill "$(cat "$dir/herdr.server")" 2>/dev/null || true
   [ -e "$dir/herdr.server" ] || fail 'stopped-server missing was not rechecked with the server running'
   ! grep -q '^endpoint_binding_verdict=\|^endpoint_task_id=' "$dir/home/state/hd.meta" \
     || fail 'a stopped-server missing with an unreadable recheck was persisted'

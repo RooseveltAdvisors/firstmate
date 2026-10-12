@@ -396,7 +396,10 @@ fm_backend_herdr_cli() {  # <session> <herdr-subcommand-and-args...>
   # "client selection" below. A failed command's stderr is replayed verbatim.
   # The long-lived `server` launch is exec'd straight through: buffering its
   # stderr would hold this call open for the server's whole lifetime.
+  # server_ensure's detached launch execs, so no bash wrapper survives holding
+  # the caller's saved stdio fds (a command-substitution pipe would never EOF).
   if [ "${1:-}" = server ]; then
+    [ -n "${FM_BACKEND_HERDR_SERVER_EXEC:-}" ] && HERDR_SESSION="$session" exec "$client_bin" "$@" --session "$session"
     HERDR_SESSION="$session" "$client_bin" "$@" --session "$session"
     return $?
   fi
@@ -1754,6 +1757,7 @@ fm_backend_herdr_server_ensure() {  # <session>
   (
     unset FM_HOME FM_ROOT_OVERRIDE FM_STATE_OVERRIDE FM_DATA_OVERRIDE FM_PROJECTS_OVERRIDE FM_CONFIG_OVERRIDE \
       CURSOR_AGENT CURSOR_INVOKED_AS CLAUDECODE PI_CODING_AGENT FM_PI_HARNESS GROK_AGENT FM_SUPERVISION_MODEL
+    FM_BACKEND_HERDR_SERVER_EXEC=1  # shell-local, never exported to the server
     fm_backend_herdr_cli "$session" server </dev/null >/dev/null 2>&1 &
   ) || return 1
   for i in $(seq 1 20); do
