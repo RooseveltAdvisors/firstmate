@@ -30,7 +30,10 @@ if [ "$1" = list-windows ]; then
   if [ "${FM_FAKE_MODE:-}" = refusals ]; then
     printf '%s\n' fm-ambiguous fm-ambiguous fm-unreadable fm-mismatch
   elif [ "${FM_FAKE_MODE:-}" = budget ]; then
-    for i in $(seq 1 20); do printf 'fm-dead%s\n' "$i"; done
+    printf '%s\n' fm-good
+    for i in $(seq -w 1 20); do printf 'fm-a%s\n' "$i"; done
+  elif [ "${FM_FAKE_MODE:-}" = missing ]; then
+    printf '%s\n' fm-good
   else
     printf '%s\n' fm-good fm-dead fm-bound
   fi
@@ -41,7 +44,7 @@ fi
     '#{pane_tty}') printf '/dev/null\n' ;;
     '#{pane_current_command}')
       case "$4" in
-        '=firstmate:=fm-unreadable') printf '\n' ;;
+        '=firstmate:=fm-unreadable'|'=firstmate:=fm-a'*) printf '\n' ;;
         '=firstmate:=fm-good'|'=firstmate:=fm-mismatch'|'=firstmate:=fm-ambiguous') printf 'pi\n' ;;
         *) printf 'bash\n' ;;
       esac
@@ -123,20 +126,50 @@ SH
   pass 'a rerun with nothing to change is silent and never re-probes recorded verdicts'
 }
 
-test_probe_budget_is_bounded_per_start() {
+test_missing_endpoints_are_terminal_and_free() {
   local dir out i count
-  dir=$(make_case budget)
-  for i in $(seq 1 20); do
-    fm_write_meta "$dir/home/state/dead$i.meta" \
-      "window=firstmate:fm-dead$i" "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  dir=$(make_case missing)
+  for i in $(seq -w 1 20); do
+    fm_write_meta "$dir/home/state/closed$i.meta" \
+      "window=firstmate:fm-closed$i" "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
   done
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  out=$(FM_FAKE_MODE=missing run_locked "$dir") || fail "missing scan failed: $out"
+  count=$(grep -lx 'endpoint_binding_verdict=terminal: missing endpoint' "$dir"/home/state/closed*.meta | wc -l)
+  [ "$count" -eq 20 ] || fail "only $count missing endpoints recorded a terminal verdict"
+  grep -qx 'endpoint_task_id=good' "$dir/home/state/good.meta" \
+    || fail 'terminal records consumed the probe budget before the live task'
+  pass 'missing endpoints are terminal and never consume the per-start probe budget'
+}
+
+test_record_shape_refusal_is_terminal() {
+  local dir out
+  dir=$(make_case shape)
+  fm_write_meta "$dir/home/state/shape.meta" \
+    'window=firstmate:not-shape' "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  out=$(run_locked "$dir") || fail "shape scan failed: $out"
+  grep -q '^endpoint_binding_verdict=terminal: record shape: ' "$dir/home/state/shape.meta" \
+    || fail 'record-shape refusal was not recorded as terminal'
+  pass 'a record-shape refusal is recorded as a class-named terminal verdict'
+}
+
+test_retryable_probes_are_bounded_per_start() {
+  local dir out i
+  dir=$(make_case budget)
+  for i in $(seq -w 1 20); do
+    fm_write_meta "$dir/home/state/a$i.meta" \
+      "window=firstmate:fm-a$i" "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
+  done
+  fm_write_meta "$dir/home/state/good.meta" \
+    'window=firstmate:fm-good' "worktree=$dir/worktree" "project=$dir/project" 'kind=scout'
   out=$(FM_FAKE_MODE=budget run_locked "$dir") || fail "budget scan failed: $out"
-  count=$(grep -l '^endpoint_binding_verdict=' "$dir"/home/state/dead*.meta | wc -l)
-  [ "$count" -eq 16 ] || fail "first start probed $count records, expected 16"
-  out=$(FM_FAKE_MODE=budget run_locked "$dir") || fail "second budget scan failed: $out"
-  count=$(grep -l '^endpoint_binding_verdict=' "$dir"/home/state/dead*.meta | wc -l)
-  [ "$count" -eq 20 ] || fail "second start left unprobed records: $count"
-  pass 'legacy record probes are bounded per start and resume on the next start'
+  ! grep -q '^endpoint_binding_verdict=' "$dir"/home/state/a*.meta \
+    || fail 'an unreadable endpoint was persisted as terminal'
+  ! grep -q '^endpoint_task_id=' "$dir/home/state/good.meta" \
+    || fail 'retryable probes were not bounded per start'
+  [ -z "$out" ] || fail "retryable-only scan printed output: $out"
+  pass 'retryable probes are bounded per start'
 }
 
 test_rerun_converges_after_interruption() {
@@ -263,7 +296,9 @@ test_stamped_record_keeps_pr_metadata_valid() {
 
 test_evidence_bound_scan
 test_rerun_is_silent_and_never_reprobes_verdicts
-test_probe_budget_is_bounded_per_start
+test_missing_endpoints_are_terminal_and_free
+test_record_shape_refusal_is_terminal
+test_retryable_probes_are_bounded_per_start
 test_rerun_converges_after_interruption
 test_refusal_reasons_are_per_record
 test_hidden_records_are_out_of_scope

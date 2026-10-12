@@ -53,6 +53,22 @@ regular_file() {
   [ -f "$1" ] && [ ! -L "$1" ]
 }
 
+note_endpoint_state() {  # <backend> <target> <state>
+  case "$3" in
+    dead) ENDPOINT_TERMINAL="dead endpoint" ;;
+    missing)
+      if [ "$1" != herdr ]; then
+        ENDPOINT_TERMINAL="missing endpoint"
+        return 0
+      fi
+      case "$(fm_backend_herdr_endpoint_absence_recheck "$2" 2>/dev/null)" in
+        dead) ENDPOINT_TERMINAL="dead endpoint" ;;
+        missing) ENDPOINT_TERMINAL="missing endpoint" ;;
+      esac
+      ;;
+  esac
+}
+
 FM_ENDPOINT_VERIFIED_WORKTREE=
 verify_live_task_worktree() {
   local meta=$1 backend=$2 target=$3 recorded live recorded_real live_real exact_target state
@@ -76,7 +92,7 @@ verify_live_task_worktree() {
   [ -n "$live" ] || return 1
   state=$(fm_backend_agent_state "$backend" "$target" 2>/dev/null || printf 'unreadable')
   [ "$state" = alive ] || {
-    [ "$state" != dead ] || ENDPOINT_DEAD=1
+    note_endpoint_state "$backend" "$target" "$state"
     return 1
   }
   recorded_real=$(CDPATH='' cd -- "$recorded" 2>/dev/null && pwd -P) || return 1
@@ -87,36 +103,39 @@ verify_live_task_worktree() {
 
 verify_legacy_endpoint() {
   local meta=$1 id=$2 backend target state
-  backend=$(fm_backend_of_meta "$meta")
-  if [ "$backend" = herdr ] && ! verify_legacy_herdr_label "$meta" "$id"; then
+  fm_backend_validate_task_endpoint "$meta" "$id" >/dev/null 2>&1 || {
+    ENDPOINT_TERMINAL="record shape: endpoint metadata refused by the shared endpoint validator"
     return 1
-  fi
-  fm_backend_validate_task_endpoint "$meta" "$id" >/dev/null 2>&1 || return 1
-  fm_backend_validate_task_endpoint "$meta" "$id" >/dev/null 2>&1 || return 1
+  }
   backend=$FM_BACKEND_VALIDATED_BACKEND
   target=$FM_BACKEND_VALIDATED_TARGET
   [ -n "$backend" ] && [ -n "$target" ] || return 1
+  if [ "$backend" = herdr ] && ! verify_legacy_herdr_label "$target" "$id"; then
+    return 1
+  fi
   state=$(fm_backend_agent_state "$backend" "$target" 2>/dev/null || printf 'unreadable')
   [ "$state" = alive ] || {
-    [ "$state" != dead ] || ENDPOINT_DEAD=1
+    note_endpoint_state "$backend" "$target" "$state"
     return 1
   }
   verify_live_task_worktree "$meta" "$backend" "$target"
 }
 
 verify_legacy_herdr_label() {
-  local meta=$1 id=$2 target session live_target live_label live_count=0 recorded_target
-  target=$(fm_backend_meta_exact_value "$meta" window) || return 1
-  session=${target%%:*}
+  local recorded_target=$1 id=$2 target session live_target live_label live_count=0
+  session=${recorded_target%%:*}
   fm_backend_source herdr || return 1
   while IFS=$'\t' read -r live_target live_label; do
     [ "$live_label" = "fm-$id" ] || continue
     live_count=$((live_count + 1))
     target=$live_target
   done < <(fm_backend_herdr_list_live "$session")
-  [ "$live_count" -eq 1 ] || return 1
-  recorded_target=$(fm_backend_meta_exact_value "$meta" window) || return 1
-  [ "$target" = "$recorded_target" ]
+  if [ "$live_count" -eq 0 ]; then
+    note_endpoint_state herdr "$recorded_target" \
+      "$(fm_backend_agent_state herdr "$recorded_target" 2>/dev/null || printf 'unreadable')"
+    return 1
+  fi
+  [ "$live_count" -eq 1 ] && [ "$target" = "$recorded_target" ]
 }
 
 endpoint_claim_conflicts() {
@@ -168,7 +187,7 @@ publish_candidate() {
 
 STAMP_COUNT=0
 REFUSE_COUNT=0
-# ponytail: fixed per-start probe cap in glob order; retryable records past the cap wait for a start where earlier ones resolve.
+# ponytail: fixed per-start cap on retryable probes in glob order; records past the cap wait for a start where earlier ones resolve.
 PROBE_BUDGET=16
 candidate=
 cleanup() {
@@ -205,7 +224,6 @@ for meta in "$STATE"/*.meta; do
     fm_lock_release "$meta_lock" || exit 1
     continue
   fi
-  PROBE_BUDGET=$((PROBE_BUDGET - 1))
   candidate=$(mktemp "$STATE/.fm-endpoint-binding-candidate.XXXXXX") || {
     fm_lock_release "$meta_lock" || true
     exit 1
@@ -214,7 +232,7 @@ for meta in "$STATE"/*.meta; do
     fm_lock_release "$meta_lock" || true
     exit 1
   }
-  ENDPOINT_DEAD=0
+  ENDPOINT_TERMINAL=
   verified=0
   if verify_legacy_endpoint "$candidate" "$id"; then
     if ! endpoint_claim_conflicts "$meta" "$id" "$FM_BACKEND_VALIDATED_BACKEND" \
@@ -229,14 +247,15 @@ for meta in "$STATE"/*.meta; do
   if [ "$verified" -eq 1 ]; then
     key=endpoint_task_id
     value=$id
-  elif [ "$ENDPOINT_DEAD" -eq 1 ]; then
+  elif [ -n "$ENDPOINT_TERMINAL" ]; then
     key=endpoint_binding_verdict
-    value="terminal: dead endpoint"
+    value="terminal: $ENDPOINT_TERMINAL"
     candidate_for "$meta" "$key=$value" "$candidate" || {
       fm_lock_release "$meta_lock" || true
       exit 1
     }
   else
+    PROBE_BUDGET=$((PROBE_BUDGET - 1))
     clear_temp
     fm_lock_release "$meta_lock" || exit 1
     continue
