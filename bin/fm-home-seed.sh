@@ -408,30 +408,19 @@ acquire_treehouse_home() {
 
 complete_auto_chartered_home() {
   # <home>: finish an auto-chartered scaffold into a firstmate home in place.
-  # The scaffold's data/, state/, and identity markers are gitignored in this
-  # repo, so fetching the tracked tree from the active repo as origin, the way
-  # git clone records it, and force-checking out its HEAD leaves them untouched.
-  local home=$1 head_ref head_sha
-  [ -d "$home/.git" ] || git -C "$home" init -q || return 1
-  git -C "$home" remote add origin "$FM_ROOT" 2>/dev/null || git -C "$home" remote set-url origin "$FM_ROOT" || return 1
-  git -C "$home" fetch -q origin || {
-    echo "error: could not fetch firstmate refs into auto-chartered home $home" >&2
-    return 1
-  }
-  git -C "$home" remote set-head origin -a >/dev/null 2>&1 || true
-  head_ref=$(git -C "$FM_ROOT" symbolic-ref -q HEAD || true)
-  if [ -n "$head_ref" ]; then
-    git -C "$home" checkout -q -f -B "${head_ref#refs/heads/}" "origin/${head_ref#refs/heads/}" || {
-      echo "error: could not check out ${head_ref#refs/heads/} in auto-chartered home $home" >&2
-      return 1
-    }
+  # The git metadata comes from a plain clone of the active repo, exactly as a
+  # new home's does; the scaffold's data/, state/, and identity markers are
+  # gitignored, so a hard reset onto the clone's HEAD leaves them untouched.
+  local home=$1 clone rc=0
+  clone=$(mktemp -d "$(dirname "$home")/.fm-seed-clone.XXXXXX") || return 1
+  if [ ! -e "$home/.git" ] && git clone --quiet --no-checkout "$FM_ROOT" "$clone" && mv "$clone/.git" "$home/.git"; then
+    git -C "$home" reset -q --hard || rc=1
   else
-    head_sha=$(git -C "$FM_ROOT" rev-parse HEAD) || return 1
-    git -C "$home" checkout -q -f --detach "$head_sha" || {
-      echo "error: could not check out $head_sha in auto-chartered home $home" >&2
-      return 1
-    }
+    rc=1
   fi
+  rm -rf "$clone"
+  [ "$rc" -eq 0 ] || echo "error: could not complete auto-chartered home $home from $FM_ROOT" >&2
+  return "$rc"
 }
 
 ensure_home() {
