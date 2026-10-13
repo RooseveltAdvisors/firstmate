@@ -595,6 +595,7 @@ test_home_seed_completes_scaffold_from_branch_matching_default() {
   src="$TMP_ROOT/auto-charter-main-src"
   sub="$TMP_ROOT/auto-charter-main-subhome"
   mkdir -p "$home/projects" "$home/data" "$home/state" "$sub/data" "$sub/state"
+  printf 'preserved scaffold data\n' > "$sub/data/kept.txt"
   git clone -q "$ROOT" "$src"
   git -C "$src" checkout -q -B main
   printf '%s\n' "fdev-main" > "$sub/.fm-secondmate-home"
@@ -610,7 +611,26 @@ test_home_seed_completes_scaffold_from_branch_matching_default() {
   [ "$(git -C "$sub" remote get-url origin)" = "$src" ] || fail "completed scaffold has no origin remote at the source repo"
   [ "$(git -C "$sub" symbolic-ref --short HEAD)" = main ] || fail "completed scaffold is not on main"
   [ "$(git -C "$sub" rev-parse --abbrev-ref 'main@{upstream}')" = origin/main ] || fail "completed scaffold main does not track origin/main"
-  pass "home seeding completes a scaffold whose default branch matches the source branch"
+  assert_grep 'preserved scaffold data' "$sub/data/kept.txt" "seed lost the scaffold's operational data"
+
+  # A source detached at a commit no branch contains (every treehouse worktree)
+  # must still complete, checked out at that exact commit.
+  local dsub head
+  dsub="$TMP_ROOT/auto-charter-detached-subhome"
+  mkdir -p "$dsub/data" "$dsub/state"
+  printf '%s\n' "fdev-detached" > "$dsub/.fm-secondmate-home"
+  printf '%s\n' "$(cd "$home" && pwd -P)" > "$dsub/.fm-secondmate-parent"
+  git -C "$src" -c advice.detachedHead=false checkout -q --detach
+  git -C "$src" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m detached-only
+  head=$(git -C "$src" rev-parse HEAD)
+  [ -z "$(git -C "$src" for-each-ref --contains HEAD refs/heads)" ] || fail "fixture commit is reachable from a branch"
+  FM_ROOT_OVERRIDE="$src" FM_HOME="$home" FM_SECONDMATE_CHARTER='firstmate self-development' \
+    FM_SECONDMATE_SCOPE='firstmate repo work' \
+    "$ROOT/bin/fm-home-seed.sh" fdev-detached "$dsub" --no-projects >/dev/null \
+    || fail "seed refused a scaffold whose source HEAD is detached off every branch"
+  [ "$(git -C "$dsub" rev-parse HEAD)" = "$head" ] || fail "completed scaffold is not at the source's detached HEAD"
+  [ "$(git -C "$dsub" remote get-url origin)" = "$src" ] || fail "detached-source scaffold has no origin remote at the source repo"
+  pass "home seeding completes a scaffold from a default-named branch or a branchless detached source"
 }
 
 test_secondmate_spawn_resolves_punctuated_registry_projects() {
