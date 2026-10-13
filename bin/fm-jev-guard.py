@@ -212,8 +212,39 @@ def _is_trusted_delegation_form(clean: str) -> bool:
     return name in DELEGATION_TOOL_NAMES and (head == "bin" or head.endswith("/bin"))
 
 
-def is_fast_pass_supervisor(subcmd: str) -> bool:
-    """Check if an individual subcommand is unequivocally an allowed supervisor operation."""
+def has_command_substitution(cmd: str) -> bool:
+    """True when raw, still-quoted shell text contains a real command or process substitution.
+
+    $( and backticks count unquoted or inside double quotes; <( and >( count
+    unquoted. Anything inside single quotes or backslash-escaped is literal text.
+    """
+    single = double = escaped = False
+    for i, ch in enumerate(cmd):
+        nxt = cmd[i + 1:i + 2]
+        if single:
+            single = ch != "'"
+        elif escaped:
+            escaped = False
+        elif ch == "\\":
+            escaped = True
+        elif ch == "'" and not double:
+            single = True
+        elif ch == '"':
+            double = not double
+        elif ch == "`" or (ch == "$" and nxt == "("):
+            return True
+        elif ch in "<>" and nxt == "(" and not double:
+            return True
+    return False
+
+
+def is_fast_pass_supervisor(subcmd: str, has_substitution: bool) -> bool:
+    """Check if an individual subcommand is unequivocally an allowed supervisor operation.
+
+    has_substitution is the verdict of has_command_substitution on the raw
+    command; when set, no supervisor-tool fast-pass applies, because the shell
+    runs the substitution locally before any tool starts.
+    """
     clean = clean_subcommand(subcmd)
     if not clean:
         return True
@@ -223,9 +254,8 @@ def is_fast_pass_supervisor(subcmd: str) -> bool:
     # 0. The tool IS the delegation: a delegation tool typed in trusted bin/ form
     # is always fast-path, whatever its message payload says (it may legitimately
     # instruct Second Mates to run systemctl, journalctl, docker, ssh, etc.).
-    # Command substitution runs locally before the tool starts, so it is never
-    # payload; a compound tail after ;, &&, or | is a separate subcommand.
-    if not re.search(r"\$\(|`|[<>]\(", subcmd) and (
+    # A compound tail after ;, &&, or | is a separate subcommand.
+    if not has_substitution and (
         _is_trusted_delegation_form(clean) or _is_trusted_delegation_form(unwrapped)
     ):
         return True
@@ -258,14 +288,18 @@ def is_fast_pass_supervisor(subcmd: str) -> bool:
 
     # 2. Approved supervisor tools (routing, wake drain, sessions, etc.)
     #    plus the supervisor lifecycle scripts (control/merge/teardown/lease/state/watch).
-    if (
+    if not has_substitution and (
         clean.startswith(SUPERVISOR_TOOL_PREFIXES)
         or unwrapped.startswith(SUPERVISOR_TOOL_PREFIXES)
         or clean.startswith(SUPERVISOR_LIFECYCLE_PREFIXES)
         or unwrapped.startswith(SUPERVISOR_LIFECYCLE_PREFIXES)
     ):
         return True
-    if re.match(r"^(?:bd|tasks-axi)(?:\s|$)", clean) and not re.match(r"^\s*(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*=", subcmd):
+    if (
+        not has_substitution
+        and re.match(r"^(?:bd|tasks-axi)(?:\s|$)", clean)
+        and not re.match(r"^\s*(?:export\s+)?(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*PATH=", subcmd)
+    ):
         return True
 
     # 3. Read-only or Firstmate-home git queries
@@ -305,7 +339,8 @@ def is_whitelisted_command(cmd: str) -> bool:
     subcmds = split_compound_commands(cmd)
     if not subcmds:
         return True
-    return all(is_fast_pass_supervisor(part) for part in subcmds)
+    has_substitution = has_command_substitution(cmd)
+    return all(is_fast_pass_supervisor(part, has_substitution) for part in subcmds)
 
 
 def load_cache() -> dict[str, dict]:
