@@ -417,6 +417,10 @@
       "audience": "maintainer-architecture"
     },
     {
+      "path": "docs/observation-coverage-matrix.md",
+      "audience": "maintainer-architecture"
+    },
+    {
       "path": "docs/orca-backend.md",
       "audience": "operator-current"
     },
@@ -426,6 +430,10 @@
     },
     {
       "path": "docs/remote-secondmates.md",
+      "audience": "operator-current"
+    },
+    {
+      "path": "docs/runbook-trace-context-restart.md",
       "audience": "operator-current"
     },
     {
