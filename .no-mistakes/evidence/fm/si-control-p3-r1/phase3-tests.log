@@ -1,0 +1,12 @@
+fm-decision-gate rc=0 553ms
+ok - fm-jev-classify.sh flags destructive payload as risky
+ok: Scope Area 3 JEV classifier and deny-on-missing tests passed completely
+fm-gui-containment rc=0 202ms
+ok - gui router: ledger contains only opaque account aliases, no personal identities
+ok: Scope Area 4 GUI containment tests passed completely
+fm-observation-layer rc=0 185ms
+ok - shipper sets aside an unencodable batch and ships the batches behind it
+ok: Scope Area 1 observation layer tests passed completely
+fm-si-control-p3-testenv rc=0 384ms
+ok - JEV classifier flags destructive payload as risky and stays advisory
+ok: Scope Area 2 isolated test environment and bypass matrix passed completely

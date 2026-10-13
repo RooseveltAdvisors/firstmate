@@ -1,0 +1,58 @@
+{
+  "families": [
+    {
+      "count": 4,
+      "duration_ms": 1377,
+      "failed": 0,
+      "name": "unclassified"
+    }
+  ],
+  "finished_at": "2026-10-13T13:04:30Z",
+  "run_id": "fm-test-run-1791896669472-715370",
+  "scripts": [
+    {
+      "duration_ms": 573,
+      "exit": 0,
+      "expected_gate_skip": "none",
+      "family": "unclassified",
+      "gate_skip": false,
+      "gate_skip_reason": "",
+      "path": "tests/fm-decision-gate.test.sh"
+    },
+    {
+      "duration_ms": 216,
+      "exit": 0,
+      "expected_gate_skip": "none",
+      "family": "unclassified",
+      "gate_skip": false,
+      "gate_skip_reason": "",
+      "path": "tests/fm-gui-containment.test.sh"
+    },
+    {
+      "duration_ms": 197,
+      "exit": 0,
+      "expected_gate_skip": "none",
+      "family": "unclassified",
+      "gate_skip": false,
+      "gate_skip_reason": "",
+      "path": "tests/fm-observation-layer.test.sh"
+    },
+    {
+      "duration_ms": 391,
+      "exit": 0,
+      "expected_gate_skip": "none",
+      "family": "unclassified",
+      "gate_skip": false,
+      "gate_skip_reason": "",
+      "path": "tests/fm-si-control-p3-testenv.test.sh"
+    }
+  ],
+  "selection": "scripts;jobs=1",
+  "started_at": "2026-10-13T13:04:29Z",
+  "summary": {
+    "duration_ms": 1453,
+    "failed": 0,
+    "skipped_gate": 0,
+    "total": 4
+  }
+}

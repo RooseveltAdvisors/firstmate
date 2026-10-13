@@ -1,0 +1,90 @@
+FM_TEST_BEGIN 2026-10-13T13:04:29Z tests/fm-decision-gate.test.sh family=unclassified expected_gate_skip=none
+ok - deploy seam: absent record DENIES (fail closed)
+ok - deploy seam: empty record DENIES
+ok - deploy seam: malformed JSON DENIES
+ok - deploy seam: action mismatch DENIES
+ok - deploy seam: target mismatch DENIES
+ok - deploy seam: tampered payload hash DENIES
+ok - deploy seam: expired record DENIES
+ok - deploy seam: replayed record DENIES
+ok - deploy seam: JEV alone without human approval DENIES (JEV cannot grant)
+ok - deploy seam: JEV confidence below 0.80 floor DENIES
+ok - deploy seam: non-numeric JEV confidence DENIES
+ok - deploy seam: missing or unparseable expiry DENIES
+ok - deploy seam: fractional-second expiry parses
+ok - deploy seam: missing task identity DENIES
+ok - deploy seam: policy version mismatch DENIES
+ok - deploy seam: concurrent executes consume a record exactly once
+ok - deploy seam: valid unexpired one-use allow record PASSES check
+ok - deploy seam: execution succeeds with valid allow record
+ok - deploy seam: execution stamps used_at timestamp
+ok - deploy seam: immediate replay DENIES
+ok - decision evidence ledger records all allow and deny decisions with reasons
+ok - fm-jev-classify.sh classifies staging deploy as not_risky and remains advisory-only
+ok - fm-jev-classify.sh flags destructive payload as risky
+ok: Scope Area 3 JEV classifier and deny-on-missing tests passed completely
+FM_TEST_END 2026-10-13T13:04:30Z tests/fm-decision-gate.test.sh exit=0 duration_ms=573 gate_skip=false
+FM_TEST_BEGIN 2026-10-13T13:04:30Z tests/fm-gui-containment.test.sh family=unclassified expected_gate_skip=none
+ok - gui router: captain_personal session strictly REFUSED
+ok - gui router: default personal profile strictly REFUSED
+ok - gui router: unmapped context alias REFUSES (fails closed)
+ok - gui router: non-allowlisted host REFUSES
+ok - gui router: host mismatch for alias REFUSES
+ok - gui router: missing router map REFUSES
+ok - gui router: valid automation context PASSES check
+ok - gui router: valid automation command executes
+ok - gui router: refused context stops execution before command invocation
+ok - gui router: records all checks and refusals in evidence ledger
+ok - gui router: ledger contains only opaque account aliases, no personal identities
+ok: Scope Area 4 GUI containment tests passed completely
+FM_TEST_END 2026-10-13T13:04:30Z tests/fm-gui-containment.test.sh exit=0 duration_ms=216 gate_skip=false
+FM_TEST_BEGIN 2026-10-13T13:04:30Z tests/fm-observation-layer.test.sh family=unclassified expected_gate_skip=none
+ok - observation metadata record successfully written to spool
+ok - recorded observation JSON contains all required identity, call, usage, and retention fields
+ok - observation record carries only the Section 2.3 metadata fields
+ok - non-numeric counters are rejected without touching the spool
+ok - unparented call resolves safe trace identifiers
+ok - observation spool shipper accurately reports spool metrics
+ok - shipper retains batch for retry when OTLP gateway is unreachable
+ok - shipper retries retained batches and posts OTLP log requests
+ok - shipper sets aside an unencodable batch and ships the batches behind it
+ok: Scope Area 1 observation layer tests passed completely
+FM_TEST_END 2026-10-13T13:04:30Z tests/fm-observation-layer.test.sh exit=0 duration_ms=197 gate_skip=false
+FM_TEST_BEGIN 2026-10-13T13:04:30Z tests/fm-si-control-p3-testenv.test.sh family=unclassified expected_gate_skip=none
+ok - all 4 Phase 3 synthetic fixtures exist
+ok - all Phase 3 synthetic fixtures parse as valid JSON
+ok - observation metadata fixture carries only the Section 2.3 metadata fields
+ok - policy, JEV, and GUI fixtures carry only their declared fields
+ok - observation metadata fixture matches Section 2.3 schema
+ok - policy decision record matches Sections 4.4 and 4.5 schema
+ok - JEV classifier fixture is strictly advisory and cannot grant allow
+ok - GUI containment map fixture defines automation allowlists and blocks personal contexts
+ok - disposable lab home created and marked
+ok - all Phase 3 entrypoints refuse fleet mutation under NO_MISTAKES_GATE=1
+ok - marked disposable lab home is permitted for Phase 3 lifecycle
+ok - FM_*_OVERRIDE correctly defeats lab home allowance
+ok - deploy seam: missing decision record DENIES
+ok - deploy seam: malformed decision record DENIES
+ok - deploy seam: tampered payload DENIES
+ok - deploy seam: expired record DENIES
+ok - deploy seam: replayed record DENIES
+ok - deploy seam: JEV alone cannot grant allow (DENIES)
+ok - deploy seam: low JEV confidence DENIES
+ok - deploy seam: valid unexpired one-use record ALLOWS
+ok - deploy seam: execution stamps used_at atomically
+ok - deploy seam: second execution with consumed record DENIES
+ok - gui router: personal browser session REFUSES
+ok - gui router: unmapped alias REFUSES
+ok - gui router: non-allowlisted host REFUSES
+ok - gui router: host mismatch REFUSES
+ok - gui router: valid automation context ALLOWS
+ok - JEV classifier flags destructive payload as risky and stays advisory
+ok: Scope Area 2 isolated test environment and bypass matrix passed completely
+FM_TEST_END 2026-10-13T13:04:30Z tests/fm-si-control-p3-testenv.test.sh exit=0 duration_ms=391 gate_skip=false
+FM_TEST_SUMMARY total=4 failed=0 skipped_gate=0 duration_ms=1453
+FM_TEST_SUMMARY_FAMILY family=unclassified count=4 duration_ms=1377 failed=0
+FM_TEST_SLOWEST rank=1 script=tests/fm-decision-gate.test.sh duration_ms=573
+FM_TEST_SLOWEST rank=2 script=tests/fm-si-control-p3-testenv.test.sh duration_ms=391
+FM_TEST_SLOWEST rank=3 script=tests/fm-gui-containment.test.sh duration_ms=216
+FM_TEST_SLOWEST rank=4 script=tests/fm-observation-layer.test.sh duration_ms=197
+fm-test-run: wrote timing artifact: /home/jon/.no-mistakes/evidence/01M4TNPD4B9MYK4D5F9YW6QHPV/phase3-run.json
