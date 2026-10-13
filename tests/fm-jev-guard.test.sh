@@ -14,39 +14,51 @@ GUARD_PY="$ROOT/bin/fm-jev-guard.py"
 TDIR=$(fm_test_tmproot fm-jev-guard-test)
 export FM_TEST_PRIMARY=1
 
+# Mock primary root: every direct GUARD_SH invocation pins it so the guard
+# engages regardless of ambient state. A secondmate home carries the gitignored
+# .fm-secondmate-home marker (.gitignore line 7), which correctly makes the
+# guard inert there and would otherwise vacate the primary-console assertions
+# below or fail the live deny assertions. The deliberate inertness cases at the
+# end pin their own worktree and secondmate mocks instead.
+MOCK_PRIMARY="$TDIR/mock-primary"
+mkdir -p "$MOCK_PRIMARY/bin" "$MOCK_PRIMARY/state"
+touch "$MOCK_PRIMARY/AGENTS.md"
+cp "$GUARD_PY" "$MOCK_PRIMARY/bin/fm-jev-guard.py"
+run_guard() {
+  env -u FM_HOME FM_ROOT_OVERRIDE="$MOCK_PRIMARY" FM_JEV_GUARD_CACHE="$TDIR/jev-guard-cache.json" \
+    "$GUARD_SH" "$@"
+}
+guard_decision() {
+  env -u FM_HOME FM_ROOT_OVERRIDE="$MOCK_PRIMARY" FM_JEV_GUARD_CACHE="$TDIR/jev-guard-cache.json" \
+    python3 "$GUARD_PY" --command "$1" --check-only
+}
+
 # 1. Help flag works
-help_out=$("$GUARD_SH" --help 2>&1 || true)
+help_out=$(run_guard --help 2>&1 || true)
 assert_contains "$help_out" "Usage: fm-jev-guard.sh" "shell wrapper emits usage"
 
 # 2. Tier 1 Fast-path whitelist allows benign supervisor commands at 0ms
-"$GUARD_SH" --command "bd list" || fail "bd list denied unexpectedly"
-"$GUARD_SH" --command "bd create 'investigate failing test shard'" || fail "bd create with inner 'test' denied unexpectedly"
-"$GUARD_SH" --command "bin/fm-send.sh gpu-ops 'restart stt service'" || fail "fm-send with inner 'restart' denied unexpectedly"
-"$GUARD_SH" --command "bin/fm-wake-drain.sh" || fail "fm-wake-drain denied unexpectedly"
-"$GUARD_SH" --command "git status --porcelain" || fail "git status denied unexpectedly"
-"$GUARD_SH" --command "git -C /opt/ra/firstmate status -sb | head -8" || fail "git -C status with pipe denied unexpectedly"
-"$GUARD_SH" --command "FM_HOME=/opt/ra/firstmate bin/fm-watch-arm.sh --restart 2>&1 | tail -3" || fail "fm-watch-arm --restart denied unexpectedly"
-"$GUARD_SH" --command "OLD=\$(pgrep -f '/opt/ra/firstmate/bin/fm-watch.sh' | head -1); FM_HOME=/opt/ra/firstmate bin/fm-watch-arm.sh --restart 2>&1 | tail -2; sleep 5; NEW=\$(pgrep -f '/opt/ra/firstmate/bin/fm-watch.sh' | head -1); echo watcher" || fail "compound subshell watcher restart denied unexpectedly"
-"$GUARD_SH" --command "bash /opt/ra/firstmate/tests/fm-jev-disk-io-guard.test.sh 2>&1 | tail -6" || fail "bash jev test suite denied unexpectedly"
-"$GUARD_SH" --command "cp /opt/ra/firstmate/bin/fm-watch.sh /tmp/fmw-check5.sh; bash -n /tmp/fmw-check5.sh && echo WATCH_SYNTAX_OK; bash /opt/ra/firstmate/tests/fm-jev-sockbuf-guard.test.sh 2>&1 | tail -5" || fail "syntax check pipeline denied unexpectedly"
-"$GUARD_SH" --command "git -C /opt/ra/firstmate add bin/fm-watch.sh && git -C /opt/ra/firstmate commit -m 'feat(watch): update'" || fail "firstmate self-repo commit denied unexpectedly"
-"$GUARD_SH" --command "cat state/websites.status | grep needs-decision" || fail "cat/grep state denied unexpectedly"
-"$GUARD_SH" --command "FM_HOME=/opt/ra/firstmate bash -c 'cd /opt/ra/firstmate && bd create \"fm-zeta-runner-gpu: register runner\"'" || fail "wrapped bd create in bash -c denied unexpectedly"
-"$GUARD_SH" --command "FM_HOME=/opt/ra/firstmate bash -c 'cd /opt/ra/firstmate && bd list --status all --json 2>/dev/null | python3 -c \" import json,sys; sys.exit(0)\"'" || fail "wrapped bd list with python filter denied unexpectedly"
-"$GUARD_SH" --command "FM_HOME=/opt/ra/firstmate bin/fm-send.sh gpu-ops 'diagnose with journalctl -u render-credentials.service and restart systemctl' 2>&1 | tail -1" || fail "fm-send with inner systemctl/journalctl denied unexpectedly"
+run_guard --command "bd list" || fail "bd list denied unexpectedly"
+run_guard --command "bd create 'investigate failing test shard'" || fail "bd create with inner 'test' denied unexpectedly"
+run_guard --command "bin/fm-send.sh gpu-ops 'restart stt service'" || fail "fm-send with inner 'restart' denied unexpectedly"
+run_guard --command "bin/fm-wake-drain.sh" || fail "fm-wake-drain denied unexpectedly"
+run_guard --command "git status --porcelain" || fail "git status denied unexpectedly"
+run_guard --command "git -C /opt/ra/firstmate status -sb | head -8" || fail "git -C status with pipe denied unexpectedly"
+run_guard --command "FM_HOME=/opt/ra/firstmate bin/fm-watch-arm.sh --restart 2>&1 | tail -3" || fail "fm-watch-arm --restart denied unexpectedly"
+run_guard --command "OLD=\$(pgrep -f '/opt/ra/firstmate/bin/fm-watch.sh' | head -1); FM_HOME=/opt/ra/firstmate bin/fm-watch-arm.sh --restart 2>&1 | tail -2; sleep 5; NEW=\$(pgrep -f '/opt/ra/firstmate/bin/fm-watch.sh' | head -1); echo watcher" || fail "compound subshell watcher restart denied unexpectedly"
+run_guard --command "bash /opt/ra/firstmate/tests/fm-jev-disk-io-guard.test.sh 2>&1 | tail -6" || fail "bash jev test suite denied unexpectedly"
+run_guard --command "cp /opt/ra/firstmate/bin/fm-watch.sh /tmp/fmw-check5.sh; bash -n /tmp/fmw-check5.sh && echo WATCH_SYNTAX_OK; bash /opt/ra/firstmate/tests/fm-jev-sockbuf-guard.test.sh 2>&1 | tail -5" || fail "syntax check pipeline denied unexpectedly"
+run_guard --command "git -C /opt/ra/firstmate add bin/fm-watch.sh && git -C /opt/ra/firstmate commit -m 'feat(watch): update'" || fail "firstmate self-repo commit denied unexpectedly"
+run_guard --command "cat state/websites.status | grep needs-decision" || fail "cat/grep state denied unexpectedly"
+run_guard --command "FM_HOME=/opt/ra/firstmate bash -c 'cd /opt/ra/firstmate && bd create \"fm-zeta-runner-gpu: register runner\"'" || fail "wrapped bd create in bash -c denied unexpectedly"
+run_guard --command "FM_HOME=/opt/ra/firstmate bash -c 'cd /opt/ra/firstmate && bd list --status all --json 2>/dev/null | python3 -c \" import json,sys; sys.exit(0)\"'" || fail "wrapped bd list with python filter denied unexpectedly"
+run_guard --command "FM_HOME=/opt/ra/firstmate bin/fm-send.sh gpu-ops 'diagnose with journalctl -u render-credentials.service and restart systemctl' 2>&1 | tail -1" || fail "fm-send with inner systemctl/journalctl denied unexpectedly"
 
 # 2a. The tool IS the delegation: a delegation tool invocation fast-passes
 # whatever implementation-looking argument text it carries, in any path form.
 # Assert the Tier-1 fast_path_whitelist code directly (not merely exit 0) so the
 # check stays deterministic where no live classifier key exists: on unfixed code
 # these commands either deny (live key) or fall open (no key), never fast-path.
-# A mock primary root without the secondmate marker keeps the guard engaged.
-MOCK_PRIMARY="$TDIR/mock-primary"
-mkdir -p "$MOCK_PRIMARY/state"
-guard_decision() {
-  env -u FM_HOME FM_ROOT_OVERRIDE="$MOCK_PRIMARY" FM_JEV_GUARD_CACHE="$TDIR/jev-guard-cache.json" \
-    python3 "$GUARD_PY" --command "$1" --check-only
-}
 delegation_cmds=(
   "bin/fm-route-dispatch.sh --task 'restart systemctl on gpu and edit the portal config'"
   "bin/fm-route-dispatch.sh --task 'implement the new feature in the portal'"
@@ -78,9 +90,9 @@ for cmd in \
 done
 
 # 3. Fail-open on empty or malformed inputs
-printf '' | "$GUARD_SH" || fail "empty stdin failed to allow open"
-printf '{bad json' | "$GUARD_SH" || fail "malformed json failed to allow open"
-"$GUARD_SH" --command "" || fail "empty command failed to allow open"
+printf '' | run_guard || fail "empty stdin failed to allow open"
+printf '{bad json' | run_guard || fail "malformed json failed to allow open"
+run_guard --command "" || fail "empty command failed to allow open"
 
 # 4. Live classification if TYPESAFE_API_KEY is available
 if jev key >/dev/null 2>&1; then
@@ -97,7 +109,7 @@ if jev key >/dev/null 2>&1; then
   # Direct remote SSH must be denied
   set +e
   deny_stderr=$(mktemp)
-  deny_stdout=$("$GUARD_SH" --command 'ssh srv-covenant-app "sudo systemctl restart arcs-portal"' 2>"$deny_stderr")
+  deny_stdout=$(run_guard --command 'ssh srv-covenant-app "sudo systemctl restart arcs-portal"' 2>"$deny_stderr")
   exit_code=$?
   set -e
   [ "$exit_code" -eq 2 ] || fail "ssh systemctl restart was not denied (exit code $exit_code)"
@@ -110,7 +122,7 @@ if jev key >/dev/null 2>&1; then
   # Compound command sneak must be caught and denied
   set +e
   compound_err=$(mktemp)
-  "$GUARD_SH" --command 'bin/fm-wake-drain.sh 2>&1 | grep WAKE_ACK; ssh srv "redis-cli ping"' 2>"$compound_err"
+  run_guard --command 'bin/fm-wake-drain.sh 2>&1 | grep WAKE_ACK; ssh srv "redis-cli ping"' 2>"$compound_err"
   compound_code=$?
   set -e
   [ "$compound_code" -eq 2 ] || fail "compound sneak command was not denied (code $compound_code)"
@@ -121,7 +133,7 @@ if jev key >/dev/null 2>&1; then
   # Claude mode test: stderr gets JSON, stdout stays empty, exit code 2
   set +e
   claude_err=$(mktemp)
-  claude_out=$(jq -nc '{"tool_input":{"command":"ssh gpu \"docker ps\""}}' | "$GUARD_SH" --claude 2>"$claude_err")
+  claude_out=$(jq -nc '{"tool_input":{"command":"ssh gpu \"docker ps\""}}' | run_guard --claude 2>"$claude_err")
   claude_code=$?
   set -e
   [ "$claude_code" -eq 2 ] || fail "claude mode failed to exit 2 (got $claude_code)"
@@ -132,7 +144,7 @@ if jev key >/dev/null 2>&1; then
   assert_contains "$claude_errmsg" "gpu_ops" "claude stderr identified gpu_ops domain"
 
   # Cursor mode test: exits 0, user_message on stdout
-  cursor_out=$(jq -nc '{"tool_input":{"command":"ssh gpu \"docker ps\""}}' | "$GUARD_SH" --cursor)
+  cursor_out=$(jq -nc '{"tool_input":{"command":"ssh gpu \"docker ps\""}}' | run_guard --cursor)
   assert_contains "$cursor_out" '"permission":"deny"' "cursor stdout contains permission deny"
   assert_contains "$cursor_out" "gpu_ops" "cursor stdout identified gpu_ops"
 fi
