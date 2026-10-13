@@ -586,51 +586,58 @@ test_home_seed_completes_auto_chartered_scaffold() {
   pass "home seeding completes an auto-chartered scaffold into a launchable home"
 }
 
-test_home_seed_completes_scaffold_from_branch_matching_default() {
-  # When init.defaultBranch matches the source repo's checked-out branch, the
-  # scaffold's fresh unborn HEAD names that same branch. Completion must still
-  # succeed and record origin like git clone, so /updatefirstmate can converge it.
-  local home src sub
-  home="$TMP_ROOT/auto-charter-main-home"
-  src="$TMP_ROOT/auto-charter-main-src"
-  sub="$TMP_ROOT/auto-charter-main-subhome"
-  mkdir -p "$home/projects" "$home/data" "$home/state" "$sub/data" "$sub/state"
-  printf 'preserved scaffold data\n' > "$sub/data/kept.txt"
-  git clone -q "$ROOT" "$src"
-  git -C "$src" checkout -q -B main
-  printf '%s\n' "fdev-main" > "$sub/.fm-secondmate-home"
+scaffold_seed_case() {  # <home> <src> <id> [git-config-env...]: seed a fresh scaffold from <src>
+  local home=$1 src=$2 id=$3 sub
+  shift 3
+  sub="$TMP_ROOT/scaffold-$id"
+  mkdir -p "$sub/data" "$sub/state"
+  printf '%s\n' "$id" > "$sub/.fm-secondmate-home"
   printf '%s\n' "$(cd "$home" && pwd -P)" > "$sub/.fm-secondmate-parent"
-
-  GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=init.defaultBranch GIT_CONFIG_VALUE_0=main \
-    FM_ROOT_OVERRIDE="$src" FM_HOME="$home" FM_SECONDMATE_CHARTER='firstmate self-development' \
+  printf 'preserved scaffold data\n' > "$sub/data/kept.txt"
+  [ "$#" -eq 0 ] || [ "$1" != half ] || {
+    shift
+    git clone -q --no-checkout "$src" "$sub.half"
+    mv "$sub.half/.git" "$sub/.git"
+    rm -rf "$sub.half"
+  }
+  env "$@" FM_ROOT_OVERRIDE="$src" FM_HOME="$home" FM_SECONDMATE_CHARTER='firstmate self-development' \
     FM_SECONDMATE_SCOPE='firstmate repo work' \
-    "$ROOT/bin/fm-home-seed.sh" fdev-main "$sub" --no-projects >/dev/null \
-    || fail "seed refused a scaffold whose default branch matches the source branch"
+    "$ROOT/bin/fm-home-seed.sh" "$id" "$sub" --no-projects >/dev/null \
+    || fail "seed refused scaffold $id"
+  [ -f "$sub/AGENTS.md" ] && [ -d "$sub/bin" ] || fail "scaffold $id was not completed into a firstmate tree"
+  [ "$(git -C "$sub" rev-parse HEAD)" = "$(git -C "$src" rev-parse HEAD)" ] || fail "scaffold $id is not at the source HEAD"
+  [ "$(git -C "$sub" remote get-url origin)" = "$src" ] || fail "scaffold $id has no origin remote at the source repo"
+  [ -z "$(git -C "$sub" status --porcelain)" ] || fail "scaffold $id has a dirty tree"
+  assert_grep 'preserved scaffold data' "$sub/data/kept.txt" "scaffold $id lost its operational data"
+  [ "$(cat "$sub/.fm-secondmate-home")" = "$id" ] || fail "scaffold $id identity marker changed"
+}
 
-  [ -d "$sub/bin" ] || fail "completed scaffold is missing bin/"
-  [ "$(git -C "$sub" remote get-url origin)" = "$src" ] || fail "completed scaffold has no origin remote at the source repo"
-  [ "$(git -C "$sub" symbolic-ref --short HEAD)" = main ] || fail "completed scaffold is not on main"
-  [ "$(git -C "$sub" rev-parse --abbrev-ref 'main@{upstream}')" = origin/main ] || fail "completed scaffold main does not track origin/main"
-  assert_grep 'preserved scaffold data' "$sub/data/kept.txt" "seed lost the scaffold's operational data"
+test_home_seed_completes_scaffold_for_every_source_shape() {
+  # Completion must match a fresh clone whatever FM_ROOT's HEAD is: a branch,
+  # a branch matching init.defaultBranch, or (every treehouse worktree) a
+  # detached commit no branch contains. A half-finished completion that holds
+  # the clone .git but no tree is repaired on retry.
+  local home src
+  home="$TMP_ROOT/scaffold-shapes-home"
+  src="$TMP_ROOT/scaffold-shapes-src"
+  mkdir -p "$home/projects" "$home/data" "$home/state"
+  git clone -q "$ROOT" "$src"
 
-  # A source detached at a commit no branch contains (every treehouse worktree)
-  # must still complete, checked out at that exact commit.
-  local dsub head
-  dsub="$TMP_ROOT/auto-charter-detached-subhome"
-  mkdir -p "$dsub/data" "$dsub/state"
-  printf '%s\n' "fdev-detached" > "$dsub/.fm-secondmate-home"
-  printf '%s\n' "$(cd "$home" && pwd -P)" > "$dsub/.fm-secondmate-parent"
+  git -C "$src" checkout -q -B work 2>/dev/null
+  scaffold_seed_case "$home" "$src" fdev-branch
+  [ "$(git -C "$TMP_ROOT/scaffold-fdev-branch" symbolic-ref --short HEAD)" = work ] || fail "branch scaffold is not on the source branch"
+
+  git -C "$src" checkout -q -B main 2>/dev/null
+  scaffold_seed_case "$home" "$src" fdev-main GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=init.defaultBranch GIT_CONFIG_VALUE_0=main
+  [ "$(git -C "$TMP_ROOT/scaffold-fdev-main" rev-parse --abbrev-ref 'main@{upstream}')" = origin/main ] || fail "main scaffold does not track origin/main"
+
   git -C "$src" -c advice.detachedHead=false checkout -q --detach
   git -C "$src" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m detached-only
-  head=$(git -C "$src" rev-parse HEAD)
   [ -z "$(git -C "$src" for-each-ref --contains HEAD refs/heads)" ] || fail "fixture commit is reachable from a branch"
-  FM_ROOT_OVERRIDE="$src" FM_HOME="$home" FM_SECONDMATE_CHARTER='firstmate self-development' \
-    FM_SECONDMATE_SCOPE='firstmate repo work' \
-    "$ROOT/bin/fm-home-seed.sh" fdev-detached "$dsub" --no-projects >/dev/null \
-    || fail "seed refused a scaffold whose source HEAD is detached off every branch"
-  [ "$(git -C "$dsub" rev-parse HEAD)" = "$head" ] || fail "completed scaffold is not at the source's detached HEAD"
-  [ "$(git -C "$dsub" remote get-url origin)" = "$src" ] || fail "detached-source scaffold has no origin remote at the source repo"
-  pass "home seeding completes a scaffold from a default-named branch or a branchless detached source"
+  scaffold_seed_case "$home" "$src" fdev-detached
+
+  scaffold_seed_case "$home" "$src" fdev-half half
+  pass "home seeding completes a scaffold for branch, default-branch, and detached sources, and repairs a half-finished one"
 }
 
 test_secondmate_spawn_resolves_punctuated_registry_projects() {
@@ -3273,7 +3280,7 @@ test_home_seed_refuses_placeholder_charter
 test_home_seed_refuses_empty_charter_fields
 test_home_seed_no_projects_end_to_end
 test_home_seed_completes_auto_chartered_scaffold
-test_home_seed_completes_scaffold_from_branch_matching_default
+test_home_seed_completes_scaffold_for_every_source_shape
 test_secondmate_spawn_resolves_punctuated_registry_projects
 test_secondmate_spawn_refuses_ambiguous_and_mismatched_registry_bindings
 test_home_seed_refuses_projectful_reused_charter_for_projectless_home
