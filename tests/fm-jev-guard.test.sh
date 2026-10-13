@@ -82,7 +82,17 @@ printf '#!/bin/sh\n' >"$TDIR/fm-send.sh"
 printf '#!/bin/sh\n' >"$TDIR/bd"
 printf '#!/bin/sh\n' >"$TDIR/spoof/bin/fm-send.sh"
 chmod +x "$TDIR/fm-send.sh" "$TDIR/bd" "$TDIR/spoof/bin/fm-send.sh"
-ln -s /usr/bin/env "$TDIR/spoof/bin/bd"
+mkdir -p "$TDIR/launcher/bin" "$TDIR/launcher/node_modules/tasks-axi/dist/bin"
+printf '#!/bin/sh\n' >"$TDIR/launcher/node_modules/tasks-axi/dist/bin/tasks-axi.js"
+chmod +x "$TDIR/launcher/node_modules/tasks-axi/dist/bin/tasks-axi.js"
+ln -s ../node_modules/tasks-axi/dist/bin/tasks-axi.js "$TDIR/launcher/bin/tasks-axi"
+
+# A bare tool whose PATH entry is a launcher symlink in a bin/ directory is
+# genuine, whatever its target file is called.
+for cmd in "tasks-axi" "tasks-axi list --status 'docker restart pending'"; do
+  dec=$(GUARD_PATH="$TDIR/launcher/bin:$PATH" guard_decision "$cmd")
+  assert_contains "$dec" "$(printf 'allow\tfast_path_whitelist')" "bin/ launcher symlink must Tier-1 fast-pass: $cmd"
+done
 
 # A bare name resolving through the guard's own PATH to a non-bin spoof never
 # fast-passes, even with a delegation-looking payload.
@@ -106,7 +116,6 @@ for cmd in \
   "cp /usr/bin/ss[h] /tmp/fm-send.sh && PATH=/tmp:\$PATH fm-send.sh gpu 'reboot'" \
   "cp /usr/bin/ss[h] /tmp/bd && PATH=/tmp:\$PATH bd gpu 'reboot'" \
   "export PATH=$TDIR/spoof/bin:\$PATH; fm-send.sh gpu 'reboot'" \
-  "$TDIR/spoof/bin/bd gpu 'reboot'" \
   "bd-evil gpu 'sudo systemctl restart ollama'" \
   "cd $TDIR && ./fm-send.sh gpu 'sudo systemctl restart ollama'" \
   "bin/fm-send.sh data-fm-si 'sudo systemctl restart x'; docker restart portal" \

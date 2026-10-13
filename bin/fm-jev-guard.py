@@ -196,11 +196,13 @@ DELEGATION_TOOL_NAMES = frozenset({
 
 
 def _is_genuine_delegation_tool(clean: str, path_lookup: bool) -> bool:
-    """True when the invoked program resolves to a delegation tool in a bin/ directory.
+    """True when the invoked program is located as a delegation tool in a bin/ directory.
 
-    A token with a slash must name a file directly under a bin/ directory, both
-    as written and after resolving symlinks. A bare name resolves through PATH
-    only when path_lookup is set; the command text must not have redefined PATH.
+    A token with a slash is checked as written; a bare name is checked where PATH
+    finds it, only when path_lookup is set (the command text must not have
+    redefined PATH). The location itself must be an existing file named like a
+    delegation tool directly under a directory named bin; a launcher symlink
+    there qualifies whatever its target is called.
     Requiring a bin/ parent is proportionate to the threat model: it stops a
     cooperating agent's accidental or same-named scratch copy (/tmp/fm-send.sh)
     from passing as delegation, while anyone able to write an executable into a
@@ -210,24 +212,16 @@ def _is_genuine_delegation_tool(clean: str, path_lookup: bool) -> bool:
     if not parts:
         return False
     token = parts[0]
-    name = token.rpartition("/")[-1]
-    if name not in DELEGATION_TOOL_NAMES:
-        return False
     if "/" in token:
-        if Path(os.path.normpath(token)).parent.name != "bin":
-            return False
-        candidate = token
+        location = os.path.normpath(token)
     elif path_lookup:
-        candidate = shutil.which(token)
-        if not candidate:
+        location = shutil.which(token)
+        if not location:
             return False
     else:
         return False
-    try:
-        real = Path(candidate).resolve(strict=True)
-    except OSError:
-        return False
-    return real.is_file() and real.name == name and real.parent.name == "bin"
+    loc = Path(location)
+    return loc.name in DELEGATION_TOOL_NAMES and loc.parent.name == "bin" and loc.is_file()
 
 
 def is_fast_pass_supervisor(subcmd: str, path_trusted: bool) -> bool:
