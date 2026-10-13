@@ -28,8 +28,8 @@
 #       and scope are derived from the filled charter brief.
 #       An existing auto-chartered scaffold (bin/fm-route-domain.py leaves only
 #       data/, state/, and the identity markers) is completed in place into a
-#       firstmate home: the tracked tree is fetched from the active firstmate
-#       repo and checked out around the gitignored operational directories, so
+#       firstmate home: the active firstmate repo is cloned, and the clone's
+#       .git and tree are moved in around the gitignored operational directories, so
 #       fm-spawn.sh --secondmate accepts the home instead of refusing it.
 #   fm-home-seed.sh validate
 #       Refuse records that operational consumers cannot parse, unavailable or
