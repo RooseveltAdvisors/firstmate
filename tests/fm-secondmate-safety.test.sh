@@ -586,6 +586,33 @@ test_home_seed_completes_auto_chartered_scaffold() {
   pass "home seeding completes an auto-chartered scaffold into a launchable home"
 }
 
+test_home_seed_completes_scaffold_from_branch_matching_default() {
+  # When init.defaultBranch matches the source repo's checked-out branch, the
+  # scaffold's fresh unborn HEAD names that same branch. Completion must still
+  # succeed and record origin like git clone, so /updatefirstmate can converge it.
+  local home src sub
+  home="$TMP_ROOT/auto-charter-main-home"
+  src="$TMP_ROOT/auto-charter-main-src"
+  sub="$TMP_ROOT/auto-charter-main-subhome"
+  mkdir -p "$home/projects" "$home/data" "$home/state" "$sub/data" "$sub/state"
+  git clone -q "$ROOT" "$src"
+  git -C "$src" checkout -q -B main
+  printf '%s\n' "fdev-main" > "$sub/.fm-secondmate-home"
+  printf '%s\n' "$(cd "$home" && pwd -P)" > "$sub/.fm-secondmate-parent"
+
+  GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=init.defaultBranch GIT_CONFIG_VALUE_0=main \
+    FM_ROOT_OVERRIDE="$src" FM_HOME="$home" FM_SECONDMATE_CHARTER='firstmate self-development' \
+    FM_SECONDMATE_SCOPE='firstmate repo work' \
+    "$ROOT/bin/fm-home-seed.sh" fdev-main "$sub" --no-projects >/dev/null \
+    || fail "seed refused a scaffold whose default branch matches the source branch"
+
+  [ -d "$sub/bin" ] || fail "completed scaffold is missing bin/"
+  [ "$(git -C "$sub" remote get-url origin)" = "$src" ] || fail "completed scaffold has no origin remote at the source repo"
+  [ "$(git -C "$sub" symbolic-ref --short HEAD)" = main ] || fail "completed scaffold is not on main"
+  [ "$(git -C "$sub" rev-parse --abbrev-ref 'main@{upstream}')" = origin/main ] || fail "completed scaffold main does not track origin/main"
+  pass "home seeding completes a scaffold whose default branch matches the source branch"
+}
+
 test_secondmate_spawn_resolves_punctuated_registry_projects() {
   local home sub sub_abs fakebin log meta projects
   home="$TMP_ROOT/punctuated-spawn-home"
@@ -3226,6 +3253,7 @@ test_home_seed_refuses_placeholder_charter
 test_home_seed_refuses_empty_charter_fields
 test_home_seed_no_projects_end_to_end
 test_home_seed_completes_auto_chartered_scaffold
+test_home_seed_completes_scaffold_from_branch_matching_default
 test_secondmate_spawn_resolves_punctuated_registry_projects
 test_secondmate_spawn_refuses_ambiguous_and_mismatched_registry_bindings
 test_home_seed_refuses_projectful_reused_charter_for_projectless_home
