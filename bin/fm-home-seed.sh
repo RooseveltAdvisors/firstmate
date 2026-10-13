@@ -26,6 +26,11 @@
 #       when no filled charter brief exists. Set FM_SECONDMATE_SCOPE='<scope>'
 #       to override the registry routing scope. Otherwise the registry summary
 #       and scope are derived from the filled charter brief.
+#       An existing auto-chartered scaffold (bin/fm-route-domain.py leaves only
+#       data/, state/, and the identity markers) is completed in place into a
+#       firstmate home: the tracked tree is fetched from the active firstmate
+#       repo and checked out around the gitignored operational directories, so
+#       fm-spawn.sh --secondmate accepts the home instead of refusing it.
 #   fm-home-seed.sh validate
 #       Refuse records that operational consumers cannot parse, unavailable or
 #       unsafe registry files when present, non-absolute or unresolvable homes,
@@ -401,6 +406,32 @@ acquire_treehouse_home() {
   printf '%s\n' "$home"
 }
 
+complete_auto_chartered_home() {
+  # <home>: finish an auto-chartered scaffold into a firstmate home in place.
+  # The scaffold's data/, state/, and identity markers are gitignored in this
+  # repo, so fetching the tracked tree from the active repo and force-checking
+  # out its HEAD leaves them untouched.
+  local home=$1 head_ref head_sha
+  [ -d "$home/.git" ] || git -C "$home" init -q || return 1
+  git -C "$home" fetch -q "$FM_ROOT" '+refs/heads/*:refs/heads/*' || {
+    echo "error: could not fetch firstmate refs into auto-chartered home $home" >&2
+    return 1
+  }
+  head_ref=$(git -C "$FM_ROOT" symbolic-ref -q HEAD || true)
+  if [ -n "$head_ref" ]; then
+    git -C "$home" checkout -q -f "${head_ref#refs/heads/}" || {
+      echo "error: could not check out ${head_ref#refs/heads/} in auto-chartered home $home" >&2
+      return 1
+    }
+  else
+    head_sha=$(git -C "$FM_ROOT" rev-parse HEAD) || return 1
+    git -C "$home" checkout -q -f --detach "$head_sha" || {
+      echo "error: could not check out $head_sha in auto-chartered home $home" >&2
+      return 1
+    }
+  fi
+}
+
 ensure_home() {
   local id=$1 requested=$2 home
   if [ "$requested" = "-" ]; then
@@ -413,6 +444,13 @@ ensure_home() {
   refuse_active_home_path "$home" || return 1
   if [ -e "$home" ]; then
     [ -d "$home" ] || { echo "error: $home exists and is not a directory" >&2; return 1; }
+    # An auto-chartered scaffold (data/, state/, and the identity markers only)
+    # is not a home yet; complete it in place instead of refusing it.
+    if [ ! -f "$home/AGENTS.md" ] || [ ! -d "$home/bin" ]; then
+      if [ -f "$home/$SUB_HOME_MARKER" ] && [ "$(cat "$home/$SUB_HOME_MARKER" 2>/dev/null || true)" = "$id" ]; then
+        complete_auto_chartered_home "$home"
+      fi
+    fi
   else
     mkdir -p "$(dirname "$home")"
     git clone --quiet "$FM_ROOT" "$home"

@@ -89,4 +89,61 @@ EOF
   assert_contains "$dispatch_out" "bin/fm-spawn.sh" "dispatch script reports spawn command"
 fi
 
+# 10. fm-route-dispatch.sh target resolution, hermetic against a mock bin: a
+# stub router emits a fixed dispatch route and a stub fm-send records its argv.
+# A routed registry id must resolve to this home's recorded task id form
+# (state/fm-<id>.meta), an explicit session:window route passes through
+# untouched, and an unresolvable route fails loudly without sending anything.
+MOCK_DISPATCH="$TDIR/dispatch-mock"
+mkdir -p "$MOCK_DISPATCH/bin" "$MOCK_DISPATCH/home/state"
+cp "$ROOT/bin/fm-route-dispatch.sh" "$MOCK_DISPATCH/bin/fm-route-dispatch.sh"
+cat <<'EOF' > "$MOCK_DISPATCH/bin/fm-route-domain.py"
+import json, os
+print(json.dumps({
+    "action": "dispatch",
+    "route": os.environ.get("FAKE_ROUTE", "data-fm-si"),
+    "confidence": 0.9,
+    "needs_new_noul": 0.1,
+    "seat_wall": {"walled": False},
+    "auto_charter": {"chartered": False},
+}))
+EOF
+cat <<'EOF' > "$MOCK_DISPATCH/bin/fm-send.sh"
+#!/usr/bin/env bash
+printf '%s\n' "$1" >> "$FAKE_SEND_LOG"
+EOF
+chmod +x "$MOCK_DISPATCH/bin/fm-send.sh"
+export FAKE_SEND_LOG="$TDIR/fake-send.log"
+: > "$FAKE_SEND_LOG"
+
+# The chartered secondmate's live record carries the fm- prefixed task id form.
+fm_write_secondmate_meta "$MOCK_DISPATCH/home/state/fm-data-fm-si.meta" "$MOCK_DISPATCH/home"
+
+run_mock_dispatch() {
+  FM_HOME="$MOCK_DISPATCH/home" FM_STATE_OVERRIDE="$MOCK_DISPATCH/home/state" \
+    FAKE_ROUTE="$1" "$MOCK_DISPATCH/bin/fm-route-dispatch.sh" --task "implement the feature" --execute
+}
+
+# 10a. The registry id data-fm-si resolves to the recorded fm-data-fm-si task.
+run_mock_dispatch "data-fm-si" >/dev/null || fail "dispatch to fm-prefixed secondmate record failed"
+assert_equals "fm-data-fm-si" "$(tail -1 "$FAKE_SEND_LOG")" "data-fm-si must resolve to the chartered fm-data-fm-si record"
+
+# 10b. The canonical registry id form wins when both records exist.
+fm_write_secondmate_meta "$MOCK_DISPATCH/home/state/data-fm-si.meta" "$MOCK_DISPATCH/home"
+run_mock_dispatch "data-fm-si" >/dev/null || fail "dispatch to canonical secondmate record failed"
+assert_equals "data-fm-si" "$(tail -1 "$FAKE_SEND_LOG")" "canonical registry id must win when both meta forms exist"
+rm -f "$MOCK_DISPATCH/home/state/data-fm-si.meta"
+
+# 10c. An explicit session:window backend target passes through untouched.
+run_mock_dispatch "lab-session:7" >/dev/null || fail "dispatch to explicit session:window target failed"
+assert_equals "lab-session:7" "$(tail -1 "$FAKE_SEND_LOG")" "explicit session:window route must pass through verbatim"
+
+# 10d. An unresolvable route refuses loudly and sends nothing.
+: > "$FAKE_SEND_LOG"
+if run_mock_dispatch "ghost-mate" >/dev/null 2>"$TDIR/ghost.err"; then
+  fail "dispatch accepted an unresolvable route"
+fi
+assert_grep "not resolvable" "$TDIR/ghost.err" "unresolvable route did not explain its refusal"
+[ ! -s "$FAKE_SEND_LOG" ] || fail "an unresolvable route still reached fm-send"
+
 pass "all fm-route-domain tests passed"

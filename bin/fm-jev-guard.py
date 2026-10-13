@@ -189,6 +189,14 @@ def clean_subcommand(subcmd: str) -> str:
     return s
 
 
+def _invoked_program_basename(clean: str) -> str:
+    """Basename of the invoked program token, ignoring its argument text."""
+    parts = clean.split(None, 1)
+    if not parts:
+        return ""
+    return parts[0].rstrip("/").rpartition("/")[-1]
+
+
 def is_fast_pass_supervisor(subcmd: str) -> bool:
     """Check if an individual subcommand is unequivocally an allowed supervisor operation."""
     clean = clean_subcommand(subcmd)
@@ -211,8 +219,19 @@ def is_fast_pass_supervisor(subcmd: str) -> bool:
         "/opt/ra/firstmate/bin/fm-brief.sh",
         "bin/fm-spawn.sh",
         "/opt/ra/firstmate/bin/fm-spawn.sh",
+        "bin/fm-route-dispatch.sh",
+        "/opt/ra/firstmate/bin/fm-route-dispatch.sh",
     )
     if clean.startswith(delegation_prefixes) or unwrapped.startswith(delegation_prefixes):
+        return True
+    # The tool IS the delegation: an invocation of a delegation tool in any path
+    # form (./bin/..., a bare name on PATH, a worktree's absolute path) is
+    # delegation itself, so its argument text must never route it through the
+    # domain classifier into a "requires delegation" denial. Only the invoked
+    # program qualifies; a compound tail after ;, &&, or | is a separate
+    # subcommand and still faces the full gauntlet.
+    delegation_names = {p.rstrip().rpartition("/")[-1] for p in delegation_prefixes}
+    if _invoked_program_basename(clean) in delegation_names or _invoked_program_basename(unwrapped) in delegation_names:
         return True
 
     # 1. Immediate disallow for remote ssh or systemd/package mutations
