@@ -1200,6 +1200,9 @@ test_portable_serial_packing_budget_boundary() {
   # Preserve the real inventory and packing policy without executing suites.
   # Only the fixture's measured timing input changes at the boundary.
   while IFS= read -r script; do
+    case "$script" in
+      tests/fm-jev-*.test.sh) continue ;;
+    esac
     printf '#!/usr/bin/env bash\nexit 0\n' >"$repo/$script"
   done < <("$RUNNER" --list --all)
 

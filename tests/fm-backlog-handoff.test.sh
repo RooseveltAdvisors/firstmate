@@ -660,7 +660,7 @@ SH
     FM_FAKE_TMUX_WINDOW='firstmate:fm-design' \
     FM_FAKE_TMUX_LOG="$TMP_ROOT/teardown-race-tmux.log" \
     FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/teardown-race-fake/pane.txt" \
-    "$ROOT/bin/fm-teardown.sh" design --force --retire-secondmate design > "$TMP_ROOT/teardown-race-teardown.out" 2>&1 &
+    "$ROOT/bin/fm-teardown.sh" design --force > "$TMP_ROOT/teardown-race-teardown.out" 2>&1 &
   teardown=$!
   sleep 0.3
   kill -0 "$teardown" 2>/dev/null \
@@ -711,7 +711,7 @@ SH
     FM_FAKE_TMUX_WINDOW='firstmate:fm-design' \
     FM_FAKE_TMUX_LOG="$TMP_ROOT/teardown-home-fail-tmux.log" \
     FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/teardown-home-fail-fake/pane.txt" \
-    "$ROOT/bin/fm-teardown.sh" design --force --retire-secondmate design > "$TMP_ROOT/teardown-home-fail.out" 2>&1
+    "$ROOT/bin/fm-teardown.sh" design --force > "$TMP_ROOT/teardown-home-fail.out" 2>&1
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "teardown ignored the receiver-home removal failure"
@@ -728,7 +728,7 @@ SH
     FM_FAKE_TMUX_WINDOW='firstmate:fm-design' \
     FM_FAKE_TMUX_LOG="$TMP_ROOT/teardown-home-fail-tmux.log" \
     FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/teardown-home-fail-fake/pane.txt" \
-    "$ROOT/bin/fm-teardown.sh" design --force --retire-secondmate design > "$TMP_ROOT/teardown-home-retry.out" 2>&1 \
+    "$ROOT/bin/fm-teardown.sh" design --force > "$TMP_ROOT/teardown-home-retry.out" 2>&1 \
     || fail "teardown retry did not retire the preserved wake: $(cat "$TMP_ROOT/teardown-home-retry.out")"
   assert_absent "$sub" "teardown retry left the receiver home"
   assert_absent "$marker" "teardown retry left the pending wake marker"
@@ -774,7 +774,7 @@ assert_block_equals() {
 seed_public_commitment() {
   local home=$1 obligation=$2 work_home=$3 work_id=$4
   printf 'FMX_PAIRING_TOKEN=test-token\n' > "$home/.env"
-  cp "$ROOT/.tasks.toml.example" "$home/.tasks.toml"
+  fm_test_tasks_toml "$home/.tasks.toml"
   jq -n '{request_id:"req-handoff", platform:"x",
           context_binding:{version:"ctx1", value:"ctx1_req-handoff"},
           public_safe_summary:"looking into the sign-in redirect",
@@ -1344,7 +1344,32 @@ EOF
   pass "registry entry without (home: ...) fails cleanly with has no home"
 }
 
+# A caller's working directory may hold a .tasks.toml for another backend (an
+# operator checkout keeps a beads override). The handoff names explicit markdown
+# files, so that override must not redirect the move.
+test_cwd_tasks_toml_does_not_redirect_handoff() {
+  local home="$TMP_ROOT/decoy-cwd-main" sub="$TMP_ROOT/decoy-cwd-sub" decoy="$TMP_ROOT/decoy-cwd" out
+  setup_homes "$home" "$sub"
+  cat > "$home/data/backlog.md" <<'EOF'
+## Queued
+- [ ] decoy-item - moves despite a cwd beads config (repo: alpha)
+- [ ] decoy-keep - stays put (repo: alpha)
+
+## Done
+EOF
+  mkdir -p "$decoy"
+  printf 'backend = "beads"\n\n[beads]\ndb = "%s/missing/beads.db"\n' "$decoy" > "$decoy/.tasks.toml"
+
+  out=$(cd "$decoy" && FM_HOME="$home" "$ROOT/bin/fm-backlog-handoff.sh" design decoy-item 2>&1) \
+    || fail "handoff from a cwd with a beads .tasks.toml failed: $out"
+  assert_grep 'decoy-item' "$sub/data/backlog.md" "item did not reach the secondmate backlog"
+  assert_no_grep 'decoy-item' "$home/data/backlog.md" "item stayed in the main backlog"
+  assert_grep 'decoy-keep' "$home/data/backlog.md" "unrelated item was disturbed"
+  pass "a cwd .tasks.toml for another backend does not redirect a markdown handoff"
+}
+
 test_handoff_wakes_live_local_receiver
+test_cwd_tasks_toml_does_not_redirect_handoff
 test_failed_wake_retries_when_the_item_is_already_present
 test_known_receiver_failure_remains_retryable_after_grace
 test_known_failure_restores_retry_after_reconciliation_race
