@@ -745,7 +745,7 @@ tests/fm-cursor-harness.test.sh 30232
 tests/fm-cursor-primary-live-e2e.test.sh 75
 tests/fm-cursor-primary.test.sh 70222
 tests/fm-daemon.test.sh 58554
-tests/fm-decision-gate.test.sh 1200
+tests/fm-decision-gate.test.sh 600
 tests/fm-devin-harness.test.sh 4221
 tests/fm-devin-signals-live-e2e.test.sh 62
 tests/fm-dispatch-resolve.test.sh 10992
@@ -765,7 +765,7 @@ tests/fm-gotmp.test.sh 1597
 tests/fm-grok-continuity-live-e2e.test.sh 137
 tests/fm-grok-stop-live-e2e.test.sh 118
 tests/fm-guard-stale-banner.test.sh 17781
-tests/fm-gui-containment.test.sh 800
+tests/fm-gui-containment.test.sh 250
 tests/fm-harness-adapter-instructions-live-e2e.test.sh 103
 tests/fm-harness-adapter-references.test.sh 87
 tests/fm-harness-liveness-drift-live-e2e.test.sh 1309
@@ -1075,7 +1075,7 @@ tests/fm-muse-harness.test.sh 48605
 tests/fm-muse-signals-live-e2e.test.sh 102
 tests/fm-nm-test-contract.test.sh 1343
 tests/fm-no-mistakes-required.test.sh 466
-tests/fm-observation-layer.test.sh 1000
+tests/fm-observation-layer.test.sh 200
 tests/fm-omp-harness.test.sh 64475
 tests/fm-omp-primary-live-e2e.test.sh 79
 tests/fm-on.test.sh 11862
@@ -1138,7 +1138,7 @@ tests/fm-sessionstart-hook-live-e2e.test.sh 95
 tests/fm-sessionstart-instruction-refresh-live-e2e.test.sh 51
 tests/fm-sessionstart-nudge.test.sh 73766
 tests/fm-shared-captain-inheritance.test.sh 8723
-tests/fm-si-control-p3-testenv.test.sh 4500
+tests/fm-si-control-p3-testenv.test.sh 400
 tests/fm-spawn-compact-adviser-disable-remote.test.sh 41182
 tests/fm-spawn-compact-adviser-disable.test.sh 23710
 tests/fm-spawn-dispatch-profile.test.sh 210555
