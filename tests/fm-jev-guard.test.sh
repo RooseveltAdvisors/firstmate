@@ -60,6 +60,10 @@ run_guard --command "FM_HOME=/opt/ra/firstmate bin/fm-send.sh gpu-ops 'diagnose 
 # so the check stays deterministic where no live classifier key exists.
 # Ordering pin: the systemctl and docker payload cases fail if the delegation
 # fast-pass ever moves after the step-1 ssh/sudo/systemctl/docker deny.
+mkdir -p "$TDIR/launcher/bin" "$TDIR/launcher/node_modules/tasks-axi/dist/bin"
+printf '#!/bin/sh\n' >"$TDIR/launcher/node_modules/tasks-axi/dist/bin/tasks-axi.js"
+chmod +x "$TDIR/launcher/node_modules/tasks-axi/dist/bin/tasks-axi.js"
+ln -s ../node_modules/tasks-axi/dist/bin/tasks-axi.js "$TDIR/launcher/bin/tasks-axi"
 delegation_cmds=(
   "bin/fm-route-dispatch.sh --task 'restart systemctl on gpu and edit the portal config'"
   "bin/fm-route-dispatch.sh --task 'implement the new feature in the portal'"
@@ -71,9 +75,10 @@ delegation_cmds=(
   "bin/fm-route-dispatch.sh --task 'sudo systemctl restart ollama, then docker ps'"
   "bd create 'fix the PATH= export in runner profile'"
   "tasks-axi list"
-  "FM_HOME=/opt/ra/firstmate bd list"
   "bin/fm-send.sh gpu-ops 'Run \`systemctl status ollama\` and report'"
-  "bash bin/fm-send.sh gpu-ops 'docker restart portal'"
+  "./bin/fm-send.sh gpu-ops 'sudo systemctl restart ollama'"
+  "$TDIR/.treehouse/7/firstmate/bin/fm-send.sh gpu-ops 'docker compose restart portal'"
+  "$TDIR/launcher/bin/tasks-axi list --status 'docker restart pending'"
 )
 for cmd in "${delegation_cmds[@]}"; do
   dec=$(guard_decision "$cmd")
@@ -108,6 +113,12 @@ for cmd in \
   "cd $TDIR && ./fm-send.sh gpu 'sudo systemctl restart ollama'" \
   "bin/fm-send.sh data-fm-si 'sudo systemctl restart x'; docker restart portal" \
   "PATH=/tmp fm-send.sh gpu 'reboot'" \
+  "PATH=/tmp bd gpu 'reboot'" \
+  "env PATH=/tmp bd gpu 'reboot'" \
+  "cp /usr/bin/ss[h] /tmp/bd && PATH=/tmp:\$PATH bd gpu 'reboot'" \
+  "bd-evil gpu 'sudo systemctl restart ollama'" \
+  "tasks-axi-evil list" \
+  "bin/fm-send.shx ssh gpu" \
   ; do
   dec=$(guard_decision "$cmd")
   case "$dec" in

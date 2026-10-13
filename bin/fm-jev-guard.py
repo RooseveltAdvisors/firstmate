@@ -49,16 +49,20 @@ CRITERIA_DOMAIN = {
     "firstmate_upstream": "Upstream firstmate pull requests and framework changes.",
 }
 
+# Delegation tools: their invocation is the delegation itself (see is_fast_pass_supervisor step 0)
+DELEGATION_BARE_NAMES = ("bd", "tasks-axi")
+DELEGATION_TOOL_NAMES = (
+    "fm-send.sh",
+    "fm-tasks-axi.sh",
+    "fm-brief.sh",
+    "fm-spawn.sh",
+    "fm-route-dispatch.sh",
+) + DELEGATION_BARE_NAMES
+
 # Approved supervisor prefix patterns for Tier 1 fast path
 SUPERVISOR_TOOL_PREFIXES = (
-    "bd ",
-    "tasks-axi",
-    "bin/fm-tasks-axi.sh",
-    "bin/fm-send.sh",
     "bin/fm-route-",
     "bin/fm-wake-drain.sh",
-    "bin/fm-brief.sh",
-    "bin/fm-spawn.sh",
     "bin/fm-captain-hold.sh",
     "bin/fm-check-register.sh",
     "bin/fm-session",
@@ -200,26 +204,17 @@ def is_fast_pass_supervisor(subcmd: str) -> bool:
     # 0. Supervisor delegation and task messaging tools are always fast-path
     # (Their message payloads may legitimately instruct Second Mates to run systemctl, journalctl, docker, etc.)
     # This match must stay ahead of the step-1 deny; tests/fm-jev-guard.test.sh pins that order.
-    # Accepted boundary: only the typed prefix is matched and payloads are never inspected, so a
-    # command substitution inside a delegation payload (bin/fm-send.sh x "$(...)", and likewise for
-    # bare bd and tasks-axi) runs locally unchecked. The threat model is accidental hands-on work by
-    # a cooperating agent, not a hostile actor.
-    delegation_prefixes = (
-        "bin/fm-send.sh",
-        "/opt/ra/firstmate/bin/fm-send.sh",
-        "bd ",
-        "bd",
-        "tasks-axi",
-        "bin/fm-tasks-axi.sh",
-        "/opt/ra/firstmate/bin/fm-tasks-axi.sh",
-        "bin/fm-brief.sh",
-        "/opt/ra/firstmate/bin/fm-brief.sh",
-        "bin/fm-spawn.sh",
-        "/opt/ra/firstmate/bin/fm-spawn.sh",
-        "bin/fm-route-dispatch.sh",
-        "/opt/ra/firstmate/bin/fm-route-dispatch.sh",
-    )
-    if clean.startswith(delegation_prefixes) or unwrapped.startswith(delegation_prefixes):
+    # The invoked program is the first token as typed, leading VAR=value assignments included, so
+    # PATH=/tmp bd ... or env PATH=/tmp bd ... never qualifies. It must equal a bare tool name or be
+    # bin/<tool> or end in /bin/<tool>; nothing is resolved and payloads are never inspected.
+    # Accepted boundaries: (A) any directory's bin/<tool> qualifies, because whoever can place an
+    # executable there already has write access and this guard is not a boundary against that;
+    # (B) a live command substitution inside a delegation payload runs locally unchecked, for the
+    # same reason.
+    program = subcmd.split(None, 1)[0] if subcmd.strip() else ""
+    if program in DELEGATION_BARE_NAMES or any(
+        program == f"bin/{name}" or program.endswith(f"/bin/{name}") for name in DELEGATION_TOOL_NAMES
+    ):
         return True
 
     # 1. Immediate disallow for remote ssh or systemd/package mutations
@@ -255,8 +250,6 @@ def is_fast_pass_supervisor(subcmd: str) -> bool:
         or unwrapped.startswith(SUPERVISOR_TOOL_PREFIXES)
         or clean.startswith(SUPERVISOR_LIFECYCLE_PREFIXES)
         or unwrapped.startswith(SUPERVISOR_LIFECYCLE_PREFIXES)
-        or clean == "bd"
-        or clean == "tasks-axi"
     ):
         return True
 
