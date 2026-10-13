@@ -5,6 +5,10 @@
 # Enforces that all agent GUI interactions route through verified automation
 # accounts only, refusing personal sessions and unmapped contexts by default.
 #
+# This is a standalone, opt-in router: no existing GUI entrypoint calls it yet,
+# so GUI automation is contained only when its caller runs it through
+# `fm-gui-router.sh run`.
+#
 # Adopts bin/fm-gate-refuse-lib.sh: refuses fleet mutation from inside a
 # no-mistakes gate context unless running in a marked disposable lab home.
 #

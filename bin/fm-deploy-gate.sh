@@ -6,6 +6,10 @@
 # A present, well-formed, payload-bound, unexpired, one-use allow record is
 # required before a deploy action proceeds; anything less DENIES.
 #
+# This is a standalone, opt-in gate: no existing deploy script or workflow
+# calls it yet, so a deploy is gated only when its caller runs it through
+# `fm-deploy-gate.sh execute`.
+#
 # Adopts bin/fm-gate-refuse-lib.sh: refuses fleet mutation from inside a
 # no-mistakes gate context unless running in a marked disposable lab home.
 #

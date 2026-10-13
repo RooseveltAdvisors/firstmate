@@ -10,15 +10,13 @@
       "host": "agt-2",
       "profile": "Profile 2",
       "space": "Automation-Deploy",
-      "account_type": "automation",
-      "allowed_actions": ["deploy", "audit"]
+      "account_type": "automation"
     },
     "agt_auto_audit": {
       "host": "agt-8",
       "profile": "Profile 3",
       "space": "Automation-Audit",
-      "account_type": "automation",
-      "allowed_actions": ["audit"]
+      "account_type": "automation"
     }
   },
   "blocked_contexts": {

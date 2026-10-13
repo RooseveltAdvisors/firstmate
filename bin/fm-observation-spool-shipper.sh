@@ -4,7 +4,9 @@
 # SI Control Phase 3: Section 2.4 Data flow.
 #
 # Reads the local append-only spool ($FM_HOME/state/observation/spool.jsonl),
-# rotates bounded files, and ships to the OTLP gateway.
+# rotates bounded files, and ships every pending file under shipped/ to the
+# OTLP/HTTP logs endpoint as an ExportLogsServiceRequest. A file that fails to
+# ship stays under shipped/ and is retried on the next ship.
 #
 # Failure rule (Section 2.6):
 # Failed observation shipping never blocks model calls and never degrades into
@@ -25,7 +27,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 fm_refuse_if_gate_agent
 
 cmd=${1:-ship}
-home=${FM_HOME:-.}
+home=${FM_HOME:-${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}}
 spool_dir="$home/state/observation"
 spool_file="$spool_dir/spool.jsonl"
 shipped_dir="$spool_dir/shipped"
@@ -58,27 +60,29 @@ case "$cmd" in
     exit 0
     ;;
   ship)
-    if [ ! -f "$spool_file" ] || [ ! -s "$spool_file" ]; then
-      exit 0
-    fi
     mkdir -p "$shipped_dir" 2>/dev/null || true
     # Atomically move active spool to a shipping batch
-    batch_file="$shipped_dir/batch.$$.jsonl"
-    mv -f "$spool_file" "$batch_file" 2>/dev/null || exit 0
-    touch "$spool_file"
-
-    count=$(wc -l < "$batch_file" 2>/dev/null || echo 0)
-    # Ship to OTLP gateway if curl is available and endpoint responds
-    if command -v curl >/dev/null 2>&1; then
-      # Post batch as newline-delimited logs or structured payload
-      if curl -s -f -X POST -H "Content-Type: application/json" --data-binary @"$batch_file" --connect-timeout 2 --max-time 5 "$otlp_endpoint" >/dev/null 2>&1; then
+    if [ -s "$spool_file" ]; then
+      mv -f "$spool_file" "$shipped_dir/batch.$(date +%s).$$.jsonl" 2>/dev/null && touch "$spool_file"
+    fi
+    if ! command -v curl >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+      echo "notice: curl and jq are required to ship; pending records stay in $shipped_dir"
+      exit 0
+    fi
+    for batch_file in "$shipped_dir"/*.jsonl; do
+      [ -f "$batch_file" ] || continue
+      count=$(grep -c . "$batch_file" 2>/dev/null || echo 0)
+      body="$batch_file.otlp"
+      if jq -sc '{resourceLogs: [{resource: {attributes: [{key: "service.name", value: {stringValue: "firstmate-observation"}}]}, scopeLogs: [{scope: {name: "firstmate.observation"}, logRecords: map({body: {stringValue: tojson}})}]}]}' "$batch_file" > "$body" 2>/dev/null &&
+        curl -s -f -X POST -H "Content-Type: application/json" --data-binary @"$body" --connect-timeout 2 --max-time 5 "$otlp_endpoint" >/dev/null 2>&1; then
         echo "ok: shipped $count observation records to OTLP gateway ($otlp_endpoint)"
-        rm -f "$batch_file"
+        rm -f "$batch_file" "$body"
+      else
+        rm -f "$body"
+        echo "notice: OTLP gateway unreachable; retained $count records in $batch_file for retry"
         exit 0
       fi
-    fi
-    # If OTLP gateway is unreachable or offline, keep in shipped_dir for retry
-    echo "notice: OTLP gateway unreachable; retained $count records in $batch_file for retry"
+    done
     exit 0
     ;;
   *)

@@ -5,7 +5,7 @@
 #
 # A consequential action (starting with deploy) executes ONLY when a present,
 # well-formed decision=allow record exists, bound to:
-#   - the exact normalized action and validated arguments
+#   - the exact normalized action and target
 #   - the payload hash at approval time (payload changed after approval no longer matches)
 #   - an expiry and one-use semantics, so a replayed record is dead
 #   - the policy version in force
@@ -17,7 +17,8 @@
 #   - JEV classification timed out, errored, or returned an answer outside its schema
 #   - JEV confidence is below the floor
 #   - the evidence spool or content path needed for the record is unavailable
-#   - the payload hash, expiry, one-use token, or task identity does not match
+#   - the payload hash, expiry, one-use token, policy version, or task identity
+#     is missing or does not match
 #   - JEV claimed to grant allow without explicit captain approval
 #
 # A missing decision is indistinguishable from a denial by design.
@@ -26,6 +27,8 @@
 FM_DECISION_GATE_ALLOW=0
 FM_DECISION_GATE_DENY=1
 FM_DECISION_CONFIDENCE_FLOOR="0.80"
+FM_DECISION_POLICY_VERSION="2026-10-12"
+FM_DECISION_GATE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 fm_decision_gate_error() {
   echo "fm-decision-gate: $*" >&2
@@ -53,7 +56,7 @@ fm_decision_gate_iso_now() {
 
 # Record decision event to local evidence ledger
 fm_decision_gate_record_evidence() {
-  local home=${FM_HOME:-.}
+  local home=${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_DECISION_GATE_ROOT}}
   local evidence_dir="$home/state/evidence/decisions"
   local outcome=$1
   local reason=$2
@@ -120,7 +123,7 @@ fm_decision_gate_verify() {
   fi
 
   local rec_action rec_target rec_task rec_payload_hash rec_expires rec_used rec_decision rec_approval
-  local rec_jev_label rec_jev_conf
+  local rec_policy rec_jev_conf
   rec_action=$(jq -r '.action // empty' "$record_path")
   rec_target=$(jq -r '.target // empty' "$record_path")
   rec_task=$(jq -r '.task_id // empty' "$record_path")
@@ -129,7 +132,7 @@ fm_decision_gate_verify() {
   rec_used=$(jq -r '.used_at // empty' "$record_path")
   rec_decision=$(jq -r '.decision // empty' "$record_path")
   rec_approval=$(jq -r '.approval_reference // empty' "$record_path")
-  rec_jev_label=$(jq -r '.jev_classification.risk_label // empty' "$record_path")
+  rec_policy=$(jq -r '.policy_version // empty' "$record_path")
   rec_jev_conf=$(jq -r '.jev_classification.confidence // empty' "$record_path")
 
   # 3. Action and target match
@@ -146,7 +149,7 @@ fm_decision_gate_verify() {
   fi
 
   # 4. Task identity binding
-  if [ -n "$expected_task" ] && [ -n "$rec_task" ] && [ "$rec_task" != "$expected_task" ]; then
+  if [ -z "$expected_task" ] || [ "$rec_task" != "$expected_task" ]; then
     fm_decision_gate_error "DENY: task-mismatch (expected '$expected_task', record bound to '$rec_task')"
     fm_decision_gate_record_evidence "DENY" "task-mismatch" "$expected_action" "$expected_target" "$expected_task" "$record_path"
     return "$FM_DECISION_GATE_DENY"
@@ -168,26 +171,39 @@ fm_decision_gate_verify() {
     fi
   fi
 
-  # 6. Expiry check
-  if [ -n "$rec_expires" ]; then
-    local now_epoch exp_epoch
-    now_epoch=$(date +%s 2>/dev/null || date -u +%s)
-    exp_epoch=$(date -d "$rec_expires" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%SZ" "$rec_expires" +%s 2>/dev/null || true)
-    if [ -n "$exp_epoch" ] && [ "$now_epoch" -gt "$exp_epoch" ]; then
-      fm_decision_gate_error "DENY: expired-decision (expired at '$rec_expires', current time is past)"
-      fm_decision_gate_record_evidence "DENY" "expired-decision" "$expected_action" "$expected_target" "$expected_task" "$record_path"
-      return "$FM_DECISION_GATE_DENY"
-    fi
+  # 6. Policy version binding
+  if [ "$rec_policy" != "$FM_DECISION_POLICY_VERSION" ]; then
+    fm_decision_gate_error "DENY: policy-version-mismatch (expected '$FM_DECISION_POLICY_VERSION', record has '$rec_policy')"
+    fm_decision_gate_record_evidence "DENY" "policy-version-mismatch" "$expected_action" "$expected_target" "$expected_task" "$record_path"
+    return "$FM_DECISION_GATE_DENY"
   fi
 
-  # 7. One-use semantics check
-  if [ -n "$rec_used" ] && [ "$rec_used" != "null" ]; then
+  # 7. Expiry check: a missing or unparseable expiry is a denial
+  local now_epoch exp_epoch exp_norm
+  now_epoch=$(date -u +%s)
+  exp_norm=$(printf '%s' "$rec_expires" | sed -E 's/\.[0-9]+Z$/Z/')
+  exp_epoch=$(date -u -d "$exp_norm" +%s 2>/dev/null || date -j -u -f "%Y-%m-%dT%H:%M:%SZ" "$exp_norm" +%s 2>/dev/null || true)
+  case "$exp_epoch" in
+    '' | *[!0-9]*)
+      fm_decision_gate_error "DENY: invalid-expiry (expires_at '$rec_expires' is missing or unparseable)"
+      fm_decision_gate_record_evidence "DENY" "invalid-expiry" "$expected_action" "$expected_target" "$expected_task" "$record_path"
+      return "$FM_DECISION_GATE_DENY"
+      ;;
+  esac
+  if [ "$now_epoch" -gt "$exp_epoch" ]; then
+    fm_decision_gate_error "DENY: expired-decision (expired at '$rec_expires', current time is past)"
+    fm_decision_gate_record_evidence "DENY" "expired-decision" "$expected_action" "$expected_target" "$expected_task" "$record_path"
+    return "$FM_DECISION_GATE_DENY"
+  fi
+
+  # 8. One-use semantics check
+  if [ -n "$rec_used" ] || [ -e "$record_path.consumed" ]; then
     fm_decision_gate_error "DENY: replayed-decision (record was already used at '$rec_used')"
     fm_decision_gate_record_evidence "DENY" "replayed-decision" "$expected_action" "$expected_target" "$expected_task" "$record_path"
     return "$FM_DECISION_GATE_DENY"
   fi
 
-  # 8. JEV authority boundary: JEV CANNOT grant allow
+  # 9. JEV authority boundary: JEV CANNOT grant allow
   # JEV is intelligence/classifier only. An allow record requires explicit approval_reference.
   if [ -z "$rec_approval" ] || [ "$rec_approval" = "null" ]; then
     fm_decision_gate_error "DENY: jev-cannot-grant (no human captain approval reference; JEV cannot grant authority)"
@@ -195,18 +211,16 @@ fm_decision_gate_verify() {
     return "$FM_DECISION_GATE_DENY"
   fi
 
-  # 9. JEV confidence floor check (if JEV classification is present)
-  if [ -n "$rec_jev_conf" ] && [ "$rec_jev_conf" != "null" ]; then
-    local below_floor
-    below_floor=$(awk -v conf="$rec_jev_conf" -v floor="$FM_DECISION_CONFIDENCE_FLOOR" 'BEGIN {print (conf < floor) ? 1 : 0}')
-    if [ "$below_floor" = "1" ]; then
-      fm_decision_gate_error "DENY: jev-confidence-low (confidence '$rec_jev_conf' is below floor '$FM_DECISION_CONFIDENCE_FLOOR')"
-      fm_decision_gate_record_evidence "DENY" "jev-confidence-low" "$expected_action" "$expected_target" "$expected_task" "$record_path"
-      return "$FM_DECISION_GATE_DENY"
-    fi
+  # 10. JEV confidence must be a number at or above the floor
+  if ! jq -e --argjson floor "$FM_DECISION_CONFIDENCE_FLOOR" \
+    '(.jev_classification.confidence | type) == "number" and .jev_classification.confidence >= $floor' \
+    "$record_path" >/dev/null 2>&1; then
+    fm_decision_gate_error "DENY: jev-confidence-low (confidence '$rec_jev_conf' is missing, non-numeric, or below floor '$FM_DECISION_CONFIDENCE_FLOOR')"
+    fm_decision_gate_record_evidence "DENY" "jev-confidence-low" "$expected_action" "$expected_target" "$expected_task" "$record_path"
+    return "$FM_DECISION_GATE_DENY"
   fi
 
-  # 10. Final decision value check
+  # 11. Final decision value check
   if [ "$rec_decision" != "allow" ]; then
     fm_decision_gate_error "DENY: decision-not-allow (record decision is '$rec_decision')"
     fm_decision_gate_record_evidence "DENY" "decision-not-allow" "$expected_action" "$expected_target" "$expected_task" "$record_path"
@@ -223,6 +237,7 @@ fm_decision_gate_consume() {
   if [ -z "$record_path" ] || [ ! -f "$record_path" ]; then
     return 1
   fi
+  mkdir "$record_path.consumed" 2>/dev/null || return 1
   local ts tmp_file
   ts=$(fm_decision_gate_iso_now)
   tmp_file="${record_path}.tmp.$$"

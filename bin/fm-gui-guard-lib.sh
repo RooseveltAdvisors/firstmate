@@ -12,6 +12,7 @@
 
 FM_GUI_GUARD_ALLOW=0
 FM_GUI_GUARD_REFUSE=1
+FM_GUI_GUARD_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 fm_gui_guard_error() {
   echo "fm-gui-guard: $*" >&2
@@ -19,7 +20,7 @@ fm_gui_guard_error() {
 
 # Record GUI router decision / refusal to evidence store
 fm_gui_guard_record_evidence() {
-  local home=${FM_HOME:-.}
+  local home=${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_GUI_GUARD_ROOT}}
   local evidence_dir="$home/state/evidence/gui"
   local outcome=$1
   local reason=$2

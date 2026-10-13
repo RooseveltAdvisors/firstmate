@@ -38,6 +38,7 @@ PAYLOAD_HASH=$(sha256sum "$PAYLOAD" | awk '{print $1}')
 TASK_ID="fm-task-deploy-001"
 TARGET="srv-covenant-app"
 ACTION="deploy"
+FUTURE=$(date -u -d '+1 day' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v+1d +%Y-%m-%dT%H:%M:%SZ)
 
 # Function to generate test decision records
 make_decision_record() {
@@ -45,7 +46,7 @@ make_decision_record() {
   local decision=${2:-allow}
   local approval=${3:-"captain-approval-token-001"}
   local hash=${4:-$PAYLOAD_HASH}
-  local exp=${5:-"2026-12-31T23:59:59Z"}
+  local exp=${5:-"$FUTURE"}
   local used=${6:-null}
   local conf=${7:-0.95}
   local risk=${8:-not_risky}
@@ -89,6 +90,8 @@ make_decision_record() {
     }' > "$outfile"
 }
 
+REC_VALID_BASE="$TMP/valid-base.json"
+
 # 1. Deny-on-missing: Absent record fails closed
 env FM_HOME="$LAB" FM_GATE_REFUSE_BYPASS=1 FM_TASK_ID="$TASK_ID" \
   bash "$DEPLOY_GATE" check "$TARGET" "$PAYLOAD" "$TMP/nonexistent-record.json" >/dev/null 2>&1 && fail "absent record must DENY"
@@ -110,14 +113,14 @@ pass "deploy seam: malformed JSON DENIES"
 
 # 4. Deny-on-missing: Action mismatch fails closed
 REC_ACTION_MISMATCH="$TMP/action-mismatch.json"
-make_decision_record "$REC_ACTION_MISMATCH" allow "token" "$PAYLOAD_HASH" "2026-12-31T23:59:59Z" null 0.95 not_risky "$TASK_ID" "restart"
+make_decision_record "$REC_ACTION_MISMATCH" allow "token" "$PAYLOAD_HASH" "$FUTURE" null 0.95 not_risky "$TASK_ID" "restart"
 env FM_HOME="$LAB" FM_GATE_REFUSE_BYPASS=1 FM_TASK_ID="$TASK_ID" \
   bash "$DEPLOY_GATE" check "$TARGET" "$PAYLOAD" "$REC_ACTION_MISMATCH" >/dev/null 2>&1 && fail "action mismatch must DENY"
 pass "deploy seam: action mismatch DENIES"
 
 # 5. Deny-on-missing: Target mismatch fails closed
 REC_TARGET_MISMATCH="$TMP/target-mismatch.json"
-make_decision_record "$REC_TARGET_MISMATCH" allow "token" "$PAYLOAD_HASH" "2026-12-31T23:59:59Z" null 0.95 not_risky "$TASK_ID" "$ACTION" "srv-other-app"
+make_decision_record "$REC_TARGET_MISMATCH" allow "token" "$PAYLOAD_HASH" "$FUTURE" null 0.95 not_risky "$TASK_ID" "$ACTION" "srv-other-app"
 env FM_HOME="$LAB" FM_GATE_REFUSE_BYPASS=1 FM_TASK_ID="$TASK_ID" \
   bash "$DEPLOY_GATE" check "$TARGET" "$PAYLOAD" "$REC_TARGET_MISMATCH" >/dev/null 2>&1 && fail "target mismatch must DENY"
 pass "deploy seam: target mismatch DENIES"
@@ -140,7 +143,7 @@ pass "deploy seam: expired record DENIES"
 
 # 8. One-use semantics: Replayed record fails closed
 REC_REPLAY="$TMP/replay-rec.json"
-make_decision_record "$REC_REPLAY" allow "token" "$PAYLOAD_HASH" "2026-12-31T23:59:59Z" "2026-10-13T05:30:00Z"
+make_decision_record "$REC_REPLAY" allow "token" "$PAYLOAD_HASH" "$FUTURE" "2026-10-13T05:30:00Z"
 env FM_HOME="$LAB" FM_GATE_REFUSE_BYPASS=1 FM_TASK_ID="$TASK_ID" \
   bash "$DEPLOY_GATE" check "$TARGET" "$PAYLOAD" "$REC_REPLAY" >/dev/null 2>&1 && fail "replayed record must DENY"
 pass "deploy seam: replayed record DENIES"
@@ -154,10 +157,65 @@ pass "deploy seam: JEV alone without human approval DENIES (JEV cannot grant)"
 
 # 10. JEV confidence floor enforcement
 REC_LOW_CONF="$TMP/low-conf-rec.json"
-make_decision_record "$REC_LOW_CONF" allow "token" "$PAYLOAD_HASH" "2026-12-31T23:59:59Z" null 0.75
+make_decision_record "$REC_LOW_CONF" allow "token" "$PAYLOAD_HASH" "$FUTURE" null 0.75
 env FM_HOME="$LAB" FM_GATE_REFUSE_BYPASS=1 FM_TASK_ID="$TASK_ID" \
   bash "$DEPLOY_GATE" check "$TARGET" "$PAYLOAD" "$REC_LOW_CONF" >/dev/null 2>&1 && fail "confidence 0.75 < 0.80 floor must DENY"
 pass "deploy seam: JEV confidence below 0.80 floor DENIES"
+
+# 10b. A non-numeric JEV confidence is outside the schema and DENIES
+REC_TEXT_CONF="$TMP/text-conf-rec.json"
+make_decision_record "$REC_VALID_BASE" allow "token" "$PAYLOAD_HASH"
+jq '.jev_classification.confidence = "high"' "$REC_VALID_BASE" > "$REC_TEXT_CONF"
+env FM_HOME="$LAB" FM_GATE_REFUSE_BYPASS=1 FM_TASK_ID="$TASK_ID" \
+  bash "$DEPLOY_GATE" check "$TARGET" "$PAYLOAD" "$REC_TEXT_CONF" >/dev/null 2>&1 && fail "non-numeric confidence must DENY"
+pass "deploy seam: non-numeric JEV confidence DENIES"
+
+# 10c. Missing or unparseable expiry DENIES
+for exp_edit in 'del(.expires_at)' '.expires_at = "never"'; do
+  REC_BAD_EXP="$TMP/bad-exp-rec.json"
+  jq "$exp_edit" "$REC_VALID_BASE" > "$REC_BAD_EXP"
+  env FM_HOME="$LAB" FM_GATE_REFUSE_BYPASS=1 FM_TASK_ID="$TASK_ID" \
+    bash "$DEPLOY_GATE" check "$TARGET" "$PAYLOAD" "$REC_BAD_EXP" >/dev/null 2>&1 && fail "expiry edit '$exp_edit' must DENY"
+done
+pass "deploy seam: missing or unparseable expiry DENIES"
+
+# 10d. Fractional-second expiry in the future is accepted
+REC_FRAC_EXP="$TMP/frac-exp-rec.json"
+jq --arg exp "${FUTURE%Z}.000Z" '.expires_at = $exp' "$REC_VALID_BASE" > "$REC_FRAC_EXP"
+env FM_HOME="$LAB" FM_GATE_REFUSE_BYPASS=1 FM_TASK_ID="$TASK_ID" \
+  bash "$DEPLOY_GATE" check "$TARGET" "$PAYLOAD" "$REC_FRAC_EXP" >/dev/null 2>&1 || fail "future fractional-second expiry should pass"
+pass "deploy seam: fractional-second expiry parses"
+
+# 10e. Task identity is required on both sides
+env FM_HOME="$LAB" FM_GATE_REFUSE_BYPASS=1 FM_TASK_ID= \
+  bash "$DEPLOY_GATE" check "$TARGET" "$PAYLOAD" "$REC_VALID_BASE" >/dev/null 2>&1 && fail "unset FM_TASK_ID must DENY"
+REC_NO_TASK="$TMP/no-task-rec.json"
+jq 'del(.task_id)' "$REC_VALID_BASE" > "$REC_NO_TASK"
+env FM_HOME="$LAB" FM_GATE_REFUSE_BYPASS=1 FM_TASK_ID="$TASK_ID" \
+  bash "$DEPLOY_GATE" check "$TARGET" "$PAYLOAD" "$REC_NO_TASK" >/dev/null 2>&1 && fail "record without task_id must DENY"
+pass "deploy seam: missing task identity DENIES"
+
+# 10f. Policy version must match the version in force
+REC_OLD_POLICY="$TMP/old-policy-rec.json"
+jq '.policy_version = "2020-01-01"' "$REC_VALID_BASE" > "$REC_OLD_POLICY"
+env FM_HOME="$LAB" FM_GATE_REFUSE_BYPASS=1 FM_TASK_ID="$TASK_ID" \
+  bash "$DEPLOY_GATE" check "$TARGET" "$PAYLOAD" "$REC_OLD_POLICY" >/dev/null 2>&1 && fail "policy version mismatch must DENY"
+pass "deploy seam: policy version mismatch DENIES"
+
+# 10g. Concurrent executes of one record run the deploy at most once
+REC_RACE="$TMP/race-rec.json"
+make_decision_record "$REC_RACE" allow "captain-approval-race" "$PAYLOAD_HASH"
+RACE_LOG="$TMP/race-deploys.log"
+: > "$RACE_LOG"
+# shellcheck disable=SC2016
+for _ in 1 2 3 4 5 6 7 8; do
+  env FM_HOME="$LAB" FM_GATE_REFUSE_BYPASS=1 FM_TASK_ID="$TASK_ID" \
+    bash "$DEPLOY_GATE" execute "$TARGET" "$PAYLOAD" "$REC_RACE" sh -c 'echo deployed >> "$1"' sh "$RACE_LOG" >/dev/null 2>&1 &
+done
+wait
+race_runs=$(wc -l < "$RACE_LOG")
+[ "$race_runs" -eq 1 ] || fail "one allow record authorized $race_runs concurrent deploys"
+pass "deploy seam: concurrent executes consume a record exactly once"
 
 # 11. Valid allow record ALLOWS and consumes one-use token
 REC_VALID="$TMP/valid-exec.json"

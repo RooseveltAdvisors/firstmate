@@ -9,8 +9,11 @@
 //
 // Spools locally to $FM_HOME/state/observation/spool.jsonl.
 import { appendFileSync, mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 export interface ObservationMetadataRecord {
   identity: {
@@ -127,7 +130,7 @@ export function buildObservationRecord(params: {
 
 export function writeSpoolRecord(record: ObservationMetadataRecord, customSpoolPath?: string): void {
   try {
-    const home = process.env.FM_HOME || ".";
+    const home = process.env.FM_HOME || process.env.FM_ROOT_OVERRIDE || root;
     const spoolFile = customSpoolPath || join(home, "state", "observation", "spool.jsonl");
     mkdirSync(dirname(spoolFile), { recursive: true });
     appendFileSync(spoolFile, JSON.stringify(record) + "\n", "utf8");
@@ -152,7 +155,7 @@ export default function (pi: ExtensionAPI) {
     if (event?.data?.model) currentModel = event.data.model;
   });
 
-  pi.on?.("message_end", (event: { message?: { role?: string; provider?: string; model?: string; usage?: { inputTokens?: number; outputTokens?: number } } }) => {
+  pi.on?.("message_end", (event: { message?: { role?: string; provider?: string; model?: string; stopReason?: string; usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; reasoning?: number } } }) => {
     if (event?.message?.role !== "assistant") return;
     const endMs = Date.now();
     const durationMs = Math.max(0, endMs - callStartMs);
@@ -160,8 +163,9 @@ export default function (pi: ExtensionAPI) {
 
     const provider = event.message.provider || currentProvider;
     const model = event.message.model || currentModel;
-    const inputTokens = event.message.usage?.inputTokens ?? 0;
-    const outputTokens = event.message.usage?.outputTokens ?? 0;
+    const usage = event.message.usage;
+    const stopReason = event.message.stopReason;
+    const status = stopReason === "error" ? "error" : stopReason === "aborted" ? "aborted" : "ok";
 
     const record = buildObservationRecord({
       taskId: process.env.FM_TASK_ID,
@@ -171,9 +175,12 @@ export default function (pi: ExtensionAPI) {
       startTime: callStartTime,
       endTime,
       durationMs,
-      status: "ok",
-      inputTokens,
-      outputTokens,
+      status,
+      errorClass: status === "ok" ? null : stopReason,
+      inputTokens: usage?.input ?? 0,
+      outputTokens: usage?.output ?? 0,
+      reasoningTokens: usage?.reasoning ?? 0,
+      cacheTokens: (usage?.cacheRead ?? 0) + (usage?.cacheWrite ?? 0),
     });
 
     writeSpoolRecord(record);

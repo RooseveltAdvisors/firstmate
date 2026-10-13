@@ -119,10 +119,9 @@ lines=$(wc -l < "$LEDGER")
 [ "$lines" -ge 7 ] || fail "expected at least 7 entries in GUI evidence ledger, got $lines"
 pass "gui router: records all checks and refusals in evidence ledger"
 
-# Verify no personal identity leaked in ledger (only opaque aliases)
-if grep -i -E "jon@|password|cookie" "$LEDGER" 2>/dev/null; then
-  fail "GUI ledger contains forbidden sensitive identities or credentials"
-fi
+# Every ledger entry carries exactly the opaque routing fields
+jq -s -e 'all(.[]; keys == ["context_alias","host","outcome","reason","task_id","timestamp"])' "$LEDGER" >/dev/null ||
+  fail "GUI ledger entries carry fields beyond the opaque routing fields"
 pass "gui router: ledger contains only opaque account aliases, no personal identities"
 
 echo "ok: Scope Area 4 GUI containment tests passed completely"

@@ -6,8 +6,9 @@
 # JEV is intelligence, not enforcement.
 # Its output is an advisory label: a risk class, a confidence, and a reason.
 # It NEVER writes decision=allow, and it cannot convert a denial into an allow.
-# If an action is flagged as risky or uncertain, it routes to captain hold.
-# A missing or timed-out JEV response fails closed (DENY).
+# A risky label is advice for the captain; this script does not route or hold
+# anything itself. The decision gate denies a record whose JEV confidence is
+# missing, non-numeric, or below the floor.
 #
 # Usage:
 #   fm-jev-classify.sh classify <action_class> <target> <payload_path>

@@ -34,7 +34,26 @@ output_tokens=${6:-0}
 status=${7:-ok}
 error_class=${8:-}
 
-home=${FM_HOME:-.}
+if [ "$cmd" != "write" ]; then
+  echo "usage: fm-observation-record.sh write <provider> <model> <duration_ms> <input_tokens> <output_tokens> [status] [error_class]" >&2
+  exit 2
+fi
+
+for n in "$duration_ms" "$input_tokens" "$output_tokens"; do
+  case "$n" in
+    '' | *[!0-9]*)
+      echo "fm-observation-record: duration_ms, input_tokens, and output_tokens must be non-negative integers (got '$n')" >&2
+      exit 2
+      ;;
+  esac
+done
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "fm-observation-record: jq is required to build the record" >&2
+  exit 1
+fi
+
+home=${FM_HOME:-${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}}
 spool_dir="$home/state/observation"
 mkdir -p "$spool_dir" 2>/dev/null || true
 spool_file="$spool_dir/spool.jsonl"
@@ -53,8 +72,7 @@ fi
 [ -n "$trace_id" ] || trace_id="00000000000000000000000000000000"
 [ -n "$span_id" ] || span_id="0000000000000000"
 
-if command -v jq >/dev/null 2>&1; then
-  record=$(jq -nc \
+if ! record=$(jq -nc \
     --arg task "$task_id" \
     --arg trace "$trace_id" \
     --arg span "$span_id" \
@@ -103,11 +121,14 @@ if command -v jq >/dev/null 2>&1; then
       retention: {
         retention_policy_class: "metadata_general_90d"
       }
-    }')
-else
-  record="{\"identity\":{\"task_id\":\"$task_id\",\"trace_id\":\"$trace_id\",\"span_id\":\"$span_id\",\"runtime_identity\":{\"harness\":\"pi\",\"adapter\":\"pi\"}},\"call\":{\"provider\":\"$provider\",\"model\":\"$model\",\"duration_ms\":$duration_ms,\"status\":\"$status\"},\"usage\":{\"input_tokens\":$input_tokens,\"output_tokens\":$output_tokens},\"retention\":{\"retention_policy_class\":\"metadata_general_90d\"}}"
+    }'); then
+  echo "fm-observation-record: failed to build record" >&2
+  exit 1
 fi
 
 # Append to local append-only spool
-printf '%s\n' "$record" >> "$spool_file"
+printf '%s\n' "$record" >> "$spool_file" || {
+  echo "fm-observation-record: failed to append to $spool_file" >&2
+  exit 1
+}
 echo "ok: recorded observation metadata to $spool_file"
