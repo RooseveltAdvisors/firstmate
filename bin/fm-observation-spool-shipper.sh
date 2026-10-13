@@ -73,8 +73,13 @@ case "$cmd" in
       [ -f "$batch_file" ] || continue
       count=$(grep -c . "$batch_file" 2>/dev/null || echo 0)
       body="$batch_file.otlp"
-      if jq -sc '{resourceLogs: [{resource: {attributes: [{key: "service.name", value: {stringValue: "firstmate-observation"}}]}, scopeLogs: [{scope: {name: "firstmate.observation"}, logRecords: map({body: {stringValue: tojson}})}]}]}' "$batch_file" > "$body" 2>/dev/null &&
-        curl -s -f -X POST -H "Content-Type: application/json" --data-binary @"$body" --connect-timeout 2 --max-time 5 "$otlp_endpoint" >/dev/null 2>&1; then
+      if ! jq -sc '{resourceLogs: [{resource: {attributes: [{key: "service.name", value: {stringValue: "firstmate-observation"}}]}, scopeLogs: [{scope: {name: "firstmate.observation"}, logRecords: map({body: {stringValue: tojson}})}]}]}' "$batch_file" > "$body" 2>/dev/null; then
+        rm -f "$body"
+        mv -f "$batch_file" "$batch_file.bad"
+        echo "notice: $batch_file is not valid JSONL; set aside as $batch_file.bad"
+        continue
+      fi
+      if curl -s -f -X POST -H "Content-Type: application/json" --data-binary @"$body" --connect-timeout 2 --max-time 5 "$otlp_endpoint" >/dev/null 2>&1; then
         echo "ok: shipped $count observation records to OTLP gateway ($otlp_endpoint)"
         rm -f "$batch_file" "$body"
       else

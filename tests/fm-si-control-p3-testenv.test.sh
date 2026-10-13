@@ -41,6 +41,20 @@ jq -e --argjson want "$OBS_KEYS" '[paths(type != "object") | map(tostring) | joi
   "$FIXTURES_DIR/observation-metadata.json" >/dev/null || fail "observation-metadata.json carries fields outside the Section 2.3 schema"
 pass "observation metadata fixture carries only the Section 2.3 metadata fields"
 
+# The remaining fixtures carry exactly their declared fields
+POLICY_KEYS='["action","actor","approval_reference","arguments.environment","arguments.release_tag","arguments.service","decision","decision_id","expires_at","jev_classification.confidence","jev_classification.reason","jev_classification.risk_label","payload_hash","policy_version","target","task_id","trace_id","used_at"]'
+jq -e --argjson want "$POLICY_KEYS" '[paths(type != "object") | map(tostring) | join(".")] | sort == $want' \
+  "$FIXTURES_DIR/policy-decision-record.json" >/dev/null || fail "policy-decision-record.json carries fields outside its schema"
+jq -e 'keys == ["action_class","advisory_only","confidence","reason","recommended_route","risk_label"]' \
+  "$FIXTURES_DIR/jev-classifier.json" >/dev/null || fail "jev-classifier.json carries fields outside its schema"
+jq -e '
+  keys == ["allowed_hosts","blocked_contexts","contexts","version"] and
+  all(.allowed_hosts[]; type == "string") and
+  all(.contexts[]; keys == ["account_type","host","profile","space"]) and
+  all(.blocked_contexts[]; keys == ["account_type","reason"])
+' "$FIXTURES_DIR/gui-containment-map.json" >/dev/null || fail "gui-containment-map.json carries fields outside its schema"
+pass "policy, JEV, and GUI fixtures carry only their declared fields"
+
 # Observation metadata fixture conforms to Section 2.3 schema
 jq -e '
   .identity.task_id != null and

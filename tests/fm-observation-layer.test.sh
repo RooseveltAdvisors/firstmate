@@ -117,4 +117,16 @@ shipped_records=$(cat "$CAPTURE"/body.*.json | jq -s '[.[].resourceLogs[].scopeL
 [ "$shipped_records" -eq 3 ] || fail "expected 3 shipped OTLP log records, got $shipped_records"
 pass "shipper retries retained batches and posts OTLP log requests"
 
+# Test 6: An unencodable batch is set aside and does not block later batches
+printf '{"x":\n' > "$LAB/state/observation/shipped/batch.0.torn.jsonl"
+env FM_HOME="$LAB" FM_TASK_ID="task-obs-test-004" bash "$OBS_RECORD" write openai gpt-4o 200 20 5 ok >/dev/null 2>&1 ||
+  fail "fm-observation-record failed"
+rm -f "$CAPTURE"/body.*.json
+env FM_HOME="$LAB" PATH="$SHIM:$PATH" OTLP_CAPTURE="$CAPTURE" bash "$OBS_SHIPPER" ship >/dev/null 2>&1 ||
+  fail "shipper failed with a torn batch present"
+[ -f "$LAB/state/observation/shipped/batch.0.torn.jsonl.bad" ] || fail "torn batch was not set aside"
+shipped_after_torn=$(cat "$CAPTURE"/body.*.json 2>/dev/null | jq -s '[.[].resourceLogs[].scopeLogs[].logRecords[]] | length')
+[ "$shipped_after_torn" -eq 1 ] || fail "batch behind a torn batch was not shipped (got $shipped_after_torn records)"
+pass "shipper sets aside an unencodable batch and ships the batches behind it"
+
 echo "ok: Scope Area 1 observation layer tests passed completely"
