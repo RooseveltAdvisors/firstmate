@@ -544,6 +544,48 @@ test_home_seed_no_projects_end_to_end() {
   pass "home seeding scaffolds, registers, and spawns a project-less home end to end"
 }
 
+test_home_seed_completes_auto_chartered_scaffold() {
+  # The router's --auto-charter (bin/fm-route-domain.py) leaves a partial home:
+  # data/, state/, and the identity markers only. Seeding into that scaffold
+  # must complete it into a firstmate home (AGENTS.md + bin/ from the primary
+  # repo) around the preserved operational data, instead of refusing the
+  # populated non-home - and the completed home must then accept a
+  # --secondmate spawn.
+  local home sub fakebin log meta
+  home="$TMP_ROOT/auto-charter-seed-home"
+  sub="$TMP_ROOT/auto-charter-seed-subhome"
+  mkdir -p "$home/projects" "$home/data" "$home/state"
+  # The exact partial scaffold the auto-charter leaves behind.
+  mkdir -p "$sub/data" "$sub/state"
+  printf '%s\n' "fdev-auto" > "$sub/.fm-secondmate-home"
+  printf '%s\n' "$(cd "$home" && pwd -P)" > "$sub/.fm-secondmate-parent"
+  printf 'preserved scaffold data\n' > "$sub/data/kept.txt"
+
+  FM_HOME="$home" FM_SECONDMATE_CHARTER='firstmate self-development' \
+    FM_SECONDMATE_SCOPE='firstmate repo work' \
+    "$ROOT/bin/fm-home-seed.sh" fdev-auto "$sub" --no-projects >/dev/null \
+    || fail "seed refused an auto-chartered scaffold home"
+
+  [ -f "$sub/AGENTS.md" ] || fail "completed scaffold is missing AGENTS.md"
+  [ -d "$sub/bin" ] || fail "completed scaffold is missing bin/"
+  [ "$(cat "$sub/.fm-secondmate-home")" = "fdev-auto" ] || fail "seed changed the scaffold identity marker"
+  assert_grep 'preserved scaffold data' "$sub/data/kept.txt" "seed lost the scaffold's operational data"
+  assert_grep '- fdev-auto - firstmate self-development' "$home/data/secondmates.md" "registry line missing after scaffold seed"
+  FM_HOME="$home" "$ROOT/bin/fm-home-seed.sh" validate >/dev/null || fail "registry validation failed after scaffold seed"
+
+  # The completed home launches a secondmate end to end.
+  fakebin=$(make_fake_tmux "$TMP_ROOT/auto-charter-fake")
+  log="$TMP_ROOT/auto-charter-fake/tmux.log"
+  : > "$log"
+  PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TMUX_LOG="$log" \
+    FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/auto-charter-fake/pane.txt" \
+    "$ROOT/bin/fm-spawn.sh" fdev-auto "$sub" codex --secondmate >/dev/null 2>&1 \
+    || fail "secondmate spawn into the completed scaffold home failed"
+  meta="$home/state/fdev-auto.meta"
+  assert_grep 'kind=secondmate' "$meta" "scaffold-home spawn meta lost kind=secondmate"
+  pass "home seeding completes an auto-chartered scaffold into a launchable home"
+}
+
 test_secondmate_spawn_resolves_punctuated_registry_projects() {
   local home sub sub_abs fakebin log meta projects
   home="$TMP_ROOT/punctuated-spawn-home"
@@ -3091,6 +3133,7 @@ test_home_seed_refuses_missing_filled_charter
 test_home_seed_refuses_placeholder_charter
 test_home_seed_refuses_empty_charter_fields
 test_home_seed_no_projects_end_to_end
+test_home_seed_completes_auto_chartered_scaffold
 test_secondmate_spawn_resolves_punctuated_registry_projects
 test_secondmate_spawn_refuses_ambiguous_and_mismatched_registry_bindings
 test_home_seed_refuses_projectful_reused_charter_for_projectless_home

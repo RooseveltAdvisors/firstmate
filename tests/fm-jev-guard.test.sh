@@ -35,6 +35,48 @@ assert_contains "$help_out" "Usage: fm-jev-guard.sh" "shell wrapper emits usage"
 "$GUARD_SH" --command "FM_HOME=/opt/ra/firstmate bash -c 'cd /opt/ra/firstmate && bd list --status all --json 2>/dev/null | python3 -c \" import json,sys; sys.exit(0)\"'" || fail "wrapped bd list with python filter denied unexpectedly"
 "$GUARD_SH" --command "FM_HOME=/opt/ra/firstmate bin/fm-send.sh gpu-ops 'diagnose with journalctl -u render-credentials.service and restart systemctl' 2>&1 | tail -1" || fail "fm-send with inner systemctl/journalctl denied unexpectedly"
 
+# 2a. The tool IS the delegation: a delegation tool invocation fast-passes
+# whatever implementation-looking argument text it carries, in any path form.
+# Assert the Tier-1 fast_path_whitelist code directly (not merely exit 0) so the
+# check stays deterministic where no live classifier key exists: on unfixed code
+# these commands either deny (live key) or fall open (no key), never fast-path.
+# A mock primary root without the secondmate marker keeps the guard engaged.
+MOCK_PRIMARY="$TDIR/mock-primary"
+mkdir -p "$MOCK_PRIMARY/state"
+guard_decision() {
+  env -u FM_HOME FM_ROOT_OVERRIDE="$MOCK_PRIMARY" FM_JEV_GUARD_CACHE="$TDIR/jev-guard-cache.json" \
+    python3 "$GUARD_PY" --command "$1" --check-only
+}
+delegation_cmds=(
+  "bin/fm-route-dispatch.sh --task 'restart systemctl on gpu and edit the portal config'"
+  "bin/fm-route-dispatch.sh --task 'implement the new feature in the portal'"
+  "bin/fm-send.sh data-fm-si 'edit the database migration and run npm test to validate'"
+  "./bin/fm-send.sh data-fm-si 'implement the feature'"
+  "fm-send.sh data-fm-si 'implement the feature'"
+  "$ROOT/bin/fm-send.sh data-fm-si 'implement the feature'"
+  "bin/fm-spawn.sh fdev --secondmate"
+)
+for cmd in "${delegation_cmds[@]}"; do
+  dec=$(guard_decision "$cmd")
+  assert_contains "$dec" "$(printf 'allow\tfast_path_whitelist')" "delegation tool invocation must Tier-1 fast-pass: $cmd"
+done
+
+# 2b. Direct primary-console implementation never takes the delegation
+# fast-path, and a compound tail after a delegation tool still faces the full
+# gauntlet: neither may reach the classifier's allow path as a delegation tool.
+for cmd in \
+  "ssh srv 'systemctl restart x'" \
+  "bin/fm-send.sh data-fm-si 'msg'; ssh srv 'systemctl restart x'" \
+  "python3 -c 'open(\"bin/fm-jev-guard.py\", \"w\").write(\"x\")'" \
+  ; do
+  dec=$(guard_decision "$cmd")
+  case "$dec" in
+    "$(printf 'allow\tfast_path_whitelist')"*)
+      fail "non-delegation or compound-smuggle command must not fast-pass: $cmd"
+      ;;
+  esac
+done
+
 # 3. Fail-open on empty or malformed inputs
 printf '' | "$GUARD_SH" || fail "empty stdin failed to allow open"
 printf '{bad json' | "$GUARD_SH" || fail "malformed json failed to allow open"
@@ -42,6 +84,16 @@ printf '{bad json' | "$GUARD_SH" || fail "malformed json failed to allow open"
 
 # 4. Live classification if TYPESAFE_API_KEY is available
 if jev key >/dev/null 2>&1; then
+  # Delegation tool invocations stay allowed even when the classifier would
+  # deny their implementation-looking argument text, while direct
+  # primary-console implementation is still denied as require_delegation.
+  dec=$(guard_decision "bin/fm-route-dispatch.sh --task 'restart systemctl on gpu and edit the portal config'")
+  assert_contains "$dec" "$(printf 'allow\tfast_path_whitelist')" "live: delegation tool with systemctl argument text must stay allowed"
+  dec=$(guard_decision "ssh srv 'systemctl restart x'")
+  assert_contains "$dec" "$(printf 'deny\trequire_delegation')" "live: direct ssh implementation must still be denied"
+  dec=$(guard_decision "bin/fm-send.sh data-fm-si 'msg'; ssh srv 'systemctl restart x'")
+  assert_contains "$dec" "$(printf 'deny\trequire_delegation')" "live: compound tail after a delegation tool must still be denied"
+
   # Direct remote SSH must be denied
   set +e
   deny_stderr=$(mktemp)

@@ -7,6 +7,14 @@
 #
 # If --execute is specified, it automatically dispatches matched tasks to the
 # owning second mate using bin/fm-send.sh.
+#
+# A routed registry id (for example data-fm-si) must resolve to a task record in
+# this home before anything is sent: secondmate task ids may carry the fm-
+# prefix form (state/fm-data-fm-si.meta), so the route is resolved against
+# state/<route>.meta, state/fm-<route>.meta, and state/<route stripped of a
+# leading fm->.meta in that order, and an explicit session:window route is
+# passed through to fm-send's validated backend-target path. An unresolvable
+# route fails loudly rather than recommending a send that cannot land.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -79,6 +87,27 @@ CHARTERED=$(echo "$ROUTER_JSON" | jq -r '.auto_charter.chartered // false')
 CHARTERED_DOMAIN=$(echo "$ROUTER_JSON" | jq -r '.auto_charter.domain // ""')
 CHARTERED_HOME=$(echo "$ROUTER_JSON" | jq -r '.auto_charter.home // ""')
 
+resolve_dispatch_target() {
+  # <route> -> the sendable target id for this home, or failure.
+  local route=$1 state cand
+  state="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
+  case "$route" in
+    *:*)
+      # Explicit session:window backend target: pass through to fm-send's
+      # validated backend-target path.
+      printf '%s' "$route"
+      return 0
+      ;;
+  esac
+  for cand in "$route" "fm-$route" "${route#fm-}"; do
+    if [ -e "$state/$cand.meta" ] || [ -L "$state/$cand.meta" ]; then
+      printf '%s' "$cand"
+      return 0
+    fi
+  done
+  return 1
+}
+
 printf '=== Jev Front-Door Router ===\n'
 printf 'Action:     %s\n' "$ACTION"
 printf 'Route:      %s\n' "$ROUTE"
@@ -113,12 +142,18 @@ case "$ACTION" in
     if [ "$WALLED" = "true" ] && [ -n "$OVERRIDE_FLAGS" ]; then
       SEND_ARGS=" $OVERRIDE_FLAGS"
     fi
-    SEND_CMD="FM_HOME=$FM_HOME \"$SCRIPT_DIR/fm-send.sh\" \"$ROUTE\"$SEND_ARGS \"[fm-from-firstmate] $CLEAN_TASK\""
+    TARGET=$(resolve_dispatch_target "$ROUTE") || {
+      state="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
+      printf 'Status: dispatch route %s is not resolvable in this home (tried %s/%s.meta, %s/fm-%s.meta, and %s/%s.meta). Spawn or seed the secondmate first; nothing was sent.\n' \
+        "$ROUTE" "$state" "$ROUTE" "$state" "$ROUTE" "$state" "${ROUTE#fm-}" >&2
+      exit 1
+    }
+    SEND_CMD="FM_HOME=$FM_HOME \"$SCRIPT_DIR/fm-send.sh\" \"$TARGET\"$SEND_ARGS \"[fm-from-firstmate] $CLEAN_TASK\""
     if [ "$EXECUTE" -eq 1 ]; then
-      printf 'Executing dispatch to second mate: %s ...\n' "$ROUTE"
+      printf 'Executing dispatch to second mate: %s ...\n' "$TARGET"
       # shellcheck disable=SC2086
-      FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-send.sh" "$ROUTE"$SEND_ARGS "[fm-from-firstmate] $CLEAN_TASK"
-      printf 'Dispatched successfully to %s.\n' "$ROUTE"
+      FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-send.sh" "$TARGET"$SEND_ARGS "[fm-from-firstmate] $CLEAN_TASK"
+      printf 'Dispatched successfully to %s.\n' "$TARGET"
     else
       printf 'Recommended dispatch command:\n  %s\n' "$SEND_CMD"
       printf 'Pass --execute to dispatch automatically.\n'
