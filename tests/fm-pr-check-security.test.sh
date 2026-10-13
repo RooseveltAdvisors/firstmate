@@ -3439,6 +3439,32 @@ SH
   pass "device re-record publication waits without rewriting its registration"
 }
 
+test_active_poll_survives_template_update() {
+  local dir state historical_poll updated_poll
+  dir=$(make_case active-poll-template-update)
+  state="$dir/home/state"
+  historical_poll="$dir/historical-fm-pr-poll.sh"
+  updated_poll="$dir/updated-fm-pr-poll.sh"
+  cp "$POLL" "$historical_poll"
+  cp "$POLL" "$updated_poll"
+  printf '\n# template edit\n' >> "$updated_poll"
+  chmod 0600 "$historical_poll" "$updated_poll"
+  write_poll_meta "$state" task-a https://github.com/o/r/pull/1
+  seed_canonical_poll "$dir" task-a https://github.com/o/r/pull/1 "$historical_poll"
+  fm_pr_poll_artifacts_valid "$state" task-a "$updated_poll" \
+    || fail "active poll rejected by updated template"
+  fm_pr_poll_snapshot_capture "$state" task-a "$updated_poll" \
+    || fail "active poll snapshot capture failed under updated template"
+  fm_pr_poll_snapshot_matches "$state" task-a "$updated_poll" \
+    || fail "active poll snapshot did not match under updated template"
+  fm_pr_poll_retirement_publish "$state" task-a "$updated_poll" merged \
+    || fail "active poll retirement publication failed under updated template"
+  fm_pr_poll_retirement_recover_one "$state" task-a "$updated_poll" \
+    || fail "active poll retirement recovery failed under updated template"
+  assert_poll_absent "$state" task-a
+  pass "an active poll remains valid and captures when the template is edited"
+}
+
 test_parser_matrix
 test_gitlab_merge_watch
 test_gerrit_merge_watch
@@ -3484,3 +3510,4 @@ test_bootstrap_leaves_unauthenticated_checks
 test_custom_snapshot_cleanup_on_signal
 test_returned_custom_check_descendants_are_drained
 test_teardown_removes_poll_artifacts
+test_active_poll_survives_template_update

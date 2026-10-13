@@ -48,12 +48,12 @@
 #   noul=<0..1>                                      (omitted when unavailable)
 set -u
 
-TYPESAFE_API_KEY_PRIVATE=${TYPESAFE_API_KEY:-}
-if [ -z "$TYPESAFE_API_KEY_PRIVATE" ] && [ -z "${FAKE_CURL_LOG:-}" ] && [ -x "/opt/ra/firstmate/projects/jev/bin/jev" ]; then
-  TYPESAFE_API_KEY_PRIVATE=$(/opt/ra/firstmate/projects/jev/bin/jev run -- env 2>/dev/null | awk -F= '/^TYPESAFE_API_KEY=/{print $2; exit}' || true)
+TYPESAFE_API_KEY_PRIVATE=''
+if [ -n "${FAKE_CURL_LOG:-}" ]; then
+  TYPESAFE_API_KEY_PRIVATE=${TYPESAFE_API_KEY:-}
 fi
-export -n TYPESAFE_API_KEY_PRIVATE 2>/dev/null || true
 unset TYPESAFE_API_KEY
+
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
@@ -199,8 +199,10 @@ emit() {  # <action> [choice] [noul]
 
 emit_unavailable() { emit unavailable; }
 
-if [ -z "$TYPESAFE_API_KEY_PRIVATE" ]; then
-  emit_unavailable
+if [ -n "${FAKE_CURL_LOG:-}" ]; then
+  if [ -z "$TYPESAFE_API_KEY_PRIVATE" ]; then
+    emit_unavailable
+  fi
 fi
 command -v jq >/dev/null 2>&1 || emit_unavailable
 command -v curl >/dev/null 2>&1 || emit_unavailable
@@ -239,10 +241,16 @@ REQUEST=$(jq -n --arg model "$TS_MODEL" --arg class "$CLASS" --argjson age "$AGE
 
 RESP_FILE=$(mktemp) || emit_unavailable
 trap 'rm -f "$RESP_FILE"' EXIT
-HTTP=$(printf '%s' "$REQUEST" | curl -sS --max-time "$TS_TIMEOUT" -o "$RESP_FILE" -w '%{http_code}' \
-  -X POST "$TS_BASE/v1/systemone" -H 'Content-Type: application/json' \
-  -H @/dev/fd/3 3< <(printf 'Authorization: Bearer %s\n' "$TYPESAFE_API_KEY_PRIVATE") \
-  --data-binary @- 2>/dev/null) || HTTP=000
+if [ -n "${FAKE_CURL_LOG:-}" ]; then
+  HTTP=$(printf '%s' "$REQUEST" | curl -sS --max-time "$TS_TIMEOUT" -o "$RESP_FILE" -w '%{http_code}' \
+    -X POST "$TS_BASE/v1/systemone" -H 'Content-Type: application/json' \
+    -H @/dev/fd/3 3< <(printf 'Authorization: Bearer %s\n' "$TYPESAFE_API_KEY_PRIVATE") \
+    --data-binary @- 2>/dev/null) || HTTP=000
+else
+  HTTP=$(printf '%s' "$REQUEST" | /usr/local/bin/agent-vault fleet proxy-run -- curl -sS --max-time "$TS_TIMEOUT" -o "$RESP_FILE" -w '%{http_code}' \
+    -X POST "$TS_BASE/v1/systemone" -H 'Content-Type: application/json' \
+    --data-binary @- 2>/dev/null) || HTTP=000
+fi
 [ "$HTTP" = 200 ] || emit_unavailable
 
 jq -e '

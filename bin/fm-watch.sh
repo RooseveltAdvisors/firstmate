@@ -3881,6 +3881,10 @@ while :; do
           || { rerecord_device_shifted_pr_poll "$id" \
             && fm_pr_poll_snapshot_capture "$STATE" "$id" "$SCRIPT_DIR/fm-pr-poll.sh"; }; then
           is_pr_poll=1
+          if ! cmp -s "$SCRIPT_DIR/fm-pr-poll.sh" "$c" 2>/dev/null
+          then
+            triage_log "PR poll for $id using historical template hash ${FM_PR_POLL_SNAPSHOT_TEMPLATE_HASH:0:8} - template on disk has updated"
+          fi
           provider=$FM_PR_POLL_SNAPSHOT_PROVIDER
           url=$FM_PR_POLL_SNAPSHOT_URL
           host=$FM_PR_POLL_SNAPSHOT_HOST

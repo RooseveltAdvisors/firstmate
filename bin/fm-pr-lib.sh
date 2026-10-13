@@ -683,7 +683,9 @@ fm_pr_poll_artifacts_content_valid() {
   fm_pr_private_file_valid "$registration" 600 "$state_device" || return 1
   [ -f "$meta" ] && [ ! -L "$meta" ] || return 1
   [ "$(fm_pr_file_link_count "$meta")" = 1 ] || return 1
-  cmp -s "$template" "$check" || return 1
+  # The check artifact is authenticated by its recorded template hash and inode identity,
+  # decoupled from runtime byte-equality with the live template so an edit to bin/fm-pr-poll.sh
+  # does not invalidate existing armed polls.
   fm_pr_poll_data_parse "$data" || return 1
   data_hash=$(fm_pr_sha256 "$data") || return 1
   template_hash=$(fm_pr_sha256 "$check") || return 1
@@ -707,7 +709,7 @@ fm_pr_poll_artifacts_content_valid() {
 # A registration armed before a volume remount can name a device number the
 # kernel has since reassigned (fm_pr_file_identity). This proves that is the
 # only difference: every artifact passes fm_pr_poll_artifacts_content_valid, so
-# the check is byte-identical to the template, both hashes match, and the three
+# the check matches its registration hash, both hashes match, and the three
 # poll artifacts are private, single-link, and on the state directory's live
 # device; both recorded identities name one device; each recorded inode equals
 # its live inode; and that recorded device differs from the live one. A
