@@ -408,17 +408,26 @@ acquire_treehouse_home() {
 
 complete_auto_chartered_home() {
   # <home>: finish an auto-chartered scaffold into a firstmate home in place.
-  # The git metadata comes from a plain clone of the active repo, exactly as a
-  # new home's does; the scaffold's data/, state/, and identity markers are
-  # gitignored, so a hard reset onto the clone's HEAD leaves them untouched.
-  local home=$1 clone rc=0
-  clone=$(mktemp -d "$(dirname "$home")/.fm-seed-clone.XXXXXX") || return 1
-  if [ ! -e "$home/.git" ] && git clone --quiet --no-checkout "$FM_ROOT" "$clone" && mv "$clone/.git" "$home/.git"; then
-    git -C "$home" reset -q --hard || rc=1
+  # The git metadata and tree come from the same clone a new home gets; the
+  # scaffold's data/, state/, and identity markers are gitignored and untracked,
+  # so the cloned tree moves in around them. The clone's .git moves first, so an
+  # interrupted completion is repaired on retry by checking out that metadata.
+  local home=$1 tmp entry rc=0
+  if [ -e "$home/.git" ]; then
+    git -C "$home" checkout -q -f && return 0
+    echo "error: could not repair auto-chartered home $home from its clone metadata" >&2
+    return 1
+  fi
+  tmp=$(mktemp -d "$(dirname "$home")/.fm-seed-clone.XXXXXX") || return 1
+  if git clone --quiet "$FM_ROOT" "$tmp/home" && mv "$tmp/home/.git" "$home/.git"; then
+    for entry in "$tmp/home"/* "$tmp/home"/.[!.]*; do
+      [ -e "$entry" ] || continue
+      mv "$entry" "$home/" || rc=1
+    done
   else
     rc=1
   fi
-  rm -rf "$clone"
+  rm -rf "$tmp"
   [ "$rc" -eq 0 ] || echo "error: could not complete auto-chartered home $home from $FM_ROOT" >&2
   return "$rc"
 }
