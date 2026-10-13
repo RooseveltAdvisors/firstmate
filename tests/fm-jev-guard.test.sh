@@ -30,7 +30,7 @@ run_guard() {
 }
 guard_decision() {
   env -u FM_HOME FM_ROOT_OVERRIDE="$MOCK_PRIMARY" FM_JEV_GUARD_CACHE="$TDIR/jev-guard-cache.json" \
-    python3 "$GUARD_PY" --command "$1" --check-only
+    PATH="${GUARD_PATH:-$ROOT/bin:$PATH}" python3 "$GUARD_PY" --command "$1" --check-only
 }
 
 # 1. Help flag works
@@ -67,14 +67,31 @@ delegation_cmds=(
   "fm-send.sh data-fm-si 'implement the feature'"
   "$ROOT/bin/fm-send.sh data-fm-si 'implement the feature'"
   "bin/fm-spawn.sh fdev --secondmate"
+  "./bin/fm-send.sh gpu-ops 'sudo systemctl restart ollama'"
+  "$ROOT/bin/fm-send.sh gpu-ops 'docker ps then ssh gpu to check'"
+  "fm-send.sh gpu-ops 'sudo systemctl restart ollama'"
+  "bash bin/fm-send.sh gpu-ops 'docker restart portal'"
 )
 for cmd in "${delegation_cmds[@]}"; do
   dec=$(guard_decision "$cmd")
   assert_contains "$dec" "$(printf 'allow\tfast_path_whitelist')" "delegation tool invocation must Tier-1 fast-pass: $cmd"
 done
 
+mkdir -p "$TDIR/spoof/bin"
 printf '#!/bin/sh\n' >"$TDIR/fm-send.sh"
-chmod +x "$TDIR/fm-send.sh"
+printf '#!/bin/sh\n' >"$TDIR/bd"
+printf '#!/bin/sh\n' >"$TDIR/spoof/bin/fm-send.sh"
+chmod +x "$TDIR/fm-send.sh" "$TDIR/bd" "$TDIR/spoof/bin/fm-send.sh"
+ln -s /usr/bin/env "$TDIR/spoof/bin/bd"
+
+# A bare name resolving through the guard's own PATH to a non-bin spoof never
+# fast-passes, even with a delegation-looking payload.
+for cmd in "fm-send.sh gpu 'sudo systemctl restart ollama'" "bd gpu 'reboot'"; do
+  dec=$(GUARD_PATH="$TDIR:$PATH" guard_decision "$cmd")
+  case "$dec" in
+    "$(printf 'allow\tfast_path_whitelist')"*) fail "PATH-resolved spoof must not fast-pass: $cmd" ;;
+  esac
+done
 
 # 2b. Direct primary-console implementation never takes the delegation
 # fast-path, and a compound tail after a delegation tool still faces the full
@@ -86,6 +103,13 @@ for cmd in \
   "cp /usr/bin/ss[h] /tmp/fm-send.sh && /tmp/fm-send.sh gpu 'sudo systemctl restart ollama'" \
   "$TDIR/fm-send.sh gpu 'reboot'" \
   "bash $TDIR/fm-send.sh gpu 'reboot'" \
+  "cp /usr/bin/ss[h] /tmp/fm-send.sh && PATH=/tmp:\$PATH fm-send.sh gpu 'reboot'" \
+  "cp /usr/bin/ss[h] /tmp/bd && PATH=/tmp:\$PATH bd gpu 'reboot'" \
+  "export PATH=$TDIR/spoof/bin:\$PATH; fm-send.sh gpu 'reboot'" \
+  "$TDIR/spoof/bin/bd gpu 'reboot'" \
+  "bd-evil gpu 'sudo systemctl restart ollama'" \
+  "cd $TDIR && ./fm-send.sh gpu 'sudo systemctl restart ollama'" \
+  "bin/fm-send.sh data-fm-si 'sudo systemctl restart x'; docker restart portal" \
   ; do
   dec=$(guard_decision "$cmd")
   case "$dec" in

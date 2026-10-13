@@ -16,6 +16,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -51,14 +52,8 @@ CRITERIA_DOMAIN = {
 
 # Approved supervisor prefix patterns for Tier 1 fast path
 SUPERVISOR_TOOL_PREFIXES = (
-    "bd ",
-    "tasks-axi",
-    "bin/fm-tasks-axi.sh",
-    "bin/fm-send.sh",
     "bin/fm-route-",
     "bin/fm-wake-drain.sh",
-    "bin/fm-brief.sh",
-    "bin/fm-spawn.sh",
     "bin/fm-captain-hold.sh",
     "bin/fm-check-register.sh",
     "bin/fm-session",
@@ -189,29 +184,53 @@ def clean_subcommand(subcmd: str) -> str:
     return s
 
 
-def _is_genuine_delegation_tool(clean: str, names: set[str], path_lookup: bool) -> bool:
-    """True when the invoked program is a real firstmate delegation tool.
+DELEGATION_TOOL_NAMES = frozenset({
+    "fm-send.sh",
+    "fm-tasks-axi.sh",
+    "fm-brief.sh",
+    "fm-spawn.sh",
+    "fm-route-dispatch.sh",
+    "bd",
+    "tasks-axi",
+})
 
-    A bare name resolves through PATH when path_lookup is set; any other token
-    must resolve to a file of that name beside this guard in a firstmate bin/.
+
+def _is_genuine_delegation_tool(clean: str, path_lookup: bool) -> bool:
+    """True when the invoked program resolves to a delegation tool in a bin/ directory.
+
+    A token with a slash must name a file directly under a bin/ directory, both
+    as written and after resolving symlinks. A bare name resolves through PATH
+    only when path_lookup is set; the command text must not have redefined PATH.
+    Requiring a bin/ parent is proportionate to the threat model: it stops a
+    cooperating agent's accidental or same-named scratch copy (/tmp/fm-send.sh)
+    from passing as delegation, while anyone able to write an executable into a
+    bin/ directory and get it run already has code execution.
     """
     parts = clean.split(None, 1)
     if not parts:
         return False
     token = parts[0]
     name = token.rpartition("/")[-1]
-    if name not in names:
+    if name not in DELEGATION_TOOL_NAMES:
         return False
-    if path_lookup and "/" not in token:
-        return True
+    if "/" in token:
+        if Path(os.path.normpath(token)).parent.name != "bin":
+            return False
+        candidate = token
+    elif path_lookup:
+        candidate = shutil.which(token)
+        if not candidate:
+            return False
+    else:
+        return False
     try:
-        real = (Path.cwd() / token).resolve(strict=True)
+        real = Path(candidate).resolve(strict=True)
     except OSError:
         return False
-    return real.is_file() and real.name == name and (real.parent / "fm-jev-guard.py").is_file()
+    return real.is_file() and real.name == name and real.parent.name == "bin"
 
 
-def is_fast_pass_supervisor(subcmd: str) -> bool:
+def is_fast_pass_supervisor(subcmd: str, path_trusted: bool) -> bool:
     """Check if an individual subcommand is unequivocally an allowed supervisor operation."""
     clean = clean_subcommand(subcmd)
     if not clean:
@@ -219,39 +238,18 @@ def is_fast_pass_supervisor(subcmd: str) -> bool:
     # Unwrap bash / sh wrappers around approved tools
     unwrapped = re.sub(r"^(?:bash|sh)\s+", "", clean).strip()
 
-    # 0. Supervisor delegation and task messaging tools are always fast-path
-    # (Their message payloads may legitimately instruct Second Mates to run systemctl, journalctl, docker, etc.)
-    delegation_prefixes = (
-        "bin/fm-send.sh",
-        "/opt/ra/firstmate/bin/fm-send.sh",
-        "bd ",
-        "bd",
-        "tasks-axi",
-        "bin/fm-tasks-axi.sh",
-        "/opt/ra/firstmate/bin/fm-tasks-axi.sh",
-        "bin/fm-brief.sh",
-        "/opt/ra/firstmate/bin/fm-brief.sh",
-        "bin/fm-spawn.sh",
-        "/opt/ra/firstmate/bin/fm-spawn.sh",
-        "bin/fm-route-dispatch.sh",
-        "/opt/ra/firstmate/bin/fm-route-dispatch.sh",
-    )
-    if clean.startswith(delegation_prefixes) or unwrapped.startswith(delegation_prefixes):
+    # 0. The tool IS the delegation: a genuine delegation tool invocation is
+    # always fast-path, whatever its message payload says (it may legitimately
+    # instruct Second Mates to run systemctl, journalctl, docker, ssh, etc.).
+    # A compound tail after ;, &&, or | is a separate subcommand.
+    if _is_genuine_delegation_tool(clean, path_trusted) or (
+        unwrapped != clean and _is_genuine_delegation_tool(unwrapped, False)
+    ):
         return True
 
     # 1. Immediate disallow for remote ssh or systemd/package mutations
     if any(k in clean for k in ("ssh ", "ssh\t", "sudo ", "apt-get", "apt ", "systemctl", "journalctl", "docker ")):
         return False
-
-    # The tool IS the delegation: an invocation of a genuine delegation tool in
-    # any path form (./bin/..., a bare name on PATH, a worktree's absolute path)
-    # is delegation itself. A same-named file elsewhere never qualifies, and a
-    # compound tail after ;, &&, or | is a separate subcommand.
-    delegation_names = {p.rstrip().rpartition("/")[-1] for p in delegation_prefixes}
-    if _is_genuine_delegation_tool(clean, delegation_names, True) or (
-        unwrapped != clean and _is_genuine_delegation_tool(unwrapped, delegation_names, False)
-    ):
-        return True
 
     # 1a. Safe shell navigation (cd)
     if clean == "cd" or clean.startswith("cd "):
@@ -275,15 +273,13 @@ def is_fast_pass_supervisor(subcmd: str) -> bool:
     # Unwrap bash / sh wrappers around approved tools
     unwrapped = re.sub(r"^(?:bash|sh)\s+", "", clean).strip()
 
-    # 2. Approved supervisor tools (beads, tasks, routing, wake drain, etc.)
+    # 2. Approved supervisor tools (routing, wake drain, sessions, etc.)
     #    plus the supervisor lifecycle scripts (control/merge/teardown/lease/state/watch).
     if (
         clean.startswith(SUPERVISOR_TOOL_PREFIXES)
         or unwrapped.startswith(SUPERVISOR_TOOL_PREFIXES)
         or clean.startswith(SUPERVISOR_LIFECYCLE_PREFIXES)
         or unwrapped.startswith(SUPERVISOR_LIFECYCLE_PREFIXES)
-        or clean == "bd"
-        or clean == "tasks-axi"
     ):
         return True
 
@@ -324,7 +320,8 @@ def is_whitelisted_command(cmd: str) -> bool:
     subcmds = split_compound_commands(cmd)
     if not subcmds:
         return True
-    return all(is_fast_pass_supervisor(part) for part in subcmds)
+    path_trusted = not re.search(r"(?<![A-Za-z0-9_])PATH=", cmd)
+    return all(is_fast_pass_supervisor(part, path_trusted) for part in subcmds)
 
 
 def load_cache() -> dict[str, dict]:
