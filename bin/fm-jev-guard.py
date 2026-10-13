@@ -189,12 +189,26 @@ def clean_subcommand(subcmd: str) -> str:
     return s
 
 
-def _invoked_program_basename(clean: str) -> str:
-    """Basename of the invoked program token, ignoring its argument text."""
+def _is_genuine_delegation_tool(clean: str, names: set[str], path_lookup: bool) -> bool:
+    """True when the invoked program is a real firstmate delegation tool.
+
+    A bare name resolves through PATH when path_lookup is set; any other token
+    must resolve to a file of that name beside this guard in a firstmate bin/.
+    """
     parts = clean.split(None, 1)
     if not parts:
-        return ""
-    return parts[0].rstrip("/").rpartition("/")[-1]
+        return False
+    token = parts[0]
+    name = token.rpartition("/")[-1]
+    if name not in names:
+        return False
+    if path_lookup and "/" not in token:
+        return True
+    try:
+        real = (Path.cwd() / token).resolve(strict=True)
+    except OSError:
+        return False
+    return real.is_file() and real.name == name and (real.parent / "fm-jev-guard.py").is_file()
 
 
 def is_fast_pass_supervisor(subcmd: str) -> bool:
@@ -224,19 +238,20 @@ def is_fast_pass_supervisor(subcmd: str) -> bool:
     )
     if clean.startswith(delegation_prefixes) or unwrapped.startswith(delegation_prefixes):
         return True
-    # The tool IS the delegation: an invocation of a delegation tool in any path
-    # form (./bin/..., a bare name on PATH, a worktree's absolute path) is
-    # delegation itself, so its argument text must never route it through the
-    # domain classifier into a "requires delegation" denial. Only the invoked
-    # program qualifies; a compound tail after ;, &&, or | is a separate
-    # subcommand and still faces the full gauntlet.
-    delegation_names = {p.rstrip().rpartition("/")[-1] for p in delegation_prefixes}
-    if _invoked_program_basename(clean) in delegation_names or _invoked_program_basename(unwrapped) in delegation_names:
-        return True
 
     # 1. Immediate disallow for remote ssh or systemd/package mutations
     if any(k in clean for k in ("ssh ", "ssh\t", "sudo ", "apt-get", "apt ", "systemctl", "journalctl", "docker ")):
         return False
+
+    # The tool IS the delegation: an invocation of a genuine delegation tool in
+    # any path form (./bin/..., a bare name on PATH, a worktree's absolute path)
+    # is delegation itself. A same-named file elsewhere never qualifies, and a
+    # compound tail after ;, &&, or | is a separate subcommand.
+    delegation_names = {p.rstrip().rpartition("/")[-1] for p in delegation_prefixes}
+    if _is_genuine_delegation_tool(clean, delegation_names, True) or (
+        unwrapped != clean and _is_genuine_delegation_tool(unwrapped, delegation_names, False)
+    ):
+        return True
 
     # 1a. Safe shell navigation (cd)
     if clean == "cd" or clean.startswith("cd "):

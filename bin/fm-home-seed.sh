@@ -448,7 +448,7 @@ ensure_home() {
     # is not a home yet; complete it in place instead of refusing it.
     if [ ! -f "$home/AGENTS.md" ] || [ ! -d "$home/bin" ]; then
       if [ -f "$home/$SUB_HOME_MARKER" ] && [ "$(cat "$home/$SUB_HOME_MARKER" 2>/dev/null || true)" = "$id" ]; then
-        complete_auto_chartered_home "$home"
+        complete_auto_chartered_home "$home" || return 1
       fi
     fi
   else

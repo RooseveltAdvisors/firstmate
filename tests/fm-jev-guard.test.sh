@@ -73,6 +73,9 @@ for cmd in "${delegation_cmds[@]}"; do
   assert_contains "$dec" "$(printf 'allow\tfast_path_whitelist')" "delegation tool invocation must Tier-1 fast-pass: $cmd"
 done
 
+printf '#!/bin/sh\n' >"$TDIR/fm-send.sh"
+chmod +x "$TDIR/fm-send.sh"
+
 # 2b. Direct primary-console implementation never takes the delegation
 # fast-path, and a compound tail after a delegation tool still faces the full
 # gauntlet: neither may reach the classifier's allow path as a delegation tool.
@@ -80,6 +83,9 @@ for cmd in \
   "ssh srv 'systemctl restart x'" \
   "bin/fm-send.sh data-fm-si 'msg'; ssh srv 'systemctl restart x'" \
   "python3 -c 'open(\"bin/fm-jev-guard.py\", \"w\").write(\"x\")'" \
+  "cp /usr/bin/ss[h] /tmp/fm-send.sh && /tmp/fm-send.sh gpu 'sudo systemctl restart ollama'" \
+  "$TDIR/fm-send.sh gpu 'reboot'" \
+  "bash $TDIR/fm-send.sh gpu 'reboot'" \
   ; do
   dec=$(guard_decision "$cmd")
   case "$dec" in
