@@ -1,0 +1,129 @@
++(eval):6> P=/tmp/fm-lab.H4zoGB/payload.bin 
++(eval):6> echo release-v9
++(eval):6> H=+(eval):6> sha256sum /tmp/fm-lab.H4zoGB/payload.bin
++(eval):6> H=+(eval):6> awk '{print $1}'
++(eval):6> H=78baa9d7af21784c62450084b6e0b71d0165a45e9f6b51e0c88dfe99da011e4d 
++(eval):7> FUT=+(eval):7> date -u -d '+1 hour' +%Y-%m-%dT%H:%M:%SZ
++(eval):7> FUT=2026-10-13T11:11:28Z 
++(eval):10> bin/fm-deploy-gate.sh execute srv-app /tmp/fm-lab.H4zoGB/payload.bin /tmp/fm-lab.H4zoGB/none.json echo DEPLOYED
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.H4zoGB
+fm-decision-gate: DENY: missing-decision (no decision record provided or found)
+fm-deploy-gate: execution refused: decision not allowed
++(eval):10> echo 'rc=1'
+rc=1
++(eval):12> mk /tmp/fm-lab.H4zoGB/rec.json
++mk:0> jq -n --arg h 78baa9d7af21784c62450084b6e0b71d0165a45e9f6b51e0c88dfe99da011e4d --arg e 2026-10-13T11:11:28Z --arg t t-live-1 --arg ap captain-approval-1 --argjson c 0.95 '{decision_id:"d1",actor:"fm",task_id:$t,trace_id:"x",target:"srv-app",action:"deploy",arguments:{},payload_hash:$h,policy_version:"2026-10-12",expires_at:$e,used_at:null,decision:"allow",approval_reference:$ap,jev_classification:{risk_label:"not_risky",confidence:$c,reason:"r"}}'
++(eval):12> bin/fm-deploy-gate.sh execute srv-app /tmp/fm-lab.H4zoGB/payload.bin /tmp/fm-lab.H4zoGB/rec.json echo DEPLOYED
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.H4zoGB
+ok: deploy gate passed, executing deployment to srv-app
+DEPLOYED
++(eval):12> echo 'rc=0'
+rc=0
++(eval):13> bin/fm-deploy-gate.sh execute srv-app /tmp/fm-lab.H4zoGB/payload.bin /tmp/fm-lab.H4zoGB/rec.json echo DEPLOYED
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.H4zoGB
+fm-decision-gate: DENY: replayed-decision (record was already used at '2026-10-13T10:11:28Z')
+fm-deploy-gate: execution refused: decision not allowed
++(eval):13> echo 'rc=1'
+rc=1
++(eval):15> mk /tmp/fm-lab.H4zoGB/rec2.json
++mk:0> jq -n --arg h 78baa9d7af21784c62450084b6e0b71d0165a45e9f6b51e0c88dfe99da011e4d --arg e 2026-10-13T11:11:28Z --arg t t-live-1 --arg ap captain-approval-1 --argjson c 0.95 '{decision_id:"d1",actor:"fm",task_id:$t,trace_id:"x",target:"srv-app",action:"deploy",arguments:{},payload_hash:$h,policy_version:"2026-10-12",expires_at:$e,used_at:null,decision:"allow",approval_reference:$ap,jev_classification:{risk_label:"not_risky",confidence:$c,reason:"r"}}'
++(eval):15> echo tampered
++(eval):15> bin/fm-deploy-gate.sh execute srv-app /tmp/fm-lab.H4zoGB/payload.bin /tmp/fm-lab.H4zoGB/rec2.json echo DEPLOYED
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.H4zoGB
+fm-decision-gate: DENY: payload-changed (expected hash '78baa9d7af21784c62450084b6e0b71d0165a45e9f6b51e0c88dfe99da011e4d', actual '360a1395e8104e3f1baac822924826174910010e2a891f30f72a548890d29503')
+fm-deploy-gate: execution refused: decision not allowed
++(eval):15> echo 'rc=1'
+rc=1
++(eval):16> echo release-v9
++(eval):18> mk /tmp/fm-lab.H4zoGB/rec3.json
++mk:0> jq -n --arg h 78baa9d7af21784c62450084b6e0b71d0165a45e9f6b51e0c88dfe99da011e4d --arg e 2026-10-13T11:11:28Z --arg t t-live-1 --arg ap captain-approval-1 --argjson c 0.95 '{decision_id:"d1",actor:"fm",task_id:$t,trace_id:"x",target:"srv-app",action:"deploy",arguments:{},payload_hash:$h,policy_version:"2026-10-12",expires_at:$e,used_at:null,decision:"allow",approval_reference:$ap,jev_classification:{risk_label:"not_risky",confidence:$c,reason:"r"}}'
++(eval):18> bin/fm-deploy-gate.sh execute srv-other /tmp/fm-lab.H4zoGB/payload.bin /tmp/fm-lab.H4zoGB/rec3.json echo DEPLOYED
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.H4zoGB
+fm-decision-gate: DENY: target-mismatch (expected 'srv-other', record has 'srv-app')
+fm-deploy-gate: execution refused: decision not allowed
++(eval):18> echo 'rc=1'
+rc=1
++(eval):19> mk /tmp/fm-lab.H4zoGB/rec4.json t-other
++mk:0> jq -n --arg h 78baa9d7af21784c62450084b6e0b71d0165a45e9f6b51e0c88dfe99da011e4d --arg e 2026-10-13T11:11:28Z --arg t t-other --arg ap captain-approval-1 --argjson c 0.95 '{decision_id:"d1",actor:"fm",task_id:$t,trace_id:"x",target:"srv-app",action:"deploy",arguments:{},payload_hash:$h,policy_version:"2026-10-12",expires_at:$e,used_at:null,decision:"allow",approval_reference:$ap,jev_classification:{risk_label:"not_risky",confidence:$c,reason:"r"}}'
++(eval):19> bin/fm-deploy-gate.sh execute srv-app /tmp/fm-lab.H4zoGB/payload.bin /tmp/fm-lab.H4zoGB/rec4.json echo DEPLOYED
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.H4zoGB
+fm-decision-gate: DENY: task-mismatch (expected 't-live-1', record bound to 't-other')
+fm-deploy-gate: execution refused: decision not allowed
++(eval):19> echo 'rc=1'
+rc=1
++(eval):20> mk /tmp/fm-lab.H4zoGB/rec5.json t-live-1 captain-approval-1 '"high"'
++mk:0> jq -n --arg h 78baa9d7af21784c62450084b6e0b71d0165a45e9f6b51e0c88dfe99da011e4d --arg e 2026-10-13T11:11:28Z --arg t t-live-1 --arg ap captain-approval-1 --argjson c '"high"' '{decision_id:"d1",actor:"fm",task_id:$t,trace_id:"x",target:"srv-app",action:"deploy",arguments:{},payload_hash:$h,policy_version:"2026-10-12",expires_at:$e,used_at:null,decision:"allow",approval_reference:$ap,jev_classification:{risk_label:"not_risky",confidence:$c,reason:"r"}}'
++(eval):20> bin/fm-deploy-gate.sh execute srv-app /tmp/fm-lab.H4zoGB/payload.bin /tmp/fm-lab.H4zoGB/rec5.json echo DEPLOYED
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.H4zoGB
+fm-decision-gate: DENY: jev-confidence-low (confidence 'high' is missing, non-numeric, or below floor '0.80')
+fm-deploy-gate: execution refused: decision not allowed
++(eval):20> echo 'rc=1'
+rc=1
++(eval):21> mk /tmp/fm-lab.H4zoGB/rec6.json t-live-1 ''
++mk:0> jq -n --arg h 78baa9d7af21784c62450084b6e0b71d0165a45e9f6b51e0c88dfe99da011e4d --arg e 2026-10-13T11:11:28Z --arg t t-live-1 --arg ap captain-approval-1 --argjson c 0.95 '{decision_id:"d1",actor:"fm",task_id:$t,trace_id:"x",target:"srv-app",action:"deploy",arguments:{},payload_hash:$h,policy_version:"2026-10-12",expires_at:$e,used_at:null,decision:"allow",approval_reference:$ap,jev_classification:{risk_label:"not_risky",confidence:$c,reason:"r"}}'
++(eval):21> bin/fm-deploy-gate.sh execute srv-app /tmp/fm-lab.H4zoGB/payload.bin /tmp/fm-lab.H4zoGB/rec6.json echo DEPLOYED
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.H4zoGB
+ok: deploy gate passed, executing deployment to srv-app
+DEPLOYED
++(eval):21> echo 'rc=0'
+rc=0
++(eval):22> mk /tmp/fm-lab.H4zoGB/rec7.json
++mk:0> jq -n --arg h 78baa9d7af21784c62450084b6e0b71d0165a45e9f6b51e0c88dfe99da011e4d --arg e 2026-10-13T11:11:28Z --arg t t-live-1 --arg ap captain-approval-1 --argjson c 0.95 '{decision_id:"d1",actor:"fm",task_id:$t,trace_id:"x",target:"srv-app",action:"deploy",arguments:{},payload_hash:$h,policy_version:"2026-10-12",expires_at:$e,used_at:null,decision:"allow",approval_reference:$ap,jev_classification:{risk_label:"not_risky",confidence:$c,reason:"r"}}'
++(eval):22> jq '.expires_at="never"' /tmp/fm-lab.H4zoGB/rec7.json
++(eval):22> mv /tmp/fm-lab.H4zoGB/r /tmp/fm-lab.H4zoGB/rec7.json
++(eval):22> bin/fm-deploy-gate.sh execute srv-app /tmp/fm-lab.H4zoGB/payload.bin /tmp/fm-lab.H4zoGB/rec7.json echo DEPLOYED
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.H4zoGB
+fm-decision-gate: DENY: invalid-expiry (expires_at 'never' is missing or unparseable)
+fm-deploy-gate: execution refused: decision not allowed
++(eval):22> echo 'rc=1'
+rc=1
++(eval):24> mk /tmp/fm-lab.H4zoGB/race.json
++mk:0> jq -n --arg h 78baa9d7af21784c62450084b6e0b71d0165a45e9f6b51e0c88dfe99da011e4d --arg e 2026-10-13T11:11:28Z --arg t t-live-1 --arg ap captain-approval-1 --argjson c 0.95 '{decision_id:"d1",actor:"fm",task_id:$t,trace_id:"x",target:"srv-app",action:"deploy",arguments:{},payload_hash:$h,policy_version:"2026-10-12",expires_at:$e,used_at:null,decision:"allow",approval_reference:$ap,jev_classification:{risk_label:"not_risky",confidence:$c,reason:"r"}}'
++(eval):24> i=1
++(eval):24> i=2
++(eval):24> bin/fm-deploy-gate.sh execute srv-app /tmp/fm-lab.H4zoGB/payload.bin /tmp/fm-lab.H4zoGB/race.json echo RACE-DEPLOYED-1
++(eval):24> i=3
++(eval):24> bin/fm-deploy-gate.sh execute srv-app /tmp/fm-lab.H4zoGB/payload.bin /tmp/fm-lab.H4zoGB/race.json echo RACE-DEPLOYED-2
++(eval):24> i=4
++(eval):24> bin/fm-deploy-gate.sh execute srv-app /tmp/fm-lab.H4zoGB/payload.bin /tmp/fm-lab.H4zoGB/race.json echo RACE-DEPLOYED-3
++(eval):24> i=5
++(eval):24> bin/fm-deploy-gate.sh execute srv-app /tmp/fm-lab.H4zoGB/payload.bin /tmp/fm-lab.H4zoGB/race.json echo RACE-DEPLOYED-4
++(eval):24> i=6
++(eval):24> bin/fm-deploy-gate.sh execute srv-app /tmp/fm-lab.H4zoGB/payload.bin /tmp/fm-lab.H4zoGB/race.json echo RACE-DEPLOYED-5
++(eval):24> wait
++(eval):24> bin/fm-deploy-gate.sh execute srv-app /tmp/fm-lab.H4zoGB/payload.bin /tmp/fm-lab.H4zoGB/race.json echo RACE-DEPLOYED-6
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.H4zoGB
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.H4zoGB
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.H4zoGB
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.H4zoGB
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.H4zoGB
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.H4zoGB
+fm-deploy-gate: execution refused: failed to consume one-use decision record
+fm-deploy-gate: execution refused: failed to consume one-use decision record
+fm-deploy-gate: execution refused: failed to consume one-use decision record
+fm-deploy-gate: execution refused: failed to consume one-use decision record
+fm-deploy-gate: execution refused: failed to consume one-use decision record
+ok: deploy gate passed, executing deployment to srv-app
+RACE-DEPLOYED-1
++(eval):26> bin/fm-jev-classify.sh deploy srv-app /tmp/fm-lab.H4zoGB/payload.bin
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.H4zoGB
+{"risk_label":"not_risky","confidence":0.95,"reason":"Verified action within declared parameters","action_class":"deploy","target":"srv-app","advisory_only":true}
++(eval):26> echo 'rc=0'
+rc=0
++(eval):27> set +x
+--- decision ledger
+{"timestamp":"2026-10-13T10:11:28Z","outcome":"DENY","reason":"missing-decision","action":"deploy","target":"srv-app","task_id":"t-live-1","record":""}
+{"timestamp":"2026-10-13T10:11:28Z","outcome":"ALLOW","reason":"verified-allow","action":"deploy","target":"srv-app","task_id":"t-live-1","record":"/tmp/fm-lab.H4zoGB/rec.json"}
+{"timestamp":"2026-10-13T10:11:28Z","outcome":"DENY","reason":"replayed-decision","action":"deploy","target":"srv-app","task_id":"t-live-1","record":"/tmp/fm-lab.H4zoGB/rec.json"}
+{"timestamp":"2026-10-13T10:11:28Z","outcome":"DENY","reason":"payload-changed","action":"deploy","target":"srv-app","task_id":"t-live-1","record":"/tmp/fm-lab.H4zoGB/rec2.json"}
+{"timestamp":"2026-10-13T10:11:28Z","outcome":"DENY","reason":"target-mismatch","action":"deploy","target":"srv-other","task_id":"t-live-1","record":"/tmp/fm-lab.H4zoGB/rec3.json"}
+{"timestamp":"2026-10-13T10:11:28Z","outcome":"DENY","reason":"task-mismatch","action":"deploy","target":"srv-app","task_id":"t-live-1","record":"/tmp/fm-lab.H4zoGB/rec4.json"}
+{"timestamp":"2026-10-13T10:11:28Z","outcome":"DENY","reason":"jev-confidence-low","action":"deploy","target":"srv-app","task_id":"t-live-1","record":"/tmp/fm-lab.H4zoGB/rec5.json"}
+{"timestamp":"2026-10-13T10:11:28Z","outcome":"ALLOW","reason":"verified-allow","action":"deploy","target":"srv-app","task_id":"t-live-1","record":"/tmp/fm-lab.H4zoGB/rec6.json"}
+{"timestamp":"2026-10-13T10:11:28Z","outcome":"DENY","reason":"invalid-expiry","action":"deploy","target":"srv-app","task_id":"t-live-1","record":"/tmp/fm-lab.H4zoGB/rec7.json"}
+{"timestamp":"2026-10-13T10:11:28Z","outcome":"ALLOW","reason":"verified-allow","action":"deploy","target":"srv-app","task_id":"t-live-1","record":"/tmp/fm-lab.H4zoGB/race.json"}
+{"timestamp":"2026-10-13T10:11:28Z","outcome":"ALLOW","reason":"verified-allow","action":"deploy","target":"srv-app","task_id":"t-live-1","record":"/tmp/fm-lab.H4zoGB/race.json"}
+{"timestamp":"2026-10-13T10:11:28Z","outcome":"ALLOW","reason":"verified-allow","action":"deploy","target":"srv-app","task_id":"t-live-1","record":"/tmp/fm-lab.H4zoGB/race.json"}
+{"timestamp":"2026-10-13T10:11:28Z","outcome":"ALLOW","reason":"verified-allow","action":"deploy","target":"srv-app","task_id":"t-live-1","record":"/tmp/fm-lab.H4zoGB/race.json"}
+{"timestamp":"2026-10-13T10:11:28Z","outcome":"ALLOW","reason":"verified-allow","action":"deploy","target":"srv-app","task_id":"t-live-1","record":"/tmp/fm-lab.H4zoGB/race.json"}
+{"timestamp":"2026-10-13T10:11:28Z","outcome":"ALLOW","reason":"verified-allow","action":"deploy","target":"srv-app","task_id":"t-live-1","record":"/tmp/fm-lab.H4zoGB/race.json"}

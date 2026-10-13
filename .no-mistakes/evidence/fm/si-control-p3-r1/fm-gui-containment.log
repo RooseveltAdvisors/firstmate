@@ -1,0 +1,12 @@
+ok - gui router: captain_personal session strictly REFUSED
+ok - gui router: default personal profile strictly REFUSED
+ok - gui router: unmapped context alias REFUSES (fails closed)
+ok - gui router: non-allowlisted host REFUSES
+ok - gui router: host mismatch for alias REFUSES
+ok - gui router: missing router map REFUSES
+ok - gui router: valid automation context PASSES check
+ok - gui router: valid automation command executes
+ok - gui router: refused context stops execution before command invocation
+ok - gui router: records all checks and refusals in evidence ledger
+ok - gui router: ledger contains only opaque account aliases, no personal identities
+ok: Scope Area 4 GUI containment tests passed completely

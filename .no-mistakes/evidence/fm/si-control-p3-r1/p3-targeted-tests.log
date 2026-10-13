@@ -1,0 +1,20 @@
+== tests/fm-decision-gate.test.sh
+ok - fm-jev-classify.sh classifies staging deploy as not_risky and remains advisory-only
+ok - fm-jev-classify.sh flags destructive payload as risky
+ok: Scope Area 3 JEV classifier and deny-on-missing tests passed completely
+rc=
+== tests/fm-gui-containment.test.sh
+ok - gui router: records all checks and refusals in evidence ledger
+ok - gui router: ledger contains only opaque account aliases, no personal identities
+ok: Scope Area 4 GUI containment tests passed completely
+rc=
+== tests/fm-observation-layer.test.sh
+ok - shipper retries retained batches and posts OTLP log requests
+ok - shipper sets aside an unencodable batch and ships the batches behind it
+ok: Scope Area 1 observation layer tests passed completely
+rc=
+== tests/fm-si-control-p3-testenv.test.sh
+ok - gui router: valid automation context ALLOWS
+ok - JEV classifier flags destructive payload as risky and stays advisory
+ok: Scope Area 2 isolated test environment and bypass matrix passed completely
+rc=

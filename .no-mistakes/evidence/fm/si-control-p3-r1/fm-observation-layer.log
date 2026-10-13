@@ -1,0 +1,10 @@
+ok - observation metadata record successfully written to spool
+ok - recorded observation JSON contains all required identity, call, usage, and retention fields
+ok - observation record carries only the Section 2.3 metadata fields
+ok - non-numeric counters are rejected without touching the spool
+ok - unparented call resolves safe trace identifiers
+ok - observation spool shipper accurately reports spool metrics
+ok - shipper retains batch for retry when OTLP gateway is unreachable
+ok - shipper retries retained batches and posts OTLP log requests
+ok - shipper sets aside an unencodable batch and ships the batches behind it
+ok: Scope Area 1 observation layer tests passed completely

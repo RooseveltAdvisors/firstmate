@@ -1,0 +1,50 @@
+=== S1 happy path: valid record executes deploy once
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.KgaqMr
+ok: deploy gate passed, executing deployment to srv-covenant-app
+exit=0
+deploys=1  used_at=2026-10-13T10:14:23Z  consumed_marker=yes
+=== S2 replay: same record again is denied
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.KgaqMr
+fm-decision-gate: DENY: replayed-decision (record was already used at '2026-10-13T10:14:23Z')
+fm-deploy-gate: execution refused: decision not allowed
+exit=1  deploys=1
+=== S3 missing decision record
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.KgaqMr
+fm-decision-gate: DENY: missing-decision (no decision record provided or found)
+fm-deploy-gate: execution refused: decision not allowed
+exit=1  deploys=1
+=== S4 payload changed after approval
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.KgaqMr
+fm-decision-gate: DENY: payload-changed (expected hash '2a68f1a6e331b0128ea6a731f7247baa5af8ac55b1d48c41b4713b12cebf90ab', actual 'ae7627bf251fdbe7007345ca9cb496a23c9660e84a8f6764dc84d60db7a906b7')
+fm-deploy-gate: execution refused: decision not allowed
+exit=1  deploys=1
+=== S5 8-way race on one record (t1 fix)
+deploys=1  exit0=1  exit1=7
+ledger for race.json by outcome/reason:
+      8 ALLOW verified-allow
+      7 DENY consume-failed
+net-authorized = ALLOW(8) - consume-failed(7) = 1
+=== S6 no lab marker under gate context: refused
+error: no-mistakes gate agent must not drive the fleet (NO_MISTAKES_GATE set)
+exit=3
+=== full ledger
+{"timestamp":"2026-10-13T10:14:23Z","outcome":"ALLOW","reason":"verified-allow","action":"deploy","target":"srv-covenant-app","task_id":"fm-task-live-001","record":"/tmp/fm-lab.KgaqMr/work/ok.json"}
+{"timestamp":"2026-10-13T10:14:23Z","outcome":"DENY","reason":"replayed-decision","action":"deploy","target":"srv-covenant-app","task_id":"fm-task-live-001","record":"/tmp/fm-lab.KgaqMr/work/ok.json"}
+{"timestamp":"2026-10-13T10:14:23Z","outcome":"DENY","reason":"missing-decision","action":"deploy","target":"srv-covenant-app","task_id":"fm-task-live-001","record":""}
+{"timestamp":"2026-10-13T10:14:23Z","outcome":"DENY","reason":"payload-changed","action":"deploy","target":"srv-covenant-app","task_id":"fm-task-live-001","record":"/tmp/fm-lab.KgaqMr/work/p.json"}
+{"timestamp":"2026-10-13T10:14:23Z","outcome":"ALLOW","reason":"verified-allow","action":"deploy","target":"srv-covenant-app","task_id":"fm-task-live-001","record":"/tmp/fm-lab.KgaqMr/work/race.json"}
+{"timestamp":"2026-10-13T10:14:23Z","outcome":"ALLOW","reason":"verified-allow","action":"deploy","target":"srv-covenant-app","task_id":"fm-task-live-001","record":"/tmp/fm-lab.KgaqMr/work/race.json"}
+{"timestamp":"2026-10-13T10:14:23Z","outcome":"ALLOW","reason":"verified-allow","action":"deploy","target":"srv-covenant-app","task_id":"fm-task-live-001","record":"/tmp/fm-lab.KgaqMr/work/race.json"}
+{"timestamp":"2026-10-13T10:14:23Z","outcome":"ALLOW","reason":"verified-allow","action":"deploy","target":"srv-covenant-app","task_id":"fm-task-live-001","record":"/tmp/fm-lab.KgaqMr/work/race.json"}
+{"timestamp":"2026-10-13T10:14:23Z","outcome":"ALLOW","reason":"verified-allow","action":"deploy","target":"srv-covenant-app","task_id":"fm-task-live-001","record":"/tmp/fm-lab.KgaqMr/work/race.json"}
+{"timestamp":"2026-10-13T10:14:23Z","outcome":"ALLOW","reason":"verified-allow","action":"deploy","target":"srv-covenant-app","task_id":"fm-task-live-001","record":"/tmp/fm-lab.KgaqMr/work/race.json"}
+{"timestamp":"2026-10-13T10:14:23Z","outcome":"ALLOW","reason":"verified-allow","action":"deploy","target":"srv-covenant-app","task_id":"fm-task-live-001","record":"/tmp/fm-lab.KgaqMr/work/race.json"}
+{"timestamp":"2026-10-13T10:14:23Z","outcome":"ALLOW","reason":"verified-allow","action":"deploy","target":"srv-covenant-app","task_id":"fm-task-live-001","record":"/tmp/fm-lab.KgaqMr/work/race.json"}
+{"timestamp":"2026-10-13T10:14:23Z","outcome":"DENY","reason":"consume-failed","action":"deploy","target":"srv-covenant-app","task_id":"fm-task-live-001","record":"/tmp/fm-lab.KgaqMr/work/race.json"}
+{"timestamp":"2026-10-13T10:14:23Z","outcome":"DENY","reason":"consume-failed","action":"deploy","target":"srv-covenant-app","task_id":"fm-task-live-001","record":"/tmp/fm-lab.KgaqMr/work/race.json"}
+{"timestamp":"2026-10-13T10:14:23Z","outcome":"DENY","reason":"consume-failed","action":"deploy","target":"srv-covenant-app","task_id":"fm-task-live-001","record":"/tmp/fm-lab.KgaqMr/work/race.json"}
+{"timestamp":"2026-10-13T10:14:23Z","outcome":"DENY","reason":"consume-failed","action":"deploy","target":"srv-covenant-app","task_id":"fm-task-live-001","record":"/tmp/fm-lab.KgaqMr/work/race.json"}
+{"timestamp":"2026-10-13T10:14:23Z","outcome":"DENY","reason":"consume-failed","action":"deploy","target":"srv-covenant-app","task_id":"fm-task-live-001","record":"/tmp/fm-lab.KgaqMr/work/race.json"}
+{"timestamp":"2026-10-13T10:14:23Z","outcome":"DENY","reason":"consume-failed","action":"deploy","target":"srv-covenant-app","task_id":"fm-task-live-001","record":"/tmp/fm-lab.KgaqMr/work/race.json"}
+{"timestamp":"2026-10-13T10:14:23Z","outcome":"DENY","reason":"consume-failed","action":"deploy","target":"srv-covenant-app","task_id":"fm-task-live-001","record":"/tmp/fm-lab.KgaqMr/work/race.json"}
+lab removed: yes

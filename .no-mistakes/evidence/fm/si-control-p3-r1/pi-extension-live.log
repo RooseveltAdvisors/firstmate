@@ -1,0 +1,42 @@
+$ FM_HOME=$LAB FM_TASK_ID=t-pi-live pi -ne -e .pi/extensions/fm-observation-layer.ts -p "Reply with exactly: ok"
+ok
+--- spool after real Pi call:
+{
+  "identity": {
+    "task_id": "t-pi-live",
+    "trace_id": "00000000000000000000000000000000",
+    "span_id": "0000000000000000",
+    "bead_id": null,
+    "runtime_identity": {
+      "harness": "pi",
+      "adapter": "pi"
+    },
+    "parent_task_id": null
+  },
+  "call": {
+    "provider": "xiaomi-token-plan-sgp",
+    "model": "mimo-v2.6-flash",
+    "start_time": "2026-10-13T10:12:33.075Z",
+    "end_time": "2026-10-13T10:12:45.279Z",
+    "duration_ms": 12204,
+    "status": "ok",
+    "error_class": null
+  },
+  "usage": {
+    "input_tokens": 17179,
+    "output_tokens": 246,
+    "reasoning_tokens": 243,
+    "cache_tokens": 1088
+  },
+  "policy": {
+    "decision_id": null,
+    "decision": null,
+    "policy_version": "2026-10-12",
+    "jev_risk_flags": []
+  },
+  "retention": {
+    "retention_policy_class": "metadata_general_90d"
+  }
+}
+--- PHI/content leak check (prompt text present?):
+0

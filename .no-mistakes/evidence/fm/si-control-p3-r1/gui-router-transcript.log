@@ -1,0 +1,35 @@
+> run agt_auto_deploy @ agt-2
+ok: context verified, launching GUI command
+GUI-ACTION-RAN
+rc=0
+> run agt_auto_deploy @ agt-8
+fm-gui-guard: REFUSE: host-context-mismatch (alias 'agt_auto_deploy' mapped to host 'agt-2', not 'agt-8')
+fm-gui-router: execution refused: context check failed
+rc=1
+> run captain_personal @ agt-2
+fm-gui-guard: REFUSE: personal-or-blocked-context ('captain_personal': Personal session access strictly forbidden)
+fm-gui-router: execution refused: context check failed
+rc=1
+> run unmapped_default @ agt-2
+fm-gui-guard: REFUSE: personal-or-blocked-context ('unmapped_default': Unmapped context alias fails closed)
+fm-gui-router: execution refused: context check failed
+rc=1
+> run nosuch @ agt-2
+fm-gui-guard: REFUSE: unmapped-context-alias ('nosuch' not defined in automation map)
+fm-gui-router: execution refused: context check failed
+rc=1
+> run agt_auto_deploy @ evil-host
+fm-gui-guard: REFUSE: host-not-allowlisted ('evil-host' is not an approved automation host)
+fm-gui-router: execution refused: context check failed
+rc=1
+> missing map
+fm-gui-guard: REFUSE: missing-containment-map (router map not found)
+fm-gui-router: execution refused: context check failed
+--- gui ledger
+{"timestamp":"2026-10-13T10:11:43Z","outcome":"ALLOW","reason":"verified-automation-context","context_alias":"agt_auto_deploy","host":"agt-2","task_id":"unknown"}
+{"timestamp":"2026-10-13T10:11:43Z","outcome":"REFUSE","reason":"host-context-mismatch","context_alias":"agt_auto_deploy","host":"agt-8","task_id":"unknown"}
+{"timestamp":"2026-10-13T10:11:43Z","outcome":"REFUSE","reason":"personal-or-blocked-context","context_alias":"captain_personal","host":"agt-2","task_id":"unknown"}
+{"timestamp":"2026-10-13T10:11:43Z","outcome":"REFUSE","reason":"personal-or-blocked-context","context_alias":"unmapped_default","host":"agt-2","task_id":"unknown"}
+{"timestamp":"2026-10-13T10:11:43Z","outcome":"REFUSE","reason":"unmapped-context-alias","context_alias":"nosuch","host":"agt-2","task_id":"unknown"}
+{"timestamp":"2026-10-13T10:11:43Z","outcome":"REFUSE","reason":"host-not-allowlisted","context_alias":"agt_auto_deploy","host":"evil-host","task_id":"unknown"}
+{"timestamp":"2026-10-13T10:11:43Z","outcome":"REFUSE","reason":"missing-containment-map","context_alias":"agt_auto_deploy","host":"agt-2","task_id":"unknown"}

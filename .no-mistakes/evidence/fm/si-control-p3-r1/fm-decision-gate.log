@@ -1,0 +1,24 @@
+ok - deploy seam: absent record DENIES (fail closed)
+ok - deploy seam: empty record DENIES
+ok - deploy seam: malformed JSON DENIES
+ok - deploy seam: action mismatch DENIES
+ok - deploy seam: target mismatch DENIES
+ok - deploy seam: tampered payload hash DENIES
+ok - deploy seam: expired record DENIES
+ok - deploy seam: replayed record DENIES
+ok - deploy seam: JEV alone without human approval DENIES (JEV cannot grant)
+ok - deploy seam: JEV confidence below 0.80 floor DENIES
+ok - deploy seam: non-numeric JEV confidence DENIES
+ok - deploy seam: missing or unparseable expiry DENIES
+ok - deploy seam: fractional-second expiry parses
+ok - deploy seam: missing task identity DENIES
+ok - deploy seam: policy version mismatch DENIES
+ok - deploy seam: concurrent executes consume a record exactly once
+ok - deploy seam: valid unexpired one-use allow record PASSES check
+ok - deploy seam: execution succeeds with valid allow record
+ok - deploy seam: execution stamps used_at timestamp
+ok - deploy seam: immediate replay DENIES
+ok - decision evidence ledger records all allow and deny decisions with reasons
+ok - fm-jev-classify.sh classifies staging deploy as not_risky and remains advisory-only
+ok - fm-jev-classify.sh flags destructive payload as risky
+ok: Scope Area 3 JEV classifier and deny-on-missing tests passed completely

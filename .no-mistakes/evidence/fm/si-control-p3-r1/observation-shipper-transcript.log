@@ -1,0 +1,23 @@
+### write 3 records
+ok: recorded observation metadata to /tmp/fm-lab.H4zoGB/state/observation/spool.jsonl
+ok: recorded observation metadata to /tmp/fm-lab.H4zoGB/state/observation/spool.jsonl
+rc=2
+spool: 2 records, 1233 bytes (/tmp/fm-lab.H4zoGB/state/observation/spool.jsonl)
+--- spool
+{"identity":{"task_id":"t-obs-1","trace_id":"00000000000000000000000000000000","span_id":"0000000000000000","bead_id":null,"runtime_identity":{"harness":"pi","adapter":"pi"},"parent_task_id":null},"call":{"provider":"anthropic","model":"claude-x","start_time":"2026-10-13T10:11:57Z","end_time":"2026-10-13T10:11:57Z","duration_ms":1200,"status":"ok","error_class":null},"usage":{"input_tokens":500,"output_tokens":80,"reasoning_tokens":0,"cache_tokens":0},"policy":{"decision_id":null,"decision":null,"policy_version":"2026-10-12","jev_risk_flags":[]},"retention":{"retention_policy_class":"metadata_general_90d"}}
+{"identity":{"task_id":"t-obs-1","trace_id":"00000000000000000000000000000000","span_id":"0000000000000000","bead_id":null,"runtime_identity":{"harness":"pi","adapter":"pi"},"parent_task_id":null},"call":{"provider":"openai","model":"gpt-y","start_time":"2026-10-13T10:11:57Z","end_time":"2026-10-13T10:11:57Z","duration_ms":900,"status":"error","error_class":"rate_limit"},"usage":{"input_tokens":10,"output_tokens":20,"reasoning_tokens":0,"cache_tokens":0},"policy":{"decision_id":null,"decision":null,"policy_version":"2026-10-12","jev_risk_flags":[]},"retention":{"retention_policy_class":"metadata_general_90d"}}
+### ship with gateway DOWN (port 43829)
+notice: OTLP gateway unreachable; retained 2 records in /tmp/fm-lab.H4zoGB/state/observation/shipped/batch.1791886317.2327557.jsonl for retry
+batch.1791886317.2327557.jsonl
+### torn spool line added in a second batch
+ok: recorded observation metadata to /tmp/fm-lab.H4zoGB/state/observation/spool.jsonl
+notice: OTLP gateway unreachable; retained 2 records in /tmp/fm-lab.H4zoGB/state/observation/shipped/batch.1791886317.2327557.jsonl for retry
+batch.1791886317.2327557.jsonl
+batch.1791886318.2329109.jsonl
+### start local OTLP listener and ship again
+ok: shipped 2 observation records to OTLP gateway (http://127.0.0.1:43829/v1/logs)
+notice: /tmp/fm-lab.H4zoGB/state/observation/shipped/batch.1791886318.2329109.jsonl is not valid JSONL; set aside as /tmp/fm-lab.H4zoGB/state/observation/shipped/batch.1791886318.2329109.jsonl.bad
+shipped dir now:
+batch.1791886318.2329109.jsonl.bad
+--- gateway received:
+{"svc":"firstmate-observation","n":2,"first":["call","identity","policy","retention","usage"]}

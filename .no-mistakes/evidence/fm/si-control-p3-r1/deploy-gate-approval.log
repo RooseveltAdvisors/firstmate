@@ -1,0 +1,20 @@
+### missing approval_reference / JEV-only grant / decision=deny
+> mutation: .approval_reference=""
+fm-decision-gate: DENY: jev-cannot-grant (no human captain approval reference; JEV cannot grant authority)
+fm-deploy-gate: execution refused: decision not allowed
+rc=1
+> mutation: del(.approval_reference)
+fm-decision-gate: DENY: jev-cannot-grant (no human captain approval reference; JEV cannot grant authority)
+fm-deploy-gate: execution refused: decision not allowed
+rc=1
+> mutation: .approval_reference="jev-auto"
+ok: deploy gate passed, executing deployment to srv-app
+DEPLOYED
+rc=0
+> mutation: .decision="deny"
+fm-decision-gate: DENY: decision-not-allow (record decision is 'deny')
+fm-deploy-gate: execution refused: decision not allowed
+rc=1
+### unset FM_TASK_ID
+fm-decision-gate: DENY: task-mismatch (expected '', record bound to 't-live-1')
+fm-deploy-gate: execution refused: decision not allowed

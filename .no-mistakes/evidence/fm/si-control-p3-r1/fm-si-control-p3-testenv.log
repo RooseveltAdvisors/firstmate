@@ -1,0 +1,29 @@
+ok - all 4 Phase 3 synthetic fixtures exist
+ok - all Phase 3 synthetic fixtures parse as valid JSON
+ok - observation metadata fixture carries only the Section 2.3 metadata fields
+ok - policy, JEV, and GUI fixtures carry only their declared fields
+ok - observation metadata fixture matches Section 2.3 schema
+ok - policy decision record matches Sections 4.4 and 4.5 schema
+ok - JEV classifier fixture is strictly advisory and cannot grant allow
+ok - GUI containment map fixture defines automation allowlists and blocks personal contexts
+ok - disposable lab home created and marked
+ok - all Phase 3 entrypoints refuse fleet mutation under NO_MISTAKES_GATE=1
+ok - marked disposable lab home is permitted for Phase 3 lifecycle
+ok - FM_*_OVERRIDE correctly defeats lab home allowance
+ok - deploy seam: missing decision record DENIES
+ok - deploy seam: malformed decision record DENIES
+ok - deploy seam: tampered payload DENIES
+ok - deploy seam: expired record DENIES
+ok - deploy seam: replayed record DENIES
+ok - deploy seam: JEV alone cannot grant allow (DENIES)
+ok - deploy seam: low JEV confidence DENIES
+ok - deploy seam: valid unexpired one-use record ALLOWS
+ok - deploy seam: execution stamps used_at atomically
+ok - deploy seam: second execution with consumed record DENIES
+ok - gui router: personal browser session REFUSES
+ok - gui router: unmapped alias REFUSES
+ok - gui router: non-allowlisted host REFUSES
+ok - gui router: host mismatch REFUSES
+ok - gui router: valid automation context ALLOWS
+ok - JEV classifier flags destructive payload as risky and stays advisory
+ok: Scope Area 2 isolated test environment and bypass matrix passed completely
