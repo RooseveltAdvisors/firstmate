@@ -19,7 +19,6 @@ set -u
 # shellcheck source=tests/fixtures.sh
 . "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
 
-DECISION_LIB="$ROOT/bin/fm-decision-gate-lib.sh"
 DEPLOY_GATE="$ROOT/bin/fm-deploy-gate.sh"
 JEV_CLASSIFY="$ROOT/bin/fm-jev-classify.sh"
 LABHOME="$ROOT/bin/fm-lab-home.sh"

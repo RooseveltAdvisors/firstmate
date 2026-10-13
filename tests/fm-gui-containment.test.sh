@@ -17,7 +17,6 @@ set -u
 . "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
 
 GUI_ROUTER="$ROOT/bin/fm-gui-router.sh"
-GUI_LIB="$ROOT/bin/fm-gui-guard-lib.sh"
 LABHOME="$ROOT/bin/fm-lab-home.sh"
 
 TMP=$(fm_test_tmproot fm-gui-containment)

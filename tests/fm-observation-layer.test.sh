@@ -14,7 +14,6 @@ set -u
 
 OBS_RECORD="$ROOT/bin/fm-observation-record.sh"
 OBS_SHIPPER="$ROOT/bin/fm-observation-spool-shipper.sh"
-TRACE_LIB="$ROOT/bin/fm-trace-context-lib.sh"
 LABHOME="$ROOT/bin/fm-lab-home.sh"
 
 TMP=$(fm_test_tmproot fm-observation-layer)
