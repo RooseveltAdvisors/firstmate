@@ -30,7 +30,7 @@ run_guard() {
 }
 guard_decision() {
   env -u FM_HOME FM_ROOT_OVERRIDE="$MOCK_PRIMARY" FM_JEV_GUARD_CACHE="$TDIR/jev-guard-cache.json" \
-    PATH="${GUARD_PATH:-$ROOT/bin:$PATH}" python3 "$GUARD_PY" --command "$1" --check-only
+    PATH="${GUARD_PATH:-$PATH}" python3 "$GUARD_PY" --command "$1" --check-only
 }
 
 # 1. Help flag works
@@ -55,7 +55,7 @@ run_guard --command "FM_HOME=/opt/ra/firstmate bash -c 'cd /opt/ra/firstmate && 
 run_guard --command "FM_HOME=/opt/ra/firstmate bin/fm-send.sh gpu-ops 'diagnose with journalctl -u render-credentials.service and restart systemctl' 2>&1 | tail -1" || fail "fm-send with inner systemctl/journalctl denied unexpectedly"
 
 # 2a. The tool IS the delegation: a delegation tool invocation fast-passes
-# whatever implementation-looking argument text it carries, in any path form.
+# whatever implementation-looking argument text it carries, in trusted bin/ form.
 # Assert the Tier-1 fast_path_whitelist code directly (not merely exit 0) so the
 # check stays deterministic where no live classifier key exists: on unfixed code
 # these commands either deny (live key) or fall open (no key), never fast-path.
@@ -64,12 +64,14 @@ delegation_cmds=(
   "bin/fm-route-dispatch.sh --task 'implement the new feature in the portal'"
   "bin/fm-send.sh data-fm-si 'edit the database migration and run npm test to validate'"
   "./bin/fm-send.sh data-fm-si 'implement the feature'"
-  "fm-send.sh data-fm-si 'implement the feature'"
   "$ROOT/bin/fm-send.sh data-fm-si 'implement the feature'"
   "bin/fm-spawn.sh fdev --secondmate"
   "./bin/fm-send.sh gpu-ops 'sudo systemctl restart ollama'"
   "$ROOT/bin/fm-send.sh gpu-ops 'docker ps then ssh gpu to check'"
-  "fm-send.sh gpu-ops 'sudo systemctl restart ollama'"
+  "$TDIR/.treehouse/7/firstmate/bin/fm-send.sh gpu-ops 'docker compose restart portal'"
+  "bin/fm-route-dispatch.sh --task 'sudo systemctl restart ollama, then docker ps'"
+  "bd create 'fix the PATH= export in runner profile'"
+  "tasks-axi list"
   "bash bin/fm-send.sh gpu-ops 'docker restart portal'"
 )
 for cmd in "${delegation_cmds[@]}"; do
@@ -79,24 +81,21 @@ done
 
 mkdir -p "$TDIR/spoof/bin"
 printf '#!/bin/sh\n' >"$TDIR/fm-send.sh"
-printf '#!/bin/sh\n' >"$TDIR/bd"
 printf '#!/bin/sh\n' >"$TDIR/spoof/bin/fm-send.sh"
-chmod +x "$TDIR/fm-send.sh" "$TDIR/bd" "$TDIR/spoof/bin/fm-send.sh"
+chmod +x "$TDIR/fm-send.sh" "$TDIR/spoof/bin/fm-send.sh"
 mkdir -p "$TDIR/launcher/bin" "$TDIR/launcher/node_modules/tasks-axi/dist/bin"
 printf '#!/bin/sh\n' >"$TDIR/launcher/node_modules/tasks-axi/dist/bin/tasks-axi.js"
 chmod +x "$TDIR/launcher/node_modules/tasks-axi/dist/bin/tasks-axi.js"
 ln -s ../node_modules/tasks-axi/dist/bin/tasks-axi.js "$TDIR/launcher/bin/tasks-axi"
 
-# A bare tool whose PATH entry is a launcher symlink in a bin/ directory is
-# genuine, whatever its target file is called.
-for cmd in "tasks-axi" "tasks-axi list --status 'docker restart pending'"; do
-  dec=$(GUARD_PATH="$TDIR/launcher/bin:$PATH" guard_decision "$cmd")
+# A launcher symlink typed in bin/ form fast-passes, whatever its target is called.
+for cmd in "$TDIR/launcher/bin/tasks-axi" "$TDIR/launcher/bin/tasks-axi list --status 'docker restart pending'"; do
+  dec=$(guard_decision "$cmd")
   assert_contains "$dec" "$(printf 'allow\tfast_path_whitelist')" "bin/ launcher symlink must Tier-1 fast-pass: $cmd"
 done
 
-# A bare name resolving through the guard's own PATH to a non-bin spoof never
-# fast-passes, even with a delegation-looking payload.
-for cmd in "fm-send.sh gpu 'sudo systemctl restart ollama'" "bd gpu 'reboot'"; do
+# A bare delegation name resolving through a spoofed PATH never fast-passes.
+for cmd in "fm-send.sh gpu 'sudo systemctl restart ollama'" "fm-send.sh data-fm-si 'implement the feature'"; do
   dec=$(GUARD_PATH="$TDIR:$PATH" guard_decision "$cmd")
   case "$dec" in
     "$(printf 'allow\tfast_path_whitelist')"*) fail "PATH-resolved spoof must not fast-pass: $cmd" ;;
@@ -119,6 +118,10 @@ for cmd in \
   "bd-evil gpu 'sudo systemctl restart ollama'" \
   "cd $TDIR && ./fm-send.sh gpu 'sudo systemctl restart ollama'" \
   "bin/fm-send.sh data-fm-si 'sudo systemctl restart x'; docker restart portal" \
+  "bin/fm-route-dispatch.sh --task \"\$(ssh gpu sudo systemctl restart x)\"" \
+  "bin/fm-send.sh gpu \"status: \$(ssh gpu systemctl status ollama)\"" \
+  "bin/fm-send.sh gpu \"status: \`ssh gpu uptime\`\"" \
+  "PATH=/tmp fm-send.sh gpu 'reboot'" \
   ; do
   dec=$(guard_decision "$cmd")
   case "$dec" in
