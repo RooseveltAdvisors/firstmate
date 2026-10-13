@@ -215,6 +215,9 @@ done
 wait
 race_runs=$(wc -l < "$RACE_LOG")
 [ "$race_runs" -eq 1 ] || fail "one allow record authorized $race_runs concurrent deploys"
+race_denies=$(jq -c --arg r "$REC_RACE" 'select(.record == $r and .outcome == "DENY")' \
+  "$LAB/state/evidence/decisions/decision-ledger.jsonl" | wc -l)
+[ "$race_denies" -eq 7 ] || fail "ledger recorded $race_denies DENY entries for 7 refused concurrent executes"
 pass "deploy seam: concurrent executes consume a record exactly once"
 
 # 11. Valid allow record ALLOWS and consumes one-use token

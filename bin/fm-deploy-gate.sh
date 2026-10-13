@@ -55,6 +55,7 @@ case "$cmd" in
       exit 1
     fi
     if ! fm_decision_gate_consume "$decision_record"; then
+      fm_decision_gate_record_evidence "DENY" "consume-failed" "deploy" "$target" "${FM_TASK_ID:-}" "$decision_record"
       echo "fm-deploy-gate: execution refused: failed to consume one-use decision record" >&2
       exit 1
     fi
