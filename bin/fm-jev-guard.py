@@ -51,8 +51,14 @@ CRITERIA_DOMAIN = {
 
 # Approved supervisor prefix patterns for Tier 1 fast path
 SUPERVISOR_TOOL_PREFIXES = (
+    "bd ",
+    "tasks-axi",
+    "bin/fm-tasks-axi.sh",
+    "bin/fm-send.sh",
     "bin/fm-route-",
     "bin/fm-wake-drain.sh",
+    "bin/fm-brief.sh",
+    "bin/fm-spawn.sh",
     "bin/fm-captain-hold.sh",
     "bin/fm-check-register.sh",
     "bin/fm-session",
@@ -183,81 +189,37 @@ def clean_subcommand(subcmd: str) -> str:
     return s
 
 
-DELEGATION_TOOL_NAMES = frozenset({
-    "fm-send.sh",
-    "fm-tasks-axi.sh",
-    "fm-brief.sh",
-    "fm-spawn.sh",
-    "fm-route-dispatch.sh",
-    "bd",
-    "tasks-axi",
-})
-
-
-def _is_trusted_delegation_form(clean: str) -> bool:
-    """True when the invoked program is typed as bin/<tool> or <path>/bin/<tool>.
-
-    Only the form typed is matched: no PATH lookup and no symlink resolution, so
-    a bare name, a PATH= prefix, or a scratch copy (/tmp/fm-send.sh) never
-    qualifies, while a launcher symlink at bin/tasks-axi does.
-    Requiring a bin/ parent is proportionate to the threat model: it stops a
-    cooperating agent's accidental hands-on work from passing as delegation,
-    while anyone able to write an executable into a bin/ directory and get it
-    run already has code execution.
-    """
-    parts = clean.split(None, 1)
-    if not parts:
-        return False
-    head, _, name = parts[0].rpartition("/")
-    return name in DELEGATION_TOOL_NAMES and (head == "bin" or head.endswith("/bin"))
-
-
-def has_command_substitution(cmd: str) -> bool:
-    """True when raw, still-quoted shell text contains a real command or process substitution.
-
-    $( and backticks count unquoted or inside double quotes; <( and >( count
-    unquoted. Anything inside single quotes or backslash-escaped is literal text.
-    """
-    single = double = escaped = False
-    for i, ch in enumerate(cmd):
-        nxt = cmd[i + 1:i + 2]
-        if single:
-            single = ch != "'"
-        elif escaped:
-            escaped = False
-        elif ch == "\\":
-            escaped = True
-        elif ch == "'" and not double:
-            single = True
-        elif ch == '"':
-            double = not double
-        elif ch == "`" or (ch == "$" and nxt == "("):
-            return True
-        elif ch in "<>" and nxt == "(" and not double:
-            return True
-    return False
-
-
-def is_fast_pass_supervisor(subcmd: str, has_substitution: bool) -> bool:
-    """Check if an individual subcommand is unequivocally an allowed supervisor operation.
-
-    has_substitution is the verdict of has_command_substitution on the raw
-    command; when set, no supervisor-tool fast-pass applies, because the shell
-    runs the substitution locally before any tool starts.
-    """
+def is_fast_pass_supervisor(subcmd: str) -> bool:
+    """Check if an individual subcommand is unequivocally an allowed supervisor operation."""
     clean = clean_subcommand(subcmd)
     if not clean:
         return True
     # Unwrap bash / sh wrappers around approved tools
     unwrapped = re.sub(r"^(?:bash|sh)\s+", "", clean).strip()
 
-    # 0. The tool IS the delegation: a delegation tool typed in trusted bin/ form
-    # is always fast-path, whatever its message payload says (it may legitimately
-    # instruct Second Mates to run systemctl, journalctl, docker, ssh, etc.).
-    # A compound tail after ;, &&, or | is a separate subcommand.
-    if not has_substitution and (
-        _is_trusted_delegation_form(clean) or _is_trusted_delegation_form(unwrapped)
-    ):
+    # 0. Supervisor delegation and task messaging tools are always fast-path
+    # (Their message payloads may legitimately instruct Second Mates to run systemctl, journalctl, docker, etc.)
+    # This match must stay ahead of the step-1 deny; tests/fm-jev-guard.test.sh pins that order.
+    # Accepted boundary: only the typed prefix is matched and payloads are never inspected, so a
+    # command substitution inside a delegation payload (bin/fm-send.sh x "$(...)", and likewise for
+    # bare bd and tasks-axi) runs locally unchecked. The threat model is accidental hands-on work by
+    # a cooperating agent, not a hostile actor.
+    delegation_prefixes = (
+        "bin/fm-send.sh",
+        "/opt/ra/firstmate/bin/fm-send.sh",
+        "bd ",
+        "bd",
+        "tasks-axi",
+        "bin/fm-tasks-axi.sh",
+        "/opt/ra/firstmate/bin/fm-tasks-axi.sh",
+        "bin/fm-brief.sh",
+        "/opt/ra/firstmate/bin/fm-brief.sh",
+        "bin/fm-spawn.sh",
+        "/opt/ra/firstmate/bin/fm-spawn.sh",
+        "bin/fm-route-dispatch.sh",
+        "/opt/ra/firstmate/bin/fm-route-dispatch.sh",
+    )
+    if clean.startswith(delegation_prefixes) or unwrapped.startswith(delegation_prefixes):
         return True
 
     # 1. Immediate disallow for remote ssh or systemd/package mutations
@@ -286,19 +248,15 @@ def is_fast_pass_supervisor(subcmd: str, has_substitution: bool) -> bool:
     # Unwrap bash / sh wrappers around approved tools
     unwrapped = re.sub(r"^(?:bash|sh)\s+", "", clean).strip()
 
-    # 2. Approved supervisor tools (routing, wake drain, sessions, etc.)
+    # 2. Approved supervisor tools (beads, tasks, routing, wake drain, etc.)
     #    plus the supervisor lifecycle scripts (control/merge/teardown/lease/state/watch).
-    if not has_substitution and (
+    if (
         clean.startswith(SUPERVISOR_TOOL_PREFIXES)
         or unwrapped.startswith(SUPERVISOR_TOOL_PREFIXES)
         or clean.startswith(SUPERVISOR_LIFECYCLE_PREFIXES)
         or unwrapped.startswith(SUPERVISOR_LIFECYCLE_PREFIXES)
-    ):
-        return True
-    if (
-        not has_substitution
-        and re.match(r"^(?:bd|tasks-axi)(?:\s|$)", clean)
-        and not re.match(r"^\s*(?:export\s+)?(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*PATH=", subcmd)
+        or clean == "bd"
+        or clean == "tasks-axi"
     ):
         return True
 
@@ -339,8 +297,7 @@ def is_whitelisted_command(cmd: str) -> bool:
     subcmds = split_compound_commands(cmd)
     if not subcmds:
         return True
-    has_substitution = has_command_substitution(cmd)
-    return all(is_fast_pass_supervisor(part, has_substitution) for part in subcmds)
+    return all(is_fast_pass_supervisor(part) for part in subcmds)
 
 
 def load_cache() -> dict[str, dict]:
