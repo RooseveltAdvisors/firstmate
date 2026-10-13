@@ -1,0 +1,15 @@
+=== Jev Front-Door Router ===
+Action:     create_secondmate
+Route:      new_domain
+Confidence: 1.0
+New Domain: 0.59
+=============================
+Status: Auto-chartered new Second Mate "data-science-integration".
+Home scaffolded: /tmp/fm-lab-homes.DHButO/data-science-integration
+Ready to spawn:  bin/fm-spawn.sh data-science-integration --secondmate
+/tmp/fm-lab-homes.DHButO
+/tmp/fm-lab-homes.DHButO/data-science-integration
+/tmp/fm-lab-homes.DHButO/data-science-integration/data
+/tmp/fm-lab-homes.DHButO/data-science-integration/.fm-secondmate-home
+/tmp/fm-lab-homes.DHButO/data-science-integration/.fm-secondmate-parent
+/tmp/fm-lab-homes.DHButO/data-science-integration/state

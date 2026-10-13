@@ -1,0 +1,35 @@
+## spawn into the partial auto-chartered home BEFORE seeding (expected refusal)
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.zQIx1j
+error: /tmp/fm-lab-homes.DHButO/data-science-integration is not a firstmate home (missing AGENTS.md)
+## fm-home-seed into the populated scaffold
+Note: switching to '586696f44aa2dc710377cf65247b74c6140e3ce6'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+scaffolded: /tmp/fm-lab.zQIx1j/data/data-science-integration/brief.md (secondmate charter)
+home=/tmp/fm-lab-homes.DHButO/data-science-integration
+seed rc=0
+AGENTS.md: yes  bin/: yes
+origin: /home/jon/.no-mistakes/worktrees/46339c0817e0/01M4TGXKAVTY7MF4AD9EJXYV1M
+home HEAD: 586696f44aa2dc710377cf65247b74c6140e3ce6  source HEAD: 586696f44aa2dc710377cf65247b74c6140e3ce6
+dirty: []
+marker: data-science-integration
+/tmp/fm-lab-homes.DHButO/data-science-integration/data
+/tmp/fm-lab-homes.DHButO/data-science-integration/state
+validate rc=0
+## re-seed (idempotent)
+home=/tmp/fm-lab-homes.DHButO/data-science-integration
+reseed rc=0

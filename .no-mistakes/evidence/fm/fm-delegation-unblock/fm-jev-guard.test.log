@@ -1,0 +1,2 @@
+{"decision":"deny","reason":"[require_delegation] Command violates supervisor boundary in w1 (svc_ops). Hands-on execution must be delegated to Second Mates. (Domain: svc_ops; Suggested: bin/fm-send.sh svc-ops '<task instructions>')"}
+ok - all fm-jev-guard tests passed

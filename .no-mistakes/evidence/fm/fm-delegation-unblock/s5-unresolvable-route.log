@@ -1,0 +1,9 @@
+## adversarial: route to a chartered-but-never-spawned secondmate (gpu-ops) must fail loudly, nothing sent
+=== Jev Front-Door Router ===
+Action:     dispatch
+Route:      gpu-ops
+Confidence: 1.0
+New Domain: 0.26
+=============================
+Status: dispatch route gpu-ops is not resolvable in this home (tried /tmp/fm-lab.zQIx1j/state/gpu-ops.meta, /tmp/fm-lab.zQIx1j/state/fm-gpu-ops.meta, and /tmp/fm-lab.zQIx1j/state/gpu-ops.meta). Spawn or seed the secondmate first; nothing was sent.
+dispatch rc=1

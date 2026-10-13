@@ -1,0 +1,24 @@
+## spawn secondmate into the completed home (lab tmux socket)
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.zQIx1j
+warning: secondmate data-science-integration sync skipped before launch: primary default-branch commit cannot be resolved
+spawned data-science-integration harness=claude kind=secondmate mode=secondmate yolo=off window=primary:fm-data-science-integration worktree=/tmp/fm-lab-homes.DHButO/data-science-integration
+spawn rc=0
+--- meta
+window=primary:fm-data-science-integration
+endpoint_task_id=data-science-integration
+worktree=/tmp/fm-lab-homes.DHButO/data-science-integration
+project=/tmp/fm-lab-homes.DHButO/data-science-integration
+harness=claude
+kind=secondmate
+mode=secondmate
+yolo=off
+tasktmp=/tmp/fm-data-science-integration
+model=default
+effort=default
+busy_gen=g1791894298.280338.692
+spawn_gen=s1791894298.275321.14663
+home=/tmp/fm-lab-homes.DHButO/data-science-integration
+projects=
+--- lab windows
+primary:1  zsh zsh
+primary:2 fm-data-science-integration claude

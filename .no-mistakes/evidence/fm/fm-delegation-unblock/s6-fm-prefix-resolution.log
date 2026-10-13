@@ -1,0 +1,14 @@
+## state holds only the fm-prefixed record:
+/tmp/fm-lab.zQIx1j/state/fm-data-science-integration.meta
+=== Jev Front-Door Router ===
+Action:     dispatch
+Route:      data-science-integration
+Confidence: 0.49
+New Domain: 0.21
+=============================
+Executing dispatch to second mate: fm-data-science-integration ...
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.zQIx1j
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+Dispatched successfully to fm-data-science-integration.
+dispatch rc=0
+ack2: PREFIX-ACK-9K1

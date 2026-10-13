@@ -1,0 +1,20 @@
+## guard decision on the dispatch command (live classifier key present)
+allow	fast_path_whitelist	Approved supervisor tool or benign inspection		
+## dispatch with --execute
+=== Jev Front-Door Router ===
+Action:     dispatch
+Route:      data-science-integration
+Confidence: 0.56
+New Domain: 0.13
+=============================
+Executing dispatch to second mate: data-science-integration ...
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.zQIx1j
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the requested message WILL still be sent.
+●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Dispatched successfully to data-science-integration.
+dispatch rc=0
