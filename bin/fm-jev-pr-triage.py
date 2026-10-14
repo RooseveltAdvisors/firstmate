@@ -29,10 +29,6 @@ def get_pr_status(pr: str, repo: Optional[str] = None, mock_file: Optional[str] 
     if mock_file and os.path.exists(mock_file):
         with open(mock_file, "r") as f:
             return json.load(f)
-    env_mock = os.environ.get("FM_TEST_PR_STATUS_MOCK")
-    if env_mock and os.path.exists(env_mock):
-        with open(env_mock, "r") as f:
-            return json.load(f)
 
     gh_bin = shutil.which("gh") or "/home/jon/.local/bin/gh"
     if not os.path.exists(gh_bin):

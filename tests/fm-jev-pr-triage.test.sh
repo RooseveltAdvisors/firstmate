@@ -59,7 +59,7 @@ assert res4["action"] == "PROCEED_TO_MERGE"
 ' || fail "classification unit tests failed"
 ok "check classification unit tests passed"
 
-printf '3. Verify live triage on Portal PR #1780 (with offline mock fallback)...\n'
+printf '3. Verify triage on Portal PR #1780 mock data...\n'
 TEST_TMP=$(mktemp -d "/tmp/fm-jev-triage-test.XXXXXX")
 cleanup() { rm -rf "$TEST_TMP"; }
 trap cleanup EXIT
@@ -86,7 +86,7 @@ cat <<'EOF' > "$MOCK_DATA"
 }
 EOF
 
-out=$("$TRIAGE" --pr 1780 --repo ArcsHealth/Portal --json 2>/dev/null || "$TRIAGE" --pr 1780 --repo ArcsHealth/Portal --mock-data "$MOCK_DATA" --json) || fail "triage on PR 1780 failed"
+out=$("$TRIAGE" --pr 1780 --repo ArcsHealth/Portal --mock-data "$MOCK_DATA" --json) || fail "triage on PR 1780 failed"
 echo "$out" | python3 -c '
 import json, sys
 data = json.load(sys.stdin)
@@ -98,7 +98,7 @@ assert data["triage"]["verdict"] in ("IN_FLIGHT", "BLOCKED_ON_BOT_GATE", "CODE_R
 ok "PR #1780 triaged successfully"
 
 printf '4. Verify Markdown formatting...\n'
-md_out=$("$TRIAGE" --pr 1780 --repo ArcsHealth/Portal --format markdown 2>/dev/null || "$TRIAGE" --pr 1780 --repo ArcsHealth/Portal --mock-data "$MOCK_DATA" --format markdown)
+md_out=$("$TRIAGE" --pr 1780 --repo ArcsHealth/Portal --mock-data "$MOCK_DATA" --format markdown)
 echo "$md_out" | grep -q "Jev PR Root-Cause Triage Report" || fail "missing header in markdown"
 ok "markdown report format verified"
 
