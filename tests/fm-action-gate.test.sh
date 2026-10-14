@@ -27,6 +27,8 @@ bash "$LABHOME" create "$LAB" >/dev/null 2>&1 || fail "fm-lab-home create failed
 BOOKING_FIXTURE="$FIXTURES_DIR/grant-booking.json"
 CHARGING_FIXTURE="$FIXTURES_DIR/grant-charging.json"
 DEPLOY_FIXTURE="$FIXTURES_DIR/grant-deploy.json"
+STORE="$LAB/state/grants"
+mkdir -p "$STORE"
 
 # --- 1. Fixture Validation -------------------------------------------------
 
@@ -80,7 +82,7 @@ pass "execution without grant is refused"
 # --- 4. Valid Human Grants Allow Execution ---------------------------------
 
 # Booking execution with valid grant
-BOOKING_GRANT="$TMP/booking-grant.json"
+BOOKING_GRANT="$STORE/booking-grant.json"
 cp "$BOOKING_FIXTURE" "$BOOKING_GRANT"
 out=$(env FM_HOME="$LAB" FM_GATE_REFUSE_BYPASS=1 bash "$ACTION_GATE" check booking cal-doctor-sched task-booking-001 "$BOOKING_GRANT")
 assert_contains "$out" "ALLOW" "valid booking grant must ALLOW"
@@ -92,7 +94,7 @@ assert_contains "$(cat "$EXEC_OUT")" "booking-ok" "booking command should execut
 pass "valid booking grant executes command"
 
 # Charging execution with valid grant
-CHARGING_GRANT="$TMP/charging-grant.json"
+CHARGING_GRANT="$STORE/charging-grant.json"
 cp "$CHARGING_FIXTURE" "$CHARGING_GRANT"
 out=$(env FM_HOME="$LAB" FM_GATE_REFUSE_BYPASS=1 bash "$ACTION_GATE" check charging acct-stripe-prod task-charge-001 "$CHARGING_GRANT")
 assert_contains "$out" "ALLOW" "valid charging grant must ALLOW"
@@ -103,7 +105,7 @@ assert_contains "$(cat "$EXEC_OUT")" "charge-ok" "charging command should execut
 pass "valid charging grant executes command"
 
 # prod_deploy execution with valid grant
-DEPLOY_GRANT="$TMP/deploy-grant.json"
+DEPLOY_GRANT="$STORE/deploy-grant.json"
 cp "$DEPLOY_FIXTURE" "$DEPLOY_GRANT"
 out=$(env FM_HOME="$LAB" FM_GATE_REFUSE_BYPASS=1 bash "$ACTION_GATE" check prod_deploy srv-covenant-app task-deploy-001 "$DEPLOY_GRANT")
 assert_contains "$out" "ALLOW" "valid prod_deploy grant must ALLOW"
@@ -132,29 +134,57 @@ pass "execution with consumed grant is refused"
 # --- 6. Expiry and Mismatch Rules -----------------------------------------
 
 # Expired grant
-EXPIRED_GRANT="$TMP/expired-grant.json"
+EXPIRED_GRANT="$STORE/expired-grant.json"
 jq '.expires_at = "2020-01-01T00:00:00Z"' "$CHARGING_FIXTURE" > "$EXPIRED_GRANT"
 out=$(env FM_HOME="$LAB" FM_GATE_REFUSE_BYPASS=1 bash "$ACTION_GATE" check charging acct-stripe-prod task-charge-001 "$EXPIRED_GRANT" 2>&1 || true)
 assert_contains "$out" "DENY" "expired grant must be DENIED"
 pass "expired grant is DENIED"
 
 # Action class mismatch
-out=$(env FM_HOME="$LAB" FM_GATE_REFUSE_BYPASS=1 bash "$ACTION_GATE" check booking acct-stripe-prod task-charge-001 "$CHARGING_FIXTURE" 2>&1 || true)
+MISMATCH_GRANT="$STORE/mismatch-grant.json"
+jq '.approval_reference = "captain-grant-mismatch"' "$CHARGING_FIXTURE" > "$MISMATCH_GRANT"
+out=$(env FM_HOME="$LAB" FM_GATE_REFUSE_BYPASS=1 bash "$ACTION_GATE" check booking acct-stripe-prod task-charge-001 "$MISMATCH_GRANT" 2>&1 || true)
 assert_contains "$out" "DENY" "action class mismatch must be DENIED"
 pass "action class mismatch is DENIED"
 
 # Target mismatch
-out=$(env FM_HOME="$LAB" FM_GATE_REFUSE_BYPASS=1 bash "$ACTION_GATE" check charging wrong-target task-charge-001 "$CHARGING_FIXTURE" 2>&1 || true)
+out=$(env FM_HOME="$LAB" FM_GATE_REFUSE_BYPASS=1 bash "$ACTION_GATE" check charging wrong-target task-charge-001 "$MISMATCH_GRANT" 2>&1 || true)
 assert_contains "$out" "DENY" "target mismatch must be DENIED"
 pass "target mismatch is DENIED"
 
 # Task ID mismatch
-out=$(env FM_HOME="$LAB" FM_GATE_REFUSE_BYPASS=1 bash "$ACTION_GATE" check charging acct-stripe-prod different-task "$CHARGING_FIXTURE" 2>&1 || true)
+out=$(env FM_HOME="$LAB" FM_GATE_REFUSE_BYPASS=1 bash "$ACTION_GATE" check charging acct-stripe-prod different-task "$MISMATCH_GRANT" 2>&1 || true)
 assert_contains "$out" "DENY" "task ID mismatch must be DENIED"
 pass "task identity mismatch is DENIED"
 
+# Omitted request task cannot match a task-bound grant
+out=$(env -u FM_TASK_ID FM_HOME="$LAB" FM_GATE_REFUSE_BYPASS=1 bash "$ACTION_GATE" check charging acct-stripe-prod "" "$MISMATCH_GRANT" 2>&1 || true)
+assert_contains "$out" "DENY" "omitted request task must be DENIED"
+pass "omitted request task is DENIED"
+
+# Grant without a task binding matches no task
+UNBOUND_GRANT="$STORE/unbound-grant.json"
+jq '.task_id = "" | .approval_reference = "captain-grant-unbound"' "$CHARGING_FIXTURE" > "$UNBOUND_GRANT"
+out=$(env FM_HOME="$LAB" FM_GATE_REFUSE_BYPASS=1 bash "$ACTION_GATE" check charging acct-stripe-prod task-charge-001 "$UNBOUND_GRANT" 2>&1 || true)
+assert_contains "$out" "DENY" "grant without task binding must be DENIED"
+pass "grant without task binding is DENIED"
+
+# Grant outside the grant store is DENIED even when well-formed
+FORGED="$TMP/forged-grant.json"
+jq '.approval_reference = "forged-ref"' "$DEPLOY_FIXTURE" > "$FORGED"
+env FM_HOME="$LAB" FM_GATE_REFUSE_BYPASS=1 bash "$ACTION_GATE" execute prod_deploy srv-covenant-app task-deploy-001 "$FORGED" sh -c "echo forged > '$TMP/forged.out'" >/dev/null 2>&1 && fail "grant outside store must be refused"
+[ ! -e "$TMP/forged.out" ] || fail "forged grant command must not run"
+pass "grant outside the grant store is refused"
+
+# Copying a consumed grant and resetting used_at cannot replay its approval_reference
+REPLAY_COPY="$STORE/replay-copy.json"
+jq '.used_at = null' "$BOOKING_GRANT" > "$REPLAY_COPY"
+out=$(env FM_HOME="$LAB" FM_GATE_REFUSE_BYPASS=1 bash "$ACTION_GATE" check booking cal-doctor-sched task-booking-001 "$REPLAY_COPY" 2>&1 || true)
+assert_contains "$out" "DENY" "copied consumed grant must be DENIED"
+pass "copied consumed grant cannot replay its approval_reference"
+
 # Malformed JSON grant
-MALFORMED="$TMP/malformed.json"
+MALFORMED="$STORE/malformed.json"
 echo "{bad:json" > "$MALFORMED"
 out=$(env FM_HOME="$LAB" FM_GATE_REFUSE_BYPASS=1 bash "$ACTION_GATE" check charging acct-stripe-prod task-charge-001 "$MALFORMED" 2>&1 || true)
 assert_contains "$out" "DENY" "malformed JSON grant must be DENIED"
@@ -162,7 +192,7 @@ pass "malformed JSON grant is DENIED"
 
 # --- 7. Runner Cannot Mint Grants -----------------------------------------
 
-RUNNER_MINT="$TMP/runner-mint.json"
+RUNNER_MINT="$STORE/runner-mint.json"
 # An untrusted runner attempting to mint a grant must be refused
 env FM_RUNNER_UNTRUSTED=1 bash "$ACTION_GATE" mint-grant "$RUNNER_MINT" booking cal-target task-1 "2030-01-01T00:00:00Z" "captain-grant" >/dev/null 2>&1 && fail "runner must not be able to mint grant"
 pass "untrusted runner is refused from minting grant"
@@ -172,22 +202,26 @@ env FM_TASK_ID="task-agent-01" FM_CAPTAIN_AUTH="" bash "$ACTION_GATE" mint-grant
 pass "agent task without captain auth cannot mint grant"
 
 # Minting with captain auth succeeds
-CAPTAIN_MINT="$TMP/captain-mint.json"
-env FM_CAPTAIN_AUTH=1 bash "$ACTION_GATE" mint-grant "$CAPTAIN_MINT" booking cal-target task-1 "2030-01-01T00:00:00Z" "captain-grant-valid" || fail "captain minting failed"
+CAPTAIN_MINT="$STORE/captain-mint.json"
+env FM_HOME="$LAB" FM_CAPTAIN_AUTH=1 bash "$ACTION_GATE" mint-grant "$CAPTAIN_MINT" booking cal-target task-1 "2030-01-01T00:00:00Z" "captain-grant-valid" || fail "captain minting failed"
 [ -f "$CAPTAIN_MINT" ] || fail "captain-mint.json missing"
 pass "captain authority can mint valid grant"
+
+env FM_HOME="$LAB" FM_CAPTAIN_AUTH=1 bash "$ACTION_GATE" mint-grant "$TMP/outside-mint.json" booking cal-target task-1 "2030-01-01T00:00:00Z" "captain-grant-outside" >/dev/null 2>&1 && fail "mint outside grant store must be refused"
+env FM_HOME="$LAB" FM_CAPTAIN_AUTH=1 bash "$ACTION_GATE" mint-grant "$STORE/no-task.json" booking cal-target "" "2030-01-01T00:00:00Z" "captain-grant-notask" >/dev/null 2>&1 && fail "mint without task must be refused"
+pass "mint refuses grants outside the store or without a task binding"
 
 # --- 8. JEV Advisory Role: Cannot Grant Allow -----------------------------
 
 # JEV claiming allow without captain approval is DENIED
-JEV_ALLOW_GRANT="$TMP/jev-allow.json"
+JEV_ALLOW_GRANT="$STORE/jev-allow.json"
 jq '.approval_reference = null | .jev_classification = {decision: "allow", confidence: 0.99}' "$BOOKING_FIXTURE" > "$JEV_ALLOW_GRANT"
 out=$(env FM_HOME="$LAB" FM_GATE_REFUSE_BYPASS=1 bash "$ACTION_GATE" check booking cal-doctor-sched task-booking-001 "$JEV_ALLOW_GRANT" 2>&1 || true)
 assert_contains "$out" "DENY" "JEV claiming allow without captain approval must DENY"
 pass "JEV self-grant without captain approval is DENIED"
 
 # JEV flagging risky routes to HUMAN_REVIEW
-JEV_RISKY_GRANT="$TMP/jev-risky.json"
+JEV_RISKY_GRANT="$STORE/jev-risky.json"
 jq '.approval_reference = null | .jev_classification = {risk_label: "risky", confidence: 0.95}' "$BOOKING_FIXTURE" > "$JEV_RISKY_GRANT"
 out=$(env FM_HOME="$LAB" FM_GATE_REFUSE_BYPASS=1 bash "$ACTION_GATE" check booking cal-doctor-sched task-booking-001 "$JEV_RISKY_GRANT" 2>&1 || true)
 assert_contains "$out" "HUMAN_REVIEW" "JEV risk flag must route to HUMAN_REVIEW"
@@ -214,8 +248,8 @@ pass "action ledger entries conform to schema"
 
 # --- 10. Concurrency: Exact One-Use Consumption ----------------------------
 
-CONCURRENT_GRANT="$TMP/concurrent-grant.json"
-cp "$BOOKING_FIXTURE" "$CONCURRENT_GRANT"
+CONCURRENT_GRANT="$STORE/concurrent-grant.json"
+jq '.approval_reference = "captain-grant-concurrent"' "$BOOKING_FIXTURE" > "$CONCURRENT_GRANT"
 
 PIDS=()
 for i in 1 2 3 4; do
@@ -237,7 +271,25 @@ done
 [ "$fail_count" -eq 3 ] || fail "three concurrent executions must be denied, got $fail_count"
 pass "concurrent execute attempts consume one-time grant exactly once"
 
-# --- 11. Gate Refuse Contract Under NO_MISTAKES_GATE=1 --------------------
+# --- 11. Draft Execution & Fail-Closed Ledger ------------------------------
+
+DRAFT_DECOY="$TMP/draft-decoy.json"
+echo '{"used_at":null}' > "$DRAFT_DECOY"
+env FM_HOME="$LAB" FM_GATE_REFUSE_BYPASS=1 bash "$ACTION_GATE" execute mail_draft draft-box task-1 "$DRAFT_DECOY" sh -c "echo draft-ok > '$EXEC_OUT'" >/dev/null || fail "draft execution failed"
+assert_contains "$(cat "$EXEC_OUT")" "draft-ok" "draft command should execute"
+[ "$(jq -r '.used_at' "$DRAFT_DECOY")" = "null" ] || fail "draft execution must not touch the passed file"
+pass "draft executes without consuming any grant"
+
+BROKEN="$TMP/broken-home"
+mkdir -p "$BROKEN/state"
+: > "$BROKEN/state/evidence"
+out=$(env FM_HOME="$BROKEN" FM_GATE_REFUSE_BYPASS=1 bash "$ACTION_GATE" check draft draft-box task-1 2>&1 || true)
+assert_contains "$out" "DENY" "unwritable ledger must DENY"
+env FM_HOME="$BROKEN" FM_GATE_REFUSE_BYPASS=1 bash "$ACTION_GATE" execute draft draft-box task-1 "" sh -c "echo unrecorded > '$TMP/unrecorded.out'" >/dev/null 2>&1 && fail "execute with unwritable ledger must be refused"
+[ ! -e "$TMP/unrecorded.out" ] || fail "unrecorded action must not run"
+pass "unwritable evidence ledger fails closed"
+
+# --- 12. Gate Refuse Contract Under NO_MISTAKES_GATE=1 --------------------
 
 out=$(env NO_MISTAKES_GATE=1 FM_HOME="$TMP/unmarked" FM_GATE_REFUSE_BYPASS="" bash "$ACTION_GATE" check booking cal-sched task-1 2>&1 || true)
 assert_contains "$out" "no-mistakes gate agent must not drive the fleet" "action gate must refuse under NO_MISTAKES_GATE=1"

@@ -46,12 +46,17 @@ case "$cmd" in
       exit 1
     fi
 
-    # Atomically consume one-time grant
-    if ! fm_action_gate_consume "$grant_file"; then
-      fm_action_gate_record_evidence "$FM_ACTION_DENY" "$action_class" "$target" "$task_id" "$grant_file" "grant-consumption-failed"
-      echo "fm-action-gate: execution refused: failed to consume one-time grant" >&2
-      exit 1
-    fi
+    # Atomically consume one-time grant (drafts carry no grant)
+    case "$action_class" in
+      mail_draft | draft) ;;
+      *)
+        if ! fm_action_gate_consume "$grant_file"; then
+          fm_action_gate_record_evidence "$FM_ACTION_DENY" "$action_class" "$target" "$task_id" "$grant_file" "grant-consumption-failed"
+          echo "fm-action-gate: execution refused: failed to consume one-time grant" >&2
+          exit 1
+        fi
+        ;;
+    esac
 
     echo "ok: action gate passed, executing $action_class on $target"
     if [ $# -gt 0 ]; then

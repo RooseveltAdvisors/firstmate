@@ -4,6 +4,8 @@
 # SI Control Phase 4: Actions Layer.
 #
 # Boundaries:
+# Grants are only honored from the grant store ($FM_HOME/state/grants) and each
+# approval_reference is consumed at most once ($FM_HOME/state/grants/.consumed).
 # The grant store permissions are the trust boundary: someone who can write
 # grants or the executor already has that authority (same honesty rule as the
 # bin-parent boundary). Note it as a decision, not an oversight.
@@ -28,6 +30,30 @@ fm_action_gate_iso_now() {
   date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date +"%Y-%m-%dT%H:%M:%SZ"
 }
 
+fm_action_gate_home() {
+  printf '%s' "${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ACTION_GATE_ROOT}}"
+}
+
+fm_action_gate_store() {
+  printf '%s/state/grants' "$(fm_action_gate_home)"
+}
+
+# Usage: fm_action_gate_in_store <file> - true when file sits directly in the grant store
+fm_action_gate_in_store() {
+  local f=$1 store dir
+  [ -n "$f" ] && [ ! -L "$f" ] || return 1
+  store=$(cd "$(fm_action_gate_store)" 2>/dev/null && pwd -P) || return 1
+  dir=$(cd "$(dirname "$f")" 2>/dev/null && pwd -P) || return 1
+  [ "$dir" = "$store" ]
+}
+
+# approval_reference doubles as the consumption key, so it must be a safe name
+fm_action_gate_valid_ref() {
+  case "${1:-}" in
+    "" | .* | *[!A-Za-z0-9._-]*) return 1 ;;
+  esac
+}
+
 # Record action decision to append-only evidence ledger
 # Usage: fm_action_gate_record_evidence <decision> <action_class> <target> <task_id> <grant_ref> <reason>
 fm_action_gate_record_evidence() {
@@ -38,31 +64,38 @@ fm_action_gate_record_evidence() {
   local grant_ref=${5:-none}
   local reason=$6
 
-  local home=${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ACTION_GATE_ROOT}}
-  local evidence_dir="$home/state/evidence/actions"
-  mkdir -p "$evidence_dir" 2>/dev/null || return 0
+  local evidence_dir
+  evidence_dir="$(fm_action_gate_home)/state/evidence/actions"
+  mkdir -p "$evidence_dir" 2>/dev/null || return 1
 
   local timestamp
   timestamp=$(fm_action_gate_iso_now)
   local log_file="$evidence_dir/action-ledger.jsonl"
 
   local entry
-  if command -v jq >/dev/null 2>&1; then
-    entry=$(jq -nc \
-      --arg ts "$timestamp" \
-      --arg dec "$decision" \
-      --arg cls "$action_class" \
-      --arg tgt "$target" \
-      --arg task "$task_id" \
-      --arg gr "$grant_ref" \
-      --arg rsn "$reason" \
-      '{timestamp: $ts, decision: $dec, action_class: $cls, target: $tgt, task_id: $task, grant_ref: $gr, reason: $rsn}')
-  else
-    entry="{\"timestamp\":\"$timestamp\",\"decision\":\"$decision\",\"action_class\":\"$action_class\",\"target\":\"$target\",\"task_id\":\"$task_id\",\"grant_ref\":\"$grant_ref\",\"reason\":\"$reason\"}"
-  fi
+  entry=$(jq -nc \
+    --arg ts "$timestamp" \
+    --arg dec "$decision" \
+    --arg cls "$action_class" \
+    --arg tgt "$target" \
+    --arg task "$task_id" \
+    --arg gr "$grant_ref" \
+    --arg rsn "$reason" \
+    '{timestamp: $ts, decision: $dec, action_class: $cls, target: $tgt, task_id: $task, grant_ref: $gr, reason: $rsn}') || return 1
 
   # Ledger is append-only
-  printf '%s\n' "$entry" >> "$log_file" 2>/dev/null || true
+  printf '%s\n' "$entry" >> "$log_file" 2>/dev/null
+}
+
+# ALLOW only when the decision is durably recorded
+# Usage: fm_action_gate_allow <action_class> <target> <task_id> <grant_ref> <reason>
+fm_action_gate_allow() {
+  if ! fm_action_gate_record_evidence "$FM_ACTION_ALLOW" "$@"; then
+    echo "fm-action-gate: DENY: evidence ledger unwritable; refusing to allow unrecorded action" >&2
+    echo "$FM_ACTION_DENY"
+    return 1
+  fi
+  echo "$FM_ACTION_ALLOW"
 }
 
 # Mint a human grant record (only callable with captain authority, never by runner alone)
@@ -81,37 +114,50 @@ fm_action_gate_mint_grant() {
     return 1
   fi
 
-  if [ -z "$approval_ref" ] || [ "$approval_ref" = "null" ]; then
-    echo "fm-action-gate: refusal: grant requires explicit captain approval_reference" >&2
+  if ! fm_action_gate_valid_ref "$approval_ref"; then
+    echo "fm-action-gate: refusal: grant requires explicit captain approval_reference ([A-Za-z0-9._-], no leading dot)" >&2
     return 1
   fi
 
-  mkdir -p "$(dirname "$out_file")" 2>/dev/null || true
-
-  if command -v jq >/dev/null 2>&1; then
-    jq -nc \
-      --arg cls "$action_class" \
-      --arg tgt "$target" \
-      --arg task "$task_id" \
-      --arg exp "$expires_at" \
-      --arg app "$approval_ref" \
-      '{action_class: $cls, target: $tgt, task_id: $task, expires_at: $exp, approval_reference: $app, used_at: null}' > "$out_file"
-  else
-    printf '{"action_class":"%s","target":"%s","task_id":"%s","expires_at":"%s","approval_reference":"%s","used_at":null}\n' \
-      "$action_class" "$target" "$task_id" "$expires_at" "$approval_ref" > "$out_file"
+  if [ -z "$task_id" ]; then
+    echo "fm-action-gate: refusal: grant requires a task_id binding" >&2
+    return 1
   fi
+
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "fm-action-gate: refusal: missing jq parser" >&2
+    return 1
+  fi
+
+  (umask 077 && mkdir -p "$(fm_action_gate_store)") 2>/dev/null || true
+  if ! fm_action_gate_in_store "$out_file"; then
+    echo "fm-action-gate: refusal: grant must be minted into the grant store $(fm_action_gate_store)" >&2
+    return 1
+  fi
+
+  jq -nc \
+    --arg cls "$action_class" \
+    --arg tgt "$target" \
+    --arg task "$task_id" \
+    --arg exp "$expires_at" \
+    --arg app "$approval_ref" \
+    '{action_class: $cls, target: $tgt, task_id: $task, expires_at: $exp, approval_reference: $app, used_at: null}' > "$out_file"
 }
 
-# Atomically consume a one-time grant
+# Atomically consume a one-time grant, keyed by its approval_reference
 # Usage: fm_action_gate_consume <grant_file>
 fm_action_gate_consume() {
   local grant_file=$1
-  if [ -z "$grant_file" ] || [ ! -f "$grant_file" ]; then
+  if ! fm_action_gate_in_store "$grant_file" || [ ! -f "$grant_file" ]; then
     return 1
   fi
 
-  local lock_dir="$grant_file.consumed"
-  if ! mkdir "$lock_dir" 2>/dev/null; then
+  local ref consumed_dir
+  ref=$(jq -r '.approval_reference // empty' "$grant_file" 2>/dev/null) || return 1
+  fm_action_gate_valid_ref "$ref" || return 1
+  consumed_dir="$(fm_action_gate_store)/.consumed"
+  mkdir -p "$consumed_dir" 2>/dev/null || return 1
+  if ! mkdir "$consumed_dir/$ref" 2>/dev/null; then
     # Already consumed
     return 1
   fi
@@ -119,13 +165,11 @@ fm_action_gate_consume() {
   # Stamp used_at timestamp atomically inside the grant file
   local ts
   ts=$(fm_action_gate_iso_now)
-  if command -v jq >/dev/null 2>&1; then
-    local tmp="$grant_file.tmp.$$"
-    if jq --arg ts "$ts" '.used_at = $ts' "$grant_file" > "$tmp" 2>/dev/null; then
-      mv -f "$tmp" "$grant_file"
-    else
-      rm -f "$tmp"
-    fi
+  local tmp="$grant_file.tmp.$$"
+  if jq --arg ts "$ts" '.used_at = $ts' "$grant_file" > "$tmp" 2>/dev/null; then
+    mv -f "$tmp" "$grant_file"
+  else
+    rm -f "$tmp"
   fi
   return 0
 }
@@ -140,6 +184,12 @@ fm_action_gate_check() {
   local task_id=${3:-${FM_TASK_ID:-}}
   local grant_file=${4:-}
 
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "fm-action-gate: DENY: missing jq parser" >&2
+    echo "$FM_ACTION_DENY"
+    return 1
+  fi
+
   if [ -z "$action_class" ] || [ -z "$target" ]; then
     echo "fm-action-gate: usage error: action_class and target are required" >&2
     fm_action_gate_record_evidence "$FM_ACTION_DENY" "${action_class:-unknown}" "${target:-unknown}" "$task_id" "none" "missing-required-parameters"
@@ -150,9 +200,8 @@ fm_action_gate_check() {
   # 1. Hard deny: mail_send / send is strictly forbidden. Draft allowed.
   case "$action_class" in
     mail_draft | draft)
-      fm_action_gate_record_evidence "$FM_ACTION_ALLOW" "$action_class" "$target" "$task_id" "draft-policy" "drafting permitted"
-      echo "$FM_ACTION_ALLOW"
-      return 0
+      fm_action_gate_allow "$action_class" "$target" "$task_id" "draft-policy" "drafting permitted"
+      return
       ;;
     mail_send | send)
       fm_action_gate_record_evidence "$FM_ACTION_DENY" "$action_class" "$target" "$task_id" "none" "mail_send strictly prohibited"
@@ -186,9 +235,9 @@ fm_action_gate_check() {
   fi
 
   # 3. Grant verification
-  if ! command -v jq >/dev/null 2>&1; then
-    fm_action_gate_record_evidence "$FM_ACTION_DENY" "$action_class" "$target" "$task_id" "$grant_file" "missing jq for verification"
-    echo "fm-action-gate: DENY: missing jq parser" >&2
+  if ! fm_action_gate_in_store "$grant_file"; then
+    fm_action_gate_record_evidence "$FM_ACTION_DENY" "$action_class" "$target" "$task_id" "$grant_file" "grant-outside-store"
+    echo "fm-action-gate: DENY: grant must come from the grant store $(fm_action_gate_store)" >&2
     echo "$FM_ACTION_DENY"
     return 1
   fi
@@ -232,7 +281,7 @@ fm_action_gate_check() {
   fi
 
   # Human approval reference is required
-  if [ -z "$g_approval" ] || [ "$g_approval" = "null" ]; then
+  if ! fm_action_gate_valid_ref "$g_approval"; then
     fm_action_gate_record_evidence "$FM_ACTION_DENY" "$action_class" "$target" "$task_id" "$grant_file" "missing-approval-reference"
     echo "fm-action-gate: DENY: grant lacks human approval_reference" >&2
     echo "$FM_ACTION_DENY"
@@ -255,8 +304,8 @@ fm_action_gate_check() {
     return 1
   fi
 
-  # Task match (if task_id requested)
-  if [ -n "$task_id" ] && [ -n "$g_task" ] && [ "$g_task" != "$task_id" ]; then
+  # Task match: grant is bound to exactly one task
+  if [ -z "$g_task" ] || [ "$g_task" != "$task_id" ]; then
     fm_action_gate_record_evidence "$FM_ACTION_DENY" "$action_class" "$target" "$task_id" "$g_approval" "task-id-mismatch"
     echo "fm-action-gate: DENY: task identity mismatch (requested '$task_id', grant has '$g_task')" >&2
     echo "$FM_ACTION_DENY"
@@ -298,7 +347,7 @@ fm_action_gate_check() {
     return 1
   fi
 
-  if [ -d "$grant_file.consumed" ]; then
+  if [ -d "$(fm_action_gate_store)/.consumed/$g_approval" ]; then
     fm_action_gate_record_evidence "$FM_ACTION_DENY" "$action_class" "$target" "$task_id" "$g_approval" "grant-consumed-directory-exists"
     echo "fm-action-gate: DENY: grant already consumed" >&2
     echo "$FM_ACTION_DENY"
@@ -306,7 +355,5 @@ fm_action_gate_check() {
   fi
 
   # All checks passed
-  fm_action_gate_record_evidence "$FM_ACTION_ALLOW" "$action_class" "$target" "$task_id" "$g_approval" "grant verified"
-  echo "$FM_ACTION_ALLOW"
-  return 0
+  fm_action_gate_allow "$action_class" "$target" "$task_id" "$g_approval" "grant verified"
 }
