@@ -1,0 +1,22 @@
+$ PATH=/usr/bin:/bin (no gh) fm-jev-pr-triage.py --pr 1 --repo x/y --mock-data mock.json --format markdown
+### 🔍 Jev PR Root-Cause Triage Report
+
+- **Verdict**: ❌ **CODE_REGRESSION** (`FIX_CODE_DEFECTS`)
+- **Summary**: 1 genuine code/test failure(s) detected.
+- **Breakdown**: `1` passed | `0` in-flight | `1` code defects | `0` bot gates
+
+**Genuine Code/Test Defects:**
+- ❌ `CI/Test Suite (2/2)`
+
+rc=0
+
+$ ... --json | verdict
+CODE_REGRESSION {'total': 2, 'passed': 1, 'in_progress': 0, 'code_defects': 1, 'bot_gates': 0, 'infra_failures': 0}
+
+$ FM_TEST_PR_STATUS_MOCK=mock.json (removed env path) without --mock-data, gh hidden
+error: gh CLI not found on PATH
+rc=1
+
+$ --mock-data /nonexistent (adversarial), gh hidden
+error: gh CLI not found on PATH
+rc=1

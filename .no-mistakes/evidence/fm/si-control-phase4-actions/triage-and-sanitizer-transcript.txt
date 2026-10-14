@@ -1,0 +1,18 @@
+=== PR triage with --mock-data, gh on PATH is a tripwire stub
+### 🔍 Jev PR Root-Cause Triage Report
+
+- **Verdict**: ✅ **ALL_GREEN** (`PROCEED_TO_MERGE`)
+- **Summary**: All checks passed green.
+- **Breakdown**: `11` passed | `0` in-flight | `0` code defects | `0` bot gates
+
+rc=0
+gh invocations: 0
+$ FM_TEST_PR_STATUS_MOCK set, no --mock-data (env mock removed => goes to gh)
+error: 
+rc=1
+gh invocations: 1
+
+=== temp sanitizer on owner/group/world-writable roots
+mode 755 -> 700 : fm-spawn accepts
+mode 775 -> 775 : fm-spawn REFUSES reuse
+mode 777 -> 777 : fm-spawn REFUSES reuse

@@ -1,0 +1,55 @@
+$ env -u GH_TOKEN PATH=/usr/bin:/bin bin/fm-jev-pr-triage.py --pr 1 --repo x/y --mock-data m.json --format markdown
+### 🔍 Jev PR Root-Cause Triage Report
+
+- **Verdict**: ⏳ **IN_FLIGHT** (`WAIT_FOR_RUNNERS`)
+- **Summary**: 1 check(s) currently running. Do not treat as failed.
+- **Breakdown**: `1` passed | `1` in-flight | `1` code defects | `0` bot gates
+
+**In-Flight Checks (Running):**
+- ⏳ `lint`
+
+**Genuine Code/Test Defects:**
+- ❌ `CI/Test (2/2)`
+
+rc=0
+
+$ same, --json
+{
+  "pr": {
+    "title": "demo",
+    "url": "https://example/pull/1",
+    "mergeable": "MERGEABLE",
+    "state": "OPEN"
+  },
+  "triage": {
+    "verdict": "IN_FLIGHT",
+    "action": "WAIT_FOR_RUNNERS",
+    "summary": "1 check(s) currently running. Do not treat as failed.",
+    "counts": {
+      "total": 3,
+      "passed": 1,
+      "in_progress": 1,
+      "code_defects": 1,
+      "bot_gates": 0,
+      "infra_failures": 0
+    },
+    "in_progress": [
+      {
+        "name": "lint",
+        "status": "IN_PROGRESS"
+      }
+    ],
+    "code_defects": [
+      {
+        "name": "CI/Test (2/2)",
+        "conclusion": "FAILURE"
+      }
+    ],
+    "bot_gates": [],
+    "infra_failures": []
+  }
+}
+
+$ FM_TEST_PR_STATUS_MOCK set, no --mock-data, gh absent (env mock removed => must not read it)
+error: gh CLI not found on PATH
+rc=1

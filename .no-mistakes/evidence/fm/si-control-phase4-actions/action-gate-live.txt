@@ -1,73 +1,40 @@
-## draft allowed via execute without grant arg
-$ bin/fm-action-gate.sh execute mail_draft draft-box task-1
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.5s8HH7
-ok: action gate passed, executing mail_draft on draft-box
-[exit=0]
-## draft executes command with empty grant
-$ bin/fm-action-gate.sh execute mail_draft draft-box task-1  echo DRAFT-CMD-RAN
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.5s8HH7
-ok: action gate passed, executing mail_draft on draft-box
-DRAFT-CMD-RAN
-[exit=0]
-## mail_send always denied
-$ bin/fm-action-gate.sh check mail_send someone@x task-1
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.5s8HH7
+$ bin/fm-action-gate.sh check mail_send bob@x t1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.dBILfH
 fm-action-gate: DENY: real mail send is strictly prohibited; only drafts are permitted
 DENY
-[exit=1]
-## booking without grant -> human review
-$ bin/fm-action-gate.sh check booking clinic task-1
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.5s8HH7
+rc=1
+
+$ bin/fm-action-gate.sh execute mail_draft box t1  echo DRAFT-RAN
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.dBILfH
+ok: action gate passed, executing mail_draft on box
+DRAFT-RAN
+rc=0
+
+$ bin/fm-action-gate.sh execute mail_draft box t1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.dBILfH
+ok: action gate passed, executing mail_draft on box
+rc=0
+
+$ bin/fm-action-gate.sh check prod_deploy srv t1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.dBILfH
 fm-action-gate: HUMAN_REVIEW: action requires captain grant; routing to review
 HUMAN_REVIEW
-[exit=2]
-## runner cannot mint
-$ env FM_RUNNER_UNTRUSTED=1 bin/fm-action-gate.sh mint-grant /tmp/fm-lab.5s8HH7/state/grants/g1.json prod_deploy srv-x task-1 2030-01-01T00:00:00Z ref-1
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.5s8HH7
-fm-action-gate: refusal: runner cannot create or mint its own grants
-[exit=1]
-## captain mint, execute once, replay denied
-$ env FM_CAPTAIN_AUTH=1 bin/fm-action-gate.sh mint-grant /tmp/fm-lab.5s8HH7/state/grants/g1.json prod_deploy srv-x task-1 2030-01-01T00:00:00Z ref-1
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.5s8HH7
-[exit=0]
-$ bin/fm-action-gate.sh execute prod_deploy srv-x task-1 /tmp/fm-lab.5s8HH7/state/grants/g1.json echo DEPLOY-RAN
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.5s8HH7
-ok: action gate passed, executing prod_deploy on srv-x
+rc=2
+
+$ env FM_CAPTAIN_AUTH=1 bin/fm-action-gate.sh mint-grant /tmp/fm-lab.dBILfH/state/grants/g.json prod_deploy srv t1 2026-10-14T19:21:52Z ref-1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.dBILfH
+rc=0
+
+$ bin/fm-action-gate.sh execute prod_deploy srv t1 /tmp/fm-lab.dBILfH/state/grants/g.json echo DEPLOY-RAN
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.dBILfH
+ok: action gate passed, executing prod_deploy on srv
 DEPLOY-RAN
-[exit=0]
-$ bin/fm-action-gate.sh execute prod_deploy srv-x task-1 /tmp/fm-lab.5s8HH7/state/grants/g1.json echo DEPLOY-RAN-AGAIN
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.5s8HH7
+rc=0
+
+$ bin/fm-action-gate.sh execute prod_deploy srv t1 /tmp/fm-lab.dBILfH/state/grants/g.json echo DEPLOY-REPLAY
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.dBILfH
 fm-action-gate: DENY: grant was already used
 fm-action-gate: execution refused: decision was 'DENY'
-[exit=1]
-## grant outside store rejected
-$ bin/fm-action-gate.sh execute prod_deploy srv-x task-1 /tmp/forged2-3428478.json echo FORGED-RAN
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.5s8HH7
-fm-action-gate: DENY: grant must come from the grant store /tmp/fm-lab.5s8HH7/state/grants
-fm-action-gate: execution refused: decision was 'DENY'
-[exit=1]
-## task mismatch denied
-$ env FM_CAPTAIN_AUTH=1 bin/fm-action-gate.sh mint-grant /tmp/fm-lab.5s8HH7/state/grants/g3.json charging acct task-charge 2030-01-01T00:00:00Z ref-3
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.5s8HH7
-[exit=0]
-$ bin/fm-action-gate.sh execute charging acct  /tmp/fm-lab.5s8HH7/state/grants/g3.json echo CHARGE-RAN
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.5s8HH7
-fm-action-gate: DENY: task identity mismatch (requested '', grant has 'task-charge')
-fm-action-gate: execution refused: decision was 'DENY'
-[exit=1]
-bash: /home/jon/.no-mistakes/evidence/01M4XMF9BFT7DT4JWP4C9B345V/ledger-check.sh: No such file or directory
-## ledger records after send DENY + draft ALLOW
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/tmp.Zn0lo4YQVg
-fm-action-gate: DENY: real mail send is strictly prohibited; only drafts are permitted
-DENY
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/tmp.Zn0lo4YQVg
-ALLOW
-{"timestamp":"2026-10-14T16:43:20Z","decision":"DENY","action_class":"mail_send","target":"a@b","task_id":"t1","grant_ref":"none","reason":"mail_send strictly prohibited"}
-{"timestamp":"2026-10-14T16:43:20Z","decision":"ALLOW","action_class":"mail_draft","target":"d","task_id":"t1","grant_ref":"draft-policy","reason":"drafting permitted"}
-## ledger unwritable -> draft not allowed
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/tmp.Zn0lo4YQVg
-/home/jon/.no-mistakes/worktrees/46339c0817e0/01M4XMF9BFT7DT4JWP4C9B345V/bin/fm-action-gate-lib.sh: line 87: /tmp/tmp.Zn0lo4YQVg/state/evidence/actions/action-ledger.jsonl: Permission denied
-fm-action-gate: DENY: evidence ledger unwritable; refusing to allow unrecorded action
-fm-action-gate: execution refused: decision was 'DENY'
-[exit=1]
-LAB=/tmp/tmp.Zn0lo4YQVg
+rc=1
+
+--- ledger

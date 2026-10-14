@@ -1,0 +1,14 @@
+Running Pattern 47 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+Jev PTY/TTY Allocation Guard (Pattern 47) — 2026-10-14T18:21:34Z
+  • Allocated PTYs: 215 / 4096 (5.2%)
+  • /dev/pts Nodes: 212
+  • Status: HEALTHY
+ok - --check passes on live host
+ok - threshold logic valid
+ok - text mode runs cleanly
+ok - all Pattern 47 PTY guard tests passed
+rc=0

@@ -1,239 +1,62 @@
-## S1 mail send hard-denied, draft allowed and executable
-$ env -u FM_GATE_REFUSE_BYPASS -u FM_ROOT_OVERRIDE -u FM_TASK_ID FM_HOME=/tmp/fm-lab.VTN0TJ bash bin/fm-action-gate.sh check mail_send bob@example.com t1
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.VTN0TJ
+$ execute mail_draft draft-box task-1   (no grant arg)
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.L9zPhl
+ok: action gate passed, executing mail_draft on draft-box
+rc=0
+$ execute mail_draft draft-box task-1 "" echo DRAFT-RAN
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.L9zPhl
+ok: action gate passed, executing mail_draft on draft-box
+DRAFT-RAN
+rc=0
+$ check mail_send jon@x task-1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.L9zPhl
 fm-action-gate: DENY: real mail send is strictly prohibited; only drafts are permitted
 DENY
-[exit=1]
-
-$ env -u FM_GATE_REFUSE_BYPASS -u FM_ROOT_OVERRIDE -u FM_TASK_ID FM_HOME=/tmp/fm-lab.VTN0TJ bash bin/fm-action-gate.sh execute mail_send bob@example.com t1 '' touch /tmp/fm-lab.VTN0TJ/marker.send
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.VTN0TJ
-fm-action-gate: DENY: real mail send is strictly prohibited; only drafts are permitted
-fm-action-gate: execution refused: decision was 'DENY'
-[exit=1]
-
-$ ls /tmp/fm-lab.VTN0TJ/marker.send 2>&1 || echo 'no side effect'
-ls: cannot access '/tmp/fm-lab.VTN0TJ/marker.send': No such file or directory
-no side effect
-[exit=0]
-
-$ env -u FM_GATE_REFUSE_BYPASS -u FM_ROOT_OVERRIDE -u FM_TASK_ID FM_HOME=/tmp/fm-lab.VTN0TJ bash bin/fm-action-gate.sh execute mail_draft box t1 '' echo drafted
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.VTN0TJ
-ok: action gate passed, executing mail_draft on box
-drafted
-[exit=0]
-
-## S2 consequential without grant -> HUMAN_REVIEW, execute refused
-$ env -u FM_GATE_REFUSE_BYPASS -u FM_ROOT_OVERRIDE -u FM_TASK_ID FM_HOME=/tmp/fm-lab.VTN0TJ bash bin/fm-action-gate.sh check booking tgt t1
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.VTN0TJ
-fm-action-gate: HUMAN_REVIEW: action requires captain grant; routing to review
-HUMAN_REVIEW
-[exit=2]
-
-$ env -u FM_GATE_REFUSE_BYPASS -u FM_ROOT_OVERRIDE -u FM_TASK_ID FM_HOME=/tmp/fm-lab.VTN0TJ bash bin/fm-action-gate.sh check charging tgt t1
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.VTN0TJ
-fm-action-gate: HUMAN_REVIEW: action requires captain grant; routing to review
-HUMAN_REVIEW
-[exit=2]
-
-$ env -u FM_GATE_REFUSE_BYPASS -u FM_ROOT_OVERRIDE -u FM_TASK_ID FM_HOME=/tmp/fm-lab.VTN0TJ bash bin/fm-action-gate.sh check prod_deploy tgt t1
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.VTN0TJ
-fm-action-gate: HUMAN_REVIEW: action requires captain grant; routing to review
-HUMAN_REVIEW
-[exit=2]
-
-$ env -u FM_GATE_REFUSE_BYPASS -u FM_ROOT_OVERRIDE -u FM_TASK_ID FM_HOME=/tmp/fm-lab.VTN0TJ bash bin/fm-action-gate.sh execute prod_deploy srv t1 '' touch /tmp/fm-lab.VTN0TJ/marker.nogrant
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.VTN0TJ
+rc=1
+$ execute prod_deploy srv-x task-1 "" echo SHOULD-NOT-RUN
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.L9zPhl
 fm-action-gate: HUMAN_REVIEW: action requires captain grant; routing to review
 fm-action-gate: execution refused: decision was 'HUMAN_REVIEW'
-[exit=1]
-
-$ ls /tmp/fm-lab.VTN0TJ/marker.nogrant 2>&1 || echo 'no side effect'
-ls: cannot access '/tmp/fm-lab.VTN0TJ/marker.nogrant': No such file or directory
-no side effect
-[exit=0]
-
-## S3 runner cannot mint; captain can mint into store
-$ FM_RUNNER_UNTRUSTED=1 env -u FM_GATE_REFUSE_BYPASS -u FM_ROOT_OVERRIDE -u FM_TASK_ID FM_HOME=/tmp/fm-lab.VTN0TJ bash bin/fm-action-gate.sh mint-grant /tmp/fm-lab.VTN0TJ/state/grants/g.json prod_deploy srv-app t1 2030-01-01T00:00:00Z cap-ref-1
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.VTN0TJ
-fm-action-gate: refusal: runner cannot create or mint its own grants
-[exit=1]
-
-$ FM_TASK_ID=t1 env -u FM_GATE_REFUSE_BYPASS -u FM_ROOT_OVERRIDE -u FM_TASK_ID FM_HOME=/tmp/fm-lab.VTN0TJ bash bin/fm-action-gate.sh mint-grant /tmp/fm-lab.VTN0TJ/state/grants/g.json prod_deploy srv-app t1 2030-01-01T00:00:00Z cap-ref-1
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.VTN0TJ
-[exit=0]
-
-$ env -u FM_GATE_REFUSE_BYPASS -u FM_ROOT_OVERRIDE -u FM_TASK_ID FM_HOME=/tmp/fm-lab.VTN0TJ bash bin/fm-action-gate.sh mint-grant /tmp/outside-496239.json prod_deploy srv-app t1 2030-01-01T00:00:00Z cap-ref-1
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.VTN0TJ
-fm-action-gate: refusal: grant must be minted into the grant store /tmp/fm-lab.VTN0TJ/state/grants
-[exit=1]
-
-$ env -u FM_GATE_REFUSE_BYPASS -u FM_ROOT_OVERRIDE -u FM_TASK_ID FM_HOME=/tmp/fm-lab.VTN0TJ bash bin/fm-action-gate.sh mint-grant /tmp/fm-lab.VTN0TJ/state/grants/g.json prod_deploy srv-app '' 2030-01-01T00:00:00Z cap-ref-1
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.VTN0TJ
-fm-action-gate: refusal: grant requires a task_id binding
-[exit=1]
-
-$ env -u FM_GATE_REFUSE_BYPASS -u FM_ROOT_OVERRIDE -u FM_TASK_ID FM_HOME=/tmp/fm-lab.VTN0TJ bash bin/fm-action-gate.sh mint-grant /tmp/fm-lab.VTN0TJ/state/grants/g.json prod_deploy srv-app t1 2030-01-01T00:00:00Z cap-ref-1
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.VTN0TJ
-[exit=0]
-
-$ cat /tmp/fm-lab.VTN0TJ/state/grants/g.json
-{"action_class":"prod_deploy","target":"srv-app","task_id":"t1","expires_at":"2030-01-01T00:00:00Z","approval_reference":"cap-ref-1","used_at":null}
-[exit=0]
-
-## S4 mismatches denied
-$ env -u FM_GATE_REFUSE_BYPASS -u FM_ROOT_OVERRIDE -u FM_TASK_ID FM_HOME=/tmp/fm-lab.VTN0TJ bash bin/fm-action-gate.sh check prod_deploy srv-OTHER t1 /tmp/fm-lab.VTN0TJ/state/grants/g.json
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.VTN0TJ
-fm-action-gate: DENY: target mismatch (requested 'srv-OTHER', grant has 'srv-app')
-DENY
-[exit=1]
-
-$ env -u FM_GATE_REFUSE_BYPASS -u FM_ROOT_OVERRIDE -u FM_TASK_ID FM_HOME=/tmp/fm-lab.VTN0TJ bash bin/fm-action-gate.sh check booking srv-app t1 /tmp/fm-lab.VTN0TJ/state/grants/g.json
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.VTN0TJ
-fm-action-gate: DENY: action class mismatch (requested 'booking', grant has 'prod_deploy')
-DENY
-[exit=1]
-
-$ env -u FM_GATE_REFUSE_BYPASS -u FM_ROOT_OVERRIDE -u FM_TASK_ID FM_HOME=/tmp/fm-lab.VTN0TJ bash bin/fm-action-gate.sh check prod_deploy srv-app t2 /tmp/fm-lab.VTN0TJ/state/grants/g.json
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.VTN0TJ
-fm-action-gate: DENY: task identity mismatch (requested 't2', grant has 't1')
-DENY
-[exit=1]
-
-$ env -u FM_GATE_REFUSE_BYPASS -u FM_ROOT_OVERRIDE -u FM_TASK_ID FM_HOME=/tmp/fm-lab.VTN0TJ bash bin/fm-action-gate.sh check prod_deploy srv-app '' /tmp/fm-lab.VTN0TJ/state/grants/g.json
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.VTN0TJ
-fm-action-gate: DENY: task identity mismatch (requested '', grant has 't1')
-DENY
-[exit=1]
-
-## S5 valid grant executes once; replay & copy-replay denied
-$ env -u FM_GATE_REFUSE_BYPASS -u FM_ROOT_OVERRIDE -u FM_TASK_ID FM_HOME=/tmp/fm-lab.VTN0TJ bash bin/fm-action-gate.sh execute prod_deploy srv-app t1 /tmp/fm-lab.VTN0TJ/state/grants/g.json touch /tmp/fm-lab.VTN0TJ/marker.deploy
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.VTN0TJ
-ok: action gate passed, executing prod_deploy on srv-app
-[exit=0]
-
-$ ls /tmp/fm-lab.VTN0TJ/marker.deploy
-/tmp/fm-lab.VTN0TJ/marker.deploy
-[exit=0]
-
-$ env -u FM_GATE_REFUSE_BYPASS -u FM_ROOT_OVERRIDE -u FM_TASK_ID FM_HOME=/tmp/fm-lab.VTN0TJ bash bin/fm-action-gate.sh execute prod_deploy srv-app t1 /tmp/fm-lab.VTN0TJ/state/grants/g.json touch /tmp/fm-lab.VTN0TJ/marker.replay
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.VTN0TJ
+rc=1
+$ FM_CAPTAIN_AUTH=1 mint-grant prod_deploy srv-x task-1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.L9zPhl
+rc=0
+$ FM_RUNNER_UNTRUSTED=1 mint-grant
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.L9zPhl
+rc=0
+$ execute prod_deploy with grant but wrong task
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.L9zPhl
+fm-action-gate: DENY: task identity mismatch (requested 'task-OTHER', grant has 'task-1')
+fm-action-gate: execution refused: decision was 'DENY'
+rc=1
+$ execute prod_deploy with grant
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.L9zPhl
+ok: action gate passed, executing prod_deploy on srv-x
+DEPLOY-RAN
+rc=0
+$ replay same grant
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.L9zPhl
 fm-action-gate: DENY: grant was already used
 fm-action-gate: execution refused: decision was 'DENY'
-[exit=1]
-
-$ ls /tmp/fm-lab.VTN0TJ/marker.replay 2>&1 || echo 'no side effect'
-ls: cannot access '/tmp/fm-lab.VTN0TJ/marker.replay': No such file or directory
-no side effect
-[exit=0]
-
-$ jq '.used_at=null' /tmp/fm-lab.VTN0TJ/state/grants/g.json > /tmp/fm-lab.VTN0TJ/state/grants/copy.json
-[exit=0]
-
-$ env -u FM_GATE_REFUSE_BYPASS -u FM_ROOT_OVERRIDE -u FM_TASK_ID FM_HOME=/tmp/fm-lab.VTN0TJ bash bin/fm-action-gate.sh execute prod_deploy srv-app t1 /tmp/fm-lab.VTN0TJ/state/grants/copy.json touch /tmp/fm-lab.VTN0TJ/marker.copy
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.VTN0TJ
-fm-action-gate: DENY: grant already consumed
+rc=1
+$ forged grant outside store
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.L9zPhl
+fm-action-gate: DENY: grant must come from the grant store /tmp/fm-lab.L9zPhl/state/grants
 fm-action-gate: execution refused: decision was 'DENY'
-[exit=1]
-
-$ ls /tmp/fm-lab.VTN0TJ/marker.copy 2>&1 || echo 'no side effect'
-ls: cannot access '/tmp/fm-lab.VTN0TJ/marker.copy': No such file or directory
-no side effect
-[exit=0]
-
-## S6 forged grant outside store denied
-$ jq -n '{action_class:"charging",target:"acct",task_id:"t1",expires_at:"2030-01-01T00:00:00Z",approval_reference:"forged",used_at:null}' > /tmp/forged-496239.json
-[exit=0]
-
-$ env -u FM_GATE_REFUSE_BYPASS -u FM_ROOT_OVERRIDE -u FM_TASK_ID FM_HOME=/tmp/fm-lab.VTN0TJ bash bin/fm-action-gate.sh execute charging acct t1 /tmp/forged-496239.json touch /tmp/fm-lab.VTN0TJ/marker.forged
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.VTN0TJ
-fm-action-gate: DENY: grant must come from the grant store /tmp/fm-lab.VTN0TJ/state/grants
-fm-action-gate: execution refused: decision was 'DENY'
-[exit=1]
-
-$ ls /tmp/fm-lab.VTN0TJ/marker.forged 2>&1 || echo 'no side effect'
-ls: cannot access '/tmp/fm-lab.VTN0TJ/marker.forged': No such file or directory
-no side effect
-[exit=0]
-
-## S7 expired & JEV
-$ jq -n '{action_class:"booking",target:"cal",task_id:"t1",expires_at:"2020-01-01T00:00:00Z",approval_reference:"old-1",used_at:null}' > /tmp/fm-lab.VTN0TJ/state/grants/exp.json
-[exit=0]
-
-$ env -u FM_GATE_REFUSE_BYPASS -u FM_ROOT_OVERRIDE -u FM_TASK_ID FM_HOME=/tmp/fm-lab.VTN0TJ bash bin/fm-action-gate.sh check booking cal t1 /tmp/fm-lab.VTN0TJ/state/grants/exp.json
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.VTN0TJ
-fm-action-gate: DENY: grant has expired
-DENY
-[exit=1]
-
-$ jq -n '{action_class:"booking",target:"cal",task_id:"t1",expires_at:"2030-01-01T00:00:00Z",used_at:null,jev_classification:{decision:"allow"}}' > /tmp/fm-lab.VTN0TJ/state/grants/jev.json
-[exit=0]
-
-$ env -u FM_GATE_REFUSE_BYPASS -u FM_ROOT_OVERRIDE -u FM_TASK_ID FM_HOME=/tmp/fm-lab.VTN0TJ bash bin/fm-action-gate.sh check booking cal t1 /tmp/fm-lab.VTN0TJ/state/grants/jev.json
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.VTN0TJ
-fm-action-gate: DENY: JEV is advisory only and cannot grant access without captain approval
-DENY
-[exit=1]
-
-$ jq -n '{action_class:"booking",target:"cal",task_id:"t1",expires_at:"2030-01-01T00:00:00Z",used_at:null,jev_classification:{risk_label:"risky"}}' > /tmp/fm-lab.VTN0TJ/state/grants/risk.json
-[exit=0]
-
-$ env -u FM_GATE_REFUSE_BYPASS -u FM_ROOT_OVERRIDE -u FM_TASK_ID FM_HOME=/tmp/fm-lab.VTN0TJ bash bin/fm-action-gate.sh check booking cal t1 /tmp/fm-lab.VTN0TJ/state/grants/risk.json
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.VTN0TJ
-fm-action-gate: HUMAN_REVIEW: JEV flagged action as risky; routing to captain review
-HUMAN_REVIEW
-[exit=2]
-
-## S8 ledger
-$ wc -l < /tmp/fm-lab.VTN0TJ/state/evidence/actions/action-ledger.jsonl
-18
-[exit=0]
-
-$ jq -c '[.decision,.action_class,.reason]' /tmp/fm-lab.VTN0TJ/state/evidence/actions/action-ledger.jsonl
-["DENY","mail_send","mail_send strictly prohibited"]
-["DENY","mail_send","mail_send strictly prohibited"]
-["ALLOW","mail_draft","drafting permitted"]
-["HUMAN_REVIEW","booking","missing grant routes to captain review"]
-["HUMAN_REVIEW","charging","missing grant routes to captain review"]
-["HUMAN_REVIEW","prod_deploy","missing grant routes to captain review"]
-["HUMAN_REVIEW","prod_deploy","missing grant routes to captain review"]
-["DENY","prod_deploy","target-mismatch"]
-["DENY","booking","action-class-mismatch"]
-["DENY","prod_deploy","task-id-mismatch"]
-["DENY","prod_deploy","task-id-mismatch"]
-["ALLOW","prod_deploy","grant verified"]
-["DENY","prod_deploy","grant-already-used"]
-["DENY","prod_deploy","grant-consumed-directory-exists"]
-["DENY","charging","grant-outside-store"]
-["DENY","booking","grant-expired"]
-["DENY","booking","jev-cannot-grant"]
-["HUMAN_REVIEW","booking","jev-flagged-risky"]
-[exit=0]
-
-## S9 ledger unwritable -> fail closed
-$ chmod -w /tmp/fm-lab.VTN0TJ/state/evidence/actions /tmp/fm-lab.VTN0TJ/state/evidence/actions/action-ledger.jsonl
-[exit=0]
-
-$ env -u FM_GATE_REFUSE_BYPASS -u FM_ROOT_OVERRIDE -u FM_TASK_ID FM_HOME=/tmp/fm-lab.VTN0TJ bash bin/fm-action-gate.sh execute mail_draft box t1 '' touch /tmp/fm-lab.VTN0TJ/marker.unrec
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.VTN0TJ
-/home/jon/.no-mistakes/worktrees/46339c0817e0/01M4XC102NJ3ST1FDFZD8FMSK8/bin/fm-action-gate-lib.sh: line 87: /tmp/fm-lab.VTN0TJ/state/evidence/actions/action-ledger.jsonl: Permission denied
-fm-action-gate: DENY: evidence ledger unwritable; refusing to allow unrecorded action
-fm-action-gate: execution refused: decision was 'DENY'
-[exit=1]
-
-$ ls /tmp/fm-lab.VTN0TJ/marker.unrec 2>&1 || echo 'no side effect'
-ls: cannot access '/tmp/fm-lab.VTN0TJ/marker.unrec': No such file or directory
-no side effect
-[exit=0]
-
-## S10 gate-refuse against non-lab home
-$ env -u FM_GATE_REFUSE_BYPASS NO_MISTAKES_GATE=1 FM_HOME=/tmp/tmp.b4F0BYyO03 bash bin/fm-action-gate.sh check mail_draft box t1
+rc=1
+--- ledger
+$ NO_MISTAKES_GATE=1 against a non-lab home
 error: no-mistakes gate agent must not drive the fleet (NO_MISTAKES_GATE set)
-[exit=3]
-
-## S3b agent task (FM_TASK_ID set, no FM_CAPTAIN_AUTH) cannot mint
-$ FM_TASK_ID=t1 fm-action-gate.sh mint-grant $LAB/state/grants/g.json prod_deploy srv-app t1 2030-01-01T00:00:00Z cap-ref-1
-fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.coQ9IQ
+rc=3
+=== rerun: untrusted mint + ledger
+$ FM_RUNNER_UNTRUSTED=1 mint-grant
 fm-action-gate: refusal: runner cannot create or mint its own grants
-[exit=1]
-ls: cannot access '/tmp/fm-lab.coQ9IQ/state/grants/g.json': No such file or directory
-no grant written
+rc=1 exists=no
+$ FM_TASK_ID=task-1 (runner, no captain auth) mint-grant
+env: ‘-u’: No such file or directory
+rc=127
+--- ledger files
+# state/evidence/actions/action-ledger.jsonl
+{"decision":"DENY","action_class":"mail_send","target":"x","reason":"mail_send strictly prohibited"}
+=== rerun: runner (FM_TASK_ID set, no captain auth) mint
+fm-action-gate: refusal: runner cannot create or mint its own grants
+rc=1 exists=no

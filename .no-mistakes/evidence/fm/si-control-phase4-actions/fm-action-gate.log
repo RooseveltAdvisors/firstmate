@@ -43,3 +43,4 @@ ok - unwritable evidence ledger fails closed
 ok - action gate refuses real fleet mutation under NO_MISTAKES_GATE=1
 ok - action gate permits marked disposable lab home
 ok: all Phase 4 action gate tests passed completely
+rc=0
