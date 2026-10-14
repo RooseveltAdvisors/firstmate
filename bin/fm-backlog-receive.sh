@@ -80,9 +80,10 @@ remove_dead_stale_lock() { # <lock-path>
 
 run_move() { # <keys...>
   # The receipt move is a state change in the receiving home's backlog, so it
-  # carries that home's audit identity.
+  # carries that home's audit identity. Pin the markdown backend so a
+  # .tasks.toml in the caller's directory cannot redirect the move.
   fm_tasks_axi_export_actor
-  tasks-axi mv "$@" --file "$DELIVERED" --to "$DEST"
+  tasks-axi mv "$@" --file "$DELIVERED" --to "$DEST" --backend markdown
 }
 
 [ "$#" -eq 4 ] || usage
