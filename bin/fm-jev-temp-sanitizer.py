@@ -2,13 +2,17 @@
 """
 fm-jev-temp-sanitizer.py - Jev System One Fleet Temp Root & Staging Sanitizer.
 
-Prevents fm-spawn.sh launch wedges caused by group-writable (0775) or stale
-/tmp/fm-* task temp roots.
+Prevents fm-spawn.sh launch wedges caused by non-0700 or stale /tmp/fm-* task
+temp roots.
 
 fm-spawn.sh requires that TASK_TMP (/tmp/fm-<id>) be a private directory owned
 by the current user (mode 0700). Due to legacy umask defaults and a logic short-circuit
 in fm-spawn.sh line 4059, pre-existing group-writable temp roots cause immediate
 launch aborts during agent restarts or worker spawns.
+
+--sanitize never chmods a group- or world-writable root: another account may
+already have planted files there, so it is reported as skipped_shared_writable
+and left for fm-spawn.sh's ownership refusal.
 
 Usage:
   bin/fm-jev-temp-sanitizer.py --check
