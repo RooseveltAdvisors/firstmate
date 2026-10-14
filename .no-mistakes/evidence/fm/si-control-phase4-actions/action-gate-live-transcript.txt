@@ -1,0 +1,82 @@
+== S1 mail_send hard deny
+$ bin/fm-action-gate.sh check mail_send bob@x.com t1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.PE7ZdX
+fm-action-gate: DENY: real mail send is strictly prohibited; only drafts are permitted
+DENY
+[exit 1]
+
+== S2 draft allowed, omitted grant, no command run (r3-1 regression)
+$ bin/fm-action-gate.sh execute mail_draft draft-box t1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.PE7ZdX
+ok: action gate passed, executing mail_draft on draft-box
+[exit 0]
+
+== S2b draft with command
+$ bin/fm-action-gate.sh execute mail_draft draft-box t1  echo DRAFT-RAN
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.PE7ZdX
+ok: action gate passed, executing mail_draft on draft-box
+DRAFT-RAN
+[exit 0]
+
+== S3 booking without grant -> HUMAN_REVIEW, execute refused
+$ bin/fm-action-gate.sh execute booking room-1 t1  echo SHOULD-NOT-RUN
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.PE7ZdX
+fm-action-gate: HUMAN_REVIEW: action requires captain grant; routing to review
+fm-action-gate: execution refused: decision was 'HUMAN_REVIEW'
+[exit 1]
+
+== S4 runner cannot mint
+$ env FM_RUNNER_UNTRUSTED=1 bin/fm-action-gate.sh mint-grant /tmp/fm-lab.PE7ZdX/state/grants/g1.json prod_deploy srv-x t1 2030-01-01T00:00:00Z cap-ref-1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.PE7ZdX
+fm-action-gate: refusal: runner cannot create or mint its own grants
+[exit 1]
+
+== S5 captain mints into store
+$ env FM_CAPTAIN_AUTH=1 bin/fm-action-gate.sh mint-grant /tmp/fm-lab.PE7ZdX/state/grants/g1.json prod_deploy srv-x t1 2030-01-01T00:00:00Z cap-ref-1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.PE7ZdX
+[exit 0]
+
+== S6 grant outside store denied
+$ bin/fm-action-gate.sh execute prod_deploy srv-x t1 /tmp/fm-lab.PE7ZdX/forged.json echo SHOULD-NOT-RUN
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.PE7ZdX
+fm-action-gate: DENY: grant must come from the grant store /tmp/fm-lab.PE7ZdX/state/grants
+fm-action-gate: execution refused: decision was 'DENY'
+[exit 1]
+
+== S7 wrong task denied
+$ bin/fm-action-gate.sh execute prod_deploy srv-x other-task /tmp/fm-lab.PE7ZdX/state/grants/g1.json echo SHOULD-NOT-RUN
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.PE7ZdX
+fm-action-gate: DENY: task identity mismatch (requested 'other-task', grant has 't1')
+fm-action-gate: execution refused: decision was 'DENY'
+[exit 1]
+
+== S8 execute with grant runs once
+$ bin/fm-action-gate.sh execute prod_deploy srv-x t1 /tmp/fm-lab.PE7ZdX/state/grants/g1.json echo DEPLOY-RAN
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.PE7ZdX
+ok: action gate passed, executing prod_deploy on srv-x
+DEPLOY-RAN
+[exit 0]
+
+== S9 replay via copy w/ same approval_ref denied
+$ bin/fm-action-gate.sh execute prod_deploy srv-x t1 /tmp/fm-lab.PE7ZdX/state/grants/g2.json echo SHOULD-NOT-RUN
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.PE7ZdX
+fm-action-gate: DENY: grant already consumed
+fm-action-gate: execution refused: decision was 'DENY'
+[exit 1]
+
+== S10 ledger
+evidence
+grants
+/tmp/fm-lab.PE7ZdX/state/evidence/actions/action-ledger.jsonl
+{"decision":"DENY","action_class":"mail_send","target":"bob@x.com","reason":"mail_send strictly prohibited"}
+{"decision":"ALLOW","action_class":"mail_draft","target":"draft-box","reason":"drafting permitted"}
+{"decision":"ALLOW","action_class":"mail_draft","target":"draft-box","reason":"drafting permitted"}
+{"decision":"HUMAN_REVIEW","action_class":"booking","target":"room-1","reason":"missing grant routes to captain review"}
+{"decision":"DENY","action_class":"prod_deploy","target":"srv-x","reason":"grant-outside-store"}
+{"decision":"DENY","action_class":"prod_deploy","target":"srv-x","reason":"task-id-mismatch"}
+{"decision":"ALLOW","action_class":"prod_deploy","target":"srv-x","reason":"grant verified"}
+{"decision":"DENY","action_class":"prod_deploy","target":"srv-x","reason":"grant-consumed-directory-exists"}
+== S11 real fleet refused under gate
+$ NO_MISTAKES_GATE=1 (no lab home) bin/fm-action-gate.sh check mail_draft x t1
+error: no-mistakes gate agent must not drive the fleet (NO_MISTAKES_GATE set)
+[exit 3]
