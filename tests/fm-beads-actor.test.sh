@@ -41,6 +41,22 @@ if ! { command -v tasks-axi >/dev/null 2>&1 \
   exit 0
 fi
 
+# The npm-published tasks-axi ships the markdown backend only; every case here
+# drives tasks-axi on beads, so a markdown-only install skips the suite.
+probe="$TMP_ROOT/.probe"
+mkdir -p "$probe"
+printf '%s\n' 'backend = "beads"' '[beads]' 'path = ".beads"' 'prefix = "probe"' \
+  "binary = \"$(command -v bd)\"" > "$probe/.tasks.toml"
+(cd "$probe" && bd init --prefix probe) >/dev/null 2>&1 \
+  || fail "could not initialize the beads probe database"
+probe_out=$(cd "$probe" && tasks-axi list 2>&1) || :
+case "$probe_out" in
+  *'Unsupported backend'*)
+    printf 'ok - skipped (the installed tasks-axi has no beads backend)\n'
+    exit 0
+    ;;
+esac
+
 # --- fixture ----------------------------------------------------------------
 
 # A home with a real bd database on the beads backend, a real project clone
