@@ -280,6 +280,9 @@ assert_contains "$(cat "$EXEC_OUT")" "draft-ok" "draft command should execute"
 [ "$(jq -r '.used_at' "$DRAFT_DECOY")" = "null" ] || fail "draft execution must not touch the passed file"
 pass "draft executes without consuming any grant"
 
+env FM_HOME="$LAB" FM_GATE_REFUSE_BYPASS=1 bash "$ACTION_GATE" execute mail_draft draft-box task-1 >/dev/null 2>&1 || fail "draft execute without grant or command must succeed without running action args"
+pass "draft execute with omitted grant does not run action args as a command"
+
 BROKEN="$TMP/broken-home"
 mkdir -p "$BROKEN/state"
 : > "$BROKEN/state/evidence"

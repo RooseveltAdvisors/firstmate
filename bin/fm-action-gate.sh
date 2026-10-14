@@ -37,7 +37,7 @@ case "$cmd" in
     target=${2:-}
     task_id=${3:-${FM_TASK_ID:-}}
     grant_file=${4:-}
-    shift 4 2>/dev/null || true
+    if [ $# -ge 4 ]; then shift 4; else shift $#; fi
 
     decision=$(fm_action_gate_check "$action_class" "$target" "$task_id" "$grant_file")
     status=$?
