@@ -1,0 +1,4 @@
+$ FM_HOME=<unmarked dir> fm-action-gate.sh check mail_draft box t1
+error: no-mistakes gate agent must not drive the fleet (NO_MISTAKES_GATE set)
+[exit 3]
+ls: cannot access '/tmp/tmp.zzZKQWMghC/state': No such file or directory

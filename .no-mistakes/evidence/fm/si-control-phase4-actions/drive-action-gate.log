@@ -1,0 +1,148 @@
+== S1 mail_send hard deny
+$ fm-action-gate.sh check mail_send someone@x.com t1
+  fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.uQcZuJ
+  fm-action-gate: DENY: real mail send is strictly prohibited; only drafts are permitted
+  DENY
+  [exit 1]
+$ fm-action-gate.sh execute send someone@x.com t1  touch /tmp/fm-lab.uQcZuJ/ran.send
+  fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.uQcZuJ
+  fm-action-gate: DENY: real mail send is strictly prohibited; only drafts are permitted
+  fm-action-gate: execution refused: decision was 'DENY'
+  [exit 1]
+== S2 draft allowed through check and execute (no grant, no stray cmd)
+$ fm-action-gate.sh check mail_draft box t1
+  fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.uQcZuJ
+  ALLOW
+  [exit 0]
+$ fm-action-gate.sh execute mail_draft box t1
+  fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.uQcZuJ
+  ok: action gate passed, executing mail_draft on box
+  [exit 0]
+$ fm-action-gate.sh execute mail_draft box t1  touch /tmp/fm-lab.uQcZuJ/ran.draft
+  fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.uQcZuJ
+  ok: action gate passed, executing mail_draft on box
+  [exit 0]
+  draft cmd ran: yes
+== S3 consequential action without grant -> HUMAN_REVIEW, cmd not run
+$ fm-action-gate.sh execute booking cal-x t1  touch /tmp/fm-lab.uQcZuJ/ran.nogrant
+  fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.uQcZuJ
+  fm-action-gate: HUMAN_REVIEW: action requires captain grant; routing to review
+  fm-action-gate: execution refused: decision was 'HUMAN_REVIEW'
+  [exit 1]
+  cmd ran: no
+== S4 runner cannot mint
+$ fm-action-gate.sh mint-grant /tmp/fm-lab.uQcZuJ/state/grants/r.json booking cal-x t1 2030-01-01T00:00:00Z ref-1
+  fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.uQcZuJ
+  fm-action-gate: refusal: runner cannot create or mint its own grants
+  [exit 1]
+$ fm-action-gate.sh mint-grant /tmp/fm-lab.uQcZuJ/state/grants/r.json booking cal-x t1 2030-01-01T00:00:00Z ref-1
+  fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.uQcZuJ
+  fm-action-gate: refusal: runner cannot create or mint its own grants
+  [exit 1]
+== S5 captain mints into store; mint outside store refused; empty task refused
+$ fm-action-gate.sh mint-grant /tmp/outside-3532347.json booking cal-x t1 2030-01-01T00:00:00Z ref-1
+  fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.uQcZuJ
+  fm-action-gate: refusal: grant must be minted into the grant store /tmp/fm-lab.uQcZuJ/state/grants
+  [exit 1]
+$ fm-action-gate.sh mint-grant /tmp/fm-lab.uQcZuJ/state/grants/g.json booking cal-x  2030-01-01T00:00:00Z ref-1
+  fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.uQcZuJ
+  fm-action-gate: refusal: grant requires a task_id binding
+  [exit 1]
+$ fm-action-gate.sh mint-grant /tmp/fm-lab.uQcZuJ/state/grants/g.json booking cal-x t1 2030-01-01T00:00:00Z captain-ref-1
+  fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.uQcZuJ
+  [exit 0]
+{"action_class":"booking","target":"cal-x","task_id":"t1","expires_at":"2030-01-01T00:00:00Z","approval_reference":"captain-ref-1","used_at":null}
+drwx------ 2 jon jon 4096 Oct 14 11:38 /tmp/fm-lab.uQcZuJ/state/grants
+== S6 mismatch denials
+$ fm-action-gate.sh check booking cal-OTHER t1 /tmp/fm-lab.uQcZuJ/state/grants/g.json
+  fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.uQcZuJ
+  fm-action-gate: DENY: target mismatch (requested 'cal-OTHER', grant has 'cal-x')
+  DENY
+  [exit 1]
+$ fm-action-gate.sh check charging cal-x t1 /tmp/fm-lab.uQcZuJ/state/grants/g.json
+  fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.uQcZuJ
+  fm-action-gate: DENY: action class mismatch (requested 'charging', grant has 'booking')
+  DENY
+  [exit 1]
+$ fm-action-gate.sh check booking cal-x t2 /tmp/fm-lab.uQcZuJ/state/grants/g.json
+  fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.uQcZuJ
+  fm-action-gate: DENY: task identity mismatch (requested 't2', grant has 't1')
+  DENY
+  [exit 1]
+$ fm-action-gate.sh check booking cal-x  /tmp/fm-lab.uQcZuJ/state/grants/g.json
+  fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.uQcZuJ
+  fm-action-gate: DENY: task identity mismatch (requested '', grant has 't1')
+  DENY
+  [exit 1]
+== S7 forged grant outside store denied
+$ fm-action-gate.sh execute booking cal-x t1 /tmp/forged-3532347.json touch /tmp/fm-lab.uQcZuJ/ran.forged
+  fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.uQcZuJ
+  fm-action-gate: DENY: grant must come from the grant store /tmp/fm-lab.uQcZuJ/state/grants
+  fm-action-gate: execution refused: decision was 'DENY'
+  [exit 1]
+  cmd ran: no
+== S8 valid grant executes once
+$ fm-action-gate.sh execute booking cal-x t1 /tmp/fm-lab.uQcZuJ/state/grants/g.json touch /tmp/fm-lab.uQcZuJ/ran.ok
+  fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.uQcZuJ
+  ok: action gate passed, executing booking on cal-x
+  [exit 0]
+/tmp/fm-lab.uQcZuJ/ran.ok
+  cmd ran: yes
+{
+  "action_class": "booking",
+  "target": "cal-x",
+  "task_id": "t1",
+  "expires_at": "2030-01-01T00:00:00Z",
+  "approval_reference": "captain-ref-1",
+  "used_at": "2026-10-14T15:38:30Z"
+}
+== S9 replay: same file, and copy with used_at reset, both denied
+$ fm-action-gate.sh execute booking cal-x t1 /tmp/fm-lab.uQcZuJ/state/grants/g.json touch /tmp/fm-lab.uQcZuJ/ran.replay
+  fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.uQcZuJ
+  fm-action-gate: DENY: grant was already used
+  fm-action-gate: execution refused: decision was 'DENY'
+  [exit 1]
+$ fm-action-gate.sh execute booking cal-x t1 /tmp/fm-lab.uQcZuJ/state/grants/copy.json touch /tmp/fm-lab.uQcZuJ/ran.replay2
+  fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.uQcZuJ
+  fm-action-gate: DENY: grant already consumed
+  fm-action-gate: execution refused: decision was 'DENY'
+  [exit 1]
+  replay cmd ran: no
+== S10 expired grant denied
+$ fm-action-gate.sh mint-grant /tmp/fm-lab.uQcZuJ/state/grants/e.json prod_deploy srv-x t1 2020-01-01T00:00:00Z captain-ref-2
+  fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.uQcZuJ
+  [exit 0]
+$ fm-action-gate.sh execute deploy srv-x t1 /tmp/fm-lab.uQcZuJ/state/grants/e.json touch /tmp/fm-lab.uQcZuJ/ran.exp
+  fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.uQcZuJ
+  fm-action-gate: DENY: grant has expired
+  fm-action-gate: execution refused: decision was 'DENY'
+  [exit 1]
+== S11 JEV-only grant cannot authorize
+$ fm-action-gate.sh check charging acct t1 /tmp/fm-lab.uQcZuJ/state/grants/jev.json
+  fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.uQcZuJ
+  fm-action-gate: DENY: JEV is advisory only and cannot grant access without captain approval
+  DENY
+  [exit 1]
+== S12 ledger unwritable -> ALLOW path denies
+$ fm-action-gate.sh check mail_draft box t1
+  fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/tmp.Vbpc8wZDeZ
+  fm-action-gate: DENY: evidence ledger unwritable; refusing to allow unrecorded action
+  DENY
+  [exit 1]
+== Ledger (persisted state)
+{"timestamp":"2026-10-14T15:38:29Z","decision":"DENY","action_class":"mail_send","target":"someone@x.com","task_id":"t1","grant_ref":"none","reason":"mail_send strictly prohibited"}
+{"timestamp":"2026-10-14T15:38:29Z","decision":"DENY","action_class":"send","target":"someone@x.com","task_id":"t1","grant_ref":"none","reason":"mail_send strictly prohibited"}
+{"timestamp":"2026-10-14T15:38:29Z","decision":"ALLOW","action_class":"mail_draft","target":"box","task_id":"t1","grant_ref":"draft-policy","reason":"drafting permitted"}
+{"timestamp":"2026-10-14T15:38:29Z","decision":"ALLOW","action_class":"mail_draft","target":"box","task_id":"t1","grant_ref":"draft-policy","reason":"drafting permitted"}
+{"timestamp":"2026-10-14T15:38:29Z","decision":"ALLOW","action_class":"mail_draft","target":"box","task_id":"t1","grant_ref":"draft-policy","reason":"drafting permitted"}
+{"timestamp":"2026-10-14T15:38:29Z","decision":"HUMAN_REVIEW","action_class":"booking","target":"cal-x","task_id":"t1","grant_ref":"none","reason":"missing grant routes to captain review"}
+{"timestamp":"2026-10-14T15:38:30Z","decision":"DENY","action_class":"booking","target":"cal-OTHER","task_id":"t1","grant_ref":"captain-ref-1","reason":"target-mismatch"}
+{"timestamp":"2026-10-14T15:38:30Z","decision":"DENY","action_class":"charging","target":"cal-x","task_id":"t1","grant_ref":"captain-ref-1","reason":"action-class-mismatch"}
+{"timestamp":"2026-10-14T15:38:30Z","decision":"DENY","action_class":"booking","target":"cal-x","task_id":"t2","grant_ref":"captain-ref-1","reason":"task-id-mismatch"}
+{"timestamp":"2026-10-14T15:38:30Z","decision":"DENY","action_class":"booking","target":"cal-x","task_id":"unknown","grant_ref":"captain-ref-1","reason":"task-id-mismatch"}
+{"timestamp":"2026-10-14T15:38:30Z","decision":"DENY","action_class":"booking","target":"cal-x","task_id":"t1","grant_ref":"/tmp/forged-3532347.json","reason":"grant-outside-store"}
+{"timestamp":"2026-10-14T15:38:30Z","decision":"ALLOW","action_class":"booking","target":"cal-x","task_id":"t1","grant_ref":"captain-ref-1","reason":"grant verified"}
+{"timestamp":"2026-10-14T15:38:30Z","decision":"DENY","action_class":"booking","target":"cal-x","task_id":"t1","grant_ref":"captain-ref-1","reason":"grant-already-used"}
+{"timestamp":"2026-10-14T15:38:30Z","decision":"DENY","action_class":"booking","target":"cal-x","task_id":"t1","grant_ref":"captain-ref-1","reason":"grant-consumed-directory-exists"}
+{"timestamp":"2026-10-14T15:38:30Z","decision":"DENY","action_class":"prod_deploy","target":"srv-x","task_id":"t1","grant_ref":"captain-ref-2","reason":"grant-expired"}
+{"timestamp":"2026-10-14T15:38:30Z","decision":"DENY","action_class":"charging","target":"acct","task_id":"t1","grant_ref":"/tmp/fm-lab.uQcZuJ/state/grants/jev.json","reason":"jev-cannot-grant"}

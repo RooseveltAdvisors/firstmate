@@ -1,0 +1,46 @@
+ok - all Phase 4 synthetic grant fixtures exist and parse as valid JSON
+ok - mail_send is strictly DENIED
+ok - send is strictly DENIED
+ok - mail_draft is ALLOWED
+ok - draft is ALLOWED
+ok - booking without grant routes to HUMAN_REVIEW
+ok - charging without grant routes to HUMAN_REVIEW
+ok - prod_deploy without grant routes to HUMAN_REVIEW
+ok - execution without grant is refused
+ok - valid booking grant returns ALLOW
+ok: action gate passed, executing booking on cal-doctor-sched
+ok - valid booking grant executes command
+ok - valid charging grant returns ALLOW
+ok: action gate passed, executing charging on acct-stripe-prod
+ok - valid charging grant executes command
+ok - valid prod_deploy grant returns ALLOW
+ok: action gate passed, executing prod_deploy on srv-covenant-app
+ok - valid prod_deploy grant executes command
+ok - atomic one-use execution stamps used_at timestamp
+ok - replayed booking grant is DENIED
+ok - execution with consumed grant is refused
+ok - expired grant is DENIED
+ok - action class mismatch is DENIED
+ok - target mismatch is DENIED
+ok - task identity mismatch is DENIED
+ok - omitted request task is DENIED
+ok - grant without task binding is DENIED
+ok - grant outside the grant store is refused
+ok - copied consumed grant cannot replay its approval_reference
+ok - malformed JSON grant is DENIED
+ok - untrusted runner is refused from minting grant
+ok - agent task without captain auth cannot mint grant
+ok - captain authority can mint valid grant
+ok - mint refuses grants outside the store or without a task binding
+ok - JEV self-grant without captain approval is DENIED
+ok - JEV advisory risk flag routes to HUMAN_REVIEW
+ok - action ledger contains recorded decisions (27 entries)
+ok - action ledger entries conform to schema
+ok - concurrent execute attempts consume one-time grant exactly once
+ok - draft executes without consuming any grant
+ok - draft execute with omitted grant does not run action args as a command
+ok - unwritable evidence ledger fails closed
+ok - action gate refuses real fleet mutation under NO_MISTAKES_GATE=1
+ok - action gate permits marked disposable lab home
+ok: all Phase 4 action gate tests passed completely
+exit 0
