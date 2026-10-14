@@ -198,15 +198,14 @@ def is_fast_pass_supervisor(subcmd: str) -> bool:
     clean = clean_subcommand(subcmd)
     if not clean:
         return True
-    # Unwrap bash / sh wrappers around approved tools
-    unwrapped = re.sub(r"^(?:bash|sh)\s+", "", clean).strip()
 
     # 0. Supervisor delegation and task messaging tools are always fast-path
     # (Their message payloads may legitimately instruct Second Mates to run systemctl, journalctl, docker, etc.)
     # This match must stay ahead of the step-1 deny; tests/fm-jev-guard.test.sh pins that order.
     # The invoked program is the first token as typed, leading VAR=value assignments included, so
     # PATH=/tmp bd ... or env PATH=/tmp bd ... never qualifies. It must equal a bare tool name or be
-    # bin/<tool> or end in /bin/<tool>; nothing is resolved and payloads are never inspected.
+    # bin/<tool> or end in /bin/<tool>; nothing is resolved and payloads are never inspected. Under a
+    # leading bash or sh, the second token qualifies by bin/ form only: bash bd reads ./bd, not the tool.
     # Accepted boundaries: (A) any directory's bin/<tool> qualifies, because whoever can place an
     # executable there already has write access and this guard is not a boundary against that;
     # (B) a live command substitution inside a delegation payload runs locally unchecked, for the
@@ -216,8 +215,9 @@ def is_fast_pass_supervisor(subcmd: str) -> bool:
     # or sourced file defeats it anyway. Such a compound is deliberate, the same class as (A); the
     # realistic accidental case (ssh/systemctl/docker typed directly) still meets the step-1 deny.
     tokens = subcmd.split(None, 2)
-    program = tokens[1] if len(tokens) > 1 and tokens[0] in ("bash", "sh") else (tokens or [""])[0]
-    if program in DELEGATION_BARE_NAMES or any(
+    wrapped = len(tokens) > 1 and tokens[0] in ("bash", "sh")
+    program = tokens[1] if wrapped else (tokens or [""])[0]
+    if (not wrapped and program in DELEGATION_BARE_NAMES) or any(
         program == f"bin/{name}" or program.endswith(f"/bin/{name}") for name in DELEGATION_TOOL_NAMES
     ):
         return True

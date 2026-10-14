@@ -124,6 +124,8 @@ for cmd in \
   "bin/fm-send.shx ssh gpu" \
   "bash -c 'ssh host uptime'" \
   "bash /tmp/fm-send.sh x" \
+  "bash bd x" \
+  "sh tasks-axi x" \
   ; do
   dec=$(guard_decision "$cmd")
   case "$dec" in
