@@ -1,0 +1,34 @@
+## /tmp/fm-nmtest3536529-0775 mode 0775
+{
+  "actions": [
+    {
+      "path": "/tmp/fm-nmtest3536529-0775",
+      "status": "skipped_shared_writable"
+    }
+  ],
+  "count": 0
+}
+after: 775
+## /tmp/fm-nmtest3536529-0777 mode 0777
+{
+  "actions": [
+    {
+      "path": "/tmp/fm-nmtest3536529-0777",
+      "status": "skipped_shared_writable"
+    }
+  ],
+  "count": 0
+}
+after: 777
+## /tmp/fm-nmtest3536529-0755 mode 0755
+{
+  "actions": [
+    {
+      "path": "/tmp/fm-nmtest3536529-0755",
+      "status": "sanitized_to_0700",
+      "prior_mode": "0o755"
+    }
+  ],
+  "count": 1
+}
+after: 700
