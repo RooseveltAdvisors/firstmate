@@ -7,6 +7,7 @@
 # Usage:
 #   fm-action-gate.sh check <action_class> <target> <task> [grant_file]
 #   fm-action-gate.sh execute <action_class> <target> <task> <grant_file> [cmd...]
+#     (draft classes carry no grant: pass "" as grant_file before cmd)
 #   fm-action-gate.sh mint-grant <out_file> <action_class> <target> <task> <expires_at> <approval_ref>
 set -u
 
