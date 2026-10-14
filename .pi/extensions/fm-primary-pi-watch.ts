@@ -1200,7 +1200,8 @@ export default function (pi: ExtensionAPI) {
   }
 
   pi.on?.("before_agent_start", (event) => {
-    consumeWake(generation, event.prompt);
+    const prompt = "prompt" in event ? event.prompt : "";
+    consumeWake(generation, prompt);
   });
   pi.on?.("message_start", (event) => {
     if (event.message.role !== "user") return;
