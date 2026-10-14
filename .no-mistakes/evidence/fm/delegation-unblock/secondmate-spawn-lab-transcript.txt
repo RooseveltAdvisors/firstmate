@@ -1,0 +1,40 @@
+### S1. fm-spawn.sh fdev-auto <completed scaffold> claude --secondmate (lab tmux socket fm-lab)
+fm-gate-refuse: gate agent lifecycle permitted only against lab home $LAB
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+warning: secondmate fdev-auto sync skipped before launch: primary default-branch commit cannot be resolved
+spawned fdev-auto harness=claude kind=secondmate mode=secondmate yolo=off window=firstmate:fm-fdev-auto worktree=$SUBHOMES/fdev-auto
+exit=0
+
+meta:
+window=firstmate:fm-fdev-auto
+worktree=$SUBHOMES/fdev-auto
+project=$SUBHOMES/fdev-auto
+harness=claude
+kind=secondmate
+mode=secondmate
+model=default
+home=$SUBHOMES/fdev-auto
+
+lab windows:
+firstmate:1: fm-fm-data-fm-si* (1 panes) [80x24] 
+firstmate:2: raw (1 panes) [80x24] 
+firstmate:3: fm-fdev-auto (1 panes) [80x24] 
+
+pane firstmate:fm-fdev-auto capture (real claude secondmate launched in the completed home):
+ ▐▛███▛█   Claude Code v2.1.296
+▝▜██████▀  Opus 5.5 · Claude Max
+ ▝▝   ▝▝   $SUBHOMES/fdev-auto
+❯ : Firstmate operational input waiting: read '$SUBHOMES/fdev
+  -auto/state/operational-inbox/1791944988-59753ef395931242.msg' and handle its
+  contents as Firstmate operational input.
+  Read 1 file (ctrl+o to expand)
+● Bash(echo "FM_HOME=$FM_HOME" && bin/fm-session-start.sh 2>&1 | tail -60)
+  ⎿  FM_HOME=$SUBHOMES/fdev-auto
+     (3s)
+     (ctrl+b ctrl+b (twice) to run in background)
+✽ WAF-bypassing… (10s · ↓ 350 tokens)
+────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────
+  cl Firstmate Inbox Message Triage arcs Opus 5.5(1M) 9% ↑ 93K(+2·81K) ↓ 545(…
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← 1 agent

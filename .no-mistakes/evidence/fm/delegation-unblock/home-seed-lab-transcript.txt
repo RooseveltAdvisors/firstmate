@@ -1,0 +1,46 @@
+### H1. auto-chartered scaffold before seeding:
+.
+./data
+./data/kept.txt
+./.fm-secondmate-home
+./.fm-secondmate-parent
+./state
+
+### H2. fm-home-seed.sh fdev-auto <scaffold> --no-projects (FM_HOME=lab)
+Note: switching to '250a6c068958ff91354502ef47b59f3ebb4dac80'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+scaffolded: $LAB/data/fdev-auto/brief.md (secondmate charter)
+home=$SUBHOMES/fdev-auto
+exit=0
+
+### H3. completed home:
+AGENTS.md: present
+bin/: present
+marker: fdev-auto
+kept data: preserved scaffold data
+HEAD matches source: yes
+dirty entries: 0
+registry: - fdev-auto - firstmate self-development (home: $SUBHOMES/fdev-auto; scope: firstmate repo work; projects: ; added 2026-10-13)
+
+### H4. validate
+exit=0
+
+### H6. scaffold whose marker names a DIFFERENT id is not completed in place
+error: secondmate home $SUBHOMES/other is already marked for someone-else
+exit=1
+AGENTS.md present in other: no

@@ -1,0 +1,71 @@
+### D1. registry id data-fm-si, no --execute (recommendation)
+=== Jev Front-Door Router ===
+Action:     dispatch
+Route:      data-fm-si
+Confidence: 0.9
+New Domain: 0.1
+=============================
+Recommended dispatch command:
+  FM_HOME=$LAB "$LAB/root/bin/fm-send.sh" "fm-data-fm-si" "[fm-from-firstmate] implement the feature"
+Pass --execute to dispatch automatically.
+exit=0
+
+### D2. registry id data-fm-si --execute (real fm-send into lab)
+=== Jev Front-Door Router ===
+Action:     dispatch
+Route:      data-fm-si
+Confidence: 0.9
+New Domain: 0.1
+=============================
+Executing dispatch to second mate: fm-data-fm-si ...
+fm-gate-refuse: gate agent lifecycle permitted only against lab home $LAB
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the requested message WILL still be sent.
+●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Dispatched successfully to fm-data-fm-si.
+exit=0
+
+### D3. unresolvable route ghost-mate --execute
+=== Jev Front-Door Router ===
+Action:     dispatch
+Route:      ghost-mate
+Confidence: 0.9
+New Domain: 0.1
+=============================
+Status: dispatch route ghost-mate is not resolvable in this home (tried $LAB/state/ghost-mate.meta, $LAB/state/fm-ghost-mate.meta, and $LAB/state/ghost-mate.meta). Spawn or seed the secondmate first; nothing was sent.
+exit=1
+
+### inbox records under lab state:
+$LAB/state/fm-data-fm-si.inbox/001.msg
+--- $LAB/state/fm-data-fm-si.inbox/001.msg
+schema=fm-task-inbox.v1
+at=2026-10-14T02:28:57Z
+--
+[fm-from-firstmate]⁣corr=90a1fff6771f743b [fm-from-firstmate] implement the feature
+### lab pane capture:
+: Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your 'fm-data-fm
+-si.inbox' steering inbox, read and act on each in numeric order, then mv each i
+nto its handled/.
+: Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your 'fm-data-fm
+-si.inbox' steering inbox, read and act on each in numeric order, then mv each i
+nto its handled/.
+
+### D4. explicit session:window route firstmate:raw --execute (passthrough to fm-send backend target)
+=== Jev Front-Door Router ===
+Action:     dispatch
+Route:      firstmate:raw
+Confidence: 0.9
+New Domain: 0.1
+=============================
+Executing dispatch to second mate: firstmate:raw ...
+fm-gate-refuse: gate agent lifecycle permitted only against lab home $LAB
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+error: text not submitted to firstmate:raw (delivery unconfirmed; verdict=unknown; tried meta=$LAB/state/firstmate:raw.meta; metadata window/terminal lookup; backend=tmux; endpoint=verified)
+exit=1
+### pane firstmate:raw capture:
+[fm-from-firstmate] check the queue
+[fm-from-firstmate] check the queue

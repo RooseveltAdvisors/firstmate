@@ -1,0 +1,34 @@
+### A. Real PreToolUse hook transport (bin/fm-jev-guard.sh --claude, JSON on stdin), mock primary root
+exit=0 :: bin/fm-send.sh gpu-ops 'sudo systemctl restart ollama && journalctl -u ollama'
+exit=0 :: bin/fm-spawn.sh data-fm 'docker compose up -d && ssh gpu uptime'
+exit=0 :: bin/fm-route-dispatch.sh 'restart the stt service on gpu' --execute
+exit=0 :: /opt/ra/firstmate/bin/fm-brief.sh x 'apt install nginx'
+exit=0 :: bash bin/fm-send.sh gpu 'systemctl restart foo'
+exit=0 :: bd create 'fix the systemctl unit'
+
+telemetry decisions:
+
+hook telemetry (decision, tier, code, cmd) from the mock primary's state/.jev-guard-telemetry:
+allow	tier1	fast_path_whitelist	bin/fm-send.sh gpu-ops 'sudo systemctl restart ollama && journalctl -u ollama'
+allow	tier1	fast_path_whitelist	bin/fm-spawn.sh data-fm 'docker compose up -d && ssh gpu uptime'
+allow	tier1	fast_path_whitelist	bin/fm-route-dispatch.sh 'restart the stt service on gpu' --execute
+allow	tier1	fast_path_whitelist	/opt/ra/firstmate/bin/fm-brief.sh x 'apt install nginx'
+allow	tier1	fast_path_whitelist	bash bin/fm-send.sh gpu 'systemctl restart foo'
+allow	tier1	fast_path_whitelist	bd create 'fix the systemctl unit'
+
+### B. Guard engine verdicts (real fm-jev-guard.py, Tier-3 key lookup stubbed out so nothing reaches the live classifier)
+fast_path_whitelist    :: bin/fm-send.sh gpu 'systemctl restart x'
+fast_path_whitelist    :: bash bin/fm-send.sh gpu 'systemctl restart x'
+fast_path_whitelist    :: sh bin/fm-spawn.sh x 'docker ps'
+fail_open_no_key       :: bash bd x
+fail_open_no_key       :: bash tasks-axi x
+fail_open_no_key       :: bash /tmp/fm-send.sh gpu reboot
+fail_open_no_key       :: bash -c 'ssh host'
+fail_open_no_key       :: PATH=/tmp bd gpu reboot
+fail_open_no_key       :: env PATH=/tmp bd x
+fail_open_no_key       :: FM_HOME=/opt/ra/firstmate bin/fm-send.sh gpu-ops 'systemctl restart'
+fail_open_no_key       :: bd-evil gpu 'sudo systemctl restart ollama'
+fail_open_no_key       :: bin/fm-send.shx ssh gpu
+fail_open_no_key       :: ssh gpu 'sudo systemctl restart ollama'
+fail_open_no_key       :: bin/fm-send.sh gpu hi && ssh gpu reboot
+fail_open_no_key       :: bin/fm-send.sh gpu hi; systemctl restart foo
