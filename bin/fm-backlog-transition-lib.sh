@@ -307,10 +307,18 @@ fm_backlog_source_present() {  # <data-dir> <authorized-data-dir> [root authoriz
   }
   file=$(fm_backlog_markdown_file "$data") || return 1
   if [ "$backend" = markdown ]; then
-    fm_backlog_record_present "$file" "backlog file" "$authorized_data"
-    return $?
+    case "$file" in
+      "$data"/*)
+        fm_backlog_record_present "$file" "backlog file" "$authorized_data"
+        return $?
+        ;;
+      *)
+        fm_backlog_record_present "$file" "backlog file" "$authorized_root"
+        return $?
+        ;;
+    esac
   fi
-  fm_backlog_record_parent_authorized "$file" "backlog data directory" "$authorized_data" parent-only
+  fm_backlog_record_parent_authorized "$(fm_backlog_file "$data")" "backlog data directory" "$authorized_data" parent-only
 }
 
 # Resolve how the owning home's backlog is addressed, for reads and mutations
@@ -362,7 +370,7 @@ fm_backlog_transition_applies() {  # <config-dir> <data-dir> <kind>
     return 2
   }
   if [ "$backend" = markdown ]; then
-    file=$(fm_backlog_file "$data") || return 2
+    file=$(fm_backlog_markdown_file "$data") || return 2
     if [ ! -e "$file" ] && [ ! -L "$file" ]; then
       FM_BACKLOG_TRANSITION_SKIP="this home keeps no markdown backlog at $file"
       return 1

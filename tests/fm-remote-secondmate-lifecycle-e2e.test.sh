@@ -1520,7 +1520,7 @@ done
 liveness_owner=$liveness_holder_pid
 [ "$(cat "$liveness_lock/pid" 2>/dev/null)" = "$liveness_owner" ] \
   || fail "liveness lock holder did not own its acquired lock"
-if remote_env "$ROOT/bin/fm-teardown.sh" ios > "$TMP_ROOT/teardown-liveness-busy.out" 2>&1; then
+if remote_env "$ROOT/bin/fm-teardown.sh" ios --retire-secondmate ios > "$TMP_ROOT/teardown-liveness-busy.out" 2>&1; then
   fail "remote retirement proceeded under an active liveness episode"
 fi
 assert_grep 'liveness check is in progress for ios' "$TMP_ROOT/teardown-liveness-busy.out" \

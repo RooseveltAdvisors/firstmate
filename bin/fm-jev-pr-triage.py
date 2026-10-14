@@ -24,8 +24,16 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 
-def get_pr_status(pr: str, repo: Optional[str] = None) -> Dict[str, Any]:
-    """Fetch structured statusCheckRollup from GitHub CLI."""
+def get_pr_status(pr: str, repo: Optional[str] = None, mock_file: Optional[str] = None) -> Dict[str, Any]:
+    """Fetch structured statusCheckRollup from GitHub CLI or mock."""
+    if mock_file and os.path.exists(mock_file):
+        with open(mock_file, "r") as f:
+            return json.load(f)
+    env_mock = os.environ.get("FM_TEST_PR_STATUS_MOCK")
+    if env_mock and os.path.exists(env_mock):
+        with open(env_mock, "r") as f:
+            return json.load(f)
+
     gh_bin = shutil.which("gh") or "/home/jon/.local/bin/gh"
     if not os.path.exists(gh_bin):
         return {"error": "gh CLI not found on PATH"}
@@ -211,12 +219,13 @@ def main() -> int:
     parser.add_argument("--repo", default=None, help="GitHub owner/repo")
     parser.add_argument("--format", choices=["summary", "markdown", "json"], default="summary", help="Output format")
     parser.add_argument("--json", action="store_true", help="Shortcut for --format json")
+    parser.add_argument("--mock-data", default=None, help="Path to JSON file providing mock statusCheckRollup data")
 
     args = parser.parse_args()
     if args.json:
         args.format = "json"
 
-    data = get_pr_status(args.pr, args.repo)
+    data = get_pr_status(args.pr, args.repo, mock_file=args.mock_data)
     if "error" in data:
         print(f"error: {data['error']}", file=sys.stderr)
         return 1

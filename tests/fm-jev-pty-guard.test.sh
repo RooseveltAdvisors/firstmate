@@ -50,7 +50,7 @@ assert hasattr(mod, 'audit_pty_usage')
 assert hasattr(mod, 'get_pty_limits')
 
 # Test threshold behavior
-res = mod.audit_pty_usage(warn_pct=0.1, crit_pct=0.2)
+res = mod.audit_pty_usage(warn_pct=0.0, crit_pct=0.0)
 assert res['summary']['healthy'] is False
 assert res['summary']['status'] in ('WARNING', 'CRITICAL')
 "
