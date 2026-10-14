@@ -215,7 +215,8 @@ def is_fast_pass_supervisor(subcmd: str) -> bool:
     # across subcommands means reimplementing shell semantics, and a nested shell, helper script,
     # or sourced file defeats it anyway. Such a compound is deliberate, the same class as (A); the
     # realistic accidental case (ssh/systemctl/docker typed directly) still meets the step-1 deny.
-    program = subcmd.split(None, 1)[0] if subcmd.strip() else ""
+    tokens = subcmd.split(None, 2)
+    program = tokens[1] if len(tokens) > 1 and tokens[0] in ("bash", "sh") else (tokens or [""])[0]
     if program in DELEGATION_BARE_NAMES or any(
         program == f"bin/{name}" or program.endswith(f"/bin/{name}") for name in DELEGATION_TOOL_NAMES
     ):

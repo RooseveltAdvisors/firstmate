@@ -79,6 +79,9 @@ delegation_cmds=(
   "./bin/fm-send.sh gpu-ops 'sudo systemctl restart ollama'"
   "$TDIR/.treehouse/7/firstmate/bin/fm-send.sh gpu-ops 'docker compose restart portal'"
   "$TDIR/launcher/bin/tasks-axi list --status 'docker restart pending'"
+  "bash bin/fm-send.sh gpu hi"
+  "sh bin/fm-spawn.sh x"
+  "bash bin/fm-send.sh gpu-ops 'sudo systemctl restart ollama'"
 )
 for cmd in "${delegation_cmds[@]}"; do
   dec=$(guard_decision "$cmd")
@@ -119,6 +122,8 @@ for cmd in \
   "bd-evil gpu 'sudo systemctl restart ollama'" \
   "tasks-axi-evil list" \
   "bin/fm-send.shx ssh gpu" \
+  "bash -c 'ssh host uptime'" \
+  "bash /tmp/fm-send.sh x" \
   ; do
   dec=$(guard_decision "$cmd")
   case "$dec" in
