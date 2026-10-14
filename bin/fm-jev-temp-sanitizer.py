@@ -73,6 +73,7 @@ def scan_temp_roots(tmp_dir: str = "/tmp", target_id: str = None) -> list:
             "permissions": perms,
             "mode": stat.S_IMODE(mode),
             "is_unsafe": is_unsafe,
+            "is_other_writable": is_other_writable,
             "mtime": st.st_mtime,
         })
 
@@ -93,6 +94,13 @@ def sanitize_roots(candidates: list) -> list:
             actions.append({
                 "path": entry["path"],
                 "status": "already_secure"
+            })
+            continue
+
+        if entry.get("is_other_writable"):
+            actions.append({
+                "path": entry["path"],
+                "status": "skipped_world_writable"
             })
             continue
 

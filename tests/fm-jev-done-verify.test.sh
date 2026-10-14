@@ -40,8 +40,15 @@ out_clean=$("$VERIFY_SH" --task "fm-claimmd-billing" --status-line "done: PR htt
 assert_contains "$out_clean" "VERDICT: verified" "clean task verified"
 
 # 4. Unpushed branch rejection (Tier 1)
+UNPUSHED_WT="$TDIR/unpushed-wt"
+git init -b main -q "$UNPUSHED_WT"
+git -C "$UNPUSHED_WT" commit -q --allow-empty -m "initial commit"
+git -C "$UNPUSHED_WT" checkout -q -b "fm/fm-uiq-dup-merge"
+echo "feature" > "$UNPUSHED_WT/feature.txt"
+git -C "$UNPUSHED_WT" add feature.txt
+git -C "$UNPUSHED_WT" commit -q -m "feature commit"
 set +e
-out_unpushed=$("$VERIFY_SH" --task "fm-uiq-dup-merge" --status-line "done: dry-run committed on branch fm/fm-uiq-dup-merge" 2>&1)
+out_unpushed=$("$VERIFY_SH" --task "fm-uiq-dup-merge" --worktree "$UNPUSHED_WT" --status-line "done: dry-run committed on branch fm/fm-uiq-dup-merge" 2>&1)
 rc_unpushed=$?
 set -e
 [ "$rc_unpushed" -eq 2 ] || fail "unpushed commits were not rejected (got exit $rc_unpushed)"

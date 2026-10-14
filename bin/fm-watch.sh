@@ -2845,6 +2845,7 @@ while :; do
   # generic recovery reason, so give that owner first refusal.
   resurface_after_downtime
 
+  if [ "${FM_DISABLE_JEV_WATCHER_GUARDS:-0}" != 1 ]; then
   # Pattern 18: Jev Cross-Seat Doorbell & Stale Notification Vacuum
   if [ "${FM_DISABLE_JEV_DOORBELL_VACUUM:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-doorbell-vacuum.sh" ]; then
     _vacuum_marker="$STATE/.jev-doorbell-vacuum-last"
@@ -3827,6 +3828,7 @@ while :; do
       touch "$_inbox_marker"
       "$SCRIPT_DIR/fm-jev-stale-inbox-guard.sh" --drain-dead --json > "$STATE/.jev-stale-inbox-guard-telemetry.json" 2>/dev/null || true
     fi
+  fi
   fi
 
 
