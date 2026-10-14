@@ -1,0 +1,8 @@
+{
+  "action_class": "charging",
+  "target": "acct-stripe-prod",
+  "task_id": "task-charge-001",
+  "expires_at": "2030-01-01T00:00:00Z",
+  "approval_reference": "captain-grant-20261014-002",
+  "used_at": null
+}
