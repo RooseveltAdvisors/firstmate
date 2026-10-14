@@ -153,7 +153,7 @@ if fm_supervision_host_enabled "$CONFIG" codex; then
 fi
 
 set +e
-FM_DISABLE_JEV_WATCHER_GUARDS=1 run_bounded "$SECONDS_ARG" "$SCRIPT_DIR/fm-watch.sh" >"$OUT" 2>"$ERR"
+run_bounded "$SECONDS_ARG" "$SCRIPT_DIR/fm-watch.sh" >"$OUT" 2>"$ERR"
 RC=$?
 set -e
 

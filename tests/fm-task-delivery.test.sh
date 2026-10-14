@@ -1008,7 +1008,7 @@ EOF
       [ "$(cat "$proj/CLAUDE.md")" = '@AGENTS.md' ] || fail "spawn changed the project import"
     done
   done
-  role_line=$(grep -n -E 'A ship or scout (worker launched by Firstmate into a worktree of this repository|in a worktree of this repo)' "$ROOT/AGENTS.md" | head -1 | cut -d: -f1)
+  role_line=$(grep -n 'A ship or scout in a worktree of this repo' "$ROOT/AGENTS.md" | head -1 | cut -d: -f1)
   supervisor_line=$(grep -n '^You are the first mate\.$' "$ROOT/AGENTS.md" | head -1 | cut -d: -f1)
   [ -n "$role_line" ] && [ "$role_line" -lt "$supervisor_line" ] ||
     fail "Firstmate AGENTS.md does not disambiguate a launched worker before assigning the supervisor identity"
