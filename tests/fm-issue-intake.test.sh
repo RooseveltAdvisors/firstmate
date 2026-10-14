@@ -34,7 +34,7 @@ setup_case() {
   fd="$case_dir/fake"
   mkdir -p "$home/data" "$fd"
   (umask 077; mkdir -p "$home/state")
-  cp "$ROOT/.tasks.toml" "$home/.tasks.toml"
+  cp "$ROOT/.tasks.toml.example" "$home/.tasks.toml"
   fb=$(fm_fakebin "$case_dir")
 
   cat > "$fb/gh" <<'SH'

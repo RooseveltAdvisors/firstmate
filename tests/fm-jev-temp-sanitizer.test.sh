@@ -9,8 +9,8 @@ SANITIZER="$FM_ROOT/bin/fm-jev-temp-sanitizer.sh"
 
 TEST_TMP="/tmp/fm-test-sanitizer-$$"
 mkdir -p "$TEST_TMP"
-# Intentionally set group-writable permissions (0775)
-chmod 775 "$TEST_TMP"
+# Intentionally set loose but owner-only-writable permissions (0755)
+chmod 755 "$TEST_TMP"
 echo "sample content" > "$TEST_TMP/file.txt"
 
 cleanup() {
@@ -18,7 +18,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "1. Verify --check detects group-writable directory..."
+echo "1. Verify --check detects non-0700 directory..."
 CHECK_OUTPUT=$("$SANITIZER" --target "test-sanitizer-$$" --check 2>&1 || true)
 if [[ "$CHECK_OUTPUT" != *"violate mode 0700"* ]] && [[ "$CHECK_OUTPUT" != *"has mode"* ]]; then
   echo "FAIL: Expected check to report violation, got: $CHECK_OUTPUT" >&2
@@ -56,7 +56,18 @@ if [[ "$(< "$TEST_TMP/file.txt")" != "sample content" ]]; then
 fi
 echo "ok - file contents preserved"
 
-echo "5. Verify JSON output format..."
+echo "5. Verify --sanitize refuses to bless a group-writable directory..."
+chmod 775 "$TEST_TMP"
+"$SANITIZER" --target "test-sanitizer-$$" --sanitize >/dev/null
+CURRENT_MODE=$(stat -c '%a' "$TEST_TMP")
+if [[ "$CURRENT_MODE" != "775" ]]; then
+  echo "FAIL: Expected group-writable dir left at 775 for fm-spawn to refuse, got: $CURRENT_MODE" >&2
+  exit 1
+fi
+echo "ok - group-writable dir left for fm-spawn refusal"
+chmod 700 "$TEST_TMP"
+
+echo "6. Verify JSON output format..."
 JSON_OUTPUT=$("$SANITIZER" --target "test-sanitizer-$$" --check --json)
 if ! printf '%s\n' "$JSON_OUTPUT" | grep -q '"total_scanned":'; then
   echo "FAIL: Expected JSON structure, got: $JSON_OUTPUT" >&2

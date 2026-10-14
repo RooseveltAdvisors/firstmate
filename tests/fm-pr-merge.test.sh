@@ -38,7 +38,11 @@ make_case() {
   mkdir -p "$case_dir/state" "$case_dir/home/data" "$case_dir/home/config" "$fakebin"
   fm_git_init_commit "$case_dir/wt"
   git -C "$case_dir/wt" update-ref refs/remotes/origin/main "$(git -C "$case_dir/wt" rev-parse HEAD)"
-  cp "$ROOT/.tasks.toml" "$case_dir/home/.tasks.toml"
+  if [ -f "$ROOT/.tasks.toml.example" ]; then
+    cp "$ROOT/.tasks.toml.example" "$case_dir/home/.tasks.toml"
+  elif [ -f "$ROOT/.tasks.toml" ]; then
+    cp "$ROOT/.tasks.toml" "$case_dir/home/.tasks.toml"
+  fi
   printf '%s\n' '## In flight' '' '## Queued' '' '## Done' \
     > "$case_dir/home/data/backlog.md"
   fm_write_meta "$case_dir/state/task-x1.meta" \
@@ -173,10 +177,11 @@ printf '%s\n' "$*" >> "$FM_TEST_GH_LOG"
 case "${1:-} ${2:-}" in
   "pr view")
     case " $* " in
-      *statusCheckRollup*)
+      *mergeStateStatus*)
         if [ -n "${FM_TEST_GH_MERGEABLE_SEQUENCE:-}" ]; then
-          call_n=$(( $(cat "$FM_TEST_GH_MERGEABLE_CALLS" 2>/dev/null || echo 0) + 1 ))
-          printf '%s\n' "$call_n" > "$FM_TEST_GH_MERGEABLE_CALLS"
+          calls_file=${FM_TEST_GH_MERGEABLE_CALLS:-${FM_TEST_GH_MERGEABLE_SEQUENCE}.calls}
+          call_n=$(( $(cat "$calls_file" 2>/dev/null || echo 0) + 1 ))
+          printf '%s\n' "$call_n" > "$calls_file"
           call_m=$(sed -n "${call_n}p" "$FM_TEST_GH_MERGEABLE_SEQUENCE")
           [ -n "$call_m" ] || call_m=$(tail -n1 "$FM_TEST_GH_MERGEABLE_SEQUENCE")
           # An optional second word overrides the first check's conclusion.
@@ -194,6 +199,10 @@ case "${1:-} ${2:-}" in
             rm -f "$FM_STATE_OVERRIDE/.afk-contract"
           fi
         fi
+        exit 0
+        ;;
+      *statusCheckRollup*)
+        cat "$FM_TEST_GH_VIEW_JSON"
         exit 0
         ;;
       *headRefOid*)
@@ -669,8 +678,8 @@ test_github_mergeable_unknown_retries_then_succeeds() {
   set -e
 
   expect_code 0 "$rc" "github-mergeable-unknown-then-mergeable: a merge should succeed once mergeable resolves"
-  [ "$(grep -c '^pr view .*statusCheckRollup' "$case_dir/gh.log")" -eq 2 ] \
-    || fail "github-mergeable-unknown-then-mergeable: expected exactly 2 mergeable reads, got $(grep -c '^pr view .*statusCheckRollup' "$case_dir/gh.log")"
+  [ "$(grep -c '^pr view .*mergeStateStatus' "$case_dir/gh.log")" -eq 2 ] \
+    || fail "github-mergeable-unknown-then-mergeable: expected exactly 2 mergeable reads, got $(grep -c '^pr view .*mergeStateStatus' "$case_dir/gh.log")"
   assert_logged_gh_merge "$case_dir" 83 example/repo --squash
   [ "$(grep -c '^pr merge ' "$case_dir/gh.log")" -eq 1 ] \
     || fail "github-mergeable-unknown-then-mergeable: the wrapper attempted more than one merge"
@@ -701,8 +710,8 @@ test_github_mergeable_unknown_exhausts_bound_and_reports_pending() {
   set -e
 
   expect_code 1 "$rc" "github-mergeable-unknown-exhausted: a mergeable read that never resolves must still fail"
-  [ "$(grep -c '^pr view .*statusCheckRollup' "$case_dir/gh.log")" -eq 5 ] \
-    || fail "github-mergeable-unknown-exhausted: expected exactly 5 bounded mergeable reads, got $(grep -c '^pr view .*statusCheckRollup' "$case_dir/gh.log")"
+  [ "$(grep -c '^pr view .*mergeStateStatus' "$case_dir/gh.log")" -eq 5 ] \
+    || fail "github-mergeable-unknown-exhausted: expected exactly 5 bounded mergeable reads, got $(grep -c '^pr view .*mergeStateStatus' "$case_dir/gh.log")"
   assert_no_grep 'pr merge' "$case_dir/gh.log" \
     "github-mergeable-unknown-exhausted: a merge was attempted while mergeable never resolved"
   assert_grep "mergeability for https://github.com/example/repo/pull/84 is still being computed by GitHub; retry shortly" \
@@ -732,8 +741,8 @@ test_github_mergeable_unknown_retry_rechecks_checks() {
   set -e
 
   expect_code 1 "$rc" "github-mergeable-unknown-check-turns-red: a check that turned red must refuse"
-  [ "$(grep -c '^pr view .*statusCheckRollup' "$case_dir/gh.log")" -eq 2 ] \
-    || fail "github-mergeable-unknown-check-turns-red: expected exactly 2 reads, got $(grep -c '^pr view .*statusCheckRollup' "$case_dir/gh.log")"
+  [ "$(grep -c '^pr view .*mergeStateStatus' "$case_dir/gh.log")" -eq 2 ] \
+    || fail "github-mergeable-unknown-check-turns-red: expected exactly 2 reads, got $(grep -c '^pr view .*mergeStateStatus' "$case_dir/gh.log")"
   assert_grep "check 'ci' is not green" "$case_dir/stderr" \
     "github-mergeable-unknown-check-turns-red: the re-check did not refuse the red check"
   assert_no_grep 'still being computed' "$case_dir/stderr" \
@@ -764,7 +773,7 @@ test_github_mergeable_conflicting_is_not_retried() {
   set -e
 
   expect_code 1 "$rc" "github-mergeable-conflicting: a genuine conflict must refuse"
-  [ "$(grep -c '^pr view .*statusCheckRollup' "$case_dir/gh.log")" -eq 1 ] \
+  [ "$(grep -c '^pr view .*mergeStateStatus' "$case_dir/gh.log")" -eq 1 ] \
     || fail "github-mergeable-conflicting: a genuine conflict was retried instead of refused immediately"
   assert_grep 'mergeable is "CONFLICTING", not MERGEABLE' "$case_dir/stderr" \
     "github-mergeable-conflicting: the conflict was not named"

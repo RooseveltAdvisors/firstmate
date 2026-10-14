@@ -21,6 +21,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 def run_git(args: List[str], cwd: Path) -> Tuple[int, str, str]:
     try:
+        env = dict(os.environ)
+        env["GIT_TERMINAL_PROMPT"] = "0"
         proc = subprocess.run(
             ["git"] + args,
             cwd=str(cwd),
@@ -29,6 +31,7 @@ def run_git(args: List[str], cwd: Path) -> Tuple[int, str, str]:
             text=True,
             timeout=10,
             check=False,
+            env=env,
         )
         return proc.returncode, proc.stdout.strip(), proc.stderr.strip()
     except Exception as e:

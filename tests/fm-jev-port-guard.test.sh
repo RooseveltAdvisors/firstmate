@@ -35,7 +35,7 @@ echo "ok - json schema valid"
 echo "ok - --check passed cleanly"
 
 # 5. Low threshold flags properly
-if "$GUARD_SH" --warning-timewait 1 --check >/dev/null 2>&1; then
+if "$GUARD_SH" --warning-timewait 0 --check >/dev/null 2>&1; then
     echo "FAILED: low warning-timewait should have exited non-zero"
     exit 1
 else

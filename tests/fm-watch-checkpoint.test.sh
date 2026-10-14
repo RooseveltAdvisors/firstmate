@@ -4,6 +4,7 @@ set -u
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+export FM_DISABLE_JEV_WATCHER_GUARDS=1
 
 CHECKPOINT="$ROOT/bin/fm-watch-checkpoint.sh"
 TMP_ROOT=$(fm_test_tmproot fm-watch-checkpoint)

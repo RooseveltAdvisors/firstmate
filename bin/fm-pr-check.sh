@@ -148,29 +148,33 @@ if { [ -z "$PR_HEAD" ] || ! fm_dod_forge_head_is_named_head "$MODE"; } \
   exit 1
 fi
 
-# Pattern 10: Jev Zero-CI & Workflow Landing Gate Verifier
-if [ -x "$FM_ROOT/bin/fm-jev-ci-workflow-guard.sh" ] && [ -n "$WT" ] && [ -d "$WT" ]; then
-  "$FM_ROOT/bin/fm-jev-ci-workflow-guard.sh" --repo-dir "$WT" --pr "$URL" --json > "$STATE/pr-$ID.ci-guard.json" 2>/dev/null || true
-fi
+# Advisory Jev artifacts (fail-open) come from the arm-time check; the
+# merge-time record skips them.
+if [ "${FM_PR_CHECK_MERGE:-}" != 1 ]; then
+  # Pattern 10: Jev Zero-CI & Workflow Landing Gate Verifier
+  if [ -x "$FM_ROOT/bin/fm-jev-ci-workflow-guard.sh" ] && [ -n "$WT" ] && [ -d "$WT" ]; then
+    "$FM_ROOT/bin/fm-jev-ci-workflow-guard.sh" --repo-dir "$WT" --pr "$URL" --json > "$STATE/pr-$ID.ci-guard.json" 2>/dev/null || true
+  fi
 
-# Pattern 12: Jev PR Failure Classifier & Root-Cause Triage Engine
-if [ -x "$FM_ROOT/bin/fm-jev-pr-triage.sh" ] && command -v gh >/dev/null 2>&1; then
-  "$FM_ROOT/bin/fm-jev-pr-triage.sh" --pr "$URL" --json > "$STATE/pr-$ID.triage.json" 2>/dev/null || true
-fi
+  # Pattern 12: Jev PR Failure Classifier & Root-Cause Triage Engine
+  if [ -x "$FM_ROOT/bin/fm-jev-pr-triage.sh" ] && command -v gh >/dev/null 2>&1; then
+    "$FM_ROOT/bin/fm-jev-pr-triage.sh" --pr "$URL" --json > "$STATE/pr-$ID.triage.json" 2>/dev/null || true
+  fi
 
-# Pattern 13: Jev Flake vs Regression Disambiguator & Auto-Rerun Gatekeeper
-if [ -x "$FM_ROOT/bin/fm-jev-flake-detector.sh" ] && command -v gh >/dev/null 2>&1; then
-  "$FM_ROOT/bin/fm-jev-flake-detector.sh" --pr "$URL" --json > "$STATE/pr-$ID.flake.json" 2>/dev/null || true
-fi
+  # Pattern 13: Jev Flake vs Regression Disambiguator & Auto-Rerun Gatekeeper
+  if [ -x "$FM_ROOT/bin/fm-jev-flake-detector.sh" ] && command -v gh >/dev/null 2>&1; then
+    "$FM_ROOT/bin/fm-jev-flake-detector.sh" --pr "$URL" --json > "$STATE/pr-$ID.flake.json" 2>/dev/null || true
+  fi
 
-# Pattern 16: Jev Memory & Instruction Token Budget Enforcer
-if [ -x "$FM_ROOT/bin/fm-jev-token-budget.sh" ] && [ -n "$WT" ] && [ -d "$WT" ]; then
-  "$FM_ROOT/bin/fm-jev-token-budget.sh" --repo-path "$WT" --json > "$STATE/pr-$ID.token-budget.json" 2>/dev/null || true
-fi
+  # Pattern 16: Jev Memory & Instruction Token Budget Enforcer
+  if [ -x "$FM_ROOT/bin/fm-jev-token-budget.sh" ] && [ -n "$WT" ] && [ -d "$WT" ]; then
+    "$FM_ROOT/bin/fm-jev-token-budget.sh" --repo-path "$WT" --json > "$STATE/pr-$ID.token-budget.json" 2>/dev/null || true
+  fi
 
-# Pattern 17: Jev Continuous Test Flake Quarantine & Auto-Bisect
-if [ -x "$FM_ROOT/bin/fm-jev-quarantine.sh" ] && command -v gh >/dev/null 2>&1; then
-  "$FM_ROOT/bin/fm-jev-quarantine.sh" --pr "$URL" --json > "$STATE/pr-$ID.quarantine.json" 2>/dev/null || true
+  # Pattern 17: Jev Continuous Test Flake Quarantine & Auto-Bisect
+  if [ -x "$FM_ROOT/bin/fm-jev-quarantine.sh" ] && command -v gh >/dev/null 2>&1; then
+    "$FM_ROOT/bin/fm-jev-quarantine.sh" --pr "$URL" --json > "$STATE/pr-$ID.quarantine.json" 2>/dev/null || true
+  fi
 fi
 
 # Pattern 23: Jev Autonomous CI Runner Health & Shard Load Balancer
