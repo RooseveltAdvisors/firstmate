@@ -248,7 +248,7 @@ def is_fast_pass_supervisor(subcmd: str) -> bool:
     # Unwrap bash / sh wrappers around approved tools
     unwrapped = re.sub(r"^(?:bash|sh)\s+", "", clean).strip()
 
-    # 2. Approved supervisor tools (beads, tasks, routing, wake drain, etc.)
+    # 2. Approved supervisor tools (routing, wake drain, sessions, etc.; delegation tools are step 0)
     #    plus the supervisor lifecycle scripts (control/merge/teardown/lease/state/watch).
     if (
         clean.startswith(SUPERVISOR_TOOL_PREFIXES)
