@@ -52,7 +52,6 @@ run_guard --command "git -C /opt/ra/firstmate add bin/fm-watch.sh && git -C /opt
 run_guard --command "cat state/websites.status | grep needs-decision" || fail "cat/grep state denied unexpectedly"
 run_guard --command "FM_HOME=/opt/ra/firstmate bash -c 'cd /opt/ra/firstmate && bd create \"fm-zeta-runner-gpu: register runner\"'" || fail "wrapped bd create in bash -c denied unexpectedly"
 run_guard --command "FM_HOME=/opt/ra/firstmate bash -c 'cd /opt/ra/firstmate && bd list --status all --json 2>/dev/null | python3 -c \" import json,sys; sys.exit(0)\"'" || fail "wrapped bd list with python filter denied unexpectedly"
-run_guard --command "FM_HOME=/opt/ra/firstmate bin/fm-send.sh gpu-ops 'diagnose with journalctl -u render-credentials.service and restart systemctl' 2>&1 | tail -1" || fail "fm-send with inner systemctl/journalctl denied unexpectedly"
 
 # 2a. The tool IS the delegation: a delegation tool invocation typed with an
 # approved prefix fast-passes whatever implementation-looking argument text it
@@ -126,6 +125,7 @@ for cmd in \
   "bash /tmp/fm-send.sh x" \
   "bash bd x" \
   "sh tasks-axi x" \
+  "FM_HOME=/opt/ra/firstmate bin/fm-send.sh gpu-ops 'diagnose with journalctl -u render-credentials.service and restart systemctl'" \
   ; do
   dec=$(guard_decision "$cmd")
   case "$dec" in
