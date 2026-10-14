@@ -148,6 +148,8 @@ if { [ -z "$PR_HEAD" ] || ! fm_dod_forge_head_is_named_head "$MODE"; } \
   exit 1
 fi
 
+# Advisory Jev artifacts (fail-open) come from the arm-time check; the
+# merge-time record skips them.
 if [ "${FM_PR_CHECK_MERGE:-}" != 1 ]; then
   # Pattern 10: Jev Zero-CI & Workflow Landing Gate Verifier
   if [ -x "$FM_ROOT/bin/fm-jev-ci-workflow-guard.sh" ] && [ -n "$WT" ] && [ -d "$WT" ]; then

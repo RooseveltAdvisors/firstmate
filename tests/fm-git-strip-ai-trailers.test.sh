@@ -311,8 +311,7 @@ test_valueless_project_hookspath_still_refuses() {
   fi
   assert_equals 1 "$(printf '%s\n' "$err" | grep -c "missing value for 'core.hookspath'")" "git's lookup error was not shown exactly once"
   # Drop the valueless key again: older git refuses to read HEAD while it is there.
-  sed -i '$d' "$repo/.git/config"
-  sed -i '$d' "$repo/.git/config"
+  sed -i.bak '$d' "$repo/.git/config" && sed -i.bak '$d' "$repo/.git/config" && rm -f "$repo/.git/config.bak"
   assert_equals "$head" "$(git -C "$repo" rev-parse HEAD)" "a refused commit still moved HEAD"
   pass "a valueless project core.hooksPath still refuses the commit"
 }

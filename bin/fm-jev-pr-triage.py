@@ -9,6 +9,7 @@ gates (no-mistakes, juror) from code test failures, and formats structured triag
 Usage:
   bin/fm-jev-pr-triage.py --pr <pr-url-or-number> [--repo <owner/repo>] [--json]
   bin/fm-jev-pr-triage.py --pr <pr-url-or-number> [--format markdown|summary|json]
+  bin/fm-jev-pr-triage.py --pr <n> --mock-data <statusCheckRollup.json>   # offline, no gh call
 """
 
 from __future__ import annotations
