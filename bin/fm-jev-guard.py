@@ -49,16 +49,20 @@ CRITERIA_DOMAIN = {
     "firstmate_upstream": "Upstream firstmate pull requests and framework changes.",
 }
 
+# Delegation tools: their invocation is the delegation itself (see is_fast_pass_supervisor step 0)
+DELEGATION_BARE_NAMES = ("bd", "tasks-axi")
+DELEGATION_TOOL_NAMES = (
+    "fm-send.sh",
+    "fm-tasks-axi.sh",
+    "fm-brief.sh",
+    "fm-spawn.sh",
+    "fm-route-dispatch.sh",
+) + DELEGATION_BARE_NAMES
+
 # Approved supervisor prefix patterns for Tier 1 fast path
 SUPERVISOR_TOOL_PREFIXES = (
-    "bd ",
-    "tasks-axi",
-    "bin/fm-tasks-axi.sh",
-    "bin/fm-send.sh",
     "bin/fm-route-",
     "bin/fm-wake-drain.sh",
-    "bin/fm-brief.sh",
-    "bin/fm-spawn.sh",
     "bin/fm-captain-hold.sh",
     "bin/fm-check-register.sh",
     "bin/fm-session",
@@ -194,25 +198,28 @@ def is_fast_pass_supervisor(subcmd: str) -> bool:
     clean = clean_subcommand(subcmd)
     if not clean:
         return True
-    # Unwrap bash / sh wrappers around approved tools
-    unwrapped = re.sub(r"^(?:bash|sh)\s+", "", clean).strip()
 
     # 0. Supervisor delegation and task messaging tools are always fast-path
     # (Their message payloads may legitimately instruct Second Mates to run systemctl, journalctl, docker, etc.)
-    delegation_prefixes = (
-        "bin/fm-send.sh",
-        "/opt/ra/firstmate/bin/fm-send.sh",
-        "bd ",
-        "bd",
-        "tasks-axi",
-        "bin/fm-tasks-axi.sh",
-        "/opt/ra/firstmate/bin/fm-tasks-axi.sh",
-        "bin/fm-brief.sh",
-        "/opt/ra/firstmate/bin/fm-brief.sh",
-        "bin/fm-spawn.sh",
-        "/opt/ra/firstmate/bin/fm-spawn.sh",
-    )
-    if clean.startswith(delegation_prefixes) or unwrapped.startswith(delegation_prefixes):
+    # This match must stay ahead of the step-1 deny; tests/fm-jev-guard.test.sh pins that order.
+    # The invoked program is the first token as typed, leading VAR=value assignments included, so
+    # PATH=/tmp bd ... or env PATH=/tmp bd ... never qualifies. It must equal a bare tool name or be
+    # bin/<tool> or end in /bin/<tool>; nothing is resolved and payloads are never inspected. Under a
+    # leading bash or sh, the second token qualifies by bin/ form only: bash bd reads ./bd, not the tool.
+    # Accepted boundaries: (A) any directory's bin/<tool> qualifies, because whoever can place an
+    # executable there already has write access and this guard is not a boundary against that;
+    # (B) a live command substitution inside a delegation payload runs locally unchecked, for the
+    # same reason; (C) a compound that redefines the environment in one subcommand and invokes a
+    # tool in another (export PATH=/tmp:$PATH; bd x) is deliberately not caught. Tracking state
+    # across subcommands means reimplementing shell semantics, and a nested shell, helper script,
+    # or sourced file defeats it anyway. Such a compound is deliberate, the same class as (A); the
+    # realistic accidental case (ssh/systemctl/docker typed directly) still meets the step-1 deny.
+    tokens = subcmd.split(None, 2)
+    wrapped = len(tokens) > 1 and tokens[0] in ("bash", "sh")
+    program = tokens[1] if wrapped else (tokens or [""])[0]
+    if (not wrapped and program in DELEGATION_BARE_NAMES) or any(
+        program == f"bin/{name}" or program.endswith(f"/bin/{name}") for name in DELEGATION_TOOL_NAMES
+    ):
         return True
 
     # 1. Immediate disallow for remote ssh or systemd/package mutations
@@ -241,15 +248,13 @@ def is_fast_pass_supervisor(subcmd: str) -> bool:
     # Unwrap bash / sh wrappers around approved tools
     unwrapped = re.sub(r"^(?:bash|sh)\s+", "", clean).strip()
 
-    # 2. Approved supervisor tools (beads, tasks, routing, wake drain, etc.)
+    # 2. Approved supervisor tools (routing, wake drain, sessions, etc.; delegation tools are step 0)
     #    plus the supervisor lifecycle scripts (control/merge/teardown/lease/state/watch).
     if (
         clean.startswith(SUPERVISOR_TOOL_PREFIXES)
         or unwrapped.startswith(SUPERVISOR_TOOL_PREFIXES)
         or clean.startswith(SUPERVISOR_LIFECYCLE_PREFIXES)
         or unwrapped.startswith(SUPERVISOR_LIFECYCLE_PREFIXES)
-        or clean == "bd"
-        or clean == "tasks-axi"
     ):
         return True
 

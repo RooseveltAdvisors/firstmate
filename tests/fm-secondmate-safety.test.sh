@@ -544,6 +544,102 @@ test_home_seed_no_projects_end_to_end() {
   pass "home seeding scaffolds, registers, and spawns a project-less home end to end"
 }
 
+test_home_seed_completes_auto_chartered_scaffold() {
+  # The router's --auto-charter (bin/fm-route-domain.py) leaves a partial home:
+  # data/, state/, and the identity markers only. Seeding into that scaffold
+  # must complete it into a firstmate home (AGENTS.md + bin/ from the primary
+  # repo) around the preserved operational data, instead of refusing the
+  # populated non-home - and the completed home must then accept a
+  # --secondmate spawn.
+  local home sub fakebin log meta
+  home="$TMP_ROOT/auto-charter-seed-home"
+  sub="$TMP_ROOT/auto-charter-seed-subhome"
+  mkdir -p "$home/projects" "$home/data" "$home/state"
+  # The exact partial scaffold the auto-charter leaves behind.
+  mkdir -p "$sub/data" "$sub/state"
+  printf '%s\n' "fdev-auto" > "$sub/.fm-secondmate-home"
+  printf '%s\n' "$(cd "$home" && pwd -P)" > "$sub/.fm-secondmate-parent"
+  printf 'preserved scaffold data\n' > "$sub/data/kept.txt"
+
+  FM_HOME="$home" FM_SECONDMATE_CHARTER='firstmate self-development' \
+    FM_SECONDMATE_SCOPE='firstmate repo work' \
+    "$ROOT/bin/fm-home-seed.sh" fdev-auto "$sub" --no-projects >/dev/null \
+    || fail "seed refused an auto-chartered scaffold home"
+
+  [ -f "$sub/AGENTS.md" ] || fail "completed scaffold is missing AGENTS.md"
+  [ -d "$sub/bin" ] || fail "completed scaffold is missing bin/"
+  [ "$(cat "$sub/.fm-secondmate-home")" = "fdev-auto" ] || fail "seed changed the scaffold identity marker"
+  assert_grep 'preserved scaffold data' "$sub/data/kept.txt" "seed lost the scaffold's operational data"
+  assert_grep '- fdev-auto - firstmate self-development' "$home/data/secondmates.md" "registry line missing after scaffold seed"
+  FM_HOME="$home" "$ROOT/bin/fm-home-seed.sh" validate >/dev/null || fail "registry validation failed after scaffold seed"
+
+  # The completed home launches a secondmate end to end.
+  fakebin=$(make_fake_tmux "$TMP_ROOT/auto-charter-fake")
+  log="$TMP_ROOT/auto-charter-fake/tmux.log"
+  : > "$log"
+  PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TMUX_LOG="$log" \
+    FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/auto-charter-fake/pane.txt" \
+    "$ROOT/bin/fm-spawn.sh" fdev-auto "$sub" codex --secondmate >/dev/null 2>&1 \
+    || fail "secondmate spawn into the completed scaffold home failed"
+  meta="$home/state/fdev-auto.meta"
+  assert_grep 'kind=secondmate' "$meta" "scaffold-home spawn meta lost kind=secondmate"
+  pass "home seeding completes an auto-chartered scaffold into a launchable home"
+}
+
+scaffold_seed_case() {  # <home> <src> <id> [git-config-env...]: seed a fresh scaffold from <src>
+  local home=$1 src=$2 id=$3 sub
+  shift 3
+  sub="$TMP_ROOT/scaffold-$id"
+  mkdir -p "$sub/data" "$sub/state"
+  printf '%s\n' "$id" > "$sub/.fm-secondmate-home"
+  printf '%s\n' "$(cd "$home" && pwd -P)" > "$sub/.fm-secondmate-parent"
+  printf 'preserved scaffold data\n' > "$sub/data/kept.txt"
+  [ "$#" -eq 0 ] || [ "$1" != half ] || {
+    shift
+    git clone -q --no-checkout "$src" "$sub.half"
+    mv "$sub.half/.git" "$sub/.git"
+    rm -rf "$sub.half"
+  }
+  env "$@" FM_ROOT_OVERRIDE="$src" FM_HOME="$home" FM_SECONDMATE_CHARTER='firstmate self-development' \
+    FM_SECONDMATE_SCOPE='firstmate repo work' \
+    "$ROOT/bin/fm-home-seed.sh" "$id" "$sub" --no-projects >/dev/null \
+    || fail "seed refused scaffold $id"
+  [ -f "$sub/AGENTS.md" ] && [ -d "$sub/bin" ] || fail "scaffold $id was not completed into a firstmate tree"
+  [ "$(git -C "$sub" rev-parse HEAD)" = "$(git -C "$src" rev-parse HEAD)" ] || fail "scaffold $id is not at the source HEAD"
+  [ "$(git -C "$sub" remote get-url origin)" = "$src" ] || fail "scaffold $id has no origin remote at the source repo"
+  [ -z "$(git -C "$sub" status --porcelain)" ] || fail "scaffold $id has a dirty tree"
+  assert_grep 'preserved scaffold data' "$sub/data/kept.txt" "scaffold $id lost its operational data"
+  [ "$(cat "$sub/.fm-secondmate-home")" = "$id" ] || fail "scaffold $id identity marker changed"
+}
+
+test_home_seed_completes_scaffold_for_every_source_shape() {
+  # Completion must match a fresh clone whatever FM_ROOT's HEAD is: a branch,
+  # a branch matching init.defaultBranch, or (every treehouse worktree) a
+  # detached commit no branch contains. A half-finished completion that holds
+  # the clone .git but no tree is repaired on retry.
+  local home src
+  home="$TMP_ROOT/scaffold-shapes-home"
+  src="$TMP_ROOT/scaffold-shapes-src"
+  mkdir -p "$home/projects" "$home/data" "$home/state"
+  git clone -q "$ROOT" "$src"
+
+  git -C "$src" checkout -q -B work 2>/dev/null
+  scaffold_seed_case "$home" "$src" fdev-branch
+  [ "$(git -C "$TMP_ROOT/scaffold-fdev-branch" symbolic-ref --short HEAD)" = work ] || fail "branch scaffold is not on the source branch"
+
+  git -C "$src" checkout -q -B main 2>/dev/null
+  scaffold_seed_case "$home" "$src" fdev-main GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=init.defaultBranch GIT_CONFIG_VALUE_0=main
+  [ "$(git -C "$TMP_ROOT/scaffold-fdev-main" rev-parse --abbrev-ref 'main@{upstream}')" = origin/main ] || fail "main scaffold does not track origin/main"
+
+  git -C "$src" -c advice.detachedHead=false checkout -q --detach
+  git -C "$src" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m detached-only
+  [ -z "$(git -C "$src" for-each-ref --contains HEAD refs/heads)" ] || fail "fixture commit is reachable from a branch"
+  scaffold_seed_case "$home" "$src" fdev-detached
+
+  scaffold_seed_case "$home" "$src" fdev-half half
+  pass "home seeding completes a scaffold for branch, default-branch, and detached sources, and repairs a half-finished one"
+}
+
 test_secondmate_spawn_resolves_punctuated_registry_projects() {
   local home sub sub_abs fakebin log meta projects
   home="$TMP_ROOT/punctuated-spawn-home"
@@ -712,6 +808,61 @@ EOF
     fail "project-less conversion refusal wrote a parent registry route"
   fi
   pass "home seeding refuses project-less conversion of a populated home"
+}
+
+test_home_seed_spaced_name_registry_handling() {
+  local home sub err design
+  home="$TMP_ROOT/spaced-registry-home"
+  sub="$TMP_ROOT/spaced-registry-subhome"
+  design="$TMP_ROOT/spaced-registry-design"
+  err="$TMP_ROOT/spaced-registry.err"
+  mkdir -p "$home/projects/spaced app" "$home/data" "$home/state" "$sub/data"
+  mark_firstmate_home "$sub"
+
+  # 1. Project-less seed refusal must report the full spaced project name.
+  cat > "$sub/data/projects.md" <<EOF
+- spaced app [direct-PR] - retained project entry (added 2026-06-22)
+EOF
+  if FM_HOME="$home" FM_SECONDMATE_CHARTER='firstmate self-development' \
+    FM_SECONDMATE_SCOPE='firstmate repo work' \
+    "$ROOT/bin/fm-home-seed.sh" fdev "$sub" --no-projects >/dev/null 2>"$err"; then
+    fail "project-less seed accepted a home with a spaced project entry in projects.md"
+  fi
+  grep -F 'data/projects.md entries: spaced app' "$err" >/dev/null \
+    || fail "project-less seed refusal did not report the whole spaced project name"
+
+  # 2. Seeding a spaced project must resolve the parent registry line whole.
+  fm_git_init_commit "$home/projects/spaced app"
+  fm_git_add_origin "$home/projects/spaced app" "$TMP_ROOT/remotes/seed-spaced-app.git"
+  cat > "$home/data/projects.md" <<EOF
+- spaced app [direct-PR] - spaced project with posture (added 2026-06-22)
+EOF
+  FM_HOME="$home" FM_SECONDMATE_CHARTER='feature design for spaced app' \
+    FM_SECONDMATE_SCOPE='feature design for spaced app' \
+    "$ROOT/bin/fm-home-seed.sh" design "$design" "spaced app" >/dev/null \
+    || fail "seed with spaced project name failed"
+  assert_grep '- spaced app [direct-PR] - spaced project with posture' "$design/data/projects.md" \
+    "seed did not preserve the parent registry line for a spaced project name"
+
+  # 3. A name containing " - " must match its whole row, and reseeding must
+  #    replace that row instead of duplicating it.
+  mkdir -p "$home/projects/dash - app"
+  fm_git_init_commit "$home/projects/dash - app"
+  fm_git_add_origin "$home/projects/dash - app" "$TMP_ROOT/remotes/seed-dash-app.git"
+  cat >> "$home/data/projects.md" <<EOF
+- dash - app [direct-PR] - dashed project with posture (added 2026-06-22)
+EOF
+  local i
+  for i in 1 2; do
+    FM_HOME="$home" FM_SECONDMATE_CHARTER='feature design for dash app' \
+      FM_SECONDMATE_SCOPE='feature design for dash app' \
+      "$ROOT/bin/fm-home-seed.sh" design "$design" "dash - app" >/dev/null \
+      || fail "seed $i with a dashed project name failed"
+  done
+  [ "$(grep -cF -- '- dash - app [direct-PR] - dashed project with posture' "$design/data/projects.md")" = 1 ] \
+    || fail "seed did not keep exactly one parent registry line for a dashed project name: $(cat "$design/data/projects.md")"
+
+  pass "home seeding handles spaced project names in project-less refusal and registry queries"
 }
 
 test_home_seed_refuses_projectless_home_with_uninspectable_projects() {
@@ -2512,8 +2663,8 @@ task_set_lock_path() {  # <state-dir>
 # The holder must stay ALIVE: fm_lock_try_acquire reclaims a lock whose owning
 # pid is gone, so a lock taken in a subshell that then exits would be stolen and
 # the contention under test would never happen.
-hold_task_set_lock() {  # <state-dir> -> echoes "<holder-pid> <lock-path>"
-  local state=$1 lock holder i=0
+hold_task_set_lock() {  # <state-dir> [role] -> echoes "<holder-pid> <lock-path>"
+  local state=$1 role=${2:-} lock holder i=0
   lock=$(task_set_lock_path "$state") || return 1
   [ -n "$lock" ] || return 1
   # stdout/stderr are redirected so the long-lived holder does not inherit this
@@ -2524,6 +2675,7 @@ hold_task_set_lock() {  # <state-dir> -> echoes "<holder-pid> <lock-path>"
     # shellcheck source=/dev/null
     . "$ROOT/bin/fm-wake-lib.sh"
     fm_lock_try_acquire "$lock" || exit 1
+    [ -z "$role" ] || fm_lock_set_role "$lock" "$role" || exit 1
     sleep 30
   ) >/dev/null 2>&1 &
   # shellcheck disable=SC2031 # The background PID is captured immediately in this shell.
@@ -2537,6 +2689,17 @@ hold_task_set_lock() {  # <state-dir> -> echoes "<holder-pid> <lock-path>"
     wait "$holder" 2>/dev/null || true
     return 1
   }
+  if [ -n "$role" ]; then
+    while [ "$(cat "$lock/role" 2>/dev/null || true)" != "$role" ] && [ "$i" -lt 100 ]; do
+      sleep 0.1
+      i=$((i + 1))
+    done
+    [ "$(cat "$lock/role" 2>/dev/null || true)" = "$role" ] || {
+      kill "$holder" 2>/dev/null || true
+      wait "$holder" 2>/dev/null || true
+      return 1
+    }
+  fi
   printf '%s %s\n' "$holder" "$lock"
 }
 
@@ -2656,6 +2819,8 @@ SH
     || fail "could not resolve the established descendant task-set lock"
   [ -d "$subhome/state" ] || fail "forced teardown did not establish the absent state directory"
   [ -e "$lock" ] || fail "forced teardown did not own the descendant task-set lock during preflight"
+  [ "$(cat "$lock/role" 2>/dev/null || true)" = forced-teardown ] \
+    || fail "forced teardown did not identify itself as the task-set lock holder"
   kill -0 "$pid" 2>/dev/null || fail "forced teardown exited before task-set ownership was observed"
   : > "$release"
   if wait "$pid"; then
@@ -2676,7 +2841,7 @@ $rec
 EOF
   err="$TMP_ROOT/taskset-teardown.err"
   # Stand in for a fresh spawn that is mid-publication in the secondmate's home.
-  held=$(hold_task_set_lock "$subhome/state") \
+  held=$(hold_task_set_lock "$subhome/state" task-spawn) \
     || fail "could not stage a held task-set lock"
   holder=${held%% *}
   lock=${held#* }
@@ -2707,7 +2872,7 @@ $rec
 EOF
   err="$TMP_ROOT/taskset-spawn.err"
   # Stand in for a forced teardown that already enumerated this home's task set.
-  held=$(hold_task_set_lock "$subhome/state") \
+  held=$(hold_task_set_lock "$subhome/state" forced-teardown) \
     || fail "could not stage a held task-set lock"
   holder=${held%% *}
   lock=${held#* }
@@ -2719,13 +2884,36 @@ EOF
   [ ! -e "$subhome/state/newtask.meta" ] \
     || fail "a refused spawn still published a durable record"
   [ -e "$lock" ] || fail "a refused spawn removed the teardown's task-set lock"
-  grep -F "task set is locked" "$err" >/dev/null \
+  grep -F "task set is locked by a forced teardown" "$err" >/dev/null \
     || fail "the spawn refusal did not name the task-set contention: $(cat "$err")"
   [ ! -e "$subhome/state/.spawn-newtask.lock" ] \
     || fail "a refused spawn left its own task lock behind"
   kill "$holder" 2>/dev/null || true
   wait "$holder" 2>/dev/null || true
   pass "a fresh spawn refuses to publish while a forced teardown owns the task set"
+}
+
+test_fresh_spawn_names_another_spawn_as_task_set_holder() {
+  local home subhome err rec held holder
+  rec=$(seed_task_set_lock_home taskset-two-spawns)
+  IFS='|' read -r home subhome <<EOF
+$rec
+EOF
+  err="$TMP_ROOT/taskset-two-spawns.err"
+  held=$(hold_task_set_lock "$subhome/state" task-spawn) \
+    || fail "could not stage a fresh spawn holding the task-set lock"
+  holder=${held%% *}
+  if FM_HOME="$subhome" FM_SPAWN_NO_GUARD=1 \
+    "$ROOT/bin/fm-spawn.sh" newtask "$subhome/projects/alpha" --scout >/dev/null 2>"$err"; then
+    kill "$holder" 2>/dev/null || true
+    fail "a fresh spawn published while another spawn owned the task set"
+  fi
+  grep -F "task set is locked by another spawn" "$err" >/dev/null \
+    || fail "the refusal did not name the other spawn: $(cat "$err")"
+  [ ! -e "$subhome/state/newtask.meta" ] || fail "a refused spawn published a task"
+  kill "$holder" 2>/dev/null || true
+  wait "$holder" 2>/dev/null || true
+  pass "a fresh spawn refusal identifies another spawn as the task-set holder"
 }
 
 test_fresh_remote_secondmate_spawn_refuses_while_task_set_is_owned() {
@@ -3091,10 +3279,13 @@ test_home_seed_refuses_missing_filled_charter
 test_home_seed_refuses_placeholder_charter
 test_home_seed_refuses_empty_charter_fields
 test_home_seed_no_projects_end_to_end
+test_home_seed_completes_auto_chartered_scaffold
+test_home_seed_completes_scaffold_for_every_source_shape
 test_secondmate_spawn_resolves_punctuated_registry_projects
 test_secondmate_spawn_refuses_ambiguous_and_mismatched_registry_bindings
 test_home_seed_refuses_projectful_reused_charter_for_projectless_home
 test_home_seed_refuses_projectless_conversion_of_populated_home
+test_home_seed_spaced_name_registry_handling
 test_home_seed_refuses_projectless_home_with_uninspectable_projects
 test_home_seed_refuses_projectless_home_with_symlinked_projects
 test_home_seed_refuses_projectless_home_with_non_directory_projects
@@ -3144,6 +3335,7 @@ test_force_teardown_refuses_symlinked_descendant_state
 test_force_teardown_locks_descendant_with_absent_state
 test_force_teardown_refuses_while_a_task_is_being_published
 test_fresh_spawn_refuses_while_a_forced_teardown_owns_the_task_set
+test_fresh_spawn_names_another_spawn_as_task_set_holder
 test_fresh_remote_secondmate_spawn_refuses_while_task_set_is_owned
 test_secondmate_force_teardown_refuses_child_active_home_descendant
 test_secondmate_force_teardown_refuses_child_repo_descendant

@@ -26,6 +26,11 @@
 #       when no filled charter brief exists. Set FM_SECONDMATE_SCOPE='<scope>'
 #       to override the registry routing scope. Otherwise the registry summary
 #       and scope are derived from the filled charter brief.
+#       An existing auto-chartered scaffold (bin/fm-route-domain.py leaves only
+#       data/, state/, and the identity markers) is completed in place into a
+#       firstmate home: the active firstmate repo is cloned, and the clone's
+#       .git and tree are moved in around the gitignored operational directories, so
+#       fm-spawn.sh --secondmate accepts the home instead of refusing it.
 #   fm-home-seed.sh validate
 #       Refuse records that operational consumers cannot parse, unavailable or
 #       unsafe registry files when present, non-absolute or unresolvable homes,
@@ -401,6 +406,32 @@ acquire_treehouse_home() {
   printf '%s\n' "$home"
 }
 
+complete_auto_chartered_home() {
+  # <home>: finish an auto-chartered scaffold into a firstmate home in place.
+  # The git metadata and tree come from the same clone a new home gets; the
+  # scaffold's data/, state/, and identity markers are gitignored and untracked,
+  # so the cloned tree moves in around them. The clone's .git moves first, so an
+  # interrupted completion is repaired on retry by checking out that metadata.
+  local home=$1 tmp entry rc=0
+  if [ -e "$home/.git" ]; then
+    git -C "$home" checkout -q -f && return 0
+    echo "error: could not repair auto-chartered home $home from its clone metadata" >&2
+    return 1
+  fi
+  tmp=$(mktemp -d "$(dirname "$home")/.fm-seed-clone.XXXXXX") || return 1
+  if git clone --quiet "$FM_ROOT" "$tmp/home" && mv "$tmp/home/.git" "$home/.git"; then
+    for entry in "$tmp/home"/* "$tmp/home"/.[!.]*; do
+      [ -e "$entry" ] || continue
+      mv "$entry" "$home/" || rc=1
+    done
+  else
+    rc=1
+  fi
+  rm -rf "$tmp"
+  [ "$rc" -eq 0 ] || echo "error: could not complete auto-chartered home $home from $FM_ROOT" >&2
+  return "$rc"
+}
+
 ensure_home() {
   local id=$1 requested=$2 home
   if [ "$requested" = "-" ]; then
@@ -413,6 +444,13 @@ ensure_home() {
   refuse_active_home_path "$home" || return 1
   if [ -e "$home" ]; then
     [ -d "$home" ] || { echo "error: $home exists and is not a directory" >&2; return 1; }
+    # An auto-chartered scaffold (data/, state/, and the identity markers only)
+    # is not a home yet; complete it in place instead of refusing it.
+    if [ ! -f "$home/AGENTS.md" ] || [ ! -d "$home/bin" ]; then
+      if [ -f "$home/$SUB_HOME_MARKER" ] && [ "$(cat "$home/$SUB_HOME_MARKER" 2>/dev/null || true)" = "$id" ]; then
+        complete_auto_chartered_home "$home" || return 1
+      fi
+    fi
   else
     mkdir -p "$(dirname "$home")"
     git clone --quiet "$FM_ROOT" "$home"
@@ -677,10 +715,24 @@ seed_rollback() {
   fi
 }
 
+# Whole-name registry row match; must stay identical to the rule in
+# bin/fm-project-mode.sh so seeding and posture resolution agree on spaced names.
+# shellcheck disable=SC2016
+REGISTRY_ROW_IS_AWK='
+  function row_is(n,   prefix, after) {
+    prefix = "- " n
+    if (substr($0, 1, length(prefix)) != prefix) return 0
+    after = substr($0, length(prefix) + 1)
+    return after == "" || substr(after, 1, 2) == " [" || substr(after, 1, 3) == " - "
+  }
+'
+
 registry_line_for_project() {
   local project=$1 line
   [ -f "$DATA/projects.md" ] || return 1
-  line=$(awk -v n="$project" '$1=="-" && $2==n { print; exit }' "$DATA/projects.md")
+  line=$(awk -v n="$project" "$REGISTRY_ROW_IS_AWK"'
+    row_is(n) { print; exit }
+  ' "$DATA/projects.md")
   [ -n "$line" ] || return 1
   printf '%s\n' "$line"
 }
@@ -704,12 +756,9 @@ sync_project_registry() {
   tmp="$sub_reg.tmp.$$"
   names=$(printf '%s\n' "$@" | awk '{ printf "%s%s", sep, $0; sep="\034" }')
   if [ -f "$sub_reg" ]; then
-    awk -v names="$names" '
-      BEGIN {
-        split(names, a, "\034")
-        for (i in a) selected[a[i]]=1
-      }
-      !($1=="-" && ($2 in selected)) { print }
+    awk -v names="$names" "$REGISTRY_ROW_IS_AWK"'
+      BEGIN { k = split(names, a, "\034") }
+      { for (i = 1; i <= k; i++) if (row_is(a[i])) next; print }
     ' "$sub_reg" > "$tmp"
   else
     : > "$tmp"
@@ -784,7 +833,16 @@ refuse_populated_projectless_home() {
     clones+=("$(basename "$project_path")")
   done
   if [ -f "$home/data/projects.md" ]; then
-    registry_entries=$(awk '$1 == "-" && $2 != "" { print $2 }' "$home/data/projects.md") || {
+    registry_entries=$(awk '
+      substr($0, 1, 2) == "- " {
+        rest = substr($0, 3)
+        cut = index(rest, " [")
+        dash = index(rest, " - ")
+        if (dash > 0 && (cut == 0 || dash < cut)) cut = dash
+        name = cut > 0 ? substr(rest, 1, cut - 1) : rest
+        if (name != "") print name
+      }
+    ' "$home/data/projects.md") || {
       echo "error: cannot inspect existing project registry at $home/data/projects.md; resolve its access permissions or retire or clean this home before seeding with --no-projects" >&2
       return 1
     }

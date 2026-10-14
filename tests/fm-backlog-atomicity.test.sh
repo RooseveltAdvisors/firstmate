@@ -36,6 +36,10 @@ SPAWN="$ROOT/bin/fm-spawn.sh"
 TEARDOWN="$ROOT/bin/fm-teardown.sh"
 BOOTSTRAP="$ROOT/bin/fm-bootstrap.sh"
 TMP_ROOT=$(fm_test_tmproot fm-backlog-atomicity)
+# The fixture helpers below call tasks-axi directly, and tasks-axi reads a
+# .tasks.toml from its working directory. Run from the scratch root so an
+# operator override in the checkout cannot redirect those calls.
+cd "$TMP_ROOT" || exit 1
 
 command -v tasks-axi >/dev/null 2>&1 || {
   printf 'ok - skipped (tasks-axi is not installed; the fused transitions are inert without it)\n'

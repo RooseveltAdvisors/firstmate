@@ -14,38 +14,148 @@ GUARD_PY="$ROOT/bin/fm-jev-guard.py"
 TDIR=$(fm_test_tmproot fm-jev-guard-test)
 export FM_TEST_PRIMARY=1
 
+# Mock primary root: every direct GUARD_SH invocation pins it so the guard
+# engages regardless of ambient state. A secondmate home carries the gitignored
+# .fm-secondmate-home marker (.gitignore line 7), which correctly makes the
+# guard inert there and would otherwise vacate the primary-console assertions
+# below or fail the live deny assertions. The deliberate inertness cases at the
+# end pin their own worktree and secondmate mocks instead.
+MOCK_PRIMARY="$TDIR/mock-primary"
+mkdir -p "$MOCK_PRIMARY/bin" "$MOCK_PRIMARY/state"
+touch "$MOCK_PRIMARY/AGENTS.md"
+cp "$GUARD_PY" "$MOCK_PRIMARY/bin/fm-jev-guard.py"
+run_guard() {
+  env -u FM_HOME FM_ROOT_OVERRIDE="$MOCK_PRIMARY" FM_JEV_GUARD_CACHE="$TDIR/jev-guard-cache.json" \
+    "$GUARD_SH" "$@"
+}
+guard_decision() {
+  env -u FM_HOME FM_ROOT_OVERRIDE="$MOCK_PRIMARY" FM_JEV_GUARD_CACHE="$TDIR/jev-guard-cache.json" \
+    PATH="${GUARD_PATH:-$PATH}" python3 "$GUARD_PY" --command "$1" --check-only
+}
+
 # 1. Help flag works
-help_out=$("$GUARD_SH" --help 2>&1 || true)
+help_out=$(run_guard --help 2>&1 || true)
 assert_contains "$help_out" "Usage: fm-jev-guard.sh" "shell wrapper emits usage"
 
 # 2. Tier 1 Fast-path whitelist allows benign supervisor commands at 0ms
-"$GUARD_SH" --command "bd list" || fail "bd list denied unexpectedly"
-"$GUARD_SH" --command "bd create 'investigate failing test shard'" || fail "bd create with inner 'test' denied unexpectedly"
-"$GUARD_SH" --command "bin/fm-send.sh gpu-ops 'restart stt service'" || fail "fm-send with inner 'restart' denied unexpectedly"
-"$GUARD_SH" --command "bin/fm-wake-drain.sh" || fail "fm-wake-drain denied unexpectedly"
-"$GUARD_SH" --command "git status --porcelain" || fail "git status denied unexpectedly"
-"$GUARD_SH" --command "git -C /opt/ra/firstmate status -sb | head -8" || fail "git -C status with pipe denied unexpectedly"
-"$GUARD_SH" --command "FM_HOME=/opt/ra/firstmate bin/fm-watch-arm.sh --restart 2>&1 | tail -3" || fail "fm-watch-arm --restart denied unexpectedly"
-"$GUARD_SH" --command "OLD=\$(pgrep -f '/opt/ra/firstmate/bin/fm-watch.sh' | head -1); FM_HOME=/opt/ra/firstmate bin/fm-watch-arm.sh --restart 2>&1 | tail -2; sleep 5; NEW=\$(pgrep -f '/opt/ra/firstmate/bin/fm-watch.sh' | head -1); echo watcher" || fail "compound subshell watcher restart denied unexpectedly"
-"$GUARD_SH" --command "bash /opt/ra/firstmate/tests/fm-jev-disk-io-guard.test.sh 2>&1 | tail -6" || fail "bash jev test suite denied unexpectedly"
-"$GUARD_SH" --command "cp /opt/ra/firstmate/bin/fm-watch.sh /tmp/fmw-check5.sh; bash -n /tmp/fmw-check5.sh && echo WATCH_SYNTAX_OK; bash /opt/ra/firstmate/tests/fm-jev-sockbuf-guard.test.sh 2>&1 | tail -5" || fail "syntax check pipeline denied unexpectedly"
-"$GUARD_SH" --command "git -C /opt/ra/firstmate add bin/fm-watch.sh && git -C /opt/ra/firstmate commit -m 'feat(watch): update'" || fail "firstmate self-repo commit denied unexpectedly"
-"$GUARD_SH" --command "cat state/websites.status | grep needs-decision" || fail "cat/grep state denied unexpectedly"
-"$GUARD_SH" --command "FM_HOME=/opt/ra/firstmate bash -c 'cd /opt/ra/firstmate && bd create \"fm-zeta-runner-gpu: register runner\"'" || fail "wrapped bd create in bash -c denied unexpectedly"
-"$GUARD_SH" --command "FM_HOME=/opt/ra/firstmate bash -c 'cd /opt/ra/firstmate && bd list --status all --json 2>/dev/null | python3 -c \" import json,sys; sys.exit(0)\"'" || fail "wrapped bd list with python filter denied unexpectedly"
-"$GUARD_SH" --command "FM_HOME=/opt/ra/firstmate bin/fm-send.sh gpu-ops 'diagnose with journalctl -u render-credentials.service and restart systemctl' 2>&1 | tail -1" || fail "fm-send with inner systemctl/journalctl denied unexpectedly"
+run_guard --command "bd list" || fail "bd list denied unexpectedly"
+run_guard --command "bd create 'investigate failing test shard'" || fail "bd create with inner 'test' denied unexpectedly"
+run_guard --command "bin/fm-send.sh gpu-ops 'restart stt service'" || fail "fm-send with inner 'restart' denied unexpectedly"
+run_guard --command "bin/fm-wake-drain.sh" || fail "fm-wake-drain denied unexpectedly"
+run_guard --command "git status --porcelain" || fail "git status denied unexpectedly"
+run_guard --command "git -C /opt/ra/firstmate status -sb | head -8" || fail "git -C status with pipe denied unexpectedly"
+run_guard --command "FM_HOME=/opt/ra/firstmate bin/fm-watch-arm.sh --restart 2>&1 | tail -3" || fail "fm-watch-arm --restart denied unexpectedly"
+run_guard --command "OLD=\$(pgrep -f '/opt/ra/firstmate/bin/fm-watch.sh' | head -1); FM_HOME=/opt/ra/firstmate bin/fm-watch-arm.sh --restart 2>&1 | tail -2; sleep 5; NEW=\$(pgrep -f '/opt/ra/firstmate/bin/fm-watch.sh' | head -1); echo watcher" || fail "compound subshell watcher restart denied unexpectedly"
+run_guard --command "bash /opt/ra/firstmate/tests/fm-jev-disk-io-guard.test.sh 2>&1 | tail -6" || fail "bash jev test suite denied unexpectedly"
+run_guard --command "cp /opt/ra/firstmate/bin/fm-watch.sh /tmp/fmw-check5.sh; bash -n /tmp/fmw-check5.sh && echo WATCH_SYNTAX_OK; bash /opt/ra/firstmate/tests/fm-jev-sockbuf-guard.test.sh 2>&1 | tail -5" || fail "syntax check pipeline denied unexpectedly"
+run_guard --command "git -C /opt/ra/firstmate add bin/fm-watch.sh && git -C /opt/ra/firstmate commit -m 'feat(watch): update'" || fail "firstmate self-repo commit denied unexpectedly"
+run_guard --command "cat state/websites.status | grep needs-decision" || fail "cat/grep state denied unexpectedly"
+run_guard --command "FM_HOME=/opt/ra/firstmate bash -c 'cd /opt/ra/firstmate && bd create \"fm-zeta-runner-gpu: register runner\"'" || fail "wrapped bd create in bash -c denied unexpectedly"
+run_guard --command "FM_HOME=/opt/ra/firstmate bash -c 'cd /opt/ra/firstmate && bd list --status all --json 2>/dev/null | python3 -c \" import json,sys; sys.exit(0)\"'" || fail "wrapped bd list with python filter denied unexpectedly"
+
+# 2a. The tool IS the delegation: a delegation tool invocation typed with an
+# approved prefix fast-passes whatever implementation-looking argument text it
+# carries. Assert the Tier-1 fast_path_whitelist code directly (not merely exit 0)
+# so the check stays deterministic where no live classifier key exists.
+# Ordering pin: the systemctl and docker payload cases fail if the delegation
+# fast-pass ever moves after the step-1 ssh/sudo/systemctl/docker deny.
+mkdir -p "$TDIR/launcher/bin" "$TDIR/launcher/node_modules/tasks-axi/dist/bin"
+printf '#!/bin/sh\n' >"$TDIR/launcher/node_modules/tasks-axi/dist/bin/tasks-axi.js"
+chmod +x "$TDIR/launcher/node_modules/tasks-axi/dist/bin/tasks-axi.js"
+ln -s ../node_modules/tasks-axi/dist/bin/tasks-axi.js "$TDIR/launcher/bin/tasks-axi"
+delegation_cmds=(
+  "bin/fm-route-dispatch.sh --task 'restart systemctl on gpu and edit the portal config'"
+  "bin/fm-route-dispatch.sh --task 'implement the new feature in the portal'"
+  "/opt/ra/firstmate/bin/fm-route-dispatch.sh --task 'implement the new feature in the portal'"
+  "bin/fm-send.sh data-fm-si 'edit the database migration and run npm test to validate'"
+  "bin/fm-spawn.sh fdev --secondmate"
+  "bin/fm-send.sh gpu-ops 'sudo systemctl restart ollama'"
+  "bin/fm-send.sh gpu-ops 'docker compose restart portal'"
+  "bin/fm-route-dispatch.sh --task 'sudo systemctl restart ollama, then docker ps'"
+  "bd create 'fix the PATH= export in runner profile'"
+  "tasks-axi list"
+  "bin/fm-send.sh gpu-ops 'Run \`systemctl status ollama\` and report'"
+  "./bin/fm-send.sh gpu-ops 'sudo systemctl restart ollama'"
+  "$TDIR/.treehouse/7/firstmate/bin/fm-send.sh gpu-ops 'docker compose restart portal'"
+  "$TDIR/launcher/bin/tasks-axi list --status 'docker restart pending'"
+  "bash bin/fm-send.sh gpu hi"
+  "sh bin/fm-spawn.sh x"
+  "bash bin/fm-send.sh gpu-ops 'sudo systemctl restart ollama'"
+)
+for cmd in "${delegation_cmds[@]}"; do
+  dec=$(guard_decision "$cmd")
+  assert_contains "$dec" "$(printf 'allow\tfast_path_whitelist')" "delegation tool invocation must Tier-1 fast-pass: $cmd"
+done
+
+mkdir -p "$TDIR/spoof/bin"
+printf '#!/bin/sh\n' >"$TDIR/fm-send.sh"
+printf '#!/bin/sh\n' >"$TDIR/spoof/bin/fm-send.sh"
+chmod +x "$TDIR/fm-send.sh" "$TDIR/spoof/bin/fm-send.sh"
+
+# A bare delegation name, even one a spoofed PATH resolves, never fast-passes.
+for cmd in "fm-send.sh gpu 'sudo systemctl restart ollama'" "fm-send.sh data-fm-si 'implement the feature'"; do
+  dec=$(GUARD_PATH="$TDIR:$PATH" guard_decision "$cmd")
+  case "$dec" in
+    "$(printf 'allow\tfast_path_whitelist')"*) fail "bare delegation name must not fast-pass: $cmd" ;;
+  esac
+done
+
+# 2b. Direct primary-console implementation never takes the delegation
+# fast-path, and a compound tail after a delegation tool still faces the full
+# gauntlet: neither may reach the classifier's allow path as a delegation tool.
+for cmd in \
+  "ssh srv 'systemctl restart x'" \
+  "bin/fm-send.sh data-fm-si 'msg'; ssh srv 'systemctl restart x'" \
+  "python3 -c 'open(\"bin/fm-jev-guard.py\", \"w\").write(\"x\")'" \
+  "cp /usr/bin/ss[h] /tmp/fm-send.sh && /tmp/fm-send.sh gpu 'sudo systemctl restart ollama'" \
+  "$TDIR/fm-send.sh gpu 'reboot'" \
+  "bash $TDIR/fm-send.sh gpu 'reboot'" \
+  "cp /usr/bin/ss[h] /tmp/fm-send.sh && PATH=/tmp:\$PATH fm-send.sh gpu 'reboot'" \
+  "export PATH=$TDIR/spoof/bin:\$PATH; fm-send.sh gpu 'reboot'" \
+  "cd $TDIR && ./fm-send.sh gpu 'sudo systemctl restart ollama'" \
+  "bin/fm-send.sh data-fm-si 'sudo systemctl restart x'; docker restart portal" \
+  "PATH=/tmp fm-send.sh gpu 'reboot'" \
+  "PATH=/tmp bd gpu 'reboot'" \
+  "env PATH=/tmp bd gpu 'reboot'" \
+  "cp /usr/bin/ss[h] /tmp/bd && PATH=/tmp:\$PATH bd gpu 'reboot'" \
+  "bd-evil gpu 'sudo systemctl restart ollama'" \
+  "tasks-axi-evil list" \
+  "bin/fm-send.shx ssh gpu" \
+  "bash -c 'ssh host uptime'" \
+  "bash /tmp/fm-send.sh x" \
+  "bash bd x" \
+  "sh tasks-axi x" \
+  "FM_HOME=/opt/ra/firstmate bin/fm-send.sh gpu-ops 'diagnose with journalctl -u render-credentials.service and restart systemctl'" \
+  ; do
+  dec=$(guard_decision "$cmd")
+  case "$dec" in
+    "$(printf 'allow\tfast_path_whitelist')"*)
+      fail "non-delegation or compound-smuggle command must not fast-pass: $cmd"
+      ;;
+  esac
+done
 
 # 3. Fail-open on empty or malformed inputs
-printf '' | "$GUARD_SH" || fail "empty stdin failed to allow open"
-printf '{bad json' | "$GUARD_SH" || fail "malformed json failed to allow open"
-"$GUARD_SH" --command "" || fail "empty command failed to allow open"
+printf '' | run_guard || fail "empty stdin failed to allow open"
+printf '{bad json' | run_guard || fail "malformed json failed to allow open"
+run_guard --command "" || fail "empty command failed to allow open"
 
 # 4. Live classification if TYPESAFE_API_KEY is available
 if jev key >/dev/null 2>&1; then
+  # Delegation tool invocations stay allowed even when the classifier would
+  # deny their implementation-looking argument text, while direct
+  # primary-console implementation is still denied as require_delegation.
+  dec=$(guard_decision "bin/fm-route-dispatch.sh --task 'restart systemctl on gpu and edit the portal config'")
+  assert_contains "$dec" "$(printf 'allow\tfast_path_whitelist')" "live: delegation tool with systemctl argument text must stay allowed"
+  dec=$(guard_decision "ssh srv 'systemctl restart x'")
+  assert_contains "$dec" "$(printf 'deny\trequire_delegation')" "live: direct ssh implementation must still be denied"
+  dec=$(guard_decision "bin/fm-send.sh data-fm-si 'msg'; ssh srv 'systemctl restart x'")
+  assert_contains "$dec" "$(printf 'deny\trequire_delegation')" "live: compound tail after a delegation tool must still be denied"
+
   # Direct remote SSH must be denied
   set +e
   deny_stderr=$(mktemp)
-  deny_stdout=$("$GUARD_SH" --command 'ssh srv-covenant-app "sudo systemctl restart arcs-portal"' 2>"$deny_stderr")
+  deny_stdout=$(run_guard --command 'ssh srv-covenant-app "sudo systemctl restart arcs-portal"' 2>"$deny_stderr")
   exit_code=$?
   set -e
   [ "$exit_code" -eq 2 ] || fail "ssh systemctl restart was not denied (exit code $exit_code)"
@@ -58,7 +168,7 @@ if jev key >/dev/null 2>&1; then
   # Compound command sneak must be caught and denied
   set +e
   compound_err=$(mktemp)
-  "$GUARD_SH" --command 'bin/fm-wake-drain.sh 2>&1 | grep WAKE_ACK; ssh srv "redis-cli ping"' 2>"$compound_err"
+  run_guard --command 'bin/fm-wake-drain.sh 2>&1 | grep WAKE_ACK; ssh srv "redis-cli ping"' 2>"$compound_err"
   compound_code=$?
   set -e
   [ "$compound_code" -eq 2 ] || fail "compound sneak command was not denied (code $compound_code)"
@@ -69,7 +179,7 @@ if jev key >/dev/null 2>&1; then
   # Claude mode test: stderr gets JSON, stdout stays empty, exit code 2
   set +e
   claude_err=$(mktemp)
-  claude_out=$(jq -nc '{"tool_input":{"command":"ssh gpu \"docker ps\""}}' | "$GUARD_SH" --claude 2>"$claude_err")
+  claude_out=$(jq -nc '{"tool_input":{"command":"ssh gpu \"docker ps\""}}' | run_guard --claude 2>"$claude_err")
   claude_code=$?
   set -e
   [ "$claude_code" -eq 2 ] || fail "claude mode failed to exit 2 (got $claude_code)"
@@ -80,7 +190,7 @@ if jev key >/dev/null 2>&1; then
   assert_contains "$claude_errmsg" "gpu_ops" "claude stderr identified gpu_ops domain"
 
   # Cursor mode test: exits 0, user_message on stdout
-  cursor_out=$(jq -nc '{"tool_input":{"command":"ssh gpu \"docker ps\""}}' | "$GUARD_SH" --cursor)
+  cursor_out=$(jq -nc '{"tool_input":{"command":"ssh gpu \"docker ps\""}}' | run_guard --cursor)
   assert_contains "$cursor_out" '"permission":"deny"' "cursor stdout contains permission deny"
   assert_contains "$cursor_out" "gpu_ops" "cursor stdout identified gpu_ops"
 fi
