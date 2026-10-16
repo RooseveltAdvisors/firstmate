@@ -3799,16 +3799,17 @@ fi
 W="fm-$ID"
 HERDR_TASK_LABEL=$W
 if [ "$BACKEND" = herdr ]; then
+  brief_for_title=${SOURCE_BRIEF:-$BRIEF}
   HERDR_TASK_TITLE=${FM_BACKLOG_ROW_TITLE:-}
   if [ -z "$HERDR_TASK_TITLE" ]; then
     HERDR_TASK_TITLE=$(awk '
       /^# Task[[:space:]]*$/ { in_task=1; next }
       in_task && /^#/ { exit }
       in_task && NF { print; exit }
-    ' "$BRIEF")
+    ' "$brief_for_title")
   fi
   if [ -z "$HERDR_TASK_TITLE" ]; then
-    HERDR_TASK_TITLE=$(awk '!/^#/ && NF { print; exit }' "$BRIEF")
+    HERDR_TASK_TITLE=$(awk '!/^#/ && NF { print; exit }' "$brief_for_title")
   fi
   HERDR_TASK_LABEL=$(fm_backend_herdr_task_label "$HERDR_TASK_TITLE" "$ID")
 fi

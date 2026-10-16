@@ -20,6 +20,7 @@ set -u
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+export FM_DISABLE_JEV_WATCHER_GUARDS=1
 # The end-to-end checkpoint case drives the real watcher, whose first round also
 # runs the heavy background Jev sweeps; this helper disables those for test
 # harnesses so the case measures the armed check and nothing else.

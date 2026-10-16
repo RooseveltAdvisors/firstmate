@@ -69,6 +69,10 @@ unset FM_TASK_ID
 # path; those suites unset it here and the helper never reads .env.
 unset TYPESAFE_API_KEY TYPESAFE_API_KEY_PRIVATE
 
+# Disable heavy Jev background sweeps and seat auto-reconciler during test suites
+export FM_TEST_DISABLE_JEV_RECONCILER=1
+export FM_DISABLE_JEV_WATCHER_GUARDS=1
+
 # Clear the tasks-axi env overrides. An operator shell exports TASKS_AXI_FILE
 # (and may export TASKS_AXI_BACKEND) at its real home's backlog, and tasks-axi
 # resolves that env AHEAD of the .tasks.toml a fixture copies, so a suite that

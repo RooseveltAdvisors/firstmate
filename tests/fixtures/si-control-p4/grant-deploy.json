@@ -1,0 +1,8 @@
+{
+  "action_class": "prod_deploy",
+  "target": "srv-covenant-app",
+  "task_id": "task-deploy-001",
+  "expires_at": "2030-01-01T00:00:00Z",
+  "approval_reference": "captain-grant-20261014-003",
+  "used_at": null
+}

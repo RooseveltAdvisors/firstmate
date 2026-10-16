@@ -24,13 +24,17 @@ from typing import Dict, List, Any, Optional
 
 
 def run_cmd(args: List[str], cwd: Optional[str] = None) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        args,
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        return subprocess.run(
+            args,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        # A missing binary (e.g. no herdr on this host) is a failed command, not a crash.
+        return subprocess.CompletedProcess(args, 127, "", str(exc))
 
 
 def list_herdr_panes(session: str = "firstmate") -> List[Dict[str, Any]]:

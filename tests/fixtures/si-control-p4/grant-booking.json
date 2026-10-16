@@ -1,0 +1,8 @@
+{
+  "action_class": "booking",
+  "target": "cal-doctor-sched",
+  "task_id": "task-booking-001",
+  "expires_at": "2030-01-01T00:00:00Z",
+  "approval_reference": "captain-grant-20261014-001",
+  "used_at": null
+}

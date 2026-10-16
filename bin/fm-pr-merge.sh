@@ -1805,21 +1805,23 @@ case "$outcome_rc" in
     ;;
 esac
 
-# Pattern 15: Jev Post-Merge Worktree Convergence Audit (Fail-Open)
-if [ -x "$SCRIPT_DIR/fm-jev-worktree-sync.sh" ]; then
-  printf 'jev-worktree-sync: auditing active worktrees for %s...\n' "${PR_REPO:-fleet}"
-  "$SCRIPT_DIR/fm-jev-worktree-sync.sh" --repo-name "${PR_REPO:-}" 2>&1 || true
-fi
+if [ "${FM_TEST_SEAM:-0}" != 1 ]; then
+  # Pattern 15: Jev Post-Merge Worktree Convergence Audit (Fail-Open)
+  if [ -x "$SCRIPT_DIR/fm-jev-worktree-sync.sh" ] && [ "${FM_DISABLE_JEV_WORKTREE_SYNC:-0}" != 1 ]; then
+    printf 'jev-worktree-sync: auditing active worktrees for %s...\n' "${PR_REPO:-fleet}"
+    "$SCRIPT_DIR/fm-jev-worktree-sync.sh" --repo-name "${PR_REPO:-}" 2>&1 || true
+  fi
 
-# Pattern 19: Jev Post-Merge Stale Worktree & Detached Branch Reaper (Fail-Open)
-if [ -x "$SCRIPT_DIR/fm-jev-worktree-reaper.sh" ] && [ "${FM_DISABLE_JEV_WORKTREE_REAPER:-0}" != 1 ]; then
-  printf 'jev-worktree-reaper: scanning for clean merged worktrees for %s...\n' "${PR_REPO:-fleet}"
-  "$SCRIPT_DIR/fm-jev-worktree-reaper.sh" --repo-name "${PR_REPO:-}" 2>&1 || true
-fi
+  # Pattern 19: Jev Post-Merge Stale Worktree & Detached Branch Reaper (Fail-Open)
+  if [ -x "$SCRIPT_DIR/fm-jev-worktree-reaper.sh" ] && [ "${FM_DISABLE_JEV_WORKTREE_REAPER:-0}" != 1 ]; then
+    printf 'jev-worktree-reaper: scanning for clean merged worktrees for %s...\n' "${PR_REPO:-fleet}"
+    "$SCRIPT_DIR/fm-jev-worktree-reaper.sh" --repo-name "${PR_REPO:-}" 2>&1 || true
+  fi
 
-# Pattern 21: Jev Post-Merge Asset & Artifact Cache De-Duplicator (Fail-Open)
-if [ -x "$SCRIPT_DIR/fm-jev-artifact-dedup.sh" ] && [ "${FM_DISABLE_JEV_ARTIFACT_DEDUP:-0}" != 1 ]; then
-  printf 'jev-artifact-dedup: deduplicating score & artifact caches...\n'
-  "$SCRIPT_DIR/fm-jev-artifact-dedup.sh" 2>&1 || true
+  # Pattern 21: Jev Post-Merge Asset & Artifact Cache De-Duplicator (Fail-Open)
+  if [ -x "$SCRIPT_DIR/fm-jev-artifact-dedup.sh" ] && [ "${FM_DISABLE_JEV_ARTIFACT_DEDUP:-0}" != 1 ]; then
+    printf 'jev-artifact-dedup: deduplicating score & artifact caches...\n'
+    "$SCRIPT_DIR/fm-jev-artifact-dedup.sh" 2>&1 || true
+  fi
 fi
 

@@ -29,7 +29,10 @@ trap 'rm -rf "$TEST_TMP"' EXIT
 
 MOCK_DATA="$TEST_TMP/mock-ci.json"
 
-cat <<'EOF' > "$MOCK_DATA"
+RECENT_ISO=$(python3 -c "import datetime; print((datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=5)).strftime('%Y-%m-%dT%H:%M:%SZ'))")
+OLD_ISO=$(python3 -c "import datetime; print((datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=50)).strftime('%Y-%m-%dT%H:%M:%SZ'))")
+
+cat <<EOF > "$MOCK_DATA"
 {
   "runners": [
     {
@@ -73,14 +76,14 @@ cat <<'EOF' > "$MOCK_DATA"
       "databaseId": 1001,
       "name": "Test Suite (1/12)",
       "status": "in_progress",
-      "startedAt": "2026-09-21T10:25:00Z",
+      "startedAt": "$RECENT_ISO",
       "runnerName": "Portal-agt-10"
     },
     {
       "databaseId": 1002,
       "name": "Test Suite (2/12)",
       "status": "in_progress",
-      "startedAt": "2026-09-21T09:50:00Z",
+      "startedAt": "$OLD_ISO",
       "runnerName": "cvn-runner-01"
     },
     {

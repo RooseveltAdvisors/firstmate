@@ -25,11 +25,15 @@ echo "ok - python syntax clean"
 "${BIN}" --help >/dev/null
 echo "ok - --help works"
 
-# 4. JSON output schema validation
-JSON_OUT="$("${BIN}" --json)"
-python3 -c '
-import json, sys
+# 4. JSON output schema validation. The live host's verdict varies (exit 0
+# healthy, 1 unhealthy), so accept either but require it to match the report.
+json_rc=0
+JSON_OUT="$("${BIN}" --json)" || json_rc=$?
+[ "${json_rc}" -le 1 ] || { echo "FAILED: --json exited ${json_rc}"; exit 1; }
+JSON_RC="${json_rc}" python3 -c '
+import json, os, sys
 data = json.loads(sys.stdin.read())
+assert data["summary"]["healthy"] == (os.environ["JSON_RC"] == "0")
 assert "timestamp" in data
 assert "summary" in data
 assert "status" in data["summary"]
@@ -41,8 +45,10 @@ assert "top_rx_sockets" in data
 ' <<< "${JSON_OUT}"
 echo "ok - json audit schema valid"
 
-# 5. Text mode runs cleanly
-"${BIN}" >/dev/null
+# 5. Text mode runs cleanly (same live verdict as --json, so exit 0 or 1)
+text_rc=0
+"${BIN}" >/dev/null || text_rc=$?
+[ "${text_rc}" -le 1 ] || { echo "FAILED: text mode exited ${text_rc}"; exit 1; }
 echo "ok - text mode runs cleanly"
 
 # 6. Mock testing with simulated queue overrun and MemErrors
