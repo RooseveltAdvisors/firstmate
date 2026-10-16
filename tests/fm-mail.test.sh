@@ -118,11 +118,12 @@ SH
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=h FM_SMTP_HOST=h \
     FM_HOME="$HOME_DIR" PATH="$fakebin:$PATH" \
     "$MAIL" send to@example.com subj "hello world" 2>&1) || rc=$?
-  expect_code 0 "$rc" "send with body must succeed"
-  local captured
-  captured=$(cat "$stdin_file" 2>/dev/null || echo "")
-  assert_contains "$captured" "hello world" "send passes body through stdin to python3"
-  pass "fm-mail: send passes body not empty through stdin"
+  expect_code 1 "$rc" "send must be refused by the action gate"
+  assert_contains "$out" "send refused by action gate" "send names the action gate"
+  if [ -s "$stdin_file" ]; then
+    fail "send reached python after the action gate refused"
+  fi
+  pass "fm-mail: send is refused before python"
 }
 
 test_poll_error_propagates() {
