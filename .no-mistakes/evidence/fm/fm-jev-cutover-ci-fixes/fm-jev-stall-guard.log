@@ -1,0 +1,10 @@
+=== Running fm-jev-stall-guard test suite ===
+PASS: Test 1 - py_compile syntax valid
+PASS: Test 2 - ShellCheck clean on wrapper
+PASS: Test 3 - Worktree mtime prober verified
+Jev Stall Guard: [GENUINE_STALL] websites appears stalled
+Status: GENUINE_STALL (Alert Authorized)
+  • Zero active processes, zero file modifications, zero commits, and zero transcript updates detected.
+PASS: Test 4 - Live seat probe on websites verified
+=== All 4/4 fm-jev-stall-guard tests PASSED (100%) ===
+rc=0 secs=0

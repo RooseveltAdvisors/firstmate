@@ -1,0 +1,50 @@
+### HEAD 959b0abc
+{
+  "seat": "nm-selfmatch-probe-zz9",
+  "worktree": null,
+  "verdict": "GENUINE_STALL",
+  "should_dampen": false,
+  "active_signals_count": 0,
+  "reasons": [
+    "Zero active processes, zero file modifications, zero commits, and zero transcript updates detected."
+  ],
+  "signals": {
+    "active_processes": [],
+    "recent_files_modified": [],
+    "recent_git_commit": null,
+    "recent_transcript_growth": null
+  }
+}
+rc=0
+### HEAD --suppress
+Jev Stall Guard: [GENUINE_STALL] nm-selfmatch-probe-zz9 appears stalled
+Status: GENUINE_STALL (Alert Authorized)
+  • Zero active processes, zero file modifications, zero commits, and zero transcript updates detected.
+rc=1
+### BASE 978c7344
+{
+  "seat": "nm-selfmatch-probe-zz9",
+  "worktree": null,
+  "verdict": "BUSY_ACTIVE_EXECUTION",
+  "should_dampen": true,
+  "active_signals_count": 1,
+  "reasons": [
+    "3 active background process(es) running"
+  ],
+  "signals": {
+    "active_processes": [
+      "3850581 /bin/zsh -c source /home/jon/.claude/shell-snapshots/snapshot-zsh-1792187444652-gozj6m.sh 2>/dev/null || true && setopt NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL 2>/dev/null || true && { \\builtin unalias -- 'unsetenv'; \\builtin unset -f -- 'unsetenv'; } >/dev/null 2>&1 || true && eval 'E=/home/jon/.no-mistakes/evidence/01M53AWZ7F34G61XMA7JT83DZV; D=$(mktemp -d); mkdir -p $D/base $D/home; git show 978c7344:bin/fm-jev-stall-guard.py > $D/base/fm-jev-stall-guard.py; git show 978c7344:bin/fm-jev-stall-guard.sh > $D/base/fm-jev-stall-guard.sh; chmod +x $D/base/*; SEAT=nm-selfmatch-probe-zz9; { echo \"### HEAD 959b0abc\"; FM_HOME=$D/home bin/fm-jev-stall-guard.sh --seat $SEAT --json; echo \"rc=$?\"; echo \"### HEAD --suppress\"; FM_HOME=$D/home bin/fm-jev-stall-guard.sh --seat $SEAT --suppress; echo \"rc=$?\"; echo \"### BASE 978c7344\"; FM_HOME=$D/home $D/base/fm-jev-stall-guard.sh --seat $SEAT --json; echo \"rc=$?\"; echo \"### BASE --suppress\"; FM_HOME=$D/home $D/base/fm-jev-stall-guard.sh --seat $SEAT --suppress; echo \"rc=$?\"; } 2>&1 | tee $E/stall-guard-self-match-live.txt; rm -rf $D' < /dev/null && pwd -P >| /tmp/claude-d587-cwd",
+      "3850605 /bin/zsh -c source /home/jon/.claude/shell-snapshots/snapshot-zsh-1792187444652-gozj6m.sh 2>/dev/null || true && setopt NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL 2>/dev/null || true && { \\builtin unalias -- 'unsetenv'; \\builtin unset -f -- 'unsetenv'; } >/dev/null 2>&1 || true && eval 'E=/home/jon/.no-mistakes/evidence/01M53AWZ7F34G61XMA7JT83DZV; D=$(mktemp -d); mkdir -p $D/base $D/home; git show 978c7344:bin/fm-jev-stall-guard.py > $D/base/fm-jev-stall-guard.py; git show 978c7344:bin/fm-jev-stall-guard.sh > $D/base/fm-jev-stall-guard.sh; chmod +x $D/base/*; SEAT=nm-selfmatch-probe-zz9; { echo \"### HEAD 959b0abc\"; FM_HOME=$D/home bin/fm-jev-stall-guard.sh --seat $SEAT --json; echo \"rc=$?\"; echo \"### HEAD --suppress\"; FM_HOME=$D/home bin/fm-jev-stall-guard.sh --seat $SEAT --suppress; echo \"rc=$?\"; echo \"### BASE 978c7344\"; FM_HOME=$D/home $D/base/fm-jev-stall-guard.sh --seat $SEAT --json; echo \"rc=$?\"; echo \"### BASE --suppress\"; FM_HOME=$D/home $D/base/fm-jev-stall-guard.sh --seat $SEAT --suppress; echo \"rc=$?\"; } 2>&1 | tee $E/stall-guard-self-match-live.txt; rm -rf $D' < /dev/null && pwd -P >| /tmp/claude-d587-cwd",
+      "3850983 /home/linuxbrew/.linuxbrew/bin/python3 /tmp/tmp.3fMr1jO49W/base/fm-jev-stall-guard.py --seat nm-selfmatch-probe-zz9 --json"
+    ],
+    "recent_files_modified": [],
+    "recent_git_commit": null,
+    "recent_transcript_growth": null
+  }
+}
+rc=0
+### BASE --suppress
+Jev Stall Guard: [STALL_DAMPENED] nm-selfmatch-probe-zz9 is actively executing
+Status: BUSY_ACTIVE_EXECUTION (Suppression Recommended)
+  • 3 active background process(es) running
+rc=0
