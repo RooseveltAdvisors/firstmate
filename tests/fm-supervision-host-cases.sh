@@ -1182,6 +1182,7 @@ start_hook_session() {  # <home>
         sleep 0.1
       done
     ' 2>> "$home/claude.err" &
+  HOOK_SESSION_PID=$!
 }
 turn_end() { rm -f "$1/hook.rc"; : > "$1/stop.go"; }
 hook_exited() { [ -s "$1/hook.rc" ]; }
@@ -1436,7 +1437,7 @@ test_successor_left_at_the_turn_survives_the_hook_process_group_teardown() {
 test_claude_stop_hook_notifies_when_at_turn_downtime_write_fails() {
   local home real_mktemp
   home=$(make_primary_home hook-turns-main-only-write-fails)
-  turn_main_only_at_second_offer "$home"
+  turn_main_only_at_second_offer "$home" quiet
   real_mktemp=$(command -v mktemp)
   cat > "$home/fakebin/mktemp" <<SH
 #!/usr/bin/env bash
@@ -1451,11 +1452,14 @@ SH
   turn_end "$home"
   wait_until 150 watcher_live "$home" || fail "hook write failure: no watcher started"
   append_status "$home" 'step one'
-  # The failed hand-back can spend the arm's confirmation budget before the
-  # hook records its failure. Observe that budget plus fixture cleanup slack.
-  wait_until "$(( (FM_ARM_CONFIRM_TIMEOUT + 15) * 10 ))" hook_exited "$home" \
-    || fail "hook write failure: the Stop hook did not finish"
+  # End the fake session after its in-flight hook returns, then join it.
+  # Completion is the observed condition; a poll count cannot establish it.
+  : > "$home/session.stop"
+  wait "$HOOK_SESSION_PID" || fail "hook write failure: the fake session failed"
+  hook_exited "$home" || fail "hook write failure: the Stop hook did not record its exit"
   [ "$(cat "$home/offer-count" 2>/dev/null)" -ge 2 ] || fail "fixture: the close did not turn main-only at its turn"
+  [ "$(cat "$home/offer-count")" -eq 2 ] || fail "the failed hand-back was retried instead of notifying main"
+  watcher_live "$home" || fail "fixture: the failed hand-back did not leave a healthy successor"
   assert_re 'pass-through[[:space:]]+downtime-unrestored' "$home/state/.supervision-host.log" "fixture: downtime publication did not fail"
   assert_re '^(pending|announced):handling:' "$home/state/.watcher-down" "fixture: the marker unexpectedly became downtime"
   expect_code 2 "$(cat "$home/hook.rc")" "the Stop hook must notify main instead of dropping the close"
