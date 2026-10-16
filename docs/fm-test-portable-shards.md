@@ -45,9 +45,11 @@ single 789123 ms baseline sample to **1163984 ms**, the slowest of nine house sa
 (range 456806-1163984), which is the variance the note above said later runs must
 establish.
 
-Result: 487 of 498 members hinted, 11 without any CI evidence (2.2%, guard limit 15%),
-`serial_max_ms=1163984` against `serial_budget_ms=1200000`. The 11 unhinted members
-should be picked up by the next green run's artifacts rather than guessed.
+Result: 487 of 498 members hinted in the initial refresh; the remaining unhinted
+members plus subsequent additions (25 scripts across 517 serial members) were picked up
+from the `fm-test-timing-portable-serial-*` artifacts of house CI runs 38930940577 and
+38938137822 (`serial_unhinted=0`, `serial_max_ms=1163984` against
+`serial_budget_ms=1200000`).
 
 ## Parallel lanes
 

@@ -83,8 +83,14 @@ def check_process_activity(seat: str, worktree: Optional[Path]) -> List[str]:
         return active_procs
 
     wt_str = str(worktree) if worktree else ""
+    self_pid = str(os.getpid())
     for line in stdout.splitlines():
+        parts = line.strip().split(None, 1)
+        if parts and parts[0] == self_pid:
+            continue
         line_l = line.lower()
+        if "fm-jev-stall-guard" in line_l:
+            continue
         # Match if process pattern is present AND (matches seat name or worktree path)
         for pattern in BUSY_PROCESS_PATTERNS:
             if pattern in line_l:
