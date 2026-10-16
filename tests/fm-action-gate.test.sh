@@ -298,7 +298,7 @@ out=$(env NO_MISTAKES_GATE=1 FM_HOME="$TMP/unmarked" FM_GATE_REFUSE_BYPASS="" ba
 assert_contains "$out" "no-mistakes gate agent must not drive the fleet" "action gate must refuse under NO_MISTAKES_GATE=1"
 pass "action gate refuses real fleet mutation under NO_MISTAKES_GATE=1"
 
-out=$(env NO_MISTAKES_GATE=1 FM_HOME="$LAB" FM_GATE_REFUSE_BYPASS="" bash "$ACTION_GATE" check booking cal-target task-1 "$CAPTAIN_MINT" 2>&1 || true)
+out=$(env -u FM_CREW_STATE_META_OVERRIDE -u FM_CREW_STATE_STATUS_OVERRIDE NO_MISTAKES_GATE=1 FM_HOME="$LAB" FM_GATE_REFUSE_BYPASS="" bash "$ACTION_GATE" check booking cal-target task-1 "$CAPTAIN_MINT" 2>&1 || true)
 assert_contains "$out" "ALLOW" "marked lab home must be permitted for action gate"
 pass "action gate permits marked disposable lab home"
 
