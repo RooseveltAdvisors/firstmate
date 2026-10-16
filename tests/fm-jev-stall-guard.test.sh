@@ -60,16 +60,30 @@ guard = sys.argv[1]
 seat = "fm-idle-" + uuid.uuid4().hex
 with tempfile.TemporaryDirectory() as td:
     env = dict(os.environ, HOME=td, FM_HOME=td)
-    def probe():
+    import shutil
+    python_guard = Path(guard).with_suffix(".py")
+    renamed = Path(td) / "observer.py"
+    shutil.copyfile(python_guard, renamed)
+    invocations = [
+        [guard],
+        ["bash", guard],
+        [sys.executable, str(python_guard)],
+        ["env", "python3", str(python_guard)],
+        [sys.executable, str(renamed)],
+    ]
+    def probe(command):
         return subprocess.run(
-            [guard, "--seat", seat, "--suppress", "--json"],
+            command + ["--seat", seat, "--suppress", "--json"],
             env=env, capture_output=True, text=True, check=False,
         )
-    idle = probe()
-    result = json.loads(idle.stdout)
-    assert idle.returncode == 1, (idle.stdout, idle.stderr)
-    assert result["signals"]["active_processes"] == [], result
-    assert result["verdict"] == "GENUINE_STALL", result
+    for command in invocations:
+        idle = probe(command)
+        result = json.loads(idle.stdout)
+        assert idle.returncode == 1, (command, idle.stdout, idle.stderr)
+        assert result["signals"]["active_processes"] == [], result
+        assert result["verdict"] == "GENUINE_STALL", result
+
+    print("PASS: idle CLI invocations: wrapper, bash wrapper, python, env python, renamed observer")
 
     ready = Path(td) / "ready"
     worker = subprocess.Popen([
@@ -84,16 +98,43 @@ with tempfile.TemporaryDirectory() as td:
                 break
             time.sleep(0.01)
         assert ready.exists(), "worker never started"
-        busy = probe()
-        result = json.loads(busy.stdout)
-        assert busy.returncode == 0, (busy.stdout, busy.stderr)
-        processes = result["signals"]["active_processes"]
-        assert any(p.split()[0] == str(worker.pid) for p in processes), result
-        assert all("fm-jev-stall-guard.py" not in p for p in processes), result
+        for command in invocations:
+            busy = probe(command)
+            result = json.loads(busy.stdout)
+            assert busy.returncode == 0, (command, busy.stdout, busy.stderr)
+            processes = result["signals"]["active_processes"]
+            assert any(p.split()[0] == str(worker.pid) for p in processes), result
+            assert all("fm-jev-stall-guard.py" not in p for p in processes), result
+        print("PASS: every CLI invocation detects the real worker PID")
     finally:
         worker.terminate()
         worker.wait(timeout=5)
-    assert probe().returncode == 1, "ended worker still suppressed the stall"
+    for command in invocations:
+        assert probe(command).returncode == 1, "ended worker still suppressed the stall"
+
+    print("PASS: every CLI invocation reports a stall after worker exit")
+
+    # A ps snapshot is an external protocol: concurrent observers may be
+    # rendered as interpreter, shell, or proxy-carried command arguments.
+    # None is worker activity, even when it is a different process.
+    fakebin = Path(td) / "fakebin"
+    fakebin.mkdir()
+    rows = [
+        f"20001 python3 {python_guard} --seat {seat}",
+        f"20002 bash {guard} --seat {seat}",
+        f"20003 bash -c \"python3 {python_guard} --seat {seat}\"",
+        f"20004 bash /opt/ra/infisical/bin/jev-proxy.sh --data-binary \"{python_guard} --seat {seat}\"",
+    ]
+    ps = fakebin / "ps"
+    ps.write_text("#!/usr/bin/env python3\n" + "print(" + repr("\n".join(rows)) + ")\n")
+    ps.chmod(0o755)
+    env["PATH"] = str(fakebin) + os.pathsep + os.environ["PATH"]
+    for command in invocations:
+        idle = probe(command)
+        result = json.loads(idle.stdout)
+        assert idle.returncode == 1, (command, idle.stdout, idle.stderr)
+        assert result["signals"]["active_processes"] == [], result
+    print("PASS: concurrent interpreter, shell, shell-command and proxy-carried observers cannot suppress a stall")
 PY
 echo "PASS: Test 4 - Idle probe and real worker activity distinguished"
 

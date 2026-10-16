@@ -36,7 +36,7 @@ Parallel membership is repacked by longest-processing-time assignment, retaining
 The executable verification command is `bin/fm-test-run.sh --check-coverage`; its current output is:
 
 ```text
-FM_TEST_COVERAGE ok total=559 parallel=24 parallel_max_ms=934258 parallel_imbalance_ms=150 parallel_unhinted=0 serial=519 serial_shards=10 serial_unhinted=0 serial_max_ms=1130045 serial_budget_ms=1200000 herdr=16
+FM_TEST_COVERAGE ok total=559 parallel=24 parallel_max_ms=934258 parallel_imbalance_ms=150 parallel_unhinted=0 serial=519 serial_shards=10 serial_unhinted=0 serial_max_ms=1130301 serial_budget_ms=1200000 herdr=16
 ```
 
 ### Retained baseline
