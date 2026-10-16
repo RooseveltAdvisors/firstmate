@@ -1,0 +1,14 @@
+== fm-jev-wake-triage
+ok - telemetry class is coerced to the known set
+ok - watcher pipeline_wait suppresses the stale escalation and restarts the idle timer
+ok - watcher true_wedge still escalates on today's stale reason
+ok - watcher Jev error fails open to today's escalate path
+ok - config/jev-wake-triage=off disables triage and escalates as today
+# all fm-jev-wake-triage tests passed
+exit=0
+== fm-route-domain
+ok - all fm-route-domain tests passed
+exit=0
+== fm-jev-decisions
+ok - all fm-jev-decisions tests passed
+exit=0

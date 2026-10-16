@@ -1,0 +1,42 @@
+### S1 guard tier-3 via real Infisical proxy (no TYPESAFE_API_KEY in env)
+TYPESAFE_API_KEY set? no
+$ fm-jev-guard.py --json --command 'python3 scripts/rebuild_search_index.py --all'
+{
+  "decision": "deny",
+  "code": "require_delegation",
+  "reason": "Command violates supervisor boundary in w1 (project_worker). Hands-on execution must be delegated to Second Mates.",
+  "target_domain": "project_worker",
+  "violation_noul": 0.64,
+  "suggested_command": "bin/fm-route-dispatch.sh --task '<task instructions>'",
+  "tier": 3
+}
+elapsed=.127491560s
+$ fm-jev-guard.py --json --command 'cd projects/portal && vim src/app.ts'
+{
+  "decision": "deny",
+  "code": "require_delegation",
+  "reason": "Command violates supervisor boundary in w1 (project_worker). Hands-on execution must be delegated to Second Mates.",
+  "target_domain": "project_worker",
+  "violation_noul": 0.93,
+  "suggested_command": "bin/fm-route-dispatch.sh --task '<task instructions>'",
+  "tier": 3
+}
+elapsed=.159070186s
+
+### S2 route-domain via real proxy
+action=dispatch
+route=seller-outreach
+confidence=0.990
+needs_new_noul=0.330
+dispatch_cmd=FM_HOME=/opt/ra/firstmate bin/fm-send.sh seller-outreach "[fm-from-firstmate] Urgent care acquisition seller email outreach campaign"
+
+### S3 missing proxy fails open
+{
+  "decision": "allow",
+  "code": "fail_open_no_key",
+  "reason": "Infisical JEV proxy unavailable; failing open",
+  "tier": 3
+}
+action=unavailable
+route=captain_direct
+reason=Infisical JEV proxy unavailable

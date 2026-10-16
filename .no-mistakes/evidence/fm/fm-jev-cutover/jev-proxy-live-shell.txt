@@ -1,0 +1,36 @@
+### S4 wake-triage via real Infisical proxy (default path, agent-vault binary absent: absent)
+action=suppress
+class=ship
+choice=pipeline_wait
+noul=0.2
+exit=0
+telemetry: jev_triage.suppressed	ship	2026-10-16T16:17:15Z
+
+### S5 wake-triage missing proxy -> unavailable
+action=unavailable
+class=ship
+exit=0
+
+### S6 guard latency budget: proxy that hangs 10s -> guard fails open within ~3s default
+{
+  "decision": "allow",
+  "code": "fail_open_error",
+  "reason": "Jev query error (Command '['/tmp/fm-jevlab.evBN/bin/slow-proxy.sh', '-fsS', '--max-time', '3.0', '-X', 'POST', 'https://api.typesafe.ai/v1/systemone', '-H', 'Content-Type: application/json', '--data-binary', '@-']' timed out after 3.0 seconds); failing open",
+  "tier": 3
+}
+elapsed=3.042694493s
+
+### S7 no credential leak: proxy unreachable (JEV_PROXY_HOST=127.0.0.1:1), errors surfaced
+{
+  "decision": "allow",
+  "code": "fail_open_error",
+  "reason": "Jev query error (JEV proxy exited 7: curl: (7) Failed to connect to api.typesafe.ai port 443 via 127.0.0.1 after 0 ms: Could not connect to server); failing open",
+  "tier": 3
+}
+action=unavailable
+route=captain_direct
+reason=Jev API call failed: JEV proxy exited 7: curl: (7) Failed to connect to api.typesafe.ai port 443 via 127.0.0.1 after 0 ms: Could not connect to server
+action=unavailable
+class=ship
+proxy-token occurrences in all outputs+state: 0
+bearer/authorization occurrences: 0
