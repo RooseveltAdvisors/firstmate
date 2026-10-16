@@ -631,6 +631,16 @@ case "${1:-}" in
     if [ "$body" = "-" ]; then
       body="$(cat)"
     fi
+    # Live brake: real send is denied. The gate sits outside the mail program.
+    gate="$SCRIPT_DIR/fm-action-gate.sh"
+    if [ ! -x "$gate" ]; then
+      echo "fm-mail: send refused: action gate is missing" >&2
+      exit 1
+    fi
+    if ! "$gate" check mail_send "$to" "${FM_TASK_ID:-mail}" >/dev/null; then
+      echo "fm-mail: send refused by action gate" >&2
+      exit 1
+    fi
     printf '%s' "$body" | run_py send "$to" "$subj" "-"
     ;;
   status)
