@@ -997,12 +997,10 @@ fm_dod_named_head_reachable_outside_worktree() {  # <worktree> <project> <mode> 
 # (bin/fm-fleet-snapshot.sh), so the marker is read from <state>.
 fm_dod_accept_ship_done() {  # <kind> <mode> <worktree> <project> <line> [<state> <id> <meta>]
   local kind=$1 mode=$2 wt=$3 project=$4 line=$5 state=${6:-} id=${7:-} meta=${8:-} url sha gerrit
-  [ "$kind" = ship ] || return 0
-  [ "$(status_line_verb "$line")" = "done" ] || return 0
+  fm_dod_should_gate_ship_done "$kind" "$mode" "$line" || return 0
   if [ -n "$meta" ] && [ "$(fm_dod_meta_value "$meta" surface)" = ui ]; then
     fm_dod_accept_ui_ship_done "$(fm_dod_ui_report_text "$line" "$state" "$id")" || return 1
   fi
-  fm_dod_should_gate_ship_done "$kind" "$mode" "$line" || return 0
   if [ -n "$meta" ] && [ "$(fm_dod_meta_value "$meta" forge)" = external ]; then
     fm_dod_accept_external_review_done "$wt" "$project" "$line" "$meta"
     return

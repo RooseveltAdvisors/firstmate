@@ -625,6 +625,9 @@ test_ui_ship_done_needs_a_live_image_and_spec_verdicts() {
   accept_done ship no-mistakes "$wt" "$repo" "$pr (fixed the API field the UI reads; ui-tests pass)" "$state" plain "$plain" \
     || fail "a non-UI ship whose report mentions UI was refused"
 
+  accept_done ship no-mistakes "$wt" "$repo" "done: implemented signage banner" "$state" "$id" "$meta" \
+    || fail "the pre-validation no-mistakes handoff of a UI ship was refused"
+
   reason=$(accept_done ship no-mistakes "$wt" "$repo" "$pr" "$state" "$id" "$meta")
   rc=$?
   [ "$rc" -eq 1 ] || fail "UI ship done missing an image path was accepted (exit $rc)"
