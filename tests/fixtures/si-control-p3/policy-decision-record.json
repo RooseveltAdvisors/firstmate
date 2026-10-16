@@ -1,0 +1,24 @@
+{
+  "decision_id": "dec-synth-allow-001",
+  "actor": "firstmate-agent",
+  "task_id": "fm-task-synth-20261013-001",
+  "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+  "target": "srv-covenant-app",
+  "action": "deploy",
+  "arguments": {
+    "environment": "staging",
+    "service": "covenant-app",
+    "release_tag": "v1.2.3"
+  },
+  "payload_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "policy_version": "2026-10-12",
+  "expires_at": "2026-12-31T23:59:59.000Z",
+  "used_at": null,
+  "decision": "allow",
+  "approval_reference": "captain-approval-synth-token-001",
+  "jev_classification": {
+    "risk_label": "not_risky",
+    "confidence": 0.95,
+    "reason": "Staging deploy for verified release tag"
+  }
+}

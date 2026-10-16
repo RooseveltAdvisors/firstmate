@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "allowed_hosts": [
+    "mbp",
+    "agt-2",
+    "agt-8"
+  ],
+  "contexts": {
+    "agt_auto_deploy": {
+      "host": "agt-2",
+      "profile": "Profile 2",
+      "space": "Automation-Deploy",
+      "account_type": "automation"
+    },
+    "agt_auto_audit": {
+      "host": "agt-8",
+      "profile": "Profile 3",
+      "space": "Automation-Audit",
+      "account_type": "automation"
+    }
+  },
+  "blocked_contexts": {
+    "captain_personal": {
+      "account_type": "personal",
+      "reason": "Personal session access strictly forbidden"
+    },
+    "unmapped_default": {
+      "account_type": "unknown",
+      "reason": "Unmapped context alias fails closed"
+    }
+  }
+}

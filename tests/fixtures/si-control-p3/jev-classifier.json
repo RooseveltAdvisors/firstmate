@@ -1,0 +1,8 @@
+{
+  "risk_label": "not_risky",
+  "confidence": 0.95,
+  "reason": "Synthetic staging deploy within approved rate limits and verified payload",
+  "advisory_only": true,
+  "action_class": "deploy",
+  "recommended_route": "deterministic_policy"
+}

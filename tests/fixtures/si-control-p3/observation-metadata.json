@@ -1,0 +1,37 @@
+{
+  "identity": {
+    "task_id": "fm-task-synth-20261013-001",
+    "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+    "span_id": "00f067aa0ba902b7",
+    "bead_id": "fm-bead-synth-001",
+    "runtime_identity": {
+      "harness": "pi",
+      "adapter": "pi"
+    },
+    "parent_task_id": "fm-task-synth-root-000"
+  },
+  "call": {
+    "provider": "anthropic",
+    "model": "claude-3-5-sonnet-20241022",
+    "start_time": "2026-10-13T06:00:00.000Z",
+    "end_time": "2026-10-13T06:00:01.250Z",
+    "duration_ms": 1250,
+    "status": "ok",
+    "error_class": null
+  },
+  "usage": {
+    "input_tokens": 150,
+    "output_tokens": 45,
+    "reasoning_tokens": 0,
+    "cache_tokens": 50
+  },
+  "policy": {
+    "decision_id": "dec-synth-allow-001",
+    "decision": "allow",
+    "policy_version": "2026-10-12",
+    "jev_risk_flags": []
+  },
+  "retention": {
+    "retention_policy_class": "metadata_general_90d"
+  }
+}
