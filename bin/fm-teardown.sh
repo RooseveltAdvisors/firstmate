@@ -3751,19 +3751,21 @@ fi
 # pruned code root. Best effort - a sweep failure never blocks this teardown.
 "$SCRIPT_DIR/fm-remote-job-reap-orphans.sh" >&2 || true
 
-# Pattern 19: Jev Worktree Stale Prune & Detached Branch Reaper (Fail-Open)
-if [ -x "$SCRIPT_DIR/fm-jev-worktree-reaper.sh" ] && [ "${FM_DISABLE_JEV_WORKTREE_REAPER:-0}" != 1 ]; then
-  "$SCRIPT_DIR/fm-jev-worktree-reaper.sh" --repo-dir "${WT:-$PWD}" --dry-run >&2 || true
-fi
+if [ "${FM_TEST_SEAM:-0}" != 1 ]; then
+  # Pattern 19: Jev Worktree Stale Prune & Detached Branch Reaper (Fail-Open)
+  if [ -x "$SCRIPT_DIR/fm-jev-worktree-reaper.sh" ] && [ "${FM_DISABLE_JEV_WORKTREE_REAPER:-0}" != 1 ]; then
+    "$SCRIPT_DIR/fm-jev-worktree-reaper.sh" --repo-dir "${WT:-$PWD}" --dry-run >&2 || true
+  fi
 
-# Pattern 20: Jev Harness Pane & Completed Seat Auto-Reconciler (Fail-Open)
-if [ -x "$SCRIPT_DIR/fm-jev-pane-reaper.sh" ] && [ "${FM_DISABLE_JEV_PANE_REAPER:-0}" != 1 ]; then
-  "$SCRIPT_DIR/fm-jev-pane-reaper.sh" --dry-run >&2 || true
-fi
+  # Pattern 20: Jev Harness Pane & Completed Seat Auto-Reconciler (Fail-Open)
+  if [ -x "$SCRIPT_DIR/fm-jev-pane-reaper.sh" ] && [ "${FM_DISABLE_JEV_PANE_REAPER:-0}" != 1 ]; then
+    "$SCRIPT_DIR/fm-jev-pane-reaper.sh" --dry-run >&2 || true
+  fi
 
-# Pattern 21: Jev Cross-Seat Asset & Artifact Cache De-Duplicator (Fail-Open)
-if [ -x "$SCRIPT_DIR/fm-jev-artifact-dedup.sh" ] && [ "${FM_DISABLE_JEV_ARTIFACT_DEDUP:-0}" != 1 ]; then
-  "$SCRIPT_DIR/fm-jev-artifact-dedup.sh" --dry-run >&2 || true
+  # Pattern 21: Jev Cross-Seat Asset & Artifact Cache De-Duplicator (Fail-Open)
+  if [ -x "$SCRIPT_DIR/fm-jev-artifact-dedup.sh" ] && [ "${FM_DISABLE_JEV_ARTIFACT_DEDUP:-0}" != 1 ]; then
+    "$SCRIPT_DIR/fm-jev-artifact-dedup.sh" --dry-run >&2 || true
+  fi
 fi
 
 # Best-effort: drop the local task branch so the shared repo does not accumulate refs.

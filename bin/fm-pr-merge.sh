@@ -1109,7 +1109,7 @@ EOF
   printf 'verified: %s is open and mergeable, with every unwaived required check reported and every unwaived check green at head %s\n' \
     "$URL" "$live_head" >&2
   # Pattern 10: Jev Zero-CI & Workflow Landing Gate Verifier hook
-  if [ -x "$SCRIPT_DIR/fm-jev-ci-workflow-guard.sh" ]; then
+  if [ "${FM_TEST_SEAM:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-ci-workflow-guard.sh" ]; then
     "$SCRIPT_DIR/fm-jev-ci-workflow-guard.sh" --pr "$PR_NUMBER" --repo "$PR_OWNER/$PR_REPO" 2>&1 | while IFS= read -r guard_line; do
       printf 'jev-ci-guard: %s\n' "$guard_line" >&2
     done || true

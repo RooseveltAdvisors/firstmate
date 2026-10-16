@@ -1032,7 +1032,7 @@ EOF
     w=$(fm_backend_target_of_meta "$meta")
     ! secondmate_in_active_turn "$w" "$idle" || continue
     # Pattern 14: Jev Long-Run Task Activity Prober & Fake-Stall Dampener
-    if [ "${FM_DISABLE_JEV_STALL_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-stall-guard.sh" ]; then
+    if [ "${FM_DISABLE_JEV_WATCHER_GUARDS:-0}" != 1 ] && [ "${FM_DISABLE_JEV_STALL_GUARD:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-stall-guard.sh" ]; then
       if "$SCRIPT_DIR/fm-jev-stall-guard.sh" --seat "$task" --suppress >/dev/null 2>&1; then
         triage_log "dampened fake stall for active seat $task (idle ${idle}s)" 2>/dev/null || true
         continue
@@ -4031,7 +4031,7 @@ EOF
         fi
         pr_poll_control_release || exit 1
         # Pattern 2: Jev Semantic Alert Correlator to dampen held / duplicate check alerts
-        if [ -x "$FM_ROOT/bin/fm-jev-alert-correlator.sh" ]; then
+        if [ "${FM_DISABLE_JEV_WATCHER_GUARDS:-0}" != 1 ] && [ -x "$FM_ROOT/bin/fm-jev-alert-correlator.sh" ]; then
           correlator_rc=2
           "$FM_ROOT/bin/fm-jev-alert-correlator.sh" --alert "$reason" --source "$(basename "$c")" >/dev/null 2>&1 || correlator_rc=$?
           if [ "$correlator_rc" -eq 0 ]; then
@@ -4290,7 +4290,7 @@ EOF
               stale_status="$STATE/$(window_to_task "$w" "$STATE").status"
               last_status=$(last_status_line "$stale_status")
               if [ -n "$last_status" ] && [ "$(status_line_verb "$last_status")" = "done" ]; then
-                if [ -x "$FM_ROOT/bin/fm-jev-done-verify.sh" ]; then
+                if [ "${FM_DISABLE_JEV_WATCHER_GUARDS:-0}" != 1 ] && [ -x "$FM_ROOT/bin/fm-jev-done-verify.sh" ]; then
                   done_verify_out=
                   done_verify_rc=0
                   done_verify_out=$("$FM_ROOT/bin/fm-jev-done-verify.sh" --task "$task" --status-line "$last_status" 2>&1) || done_verify_rc=$?
