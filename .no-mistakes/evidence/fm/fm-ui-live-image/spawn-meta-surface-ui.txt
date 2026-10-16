@@ -1,0 +1,7 @@
+$ fm-brief.sh spawn-ui sign2 --mode local-only --surface ui; fm-spawn.sh spawn-ui <lab-project> --mode local-only --yolo off --harness 'sleep 600' --backend tmux (lab FM_HOME, lab tmux socket)
+Delivery contract: mode=local-only surface=ui
+--- state/spawn-ui.meta (task record)
+window=firstmate:fm-spawn-ui
+kind=ship
+mode=local-only
+surface=ui

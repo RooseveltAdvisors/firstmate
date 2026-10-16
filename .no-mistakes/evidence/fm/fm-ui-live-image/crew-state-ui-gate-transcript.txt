@@ -1,0 +1,48 @@
+--- non-UI ship, plain done
+    status| done [at=1]: ready in branch fm/ui-sign
+    => state: done · source: status-log · ready in branch fm/ui-sign
+--- non-UI ship whose report mentions UI
+    status| done [at=1]: ready in branch fm/ui-sign (UI reads the new API field; ui-tests pass)
+    => state: done · source: status-log · ready in branch fm/ui-sign (UI reads the new API field; ui-tests pass)
+--- UI ship, APIs green but no image (the signage failure)
+    status| done [at=1]: ready in branch fm/ui-sign
+    => state: blocked · source: status-log · UI ship done report is missing a live-origin image path
+--- UI ship, image path that was never captured
+    status| done [at=1]: ready in branch fm/ui-sign (signage: /tmp/fm-lab.imRO7w/data/ui-sign/made-up.png; spec 1 matches)
+    => state: blocked · source: status-log · UI ship done report names /tmp/fm-lab.imRO7w/data/ui-sign/made-up.png, which does not exist or is empty: the live-origin image must be captured before claiming done
+--- UI ship, zero-byte blank image
+    status| done [at=1]: ready in branch fm/ui-sign (signage: /tmp/fm-lab.imRO7w/data/ui-sign/blank.png; spec 1 matches)
+    => state: blocked · source: status-log · UI ship done report names /tmp/fm-lab.imRO7w/data/ui-sign/blank.png, which does not exist or is empty: the live-origin image must be captured before claiming done
+--- UI ship, API status code on image line
+    status| done [at=1]: ready in branch fm/ui-sign (signage: API status 200 OK /tmp/fm-lab.imRO7w/data/ui-sign/signage-live.png; spec 1 matches)
+    => state: blocked · source: status-log · UI ship done report is missing a valid live-origin image path: a blank image, a local HTML render, or an API status code does not satisfy the check
+--- UI ship, local HTML render
+    status| done [at=1]: ready in branch fm/ui-sign (signage: local HTML render /tmp/fm-lab.imRO7w/data/ui-sign/signage-live.png; spec 1 matches)
+    => state: blocked · source: status-log · UI ship done report is missing a valid live-origin image path: a blank image, a local HTML render, or an API status code does not satisfy the check
+--- UI ship, no capture path -> check failed
+    status| done [at=1]: ready in branch fm/ui-sign (signage: no capture path, check failed)
+    => state: blocked · source: status-log · UI ship done report is missing a live-origin image path
+--- UI ship, image but no spec verdict
+    status| done [at=1]: ready in branch fm/ui-sign (signage: captured /tmp/fm-lab.imRO7w/data/ui-sign/signage-live.png)
+    => state: blocked · source: status-log · UI ship done report must say, in one line per spec point, that the live-origin image matches
+--- UI ship, spec point does not match
+    status| done [at=1]: ready in branch fm/ui-sign (signage: /tmp/fm-lab.imRO7w/data/ui-sign/signage-live.png; spec 1 does not match)
+    => state: blocked · source: status-log · UI ship done report must say, in one line per spec point, that the live-origin image matches
+--- UI ship, only an unrelated note says match
+    status| note [at=1]: live-origin image /tmp/fm-lab.imRO7w/data/ui-sign/signage-live.png
+    status| note [at=2]: pipeline changes: regex did not match - widened
+    status| done [at=3]: ready in branch fm/ui-sign
+    => state: blocked · source: status-log · UI ship done report must say, in one line per spec point, that the live-origin image matches
+--- UI ship, valid live image + per-spec matches (+ noisy pipeline note)
+    status| note [at=1]: live-origin image /tmp/fm-lab.imRO7w/data/ui-sign/signage-live.png
+    status| note [at=2]: - spec 1 (signage banner): matches live image
+    status| note [at=3]: - spec 2 (status badge): matches live image
+    status| note [at=4]: pipeline changes: handler returned HTTP 500 - fixed
+    status| done [at=5]: ready in branch fm/ui-sign
+    => state: done · source: status-log · ready in branch fm/ui-sign
+--- UI no-mistakes ship, pre-validation handoff done
+    status| done [at=1]: implemented signage banner
+    => state: done · source: status-log · implemented signage banner
+--- UI no-mistakes ship, CI-ready done with no image
+    status| done [at=1]: PR https://github.com/o/r/pull/10 checks green
+    => state: blocked · source: status-log · UI ship done report is missing a live-origin image path

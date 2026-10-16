@@ -1,0 +1,18 @@
+$ fm-brief.sh ui-sign demo --mode no-mistakes --surface ui
+2:Delivery contract: mode=no-mistakes surface=ui
+43:This is a UI ship: the task is not done until the done report names a live-origin image path (captured with `chrome-devtools-axi` and saved outside the worktree under the task data directory or a temporary directory) and says, in one line per spec point, whether that image matches.
+44:A blank image, a local HTML render, or an API status code does not satisfy the check.
+45:If no capture path exists, the done report must say the check failed and stop.
+
+$ fm-brief.sh plain-sign demo --mode direct-PR   (no --surface)
+scaffolded: /tmp/fm-lab.imRO7w/data/plain-sign/brief.md (ship, mode=direct-PR; replace {TASK} and {FIRSTMATE_SPEC})
+0
+Delivery contract: mode=direct-PR
+
+$ fm-brief.sh bad demo --mode no-mistakes --surface ux
+error: --surface must be ui (got 'ux')
+exit=1
+
+$ fm-brief.sh sc demo --scout --surface ui
+error: --surface applies only to ship briefs; a scout delivers a report and a charter is not a delivery contract
+exit=1
