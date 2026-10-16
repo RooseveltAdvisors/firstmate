@@ -9,47 +9,43 @@ Balance hints come from serial runs of the real lanes on `ubuntu-latest`.
 The concurrent isolation proof in [fm-test-isolation-proof.md](fm-test-isolation-proof.md) establishes concurrency safety, not serial CI duration.
 Local timings are not interchangeable with CI timings: platform and machine load can affect each script differently and change their relative weights.
 
-Both hint tables were refreshed on 2026-09-30 from five Ubuntu CI runs: [36583881812](https://github.com/kunchenguid/firstmate/actions/runs/36583881812), [36658498535](https://github.com/kunchenguid/firstmate/actions/runs/36658498535), [36663947738](https://github.com/kunchenguid/firstmate/actions/runs/36663947738), [36664663190](https://github.com/kunchenguid/firstmate/actions/runs/36664663190), and [36669175457](https://github.com/kunchenguid/firstmate/actions/runs/36669175457).
-Use the slowest successful `duration_ms` per script across their uploaded portable timing artifacts and completed `FM_TEST_END` log markers, with the two version/platform exceptions below.
-All artifact records were cross-checked against the corresponding job's markers.
-This covers all 24 parallel and 201 serial members; an existing live-capability skip is a portable-runner measurement, not a timing claim for the unavailable live integration.
-Observed maxima provide conservative packing weights, not an upper bound on future durations.
+### Current refresh (2026-10-16)
 
-Two serial-5 jobs were cancelled at their 30-minute cap and uploaded no artifact.
-Their completed log markers supplement the complete runs, but a cancelled job's wall time is only a lower bound and its unfinished or never-started scripts have no completed sample.
-A failed script's duration is excluded even when its lane uploaded an artifact.
-In particular, run 36664663190's serial 5 finished in 22m15s with an assertion failure, not a timeout; treating that as a healthy whole-lane sample would hide the failure.
-Collect successful per-script measurements for every member before calculating a split.
+Both hint tables retain their previous measured maxima and include successful per-script samples from house CI runs [36703559612](https://github.com/RooseveltAdvisors/firstmate/actions/runs/36703559612), [38627719655](https://github.com/RooseveltAdvisors/firstmate/actions/runs/38627719655), and [38926999034](https://github.com/RooseveltAdvisors/firstmate/actions/runs/38926999034).
+The middle run is completely green; completed successful scripts from the partial runs supplement it.
+Failed scripts are excluded, and missing or unfinished scripts are never assigned a duration from a job's timeout.
+The artifacts cover all 24 parallel and 519 serial members after the splits below.
+An existing live-capability skip measures the portable runner, not the unavailable live integration.
+Observed maxima are conservative packing weights, not upper bounds on future duration.
 
-`tests/fm-supervision-host.test.sh` uses 789123 ms from run 36669175457, after the merged [host runtime fix](https://github.com/kunchenguid/firstmate/pull/6179), rather than its pre-fix maximum of 1065298 ms.
-That post-fix value has only one sample in this baseline, so further green runs must establish its variance.
-The native-Windows-only `tests/fm-pi-windows-shell-invocation.test.sh` retains its separate 5121 ms measurement from 2026-09-06T21:02Z instead of a portable capability skip.
-The session-start hint retains its pre-optimization maximum until CI measures the shorter fixture-only home-summary bound; do not discount a local speedup from CI packing weights.
+Two indivisible suites exceeded the twenty-minute packing target in the latest successful script samples: supervision-host took 1497756 ms and watch-triage took 1223771 ms.
+They now share their existing fixture and case definitions between two executable entries each, preserving all 75 host cases and 149 watcher cases.
+The host split is after `test_report_without_acknowledgement_hands_the_wake_to_main` (57 core cases, 18 recovery cases).
+The watcher split is after `test_wedge_threshold_defers_to_a_declared_wait_under_a_working_verdict` (94 core cases, 55 wait cases).
+Both entries retain `FM_TEST_ONLY`, including the stock macOS Bash regression's original entry point.
 
-### House main refresh (2026-09-30)
+The split hints use the green and partial runs' completed log timestamps at those exact case boundaries, cross-checked against their successful `FM_TEST_END` duration markers.
+For each sample, the first segment runs from `FM_TEST_BEGIN` to the boundary's `ok -` line, and the second from that line to `FM_TEST_END`.
+Add the original trailing cleanup interval to the first segment and the original first-case interval to the second, conservatively covering repeated setup and cleanup.
+Round each interval up to milliseconds and retain the larger segment sample across both runs.
+This gives host hints of 768458 ms and 744724 ms, and watcher hints of 625799 ms and 598874 ms.
+These are CI-derived segment estimates; refresh them with whole-entry timing artifacts once CI has exercised the split.
 
-House main carries a serial set of **498** members - upstream's 201 plus the Jev guard
-fleet - so upstream's refresh above does not cover most house members and the hint
-coverage guard fails on house CI (`296 of 498 portable serial scripts have no measured
-duration hint`, max 15%). Refreshed `portable_serial_weight_hints` from the
-`fm-test-timing-portable-serial-*` artifacts of eight house-fork CI runs on `ubuntu-latest`
-(main): 36703559612, 36627768210, 36627563662, 36416232300, 36388227376, 36348237890,
-36340830763, 36331959069 - keeping only `.exit == 0` samples and taking the slowest per
-script, exactly as the recipe below prescribes.
+Ten serial runners fit the refreshed model without raising any timeout.
+Parallel membership is repacked by longest-processing-time assignment, retaining the Pi typecheck prerequisite on shard 1.
+The executable verification command is `bin/fm-test-run.sh --check-coverage`; its current output is:
 
-Each member's hint is the **slowest evidence across both sources**: `max(measurement,
-previously documented hint)`, so upstream's documented values and the two platform
-exceptions survive where house CI has no sample. `tests/fm-pi-windows-shell-invocation.test.sh`
-keeps its native-Windows 5121 ms; `tests/fm-supervision-host.test.sh` moves from the
-single 789123 ms baseline sample to **1163984 ms**, the slowest of nine house samples
-(range 456806-1163984), which is the variance the note above said later runs must
-establish.
+```text
+FM_TEST_COVERAGE ok total=559 parallel=24 parallel_max_ms=934258 parallel_imbalance_ms=150 parallel_unhinted=0 serial=519 serial_shards=10 serial_unhinted=0 serial_max_ms=1130045 serial_budget_ms=1200000 herdr=16
+```
 
-Result: 487 of 498 members hinted in the initial refresh; the remaining unhinted
-members plus subsequent additions (25 scripts across 517 serial members) were picked up
-from the `fm-test-timing-portable-serial-*` artifacts of house CI runs 38930940577 and
-38938137822 (`serial_unhinted=0`, `serial_max_ms=1163984` against
-`serial_budget_ms=1200000`).
+### Retained baseline
+
+The 2026-09-30 upstream baseline used successful artifacts and completed log markers from runs [36583881812](https://github.com/kunchenguid/firstmate/actions/runs/36583881812), [36658498535](https://github.com/kunchenguid/firstmate/actions/runs/36658498535), [36663947738](https://github.com/kunchenguid/firstmate/actions/runs/36663947738), [36664663190](https://github.com/kunchenguid/firstmate/actions/runs/36664663190), and [36669175457](https://github.com/kunchenguid/firstmate/actions/runs/36669175457).
+The house baseline added successful artifacts from runs 36703559612, 36627768210, 36627563662, 36416232300, 36388227376, 36348237890, 36340830763, and 36331959069, taking the larger of each measurement and its existing documented hint.
+The retained house hints also include the 25 previously unhinted or newly added serial scripts measured in runs [38930940577](https://github.com/RooseveltAdvisors/firstmate/actions/runs/38930940577) and [38938137822](https://github.com/RooseveltAdvisors/firstmate/actions/runs/38938137822), taking the larger measurement except for the documented split-suite estimates.
+The native-Windows-only `tests/fm-pi-windows-shell-invocation.test.sh` retains its separate 5121 ms measurement from 2026-09-06T21:02Z rather than a portable capability skip.
+The session-start hint retains its pre-optimization maximum until CI measures the shorter fixture-only home-summary bound; local speedups do not discount CI packing weights.
 
 ## Parallel lanes
 
@@ -92,10 +88,9 @@ Refresh the hints whenever a serial member grows materially or the lane gains sc
 `bin/fm-test-run.sh` owns the per-shard packing, so its `--check-coverage` output is the current account of lane size and coverage rather than a copied inventory.
 Its header and `--help` own the modeled-budget check and output fields; read the current estimates from `--check-coverage` instead of retaining copied lane sums here.
 [`tests/fm-test-run.test.sh`](../tests/fm-test-run.test.sh), in `test_portable_serial_packing_budget_boundary`, verifies acceptance exactly at the budget and refusal one millisecond above it through the executable runner.
-The longest script, `tests/fm-watch-triage.test.sh`, is the indivisible floor for this layout.
+The largest individual script hint remains the indivisible floor for any layout; the current host and watcher splits are described in [Verification inputs](#verification-inputs).
 The estimates use per-file maxima from different runs, not measured rebalanced jobs or an end-to-end latency guarantee.
-The baseline watch-triage samples range from 944375 to 1074843 ms, while each observed completed portable job adds at most 30 seconds beyond its summed scripts in these runs.
-Even so, maxima from five runs do not establish a P95 or guarantee future headroom.
+Per-script maxima and segment estimates do not establish a P95 or guarantee future headroom.
 Job timeouts remain hang tripwires under the policy in [Timeouts](#timeouts) below; they are not the desired healthy duration.
 `tests/fm-ci-workflow.test.sh` compares the parsed CI matrix to the executable runner lanes, and the runner rejects parallel `--jobs` on a serial lane even when that shard has only one member.
 
@@ -136,9 +131,9 @@ Its `--list-files` interface exposes partition membership; `tests/fm-lint.test.s
 The workflow uploads each partition's quiet telemetry plus its per-root lifecycle sidecar to distinguish analysis cost, memory use, and host contention.
 No fast mode, path skips, or paid runner provisioning is part of this layout.
 
-The longer-term performance objective remains a complete green run under fifteen minutes including start delay, but the current watch-triage floor alone exceeds that objective.
+The longer-term performance objective remains a complete green run under fifteen minutes including start delay, but the current modeled serial packing still exceeds that objective.
 The immediate packing target is the runner's modeled script budget, not a claim that more shards alone can make an indivisible script faster.
-The layout uses fourteen long-lived Linux jobs (nine serial, two parallel, Herdr, two lint), plus short checks and macOS; insufficient shared account capacity can erase the packing gain.
+The layout uses fifteen long-lived Linux jobs (ten serial, two parallel, Herdr, two lint), plus short checks and macOS; insufficient shared account capacity can erase the packing gain.
 Compare complete before/after runs, preserve cancelled and partial-run evidence, and measure a representative normal-run sample before claiming a P95 improvement.
 The workflow retains per-PR supersession without cancelling main pushes or changing the compliance workflow's event semantics.
 

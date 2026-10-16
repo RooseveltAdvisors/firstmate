@@ -46,8 +46,55 @@ with tempfile.TemporaryDirectory() as td:
 print("PASS: Test 3 - Worktree mtime prober verified")
 '
 
-# Test 4: Live seat probing on websites
-"${FM_ROOT}/bin/fm-jev-stall-guard.sh" --seat websites --worktree /home/jon/.treehouse/tutti-2b1be6/7/tutti
-echo "PASS: Test 4 - Live seat probe on websites verified"
+# Test 4: The observer cannot suppress its own stall, while a real worker can.
+python3 - "$FM_ROOT/bin/fm-jev-stall-guard.sh" <<'PY'
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import uuid
+
+guard = sys.argv[1]
+seat = "fm-idle-" + uuid.uuid4().hex
+with tempfile.TemporaryDirectory() as td:
+    env = dict(os.environ, HOME=td, FM_HOME=td)
+    def probe():
+        return subprocess.run(
+            [guard, "--seat", seat, "--suppress", "--json"],
+            env=env, capture_output=True, text=True, check=False,
+        )
+    idle = probe()
+    result = json.loads(idle.stdout)
+    assert idle.returncode == 1, (idle.stdout, idle.stderr)
+    assert result["signals"]["active_processes"] == [], result
+    assert result["verdict"] == "GENUINE_STALL", result
+
+    ready = Path(td) / "ready"
+    worker = subprocess.Popen([
+        sys.executable, "-c",
+        "import pathlib,sys,time; pathlib.Path(sys.argv[1]).touch(); time.sleep(60)",
+        str(ready), seat,
+    ])
+    try:
+        import time
+        for _ in range(200):
+            if ready.exists():
+                break
+            time.sleep(0.01)
+        assert ready.exists(), "worker never started"
+        busy = probe()
+        result = json.loads(busy.stdout)
+        assert busy.returncode == 0, (busy.stdout, busy.stderr)
+        processes = result["signals"]["active_processes"]
+        assert any(p.split()[0] == str(worker.pid) for p in processes), result
+        assert all("fm-jev-stall-guard.py" not in p for p in processes), result
+    finally:
+        worker.terminate()
+        worker.wait(timeout=5)
+    assert probe().returncode == 1, "ended worker still suppressed the stall"
+PY
+echo "PASS: Test 4 - Idle probe and real worker activity distinguished"
 
 echo "=== All 4/4 fm-jev-stall-guard tests PASSED (100%) ==="

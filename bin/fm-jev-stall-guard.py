@@ -85,8 +85,12 @@ def check_process_activity(seat: str, worktree: Optional[Path]) -> List[str]:
     wt_str = str(worktree) if worktree else ""
     self_pid = str(os.getpid())
     for line in stdout.splitlines():
-        parts = line.strip().split(None, 1)
-        if parts and parts[0] == self_pid:
+        fields = line.split(None, 1)
+        if len(fields) != 2 or not fields[0].isdigit():
+            continue
+        # This probe's own argv contains both python and --seat. It is an
+        # observer, never evidence that the observed worker is executing.
+        if fields[0] == self_pid:
             continue
         line_l = line.lower()
         if "fm-jev-stall-guard" in line_l:
