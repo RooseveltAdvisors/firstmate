@@ -23,7 +23,7 @@ from pathlib import Path
 
 TS_BASE = os.environ.get("FM_JEV_TS_BASE", "https://api.typesafe.ai")
 TS_MODEL = os.environ.get("FM_JEV_TS_MODEL", "jev-latest")
-TS_TIMEOUT = float(os.environ.get("FM_JEV_GUARD_TIMEOUT", "5.0"))
+TS_TIMEOUT = float(os.environ.get("FM_JEV_GUARD_TIMEOUT", "3.0"))
 CACHE_FILE = Path(os.environ.get("FM_JEV_GUARD_CACHE", "/dev/shm/.fm-jev-guard-cache.json"))
 DEFAULT_JEV_PROXY = "/opt/ra/infisical/bin/jev-proxy.sh"
 
@@ -147,7 +147,7 @@ def post_jev_systemone(payload: dict, proxy_bin: Path | None = None) -> dict:
         ],
         input=json.dumps(payload).encode("utf-8"),
         capture_output=True,
-        timeout=TS_TIMEOUT + 2.0,
+        timeout=TS_TIMEOUT,
         check=False,
     )
     if res.returncode != 0:

@@ -58,7 +58,7 @@ def post_jev_systemone(payload: dict, proxy_bin: Path | None = None) -> dict:
         ],
         input=json.dumps(payload).encode("utf-8"),
         capture_output=True,
-        timeout=TS_TIMEOUT + 2.0,
+        timeout=TS_TIMEOUT,
         check=False,
     )
     if res.returncode != 0:
