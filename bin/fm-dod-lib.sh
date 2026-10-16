@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Single owner of a ship task's mode-specific "Definition of done" block and of
-# the named-head reachability and UI/UX live-image gates that accept a ship
+# the named-head reachability and UI live-image gates that accept a ship
 # `done:` claim.
 # Sourced by bin/fm-brief.sh, which renders it into a generated ship brief, and by
 # bin/fm-promote.sh, which renders it into the ship instructions a promoted scout
@@ -23,14 +23,20 @@
 # captain-approved <host>/<owner>/<repo> publication scope for this one task,
 # rendered as an `upstream-consent=<scope>` suffix token on the Delivery
 # contract line so brief, spawn record, and worker instructions agree.
+# The optional seventh argument is the task's surface from bin/fm-brief.sh
+# --surface; `ui` appends a `surface=ui` token to the Delivery contract line and
+# renders the live-image gate, and empty renders neither.
 # Callers of the gate are bin/fm-crew-state.sh (current-state done),
 # bin/fm-pr-check.sh (PR registration), and bin/fm-inactive-reconcile.sh
-# (secondmate ledger-first publish of a child done). A UI or UX ship `done:` is
-# refused unless the done report names a live-origin image path (captured with
-# `chrome-devtools-axi`) and states, in one line per spec point, whether that
-# image matches; a blank image, local HTML render, or API status code is
-# refused, and when no capture path exists the report must state the check
-# failed and stop. A ship `done:` is not
+# (secondmate ledger-first publish of a child done). A UI ship - one whose task
+# record carries surface=ui, written by bin/fm-spawn.sh from the brief's
+# Delivery contract `surface=ui` token (bin/fm-brief.sh --surface ui) - has its
+# `done:` refused unless the done report names an existing, non-empty
+# live-origin image file (captured with `chrome-devtools-axi`) and states, in
+# one line per spec point, whether that image matches; a blank image, local
+# HTML render, or API status code on the image line is refused, and when no
+# capture path exists the report must state the check failed and stop.
+# A ship `done:` is not
 # accepted while the named head exists only in the worker's disposable copy.
 # The check tests that head, not whether some branch moved. In no-mistakes
 # mode the pre-validation `done: {summary}` is the pipeline handoff and is
@@ -454,20 +460,25 @@ There is no pull request, no \`gh-axi\` call, and no forge CI result to report: 
 EOF
 }
 
-# Shared UI/UX live-image gate rendered into every ship Definition of done.
-fm_ui_live_image_dod_block() {
+# UI live-image gate rendered into a surface=ui ship Definition of done.
+fm_ui_live_image_dod_block() {  # <surface>
+  [ "$1" = ui ] || return 0
   cat <<'EOF'
 
-For a UI or UX ship, the task is not done until the done report names a live-origin image path (captured with `chrome-devtools-axi` and saved outside the worktree under the task data directory or a temporary directory) and says, in one line per spec point, whether that image matches.
+This is a UI ship: the task is not done until the done report names a live-origin image path (captured with `chrome-devtools-axi` and saved outside the worktree under the task data directory or a temporary directory) and says, in one line per spec point, whether that image matches.
 A blank image, a local HTML render, or an API status code does not satisfy the check.
-Do not add a vision model, a new capture service, or a shared compile cache; use the capture path the fleet already has (`chrome-devtools-axi`).
 If no capture path exists, the done report must say the check failed and stop.
 EOF
 }
 
-fm_dod_block() {  # <mode> <task-id> [branch] [<forge>] [<base>] [<consent>]
-  local mode=$1 id=$2 forge=${4:-none} base=${5:-} consent=${6:-}
-  local branch=${3:-fm/$id} pr_base='' nm_base='' base_q contract_forge='' contract_consent='' forge_cli=gh-axi draft_check adapter
+fm_dod_block() {  # <mode> <task-id> [branch] [<forge>] [<base>] [<consent>] [<surface>]
+  local mode=$1 id=$2 forge=${4:-none} base=${5:-} consent=${6:-} surface=${7:-}
+  local branch=${3:-fm/$id} pr_base='' nm_base='' base_q contract_forge='' contract_consent='' contract_surface='' forge_cli=gh-axi draft_check adapter
+  case "$surface" in
+    '') ;;
+    ui) contract_surface=' surface=ui' ;;
+    *) echo "error: fm_dod_block: surface must be ui or empty (got '$surface')" >&2; return 1 ;;
+  esac
   fm_forge_valid_for_mode "$forge" "$mode" fm_dod_block || return 1
   fm_base_branch_valid "$base" "$mode" "$forge" fm_dod_block || return 1
   if [ -n "$consent" ]; then
@@ -493,7 +504,7 @@ fm_dod_block() {  # <mode> <task-id> [branch] [<forge>] [<base>] [<consent>]
     direct-PR:gerrit)
       cat <<EOF
 # Definition of done
-Delivery contract: mode=direct-PR forge=gerrit shape=squash$contract_consent
+Delivery contract: mode=direct-PR forge=gerrit shape=squash$contract_consent$contract_surface
 Ship branch: $branch
 This task ships **direct-PR** to a Gerrit review server: you publish the change yourself, without the no-mistakes pipeline.
 Gerrit has no pull requests, so there is nothing to open; publishing creates the change.
@@ -504,12 +515,12 @@ EOF
       cat <<EOF
 Do NOT run /no-mistakes.
 EOF
-      fm_ui_live_image_dod_block
+      fm_ui_live_image_dod_block "$surface"
       ;;
     no-mistakes:gerrit)
       cat <<EOF
 # Definition of done
-Delivery contract: mode=no-mistakes forge=gerrit shape=squash$contract_consent
+Delivery contract: mode=no-mistakes forge=gerrit shape=squash$contract_consent$contract_surface
 Ship branch: $branch
 This project's review server is Gerrit: it has no pull requests and no forge CI the pipeline can watch, so **no-mistakes runs here as a review pass that ends at a ready branch**, and you then publish that branch as one change.
 Pass \`--skip push,pr,ci\` on every \`no-mistakes axi run\` for this task, and skip nothing else: \`review\`, \`test\`, \`document\`, and \`lint\` are the whole point of the run.
@@ -537,14 +548,14 @@ The squashed change carries only the oldest commit's message, so the pipeline's 
 After publishing and immediately before your ready report, append one line \`note [at=<epoch>]: pipeline changes: {finding} - {fix it made}; {finding} - {fix it made}\` to the status file, one short clause per finding the run fixed, taken from the run's \`fixes\` table and the gate findings its drive calls returned (\`no-mistakes axi logs --step <step> --full\` has the detail); write \`note [at=<epoch>]: pipeline changes: none\` when it fixed nothing.
 EOF
       fm_gerrit_publish_block
-      fm_ui_live_image_dod_block
+      fm_ui_live_image_dod_block "$surface"
       ;;
     direct-PR:external)
       fm_external_review_backup || return 1
       adapter=$(fm_external_review_adapter_body) || return 1
       cat <<EOF
 # Definition of done
-Delivery contract: mode=direct-PR forge=external$contract_consent
+Delivery contract: mode=direct-PR forge=external$contract_consent$contract_surface
 Ship branch: $branch
 This task ships **direct-PR** through an external review tool: the tool uploads a snapshot of your local commits itself, so you never push a branch to publish, and there is no pull request to open.
 The task is complete only when committed on your branch.
@@ -568,12 +579,12 @@ Do NOT run /no-mistakes. A human approves and merges the review; firstmate relay
 ## Review tool instructions (home configuration)
 EOF
       printf '%s\n' "$adapter"
-      fm_ui_live_image_dod_block
+      fm_ui_live_image_dod_block "$surface"
       ;;
     direct-PR:*)
       cat <<EOF
 # Definition of done
-Delivery contract: mode=direct-PR$contract_forge$contract_consent
+Delivery contract: mode=direct-PR$contract_forge$contract_consent$contract_surface
 Ship branch: $branch
 This task ships **direct-PR**: you raise the PR yourself, without the no-mistakes pipeline.
 The task is complete only when committed on your branch.
@@ -585,12 +596,12 @@ That \`done:\` is accepted only when this copy's HEAD - your latest commit - is 
 If you deliberately keep the PR a draft, append \`paused [at=<epoch>]: {why the draft is held}\` instead of done.
 Do NOT run /no-mistakes. The configured merge authority decides whether to merge the PR; firstmate relays the outcome.
 EOF
-      fm_ui_live_image_dod_block
+      fm_ui_live_image_dod_block "$surface"
       ;;
     local-only:*)
       cat <<EOF
 # Definition of done
-Delivery contract: mode=local-only
+Delivery contract: mode=local-only$contract_surface
 Ship branch: $branch
 This task ships **local-only**: no remote, no PR, no pipeline.
 The task is complete only when committed on your branch \`$branch\`. Do NOT push, do NOT open a PR, do NOT merge.
@@ -599,12 +610,12 @@ Keep your branch a clean fast-forward onto the current default branch - if \`mai
 When it is implemented and committed, append \`done [at=<epoch>]: ready in branch $branch\` to the status file and stop.
 The configured merge authority approves the ready branch, then firstmate merges it into local \`main\` through the guarded fast-forward path.
 EOF
-      fm_ui_live_image_dod_block
+      fm_ui_live_image_dod_block "$surface"
       ;;
     no-mistakes:*)
       cat <<EOF
 # Definition of done
-Delivery contract: mode=no-mistakes$contract_forge$contract_consent
+Delivery contract: mode=no-mistakes$contract_forge$contract_consent$contract_surface
 Ship branch: $branch
 The task is complete only when committed on your branch.
 When you believe it is complete, append \`done [at=<epoch>]: {summary}\` to the status file and stop.
@@ -621,7 +632,7 @@ Then append \`done [at=<epoch>]: PR {url} checks green\` and stop. You are finis
 That CI-ready \`done:\` is accepted only when this copy's HEAD - your latest commit - is one the /no-mistakes run pushed, so commit nothing after the run; the check tests that commit, not merely that a branch moved.
 If you deliberately keep the PR a draft, append \`paused [at=<epoch>]: {why the draft is held}\` instead of done.
 EOF
-      fm_ui_live_image_dod_block
+      fm_ui_live_image_dod_block "$surface"
       ;;
     *)
       echo "error: fm_dod_block: unknown delivery mode '$mode'" >&2
@@ -788,54 +799,15 @@ fm_dod_ui_report_text() {  # <line> [<state> <id>]
   printf '%s\n' "$note"
 }
 
-# 0 when a ship done: belongs to a UI or UX ship task, read from task metadata,
-# the done report text itself, or the task brief's # Task section.
-fm_dod_is_ui_ship_done() {  # <line> [<state> <id> <meta>]
-  local line=$1 state=${2:-} id=${3:-} meta=${4:-} surface ui_flag report stripped home data_dir brief task_body
-  if [ -n "$meta" ] && [ -f "$meta" ]; then
-    surface=$(fm_dod_meta_value "$meta" surface)
-    ui_flag=$(fm_dod_meta_value "$meta" ui)
-    case "$surface:$ui_flag" in
-      ui:*|ux:*|UI:*|UX:*|*:1|*:true|*:yes) return 0 ;;
-    esac
-  fi
-  report=$(fm_dod_ui_report_text "$line" "$state" "$id")
-  stripped=$(printf '%s\n' "$report" | sed 's#https\{0,1\}://[^[:space:]]*##g')
-  if printf '%s\n' "$stripped" | grep -qiE '(^|[^[:alnum:]_])(ui|ux)([^[:alnum:]_]|$)|live[- ]origin image|live[- ]image'; then
-    return 0
-  fi
-  if [ -n "$state" ] && [ -n "$id" ]; then
-    home=${FM_HOME:-$(cd "$state/.." 2>/dev/null && pwd)}
-    data_dir=${FM_DATA_OVERRIDE:-${home:+$home/data}}
-    brief=${data_dir:+$data_dir/$id/brief.md}
-    if [ -n "$brief" ] && [ -f "$brief" ] && [ -r "$brief" ]; then
-      task_body=$(fm_brief_heading_body "$brief" "# Task")
-      if ! printf '%s\n' "$task_body" | grep -qF 'Put the gate where ship briefs and the done report already live'; then
-        stripped=$(printf '%s\n' "$task_body" | sed 's#https\{0,1\}://[^[:space:]]*##g')
-        if printf '%s\n' "$stripped" | grep -qE '(^|[^[:alnum:]_])(UI|UX)([^[:alnum:]_]|$)'; then
-          return 0
-        fi
-      fi
-    fi
-  fi
-  return 1
-}
-
-# 0 when a UI/UX ship done report names a non-empty live-origin image path and
-# states, in one line per spec point, that the image matches the spec.
+# 0 when a UI ship done report names an existing, non-empty live-origin image
+# file and states, in one line per spec point, that the image matches the spec.
+# The refusal phrases are read only from the image line and the spec lines, so
+# an unrelated note in the same report cannot refuse the claim.
 # 1 when refused, with a one-line reason on stdout.
 fm_dod_accept_ui_ship_done() {  # <report>
-  local report=$1 stripped img_path spec_verdict
-  if printf '%s\n' "$report" | grep -qiE 'check[[:space:]]+failed|no[[:space:]]+capture[[:space:]]+path|capture[[:space:]]+path[[:space:]]+(is[[:space:]]+)?(missing|unavailable)'; then
-    printf '%s\n' "UI/UX ship done report states the live-image check failed or no capture path exists; stop instead of claiming done"
-    return 1
-  fi
-  if printf '%s\n' "$report" | grep -qiE 'blank[[:space:]]+(image|screenshot|capture)|local[[:space:]]+html|file://|api[[:space:]]+status([[:space:]]+code)?|status[[:space:]]+code[[:space:]]+[1-5][0-9][0-9]|http[[:space:]]+[1-5][0-9][0-9]'; then
-    printf '%s\n' "UI/UX ship done report is missing a valid live-origin image path: a blank image, a local HTML render, or an API status code does not satisfy the check"
-    return 1
-  fi
+  local report=$1 stripped evidence img_path img_line spec_verdict
   stripped=$(printf '%s\n' "$report" | sed 's#https\{0,1\}://[^[:space:]]*##g')
-  img_path=$(printf '%s\n' "$stripped" | awk '
+  evidence=$(printf '%s\n' "$stripped" | awk '
     {
       for (i = 1; i <= NF; i++) {
         tok = $i
@@ -844,25 +816,31 @@ fm_dod_accept_ui_ship_done() {  # <report>
         gsub(/^[`"\047(\[]+|[`"\047)\];,:]+$/, "", tok)
         low = tolower(tok)
         if (tok ~ /\// && low !~ /^[a-z]+:\/\// && low ~ /\.(png|jpg|jpeg|webp)$/) {
-          print tok
+          print tok "\t" $0
           exit
         }
       }
     }
   ')
+  img_path=${evidence%%$'\t'*}
+  img_line=${evidence#*$'\t'}
   if [ -z "$img_path" ]; then
-    printf '%s\n' "UI/UX ship done report is missing a live-origin image path"
+    printf '%s\n' "UI ship done report is missing a live-origin image path"
     return 1
   fi
-  if [ -e "$img_path" ] && [ ! -s "$img_path" ]; then
-    printf '%s\n' "UI/UX ship done report names a blank image ($img_path is empty): a blank image does not satisfy the check"
+  if printf '%s\n' "$img_line" | grep -qiE 'check[[:space:]]+failed|no[[:space:]]+capture[[:space:]]+path|capture[[:space:]]+path[[:space:]]+(is[[:space:]]+)?(missing|unavailable)'; then
+    printf '%s\n' "UI ship done report states the live-image check failed or no capture path exists; stop instead of claiming done"
     return 1
   fi
-  if printf '%s\n' "$report" | grep -qiE '(does[[:space:]]+not|did[[:space:]]+not|do[[:space:]]+not|not)[[:space:]]+match|mismatch'; then
-    printf '%s\n' "UI/UX ship done report states the live-origin image does not match the spec"
+  if printf '%s\n' "$img_line" | grep -qiE 'blank[[:space:]]+(image|screenshot|capture)|local[[:space:]]+html|file://|api[[:space:]]+status([[:space:]]+code)?|status[[:space:]]+code[[:space:]]+[1-5][0-9][0-9]|http[[:space:]]+[1-5][0-9][0-9]'; then
+    printf '%s\n' "UI ship done report is missing a valid live-origin image path: a blank image, a local HTML render, or an API status code does not satisfy the check"
     return 1
   fi
-  spec_verdict=$(printf '%s\n' "$report" | awk '
+  if [ ! -s "$img_path" ]; then
+    printf '%s\n' "UI ship done report names $img_path, which does not exist or is empty: the live-origin image must be captured before claiming done"
+    return 1
+  fi
+  spec_verdict=$(printf '%s\n' "$stripped" | awk -v img="$img_path" '
     {
       low = tolower($0)
       line = low
@@ -872,7 +850,12 @@ fm_dod_accept_ui_ship_done() {  # <report>
         line = substr(line, RSTART + RLENGTH)
       }
       if (count > 1) { bad = 1; exit }
-      if (low ~ /(^|[[:space:]:;-])(spec([[:space:]]+point)?[[:space:]]+[0-9]+|[-*][[:space:]]+spec)/ && low !~ /(^|[^[:alnum:]_])match(es|ed)?([^[:alnum:]_]|$)/) {
+      is_spec = (low ~ /(^|[[:space:]:;-])(spec([[:space:]]+point)?[[:space:]]+[0-9]+|[-*][[:space:]]+spec)/)
+      if ((is_spec || index($0, img)) && low ~ /(does[[:space:]]+not|did[[:space:]]+not|do[[:space:]]+not|not)[[:space:]]+match|mismatch/) {
+        bad = 1
+        exit
+      }
+      if (is_spec && low !~ /(^|[^[:alnum:]_])match(es|ed)?([^[:alnum:]_]|$)/) {
         bad = 1
         exit
       }
@@ -886,7 +869,7 @@ fm_dod_accept_ui_ship_done() {  # <report>
     }
   ')
   if [ "$spec_verdict" != "ok" ]; then
-    printf '%s\n' "UI/UX ship done report must say, in one line per spec point, whether the live-origin image matches"
+    printf '%s\n' "UI ship done report must say, in one line per spec point, that the live-origin image matches"
     return 1
   fi
   return 0
@@ -1003,8 +986,8 @@ fm_dod_named_head_reachable_outside_worktree() {  # <worktree> <project> <mode> 
 # names the task's recorded PR whose head the forge holds, when it names a
 # Gerrit change whose current patch set carries the worker copy's HEAD tree, or otherwise when its named
 # head - the worker copy's HEAD - is reachable outside that disposable copy. A
-# UI or UX ship done: must also pass fm_dod_accept_ui_ship_done (live-origin
-# image path and per-spec-point match verdict). A published-for-review report
+# surface=ui ship done: must also pass fm_dod_accept_ui_ship_done (live-origin
+# image file and per-spec-point match verdict). A published-for-review report
 # that names no Gerrit change is refused.
 # There is no free-text SHA scan: a SHA that happens to appear in the note is
 # not the named head. 1 when
@@ -1016,7 +999,7 @@ fm_dod_accept_ship_done() {  # <kind> <mode> <worktree> <project> <line> [<state
   local kind=$1 mode=$2 wt=$3 project=$4 line=$5 state=${6:-} id=${7:-} meta=${8:-} url sha gerrit
   [ "$kind" = ship ] || return 0
   [ "$(status_line_verb "$line")" = "done" ] || return 0
-  if fm_dod_is_ui_ship_done "$line" "$state" "$id" "$meta"; then
+  if [ -n "$meta" ] && [ "$(fm_dod_meta_value "$meta" surface)" = ui ]; then
     fm_dod_accept_ui_ship_done "$(fm_dod_ui_report_text "$line" "$state" "$id")" || return 1
   fi
   fm_dod_should_gate_ship_done "$kind" "$mode" "$line" || return 0

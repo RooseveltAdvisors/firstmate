@@ -114,10 +114,12 @@ test_spawn_installs_the_guard_and_records_the_task() {
   printf 'backup\n' > "$HOME_DIR/config/external-review-backup"
   git init --quiet --bare "$CASE_DIR/backup.git"
   git -C "$PROJECT_DIR" remote add backup "file://$CASE_DIR/backup.git"
+  sed -i.bak 's/^Delivery contract: mode=direct-PR forge=external$/& surface=ui/' "$HOME_DIR/data/$id/brief.md"
   out=$(run_spawn "$id" --mode direct-PR --yolo off); status=$?
   expect_code 0 "$status" "a forge=external direct-PR spawn should launch"$'\n'"$out"
   meta="$HOME_DIR/state/$id.meta"
   assert_grep 'forge=external' "$meta" "the spawn did not record forge=external"
+  assert_grep 'surface=ui' "$meta" "the spawn did not record the brief's surface=ui"
   assert_grep 'backup_remote=backup' "$meta" "the spawn did not record the backup remote"
   assert_grep 'backup_prefix=backup/' "$meta" "the spawn did not record the backup prefix"
   hooks=$(cd "$HOME_DIR/state" && pwd -P)/$id.git-hooks
@@ -130,7 +132,7 @@ test_spawn_installs_the_guard_and_records_the_task() {
   GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=$hooks \
     git -C "$POOL_DIR" push --quiet backup "HEAD:refs/heads/backup/$id" \
     || fail "the installed guard refused the durable copy"
-  pass "forge=external spawn: installs the push guard even under keep-ai-trailers and records forge and backup in the task record"
+  pass "forge=external spawn: installs the push guard even under keep-ai-trailers and records forge, surface, and backup in the task record"
 }
 
 test_spawn_refusals_before_launch

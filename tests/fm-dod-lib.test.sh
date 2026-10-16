@@ -572,31 +572,39 @@ test_external_dod_renders_the_adapter
 test_external_review_done_without_backup_is_accepted_on_the_url
 test_external_review_done_with_backup_needs_the_copy
 
-test_ship_dod_includes_ui_live_image_gate() {
+test_ui_live_image_gate_renders_only_for_surface_ui() {
   local mode out
   for mode in no-mistakes direct-PR local-only; do
     out="$TMP_ROOT/dod-ui-$mode.md"
-    fm_dod_block "$mode" dod-ui-task > "$out"
-    assert_grep "For a UI or UX ship, the task is not done until the done report names a live-origin image path" "$out" \
-      "$mode: DoD must require a live-origin image path for UI/UX ships"
+    fm_dod_block "$mode" dod-ui-task fm/dod-ui-task none '' '' ui > "$out" || fail "$mode: surface=ui DoD did not render"
+    grep -qx "Delivery contract: mode=$mode surface=ui" "$out" \
+      || fail "$mode: surface=ui DoD did not record surface=ui on the Delivery contract line"
+    assert_grep "This is a UI ship: the task is not done until the done report names a live-origin image path" "$out" \
+      "$mode: UI DoD must require a live-origin image path"
     assert_grep "says, in one line per spec point, whether that image matches" "$out" \
-      "$mode: DoD must require one line per spec point stating whether the image matches"
+      "$mode: UI DoD must require one line per spec point stating whether the image matches"
     assert_grep "A blank image, a local HTML render, or an API status code does not satisfy the check." "$out" \
-      "$mode: DoD must reject blank images, local HTML renders, and API status codes"
-    assert_grep "Do not add a vision model, a new capture service, or a shared compile cache; use the capture path the fleet already has (\`chrome-devtools-axi\`)." "$out" \
-      "$mode: DoD must reuse chrome-devtools-axi and forbid new capture services"
+      "$mode: UI DoD must reject blank images, local HTML renders, and API status codes"
     assert_grep "If no capture path exists, the done report must say the check failed and stop." "$out" \
-      "$mode: DoD must require stopping with check failed when no capture path exists"
+      "$mode: UI DoD must require stopping with check failed when no capture path exists"
+    assert_no_grep "compile cache" "$out" "$mode: UI DoD must not carry the compile-cache sentence"
+
+    out="$TMP_ROOT/dod-plain-$mode.md"
+    fm_dod_block "$mode" dod-plain-task > "$out"
+    grep -qx "Delivery contract: mode=$mode" "$out" || fail "$mode: a non-UI DoD changed its Delivery contract line"
+    assert_no_grep "live-origin image" "$out" "$mode: a non-UI DoD must not carry the live-image gate"
   done
-  pass "every ship DoD includes the UI/UX live-image gate"
+  fm_dod_block no-mistakes dod-ux-task fm/dod-ux-task none '' '' ux >/dev/null 2>&1 \
+    && fail "fm_dod_block accepted an unknown surface"
+  pass "the live-image gate and surface=ui token render only for a surface=ui ship"
 }
 
-test_ui_ship_done_missing_image_path_is_refused() {
-  local repo wt sha img blank home state id meta reason rc
+test_ui_ship_done_needs_a_live_image_and_spec_verdicts() {
+  local repo wt sha img blank state id meta plain reason rc pr
   repo="$TMP_ROOT/ui-repo"
   wt="$TMP_ROOT/ui-wt"
   fm_git_worktree "$repo" "$wt" fm/ui-signage
-  git -C "$wt" commit -q --allow-empty -m 'signage UI change'
+  git -C "$wt" commit -q --allow-empty -m 'signage change'
   sha=$(git -C "$wt" rev-parse HEAD)
   git -C "$wt" update-ref refs/remotes/origin/fm/ui-signage "$sha"
 
@@ -604,75 +612,64 @@ test_ui_ship_done_missing_image_path_is_refused() {
   printf 'png-bytes' > "$img"
   blank="$TMP_ROOT/signage-blank.png"
   : > "$blank"
+  state="$TMP_ROOT/ui-state"
+  id=ui-task
+  mkdir -p "$state"
+  meta="$state/$id.meta"
+  printf 'kind=ship\nmode=no-mistakes\nsurface=ui\n' > "$meta"
+  plain="$state/plain.meta"
+  printf 'kind=ship\nmode=no-mistakes\n' > "$plain"
+  pr="done: PR https://example.test/o/r/pull/10 checks green"
 
-  # Missing image path in a UI done report is refused.
-  reason=$(accept_done ship no-mistakes "$wt" "$repo" "done: PR https://example.test/o/r/pull/10 checks green (UI signage updated)")
+  # A ship without surface=ui is never UI-gated, even when its report says UI.
+  accept_done ship no-mistakes "$wt" "$repo" "$pr (fixed the API field the UI reads; ui-tests pass)" "$state" plain "$plain" \
+    || fail "a non-UI ship whose report mentions UI was refused"
+
+  reason=$(accept_done ship no-mistakes "$wt" "$repo" "$pr" "$state" "$id" "$meta")
   rc=$?
-  [ "$rc" -eq 1 ] || fail "UI ship done missing image path was accepted (exit $rc)"
+  [ "$rc" -eq 1 ] || fail "UI ship done missing an image path was accepted (exit $rc)"
   assert_contains "$reason" "missing a live-origin image path" "missing-image refusal did not explain itself: $reason"
 
-  # Pre-validation UI done handoff missing image path is also refused.
-  rc=0
-  accept_done ship no-mistakes "$wt" "$repo" "done: UI signage implementation complete" >/dev/null || rc=$?
-  [ "$rc" -eq 1 ] || fail "pre-validation UI done missing image path was accepted"
+  reason=$(accept_done ship no-mistakes "$wt" "$repo" "$pr (signage: $TMP_ROOT/made-up.png; spec 1 matches)" "$state" "$id" "$meta")
+  rc=$?
+  [ "$rc" -eq 1 ] || fail "UI ship done naming a nonexistent image file was accepted"
+  assert_contains "$reason" "does not exist or is empty" "missing-file refusal did not explain itself: $reason"
 
-  # API status code, local HTML render, blank image, and failed capture path are refused.
   for bad in \
-    "done: PR https://example.test/o/r/pull/10 checks green (UI signage: API status 200 OK matches spec)" \
-    "done: PR https://example.test/o/r/pull/10 checks green (UI signage: file:///tmp/signage.html $img matches spec)" \
-    "done: PR https://example.test/o/r/pull/10 checks green (UI signage: local HTML render $img matches spec)" \
-    "done: PR https://example.test/o/r/pull/10 checks green (UI signage: blank image $img matches spec)" \
-    "done: PR https://example.test/o/r/pull/10 checks green (UI signage: $blank matches spec)" \
-    "done: PR https://example.test/o/r/pull/10 checks green (UI signage: no capture path, check failed)" \
-    "done: PR https://example.test/o/r/pull/10 checks green (UI signage: captured $img)" \
-    "done: PR https://example.test/o/r/pull/10 checks green (UI signage: $img; spec 1 matches; spec 2 matches)" \
-    "done: PR https://example.test/o/r/pull/10 checks green (UI signage: $img; spec 1 does not match)"; do
+    "$pr (signage: API status 200 OK $img; spec 1 matches)" \
+    "$pr (signage: file:///tmp/signage.html $img; spec 1 matches)" \
+    "$pr (signage: local HTML render $img; spec 1 matches)" \
+    "$pr (signage: blank image $img; spec 1 matches)" \
+    "$pr (signage: $blank; spec 1 matches)" \
+    "$pr (signage: no capture path, check failed)" \
+    "$pr (signage: captured $img)" \
+    "$pr (signage: $img; spec 1 matches; spec 2 matches)" \
+    "$pr (signage: $img; spec 1 does not match)"; do
     rc=0
-    accept_done ship no-mistakes "$wt" "$repo" "$bad" >/dev/null || rc=$?
+    accept_done ship no-mistakes "$wt" "$repo" "$bad" "$state" "$id" "$meta" >/dev/null || rc=$?
     [ "$rc" -eq 1 ] || fail "invalid UI done report was accepted: $bad"
   done
 
-  # A UI done report naming a live-origin image path and stating one line per spec point matches is accepted.
-  accept_done ship no-mistakes "$wt" "$repo" "done: PR https://example.test/o/r/pull/10 checks green (UI signage: live-origin image $img)
+  accept_done ship no-mistakes "$wt" "$repo" "$pr (signage: live-origin image $img)
 - spec 1 (header banner): matches live image
-- spec 2 (status badge): matches live image" \
+- spec 2 (status badge): no blank image area, matches live image" "$state" "$id" "$meta" \
     || fail "valid multi-spec-point UI done report was refused"
 
-  # A task whose brief # Task is a UI/UX ship is gated even when the done: line omits the word UI.
-  home="$TMP_ROOT/ui-home"
-  state="$home/state"
-  id="ui-brief-task"
-  meta="$state/$id.meta"
-  mkdir -p "$state" "$home/data/$id"
-  printf 'kind=ship\nmode=no-mistakes\nworktree=%s\nproject=%s\npr=https://github.com/o/r/pull/11\npr_head=%s\n' \
-    "$wt" "$repo" "$sha" > "$meta"
-  cat > "$home/data/$id/brief.md" <<'EOF'
-# Task
-## Captain's intent
-Fix the signage UI layout.
-
-## Firstmate spec
-Check the signage banner and contrast.
-EOF
-  printf 'done: PR https://github.com/o/r/pull/11 checks green\n' > "$state/$id.status"
-  rc=0
-  FM_HOME="$home" accept_done ship no-mistakes "$wt" "$repo" "done: PR https://github.com/o/r/pull/11 checks green" "$state" "$id" "$meta" >/dev/null || rc=$?
-  [ "$rc" -eq 1 ] || fail "UI brief task with bare done: line missing image path was accepted"
-
+  # Refusal phrases in an unrelated note do not refuse a valid report.
   cat > "$state/$id.status" <<EOF
 note [at=1700000000]: live-origin image $img
 note [at=1700000001]: - spec 1 (signage banner): matches live image
-note [at=1700000002]: - spec 2 (contrast): matches live image
-done [at=1700000003]: PR https://github.com/o/r/pull/11 checks green
+note [at=1700000002]: pipeline changes: handler returned HTTP 500 - fixed; regex did not match - widened; check failed on lint - fixed
+done [at=1700000003]: PR https://example.test/o/r/pull/10 checks green
 EOF
-  FM_HOME="$home" accept_done ship no-mistakes "$wt" "$repo" "done: PR https://github.com/o/r/pull/11 checks green" "$state" "$id" "$meta" \
-    || fail "UI brief task with live-origin image and per-spec-point match notes was refused"
+  accept_done ship no-mistakes "$wt" "$repo" "$pr" "$state" "$id" "$meta" \
+    || fail "a pipeline-changes note with refusal phrases refused a valid UI done report"
 
-  pass "UI/UX ship done: requires a live-origin image path and per-spec-point match verdict"
+  pass "UI ship done: needs surface=ui, an existing live-origin image file, and per-spec-point match verdicts"
 }
 
 test_worker_role_names_skill_and_fallback_file
-test_ship_dod_includes_ui_live_image_gate
-test_ui_ship_done_missing_image_path_is_refused
+test_ui_live_image_gate_renders_only_for_surface_ui
+test_ui_ship_done_needs_a_live_image_and_spec_verdicts
 
 echo "all fm-dod-lib tests passed"
