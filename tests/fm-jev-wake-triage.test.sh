@@ -157,6 +157,21 @@ assert_contains "$(cat "$HOME_DIR/state/.jev-triage-telemetry")" 'jev_triage.sup
   "healthy_idle stamps class secondmate"
 pass "healthy_idle suppresses with the secondmate class"
 
+# --- Infisical JEV proxy works without TYPESAFE_API_KEY ---------------------
+reset_log
+write_choice_response pipeline_wait 0.14
+cat > "$FAKEBIN/jev-proxy.sh" <<SH
+#!/usr/bin/env bash
+exec "$FAKEBIN/curl" "\$@"
+SH
+chmod +x "$FAKEBIN/jev-proxy.sh"
+FM_JEV_PROXY_BIN="$FAKEBIN/jev-proxy.sh" run_tool code out --class ship --age 500 --escalation-count 1 \
+  --task ship-proxy --status-file "$STATUS"
+[ "$code" = 0 ] || fail "proxy-backed triage must exit 0, got $code"
+assert_contains "$out" 'action=suppress' "proxy-backed pipeline_wait suppresses without TYPESAFE_API_KEY"
+assert_contains "$(cat "$LOG/argv")" 'https://api.typesafe.ai/v1/systemone' "proxy request uses the fixed endpoint"
+pass "Infisical JEV proxy works without TYPESAFE_API_KEY in environment"
+
 # --- HTTP / transport error fail-opens -------------------------------------
 reset_log
 write_choice_response true_wedge 0.9

@@ -17,44 +17,58 @@ import json
 import os
 import subprocess
 import sys
-import urllib.error
-import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
-TS_BASE = "https://api.typesafe.ai"
-TS_MODEL = "jev-latest"
+TS_BASE = os.environ.get("FM_JEV_TS_BASE", "https://api.typesafe.ai")
+TS_MODEL = os.environ.get("FM_JEV_TS_MODEL", "jev-latest")
 TS_TIMEOUT = 8.0
+DEFAULT_JEV_PROXY = "/opt/ra/infisical/bin/jev-proxy.sh"
 
 
-def get_api_key() -> str | None:
-    # 1. Resolve directly from Agent Vault via Jev service (Strict Invariant)
-    try:
-        sys.path.insert(0, "/opt/ra/firstmate/projects/jev/src")
-        from jev.vault import get_typesafe_api_key
-        return get_typesafe_api_key()
-    except Exception:
-        pass
-
-    # 2. Try Jev service CLI runner if available
-    jev_bin = Path("/opt/ra/firstmate/projects/jev/bin/jev")
-    if jev_bin.exists():
-        try:
-            res = subprocess.run(
-                [str(jev_bin), "run", "--", "env"],
-                capture_output=True,
-                text=True,
-                timeout=3,
-                check=False,
-            )
-            for line in res.stdout.splitlines():
-                if line.startswith("TYPESAFE_API_KEY="):
-                    k = line.split("=", 1)[1].strip()
-                    if k:
-                        return k
-        except Exception:
-            pass
+def get_jev_proxy() -> Path | None:
+    """Resolve the executable Infisical JEV proxy wrapper."""
+    raw = os.environ.get("FM_JEV_PROXY_BIN", DEFAULT_JEV_PROXY).strip()
+    if not raw:
+        return None
+    proxy = Path(raw)
+    if proxy.is_file() and os.access(proxy, os.X_OK):
+        return proxy
     return None
+
+
+def post_jev_systemone(payload: dict, proxy_bin: Path | None = None) -> dict:
+    """POST a System One request through the Infisical JEV proxy."""
+    proxy = proxy_bin or get_jev_proxy()
+    if not proxy:
+        raise RuntimeError("Infisical JEV proxy unavailable")
+    url = f"{TS_BASE.rstrip('/')}/v1/systemone"
+    res = subprocess.run(
+        [
+            str(proxy),
+            "-fsS",
+            "--max-time",
+            str(TS_TIMEOUT),
+            "-X",
+            "POST",
+            url,
+            "-H",
+            "Content-Type: application/json",
+            "--data-binary",
+            "@-",
+        ],
+        input=json.dumps(payload).encode("utf-8"),
+        capture_output=True,
+        timeout=TS_TIMEOUT,
+        check=False,
+    )
+    if res.returncode != 0:
+        err = res.stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(f"JEV proxy exited {res.returncode}: {err or 'request failed'}")
+    data = json.loads(res.stdout.decode("utf-8"))
+    if not isinstance(data, dict):
+        raise RuntimeError("Malformed JEV response")
+    return data
 
 
 def collect_fleet_state() -> dict:
@@ -121,7 +135,7 @@ def collect_fleet_state() -> dict:
     }
 
 
-def evaluate_with_jev(state: dict, key: str) -> dict:
+def evaluate_with_jev(state: dict, proxy_bin: Path | None = None) -> dict:
     payload = {
         "model": TS_MODEL,
         "state": {
@@ -157,18 +171,7 @@ def evaluate_with_jev(state: dict, key: str) -> dict:
         }
     }
 
-    req = urllib.request.Request(
-        f"{TS_BASE}/v1/systemone",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {key}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
-
-    with urllib.request.urlopen(req, timeout=TS_TIMEOUT) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    return post_jev_systemone(payload, proxy_bin)
 
 
 def local_heuristic_evaluate(state: dict) -> dict:
@@ -205,14 +208,14 @@ def main() -> int:
     parser.add_argument("--remedy", action="store_true", help="Emit actionable remediation command")
     args = parser.parse_args()
 
-    key = get_api_key()
-    if not key:
-        print("error: TYPESAFE_API_KEY not available", file=sys.stderr)
+    proxy_bin = get_jev_proxy()
+    if not proxy_bin:
+        print("error: Infisical JEV proxy not available (TYPESAFE_API_KEY not available)", file=sys.stderr)
         return 1
 
     state = collect_fleet_state()
     try:
-        eval_result = evaluate_with_jev(state, key)
+        eval_result = evaluate_with_jev(state, proxy_bin)
     except Exception as e:
         print(f"warning: Jev API evaluation gateway unavailable ({e}), using local deterministic evaluator", file=sys.stderr)
         eval_result = local_heuristic_evaluate(state)

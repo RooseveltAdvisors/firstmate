@@ -16,14 +16,13 @@ import os
 import re
 import subprocess
 import sys
-import urllib.error
-import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
-TS_BASE = "https://api.typesafe.ai"
-TS_MODEL = "jev-latest"
+TS_BASE = os.environ.get("FM_JEV_TS_BASE", "https://api.typesafe.ai")
+TS_MODEL = os.environ.get("FM_JEV_TS_MODEL", "jev-latest")
 TS_TIMEOUT = 4.0
+DEFAULT_JEV_PROXY = "/opt/ra/infisical/bin/jev-proxy.sh"
 
 BLOCKED_RE = re.compile(
     r"^blocked\s+\[key=(pending-reply-[a-zA-Z0-9]+)\]:\s+pending-reply-missed:\s+task=([a-zA-Z0-9._-]+)\s+pending-reply-id=([a-zA-Z0-9]+)\s+request=(.+)$"
@@ -43,34 +42,49 @@ ROUTINE_BOOKKEEPING_RES = [
 ]
 
 
-def get_api_key() -> str | None:
-    # 1. Resolve directly from Agent Vault via Jev service (Strict Invariant)
-    try:
-        sys.path.insert(0, "/opt/ra/firstmate/projects/jev/src")
-        from jev.vault import get_typesafe_api_key
-        return get_typesafe_api_key()
-    except Exception:
-        pass
-
-    # 2. Try Jev service CLI runner if available
-    jev_bin = Path("/opt/ra/firstmate/projects/jev/bin/jev")
-    if jev_bin.exists():
-        try:
-            res = subprocess.run(
-                [str(jev_bin), "run", "--", "env"],
-                capture_output=True,
-                text=True,
-                timeout=3,
-                check=False,
-            )
-            for line in res.stdout.splitlines():
-                if line.startswith("TYPESAFE_API_KEY="):
-                    k = line.split("=", 1)[1].strip()
-                    if k:
-                        return k
-        except Exception:
-            pass
+def get_jev_proxy() -> Path | None:
+    """Resolve the executable Infisical JEV proxy wrapper."""
+    raw = os.environ.get("FM_JEV_PROXY_BIN", DEFAULT_JEV_PROXY).strip()
+    if not raw:
+        return None
+    proxy = Path(raw)
+    if proxy.is_file() and os.access(proxy, os.X_OK):
+        return proxy
     return None
+
+
+def post_jev_systemone(payload: dict, proxy_bin: Path | None = None) -> dict:
+    """POST a System One request through the Infisical JEV proxy."""
+    proxy = proxy_bin or get_jev_proxy()
+    if not proxy:
+        raise RuntimeError("Infisical JEV proxy unavailable")
+    url = f"{TS_BASE.rstrip('/')}/v1/systemone"
+    res = subprocess.run(
+        [
+            str(proxy),
+            "-fsS",
+            "--max-time",
+            str(TS_TIMEOUT),
+            "-X",
+            "POST",
+            url,
+            "-H",
+            "Content-Type: application/json",
+            "--data-binary",
+            "@-",
+        ],
+        input=json.dumps(payload).encode("utf-8"),
+        capture_output=True,
+        timeout=TS_TIMEOUT,
+        check=False,
+    )
+    if res.returncode != 0:
+        err = res.stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(f"JEV proxy exited {res.returncode}: {err or 'request failed'}")
+    data = json.loads(res.stdout.decode("utf-8"))
+    if not isinstance(data, dict):
+        raise RuntimeError("Malformed JEV response")
+    return data
 
 
 def log_telemetry(action: str, tier: str, code: str, seat: str, corr_id: str, reason: str) -> None:
@@ -95,7 +109,9 @@ def classify_request_tier1(request_text: str) -> tuple[bool, str, str]:
     return False, "unmatched", "Does not match static routine bookkeeping patterns"
 
 
-def classify_request_tier3(request_text: str, key: str) -> tuple[str, str, str]:
+def classify_request_tier3(
+    request_text: str, proxy_bin: Path | None = None
+) -> tuple[str, str, str]:
     clean_sample = " ".join(request_text.split())[:800]
     payload = {
         "model": TS_MODEL,
@@ -116,19 +132,8 @@ def classify_request_tier3(request_text: str, key: str) -> tuple[str, str, str]:
         },
     }
 
-    req = urllib.request.Request(
-        f"{TS_BASE}/v1/systemone",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {key}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
-
     try:
-        with urllib.request.urlopen(req, timeout=TS_TIMEOUT) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+        data = post_jev_systemone(payload, proxy_bin)
         answers = data.get("answers", {})
         choice = answers.get("is_routine_bookkeeping", {}).get("choice", "actionable_work_order")
         noul = float(answers.get("safety_noul", {}).get("noul", 0.0))
@@ -197,7 +202,7 @@ def main() -> None:
     for sf in status_files:
         all_open_blocks.extend(scan_status_file(sf))
 
-    key = get_api_key()
+    proxy_bin = get_jev_proxy()
     reconciled_count = 0
     preserved_count = 0
     results = []
@@ -216,8 +221,8 @@ def main() -> None:
         reason = t1_reason
 
         # Tier 3 Semantic Check if Tier 1 did not match
-        if not is_routine and key:
-            t3_action, t3_code, t3_reason = classify_request_tier3(req_text, key)
+        if not is_routine and proxy_bin:
+            t3_action, t3_code, t3_reason = classify_request_tier3(req_text, proxy_bin)
             action = t3_action
             tier = "tier3"
             code = t3_code
