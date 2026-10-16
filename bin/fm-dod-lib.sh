@@ -859,7 +859,7 @@ fm_dod_accept_ui_ship_done() {  # <report>
         bad = 1
         exit
       }
-      if (low ~ /(^|[^[:alnum:]_])match(es|ed)?([^[:alnum:]_]|$)/) {
+      if ((is_spec || index($0, img)) && low ~ /(^|[^[:alnum:]_])match(es|ed)?([^[:alnum:]_]|$)/) {
         matched++
       }
     }

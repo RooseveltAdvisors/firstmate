@@ -668,6 +668,16 @@ EOF
   accept_done ship no-mistakes "$wt" "$repo" "$pr" "$state" "$id" "$meta" \
     || fail "a pipeline-changes note with refusal phrases refused a valid UI done report"
 
+  # A match word in an unrelated note is not a spec verdict.
+  cat > "$state/$id.status" <<EOF
+note [at=1700000000]: live-origin image $img
+note [at=1700000001]: pipeline changes: regex did not match - widened
+done [at=1700000002]: PR https://example.test/o/r/pull/10 checks green
+EOF
+  rc=0
+  accept_done ship no-mistakes "$wt" "$repo" "$pr" "$state" "$id" "$meta" >/dev/null || rc=$?
+  [ "$rc" -eq 1 ] || fail "a match word in an unrelated note passed a UI done with no spec verdict"
+
   pass "UI ship done: needs surface=ui, an existing live-origin image file, and per-spec-point match verdicts"
 }
 
