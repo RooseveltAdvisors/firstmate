@@ -199,10 +199,17 @@ emit() {  # <action> [choice] [noul]
 
 emit_unavailable() { emit unavailable; }
 
-if [ -n "${FAKE_CURL_LOG:-}" ]; then
+JEV_PROXY=${FM_JEV_PROXY_BIN:-/opt/ra/infisical/bin/jev-proxy.sh}
+if [ -n "${FM_JEV_PROXY_BIN:-}" ]; then
+  [ -x "$JEV_PROXY" ] || emit_unavailable
+elif [ -n "${FAKE_CURL_LOG:-}" ]; then
   if [ -z "$TYPESAFE_API_KEY_PRIVATE" ]; then
     emit_unavailable
   fi
+elif [ "${FM_TEST_SEAM:-0}" = 1 ]; then
+  emit_unavailable
+else
+  [ -x "$JEV_PROXY" ] || emit_unavailable
 fi
 command -v jq >/dev/null 2>&1 || emit_unavailable
 command -v curl >/dev/null 2>&1 || emit_unavailable
@@ -241,13 +248,13 @@ REQUEST=$(jq -n --arg model "$TS_MODEL" --arg class "$CLASS" --argjson age "$AGE
 
 RESP_FILE=$(mktemp) || emit_unavailable
 trap 'rm -f "$RESP_FILE"' EXIT
-if [ -n "${FAKE_CURL_LOG:-}" ]; then
+if [ -z "${FM_JEV_PROXY_BIN:-}" ] && [ -n "${FAKE_CURL_LOG:-}" ]; then
   HTTP=$(printf '%s' "$REQUEST" | curl -sS --max-time "$TS_TIMEOUT" -o "$RESP_FILE" -w '%{http_code}' \
     -X POST "$TS_BASE/v1/systemone" -H 'Content-Type: application/json' \
     -H @/dev/fd/3 3< <(printf 'Authorization: Bearer %s\n' "$TYPESAFE_API_KEY_PRIVATE") \
     --data-binary @- 2>/dev/null) || HTTP=000
 else
-  HTTP=$(printf '%s' "$REQUEST" | /usr/local/bin/agent-vault fleet proxy-run -- curl -sS --max-time "$TS_TIMEOUT" -o "$RESP_FILE" -w '%{http_code}' \
+  HTTP=$(printf '%s' "$REQUEST" | "$JEV_PROXY" -sS --max-time "$TS_TIMEOUT" -o "$RESP_FILE" -w '%{http_code}' \
     -X POST "$TS_BASE/v1/systemone" -H 'Content-Type: application/json' \
     --data-binary @- 2>/dev/null) || HTTP=000
 fi

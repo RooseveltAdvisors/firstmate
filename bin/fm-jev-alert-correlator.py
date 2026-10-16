@@ -17,50 +17,63 @@ import re
 import subprocess
 import sys
 import time
-import urllib.error
-import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
-TS_BASE = "https://api.typesafe.ai"
-TS_MODEL = "jev-latest"
+TS_BASE = os.environ.get("FM_JEV_TS_BASE", "https://api.typesafe.ai")
+TS_MODEL = os.environ.get("FM_JEV_TS_MODEL", "jev-latest")
 TS_TIMEOUT = 4.0
 DEFAULT_CACHE = "/dev/shm/.fm-jev-alert-cache.json"
+DEFAULT_JEV_PROXY = "/opt/ra/infisical/bin/jev-proxy.sh"
 
 
 def get_cache_path() -> Path:
     return Path(os.environ.get("FM_ALERT_CACHE_OVERRIDE", DEFAULT_CACHE))
 
 
-def get_api_key() -> str | None:
-    # 1. Resolve directly from Agent Vault via Jev service (Strict Invariant)
-    try:
-        sys.path.insert(0, "/opt/ra/firstmate/projects/jev/src")
-        from jev.vault import get_typesafe_api_key
-        return get_typesafe_api_key()
-    except Exception:
-        pass
-
-    # 2. Try Jev service CLI runner if available
-    jev_bin = Path("/opt/ra/firstmate/projects/jev/bin/jev")
-    if jev_bin.exists():
-        try:
-            res = subprocess.run(
-                [str(jev_bin), "run", "--", "env"],
-                capture_output=True,
-                text=True,
-                timeout=3,
-                check=False,
-            )
-            for line in res.stdout.splitlines():
-                if line.startswith("TYPESAFE_API_KEY="):
-                    k = line.split("=", 1)[1].strip()
-                    if k:
-                        return k
-        except Exception:
-            pass
-
+def get_jev_proxy() -> Path | None:
+    """Resolve the executable Infisical JEV proxy wrapper."""
+    raw = os.environ.get("FM_JEV_PROXY_BIN", DEFAULT_JEV_PROXY).strip()
+    if not raw:
+        return None
+    proxy = Path(raw)
+    if proxy.is_file() and os.access(proxy, os.X_OK):
+        return proxy
     return None
+
+
+def post_jev_systemone(payload: dict, proxy_bin: Path | None = None) -> dict:
+    """POST a System One request through the Infisical JEV proxy."""
+    proxy = proxy_bin or get_jev_proxy()
+    if not proxy:
+        raise RuntimeError("Infisical JEV proxy unavailable")
+    url = f"{TS_BASE.rstrip('/')}/v1/systemone"
+    res = subprocess.run(
+        [
+            str(proxy),
+            "-fsS",
+            "--max-time",
+            str(TS_TIMEOUT),
+            "-X",
+            "POST",
+            url,
+            "-H",
+            "Content-Type: application/json",
+            "--data-binary",
+            "@-",
+        ],
+        input=json.dumps(payload).encode("utf-8"),
+        capture_output=True,
+        timeout=TS_TIMEOUT + 2.0,
+        check=False,
+    )
+    if res.returncode != 0:
+        err = res.stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(f"JEV proxy exited {res.returncode}: {err or 'request failed'}")
+    data = json.loads(res.stdout.decode("utf-8"))
+    if not isinstance(data, dict):
+        raise RuntimeError("Malformed JEV response")
+    return data
 
 
 def log_telemetry(
@@ -182,7 +195,7 @@ def correlate_with_jev(
     alert_text: str,
     source: str,
     active_holds: list[str],
-    key: str,
+    proxy_bin: Path | None = None,
     repeat_count: int = 1,
 ) -> tuple[str, str, str, str]:
     """Tier 3: Semantic correlation with Jev System One."""
@@ -234,19 +247,8 @@ def correlate_with_jev(
         },
     }
 
-    req = urllib.request.Request(
-        f"{TS_BASE}/v1/systemone",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {key}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
-
     try:
-        with urllib.request.urlopen(req, timeout=TS_TIMEOUT) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+        data = post_jev_systemone(payload, proxy_bin)
         answers = data.get("answers", {})
         status_choice = answers.get("incident_status", {}).get("choice", "new_actionable_outage")
         novelty_noul = float(answers.get("novelty_noul", {}).get("noul", 1.0))
@@ -302,10 +304,10 @@ def main() -> None:
         )
 
     # 3. Tier 3 Semantic Jev Correlation
-    key = get_api_key()
-    if key:
+    proxy = get_jev_proxy()
+    if proxy:
         action, code, reason, detail = correlate_with_jev(
-            args.alert, args.source, active_holds, key, repeat_count=repeat_count
+            args.alert, args.source, active_holds, proxy, repeat_count=repeat_count
         )
         exit_code = 0 if action == "absorb" else 2
         emit_result(action, code, reason, "tier3", args.source, args.alert, args.json, exit_code=exit_code, detail=detail)

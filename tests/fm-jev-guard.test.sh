@@ -40,8 +40,8 @@ printf '' | "$GUARD_SH" || fail "empty stdin failed to allow open"
 printf '{bad json' | "$GUARD_SH" || fail "malformed json failed to allow open"
 "$GUARD_SH" --command "" || fail "empty command failed to allow open"
 
-# 4. Live classification if TYPESAFE_API_KEY is available
-if jev key >/dev/null 2>&1; then
+# 4. Live classification if Infisical JEV proxy is available
+if [ -x "${FM_JEV_PROXY_BIN:-/opt/ra/infisical/bin/jev-proxy.sh}" ]; then
   # Direct remote SSH must be denied
   set +e
   deny_stderr=$(mktemp)

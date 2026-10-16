@@ -18,14 +18,13 @@ import shutil
 import subprocess
 import sys
 import time
-import urllib.error
-import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
-TS_BASE = "https://api.typesafe.ai"
-TS_MODEL = "jev-latest"
+TS_BASE = os.environ.get("FM_JEV_TS_BASE", "https://api.typesafe.ai")
+TS_MODEL = os.environ.get("FM_JEV_TS_MODEL", "jev-latest")
 TS_TIMEOUT = 4.0
+DEFAULT_JEV_PROXY = "/opt/ra/infisical/bin/jev-proxy.sh"
 
 SSN_RE = re.compile(
     r"(?:\b(?:SSN|Social\s+Security(?:\s+Number)?)\b\s*[:=]?\s*\d{3}[-\s]?\d{2}[-\s]?\d{4}\b)|"
@@ -56,35 +55,49 @@ PRIVATE_KEY_RE = re.compile(
 )
 
 
-def get_api_key() -> str | None:
-    # 1. Resolve directly from Agent Vault via Jev service (Strict Invariant)
-    try:
-        sys.path.insert(0, "/opt/ra/firstmate/projects/jev/src")
-        from jev.vault import get_typesafe_api_key
-        return get_typesafe_api_key()
-    except Exception:
-        pass
-
-    # 2. Try Jev service CLI runner if available
-    jev_bin = Path("/opt/ra/firstmate/projects/jev/bin/jev")
-    if jev_bin.exists():
-        try:
-            res = subprocess.run(
-                [str(jev_bin), "run", "--", "env"],
-                capture_output=True,
-                text=True,
-                timeout=3,
-                check=False,
-            )
-            for line in res.stdout.splitlines():
-                if line.startswith("TYPESAFE_API_KEY="):
-                    k = line.split("=", 1)[1].strip()
-                    if k:
-                        return k
-        except Exception:
-            pass
-
+def get_jev_proxy() -> Path | None:
+    """Resolve the executable Infisical JEV proxy wrapper."""
+    raw = os.environ.get("FM_JEV_PROXY_BIN", DEFAULT_JEV_PROXY).strip()
+    if not raw:
+        return None
+    proxy = Path(raw)
+    if proxy.is_file() and os.access(proxy, os.X_OK):
+        return proxy
     return None
+
+
+def post_jev_systemone(payload: dict, proxy_bin: Path | None = None) -> dict:
+    """POST a System One request through the Infisical JEV proxy."""
+    proxy = proxy_bin or get_jev_proxy()
+    if not proxy:
+        raise RuntimeError("Infisical JEV proxy unavailable")
+    url = f"{TS_BASE.rstrip('/')}/v1/systemone"
+    res = subprocess.run(
+        [
+            str(proxy),
+            "-fsS",
+            "--max-time",
+            str(TS_TIMEOUT),
+            "-X",
+            "POST",
+            url,
+            "-H",
+            "Content-Type: application/json",
+            "--data-binary",
+            "@-",
+        ],
+        input=json.dumps(payload).encode("utf-8"),
+        capture_output=True,
+        timeout=TS_TIMEOUT + 2.0,
+        check=False,
+    )
+    if res.returncode != 0:
+        err = res.stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(f"JEV proxy exited {res.returncode}: {err or 'request failed'}")
+    data = json.loads(res.stdout.decode("utf-8"))
+    if not isinstance(data, dict):
+        raise RuntimeError("Malformed JEV response")
+    return data
 
 
 def log_telemetry(verdict: str, tier: str, code: str, source: str, reason: str) -> None:
@@ -204,7 +217,9 @@ def inspect_tier1_static(content: str) -> tuple[bool, str, str]:
     return True, "tier1_clean", "No high-risk static PII signatures matched"
 
 
-def inspect_tier3_semantic(content: str, source: str, key: str) -> tuple[str, str, str]:
+def inspect_tier3_semantic(
+    content: str, source: str, proxy_bin: Path | None = None
+) -> tuple[str, str, str]:
     clean_sample = " ".join(content.split())[:1500]
     payload = {
         "model": TS_MODEL,
@@ -235,20 +250,8 @@ def inspect_tier3_semantic(content: str, source: str, key: str) -> tuple[str, st
         },
     }
 
-    req = urllib.request.Request(
-        f"{TS_BASE}/v1/systemone",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {key}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
-
     try:
-        with urllib.request.urlopen(req, timeout=TS_TIMEOUT) as resp:
-            body = resp.read().decode("utf-8")
-            data = json.loads(body)
+        data = post_jev_systemone(payload, proxy_bin)
 
         answers = data.get("answers", {})
         noul_val = float(answers.get("contains_personal_pii", {}).get("noul", 0.0))
@@ -306,9 +309,9 @@ def main() -> None:
         emit_result("quarantine", t1_code, t1_reason, "tier1", args.source, q_path, as_json=args.json, exit_code=exit_code)
 
     # 2. Tier 3 Jev Semantic Evaluation
-    key = get_api_key()
-    if key:
-        verdict, code, reason = inspect_tier3_semantic(content, args.source, key)
+    proxy_bin = get_jev_proxy()
+    if proxy_bin:
+        verdict, code, reason = inspect_tier3_semantic(content, args.source, proxy_bin)
         q_path = None
         if verdict == "quarantine" and args.quarantine:
             q_path = execute_quarantine(target_file, content, quarantine_dir, code, reason, "tier3")

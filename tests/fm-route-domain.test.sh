@@ -21,18 +21,12 @@ EOF
 out=$(python3 "$ROOT/bin/fm-route-domain.py" --task "" --registry "$REG" 2>/dev/null || true)
 assert_contains "$out" "action=unavailable" "empty task emits unavailable"
 
-# 2. Missing key fails open to unavailable
-out=$(env -u TYPESAFE_API_KEY python3 -c '
-import os, sys
-# shadow jev-typesafe-run
-from pathlib import Path
-' 2>/dev/null || true)
-out=$(env TYPESAFE_API_KEY="" python3 "$ROOT/bin/fm-route-domain.py" --task "Test task" --registry "$REG" 2>/dev/null || true)
-# Should emit action=unavailable if key cannot be obtained, or action=dispatch/handle_direct if key is live
-assert_contains "$out" "action=" "router emits action field"
+# 2. Missing proxy fails open to unavailable
+out=$(FM_JEV_PROXY_BIN="" python3 "$ROOT/bin/fm-route-domain.py" --task "Test task" --registry "$REG" 2>/dev/null || true)
+assert_contains "$out" "action=unavailable" "router emits action=unavailable when proxy is missing"
 
 # 3. Live call: known domain (seller-outreach)
-if jev key >/dev/null 2>&1; then
+if [ -x "${FM_JEV_PROXY_BIN:-/opt/ra/infisical/bin/jev-proxy.sh}" ]; then
   out=$(python3 "$ROOT/bin/fm-route-domain.py" --task "Urgent care acquisition seller email outreach campaign" --registry "$REG")
   assert_contains "$out" "action=dispatch" "known domain emits dispatch action"
   assert_contains "$out" "route=seller-outreach" "known domain routes to seller-outreach"

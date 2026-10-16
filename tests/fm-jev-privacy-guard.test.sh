@@ -84,8 +84,8 @@ json_out=$("$GUARD_SH" --json --text "SSN: 987-65-4321")
 assert_contains "$json_out" '"verdict": "quarantine"' "json output contains quarantine verdict"
 assert_contains "$json_out" '"code": "ssn_detected"' "json output contains ssn_detected code"
 
-# 8. Live Tier 3 Semantic Evaluation (if TYPESAFE_API_KEY available)
-if jev key >/dev/null 2>&1; then
+# 8. Live Tier 3 Semantic Evaluation (if Infisical JEV proxy available)
+if [ -x "${FM_JEV_PROXY_BIN:-/opt/ra/infisical/bin/jev-proxy.sh}" ]; then
   # Semantic personal tax return detection
   set +e
   out_sem_tax=$("$GUARD_SH" --text "Personal tax filing recap: Adjusted income from clinic distributions was \$450k with schedule C deductions, paid estimated tax payments to Treasury" 2>&1)

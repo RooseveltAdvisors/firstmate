@@ -26,13 +26,13 @@ test-task	pending-reply-abc123	blocked	pending-reply-missed: task=test-task requ
 test-task	api-quota-exceeded	needs-decision	Need captain approval to upgrade Claude API tier
 EOF
 
-out_tsv=$(env TYPESAFE_API_KEY="" python3 "$DECISION_PY" --input "$TSV" 2>/dev/null || true)
+out_tsv=$(FM_JEV_PROXY_BIN="" python3 "$DECISION_PY" --input "$TSV" 2>/dev/null || true)
 assert_contains "$out_tsv" "TASK" "table header present"
 assert_contains "$out_tsv" "test-task" "task identifier present"
 assert_contains "$out_tsv" "pending-reply-abc123" "key present"
 
-# 3. Live classification if key is available
-if jev key >/dev/null 2>&1; then
+# 3. Live classification if Infisical JEV proxy is available
+if [ -x "${FM_JEV_PROXY_BIN:-/opt/ra/infisical/bin/jev-proxy.sh}" ]; then
   # Live run on TSV
   live_out=$(python3 "$DECISION_PY" --input "$TSV")
   assert_contains "$live_out" "stale_historical" "pending-reply classified as stale_historical"
