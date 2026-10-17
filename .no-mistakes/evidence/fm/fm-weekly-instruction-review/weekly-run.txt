@@ -1,0 +1,6 @@
+corpus: "/tmp/fmw.BzeH/data/wk/corpus.json"
+week: {"since":"2026-10-12T00:00:00.000Z","until":"2026-10-19T00:00:00.000Z"}
+closed_beads: 2
+user_messages: 2
+instruction_edits: 0
+next: "Review show --full, write review.json, then run report with this --work-dir; no classification is automatic."

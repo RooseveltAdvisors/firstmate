@@ -1,0 +1,38 @@
+{
+  "week": {
+    "since": "2026-10-12T00:00:00.000Z",
+    "until": "2026-10-19T00:00:00.000Z"
+  },
+  "notes": [
+    "Weekly review window: [2026-10-12T00:00:00.000Z, 2026-10-19T00:00:00.000Z), UTC Monday to Monday. Invoked on demand; no schedule installed.",
+    "Store /tmp/fmw.BzeH/alpha; database /tmp/fmw.BzeH/alpha/.beads/embeddeddolt; bd where verified; 1 closed records including comments returned for [2026-10-12T00:00:00.000Z, 2026-10-19T00:00:00.000Z); limit 200.",
+    "Store /tmp/fmw.BzeH/beta; database /tmp/fmw.BzeH/beta/.beads/embeddeddolt; bd where verified; 1 closed records including comments returned for [2026-10-12T00:00:00.000Z, 2026-10-19T00:00:00.000Z); limit 200.",
+    "Weekly events are restricted to the half-open UTC week; session window retained counts precede the upper-bound filter. Bead snapshots are reported evidence only; closed once is not recurrence."
+  ],
+  "beads": [
+    {
+      "id": "3b6cc18f1c1bb449c04d",
+      "bead": {
+        "id": "alpha-d0o",
+        "store": "/tmp/fmw.BzeH/alpha",
+        "databasePath": "/tmp/fmw.BzeH/alpha/.beads/embeddeddolt"
+      },
+      "timestamp": "2026-10-17T21:13:16Z",
+      "len": 70808,
+      "hasComment": true,
+      "hasOpen": false
+    },
+    {
+      "id": "04e9950daa57ada6b27a",
+      "bead": {
+        "id": "beta-26c",
+        "store": "/tmp/fmw.BzeH/beta",
+        "databasePath": "/tmp/fmw.BzeH/beta/.beads/embeddeddolt"
+      },
+      "timestamp": "2026-10-17T21:13:17Z",
+      "len": 777,
+      "hasComment": true,
+      "hasOpen": false
+    }
+  ]
+}

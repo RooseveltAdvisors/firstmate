@@ -1,0 +1,65 @@
+## 1. happy path report (CLAUDE.md + section, bead cited as lane)
+report: "/tmp/fmw.BzeH/data/wk/proposals.md"
+instruction_edits: 0
+exit=0
+
+## 2. adversarial: CLAUDE.md proposal without section
+fm-explained-twice: existing instruction section must be nonempty text
+error: "existing instruction section must be nonempty text"
+next: "bin/fm-explained-twice.sh --help"
+exit=1
+
+## 3. adversarial: bead claimed as captain correction
+fm-explained-twice: only direct session user text can be captain correction evidence
+error: "only direct session user text can be captain correction evidence"
+next: "bin/fm-explained-twice.sh --help"
+exit=1
+
+## 4. adversarial: bead routed into a corr thread
+fm-explained-twice: thread must match the declared corr alias: 3b6cc18f1c1bb449c04d
+error: "thread must match the declared corr alias: 3b6cc18f1c1bb449c04d"
+next: "bin/fm-explained-twice.sh --help"
+exit=1
+
+## 5. adversarial: rerun weekly into non-empty work dir
+fm-explained-twice: weekly needs a new or empty --work-dir; keep prior reviews separate
+error: "weekly needs a new or empty --work-dir; keep prior reviews separate"
+next: "bin/fm-explained-twice.sh --help"
+exit=1
+
+## 6. other week excludes this week's closures
+corpus: "/tmp/fmw.BzeH/data/prev/corpus.json"
+week: {"since":"2026-10-05T00:00:00.000Z","until":"2026-10-12T00:00:00.000Z"}
+closed_beads: 0
+user_messages: 0
+instruction_edits: 0
+next: "Review show --full, write review.json, then run report with this --work-dir; no classification is automatic."
+exit=0
+
+## 7. adversarial: wrong databasePath for store (beta db under alpha dir)
+fm-explained-twice: store identity mismatch for /tmp/fmw.BzeH/alpha: {"database_path":"/tmp/fmw.BzeH/beta/.beads/embeddeddolt","path":"/tmp/fmw.BzeH/beta/.beads","prefix":"beta","schema_version":1}
+error: "store identity mismatch for /tmp/fmw.BzeH/alpha: {\"database_path\":\"/tmp/fmw.BzeH/beta/.beads/embeddeddolt\",\"path\":\"/tmp/fmw.BzeH/beta/.beads\",\"prefix\":\"beta\",\"schema_version\":1}"
+next: "bin/fm-explained-twice.sh --help"
+exit=1
+
+## 8. adversarial: tamper bead snapshot then report
+fm-explained-twice: source changed or disappeared: /tmp/fmw.BzeH/data/wk/bead-e2c3b737b3d33e26e75289880a4028ccc423d92d5cb20f94b919fd0e618ae80c.json byte 0; rescan this window
+error: "source changed or disappeared: /tmp/fmw.BzeH/data/wk/bead-e2c3b737b3d33e26e75289880a4028ccc423d92d5cb20f94b919fd0e618ae80c.json byte 0; rescan this window"
+next: "bin/fm-explained-twice.sh --help"
+exit=1
+proposals.md unchanged
+
+## 9. --bead-limit 1 with 2 closed in alpha? (alpha has 1) -> use beta limit check via both
+corpus: "/tmp/fmw.BzeH/data/lim/corpus.json"
+week: {"since":"2026-10-12T00:00:00.000Z","until":"2026-10-19T00:00:00.000Z"}
+closed_beads: 2
+user_messages: 2
+instruction_edits: 0
+next: "Review show --full, write review.json, then run report with this --work-dir; no classification is automatic."
+exit=0
+0
+## 9b. --bead-limit 1 with 2 closed beads in alpha (real bd)
+fm-explained-twice: store exceeds bead limit 1 or returned invalid rows: /tmp/fmw.BzeH/alpha; narrow review manually
+error: "store exceeds bead limit 1 or returned invalid rows: /tmp/fmw.BzeH/alpha; narrow review manually"
+next: "bin/fm-explained-twice.sh --help"
+exit=1
