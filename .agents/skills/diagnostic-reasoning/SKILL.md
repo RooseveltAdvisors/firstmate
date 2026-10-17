@@ -21,6 +21,7 @@ Start from the end user's experience rather than an internal error string or an 
 Require an end-to-end reproduction aligned with the real user path whenever it is feasible and safe.
 If a faithful reproduction is not feasible, record the exact limitation and use the closest representative path without presenting it as equivalent evidence.
 Capture the expected behavior, observed behavior, setup, inputs, and repeatability before assigning a cause.
+Load `verification-failure` at the failure-recording step for a failed check, disproved claim, or deferred finding.
 
 Separate these three facts explicitly:
 
