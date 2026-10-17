@@ -1,0 +1,18 @@
+$ HOME=<lab> fm-transcript-search.sh --seconds 10 -- "Go merge the PR"   # Claude-only answer, Muse root absent
+{"roots":["<lab>/.pi/agent/sessions","<lab>/.claude/projects"],"missingRoots":[{"root":"<lab>/.local/share/muse/sessions","reason":"Error: ENOENT: no such file or directory, lstat '<lab>/.local/share/muse/sessions'"}],"term":"Go merge the PR","status":"partial","reason":"bounded search; at most 3 matching lines/file, 64 KiB match output and 5 windows; could not search <lab>/.local/share/muse/sessions: Error: ENOENT: no such file or directory, lstat '<lab>/.local/share/muse/sessions'","elapsedMs":4,"hits":[{"file":"<lab>/.claude/projects/-home-x-proj/s1.jsonl","matchOffset":51,"windowOffset":0,"windowBytes":145,"window":"{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"Go merge the PR if its mergable, do not ask me whether you should merge or not\"},\"uuid\":\"u1\"}\n"}]}
+exit=0
+
+$ ... -- "do not ask me whether"   # case-insensitive, other phrase
+{"status":"partial","roots":["<lab>/.pi/agent/sessions","<lab>/.claude/projects"],"hits":[["<lab>/.claude/projects/-home-x-proj/s1.jsonl",84]]}
+
+$ rm Claude root; search again  # Pi only
+{"roots":["<lab>/.pi/agent/sessions"],"missingRoots":[{"root":"<lab>/.claude/projects","reason":"Error: ENOENT: no such file or directory, lstat '<lab>/.claude/projects'"},{"root":"<lab>/.local/share/muse/sessions","reason":"Error: ENOENT: no such file or directory, lstat '<lab>/.local/share/muse/sessions'"}],"term":"Go merge the PR","status":"partial","reason":"bounded search; at most 3 matching lines/file, 64 KiB match output and 5 windows; could not search <lab>/.claude/projects: Error: ENOENT: no such file or directory, lstat '<lab>/.claude/projects'; could not search <lab>/.local/share/muse/sessions: Error: ENOENT: no such file or directory, lstat '<lab>/.local/share/muse/sessions'","elapsedMs":4,"hits":[]}
+exit=0
+
+$ rm Pi root too  # nothing exists
+{"roots":[],"missingRoots":[{"root":"<lab>/.pi/agent/sessions","reason":"Error: ENOENT: no such file or directory, lstat '<lab>/.pi/agent/sessions'"},{"root":"<lab>/.claude/projects","reason":"Error: ENOENT: no such file or directory, lstat '<lab>/.claude/projects'"},{"root":"<lab>/.local/share/muse/sessions","reason":"Error: ENOENT: no such file or directory, lstat '<lab>/.local/share/muse/sessions'"}],"term":"Go merge the PR","status":"unavailable","reason":"could not search transcripts: Error: no transcript root exists: <lab>/.pi/agent/sessions, <lab>/.claude/projects, <lab>/.local/share/muse/sessions; ask sooner","elapsedMs":0,"hits":[]}
+exit=0
+
+$ --seconds 121 (exceeds cap)
+{"roots":[],"missingRoots":[],"term":"","status":"unavailable","reason":"could not search transcripts: Error: --seconds exceeds 120; ask sooner","elapsedMs":0,"hits":[]}
+exit=0
