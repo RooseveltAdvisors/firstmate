@@ -39,7 +39,10 @@
 # binding and bin/fm-dod-lib.sh owns what it changes for the worker, including
 # the refusal of a forge on local-only. A forge=external project is refused
 # outright, because its push guard is installed only by a ship spawn.
-# Usage: fm-promote.sh <task-id> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--branch-prefix <prefix>] [--upstream-consent <host>/<owner>/<repo>]
+# Usage: fm-promote.sh <task-id> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--branch-prefix <prefix>] [--upstream-consent <host>/<owner>/<repo>] [--surface ui]
+# --surface ui marks the promoted ship as a UI ship: the Definition of done gains
+# the live-image paragraph and the task record gains surface=ui, exactly as a
+# bin/fm-brief.sh --surface ui ship spawn records it.
 # --upstream-consent records the captain's one-off approval for this task to
 # publish to firstmate's own upstream repository; promotion applies the same
 # self-repository publication gate as bin/fm-spawn.sh (bin/fm-role-lib.sh), so
@@ -80,6 +83,8 @@ YOLO_SET=0
 FORGE=none
 UPSTREAM_CONSENT=
 UPSTREAM_CONSENT_SET=0
+SURFACE=
+SURFACE_SET=0
 POS=()
 want_value=
 for a in "$@"; do
@@ -92,6 +97,7 @@ for a in "$@"; do
       yolo) YOLO=$a; YOLO_SET=1 ;;
       branch-prefix) BRANCH_PREFIX=$a ;;
       upstream-consent) UPSTREAM_CONSENT=$a; UPSTREAM_CONSENT_SET=1 ;;
+      surface) SURFACE=$a; SURFACE_SET=1 ;;
     esac
     want_value=
     continue
@@ -105,6 +111,8 @@ for a in "$@"; do
     --branch-prefix=*) BRANCH_PREFIX=${a#--branch-prefix=} ;;
     --upstream-consent) want_value="upstream-consent" ;;
     --upstream-consent=*) UPSTREAM_CONSENT=${a#--upstream-consent=}; UPSTREAM_CONSENT_SET=1 ;;
+    --surface) want_value=surface ;;
+    --surface=*) SURFACE=${a#--surface=}; SURFACE_SET=1 ;;
     *) POS+=("$a") ;;
   esac
 done
@@ -129,6 +137,10 @@ case "$YOLO" in
   on|off) ;;
   *) echo "error: --yolo must be on or off (got '$YOLO')" >&2; exit 1 ;;
 esac
+if [ "$SURFACE_SET" -eq 1 ] && [ "$SURFACE" != ui ]; then
+  echo "error: --surface must be ui (got '$SURFACE')" >&2
+  exit 1
+fi
 if [ "$UPSTREAM_CONSENT_SET" -eq 1 ]; then
   [ -n "$UPSTREAM_CONSENT" ] || { echo "error: --upstream-consent requires a non-empty <host>/<owner>/<repo> value" >&2; exit 1; }
   if [ "$MODE" = local-only ]; then
@@ -320,7 +332,7 @@ EOF
     printf '%s\n' "$PROMOTION_ASK_USER_BLOCK"
   fi
   printf '\n'
-  fm_dod_block "$MODE" "$ID" "$BRANCH" "$FORGE" "$BASE_BRANCH" "$UPSTREAM_CONSENT"
+  fm_dod_block "$MODE" "$ID" "$BRANCH" "$FORGE" "$BASE_BRANCH" "$UPSTREAM_CONSENT" "$SURFACE"
 }
 mkdir -p "$DATA/$ID"
 [ ! -d "$INSTRUCTIONS" ] || { echo "error: ship instructions path is a directory: $INSTRUCTIONS" >&2; exit 1; }
@@ -380,6 +392,7 @@ grep -v -e '^kind=' -e '^mode=' -e '^yolo=' -e '^branch=' -e '^upstream_consent=
   echo "yolo=$YOLO"
   echo "branch=$BRANCH"
   [ -z "$UPSTREAM_CONSENT" ] || echo "upstream_consent=$UPSTREAM_CONSENT"
+  [ -z "$SURFACE" ] || echo "surface=$SURFACE"
 } >> "$TMP"
 if ! fm_backlog_atomic_transition publish "$TMP" "$META" "task record" "$STATE"; then
   rm -f -- "$TMP"
