@@ -39,4 +39,25 @@ test_primary_and_secondmate_instruction_generation() {
   pass "primary workers and secondmates receive the authority rule through generated instructions"
 }
 
+test_search_before_ask_pointer_generation() {
+  local home brief kind
+  local pointer="read the nonblocking search-before-ask checklist in \`$ROOT/.agents/skills/ask-user-authority/SKILL.md\` (Search before asking)"
+  home="$TMP_ROOT/search-home"
+  mkdir -p "$home/data"
+
+  FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
+    "$BRIEF" search-ship sample --mode no-mistakes >/dev/null 2>&1
+  FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
+    "$BRIEF" search-scout sample --scout >/dev/null 2>&1
+  for kind in ship scout; do
+    brief="$home/data/search-$kind/brief.md"
+    [ -f "$brief" ] || fail "fm-brief did not generate a $kind brief"
+    awk '/^# Rules$/{r=1;next} /^# /{r=0} r' "$brief" > "$brief.rules"
+    assert_grep "$pointer" "$brief.rules" \
+      "generated $kind brief Rules lack the search-before-ask checklist pointer"
+  done
+  pass "ship and scout briefs point their Rules at the search-before-ask checklist"
+}
+
 test_primary_and_secondmate_instruction_generation
+test_search_before_ask_pointer_generation

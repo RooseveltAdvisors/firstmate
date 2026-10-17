@@ -1,7 +1,8 @@
 ---
 name: ask-user-authority
 description: >-
-  Agent-only decision procedure for ask-user findings.
+  Agent-only search-before-ask checklist and decision procedure for ask-user findings.
+  Use before asking the captain or a supervisor a question answerable from record.
   Use before deciding any ask-user finding.
   This skill is the single owner of finding-decision policy: firstmate always applies judgment, decides findings that are unambiguous toward accepted intent, and escalates only genuinely ambiguous, expanding, or destructive ones.
   Finding authority is this skill's criteria, not the project's yolo posture.
@@ -12,13 +13,32 @@ metadata:
 
 # ask-user-authority
 
-This skill is the single owner of the decision policy for no-mistakes ask-user findings.
+This skill owns the search-before-ask checklist and the decision policy for no-mistakes ask-user findings.
 `AGENTS.md` section 7 points here and does not restate this procedure.
 Finding authority is determined by the criteria below, not by `yolo`.
 Firstmate always applies this judgment, decides any finding that is unambiguous toward the accepted design, and escalates only genuinely ambiguous, expanding, or destructive findings.
 
 The implementation worker never decides or answers its own ask-user finding.
 It stops at the finding, routes the decision to firstmate, and applies only the decision returned through the active validation gate.
+
+## Search before asking
+
+Before asking the captain or a supervisor a question answerable from record, use this checklist:
+
+1. Name the fact you need and make one brief search pass, capped at two minutes total across both sources.
+2. Search beads: enumerate the existing stores in the task's known workspace and project roots, then use `bd search` or `bd list` from each relevant store's directory.
+   `bd` resolves its store from cwd; name the store paths rather than assuming the current worktree's board is the only one.
+   Keep discovery within those known roots rather than scanning the whole machine.
+3. Search the Obsidian vault at `$HOME/Obsidian/second-brain` for the same fact using a few specific terms or likely notes.
+   First check that the resolved vault directory exists and is readable on this host.
+   If it is missing or unreachable, skip it and say in the question that the vault was unreachable, naming the resolved path you checked; never report an empty search of a vault you could not access.
+4. In the question itself, name the stores, vault locations, and terms searched, and state the relevant findings or plainly say the search came up empty.
+   For example: "I searched beads in <store paths> and the Obsidian vault for <terms>; neither had a record of <fact>.
+   Which value should I use?"
+
+This is a checklist prompt, never a gate or a reason to refuse a question.
+Ask sooner when urgent, when a source or tool is unavailable, or when searching would delay asking; state what you searched and what you could not check in the question.
+Do not create a store, index, or search service to satisfy this checklist, and do not change who owns a decision or how it must be escalated.
 
 ## Decide
 
