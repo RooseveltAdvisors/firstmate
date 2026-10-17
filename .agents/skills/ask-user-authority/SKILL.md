@@ -34,7 +34,7 @@ Before asking the captain or a supervisor a question answerable from record, use
    If it is missing or unreachable, skip it and say in the question that the vault was unreachable, naming the resolved path you checked; never report an empty search of a vault you could not access.
 4. Search session transcripts for the same fact across every harness transcript root, rather than only the current session or your own harness.
    Use `bin/fm-transcript-search.sh --help` for the bounded, read-only search helper; give it at most the time remaining in the shared two-minute budget.
-   By default it scans the Pi, Claude, and Muse roots its help names in one capped search, skips any root missing on this host, and reports `roots` searched and `missingRoots` not searched.
+   By default it scans the Pi, Claude, Muse, and Cursor roots its help names in one capped search, skips any root missing on this host, and reports `roots` searched and `missingRoots` not searched.
    Search a few distinctive words from the likely answer; inspect only bounded windows and cite the file and zero-based byte offset returned with each hit.
    Never load an entire session or page through a large session to satisfy this checklist.
    Read hits as evidence: distinguish direct captain words from quoted text, launch briefs, agent summaries, and tool output, and check later corrections and the current scope before relying on an old answer.

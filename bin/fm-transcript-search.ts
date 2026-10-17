@@ -8,7 +8,8 @@ const HELP = `Optional transcript lookup; this never gates a question.
 Usage: fm-transcript-search.sh [--root DIR]... [--seconds N] [--limit N] -- TEXT
 Requires Bun and rg. Searches *.jsonl recursively under every --root given, or by
 default under each harness transcript root: ~/.pi/agent/sessions (Pi),
-~/.claude/projects (Claude), \${XDG_DATA_HOME:-~/.local/share}/muse/sessions (Muse).
+~/.claude/projects (Claude), \${XDG_DATA_HOME:-~/.local/share}/muse/sessions (Muse),
+\${CURSOR_PROJECTS_ROOT_OVERRIDE:-~/.cursor/projects} (Cursor).
 Roots that do not resolve are skipped and listed in missingRoots, never errors.
 All roots share one rg scan and one --seconds cap.
 TEXT is one literal case-insensitive phrase, 1-256 UTF-8 bytes, no newlines.
@@ -40,7 +41,9 @@ function result(status: string, reason: string) {
 }
 try {
   const args = process.argv.slice(2);
-  if (args.includes('--help') || args.includes('-h')) { console.log(HELP); process.exit(0); }
+  const separator = args.indexOf('--');
+  const options = separator < 0 ? args : args.slice(0, separator);
+  if (options.includes('--help') || options.includes('-h')) { console.log(HELP); process.exit(0); }
   let seconds = 15, limit = 5;
   while (args.length && args[0] !== '--') {
     const flag = args.shift(), value = args.shift();
@@ -55,7 +58,8 @@ try {
   term = args[0];
   if (!term.length || Buffer.byteLength(term) > 256 || /[\r\n\0]/.test(term)) throw new Error('TEXT must be 1-256 bytes without newlines or NUL');
   if (!requested.length) requested.push(join(homedir(), '.pi/agent/sessions'), join(homedir(), '.claude/projects'),
-    join(process.env.XDG_DATA_HOME || join(homedir(), '.local/share'), 'muse/sessions'));
+    join(process.env.XDG_DATA_HOME || join(homedir(), '.local/share'), 'muse/sessions'),
+    process.env.CURSOR_PROJECTS_ROOT_OVERRIDE || join(homedir(), '.cursor/projects'));
   for (const root of requested) {
     try { roots.push(realpathSync(root)); }
     catch (error) { missingRoots.push({root, reason: String(error).slice(0, 300)}); }
