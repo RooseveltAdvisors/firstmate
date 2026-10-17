@@ -1,0 +1,12 @@
+== A: hook never returns, ceiling 5 attempts (shortened fixture ceiling) ==
+rc=1 elapsed=5s
+== B: hook completes after 2s with rc recorded ==
+rc=0 elapsed=2s
+== C: completion posted BEFORE the test joins (buffered FIFO) ==
+rc=0 elapsed=0s
+== D: session exits (session-exited) with 600-ceiling: fails immediately ==
+rc=1 elapsed=1s
+== E: hook-exited but hook.rc missing: fails immediately ==
+rc=1 elapsed=0s
+== F: call-site diagnostic reached on timeout ==
+FAIL: hook main-only: the Stop hook never closed: host log line
