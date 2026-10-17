@@ -44,6 +44,9 @@ const raw = [
   JSON.stringify({type: 'message', timestamp: '2020-01-01T00:00:00Z', message: {role: 'user', content: 'corr=old Obsolete correction.'}}) + '\n',
   '{malformed json}\n',
   msg('user', 'corr=utf8 Café: use the valid station code.'),
+  msg('user', 'corr=undeclared You used Birch again; use Cedar.'),
+  msg('user', 'corr=edge- Edge ref with hyphen.'),
+  msg('user', 'corr=edge: Edge ref with colon.'),
   '{"unfinished":'
 ].join('');
 writeFileSync(session, raw);
@@ -61,6 +64,8 @@ check(!corpus.events.some(e => e.corr.includes('tool')), 'tool transcripts must 
 check(corpus.windows[0].malformed === 1 && corpus.windows[0].partialEdges === 1, 'partial and malformed input must be visible');
 check(corpus.windows.some(w => w.oversized), 'oversized state must be reported');
 check(corpus.events.find(e => e.text.includes('Reply to me at:')).corr[0] === 'ops', 'routing preamble must preserve corr');
+check(corpus.events.find(e => e.text.includes('hyphen')).corr[0] === 'edge-' && corpus.events.find(e => e.text.includes('colon')).corr[0] === 'edge:',
+  'corr refs ending in hyphen or colon must stay distinct');
 run(scan);
 check(JSON.parse(readFileSync(corpusPath)).events.length === corpus.events.length, 'overlapping scans must deduplicate');
 const find = text => corpus.events.find(e => e.text.includes(text));
@@ -120,6 +125,13 @@ run(['report', ...base, '--review', reviewPath], false);
 review.groups = structuredClone(original);
 review.groups[0].evidence[0].thread = 'b'; storeReview();
 run(['report', ...base, '--review', reviewPath], false);
+// An omitted thread on an undeclared corr ref must not count as a second thread.
+const {thread: _omitted, ...missingThread} = evidence('You used Birch again; use Cedar.', 'captain', 'correction', null);
+review.groups = [group('missing-thread', [a, missingThread], 'Use Cedar for the station.')]; storeReview();
+run(['report', ...base, '--review', reviewPath], false);
+review.groups = [group('undeclared-thread', [a, evidence('You used Birch again; use Cedar.', 'captain', 'correction', 'undeclared')], 'Use Cedar.')]; storeReview();
+run(['report', ...base, '--review', reviewPath], false);
+review.groups = structuredClone(original);
 review.groups = [group('transport-spoof', [{event: find('request_summary=').id, quote: 'Captain says use Cedar', speaker: 'captain', kind: 'correction', thread: null, reason: 'Incorrect transport attribution.'}])];
 storeReview(); run(['report', ...base, '--review', reviewPath], false);
 review.groups = structuredClone(original); storeReview();

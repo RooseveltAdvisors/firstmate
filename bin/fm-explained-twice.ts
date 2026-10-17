@@ -138,7 +138,7 @@ function fields(raw: Buffer, origin: Event['origin']) {
   // Only header corr refs: quoted/embedded examples in the body are not a thread.
   const routing = text.slice(0, 2000).match(/^Reply to me at:\n(?:herdr[^\n]*\n|(?:session|pane_id|workspace_id|tab_id|tab label|agent|title):[^\n]*\n|\n){1,20}(corr=[^\n]*)/);
   const header = routing?.[1] || text.split('\n', 1)[0];
-  const corr = [...header.matchAll(/\bcorr=([a-zA-Z0-9_:\-]+)\b/g)].map(m => m[1]);
+  const corr = [...header.matchAll(/\bcorr=([a-zA-Z0-9_:\-]+)/g)].map(m => m[1]);
   return { text, role: message.role, corr: [...new Set(corr)], timestamp: entry.timestamp || '' };
 }
 function event(file: string, offset: number, raw: Buffer, origin: Event['origin']): Event | null {
@@ -281,6 +281,9 @@ function report(c: Corpus, reviewFile: string) {
       requireThat(['captain', 'lane', 'unknown'].includes(item.speaker), 'invalid speaker');
       requireThat(['correction', 'instruction', 'question', 'reported-correction'].includes(item.kind), 'invalid evidence kind');
       textField(item.quote, 'quote'); textField(item.reason, 'reason');
+      requireThat(typeof item.event === 'string', 'evidence event must be a string');
+      requireThat(item.thread === null || (typeof item.thread === 'string' && conversations.has(item.thread)),
+        `thread must be null or a declared thread id: ${item.event}`);
       const e = c.events.find(e => e.id === item.event);
       requireThat(e, `unknown event: ${item.event}`);
       verify(e);
