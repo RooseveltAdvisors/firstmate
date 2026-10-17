@@ -108,6 +108,7 @@
 # disagrees, so an adjusted brief and the recorded task metadata cannot drift
 # apart.
 # Ship briefs begin with a worktree-isolation assertion before the branch step.
+# Ship and scout Rules point to ask-user-authority's nonblocking search checklist.
 # Both crewmate scaffolds carry one shared rule against administering the
 # infrastructure every lane shares - the no-mistakes daemon and the worktree pool
 # their own slot came from - so ship and scout cannot drift apart. A secondmate
@@ -709,6 +710,8 @@ The worktree is your laboratory - install, run, edit, and make scratch commits f
 The report is the only thing that survives, so anything worth keeping must be in it.
 
 # Rules
+For questions answerable from record, read the nonblocking search-before-ask checklist in \`$FM_ROOT/.agents/skills/ask-user-authority/SKILL.md\` (Search before asking).
+
 1. Never push to any remote and never open a PR.
 2. Stay inside this worktree; the only files you may write outside it are the report and the status file below.
 3. Use gh-axi for GitHub operations and chrome-devtools-axi for browser operations.
@@ -783,6 +786,8 @@ If the top-level path is the primary checkout or not the worktree you were launc
 1. First action: create your branch: \`git checkout -b $BRANCH_Q --\`$SETUP2
 
 # Rules
+For questions answerable from record, read the nonblocking search-before-ask checklist in \`$FM_ROOT/.agents/skills/ask-user-authority/SKILL.md\` (Search before asking).
+
 $RULE1
 2. Keep project edits inside this worktree; keep proof and scratch output outside it, under \`$DATA/$ID/\` or a temporary directory.
    Outside the worktree, write only that task material and the status and steering-inbox records authorized below.
