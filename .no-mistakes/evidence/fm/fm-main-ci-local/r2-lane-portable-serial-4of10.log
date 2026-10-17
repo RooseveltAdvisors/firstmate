@@ -1,0 +1,1297 @@
+FM_TEST_BEGIN 2026-10-17T00:24:42Z tests/fm-watch-triage-waits.test.sh family=watcher-wake-lock expected_gate_skip=none
+ok - a default-key answer leaves a keyless wait standing, while the worker's own keyless resolved line retracts it
+ok - a captain-held lane is rechecked as a hold on the captain, never as an external wait, and never at all while the captain is away
+ok - a backlog captain hold bounds the wedge ladder like a captain-held line, and stays silent while the captain is away
+ok - a gate awaiting firstmate's decision for its own run is rechecked on the long cadence in either posture, while a crewmate-owed gate, an unrelated open decision and a runless verdict keep the unchanged ladder
+ok - a parked human-owed gate is deferred only while its decision is still open, so an answered-but-unrelayed gate, an unescalated one, and one holding only a blocker all keep the unchanged ladder
+ok - with config/wedge-defer-parked-gate absent a parked gate keeps the unchanged ladder, wording and reads
+ok - a wait record missing a field the recheck must print, or carrying one it must not, is refused and the lane escalates exactly as it would have
+ok - work under an open captain call surfaces once, absorbs pane churn, then re-surfaces when the window elapses
+ok - a stale window with no open captain call keeps alarming on every new hash
+ok - a wake that never reached the durable queue arms no re-surface throttle
+ok - a released-then-re-held task is a distinct captain call whose first sight still alarms
+ok - a declared paused secondmate re-surfaces on the bounded normal-mode cadence
+ok - a captain-held secondmate re-surfaces on the bounded normal-mode cadence
+ok - a non-paused secondmate retains normal stale suppression
+ok - a resumed secondmate clears pause and stale tracking before stale exemption
+ok - unchanged stale hashes reclassify when a crew enters or leaves pause
+ok - a declared pause is periodically rechecked against authoritative active-run state
+ok - a paused status overridden by authoritative working preserves its wedge timer, is rechecked rather than wedge-escalated while the declaration stands, and escalates once it is lifted
+ok - matching non-terminal stale suppressors repair missing or corrupt stale-since timers
+ok - a quiet pane writing its own worktree is deferred, while one writing nothing still wedge-escalates on the unchanged schedule
+ok - a write deferral re-surfaces once on the bounded pause cadence, so a churning worktree cannot stay invisible
+ok - a secondmate's own home supervision churn is not crew write evidence, so a pane recording that home keeps the unchanged escalation schedule
+ok - an idle-window timer repair drops a finished write-deferral chain, so the next deferral gets a fresh re-surface window
+ok - both first-sight paths through a captain-relevant status drop a finished write-deferral chain with the idle window
+ok - triage log capping handles wc byte counts with leading spaces
+ok - a captured process-event result wakes a healthy watcher proactively, with no manual drain
+ok - an unacknowledged process-event result re-drains until handling is acknowledged
+ok - complete process-event queue keys map to distinct seen markers
+ok - process-event queue keys surface under their own headlines
+ok - every launch-failure episode is delivered under the failed-to-start headline
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 3594166.1792197052.yz6kEK
+ok - queue revalidation, proactive output, and marker commit serialize with drain
+/home/jon/.no-mistakes/worktrees/46339c0817e0/01M53HNGTDYB90DE36A1E0KDS4/bin/fm-push-transition-lib.sh: line 100: echo: write error: Broken pipe
+tests/wake-helpers.sh: line 323: 3618654 Killed                  PATH="$dir/fakebin:$PATH" FM_HOME="$dir" FM_PROCEVENT_CLAIM_ROOT="$dir/claims" FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" FM_POLL=0.2 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out"
+tests/wake-helpers.sh: line 323: 3623694 Killed                  PATH="$dir/fakebin:$PATH" FM_HOME="$dir" FM_PROCEVENT_CLAIM_ROOT="$dir/claims" FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" FM_POLL=0.2 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out"
+ok - surfacing failures replay until post-handling acknowledgement
+ok - marker failure exits through the shared wake owner, releases its lock, and replays later
+ok - a heartbeat with no captain-relevant change is absorbed and backs off the cadence
+ok - heartbeat backstop fail-safe surfaces a captain-relevant status the per-wake path missed
+ok - the heartbeat backstop surfaces a captain event hidden behind a later routine append
+ok - the liveness beacon stays fresh while the watcher absorbs benign wakes (fm-guard never false-alarms)
+ok - an afk signal records its captured heartbeat endpoint
+ok - with .afk present the watcher reverts to one-shot so the daemon owns triage (no double-triage)
+ok - AFK changed paused panes hand off plain stale identities for daemon-owned pause triage
+ok - a captain-held item is never rechecked while the away-posture record exists, and the recheck returns once the record is archived
+ok - a live captain-held pane is absorbed on first sight while the away-posture record exists
+ok - a delivery the captain already holds is never rechecked while the away-posture record exists
+ok - the daemon-owned one-shot never hands off a captain-held pane while the away-posture record exists
+ok - quiet mode's record silences no captain-held recheck, on the watcher's cadence or through a quiet daemon's one-shot
+ok - a declared wait naming a near-future until time stays quiet until that time
+ok - a wrong-year declared time cannot silence the watcher beyond the recheck cadence
+ok - a declared wait whose until time has passed is rechecked at once, then held to the cadence
+ok - without until, a worker paused on its own ended background job is not rechecked inside the cadence
+ok - until set to a background job's timeout rechecks the worker paused on it once the job must have ended
+ok - a pane on the exit picker is a named stale, from the one capture the poll already takes
+ok - a pane on the exit picker keeps the wedge ladder, and the name follows demand-deep-inspection
+ok - picker text quoted above a composer stays an ordinary stale
+ok - a second mate on the exit picker stays quiet, and the poll does not capture the pane
+ok - a closed picker drops the saved dialog name, and the stale stays ordinary
+FM_TEST_END 2026-10-17T00:32:58Z tests/fm-watch-triage-waits.test.sh exit=0 duration_ms=496141 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:32:58Z tests/fm-watch-arm.test.sh family=watcher-wake-lock expected_gate_skip=none
+ok - watch-arm: an attached arm reports the wake its cycle delivered instead of a false failure
+ok - watch-arm: a delivered wake consumed by the handling turn still closes the attached arm cleanly
+ok - watch-arm: an unusable launch confirm window refuses to arm by name
+ok - watch-arm: a disposable validation checkout refuses to arm
+ok - watch-arm: a watcher exits when its state directory is removed
+ok - watch-arm: a watcher exits when its home is removed
+ok - watch-arm: the test reaper stops a watcher armed for a tracked temporary home
+ok - watch-arm: a cycle that delivered no wake of its own still fails loudly
+ok - watch-arm: an attached arm keeps following a slow live holder and reports its wake
+ok - watch-arm: an attached arm hands a holder stalled past the bound to its owner's replacement
+/home/jon/.no-mistakes/worktrees/46339c0817e0/01M53HNGTDYB90DE36A1E0KDS4/bin/fm-watch-arm.sh: line 766: 378402 Killed                  "$WATCH" > "$child_out"
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 2 --recovery-generation 380819.1792197233.koDqrj
+ok - watch-arm: re-arm surfaces every queued wake and an open remote decision after downtime
+/home/jon/.no-mistakes/worktrees/46339c0817e0/01M53HNGTDYB90DE36A1E0KDS4/bin/fm-watch-arm.sh: line 766: 413773 Killed                  "$WATCH" > "$child_out"
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 415940.1792197241.FvcNwu
+ok - watch-arm: a re-arm whose recovery cycle runs slowly still surfaces it
+watcher: recovery state could not be persisted; retaining stale lock evidence
+ok - watch-arm: marker publication failure retains stale-lock recovery evidence
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 2 --recovery-generation 488665.1792197259.vNKpAj
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 3 --recovery-generation 512772.1792197262.1rKHY4
+ok - watch-arm: a wake queued after handling drain is recovered once at successor arm
+ok - watch-arm: interrupted handling leaves its wake durable for successor re-drain
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 0 --recovery-generation 580592.1792197272.GZuIuW
+ok - watch-arm: malformed recovery state is quarantined without a successor loop
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 603946.1792197275.vGLGac
+ok - watch-arm: publication after recovery handoff is surfaced
+ok - watch-arm: restart publishes recovery before clearing a reused-pid watcher lock
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 7 --recovery-generation 628865.1792197280.UXBGTr
+ok - watch-arm: markerless legacy queues are adopted and recovered
+ok - watch-arm: an idle Lavish source stays quiet and its real result wakes promptly
+ok - watch-arm: appending work reopens an announced empty recovery
+ok - watch-arm: a watcher close during handling keeps the printed acknowledgement valid
+ok - watch-arm: a moved recovery generation consumes handled rows and names its remedy
+ok - watch-arm: downtime marker publication does not follow symlinks
+ok - watch-arm: --stop ends only this home's watcher, publishes downtime, and reports when none runs
+ok - watch-arm: an already-acknowledged handling confirmation succeeds as a no-op
+ok - watch-arm: a churned generation's handling confirmation reports a mismatch and an arm check keeps it
+ok - watch-arm: --take-over attaches to a cycle the named arm does not own and leaves it running
+ok - watch-arm: --take-over owns a fresh cycle without a recovery wake and still surfaces queued work
+watcher: secondmate liveness check failed
+ok - watch-arm: takeover preserves self-exit downtime and surfaces a recovery wake
+ok - watch-arm: the OpenCode arm plugin decides with the shared supervision predicate
+FM_TEST_END 2026-10-17T00:35:16Z tests/fm-watch-arm.test.sh exit=0 duration_ms=138584 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:35:16Z tests/fm-secondmate-safety.test.sh family=secondmate expected_gate_skip=none
+ok - FM_HOME parameterizes data and state paths
+ok - fm-lock status is scoped per home
+Note: switching to '9baf9a32ca713b7b461891a922727aa18c6bab14'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+ok - seed allows overlapping project clone lists and drops the owns/owner routing
+ok - home-seed validation rejects registry records no operational parser can consume
+ok - home seeding refuses broken registry symlinks before provisioning
+ok - home seeding refuses unreadable registries before provisioning
+ok - home seed validation rejects duplicate home routes
+ok - home seed validation rejects duplicate id routes
+ok - home seed validation rejects nested home routes
+Note: switching to '9baf9a32ca713b7b461891a922727aa18c6bab14'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+leased worktree for dash
+ok - home seeding durably leases treehouse-acquired dash homes under the secondmate id
+Note: switching to '9baf9a32ca713b7b461891a922727aa18c6bab14'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+ok - home seeding returns rejected acquired homes through treehouse
+Note: switching to '9baf9a32ca713b7b461891a922727aa18c6bab14'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+ok - home seed rollback warns when treehouse-acquired return fails
+ok - home seeding leaves unsafe acquired active homes untouched
+ok - home seeding rolls back failed clone attempts without residue
+ok - home seeding refuses direct seed without filled charter text
+ok - home seeding refuses unfilled placeholder charters
+ok - home seeding refuses empty normalized charter fields
+Note: switching to '9baf9a32ca713b7b461891a922727aa18c6bab14'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+ok - home seeding scaffolds, registers, and spawns a project-less home end to end
+ok - secondmate spawn resolves home validation and projects from punctuated registry fields
+ok - secondmate spawn refuses ambiguous, supplied-home, and metadata-home registry bindings
+ok - home seeding validates reused project-less charters before mutation
+ok - home seeding refuses project-less conversion of a populated home
+Note: switching to '9baf9a32ca713b7b461891a922727aa18c6bab14'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+ok - home seeding handles spaced project names in project-less refusal and registry queries
+ok - home seeding refuses project-less homes whose projects directory cannot be inspected
+ok - home seeding refuses project-less homes with symlinked projects directories
+ok - home seeding refuses project-less homes with non-directory projects paths
+ok - home seeding refuses project-less homes whose project registry cannot be inspected
+ok - home seeding fails loudly on accidental project omission and rejects mixed --no-projects
+ok - home seeding refuses local-only projects
+ok - home seeding refuses a registry entry whose posture does not resolve
+ok - home seeding refuses registry delimiter home paths
+Note: switching to '9baf9a32ca713b7b461891a922727aa18c6bab14'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+Note: switching to '9baf9a32ca713b7b461891a922727aa18c6bab14'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+Note: switching to '9baf9a32ca713b7b461891a922727aa18c6bab14'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+Note: switching to '9baf9a32ca713b7b461891a922727aa18c6bab14'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+ok - home seeding refuses active home and repo root
+Note: switching to '9baf9a32ca713b7b461891a922727aa18c6bab14'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+ok - home seeding refuses homes marked for another id
+Note: switching to '9baf9a32ca713b7b461891a922727aa18c6bab14'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+ok - home seeding refuses homes registered to another id
+Note: switching to '9baf9a32ca713b7b461891a922727aa18c6bab14'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+ok - home seeding refuses same-id reassignment to a different home
+Note: switching to '9baf9a32ca713b7b461891a922727aa18c6bab14'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+Note: switching to '9baf9a32ca713b7b461891a922727aa18c6bab14'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+ok - home seeding refuses registered home overlaps
+ok - remote-backed subhome seeding requires a source origin
+Note: switching to '9baf9a32ca713b7b461891a922727aa18c6bab14'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+ok - remote-backed subhome seeding validates existing destination origins
+Note: switching to '9baf9a32ca713b7b461891a922727aa18c6bab14'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+ok - home seeding resolves relative source origins against the source project
+Note: switching to '9baf9a32ca713b7b461891a922727aa18c6bab14'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+ok - home seeding skips initialized existing no-mistakes clones
+Note: switching to '9baf9a32ca713b7b461891a922727aa18c6bab14'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+ok - home seeding refuses uninitialized existing no-mistakes clones
+Note: switching to '9baf9a32ca713b7b461891a922727aa18c6bab14'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+ok - home seeding refuses project destinations outside the subhome
+Note: switching to '9baf9a32ca713b7b461891a922727aa18c6bab14'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+Note: switching to '9baf9a32ca713b7b461891a922727aa18c6bab14'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+Note: switching to '9baf9a32ca713b7b461891a922727aa18c6bab14'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+ok - home seeding refuses operational directories outside the subhome
+Note: switching to '9baf9a32ca713b7b461891a922727aa18c6bab14'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+Note: switching to '9baf9a32ca713b7b461891a922727aa18c6bab14'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+Note: switching to '9baf9a32ca713b7b461891a922727aa18c6bab14'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+Note: switching to '9baf9a32ca713b7b461891a922727aa18c6bab14'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+Note: switching to '9baf9a32ca713b7b461891a922727aa18c6bab14'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+Note: switching to '9baf9a32ca713b7b461891a922727aa18c6bab14'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+Note: switching to '9baf9a32ca713b7b461891a922727aa18c6bab14'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+Note: switching to '9baf9a32ca713b7b461891a922727aa18c6bab14'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+ok - home seeding refuses symlinked and non-regular leaf files
+Note: switching to '9baf9a32ca713b7b461891a922727aa18c6bab14'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+ok - home reseeding preserves and enforces the durable parent binding
+ok - secondmate spawn validates homes before launch
+ok - secondmate spawn refuses operational directories outside the subhome
+ok - fm-send refuses a bare firstmate window with no metadata in this home
+ok - secondmate teardown retires empty homes and releases routing
+ok - secondmate teardown refuses without authority naming that exact home
+ok - the supervision branch cannot retire a secondmate and leaves it fully intact
+ok - secondmate teardown refuses ambiguous and identity-mismatched registry bindings
+ok - normal secondmate teardown sweeps process events before removal
+ok - secondmate teardown preserves state when process-event sweeping is unavailable
+ok - later teardown refusals preserve active process-event sources
+ok - force teardown sweeps nested secondmate homes before deletion
+ok - force teardown preserves nested process-event restoration status and recovery state
+ok - secondmate teardown refuses to hide failed leased-home return
+ok - secondmate teardown raw-removes plain-clone homes, including a leaked read-only strip dir
+ok - secondmate force teardown discards child work
+ok - forced secondmate teardown refuses duplicated descendant pool slots
+ok - secondmate force teardown preserves child worktree after unproven lock refusal
+ok - force teardown allows non-state operational directory symlinks inside the subhome
+ok - force teardown refuses operational directory symlinks outside the subhome
+ok - secondmate teardown refuses homes containing registered nested homes
+ok - secondmate teardown refuses nested homes from the child registry
+ok - force teardown validates subhome before child cleanup
+ok - forced teardown refuses a non-directory descendant state path
+ok - forced teardown refuses a symlinked descendant state path
+ok - forced teardown locks a descendant whose state directory was absent
+ok - forced teardown refuses while a fresh task is being published in the home
+ok - a fresh spawn refuses to publish while a forced teardown owns the task set
+ok - a fresh spawn refusal identifies another spawn as the task-set holder
+ok - a fresh remote secondmate spawn refuses while the task set is owned
+ok - force teardown refuses child worktrees inside the active home
+ok - force teardown refuses child worktrees inside the firstmate repo
+ok - force teardown refuses unregistered child worktree paths
+ok - secondmate teardown path-boundary matrix refuses unmarked/ancestor/active-descendant/repo-descendant homes
+ok - idle kind=secondmate pane is healthy and not stale
+ok - secondmate charter brief is idle by default and does not self-initiate work
+ok - fm-backlog-handoff aborts atomically on unmatched, in-flight, and unregistered targets
+ok - fm-backlog-handoff refuses Done items under whitespace section headings and unsafe homes
+FM_TEST_END 2026-10-17T00:36:52Z tests/fm-secondmate-safety.test.sh exit=0 duration_ms=95792 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:36:52Z tests/fm-kimi-harness.test.sh family=pure-contract-unit expected_gate_skip=none
+ok - Kimi hook install is idempotent and removal restores every foreign config byte
+ok - Kimi hook removal preserves owned newline boundaries and pristine bytes
+ok - Kimi hook install refuses missing, malformed, and surprising config without writing
+ok - Kimi hook install refuses without jq before any config write
+ok - fm-spawn: kimi launches, delivers its brief, and registers a guarded turn-end token
+ok - fm-spawn: unsafe task roots are refused, owned roots are tightened, and launch files stay unique and 0600
+ok - Kimi hook stays silent and inert without a Firstmate registry token
+ok - fm-spawn: unsafe Kimi global config refuses before pane creation
+ok - fm-teardown: Kimi task pointer and registry token are removed
+ok - fm-spawn: Kimi fallback expands the active HOME
+ok - fm-spawn: missing Kimi executable refuses before pane creation
+ok - fm-spawn: kimi treats a silent pointer drop as a failed spawn
+ok - fm-spawn: kimi never sends the brief pointer before an observable ready signal
+ok - fm-spawn: a fresh Kimi worktree answers the exact trust dialog once and verifies advancement
+ok - fm-spawn: a swallowed Kimi trust keypress is re-sent until the dialog clears
+ok - fm-spawn: a Kimi banner captured before the trust dialog paints does not read as ready
+ok - fm-spawn: an answered Kimi trust dialog left in scrollback neither re-answers nor fails the spawn
+ok - fm-spawn: a blank Kimi viewport frame costs its poll and nothing else
+ok - fm-spawn: Kimi refuses a backend that cannot read the viewport, before launching
+ok - fm-spawn: a Kimi trust dialog with its hint wrapped across rows is answered normally
+ok - fm-spawn: a blank Kimi frame between banners restarts the two-capture ready count
+ok - fm-spawn: a failed Kimi viewport read fails readiness with the backend named
+ok - fm-spawn: Kimi refuses the ready verdict while trust dialog markers remain
+ok - fm-spawn: a Kimi trust dialog must visibly clear before brief delivery
+ok - fm-spawn: Kimi trust detection requires every observed dialog signal
+ok - fm-harness: markerless kimi keeps its ancestry identity under an inherited marker
+lock acquired: harness pid 1503406
+ok - fm-lock recognizes Kimi ancestry and live lock holders
+ok - busy detection: real Kimi moon-plus-middot captures require its harness while idle labels stay idle
+ok - fm-watch classifies Kimi as unknown rather than from its spinner, and Grok's fallback stays isolated
+ok - composer classifier: kimi's existing bordered > shape is already safe without an override
+FM_TEST_END 2026-10-17T00:37:42Z tests/fm-kimi-harness.test.sh exit=0 duration_ms=49618 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:37:42Z tests/fm-watch-recovery-loop.test.sh family=watcher-wake-lock expected_gate_skip=none
+ok - a resurfacing handling successor stays alive and supervises instead of going blind
+ok - unacknowledged recovery is announced at most once per generation and the successor stays alive
+FM_TEST_END 2026-10-17T00:38:40Z tests/fm-watch-recovery-loop.test.sh exit=0 duration_ms=57980 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:38:40Z tests/fm-home-summary-refresh.test.sh family=snapshot-bearings expected_gate_skip=optional-binary
+ok - watcher-carried status append publishes the real home summary
+ok - large backlog snapshots and home-summary publication stay within exec limits
+ok - fleet snapshot transport does not require or mutate operational state
+ok - parent snapshot consumes large child ledgers without argument transport
+ok - live watcher cadence bounds publication staleness without signals
+ok - fleet snapshot consumes the published local ledger by default
+ok - writer kill and replacement preserve an atomic JSON ledger
+ok - best-effort publication logs and continues
+Terminated
+Terminated
+ok - best-effort refresh bounds publication lock acquisition
+ok - best-effort refresh bounds validation and publication
+ok - best-effort refresh bounds state initialization
+ok - best-effort refresh logs worker termination
+ok - best-effort refresh bounds failure reporting fallback
+ok - valid publication ignores an unavailable failure record
+ok - publication completes on a home carrying accumulated status history
+ok - producer skips remote per-task state probes
+ok - a stalled publication does not delay the watcher liveness beacon
+ok - publication remains single-flight across watcher restart
+ok - bootstrap scopes retained failures to the current publication
+Terminated
+ok - failure records preserve refresh attempt ordering
+ok - repeated publication failure is reported at session start until it clears
+FM_TEST_END 2026-10-17T00:39:07Z tests/fm-home-summary-refresh.test.sh exit=0 duration_ms=27623 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:39:07Z tests/fm-worker-account.test.sh family=backend-dispatch expected_gate_skip=none
+ok - an absent pin leaves Claude and Pi launches exactly as they were
+ok - a Claude pin selects its root and sheds the credentials that would outrank it
+ok - a Claude pin refuses a signed-out root even when the invoking process has a usable login and API key
+ok - an ordinary Claude pin selects the default login and drops an ambient root
+ok - malformed, relative, CR-terminated, empty, extra-line, missing-root, and non-file pins refuse before launch
+ok - a Pi pin selects its root and passes the declared provider
+ok - a Pi pin refuses unqualified, missing, undeclared, signed-out, and raw launches
+ok - extension providers and a Pi without auth check fall back to an exact model-listing match
+ok - a Claude pin leaves codex and Pi launches unchanged
+ok - a raw Claude launch command receives the home's pin
+ok - a pinned home refuses a raw Claude command that overrides the account
+ok - an unpinned home keeps a raw Claude account override
+ok - a local secondmate reads the launching home's pin and its own home's file is never inherited over
+# all fm-worker-account tests passed
+FM_TEST_END 2026-10-17T00:39:36Z tests/fm-worker-account.test.sh exit=0 duration_ms=28899 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:39:36Z tests/fm-branch-supervision.test.sh family=standalone expected_gate_skip=none
+ok - branch prompt is byte-stable across homes, cwd, timezone, and time, above the cache floor
+ok - emitted branch prompt routes completed scouts through existing policies and leased cleanup, preserving unfinished work
+ok - outcome store is append-only and refuses sequence reuse after a torn tail
+ok - outcome append refreshes a bounded, verbatim display tail of the newest rows without moving the cursor
+ok - the display tail keeps only whole newest rows within its 1 MiB budget, never shortening one
+ok - outcome seed-tail writes an absent display tail from a valid store's newest rows without moving a marker, and leaves an existing one to append
+ok - seed-tail validates and publishes only a bounded newest window, not old malformed history
+ok - routine task and fleet no-change outcomes stay stored and silent captain outcomes are refused
+ok - startup replay cannot advance the cursor across an unrendered captain outcome
+ok - malformed and ahead-of-store cursor state fail closed before any outcome can be skipped
+ok - cursor advancement refuses to legitimize an ahead processed marker
+ok - middle sequence conflicts fail closed for every store read and append
+ok - outcome lookup returns exact sequence rows and distinguishes missing receipts
+ok - outcome stores require terminated single-line JSON records
+ok - the processed marker is sequence-bound, never ahead of the read cursor, never backwards, and never adopts delivered history
+ok - outcome store: present shows each routine row once and each captain row until it is acknowledged
+ok - outcome store: present and unprocessed name each captain row's recorded age without writing it
+ok - lease exclusivity, same-actor refresh, release, staleness, and sweep hold
+ok - fm-control and fm-teardown refuse the other actor's live lease and pass through otherwise
+ok - PR merge, local landing, and new-task spawn refuse the branch actor and spare main
+ok - a home without a live branch lease takes no lock and clears leftover leases in any calling context
+ok - an unmarked main honors a live branch lease across processes and ignores a previous session's
+ok - a lease file makes an unmarked guard exclude a concurrent claim for the complete mutation
+ok - a host home's unmarked main excludes the host's first claim for its whole mutation, and other homes take no lock
+ok - lease liveness requires an exact valid session-lock pid
+ok - concurrent stale-lease claims serialize so exactly one actor succeeds
+ok - guard stale cleanup cannot race with or delete a newer lease claim
+ok - lease guard excludes a concurrent actor for the complete mutation
+ok - a claim naming the other actor fails loudly instead of silently impersonating it
+ok - release commands authorize the caller and bulk release drops only that actor's leases
+ok - the branch cannot force a teardown or bypass fm-control for a relaunch
+ok - the away-posture record relocates the PR merge and a spawn under the spend cap to the branch, never local landing, and only while confirmed, valid, and away
+ok - relocated branch spawn admits only already-queued dispatchable work, including on a manual-backend home
+ok - the away spend cap is rechecked under the task-set lock so concurrent spawns cannot both publish
+ok - a quiet-mode record never caps a present captain's spawn, while the away record's cap still binds
+FM_TEST_END 2026-10-17T00:40:00Z tests/fm-branch-supervision.test.sh exit=0 duration_ms=23905 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:40:00Z tests/fm-live-lab-up-mate.test.sh family=unclassified expected_gate_skip=none
+ok - up --mate with supervision host off reaches readiness
+ok - up --mate with supervision host on reaches readiness
+FM_TEST_END 2026-10-17T00:40:18Z tests/fm-live-lab-up-mate.test.sh exit=0 duration_ms=17851 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:40:18Z tests/fm-remote-doctor.test.sh family=secondmate expected_gate_skip=none
+ok - a missing herdr CLI is a human gap that --fix never claims to close
+ok - an absent launch agent is a fixable gap and the read-only run changes nothing
+ok - --fix installs the dedicated fm-remote launch agent without touching default
+ok - --fix is idempotent once the host is ready
+ok - a loaded and running launch agent must match the complete owned contract
+ok - a failed reload leaves stale effective launch-agent state unready
+ok - a launch agent outside the Aqua session scope is rewritten in place
+ok - launchd failures are reported and delayed server readiness is awaited
+ok - a session served outside the Aqua login session is fixable and --fix retakes it through launchd
+ok - human gaps are reported with their operator step and never claimed as fixed
+ok - a bash Directory Services login shell is rendered with -l -c
+ok - custom Directory Services shell paths remain valid plist arguments
+ok - shell resolution bounds Directory Services and uses executable SHELL and POSIX fallbacks
+ok - repeated repair reuses one resolved login shell and remains a no-op
+ok - a non-darwin host skips launch agents and starts its herdr server directly
+ok - --fix creates only owned version-manager wrappers and never clobbers an operator file
+ok - doctor refreshes stale worker identity before probing tools
+ok - the entrypoint symlink is recreated when absent and never overwritten when operator-owned
+FM_TEST_END 2026-10-17T00:40:33Z tests/fm-remote-doctor.test.sh exit=0 duration_ms=15283 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:40:33Z tests/fm-secondmate-lifecycle-e2e.test.sh family=secondmate expected_gate_skip=none
+Note: switching to '9baf9a32ca713b7b461891a922727aa18c6bab14'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+ok - seed: registry scope+projects, charter copied, clones+origins, no-mistakes init in subhome only
+warning: secondmate design sync skipped before launch: primary default-branch commit cannot be resolved
+ok - spawn: launches in the subhome with persistent charter, records routing meta
+ok - send: a bare fm-<id> secondmate enqueues a marked request and rings the meta window
+ok - handoff: in-scope items move verbatim, out-of-scope stays, idempotent
+ok - recovery: respawns from the durable registry and persistent home
+ok - teardown: removes the home, then clears meta and the registry route
+FM_TEST_END 2026-10-17T00:40:46Z tests/fm-secondmate-lifecycle-e2e.test.sh exit=0 duration_ms=12791 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:40:46Z tests/fm-mail-check.test.sh family=watcher-wake-lock expected_gate_skip=none
+ok - fm-mail-check: help and usage plumbing
+ok - fm-mail-check: arm writes and binds, re-arm is idempotent, disarm removes
+ok - fm-mail-check: arm resolves a relative home into the shim
+ok - fm-mail-check: arm refuses a symlink at the shim path
+ok - fm-mail-check: arm refuses without the mail plane
+ok - fm-mail-check: a successful poll that surfaces new mail emits one wake line
+ok - fm-mail-check: a poll failure is reported once and re-reported after recovery
+ok - fm-mail-check: an unconfigured home is reported once, not every poll
+ok - fm-mail-check: a slow poll times out into a one-line report
+ok - fm-mail-check: a fail-closed poll after a wake reports the failure, not the wake
+ok - fm-mail-check: a repeated status-4 fail-closed poll still wakes
+ok - fm-mail-check: a repeated status-2 stays-queued poll still wakes
+ok - fm-mail-check: a repeated failure that queued new mail still wakes
+ok - fm-mail-check: large repeated polls drain every reader without output noise
+ok - fm-mail-check: a repeated timeout still wakes
+ok - fm-mail-check: a repeated pre-wake heal failure stays silent
+ok - fm-mail-check: a missing mail plane is reported, not assumed
+FM_TEST_END 2026-10-17T00:40:52Z tests/fm-mail-check.test.sh exit=0 duration_ms=6272 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:40:52Z tests/fm-pi-windows-shell-invocation.test.sh family=unclassified expected_gate_skip=none
+skip: native Windows Node required
+fm-test-run: gate skip: tests/fm-pi-windows-shell-invocation.test.sh: native Windows Node required
+FM_TEST_END 2026-10-17T00:40:53Z tests/fm-pi-windows-shell-invocation.test.sh exit=0 duration_ms=142 gate_skip=true
+FM_TEST_BEGIN 2026-10-17T00:40:53Z tests/fm-devin-harness.test.sh family=pure-contract-unit expected_gate_skip=none
+ok - Devin native identity; anchored liveness
+ok - worker-only resolution and lifecycle capabilities
+ok - composer draft safety and independent delivery signals
+ok - private config preserves user hooks; lifecycle and stale-generation rejection
+ok - worker config forces attribution off and Claude Code hook import off
+ok - keep-ai-trailers leaves Devin attribution on
+ok - scout launch carries Fusion, autonomy, typed brief and hooks; effort recorded only
+FM_TEST_END 2026-10-17T00:40:56Z tests/fm-devin-harness.test.sh exit=0 duration_ms=3126 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:40:56Z tests/fm-documentation-audiences.test.sh family=pure-contract-unit expected_gate_skip=none
+ok - documentation inventory classifies every maintained prose surface exactly once
+ok - classification, setup routing, and maintained-prose scope fail safely
+ok - required documentation owner pointers cannot silently disappear
+ok - local links resolve while dates, versions, commands, and incident prose remain semantically reviewed
+FM_TEST_END 2026-10-17T00:40:57Z tests/fm-documentation-audiences.test.sh exit=0 duration_ms=918 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:40:57Z tests/fm-pipeline-spend.test.sh family=pr-forge expected_gate_skip=none
+ok - known spend, including failed and cancelled invocations, is attributed to the task that ran it
+ok - repeated review rounds in a resumed session are counted once
+ok - absent spend reads as zero only when no run exists, and as unavailable when it cannot be read
+ok - older state without delta columns counts only rounds it can prove
+ok - record appends one line per task incarnation
+ok - an absent opt-in flag bypasses task, pipeline, and ledger reads and writes
+ok - the state database resolves under the account home when NM_HOME and HOME are unset
+ok - missing tasks, secondmates, and unsafe ids are refused
+FM_TEST_END 2026-10-17T00:40:58Z tests/fm-pipeline-spend.test.sh exit=0 duration_ms=1276 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:40:58Z tests/fm-gemini-harness.test.sh family=unclassified expected_gate_skip=none
+ok - fm-harness.sh: gemini's marker outranks an inherited CLAUDECODE
+ok - fm-harness.sh: an inherited AI_AGENT never claims the gemini identity
+ok - fm-harness.sh: ancestry detects a natively-named gemini command
+ok - fm-harness.sh: ancestry rejects unrelated gemini mentions
+ok - fm-harness.sh: this platform's node reports comm=node-MainThread and ancestry reaches gemini
+ok - fm-gemini-lib.sh: identity comes from the script argument, never a bare interpreter
+ok - fm-gemini-lib.sh: process argv preserves whitespace in interpreter and Gemini script paths
+ok - fm-control-lib.sh: gemini carries its verified interrupt and exit mechanics
+ok - fm-control-lib.sh: gemini is a crewmate/scout adapter only
+ok - fm-control-lib.sh: gemini's wiring stays outside the project worktree
+FM_TEST_END 2026-10-17T00:40:59Z tests/fm-gemini-harness.test.sh exit=0 duration_ms=1221 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:40:59Z tests/fm-jev-syncookie-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 118 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - mocked sysctl and netstat unit tests pass
+All Pattern 118 tests passed successfully!
+FM_TEST_END 2026-10-17T00:40:59Z tests/fm-jev-syncookie-guard.test.sh exit=0 duration_ms=182 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:40:59Z tests/fm-jev-child-ehash-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 185 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - unit tests pass
+Pattern 185 regression tests passed: 6/6 tests ok
+FM_TEST_END 2026-10-17T00:41:00Z tests/fm-jev-child-ehash-guard.test.sh exit=0 duration_ms=186 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:41:00Z tests/fm-jev-bbr-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 106 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - unit tests and mock audit pass
+All Pattern 106 tests passed!
+FM_TEST_END 2026-10-17T00:41:00Z tests/fm-jev-bbr-guard.test.sh exit=0 duration_ms=182 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:41:00Z tests/fm-jev-dns-watchdog.test.sh family=unclassified expected_gate_skip=none
+ok - shellcheck clean
+ok - --help works
+ok - healthy field is valid boolean (true)
+ok - canary resolution probes present (2 probes)
+ok - dead_nameserver_count valid (0)
+DNS Watchdog: HEALTHY
+  • Configured Nameservers: ['127.0.0.53']
+  • Uplink Nameservers: ['192.168.0.1']
+  • Canary api.github.com: 140.82.114.5 (0.9ms)
+  • Canary api.typesafe.ai: 104.18.24.46 (0.14ms)
+ok - --check passed cleanly
+ok - low latency threshold correctly flags canaries (2 flagged)
+ok - all Pattern 37 DNS watchdog tests passed
+FM_TEST_END 2026-10-17T00:41:00Z tests/fm-jev-dns-watchdog.test.sh exit=0 duration_ms=179 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:41:00Z tests/fm-jev-tcp-metrics-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 216 (TCP Metrics Guard) regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+FM_TEST_END 2026-10-17T00:41:00Z tests/fm-jev-tcp-metrics-guard.test.sh exit=1 duration_ms=134 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:41:00Z tests/fm-jev-mroute-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 249 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - unit tests with mock procfs pass
+Pattern 249 regression tests complete: ALL 6 TESTS PASSED.
+FM_TEST_END 2026-10-17T00:41:00Z tests/fm-jev-mroute-guard.test.sh exit=0 duration_ms=180 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:41:00Z tests/fm-jev-tmux-sweeper.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 44 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema and protected sessions valid
+ok - module imports and protection invariants pass
+ok - text mode runs without error
+ok - all Pattern 44 tmux sweeper tests passed
+FM_TEST_END 2026-10-17T00:41:01Z tests/fm-jev-tmux-sweeper.test.sh exit=0 duration_ms=194 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:41:01Z tests/fm-jev-ipv6-mtu-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 267 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - unit tests with mock sysctls passed
+All Pattern 267 regression tests passed!
+FM_TEST_END 2026-10-17T00:41:01Z tests/fm-jev-ipv6-mtu-guard.test.sh exit=0 duration_ms=183 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:41:01Z tests/fm-jev-rehash-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 163 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - unit tests pass
+All Pattern 163 regression tests passed!
+FM_TEST_END 2026-10-17T00:41:01Z tests/fm-jev-rehash-guard.test.sh exit=0 duration_ms=194 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:41:01Z tests/fm-jev-nf-flowtable-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 277 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - unit tests with mocked files passed
+All Pattern 277 regression tests passed!
+FM_TEST_END 2026-10-17T00:41:01Z tests/fm-jev-nf-flowtable-guard.test.sh exit=0 duration_ms=183 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:41:01Z tests/fm-jev-unix-socket-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 99 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - unit tests and mock audit pass
+All Pattern 99 tests passed!
+FM_TEST_END 2026-10-17T00:41:01Z tests/fm-jev-unix-socket-guard.test.sh exit=0 duration_ms=191 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:41:01Z tests/fm-jev-ipv6-ra-rio-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 291 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - mocked unit tests pass
+All Pattern 291 regression tests passed successfully.
+FM_TEST_END 2026-10-17T00:41:02Z tests/fm-jev-ipv6-ra-rio-guard.test.sh exit=0 duration_ms=186 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:41:02Z tests/fm-jev-mem-reserve-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 311 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - unit tests with mocked files passed
+All Pattern 311 regression tests passed successfully.
+FM_TEST_END 2026-10-17T00:41:02Z tests/fm-jev-mem-reserve-guard.test.sh exit=0 duration_ms=202 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:41:02Z tests/fm-jev-syncookies-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 192 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - unit tests pass
+Pattern 192 regression tests passed: 6/6 tests ok
+FM_TEST_END 2026-10-17T00:41:02Z tests/fm-jev-syncookies-guard.test.sh exit=0 duration_ms=175 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:41:02Z tests/fm-jev-nf-conntrack-frag6-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 273 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - mocked unit tests pass
+All 6 tests passed successfully.
+FM_TEST_END 2026-10-17T00:41:02Z tests/fm-jev-nf-conntrack-frag6-guard.test.sh exit=0 duration_ms=180 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:41:02Z tests/fm-jev-ipv6-neighbor-adv-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 290 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - mocked unit tests pass
+All 6/6 Pattern 290 tests passed successfully!
+FM_TEST_END 2026-10-17T00:41:02Z tests/fm-jev-ipv6-neighbor-adv-guard.test.sh exit=0 duration_ms=180 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:41:02Z tests/fm-jev-wmem-rmem-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 190 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - unit tests pass
+Pattern 190 regression tests passed: 6/6 tests ok
+FM_TEST_END 2026-10-17T00:41:03Z tests/fm-jev-wmem-rmem-guard.test.sh exit=0 duration_ms=186 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:41:03Z tests/fm-jev-wscale-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 157 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - unit tests pass
+All Pattern 157 regression tests passed!
+FM_TEST_END 2026-10-17T00:41:03Z tests/fm-jev-wscale-guard.test.sh exit=0 duration_ms=184 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:41:03Z tests/fm-jev-ulp-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 182 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - unit tests pass
+Pattern 182 regression tests passed: 6/6 tests ok
+FM_TEST_END 2026-10-17T00:41:03Z tests/fm-jev-ulp-guard.test.sh exit=0 duration_ms=190 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:41:03Z tests/fm-jev-hystart-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 136 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - unit tests pass
+All Pattern 136 regression tests passed!
+FM_TEST_END 2026-10-17T00:41:03Z tests/fm-jev-hystart-guard.test.sh exit=0 duration_ms=196 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:41:03Z tests/fm-jev-thin-stream-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 127 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - unit tests pass
+All Pattern 127 regression tests passed!
+FM_TEST_END 2026-10-17T00:41:03Z tests/fm-jev-thin-stream-guard.test.sh exit=0 duration_ms=195 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:41:03Z tests/fm-jev-ipv6-ext-hdr-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 252 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - unit tests with mock procfs pass
+Pattern 252 regression tests complete: ALL 6 TESTS PASSED.
+FM_TEST_END 2026-10-17T00:41:04Z tests/fm-jev-ipv6-ext-hdr-guard.test.sh exit=0 duration_ms=191 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:41:04Z tests/fm-jev-nf-conntrack-events-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 272 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - mocked unit tests pass
+All 6 tests passed successfully.
+FM_TEST_END 2026-10-17T00:41:04Z tests/fm-jev-nf-conntrack-events-guard.test.sh exit=0 duration_ms=179 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:41:04Z tests/fm-jev-invalid-ratelimit-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 173 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - unit tests pass
+Pattern 173 regression tests passed: 6/6 tests ok
+FM_TEST_END 2026-10-17T00:41:04Z tests/fm-jev-invalid-ratelimit-guard.test.sh exit=0 duration_ms=183 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:41:04Z tests/fm-jev-addr-gen-mode-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 264 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - unit tests with mock sysctls passed
+All Pattern 264 regression tests passed!
+FM_TEST_END 2026-10-17T00:41:04Z tests/fm-jev-addr-gen-mode-guard.test.sh exit=0 duration_ms=166 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:41:04Z tests/fm-jev-autocork-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 194 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - unit tests pass
+Pattern 194 regression tests passed: 6/6 tests ok
+FM_TEST_END 2026-10-17T00:41:04Z tests/fm-jev-autocork-guard.test.sh exit=0 duration_ms=177 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:41:04Z tests/fm-jev-mtu-probe-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 158 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - unit tests pass
+All Pattern 158 regression tests passed!
+FM_TEST_END 2026-10-17T00:41:05Z tests/fm-jev-mtu-probe-guard.test.sh exit=0 duration_ms=173 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:41:05Z tests/fm-jev-redis-watchdog.test.sh family=unclassified expected_gate_skip=none
+ok - shellcheck clean
+ok - --help works
+ok - json output schema contains summary.total_connections (1)
+ok - json output schema contains valid boolean healthy (true)
+ok - port filtering correctly isolates target ports
+ok - all Pattern 29 redis/db watchdog tests passed
+FM_TEST_END 2026-10-17T00:41:05Z tests/fm-jev-redis-watchdog.test.sh exit=0 duration_ms=221 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:41:05Z tests/fm-jev-disk-reaper.test.sh family=unclassified expected_gate_skip=none
+ok - shellcheck clean
+ok - --help works
+ok - dry-run identifies exactly 2 candidates without deleting
+ok - apply mode pruned only stale candidates and preserved fresh/whitelisted files
+ok - all Pattern 26 disk reaper tests passed
+FM_TEST_END 2026-10-17T00:41:05Z tests/fm-jev-disk-reaper.test.sh exit=0 duration_ms=123 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:41:05Z tests/fm-jev-worker-reaper.test.sh family=unclassified expected_gate_skip=none
+1. Verify --help output...
+ok - help flags work
+2. Verify --json output format...
+ok - JSON format verified
+3. Verify --check runs without error...
+ok - check scan completed
+ok - all fm-jev-worker-reaper tests passed
+FM_TEST_END 2026-10-17T00:41:05Z tests/fm-jev-worker-reaper.test.sh exit=0 duration_ms=220 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:41:05Z tests/fm-bearings-board-lavish-live-e2e.test.sh family=live-harness-optin expected_gate_skip=live-capability
+# lavish-axi 0.1.56
+ok - lavish-axi 0.1.56 reports a captain-ended session without reopening it and without failing
+ok - the board build reopens a captain-ended session against real lavish-axi instead of arming a dead one
+FM_TEST_END 2026-10-17T00:41:27Z tests/fm-bearings-board-lavish-live-e2e.test.sh exit=0 duration_ms=22023 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:41:27Z tests/fm-muse-signals-live-e2e.test.sh family=live-harness-optin expected_gate_skip=live-capability
+skip: live: opt-in; set FM_MUSE_SIGNALS_LIVE=1 to run
+fm-test-run: gate skip: tests/fm-muse-signals-live-e2e.test.sh: live: opt-in; set FM_MUSE_SIGNALS_LIVE=1 to run
+FM_TEST_END 2026-10-17T00:41:27Z tests/fm-muse-signals-live-e2e.test.sh exit=0 duration_ms=117 gate_skip=true
+FM_TEST_BEGIN 2026-10-17T00:41:27Z tests/fm-calm-claude-mod-plugin.test.sh family=live-harness-optin expected_gate_skip=live-capability
+ok - Claude Code 2.1.300 (Claude Code) validates the Calm mod strictly at its folder and its auto-load path, hooking exactly the working row, tool, user, and assistant drawings and /calm, and logging supervision notes
+ok - Claude Code 2.1.300 (Claude Code) runs the Calm mod's plugin test suites clean: persisted toggle, hidden rows, working notes, the clock-driven working ship, and supervision notes
+FM_TEST_END 2026-10-17T00:41:29Z tests/fm-calm-claude-mod-plugin.test.sh exit=0 duration_ms=1948 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:41:29Z tests/fm-pr-state-live-e2e.test.sh family=live-harness-optin expected_gate_skip=live-capability
+skip: live: opt-in; set FM_PR_STATE_LIVE_E2E=1 to run
+fm-test-run: gate skip: tests/fm-pr-state-live-e2e.test.sh: live: opt-in; set FM_PR_STATE_LIVE_E2E=1 to run
+FM_TEST_END 2026-10-17T00:41:29Z tests/fm-pr-state-live-e2e.test.sh exit=0 duration_ms=120 gate_skip=true
+FM_TEST_SUMMARY total=51 failed=1 skipped_gate=3 duration_ms=1009477
+FM_TEST_SUMMARY_FAMILY family=backend-dispatch count=1 duration_ms=28899 failed=0
+FM_TEST_SUMMARY_FAMILY family=live-harness-optin count=4 duration_ms=24208 failed=0
+FM_TEST_SUMMARY_FAMILY family=pr-forge count=1 duration_ms=1276 failed=0
+FM_TEST_SUMMARY_FAMILY family=pure-contract-unit count=3 duration_ms=53662 failed=0
+FM_TEST_SUMMARY_FAMILY family=secondmate count=3 duration_ms=123866 failed=0
+FM_TEST_SUMMARY_FAMILY family=snapshot-bearings count=1 duration_ms=27623 failed=0
+FM_TEST_SUMMARY_FAMILY family=standalone count=1 duration_ms=23905 failed=0
+FM_TEST_SUMMARY_FAMILY family=unclassified count=33 duration_ms=24709 failed=1
+FM_TEST_SUMMARY_FAMILY family=watcher-wake-lock count=4 duration_ms=698977 failed=0
+FM_TEST_SLOWEST rank=1 script=tests/fm-watch-triage-waits.test.sh duration_ms=496141
+FM_TEST_SLOWEST rank=2 script=tests/fm-watch-arm.test.sh duration_ms=138584
+FM_TEST_SLOWEST rank=3 script=tests/fm-secondmate-safety.test.sh duration_ms=95792
+FM_TEST_SLOWEST rank=4 script=tests/fm-watch-recovery-loop.test.sh duration_ms=57980
+FM_TEST_SLOWEST rank=5 script=tests/fm-kimi-harness.test.sh duration_ms=49618
+FM_TEST_SLOWEST rank=6 script=tests/fm-worker-account.test.sh duration_ms=28899
+FM_TEST_SLOWEST rank=7 script=tests/fm-home-summary-refresh.test.sh duration_ms=27623
+FM_TEST_SLOWEST rank=8 script=tests/fm-branch-supervision.test.sh duration_ms=23905
+FM_TEST_SLOWEST rank=9 script=tests/fm-bearings-board-lavish-live-e2e.test.sh duration_ms=22023
+FM_TEST_SLOWEST rank=10 script=tests/fm-live-lab-up-mate.test.sh duration_ms=17851
+FM_TEST_SLOWEST rank=11 script=tests/fm-remote-doctor.test.sh duration_ms=15283
+FM_TEST_SLOWEST rank=12 script=tests/fm-secondmate-lifecycle-e2e.test.sh duration_ms=12791
+FM_TEST_SLOWEST rank=13 script=tests/fm-mail-check.test.sh duration_ms=6272
+FM_TEST_SLOWEST rank=14 script=tests/fm-devin-harness.test.sh duration_ms=3126
+FM_TEST_SLOWEST rank=15 script=tests/fm-calm-claude-mod-plugin.test.sh duration_ms=1948

@@ -1,0 +1,882 @@
+FM_TEST_BEGIN 2026-10-17T00:24:42Z tests/fm-pr-check-security.test.sh family=pr-forge expected_gate_skip=none
+ok - raw-byte parser accepts canonical URLs and rejects the complete adversarial matrix
+ok - GitLab merge requests are followed on any instance and never wake falsely
+ok - Forgejo poll reads one pull request by number through tea api and wakes only on merged true
+ok - Forgejo login match parses tea's JSON in every line shape, in the helper and the static poll
+ok - the Gerrit watch wakes only on an explicit merged status and never on submittability
+ok - Gerrit arming records no patch set revision and the merge path refuses to submit
+ok - Gerrit arming accepts a published HEAD only by the change's current patch set tree
+ok - a no-mistakes Gerrit ready report requires the pipeline's fixes recovered into the published copy
+ok - validated merged polls notify once and retire before the next watcher cycle
+ok - a repeat identical merged poll for an already-notified task is absorbed, never queued as a main-blocking row
+ok - a failed upward merge report keeps its poll armed for repair and retry
+ok - staged self-merge and poll interleavings are never silent
+ok - queued merges retain their away authority after captain return
+ok - poll distinguishes attended authorization from external landing
+ok - accepted merge authority refuses rebound task metadata
+ok - accepted merge authority persists under the lifecycle lock
+ok - teardown cannot race merged-poll authority consumption
+ok - poll retirement preserves a replacement authority record
+ok - a merge detected by the poll is reported upward from a secondmate home exactly once
+ok - a different merged PR for the same task gets its own first notification
+ok - a merged poll on a persistent secondmate retires silently: no outcome, marker, or wake, and every lifecycle artifact preserved
+ok - queue, receipt, and every fixed-path removal crash point recover without loss or repeated execution
+ok - open/red, closed-unmerged, malformed, and forge errors remain armed until an exact merged transition
+ok - replacement, nonterminal, tampered, and custom results receive no deletion authority
+ok - queue failure and untrusted receipts preserve canonical poll evidence
+ok - GitHub and GitLab exact merged results share one retirement path
+ok - PR and teardown entrypoints reject invalid arguments before every side effect
+ok - arming refuses a draft pull request, naming it, and arms a ready or unreadable one
+ok - fm-pr-check refuses to record a PR or arm a merge watch on a secondmate record
+ok - fm-pr-check refuses to register a PR whose named head is only in the worker copy
+ok - fm-pr-check refuses a direct-PR registration while a later commit is only in the copy
+ok - valid direct and merge flows record exact metadata and reject multiline head metadata
+ok - rejected metacharacter bytes remain inert at generation and watcher time
+ok - static poll is silent except for one merged line and remains watcher-bounded
+ok - interrupted atomic preparation cleans private temporaries and publishes nothing
+ok - concurrent watchers observe only complete private poll publications
+ok - poll publication paths refuse symlinks and directories
+ok - live poll and custom-check artifacts require private single-link files
+ok - a poll armed before a volume renumber is re-recorded under the control lock and keeps detecting merges
+ok - a renumbered registration is never re-recorded around a tampered artifact: swapped-check altered-check swapped-sidecar altered-sidecar altered-template-hash wrong-mode hardlinked-check split-device foreign-device, or a pending retirement
+ok - direct re-arm publication waits without replacing an armed poll
+ok - device re-record publication waits without rewriting its registration
+ok - post-rename poll validation faults revoke both names and allow a clean retry
+ok - bootstrap does not rewrite unauthenticated checks or emit retired migration diagnostics
+ok - watcher signals promptly stop custom checks and clean private state
+ok - returned custom check descendants are drained on installed and fallback timeout paths
+ok - teardown removes safe poll artifacts and refuses directory-shaped check files without traversal
+ok - an active poll remains valid and captures when the template is edited
+FM_TEST_END 2026-10-17T00:27:33Z tests/fm-pr-check-security.test.sh exit=0 duration_ms=171289 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:27:33Z tests/fm-remote-reply.test.sh family=secondmate expected_gate_skip=none
+ok - default delta reader waits 0.5 seconds then delivers a non-destructive complete-line delta
+ok - override delta reader waits 0.07 seconds then delivers a non-destructive complete-line delta
+ok - a blocking non-destructive remote delta reaches durable process-event capture
+ok - a captured delta is applied, acknowledged, and re-armed without a handler
+ok - ingest appends one validated line, fetches its document, and advances the cursor
+ok - replayed capture has one deduplicated append and one durable handling identity
+ok - later generations cannot invalidate an unacknowledged ingested result
+ok - the remote status and decision model mirrors and the cursor advances
+ok - a remote mate's new decision folds open exactly as a local mate's does
+ok - a replayed mirrored delta is idempotent in both the stream and the cursor
+ok - transported control bytes are normalized in place and never stop the stream
+ok - payload protocol-field names cannot collide with transport metadata
+ok - NUL bytes are normalized in place before shell line processing
+ok - local document storage failures remain retryable until delivery succeeds
+ok - a structured pointer must end at its token boundary
+ok - adjacent pointers are fetched while malformed tokens remain unchanged
+ok - a rejected candidate never gives the following text a false leading boundary
+ok - nested remote reports relay while an undeliverable foreign pointer fails open
+ok - the reported incident raises no standing decision and still delivers the report
+ok - an undeliverable structured offer fails open with one note and never a decision
+ok - a remote refusal surfaces its own reason without opening a decision
+ok - a failed pointer extraction never commits a partial delta
+ok - a failed mirror write never drops status content or advances the cursor
+ok - source-line identity survives commit failure and cursor-loss recapture
+ok - a mirrored reserved-key line cannot squat or clear the parent's own decision
+ok - a reply that arrives after escalation resolves it and clears the open decision
+ok - a remote reply listener stays owned across empty waits and a delta
+ok - a failed remote read exits instead of relistening
+ok - persistent ingestion failure leaves exactly one durable capture
+ok - a preempted reply poll reports a closed window without publishing channel freshness
+ok - a preempted reply poll keeps its listener and reconcile launches nothing
+ok - a quiet reply window publishes the caught-up watermark the reply guard reads
+ok - a cursor-loss whole-log recapture is acknowledged quietly with no duplicate wake
+ok - truncation is detected, escalated once, and not silently rebased
+ok - a repeated continuity break after an operator resolve appends nothing
+ok - remote reply retirement quiesces and refuses unhandled captured results
+ok - a later continuity break after repair and re-advance opens the decision again
+ok - an old-format continuity line does not swallow the next break
+ok - a later continuity break after the cursor moves without retirement opens the decision again
+ok - a continuity break after retirement and an identical restore opens the decision once
+ok - a failed cursor removal does not increase the retirement count
+ok - a retirement that stops after removing the cursor leaves the old count
+ALL TESTS PASSED
+FM_TEST_END 2026-10-17T00:30:06Z tests/fm-remote-reply.test.sh exit=0 duration_ms=152781 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:30:06Z tests/fm-contributions.test.sh family=snapshot-bearings expected_gate_skip=optional-binary
+ok - only required-captain contributions are rows; other actors are counted
+ok - replaced-head verdict is stale and cannot create a captain requirement
+ok - unchecked ownership is disclosed and cannot prove silence
+ok - newest check with no verdict is distinct from passing and pending
+ok - new maintainer comment wakes once and stays pending until acknowledged
+ok - new maintainer review wakes once and stays pending until acknowledged
+ok - new maintainer inline wakes once and stays pending until acknowledged
+ok - ready-for-pr on a filed issue becomes a planning wake
+ok - a fresh open issue remains measured maintainer triage
+ok - an absent check lane remains missing across repeated observations
+ok - mixed freshness retains measured captain work and discloses the gap
+ok - malformed durable evidence cannot prove silence
+ok - a transient ready-for-pr label wakes and its exact acknowledgement survives replay
+ok - recorded judgment keeps its exact head and is stale immediately on a published replacement
+ok - verdict help and refusal name exactly the actors the command accepts
+ok - a current forge observation refreshes a verdict after a replacement
+ok - an unavailable current head leaves verdict freshness unknown
+ok - away yolo delivery is fleet work without granting merge authority
+actionable: PR https://github.com/o/r/pull/8 is registered but its ready line did not reach the parent channel (rc=3)
+ok - cross-home away yolo delivery is fleet work
+ok - retired ownership persists and unsupported forge remains visibly unmeasured
+ok - unsupported forge coverage is disclosed without inventing fleet work
+ok - held unsupported forge coverage remains unmeasured
+ok - unsupported ownership stays silent and unmeasured; legacy errors clear without fabricated evidence
+ok - legacy cleanup preserves unsupported ownership and supported missing-evidence failure in the same file
+ok - shared contribution signal wakes once while retaining both acknowledgements
+ok - watcher keeps observer diagnostics separate from contribution wakes
+ok - expired child unsupported-forge coverage remains unmeasured
+ok - watcher surfaces one newly durable contribution signal without re-ringing it
+ok - parent consumes measured child coverage and refuses expired child silence
+ok - unreadable pending signals refuse an empty-inbox claim
+ok - record task identity is the directory dirname/basename named
+ok - snapshot and pending create nothing in a home without state
+ok - budget exhausted mid-observation (exhaust) keeps the prior record and stays silent
+ok - budget exhausted mid-observation (hang) keeps the prior record and stays silent
+ok - a genuine forge failure inside the budget still records the error, its cause and wakes
+ok - one HTTP 500 is retried once and a successful retry stays healthy
+ok - two transient failures wake once and name the failed read in the record
+ok - an HTTP 404 is reported without retrying
+ok - real gh error shapes drive the intended retry decision and keep their error
+ok - a URL never inherits the previous URL read diagnostic
+jq: error (at /tmp/fm-contributions.iDBx6z/after.json:1): null (null) cannot be matched, as it is not a string
+ok - a URL owned by two tasks is observed once and every owner receives the result
+ok - a merged or closed contribution settles once, is not re-read, and never wakes again
+ok - a late owner inherits a terminal observation without a forge read or wake
+ok - a retry converges every owner whose saved row is not terminal, keeping its own acknowledgement state
+ok - an open PR linked from a done task keeps being observed
+ok - a later URL waits when fewer than fifteen seconds remain for its observation
+ok - eight 3-second PR reads complete fresh within one 20-second poll cycle
+ok - a read killed at the five-second bound is budget refusal and stays silent
+ok - rotation preserves timed-out records and refreshes every slow PR on successive cycles
+ok - the effective budget is cut down to the watcher per-check bound with margin
+ok - generated checks enforce configured and inherited budgets at runtime
+ok - a genuinely unavailable forge records an error and wakes once per failure episode
+ok - a late owner does not restart a shared forge failure episode
+ok - retire stops the unavailable check, leaves rotation and restores complete coverage
+ok - a late owner settled beside a retired final record stays unretired and known
+ok - retire is idempotent and refuses non-captain, unknown, malformed and signal-bearing pairs
+FM_TEST_END 2026-10-17T00:32:14Z tests/fm-contributions.test.sh exit=0 duration_ms=128375 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:32:14Z tests/fm-issue-intake.test.sh family=unclassified expected_gate_skip=none
+ok - reconcile creates one task row, comment, watch, and dispatch
+ok - reconcile is idempotent across replays and lost cursors
+ok - a lost bridge event is healed from GitHub and never double-dispatches
+ok - watch-condition is closed-only and fails closed
+ok - watch-fire comments once, closes the task row, and never the issue
+error: unknown transition 'nonsense' (want one of: dispatched declined repro-confirmed fix-up deployed verified captain-closed)
+ok - transition comments are canonical, bounded, and never close the issue
+ok - dry-run reports the plan and changes nothing
+ok - legacy fm-sos rows stay authoritative across the rename
+ok - a by-design request is declined, closed, and never re-declined
+ok - an uncertain ticket is held for the captain and never acted on
+ok - verdict failure defers, is retried, and is never pinned as a hold
+ok - the verdict is decided once and ledgered across replays
+ok - a decline comments once and a failed close retries only the close
+ok - an event without a url keeps the row body and cursor aligned
+ok - one GitHub issue is never split into two candidates
+ok - a stale pre-rename watch is retired and re-armed against the renamed script
+ok - a marker-less ticket stays one ticket across the event and heal passes
+ok - a failed spawn is retried and never ledgered as dispatched
+ok - watch-fire never captain-closes an issue intake declined
+ok - a gate-off run honors the recorded decline instead of dispatching
+ok - a gate-off run keeps a recorded captain_review hold
+ok - --no-dispatch posts no dispatched comment; the full run does
+ok - a manual comment is never duplicated by reconcile or watch-fire
+ok - legacy dispatch and verdict records still bind every guard
+ok - a reopened declined ticket is reported to the captain, never dropped
+ok - an already-dispatched ticket is held for the captain, never declined
+ok - a captain-closed ticket is never declined, commented, or closed
+ok - a closed issue is never commented on, watched, or spawned
+warn: malformed dedupe key 'bad key 7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f' for GH #1921; using gh-issue-1921
+warn: malformed dedupe key 'bad key 7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f' for GH #1921; using gh-issue-1921
+warn: non-numeric event id 'None'; cursor will not advance on it
+ok - a malformed key and a missing event id degrade to idempotent behavior
+ok - a stale close record over an open issue is held for the captain
+warn: GH #1922 shares dedupe key '7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f' with GH #1921; keeping the per-issue identity
+warn: GH #1922 shares dedupe key '7f3c1a52-9b41-4c2e-9d6a-1f0b2c3d4e5f' with GH #1921; keeping the per-issue identity
+ok - two issues carrying the same marker both produce candidates
+ok - backlog payloads beyond the exec string limit never wedge reconcile
+ok - a tasks-axi without --why still gets its row
+ok - an unreadable report is deferred, never judged
+ok - an unknown GitHub state never permits dispatch
+ok - a decline completes with a named warning when its label fails
+ok - a not_supported ticket already closed at intake closes its row
+ok - watch-fire reports a reopen after recording the close, and reconcile holds it
+ok - watch-fire never loses a close to a transient GitHub failure
+ok - an unbound marker twin never adopts another issue's row
+ok - overlapping reconcile passes never both dispatch
+ok - a ledger-bound task id is reused instead of minting a row
+FM_TEST_END 2026-10-17T00:33:00Z tests/fm-issue-intake.test.sh exit=0 duration_ms=46358 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:33:00Z tests/fm-inactive-reconcile.test.sh family=watcher-wake-lock expected_gate_skip=none
+actionable: inactive terminal outcome awaiting captain presentation: child=child state=done pr=https://example.test/owner/repo/pull/1
+ok - main direct terminal presentation has a durable receipt
+actionable: inactive terminal outcome awaiting captain presentation: child=child state=done pr=https://example.test/owner/repo/pull/1
+ok - a branch-actor acknowledgement retires the inactive-outcome receipt and later scans stay quiet
+ok - unpushed CI-ready ship done: is not published upstream
+ok - a delivered ship done: skips the git gate on later polls
+ok - secondmate delivers a child's terminal ledger line once, on the next poll, from the ledger alone
+ok - multiline terminal outcomes are reported once before or during a state read
+ok - an unterminated continuation line does not withhold a proven child outcome
+ok - later status prose does not change the inactive terminal receipt identity
+ok - busy child locks do not starve later ledger outcomes
+ok - ledger delivery carries the report pointer, the failed verb, and each new terminal line
+ok - pr= requires the recorded PR or a ready-signal terminal line, whatever its stamp, and never a scout
+ok - terminal lines arriving during state reads remain ledger-owned
+ok - inactive and ledger paths reconcile one raced completion without hiding later events
+ok - progress after an inactive fallback starts a distinct terminal event
+ok - complete long ledger lines retain distinct receipt identities
+ok - a ledger line still being appended waits for its newline
+ok - the remote route carries a child's ledger line once
+ok - report delivers a child's final line, owes nothing twice, and refuses only an unwritable channel
+actionable: child outcome needs parent report: child=child state=done (missing or unreadable parent binding .fm-secondmate-parent)
+ok - a pending ship done: is delivered by report after teardown removed the worktree
+ok - report preserves teardown's metadata-before-scan lock order
+actionable: child outcome needs parent report: child=child state=failed (missing or unreadable parent binding .fm-secondmate-parent)
+ok - relative local parent homes fail closed
+ok - invalid secondmate markers block routing and surface the obligation
+ok - remote parent-replies mirror input is durable and idempotent
+ok - reused task ids retain per-incarnation terminal receipts
+ok - legacy metadata rewrites preserve terminal receipt identity
+ok - relaunch cannot replace metadata during terminal snapshot
+actionable: inactive terminal outcome awaiting captain presentation: child=child state=done pr=https://example.test/owner/repo/pull/1
+ok - terminal reconciliation ignores heartbeat backoff state
+actionable: inactive terminal outcome awaiting captain presentation: child=child state=done pr=https://example.test/owner/repo/pull/1
+ok - scan marker replaces a symlink without overwriting its target
+ok - nonterminal and captain-held workers remain outside inactive terminal reporting
+ok - watcher hook wakes for terminal loss and preserves idle secondmate exemption
+ok - the real watcher poll delivers a child's terminal ledger line to the parent channel
+actionable: inactive terminal outcome awaiting captain presentation: child=b state=done pr=https://example.test/owner/repo/pull/1
+ok - stalled state reads are bounded without starving later children
+ok - aggregate scan budget includes durable wake operations
+actionable: inactive terminal outcome needs parent report: child=child state=failed (missing or unreadable parent binding .fm-secondmate-parent)
+ok - notice recovery remains idempotent across queue acknowledgement
+ok - a secondmate home with no parent binding names the missing binding instead of failing quietly
+actionable: inactive terminal outcome awaiting captain presentation: child=child state=done pr=https://example.test/owner/repo/pull/1
+ok - reconciliation makes zero forge or PR API calls
+actionable: inactive terminal outcome awaiting captain presentation: child=child state=done pr=https://example.test/owner/repo/pull/1
+ok - reconciliation state reads set no-forge mode
+all inactive reconciliation tests passed
+FM_TEST_END 2026-10-17T00:33:50Z tests/fm-inactive-reconcile.test.sh exit=0 duration_ms=50099 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:33:50Z tests/fm-trace-context-spawn.test.sh family=backend-dispatch expected_gate_skip=none
+ok - enabled: one resolved carrier is recorded in meta and the identical TRACEPARENT is exported before launch
+ok - disabled: neither traceparent= in meta nor a TRACEPARENT export is produced
+ok - failed TRACEPARENT delivery omits metadata while the source task still launches
+ok - uncleared TRACEPARENT input stops before the launch command is appended
+ok - failed traceparent metadata append removes the carrier from the launched task
+ok - duplicate secondmate preflight leaves trace-context unchanged
+ok - relaunch reuses the recorded carrier verbatim for both the meta record and the injected export
+ok - session start freezes the env override and later config or environment edits do not alter spawns
+ok - two-level: env-on/file-absent keeps the nested worker enabled, rooting its own per-task trace
+ok - two-level: env-off/file-present keeps the nested worker disabled even though the config file was copied into the secondmate home
+ok - two unrelated routed tasks through one persistent Secondmate root distinct traces, adopt nothing from its environment, and keep per-task identity across relaunch
+ok - secondmate carrier and FM_TRACE_CONTEXT snapshot always agree, both derived from one frozen decision (file-decided path)
+# all fm-trace-context-spawn tests passed
+FM_TEST_END 2026-10-17T00:34:35Z tests/fm-trace-context-spawn.test.sh exit=0 duration_ms=44429 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:34:35Z tests/fm-muse-harness.test.sh family=pure-contract-unit expected_gate_skip=none
+ok - Muse preflight respects the allowlist while retaining stored authentication
+ok - muse is detected through any versioned muse-bin ancestor
+ok - muse detection does not claim unrelated muse-containing commands
+ok - muse launch clears foreign harness markers before ancestry detection
+ok - muse spawn launches with autonomy, privacy control, and a positional brief
+ok - muse maps the shared effort vocabulary and reaches ultra only via explicit max
+ok - muse spawn refuses when no credential can reach the provider
+ok - muse spawn refuses a META_API_KEY that cannot reach the worker
+ok - muse spawn accepts a stored credential without META_API_KEY
+ok - muse resolves relative XDG roots before preflight and launch
+ok - muse is refused as a secondmate harness
+ok - muse spawn writes a session binding that teardown removes
+ok - every accepted muse Escape alias clears the restored composer
+ok - the composer clear is scoped to muse and does not touch other adapters
+ok - a failed muse composer clear fails loudly instead of leaving stale input
+ok - the run fold tracks open, settled, interrupted, reopened, and run-free logs
+ok - a nested terminal record never settles an in-flight run
+ok - the session binding folds only the log matching this task's worktree
+ok - workspace bindings compare decoded paths literally
+ok - spawn-time exclusions select the current session across equal mtimes
+ok - the Muse session cache avoids rescans and refreshes safely across incarnations
+ok - a changed Muse namespace revalidates cached session uniqueness
+ok - sub-agent session logs are excluded from the parent's busy fold
+ok - every unproven muse binding classifies unknown rather than idle
+ok - a settled session log reads idle for both completed and interrupted turns
+ok - muse trusts no busy record source
+FM_TEST_END 2026-10-17T00:35:23Z tests/fm-muse-harness.test.sh exit=0 duration_ms=48304 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:35:23Z tests/fm-vendor-auth-probe.test.sh family=pure-contract-unit expected_gate_skip=none
+ok - the probe accepts no harness, model, or provider and so can hold no routing mapping
+ok - the probe never reads quota, leaving one intake snapshot to the dispatch owner
+ok - every probe result exits alike because the script renders no verdict
+ok - only a registered probe name runs, and an unregistered one is a usage error
+ok - an authenticated vendor session is reported as ground truth
+ok - an unauthenticated vendor session is reported as ground truth
+ok - unrecognized, blank-led, and silent probe output is indeterminate, never authenticated
+ok - an absent vendor CLI is reported rather than assumed authenticated
+ok - a hanging vendor CLI is hard-bounded, reported, and cannot wedge an intake
+ok - zero and all-zero bounds fall back to the default instead of removing the hard bound
+ok - a malformed bound is replaced by the default rather than forwarded
+ok - the bounded probe runs with stdin closed and cannot read caller input
+ok - the vendor CLI is invoked only through its two fixed, non-destructive argv forms
+ok - the fact line is one sanitized line with no raw vendor output or credential material
+ok - a vendor CLI version change is recorded and disclosed for re-verification
+ok - the pinned verified vendor version is recognized
+ok - --help succeeds and names the registered probes
+FM_TEST_END 2026-10-17T00:36:06Z tests/fm-vendor-auth-probe.test.sh exit=0 duration_ms=42740 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:36:06Z tests/fm-herdr-session-cleanup.test.sh family=backend-dispatch expected_gate_skip=none
+ok - process proof reads Linux Herdr argv arrays and rejects malformed executable identities
+ok - exact stale projection closes one exact pane under task then presentation locks
+ok - successful cleanup is idempotent on repeat
+ok - malformed title preserves the candidate
+ok - missing token preserves the candidate
+ok - malformed journal preserves the candidate
+ok - duplicate token preserves the candidate
+ok - duplicate title token preserves the candidate
+ok - zero journal match preserves the candidate
+ok - multiple journal matches preserves the candidate
+ok - cross-home journal preserves the candidate
+ok - v2 workspace binding mismatch preserves the candidate
+ok - v2 tab binding mismatch preserves the candidate
+ok - v2 pane binding mismatch preserves the candidate
+ok - v2 cleanup requires and accepts the exact journal endpoint binding
+ok - current task metadata preserves the candidate
+ok - registered agent preserves the candidate
+ok - unknown agent preserves the candidate
+ok - multiple tabs preserves the candidate
+ok - multiple panes preserves the candidate
+ok - non-idle shell preserves the candidate
+ok - child process or shell job preserves the candidate
+ok - unreadable snapshot preserves the candidate
+ok - unreadable topology check preserves the candidate
+ok - revalidation race preserves the candidate
+ok - active target preserves the candidate
+ok - focus refusal preserves the candidate
+ok - only a provably dead v2 journal is pruned
+ok - a live workspace without a string label keeps its journal
+ok - dead journal under a held spawn lock survives the prune
+ok - full cleanup pass completes inside the bound under load
+ok - a budget-stopped pass still prunes the dead journals it read (10 of 150)
+ok - a hung Herdr call is stopped at the wall budget
+ok - standalone bootstrap cannot run lock-owned stale projection cleanup
+ok - session start runs cleanup only after acquiring its home lock
+all fm-herdr-session-cleanup tests passed
+FM_TEST_END 2026-10-17T00:36:28Z tests/fm-herdr-session-cleanup.test.sh exit=0 duration_ms=21978 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:36:28Z tests/fm-fleet-snapshot-view.test.sh family=snapshot-bearings expected_gate_skip=optional-binary
+ok - empty fleet snapshot and view use explicit absence markers
+ok - fixture snapshot covers task rows, backlog rows, pointers, stable ordering, and emission-time event age
+ok - home-summary excludes kind=secondmate from unowned_current and terminal_in_flight
+ok - undated captain holds age after a configurable threshold, decided only from structured fields
+ok - captain-hold buckets are total, mutually exclusive, and never decided by prose
+ok - main_inventory discloses orphan/unstructured and clears when inventory is consistent
+ok - backlog normalization preserves strict roles and resolves every blocker compatibly
+ok - snapshot event hints follow reconciled current state
+ok - durable fold keeps an open decision past a later unrelated event
+ok - a live secondmate endpoint preserves unrelated open decisions
+ok - durable captain-held transfer closes the duplicate live status decision
+ok - durable fold clears a decision only on a keyed resolution
+ok - a completed scout's stale decision surfaces as a report pointer, not pending
+ok - a scout still parked at a decision stays pending (terminal clear does not over-fire)
+ok - snapshot includes durable scout reports after teardown
+ok - snapshot parses tasks-axi rows and respects operational overrides
+ok - fleet view renders the snapshot without secondmate peek guidance
+ok - fleet view lists cleanup candidates labeled by kind
+ok - fleet view renders secondmate agent liveness
+FM_TEST_END 2026-10-17T00:36:39Z tests/fm-fleet-snapshot-view.test.sh exit=0 duration_ms=10651 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:36:39Z tests/fm-guard-stale-banner.test.sh family=watcher-wake-lock expected_gate_skip=none
+ok - fm-guard stale banner: first stale call prints the full actionable banner
+ok - fm-guard stale banner: repair line is quiet-mode-aware, not hardcoded to away mode
+ok - fm-guard stale banner: repeated same-episode calls print a concise reminder only
+ok - fm-guard stale banner: Pi and pi-signed primaries route themselves to the extension model
+ok - fm-guard stale banner: extension-owned hand-off with a live session is healthy
+ok - fm-guard stale banner: extension-owned empty lock is genuinely unheld
+ok - fm-guard stale banner: held unhealthy extension locks stay loud
+ok - fm-guard stale banner: extension model without ownership evidence stays loud
+ok - fm-guard stale banner: every extension-ownership signal is load-bearing
+ok - fm-guard stale banner: extension model still alarms on a genuinely stale beacon
+ok - fm-guard stale banner: queued-wake warning survives the extension hand-off tolerance
+ok - fm-guard: the branch actor is never told to drain queued wakes while main still is
+ok - fm-guard stale banner: the branch actor is never told to repair the watcher and leaves main's episode alone
+ok - fm-guard stale banner: persistent primaries ignore Pi extension evidence
+ok - fm-guard stale banner: extension model stays silent for a live watcher
+ok - fm-guard stale banner: auto-arm fresh beacon without a live watcher is healthy
+ok - fm-guard stale banner: auto-arm stale beacon alarms with the true reason
+ok - fm-guard stale banner: auto-arm stale episode stays one episode across calls
+ok - fm-guard stale banner: auto-arm long handling turn with a healthy rewake stays silent
+ok - fm-guard stale banner: every auto-arm long-turn healthy signal is load-bearing
+ok - fm-guard stale banner: an open auto-arm claim does not explain a stale beacon
+ok - fm-guard stale banner: auto-arm long-turn health does not leak to other models
+ok - fm-guard stale banner: persistent no-watcher banner names the true reason
+ok - fm-guard stale banner: a no-watcher episode survives a beacon mtime change
+ok - fm-guard stale banner: a fresh beacon without a live watcher remains unhealthy
+ok - fm-guard stale banner: X-mode polling without a live watcher remains unhealthy
+ok - fm-guard stale banner: healthy recovery rearms the next stale episode
+ok - fm-guard stale banner: concurrent same-episode calls claim exactly one full banner
+ok - fm-guard stale banner: deduplication is isolated per FM_HOME
+ok - fm-guard stale banner: queued-wake warning remains independent
+ok - fm-guard stale banner: read-only before writable does not consume full banner
+ok - fm-guard stale banner: read-only during episode observes without mutating marker
+ok - fm-guard stale banner: healthy read-only does not clear marker
+ok - fm-guard stale banner: read-only never mutates stale-banner state files
+FM_TEST_END 2026-10-17T00:37:08Z tests/fm-guard-stale-banner.test.sh exit=0 duration_ms=29679 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:37:08Z tests/fm-send-secondmate-marker.test.sh family=secondmate expected_gate_skip=none
+ok - fm-send: a kind=secondmate target gets the from-firstmate marker and corr prepended
+ok - fm-send: an exact kind=secondmate task id is marked with corr exactly once
+ok - fm-send: exact-id and stable-label kind=ship selectors are sent unmarked
+ok - fm-send: explicit endpoints stay unmarked with or without local metadata
+ok - fm-send: the --key path carries no marker (no literal text is typed)
+ok - fm-send: the marker is '[fm-from-firstmate]' + terminal-safe U+2063, while direct captain text stays unmarked
+ok - fm-marker: from-firstmate transformation is idempotent
+ok - fm-send: marked secondmate payload preserves trailing newline bytes in its record
+FM_TEST_END 2026-10-17T00:37:22Z tests/fm-send-secondmate-marker.test.sh exit=0 duration_ms=13664 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:37:22Z tests/fm-gate-refuse.test.sh family=session-bootstrap expected_gate_skip=none
+ok - fm-gate-refuse-lib: refuses when NO_MISTAKES_GATE is set
+ok - fm-gate-refuse-lib: refuses when NO_MISTAKES_GATE is set empty
+ok - fm-gate-refuse-lib: refuses from a gate worktree via git-common-dir (marker unset)
+ok - fm-gate-refuse-lib: no-op for a normal session (neither signal, set -eu clean)
+ok - fm-gate-refuse-lib: production lab paths permitted; relocated paths and invalid identities refused
+ok - fm-lab-home: create mints marked stock homes only on fresh empty dirs; anything else is refused
+ok - fm-lab-home: a primary starts on a private short tmux socket from a long lab path and teardown removes it
+ok - fm-spawn: refuses on marker and gate-worktree backstop; a normal crew spawn is unaffected
+ok - fm-send: refuses on marker and gate-worktree backstop; a normal steer uses the inbox
+ok - fm-teardown: refuses on marker and gate-worktree backstop; a normal teardown is unaffected
+FM_TEST_END 2026-10-17T00:37:35Z tests/fm-gate-refuse.test.sh exit=0 duration_ms=13321 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:37:35Z tests/fm-shared-captain-inheritance.test.sh family=secondmate expected_gate_skip=none
+ok - shared captain first copy, unchanged copy, and source-only edit stay quiet
+ok - shared captain true divergence after inherit is still quarantined
+ok - interrupted publication that already matches source heals without quarantine
+ok - remote receiver accepts a source-only edit quietly and still quarantines real drift
+ok - shared captain drift is quarantined collision-safely and repeated convergence is idempotent
+ok - missing primary shared file mirrors absence only after quarantining a local copy
+ok - unsafe shared captain artifacts are rejected and failure restores read-only mode
+ok - spawn convergence point propagates data/captain-shared.md from FM_DATA_OVERRIDE
+ok - bootstrap convergence point propagates data/captain-shared.md from FM_DATA_OVERRIDE
+ok - fm-config-push convergence point updates changed shared captain source bytes from FM_DATA_OVERRIDE
+ok - fm-config-push source-only edit after inherit stays quiet
+ok - session-start digest renders data/captain-shared.md with the shared read-only label
+ok - the header check names the first required phrase it did not find, without widening the accept set
+# all fm-shared-captain-inheritance tests passed
+FM_TEST_END 2026-10-17T00:37:49Z tests/fm-shared-captain-inheritance.test.sh exit=0 duration_ms=13285 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:37:49Z tests/fm-busy-state.test.sh family=standalone expected_gate_skip=none
+ok - native progress is generation-bound, separately recorded, and cleared on arm and retire
+ok - the turn-ended notification rides the apply generation check
+ok - arm mints a gen sidecar and seeds busy fm-spawn at seq=1
+ok - apply advances seq under the armed gen and attributes the writing source
+ok - firstmate-owned interrupt and recovery events bind to the current gen
+ok - apply is refused for a task whose busy contract was never armed
+ok - retire waits for the writer lock and cannot remove a new incarnation
+ok - retire treats only an absent sidecar as already retired
+ok - the writer breaks a stale lock instead of dying on GNU stat output
+ok - a late event from a previous incarnation is rejected, record unchanged
+ok - a record from a stale incarnation classifies unknown, never idle
+ok - a converted adapter with no record classifies unknown, never idle
+ok - malformed records classify unknown malformed, never busy or idle
+ok - a record with no armed gen sidecar classifies unknown
+ok - a record is trusted only by the adapter whose source wrote it
+ok - converted adapters never classify busy from rendered footer text
+ok - a Claude launch parked on its trust or external-imports dialog classifies unknown launch-prompt
+ok - a Pi-family launch (pi, pi-signed, omp) parked on the project-trust dialog classifies unknown launch-prompt
+ok - the Pi signature requires both the dialog heading and its decline option, not the bare word trust
+ok - a Gemini launch parked on its trust, auth-picker, or API-key dialog classifies unknown launch-prompt
+ok - the launch-prompt backstop never reclassifies a genuinely working launch
+ok - the launch-prompt backstop is scoped to harnesses with a verified signature
+ok - the launch-prompt backstop only ever touches the untouched fm-spawn seed
+ok - the launch-prompt backstop never runs without a captured tail
+ok - the grok fallback is regex-scoped to grok and classifies only grok tasks
+ok - codex classifies unknown until a semantic source passes its verification gate
+ok - standalone kimi classifies unknown until the live verification gate opens
+ok - cursor classifies only from its transcript fold, never rendered text or native state
+ok - endpoint death is the only process-level override and yields dead, never busy
+ok - herdr's native verdict is trusted for busy only, and records outrank it
+ok - record parsing never clobbers the caller's positional parameters, glob setting, or fields
+ok - the boolean view reports busy only on an exact busy verdict
+all fm-busy-state tests passed
+FM_TEST_END 2026-10-17T00:37:52Z tests/fm-busy-state.test.sh exit=0 duration_ms=2803 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:37:52Z tests/fm-remote-job-orphan-reap.test.sh family=secondmate expected_gate_skip=none
+ok - the Linux start path puts the whole worker tree in its own process group
+ok - removing the state root and killing the recorded worker pid leaves the tree running, orphaned
+ok - a worker whose code root still exists is never reaped
+ok - a worker stops its whole tree once its code root is pruned
+ok - a dry run reports the abandoned worker and signals nothing
+ok - the reaper stops an abandoned worker's whole tree
+ok - the reaper is idempotent
+FM_TEST_END 2026-10-17T00:37:56Z tests/fm-remote-job-orphan-reap.test.sh exit=0 duration_ms=4759 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:37:56Z tests/fm-pi-seeded-home-trust-live-e2e.test.sh family=live-harness-optin expected_gate_skip=live-capability
+# live pi version: 1.3.0
+ok - fresh seeded Pi secondmate-shaped home stalls on Trust project folder? without --approve
+ok - seeded home with --approve starts past the trust dialog without rewriting trust.json
+ok - unseeded path without --approve still prompts on Trust project folder?
+# all fm-pi-seeded-home-trust-live-e2e checks passed (3)
+FM_TEST_END 2026-10-17T00:38:01Z tests/fm-pi-seeded-home-trust-live-e2e.test.sh exit=0 duration_ms=4411 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:38:01Z tests/fm-nm-test-contract.test.sh family=unclassified expected_gate_skip=none
+ok - no-mistakes does not configure commands.test
+FM_TEST_END 2026-10-17T00:38:01Z tests/fm-nm-test-contract.test.sh exit=0 duration_ms=192 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:38:01Z tests/fm-jev-endpoint-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 49 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+Jev Endpoint Health & Latency Guard (Pattern 49) — 2026-10-17T00:38:01Z
+  • Total Endpoints: 1 (1 reachable, 0 unreachable, 0 slow)
+  • Status: HEALTHY
+
+  Endpoint Details:
+    - https://api.github.com: OK (46.94ms, HTTP 200)
+ok - --check passes on reachable target
+ok - check mode exits non-zero on unreachable endpoint
+ok - text mode runs cleanly
+ok - all Pattern 49 endpoint guard tests passed
+FM_TEST_END 2026-10-17T00:38:01Z tests/fm-jev-endpoint-guard.test.sh exit=0 duration_ms=453 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:38:01Z tests/fm-jev-mptcp-subflow-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 304 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - unit tests with mocked files passed
+All Pattern 304 regression tests passed successfully.
+FM_TEST_END 2026-10-17T00:38:02Z tests/fm-jev-mptcp-subflow-guard.test.sh exit=0 duration_ms=185 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:38:02Z tests/fm-jev-inactive-outcome-reconciler.test.sh family=unclassified expected_gate_skip=none
+=== Running fm-jev-inactive-outcome-reconciler test suite ===
+PASS: Executable bits verified
+PASS: Help flag returns 0
+PASS: Live audit returns valid schema
+PASS: Unresolved task pending outcome preserved
+PASS: Terminal done task auto-reconciled to presented
+PASS: Dry run preserves pending files while verifying eligibility
+=== All 6/6 tests passed successfully ===
+FM_TEST_END 2026-10-17T00:38:02Z tests/fm-jev-inactive-outcome-reconciler.test.sh exit=0 duration_ms=231 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:38:02Z tests/fm-jev-done-verify.test.sh family=unclassified expected_gate_skip=none
+ok - all fm-jev-done-verify tests passed
+FM_TEST_END 2026-10-17T00:38:02Z tests/fm-jev-done-verify.test.sh exit=0 duration_ms=522 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:38:02Z tests/fm-jev-slow-start-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 199 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - unit tests pass
+Pattern 199 regression tests passed: 6/6 tests ok
+FM_TEST_END 2026-10-17T00:38:03Z tests/fm-jev-slow-start-guard.test.sh exit=0 duration_ms=187 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:38:03Z tests/fm-jev-finwait-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 149 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - unit tests pass
+All Pattern 149 regression tests passed!
+FM_TEST_END 2026-10-17T00:38:03Z tests/fm-jev-finwait-guard.test.sh exit=0 duration_ms=196 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:38:03Z tests/fm-jev-rps-rfs-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 306 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - unit tests with mocked files passed
+All Pattern 306 regression tests passed successfully.
+FM_TEST_END 2026-10-17T00:38:03Z tests/fm-jev-rps-rfs-guard.test.sh exit=0 duration_ms=185 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:38:03Z tests/fm-jev-inode-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 48 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+Jev Inode Exhaustion Guard (Pattern 48) — 2026-10-17T00:38:03Z
+  • Monitored Mounts: 2 (Max Used: 29.2%)
+  • Status: HEALTHY
+
+  Mount Status:
+    - /: 29.2% inodes used (35,580,270 / 122,028,032)
+    - /dev/shm: 0.0% inodes used (860 / 8,171,934)
+ok - --check passes on live host
+ok - threshold logic valid
+ok - text mode runs cleanly
+ok - all Pattern 48 inode guard tests passed
+FM_TEST_END 2026-10-17T00:38:03Z tests/fm-jev-inode-guard.test.sh exit=0 duration_ms=201 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:38:03Z tests/fm-jev-abort-overflow-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 187 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - unit tests pass
+Pattern 187 regression tests passed: 6/6 tests ok
+FM_TEST_END 2026-10-17T00:38:03Z tests/fm-jev-abort-overflow-guard.test.sh exit=0 duration_ms=179 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:38:03Z tests/fm-jev-artifact-dedup.test.sh family=unclassified expected_gate_skip=none
+=== Running fm-jev-artifact-dedup test suite ===
+PASS: Test 1 - py_compile syntax valid
+PASS: Test 2 - ShellCheck clean on wrapper
+PASS: Test 3 - Dry run correctly identifies duplicate and preserves files
+PASS: Test 4 - Live deduplication successfully hardlinked identical artifacts
+PASS: Test 5 - JSON telemetry schema validated
+=== All 5 fm-jev-artifact-dedup tests passed successfully! ===
+FM_TEST_END 2026-10-17T00:38:04Z tests/fm-jev-artifact-dedup.test.sh exit=0 duration_ms=181 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:38:04Z tests/fm-jev-skbuff-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 208 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - mocked unit tests pass
+All Pattern 208 tests passed successfully.
+FM_TEST_END 2026-10-17T00:38:04Z tests/fm-jev-skbuff-guard.test.sh exit=0 duration_ms=191 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:38:04Z tests/fm-jev-ssr-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 116 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - mocked sysctl and netstat unit tests pass
+All Pattern 116 tests passed successfully!
+FM_TEST_END 2026-10-17T00:38:04Z tests/fm-jev-ssr-guard.test.sh exit=0 duration_ms=189 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:38:04Z tests/fm-jev-node-modules-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 57 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - unit audit on mock node_modules passed
+ok - all Pattern 57 node_modules guard tests passed
+FM_TEST_END 2026-10-17T00:38:05Z tests/fm-jev-node-modules-guard.test.sh exit=0 duration_ms=697 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:38:05Z tests/fm-jev-busy-poll-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 318 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - unit tests with mocked files passed
+All Pattern 318 regression tests passed successfully.
+FM_TEST_END 2026-10-17T00:38:05Z tests/fm-jev-busy-poll-guard.test.sh exit=0 duration_ms=187 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:38:05Z tests/fm-jev-entropy-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 81 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - unit tests and mock audit pass
+All Pattern 81 tests passed!
+FM_TEST_END 2026-10-17T00:38:05Z tests/fm-jev-entropy-guard.test.sh exit=0 duration_ms=174 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:38:05Z tests/fm-jev-sack-reneging-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 152 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - unit tests pass
+All Pattern 152 regression tests passed!
+FM_TEST_END 2026-10-17T00:38:05Z tests/fm-jev-sack-reneging-guard.test.sh exit=0 duration_ms=189 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:38:05Z tests/fm-jev-synack-rto-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 143 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - unit tests pass
+All Pattern 143 regression tests passed!
+FM_TEST_END 2026-10-17T00:38:06Z tests/fm-jev-synack-rto-guard.test.sh exit=0 duration_ms=188 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:38:06Z tests/fm-jev-numa-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 83 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - unit tests and mock audit pass
+All Pattern 83 tests passed!
+FM_TEST_END 2026-10-17T00:38:06Z tests/fm-jev-numa-guard.test.sh exit=0 duration_ms=181 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:38:06Z tests/fm-jev-frto-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 196 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - unit tests pass
+Pattern 196 regression tests passed: 6/6 tests ok
+FM_TEST_END 2026-10-17T00:38:06Z tests/fm-jev-frto-guard.test.sh exit=0 duration_ms=183 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:38:06Z tests/fm-jev-pip-cache-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 59 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - unit audit on mock package cache passed
+ok - all Pattern 59 pip cache guard tests passed
+FM_TEST_END 2026-10-17T00:38:07Z tests/fm-jev-pip-cache-guard.test.sh exit=0 duration_ms=1278 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:38:07Z tests/fm-jev-vm-watermark-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 201 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - mocked unit tests pass
+All Pattern 201 tests passed successfully.
+FM_TEST_END 2026-10-17T00:38:07Z tests/fm-jev-vm-watermark-guard.test.sh exit=0 duration_ms=181 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:38:07Z tests/fm-jev-ipv4-martian-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 292 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - mocked unit tests pass
+All Pattern 292 regression tests passed successfully.
+FM_TEST_END 2026-10-17T00:38:08Z tests/fm-jev-ipv4-martian-guard.test.sh exit=0 duration_ms=183 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:38:08Z tests/fm-jev-ipv6-ra-pref-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 294 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - unit tests with mocked files pass
+All Pattern 294 tests passed successfully.
+FM_TEST_END 2026-10-17T00:38:08Z tests/fm-jev-ipv6-ra-pref-guard.test.sh exit=0 duration_ms=181 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:38:08Z tests/fm-jev-ipv4-shared-media-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 297 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - mocked unit tests pass
+All Pattern 297 tests passed successfully!
+FM_TEST_END 2026-10-17T00:38:08Z tests/fm-jev-ipv4-shared-media-guard.test.sh exit=0 duration_ms=187 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:38:08Z tests/fm-jev-pacing-ratio-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 186 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - unit tests pass
+Pattern 186 regression tests passed: 6/6 tests ok
+FM_TEST_END 2026-10-17T00:38:08Z tests/fm-jev-pacing-ratio-guard.test.sh exit=0 duration_ms=183 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:38:08Z tests/fm-jev-retrans-fail-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 165 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - unit tests pass
+All Pattern 165 regression tests passed!
+FM_TEST_END 2026-10-17T00:38:08Z tests/fm-jev-retrans-fail-guard.test.sh exit=0 duration_ms=180 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:38:08Z tests/fm-jev-xfrm-guard.test.sh family=unclassified expected_gate_skip=none
+=== Running fm-jev-xfrm-guard test suite ===
+PASS: Executable bits verified
+PASS: Help flag returns 0
+PASS: Live audit returns valid schema
+PASS: Synthetic healthy fixture passes
+PASS: Synthetic warning fixture correctly triggers exit 1
+PASS: Synthetic critical fixture correctly triggers exit 2
+=== All 6/6 tests passed successfully! ===
+FM_TEST_END 2026-10-17T00:38:09Z tests/fm-jev-xfrm-guard.test.sh exit=0 duration_ms=181 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:38:09Z tests/fm-jev-fwmark-guard.test.sh family=unclassified expected_gate_skip=none
+Running Pattern 179 regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - unit tests pass
+Pattern 179 regression tests passed: 6/6 tests ok
+FM_TEST_END 2026-10-17T00:38:09Z tests/fm-jev-fwmark-guard.test.sh exit=0 duration_ms=182 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:38:09Z tests/fm-trace-context-lib.test.sh family=pure-contract-unit expected_gate_skip=none
+ok - fm_trace_context_valid accepts a conformant W3C traceparent
+ok - fm_trace_context_valid rejects all-zero ids, ff version, uppercase, wrong length, missing field, shell metacharacters, and empty
+ok - a command-substitution-shaped value is rejected as inert data, never executed
+ok - fm_trace_context_hex yields exact-length lowercase hex, distinct per call
+ok - fm_trace_context_mint starts a valid sampled root trace
+ok - every mint is an unrelated fresh root - one trace per task, no parent adoption
+ok - a minted root is the fixed 55-char W3C form (hex and hyphens only), so firstmate originates no free-form content in the carrier
+ok - enablement is default-off; FM_TRACE_CONTEXT overrides with truthy/other precedence, and unset or empty defers to config/trace-context
+ok - session start normalizes config and environment precedence into frozen on/off state
+ok - session state is atomically published through a same-directory replacement
+ok - a stale on record is inactive when publication fails in a new locked session
+ok - missing or invalid frozen session state defaults off
+ok - resolve omits the carrier and returns success when the capability is off (byte-identical default)
+ok - resolve mints a valid traceparent when enabled
+ok - Secondmate home-session state stays off or on despite later file state; ambient TRACEPARENT is never adopted, so each routed task roots its own trace
+ok - resolve reuses a valid recorded traceparent verbatim on relaunch (stable identity across restarts)
+ok - disabling the capability omits the carrier even for a task with a recorded identity
+ok - a corrupt recorded traceparent is re-minted rather than propagated
+ok - resolve yields exactly one carrier per logical task, so the recorded and injected values are identical by construction
+ok - entropy failure omits telemetry safely: mint reports failure, resolve returns success with no carrier
+ok - the resolver has no sleep/timeout/command hang source and always returns success
+ok - the carrier is minted identically for every harness, backend, and spawn kind (no such branching in the lib code)
+ok - the lib code never reads a brief, prompt, report, or status - it cannot leak content
+ok - config/trace-context is inherited into secondmate homes, keeping the nested chain enabled end to end
+# fm-trace-context-lib.test.sh: all assertions passed
+FM_TEST_END 2026-10-17T00:38:09Z tests/fm-trace-context-lib.test.sh exit=0 duration_ms=255 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:38:09Z tests/fm-jev-db-pool-probe.test.sh family=unclassified expected_gate_skip=none
+ok - shellcheck clean
+ok - --help works
+ok - postgres status parsed correctly (listening)
+ok - summary.healthy is valid boolean (true)
+Jev DB Pool Health Probe (Pattern 31) — 2026-10-17T00:38:09Z
+  • PostgreSQL (5432): LISTENING (0.77 ms)
+  • SQLite Databases Audited: 0
+  • Locked SQLite Contention: 0
+  • Baseline Memory SQLite Latency: 0.17 ms
+  • Overall Status: HEALTHY
+ok - --check exits 0 on healthy databases
+ok - all Pattern 31 db pool probe tests passed
+FM_TEST_END 2026-10-17T00:38:09Z tests/fm-jev-db-pool-probe.test.sh exit=0 duration_ms=127 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:38:09Z tests/fm-pr-reviewers.test.sh family=pr-forge expected_gate_skip=none
+ok - reviewer candidates use API-resolved logins and unique commits
+ok - author-only evidence produces no candidate and says why
+ok - argument and lookup refusals exit nonzero
+FM_TEST_END 2026-10-17T00:38:09Z tests/fm-pr-reviewers.test.sh exit=0 duration_ms=209 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:38:09Z tests/fm-opencode-primary-live-e2e.test.sh family=live-harness-optin expected_gate_skip=live-capability
+skip: live: opt-in; set FM_OPENCODE_LIVE_E2E=1 to run
+fm-test-run: gate skip: tests/fm-opencode-primary-live-e2e.test.sh: live: opt-in; set FM_OPENCODE_LIVE_E2E=1 to run
+FM_TEST_END 2026-10-17T00:38:10Z tests/fm-opencode-primary-live-e2e.test.sh exit=0 duration_ms=154 gate_skip=true
+FM_TEST_BEGIN 2026-10-17T00:38:10Z tests/fm-pi-codex-native.test.sh family=live-harness-optin expected_gate_skip=live-capability
+skip: native Pi adapter not installed (PI_CODEX_NATIVE_PACKAGE to select it)
+fm-test-run: gate skip: tests/fm-pi-codex-native.test.sh: native Pi adapter not installed (PI_CODEX_NATIVE_PACKAGE to select it)
+FM_TEST_END 2026-10-17T00:38:10Z tests/fm-pi-codex-native.test.sh exit=0 duration_ms=158 gate_skip=true
+FM_TEST_BEGIN 2026-10-17T00:38:10Z tests/fm-stat-shadowing.test.sh family=unclassified expected_gate_skip=none
+ok - Darwin-only test: shadowing assertions require BSD /usr/bin/stat; skipping on Linux
+FM_TEST_END 2026-10-17T00:38:10Z tests/fm-stat-shadowing.test.sh exit=0 duration_ms=163 gate_skip=false
+FM_TEST_BEGIN 2026-10-17T00:38:10Z tests/fm-opencode-abs-cwd-rail-live-e2e.test.sh family=unclassified expected_gate_skip=none
+skip: live: opt-in; set FM_OPENCODE_ABS_CWD_LIVE=1 to run
+fm-test-run: gate skip: tests/fm-opencode-abs-cwd-rail-live-e2e.test.sh: live: opt-in; set FM_OPENCODE_ABS_CWD_LIVE=1 to run
+FM_TEST_END 2026-10-17T00:38:10Z tests/fm-opencode-abs-cwd-rail-live-e2e.test.sh exit=0 duration_ms=155 gate_skip=true
+FM_TEST_BEGIN 2026-10-17T00:38:10Z tests/fm-commandcode-signals-live-e2e.test.sh family=live-harness-optin expected_gate_skip=live-capability
+skip: live: opt-in; set FM_COMMANDCODE_SIGNALS_LIVE=1 to run
+fm-test-run: gate skip: tests/fm-commandcode-signals-live-e2e.test.sh: live: opt-in; set FM_COMMANDCODE_SIGNALS_LIVE=1 to run
+FM_TEST_END 2026-10-17T00:38:10Z tests/fm-commandcode-signals-live-e2e.test.sh exit=0 duration_ms=184 gate_skip=true
+FM_TEST_SUMMARY total=54 failed=0 skipped_gate=4 duration_ms=810389
+FM_TEST_SUMMARY_FAMILY family=backend-dispatch count=2 duration_ms=66407 failed=0
+FM_TEST_SUMMARY_FAMILY family=live-harness-optin count=4 duration_ms=4907 failed=0
+FM_TEST_SUMMARY_FAMILY family=pr-forge count=2 duration_ms=171498 failed=0
+FM_TEST_SUMMARY_FAMILY family=pure-contract-unit count=3 duration_ms=91299 failed=0
+FM_TEST_SUMMARY_FAMILY family=secondmate count=4 duration_ms=184489 failed=0
+FM_TEST_SUMMARY_FAMILY family=session-bootstrap count=1 duration_ms=13321 failed=0
+FM_TEST_SUMMARY_FAMILY family=snapshot-bearings count=2 duration_ms=139026 failed=0
+FM_TEST_SUMMARY_FAMILY family=standalone count=1 duration_ms=2803 failed=0
+FM_TEST_SUMMARY_FAMILY family=unclassified count=33 duration_ms=54430 failed=0
+FM_TEST_SUMMARY_FAMILY family=watcher-wake-lock count=2 duration_ms=79778 failed=0
+FM_TEST_SLOWEST rank=1 script=tests/fm-pr-check-security.test.sh duration_ms=171289
+FM_TEST_SLOWEST rank=2 script=tests/fm-remote-reply.test.sh duration_ms=152781
+FM_TEST_SLOWEST rank=3 script=tests/fm-contributions.test.sh duration_ms=128375
+FM_TEST_SLOWEST rank=4 script=tests/fm-inactive-reconcile.test.sh duration_ms=50099
+FM_TEST_SLOWEST rank=5 script=tests/fm-muse-harness.test.sh duration_ms=48304
+FM_TEST_SLOWEST rank=6 script=tests/fm-issue-intake.test.sh duration_ms=46358
+FM_TEST_SLOWEST rank=7 script=tests/fm-trace-context-spawn.test.sh duration_ms=44429
+FM_TEST_SLOWEST rank=8 script=tests/fm-vendor-auth-probe.test.sh duration_ms=42740
+FM_TEST_SLOWEST rank=9 script=tests/fm-guard-stale-banner.test.sh duration_ms=29679
+FM_TEST_SLOWEST rank=10 script=tests/fm-herdr-session-cleanup.test.sh duration_ms=21978
+FM_TEST_SLOWEST rank=11 script=tests/fm-send-secondmate-marker.test.sh duration_ms=13664
+FM_TEST_SLOWEST rank=12 script=tests/fm-gate-refuse.test.sh duration_ms=13321
+FM_TEST_SLOWEST rank=13 script=tests/fm-shared-captain-inheritance.test.sh duration_ms=13285
+FM_TEST_SLOWEST rank=14 script=tests/fm-fleet-snapshot-view.test.sh duration_ms=10651
+FM_TEST_SLOWEST rank=15 script=tests/fm-remote-job-orphan-reap.test.sh duration_ms=4759

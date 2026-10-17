@@ -1,0 +1,122 @@
+{
+  "timestamp": "2026-10-17T00:43:05Z",
+  "summary": {
+    "status": "WARNING",
+    "healthy": false,
+    "total_entries": 5706,
+    "entries_over_7d": 4251,
+    "entries_over_30d": 1743,
+    "max_age_days": 49.7,
+    "low_cwnd_count": 6,
+    "high_rtt_count": 2,
+    "tcp_no_metrics_save": 0,
+    "issues": [
+      "TCP metrics cache elevated capacity: 5706 entries (>= 5000)",
+      "High stale TCP metrics accumulation: 1743 entries older than 30 days (>= 1000)"
+    ]
+  },
+  "top_aged_entries": [
+    {
+      "dest_ip": "100.63.10.158",
+      "age_seconds": 4294410.81,
+      "age_days": 49.7,
+      "cwnd": null,
+      "ssthresh": null,
+      "rtt_us": null,
+      "rttvar_us": null,
+      "source_ip": "192.168.0.9"
+    },
+    {
+      "dest_ip": "47.89.238.232",
+      "age_seconds": 4289486.87,
+      "age_days": 49.65,
+      "cwnd": 10,
+      "ssthresh": null,
+      "rtt_us": 67410,
+      "rttvar_us": 11875,
+      "source_ip": "192.168.0.9"
+    },
+    {
+      "dest_ip": "47.89.238.193",
+      "age_seconds": 4289366.33,
+      "age_days": 49.65,
+      "cwnd": 10,
+      "ssthresh": null,
+      "rtt_us": 67271,
+      "rttvar_us": 11830,
+      "source_ip": "192.168.0.9"
+    },
+    {
+      "dest_ip": "52.204.40.119",
+      "age_seconds": 4288975.04,
+      "age_days": 49.64,
+      "cwnd": 10,
+      "ssthresh": null,
+      "rtt_us": 14005,
+      "rttvar_us": 11828,
+      "source_ip": "192.168.0.9"
+    },
+    {
+      "dest_ip": "44.194.147.158",
+      "age_seconds": 4274162.75,
+      "age_days": 49.47,
+      "cwnd": 10,
+      "ssthresh": null,
+      "rtt_us": 10200,
+      "rttvar_us": 7421,
+      "source_ip": "192.168.0.9"
+    }
+  ],
+  "top_rtt_entries": [
+    {
+      "dest_ip": "91.189.91.58",
+      "age_seconds": 139.65,
+      "age_days": 0.0,
+      "cwnd": 10,
+      "ssthresh": null,
+      "rtt_us": 2136307,
+      "rttvar_us": 2125545,
+      "source_ip": "192.168.0.9"
+    },
+    {
+      "dest_ip": "128.112.18.21",
+      "age_seconds": 2468276.05,
+      "age_days": 28.57,
+      "cwnd": 3,
+      "ssthresh": null,
+      "rtt_us": 712152,
+      "rttvar_us": 712152,
+      "source_ip": "192.168.0.9"
+    },
+    {
+      "dest_ip": "182.92.29.40",
+      "age_seconds": 1932855.69,
+      "age_days": 22.37,
+      "cwnd": 3,
+      "ssthresh": null,
+      "rtt_us": 333289,
+      "rttvar_us": 333289,
+      "source_ip": "192.168.0.9"
+    },
+    {
+      "dest_ip": "59.110.251.11",
+      "age_seconds": 1932825.54,
+      "age_days": 22.37,
+      "cwnd": 10,
+      "ssthresh": null,
+      "rtt_us": 331875,
+      "rttvar_us": 331875,
+      "source_ip": "192.168.0.9"
+    },
+    {
+      "dest_ip": "182.92.29.53",
+      "age_seconds": 1932823.54,
+      "age_days": 22.37,
+      "cwnd": 10,
+      "ssthresh": null,
+      "rtt_us": 322751,
+      "rttvar_us": 322751,
+      "source_ip": "192.168.0.9"
+    }
+  ]
+}

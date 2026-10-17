@@ -1,0 +1,10 @@
+=== Running fm-jev-stall-guard test suite ===
+PASS: Test 1 - py_compile syntax valid
+PASS: Test 2 - ShellCheck clean on wrapper
+PASS: Test 3 - Worktree mtime prober verified
+PASS: idle CLI invocations: wrapper, bash wrapper, python, env python, renamed observer
+PASS: every CLI invocation detects the real worker PID
+PASS: every CLI invocation reports a stall after worker exit
+PASS: concurrent interpreter, shell, shell-command and proxy-carried observers cannot suppress a stall
+PASS: Test 4 - Idle probe and real worker activity distinguished
+=== All 4/4 fm-jev-stall-guard tests PASSED (100%) ===

@@ -1,0 +1,4 @@
+portable-parallel-2 rc=0 671s
+portable-parallel-1 rc=0 789s
+portable-serial-8of10 rc=0 810s
+portable-serial-4of10 rc=1 1010s

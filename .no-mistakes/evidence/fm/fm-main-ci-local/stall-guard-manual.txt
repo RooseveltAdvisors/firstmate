@@ -1,0 +1,17 @@
+## 1 idle seat, no worker
+GENUINE_STALL []
+rc=1
+## 2 concurrent named observers (sh -c + env proxy) running, no worker
+GENUINE_STALL []
+rc=1
+GENUINE_STALL []
+rc=1
+## 3 renamed CLI copy (own-PID exclusion, no guard token in argv)
+GENUINE_STALL []
+rc=1
+## 4 real worker for seat running
+BUSY_ACTIVE_EXECUTION ['608153 python3 -c import time; time.sleep(60) zqstall10395']
+rc=0
+## 5 worker exited
+GENUINE_STALL []
+rc=1

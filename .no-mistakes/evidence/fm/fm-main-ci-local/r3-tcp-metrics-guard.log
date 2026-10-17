@@ -1,0 +1,15 @@
+Running Pattern 216 (TCP Metrics Guard) regression tests...
+ok - shellcheck clean
+ok - python syntax clean
+ok - --help works
+ok - json audit schema valid
+ok - text mode runs cleanly
+ok - mock metrics bloat detection and thresholds pass
+All Pattern 216 tests passed!
+live --json rc=1
+{'status': 'WARNING', 'healthy': False, 'total_entries': 5706}
+schema-broken copy test rc=1
+    assert (rc == 0) == data["summary"]["healthy"], f"exit {rc} disagrees with healthy verdict"
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: exit 0 disagrees with healthy verdict
+exit0-on-warning copy test rc=0

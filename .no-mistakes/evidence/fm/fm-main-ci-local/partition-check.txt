@@ -1,0 +1,10 @@
+all=559 covered=559
+missing:
+extra:
+multi-assigned:
+tests/fm-supervision-host.test.sh portable-serial-1of10
+tests/fm-supervision-host-recovery.test.sh portable-serial-2of10
+tests/fm-supervision-host-attended-live-e2e.test.sh portable-serial-5of10
+tests/fm-supervision-host-live-e2e.test.sh portable-serial-9of10
+tests/fm-watch-triage.test.sh portable-serial-3of10
+tests/fm-watch-triage-waits.test.sh portable-serial-4of10
