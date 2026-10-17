@@ -46,6 +46,7 @@ The shared no-mistakes gate lifecycle boundary is summarized in [architecture.md
 | `fm-test-run.sh`         | Behavior-test runner: selection, portable lanes, bounded concurrency, budgets, coverage guard, timing/JSON; refuses to execute in the repository primary checkout when `FM_TASK_ID` marks a task worker, and records or resolves that task's failure beads |
 | `fm-verification-record.sh` | Record a verification failure as a deduplicated domain-store bead with snapshotted evidence before any reply, or close it on a later pass |
 | `fm-explained-twice.sh`  | On-demand review of live captain corrections and weekly closed beads from explicit stores; writes private proposals only, never instruction files (procedure: `--help`) |
+| `fm-transcript-search.sh` | Optional bounded, read-only search of harness session transcripts for the search-before-ask checklist; never gates a question (bounds and roots: `--help`) |
 | `fm-test-isolation-proof.sh` | Concurrent isolation harness and portable candidate set owner |
 | `fm-ensure-agents-md.sh` | Manually initialize project agent-memory files (see the helper's header and help) |
 | `fm-guard.sh`            | Warn on primary-checkout tangles, main-session pending wakes, and unhealthy supervision |
