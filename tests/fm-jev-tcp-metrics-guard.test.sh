@@ -25,11 +25,15 @@ echo "ok - python syntax clean"
 "${BIN}" --help >/dev/null
 echo "ok - --help works"
 
-# 4. JSON output schema validation
-JSON_OUT="$("${BIN}" --json)"
+# 4. JSON output schema validation (live host: exit 0=healthy, 1=unhealthy verdict)
+JSON_RC=0
+JSON_OUT="$("${BIN}" --json)" || JSON_RC=$?
 python3 -c '
 import json, sys
 data = json.loads(sys.stdin.read())
+rc = int(sys.argv[1])
+assert rc in (0, 1), f"unexpected exit {rc}"
+assert (rc == 0) == data["summary"]["healthy"], f"exit {rc} disagrees with healthy verdict"
 assert "timestamp" in data
 assert "summary" in data
 assert "status" in data["summary"]
@@ -37,11 +41,13 @@ assert "healthy" in data["summary"]
 assert "total_entries" in data["summary"]
 assert "tcp_no_metrics_save" in data["summary"]
 assert "top_aged_entries" in data
-' <<< "${JSON_OUT}"
+' "${JSON_RC}" <<< "${JSON_OUT}"
 echo "ok - json audit schema valid"
 
-# 5. Text mode runs cleanly
-"${BIN}" >/dev/null
+# 5. Text mode runs cleanly and returns the same health verdict
+TEXT_RC=0
+"${BIN}" >/dev/null || TEXT_RC=$?
+[[ "${TEXT_RC}" == "${JSON_RC}" ]] || { echo "FAIL: text exit ${TEXT_RC} != json exit ${JSON_RC}"; exit 1; }
 echo "ok - text mode runs cleanly"
 
 # 6. Mock testing with simulated metrics bloat and thresholds
@@ -66,6 +72,7 @@ cmd = [
     '--json'
 ]
 res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+assert res.returncode == 1, f'Expected exit 1 for WARNING, got {res.returncode}'
 data = json.loads(res.stdout)
 assert data['summary']['status'] == 'WARNING', f'Expected WARNING, got {data[\"summary\"][\"status\"]}'
 assert data['summary']['total_entries'] == 2
