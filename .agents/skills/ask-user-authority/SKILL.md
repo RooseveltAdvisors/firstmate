@@ -29,7 +29,9 @@ Before asking the captain or a supervisor a question answerable from record, use
 2. Search beads: enumerate the existing stores in the task's known workspace and project roots, then use `bd search` or `bd list` from each relevant store's directory.
    `bd` resolves its store from cwd; name the store paths rather than assuming the current worktree's board is the only one.
    Keep discovery within those known roots rather than scanning the whole machine.
-3. Search the Obsidian vault at `/home/jon/Obsidian/second-brain` for the same fact using a few specific terms or likely notes.
+3. Search the Obsidian vault at `$HOME/Obsidian/second-brain` for the same fact using a few specific terms or likely notes.
+   First check that the resolved vault directory exists and is readable on this host.
+   If it is missing or unreachable, skip it and say in the question that the vault was unreachable, naming the resolved path you checked; never report an empty search of a vault you could not access.
 4. In the question itself, name the stores, vault locations, and terms searched, and state the relevant findings or plainly say the search came up empty.
    For example: "I searched beads in <store paths> and the Obsidian vault for <terms>; neither had a record of <fact>.
    Which value should I use?"
