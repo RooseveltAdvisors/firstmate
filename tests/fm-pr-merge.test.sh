@@ -184,6 +184,12 @@ printf '%s\n' "$*" >> "$FM_TEST_GH_LOG"
 case "${1:-} ${2:-}" in
   "pr view")
     case " $* " in
+      *'--json statusCheckRollup,mergeable,state,title,headRefOid'*)
+        # The advisory Jev read must not consume the authoritative gate's
+        # mergeability sequence or count as one of its bounded retries.
+        cat "$FM_TEST_GH_VIEW_JSON"
+        exit 0
+        ;;
       *statusCheckRollup*)
         if [ -n "${FM_TEST_GH_MERGEABLE_SEQUENCE:-}" ]; then
           call_n=$(( $(cat "$FM_TEST_GH_MERGEABLE_CALLS" 2>/dev/null || echo 0) + 1 ))
@@ -877,8 +883,8 @@ test_github_mergeable_unknown_retries_then_succeeds() {
   set -e
 
   expect_code 0 "$rc" "github-mergeable-unknown-then-mergeable: a merge should succeed once mergeable resolves"
-  [ "$(grep -c '^pr view .*statusCheckRollup' "$case_dir/gh.log")" -eq 2 ] \
-    || fail "github-mergeable-unknown-then-mergeable: expected exactly 2 mergeable reads, got $(grep -c '^pr view .*statusCheckRollup' "$case_dir/gh.log")"
+  [ "$(cat "$case_dir/mergeable-calls")" -eq 2 ] \
+    || fail "github-mergeable-unknown-then-mergeable: expected exactly 2 mergeable reads, got $(cat "$case_dir/mergeable-calls")"
   assert_logged_gh_merge "$case_dir" 83 example/repo --squash
   [ "$(grep -c '^pr merge ' "$case_dir/gh.log")" -eq 1 ] \
     || fail "github-mergeable-unknown-then-mergeable: the wrapper attempted more than one merge"
@@ -909,8 +915,8 @@ test_github_mergeable_unknown_exhausts_bound_and_reports_pending() {
   set -e
 
   expect_code 1 "$rc" "github-mergeable-unknown-exhausted: a mergeable read that never resolves must still fail"
-  [ "$(grep -c '^pr view .*statusCheckRollup' "$case_dir/gh.log")" -eq 5 ] \
-    || fail "github-mergeable-unknown-exhausted: expected exactly 5 bounded mergeable reads, got $(grep -c '^pr view .*statusCheckRollup' "$case_dir/gh.log")"
+  [ "$(cat "$case_dir/mergeable-calls")" -eq 5 ] \
+    || fail "github-mergeable-unknown-exhausted: expected exactly 5 bounded mergeable reads, got $(cat "$case_dir/mergeable-calls")"
   assert_no_grep 'pr merge' "$case_dir/gh.log" \
     "github-mergeable-unknown-exhausted: a merge was attempted while mergeable never resolved"
   assert_grep "mergeability for https://github.com/example/repo/pull/84 is still being computed by GitHub; retry shortly" \
@@ -940,8 +946,8 @@ test_github_mergeable_unknown_retry_rechecks_checks() {
   set -e
 
   expect_code 1 "$rc" "github-mergeable-unknown-check-turns-red: a check that turned red must refuse"
-  [ "$(grep -c '^pr view .*statusCheckRollup' "$case_dir/gh.log")" -eq 2 ] \
-    || fail "github-mergeable-unknown-check-turns-red: expected exactly 2 reads, got $(grep -c '^pr view .*statusCheckRollup' "$case_dir/gh.log")"
+  [ "$(cat "$case_dir/mergeable-calls")" -eq 2 ] \
+    || fail "github-mergeable-unknown-check-turns-red: expected exactly 2 reads, got $(cat "$case_dir/mergeable-calls")"
   assert_grep "check 'ci' is not green" "$case_dir/stderr" \
     "github-mergeable-unknown-check-turns-red: the re-check did not refuse the red check"
   assert_no_grep 'still being computed' "$case_dir/stderr" \

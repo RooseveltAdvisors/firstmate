@@ -141,6 +141,9 @@ init_changed_fixture_repo() {
   : >"$repo/tests/unread-thing.sh"
   printf '# shared-probe-fixture.sh\n' >>"$repo/tests/fm-pr-merge.test.sh"
   printf '# shared-probe-fixture.sh\n' >>"$repo/tests/fm-secondmate-safety.test.sh"
+  : >"$repo/tests/shared-probe-cases.sh"
+  printf '# shared-probe-cases.sh\n' >>"$repo/tests/fm-pr-merge.test.sh"
+  printf '# shared-probe-cases.sh\n' >>"$repo/tests/fm-secondmate-safety.test.sh"
   # A nested fixture whose consuming suite names only the fixture directory,
   # the shape the tests/fixtures/<dir>/ arm is keyed for.
   mkdir -p "$repo/tests/fixtures/demo"
@@ -1409,6 +1412,17 @@ test_changed_shared_fixture_selects_its_readers() {
   esac
   git -C "$repo" add tests/shared-probe-fixture.sh
   git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm fixture-change
+
+  printf '\n' >>"$repo/tests/shared-probe-cases.sh"
+  listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
+  assert_contains "$listed" "tests/fm-pr-merge.test.sh" \
+    "shared cases select their pr-forge reader"
+  assert_contains "$listed" "tests/fm-secondmate-safety.test.sh" \
+    "shared cases select their secondmate reader"
+  assert_not_contains "$listed" "tests/fm-backend-orca.test.sh" \
+    "shared case selection widened past its readers"
+  git -C "$repo" add tests/shared-probe-cases.sh
+  git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm cases-change
 
   printf '\n' >>"$repo/tests/unread-thing.sh"
   set +e
