@@ -1193,9 +1193,16 @@ start_hook_session() {  # <home>
 }
 turn_end() { rm -f "$1/hook.rc"; : > "$1/stop.go"; }
 hook_exited() { [ -s "$1/hook.rc" ]; }
-wait_hook_exit() {  # <home>
-  local completion
-  IFS= read -r completion <&9 && [ "$completion" = hook-exited ] && hook_exited "$1"
+wait_hook_exit() {  # <home> [attempts]
+  local completion attempts=${2:-600}
+  while [ "$attempts" -gt 0 ]; do
+    if IFS= read -r -t 1 completion <&9; then
+      [ "$completion" = hook-exited ] && hook_exited "$1"
+      return
+    fi
+    attempts=$((attempts - 1))
+  done
+  return 1
 }
 
 # Main's rewoken turn drains; the caller runs the printed acknowledgement
