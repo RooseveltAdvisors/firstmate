@@ -1,0 +1,7 @@
+# Live: UI ship in no-mistakes mode, pre-validation handoff vs gated final report (bin/fm-crew-state.sh, lab FM_HOME)
+--- M. pre-validation handoff (no image yet)
+  | done [at=1]: implemented signage banner
+  => state: done · source: status-log · implemented signage banner
+--- N. CI-ready final report with no image
+  | done [at=2]: PR https://example.test/o/signage/pull/10 checks green
+  => state: blocked · source: status-log · UI ship done report is missing a live-origin image path

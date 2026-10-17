@@ -1,0 +1,60 @@
+# Live: bin/fm-crew-state.sh done gate, lab FM_HOME=/tmp/fm-lab.QNiUhX, idle real Claude pane fm:fm-sig-ui on private fm-lab tmux socket
+# Task record: kind=ship mode=local-only (+ surface=ui for UI ship). Live image fixture: /tmp/fm-lab.QNiUhX/data/sig-ui/live.png (13 bytes)
+
+## UI ship (task record has surface=ui)
+task record:
+  meta| kind=ship
+  meta| mode=local-only
+  meta| worktree=/tmp/fm-lab.QNiUhX/wt
+  meta| project=/tmp/fm-lab.QNiUhX/projects/signage
+  meta| branch=fm/sig-ui
+  meta| window=fm:fm-sig-ui
+  meta| backend=tmux
+  meta| harness=claude
+  meta| surface=ui
+--- A. done with no image
+  | done [at=1]: ready in branch fm/sig-ui
+  fm-crew-state.sh sig-ui => state: blocked · source: status-log · UI ship done report is missing a live-origin image path
+--- B. nonexistent image path
+  | done [at=1]: ready in branch fm/sig-ui (UI: /tmp/made-up-signage.png; spec 1 matches)
+  fm-crew-state.sh sig-ui => state: blocked · source: status-log · UI ship done report names /tmp/made-up-signage.png, which does not exist or is empty: the live-origin image must be captured before claiming done
+--- C. API status code on image line
+  | done [at=1]: ready in branch fm/sig-ui (UI: API status 200 OK /tmp/fm-lab.QNiUhX/data/sig-ui/live.png; spec 1 matches)
+  fm-crew-state.sh sig-ui => state: blocked · source: status-log · UI ship done report is missing a valid live-origin image path: a blank image, a local HTML render, or an API status code does not satisfy the check
+--- D. local HTML render
+  | done [at=1]: ready in branch fm/sig-ui (UI: local HTML render file:///tmp/s.html /tmp/fm-lab.QNiUhX/data/sig-ui/live.png; spec 1 matches)
+  fm-crew-state.sh sig-ui => state: blocked · source: status-log · UI ship done report is missing a valid live-origin image path: a blank image, a local HTML render, or an API status code does not satisfy the check
+--- E. blank (empty) image file
+  | done [at=1]: ready in branch fm/sig-ui (UI: /tmp/fm-lab.QNiUhX/data/sig-ui/blank.png; spec 1 matches)
+  fm-crew-state.sh sig-ui => state: blocked · source: status-log · UI ship done report names /tmp/fm-lab.QNiUhX/data/sig-ui/blank.png, which does not exist or is empty: the live-origin image must be captured before claiming done
+--- F. image but no spec verdict
+  | done [at=1]: ready in branch fm/sig-ui (captured /tmp/fm-lab.QNiUhX/data/sig-ui/live.png)
+  fm-crew-state.sh sig-ui => state: blocked · source: status-log · UI ship done report must say, in one line per spec point, that the live-origin image matches
+--- G. spec mismatch
+  | done [at=1]: ready in branch fm/sig-ui (UI: /tmp/fm-lab.QNiUhX/data/sig-ui/live.png; spec 1 does not match)
+  fm-crew-state.sh sig-ui => state: blocked · source: status-log · UI ship done report must say, in one line per spec point, that the live-origin image matches
+--- H. no capture path, check failed
+  | done [at=1]: ready in branch fm/sig-ui (no capture path, check failed)
+  fm-crew-state.sh sig-ui => state: blocked · source: status-log · UI ship done report is missing a live-origin image path
+--- I. match word only in unrelated pipeline note
+  | note [at=1]: live-origin image /tmp/fm-lab.QNiUhX/data/sig-ui/live.png
+  | note [at=2]: pipeline changes: regex did not match - widened
+  | done [at=3]: ready in branch fm/sig-ui
+  fm-crew-state.sh sig-ui => state: blocked · source: status-log · UI ship done report must say, in one line per spec point, that the live-origin image matches
+--- J. valid: live image + one verdict line per spec point
+  | note [at=1]: live-origin image /tmp/fm-lab.QNiUhX/data/sig-ui/live.png
+  | note [at=2]: - spec 1 (header banner): matches live image
+  | note [at=3]: - spec 2 (status badge): matches live image
+  | done [at=4]: ready in branch fm/sig-ui
+  fm-crew-state.sh sig-ui => state: done · source: status-log · ready in branch fm/sig-ui
+--- K. valid report + unrelated note with refusal phrases
+  | note [at=1]: live-origin image /tmp/fm-lab.QNiUhX/data/sig-ui/live.png
+  | note [at=2]: - spec 1 (signage banner): matches live image
+  | note [at=3]: pipeline changes: handler returned HTTP 500 - fixed; check failed on lint - fixed
+  | done [at=4]: ready in branch fm/sig-ui
+  fm-crew-state.sh sig-ui => state: done · source: status-log · ready in branch fm/sig-ui
+
+## Control: NON-UI ship (no surface=ui in task record)
+--- L. non-UI done with no image, mentions UI
+  | done [at=1]: ready in branch fm/sig-ui (fixed the API field the UI reads)
+  fm-crew-state.sh sig-ui => state: done · source: status-log · ready in branch fm/sig-ui (fixed the API field the UI reads)

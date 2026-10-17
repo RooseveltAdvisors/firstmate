@@ -1,0 +1,23 @@
+# Live: bin/fm-spawn.sh sig-spawn <lab project> --mode local-only --yolo off --harness claude --backend tmux (lab FM_HOME, private fm-lab tmux socket)
+brief Delivery contract: Delivery contract: mode=local-only surface=ui
+spawned sig-spawn harness=claude kind=ship mode=local-only yolo=off window=fm:fm-sig-spawn worktree=/home/jon/.treehouse/signage-d9b4eb/1/signage
+## resulting task record /tmp/fm-lab.QNiUhX/state/sig-spawn.meta (selected keys)
+harness=claude
+kind=ship
+mode=local-only
+yolo=off
+branch=fm/sig-spawn
+surface=ui
+## instructions the worker received contain the live-image gate:
+$LAB/data/sig-spawn/brief.md
+$LAB/data/sig-spawn/launch-brief.md
+
+## Gate on the spawned task (record surface=ui written by fm-spawn), real worker pane idle
+--- done with no image
+  | done [at=1792204266]: ready in branch fm/sig-spawn
+  fm-crew-state.sh sig-spawn => state: blocked · source: status-log · UI ship done report is missing a live-origin image path
+--- done with live image + spec verdict
+  | note [at=1792204266]: live-origin image /tmp/fm-lab.QNiUhX/data/sig-spawn/live.png
+  | note [at=1792204266]: - spec 1 (banner shows clinic name): matches live image
+  | done [at=1792204266]: ready in branch fm/sig-spawn
+  fm-crew-state.sh sig-spawn => state: blocked · source: status-log · named head 16d092fab01fe9a4f251d526b554015ebdb9d663 is unreachable outside the worker copy

@@ -1,0 +1,20 @@
+# Live: bin/fm-promote.sh on a real lab scout (spawned with fm-spawn --scout, harness claude, private fm-lab tmux)
+$ fm-promote.sh sig-scout --mode local-only --yolo off --surface bogus   (adversarial)
+error: --surface must be ui (got 'bogus')
+$ fm-promote.sh sig-scout --mode local-only --yolo off --surface ui
+warn: no registry at /tmp/fm-lab.QNiUhX/data/projects.md; defaulting signage to no-mistakes off
+promoted sig-scout to ship mode=local-only yolo=off (teardown protection restored)
+wrote ship instructions for mode=local-only: /tmp/fm-lab.QNiUhX/data/sig-scout/ship-instructions.md
+next: FM_HOME=/tmp/fm-lab.QNiUhX bin/fm-send.sh fm-sig-scout "$(cat /tmp/fm-lab.QNiUhX/data/sig-scout/ship-instructions.md)"
+  rc=
+## task record after promote:
+kind=ship
+mode=local-only
+yolo=off
+branch=fm/sig-scout
+surface=ui
+## live-image paragraph in promoted ship instructions:
+$LAB/data/sig-scout/ship-instructions.md:33:Delivery contract: mode=local-only surface=ui
+$LAB/data/sig-scout/ship-instructions.md:42:This is a UI ship: the task is not done until the done report names a live-origin image path (captured with `chrome-devtools-axi` and saved outside the worktree under the task data directory or a temporary directory) and says, in one line per spec point, whether that image matches.
+$LAB/data/sig-scout/brief.md:112:Delivery contract: mode=local-only surface=ui
+$LAB/data/sig-scout/brief.md:121:This is a UI ship: the task is not done until the done report names a live-origin image path (captured with `chrome-devtools-axi` and saved outside the worktree under the task data directory or a temporary directory) and says, in one line per spec point, whether that image matches.

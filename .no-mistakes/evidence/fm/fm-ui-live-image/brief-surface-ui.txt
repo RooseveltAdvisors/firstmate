@@ -1,0 +1,30 @@
+# Live: bin/fm-brief.sh in lab FM_HOME
+$ fm-brief.sh sig-brief signage --mode no-mistakes --surface ui
+  (scaffolded; full brief saved as brief-surface-ui.md)
+  brief| 94:Delivery contract: mode=no-mistakes surface=ui
+  brief| 135:This is a UI ship: the task is not done until the done report names a live-origin image path (captured with `chrome-devtools-axi` and saved outside the worktree under the task data directory or a temporary directory) and says, in one line per spec point, whether that image matches.
+  brief| 136:A blank image, a local HTML render, or an API status code does not satisfy the check.
+  brief| 137:If no capture path exists, the done report must say the check failed and stop.
+
+$ fm-brief.sh sig-plain signage --mode no-mistakes   (control, no --surface)
+scaffolded: /tmp/fm-lab.QNiUhX/data/sig-plain/brief.md (ship, mode=no-mistakes; replace {TASK} and {FIRSTMATE_SPEC})
+  brief| 94:Delivery contract: mode=no-mistakes
+  live-image paragraph lines: 0
+
+$ fm-brief.sh sig-direct-PR signage --mode direct-PR --surface ui
+scaffolded: /tmp/fm-lab.QNiUhX/data/sig-direct-PR/brief.md (ship, mode=direct-PR; replace {TASK} and {FIRSTMATE_SPEC})
+  brief| 91:Delivery contract: mode=direct-PR surface=ui
+  brief| 103:This is a UI ship: the task is not done until the done report names a live-origin image path (captured with `chrome-devtools-axi` and saved outside the worktree under the task data directory or a temporary directory) and says, in one line per spec point, whether that image matches.
+
+$ fm-brief.sh sig-local-only signage --mode local-only --surface ui
+scaffolded: /tmp/fm-lab.QNiUhX/data/sig-local-only/brief.md (ship, mode=local-only; replace {TASK} and {FIRSTMATE_SPEC})
+  brief| 91:Delivery contract: mode=local-only surface=ui
+  brief| 100:This is a UI ship: the task is not done until the done report names a live-origin image path (captured with `chrome-devtools-axi` and saved outside the worktree under the task data directory or a temporary directory) and says, in one line per spec point, whether that image matches.
+
+$ fm-brief.sh sig-bad signage --mode no-mistakes --surface ux   (adversarial)
+error: --surface must be ui (got 'ux')
+  rc=1
+
+$ fm-brief.sh sig-scout signage --scout --surface ui   (adversarial)
+error: --surface applies only to ship briefs; a scout delivers a report and a charter is not a delivery contract
+  rc=1
