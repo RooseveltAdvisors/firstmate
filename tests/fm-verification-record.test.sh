@@ -164,9 +164,14 @@ assert_grep 'ACTION_GATE: project_worker cannot bd create' "$TMP_ROOT/run" 'runn
 assert_no_grep '"bead":' "$TMP_ROOT/run" 'refused runner claimed a bead'
 assert_present "$FM_HOME/data/runner2/verification/probe.test.sh.log" 'refused runner lost its evidence'
 printf 'echo "ok - sidebar"\n' >"$repo/tests/probe.test.sh"
+REFUSE_CLOSE=1 FM_TASK_ID=runner1 "$repo/bin/fm-test-run.sh" "$repo/tests/probe.test.sh" >"$TMP_ROOT/run" 2>&1
+assert_grep 'ACTION_GATE: close denied' "$TMP_ROOT/run" 'runner suppressed close refusal'
+assert_present "$log" 'refused resolve dropped its retry marker'
 FM_TASK_ID=runner1 "$repo/bin/fm-test-run.sh" "$repo/tests/probe.test.sh" >"$TMP_ROOT/run" 2>&1
 [ "$(jq length "$FM_HOME/.beads/issues.json")" = "$before" ] || fail 'green runner created a bead'
 assert_grep '"action":"resolved"' "$TMP_ROOT/run" 'green runner did not resolve the red-first bead'
+[ ! -e "$log" ] || fail 'resolved runner left its marker log'
+[ -n "$(ls "$FM_HOME/data/verification-evidence/"*/evidence.* 2>/dev/null)" ] || fail 'resolve removed snapshot evidence'
 [ "$(jq -r --arg ref "$(jq -r '.[-1].external_ref' "$FM_HOME/.beads/issues.json")" \
   '[.[] | select(.external_ref == $ref)][0].status' "$FM_HOME/.beads/issues.json")" = closed ] || fail 'red-first bead stayed open'
 printf 'echo "ok - other"\n' >"$repo/tests/other.test.sh"

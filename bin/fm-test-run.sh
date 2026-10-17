@@ -109,7 +109,7 @@
 # current run's output at FM_DATA_OVERRIDE (else FM_HOME/data)/<task>/
 # verification/<script>.log so reruns share a stable evidence key and survive
 # temporary-run cleanup. A later pass of a script with that log resolves its
-# bead; a pass never creates one. FM_HOME is required unless FM_DATA_OVERRIDE is set. The default domain is firstmate;
+# bead and removes that log once the receipt confirms it; a pass never creates one. FM_HOME is required unless FM_DATA_OVERRIDE is set. The default domain is firstmate;
 # FM_VERIFICATION_DOMAIN and FM_VERIFICATION_STORE select another defect domain.
 # A filing refusal is printed verbatim and keeps the run red, never a receipt.
 # Without an owning task this runner is unchanged (including ordinary CI);
@@ -2754,9 +2754,13 @@ record_verification_bead() {
   [ -n "$data" ] || { log 'failure bead refused: set FM_HOME or FM_DATA_OVERRIDE; preserve the failed log before replying'; return 1; }
   evidence="$data/$task/verification/$(basename "$script").log"
   if [ "$rc" -eq 0 ]; then
+    local receipt
     [ -f "$evidence" ] || return 0
-    "$ROOT/bin/fm-verification-record.sh" --resolve --task "$task" \
-      --domain "${FM_VERIFICATION_DOMAIN:-firstmate}" --command "bash $script" --evidence "$evidence"
+    receipt=$("$ROOT/bin/fm-verification-record.sh" --resolve --task "$task" \
+      --domain "${FM_VERIFICATION_DOMAIN:-firstmate}" --command "bash $script" --evidence "$evidence") || return 1
+    [ -n "$receipt" ] || return 0
+    printf '%s\n' "$receipt"
+    [ "$(printf '%s' "$receipt" | jq -r .action)" != resolved ] || rm -f "$evidence"
     return
   fi
   mkdir -p "$(dirname "$evidence")" || return 1
