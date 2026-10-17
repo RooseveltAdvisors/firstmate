@@ -32,8 +32,9 @@ Before asking the captain or a supervisor a question answerable from record, use
 3. Search the Obsidian vault at `$HOME/Obsidian/second-brain` for the same fact using a few specific terms or likely notes.
    First check that the resolved vault directory exists and is readable on this host.
    If it is missing or unreachable, skip it and say in the question that the vault was unreachable, naming the resolved path you checked; never report an empty search of a vault you could not access.
-4. Search session transcripts for the same fact, including `$HOME/.pi/agent/sessions/**/*.jsonl`, rather than only the current session.
+4. Search session transcripts for the same fact across every harness transcript root, rather than only the current session or your own harness.
    Use `bin/fm-transcript-search.sh --help` for the bounded, read-only search helper; give it at most the time remaining in the shared two-minute budget.
+   By default it scans the Pi, Claude, and Muse roots its help names in one capped search, skips any root missing on this host, and reports `roots` searched and `missingRoots` not searched.
    Search a few distinctive words from the likely answer; inspect only bounded windows and cite the file and zero-based byte offset returned with each hit.
    Never load an entire session or page through a large session to satisfy this checklist.
    Read hits as evidence: distinguish direct captain words from quoted text, launch briefs, agent summaries, and tool output, and check later corrections and the current scope before relying on an old answer.
@@ -41,7 +42,8 @@ Before asking the captain or a supervisor a question answerable from record, use
    If a window cannot establish the speaker or scope within the budget, say so and ask.
    Treat a timeout, output cap, unreadable source, or missing tool as incomplete coverage, never as proof that the fact is absent.
 5. In the question itself, name the stores, vault locations, transcript roots, and terms searched, and state relevant findings, an empty search, or what could not be checked.
-   For example: "I searched beads in <store paths>, the Obsidian vault at <path>, and transcripts under <root> for <terms>; no answer found in the searched material (transcript coverage was partial: <reason>).
+   Name every transcript root not searched, such as a missing one, so the question never implies full transcript coverage.
+   For example: "I searched beads in <store paths>, the Obsidian vault at <path>, and transcripts under <roots> for <terms>; could not search <missing roots>; no answer found in the searched material (transcript coverage was partial: <reason>).
    Which value should I use?"
 
 This is a checklist prompt, never a gate or a reason to refuse a question.

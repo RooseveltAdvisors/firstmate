@@ -10,4 +10,4 @@ if ! command -v bun >/dev/null 2>&1; then
 fi
 script_dir=${BASH_SOURCE[0]%/*}
 [ "$script_dir" != "${BASH_SOURCE[0]}" ] || script_dir=.
-exec bun "$script_dir/fm-transcript-search.ts" "$@"
+exec bun "$script_dir/fm-transcript-search.ts" -- "$@"
