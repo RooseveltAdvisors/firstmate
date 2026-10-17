@@ -5,7 +5,7 @@
 #          --task <owning-task-id> --domain firstmate|fleet-tooling|portal|project
 #          --command <failed-command-or-check> --evidence <local-file>
 #          [--store <workspace-root>] [--summary <finding>]
-# Every field is required. The evidence is snapshotted before create/update into
+# Unbracketed fields are required; project also requires --store. The evidence is snapshotted before create/update into
 # FM_DATA_OVERRIDE (else FM_HOME/data)/verification-evidence/<key>; without FM
 # data it goes to the store's verification-evidence, which ignores itself in git.
 # The dedupe key is SHA256(JSON[task, command, realpath(evidence)]), stored as
