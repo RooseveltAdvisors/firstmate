@@ -1,0 +1,47 @@
+### bd show lab-c8o
+✓ lab-c8o [BUG] · Verification failure: t33   [P2 · CLOSED]
+Created by: Jon Roosevelt · Type: bug
+Created: 2026-10-17 · Updated: 2026-10-17
+External: fm-verification:960f4619d01c9168f82a7368e548f7f687e450ee12c7a72f32cca753afbd17d8
+
+CLOSE REASON
+
+  Verification passed: bash /tmp/fm-lab.R96fxp/fixture/sidebar-qa.test.sh     
+
+DESCRIPTION
+
+  Recorded (UTC): 2026-10-17T15:54:21Z                                        
+  Owning task ID: t33                                                         
+  Failed command: bash /tmp/fm-lab.R96fxp/fixture/sidebar-qa.test.sh          
+  Evidence path: /tmp/fm-lab.R96fxp/data/t33/verification/sidebar-            
+  qa.test.sh.log                                                              
+  Attached evidence: /tmp/fm-lab.R96fxp/data/verification-                    
+  evidence/960f4619d01c9168f82a7368e548f7f687e450ee12c7a72f32cca753afbd17d8/ev
+  idence.mKTihs                                                               
+  Finding: Verification failed                                                
+
+
+
+NOTES
+
+  Recorded (UTC): 2026-10-17T15:54:22Z                                        
+  Owning task ID: t33                                                         
+  Failed command: bash /tmp/fm-lab.R96fxp/fixture/sidebar-qa.test.sh          
+  Evidence path: /tmp/fm-lab.R96fxp/data/t33/verification/sidebar-            
+  qa.test.sh.log                                                              
+  Attached evidence: /tmp/fm-lab.R96fxp/data/verification-                    
+  evidence/960f4619d01c9168f82a7368e548f7f687e450ee12c7a72f32cca753afbd17d8/ev
+  idence.m4DjeB                                                               
+  Finding: Verification failed                                                
+
+
+
+
+💡 Tip: Install the beads plugin for automatic workflow context, or run 'bd setup claude' for CLI-only mode
+
+### snapshots (one per failed run, each holds only its run):
+/tmp/fm-lab.R96fxp/data/verification-evidence/960f4619d01c9168f82a7368e548f7f687e450ee12c7a72f32cca753afbd17d8/evidence.m4DjeB: 1 Run header(s); 71 bytes
+/tmp/fm-lab.R96fxp/data/verification-evidence/960f4619d01c9168f82a7368e548f7f687e450ee12c7a72f32cca753afbd17d8/evidence.mKTihs: 1 Run header(s); 65 bytes
+### marker log after resolve:
+### git check-ignore in lab home (evidence must not be tracked):
+?? data/

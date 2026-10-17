@@ -1,0 +1,43 @@
+$ FM_TASK_ID=t33 fm-test-run.sh sidebar-qa.test.sh  # script: echo "not ok - sidebar overlaps";exit 1;
+fm-verification-record: store=/tmp/fm-lab.R96fxp/.beads task=t33 command=bash /tmp/fm-lab.R96fxp/fixture/sidebar-qa.test.sh evidence=/tmp/fm-lab.R96fxp/data/t33/verification/sidebar-qa.test.sh.log
+{"bead":"lab-c8o","store":"/tmp/fm-lab.R96fxp/.beads","evidence":"/tmp/fm-lab.R96fxp/data/verification-evidence/960f4619d01c9168f82a7368e548f7f687e450ee12c7a72f32cca753afbd17d8/evidence.mKTihs","key":"960f4619d01c9168f82a7368e548f7f687e450ee12c7a72f32cca753afbd17d8","action":"created"}
+FM_TEST_END 2026-10-17T15:54:21Z /tmp/fm-lab.R96fxp/fixture/sidebar-qa.test.sh exit=1 duration_ms=13 gate_skip=false
+exit=1
+--- bd list:
+{"id":"lab-c8o","status":"open","title":"Verification failure: t33","external_ref":"fm-verification:960f4619d01c9168f82a7368e548f7f687e450ee12c7a72f32cca753afbd17d8"}
+
+$ FM_TASK_ID=t33 fm-test-run.sh sidebar-qa.test.sh  # script: echo "not ok - sidebar overlaps again";exit 1;
+fm-verification-record: store=/tmp/fm-lab.R96fxp/.beads task=t33 command=bash /tmp/fm-lab.R96fxp/fixture/sidebar-qa.test.sh evidence=/tmp/fm-lab.R96fxp/data/t33/verification/sidebar-qa.test.sh.log
+{"bead":"lab-c8o","store":"/tmp/fm-lab.R96fxp/.beads","evidence":"/tmp/fm-lab.R96fxp/data/verification-evidence/960f4619d01c9168f82a7368e548f7f687e450ee12c7a72f32cca753afbd17d8/evidence.m4DjeB","key":"960f4619d01c9168f82a7368e548f7f687e450ee12c7a72f32cca753afbd17d8","action":"updated"}
+FM_TEST_END 2026-10-17T15:54:22Z /tmp/fm-lab.R96fxp/fixture/sidebar-qa.test.sh exit=1 duration_ms=13 gate_skip=false
+exit=1
+--- bd list:
+{"id":"lab-c8o","status":"open","title":"Verification failure: t33","external_ref":"fm-verification:960f4619d01c9168f82a7368e548f7f687e450ee12c7a72f32cca753afbd17d8"}
+
+$ FM_TASK_ID=t33 fm-test-run.sh sidebar-qa.test.sh  # script: echo "skip: docker unavailable";exit 0;
+fm-test-run: gate skip: /tmp/fm-lab.R96fxp/fixture/sidebar-qa.test.sh: docker unavailable
+FM_TEST_END 2026-10-17T15:54:23Z /tmp/fm-lab.R96fxp/fixture/sidebar-qa.test.sh exit=0 duration_ms=12 gate_skip=true
+exit=0
+--- bd list:
+{"id":"lab-c8o","status":"open","title":"Verification failure: t33","external_ref":"fm-verification:960f4619d01c9168f82a7368e548f7f687e450ee12c7a72f32cca753afbd17d8"}
+
+$ FM_TASK_ID=t33 fm-test-run.sh sidebar-qa.test.sh  # script: echo "ok - sidebar";exit 0;
+fm-verification-record: store=/tmp/fm-lab.R96fxp/.beads task=t33 command=bash /tmp/fm-lab.R96fxp/fixture/sidebar-qa.test.sh evidence=/tmp/fm-lab.R96fxp/data/t33/verification/sidebar-qa.test.sh.log
+{"bead":"lab-c8o","store":"/tmp/fm-lab.R96fxp/.beads","key":"960f4619d01c9168f82a7368e548f7f687e450ee12c7a72f32cca753afbd17d8","action":"resolved"}
+FM_TEST_END 2026-10-17T15:54:23Z /tmp/fm-lab.R96fxp/fixture/sidebar-qa.test.sh exit=0 duration_ms=14 gate_skip=false
+exit=0
+--- bd list:
+{"id":"lab-c8o","status":"closed","title":"Verification failure: t33","external_ref":"fm-verification:960f4619d01c9168f82a7368e548f7f687e450ee12c7a72f32cca753afbd17d8"}
+
+$ FM_TASK_ID=t33 fm-test-run.sh sidebar-qa.test.sh  # script: echo "ok - sidebar";exit 0;
+FM_TEST_END 2026-10-17T15:54:25Z /tmp/fm-lab.R96fxp/fixture/sidebar-qa.test.sh exit=0 duration_ms=12 gate_skip=false
+exit=0
+--- bd list:
+{"id":"lab-c8o","status":"closed","title":"Verification failure: t33","external_ref":"fm-verification:960f4619d01c9168f82a7368e548f7f687e450ee12c7a72f32cca753afbd17d8"}
+
+$ FM_TASK_ID=t99 fm-test-run.sh sidebar-qa.test.sh  # script: echo "ok - fresh";
+FM_TEST_END 2026-10-17T15:54:25Z /tmp/fm-lab.R96fxp/fixture/sidebar-qa.test.sh exit=0 duration_ms=12 gate_skip=false
+exit=0
+--- bd list:
+{"id":"lab-c8o","status":"closed","title":"Verification failure: t33","external_ref":"fm-verification:960f4619d01c9168f82a7368e548f7f687e450ee12c7a72f32cca753afbd17d8"}
+

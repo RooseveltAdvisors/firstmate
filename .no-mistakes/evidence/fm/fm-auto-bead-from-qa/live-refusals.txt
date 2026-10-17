@@ -1,0 +1,42 @@
+### A: no FM_TASK_ID (ordinary run) - expect no bead activity
+FM_TEST_END 2026-10-17T15:54:50Z /tmp/fm-lab.R96fxp/fixture/sidebar-qa.test.sh exit=1 duration_ms=13 gate_skip=false
+FM_TEST_SUMMARY total=1 failed=1 skipped_gate=0 duration_ms=46
+FM_TEST_SUMMARY_FAMILY family=unclassified count=1 duration_ms=13 failed=1
+FM_TEST_SLOWEST rank=1 script=/tmp/fm-lab.R96fxp/fixture/sidebar-qa.test.sh duration_ms=13
+exit=1
+beads before=1 after=1
+
+### B: recording lock held - refusal printed, run stays red, no receipt
+fm-verification-record: store=/tmp/fm-lab.R96fxp/.beads task=t40 command=bash /tmp/fm-lab.R96fxp/fixture/sidebar-qa.test.sh evidence=/tmp/fm-lab.R96fxp/data/t40/verification/sidebar-qa.test.sh.log
+mkdir: cannot create directory ‘/tmp/fm-lab.R96fxp/.beads/.fm-verification-record.lock’: File exists
+fm-verification-record: cannot acquire recording lock: /tmp/fm-lab.R96fxp/.beads/.fm-verification-record.lock; no receipt issued, resolve its owner or permissions before retrying
+fm-test-run: verification bead refused for /tmp/fm-lab.R96fxp/fixture/sidebar-qa.test.sh; report the refusal above verbatim, do not claim a bead was filed or resolved
+FM_TEST_END 2026-10-17T15:54:50Z /tmp/fm-lab.R96fxp/fixture/sidebar-qa.test.sh exit=1 duration_ms=13 gate_skip=false
+FM_TEST_SUMMARY total=1 failed=1 skipped_gate=0 duration_ms=75
+FM_TEST_SUMMARY_FAMILY family=unclassified count=1 duration_ms=13 failed=1
+FM_TEST_SLOWEST rank=1 script=/tmp/fm-lab.R96fxp/fixture/sidebar-qa.test.sh duration_ms=13
+exit=1
+
+### C: real bd write refusal (store made read-only)
+fm-verification-record: store=/tmp/fm-lab.R96fxp/.beads task=t41 command=bash /tmp/fm-lab.R96fxp/fixture/sidebar-qa.test.sh evidence=/tmp/fm-lab.R96fxp/data/t41/verification/sidebar-qa.test.sh.log
+mkdir: cannot create directory ‘/tmp/fm-lab.R96fxp/.beads/.fm-verification-record.lock’: Permission denied
+fm-verification-record: cannot acquire recording lock: /tmp/fm-lab.R96fxp/.beads/.fm-verification-record.lock; no receipt issued, resolve its owner or permissions before retrying
+fm-test-run: verification bead refused for /tmp/fm-lab.R96fxp/fixture/sidebar-qa.test.sh; report the refusal above verbatim, do not claim a bead was filed or resolved
+FM_TEST_END 2026-10-17T15:54:50Z /tmp/fm-lab.R96fxp/fixture/sidebar-qa.test.sh exit=1 duration_ms=12 gate_skip=false
+FM_TEST_SUMMARY total=1 failed=1 skipped_gate=0 duration_ms=77
+FM_TEST_SUMMARY_FAMILY family=unclassified count=1 duration_ms=12 failed=1
+FM_TEST_SLOWEST rank=1 script=/tmp/fm-lab.R96fxp/fixture/sidebar-qa.test.sh duration_ms=12
+exit=1
+
+### D: retry after refusal cleared - same task files bead
+fm-verification-record: store=/tmp/fm-lab.R96fxp/.beads task=t41 command=bash /tmp/fm-lab.R96fxp/fixture/sidebar-qa.test.sh evidence=/tmp/fm-lab.R96fxp/data/t41/verification/sidebar-qa.test.sh.log
+{"bead":"lab-ohn","store":"/tmp/fm-lab.R96fxp/.beads","evidence":"/tmp/fm-lab.R96fxp/data/verification-evidence/7cfff9d7d5c0bb05520f0f949027430c15ef8ec5c5c2c6193ea2d3b359e8e2e5/evidence.B6YDFr","key":"7cfff9d7d5c0bb05520f0f949027430c15ef8ec5c5c2c6193ea2d3b359e8e2e5","action":"created"}
+FM_TEST_END 2026-10-17T15:54:50Z /tmp/fm-lab.R96fxp/fixture/sidebar-qa.test.sh exit=1 duration_ms=12 gate_skip=false
+FM_TEST_SUMMARY total=1 failed=1 skipped_gate=0 duration_ms=972
+FM_TEST_SUMMARY_FAMILY family=unclassified count=1 duration_ms=12 failed=1
+FM_TEST_SLOWEST rank=1 script=/tmp/fm-lab.R96fxp/fixture/sidebar-qa.test.sh duration_ms=12
+exit=1
+
+### final bd list
+{"id":"lab-ohn","status":"open","title":"Verification failure: t41"}
+{"id":"lab-c8o","status":"closed","title":"Verification failure: t33"}

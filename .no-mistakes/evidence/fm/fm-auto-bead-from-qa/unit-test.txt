@@ -1,0 +1,8 @@
+ok - resolve closes only an open match, never creates, and reports refusals
+fm-verification-record: store=/tmp/fm-verification-record.s25mKX/wiseman/.beads task=t1 command=no fm data evidence=/tmp/fm-verification-record.s25mKX/proof.png
+fm-verification-record: store=/tmp/fm-verification-record.s25mKX/home/projects/portal/.beads task=t1 command=visual QA: sidebar evidence=/tmp/fm-verification-record.s25mKX/proof.png
+fm-verification-record: store=/tmp/fm-verification-record.s25mKX/wiseman/.beads task=t1 command=visual QA: sidebar evidence=/tmp/fm-verification-record.s25mKX/proof.png
+ok - fallback evidence ignores itself; defect domains use distinct stores
+ok - gate, update, readback, store, ID and lock refusals emit no receipt
+ok - runner confirms bead before failure marker, keeps current-run logs, dedupes reruns, and closes on green
+# all verification-record tests passed
