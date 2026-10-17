@@ -221,6 +221,26 @@ test_ship_modes_generate_clean_briefs() {
   pass "fm-brief.sh: no-mistakes/direct-PR/local-only briefs generate cleanly"
 }
 
+# --surface ui renders the surface=ui contract token bin/fm-spawn.sh records and
+# the live-image gate; it is ship-only and accepts only ui.
+test_surface_ui_renders_token_and_gate() {
+  local home brief status
+  home="$TMP_ROOT/surface-home"
+  write_registry "$home"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" surface-ui-a1 some-proj --mode no-mistakes --surface ui >/dev/null 2>&1; status=$?
+  expect_code 0 "$status" "fm-brief.sh --surface ui should exit 0"
+  brief="$home/data/surface-ui-a1/brief.md"
+  grep -qx "Delivery contract: mode=no-mistakes surface=ui" "$brief" \
+    || fail "--surface ui did not record surface=ui on the Delivery contract line"
+  assert_grep "This is a UI ship: the task is not done until the done report names a live-origin image path" "$brief" \
+    "--surface ui brief is missing the live-image gate"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" surface-ux-a2 some-proj --mode no-mistakes --surface ux >/dev/null 2>&1; status=$?
+  [ "$status" -ne 0 ] || fail "fm-brief.sh accepted --surface ux"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" surface-scout-a3 some-proj --scout --surface ui >/dev/null 2>&1; status=$?
+  [ "$status" -ne 0 ] || fail "fm-brief.sh accepted --surface on a scout"
+  pass "fm-brief.sh: --surface ui renders the contract token and live-image gate; other values and scouts are refused"
+}
+
 # --forge forgejo is the Forgejo value of the project's registered forge binding
 # (bin/fm-project-mode.sh --forge), passed at intake exactly like --mode. It
 # names tea instead of gh-axi in the ship brief's forge-CLI rule and in the
@@ -1608,6 +1628,7 @@ test_ship_mode_is_required_and_closed_set
 test_ship_mode_is_explicit_not_registry
 test_delivery_flags_are_refused_where_they_do_not_apply
 test_faster_paths_use_configured_authority_without_stacked_review
+test_surface_ui_renders_token_and_gate
 test_no_mistakes_dod_wording
 test_no_mistakes_dod_green_detection
 test_pr_based_dod_requires_non_draft
