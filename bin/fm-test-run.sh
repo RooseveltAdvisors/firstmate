@@ -104,6 +104,16 @@
 #   against. Inspection modes execute nothing and stay available, and a run with
 #   no FM_TASK_ID set is unchanged.
 #
+# Failure recording: with FM_TASK_ID, each failed script is recorded through
+# fm-verification-record.sh before FM_TEST_END. Its log is appended under
+# FM_DATA_OVERRIDE (else FM_HOME/data)/<task>/verification/<script>.log so reruns
+# share a stable evidence key and survive temporary-run cleanup. FM_HOME is
+# required unless FM_DATA_OVERRIDE is set. The default domain is firstmate;
+# FM_VERIFICATION_DOMAIN and FM_VERIFICATION_STORE select another defect domain.
+# A filing refusal is printed verbatim and keeps the run red, never a receipt.
+# Without an owning task this runner is unchanged (including ordinary CI);
+# the caller records CI failures with the recorder and the CI log/run evidence.
+#
 # Exit status is non-zero if any selected script exits non-zero, a configured
 # --fail-on-gate-skip token appears, the measured duration exceeds
 # --max-wall-ms, timing-artifact finalization fails, or a concurrent worker
@@ -305,7 +315,7 @@ family_for_basename() {
     fm-timeout-lib.test.sh|\
     fm-tmux-submit-busy.test.sh|fm-trace-context-lib.test.sh|\
     fm-transition-lib.test.sh|\
-    fm-test-run.test.sh|fm-test-isolation-proof.test.sh)
+    fm-test-run.test.sh|fm-test-isolation-proof.test.sh|fm-verification-record.test.sh)
       printf '%s\n' pure-contract-unit
       ;;
     fm-daemon.test.sh|fm-guard-stale-banner.test.sh|fm-pi-watch-extension.test.sh|\
@@ -2735,6 +2745,19 @@ family_bump() {
   mv "$tmp" "$FAMILIES_TSV"
 }
 
+record_failure_bead() {
+  local script=$1 out=$2 task=${FM_TASK_ID:-} data evidence
+  [ -n "$task" ] || return 0
+  [[ "$task" =~ ^[a-zA-Z0-9_:\-]+$ ]] || { log 'failure bead refused: invalid FM_TASK_ID'; return 1; }
+  data=${FM_DATA_OVERRIDE:-${FM_HOME:+$FM_HOME/data}}
+  [ -n "$data" ] || { log 'failure bead refused: set FM_HOME or FM_DATA_OVERRIDE; preserve the failed log before replying'; return 1; }
+  evidence="$data/$task/verification/$(basename "$script").log"
+  mkdir -p "$(dirname "$evidence")" || return 1
+  { printf '\nRun: %s\n' "$RUN_ID"; cat "$out"; } >>"$evidence" || return 1
+  "$ROOT/bin/fm-verification-record.sh" --result fail --task "$task" \
+    --domain "${FM_VERIFICATION_DOMAIN:-firstmate}" --command "bash $script" --evidence "$evidence"
+}
+
 record_script_result() {
   local script=$1 rc=$2 duration=$3 out=$4 end_iso=$5
   local base family expected gate_skip gate_reason fail_delta
@@ -2756,6 +2779,10 @@ record_script_result() {
     # A capability skip is the runner's only record of what this host could not
     # exercise, so name it rather than leaving a silent green.
     log "gate skip: $script: ${gate_reason:-<no reason given>}"
+  fi
+
+  if [ "$rc" -ne 0 ]; then
+    record_failure_bead "$script" "$out" || log "failure bead refused for $script; report the refusal above verbatim, do not claim a bead was filed"
   fi
 
   printf 'FM_TEST_END %s %s exit=%s duration_ms=%s gate_skip=%s\n' \

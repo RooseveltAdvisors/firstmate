@@ -714,6 +714,7 @@ For questions answerable from record, read the nonblocking search-before-ask che
 
 1. Never push to any remote and never open a PR.
 2. Stay inside this worktree; the only files you may write outside it are the report and the status file below.
+   For verification findings, load \`$FM_ROOT/.agents/skills/verification-failure/SKILL.md\`; the sole additional write is through \`$FM_ROOT/bin/fm-verification-record.sh\` to the defect's domain Beads store.
 3. Use gh-axi for GitHub operations and chrome-devtools-axi for browser operations.
 4. Report status by appending one line:
    \`$STATUS_APPEND\`
@@ -791,6 +792,7 @@ For questions answerable from record, read the nonblocking search-before-ask che
 $RULE1
 2. Keep project edits inside this worktree; keep proof and scratch output outside it, under \`$DATA/$ID/\` or a temporary directory.
    Outside the worktree, write only that task material and the status and steering-inbox records authorized below.
+   For verification findings, load \`$FM_ROOT/.agents/skills/verification-failure/SKILL.md\`; the sole additional write is through \`$FM_ROOT/bin/fm-verification-record.sh\` to the defect's domain Beads store.
    Leave the worktree clean before reporting done.
 3. $FORGE_RULE_LINE
 4. Report status by appending one line:

@@ -8,6 +8,8 @@ metadata:
 
 # Validation supervision
 
+Load `verification-failure` when recording a red check, rejected visual review, or finding that outlives this validation pass.
+
 For a no-mistakes ship, trigger validation on the same worker after its implementation commit, using the harness invocation owned by `harness-adapters`.
 The task worker that starts a no-mistakes run drives the pipeline and owns every `no-mistakes axi run` and `no-mistakes axi respond` call through the next gate or outcome.
 Firstmate never invokes `no-mistakes axi respond` for a crew-owned run.
