@@ -105,10 +105,11 @@
 #   no FM_TASK_ID set is unchanged.
 #
 # Failure recording: with FM_TASK_ID, each failed script is recorded through
-# fm-verification-record.sh before FM_TEST_END. Its log is appended under
-# FM_DATA_OVERRIDE (else FM_HOME/data)/<task>/verification/<script>.log so reruns
-# share a stable evidence key and survive temporary-run cleanup. FM_HOME is
-# required unless FM_DATA_OVERRIDE is set. The default domain is firstmate;
+# fm-verification-record.sh before FM_TEST_END. Its log is overwritten with the
+# current run's output at FM_DATA_OVERRIDE (else FM_HOME/data)/<task>/
+# verification/<script>.log so reruns share a stable evidence key and survive
+# temporary-run cleanup. A later pass of a script with that log resolves its
+# bead; a pass never creates one. FM_HOME is required unless FM_DATA_OVERRIDE is set. The default domain is firstmate;
 # FM_VERIFICATION_DOMAIN and FM_VERIFICATION_STORE select another defect domain.
 # A filing refusal is printed verbatim and keeps the run red, never a receipt.
 # Without an owning task this runner is unchanged (including ordinary CI);
@@ -2745,16 +2746,22 @@ family_bump() {
   mv "$tmp" "$FAMILIES_TSV"
 }
 
-record_failure_bead() {
-  local script=$1 out=$2 task=${FM_TASK_ID:-} data evidence
+record_verification_bead() {
+  local script=$1 out=$2 rc=$3 task=${FM_TASK_ID:-} data evidence
   [ -n "$task" ] || return 0
   [[ "$task" =~ ^[a-zA-Z0-9_:\-]+$ ]] || { log 'failure bead refused: invalid FM_TASK_ID'; return 1; }
   data=${FM_DATA_OVERRIDE:-${FM_HOME:+$FM_HOME/data}}
   [ -n "$data" ] || { log 'failure bead refused: set FM_HOME or FM_DATA_OVERRIDE; preserve the failed log before replying'; return 1; }
   evidence="$data/$task/verification/$(basename "$script").log"
+  if [ "$rc" -eq 0 ]; then
+    [ -f "$evidence" ] || return 0
+    "$ROOT/bin/fm-verification-record.sh" --resolve --task "$task" \
+      --domain "${FM_VERIFICATION_DOMAIN:-firstmate}" --command "bash $script" --evidence "$evidence"
+    return
+  fi
   mkdir -p "$(dirname "$evidence")" || return 1
-  { printf '\nRun: %s\n' "$RUN_ID"; cat "$out"; } >>"$evidence" || return 1
-  "$ROOT/bin/fm-verification-record.sh" --result fail --task "$task" \
+  { printf 'Run: %s\n' "$RUN_ID"; cat "$out"; } >"$evidence" || return 1
+  "$ROOT/bin/fm-verification-record.sh" --task "$task" \
     --domain "${FM_VERIFICATION_DOMAIN:-firstmate}" --command "bash $script" --evidence "$evidence"
 }
 
@@ -2781,9 +2788,7 @@ record_script_result() {
     log "gate skip: $script: ${gate_reason:-<no reason given>}"
   fi
 
-  if [ "$rc" -ne 0 ]; then
-    record_failure_bead "$script" "$out" || log "failure bead refused for $script; report the refusal above verbatim, do not claim a bead was filed"
-  fi
+  record_verification_bead "$script" "$out" "$rc" || log "verification bead refused for $script; report the refusal above verbatim, do not claim a bead was filed or resolved"
 
   printf 'FM_TEST_END %s %s exit=%s duration_ms=%s gate_skip=%s\n' \
     "$end_iso" "$script" "$rc" "$duration" "$gate_skip"

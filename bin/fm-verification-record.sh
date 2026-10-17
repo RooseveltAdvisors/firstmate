@@ -1,28 +1,31 @@
 #!/usr/bin/env bash
-# Record a verification verdict before reporting it. Durable failures are beads,
+# Record a verification failure before reporting it. Durable failures are beads,
 # separate from the configured tasks-axi dispatch backlog.
-# Usage: fm-verification-record.sh --result fail|pass|wontfix
+# Usage: fm-verification-record.sh [--resolve]
 #          --task <owning-task-id> --domain firstmate|fleet-tooling|portal|project
 #          --command <failed-command-or-check> --evidence <local-file>
 #          [--store <workspace-root>] [--summary <finding>]
-# pass and wontfix are no-ops (wontfix is only for cosmetic/theoretical nits).
-# Other verdicts require every field. The evidence is snapshotted into the
-# selected .beads/verification-evidence before create/update. The dedupe key is
-# SHA256(JSON[task, command, realpath(evidence)]), stored as an external_ref.
-# Repeats append notes, including a UTC timestamp and a fresh evidence snapshot.
-# Closed matches are updated too; this recorder never changes issue status.
+# Every field is required. The evidence is snapshotted before create/update into
+# FM_DATA_OVERRIDE (else FM_HOME/data)/verification-evidence/<key>; without FM
+# data it goes to the store's verification-evidence, which ignores itself in git.
+# The dedupe key is SHA256(JSON[task, command, realpath(evidence)]), stored as
+# an external_ref. Repeats append notes, including a UTC timestamp and a fresh
+# evidence snapshot, and reopen a closed match.
+# --resolve marks a later pass: it closes an open match of the same key and
+# never creates a bead; the evidence file need not exist. Callers never invoke
+# the recorder for a pass without a prior recorded failure.
 # Defaults: firstmate -> FM_HOME; portal -> FM_HOME/projects/portal;
 # fleet-tooling -> ~/git/wiseman; project requires --store. FM_VERIFICATION_STORE
 # overrides the default root; FM_VERIFICATION_DOMAIN supplies --domain.
 # Explicit roots must contain .beads: this script never initializes a store or
 # searches a parent. BEADS_DIR is pinned and inherited database overrides cleared.
 # bd where must confirm that same directory; a redirect to another store refuses.
-# FM_VERIFICATION_BD_BIN selects the Beads CLI (default bd), like the existing
-# explicit Beads graph adapter in fm-stale-sweep.sh. Requires jq and python3.
+# Requires bd, jq and python3.
 # A store-local mkdir lock serializes list/create/update. Contention or an
 # abandoned lock refuses without stealing it; retry after its owner resolves it.
 # Output: one JSON receipt {bead, store, evidence, key, action}, only AFTER an
-# exact bd list readback. Never infer an ID from create output or task status.
+# exact bd list readback; --resolve emits {bead, store, key, action:"resolved"}
+# only when it closed a bead. Never infer an ID from create output or task status.
 # Any refusal exits nonzero, preserves CLI stderr verbatim, and names the store
 # and original three fields for an authorized lane to file. No reply receipt is
 # emitted. Evidence snapshots survive a failed write for recovery.
@@ -31,16 +34,17 @@ umask 077
 
 usage() { sed -n '2,/^set /{ /^set /d; s/^# \{0,1\}//; p; }' "$0"; }
 die() { printf 'fm-verification-record: %s\n' "$*" >&2; exit 1; }
-RESULT='' TASK='' FAILED_COMMAND='' EVIDENCE='' SUMMARY=''
+RESOLVE='' TASK='' FAILED_COMMAND='' EVIDENCE='' SUMMARY=''
 DOMAIN=${FM_VERIFICATION_DOMAIN:-}
 STORE=${FM_VERIFICATION_STORE:-}
 while [ "$#" -gt 0 ]; do
   case "$1" in
     -h|--help) usage; exit 0 ;;
-    --result|--task|--domain|--command|--evidence|--store|--summary)
+    --resolve) RESOLVE=1; shift ;;
+    --task|--domain|--command|--evidence|--store|--summary)
       [ "$#" -ge 2 ] || die "$1 requires a value"
       case "$1" in
-        --result) RESULT=$2 ;; --task) TASK=$2 ;; --domain) DOMAIN=$2 ;;
+        --task) TASK=$2 ;; --domain) DOMAIN=$2 ;;
         --command) FAILED_COMMAND=$2 ;; --evidence) EVIDENCE=$2 ;;
         --store) STORE=$2 ;; --summary) SUMMARY=$2 ;;
       esac
@@ -48,7 +52,6 @@ while [ "$#" -gt 0 ]; do
     *) die "unknown argument: $1" ;;
   esac
 done
-case "$RESULT" in pass|wontfix) exit 0 ;; fail) ;; *) die '--result must be fail, pass or wontfix' ;; esac
 [[ "$TASK" =~ ^[a-zA-Z0-9_:\-]+$ ]] || die 'a valid owning --task is required'
 [ -n "$FAILED_COMMAND" ] && [ -n "$EVIDENCE" ] || die '--command and --evidence are required'
 case "$DOMAIN" in
@@ -66,10 +69,12 @@ esac
 STORE=$(cd "$STORE/.beads" && pwd -P)
 printf 'fm-verification-record: store=%s task=%s command=%s evidence=%s\n' \
   "$STORE" "$TASK" "$FAILED_COMMAND" "$EVIDENCE" >&2
-[ -f "$EVIDENCE" ] && [ -r "$EVIDENCE" ] || die "evidence must be a readable local file: $EVIDENCE"
+if [ -z "$RESOLVE" ] && { [ ! -f "$EVIDENCE" ] || [ ! -r "$EVIDENCE" ]; }; then
+  die "evidence must be a readable local file: $EVIDENCE"
+fi
 command -v jq >/dev/null || die 'jq is required'
 command -v python3 >/dev/null || die 'python3 is required'
-BD_BIN=$(command -v "${FM_VERIFICATION_BD_BIN:-bd}") || die 'Beads CLI is unavailable'
+command -v bd >/dev/null || die 'Beads CLI is unavailable'
 EVIDENCE=$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$EVIDENCE")
 KEY=$(python3 - "$TASK" "$FAILED_COMMAND" "$EVIDENCE" <<'PY'
 import hashlib, json, sys
@@ -89,7 +94,7 @@ beads() (
   unset BEADS_DB BEADS_DATABASE BD_DATABASE
   export BEADS_DIR="$STORE"
   cd "$STORE/.." || exit 1
-  "$BD_BIN" "$@"
+  bd "$@"
 )
 list_match() {
   local rows
@@ -110,14 +115,39 @@ ID=$(printf '%s' "$MATCH" | jq -r '.id // empty')
 if [ -n "$ID" ]; then
   [[ "$ID" =~ ^[a-zA-Z0-9_:\-]+$ ]] || die 'bd list returned an invalid bead id'
 fi
-mkdir -p "$STORE/verification-evidence/$KEY"
-SNAPSHOT=$(mktemp "$STORE/verification-evidence/$KEY/evidence.XXXXXX")
+STATUS=$(printf '%s' "$MATCH" | jq -r '.status // empty')
+if [ -n "$RESOLVE" ]; then
+  [ -n "$ID" ] && [ "$STATUS" != closed ] || exit 0
+  if ! WRITE_OUTPUT=$(beads close "$ID" --reason "Verification passed: $FAILED_COMMAND"); then
+    printf '%s\n' "$WRITE_OUTPUT" >&2
+    die 'bd close refused; report its output verbatim, the bead stays open'
+  fi
+  MATCH=$(list_match) || die 'bd list readback failed; never claim the bead was resolved'
+  [ "$(printf '%s' "$MATCH" | jq -r '.id // empty')" = "$ID" ] \
+    && [ "$(printf '%s' "$MATCH" | jq -r '.status // empty')" = closed ] \
+    || die 'bd list did not confirm the bead closed; no receipt issued'
+  jq -cn --arg bead "$ID" --arg store "$STORE" --arg key "$KEY" \
+    '{bead:$bead,store:$store,key:$key,action:"resolved"}'
+  exit 0
+fi
+DATA=${FM_DATA_OVERRIDE:-${FM_HOME:+$FM_HOME/data}}
+if [ -n "$DATA" ]; then
+  EVIDENCE_DIR="$DATA/verification-evidence/$KEY"
+else
+  EVIDENCE_DIR="$STORE/verification-evidence/$KEY"
+  mkdir -p "$STORE/verification-evidence"
+  printf '*\n' >"$STORE/verification-evidence/.gitignore"
+fi
+mkdir -p "$EVIDENCE_DIR"
+SNAPSHOT=$(mktemp "$EVIDENCE_DIR/evidence.XXXXXX")
 cp "$EVIDENCE" "$SNAPSHOT"
 STAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 NOTE=$(printf 'Recorded (UTC): %s\nOwning task ID: %s\nFailed command: %s\nEvidence path: %s\nAttached evidence: %s\nFinding: %s\n' \
   "$STAMP" "$TASK" "$FAILED_COMMAND" "$EVIDENCE" "$SNAPSHOT" "${SUMMARY:-Verification failed}")
 if [ -n "$ID" ]; then
-  if ! WRITE_OUTPUT=$(beads update "$ID" --append-notes "$NOTE"); then
+  REOPEN=()
+  [ "$STATUS" != closed ] || REOPEN=(--status open)
+  if ! WRITE_OUTPUT=$(beads update "$ID" ${REOPEN[@]+"${REOPEN[@]}"} --append-notes "$NOTE"); then
     printf '%s\n' "$WRITE_OUTPUT" >&2
     die 'bd update refused; report its output verbatim, no receipt issued'
   fi

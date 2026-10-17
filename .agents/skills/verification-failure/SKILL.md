@@ -29,7 +29,8 @@ Workers keep evidence in their authorized task directory and ask firstmate to fi
 Do not bypass a gate or change domains to gain write access.
 
 Call the recorder synchronously as the failure is recorded and retain its JSON receipt.
-It creates or updates the bead keyed by owning task, failed command, and normalized original evidence path; reuse that path for reruns and append new logs rather than choosing a new temporary filename each time.
+It creates or updates the bead keyed by owning task, failed command, and normalized original evidence path; reuse that path for reruns, overwriting it with the current run's output rather than choosing a new temporary filename each time.
+When the same check later passes, call the recorder with `--resolve` to close that bead; a pass never creates one.
 The receipt's bead ID comes from `bd list` in the selected store after the evidence attachment is confirmed.
 Only then compose the report, citing that exact bead ID and store.
 Never cite an ID from create output, a status line, or a spawn message as proof of filing.

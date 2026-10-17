@@ -10,7 +10,7 @@ FAKEBIN=$(fm_fakebin "$TMP_ROOT")
 export PATH="$FAKEBIN:$PATH"
 export CALLS="$TMP_ROOT/calls"
 export FM_HOME="$TMP_ROOT/home"
-unset FM_VERIFICATION_DOMAIN FM_VERIFICATION_STORE FM_VERIFICATION_BD_BIN
+unset FM_VERIFICATION_DOMAIN FM_VERIFICATION_STORE FM_DATA_OVERRIDE
 mkdir -p "$FM_HOME/.beads" "$FM_HOME/projects/portal/.beads" "$TMP_ROOT/wiseman/.beads"
 printf 'screenshot or log\n' >"$TMP_ROOT/proof.png"
 
@@ -23,13 +23,14 @@ printf '%s %s\n' "$BEADS_DIR" "$1" >>"$CALLS"
 db="$BEADS_DIR/issues.json"
 [ -f "$db" ] || printf '[]' >"$db"
 op=$1; shift
-id='' ref='' description='' note=''
-if [ "$op" = update ]; then id=$1; shift; fi
+id='' ref='' description='' note='' status=''
+case "$op" in update|close) id=$1; shift ;; esac
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --external-ref) ref=$2; shift 2 ;;
     --description) description=$2; shift 2 ;;
     --append-notes) note=$2; shift 2 ;;
+    --status) status=$2; shift 2 ;;
     *) shift ;;
   esac
 done
@@ -52,8 +53,13 @@ case "$op" in
     printf 'created ghost-not-a-real-id\n' ;;
   update)
     [ "${REFUSE_UPDATE:-}" != 1 ] || { echo 'ACTION_GATE: update denied' >&2; exit 18; }
-    jq --arg id "$id" --arg note "$note" \
-      'map(if .id == $id then .notes += ("\n" + $note) | .updated_at += 1 else . end)' "$db" >"$db.tmp"
+    jq --arg id "$id" --arg note "$note" --arg status "$status" \
+      'map(if .id == $id then .notes += ("\n" + $note) | .updated_at += 1
+        | if $status != "" then .status = $status else . end else . end)' "$db" >"$db.tmp"
+    mv "$db.tmp" "$db" ;;
+  close)
+    [ "${REFUSE_CLOSE:-}" != 1 ] || { echo 'ACTION_GATE: close denied' >&2; exit 19; }
+    jq --arg id "$id" 'map(if .id == $id then .status = "closed" else . end)' "$db" >"$db.tmp"
     mv "$db.tmp" "$db" ;;
   *) echo "unexpected bd operation: $op" >&2; exit 1 ;;
 esac
@@ -62,7 +68,7 @@ chmod +x "$FAKEBIN/bd"
 [ -x "$RECORDER" ] || fail 'verification recorder must be executable'
 
 record() {
-  "$RECORDER" --result fail --task t1 --domain firstmate \
+  "$RECORDER" --task t1 --domain firstmate \
     --command 'visual QA: sidebar' --evidence "$TMP_ROOT/proof.png" "$@"
 }
 receipt=$(record)
@@ -71,6 +77,8 @@ expect_code 0 "$?" 'failure should create a bead'
 attachment=$(printf '%s' "$receipt" | jq -r .evidence)
 cmp "$attachment" "$TMP_ROOT/proof.png" || fail 'screenshot bytes were not preserved'
 assert_contains "$receipt" "$FM_HOME/.beads" 'receipt does not name the actual store'
+case "$attachment" in "$FM_HOME/data/verification-evidence/"*) ;; *) fail "evidence left FM data: $attachment" ;; esac
+[ ! -e "$FM_HOME/.beads/verification-evidence" ] || fail 'evidence was written into the tracked store'
 printf 'second screenshot\n' >"$TMP_ROOT/proof.png"
 receipt=$(record --evidence "$TMP_ROOT/./proof.png" --summary 'still rejected')
 [ "$(printf '%s' "$receipt" | jq -r .action)" = updated ] || fail 'normalized duplicate was created'
@@ -80,26 +88,40 @@ assert_contains "$(jq -r '.[0].notes' "$FM_HOME/.beads/issues.json")" 'still rej
 assert_contains "$(cat "$attachment")" 'screenshot or log' 'first evidence was overwritten'
 pass 'confirmed ID, immutable screenshot snapshot, normalized dedupe and append/update'
 
-# Closed findings still dedupe; separate commands/tasks/evidence stay separate.
+# Closed findings still dedupe and reopen; separate commands/tasks/evidence stay separate.
 jq '.[0].status="closed"' "$FM_HOME/.beads/issues.json" >"$TMP_ROOT/closed"
 mv "$TMP_ROOT/closed" "$FM_HOME/.beads/issues.json"
 record >/dev/null
+[ "$(jq -r '.[0].status' "$FM_HOME/.beads/issues.json")" = open ] || fail 'repeat failure left its bead closed'
 record --command 'CI check' >/dev/null
 record --task t2 >/dev/null
 cp "$TMP_ROOT/proof.png" "$TMP_ROOT/other.png"
 record --evidence "$TMP_ROOT/other.png" >/dev/null
 [ "$(jq length "$FM_HOME/.beads/issues.json")" = 4 ] || fail 'dedupe tuple or closed matching is wrong'
-pass 'dedupe includes closed findings and distinguishes all three key fields'
+pass 'dedupe reopens closed findings and distinguishes all three key fields'
 
-before=$(wc -l <"$CALLS")
-"$RECORDER" --result pass
-"$RECORDER" --result wontfix
-[ "$(wc -l <"$CALLS")" = "$before" ] || fail 'passing or WONTFIX verdict touched Beads'
+receipt=$(record --resolve --evidence "$TMP_ROOT/absent.log")
+[ -z "$receipt" ] || fail 'resolving an unrecorded key emitted a receipt'
+[ "$(jq length "$FM_HOME/.beads/issues.json")" = 4 ] || fail 'resolve created a bead'
+receipt=$(record --resolve)
+[ "$(printf '%s' "$receipt" | jq -r .action)" = resolved ] || fail 'resolve did not confirm closing'
+[ "$(jq -r '.[0].status' "$FM_HOME/.beads/issues.json")" = closed ] || fail 'resolve left the bead open'
+[ -z "$(record --resolve)" ] || fail 'resolving a closed bead emitted a receipt'
+record >/dev/null
+if REFUSE_CLOSE=1 record --resolve >"$TMP_ROOT/out" 2>"$TMP_ROOT/err"; then fail 'close refusal succeeded'; fi
+assert_grep 'ACTION_GATE: close denied' "$TMP_ROOT/err" 'close refusal was suppressed'
+[ "$(jq -r '.[0].status' "$FM_HOME/.beads/issues.json")" = open ] || fail 'refused close changed status'
+pass 'resolve closes only an open match, never creates, and reports refusals'
+
+(unset FM_HOME; "$RECORDER" --task t1 --domain fleet-tooling --store "$TMP_ROOT/wiseman" \
+  --command 'no fm data' --evidence "$TMP_ROOT/proof.png" >/dev/null)
+[ "$(cat "$TMP_ROOT/wiseman/.beads/verification-evidence/.gitignore")" = '*' ] || fail 'store fallback evidence is not ignored'
+rm -rf "$TMP_ROOT/wiseman/.beads/issues.json" "$TMP_ROOT/wiseman/.beads/verification-evidence"
 record --domain portal >/dev/null
 record --domain fleet-tooling --store "$TMP_ROOT/wiseman" >/dev/null
 [ "$(jq length "$FM_HOME/projects/portal/.beads/issues.json")" = 1 ] || fail 'Portal finding used wrong store'
 [ "$(jq length "$TMP_ROOT/wiseman/.beads/issues.json")" = 1 ] || fail 'fleet tooling finding used wrong store'
-pass 'green and cosmetic WONTFIX are no-ops; defect domains use distinct stores'
+pass 'fallback evidence ignores itself; defect domains use distinct stores'
 
 if REFUSE_CREATE=1 record --command 'new refusal' >"$TMP_ROOT/out" 2>"$TMP_ROOT/err"; then fail 'gate refusal succeeded'; fi
 [ ! -s "$TMP_ROOT/out" ] || fail 'refused create emitted a receipt'
@@ -135,6 +157,8 @@ assert_present "$FM_HOME/data/runner1/verification/probe.test.sh.log" 'failed lo
 before=$(jq length "$FM_HOME/.beads/issues.json")
 if FM_TASK_ID=runner1 "$repo/bin/fm-test-run.sh" "$repo/tests/probe.test.sh" >"$TMP_ROOT/run" 2>&1; then fail 'repeat red suite returned green'; fi
 [ "$(jq length "$FM_HOME/.beads/issues.json")" = "$before" ] || fail 'runner rerun created duplicate bead'
+log="$FM_HOME/data/runner1/verification/probe.test.sh.log"
+[ "$(grep -c '^Run: ' "$log")" = 1 ] || fail 'runner evidence log accumulated earlier runs'
 if REFUSE_CREATE=1 FM_TASK_ID=runner2 "$repo/bin/fm-test-run.sh" "$repo/tests/probe.test.sh" >"$TMP_ROOT/run" 2>&1; then fail 'filing refusal hid red suite'; fi
 assert_grep 'ACTION_GATE: project_worker cannot bd create' "$TMP_ROOT/run" 'runner suppressed gate refusal'
 assert_no_grep '"bead":' "$TMP_ROOT/run" 'refused runner claimed a bead'
@@ -142,6 +166,11 @@ assert_present "$FM_HOME/data/runner2/verification/probe.test.sh.log" 'refused r
 printf 'echo "ok - sidebar"\n' >"$repo/tests/probe.test.sh"
 FM_TASK_ID=runner1 "$repo/bin/fm-test-run.sh" "$repo/tests/probe.test.sh" >"$TMP_ROOT/run" 2>&1
 [ "$(jq length "$FM_HOME/.beads/issues.json")" = "$before" ] || fail 'green runner created a bead'
-assert_no_grep '"bead":' "$TMP_ROOT/run" 'green runner emitted a receipt'
-pass 'runner confirms bead before failure marker, preserves logs, dedupes reruns, and ignores green'
+assert_grep '"action":"resolved"' "$TMP_ROOT/run" 'green runner did not resolve the red-first bead'
+[ "$(jq -r --arg ref "$(jq -r '.[-1].external_ref' "$FM_HOME/.beads/issues.json")" \
+  '[.[] | select(.external_ref == $ref)][0].status' "$FM_HOME/.beads/issues.json")" = closed ] || fail 'red-first bead stayed open'
+printf 'echo "ok - other"\n' >"$repo/tests/other.test.sh"
+FM_TASK_ID=runner1 "$repo/bin/fm-test-run.sh" "$repo/tests/other.test.sh" >"$TMP_ROOT/run" 2>&1
+[ "$(jq length "$FM_HOME/.beads/issues.json")" = "$before" ] || fail 'green script without a failure created a bead'
+pass 'runner confirms bead before failure marker, keeps current-run logs, dedupes reruns, and closes on green'
 echo '# all verification-record tests passed'
