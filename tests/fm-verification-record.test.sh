@@ -163,6 +163,11 @@ if REFUSE_CREATE=1 FM_TASK_ID=runner2 "$repo/bin/fm-test-run.sh" "$repo/tests/pr
 assert_grep 'ACTION_GATE: project_worker cannot bd create' "$TMP_ROOT/run" 'runner suppressed gate refusal'
 assert_no_grep '"bead":' "$TMP_ROOT/run" 'refused runner claimed a bead'
 assert_present "$FM_HOME/data/runner2/verification/probe.test.sh.log" 'refused runner lost its evidence'
+printf 'echo "skip: docker unavailable"\n' >"$repo/tests/probe.test.sh"
+FM_TASK_ID=runner1 "$repo/bin/fm-test-run.sh" "$repo/tests/probe.test.sh" >"$TMP_ROOT/run" 2>&1
+assert_no_grep '"action":"resolved"' "$TMP_ROOT/run" 'gate skip resolved the bead'
+[ "$(jq -r '.[-1].status' "$FM_HOME/.beads/issues.json")" = open ] || fail 'gate skip closed the red bead'
+assert_present "$log" 'gate skip dropped the retry marker'
 printf 'echo "ok - sidebar"\n' >"$repo/tests/probe.test.sh"
 REFUSE_CLOSE=1 FM_TASK_ID=runner1 "$repo/bin/fm-test-run.sh" "$repo/tests/probe.test.sh" >"$TMP_ROOT/run" 2>&1
 assert_grep 'ACTION_GATE: close denied' "$TMP_ROOT/run" 'runner suppressed close refusal'

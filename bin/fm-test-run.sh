@@ -109,7 +109,9 @@
 # current run's output at FM_DATA_OVERRIDE (else FM_HOME/data)/<task>/
 # verification/<script>.log so reruns share a stable evidence key and survive
 # temporary-run cleanup. A later pass of a script with that log resolves its
-# bead and removes that log once the receipt confirms it; a pass never creates one. FM_HOME is required unless FM_DATA_OVERRIDE is set. The default domain is firstmate;
+# bead and removes that log once the receipt confirms it; a pass never creates
+# one and a gate skip neither creates nor resolves one. FM_HOME is required
+# unless FM_DATA_OVERRIDE is set. The default domain is firstmate;
 # FM_VERIFICATION_DOMAIN and FM_VERIFICATION_STORE select another defect domain.
 # A filing refusal is printed verbatim and keeps the run red, never a receipt.
 # Without an owning task this runner is unchanged (including ordinary CI);
@@ -2792,7 +2794,7 @@ record_script_result() {
     log "gate skip: $script: ${gate_reason:-<no reason given>}"
   fi
 
-  record_verification_bead "$script" "$out" "$rc" || log "verification bead refused for $script; report the refusal above verbatim, do not claim a bead was filed or resolved"
+  [ "$gate_skip" = true ] || record_verification_bead "$script" "$out" "$rc" || log "verification bead refused for $script; report the refusal above verbatim, do not claim a bead was filed or resolved"
 
   printf 'FM_TEST_END %s %s exit=%s duration_ms=%s gate_skip=%s\n' \
     "$end_iso" "$script" "$rc" "$duration" "$gate_skip"
