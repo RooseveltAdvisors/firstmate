@@ -18,7 +18,6 @@ import json
 import os
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 
@@ -56,7 +55,6 @@ def get_live_panes(session: str = "firstmate") -> set[str]:
 def scan_dead_workers(state_dirs: list[Path], target_id: str | None = None) -> list[dict]:
     dead_workers = []
     live_panes = get_live_panes("firstmate")
-    now = time.time()
 
     for s_dir in state_dirs:
         if not s_dir.exists():
@@ -66,29 +64,21 @@ def scan_dead_workers(state_dirs: list[Path], target_id: str | None = None) -> l
             if target_id and task_id != target_id:
                 continue
 
-            # Only inspect files modified within the last 7 days
-            try:
-                if now - meta_f.stat().st_mtime > 7 * 86400 and not target_id:
-                    continue
-            except Exception:
-                continue
-
             meta = parse_meta_file(meta_f)
             kind = meta.get("kind", "unknown")
             # NEVER reap persistent secondmate seats
             if kind == "secondmate":
                 continue
 
-            # Skip completed tasks
-            status_f = s_dir / f"{task_id}.status"
-            if status_f.exists():
-                try:
-                    st_head = status_f.read_text(encoding="utf-8", errors="replace")[:100]
-                    if st_head.startswith("done:"):
-                        continue
-                except Exception:
-                    pass
-
+            # A record's age and its `done:` ledger line are not evidence that
+            # its processes are gone: a 7-day age cutoff and a historical
+            # `done:` skip used to shield stale workspaces and completed PR
+            # slots that still hold leaked processes from every sweep. Those
+            # records are inspected like any other now. The sweep still verifies
+            # actual process death before it removes anything - the teardown it
+            # runs reaps the task's processes and re-verifies each identity - so
+            # nothing live is ever deleted, and only the age/status blind spot
+            # is gone.
             pane_id = meta.get("herdr_pane_id")
             session = meta.get("herdr_session", "firstmate")
             wt = meta.get("worktree")
