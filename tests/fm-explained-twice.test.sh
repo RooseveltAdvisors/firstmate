@@ -177,7 +177,7 @@ if (args.includes('where')) console.log(JSON.stringify({path: directory + '/.bea
 else if (args.includes('show')) {
   if (!args.includes('--include-comments') || !args.includes('--brief-deps')) throw new Error('details must include comments');
   if (process.env.TEST_BD_DETAILS_MISSING) { console.log('[]'); process.exit(0); }
-  const rows = JSON.parse(readFileSync(directory + '/rows.json', 'utf8')).filter(row => args.includes('--id=' + row.id)).map(row => ({...row, comments:[{text:'Closed bead discussion: lane rechecked Cedar.'}]}));
+  const rows = JSON.parse(readFileSync(directory + '/rows.json', 'utf8')).filter(row => args.includes('--id=' + row.id)).map(row => ({...row, comments:[{text:'Closed bead discussion: lane rechecked Cedar.' + 'x'.repeat(65537)}]}));
   if (rows.length > 10) throw new Error('oversized detail batch');
   if (!rows.every(row => args.includes('--id=' + row.id))) throw new Error('wrong detail IDs');
   console.log(JSON.stringify(rows));

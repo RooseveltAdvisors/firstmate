@@ -45,7 +45,7 @@ weekly --work-dir DIR --sources FILE [--week YYYY-MM-DD] [--bead-limit N]
   Reads closed_at in the week, not updated_at; limit defaults to 200 per store,
   maximum 1000. Extra rows, timeouts (30 seconds), errors, or output over 4 MiB
   refuse the run. bd show --include-comments in batches of ten supplies records;
-  each record (maximum 65536 bytes) becomes a private, verifiable snapshot.
+  each record (maximum 4 MiB) becomes a private, verifiable snapshot.
   Snapshots are recorded observations, not a guarantee the live board is unchanged.
   Closure, bug type, repeated wording, or a retrospective count prove no recurrence.
   Review bead lessons alongside live corrections using the SAME report procedure.
@@ -365,7 +365,7 @@ function weekly(dir: string, sourcesFile: string, date: string | undefined, limi
         continue;
       }
       const raw = Buffer.from(JSON.stringify({ store: directory, databasePath, issue }));
-      requireThat(raw.length <= 65536, `bead exceeds 65536 bytes: ${directory} ${issue.id}`);
+      requireThat(raw.length <= MAX_BYTES, `bead exceeds ${MAX_BYTES} bytes: ${directory} ${issue.id}`);
       // External Beads child IDs can contain dots. Never use them as paths:
       // only the validated digest key participates in a filesystem operation.
       const key = hash(`${databasePath}:${issue.id}`);
