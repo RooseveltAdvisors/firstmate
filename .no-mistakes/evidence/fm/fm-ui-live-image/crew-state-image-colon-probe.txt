@@ -1,0 +1,22 @@
+=== S13b UI local-only ship, live image on 'live-origin image' line  (mode=local-only surface=ui)
+  status| done [at=1760000000]: ready in branch fm/sig
+  status| live-origin image /home/jon/.no-mistakes/evidence/01M53XD1TDDCZSY4W3GDVZ85WT/signage-live.png
+  status| spec 1: banner text matches
+  -> state: done · source: status-log · ready in branch fm/sig
+
+=== S13c UI no-mistakes ship, continuation line starting 'image:'  (mode=no-mistakes surface=ui)
+  status| done [at=1760000000]: PR https://github.com/o/signage/pull/7 checks green
+  status| image: /home/jon/.no-mistakes/evidence/01M53XD1TDDCZSY4W3GDVZ85WT/signage-live.png
+  status| spec 1: banner text matches
+  -> state: unknown · source: none · no current-state source available
+
+=== S13d UI local-only, image path on done line itself  (mode=local-only surface=ui)
+  status| done [at=1760000000]: ready in branch fm/sig; live-origin image /home/jon/.no-mistakes/evidence/01M53XD1TDDCZSY4W3GDVZ85WT/signage-live.png
+  status| spec 1: banner text matches
+  -> state: done · source: status-log · ready in branch fm/sig; live-origin image /home/jon/.no-mistakes/evidence/01M53XD1TDDCZSY4W3GDVZ85WT/signage-live.png
+
+=== S13e NON-UI local-only ship with an 'image:' continuation line (baseline parser behaviour)  (mode=local-only)
+  status| done [at=1760000000]: ready in branch fm/sig
+  status| image: /home/jon/.no-mistakes/evidence/01M53XD1TDDCZSY4W3GDVZ85WT/signage-live.png
+  -> state: unknown · source: none · no current-state source available
+
