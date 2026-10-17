@@ -1220,6 +1220,37 @@ test_rejects_direct_beads_cli_in_explicit_core_path() {
   pass "fm-lint.sh enforces backend purity for explicit core paths"
 }
 
+test_exempts_only_the_verification_evidence_recorder() {
+  local tmp fakebin log lint_copy out rc
+  tmp=$(fm_test_tmproot fm-lint-evidence-recorder-purity)
+  fakebin=$(fm_fakebin "$tmp")
+  log="$tmp/shellcheck.log"
+  mkdir -p "$tmp/repo/bin/backends" "$tmp/repo/tests"
+  lint_copy="$tmp/repo/bin/fm-lint.sh"
+  cp "$LINT" "$lint_copy"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$tmp/repo/bin/fm-lint-workflows.sh"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$tmp/repo/bin/backends/noop.sh"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$tmp/repo/tests/noop.test.sh"
+  printf '#!/usr/bin/env bash\nbd list --all\n' > "$tmp/repo/bin/fm-verification-record.sh"
+  chmod +x "$lint_copy" "$tmp/repo/bin/fm-lint-workflows.sh"
+  fm_lint_stub_shellcheck "$fakebin" "$log"
+
+  rc=0
+  out=$(cd "$tmp/repo" && CI=true PATH="$fakebin:$PATH" "$lint_copy" 2>&1) || rc=$?
+  [ "$rc" -eq 0 ] || fail "lint rejected the verification evidence recorder"$'\n'"$out"
+  rc=0
+  out=$(cd "$tmp/repo" && PATH="$fakebin:$PATH" "$lint_copy" bin/fm-verification-record.sh 2>&1) || rc=$?
+  [ "$rc" -eq 0 ] || fail "explicit lint rejected the verification evidence recorder"$'\n'"$out"
+
+  printf '#!/usr/bin/env bash\nbd close fm-example\n' > "$tmp/repo/bin/fm-other.sh"
+  rc=0
+  out=$(cd "$tmp/repo" && CI=true PATH="$fakebin:$PATH" "$lint_copy" 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "the evidence recorder exemption leaked to another core script"
+  assert_contains "$out" "bin/fm-other.sh:2: direct Beads CLI invocation bypasses tasks-axi" \
+    "lint did not report the non-exempt core script"
+  pass "fm-lint.sh exempts only the verification evidence recorder from backend purity"
+}
+
 test_ignores_ambient_shellcheck_opts() {
   if ! pinned_ready; then
     pass "SKIP (ShellCheck $REQUIRED not resolved): ambient options regression check"
@@ -2045,6 +2076,7 @@ test_rejects_wrong_shellcheck_version
 test_catches_a_real_lint_defect
 test_rejects_direct_beads_cli_invocations
 test_rejects_direct_beads_cli_in_explicit_core_path
+test_exempts_only_the_verification_evidence_recorder
 test_ignores_ambient_shellcheck_opts
 test_clean_fixture_passes
 test_jobs_are_deterministic_and_complete

@@ -478,13 +478,17 @@ fm_lint_run_workflows() {
 
 # Backend adapters belong behind tasks-axi. Keep direct Beads CLI invocations
 # out of firstmate's core scripts so every configured backend follows the same
-# lifecycle path.
+# lifecycle path. The one exemption is fm-verification-record.sh: it writes
+# QA failure evidence to the separate Beads evidence store, never the
+# configured dispatch backlog, so it calls bd directly by design.
 fm_lint_run_backend_purity() {
   local findings path canonical
   local -a purity_roots
   purity_roots=()
   if [ "$EXPLICIT_PATHS" -eq 0 ]; then
-    purity_roots=(bin/*.sh bin/backends/*.sh)
+    for path in bin/*.sh bin/backends/*.sh; do
+      [ "$path" = bin/fm-verification-record.sh ] || purity_roots+=("$path")
+    done
   else
     for path in "${ROOTS[@]}"; do
       [ -f "$path" ] || continue
@@ -495,6 +499,7 @@ fm_lint_run_backend_purity() {
         print $resolved;
       ' "$path" 2>/dev/null) || continue
       case "$canonical" in
+        "$ROOT"/bin/fm-verification-record.sh) ;;
         "$ROOT"/bin/*.sh|"$ROOT"/bin/backends/*.sh)
           purity_roots+=("$canonical")
           ;;
