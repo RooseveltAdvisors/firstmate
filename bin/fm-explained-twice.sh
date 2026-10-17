@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# fm-explained-twice.sh - on-demand live-correction review, with bounded evidence.
+# fm-explained-twice.sh - on-demand live-correction/weekly closed-bead review.
 # Usage and the complete review procedure: fm-explained-twice.sh --help
-# Requires Bun; reads Pi JSONL and optional pending-reply/terminal-outcome records.
+# Requires Bun and Git (weekly: bd); reads bounded Pi JSONL, state and bead stores.
 # Writes private review artifacts only, never AGENTS.md, CLAUDE.md, or skills.
 # No service, watcher, model call, publication, or automatic instruction edit.
 set -euo pipefail
