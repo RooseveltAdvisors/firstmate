@@ -25,15 +25,23 @@ It stops at the finding, routes the decision to firstmate, and applies only the 
 
 Before asking the captain or a supervisor a question answerable from record, use this checklist:
 
-1. Name the fact you need and make one brief search pass, capped at two minutes total across both sources.
+1. Name the fact you need and make one brief search pass, capped at two minutes total across all three sources, including discovery and reading hits.
 2. Search beads: enumerate the existing stores in the task's known workspace and project roots, then use `bd search` or `bd list` from each relevant store's directory.
    `bd` resolves its store from cwd; name the store paths rather than assuming the current worktree's board is the only one.
    Keep discovery within those known roots rather than scanning the whole machine.
 3. Search the Obsidian vault at `$HOME/Obsidian/second-brain` for the same fact using a few specific terms or likely notes.
    First check that the resolved vault directory exists and is readable on this host.
    If it is missing or unreachable, skip it and say in the question that the vault was unreachable, naming the resolved path you checked; never report an empty search of a vault you could not access.
-4. In the question itself, name the stores, vault locations, and terms searched, and state the relevant findings or plainly say the search came up empty.
-   For example: "I searched beads in <store paths> and the Obsidian vault for <terms>; neither had a record of <fact>.
+4. Search session transcripts for the same fact, including `$HOME/.pi/agent/sessions/**/*.jsonl`, rather than only the current session.
+   Use `bin/fm-transcript-search.sh --help` for the bounded, read-only search helper; give it at most the time remaining in the shared two-minute budget.
+   Search a few distinctive words from the likely answer; inspect only bounded windows and cite the file and zero-based byte offset returned with each hit.
+   Never load an entire session or page through a large session to satisfy this checklist.
+   Read hits as evidence: distinguish direct captain words from quoted text, launch briefs, agent summaries, and tool output, and check later corrections and the current scope before relying on an old answer.
+   A hit is not fresh approval or an expansion of decision authority.
+   If a window cannot establish the speaker or scope within the budget, say so and ask.
+   Treat a timeout, output cap, unreadable source, or missing tool as incomplete coverage, never as proof that the fact is absent.
+5. In the question itself, name the stores, vault locations, transcript roots, and terms searched, and state relevant findings, an empty search, or what could not be checked.
+   For example: "I searched beads in <store paths>, the Obsidian vault at <path>, and transcripts under <root> for <terms>; no answer found in the searched material (transcript coverage was partial: <reason>).
    Which value should I use?"
 
 This is a checklist prompt, never a gate or a reason to refuse a question.
