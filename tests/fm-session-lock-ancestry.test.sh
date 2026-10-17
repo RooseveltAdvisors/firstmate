@@ -738,6 +738,16 @@ expect_phase_foreign() {  # <dir> <n> <expected-arms> <owner-pid> <label>
   [ "$(phase_value "$dir" "$n" lock-after)" = "$owner" ] || fail "$label: a non-owner rewrote the lock"
 }
 
+# True when <pid>'s parent is an orphan reaper: init itself, or a subreaper
+# registered one hop below init (PR_SET_CHILD_SUBREAPER, e.g. `systemd --user`),
+# which adopts orphans on a live host before they can reach real init.
+reparented_to_reaper() { # <pid>
+  local parent
+  parent=$(ps -o ppid= -p "$1" 2>/dev/null | tr -d ' ')
+  case "$parent" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$parent" = 1 ] || [ "$(ps -o ppid= -p "$parent" 2>/dev/null | tr -d ' ')" = 1 ]
+}
+
 test_e2e_background_session_keeps_its_lock_across_a_recycled_chain() {
   local dir frontend daemon ptyhost spare i
   dir="$TMP_ROOT/e2e-background-session"
@@ -769,11 +779,11 @@ test_e2e_background_session_keeps_its_lock_across_a_recycled_chain() {
   # the front-end that holds the lock stays alive.
   kill -TERM "$daemon"
   i=0
-  while [ "$i" -lt 200 ] && { kill -0 "$daemon" 2>/dev/null || [ "$(ps -o ppid= -p "$ptyhost" 2>/dev/null | tr -d ' ')" != 1 ]; }; do
+  while [ "$i" -lt 200 ] && { kill -0 "$daemon" 2>/dev/null || ! reparented_to_reaper "$ptyhost"; }; do
     sleep 0.05
     i=$((i + 1))
   done
-  [ "$(ps -o ppid= -p "$ptyhost" 2>/dev/null | tr -d ' ')" = 1 ] || fail "the pty-host was not reparented to init after the daemon ended"
+  reparented_to_reaper "$ptyhost" || fail "the pty-host was not reparented to init after the daemon ended"
   kill -0 "$frontend" 2>/dev/null || fail "the front-end died with the daemon, so the recycled case cannot be exercised"
 
   # Phase 2: the same session id over the broken chain - the reported drift.
