@@ -1,0 +1,254 @@
+===== fixed =====
+$ fm-explained-twice.sh list --sessions-dir $LAB/fixed/sessions
+[exit 0]
+sessions: 1 of 1
+sessions[1]{file,bytes,modified}:
+  "$LAB/fixed/sessions/s.jsonl",909,"2026-10-17T18:38:12.035Z"
+next: "bin/fm-explained-twice.sh scan --work-dir /tmp/data/corrections --session '$LAB/fixed/sessions/s.jsonl'"
+
+$ fm-explained-twice.sh scan --work-dir $LAB/fixed/data/review --session $LAB/fixed/sessions/s.jsonl --since 2026-10-17T00:00:00Z
+[exit 0]
+corpus: "$LAB/fixed/data/review/corpus.json"
+windows: 1
+user_messages: 5
+events[5]{id,corr,preview}:
+  36022cc44ace42354cb5,"job-a","corr=job-a Port is 9090, not 8080."
+  a27f53cdde5f5ed6dd64,"job-b","corr=job-b You used 8080 again. Port is 9090."
+  51148307e61af5453aae,"undecl","corr=undecl Still 8080; use 9090."
+  e714102a75cabbd98a25,"ref-","corr=ref- trailing hyphen"
+  cb25e8637c4c1bec4184,"ref","corr=ref trailing none"
+next: "bin/fm-explained-twice.sh show --work-dir '$LAB/fixed/data/review' --id cb25e8637c4c1bec4184"
+
+corr refs extracted: [[],["job-a"],["job-b"],["undecl"],["ref-"],["ref"]] 
+
+$ fm-explained-twice.sh show --work-dir $LAB/fixed/data/review --id 36022cc44ace42354cb5
+[exit 0]
+event: f0756ee92ead9b823568
+source: "$LAB/fixed/sessions/s.jsonl bytes 0-138"
+role: assistant
+corr: []
+text: "Port is 8080."
+characters: 13
+event: 36022cc44ace42354cb5
+source: "$LAB/fixed/sessions/s.jsonl bytes 140-294"
+role: user
+corr: ["job-a"]
+text: "corr=job-a Port is 9090, not 8080."
+characters: 34
+event: a27f53cdde5f5ed6dd64
+source: "$LAB/fixed/sessions/s.jsonl bytes 296-461"
+role: user
+corr: ["job-b"]
+text: "corr=job-b You used 8080 again. Port is 9090."
+characters: 45
+
+--- valid: two distinct declared threads ---
+$ fm-explained-twice.sh report --work-dir $LAB/fixed/data/review --review $LAB/fixed/data/review/review.json
+[exit 0]
+report: "$LAB/fixed/data/review/proposals.md"
+instruction_edits: 0
+
+# Explained twice: proposals
+
+Generated 2026-10-17T18:38:12.071Z.
+Reviewer: lab.
+1 qualifying repeated-correction groups; 0 groups below threshold.
+Counts are limited to cited evidence, not estimates of an entire session or shift.
+Only distinct corr threads with direct captain corrections contribute to the trigger.
+Semantic classification is a reviewer judgment, not an automatic authorship inference.
+No instruction files were edited.
+
+No additional review notes.
+
+## port is 9090
+
+Captain corrections: 2 sourced messages in 2 eligible distinct corr threads; trigger MET.
+Lane repetition: 0 sourced messages in 0 distinct corr threads, excluded from the captain count.
+
+- captain / correction; 2026-10-17T10:00:01.000Z; corr=job-a; thread=a; $LAB/fixed/sessions/s.jsonl bytes 140-294; event 36022cc44ace42354cb5.
+  > Port is 9090, not 8080.
+  Classification: Direct captain message in lab fixture correcting the port.
+
+- captain / correction; 2026-10-17T10:00:02.000Z; corr=job-b; thread=b; $LAB/fixed/sessions/s.jsonl bytes 296-461; event a27f53cdde5f5ed6dd64.
+  > You used 8080 again. Port is 9090.
+  Classification: Direct captain message in lab fixture correcting the port.
+
+Owner assessment: AGENTS.md.
+lab
+Neighbor assessment: lab
+
+Proposed replacement text (proposal only):
+
+> Use port 9090.
+
+## Thread identity review
+
+- a: corr=job-a.
+  lab
+- b: corr=job-b.
+  lab
+
+## Coverage and gaps
+
+These are bounded windows, not a complete session audit.
+Repeated or overlapping windows do not increase occurrence counts.
+- $LAB/fixed/sessions/s.jsonl: bytes [0, 909) of 909; since 2026-10-17T00:00:00.000Z; 6 complete records, 6 retained, 0 malformed, 0 partial edges, oversized=false.
+
+
+--- adversarial: second item omits thread key, undeclared corr ---
+$ fm-explained-twice.sh report --work-dir $LAB/fixed/data/review --review $LAB/fixed/data/review/review.json
+[exit 1]
+error: "thread must be null or a declared thread id: 51148307e61af5453aae"
+next: "bin/fm-explained-twice.sh --help"
+fm-explained-twice: thread must be null or a declared thread id: 51148307e61af5453aae
+
+===== prefix =====
+$ fm-explained-twice.sh list --sessions-dir $LAB/prefix/sessions
+[exit 0]
+sessions: 1 of 1
+sessions[1]{file,bytes,modified}:
+  "$LAB/prefix/sessions/s.jsonl",909,"2026-10-17T18:38:12.116Z"
+next: "bin/fm-explained-twice.sh scan --work-dir /tmp/data/corrections --session '$LAB/prefix/sessions/s.jsonl'"
+
+$ fm-explained-twice.sh scan --work-dir $LAB/prefix/data/review --session $LAB/prefix/sessions/s.jsonl --since 2026-10-17T00:00:00Z
+[exit 0]
+corpus: "$LAB/prefix/data/review/corpus.json"
+windows: 1
+user_messages: 5
+events[5]{id,corr,preview}:
+  5792750271aeb71ad7ac,"job-a","corr=job-a Port is 9090, not 8080."
+  5119ff7a1ea053896c55,"job-b","corr=job-b You used 8080 again. Port is 9090."
+  bd5ecc56c0e765bd58cd,"undecl","corr=undecl Still 8080; use 9090."
+  f7f01029bc64ab217ff3,"ref","corr=ref- trailing hyphen"
+  528f2881dcf184167d43,"ref","corr=ref trailing none"
+next: "bin/fm-explained-twice.sh show --work-dir '$LAB/prefix/data/review' --id 528f2881dcf184167d43"
+
+corr refs extracted: [[],["job-a"],["job-b"],["undecl"],["ref"],["ref"]] 
+
+$ fm-explained-twice.sh show --work-dir $LAB/prefix/data/review --id 5792750271aeb71ad7ac
+[exit 0]
+event: 70a06b768c343e9573ba
+source: "$LAB/prefix/sessions/s.jsonl bytes 0-138"
+role: assistant
+corr: []
+text: "Port is 8080."
+characters: 13
+event: 5792750271aeb71ad7ac
+source: "$LAB/prefix/sessions/s.jsonl bytes 140-294"
+role: user
+corr: ["job-a"]
+text: "corr=job-a Port is 9090, not 8080."
+characters: 34
+event: 5119ff7a1ea053896c55
+source: "$LAB/prefix/sessions/s.jsonl bytes 296-461"
+role: user
+corr: ["job-b"]
+text: "corr=job-b You used 8080 again. Port is 9090."
+characters: 45
+
+--- valid: two distinct declared threads ---
+$ fm-explained-twice.sh report --work-dir $LAB/prefix/data/review --review $LAB/prefix/data/review/review.json
+[exit 0]
+report: "$LAB/prefix/data/review/proposals.md"
+instruction_edits: 0
+
+# Explained twice: proposals
+
+Generated 2026-10-17T18:38:12.284Z.
+Reviewer: lab.
+1 qualifying repeated-correction groups; 0 groups below threshold.
+Counts are limited to cited evidence, not estimates of an entire session or shift.
+Only distinct corr threads with direct captain corrections contribute to the trigger.
+Semantic classification is a reviewer judgment, not an automatic authorship inference.
+No instruction files were edited.
+
+No additional review notes.
+
+## port is 9090
+
+Captain corrections: 2 sourced messages in 2 eligible distinct corr threads; trigger MET.
+Lane repetition: 0 sourced messages in 0 distinct corr threads, excluded from the captain count.
+
+- captain / correction; 2026-10-17T10:00:01.000Z; corr=job-a; thread=a; $LAB/prefix/sessions/s.jsonl bytes 140-294; event 5792750271aeb71ad7ac.
+  > Port is 9090, not 8080.
+  Classification: Direct captain message in lab fixture correcting the port.
+
+- captain / correction; 2026-10-17T10:00:02.000Z; corr=job-b; thread=b; $LAB/prefix/sessions/s.jsonl bytes 296-461; event 5119ff7a1ea053896c55.
+  > You used 8080 again. Port is 9090.
+  Classification: Direct captain message in lab fixture correcting the port.
+
+Owner assessment: AGENTS.md.
+lab
+Neighbor assessment: lab
+
+Proposed replacement text (proposal only):
+
+> Use port 9090.
+
+## Thread identity review
+
+- a: corr=job-a.
+  lab
+- b: corr=job-b.
+  lab
+
+## Coverage and gaps
+
+These are bounded windows, not a complete session audit.
+Repeated or overlapping windows do not increase occurrence counts.
+- $LAB/prefix/sessions/s.jsonl: bytes [0, 909) of 909; since 2026-10-17T00:00:00.000Z; 6 complete records, 6 retained, 0 malformed, 0 partial edges, oversized=false.
+
+
+--- adversarial: second item omits thread key, undeclared corr ---
+$ fm-explained-twice.sh report --work-dir $LAB/prefix/data/review --review $LAB/prefix/data/review/review.json
+[exit 0]
+report: "$LAB/prefix/data/review/proposals.md"
+instruction_edits: 0
+
+# Explained twice: proposals
+
+Generated 2026-10-17T18:38:12.327Z.
+Reviewer: lab.
+1 qualifying repeated-correction groups; 0 groups below threshold.
+Counts are limited to cited evidence, not estimates of an entire session or shift.
+Only distinct corr threads with direct captain corrections contribute to the trigger.
+Semantic classification is a reviewer judgment, not an automatic authorship inference.
+No instruction files were edited.
+
+No additional review notes.
+
+## port is 9090
+
+Captain corrections: 2 sourced messages in 2 eligible distinct corr threads; trigger MET.
+Lane repetition: 0 sourced messages in 0 distinct corr threads, excluded from the captain count.
+
+- captain / correction; 2026-10-17T10:00:01.000Z; corr=job-a; thread=a; $LAB/prefix/sessions/s.jsonl bytes 140-294; event 5792750271aeb71ad7ac.
+  > Port is 9090, not 8080.
+  Classification: Direct captain message in lab fixture correcting the port.
+
+- captain / correction; 2026-10-17T10:00:03.000Z; corr=undecl; thread=unmapped (excluded from trigger); $LAB/prefix/sessions/s.jsonl bytes 463-616; event bd5ecc56c0e765bd58cd.
+  > Still 8080; use 9090.
+  Classification: Direct captain message in lab fixture correcting the port.
+
+Owner assessment: AGENTS.md.
+lab
+Neighbor assessment: lab
+
+Proposed replacement text (proposal only):
+
+> Use port 9090.
+
+## Thread identity review
+
+- a: corr=job-a.
+  lab
+- b: corr=job-b.
+  lab
+
+## Coverage and gaps
+
+These are bounded windows, not a complete session audit.
+Repeated or overlapping windows do not increase occurrence counts.
+- $LAB/prefix/sessions/s.jsonl: bytes [0, 909) of 909; since 2026-10-17T00:00:00.000Z; 6 complete records, 6 retained, 0 malformed, 0 partial edges, oversized=false.
+
+
