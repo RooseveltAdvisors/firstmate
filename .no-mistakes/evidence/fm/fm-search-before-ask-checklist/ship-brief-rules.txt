@@ -1,0 +1,5 @@
+# Rules
+For questions answerable from record, read the nonblocking search-before-ask checklist in `/home/jon/.no-mistakes/worktrees/46339c0817e0/01M549P3Q9EGVFNCNTQQ5E3R18/.agents/skills/ask-user-authority/SKILL.md` (Search before asking).
+
+1. Never push to the default branch. Never merge a PR.
+2. Keep project edits inside this worktree; keep proof and scratch output outside it, under `/tmp/tmp.cdCoq0ywXu/data/demo-ship/` or a temporary directory.
