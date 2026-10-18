@@ -25,6 +25,7 @@ if (process.cwd() !== store || args[args.indexOf('--db') + 1] !== store + '/.bea
 if (!args.includes('--sandbox') || !args.includes('--json')) throw Error('unbounded command');
 const command = args.find(x => ['where', 'list', 'show', 'update'].includes(x));
 if (command !== 'update' && !args.includes('--readonly')) throw Error('read not readonly');
+if (process.env.HANG_BD === command) await Bun.sleep(3000);
 if (process.env.FAIL_BD === command) { console.error('Dolt lock held: fixture store unreachable'); process.exit(2); }
 if (command === 'where') console.log(JSON.stringify({path: store + '/.beads', database_path: process.env.WRONG_DB || store + '/.beads/embeddeddolt'}));
 else if (command === 'list') console.log('[]');
@@ -44,7 +45,7 @@ else if (command === 'update') {
 });
 afterEach(() => { rmSync(root, {recursive: true, force: true}); });
 function run(extra: Record<string, string> = {}, dir = output, prefix: string[] = []) {
-  return Bun.spawnSync([...prefix, 'bash', script, 'weekly', '--work-dir', dir, '--sources', sources, '--week', '2026-10-18'], {
+  return Bun.spawnSync([...prefix, 'bash', script, 'weekly', '--work-dir', dir, '--sources', sources], {
     stdout: 'pipe', stderr: 'pipe', timeout: 20000,
     env: {...process.env, PATH: bin + ':' + process.env.PATH, BEADS_DIR: '/wrong-store', BD_DATABASE: 'wrong-database', ...extra},
   });
@@ -53,6 +54,19 @@ const issue = () => JSON.parse(readFileSync(join(store, 'issue.json'), 'utf8'));
 const calls = (): string[][] => readFileSync(join(store, 'calls.jsonl'), 'utf8').trim().split('\n').map(s => JSON.parse(s));
 const text = (r: ReturnType<typeof run>) => r.stdout.toString() + r.stderr.toString();
 function success(r: ReturnType<typeof run>) { expect(text(r)).not.toContain('error:'); expect(r.exitCode).toBe(0); }
+const DAY = 86400000, at = (ms: number) => new Date(ms).toISOString();
+const lockFile = () => join(tmpdir(), `fm-weekly-${digest(JSON.stringify({id: 'fm-driver', directory: store, databasePath: db}))}.lock`);
+// Rewrites a finished run as if it had run at ranAt, keeping its artifacts valid.
+function backdate(file: string, ranAt: string, window = {since: at(Date.parse(ranAt) - 7 * DAY), until: ranAt}) {
+  const artifact = {...JSON.parse(readFileSync(file, 'utf8')), ran_at: ranAt, window};
+  writeFileSync(file, JSON.stringify(artifact));
+  return artifact;
+}
+function stampBead(file: string, ranAt: string, due: string, serialize = false, beadDue = due) {
+  const bead = issue(), stamp = {artifact_path: file, artifact_sha256: digest(readFileSync(file)), ran_at: ranAt, next_due_at: due};
+  bead.metadata.weekly_review = serialize ? JSON.stringify(stamp) : stamp; bead.due_at = beadDue;
+  writeFileSync(join(store, 'issue.json'), JSON.stringify(bead));
+}
 
 test('artifact path is readable and due is exactly seven days after captured run time', () => {
   const started = Date.now(); success(run());
@@ -60,7 +74,8 @@ test('artifact path is readable and due is exactly seven days after captured run
   expect(stamp.artifact_path).toBe(join(output, 'weekly-run.json'));
   const bytes = readFileSync(stamp.artifact_path), artifact = JSON.parse(bytes.toString());
   expect(stamp.artifact_sha256).toBe(digest(bytes));
-  expect(artifact.week).toBe('2026-10-12T00:00:00.000Z');
+  expect(artifact.window).toEqual({since: at(Date.parse(artifact.ran_at) - 7 * DAY), until: artifact.ran_at});
+  expect(JSON.parse(readFileSync(join(output, 'corpus.json'), 'utf8')).week).toEqual(artifact.window);
   expect(Date.parse(artifact.ran_at)).toBeGreaterThanOrEqual(Math.floor(started / 1000) * 1000);
   expect(Date.parse(bead.due_at) - Date.parse(artifact.ran_at)).toBe(7 * 86400000);
   expect(Date.parse(stamp.next_due_at)).toBe(Date.parse(bead.due_at));
@@ -71,7 +86,7 @@ test('artifact path is readable and due is exactly seven days after captured run
   expect(updates[0]).toContain('--due'); expect(updates[0]).toContain('--metadata');
 });
 
-test('same-week double invocation, even into another directory, keeps one bead, artifact and due date', () => {
+test('invocation before the bead is due again, even into another directory, keeps one bead, artifact and due date', () => {
   success(run()); const before = issue(), original = readFileSync(join(output, 'weekly-run.json'), 'utf8');
   success(run()); success(run({}, join(root, 'data', 'other')));
   expect(issue()).toEqual(before);
@@ -86,28 +101,54 @@ test('failed update preserves the artifact; retry dates from the original run, n
   expect(failed.exitCode).not.toBe(0); expect(text(failed)).toContain('Dolt lock held: fixture store unreachable');
   expect(text(failed)).not.toContain('weekly_cycle:'); expect(issue()).toEqual(before);
   const file = join(output, 'weekly-run.json'), artifact = JSON.parse(readFileSync(file, 'utf8'));
-  // Use a valid retained run timestamp several days earlier. A retry must
+  // Use a valid retained run timestamp several hours earlier. A retry must
   // honor that artifact, not recompute +7d from the new invocation clock.
-  artifact.ran_at = '2026-10-15T12:34:56.000Z'; writeFileSync(file, JSON.stringify(artifact));
+  const original = Math.floor(Date.parse(artifact.ran_at) / 1000) * 1000 - 5 * 3600000 - 1000;
+  backdate(file, at(original));
   success(run());
-  expect(issue().due_at).toBe('2026-10-22T12:34:56Z');
+  expect(Date.parse(issue().due_at)).toBe(original + 7 * DAY);
 });
 
-test('recover a serialized pending stamp at Beads second precision without advancing again', () => {
-  expect(run({FAIL_BD: 'update'}).exitCode).not.toBe(0);
-  const file = join(output, 'weekly-run.json'), artifact = JSON.parse(readFileSync(file, 'utf8'));
-  artifact.ran_at = '2026-10-18T21:30:48.496Z'; writeFileSync(file, JSON.stringify(artifact));
-  const before = issue(); before.due_at = '2026-10-25T21:30:48Z';
-  before.metadata.weekly_review = JSON.stringify({week: artifact.week, artifact_path: file,
-    artifact_sha256: digest(readFileSync(file)), ran_at: artifact.ran_at, next_due_at: '2026-10-25T21:30:48.496Z'});
-  writeFileSync(join(store, 'issue.json'), JSON.stringify(before));
+test('a legacy serialized stamp and calendar-week artifact are read, then normalized once', () => {
+  success(run());
+  // The first live cycle left a version-1 artifact with a calendar week, a
+  // sub-second ran_at, and its weekly_review stamp stored as a JSON string.
+  const file = join(output, 'weekly-run.json'), {window, ...rest} = JSON.parse(readFileSync(file, 'utf8'));
+  const ranAt = at(Math.floor(Date.now() / 1000) * 1000 - 3600000 + 496);
+  writeFileSync(file, JSON.stringify({...rest, version: 1, week: '2026-10-12T00:00:00.000Z', ran_at: ranAt}));
+  const due = at(Math.floor(Date.parse(ranAt) / 1000) * 1000 + 7 * DAY);
+  stampBead(file, ranAt, at(Date.parse(ranAt) + 7 * DAY), true, due);
+  const lists = calls().filter(a => a.includes('list')).length;
   success(run()); success(run());
   const after = issue();
-  expect(after.due_at).toBe(before.due_at);
-  expect(after.metadata.weekly_review.artifact_sha256).toBe(digest(readFileSync(file)));
-  expect(after.metadata.weekly_review.ran_at).toBe(artifact.ran_at);
-  expect(calls().filter(a => a.includes('list'))).toHaveLength(1);
-  expect(calls().filter(a => a.includes('update'))).toHaveLength(2); // one failed, one recovery
+  expect(Date.parse(after.due_at)).toBe(Date.parse(due));
+  expect(after.metadata.weekly_review).toEqual({artifact_path: file, artifact_sha256: digest(readFileSync(file)), ran_at: ranAt, next_due_at: due});
+  expect(calls().filter(a => a.includes('list'))).toHaveLength(lists);
+  expect(calls().filter(a => a.includes('update'))).toHaveLength(2); // first cycle, one normalization
+});
+
+test.each([0, 3 * 3600000 + 17 * 60000 + 9000, DAY - 1000])('cycles fired %pms late tile [previous run, this run) without gap or overlap', late => {
+  success(run());
+  const first = join(output, 'weekly-run.json'), previous = Math.floor(Date.now() / 1000) * 1000 - 7 * DAY - late;
+  const prior = backdate(first, at(previous));
+  stampBead(first, prior.ran_at, at(previous + 7 * DAY));
+  const next = join(root, 'data', 'next');
+  success(run({}, next));
+  const artifact = JSON.parse(readFileSync(join(next, 'weekly-run.json'), 'utf8'));
+  expect(artifact.window.since).toBe(prior.window.until);
+  expect(artifact.window.until).toBe(artifact.ran_at);
+  expect(JSON.parse(readFileSync(join(next, 'corpus.json'), 'utf8')).week).toEqual(artifact.window);
+  const list = calls().filter(a => a.includes('list')).at(-1)!;
+  expect(list[list.indexOf('--closed-after') + 1]).toBe(prior.window.until);
+  expect(list[list.indexOf('--closed-before') + 1]).toBe(artifact.ran_at);
+  expect(Date.parse(issue().due_at)).toBe(Date.parse(artifact.ran_at) + 7 * DAY);
+  expect(issue().metadata.weekly_review.artifact_path).toBe(join(next, 'weekly-run.json'));
+});
+
+test('a driver cycle refuses an explicit --week', () => {
+  const r = Bun.spawnSync(['bash', script, 'weekly', '--work-dir', output, '--sources', sources, '--week', '2026-10-18'],
+    {stdout: 'pipe', stderr: 'pipe', env: {...process.env, PATH: bin + ':' + process.env.PATH}});
+  expect(r.exitCode).not.toBe(0); expect(text(r)).toContain('omit --week');
 });
 
 test.each(['show', 'where'])('unreachable %s refuses verbatim before writing or re-dating', command => {
@@ -134,14 +175,26 @@ test('changed/unreadable stamped artifact refuses a completed-week replay', () =
 });
 
 test('an overlapping invocation refuses immediately without opening another cycle', () => {
-  const driver = {id: 'fm-driver', directory: store, databasePath: db};
-  const lock = join(tmpdir(), `fm-weekly-${digest(JSON.stringify(driver))}`);
-  mkdirSync(lock);
+  writeFileSync(lockFile(), String(process.pid));
   try {
     const before = issue(), r = run();
-    expect(r.exitCode).not.toBe(0); expect(text(r)).toContain('EEXIST'); expect(issue()).toEqual(before);
-    expect(calls().some(a => a.includes('update'))).toBe(false);
-  } finally { rmSync(lock, {recursive: true}); }
+    expect(r.exitCode).not.toBe(0); expect(text(r)).toContain(`weekly driver locked by running pid ${process.pid}: ${lockFile()}`);
+    expect(issue()).toEqual(before); expect(calls().some(a => a.includes('update'))).toBe(false);
+  } finally { rmSync(lockFile(), {force: true}); }
+});
+
+test('a run killed while holding the lock leaves the next run able to complete the cycle', async () => {
+  const child = Bun.spawn(['bash', script, 'weekly', '--work-dir', output, '--sources', sources],
+    {stdout: 'ignore', stderr: 'ignore', env: {...process.env, PATH: bin + ':' + process.env.PATH, HANG_BD: 'show'}});
+  for (let i = 0; i < 200 && !existsSync(lockFile()); i++) await Bun.sleep(25);
+  const pid = Number(readFileSync(lockFile(), 'utf8'));
+  process.kill(pid, 'SIGKILL'); await child.exited;
+  for (let i = 0; i < 200; i++) { try { process.kill(pid, 0); await Bun.sleep(25); } catch { break; } }
+  expect(existsSync(lockFile())).toBe(true);
+  const r = run({}, join(root, 'data', 'after-kill'));
+  success(r); expect(text(r)).toContain(`taking over stale weekly lock from exited pid ${pid}`);
+  expect(existsSync(lockFile())).toBe(false);
+  expect(issue().metadata.weekly_review.artifact_path).toBe(join(root, 'data', 'after-kill', 'weekly-run.json'));
 });
 
 test('no scheduler process or schedule file is opened during a real CLI cycle', () => {

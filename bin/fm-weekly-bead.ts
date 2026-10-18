@@ -1,29 +1,38 @@
 // Invoked-cycle completion only. fm-explained-twice.sh --help owns configuration.
-import { mkdirSync, rmdirSync, realpathSync, lstatSync, readFileSync } from 'node:fs';
+import { linkSync, unlinkSync, writeFileSync, realpathSync, lstatSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 export type Driver = { id: string; directory: string; databasePath: string };
-export type WeeklyRun = { version: 1; kind: 'weekly-instruction-review'; week: string; ran_at: string;
+export type Window = { since: string; until: string };
+// Version 1 artifacts declared a calendar week; one exists from the first live
+// cycle and remains readable. Version 2 declares the cycle window it reviewed.
+export type WeeklyRun = { version: 2; kind: 'weekly-instruction-review'; window: Window; ran_at: string;
   sources_sha256: string; driver: Driver; artifacts: { path: string; sha256: string }[] };
+const DAY = 86400000;
 const sha = (bytes: string | Buffer) => createHash('sha256').update(bytes).digest('hex');
+const iso = (value: unknown) => typeof value === 'string' && Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value;
 function check(ok: unknown, message: string): asserts ok { if (!ok) throw new Error(message); }
 function read(file: string) {
   const s = lstatSync(file);
   check(s.isFile() && s.nlink === 1 && s.size <= 4194304 && realpathSync(file) === resolve(file), `invalid weekly artifact: ${file}`);
   return readFileSync(file);
 }
-export function weeklyRun(file: string, driver: Driver, week: string) {
+export function weeklyRun(file: string, driver: Driver) {
   check(typeof file === 'string' && resolve(file) === file && file.split('/').includes('data') &&
     file === join(dirname(file), 'weekly-run.json'), 'invalid weekly run artifact path');
-  const bytes = read(file), run: WeeklyRun = JSON.parse(bytes.toString('utf8'));
-  check(run.version === 1 && run.kind === 'weekly-instruction-review' && run.week === week &&
-    JSON.stringify(run.driver) === JSON.stringify(driver) && /^[a-f0-9]{64}$/.test(run.sources_sha256), 'weekly artifact identity mismatch');
-  check(typeof run.ran_at === 'string' && new Date(run.ran_at).toISOString() === run.ran_at, 'invalid weekly run timestamp');
+  const bytes = read(file), run = JSON.parse(bytes.toString('utf8'));
+  check(run.kind === 'weekly-instruction-review' && JSON.stringify(run.driver) === JSON.stringify(driver) &&
+    /^[a-f0-9]{64}$/.test(run.sources_sha256), 'weekly artifact identity mismatch');
+  check(iso(run.ran_at), 'invalid weekly run timestamp');
+  const window: Window = run.version === 1 && iso(run.week)
+    ? {since: run.week, until: new Date(Date.parse(run.week) + 7 * DAY).toISOString()} : run.window;
+  check((run.version === 1 || (run.version === 2 && iso(window?.since) && window.until === run.ran_at)) &&
+    Date.parse(window.since) < Date.parse(window.until), 'invalid weekly run window');
   check(Array.isArray(run.artifacts) && run.artifacts.length >= 1 && run.artifacts.length <= 3 &&
-    run.artifacts.some(a => a.path === join(dirname(file), 'corpus.json')), 'weekly artifact needs its corpus');
+    run.artifacts.some((a: any) => a.path === join(dirname(file), 'corpus.json')), 'weekly artifact needs its corpus');
   const seen = new Set<string>();
   for (const a of run.artifacts) {
     check(['corpus.json', 'conformance.json', 'conformance.md'].some(name => a.path === join(dirname(file), name)) &&
@@ -33,12 +42,16 @@ export function weeklyRun(file: string, driver: Driver, week: string) {
   }
   // Beads persists due_at at whole-second resolution. Retained artifacts from
   // earlier invocations may contain a higher-resolution observation time.
-  return { run, digest: sha(bytes), next: new Date(Math.floor(Date.parse(run.ran_at) / 1000) * 1000 + 7 * 86400000).toISOString() };
+  return { run: run as WeeklyRun, window, digest: sha(bytes),
+    next: new Date(Math.floor(Date.parse(run.ran_at) / 1000) * 1000 + 7 * DAY).toISOString() };
 }
 
 // A transient per-bead lock serializes overlapping invocations, even with
 // different work directories. Contention refuses immediately; no polling.
-export function completeWeeklyCycle(config: unknown, week: string, invoke: (driver: Driver) => string) {
+// A lock left by a killed run names its exited pid and is taken over.
+// Each cycle reviews [previous ran_at, ranAt) and re-dates the bead to
+// ranAt + 7d, so consecutive cycles tile time without gaps or overlap.
+export function completeWeeklyCycle(config: unknown, ranAt: string, invoke: (driver: Driver, window: Window) => string) {
   const value = config as Driver;
   check(value && typeof value.id === 'string' && /^[a-zA-Z0-9_:\-]+$/.test(value.id) &&
     typeof value.directory === 'string' && typeof value.databasePath === 'string', 'invalid weekly driver; require id, directory, databasePath');
@@ -54,8 +67,21 @@ export function completeWeeklyCycle(config: unknown, week: string, invoke: (driv
   const where = bd(['where']);
   check(typeof where.database_path === 'string' && realpathSync(where.database_path) === driver.databasePath &&
     typeof where.path === 'string' && realpathSync(where.path) === realpathSync(join(driver.directory, '.beads')), 'weekly driver store identity mismatch');
-  const lock = join(tmpdir(), `fm-weekly-${sha(JSON.stringify(driver))}`);
-  mkdirSync(lock, {mode: 0o700});
+  const lock = join(tmpdir(), `fm-weekly-${sha(JSON.stringify(driver))}.lock`);
+  function acquire() {
+    const own = `${lock}.${process.pid}`;
+    writeFileSync(own, String(process.pid), {mode: 0o600});
+    try { linkSync(own, lock); } finally { unlinkSync(own); }
+  }
+  try { acquire(); } catch (error: any) {
+    if (error?.code !== 'EEXIST') throw error;
+    const pid = Number(readFileSync(lock, 'utf8'));
+    let alive = Number.isSafeInteger(pid) && pid > 0;
+    if (alive) try { process.kill(pid, 0); } catch (probe: any) { alive = probe?.code === 'EPERM'; }
+    check(!alive, `weekly driver locked by running pid ${pid}: ${lock}; remove it only if no weekly run is active`);
+    console.error(`taking over stale weekly lock from exited pid ${pid}: ${lock}`);
+    unlinkSync(lock); acquire();
+  }
   try {
     function show() {
       const rows = bd(['show', `--id=${driver.id}`]);
@@ -64,23 +90,29 @@ export function completeWeeklyCycle(config: unknown, week: string, invoke: (driv
       return rows[0];
     }
     const before = show(), raw = before.metadata?.weekly_review;
-    // bd --set-metadata treats values as strings; a previously unconfirmed
-    // update may need conversion to the object written by --metadata below.
+    // The first live cycle's readback failed after bd --set-metadata stored
+    // weekly_review as a JSON string. That stamp exists on a real bead; any
+    // successful update below rewrites it in the object form.
     const serialized = typeof raw === 'string', previous = serialized ? JSON.parse(raw) : raw;
-    let pendingArtifact: string | undefined;
+    let artifact: string | undefined;
     if (previous) {
-      check(typeof previous.week === 'string' && previous.week <= week, 'weekly driver already records a later week');
-      if (previous.week === week) {
-        check(typeof previous.artifact_path === 'string', 'weekly driver has no artifact path');
-        const saved = weeklyRun(previous.artifact_path, driver, week);
+      check(typeof previous.artifact_path === 'string' && iso(previous.ran_at) &&
+        Date.parse(previous.ran_at) <= Date.parse(ranAt), 'weekly driver has an invalid stamp');
+      if (Date.parse(ranAt) < Date.parse(before.due_at)) {
+        const saved = weeklyRun(previous.artifact_path, driver);
         check(saved.digest === previous.artifact_sha256 && Math.floor(Date.parse(previous.next_due_at) / 1000) * 1000 === Date.parse(saved.next) &&
           saved.run.ran_at === previous.ran_at && Date.parse(before.due_at) === Date.parse(saved.next), 'weekly driver stamp/due mismatch');
         if (!serialized) return {artifact: previous.artifact_path as string, due: saved.next, already_complete: true};
-        pendingArtifact = previous.artifact_path;
+        artifact = previous.artifact_path;
       }
     }
-    const artifact = pendingArtifact || invoke(driver), saved = weeklyRun(artifact, driver, week);
-    const stamp = {week, artifact_path: artifact, artifact_sha256: saved.digest, ran_at: saved.run.ran_at, next_due_at: saved.next};
+    const since: string = previous?.ran_at ?? new Date(Date.parse(ranAt) - 7 * DAY).toISOString();
+    artifact ??= invoke(driver, {since, until: ranAt});
+    const saved = weeklyRun(artifact, driver);
+    check(artifact === previous?.artifact_path || (saved.run.version === 2 && saved.window.since ===
+      (previous ? previous.ran_at : new Date(Date.parse(saved.run.ran_at) - 7 * DAY).toISOString())),
+      'weekly artifact window does not continue the stamped cycle');
+    const stamp = {artifact_path: artifact, artifact_sha256: saved.digest, ran_at: saved.run.ran_at, next_due_at: saved.next};
     // Stamp and date belong to ONE update. Never create/close a bead or use a
     // relative date, which would advance again when retrying a completed run.
     bd(['update', '--metadata', JSON.stringify({...before.metadata, weekly_review: stamp}), '--due', saved.next, '--', driver.id], true);
@@ -88,5 +120,5 @@ export function completeWeeklyCycle(config: unknown, week: string, invoke: (driv
     check(Object.entries(stamp).every(([key, value]) => after.metadata?.weekly_review?.[key] === value) &&
       Date.parse(after.due_at) === Date.parse(saved.next), 'weekly bead update not confirmed by readback');
     return {artifact, due: saved.next, already_complete: false};
-  } finally { rmdirSync(lock); }
+  } finally { unlinkSync(lock); }
 }
