@@ -385,7 +385,7 @@ const unresolvedLog = `strip-at-merge | 2026-10-18T10:00:00Z | violate | ${enfor
   `strip-at-merge | 2026-10-18T10:01:00Z | violate | git show ${commit}\n` +
   `report-standards | 2026-10-18T10:02:00Z | violate | ${gitRef}\n` +
   `search-before-ask | 2026-10-18T10:03:00Z | miss | ${joinedRef}\n` +
-  `auto-bead | 2026-10-18T10:04:00Z | miss | legacy opaque receipt\n`;
+  `auto-bead | 2026-10-18T10:04:00Z | miss | legacy beads fm-a + fm-b receipt\n`;
 const unresolvedNotes = `${stateRef} | repo=${JSON.stringify(gitRoot)}; snapshot-sha256=${'1'.repeat(64)}\n` +
   `${transcriptRef} | path=${JSON.stringify(session)}; offset=0; bytes=128; sha256=${digest(windowBytes)}\n`;
 writeFileSync(join(nativeInput, 'conformance.log'), unresolvedLog);
@@ -403,7 +403,7 @@ check(joinedFinding.unresolved.join() === stateRef && joinedFinding.citations.le
 check([enforcementFinding, joinedFinding, nativeGit].every(f => !f.citations.some(c => c.includes('caller-supplied')) && f.gaps.some(g => g.startsWith('Caller-supplied locator ignored'))), 'caller locator cannot pad a native collector reference');
 check(nativeGit.citations.length === 0 && nativeGit.unresolved[0] === gitRef, '--repo cannot bind a native Git reference the collector map does not');
 check(legacyFinding.citations[0].includes('commit=' + commit) && legacyFinding.citations[0].includes('caller-supplied repository (--repo)') && !legacyFinding.unresolved.length, 'legacy --repo citation is labelled caller-supplied');
-check(opaque.unresolved[0] === 'legacy opaque receipt' && nm.includes('source=unresolved:legacy opaque receipt (no content-addressed collector binding)'), 'opaque legacy ref is marked unresolved');
+check(opaque.unresolved.join('|') === 'legacy beads fm-a + fm-b receipt' && nm.includes('source=unresolved:legacy beads fm-a + fm-b receipt (no content-addressed collector binding)'), 'opaque legacy ref containing + is one unresolved part with its raw reference');
 check(nr.unresolved_parts === 4 && ruleOf('strip-at-merge').unresolved_parts === 1 && nm.includes('Unresolved reference parts in violate/miss findings: 4'), 'unresolved parts are counted separately');
 check(ruleOf('strip-at-merge').counts.violate === 2 && ruleOf('report-standards').counts.violate === 1 && ruleOf('search-before-ask').counts.miss === 1 && ruleOf('auto-bead').counts.miss === 1 && nr.rows === 5, 'verdict counts are unchanged by resolution');
 check(readFileSync(join(nativeInput, 'conformance.log'), 'utf8') === unresolvedLog && readFileSync(join(nativeInput, 'conformance-notes.md'), 'utf8') === unresolvedNotes, 'resolution leaves inputs byte-identical');

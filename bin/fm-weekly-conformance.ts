@@ -92,7 +92,8 @@ export function conformance(options: Record<string, string>, week?: { since: str
   const gitState = /^git:sha256:[a-f0-9]{64}:state=[a-f0-9]{64}(?::enforcement=[a-f0-9]{64})?$/;
   function sources(reference: string) {
     const citations: string[] = [], gaps: string[] = [], unresolved: string[] = [];
-    const parts = reference.split('+'), supplied = locators.filter(l => l.reference === reference);
+    // Only a joined native reference splits on '+'; opaque legacy prose stays one part with its raw text.
+    const split = reference.split('+'), parts = split.every(p => native.test(p)) ? split : [reference], supplied = locators.filter(l => l.reference === reference);
     const unresolvedPart = (ref: string, why: string) => { unresolved.push(ref); gaps.push(`source=unresolved:${ref} (${why})`); };
     function fileCitation(file: string, offset = 0, bytes?: number, expected?: string, identity?: string) {
       try {
