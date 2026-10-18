@@ -1696,11 +1696,6 @@ ${context.command}
     // getEntries() here loses the captain request that the next wake may answer.
     // Stage it verbatim and remember the future persisted index for turn_end's
     // duplicate suppression. Operational extension injections are not dialog.
-    if (event.messageType === "custom") {
-      processingOpenedThisRun = isProcessingCustomMessage(event.message) &&
-        queuedProcessingContent !== null && event.message.content === queuedProcessingContent;
-      return;
-    }
     const prompt = "prompt" in event ? event.prompt : "";
     processingOpenedThisRun = queuedProcessingContent !== null && prompt === queuedProcessingContent;
     const trimmed = prompt.trim();

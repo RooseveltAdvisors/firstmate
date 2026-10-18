@@ -59,5 +59,105 @@ test_search_before_ask_pointer_generation() {
   pass "ship and scout briefs point their Rules at the search-before-ask checklist"
 }
 
+test_bounded_transcript_lookup() {
+  if ! command -v bun >/dev/null 2>&1 || ! command -v rg >/dev/null 2>&1; then
+    printf 'skip: transcript lookup requires Bun and rg\n'
+    return
+  fi
+  if ! TRANSCRIPT_TEST_ROOT="$TMP_ROOT/transcripts" TRANSCRIPT_SEARCH="$ROOT/bin/fm-transcript-search.sh" bun run - <<'JS'
+import {mkdirSync, writeFileSync, chmodSync, symlinkSync} from 'node:fs';
+import {join} from 'node:path';
+const root = process.env.TRANSCRIPT_TEST_ROOT;
+const script = process.env.TRANSCRIPT_SEARCH;
+const nested = join(root, '.nested');
+mkdirSync(nested, {recursive: true});
+const file = join(nested, 'session.jsonl');
+const quote = 'Go merge the PR if it is mergeable; Café.';
+const raw = JSON.stringify({type: 'message', message: {role: 'user', content: 'x'.repeat(2 * 1024 * 1024) + quote}}) + '\n';
+writeFileSync(file, raw);
+writeFileSync(join(root, 'ignored.txt'), 'only outside transcripts');
+const check = (ok, message) => { if (!ok) throw new Error(message); };
+function run(args, env = process.env) {
+  const p = Bun.spawnSync(['bash', script, ...args], {env, stdout: 'pipe', stderr: 'pipe'});
+  check(p.exitCode === 0, `search must not gate asking: ${p.stderr}`);
+  return JSON.parse(p.stdout.toString());
+}
+const base = ['--root', root];
+const answer = run([...base, '--', 'go merge the pr']);
+check(answer.status === 'partial' && answer.hits.length === 1, 'hidden nested JSONL must be searched case-insensitively');
+const hit = answer.hits[0];
+check(hit.file === file && hit.matchOffset === Buffer.from(raw).indexOf(Buffer.from(quote)), 'citation must give exact file and byte offset');
+check(hit.windowBytes <= 2048 && hit.windowOffset === hit.matchOffset - 512 && hit.window.includes(quote), 'large record must return only a bounded matching window');
+check(JSON.stringify(answer).length < 5000, 'large session must not flood output');
+const utf = run([...base, '--', 'Café']);
+check(utf.hits[0].matchOffset === Buffer.from(raw).indexOf(Buffer.from('Café')), 'Unicode match offsets must count bytes');
+check(run([...base, '--', 'only outside transcripts']).hits.length === 0, 'non-JSONL files must be excluded');
+const empty = run([...base, '--', 'absent fact']);
+check(empty.status === 'partial' && empty.hits.length === 0, 'empty capped search must not claim complete coverage');
+check(run(['--root', join(root, 'missing'), '--', quote]).status === 'unavailable', 'missing root must degrade without blocking');
+const home = join(root, 'home');
+const piFile = join(home, '.pi/agent/sessions/p/s.jsonl'), claudeFile = join(home, '.claude/projects/c/s.jsonl');
+mkdirSync(join(home, '.pi/agent/sessions/p'), {recursive: true});
+mkdirSync(join(home, '.claude/projects/c'), {recursive: true});
+writeFileSync(piFile, '{"m":"pi standing order"}\n');
+writeFileSync(claudeFile, '{"m":"claude standing order"}\n');
+const env = {...process.env, HOME: home};
+delete env.XDG_DATA_HOME;
+delete env.MUSE_DATA_HOME;
+delete env.CURSOR_PROJECTS_ROOT_OVERRIDE;
+const cursorFile = join(home, '.cursor/projects/w/agent-transcripts/a/a.jsonl');
+mkdirSync(join(home, '.cursor/projects/w/agent-transcripts/a'), {recursive: true});
+writeFileSync(cursorFile, '{"m":"cursor standing order"}\n');
+const defaults = run(['--', 'standing order'], env);
+check(defaults.status === 'partial' && defaults.hits.map(h => h.file).sort().join() === [claudeFile, cursorFile, piFile].sort().join(), 'default roots must cover Pi, Claude and Cursor transcripts');
+const cursorMissing = run(['--', 'standing order'], {...env, CURSOR_PROJECTS_ROOT_OVERRIDE: join(root, 'no-cursor')});
+check(cursorMissing.missingRoots.some(m => m.root === join(root, 'no-cursor')) && cursorMissing.reason.includes('could not search ' + join(root, 'no-cursor')), 'missing Cursor root must be named as not searched');
+writeFileSync(piFile, '{"m":"pi standing order --help"}\n');
+const literalHelp = run(['--', '--help'], env);
+check(literalHelp.term === '--help' && literalHelp.hits.length === 1 && literalHelp.hits[0].file === piFile, 'literal --help after -- must be searched, not treated as usage');
+check(run(['--', '-h'], env).term === '-h', 'literal -h after -- must be searched, not treated as usage');
+check(defaults.roots.length === 3 && defaults.missingRoots.length === 1 && defaults.missingRoots[0].root === join(home, '.local/share/muse/sessions') && defaults.reason.includes('could not search ' + join(home, '.local/share/muse/sessions')), 'missing default root must be named as not searched');
+const museHome = join(root, 'muse-data'), xdgHome = join(root, 'xdg-data');
+const museFile = join(museHome, 'muse/sessions/m.jsonl');
+mkdirSync(join(museHome, 'muse/sessions'), {recursive: true});
+mkdirSync(join(xdgHome, 'muse/sessions'), {recursive: true});
+writeFileSync(museFile, '{"m":"muse standing order"}\n');
+writeFileSync(join(xdgHome, 'muse/sessions/x.jsonl'), '{"m":"xdg standing order"}\n');
+const muse = run(['--', 'standing order'], {...env, MUSE_DATA_HOME: museHome, XDG_DATA_HOME: xdgHome});
+check(muse.hits.some(h => h.file === museFile) && !muse.hits.some(h => h.window.includes('xdg standing')) && muse.missingRoots.length === 0, 'MUSE_DATA_HOME must take precedence over XDG_DATA_HOME for the Muse root');
+const museMissing = run(['--', 'standing order'], {...env, MUSE_DATA_HOME: join(root, 'no-muse'), XDG_DATA_HOME: xdgHome});
+check(!museMissing.hits.some(h => h.window.includes('xdg standing')) && museMissing.missingRoots.some(m => m.root === join(root, 'no-muse/muse/sessions')) && museMissing.reason.includes('could not search ' + join(root, 'no-muse/muse/sessions')), 'missing MUSE_DATA_HOME root must be named as not searched, not replaced by XDG');
+const mixed = run(['--root', join(home, '.claude/projects'), '--root', join(root, 'missing'), '--', 'standing order']);
+check(mixed.hits.length === 1 && mixed.hits[0].file === claudeFile && mixed.missingRoots[0].root === join(root, 'missing'), 'repeated --root must search existing roots and report missing ones');
+const outside = join(root, 'outside');
+mkdirSync(outside);
+writeFileSync(join(outside, 'secret.jsonl'), 'symlink-only fact');
+symlinkSync(outside, join(nested, 'linked'));
+check(run(['--root', nested, '--', 'symlink-only fact']).hits.length === 0, 'search must not follow nested directory symlinks');
+writeFileSync(file, ('z'.repeat(256) + ' ').repeat(10000));
+const capped = run([...base, '--limit', '2', '--', 'z'.repeat(256)]);
+check(capped.status === 'partial' && capped.hits.length <= 2 && capped.reason.includes('ENOBUFS'), 'output overflow must report incomplete coverage and cap windows');
+const fakebin = join(root, 'fakebin');
+mkdirSync(fakebin);
+writeFileSync(join(fakebin, 'rg'), '#!/bin/bash\nexec sleep 30\n');
+chmodSync(join(fakebin, 'rg'), 0o755);
+const slow = run([...base, '--seconds', '1', '--', quote], {...process.env, PATH: `${fakebin}:${process.env.PATH}`});
+check(slow.status === 'unavailable' && slow.reason.includes('ETIMEDOUT') && slow.elapsedMs < 7000, 'timeout must terminate search, explain missing coverage, and permit asking');
+const noTools = join(root, 'no-tools');
+mkdirSync(noTools);
+const noBun = Bun.spawnSync(['/bin/bash', script, ...base, '--', quote], {env: {...process.env, PATH: noTools}, stdout: 'pipe', stderr: 'pipe'});
+check(noBun.exitCode === 0 && JSON.parse(noBun.stdout.toString()).reason.includes('Bun is unavailable'), 'missing Bun must not gate a question');
+symlinkSync(process.execPath, join(noTools, 'bun'));
+// bash is launched by absolute path so only the helper loses rg.
+const missing = Bun.spawnSync(['/bin/bash', script, ...base, '--', quote], {env: {...process.env, PATH: noTools}, stdout: 'pipe', stderr: 'pipe'});
+check(missing.exitCode === 0 && JSON.parse(missing.stdout.toString()).status === 'unavailable', 'missing rg must not gate a question');
+JS
+  then
+    fail "bounded transcript lookup failed"
+  fi
+  pass "transcript lookup gives bounded byte citations and nonblocking incomplete coverage"
+}
+
 test_primary_and_secondmate_instruction_generation
 test_search_before_ask_pointer_generation
+test_bounded_transcript_lookup
