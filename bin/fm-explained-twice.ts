@@ -56,7 +56,8 @@ weekly --work-dir DIR --sources FILE [--week YYYY-MM-DD] [--bead-limit N]
   overlap. Reinvoking before due_at verifies the stamped artifact without
   updating the date or making another run, even with a different work-dir.
   After a failed bead update, retry with the SAME sources and work-dir to reuse
-  weekly-run.json and its original run time. Missing/changed artifacts refuse.
+  weekly-run.json and its original run time. Missing/changed artifacts refuse,
+  and a work-dir from an earlier completed cycle refuses rather than replaying.
   Missing/locked/unreachable beads or stores fail visibly; outputs survive, and
   no successful cycle is reported without readback. Overlapping runs refuse
   through a transient per-bead lock; a lock left by an exited run is taken over.

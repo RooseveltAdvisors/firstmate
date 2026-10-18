@@ -145,6 +145,46 @@ test.each([0, 3 * 3600000 + 17 * 60000 + 9000, DAY - 1000])('cycles fired %pms l
   expect(issue().metadata.weekly_review.artifact_path).toBe(join(next, 'weekly-run.json'));
 });
 
+test('a due cycle reviews observations after the previous run and before this run only', () => {
+  success(run());
+  const first = join(output, 'weekly-run.json'), previous = Math.floor(Date.now() / 1000) * 1000 - 7 * DAY - 3600000;
+  const prior = backdate(first, at(previous));
+  stampBead(first, prior.ran_at, at(previous + 7 * DAY));
+  const session = join(root, 'session.jsonl'), message = (ms: number, content: string) =>
+    JSON.stringify({type: 'message', timestamp: at(ms), message: {role: 'user', content}});
+  writeFileSync(session, [message(previous - 1000, 'corr=before reviewed last cycle'), message(previous, 'corr=edge first instant'),
+    message(previous + 3 * DAY, 'corr=inside this cycle'), message(Date.now() + DAY, 'corr=future after this run')].join('\n') + '\n');
+  const manifest = JSON.parse(readFileSync(sources, 'utf8'));
+  writeFileSync(sources, JSON.stringify({...manifest, sessions: [{file: session}]}));
+  const next = join(root, 'data', 'next'), r = run({}, next);
+  success(r); expect(text(r)).toContain('user_messages: 2');
+  const texts = JSON.parse(readFileSync(join(next, 'corpus.json'), 'utf8')).events.map((e: any) => e.text);
+  expect(texts.some((t: string) => t.includes('edge first instant'))).toBe(true);
+  expect(texts.some((t: string) => t.includes('inside this cycle'))).toBe(true);
+  expect(texts.some((t: string) => t.includes('before reviewed') || t.includes('future after'))).toBe(false);
+});
+
+test('an empty window still reports its bounds and zero observations', () => {
+  const r = run(); success(r);
+  const corpus = JSON.parse(readFileSync(join(output, 'corpus.json'), 'utf8'));
+  expect(text(r)).toContain('closed_beads: 0'); expect(text(r)).toContain('user_messages: 0');
+  expect(text(r)).toContain(`week: ${JSON.stringify(corpus.week)}`);
+  expect(corpus.events).toEqual([]);
+  expect(corpus.notes).toContain(`Weekly review window: [${corpus.week.since}, ${corpus.week.until}). Invoked on demand; no schedule installed.`);
+});
+
+test('reusing a completed cycle work-dir once the bead is due refuses instead of replaying', () => {
+  success(run());
+  const file = join(output, 'weekly-run.json'), previous = Math.floor(Date.now() / 1000) * 1000 - 7 * DAY;
+  const prior = backdate(file, at(previous));
+  stampBead(file, prior.ran_at, at(previous + 7 * DAY));
+  const before = issue(), r = run();
+  expect(r.exitCode).not.toBe(0);
+  expect(text(r)).toContain(`weekly artifact window does not continue the stamped cycle: ${file}`);
+  expect(text(r)).not.toContain('weekly_cycle:');
+  expect(issue()).toEqual(before); expect(calls().filter(a => a.includes('update'))).toHaveLength(1);
+});
+
 test('a driver cycle refuses an explicit --week', () => {
   const r = Bun.spawnSync(['bash', script, 'weekly', '--work-dir', output, '--sources', sources, '--week', '2026-10-18'],
     {stdout: 'pipe', stderr: 'pipe', env: {...process.env, PATH: bin + ':' + process.env.PATH}});
@@ -181,6 +221,17 @@ test('an overlapping invocation refuses immediately without opening another cycl
     expect(r.exitCode).not.toBe(0); expect(text(r)).toContain(`weekly driver locked by running pid ${process.pid}: ${lockFile()}`);
     expect(issue()).toEqual(before); expect(calls().some(a => a.includes('update'))).toBe(false);
   } finally { rmSync(lockFile(), {force: true}); }
+});
+
+test('only one run may take over a stale lock; a concurrent taker refuses', () => {
+  const dead = Bun.spawnSync(['true']).pid;
+  writeFileSync(lockFile(), String(dead)); writeFileSync(lockFile() + '.takeover', String(process.pid));
+  try {
+    const before = issue(), r = run();
+    expect(r.exitCode).not.toBe(0); expect(text(r)).toContain(`weekly driver lock is held: ${lockFile()}.takeover`);
+    expect(readFileSync(lockFile(), 'utf8')).toBe(String(dead));
+    expect(issue()).toEqual(before); expect(calls().some(a => a.includes('update'))).toBe(false);
+  } finally { rmSync(lockFile(), {force: true}); rmSync(lockFile() + '.takeover', {force: true}); }
 });
 
 test('a run killed while holding the lock leaves the next run able to complete the cycle', async () => {
