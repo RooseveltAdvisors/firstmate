@@ -88,8 +88,12 @@ export function conformance(options: Record<string, string>, week?: { since: str
   const locators: Locator[] = options.citations ? JSON.parse(read(options.citations, 1048576).toString('utf8')) : [];
   check(Array.isArray(locators) && locators.length <= 1000, '--citations must contain at most 1000 explicit source locators');
   for (const l of locators) check(l && typeof l.reference === 'string' && typeof l.file === 'string', 'invalid citation locator');
+  const native = /^(?:artifact|transcript|git|registry):sha256:/;
+  const gitState = /^git:sha256:[a-f0-9]{64}:state=[a-f0-9]{64}(?::enforcement=[a-f0-9]{64})?$/;
   function sources(reference: string) {
-    const citations: string[] = [], gaps: string[] = [];
+    const citations: string[] = [], gaps: string[] = [], unresolved: string[] = [];
+    const parts = reference.split('+'), supplied = locators.filter(l => l.reference === reference);
+    const unresolvedPart = (ref: string, why: string) => { unresolved.push(ref); gaps.push(`source=unresolved:${ref} (${why})`); };
     function fileCitation(file: string, offset = 0, bytes?: number, expected?: string, identity?: string) {
       try {
         const path = realpathSync(file), b = read(path, 4194304, offset, bytes), hash = sha(b);
@@ -98,12 +102,14 @@ export function conformance(options: Record<string, string>, week?: { since: str
         citations.push(`${quote(path)}; bytes [${offset}, ${offset + b.length}); sha256=${hash}`);
       } catch (e) { gaps.push(String(e)); }
     }
-    for (const l of locators.filter(l => l.reference === reference)) {
+    if (parts.some(p => native.test(p))) {
+      if (supplied.length) gaps.push('Caller-supplied locator ignored: native collector reference; only its collector-map bindings are cited');
+    } else for (const l of supplied) {
       const before = citations.length;
       fileCitation(l.file, l.offset, l.bytes);
       if (citations.length > before) citations[citations.length - 1] += '; caller-supplied association (not independently established by the opaque reference)';
     }
-    for (const ref of reference.split('+')) {
+    for (const ref of parts) {
       const base = ref.replace(/:record=\d+$/, '');
       const detail = mappings.get(ref) || mappings.get(base);
       const file = detail && /(?:^|; )path=("(?:\\.|[^"\\])*")/.exec(detail)?.[1];
@@ -111,15 +117,15 @@ export function conformance(options: Record<string, string>, week?: { since: str
       const legacyGit = /^(?:git show )([a-f0-9]{40,64})(?:\s|$)/.exec(ref);
       if (git || legacyGit) {
         const repoText = detail && /^repo=("(?:\\.|[^"\\])*")/.exec(detail)?.[1];
-        const repo = repoText ? JSON.parse(repoText) : options.repo;
-        if (!repo) { gaps.push('Git repository not supplied; reference identifies no reachable checkout'); continue; }
+        const repo = repoText ? JSON.parse(repoText) : legacyGit ? options.repo : undefined;
+        if (!repo) { unresolvedPart(ref, git ? 'collector map binds no repository for this Git reference' : 'legacy Git reference and no --repo supplied'); continue; }
         try {
           const path = realpathSync(repo), commit = git?.[2] || legacyGit![1];
           check(!git || sha(path) === git[1], 'Git repo-path digest mismatch (not a content hash)');
           const r = spawnSync('git', ['-C', path, 'show', '-s', '--format=%B', commit, '--'],
             {encoding: 'buffer', timeout: 15000, maxBuffer: 4194304, env: {...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0'}});
           check(!r.error && r.status === 0, `Git commit unavailable: ${commit}`);
-          citations.push(`git repo=${quote(path)}; commit=${commit}; command=git show -s --format=%B; message-sha256=${sha(r.stdout)}`);
+          citations.push(`git repo=${quote(path)}; commit=${commit}; command=git show -s --format=%B; message-sha256=${sha(r.stdout)}${repoText ? '' : '; caller-supplied repository (--repo), not collector-derived'}`);
         } catch (e) { gaps.push(String(e)); }
       } else if (file) {
         const path = JSON.parse(file);
@@ -129,10 +135,11 @@ export function conformance(options: Record<string, string>, week?: { since: str
         if (transcript) fileCitation(path, Number(transcript[2]), Number(transcript[3]), transcript[4], transcript[1]);
         else if (artifact) fileCitation(path, 0, undefined, artifact[2], artifact[1]);
         else if (reg) fileCitation(path, 0, undefined, reg[1]);
-        else gaps.push(`Unrecognized source binding: ${ref}`);
+        else unresolvedPart(ref, 'unrecognized collector-map binding');
       } else if (ref.startsWith('/')) fileCitation(ref);
+      else unresolvedPart(ref, gitState.test(ref) ? 'Git state snapshot; a current checkout cannot replay the recorded state' : 'no content-addressed collector binding');
     }
-    return {citations: [...new Set(citations)], gaps};
+    return {citations: [...new Set(citations)], gaps, unresolved};
   }
   const perRule = rules.map(rule => {
     const selected = rows.filter(row => row.rule === rule.id);
@@ -141,17 +148,18 @@ export function conformance(options: Record<string, string>, week?: { since: str
     const findings = selected.filter(row => row.verdict === 'violate' || row.verdict === 'miss').map(row => ({...row, ...sources(row.reference)}));
     const unobservable = selected.filter(row => row.verdict === 'no-signature').map(row => ({line: row.line, reference: row.reference,
       reason: reasons.get(rule.id + '\0' + row.reference) || (noSignature ? rule.signature : 'Reason unavailable in collector notes; row is no-signature, never a successful check.')}));
-    return {...rule, status: noSignature ? 'no-signature' : selected.length ? 'observations-only' : 'no-observations', counts, findings, unobservable};
+    const unresolved_parts = findings.reduce((n, f) => n + f.unresolved.length, 0);
+    return {...rule, status: noSignature ? 'no-signature' : selected.length ? 'observations-only' : 'no-observations', counts, unresolved_parts, findings, unobservable};
   });
   // A window marker is coverage, never a fabricated execution time. Historical
   // runs retain the actual generated_at alongside this in-window observation.
   const windowTimestamp = rows.length ? rows.reduce((a, b) => utc(a.timestamp) > utc(b.timestamp) ? a : b).timestamp : since;
   const result = {version: 1, kind: 'weekly-rule-conformance', generated_at: generated.toISOString(),
-    window: {since, until, timestamp: windowTimestamp}, rows: rows.length, excluded,
+    window: {since, until, timestamp: windowTimestamp}, rows: rows.length, excluded, unresolved_parts: perRule.reduce((n, r) => n + r.unresolved_parts, 0),
     inputs: {registry: {path: registry, sha256: sha(registryBytes)}, log: {path: log, sha256: sha(logBytes)}}, rules: perRule};
-  let markdown = `# Weekly rule conformance\n\nGenerated ${result.generated_at}.\nWindow: [${since}, ${until}), UTC derivation times.\nWindow timestamp: ${windowTimestamp} (latest included observation, or window start when empty; not execution time).\n${rows.length} rows included; ${excluded} outside the window.\nCounts are observations, never a safety score; missing observations do not prove compliance.\nProposals only; no rule edits, gates, scheduling, or enforcement.\nAny change requires the captain's explicit word.\nRegistry: ${quote(registry)}; sha256=${sha(registryBytes)}.\nLog: ${quote(log)}; sha256=${sha(logBytes)}.\n\n`;
+  let markdown = `# Weekly rule conformance\n\nGenerated ${result.generated_at}.\nWindow: [${since}, ${until}), UTC derivation times.\nWindow timestamp: ${windowTimestamp} (latest included observation, or window start when empty; not execution time).\n${rows.length} rows included; ${excluded} outside the window.\nUnresolved reference parts in violate/miss findings: ${result.unresolved_parts} (counted apart from verdicts; each is marked source=unresolved).\nCounts are observations, never a safety score; missing observations do not prove compliance.\nProposals only; no rule edits, gates, scheduling, or enforcement.\nAny change requires the captain's explicit word.\nRegistry: ${quote(registry)}; sha256=${sha(registryBytes)}.\nLog: ${quote(log)}; sha256=${sha(logBytes)}.\n\n`;
   for (const rule of perRule) {
-    markdown += `## ${rule.id}\n\n${rule.rule}\nStatus: ${rule.status}.\nCounts: ${verdicts.map(v => `${v}=${rule.counts[v]}`).join('; ')}.\nWhat it cannot show: ${rule.limit}\nRegistry citation: ${quote(registry)}:${rule.line}.\n`;
+    markdown += `## ${rule.id}\n\n${rule.rule}\nStatus: ${rule.status}.\nCounts: ${verdicts.map(v => `${v}=${rule.counts[v]}`).join('; ')}.\nUnresolved reference parts: ${rule.unresolved_parts}.\nWhat it cannot show: ${rule.limit}\nRegistry citation: ${quote(registry)}:${rule.line}.\n`;
     if (rule.status === 'no-signature') markdown += `No-signature reason: ${rule.signature}\nZero observed violations is not a measurable compliance result for this rule.\n`;
     for (const row of rule.unobservable) markdown += `No-signature observation: ${quote(log)}:${row.line}; reference=${quote(row.reference)}; reason=${row.reason}\n`;
     for (const finding of rule.findings) {

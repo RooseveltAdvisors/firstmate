@@ -69,8 +69,13 @@ conformance --work-dir DIR [--conformance-dir DIR] [--since UTC] [--until UTC]
   Every violate/miss cites its exact log line/reference and reachable artifacts.
   Optional conformance-notes.md resolves collector references with path/content
   hashes and transcript byte bounds. Git path digests identify CHECKOUT paths,
-  never content; commit IDs bind content. --repo locates legacy git references.
-  --citations supplies explicit locators for legacy or otherwise opaque rows:
+  never content; commit IDs bind content. --repo locates legacy "git show SHA"
+  references only and is labelled caller-supplied. Reference parts without a
+  collector binding (including unreplayable Git state snapshots) are marked
+  source=unresolved:REF and counted separately from verdicts.
+  --citations supplies explicit locators only for legacy/external rows the
+  collector cannot resolve; native artifact/transcript/git/registry references
+  never take caller locators. Format:
   [{"reference":"exact source reference from row","file":"/source/evidence",
     "offset":0,"bytes":1024}]. Bounds optional; whole files max 4 MiB.
   Caller locators are attributed as supplied, not inferred semantic evidence.
