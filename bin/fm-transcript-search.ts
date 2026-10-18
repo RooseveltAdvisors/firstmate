@@ -8,7 +8,8 @@ const HELP = `Optional transcript lookup; this never gates a question.
 Usage: fm-transcript-search.sh [--root DIR]... [--seconds N] [--limit N] -- TEXT
 Requires Bun and rg. Searches *.jsonl recursively under every --root given, or by
 default under each harness transcript root: ~/.pi/agent/sessions (Pi),
-~/.claude/projects (Claude), \${XDG_DATA_HOME:-~/.local/share}/muse/sessions (Muse),
+~/.claude/projects (Claude),
+\${MUSE_DATA_HOME:-\${XDG_DATA_HOME:-~/.local/share}}/muse/sessions (Muse),
 \${CURSOR_PROJECTS_ROOT_OVERRIDE:-~/.cursor/projects} (Cursor).
 Roots that do not resolve are skipped and listed in missingRoots, never errors.
 All roots share one rg scan and one --seconds cap.
@@ -58,7 +59,7 @@ try {
   term = args[0];
   if (!term.length || Buffer.byteLength(term) > 256 || /[\r\n\0]/.test(term)) throw new Error('TEXT must be 1-256 bytes without newlines or NUL');
   if (!requested.length) requested.push(join(homedir(), '.pi/agent/sessions'), join(homedir(), '.claude/projects'),
-    join(process.env.XDG_DATA_HOME || join(homedir(), '.local/share'), 'muse/sessions'),
+    join(process.env.MUSE_DATA_HOME || process.env.XDG_DATA_HOME || join(homedir(), '.local/share'), 'muse/sessions'),
     process.env.CURSOR_PROJECTS_ROOT_OVERRIDE || join(homedir(), '.cursor/projects'));
   for (const root of requested) {
     try { roots.push(realpathSync(root)); }

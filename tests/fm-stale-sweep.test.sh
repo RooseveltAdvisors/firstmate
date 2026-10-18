@@ -38,9 +38,9 @@ fm_git_identity fmtest fmtest@example.invalid
 SWEEP="$ROOT/bin/fm-stale-sweep.sh"
 TMP_ROOT=$(fm_test_tmproot fm-stale-sweep)
 
-# A fakebin whose tmux answers every target except the dead row's window, and
-# whose no-mistakes reports no run anywhere (crew-state's run lookup finds
-# nothing, so verdicts come from the pane/busy-record paths).
+# A fakebin whose tmux answers and lists the live row's window but never the
+# dead row's, and whose no-mistakes reports no run anywhere (crew-state's run
+# lookup finds nothing, so verdicts come from the pane/busy-record paths).
 make_fakebin() {  # <dir>
   local fb="$1/fakebin"
   mkdir -p "$fb"
@@ -53,6 +53,12 @@ case "${1:-}" in
       case "$a" in *%dead*) exit 1 ;; esac
     done
     printf '%%1\n'
+    exit 0
+    ;;
+  list-windows)
+    # Backend endpoint membership is an exact window-name lookup, so the
+    # session inventory must carry the live window and omit the dead one.
+    printf '%%live\n'
     exit 0
     ;;
 esac
