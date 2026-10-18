@@ -1,0 +1,5 @@
+fm-explained-twice: registry finding at line 70: expected four nonempty columns
+error: "registry finding at line 70: expected four nonempty columns"
+next: "bin/fm-explained-twice.sh --help"
+exit=1
+registry+log unchanged: yes

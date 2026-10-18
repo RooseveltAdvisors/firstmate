@@ -1,0 +1,22 @@
+## 1. window boundary + legacy caller locator
+$ conformance --conformance-dir adv (real rows + 2026-10-11T23:59:59Z and 2026-10-19T00:00:00Z rows) --since 2026-10-12T00:00:00Z --until 2026-10-19T00:00:00Z --citations legacy.json
+conformance: "/tmp/tmp.b5YHedaWtt/data/adv/conformance.md"
+conformance_rows: 3
+conformance_window: {"since":"2026-10-12T00:00:00Z","until":"2026-10-19T00:00:00Z","timestamp":"2026-10-18T10:09:00Z"}
+instruction_edits: 0
+exit=0
+3 rows included; 2 outside the window.
+  Citation 1: "/tmp/tmp.b5YHedaWtt/adv/conformance.log":4; source reference="transcript --home-jon-git-wiseman-- 2026-10-16T14-56-04-648Z: same merge-authority question asked 3x before locating the captain's written order".
+  Citation 2: "/tmp/tmp.b5YHedaWtt/excerpt.txt"; bytes [0, 10); sha256=54e6289e14c7b0e7ad9acc2dfc4c1e3d027d0eef7f5c4c3fe7c292761d0e06a6; caller-supplied association (not independently established by the opaque reference).
+  Citation 1: "/tmp/tmp.b5YHedaWtt/adv/conformance.log":5; source reference="fm-test-run CI-remote: no local FM_HOME at failure time; beads fm-mtdon + fm-g3vfm filed by firstmate afterwards (recorder refused verbatim, evidence preserved)".
+  Single source only: the log row/reference; no second reachable source in the supplied locators or collector map.
+json rows 3 excluded 2 unresolved_parts 2
+INPUTS_BYTE_UNCHANGED
+
+## 2. unparsable registry row -> finding, registry untouched
+79:| `one-worktree` | a task reuses its recorded worktree; no second checkout | `git worktree list` vs `state/<id>.meta` worktree field |  |
+fm-explained-twice: registry finding at line 79: expected four nonempty columns
+error: "registry finding at line 79: expected four nonempty columns"
+next: "bin/fm-explained-twice.sh --help"
+exit=1
+/tmp/tmp.b5YHedaWtt/adv/registry.md: OK

@@ -1,0 +1,8 @@
+## run
+conformance: "/tmp/tmp.rHCGWOHqQR/data/fx/conformance.md"
+conformance_rows: 5
+conformance_window: {"since":"2026-10-12T00:00:00Z","until":"2026-10-19T00:00:00Z","timestamp":"2026-10-18T10:10:00Z"}
+instruction_edits: 0
+exit=0
+## log/registry unchanged:
+yes

@@ -1,0 +1,8 @@
+$ cp reg.md fh/data/rule-conformance/registry.md   # real layout: registry beside the log
+$ FM_HOME=fh bin/fm-explained-twice.sh conformance --work-dir fh/data/review --citations loc.json   # loc.json tries to pad the native no-hand-edit ref
+conformance: "/tmp/tmp.b5YHedaWtt/fh/data/review/conformance.md"
+conformance_rows: 7
+conformance_window: {"since":"2026-10-11T15:01:21.038Z","until":"2026-10-18T15:01:21.038Z","timestamp":"2026-10-18T15:01:07Z"}
+instruction_edits: 0
+exit=0
+INPUTS_BYTE_UNCHANGED

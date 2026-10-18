@@ -1,0 +1,2 @@
+bounded extraction, attribution, alias counting, quotes, source integrity and proposal-only output: pass
+ok - live-correction review through public CLI

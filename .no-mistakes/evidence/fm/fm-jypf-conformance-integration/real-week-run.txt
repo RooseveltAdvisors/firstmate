@@ -1,0 +1,12 @@
+## before
+d3825c5196cc346b0592287010023ac818b1177a55f998f8a9a2f0217877dd11  /opt/ra/firstmate/data/rule-conformance/conformance.log
+d1a65205624262ad203bf5beb0e3b20d5d19b99fbb2d972df1f3e5f1a5ef71dc  /opt/ra/firstmate/data/rule-conformance/registry.md
+## run
+conformance: "/tmp/tmp.rHCGWOHqQR/data/real/conformance.md"
+conformance_rows: 3
+conformance_window: {"since":"2026-10-12T00:00:00Z","until":"2026-10-19T00:00:00Z","timestamp":"2026-10-18T10:09:00Z"}
+instruction_edits: 0
+exit=0
+## after
+d3825c5196cc346b0592287010023ac818b1177a55f998f8a9a2f0217877dd11  /opt/ra/firstmate/data/rule-conformance/conformance.log
+d1a65205624262ad203bf5beb0e3b20d5d19b99fbb2d972df1f3e5f1a5ef71dc  /opt/ra/firstmate/data/rule-conformance/registry.md

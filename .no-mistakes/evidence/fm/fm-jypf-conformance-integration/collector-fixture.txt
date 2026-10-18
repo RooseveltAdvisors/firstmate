@@ -1,0 +1,23 @@
+$ bin/fm-rule-conformance.sh --manifest manifest.json --output fh/data/rule-conformance --registry reg.md
+appended: 7
+duplicate: 0
+exit=0
+--- conformance.log
+first-step-first | 2026-10-18T15:01:07Z | no-signature | registry:sha256:d1a65205624262ad203bf5beb0e3b20d5d19b99fbb2d972df1f3e5f1a5ef71dc
+report-standards | 2026-10-18T15:01:07Z | no-signature | registry:sha256:d1a65205624262ad203bf5beb0e3b20d5d19b99fbb2d972df1f3e5f1a5ef71dc
+never-bypass-a-refusal | 2026-10-18T15:01:07Z | no-signature | registry:sha256:d1a65205624262ad203bf5beb0e3b20d5d19b99fbb2d972df1f3e5f1a5ef71dc
+strip-at-merge | 2026-10-18T15:01:07Z | follow | git:sha256:7e9d7ccb1bcf9e1f9b85f3feb09702925dd65c233f5cf5548e757b928ed18b7e:commit=e94227b7328afd1992a90668ba79d829fcb31bfe
+one-worktree | 2026-10-18T15:01:07Z | no-signature | git:sha256:7e9d7ccb1bcf9e1f9b85f3feb09702925dd65c233f5cf5548e757b928ed18b7e:state=07f4e6d7a3d2dbccdcfb1ae0d958344d909f9a33fa5e2ef62fa6b50a954e759f
+no-hand-edit-enforcement | 2026-10-18T15:01:07Z | violate | git:sha256:7e9d7ccb1bcf9e1f9b85f3feb09702925dd65c233f5cf5548e757b928ed18b7e:state=07f4e6d7a3d2dbccdcfb1ae0d958344d909f9a33fa5e2ef62fa6b50a954e759f:enforcement=acb1ea2628779427fc83eef4c1479d2028ec9f5521a8769a619567a8975bcd78
+disclose-not-rewrite | 2026-10-18T15:01:07Z | no-signature | git:sha256:7e9d7ccb1bcf9e1f9b85f3feb09702925dd65c233f5cf5548e757b928ed18b7e:state=07f4e6d7a3d2dbccdcfb1ae0d958344d909f9a33fa5e2ef62fa6b50a954e759f
+--- notes
+first-step-first | registry:sha256:d1a65205624262ad203bf5beb0e3b20d5d19b99fbb2d972df1f3e5f1a5ef71dc | Registry explicitly declares no independent signature.
+report-standards | registry:sha256:d1a65205624262ad203bf5beb0e3b20d5d19b99fbb2d972df1f3e5f1a5ef71dc | Registry explicitly declares no independent signature.
+never-bypass-a-refusal | registry:sha256:d1a65205624262ad203bf5beb0e3b20d5d19b99fbb2d972df1f3e5f1a5ef71dc | Registry explicitly declares no independent signature.
+strip-at-merge | git:sha256:7e9d7ccb1bcf9e1f9b85f3feb09702925dd65c233f5cf5548e757b928ed18b7e:commit=e94227b7328afd1992a90668ba79d829fcb31bfe | Selected merge commit contains 0 recognized agent attribution lines; selection does not prove merge provenance.
+one-worktree | git:sha256:7e9d7ccb1bcf9e1f9b85f3feb09702925dd65c233f5cf5548e757b928ed18b7e:state=07f4e6d7a3d2dbccdcfb1ae0d958344d909f9a33fa5e2ef62fa6b50a954e759f | No task metadata supplied for worktree comparison.
+no-hand-edit-enforcement | git:sha256:7e9d7ccb1bcf9e1f9b85f3feb09702925dd65c233f5cf5548e757b928ed18b7e:state=07f4e6d7a3d2dbccdcfb1ae0d958344d909f9a33fa5e2ef62fa6b50a954e759f:enforcement=acb1ea2628779427fc83eef4c1479d2028ec9f5521a8769a619567a8975bcd78 | Selected enforcement paths have local dirty state.
+disclose-not-rewrite | git:sha256:7e9d7ccb1bcf9e1f9b85f3feb09702925dd65c233f5cf5548e757b928ed18b7e:state=07f4e6d7a3d2dbccdcfb1ae0d958344d909f9a33fa5e2ef62fa6b50a954e759f | Bounded local reflog cannot establish remote force-push absence or transcript disclosure.
+registry:sha256:d1a65205624262ad203bf5beb0e3b20d5d19b99fbb2d972df1f3e5f1a5ef71dc | path="/tmp/tmp.b5YHedaWtt/fh/reg.md"; sha256=d1a65205624262ad203bf5beb0e3b20d5d19b99fbb2d972df1f3e5f1a5ef71dc
+git:sha256:7e9d7ccb1bcf9e1f9b85f3feb09702925dd65c233f5cf5548e757b928ed18b7e:commit=e94227b7328afd1992a90668ba79d829fcb31bfe | repo="/tmp/tmp.b5YHedaWtt/repo"; git show -s --format=%B e94227b7328afd1992a90668ba79d829fcb31bfe --; sha256=acdd86c284dbc65a3f1c54df8556024091d751b0fd16c9a7507a248aba544dd3
+git:sha256:7e9d7ccb1bcf9e1f9b85f3feb09702925dd65c233f5cf5548e757b928ed18b7e:state=07f4e6d7a3d2dbccdcfb1ae0d958344d909f9a33fa5e2ef62fa6b50a954e759f | repo="/tmp/tmp.b5YHedaWtt/repo"; git worktree list --porcelain + git status --porcelain=v1 --untracked-files=all + git reflog -n 100 --format=%H %gs; snapshot-sha256=07f4e6d7a3d2dbccdcfb1ae0d958344d909f9a33fa5e2ef62fa6b50a954e759f
