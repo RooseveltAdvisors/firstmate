@@ -1640,7 +1640,8 @@ A full treehouse pool is the sibling condition: [`bin/fm-spawn.sh`](../bin/fm-sp
 
 ## Mail plane (.env)
 
-The mail plane (bin/fm-mail.sh) reads unseen IMAP messages and sends one SMTP message.
+The mail plane (bin/fm-mail.sh) reads unseen IMAP messages.
+Its SMTP send path is refused by the action gate.
 
 **Polling and delivery guarantees**
 
@@ -1684,6 +1685,27 @@ A fail-closed poll that already queued a wake, and a timeout, always print so th
 
 `FM_MAIL_CHECK_BUDGET` (default 15, valid 5..25) bounds one standing poll and is cut down to fit `FM_CHECK_TIMEOUT`.
 `bin/fm-mail-check.sh disarm` removes the standing check.
+
+## Consequential action gate
+
+`bin/fm-action-gate.sh` owns the invocation syntax, signed request format, key provisioning, and brake operations in its header and help output.
+The executable regression is `tests/fm-action-gate.test.sh`.
+The current runtime verification record is `docs/si-control/evidence/t1-enforcement.json`.
+
+The gate refuses writable or changed enforcement before loading its libraries.
+Grants require the installed administrator's signature and bind provenance and exact command arguments.
+Draft execution renders a typed JSON draft without invoking a caller-supplied program.
+The signed human brake prevents minting and execution, reconciles queued grants, and keeps those grants revoked after clearing.
+Concurrent admissions fail closed while another operation holds the admission lock.
+A busy brake invocation refuses explicitly and must be retried.
+
+Installation is an administrator operation, separate from a repository change.
+Protect the enforcement checkout, its Git baseline, public key, `.action-control/` state and every ancestor against worker replacement, and keep the signing private key inaccessible to workers.
+Use the protected code installation with a separate writable operational `FM_HOME`.
+Provision its initial signed brake state before admitting actions; missing or unauthenticated state denies admission.
+Consumption markers remain in the operational home and do not protect against a hostile owner deleting that operational state.
+The runtime guard is a tripwire, not a replacement for ownership hardening or mandatory mediation of effects outside this executor.
+The installed ownership check and independent installed scenario reruns remain operator verification; disposable-copy regression results do not establish those host properties.
 
 ## Relay (.env)
 

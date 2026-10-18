@@ -1,0 +1,43 @@
+{
+  "date_utc": "2026-10-18",
+  "protocol_versions": ["fm-action-grant.v1", "fm-action-control.v1"],
+  "scope": "Disposable installation with synthetic administrator keys and synthetic effects; runtime regression evidence only",
+  "command": "bash bin/fm-test-run.sh tests/fm-action-gate.test.sh tests/fm-gate-refuse.test.sh",
+  "scenarios": [
+    {
+      "requirement": 7,
+      "runtime_verdict": "PASS",
+      "output": [
+        "ok - #7 runtime guard refuses writable or altered enforcement and resumes after restore",
+        "ok - #7 same-user grant forgery denied without relying on grant-store write permissions"
+      ],
+      "installed_ownership_verdict": "NOT_VERIFIED"
+    },
+    {
+      "requirement": 16,
+      "runtime_verdict": "PASS",
+      "output": ["ok - #16 brake stops queued/fresh actions and minting, records reconciliation, resumes with fresh authority"]
+    },
+    {
+      "requirement": 3,
+      "runtime_verdict": "PASS",
+      "output": ["ok - #3 forwarded mail_send relabeled booking denied before execution"]
+    },
+    {
+      "requirement": 2,
+      "runtime_verdict": "PASS",
+      "output": ["ok - #2 arbitrary curl denied; draft class renders only a typed draft"]
+    }
+  ],
+  "installation_requirements": [
+    "Administrator protects the installed enforcement files, Git baseline, public key, control state and all ancestor paths against worker replacement",
+    "Administrator keeps the private signing key inaccessible to workers and provisions initial signed control state for each operational home",
+    "Independent operator reruns each scenario against the installed gate before acceptance closure"
+  ],
+  "limits": [
+    "A self-check cannot protect its own mutable code or mutable Git baseline",
+    "This executor does not mediate effects invoked outside it",
+    "Consumption markers in the operational home do not survive a hostile owner erasing that state",
+    "Root administrator provisioning and installed ownership were not exercised by the unprivileged disposable-copy test"
+  ]
+}
