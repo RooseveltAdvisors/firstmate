@@ -45,18 +45,22 @@ weekly --work-dir DIR --sources FILE [--week YYYY-MM-DD] [--bead-limit N]
   Optional "driver":{"id":"fm-hjr0r","directory":"/home/operator/firstmate",
     "databasePath":"/home/operator/firstmate/.beads/embeddeddolt"} selects ONE
   existing driving bead, independently of the stores being reviewed.
+  A driver cycle omits --week and reviews the rolling window from the bead's
+  last stamped run time (or seven days earlier, first time) to this run time.
   After all outputs succeed, weekly-run.json records the captured run time and
   output hashes; metadata.weekly_review stamps its absolute path and SHA256 on
   that bead, with due_at exactly seven days after the captured UTC run second
   (Beads persists due dates at whole-second resolution).
   The stamp and date are one update, verified by bd show. No bead is created.
-  Reinvoking the same UTC week verifies/reuses the stamped artifact without
+  The next cycle's window starts where this one ends, so cycles neither gap nor
+  overlap. Reinvoking before due_at verifies the stamped artifact without
   updating the date or making another run, even with a different work-dir.
   After a failed bead update, retry with the SAME sources and work-dir to reuse
   weekly-run.json and its original run time. Missing/changed artifacts refuse.
   Missing/locked/unreachable beads or stores fail visibly; outputs survive, and
   no successful cycle is reported without readback. Overlapping runs refuse
-  through a transient per-bead lock; there is no polling or schedule installation.
+  through a transient per-bead lock; a lock left by an exited run is taken over.
+  There is no polling or schedule installation.
   Without driver the existing weekly intake stays read-only toward all boards.
   Due dates do not hide ready beads; Firstmate checks due_at on bd ready rows.
   This stamps invocation evidence, not completion of the later semantic review.
@@ -72,7 +76,7 @@ weekly --work-dir DIR --sources FILE [--week YYYY-MM-DD] [--bead-limit N]
   Review bead lessons alongside live corrections using the SAME report procedure.
   Beads are reported/lane evidence, never direct captain authorship or new threads;
   locate the original direct corrections before claiming the existing trigger.
-  --conformance-dir adds the conformance leg to this SAME UTC week, writing
+  --conformance-dir adds the conformance leg to this SAME review window, writing
   conformance.md and conformance.json alongside corpus.json. It is opt-in so
   existing store/correction reviews need no conformance inputs to continue.
 conformance --work-dir DIR [--conformance-dir DIR] [--since UTC] [--until UTC]
@@ -361,16 +365,16 @@ function weekWindow(date?: string) {
   start.setUTCDate(start.getUTCDate() - (start.getUTCDay() + 6) % 7);
   return {since: start.toISOString(), until: new Date(start.getTime() + 7 * 86400000).toISOString()};
 }
-function weekly(dir: string, sourcesFile: string, date: string | undefined, limit: number): Corpus {
+function weekly(dir: string, sourcesFile: string, window: {since: string; until: string}, limit: number): Corpus {
   requireThat(readdirSync(dir).length === 0, 'weekly needs a new or empty --work-dir; keep prior reviews separate');
-  const {since, until} = weekWindow(date);
+  const {since, until} = window;
   requireThat(statSync(sourcesFile).size <= 65536, 'sources manifest exceeds 65536 bytes');
   const sources = JSON.parse(readFileSync(sourcesFile, 'utf8'));
   requireThat(Array.isArray(sources.stores) && sources.stores.length > 0 && sources.stores.length <= 100,
     'sources must explicitly enumerate 1-100 stores');
   requireThat(Array.isArray(sources.sessions) && sources.sessions.length <= 100, 'sources must explicitly enumerate up to 100 session windows');
   const c: Corpus = { version: 1, windows: [], events: [], notes: [], week: { since, until } };
-  c.notes.push(`Weekly review window: [${since}, ${until}), UTC Monday to Monday. Invoked on demand; no schedule installed.`);
+  c.notes.push(`Weekly review window: [${since}, ${until}). Invoked on demand; no schedule installed.`);
   // A subprocess can otherwise inherit a different lane's board from BEADS_DIR.
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('BEADS_') && key !== 'BD_DATABASE'));
   function bd(directory: string, databasePath: string, args: string[]) {
@@ -443,7 +447,7 @@ function weekly(dir: string, sourcesFile: string, date: string | undefined, limi
   }
   if (sources.stateDir !== undefined) { textField(sources.stateDir, 'stateDir'); scanState(c, realpathSync(sources.stateDir), 200, since); }
   c.events = [...new Map(c.events.filter(e => Date.parse(e.timestamp) < Date.parse(until)).map(e => [e.id, e])).values()];
-  c.notes.push('Weekly events are restricted to the half-open UTC week; session window retained counts precede the upper-bound filter. Bead snapshots are reported evidence only; closed once is not recurrence.');
+  c.notes.push('Weekly events are restricted to the half-open review window; session window retained counts precede the upper-bound filter. Bead snapshots are reported evidence only; closed once is not recurrence.');
   return c;
 }
 function report(c: Corpus, reviewFile: string) {
@@ -549,20 +553,20 @@ try {
       requireThat(statSync(options.sources).size <= 65536, 'sources manifest exceeds 65536 bytes');
       const sourcesBytes = readFileSync(options.sources), sources = JSON.parse(sourcesBytes.toString('utf8'));
       const ranAt = new Date(Math.floor(Date.now() / 1000) * 1000).toISOString();
-      const target = options.week || ranAt.slice(0, 10);
-      const week = weekWindow(target).since, runFile = join(dir, 'weekly-run.json');
-      function invoke(driver?: Driver) {
+      const runFile = join(dir, 'weekly-run.json');
+      requireThat(sources.driver === undefined || options.week === undefined, 'a driver cycle reviews since its last stamped run; omit --week');
+      function invoke(window: {since: string; until: string}, driver?: Driver) {
         if (driver && existsSync(runFile)) {
-          const saved = weeklyRun(runFile, driver, week);
+          const saved = weeklyRun(runFile, driver);
           requireThat(saved.run.sources_sha256 === hash(sourcesBytes), 'retry requires the same sources manifest');
           return runFile;
         }
-        const c = weekly(dir, options.sources, target, integer(options['bead-limit'], 200, 1000));
+        const c = weekly(dir, options.sources, window, integer(options['bead-limit'], 200, 1000));
         save(corpusFile, JSON.stringify(c, null, 2) + '\n');
         if (options['conformance-dir']) saveConformance(c.week);
         if (driver) {
           const paths = [corpusFile, ...(options['conformance-dir'] ? [join(dir, 'conformance.json'), join(dir, 'conformance.md')] : [])];
-          const run: WeeklyRun = {version: 1, kind: 'weekly-instruction-review', week, ran_at: ranAt,
+          const run: WeeklyRun = {version: 2, kind: 'weekly-instruction-review', window, ran_at: ranAt,
             sources_sha256: hash(sourcesBytes), driver, artifacts: paths.map(path => ({path, sha256: hash(readFileSync(path))}))};
           save(runFile, JSON.stringify(run, null, 2) + '\n');
         }
@@ -570,9 +574,9 @@ try {
         return runFile;
       }
       if (sources.driver !== undefined) {
-        const cycle = completeWeeklyCycle(sources.driver, week, invoke);
+        const cycle = completeWeeklyCycle(sources.driver, ranAt, (driver, window) => invoke(window, driver));
         console.log(`weekly_cycle: ${q(cycle)}`);
-      } else invoke();
+      } else invoke(weekWindow(options.week));
     } else if (command === 'conformance') {
       saveConformance();
     } else if (command === 'scan') {
