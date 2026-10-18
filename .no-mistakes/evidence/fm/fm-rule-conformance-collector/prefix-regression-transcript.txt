@@ -1,0 +1,18 @@
+# Same S2 drive against a copy with the pre-fix two-path 'check-ignore -q' call
+== S2 ignored+untracked data/ dir inside Git: collect, then rerun
+$ fm-rule-conformance.sh --output repo/data/p
+Error: output must be ignored and untracked
+error: collection failed; inspect stderr and select bounded native artifacts
+exit=1
+/tmp/tmp.uRSF01qEAM/drive-old.sh: line 18: /tmp/fm-rc-live.eA2sOL/repo/data/p/conformance.log: No such file or directory
+sha256sum: /tmp/fm-rc-live.eA2sOL/repo/data/p/conformance.log: No such file or directory
+sha256sum: /tmp/fm-rc-live.eA2sOL/repo/data/p/conformance-notes.md: No such file or directory
+$ fm-rule-conformance.sh --output repo/data/p
+Error: output must be ignored and untracked
+error: collection failed; inspect stderr and select bounded native artifacts
+exit=1
+sha256sum: /tmp/fm-rc-live.eA2sOL/repo/data/p/conformance.log: No such file or directory
+sha256sum: /tmp/fm-rc-live.eA2sOL/repo/data/p/conformance-notes.md: No such file or directory
+rerun: log+notes byte-identical
+head: cannot open '/tmp/fm-rc-live.eA2sOL/repo/data/p/conformance.log' for reading: No such file or directory
+== S3 not-ignored data/ dir inside Git is refused

@@ -1,0 +1,47 @@
+== S1 two-path git check-ignore -q (the root-cause git behaviour)
+fatal: --quiet is only valid with a single pathname
+two-path -q exit=128
+single-path -q exit=0
+== S2 ignored+untracked data/ dir inside Git: collect, then rerun
+$ fm-rule-conformance.sh --output repo/data/p
+appended: 8
+duplicate: 0
+exit=0
+log rows: 8
+$ fm-rule-conformance.sh --output repo/data/p
+appended: 0
+duplicate: 8
+exit=0
+rerun: log+notes byte-identical
+first-step-first | 2026-10-18T12:36:19Z | no-signature | registry:sha256:7265daf8dfcde4840ce0bcdce586ea2e1faae1dff3f3536e9a3a9775b1a9c203
+report-standards | 2026-10-18T12:36:19Z | no-signature | registry:sha256:7265daf8dfcde4840ce0bcdce586ea2e1faae1dff3f3536e9a3a9775b1a9c203
+never-bypass-a-refusal | 2026-10-18T12:36:19Z | no-signature | registry:sha256:7265daf8dfcde4840ce0bcdce586ea2e1faae1dff3f3536e9a3a9775b1a9c203
+== S3 not-ignored data/ dir inside Git is refused
+$ fm-rule-conformance.sh --output repo/data/q
+Error: output must be ignored and untracked
+error: collection failed; inspect stderr and select bounded native artifacts
+exit=1
+== S4 only conformance.log ignored (notes not) is refused
+$ fm-rule-conformance.sh --output repo/data/r
+Error: output must be ignored and untracked
+error: collection failed; inspect stderr and select bounded native artifacts
+exit=1
+== S5 log+notes ignored but api-*.json snapshots not ignored is refused
+$ fm-rule-conformance.sh --output repo/data/s
+Error: output must be ignored and untracked
+error: collection failed; inspect stderr and select bounded native artifacts
+exit=1
+== S6 tracked output is refused
+$ fm-rule-conformance.sh --output repo/data/p
+Error: output must be ignored and untracked
+error: collection failed; inspect stderr and select bounded native artifacts
+exit=1
+== S7 non-Git private data/ dir works
+$ fm-rule-conformance.sh --output plain/data/rc
+appended: 8
+duplicate: 0
+exit=0
+== S8 git missing from PATH fails closed
+Error: Git discovery failed; output privacy unproven
+error: collection failed; inspect stderr and select bounded native artifacts
+exit=1
