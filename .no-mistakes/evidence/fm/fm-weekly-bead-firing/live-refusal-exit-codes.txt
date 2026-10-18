@@ -1,0 +1,3 @@
+/tmp/fmwk.ER7IVu/sources.json workdir=/tmp/fmwk.ER7IVu/data/c3 exit=1
+/tmp/fmwk.ER7IVu/s-missing.json workdir=/tmp/fmwk.ER7IVu/data/m exit=1
+/tmp/fmwk.ER7IVu/s-unreach.json workdir=/tmp/fmwk.ER7IVu/data/u exit=1

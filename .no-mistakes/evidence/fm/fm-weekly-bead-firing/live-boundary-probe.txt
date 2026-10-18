@@ -1,0 +1,2 @@
+0
+bd list --closed-after <cycle2.since> returns the above count; bd list --closed-after <since-1s> includes wk-rvx closed_at 22:02:50Z

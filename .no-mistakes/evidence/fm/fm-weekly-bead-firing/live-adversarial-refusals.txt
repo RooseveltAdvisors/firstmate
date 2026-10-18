@@ -1,0 +1,33 @@
+## A: stale work-dir replay — cycle 4 due (clock +14d+5m), rerun with cycle-3 work-dir
+{"due_at":"2026-11-01T22:13:04Z","ran_at":"2026-10-25T22:13:04.000Z"}
+fm-explained-twice: weekly artifact window does not continue the stamped cycle: /tmp/fmwk.ER7IVu/data/c3/weekly-run.json; use a new --work-dir
+error: "weekly artifact window does not continue the stamped cycle: /tmp/fmwk.ER7IVu/data/c3/weekly-run.json; use a new --work-dir"
+next: "bin/fm-explained-twice.sh --help"
+exit=
+{"due_at":"2026-11-01T22:13:04Z","ran_at":"2026-10-25T22:13:04.000Z"}
+## B: missing driver bead
+fm-explained-twice: weekly bead refused for /tmp/fmwk.ER7IVu/board wk-nope: Issue wk-nope not found
+Hint: this ID may have never existed, or may reference a deleted/purged record with no trace left in the live database — try 'bd history wk-nope'
+error: "weekly bead refused for /tmp/fmwk.ER7IVu/board wk-nope: Issue wk-nope not found\nHint: this ID may have never existed, or may reference a deleted/purged record with no trace left in the live database — try 'bd history wk-nope'\n"
+next: "bin/fm-explained-twice.sh --help"
+exit=
+## C: unreachable driver store
+fm-explained-twice: ENOENT: no such file or directory, lstat '/tmp/fmwk.ER7IVu/board/.beads/gone'
+error: "ENOENT: no such file or directory, lstat '/tmp/fmwk.ER7IVu/board/.beads/gone'"
+next: "bin/fm-explained-twice.sh --help"
+exit=
+{"due_at":"2026-11-01T22:13:04Z","ran_at":"2026-10-25T22:13:04.000Z"}
+## D: lock held by a running pid
+fm-explained-twice: weekly driver locked by running pid 3667884: /tmp/fm-weekly-9e13570b3ed931692b5fb9a7308b04ba562c41b599204b5ac9d85e5119a68a29.lock; remove it only if no weekly run is active
+error: "weekly driver locked by running pid 3667884: /tmp/fm-weekly-9e13570b3ed931692b5fb9a7308b04ba562c41b599204b5ac9d85e5119a68a29.lock; remove it only if no weekly run is active"
+next: "bin/fm-explained-twice.sh --help"
+exit=
+{"due_at":"2026-11-01T22:13:04Z","ran_at":"2026-10-25T22:13:04.000Z"}
+## E: stale lock left by exited pid -> takeover, cycle 4 fires
+user_messages: 0
+instruction_edits: 0
+next: "Review show --full, write review.json, then run report with this --work-dir; no classification is automatic."
+weekly_cycle: {"artifact":"/tmp/fmwk.ER7IVu/data/l/weekly-run.json","due":"2026-11-08T22:17:29.000Z","already_complete":false}
+exit=
+{"due_at":"2026-11-08T22:17:29Z","ran_at":"2026-11-01T22:17:29.000Z"}
+ls: cannot access '/tmp/fm-weekly-9e13570b3ed931692b5fb9a7308b04ba562c41b599204b5ac9d85e5119a68a29.lock': No such file or directory

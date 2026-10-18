@@ -1,0 +1,16 @@
+## Re-invoke before due, SAME work-dir
+$ fm-explained-twice.sh weekly --work-dir /tmp/fm-wk-live.h98ETS/data/c1 --sources /tmp/fm-wk-live.h98ETS/sources.json
+weekly_cycle: {"artifact":"/tmp/fm-wk-live.h98ETS/data/c1/weekly-run.json","due":"2026-10-25T22:06:20.000Z","already_complete":true}
+exit=0
+## Re-invoke before due, DIFFERENT work-dir
+$ fm-explained-twice.sh weekly --work-dir /tmp/fm-wk-live.h98ETS/data/c1b --sources /tmp/fm-wk-live.h98ETS/sources.json
+weekly_cycle: {"artifact":"/tmp/fm-wk-live.h98ETS/data/c1/weekly-run.json","due":"2026-10-25T22:06:20.000Z","already_complete":true}
+exit=0
+c1b exists? 
+## bead after replays
+{"due_at":"2026-10-25T22:06:20Z","ran_at":"2026-10-18T22:06:20.000Z"}
+## bead count (no new bead created)
+warning: beads.role not configured (GH#2950).
+  Fix: git config beads.role maintainer
+  Or:  git config beads.role contributor
+2

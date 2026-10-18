@@ -1,0 +1,41 @@
+## S2: re-invoke before due (different work-dir) is idempotent
+weekly_cycle: {"artifact":"/tmp/fm-weekly-live.f8n7m0/data/c1/weekly-run.json","due":"2026-10-25T22:02:50.000Z","already_complete":true}
+exit=0
+    "due_at": "2026-10-25T22:02:50Z",
+        "ran_at": "2026-10-18T22:02:50.000Z",
+        "artifact_path": "/tmp/fm-weekly-live.f8n7m0/data/c1/weekly-run.json",
+
+## S2b: re-invoke before due (same work-dir)
+weekly_cycle: {"artifact":"/tmp/fm-weekly-live.f8n7m0/data/c1/weekly-run.json","due":"2026-10-25T22:02:50.000Z","already_complete":true}
+exit=0
+    "due_at": "2026-10-25T22:02:50Z",
+        "ran_at": "2026-10-18T22:02:50.000Z",
+        "artifact_path": "/tmp/fm-weekly-live.f8n7m0/data/c1/weekly-run.json",
+
+## S3 setup: simulate the 7 days elapsing by moving due_at into the past (real bd update)
+    "due_at": "2026-10-18T00:00:00Z",
+        "ran_at": "2026-10-18T22:02:50.000Z",
+        "artifact_path": "/tmp/fm-weekly-live.f8n7m0/data/c1/weekly-run.json",
+
+## S4 (adversarial): reuse cycle-1 work-dir once due -> must refuse, no re-date
+fm-explained-twice: weekly artifact window does not continue the stamped cycle: /tmp/fm-weekly-live.f8n7m0/data/c1/weekly-run.json; use a new --work-dir
+error: "weekly artifact window does not continue the stamped cycle: /tmp/fm-weekly-live.f8n7m0/data/c1/weekly-run.json; use a new --work-dir"
+next: "bin/fm-explained-twice.sh --help"
+exit=1
+    "due_at": "2026-10-18T00:00:00Z",
+        "ran_at": "2026-10-18T22:02:50.000Z",
+        "artifact_path": "/tmp/fm-weekly-live.f8n7m0/data/c1/weekly-run.json",
+
+## S5 (adversarial): overlapping invocation while a live run holds the lock
+existing locks: AGENTS.md
+assets
+bin
+CLAUDE.md
+CONTRIBUTING.md
+docs
+GROK_BOT.md
+LICENSE
+README.md
+skills
+tests
+VISION.md

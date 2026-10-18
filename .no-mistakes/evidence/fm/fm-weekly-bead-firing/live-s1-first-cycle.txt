@@ -1,0 +1,50 @@
+## S1: due bead fires one cycle (real bd bd version 1.3.2 (1e260f3a))
+$ bd show wk-iz1 (before)
+    "due_at": "2026-10-17T12:00:00Z",
+$ fm-explained-twice.sh weekly --work-dir data/c1 --sources sources.json
+corpus: "/tmp/fm-weekly-live.f8n7m0/data/c1/corpus.json"
+week: {"since":"2026-10-11T22:02:50.000Z","until":"2026-10-18T22:02:50.000Z"}
+closed_beads: 0
+user_messages: 0
+instruction_edits: 0
+next: "Review show --full, write review.json, then run report with this --work-dir; no classification is automatic."
+weekly_cycle: {"artifact":"/tmp/fm-weekly-live.f8n7m0/data/c1/weekly-run.json","due":"2026-10-25T22:02:50.000Z","already_complete":false}
+exit=0
+$ bd show wk-iz1 (after)
+    "due_at": "2026-10-25T22:02:50Z",
+    "due_source": "explicit",
+    "metadata": {
+      "weekly_review": {
+        "ran_at": "2026-10-18T22:02:50.000Z",
+        "next_due_at": "2026-10-25T22:02:50.000Z",
+        "artifact_path": "/tmp/fm-weekly-live.f8n7m0/data/c1/weekly-run.json",
+        "artifact_sha256": "26dcdcb7c0aadfab388c652bd62b0e021b1c45e29393d8cc3c9261394a59967d"
+      }
+    },
+    "dependent_count": 0,
+    "dependency_count": 0,
+$ weekly-run.json
+{
+  "version": 2,
+  "kind": "weekly-instruction-review",
+  "window": {
+    "since": "2026-10-11T22:02:50.000Z",
+    "until": "2026-10-18T22:02:50.000Z"
+  },
+  "ran_at": "2026-10-18T22:02:50.000Z",
+  "sources_sha256": "acc7803f0550b7610a5b8f57cf8fb5d9ae5360a05cab16142b0cfd605562fd92",
+  "driver": {
+    "id": "wk-iz1",
+    "directory": "/tmp/fm-weekly-live.f8n7m0/store",
+    "databasePath": "/tmp/fm-weekly-live.f8n7m0/store/.beads/embeddeddolt"
+  },
+  "artifacts": [
+    {
+      "path": "/tmp/fm-weekly-live.f8n7m0/data/c1/corpus.json",
+      "sha256": "ee0346c8fadb57271a6cb2be8928aacd88b8a5d5df0677522a0104f6ff7069f5"
+    }
+  ]
+}
+26dcdcb7c0aadfab388c652bd62b0e021b1c45e29393d8cc3c9261394a59967d  /tmp/fm-weekly-live.f8n7m0/data/c1/weekly-run.json
+$ corpus closed bead events
+0

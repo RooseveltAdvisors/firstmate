@@ -1,0 +1,33 @@
+## Simulate the bead becoming due (operator-visible due_at moved into the past; no timer)
+{"due_at":"2026-10-18T22:05:57Z"}
+## bd ready lists the due driver:
+warning: beads.role not configured (GH#2950).
+  Fix: git config beads.role maintainer
+  Or:  git config beads.role contributor
+[{"id":"wk-8t3","due_at":"2026-10-19T22:06:59Z"}]
+warning: beads.role not configured (GH#2950).
+  Fix: git config beads.role maintainer
+  Or:  git config beads.role contributor
+POST=wk-6h8 closed_at=2026-10-18T22:06:59Z
+## Adversarial: replay the completed cycle-1 work-dir now that the bead is due
+$ fm-explained-twice.sh weekly --work-dir /tmp/fm-wk-live.h98ETS/data/c1 --sources /tmp/fm-wk-live.h98ETS/sources.json
+fm-explained-twice: weekly driver stamp/due mismatch
+error: "weekly driver stamp/due mismatch"
+next: "bin/fm-explained-twice.sh --help"
+exit=1
+{"due_at":"2026-10-19T22:06:59Z","ran_at":"2026-10-18T22:06:20.000Z"}
+warning: beads.role not configured (GH#2950).
+  Fix: git config beads.role maintainer
+  Or:  git config beads.role contributor
+BND=wk-cpx
+## Cycle 2 (due)
+$ fm-explained-twice.sh weekly --work-dir /tmp/fm-wk-live.h98ETS/data/c2 --sources /tmp/fm-wk-live.h98ETS/sources.json
+fm-explained-twice: weekly driver stamp/due mismatch
+error: "weekly driver stamp/due mismatch"
+next: "bin/fm-explained-twice.sh --help"
+exit=1
+BND closed_at=2026-10-18T22:07:01Z
+jq: error: Could not open file /tmp/fm-wk-live.h98ETS/data/c2/weekly-run.json: No such file or directory
+c2 bead event titles:
+jq: error: Could not open file /tmp/fm-wk-live.h98ETS/data/c2/corpus.json: No such file or directory
+{"due_at":"2026-10-19T22:06:59Z","wr":{"ran_at":"2026-10-18T22:06:20.000Z","next_due_at":"2026-10-25T22:06:20.000Z","artifact_path":"/tmp/fm-wk-live.h98ETS/data/c1/weekly-run.json","artifact_sha256":"7b4f52ce78ef0721c2978bd20c4c3852ad68b2d7d8daffd63e314817dcd3e294"}}

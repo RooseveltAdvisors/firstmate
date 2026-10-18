@@ -1,0 +1,34 @@
+## Missing driving bead
+$ fm-explained-twice.sh weekly --work-dir /tmp/fm-wk-live.h98ETS/data/m1 --sources /tmp/fm-wk-live.h98ETS/src-missing.json
+fm-explained-twice: weekly bead refused for /tmp/fm-wk-live.h98ETS/store wk-nope: Issue wk-nope not found
+Hint: this ID may have never existed, or may reference a deleted/purged record with no trace left in the live database — try 'bd history wk-nope'
+
+error: "weekly bead refused for /tmp/fm-wk-live.h98ETS/store wk-nope: Issue wk-nope not found\nHint: this ID may have never existed, or may reference a deleted/purged record with no trace left in the live database — try 'bd history wk-nope'\n"
+next: "bin/fm-explained-twice.sh --help"
+exit=1
+## Unreachable driver store (no bd database at path)
+$ fm-explained-twice.sh weekly --work-dir /tmp/fm-wk-live.h98ETS/data/u1 --sources /tmp/fm-wk-live.h98ETS/src-unreach.json
+Warning: /tmp/fm-wk-live.h98ETS/emptystore/.beads has permissions 0775 (recommended: 0700). Run: chmod 700 /tmp/fm-wk-live.h98ETS/emptystore/.beads
+Warning: /tmp/fm-wk-live.h98ETS/emptystore/.beads has permissions 0775 (recommended: 0700). Run: chmod 700 /tmp/fm-wk-live.h98ETS/emptystore/.beads
+
+fm-explained-twice: weekly bead refused for /tmp/fm-wk-live.h98ETS/emptystore wk-8t3: Warning: /tmp/fm-wk-live.h98ETS/emptystore/.beads has permissions 0775 (recommended: 0700). Run: chmod 700 /tmp/fm-wk-live.h98ETS/emptystore/.beads
+warning: no beads configuration found in /tmp/fm-wk-live.h98ETS/emptystore/.beads; using default database name "beads"
+Error: failed to open database: embeddeddolt: open db: Error 1049: database not found: beads
+
+error: "weekly bead refused for /tmp/fm-wk-live.h98ETS/emptystore wk-8t3: Warning: /tmp/fm-wk-live.h98ETS/emptystore/.beads has permissions 0775 (recommended: 0700). Run: chmod 700 /tmp/fm-wk-live.h98ETS/emptystore/.beads\nwarning: no beads configuration found in /tmp/fm-wk-live.h98ETS/emptystore/.beads; using default database name \"beads\"\nError: failed to open database: embeddeddolt: open db: Error 1049: database not found: beads\n"
+next: "bin/fm-explained-twice.sh --help"
+exit=1
+## Lock held by a live pid 2468789 (overlapping run)
+$ fm-explained-twice.sh weekly --work-dir /tmp/fm-wk-live.h98ETS/data/k1 --sources /tmp/fm-wk-live.h98ETS/sources.json
+fm-explained-twice: weekly driver locked by running pid 2468789: /tmp/fm-weekly-30912e51351abb638f49bf73dc128c4acce6bb01fd63bdba2bbadb8d6d84f073.lock; remove it only if no weekly run is active
+error: "weekly driver locked by running pid 2468789: /tmp/fm-weekly-30912e51351abb638f49bf73dc128c4acce6bb01fd63bdba2bbadb8d6d84f073.lock; remove it only if no weekly run is active"
+next: "bin/fm-explained-twice.sh --help"
+exit=1
+## Same lock after holder died (stale lock left by killed run) - before due so verifies only
+$ fm-explained-twice.sh weekly --work-dir /tmp/fm-wk-live.h98ETS/data/k2 --sources /tmp/fm-wk-live.h98ETS/sources.json
+taking over stale weekly lock from exited pid 2468789: /tmp/fm-weekly-30912e51351abb638f49bf73dc128c4acce6bb01fd63bdba2bbadb8d6d84f073.lock
+weekly_cycle: {"artifact":"/tmp/fm-wk-live.h98ETS/data/c1/weekly-run.json","due":"2026-10-25T22:06:20.000Z","already_complete":true}
+exit=0
+lock remains after run? ls: cannot access '/tmp/fm-weekly-30912e51351abb638f49bf73dc128c4acce6bb01fd63bdba2bbadb8d6d84f073.lock': No such file or directory
+## bead unchanged after refusals
+{"due_at":"2026-10-25T22:06:20Z","ran_at":"2026-10-18T22:06:20.000Z"}

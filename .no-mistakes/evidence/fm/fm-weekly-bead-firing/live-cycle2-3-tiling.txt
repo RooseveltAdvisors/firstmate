@@ -1,0 +1,39 @@
+## Driver is due (due_at 2026-10-18T22:00:00Z), visible on bd --readonly ready
+## Adversarial: replay the completed cycle-1 work-dir now that the bead is due
+$ fm-explained-twice.sh weekly --work-dir /tmp/fm-wk-live.h98ETS/data/c1 --sources /tmp/fm-wk-live.h98ETS/sources.json
+fm-explained-twice: weekly artifact window does not continue the stamped cycle: /tmp/fm-wk-live.h98ETS/data/c1/weekly-run.json; use a new --work-dir
+error: "weekly artifact window does not continue the stamped cycle: /tmp/fm-wk-live.h98ETS/data/c1/weekly-run.json; use a new --work-dir"
+next: "bin/fm-explained-twice.sh --help"
+exit=1
+bead after refused replay: {"due_at":"2026-10-18T22:00:00Z","ran_at":"2026-10-18T22:06:20.000Z"}
+## Cycle 2 (due, fires from the bead)
+$ fm-explained-twice.sh weekly --work-dir /tmp/fm-wk-live.h98ETS/data/c2 --sources /tmp/fm-wk-live.h98ETS/sources.json
+corpus: "/tmp/fm-wk-live.h98ETS/data/c2/corpus.json"
+week: {"since":"2026-10-18T22:06:20.000Z","until":"2026-10-18T22:08:09.000Z"}
+closed_beads: 2
+user_messages: 0
+instruction_edits: 0
+next: "Review show --full, write review.json, then run report with this --work-dir; no classification is automatic."
+weekly_cycle: {"artifact":"/tmp/fm-wk-live.h98ETS/data/c2/weekly-run.json","due":"2026-10-25T22:08:09.000Z","already_complete":false}
+exit=0
+BND wk-3x3 closed_at=2026-10-18T22:08:09Z
+c2 weekly-run: {"window":{"since":"2026-10-18T22:06:20.000Z","until":"2026-10-18T22:08:09.000Z"},"ran_at":"2026-10-18T22:08:09.000Z"}
+bead after c2: {"due_at":"2026-10-25T22:08:09Z","wr":{"ran_at":"2026-10-18T22:08:09.000Z","next_due_at":"2026-10-25T22:08:09.000Z","artifact_path":"/tmp/fm-wk-live.h98ETS/data/c2/weekly-run.json","artifact_sha256":"2a5cabc315a57465545a75a26b8621ff220382686965c8712d7a23db3944cae9"}}
+## Force cycle 3 due (readonly board read only) and fire
+$ fm-explained-twice.sh weekly --work-dir /tmp/fm-wk-live.h98ETS/data/c3 --sources /tmp/fm-wk-live.h98ETS/sources.json
+corpus: "/tmp/fm-wk-live.h98ETS/data/c3/corpus.json"
+week: {"since":"2026-10-18T22:08:09.000Z","until":"2026-10-18T22:08:12.000Z"}
+closed_beads: 1
+user_messages: 0
+instruction_edits: 0
+next: "Review show --full, write review.json, then run report with this --work-dir; no classification is automatic."
+weekly_cycle: {"artifact":"/tmp/fm-wk-live.h98ETS/data/c3/weekly-run.json","due":"2026-10-25T22:08:12.000Z","already_complete":false}
+exit=0
+c3 weekly-run: {"window":{"since":"2026-10-18T22:08:09.000Z","until":"2026-10-18T22:08:12.000Z"},"ran_at":"2026-10-18T22:08:12.000Z"}
+bead after c3: {"due_at":"2026-10-25T22:08:12Z","wr":{"ran_at":"2026-10-18T22:08:12.000Z","next_due_at":"2026-10-25T22:08:12.000Z","artifact_path":"/tmp/fm-wk-live.h98ETS/data/c3/weekly-run.json","artifact_sha256":"6a55d38a1227b7cddfd8164bfa2574551a3ab473ef9b1261f05447e248b74323"}}
+== c1 closed-bead events:
+[{"t":"2026-10-18T22:06:13Z","text":"{\n  \"id\": \"wk-qkt\",\n  \"title\": \"closed before cycle 1\",\n  \"s"}]
+== c2 closed-bead events:
+[{"t":"2026-10-18T22:07:01Z","text":"{\n  \"id\": \"wk-cpx\",\n  \"title\": \"closed at the boundary secon"},{"t":"2026-10-18T22:06:59Z","text":"{\n  \"id\": \"wk-6h8\",\n  \"title\": \"closed between cycles\",\n  \"s"}]
+== c3 closed-bead events:
+[{"t":"2026-10-18T22:08:09Z","text":"{\n  \"id\": \"wk-3x3\",\n  \"title\": \"BOUNDARY bead\",\n  \"status\": "}]

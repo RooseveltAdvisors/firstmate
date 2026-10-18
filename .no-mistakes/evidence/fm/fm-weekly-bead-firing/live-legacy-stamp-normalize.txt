@@ -1,0 +1,6 @@
+## stamp type before (legacy serialized)
+{"due_at":"2026-11-08T22:17:29Z","t":"string"}
+weekly_cycle: {"artifact":"/tmp/fmwk.ER7IVu/data/l/weekly-run.json","due":"2026-11-08T22:17:29.000Z","already_complete":false}
+exit=0
+## stamp after
+{"due_at":"2026-11-08T22:17:29Z","t":"object","wr":{"ran_at":"2026-11-01T22:17:29.000Z","next_due_at":"2026-11-08T22:17:29.000Z","artifact_path":"/tmp/fmwk.ER7IVu/data/l/weekly-run.json","artifact_sha256":"d2bd0ffeaabebba7cbcdce9fd3a6ae7d7ef24ea336385359a3a5c8512f90a967"}}

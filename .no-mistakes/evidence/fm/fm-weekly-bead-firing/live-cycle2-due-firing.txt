@@ -1,0 +1,25 @@
+## Close a work bead inside the elapsed window
+{"id":"wk-mzo","closed_at":"2026-10-18T22:11:55Z"}
+## Board read with PLAIN bd ready (driver is overdue)
+{"id":"wk-148","due_at":"2026-10-19T22:11:55Z"}
+## driver due_at after plain bd ready
+{"due_at":"2026-10-19T22:11:55Z","stamped_next":"2026-10-17T22:11:41.000Z"}
+## Cycle 2 at real now
+corpus: "/tmp/fmwk.ER7IVu/data/c2/corpus.json"
+week: {"since":"2026-10-10T22:11:41.000Z","until":"2026-10-18T22:11:55.000Z"}
+closed_beads: 0
+user_messages: 0
+instruction_edits: 0
+next: "Review show --full, write review.json, then run report with this --work-dir; no classification is automatic."
+weekly_cycle: {"artifact":"/tmp/fmwk.ER7IVu/data/c2/weekly-run.json","due":"2026-10-25T22:11:55.000Z","already_complete":false}
+exit=0
+{
+  "week": {
+    "since": "2026-10-10T22:11:41.000Z",
+    "until": "2026-10-18T22:11:55.000Z"
+  },
+  "closed": []
+}
+{"window":{"since":"2026-10-10T22:11:41.000Z","until":"2026-10-18T22:11:55.000Z"},"ran_at":"2026-10-18T22:11:55.000Z"}
+## driver after cycle 2
+{"due_at":"2026-10-25T22:11:55Z","wr":{"ran_at":"2026-10-18T22:11:55.000Z","next_due_at":"2026-10-25T22:11:55.000Z","artifact_path":"/tmp/fmwk.ER7IVu/data/c2/weekly-run.json","artifact_sha256":"7a6d8f31508d4ffce798fa488dabd80a7e4c86ef627fe521b03dab627b30f59c"}}

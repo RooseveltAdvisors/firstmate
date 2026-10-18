@@ -1,0 +1,54 @@
+## S5 (adversarial): overlapping invocation while a live run (pid) holds the per-bead lock
+lock /tmp/fm-weekly-5c41f376b97221293733c4c70ad32757476213c7790251a9d169795f8a529e99.lock held by live pid 1883295
+fm-explained-twice: weekly driver locked by running pid 1883295: /tmp/fm-weekly-5c41f376b97221293733c4c70ad32757476213c7790251a9d169795f8a529e99.lock; remove it only if no weekly run is active
+error: "weekly driver locked by running pid 1883295: /tmp/fm-weekly-5c41f376b97221293733c4c70ad32757476213c7790251a9d169795f8a529e99.lock; remove it only if no weekly run is active"
+next: "bin/fm-explained-twice.sh --help"
+exit=1
+    "due_at": "2026-10-18T00:00:00Z",
+        "ran_at": "2026-10-18T22:02:50.000Z",
+        "artifact_path": "/tmp/fm-weekly-live.f8n7m0/data/c1/weekly-run.json",
+0
+
+## S6: holder killed (SIGKILL) -> stale lock taken over; due bead fires the NEXT cycle, window tiles from previous ran_at
+taking over stale weekly lock from exited pid 1883295: /tmp/fm-weekly-5c41f376b97221293733c4c70ad32757476213c7790251a9d169795f8a529e99.lock
+corpus: "/tmp/fm-weekly-live.f8n7m0/data/c3/corpus.json"
+week: {"since":"2026-10-18T22:02:50.000Z","until":"2026-10-18T22:03:26.000Z"}
+closed_beads: 0
+user_messages: 0
+instruction_edits: 0
+next: "Review show --full, write review.json, then run report with this --work-dir; no classification is automatic."
+weekly_cycle: {"artifact":"/tmp/fm-weekly-live.f8n7m0/data/c3/weekly-run.json","due":"2026-10-25T22:03:26.000Z","already_complete":false}
+exit=0
+    "due_at": "2026-10-25T22:03:26Z",
+        "ran_at": "2026-10-18T22:03:26.000Z",
+        "artifact_path": "/tmp/fm-weekly-live.f8n7m0/data/c3/weekly-run.json",
+$ c3 window + c1 window
+/tmp/fm-weekly-live.f8n7m0/data/c3/weekly-run.json:  "window": {
+/tmp/fm-weekly-live.f8n7m0/data/c3/weekly-run.json-    "since": "2026-10-18T22:02:50.000Z",
+/tmp/fm-weekly-live.f8n7m0/data/c3/weekly-run.json-    "until": "2026-10-18T22:03:26.000Z"
+/tmp/fm-weekly-live.f8n7m0/data/c3/weekly-run.json-  },
+/tmp/fm-weekly-live.f8n7m0/data/c1/weekly-run.json:  "window": {
+/tmp/fm-weekly-live.f8n7m0/data/c1/weekly-run.json-    "since": "2026-10-11T22:02:50.000Z",
+/tmp/fm-weekly-live.f8n7m0/data/c1/weekly-run.json-    "until": "2026-10-18T22:02:50.000Z"
+/tmp/fm-weekly-live.f8n7m0/data/c1/weekly-run.json-  },
+$ c3 closed bead events (wk-rvx closed at the exact second cycle 1 ended -> belongs to cycle 2 only)
+0
+lock left behind: ls: cannot access '/tmp/fm-weekly-5c41f376b97221293733c4c70ad32757476213c7790251a9d169795f8a529e99.lock': No such file or directory
+
+## S7 (adversarial): missing driver bead refuses visibly without writing a stamp
+fm-explained-twice: weekly bead refused for /tmp/fm-weekly-live.f8n7m0/store wk-nope: Issue wk-nope not found
+Hint: this ID may have never existed, or may reference a deleted/purged record with no trace left in the live database — try 'bd history wk-nope'
+
+error: "weekly bead refused for /tmp/fm-weekly-live.f8n7m0/store wk-nope: Issue wk-nope not found\nHint: this ID may have never existed, or may reference a deleted/purged record with no trace left in the live database — try 'bd history wk-nope'\n"
+next: "bin/fm-explained-twice.sh --help"
+exit=1
+0
+
+## S8 (adversarial): unreachable store (databasePath missing) refuses visibly
+fm-explained-twice: ENOENT: no such file or directory, lstat '/tmp/fm-weekly-live.f8n7m0/nowhere'
+error: "ENOENT: no such file or directory, lstat '/tmp/fm-weekly-live.f8n7m0/nowhere'"
+next: "bin/fm-explained-twice.sh --help"
+exit=1
+    "due_at": "2026-10-25T22:03:26Z",
+        "ran_at": "2026-10-18T22:03:26.000Z",
+        "artifact_path": "/tmp/fm-weekly-live.f8n7m0/data/c3/weekly-run.json",

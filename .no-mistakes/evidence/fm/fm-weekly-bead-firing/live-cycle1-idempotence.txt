@@ -1,0 +1,29 @@
+## Cycle 1 (CLI clock shifted -8d), no prior stamp
+corpus: "/tmp/fmwk.ER7IVu/data/c1/corpus.json"
+week: {"since":"2026-10-03T22:11:41.000Z","until":"2026-10-10T22:11:41.000Z"}
+closed_beads: 0
+user_messages: 0
+instruction_edits: 0
+next: "Review show --full, write review.json, then run report with this --work-dir; no classification is automatic."
+weekly_cycle: {"artifact":"/tmp/fmwk.ER7IVu/data/c1/weekly-run.json","due":"2026-10-17T22:11:41.000Z","already_complete":false}
+exit=0
+## bd show driver after cycle 1
+{
+  "id": "wk-148",
+  "status": "open",
+  "due_at": "2026-10-17T22:11:41Z",
+  "metadata": {
+    "weekly_review": {
+      "ran_at": "2026-10-10T22:11:41.000Z",
+      "next_due_at": "2026-10-17T22:11:41.000Z",
+      "artifact_path": "/tmp/fmwk.ER7IVu/data/c1/weekly-run.json",
+      "artifact_sha256": "8209685967545f241cdfa657de2c566ee3feb4344e20e6bf57f12ada0c518d23"
+    }
+  }
+}
+## Immediate re-invoke, different work-dir (idempotence)
+weekly_cycle: {"artifact":"/tmp/fmwk.ER7IVu/data/c1/weekly-run.json","due":"2026-10-17T22:11:41.000Z","already_complete":true}
+exit=0
+## Same work-dir re-invoke
+weekly_cycle: {"artifact":"/tmp/fmwk.ER7IVu/data/c1/weekly-run.json","due":"2026-10-17T22:11:41.000Z","already_complete":true}
+exit=0
