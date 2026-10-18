@@ -105,11 +105,14 @@ export function completeWeeklyCycle(config: unknown, ranAt: string, invoke: (dri
     const serialized = typeof raw === 'string', previous = serialized ? JSON.parse(raw) : raw;
     let normalized: string | undefined;
     if (previous) {
-      check(typeof previous.artifact_path === 'string' && iso(previous.ran_at) &&
+      const due = Math.floor(Date.parse(previous.next_due_at) / 1000) * 1000;
+      check(typeof previous.artifact_path === 'string' && iso(previous.ran_at) && Number.isFinite(due) &&
         Date.parse(previous.ran_at) <= Date.parse(ranAt), 'weekly driver has an invalid stamp');
-      if (Date.parse(ranAt) < Date.parse(before.due_at)) {
+      // Due-ness comes from the stamp: plain `bd ready` rolls an overdue
+      // bead's due_at forward, so the bead's own date cannot decide it.
+      if (Date.parse(ranAt) < due) {
         const saved = weeklyRun(previous.artifact_path, driver);
-        check(saved.digest === previous.artifact_sha256 && Math.floor(Date.parse(previous.next_due_at) / 1000) * 1000 === Date.parse(saved.next) &&
+        check(saved.digest === previous.artifact_sha256 && due === Date.parse(saved.next) &&
           saved.run.ran_at === previous.ran_at && Date.parse(before.due_at) === Date.parse(saved.next), 'weekly driver stamp/due mismatch');
         if (!serialized) return {artifact: previous.artifact_path as string, due: saved.next, already_complete: true};
         normalized = previous.artifact_path;
