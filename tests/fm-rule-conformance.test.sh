@@ -162,5 +162,24 @@ for (const [bin, label] of [[noGit,'missing'],[dubious,'dubious']]) {
   assert(r.stderr.includes('Git discovery failed'),r.stderr);
   assert(!existsSync(join(out,'conformance.log')) && !existsSync(join(out,'conformance-notes.md')));
 }
+// The documented combined manifest shares one window between artifact parsers.
+// Identical bounds must reuse that observation; distinct bounds remain refused.
+const composedManifest = join(tmp,'composed.json');
+const sharedWindow = {file:session,offset:0,bytes:2048};
+writeFileSync(composedManifest,JSON.stringify({transcripts:[sharedWindow],runData:[{checks,run,transcript:sharedWindow}]}));
+const composedOut = join(tmp,'data','composed');
+result = collect(composedOut,composedManifest); assert.equal(result.status,0,result.stderr);
+const composedRows = readFileSync(join(composedOut,'conformance.log'),'utf8');
+assert(composedRows.split('\n').some(l => l.startsWith('two-attempt-cap |') && l.includes(' | violate | ')));
+const composedNotes = readFileSync(join(composedOut,'conformance-notes.md'),'utf8');
+assert(composedNotes.includes('offset=0; bytes=2048;'));
+result = collect(composedOut,composedManifest); assert.equal(result.status,0,result.stderr);
+assert.equal(readFileSync(join(composedOut,'conformance.log'),'utf8'),composedRows);
+writeFileSync(composedManifest,JSON.stringify({transcripts:[sharedWindow],runData:[{checks,run,transcript:{...sharedWindow,offset:1}}]}));
+const distinctOut = join(tmp,'data','distinct');
+result = collect(distinctOut,composedManifest);
+assert.notEqual(result.status,0);
+assert(result.stderr.includes('only one bounded window per session per invocation'));
+assert(!existsSync(join(distinctOut,'conformance.log')));
 console.log('pass: five artifact parsers, conservative gaps, row shape, bounded reads, append-only idempotence, privacy, locks and GitHub adapter');
 TS

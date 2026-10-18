@@ -45,6 +45,7 @@ alone never proves all changes came through PRs. Full commit SHAs only.
 
 Every file read is bounded: 4 MiB ordinary artifact, 1 MiB manifest/registry;
 transcripts default 64 KiB, maximum 256 KiB, one window per session per invocation.
+Identical file/bounds shared across parsers reuse that one parsed observation.
 Transcript windows skip partial edges, malformed records, thinking and tool-call
 arguments. Only Pi message.role assistant text is a claim; toolResult is separate.
 No window or missing phrase proves absence across a session. The parser never
@@ -113,13 +114,17 @@ function load(file?: string): {text: string; ref: string; doc: any} | undefined 
 function joined(...refs: (string | undefined)[]): string { return refs.filter(Boolean).join('+'); }
 
 // Parser 1: one bounded Pi JSONL window, preserving byte locations and roles.
-const sessions = new Set<string>();
-function transcript(w: Window) {
+type TranscriptResult = {ref: string; messages: {role: string; text: string; timestamp: string; ref: string}[]};
+const sessions = new Map<string, {offset: number; bytes: number; result: TranscriptResult}>();
+function transcript(w: Window): TranscriptResult {
   const file = realpathSync(str(w.file));
-  if (sessions.has(file)) fail('only one bounded window per session per invocation');
-  sessions.add(file);
-  const size = statSync(file).size, bytes = w.bytes ?? 65536, offset = w.offset ?? Math.max(0, size - bytes);
+  const previous = sessions.get(file);
+  const size = statSync(file).size, bytes = w.bytes ?? 65536, offset = w.offset ?? previous?.offset ?? Math.max(0, size - bytes);
   if (!statSync(file).isFile() || !Number.isInteger(bytes) || bytes < 1 || bytes > 262144 || !Number.isSafeInteger(offset) || offset < 0 || offset > size) fail('invalid transcript window');
+  if (previous) {
+    if (previous.offset !== offset || previous.bytes !== bytes) fail('only one bounded window per session per invocation');
+    return previous.result;
+  }
   const fd = openSync(file, 'r'), b = Buffer.alloc(bytes + (offset > 0 ? 1 : 0));
   let n: number;
   try { n = readSync(fd, b, 0, b.length, Math.max(0, offset - 1)); } finally { closeSync(fd); }
@@ -141,7 +146,9 @@ function transcript(w: Window) {
     }
     pos = end + 1;
   }
-  return {ref, messages};
+  const result = {ref, messages};
+  sessions.set(file, {offset, bytes, result});
+  return result;
 }
 function parseTranscript(w: Window) {
   const t = transcript(w);
