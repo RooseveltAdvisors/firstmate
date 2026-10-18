@@ -12,9 +12,10 @@ fi
 TMP_ROOT=$(fm_test_tmproot fm-explained-twice)
 export DETECTOR="$ROOT/bin/fm-explained-twice.sh" DETECTOR_TEST_ROOT="$TMP_ROOT"
 bun run - <<'JS'
-import {mkdirSync, writeFileSync, readFileSync, existsSync, symlinkSync, linkSync, chmodSync} from 'node:fs';
+import {mkdirSync, writeFileSync, readFileSync, existsSync, symlinkSync, linkSync, chmodSync, realpathSync} from 'node:fs';
 import {join} from 'node:path';
-const root = process.env.DETECTOR_TEST_ROOT;
+import {createHash} from 'node:crypto';
+const root = realpathSync(process.env.DETECTOR_TEST_ROOT);
 const script = process.env.DETECTOR;
 const data = join(root, 'data', 'review');
 mkdirSync(data, {recursive: true});
@@ -254,6 +255,129 @@ writeFileSync(sourcesFile, JSON.stringify({stores: [stores[0], stores[0]], sessi
 run(weeklyArgs(join(root, 'data', 'duplicate-store')), false, weeklyEnv);
 writeFileSync(sourcesFile, JSON.stringify({sessions: []}));
 run(weeklyArgs(join(root, 'data', 'implicit-store')), false, weeklyEnv);
+// Conformance is a leg of this same public weekly CLI, and also runs alone.
+const conformanceInput = join(root, 'conformance-input'); mkdirSync(conformanceInput);
+const ruleDefs = [
+  ['search-before-ask', 'explicit search statement', 'phrase absence does not prove no search'],
+  ['auto-bead', 'failure vs recorded bead', 'remote runner is outside local coverage'],
+  ['first-step-first', '**`no-signature`** - requires intent', 'timestamps are partial'],
+  ['report-standards', '**`no-signature`** - adequacy is judgment', 'citation sub-check only'],
+  ['never-bypass-a-refusal', '**`no-signature`** - intent is unobservable', 'near-misses are notes'],
+  ['strip-at-merge', 'git commit message', 'none - strongest signature'],
+];
+const registryText = '| id | rule | observable signature (derived from) | what it cannot show |\n|---|---|---|---|\n' +
+  ruleDefs.map(([id, signature, limit]) => `| \`${id}\` | ${id} rule | ${signature} | ${limit} |`).join('\n') + '\n';
+const registryFile = join(conformanceInput, 'registry.md'); writeFileSync(registryFile, registryText);
+const digest = value => createHash('sha256').update(value).digest('hex');
+const artifact = join(root, 'source-evidence.txt'); writeFileSync(artifact, 'independent fixture evidence');
+const artifactRef = `artifact:sha256:${digest(artifact)}:${digest(readFileSync(artifact))}`;
+const notesPath = join(conformanceInput, 'conformance-notes.md');
+writeFileSync(notesPath, `${artifactRef} | path=${JSON.stringify(artifact)}; sha256=${digest(readFileSync(artifact))}\n` +
+  'auto-bead | unsupported:runner | no local failure recorder available\n');
+const weekRows = [
+  ['search-before-ask','2026-10-12T00:00:00Z','follow','at-start'],
+  ['search-before-ask','2026-10-18T10:00:00Z','violate',artifactRef],
+  ['search-before-ask','2026-10-18T10:00:00Z','violate',artifactRef], // rows, not unique references
+  ['auto-bead','2026-10-18T10:01:00Z','miss','legacy missing receipt'],
+  ['auto-bead','2026-10-18T10:02:00Z','out-of-scope','remote runner'],
+  ['auto-bead','2026-10-18T10:03:00Z','no-signature','unsupported:runner'],
+  ['first-step-first','2026-10-18T10:04:00Z','no-signature','registry declaration'],
+];
+const rawLog = '# append-only fixture\n' + [...weekRows,
+  ['search-before-ask','2026-10-11T23:59:59Z','violate','before-start'],
+  ['search-before-ask','2026-10-19T00:00:00Z','miss','at-exclusive-end'],
+].map(row => row.join(' | ')).join('\n') + '\n';
+const conformanceLog = join(conformanceInput, 'conformance.log'); writeFileSync(conformanceLog, rawLog);
+const conformanceDir = join(root, 'data', 'conformance-review');
+const conformanceArgs = ['conformance', '--work-dir', conformanceDir, '--conformance-dir', conformanceInput,
+  '--since', '2026-10-12T00:00:00Z', '--until', '2026-10-19T00:00:00Z'];
+run(conformanceArgs);
+const conformanceJson = () => JSON.parse(readFileSync(join(conformanceDir, 'conformance.json')));
+let cr = conformanceJson();
+const cm = readFileSync(join(conformanceDir, 'conformance.md'), 'utf8');
+check(cr.rows === weekRows.length && cr.excluded === 2, 'window excludes both old and exclusive-end rows');
+check(cr.inputs.log.sha256 === digest(rawLog), 'report binds to exact read-only source bytes');
+check(Date.parse(cr.window.timestamp) >= Date.parse(cr.window.since) && Date.parse(cr.window.timestamp) < Date.parse(cr.window.until), 'coverage marker is inside review window');
+check(cr.rules.length === ruleDefs.length, 'every registry rule appears including unobserved rules');
+for (const rule of cr.rules) {
+  for (const verdict of ['follow','violate','miss','out-of-scope','no-signature']) {
+    check(rule.counts[verdict] === weekRows.filter(row => row[0] === rule.id && row[2] === verdict).length, `exact per-verdict counts for ${rule.id}`);
+  }
+  check(cm.includes('What it cannot show: ' + rule.limit), 'limit must accompany every rule');
+  for (const finding of rule.findings) {
+    check(rawLog.split('\n')[finding.line - 1].includes(finding.reference), 'finding line must cite the actual source row');
+    check(cm.includes('Citation 1: ' + JSON.stringify(conformanceLog) + ':' + finding.line), 'every violate/miss has a log citation');
+    check(cm.includes(JSON.stringify(finding.reference)), 'every finding retains the exact source reference');
+  }
+}
+check(cr.rules[0].findings.length === 2 && cr.rules[0].findings.every(f => f.citations.length === 1), 'every repeated violation receives its reachable artifact citation');
+check(cm.includes('Citation 2:') && cm.includes(artifact), 'second citation must name the reachable source artifact');
+check(cr.rules[1].findings[0].citations.length === 0 && cm.includes('Single source only:'), 'missing source explicitly stays single-source');
+check(cr.rules[1].unobservable[0].reason === 'no local failure recorder available', 'collector no-signature reason is retained');
+for (const id of ['first-step-first','report-standards','never-bypass-a-refusal']) {
+  const rule = cr.rules.find(r => r.id === id);
+  check(rule.status === 'no-signature' && cm.includes('No-signature reason: ' + rule.signature), 'registry no-signature status/reason survives even with no rows');
+}
+check(readFileSync(conformanceLog, 'utf8') === rawLog && readFileSync(registryFile, 'utf8') === registryText, 'run leaves registry and append-only log byte-identical');
+// Unreachable/changed bindings remain gaps; never pad with an unverified file.
+writeFileSync(artifact, 'changed evidence'); run(conformanceArgs);
+check(conformanceJson().rules[0].findings.every(f => f.citations.length === 0 && f.gaps.some(g => g.includes('digest changed'))), 'changed content is not a verified second source');
+writeFileSync(artifact, 'independent fixture evidence');
+const locators = join(root, 'locators.json');
+writeFileSync(locators, JSON.stringify([{reference:'legacy missing receipt', file:artifact, offset:0, bytes:11}]));
+run([...conformanceArgs, '--citations', locators]);
+check(conformanceJson().rules[1].findings[0].citations[0].includes('bytes [0, 11)'), 'explicit locator supplies bounded legacy citation');
+const lastGood = readFileSync(join(conformanceDir, 'conformance.md'), 'utf8');
+writeFileSync(registryFile, registryText.replace('timestamps are partial', ''));
+check(run(conformanceArgs, false).includes('registry finding at line'), 'unparsable registry must produce a line finding');
+check(readFileSync(join(conformanceDir, 'conformance.md'), 'utf8') === lastGood, 'failed registry read preserves prior report');
+writeFileSync(registryFile, registryText);
+writeFileSync(registryFile, registryText.replace('| `first-step-first`', '`first-step-first`'));
+check(run(conformanceArgs, false).includes('expected a rule table row'), 'malformed row cannot silently truncate registry coverage');
+writeFileSync(registryFile, registryText);
+writeFileSync(conformanceLog, rawLog + 'unknown | 2026-10-18T12:00:00Z | follow | opaque\n');
+check(run(conformanceArgs, false).includes('unknown rule'), 'unknown log rule refuses instead of disappearing');
+writeFileSync(conformanceLog, rawLog);
+run([...conformanceArgs.slice(0, -4), '--since', '2026-02-30T00:00:00Z'], false);
+run([...conformanceArgs.slice(0, -4), '--since', '2026-10-20T00:00:00Z', '--until', '2026-10-19T00:00:00Z'], false);
+const protectedDir = join(root, 'data', 'conformance-linked'); mkdirSync(protectedDir);
+symlinkSync(conformanceLog, join(protectedDir, 'conformance.json'));
+run(['conformance', '--work-dir', protectedDir, '--conformance-dir', conformanceInput], false);
+check(readFileSync(conformanceLog, 'utf8') === rawLog, 'linked output must not modify input log');
+// Rolling default is exactly seven days; no requirement for an observed row.
+run(['conformance', '--work-dir', conformanceDir, '--conformance-dir', conformanceInput]);
+cr = conformanceJson();
+check(Date.parse(cr.window.until) - Date.parse(cr.window.since) === 7 * 86400000, 'default is a rolling seven-day window');
+check(Date.parse(cr.generated_at) >= Date.parse(cr.window.since) && Date.parse(cr.generated_at) < Date.parse(cr.window.until), 'default run has actual creation timestamp inside window');
+// Combined weekly run reuses the corpus week, never the rolling default.
+writeFileSync(sourcesFile, JSON.stringify({stores:[stores[0]], sessions:[]}));
+const combinedDir = join(root, 'data', 'weekly-combined');
+run([...weeklyArgs(combinedDir), '--conformance-dir', conformanceInput], true, weeklyEnv);
+const combined = JSON.parse(readFileSync(join(combinedDir, 'conformance.json')));
+check(combined.rows === weekRows.length && combined.window.since === wc.week.since && combined.window.until === wc.week.until, 'combined weekly pass shares exact week');
+check(existsSync(join(combinedDir, 'corpus.json')) && readFileSync(conformanceLog, 'utf8') === rawLog, 'weekly review and read-only conformance artifacts coexist');
+// Native transcript and Git references bind different things: paths vs content.
+const nativeInput = join(root, 'native-conformance'); mkdirSync(nativeInput);
+writeFileSync(join(nativeInput, 'registry.md'), registryText);
+git(['-c','core.hooksPath=/dev/null','-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','Fixture message']);
+const commit = Bun.spawnSync(['git','-C',gitRoot,'rev-parse','HEAD'], {stdout:'pipe'}).stdout.toString().trim();
+const gitRef = `git:sha256:${digest(gitRoot)}:commit=${commit}`;
+const windowBytes = Buffer.from(raw).subarray(0, 128);
+const transcriptRef = `transcript:sha256:${digest(session)}:offset=0:bytes=128:sha256=${digest(windowBytes)}`;
+writeFileSync(join(nativeInput, 'conformance.log'), `strip-at-merge | 2026-10-18T10:00:00Z | violate | ${gitRef}\n` +
+  `search-before-ask | 2026-10-18T10:01:00Z | miss | ${transcriptRef}:record=0\n`);
+writeFileSync(join(nativeInput, 'conformance-notes.md'), `${gitRef} | repo=${JSON.stringify(gitRoot)}; sha256=${'0'.repeat(64)}\n` +
+  `${transcriptRef} | path=${JSON.stringify(session)}; offset=0; bytes=128; sha256=${digest(windowBytes)}\n`);
+const nativeOutput = join(root, 'data', 'native-conformance');
+const nativeArgs = ['conformance','--work-dir',nativeOutput,'--conformance-dir',nativeInput,'--since','2026-10-12T00:00:00Z','--until','2026-10-19T00:00:00Z'];
+run(nativeArgs);
+let nr = JSON.parse(readFileSync(join(nativeOutput, 'conformance.json')));
+check(nr.rules.find(r => r.id === 'strip-at-merge').findings[0].citations[0].includes('commit=' + commit), 'git citation binds commit, not repo-path digest or message detail hash');
+check(nr.rules[0].findings[0].citations[0].includes('bytes [0, 128)'), 'transcript record citation resolves via bounded parent reference');
+writeFileSync(join(nativeInput, 'conformance-notes.md'), `${gitRef} | repo=${JSON.stringify(root)}\n`);
+run(nativeArgs);
+nr = JSON.parse(readFileSync(join(nativeOutput, 'conformance.json')));
+check(nr.rules.find(r => r.id === 'strip-at-merge').findings[0].gaps.some(g => g.includes('repo-path digest mismatch')), 'different checkout is not a content-addressed match');
 console.log('bounded extraction, attribution, alias counting, quotes, source integrity and proposal-only output: pass');
 JS
 pass 'live-correction review through public CLI'

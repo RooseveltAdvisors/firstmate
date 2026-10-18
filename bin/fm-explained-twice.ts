@@ -5,9 +5,10 @@ import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { conformance } from './fm-weekly-conformance';
 
 const HELP = `Live corrections: bounded extraction -> semantic review -> proposals only.
-Usage: bin/fm-explained-twice.sh [list|scan|weekly|show|report] [options]
+Usage: bin/fm-explained-twice.sh [list|scan|weekly|conformance|show|report] [options]
 No arguments lists recent session files by modification time (not filename date).
 All subcommands accept --help. Requires Bun and Git; weekly also requires bd.
 
@@ -26,6 +27,7 @@ scan --work-dir DIR --session FILE [--offset BYTE] [--bytes N] [--since UTC]
   Their summaries are context, never evidence of captain authorship.
   Missing sources fail; skipped/malformed records and coverage are recorded.
 weekly --work-dir DIR --sources FILE [--week YYYY-MM-DD] [--bead-limit N]
+       [--conformance-dir DIR] [--citations FILE] [--repo DIR]
   Firstmate invokes this on demand each week; no timer, cron, or daemon.
   Defaults to the current UTC Monday through the next Monday (exclusive).
   --week selects any UTC date in the target week. DIR must be new or empty.
@@ -51,6 +53,35 @@ weekly --work-dir DIR --sources FILE [--week YYYY-MM-DD] [--bead-limit N]
   Review bead lessons alongside live corrections using the SAME report procedure.
   Beads are reported/lane evidence, never direct captain authorship or new threads;
   locate the original direct corrections before claiming the existing trigger.
+  --conformance-dir adds the conformance leg to this SAME UTC week, writing
+  conformance.md and conformance.json alongside corpus.json. It is opt-in so
+  existing store/correction reviews need no conformance inputs to continue.
+conformance --work-dir DIR [--conformance-dir DIR] [--since UTC] [--until UTC]
+            [--citations FILE] [--repo DIR]
+  Standalone leg of the weekly review; no bd or semantic review required.
+  Default input: FM_HOME/data/rule-conformance (else CWD/data/rule-conformance).
+  Reads registry.md and conformance.log only; never rewrites or collects rows.
+  Default window: prior seven days, half-open [since, until), UTC derivation
+  times. --until alone selects the seven days ending there; --since overrides
+  the start. Outputs conformance.md and conformance.json under private data/.
+  Every rule includes all five raw verdict counts and its registry limit.
+  No-signature status/reasons stay explicit, even when no rows were observed.
+  Every violate/miss cites its exact log line/reference and reachable artifacts.
+  Optional conformance-notes.md resolves collector references with path/content
+  hashes and transcript byte bounds. Git path digests identify CHECKOUT paths,
+  never content; commit IDs bind content. --repo locates legacy git references.
+  --citations supplies explicit locators for legacy or otherwise opaque rows:
+  [{"reference":"exact source reference from row","file":"/source/evidence",
+    "offset":0,"bytes":1024}]. Bounds optional; whole files max 4 MiB.
+  Caller locators are attributed as supplied, not inferred semantic evidence.
+  Missing/changed/unreadable sources are reported; single-source findings say
+  so explicitly. No namespace search, guessed paths, or padded citations.
+  Read caps: registry 1 MiB, log 16 MiB, notes 4 MiB, locators 1 MiB/1000 rows.
+  Malformed registry/log rows refuse with line findings, never skip silently.
+  JSON includes actual generated_at and window.timestamp (latest included row,
+  or window start if empty). The latter is coverage, never execution time;
+  historical reports preserve their real generation time rather than backdate.
+  Nothing gates, applies, schedules, or recommends automatic enforcement.
 show --work-dir DIR --id ID [--full]
   Shows one event, its byte source, corr refs and nearby collected messages.
   Preview limit: 1500 characters. --full prints all retained text.
@@ -466,8 +497,8 @@ try {
   const args = process.argv.slice(2);
   if (args.includes('--help') || args.includes('-h')) { console.log(HELP); process.exit(0); }
   const command = args[0] && !args[0].startsWith('--') ? args.shift()! : 'list';
-  const allowed: Record<string, string[]> = { list: ['sessions-dir', 'limit'], scan: ['work-dir', 'session', 'offset', 'bytes', 'since', 'state-dir', 'state-limit'], weekly: ['work-dir', 'sources', 'week', 'bead-limit'], show: ['work-dir', 'id', 'full'], report: ['work-dir', 'review'] };
-  requireThat(allowed[command], `unknown command: ${command}; use list, scan, weekly, show or report`);
+  const allowed: Record<string, string[]> = { list: ['sessions-dir', 'limit'], scan: ['work-dir', 'session', 'offset', 'bytes', 'since', 'state-dir', 'state-limit'], weekly: ['work-dir', 'sources', 'week', 'bead-limit', 'conformance-dir', 'citations', 'repo'], conformance: ['work-dir', 'conformance-dir', 'since', 'until', 'citations', 'repo'], show: ['work-dir', 'id', 'full'], report: ['work-dir', 'review'] };
+  requireThat(allowed[command], `unknown command: ${command}; use list, scan, weekly, conformance, show or report`);
   const options: Record<string, string> = {};
   while (args.length) {
     const key = args.shift()!.replace(/^--/, '');
@@ -480,11 +511,20 @@ try {
     textField(options['work-dir'], '--work-dir');
     const dir = safeDir(options['work-dir']);
     const corpusFile = join(dir, 'corpus.json');
+    function saveConformance(week?: {since: string; until: string}) {
+      const output = conformance(options, week);
+      save(join(dir, 'conformance.json'), JSON.stringify(output.result, null, 2) + '\n');
+      save(join(dir, 'conformance.md'), output.markdown);
+      console.log(`conformance: ${q(join(dir, 'conformance.md'))}\nconformance_rows: ${output.result.rows}\nconformance_window: ${q(output.result.window)}\ninstruction_edits: 0`);
+    }
     if (command === 'weekly') {
       textField(options.sources, '--sources');
       const c = weekly(dir, options.sources, options.week, integer(options['bead-limit'], 200, 1000));
       save(corpusFile, JSON.stringify(c, null, 2) + '\n');
+      if (options['conformance-dir']) saveConformance(c.week);
       console.log(`corpus: ${q(corpusFile)}\nweek: ${q(c.week)}\nclosed_beads: ${c.events.filter(e => e.origin === 'bead').length}\nuser_messages: ${c.events.filter(e => e.role === 'user').length}\ninstruction_edits: 0\nnext: ${q('Review show --full, write review.json, then run report with this --work-dir; no classification is automatic.')}`);
+    } else if (command === 'conformance') {
+      saveConformance();
     } else if (command === 'scan') {
       textField(options.session, '--session');
       const since = new Date(options.since || Date.now() - 7 * 86400000).toISOString();
