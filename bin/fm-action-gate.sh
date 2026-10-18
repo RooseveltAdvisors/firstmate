@@ -81,14 +81,14 @@ fm_action_gate_integrity() {
     [ "$file" != runtime-bin ] || continue
     expected=$(
       unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES
-      command -p git --no-replace-objects -C "$root" rev-parse --verify "HEAD:bin/$file"
+      command -p git --no-replace-objects -c safe.directory="$root" -C "$root" rev-parse --verify "HEAD:bin/$file"
     ) || {
       echo "fm-action-gate: DENY: enforcement tamper check: missing committed baseline: $file" >&2
       return 1
     }
     actual=$(
       unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES
-      command -p git --no-replace-objects -C "$root" hash-object --no-filters "$SCRIPT_DIR/$file"
+      command -p git --no-replace-objects -c safe.directory="$root" -C "$root" hash-object --no-filters "$SCRIPT_DIR/$file"
     ) || return 1
     if [ "$expected" != "$actual" ]; then
       echo "fm-action-gate: DENY: enforcement tamper check: content differs from committed baseline: $file" >&2
@@ -176,7 +176,8 @@ case "$cmd" in
     case "$action_class" in
       mail_draft|draft) ;;
       *)
-        if ! fm_action_gate_load_grant "$grant_file"; then
+        if [ -f "$grant_file" ] && ! fm_action_gate_load_grant "$grant_file"; then
+          fm_action_gate_record_evidence "$FM_ACTION_DENY" "$action_class" "$target" "$task_id" "$grant_file" "invalid-grant-signature"
           echo 'fm-action-gate: DENY: unsigned or altered grant' >&2
           exit 1
         fi

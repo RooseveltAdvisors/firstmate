@@ -31,6 +31,11 @@ refuse() {
   assert_contains "$output" DENY "refusal should name DENY"
   printf '%s\n' "$output"
 }
+foreign() {
+  env -u GIT_CONFIG_PARAMETERS -u FM_RUNNER_UNTRUSTED GIT_CONFIG_COUNT=0 GIT_CONFIG_GLOBAL=/dev/null \
+    GIT_CONFIG_SYSTEM=/dev/null GIT_TEST_ASSUME_DIFFERENT_OWNER=true FM_HOME="$LAB" bash "$ACTION_GATE" "$@"
+}
+last_evidence() { tail -n 1 "$LAB/state/evidence/actions/action-ledger.jsonl"; }
 request() {
   local file=$1 kind=$2 origin=$3
   shift 3
@@ -49,6 +54,19 @@ STORE="$(dirname "$control")/grants"
 out=$(call check mail_draft synthetic-target synthetic-task)
 assert_contains "$out" ALLOW "provisioned clear state should admit draft checks"
 pass "signed control provisioning permits normal checks"
+
+status=0
+out=$(call check booking synthetic-target synthetic-task 2>&1) || status=$?
+[ "$status" -eq 2 ] || fail "missing grant should exit 2, got $status"
+assert_contains "$out" HUMAN_REVIEW "consequential action without grant routes to captain"
+status=0
+out=$(call execute booking synthetic-target synthetic-task '' /usr/bin/printf NO_GRANT_EXECUTED 2>&1) || status=$?
+[ "$status" -ne 0 ] || fail "execute without grant must refuse"
+assert_contains "$out" "decision was 'HUMAN_REVIEW'" "execute without grant routes to captain"
+[[ "$out" != *NO_GRANT_EXECUTED* ]] || fail 'ungranted command ran'
+last_evidence | jq -e '.decision=="HUMAN_REVIEW" and .reason=="missing grant routes to captain review"' >/dev/null ||
+  fail 'missing grant review must be recorded'
+pass "missing grant routes to HUMAN_REVIEW with recorded evidence"
 
 # #7: all three files are independently tested, with unchanged restored controls.
 for enforcement in fm-action-gate.sh fm-action-gate-lib.sh fm-gate-refuse-lib.sh; do
@@ -70,6 +88,21 @@ out=$(call check draft synthetic-target synthetic-task)
 assert_contains "$out" ALLOW "restored enforcement must evaluate"
 pass "#7 runtime guard refuses writable or altered enforcement and resumes after restore"
 
+# An administrator-owned install is a different Git owner than the worker.
+out=$(foreign check draft synthetic-target synthetic-task)
+assert_contains "$out" ALLOW "intact enforcement must evaluate under a different Git owner"
+chmod u+w "$INSTALL/bin/fm-action-gate-lib.sh"
+if out=$(foreign check draft synthetic-target synthetic-task 2>&1); then fail 'writable enforcement must refuse under a different Git owner'; fi
+assert_contains "$out" 'writable enforcement' "different-owner writable enforcement must refuse"
+printf '\nexit 97\n' >> "$INSTALL/bin/fm-action-gate-lib.sh"
+chmod a-w "$INSTALL/bin/fm-action-gate-lib.sh"
+if out=$(foreign check draft synthetic-target synthetic-task 2>&1); then fail 'changed enforcement must refuse under a different Git owner'; fi
+assert_contains "$out" 'content differs from committed baseline' "different-owner changed enforcement must refuse"
+chmod u+w "$INSTALL/bin/fm-action-gate-lib.sh"
+cp "$TMP/original-lib" "$INSTALL/bin/fm-action-gate-lib.sh"
+chmod a-w "$INSTALL/bin/fm-action-gate-lib.sh"
+pass "baseline reads trust only the exact protected checkout under a different Git owner"
+
 mv "$INSTALL/bin/fm-gate-refuse-lib.sh" "$TMP/refuse-lib"
 ln -s "$TMP/refuse-lib" "$INSTALL/bin/fm-gate-refuse-lib.sh"
 refuse check draft synthetic-target synthetic-task >/dev/null
@@ -82,6 +115,8 @@ jq -nc '{action_class:"booking",target:"synthetic-target",task_id:"synthetic-tas
 out=$(refuse execute booking synthetic-target synthetic-task "$STORE/forged.json" /usr/bin/printf FORGED_EXECUTED)
 assert_contains "$out" 'unsigned or altered grant' "same-user forged grant must be denied"
 [[ "$out" != *FORGED_EXECUTED* ]] || fail 'forged command ran'
+last_evidence | jq -e '.decision=="DENY" and .reason=="invalid-grant-signature"' >/dev/null ||
+  fail 'forged grant denial must be recorded'
 pass "#7 same-user grant forgery denied without relying on grant-store write permissions"
 
 mkdir "$TMP/fake-tools"
@@ -121,6 +156,12 @@ if env FM_HOME="$LAB" FM_CAPTAIN_AUTH=1 bash "$ACTION_GATE" mint-grant "$STORE/e
   fail "captain environment flag must not replace the signing key"
 fi
 assert_contains "$(cat "$TMP/env-forged")" 'administrator signing key' "missing key must refuse"
+if env FM_HOME="$LAB" FM_RUNNER_UNTRUSTED=1 bash "$ACTION_GATE" mint-grant "$STORE/untrusted.json" \
+  booking synthetic-target synthetic-task 2030-01-01T00:00:00Z untrusted "$TMP/request.json" "$KEY" > "$TMP/untrusted" 2>&1; then
+  fail "untrusted runner must not mint grants even with a valid key"
+fi
+assert_contains "$(cat "$TMP/untrusted")" 'runner cannot create or mint its own grants' "untrusted runner mint must refuse"
+[ ! -e "$STORE/untrusted.json" ] || fail 'untrusted runner minted a grant'
 pass "expiry and independent signing authority remain enforced"
 
 # #3: signed provenance is checked at the effect boundary, not trusted from env.
@@ -164,7 +205,10 @@ refuse mint-grant "$STORE/fresh.json" booking synthetic-target synthetic-task 20
 control=$(find "$INSTALL/.action-control" -name brake.json -type f)
 jq -e '.active and (.reconciliation[-1].queued | any(.approval_reference=="queued" and .status=="revoked-by-brake"))' "$control" >/dev/null || fail 'brake must reconcile queued grants'
 call brake clear "$KEY" human-resume
-refuse execute booking synthetic-target synthetic-task "$STORE/queued.json" /usr/bin/printf QUEUED_EXECUTED >/dev/null
+out=$(refuse execute booking synthetic-target synthetic-task "$STORE/queued.json" /usr/bin/printf QUEUED_EXECUTED)
+assert_contains "$out" 'grant revoked by human brake' "reconciled queue stays revoked after clear"
+last_evidence | jq -e '.decision=="DENY" and .reason=="grant-revoked-by-brake"' >/dev/null ||
+  fail 'revoked grant denial must be recorded'
 request "$TMP/resumed.json" trusted booking /usr/bin/printf RESUMED_EXECUTED
 mint resumed booking "$TMP/resumed.json"
 out=$(call execute booking synthetic-target synthetic-task "$STORE/resumed.json" /usr/bin/printf RESUMED_EXECUTED)

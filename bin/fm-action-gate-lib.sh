@@ -147,6 +147,7 @@ fm_action_gate_brake_clear() {
     echo "fm-action-gate: DENY: human brake is active" >&2
     return 1
   fi
+  printf '%s\n' "$state"
 }
 
 # init-control <private_key> <approval_ref>, or brake set|clear <private_key>
@@ -319,7 +320,7 @@ fm_action_gate_mint_grant() {
   local approval_ref=$6
   local request_file=${7:-} key=${8:-} tmp
 
-  fm_action_gate_brake_clear || return 1
+  fm_action_gate_brake_clear >/dev/null || return 1
 
   # Runner cannot create its own grants
   if [ -n "${FM_RUNNER_UNTRUSTED:-}" ]; then
@@ -414,9 +415,9 @@ fm_action_gate_check() {
   local action_class=${1:-}
   local target=${2:-}
   local task_id=${3:-${FM_TASK_ID:-}}
-  local grant_file=${4:-}
+  local grant_file=${4:-} control
 
-  if ! fm_action_gate_brake_clear; then
+  if ! control=$(fm_action_gate_brake_clear); then
     fm_action_gate_record_evidence "$FM_ACTION_DENY" "$action_class" "$target" "$task_id" "$grant_file" "human-brake-or-invalid-control"
     echo "$FM_ACTION_DENY"
     return 1
@@ -504,7 +505,8 @@ fm_action_gate_check() {
   g_jev_risk=$(fm_action_gate_grant_get '.jev_classification.risk_label // empty')
   g_jev_grant=$(fm_action_gate_grant_get '.jev_classification.decision // empty')
 
-  if jq -e --arg ref "$g_approval" '.revoked | index($ref)!=null' "$(fm_action_gate_control_file)" >/dev/null; then
+  if ! printf '%s' "$control" | jq -e --arg ref "$g_approval" '.revoked | index($ref)==null' >/dev/null; then
+    fm_action_gate_record_evidence "$FM_ACTION_DENY" "$action_class" "$target" "$task_id" "$g_approval" "grant-revoked-by-brake"
     echo 'fm-action-gate: DENY: grant revoked by human brake' >&2
     echo "$FM_ACTION_DENY"
     return 1
