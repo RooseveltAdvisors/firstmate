@@ -396,7 +396,9 @@ function weekly(dir: string, sourcesFile: string, window: {since: string; until:
     requireThat(typeof identity.database_path === 'string' && realpathSync(identity.database_path) === databasePath &&
       typeof identity.path === 'string' && realpathSync(identity.path) === realpathSync(join(directory, '.beads')),
       `store identity mismatch for ${directory}: ${q(identity)}`);
-    const listed = bd(directory, databasePath, ['list', '--status', 'closed', '--closed-after', since,
+    // bd --closed-after is exclusive at whole seconds; query one second early so a bead
+    // closed exactly at since is returned, then the local [since, until) filter applies.
+    const listed = bd(directory, databasePath, ['list', '--status', 'closed', '--closed-after', new Date(Date.parse(since) - 1000).toISOString(),
       '--closed-before', until, '--sort', 'closed', '--limit', String(limit + 1)]);
     requireThat(Array.isArray(listed) && listed.length <= limit, `store exceeds bead limit ${limit} or returned invalid rows: ${directory}; narrow review manually`);
     const listedIds = new Set<string>();
