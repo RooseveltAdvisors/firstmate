@@ -1,0 +1,44 @@
+$ fm-rule-conformance.sh   (no args, empty FM_HOME)
+log: not selected or absent
+help: fm-rule-conformance.sh --help
+
+# S1: output under ignored data/ inside Git -> collects
+appended: 7
+duplicate: 0
+exit=0
+7
+no-hand-edit-enforcement | 2026-10-18T12:06:53Z | no-signature | git:sha256:e917bdbb2217a0809b1c593ded3df59890f88e574b417338e73111e7aaa36607:state=a78c8ad84eeb4adfeedc0df282cfa4089b22442e24b7e351a9e8a5a15838db8e
+disclose-not-rewrite | 2026-10-18T12:06:53Z | no-signature | git:sha256:e917bdbb2217a0809b1c593ded3df59890f88e574b417338e73111e7aaa36607:state=a78c8ad84eeb4adfeedc0df282cfa4089b22442e24b7e351a9e8a5a15838db8e
+# S2: rerun same manifest -> idempotent, no duplicates
+appended: 0
+duplicate: 7
+exit=0
+log+notes byte-identical
+# S3: only conformance* ignored (api-*.json snapshots not) -> refused
+Error: output must be ignored and untracked
+error: collection failed; inspect stderr and select bounded native artifacts
+exit=1
+# S4: data/ not ignored -> refused
+Error: output must be ignored and untracked
+error: collection failed; inspect stderr and select bounded native artifacts
+exit=1
+# S5: git reports dubious ownership -> refused (fail closed)
+Error: Git discovery failed; output privacy unproven
+error: collection failed; inspect stderr and select bounded native artifacts
+exit=1
+# S6: git missing from PATH -> refused (fail closed)
+Error: Git discovery failed; output privacy unproven
+error: collection failed; inspect stderr and select bounded native artifacts
+exit=1
+# S7: genuinely non-Git private data/ dir -> allowed
+appended: 3
+duplicate: 0
+exit=0
+first-step-first | 2026-10-18T12:06:53Z | no-signature | registry:sha256:2eb71aa0fdbe60ac6c2986142a6302fab001bddaf01ea0fdd8e39cc272ebdfd7
+report-standards | 2026-10-18T12:06:53Z | no-signature | registry:sha256:2eb71aa0fdbe60ac6c2986142a6302fab001bddaf01ea0fdd8e39cc272ebdfd7
+never-bypass-a-refusal | 2026-10-18T12:06:53Z | no-signature | registry:sha256:2eb71aa0fdbe60ac6c2986142a6302fab001bddaf01ea0fdd8e39cc272ebdfd7
+# S8: tracked output file -> refused
+Error: output must be ignored and untracked
+error: collection failed; inspect stderr and select bounded native artifacts
+exit=1
+log unchanged
