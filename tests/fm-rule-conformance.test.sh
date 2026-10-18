@@ -12,7 +12,7 @@ TMP_ROOT=$(fm_test_tmproot fm-rule-conformance)
 export TMP_ROOT ROOT
 bun - <<'TS'
 import { strict as assert } from 'node:assert';
-import { mkdirSync, readFileSync, writeFileSync, appendFileSync, symlinkSync, linkSync, chmodSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, symlinkSync, linkSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 const root = process.env.ROOT!, tmp = process.env.TMP_ROOT!;
@@ -145,5 +145,22 @@ assert.notEqual(collect(join(repo,'data','nonignored'),eManifest).status,0);
 writeFileSync(join(repo,'.gitignore'),'data/\n');
 exec(['git','add','-f',join(privateOut,'conformance.log')],repo);
 assert.notEqual(collect(privateOut,eManifest).status,0,'tracked output remains refused');
+writeFileSync(join(repo,'.gitignore'),'data/*/conformance*\n');
+const apiOut = join(repo,'data','api-unignored');
+assert(collect(apiOut,eManifest).stderr.includes('output must be ignored and untracked'),'API snapshots must be ignored too');
+assert(!existsSync(join(apiOut,'conformance.log')));
+// Git discovery failures are refusals, never evidence of a non-Git directory.
+writeFileSync(join(repo,'.gitignore'),'');
+const which = (bin: string) => exec(['bash','-c',`command -v ${bin}`]).trim();
+const noGit = join(tmp,'nogit'), dubious = join(tmp,'dubious');
+for (const d of [noGit,dubious]) { mkdirSync(d); for (const b of ['bun','dirname']) symlinkSync(which(b),join(d,b)); }
+writeFileSync(join(dubious,'git'),"#!/bin/sh\necho \"fatal: detected dubious ownership in repository at '$PWD'\" >&2\nexit 128\n"); chmodSync(join(dubious,'git'),0o755);
+for (const [bin, label] of [[noGit,'missing'],[dubious,'dubious']]) {
+  const out = join(repo,'data',label);
+  const r = spawnSync(which('bash'),[script,'--manifest',eManifest,'--output',out,'--registry',registry],{encoding:'utf8',env:{...process.env,PATH:bin}});
+  assert.notEqual(r.status,0,`${label} Git must fail closed`);
+  assert(r.stderr.includes('Git discovery failed'),r.stderr);
+  assert(!existsSync(join(out,'conformance.log')) && !existsSync(join(out,'conformance-notes.md')));
+}
 console.log('pass: five artifact parsers, conservative gaps, row shape, bounded reads, append-only idempotence, privacy, locks and GitHub adapter');
 TS

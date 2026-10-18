@@ -259,11 +259,12 @@ function safeDirectory(dir: string) {
     if (existsSync(path) && lstatSync(path).isSymbolicLink()) fail('symlink output path refused');
   }
   mkdirSync(dir, {recursive: true, mode: 0o700});
-  const p = spawnSync('git', ['rev-parse', '--show-toplevel'], {cwd: dir, timeout: 15000, maxBuffer: MAX});
+  const p = spawnSync('git', ['rev-parse', '--show-toplevel'], {cwd: dir, timeout: 15000, maxBuffer: MAX, env: {...process.env, LC_ALL: 'C'}});
+  if (p.error || (p.status !== 0 && !/^fatal: not a git repository/m.test(p.stderr.toString()))) fail('Git discovery failed; output privacy unproven');
   if (p.status === 0) {
     // Git quiet mode accepts one pathname only. Each destination must pass;
     // checking both without -q would establish only that at least one is ignored.
-    const ignored = ['conformance.log', 'conformance-notes.md'].map(name =>
+    const ignored = ['conformance.log', 'conformance-notes.md', `api-${'0'.repeat(64)}.json`].map(name =>
       spawnSync('git', ['check-ignore', '-q', '--', resolve(dir, name)], {cwd: dir}));
     if (ignored.some(p => p.status !== 0) || command(['git', 'ls-files', '--', dir + '/'], dir).trim()) fail('output must be ignored and untracked');
   }
