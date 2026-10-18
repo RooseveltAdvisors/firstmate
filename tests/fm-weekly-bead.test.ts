@@ -17,7 +17,7 @@ beforeEach(() => {
     driver: {id: 'fm-driver', directory: store, databasePath: db}}));
   const bd = join(bin, 'bd');
   writeFileSync(bd, `#!/usr/bin/env bun
-import {appendFileSync, readFileSync, writeFileSync} from 'node:fs';
+import {appendFileSync, existsSync, readFileSync, writeFileSync} from 'node:fs';
 const args = process.argv.slice(2), store = args[args.indexOf('-C') + 1];
 appendFileSync(store + '/calls.jsonl', JSON.stringify(args) + '\\n');
 if (Object.keys(process.env).some(k => k.startsWith('BEADS_') || k === 'BD_DATABASE')) throw Error('inherited store override');
@@ -28,8 +28,16 @@ if (command !== 'update' && !args.includes('--readonly')) throw Error('read not 
 if (process.env.HANG_BD === command) await Bun.sleep(3000);
 if (process.env.FAIL_BD === command) { console.error('Dolt lock held: fixture store unreachable'); process.exit(2); }
 if (command === 'where') console.log(JSON.stringify({path: store + '/.beads', database_path: process.env.WRONG_DB || store + '/.beads/embeddeddolt'}));
-else if (command === 'list') console.log('[]');
-else if (command === 'show') console.log(process.env.MISSING_BEAD ? '[]' : '[' + readFileSync(store + '/issue.json', 'utf8') + ']');
+else if (command === 'list') {
+  // Real bd 1.3.2: --closed-after and --closed-before are both strict.
+  const after = Date.parse(args[args.indexOf('--closed-after') + 1]), before = Date.parse(args[args.indexOf('--closed-before') + 1]);
+  const closed = existsSync(store + '/closed.json') ? JSON.parse(readFileSync(store + '/closed.json', 'utf8')) : [];
+  console.log(JSON.stringify(closed.filter((i: any) => Date.parse(i.closed_at) > after && Date.parse(i.closed_at) < before)));
+} else if (command === 'show') {
+  const closed = existsSync(store + '/closed.json') ? JSON.parse(readFileSync(store + '/closed.json', 'utf8')) : [];
+  const ids = args.filter(a => a.startsWith('--id=')).map(a => a.slice(5)), hits = closed.filter((i: any) => ids.includes(i.id));
+  console.log(hits.length ? JSON.stringify(hits) : process.env.MISSING_BEAD ? '[]' : '[' + readFileSync(store + '/issue.json', 'utf8') + ']');
+}
 else if (command === 'update') {
   if (args.at(-1) !== 'fm-driver' || args.at(-2) !== '--') throw Error('wrong driving bead');
   const issue = JSON.parse(readFileSync(store + '/issue.json', 'utf8'));
@@ -139,10 +147,23 @@ test.each([0, 3 * 3600000 + 17 * 60000 + 9000, DAY - 1000])('cycles fired %pms l
   expect(artifact.window.until).toBe(artifact.ran_at);
   expect(JSON.parse(readFileSync(join(next, 'corpus.json'), 'utf8')).week).toEqual(artifact.window);
   const list = calls().filter(a => a.includes('list')).at(-1)!;
-  expect(list[list.indexOf('--closed-after') + 1]).toBe(prior.window.until);
+  expect(list[list.indexOf('--closed-after') + 1]).toBe(at(Date.parse(prior.window.until) - 1000));
   expect(list[list.indexOf('--closed-before') + 1]).toBe(artifact.ran_at);
   expect(Date.parse(issue().due_at)).toBe(Date.parse(artifact.ran_at) + 7 * DAY);
   expect(issue().metadata.weekly_review.artifact_path).toBe(join(next, 'weekly-run.json'));
+});
+
+test('a bead closed exactly at the cycle boundary appears in exactly one cycle', () => {
+  success(run());
+  const first = join(output, 'weekly-run.json'), boundary = Math.floor(Date.now() / 1000) * 1000 - 7 * DAY - 3600000;
+  const prior = backdate(first, at(boundary));
+  stampBead(first, prior.ran_at, at(boundary + 7 * DAY));
+  writeFileSync(join(store, 'closed.json'), JSON.stringify([{id: 'fm-edge', status: 'closed', closed_at: at(boundary).replace(/\.000Z$/, 'Z'), comments: []}]));
+  const next = join(root, 'data', 'next');
+  success(run({}, next));
+  const corpus = (dir: string) => JSON.parse(readFileSync(join(dir, 'corpus.json'), 'utf8'));
+  expect(JSON.stringify(corpus(next).events)).toContain('fm-edge');
+  expect(corpus(next).notes.join('\n')).not.toContain('Excluded');
 });
 
 test('a due cycle reviews observations after the previous run and before this run only', () => {
