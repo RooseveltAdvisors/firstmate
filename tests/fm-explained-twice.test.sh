@@ -11,6 +11,7 @@ if ! command -v bun >/dev/null 2>&1; then
 fi
 TMP_ROOT=$(fm_test_tmproot fm-explained-twice)
 export DETECTOR="$ROOT/bin/fm-explained-twice.sh" DETECTOR_TEST_ROOT="$TMP_ROOT"
+bun test "$ROOT/tests/fm-weekly-bead.test.ts"
 bun run - <<'JS'
 import {mkdirSync, writeFileSync, readFileSync, existsSync, symlinkSync, linkSync, chmodSync, realpathSync} from 'node:fs';
 import {join} from 'node:path';
