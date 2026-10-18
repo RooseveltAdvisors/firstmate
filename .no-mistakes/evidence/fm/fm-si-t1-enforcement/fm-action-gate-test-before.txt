@@ -1,0 +1,1 @@
+usage: fm-action-gate.sh check|execute|mint-grant <args...>

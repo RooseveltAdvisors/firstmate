@@ -1,0 +1,139 @@
+=== BASE 98b1688a: same-user forged grant (FAIL-BEFORE) ===
+$ fm-action-gate.sh execute booking synthetic-target synthetic-task $T/lab-98b1688a/state/grants/forged.json /usr/bin/printf FORGED_EXECUTED\n
+fm-gate-refuse: gate agent lifecycle permitted only against lab home $T/lab-98b1688a
+ok: action gate passed, executing booking on synthetic-target
+FORGED_EXECUTED
+[exit 0]
+--- BASE curl under draft label
+$ fm-action-gate.sh execute draft synthetic-target synthetic-task  /usr/bin/printf CURL_STANDIN_EXECUTED\n
+fm-gate-refuse: gate agent lifecycle permitted only against lab home $T/lab-98b1688a
+ok: action gate passed, executing draft on synthetic-target
+CURL_STANDIN_EXECUTED
+[exit 0]
+
+=== HEAD 4bdf1bcd ===
+$ fm-action-gate.sh init-control $T/admin.pem initial-control
+fm-gate-refuse: gate agent lifecycle permitted only against lab home $T/lab-4bdf1bcd
+ok: human brake init; signed reconciliation recorded
+[exit 0]
+--- #7 forged grant (enforcement read-only)
+$ fm-action-gate.sh execute booking synthetic-target synthetic-task $T/head/.action-control/3c5c4fd7e68d09f982a1ecc969bead4f56b8219911515b9345677db4abbf9b72/grants/forged.json /usr/bin/printf FORGED_EXECUTED\n
+fm-gate-refuse: gate agent lifecycle permitted only against lab home $T/lab-4bdf1bcd
+fm-action-gate: DENY: unsigned or altered grant
+[exit 1]
+--- #7 worker-writable enforcement
+$ fm-action-gate.sh check draft synthetic-target synthetic-task
+fm-action-gate: DENY: enforcement tamper check: writable enforcement: fm-action-gate-lib.sh
+DENY
+[exit 1]
+--- #7 changed enforcement
+$ fm-action-gate.sh check draft synthetic-target synthetic-task
+fm-action-gate: DENY: enforcement tamper check: content differs from committed baseline: fm-action-gate-lib.sh
+DENY
+[exit 1]
+--- #7 restored enforcement
+$ fm-action-gate.sh check draft synthetic-target synthetic-task
+fm-gate-refuse: gate agent lifecycle permitted only against lab home $T/lab-4bdf1bcd
+ALLOW
+[exit 0]
+--- #7 different Git owner (isolated git config), intact
+$ GIT_TEST_ASSUME_DIFFERENT_OWNER=true fm-action-gate.sh check draft synthetic-target synthetic-task
+fm-gate-refuse: gate agent lifecycle permitted only against lab home $T/lab-4bdf1bcd
+ALLOW
+[exit 0]
+--- valid signed grant executes once
+$ fm-action-gate.sh mint-grant $T/head/.action-control/3c5c4fd7e68d09f982a1ecc969bead4f56b8219911515b9345677db4abbf9b72/grants/ok.json booking synthetic-target synthetic-task 2030-01-01T00:00:00Z ok $T/r.json $T/admin.pem
+fm-gate-refuse: gate agent lifecycle permitted only against lab home $T/lab-4bdf1bcd
+[exit 0]
+$ fm-action-gate.sh execute booking synthetic-target synthetic-task $T/head/.action-control/3c5c4fd7e68d09f982a1ecc969bead4f56b8219911515b9345677db4abbf9b72/grants/ok.json /usr/bin/printf BOOKED\n
+fm-gate-refuse: gate agent lifecycle permitted only against lab home $T/lab-4bdf1bcd
+ok: action gate passed, executing booking on synthetic-target
+BOOKED
+[exit 0]
+$ fm-action-gate.sh execute booking synthetic-target synthetic-task $T/head/.action-control/3c5c4fd7e68d09f982a1ecc969bead4f56b8219911515b9345677db4abbf9b72/grants/ok.json /usr/bin/printf BOOKED\n
+fm-gate-refuse: gate agent lifecycle permitted only against lab home $T/lab-4bdf1bcd
+fm-action-gate: DENY: grant already consumed
+fm-action-gate: execution refused: decision was 'DENY'
+[exit 1]
+--- #3 forwarded mail_send relabeled as booking
+$ fm-action-gate.sh mint-grant $T/head/.action-control/3c5c4fd7e68d09f982a1ecc969bead4f56b8219911515b9345677db4abbf9b72/grants/fw.json booking synthetic-target synthetic-task 2030-01-01T00:00:00Z fw $T/f.json $T/admin.pem
+fm-gate-refuse: gate agent lifecycle permitted only against lab home $T/lab-4bdf1bcd
+[exit 0]
+$ fm-action-gate.sh execute booking synthetic-target synthetic-task $T/head/.action-control/3c5c4fd7e68d09f982a1ecc969bead4f56b8219911515b9345677db4abbf9b72/grants/fw.json /usr/bin/printf RELABELED\n
+fm-gate-refuse: gate agent lifecycle permitted only against lab home $T/lab-4bdf1bcd
+fm-action-gate: DENY: provenance origin 'mail_send' cannot be relabeled 'booking'
+[exit 1]
+--- #2 external program under draft label
+$ fm-action-gate.sh execute draft synthetic-target synthetic-task  /usr/bin/printf CURL_STANDIN_EXECUTED\n
+fm-gate-refuse: gate agent lifecycle permitted only against lab home $T/lab-4bdf1bcd
+fm-action-gate: DENY: mail_draft accepts only draft-json with to, subject and body strings
+[exit 1]
+$ fm-action-gate.sh execute mail_draft synthetic-target synthetic-task  draft-json {"to":"synthetic@example.invalid","subject":"S","body":"Draft only"}
+fm-gate-refuse: gate agent lifecycle permitted only against lab home $T/lab-4bdf1bcd
+ok: action gate passed, executing mail_draft on synthetic-target
+{
+  "operation": "mail_draft",
+  "target": "synthetic-target",
+  "task_id": "synthetic-task",
+  "draft": {
+    "to": "synthetic@example.invalid",
+    "subject": "S",
+    "body": "Draft only"
+  }
+}
+[exit 0]
+--- #16 brake
+$ fm-action-gate.sh mint-grant $T/head/.action-control/3c5c4fd7e68d09f982a1ecc969bead4f56b8219911515b9345677db4abbf9b72/grants/q.json booking synthetic-target synthetic-task 2030-01-01T00:00:00Z queued $T/q.json $T/admin.pem
+fm-gate-refuse: gate agent lifecycle permitted only against lab home $T/lab-4bdf1bcd
+[exit 0]
+$ fm-action-gate.sh brake set $T/no-key unauthenticated
+fm-gate-refuse: gate agent lifecycle permitted only against lab home $T/lab-4bdf1bcd
+fm-action-gate: DENY: administrator signing key or pinned public key missing
+[exit 1]
+$ fm-action-gate.sh brake set $T/admin.pem human-stop
+fm-gate-refuse: gate agent lifecycle permitted only against lab home $T/lab-4bdf1bcd
+ok: human brake set; signed reconciliation recorded
+[exit 0]
+$ fm-action-gate.sh execute booking synthetic-target synthetic-task $T/head/.action-control/3c5c4fd7e68d09f982a1ecc969bead4f56b8219911515b9345677db4abbf9b72/grants/q.json /usr/bin/printf QUEUED\n
+fm-gate-refuse: gate agent lifecycle permitted only against lab home $T/lab-4bdf1bcd
+fm-action-gate: DENY: human brake is active
+fm-action-gate: execution refused: decision was 'DENY'
+[exit 1]
+$ fm-action-gate.sh mint-grant $T/head/.action-control/3c5c4fd7e68d09f982a1ecc969bead4f56b8219911515b9345677db4abbf9b72/grants/fresh.json booking synthetic-target synthetic-task 2030-01-01T00:00:00Z fresh $T/q.json $T/admin.pem
+fm-gate-refuse: gate agent lifecycle permitted only against lab home $T/lab-4bdf1bcd
+fm-action-gate: DENY: human brake is active
+[exit 1]
+reconciliation record:
+{"active":true,"last":{"timestamp":"2026-10-18T04:44:39Z","operation":"set","approval_reference":"human-stop","queued":[{"grant":"$T/head/.action-control/3c5c4fd7e68d09f982a1ecc969bead4f56b8219911515b9345677db4abbf9b72/grants/forged.json","approval_reference":"forged","status":"revoked-by-brake"},{"grant":"$T/head/.action-control/3c5c4fd7e68d09f982a1ecc969bead4f56b8219911515b9345677db4abbf9b72/grants/fw.json","approval_reference":"fw","status":"revoked-by-brake"},{"grant":"$T/head/.action-control/3c5c4fd7e68d09f982a1ecc969bead4f56b8219911515b9345677db4abbf9b72/grants/ok.json","approval_reference":"ok","status":"revoked-by-brake"},{"grant":"$T/head/.action-control/3c5c4fd7e68d09f982a1ecc969bead4f56b8219911515b9345677db4abbf9b72/grants/q.json","approval_reference":"queued","status":"revoked-by-brake"}]}}
+$ fm-action-gate.sh brake clear $T/admin.pem human-resume
+fm-gate-refuse: gate agent lifecycle permitted only against lab home $T/lab-4bdf1bcd
+ok: human brake clear; signed reconciliation recorded
+[exit 0]
+$ fm-action-gate.sh execute booking synthetic-target synthetic-task $T/head/.action-control/3c5c4fd7e68d09f982a1ecc969bead4f56b8219911515b9345677db4abbf9b72/grants/q.json /usr/bin/printf QUEUED\n
+fm-gate-refuse: gate agent lifecycle permitted only against lab home $T/lab-4bdf1bcd
+fm-action-gate: DENY: grant revoked by human brake
+fm-action-gate: execution refused: decision was 'DENY'
+[exit 1]
+$ fm-action-gate.sh mint-grant $T/head/.action-control/3c5c4fd7e68d09f982a1ecc969bead4f56b8219911515b9345677db4abbf9b72/grants/n.json booking synthetic-target synthetic-task 2030-01-01T00:00:00Z resumed $T/n.json $T/admin.pem
+fm-gate-refuse: gate agent lifecycle permitted only against lab home $T/lab-4bdf1bcd
+[exit 0]
+$ fm-action-gate.sh execute booking synthetic-target synthetic-task $T/head/.action-control/3c5c4fd7e68d09f982a1ecc969bead4f56b8219911515b9345677db4abbf9b72/grants/n.json /usr/bin/printf RESUMED\n
+fm-gate-refuse: gate agent lifecycle permitted only against lab home $T/lab-4bdf1bcd
+ok: action gate passed, executing booking on synthetic-target
+RESUMED
+[exit 0]
+--- missing grant
+$ fm-action-gate.sh execute booking synthetic-target synthetic-task  /usr/bin/printf NOGRANT\n
+fm-gate-refuse: gate agent lifecycle permitted only against lab home $T/lab-4bdf1bcd
+fm-action-gate: HUMAN_REVIEW: action requires captain grant; routing to review
+fm-action-gate: execution refused: decision was 'HUMAN_REVIEW'
+[exit 1]
+--- ledger tail
+{"decision":"DENY","action_class":"draft","reason":"payload-or-provenance-refused"}
+{"decision":"ALLOW","action_class":"mail_draft","reason":"drafting permitted"}
+{"decision":"ALLOW","action_class":"mail_draft","reason":"payload-and-provenance-verified"}
+{"decision":"DENY","action_class":"booking","reason":"human-brake-or-invalid-control"}
+{"decision":"DENY","action_class":"booking","reason":"grant-revoked-by-brake"}
+{"decision":"ALLOW","action_class":"booking","reason":"grant verified"}
+{"decision":"ALLOW","action_class":"booking","reason":"payload-and-provenance-verified"}
+{"decision":"HUMAN_REVIEW","action_class":"booking","reason":"missing grant routes to captain review"}

@@ -1,0 +1,26 @@
+ok: human brake init; signed reconciliation recorded
+ok - signed control provisioning permits normal checks
+ok - missing grant routes to HUMAN_REVIEW with recorded evidence
+ok - #7 runtime guard refuses writable or altered enforcement and resumes after restore
+ok - baseline reads trust only the exact protected checkout under a different Git owner
+ok - symlinked enforcement cannot replace a pinned library
+ok - #7 same-user grant forgery denied without relying on grant-store write permissions
+ok - caller PATH cannot replace verifier tools
+ok - valid signed command executes once and replay refuses
+ok - task, target, class and exact command remain bound
+ok - expiry and independent signing authority remain enforced
+ok - #3 forwarded mail_send relabeled booking denied before execution
+ok - caller cannot rewrite signed provenance
+ok - #2 arbitrary curl denied; draft class renders only a typed draft
+ok: human brake set; signed reconciliation recorded
+ok: human brake clear; signed reconciliation recorded
+ok - #16 brake stops queued/fresh actions and minting, records reconciliation, resumes with fresh authority
+ok - missing or tampered brake state never implies clear
+ok - deleting brake state cannot clear the brake
+ok - real mail stays denied and evidence failure denies execution
+ok: human brake set; signed reconciliation recorded
+ok: human brake clear; signed reconciliation recorded
+ok - successful brake is serialized after admitted effects; child gets no lock capability
+ok - one-use consumption and serialized admission prevent concurrent replay
+ok - no-mistakes fleet boundary preserved
+ok: T1 runtime regressions passed; installed ownership proof remains operator-owned
