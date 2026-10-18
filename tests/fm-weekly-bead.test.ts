@@ -194,6 +194,19 @@ test('an empty window still reports its bounds and zero observations', () => {
   expect(corpus.notes).toContain(`Weekly review window: [${corpus.week.since}, ${corpus.week.until}). Invoked on demand; no schedule installed.`);
 });
 
+test('a due bead whose due_at plain bd ready rolled to now+1d still fires its cycle', () => {
+  success(run());
+  const first = join(output, 'weekly-run.json'), previous = Math.floor(Date.now() / 1000) * 1000 - 7 * DAY - 3600000;
+  const prior = backdate(first, at(previous));
+  stampBead(first, prior.ran_at, at(previous + 7 * DAY), false, at(Math.floor(Date.now() / 1000) * 1000 + DAY));
+  const next = join(root, 'data', 'rolled');
+  success(run({}, next));
+  const artifact = JSON.parse(readFileSync(join(next, 'weekly-run.json'), 'utf8'));
+  expect(artifact.window.since).toBe(prior.ran_at);
+  expect(Date.parse(issue().due_at)).toBe(Date.parse(artifact.ran_at) + 7 * DAY);
+  expect(issue().metadata.weekly_review.artifact_path).toBe(join(next, 'weekly-run.json'));
+});
+
 test('reusing a completed cycle work-dir once the bead is due refuses instead of replaying', () => {
   success(run());
   const file = join(output, 'weekly-run.json'), previous = Math.floor(Date.now() / 1000) * 1000 - 7 * DAY;
