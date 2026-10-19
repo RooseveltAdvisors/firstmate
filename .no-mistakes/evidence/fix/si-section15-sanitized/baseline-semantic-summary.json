@@ -1,0 +1,32 @@
+{
+  "scenario_verdict": "NOT_RUN",
+  "acceptance_scenario": 21,
+  "publication": "Sanitized metadata only, no patient data, secret values, or internal topology",
+  "withheld_as_non_public": "Internal topology detail is deliberately withheld from this public record as non-public: host names, IP addresses, ports, socket peers, listeners, internal endpoints, service, timer and process names, filesystem and credential paths, probe commands, proxy vault and secret key names, local model aliases, and kernel versions. Only counts, categories, approval status, and stated gaps are published. The detailed collection is retained in a restricted private record outside this repository. Do not re-add the withheld detail here.",
+  "host_labels": [
+    "development-workstation",
+    "clinic-server-1",
+    "clinic-server-2",
+    "clinic-server-3"
+  ],
+  "auth_lanes": 19,
+  "usage_lanes": 19,
+  "auth_statuses": {
+    "available": 18,
+    "expired": 2,
+    "missing": 22
+  },
+  "coverage_gap_count": 10,
+  "coverage_gaps": [
+    "No complete encrypted-traffic visibility. TLS-hidden hostname, tenant, API method and contents are not observable. Shared CDN IP is not service attribution.",
+    "Socket peers can be inbound or outbound. Snapshot omits short-lived flows, disconnected flows, network namespaces and history. No DNS, proxy request, packet, or firewall log collected.",
+    "Process comm is mutable/truncated and interpreters obscure workloads. No command arguments, environment values, all-users executable search, VM or container-image census.",
+    "No independent IdP sign-in history, cloud IAM/resource audit, organization billing export, all-account census, or per-request usage attribution. Local auth source availability is not a sign-in audit.",
+    "Kimi quota stale, Alibaba console usage unavailable, OpenCode Go rejected, Cursor state database source degraded, MiMo usage unknown. No credential refresh or login attempted.",
+    "Other users, root credentials, other vault service registries, enterprise data agreements, BAA coverage, resource grants and personal browser sessions not inspected.",
+    "Chrome Default manifest metadata only. Enabled-state, localized extension names, other browsers, remaining skill trees, clinical desktops, Macs, Windows, other fleet hosts and unmanaged endpoints not audited.",
+    "No independent human approval or expiry register for every installed extension, standalone tool, model account, or probe service. Registration does not grant sensitive access.",
+    "Human direct contact, alternate commander, privacy/security leadership contacts and incident-notification acknowledgement have not been exercised.",
+    "This is agent-produced baseline evidence. No continuous detector, application-control coverage, EDR/Defender deployment/license, universal resource denial, or scenario #21 pass is asserted."
+  ]
+}

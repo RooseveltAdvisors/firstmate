@@ -1,0 +1,14 @@
+## full-history scan (non-shallow: false), range 519817f4..73cf4acb = 73cf4acbf05ad488b686a04a28f5c747080d6e4b 
+docs/si-control/evidence/section-15-baseline-2026-10-19.json: 309:"1.0.0.6"
+docs/si-control/section-15-shadow-ai-and-incident-response.md: 57:`1.0.0.6`
+## also: Section 15 paths at every reachable commit touching them:
+6106e8898676a51e55f0a6b0ed7db852f0df45f5
+6f5f7e588f140c75d535038bc4ef3be1d32f5a74
+73cf4acbf05ad488b686a04a28f5c747080d6e4b
+b6ac0e0fa3dd31ca921e59758aed2d5c1b934fb5
+## scan end
+6106e889 ANCESTOR
+6f5f7e58 not-ancestor-of-73cf4acb
+b6ac0e0f not-ancestor-of-73cf4acb
+73cf4acbf05ad488b686a04a28f5c747080d6e4b
+6106e8898676a51e55f0a6b0ed7db852f0df45f5
