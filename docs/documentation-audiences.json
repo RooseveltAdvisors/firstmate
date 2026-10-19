@@ -635,6 +635,10 @@
     {
       "path": ".agents/skills/verification-failure/SKILL.md",
       "audience": "agent-runtime"
+    },
+    {
+      "path": "docs/si-control/section-15-shadow-ai-and-incident-response.md",
+      "audience": "operator-current"
     }
   ]
 }
