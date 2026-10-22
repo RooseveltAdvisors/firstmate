@@ -297,6 +297,31 @@ prime_stale_case() {  # <name> -> prints dir; sets up classified stale hash past
   printf '%s\n' "$dir"
 }
 
+# Loading the public source interface has no wedge context and must never
+# invoke the classifier, acquire a watcher lock, or enter the supervision loop.
+# This reproduces the same initialization path used by snapshot consumers.
+test_watcher_load_without_wedge_context() {
+  local dir state fakebin out
+  dir=$(make_case jev-load)
+  state="$dir/state"; fakebin="$dir/fakebin"
+  install_fake_jev "$fakebin" suppress
+  if ! out=$(PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" \
+    FM_CONFIG_OVERRIDE="$dir/config" FM_JEV_WAKE_TRIAGE_BIN="$fakebin/fm-jev-wake-triage.sh" \
+    bash -c '
+      unset escalation_file win task age since_file label
+      . "$1"
+      declare -F wedge_jev_triage wedge_timer_check >/dev/null || exit 1
+      printf "watcher loaded\n"
+    ' _ "$WATCH" 2>&1); then
+    fail "watcher source initialization failed before a wedge exists: $out"
+  fi
+  [ "$out" = 'watcher loaded' ] || fail "watcher source emitted startup diagnostics: $out"
+  [ ! -e "$fakebin/jev.argv" ] || fail 'source initialization invoked wedge triage'
+  [ ! -e "$state/.watch.lock" ] || fail 'source initialization acquired the runtime lock'
+  [ ! -s "$state/.wake-queue" ] || fail 'source initialization emitted a wake'
+  pass 'watcher loads without wedge context, classifier calls or a runtime lock'
+}
+
 test_watcher_pipeline_wait_suppresses() {
   local dir state fakebin out capture_file window key pid back
   dir=$(prime_stale_case jev-suppress)
@@ -394,6 +419,7 @@ test_watcher_config_off_skips_jev() {
   pass "config/jev-wake-triage=off disables triage and escalates as today"
 }
 
+test_watcher_load_without_wedge_context
 test_watcher_pipeline_wait_suppresses
 test_watcher_true_wedge_escalates
 test_watcher_jev_error_fails_open

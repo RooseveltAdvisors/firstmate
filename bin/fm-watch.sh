@@ -72,11 +72,8 @@
 #                          answers CRITICAL defers a bounded run of windows
 #                          (wedge_guard_evidence, wedge_defer_guard) and the
 #                          escalation that ends the run names the guard.
-        n=$(cat "$escalation_file" 2>/dev/null || echo 0)
-        case "$n" in ''|*[!0-9]*) n=0 ;; esac
-        if wedge_jev_triage "$win" "$task" "$age" "$n" "$since_file" "$label"; then
-          return 0
-        fi
+#                          Jev then classifies the remaining candidate through
+#                          wedge_jev_triage before an escalation is counted.
 #                          A genuinely busy pane
 #                          (window_is_busy true) is exempt from the above, but
 #                          only up to BUSY_TURN_MAX_SECS with no completed turn
@@ -1719,12 +1716,8 @@ wedge_defer_guard() {  # <window> <since-file> <triage-label> <idle-age> <guard-
 # otherwise alarm pays for a backend read. The opt-in operator guard consult
 # (wedge_guard_evidence) runs after all three, so a dead or missing endpoint is
 # never deferred by a guard, and a home without config/wedge-evidence-guards
-# never reaches it.
-        n=$(cat "$escalation_file" 2>/dev/null || echo 0)
-        case "$n" in ''|*[!0-9]*) n=0 ;; esac
-        if wedge_jev_triage "$win" "$task" "$age" "$n" "$since_file" "$label"; then
-          return 0
-        fi
+# never reaches it. Jev triage follows that consult inside the threshold branch;
+# a disabled or unavailable classifier preserves the escalation path.
 wedge_timer_check() {  # <window> <since-file> <triage-label> <escalation-count-file> <task> <pane-hash> [dialog-name]
   local win=$1 since_file=$2 label=$3 escalation_file=$4 task=$5 hash=$6 dialog=${7-} since age n reason evidence guard guard_note
   since=$(cat "$since_file" 2>/dev/null || true)
@@ -1758,12 +1751,12 @@ wedge_timer_check() {  # <window> <since-file> <triage-label> <escalation-count-
           fi
           guard_note="; guard ${guard%%$'\037'*} still reports CRITICAL (${guard#*$'\037'}) after its consecutive-deferral cap, so recheck the lane"
         fi
-        n=$(( $(cat "$escalation_file" 2>/dev/null || echo 0) + 1 ))
         n=$(cat "$escalation_file" 2>/dev/null || echo 0)
         case "$n" in ''|*[!0-9]*) n=0 ;; esac
         if wedge_jev_triage "$win" "$task" "$age" "$n" "$since_file" "$label"; then
           return 0
         fi
+        n=$(( n + 1 ))
         echo "$n" > "$escalation_file"
         reason="stale: $win (idle ${age}s, possible wedge, escalation $n$guard_note)"
         if [ "$n" -ge "$FM_WEDGE_DEMAND_INSPECT_COUNT" ]; then

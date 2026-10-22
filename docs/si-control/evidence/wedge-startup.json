@@ -1,0 +1,103 @@
+{
+  "date_utc": "2026-10-22",
+  "correlation": "wedge-only",
+  "baseline_sha": "519817f4fede020476f1020496ad83902d4c1b8d",
+  "last_known_good_sha_prefix": "a50a4561e3",
+  "runtime": "GNU bash, version 5.2.21(1)-release (x86_64-pc-linux-gnu)",
+  "status": "LOCAL_REGRESSIONS_PASS_MAIN_CI_PENDING",
+  "diagnosis": [
+    "The baseline executes a stray triage block embedded in the header before set -u, path initialization, or the wedge_jev_triage definition. The call at line 77 is therefore undefined.",
+    "A second stray triage block runs at top level before the wedge_timer_check definition. At this point set -u is active; escalation_file and win are unset, so script/source loading aborts before the main entry guard or runtime loop.",
+    "The legitimate triage call already belongs inside the at-threshold branch of wedge_timer_check, after cheaper deferrals. Both functions are defined before the main loop calls them; relocating the function would not repair the stray startup execution.",
+    "The same merge placed an increment before a subsequent reread of the escalation counter, overwriting the increment. Restore counting only after triage chooses escalation so suppression leaves the counter unchanged.",
+    "The original Jev addition 703adc1f83 has function-scoped triage and post-triage counting; comparison with the last known good house commit identifies the stray copies and counter regression in house merge 519817f4fe."
+  ],
+  "before": [
+    {
+      "command": "bash -x bin/fm-watch.sh with FM_HOME/FM_STATE_OVERRIDE/FM_CONFIG_OVERRIDE set to a private disposable home and FM_JEV_WAKE_TRIAGE=off",
+      "exit": 1,
+      "output": [
+        "+ wedge_jev_triage '' '' '' 0 '' ''",
+        "bin/fm-watch.sh: line 77: wedge_jev_triage: command not found",
+        "bin/fm-watch.sh: line 1723: escalation_file: unbound variable",
+        "bin/fm-watch.sh: line 1725: win: unbound variable"
+      ],
+      "verdict": "FAIL"
+    },
+    {
+      "command": "bash bin/fm-test-run.sh tests/fm-jev-wake-triage.test.sh (new initialization regression, baseline production code)",
+      "exit": 1,
+      "output": "not ok - watcher source initialization failed before a wedge exists: ... line 77: wedge_jev_triage: command not found",
+      "verdict": "FAIL"
+    },
+    {
+      "command": "FM_TEST_ONLY=test_turn_ended_churn_existing_marker_absorbed bash bin/fm-test-run.sh tests/fm-watch-triage.test.sh",
+      "exit": 1,
+      "output": "not ok - a churning turn-end inside an open deferral window was not absorbed",
+      "verdict": "FAIL"
+    },
+    {
+      "ci_run": "https://github.com/RooseveltAdvisors/firstmate/actions/runs/39801375057",
+      "head_sha": "91612d932690646131e9b12061a9b09d7d25736b",
+      "check": "Stock macOS Bash snapshot compatibility",
+      "job_url": "https://github.com/RooseveltAdvisors/firstmate/actions/runs/39801375057/job/119902671205",
+      "output": [
+        "/Users/runner/work/firstmate/firstmate/bin/fm-watch.sh: line 77: wedge_jev_triage: command not found",
+        "/Users/runner/work/firstmate/firstmate/bin/fm-watch.sh: line 1723: escalation_file: unbound variable",
+        "/Users/runner/work/firstmate/firstmate/bin/fm-watch.sh: line 1725: win: unbound variable"
+      ],
+      "verdict": "FAIL"
+    }
+  ],
+  "after_local": [
+    {
+      "command": "bash bin/fm-test-run.sh tests/fm-jev-wake-triage.test.sh",
+      "exit": 0,
+      "summary": "FM_TEST_SUMMARY total=1 failed=0 skipped_gate=0 duration_ms=13696",
+      "output": [
+        "ok - watcher loads without wedge context, classifier calls or a runtime lock",
+        "ok - watcher pipeline_wait suppresses the stale escalation and restarts the idle timer",
+        "ok - watcher true_wedge still escalates on today's stale reason",
+        "ok - watcher Jev error fails open to today's escalate path"
+      ],
+      "verdict": "PASS"
+    },
+    {
+      "command": "FM_TEST_ONLY=test_turn_ended_churn_existing_marker_absorbed bash bin/fm-test-run.sh tests/fm-watch-triage.test.sh",
+      "exit": 0,
+      "output": "ok - a churning turn-end inside an already-open deferral window is absorbed without re-marking",
+      "verdict": "PASS"
+    },
+    {
+      "command": "FM_TEST_ONLY=test_wedge_guard_critical_defers_one_window_at_a_time_up_to_the_cap bash bin/fm-test-run.sh tests/fm-watch-triage-waits.test.sh",
+      "exit": 0,
+      "output": "ok - a CRITICAL guard defers one window at a time, the cap escalates naming the guard, and the run survives a restart",
+      "verdict": "PASS"
+    },
+    {
+      "command": "FM_TEST_ONLY=test_wedge_escalation_marks_demand_deep_inspection_after_threshold bash bin/fm-test-run.sh tests/fm-watch-triage.test.sh",
+      "exit": 0,
+      "output": "ok - consecutive wedge escalations on the same pane accumulate and demand deep inspection at the threshold",
+      "verdict": "PASS"
+    }
+  ],
+  "lint": {
+    "command": "bash bin/fm-lint.sh",
+    "exit": 0,
+    "output": [
+      "fm-lint.sh: ShellCheck 0.11.0 (pinned 0.11.0)",
+      "fm-lint-workflows.sh: actionlint 1.7.12 (pinned 1.7.12)",
+      "fm-lint-workflows.sh: 3 workflow files valid"
+    ]
+  },
+  "main_ci": {
+    "status": "PENDING_MERGE_AND_CI",
+    "run_id": null,
+    "acceptance": "Main CI must finish green; neither local passes nor opening a PR closes this acceptance criterion."
+  },
+  "limits": [
+    "Tests use synthetic task state and a fake classifier; no live provider or fleet lifecycle was exercised",
+    "Stock macOS behavior and the complete required check set must be verified by CI",
+    "The parked brake PR and remaining SI acceptance findings are unchanged by this branch"
+  ]
+}
