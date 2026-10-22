@@ -1,0 +1,92 @@
+===== revision 519817f4 (fresh install + marked lab FM_HOME: no keypair, no authority.pem, no brake.json) =====
+$ execute mail_draft (draft-json)
+cat: /tmp/fm-gate-drive/run.tPChki/inst/.action-control/b58c5c4a558c8e8f4d8032ede0a2a748586f379fc1781a39f56af3cf756cb72c/brake.json: No such file or directory
+fm-action-gate: DENY: brake state missing
+exit=1
+$ execute mail_send /usr/bin/printf MAIL_EXECUTED
+cat: /tmp/fm-gate-drive/run.tPChki/inst/.action-control/b58c5c4a558c8e8f4d8032ede0a2a748586f379fc1781a39f56af3cf756cb72c/brake.json: No such file or directory
+fm-action-gate: DENY: brake state missing
+exit=1
+$ execute send /usr/bin/printf MAIL_EXECUTED
+cat: /tmp/fm-gate-drive/run.tPChki/inst/.action-control/b58c5c4a558c8e8f4d8032ede0a2a748586f379fc1781a39f56af3cf756cb72c/brake.json: No such file or directory
+fm-action-gate: DENY: brake state missing
+exit=1
+$ check booking (no grant)
+cat: /tmp/fm-gate-drive/run.tPChki/inst/.action-control/b58c5c4a558c8e8f4d8032ede0a2a748586f379fc1781a39f56af3cf756cb72c/brake.json: No such file or directory
+fm-action-gate: DENY: brake state missing
+exit=1
+$ check charging (no grant)
+cat: /tmp/fm-gate-drive/run.tPChki/inst/.action-control/b58c5c4a558c8e8f4d8032ede0a2a748586f379fc1781a39f56af3cf756cb72c/brake.json: No such file or directory
+fm-action-gate: DENY: brake state missing
+exit=1
+$ execute prod_deploy (no grant)
+cat: /tmp/fm-gate-drive/run.tPChki/inst/.action-control/b58c5c4a558c8e8f4d8032ede0a2a748586f379fc1781a39f56af3cf756cb72c/brake.json: No such file or directory
+fm-action-gate: DENY: brake state missing
+exit=1
+$ execute booking with missing grant file
+cat: /tmp/fm-gate-drive/run.tPChki/inst/.action-control/b58c5c4a558c8e8f4d8032ede0a2a748586f379fc1781a39f56af3cf756cb72c/brake.json: No such file or directory
+fm-action-gate: DENY: brake state missing
+exit=1
+$ execute booking with unparseable grant file
+cat: /tmp/fm-gate-drive/run.tPChki/inst/.action-control/b58c5c4a558c8e8f4d8032ede0a2a748586f379fc1781a39f56af3cf756cb72c/brake.json: No such file or directory
+fm-action-gate: DENY: brake state missing
+exit=1
+$ tamper: lib made writable -> check draft
+fm-action-gate: DENY: enforcement tamper check: writable enforcement: fm-action-gate-lib.sh
+DENY
+exit=1
+$ tamper: lib content changed (read-only) -> check draft
+fm-action-gate: DENY: enforcement tamper check: content differs from committed baseline: fm-action-gate-lib.sh
+DENY
+exit=1
+brake/pem files under lab FM_HOME: 0
+===== revision 91612d93 (fresh install + marked lab FM_HOME: no keypair, no authority.pem, no brake.json) =====
+$ execute mail_draft (draft-json)
+ok: action gate passed, executing mail_draft on t
+{
+  "operation": "mail_draft",
+  "target": "t",
+  "task_id": "task",
+  "draft": {
+    "to": "a@example.invalid",
+    "subject": "S",
+    "body": "B"
+  }
+}
+exit=0
+$ execute mail_send /usr/bin/printf MAIL_EXECUTED
+fm-action-gate: DENY: real mail send is strictly prohibited; only drafts are permitted
+fm-action-gate: execution refused: decision was 'DENY'
+exit=1
+$ execute send /usr/bin/printf MAIL_EXECUTED
+fm-action-gate: DENY: real mail send is strictly prohibited; only drafts are permitted
+fm-action-gate: execution refused: decision was 'DENY'
+exit=1
+$ check booking (no grant)
+fm-action-gate: HUMAN_REVIEW: action requires captain grant; routing to review
+HUMAN_REVIEW
+exit=2
+$ check charging (no grant)
+fm-action-gate: HUMAN_REVIEW: action requires captain grant; routing to review
+HUMAN_REVIEW
+exit=2
+$ execute prod_deploy (no grant)
+fm-action-gate: HUMAN_REVIEW: action requires captain grant; routing to review
+fm-action-gate: execution refused: decision was 'HUMAN_REVIEW'
+exit=1
+$ execute booking with missing grant file
+fm-action-gate: HUMAN_REVIEW: action requires captain grant; routing to review
+fm-action-gate: execution refused: decision was 'HUMAN_REVIEW'
+exit=1
+$ execute booking with unparseable grant file
+fm-action-gate: DENY: grant is unprotected or malformed JSON
+exit=1
+$ tamper: lib made writable -> check draft
+fm-action-gate: DENY: enforcement tamper check: writable enforcement: fm-action-gate-lib.sh
+DENY
+exit=1
+$ tamper: lib content changed (read-only) -> check draft
+fm-action-gate: DENY: enforcement tamper check: content differs from committed baseline: fm-action-gate-lib.sh
+DENY
+exit=1
+brake/pem files under lab FM_HOME: 0

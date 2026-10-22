@@ -1,0 +1,3 @@
+cat: /tmp/fm-action-gate-test.lF7slD/install/.action-control/36b2ff1c80ca8c73459e93a1d1cea42b1b4cf09ab22dbae94e0abe905a3108ad/brake.json: No such file or directory
+fm-action-gate: DENY: brake state missing
+exit=1

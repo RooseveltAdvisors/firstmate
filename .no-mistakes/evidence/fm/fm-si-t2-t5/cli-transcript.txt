@@ -1,0 +1,59 @@
+# disposable install from target 71a7510b; keypair/authority.pem/brake.json present?
+(none present)
+
+$ fm-action-gate.sh execute mail_draft t task  draft-json {"to":"a@example.invalid","subject":"S","body":"B"}
+ok: action gate passed, executing mail_draft on t
+{
+  "operation": "mail_draft",
+  "target": "t",
+  "task_id": "task",
+  "draft": {
+    "to": "a@example.invalid",
+    "subject": "S",
+    "body": "B"
+  }
+}
+[exit=0]
+
+$ fm-action-gate.sh execute mail_send t task  /usr/bin/printf MAIL_EXECUTED
+fm-action-gate: DENY: real mail send is strictly prohibited; only drafts are permitted
+fm-action-gate: execution refused: decision was 'DENY'
+[exit=1]
+
+$ fm-action-gate.sh execute send t task  /usr/bin/printf MAIL_EXECUTED
+fm-action-gate: DENY: real mail send is strictly prohibited; only drafts are permitted
+fm-action-gate: execution refused: decision was 'DENY'
+[exit=1]
+
+$ fm-action-gate.sh check booking t task
+fm-action-gate: HUMAN_REVIEW: action requires captain grant; routing to review
+HUMAN_REVIEW
+[exit=2]
+
+$ fm-action-gate.sh check charging t task
+fm-action-gate: HUMAN_REVIEW: action requires captain grant; routing to review
+HUMAN_REVIEW
+[exit=2]
+
+$ fm-action-gate.sh check prod_deploy t task
+fm-action-gate: HUMAN_REVIEW: action requires captain grant; routing to review
+HUMAN_REVIEW
+[exit=2]
+
+$ fm-action-gate.sh execute booking t task /tmp/tmp.07pW2txR0B/nonexistent.json /usr/bin/printf BOOKED
+fm-action-gate: HUMAN_REVIEW: action requires captain grant; routing to review
+fm-action-gate: execution refused: decision was 'HUMAN_REVIEW'
+[exit=1]
+
+grant-store => /tmp/tmp.07pW2txR0B/install/.action-control/a6c7b383116ab45bb380b1016a13f72b6cd4011a3dcb3b37b8b58d4a26f6464e/grants
+
+$ fm-action-gate.sh execute booking t task /tmp/tmp.07pW2txR0B/install/.action-control/a6c7b383116ab45bb380b1016a13f72b6cd4011a3dcb3b37b8b58d4a26f6464e/grants/bad.json /usr/bin/printf BOOKED
+fm-action-gate: DENY: grant is unprotected or malformed JSON
+[exit=1]
+
+# after making fm-action-gate-lib.sh agent-writable:
+$ fm-action-gate.sh execute mail_draft t task  draft-json {"to":"a","subject":"S","body":"B"}
+fm-action-gate: DENY: enforcement tamper check: writable enforcement: fm-action-gate-lib.sh
+DENY
+[exit=1]
+

@@ -1,0 +1,16 @@
+FM_TEST_BEGIN 2026-10-22T15:02:16Z tests/fm-action-gate.test.sh family=unclassified expected_gate_skip=none
+ok - step1(a): mail_draft admitted with no keypair or brake.json
+ok - step1(b): mail_send and send remain hard denied
+ok - missing grants route to HUMAN_REVIEW and never execute
+ok - step1(d): writable or altered enforcement denied; restored enforcement evaluates
+ok - protected checkout remains usable with a different Git owner
+ok - symlinked enforcement denied
+ok - drafts remain restricted to the built-in typed renderer
+ok - evidence failure still denies execution
+ok - no-mistakes fleet boundary preserved
+ok - worker-owned plain grant denied even with read-only mode bits
+skip: root-store integration requires noninteractive sudo; set FM_ACTION_GATE_PRIVILEGED=1 to require it
+FM_TEST_END 2026-10-22T15:02:17Z tests/fm-action-gate.test.sh exit=0 duration_ms=532 gate_skip=false
+FM_TEST_SUMMARY total=1 failed=0 skipped_gate=0 duration_ms=569
+FM_TEST_SUMMARY_FAMILY family=unclassified count=1 duration_ms=532 failed=0
+FM_TEST_SLOWEST rank=1 script=tests/fm-action-gate.test.sh duration_ms=532
