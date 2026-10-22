@@ -1,0 +1,5 @@
+# pid-targeted SIGTERM while a serial (JOBS=1) remote item is in flight; fake transport sleeps 5s per item; runs isolated (no cross-tree orphans)
+TERM tree=base exited_after=0.040s items_started=1   push_rc=143 
+TERM tree=head exited_after=4.902s items_started=1   push_rc=143 
+TERM tree=head exited_after=4.901s items_started=1   push_rc=143 
+TERM tree=head exited_after=4.903s items_started=1   push_rc=143 

@@ -1,0 +1,29 @@
+# Real bin/fm-remote-inherit-push.sh, FM_REMOTE_INHERIT_PUSH_JOBS=1, 7 items, synthetic 0.2s/item SSH transport (floor 1.4s). base=a59bbd5b, head=62529ba1. TERM cases: see serial-push-term.log
+TIMING tree=base run=1 rc=0 elapsed=1.809s items=7 max_overlap=1
+TIMING tree=base run=2 rc=0 elapsed=1.810s items=7 max_overlap=1
+TIMING tree=base run=3 rc=0 elapsed=1.813s items=7 max_overlap=1
+OUT: unchanged: config/item-a
+OUT: unchanged: config/item-b
+OUT: unchanged: config/item-c
+OUT: unchanged: config/item-d
+OUT: unchanged: config/item-e
+OUT: unchanged: config/item-f
+OUT: unchanged: data/captain-shared.md
+FAILCASE tree=base rc=1 later_started=0
+FAILOUT: unchanged: config/item-a
+FAILOUT: unchanged: config/item-b
+FAILOUT: error: synthetic refusal of config/item-c
+TIMING tree=head run=1 rc=0 elapsed=1.611s items=7 max_overlap=1
+TIMING tree=head run=2 rc=0 elapsed=1.612s items=7 max_overlap=1
+TIMING tree=head run=3 rc=0 elapsed=1.610s items=7 max_overlap=1
+OUT: unchanged: config/item-a
+OUT: unchanged: config/item-b
+OUT: unchanged: config/item-c
+OUT: unchanged: config/item-d
+OUT: unchanged: config/item-e
+OUT: unchanged: config/item-f
+OUT: unchanged: data/captain-shared.md
+FAILCASE tree=head rc=1 later_started=0
+FAILOUT: unchanged: config/item-a
+FAILOUT: unchanged: config/item-b
+FAILOUT: error: synthetic refusal of config/item-c
