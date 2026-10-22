@@ -1,0 +1,1208 @@
+{
+  "schema_version": 1,
+  "requirement": "SI Control Section 15",
+  "acceptance_scenario": 21,
+  "scenario_verdict": "NOT_RUN",
+  "publication": "Sanitized metadata only, no patient data, secret values, or internal topology",
+  "withheld_as_non_public": "Internal topology detail is deliberately withheld from this public record as non-public: host names, IP addresses, ports, socket peers, listeners, internal endpoints, service, timer and process names, filesystem and credential paths, probe commands, proxy vault and secret key names, local model aliases, and kernel versions. Only counts, categories, approval status, and stated gaps are published. The detailed collection is retained in a restricted private record outside this repository. Do not re-add the withheld detail here.",
+  "collected_at": "2026-10-19T01:06:35.720Z",
+  "sources": [
+    {
+      "description": "SI Control architecture 2026-10-10, private source",
+      "sections": [
+        14,
+        15
+      ],
+      "file_sha256": "e239fb878018db824175dde603eb2c7604469098f0e9a8fc4d94cbed47ebcf90"
+    },
+    {
+      "description": "Firstmate crew dispatch configuration, private deployment copy",
+      "file_sha256": "454ea6fa4ef74aaf9d57d6f002daf2a394373f9ebc5f51b31d24b8d566a82974",
+      "classification": "mutable operational registration, not independent approval evidence"
+    }
+  ],
+  "methods": {
+    "host_probe": "Read-only shell probe per host: named binary search on the login PATH with resolved file hashes, process name counts, established and listening socket snapshot, running system and login-user services, scheduled system timers, and existence and mode of named credential carriers under the login user's home. No contents, arguments, or environment values read.",
+    "remote_invocation": "Non-interactive SSH with batch mode, strict host key checking, and a connect timeout to each named clinic server",
+    "metadata": "Development workstation: read only package/extension ID and version fields, Pi package source hosts/repository names, MCP names/transport/host and credential field names, dispatch harness/provider/model fields. No other configuration fields exported.",
+    "proxy": "Read of one local proxy vault service registry, owner token consumed only inside the collection process, output projected to public provider host and auth type. Other vaults not inspected.",
+    "auth_command": "quota-axi auth --json",
+    "usage_command": "quota-axi --no-credential-refresh --json",
+    "versions_commands": [
+      "claude --version",
+      "codex --version",
+      "pi --version",
+      "cursor-agent --version",
+      "quota-axi --version",
+      "no-mistakes --version"
+    ],
+    "local_model_command": "Model-list request to the local inference router, export only HTTP status and advertised model count",
+    "retired_broker_commands": [
+      "systemctl is-enabled",
+      "systemctl is-active"
+    ]
+  },
+  "versions": {
+    "claude": "2.1.302 (Claude Code)",
+    "codex": "codex-cli 0.162.0",
+    "pi": "1.3.0",
+    "cursor_agent": "2026.10.16-e3cb207",
+    "quota_axi": "0.1.64",
+    "no_mistakes": "v1.84.0 (4822244) 2026-10-14T23:45:32Z"
+  },
+  "hosts": [
+    {
+      "host": "development-workstation",
+      "collected_at": "2026-10-19T01:06:32Z",
+      "probe_exit_code": 0,
+      "stderr": "",
+      "binaries": [
+        {
+          "name": "claude",
+          "resolved_file_sha256": "60d7eb7f12fbb28a52533fe8be5884097403562aa02dc73991a021c7067e29a5"
+        },
+        {
+          "name": "codex",
+          "resolved_file_sha256": "50ed828f357c655a3c82054d346cab8434f24901f14ec19b8267571bdd008b38"
+        },
+        {
+          "name": "pi",
+          "resolved_file_sha256": "da0c6a49fe94aadc9765cc7afc6ba6b17e553eed0247d0385c160bc188f5cfbb"
+        },
+        {
+          "name": "grok",
+          "resolved_file_sha256": "9ce03ed23e16ea01072b4496263d6213a27899e1e3e107f008d36edf82e70407"
+        },
+        {
+          "name": "kimi",
+          "resolved_file_sha256": "66f47536e40b02bb1d577cdd324768f73d39b8b9472e0ca140e73d8e225cd7de"
+        },
+        {
+          "name": "cursor-agent",
+          "resolved_file_sha256": "2ccc9a8e167797641448b5e5c936f006ba137a2555f117f38c5eb76a5238a233"
+        },
+        {
+          "name": "gemini",
+          "resolved_file_sha256": "25f087a42f4484891aa73e6e36cc2790e69a3c023cc44fd244adf44a091eebd7"
+        },
+        {
+          "name": "muse",
+          "resolved_file_sha256": "c6db294799a190ca380da274beb3b9c0e160e0da9681a3d364ce8b0e5fa3a4bc"
+        },
+        {
+          "name": "agy",
+          "resolved_file_sha256": "085f43e0d0628a8a8dabe1e547067818fa2c0adc86cfac98a3c4492918f455ef"
+        },
+        {
+          "name": "commandcode",
+          "resolved_file_sha256": "157feefa0140e78f060ef2c1f9c50d10de702196ea229dc73db6bbcc39a0bcbb"
+        },
+        {
+          "name": "ollama",
+          "resolved_file_sha256": "67d6bab88e63718d52782ee59db0e40436b35865f424b0ab13d9598e54d6e13a"
+        },
+        {
+          "name": "no-mistakes",
+          "resolved_file_sha256": "3c9232df80189b7be7f229b1115621c2121bc020ee9f9050b8948fc5e743faed"
+        },
+        {
+          "name": "quota-axi",
+          "resolved_file_sha256": "f0186e2d796c7e65e8e5698e3fc87a6f3dc514a60cd5e1250f77c416003cf13f"
+        },
+        {
+          "name": "bl",
+          "resolved_file_sha256": "ce794e9e8de2232a81cb7d431b1a608bd0d4c76d880580e67ba20b1e5cea21a6"
+        },
+        {
+          "name": "docker",
+          "resolved_file_sha256": "859cb7e29723d1ca2f6bec025405b7ed6ea3040709ed129d7fed5f8fca92d2ca"
+        },
+        {
+          "name": "chrome-devtools-axi",
+          "resolved_file_sha256": "3d1b08e684680f036da84c9e790e176eb638653fb566619459e0456d93428e7a"
+        }
+      ],
+      "process_totals": {
+        "distinct_names": 571,
+        "processes": 1549
+      },
+      "named_ai_candidate_process_counts": {
+        "agy": 39,
+        "claude": 1,
+        "codex": 31,
+        "codex-code-mode": 28,
+        "llama-swap": 1,
+        "pi": 128
+      },
+      "established_socket_peers_by_class": {
+        "loopback": 11,
+        "private": 26,
+        "public": 29
+      },
+      "listening_addresses_by_class": {
+        "loopback": 143,
+        "private": 6,
+        "wildcard": 21
+      },
+      "running_system_service_count": 44,
+      "running_login_user_service_count": 58,
+      "scheduled_system_timer_count": 23,
+      "credential_carriers": [
+        {
+          "category": "Claude auth carrier",
+          "mode": "600",
+          "contents_read": false
+        },
+        {
+          "category": "Codex auth carrier",
+          "mode": "600",
+          "contents_read": false
+        },
+        {
+          "category": "Pi auth carrier",
+          "mode": "600",
+          "contents_read": false
+        },
+        {
+          "category": "rclone configuration",
+          "mode": "640",
+          "contents_read": false
+        },
+        {
+          "category": "SSH key, fleet",
+          "mode": "600",
+          "contents_read": false
+        },
+        {
+          "category": "SSH key, clinic",
+          "mode": "600",
+          "contents_read": false
+        },
+        {
+          "category": "SSH key, other fleet host",
+          "mode": "600",
+          "contents_read": false
+        }
+      ]
+    },
+    {
+      "host": "clinic-server-1",
+      "collected_at": "2026-10-19T01:06:33Z",
+      "probe_exit_code": 0,
+      "stderr": "",
+      "binaries": [
+        {
+          "name": "docker",
+          "resolved_file_sha256": "7ed12b00293d64742419a6601ae97960a367a0ce97c88b06e3278cc0a409557b"
+        }
+      ],
+      "process_totals": {
+        "distinct_names": 362,
+        "processes": 410
+      },
+      "named_ai_candidate_process_counts": {},
+      "established_socket_peers_by_class": {
+        "loopback": 27,
+        "private": 5,
+        "public": 2
+      },
+      "listening_addresses_by_class": {
+        "loopback": 14,
+        "private": 1,
+        "wildcard": 16
+      },
+      "running_system_service_count": 34,
+      "running_login_user_service_count": 1,
+      "scheduled_system_timer_count": 20,
+      "credential_carriers": [
+        {
+          "category": "SSH key, fleet",
+          "mode": "600",
+          "contents_read": false
+        }
+      ]
+    },
+    {
+      "host": "clinic-server-2",
+      "collected_at": "2026-10-19T01:06:33Z",
+      "probe_exit_code": 0,
+      "stderr": "",
+      "binaries": [
+        {
+          "name": "docker",
+          "resolved_file_sha256": "7ed12b00293d64742419a6601ae97960a367a0ce97c88b06e3278cc0a409557b"
+        }
+      ],
+      "process_totals": {
+        "distinct_names": 221,
+        "processes": 282
+      },
+      "named_ai_candidate_process_counts": {},
+      "established_socket_peers_by_class": {
+        "loopback": 10,
+        "private": 14
+      },
+      "listening_addresses_by_class": {
+        "loopback": 18,
+        "other": 3,
+        "private": 17,
+        "wildcard": 52
+      },
+      "running_system_service_count": 42,
+      "running_login_user_service_count": 1,
+      "scheduled_system_timer_count": 21,
+      "credential_carriers": [
+        {
+          "category": "SSH key, fleet",
+          "mode": "600",
+          "contents_read": false
+        },
+        {
+          "category": "SSH key, clinic",
+          "mode": "600",
+          "contents_read": false
+        }
+      ]
+    },
+    {
+      "host": "clinic-server-3",
+      "collected_at": "2026-10-19T01:06:35Z",
+      "probe_exit_code": 0,
+      "stderr": "",
+      "binaries": [],
+      "process_totals": {
+        "distinct_names": 163,
+        "processes": 169
+      },
+      "named_ai_candidate_process_counts": {},
+      "established_socket_peers_by_class": {
+        "private": 1
+      },
+      "listening_addresses_by_class": {
+        "loopback": 4,
+        "private": 1,
+        "wildcard": 2
+      },
+      "running_system_service_count": 20,
+      "running_login_user_service_count": 0,
+      "scheduled_system_timer_count": 18,
+      "credential_carriers": []
+    }
+  ],
+  "tool_metadata": {
+    "collected_at": "2026-10-19T01:08:38.068Z",
+    "extensions": [
+      {
+        "surface": ".cursor/extensions",
+        "id": "anysphere.remote-ssh",
+        "version": "1.1.14"
+      },
+      {
+        "surface": "chrome/Default",
+        "id": "ghbmnnjooekpmoecnnnilnnbdlolhkhi",
+        "version": "1.110.1",
+        "name": "__MSG_extName__"
+      },
+      {
+        "surface": "chrome/Default",
+        "id": "nmmhkkegccagdldgiimedpiccmgmieda",
+        "version": "1.0.0.6",
+        "name": "__MSG_APP_NAME__"
+      },
+      {
+        "surface": "claude/plugins",
+        "id": "code-review@claude-plugins-official",
+        "version": "ea10b213686c"
+      },
+      {
+        "surface": "claude/plugins",
+        "id": "pr-review-toolkit@claude-plugins-official",
+        "version": "ea10b213686c"
+      },
+      {
+        "surface": "claude/plugins",
+        "id": "compound-engineering@compound-engineering-plugin",
+        "version": "8092abead5ab"
+      },
+      {
+        "surface": "claude/plugins",
+        "id": "frontend-design@claude-code-plugins",
+        "version": "1.1.0"
+      },
+      {
+        "surface": "claude/plugins",
+        "id": "shadcnblocks@shadcnblocks-marketplace",
+        "version": "0.1.0"
+      },
+      {
+        "surface": "claude/plugins",
+        "id": "ponytail@ponytail",
+        "version": "4.7.0"
+      },
+      {
+        "surface": "pi/extensions",
+        "id": "herdr-agent-state.ts"
+      },
+      {
+        "surface": "pi/extensions",
+        "id": "moshi-hooks.ts"
+      },
+      {
+        "surface": "pi/extensions",
+        "id": "caveman"
+      },
+      {
+        "surface": "pi/extensions",
+        "id": "calm"
+      },
+      {
+        "surface": "pi/extensions",
+        "id": "pi-round-timestamp.ts"
+      },
+      {
+        "surface": "firstmate/.pi/extensions",
+        "id": "lib"
+      },
+      {
+        "surface": "firstmate/.pi/extensions",
+        "id": "fm-primary-pi-watch.ts"
+      },
+      {
+        "surface": "firstmate/.pi/extensions",
+        "id": "fm-branch-supervision.ts"
+      },
+      {
+        "surface": "firstmate/.pi/extensions",
+        "id": "fm-primary-turnend-guard.ts"
+      },
+      {
+        "surface": "firstmate/.pi/extensions",
+        "id": "fm-calm.ts"
+      },
+      {
+        "surface": "firstmate/.omp/extensions",
+        "id": "fm-primary-omp-watch.ts"
+      },
+      {
+        "surface": "firstmate/.omp/extensions",
+        "id": "fm-primary-turnend-guard.ts"
+      }
+    ],
+    "mcp": [
+      {
+        "surface": "claude project 3",
+        "name": "superhuman-mail",
+        "transport": "http",
+        "host": "mcp.mail.superhuman.com",
+        "credential_env_names": [],
+        "header_names": []
+      }
+    ],
+    "gaps": [
+      {
+        "path": ".vscode/extensions",
+        "reason": "ENOENT"
+      }
+    ],
+    "pi_packages": [
+      {
+        "host": "github.com",
+        "repository": "/RooseveltAdvisors/pi-herdr-btw"
+      },
+      {
+        "host": "github.com",
+        "repository": "/v2nic/pi-caveman"
+      },
+      {
+        "host": "github.com",
+        "repository": "/RooseveltAdvisors/pi-cursor-provider"
+      },
+      {
+        "host": "github.com",
+        "repository": "/RooseveltAdvisors/pi-zai"
+      },
+      {
+        "source": "npm:pi-commandcode-provider"
+      },
+      {
+        "host": "github.com",
+        "repository": "/RooseveltAdvisors/pi-alibaba-models"
+      },
+      {
+        "source": "npm:pi-web-access@0.37.0"
+      },
+      {
+        "host": "github.com",
+        "repository": "/RooseveltAdvisors/pi-agy"
+      },
+      {
+        "host": "github.com",
+        "repository": "/RooseveltAdvisors/pi-meta-ai"
+      },
+      {
+        "host": "github.com",
+        "repository": "/RooseveltAdvisors/pi-openai-server-compaction"
+      }
+    ],
+    "claude_project_config_count": 538,
+    "dispatch": {
+      "source": "Firstmate crew dispatch configuration, private deployment copy",
+      "profiles": [
+        {
+          "harness": "claude",
+          "model": "claude-opus-5"
+        },
+        {
+          "harness": "claude",
+          "model": "claude-sonnet-5"
+        },
+        {
+          "harness": "codex",
+          "model": "gpt-5.6-sol"
+        },
+        {
+          "harness": "agy"
+        },
+        {
+          "harness": "cursor"
+        },
+        {
+          "harness": "pi",
+          "provider": "kimi",
+          "model": "kimi-coding/k3-256k"
+        },
+        {
+          "harness": "pi",
+          "provider": "alibaba",
+          "model": "alibaba-plan/deepseek-v4-pro"
+        },
+        {
+          "harness": "pi",
+          "provider": "alibaba",
+          "model": "alibaba-plan/deepseek-v4-flash-0731"
+        },
+        {
+          "harness": "pi",
+          "provider": "alibaba",
+          "model": "alibaba-plan/qwen3.8-max"
+        },
+        {
+          "harness": "pi",
+          "provider": "mimo"
+        },
+        {
+          "harness": "pi",
+          "provider": "kimi"
+        },
+        {
+          "harness": "claude"
+        },
+        {
+          "harness": "codex"
+        },
+        {
+          "harness": "pi",
+          "provider": "zai",
+          "model": "zai-general/glm-5.3-flash"
+        },
+        {
+          "harness": "pi",
+          "provider": "opencode-go"
+        }
+      ]
+    },
+    "proxy": {
+      "http_status": 200,
+      "service_count": 4,
+      "services": [
+        {
+          "category": "public search provider",
+          "host": "api.exa.ai",
+          "auth_type": "api-key"
+        },
+        {
+          "category": "internal probe service, endpoint withheld",
+          "auth_type": "bearer"
+        },
+        {
+          "category": "public classification provider",
+          "host": "api.typesafe.ai",
+          "auth_type": "bearer"
+        },
+        {
+          "category": "public communication provider",
+          "host": "slack.com",
+          "auth_type": "bearer"
+        }
+      ]
+    }
+  },
+  "provider_auth": {
+    "generated_at": "2026-10-19T01:02:25.457Z",
+    "lanes": [
+      {
+        "provider": "claude",
+        "sources": [
+          {
+            "source": "oauth-file",
+            "status": "available"
+          }
+        ]
+      },
+      {
+        "provider": "codex",
+        "sources": [
+          {
+            "source": "auth-json",
+            "status": "available"
+          },
+          {
+            "source": "pi:openai-codex",
+            "status": "available"
+          },
+          {
+            "source": "cli-rpc",
+            "status": "available"
+          }
+        ]
+      },
+      {
+        "provider": "cursor",
+        "sources": [
+          {
+            "source": "state-vscdb",
+            "status": "available"
+          },
+          {
+            "source": "cli-authfile",
+            "status": "available",
+            "credential_present": true
+          }
+        ]
+      },
+      {
+        "provider": "copilot",
+        "sources": [
+          {
+            "source": "apps-json",
+            "status": "missing"
+          },
+          {
+            "source": "copilot-cli:keychain",
+            "status": "missing"
+          },
+          {
+            "source": "gh:hosts.yml",
+            "status": "available"
+          }
+        ]
+      },
+      {
+        "provider": "grok",
+        "sources": [
+          {
+            "source": "auth-json",
+            "status": "available"
+          },
+          {
+            "source": "pi:xai",
+            "status": "available"
+          }
+        ]
+      },
+      {
+        "provider": "kimi",
+        "sources": [
+          {
+            "source": "pi:kimi-coding",
+            "status": "expired",
+            "error_code": "pi_kimi_credential_expired"
+          },
+          {
+            "source": "kimi-code-cli",
+            "status": "expired",
+            "error_code": "kimi_code_cli_credential_expired"
+          }
+        ]
+      },
+      {
+        "provider": "zai",
+        "sources": [
+          {
+            "source": "pi:zai",
+            "status": "available"
+          },
+          {
+            "source": "opencode:auth.json",
+            "status": "available"
+          }
+        ]
+      },
+      {
+        "provider": "agy",
+        "sources": [
+          {
+            "source": "loopback",
+            "status": "available"
+          }
+        ]
+      },
+      {
+        "provider": "alibaba",
+        "sources": [
+          {
+            "source": "bl-cli",
+            "status": "available"
+          }
+        ]
+      },
+      {
+        "provider": "opencode-go",
+        "sources": [
+          {
+            "source": "opencode:auth.json",
+            "status": "available"
+          }
+        ]
+      },
+      {
+        "provider": "commandcode",
+        "sources": [
+          {
+            "source": "pi:commandcode",
+            "status": "available"
+          },
+          {
+            "source": "env:COMMAND_CODE_API_KEY",
+            "status": "missing"
+          },
+          {
+            "source": "env:COMMANDCODE_API_KEY",
+            "status": "missing"
+          },
+          {
+            "source": "commandcode-cli",
+            "status": "available"
+          },
+          {
+            "source": "omp:commandcode",
+            "status": "missing"
+          }
+        ]
+      },
+      {
+        "provider": "minimax",
+        "sources": [
+          {
+            "source": "env:MINIMAX_API_KEY",
+            "status": "missing"
+          },
+          {
+            "source": "pi:minimax",
+            "status": "missing"
+          },
+          {
+            "source": "minimax:config.json",
+            "status": "missing"
+          }
+        ]
+      },
+      {
+        "provider": "mimo",
+        "sources": [
+          {
+            "source": "env:MIMO_API_KEY",
+            "status": "missing"
+          },
+          {
+            "source": "pi:xiaomi",
+            "status": "missing"
+          },
+          {
+            "source": "pi:xiaomi-token-plan-sgp",
+            "status": "available",
+            "credential_present": true
+          },
+          {
+            "source": "pi:xiaomi-token-plan-cn",
+            "status": "missing"
+          },
+          {
+            "source": "pi:xiaomi-token-plan-ams",
+            "status": "missing"
+          }
+        ]
+      },
+      {
+        "provider": "deepseek",
+        "sources": [
+          {
+            "source": "env:DEEPSEEK_API_KEY",
+            "status": "missing"
+          },
+          {
+            "source": "pi:deepseek",
+            "status": "missing"
+          }
+        ]
+      },
+      {
+        "provider": "openrouter",
+        "sources": [
+          {
+            "source": "env:OPENROUTER_API_KEY",
+            "status": "missing"
+          },
+          {
+            "source": "pi:openrouter",
+            "status": "missing"
+          }
+        ]
+      },
+      {
+        "provider": "elevenlabs",
+        "sources": [
+          {
+            "source": "env:ELEVENLABS_API_KEY",
+            "status": "missing"
+          }
+        ]
+      },
+      {
+        "provider": "devin",
+        "sources": [
+          {
+            "source": "env:WINDSURF_API_KEY",
+            "status": "missing"
+          },
+          {
+            "source": "file:credentials.toml",
+            "status": "missing"
+          }
+        ]
+      },
+      {
+        "provider": "muse",
+        "sources": [
+          {
+            "source": "muse:auth.json",
+            "status": "missing"
+          },
+          {
+            "source": "cli-keychain",
+            "status": "missing"
+          },
+          {
+            "source": "env:META_API_KEY",
+            "status": "missing"
+          }
+        ]
+      },
+      {
+        "provider": "higgsfield",
+        "sources": [
+          {
+            "source": "higgsfield-cli",
+            "status": "available"
+          }
+        ]
+      }
+    ]
+  },
+  "provider_usage": {
+    "generated_at": "2026-10-19T01:03:02.022Z",
+    "lanes": [
+      {
+        "provider": "claude",
+        "plan": "max",
+        "status": "fresh",
+        "stale": false,
+        "not_set_up": false,
+        "windows": [
+          {
+            "id": "five_hour",
+            "percent_remaining": 91,
+            "resets_at": "2026-10-19T01:59:59.968215+00:00"
+          },
+          {
+            "id": "seven_day",
+            "percent_remaining": 79,
+            "resets_at": "2026-10-23T13:59:59.968240+00:00"
+          },
+          {
+            "id": "model:fable",
+            "percent_remaining": 100,
+            "resets_at": "2026-10-23T14:00:00+00:00"
+          }
+        ],
+        "quota_semantics": "known",
+        "degraded_sources": [],
+        "account_locator_count": 1
+      },
+      {
+        "provider": "codex",
+        "plan": "prolite",
+        "status": "fresh",
+        "stale": false,
+        "not_set_up": false,
+        "windows": [
+          {
+            "id": "weekly",
+            "percent_remaining": 79,
+            "resets_at": "2026-10-24T20:51:32.000Z"
+          }
+        ],
+        "credits": {
+          "remaining": 0,
+          "unlimited": false,
+          "unit": "credits"
+        },
+        "quota_semantics": "known",
+        "degraded_sources": [],
+        "account_locator_count": 2
+      },
+      {
+        "provider": "cursor",
+        "plan": "Ultra",
+        "status": "fresh",
+        "stale": false,
+        "not_set_up": false,
+        "windows": [
+          {
+            "id": "included_usage",
+            "percent_remaining": 99,
+            "resets_at": "2026-11-14T02:02:31.000Z"
+          },
+          {
+            "id": "auto_usage",
+            "percent_remaining": 100,
+            "resets_at": "2026-11-14T02:02:31.000Z"
+          },
+          {
+            "id": "api_usage",
+            "percent_remaining": 76,
+            "resets_at": "2026-11-14T02:02:31.000Z"
+          },
+          {
+            "id": "grok_bot",
+            "percent_remaining": 96,
+            "resets_at": "2026-10-23T02:04:04.105Z"
+          }
+        ],
+        "quota_semantics": "known",
+        "degraded_sources": [
+          {
+            "source": "state-vscdb",
+            "error": "Cursor sign-in required"
+          }
+        ],
+        "account_locator_count": 1
+      },
+      {
+        "provider": "copilot",
+        "plan": "individual",
+        "status": "fresh",
+        "stale": false,
+        "not_set_up": false,
+        "windows": [
+          {
+            "id": "chat",
+            "percent_remaining": 100,
+            "resets_at": "2026-11-01T00:00:00.000Z"
+          },
+          {
+            "id": "completions",
+            "percent_remaining": 100,
+            "resets_at": "2026-11-01T00:00:00.000Z"
+          },
+          {
+            "id": "premium_interactions",
+            "percent_remaining": 0,
+            "resets_at": "2026-11-01T00:00:00.000Z"
+          }
+        ],
+        "quota_semantics": "unknown",
+        "degraded_sources": [],
+        "account_locator_count": 1
+      },
+      {
+        "provider": "grok",
+        "status": "fresh",
+        "stale": false,
+        "auth_status": "usable",
+        "not_set_up": false,
+        "windows": [
+          {
+            "id": "credits",
+            "percent_remaining": 87,
+            "resets_at": "2026-10-24T12:11:21.000Z"
+          },
+          {
+            "id": "product:grok_build",
+            "percent_remaining": 87,
+            "resets_at": "2026-10-24T12:11:21.000Z"
+          }
+        ],
+        "credits": {
+          "remaining": 25,
+          "unit": "credits"
+        },
+        "quota_semantics": "known",
+        "degraded_sources": [],
+        "account_locator_count": 1
+      },
+      {
+        "provider": "kimi",
+        "status": "stale",
+        "stale": true,
+        "auth_status": "expired_refreshable",
+        "not_set_up": false,
+        "windows": [
+          {
+            "id": "five_hour",
+            "percent_remaining": 100,
+            "resets_at": "2026-10-19T02:10:19.000Z"
+          },
+          {
+            "id": "weekly",
+            "percent_remaining": 91.51,
+            "resets_at": "2026-10-20T09:10:20.000Z"
+          }
+        ],
+        "quota_semantics": "unknown",
+        "degraded_sources": [],
+        "collection_failure": "pi_kimi_credential_expired",
+        "account_locator_count": 1
+      },
+      {
+        "provider": "zai",
+        "plan": "max",
+        "status": "fresh",
+        "stale": false,
+        "not_set_up": false,
+        "windows": [
+          {
+            "id": "five_hour",
+            "percent_remaining": 98,
+            "resets_at": "2026-10-19T03:30:07.279Z"
+          },
+          {
+            "id": "weekly",
+            "percent_remaining": 53,
+            "resets_at": "2026-10-23T09:37:26.974Z"
+          }
+        ],
+        "quota_semantics": "known",
+        "degraded_sources": [],
+        "account_locator_count": 1
+      },
+      {
+        "provider": "agy",
+        "status": "fresh",
+        "stale": false,
+        "not_set_up": false,
+        "windows": [
+          {
+            "id": "gemini_5h",
+            "percent_remaining": 97,
+            "resets_at": "2026-10-19T05:00:01.000Z"
+          },
+          {
+            "id": "gemini_weekly",
+            "percent_remaining": 87,
+            "resets_at": "2026-10-23T22:00:01.000Z"
+          },
+          {
+            "id": "claude_gpt_5h",
+            "percent_remaining": 100,
+            "resets_at": "2026-10-19T06:03:01.000Z"
+          },
+          {
+            "id": "claude_gpt_weekly",
+            "percent_remaining": 99,
+            "resets_at": "2026-10-23T08:00:36.000Z"
+          }
+        ],
+        "quota_semantics": "known",
+        "degraded_sources": [],
+        "account_locator_count": 1
+      },
+      {
+        "provider": "alibaba",
+        "status": "error",
+        "stale": false,
+        "not_set_up": false,
+        "windows": [],
+        "quota_semantics": "unknown",
+        "degraded_sources": [],
+        "collection_failure": "Console session is not logged in or has expired.",
+        "account_locator_count": 1
+      },
+      {
+        "provider": "opencode-go",
+        "status": "auth_required",
+        "stale": false,
+        "not_set_up": false,
+        "windows": [],
+        "quota_semantics": "unknown",
+        "degraded_sources": [],
+        "collection_failure": "provider_auth_rejected",
+        "account_locator_count": 1
+      },
+      {
+        "provider": "commandcode",
+        "status": "fresh",
+        "stale": false,
+        "auth_status": "usable",
+        "not_set_up": false,
+        "windows": [
+          {
+            "id": "five_hour",
+            "percent_remaining": 100
+          },
+          {
+            "id": "weekly",
+            "percent_remaining": 100
+          },
+          {
+            "id": "credits",
+            "percent_remaining": 0
+          }
+        ],
+        "credits": {
+          "remaining": 0,
+          "unit": "credits"
+        },
+        "quota_semantics": "known",
+        "degraded_sources": [],
+        "account_locator_count": 1
+      },
+      {
+        "provider": "minimax",
+        "status": "auth_required",
+        "stale": false,
+        "not_set_up": true,
+        "windows": [],
+        "quota_semantics": "unknown",
+        "degraded_sources": [],
+        "collection_failure": "minimax_credential_unavailable",
+        "account_locator_count": 1
+      },
+      {
+        "provider": "mimo",
+        "status": "fresh",
+        "stale": false,
+        "auth_status": "usable",
+        "not_set_up": false,
+        "windows": [],
+        "quota_semantics": "unknown",
+        "degraded_sources": [],
+        "account_locator_count": 1
+      },
+      {
+        "provider": "deepseek",
+        "status": "auth_required",
+        "stale": false,
+        "not_set_up": true,
+        "windows": [],
+        "quota_semantics": "unknown",
+        "degraded_sources": [],
+        "collection_failure": "deepseek_credential_unavailable",
+        "account_locator_count": 1
+      },
+      {
+        "provider": "openrouter",
+        "status": "auth_required",
+        "stale": false,
+        "not_set_up": true,
+        "windows": [],
+        "quota_semantics": "unknown",
+        "degraded_sources": [],
+        "collection_failure": "openrouter_credential_unavailable",
+        "account_locator_count": 1
+      },
+      {
+        "provider": "elevenlabs",
+        "status": "auth_required",
+        "stale": false,
+        "auth_status": "unusable",
+        "not_set_up": true,
+        "windows": [],
+        "quota_semantics": "unknown",
+        "degraded_sources": [],
+        "collection_failure": "elevenlabs_credential_unavailable",
+        "account_locator_count": 1
+      },
+      {
+        "provider": "devin",
+        "status": "auth_required",
+        "stale": false,
+        "auth_status": "unusable",
+        "not_set_up": true,
+        "windows": [],
+        "quota_semantics": "unknown",
+        "degraded_sources": [],
+        "collection_failure": "devin_credential_unavailable",
+        "account_locator_count": 1
+      },
+      {
+        "provider": "muse",
+        "status": "auth_required",
+        "stale": false,
+        "auth_status": "unusable",
+        "not_set_up": true,
+        "windows": [],
+        "quota_semantics": "unknown",
+        "degraded_sources": [],
+        "collection_failure": "muse_credential_unavailable",
+        "account_locator_count": 1
+      },
+      {
+        "provider": "higgsfield",
+        "plan": "ultra",
+        "status": "fresh",
+        "stale": false,
+        "auth_status": "usable",
+        "not_set_up": false,
+        "windows": [],
+        "credits": {
+          "remaining": 6000,
+          "unit": "credits"
+        },
+        "jobs": {
+          "sampled": 20,
+          "completed": 20,
+          "failed": 0,
+          "other": 0
+        },
+        "quota_semantics": "unknown",
+        "degraded_sources": [],
+        "account_locator_count": 1
+      }
+    ]
+  },
+  "local_models": {
+    "collected_at": "2026-10-19T01:08:38.087Z",
+    "http_status": 200,
+    "advertised_model_count": 4,
+    "limits": "Model advertisement only, no inference request, loaded-state, model weights, data inputs, or licensing examined"
+  },
+  "retired_broker": {
+    "collected_at": "2026-10-19T01:03:53Z",
+    "enabled": "masked",
+    "active": "inactive",
+    "limits": "Retired system credential-broker service only, does not describe the current login-user proxy service"
+  },
+  "coverage_gaps": [
+    "No complete encrypted-traffic visibility. TLS-hidden hostname, tenant, API method and contents are not observable. Shared CDN IP is not service attribution.",
+    "Socket peers can be inbound or outbound. Snapshot omits short-lived flows, disconnected flows, network namespaces and history. No DNS, proxy request, packet, or firewall log collected.",
+    "Process comm is mutable/truncated and interpreters obscure workloads. No command arguments, environment values, all-users executable search, VM or container-image census.",
+    "No independent IdP sign-in history, cloud IAM/resource audit, organization billing export, all-account census, or per-request usage attribution. Local auth source availability is not a sign-in audit.",
+    "Kimi quota stale, Alibaba console usage unavailable, OpenCode Go rejected, Cursor state database source degraded, MiMo usage unknown. No credential refresh or login attempted.",
+    "Other users, root credentials, other vault service registries, enterprise data agreements, BAA coverage, resource grants and personal browser sessions not inspected.",
+    "Chrome Default manifest metadata only. Enabled-state, localized extension names, other browsers, remaining skill trees, clinical desktops, Macs, Windows, other fleet hosts and unmanaged endpoints not audited.",
+    "No independent human approval or expiry register for every installed extension, standalone tool, model account, or probe service. Registration does not grant sensitive access.",
+    "Human direct contact, alternate commander, privacy/security leadership contacts and incident-notification acknowledgement have not been exercised.",
+    "This is agent-produced baseline evidence. No continuous detector, application-control coverage, EDR/Defender deployment/license, universal resource denial, or scenario #21 pass is asserted."
+  ]
+}
