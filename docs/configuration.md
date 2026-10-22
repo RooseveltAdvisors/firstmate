@@ -1721,21 +1721,21 @@ A fail-closed poll that already queued a wake, and a timeout, always print so th
 
 ## Consequential action gate
 
-`bin/fm-action-gate.sh` owns the invocation syntax, signed request format, key provisioning, and brake operations in its header and help output.
+`bin/fm-action-gate.sh` owns the invocation syntax, grant request format, and grant store location in its header and help output.
 The executable regression is `tests/fm-action-gate.test.sh`.
-The current runtime verification record is `docs/si-control/evidence/t1-enforcement.json`.
+The current runtime verification record is `docs/si-control/evidence/step1-drop-brake.json`.
 
 The gate refuses writable or changed enforcement before loading its libraries.
-Grants require the installed administrator's signature and bind provenance and exact command arguments.
+`mail_send` and `send` are always denied, and drafts are admitted without a grant.
+Booking and charging route to human review, and booking, charging and production deploys each require a one-time grant.
+Grants are plain JSON in the root-owned grant store and bind provenance and exact command arguments; a missing, unparseable, worker-created or worker-writable grant denies.
 Draft execution renders a typed JSON draft without invoking a caller-supplied program.
-The signed human brake prevents minting and execution, reconciles queued grants, and keeps those grants revoked after clearing.
-Concurrent admissions fail closed while another operation holds the admission lock.
-A busy brake invocation refuses explicitly and must be retried.
+No signing keypair, `authority.pem` or brake state is required.
 
 Installation is an administrator operation, separate from a repository change.
-Protect the enforcement checkout, its Git baseline, public key, `.action-control/` state and every ancestor against worker replacement, and keep the signing private key inaccessible to workers.
+Protect the enforcement checkout, its Git baseline, the grant store printed by `bin/fm-action-gate.sh grant-store` and every ancestor against worker replacement.
 Use the protected code installation with a separate writable operational `FM_HOME`.
-Provision its initial signed brake state before admitting actions; missing or unauthenticated state denies admission.
+Root provisions the grant store and mints grants into it with `mint-grant`.
 Consumption markers remain in the operational home and do not protect against a hostile owner deleting that operational state.
 The runtime guard is a tripwire, not a replacement for ownership hardening or mandatory mediation of effects outside this executor.
 The installed ownership check and independent installed scenario reruns remain operator verification; disposable-copy regression results do not establish those host properties.
