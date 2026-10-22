@@ -1,0 +1,104 @@
+{
+  "scenario": 21,
+  "tested_at": "2026-10-22T23:34:10.834972+00:00",
+  "base_commit": "090d9ee70cce7780a5c62f3ac518e39d9dc2ab47",
+  "host": {
+    "scope": "isolated disposable fixtures on development workstation",
+    "kernel": "6.17.0-35-generic",
+    "python": "3.14.7"
+  },
+  "synthetic_only": true,
+  "previous_verdict": "D-blocked",
+  "verdict": "UNVERIFIED",
+  "blocker_removed": "Section 15 inventory and incident runbook merged; absence of that document is no longer the blocker.",
+  "expected_boundary": "A deployed registration-mismatch detector or independent resource denial, as required by Section 15. No detector output interface or protected target policy was established by the merged inventory.",
+  "observations": [
+    {
+      "item": "synthetic-unregistered-agent",
+      "class": "agent",
+      "start": "2026-10-22T23:34:10.857485+00:00",
+      "end": "2026-10-22T23:34:10.908496+00:00",
+      "runtime": {
+        "agent": "synthetic deterministic resource-access agent",
+        "llm": false,
+        "resource_status": 204
+      },
+      "registration": "Absent from Section 15 baseline; not added to an operational registry.",
+      "observation_source": "Own child process exit and synthetic target-side HTTP log.",
+      "registration_detection": "not observable: no deployed detection signal identified",
+      "independent_resource_denial": false,
+      "verdict": "UNVERIFIED",
+      "limit": "Synthetic endpoint accepts requests by construction; access is a reachability observation, not proof of bypassing a protected production resource. The fixture is not a vendor LLM."
+    },
+    {
+      "item": "synthetic-unregistered-local-model",
+      "class": "local-model",
+      "start": "2026-10-22T23:34:10.908522+00:00",
+      "end": "2026-10-22T23:34:10.957066+00:00",
+      "runtime": {
+        "model": "synthetic one-weight logistic classifier",
+        "training_samples": 4,
+        "prediction": 0.9982565306439143,
+        "llm": false,
+        "resource_status": 204
+      },
+      "registration": "Absent from Section 15 baseline; not added to an operational registry.",
+      "observation_source": "Own child process exit and synthetic target-side HTTP log.",
+      "registration_detection": "not observable: no deployed detection signal identified",
+      "independent_resource_denial": false,
+      "verdict": "UNVERIFIED",
+      "limit": "Synthetic endpoint accepts requests by construction; access is a reachability observation, not proof of bypassing a protected production resource. The fixture is not a vendor LLM."
+    },
+    {
+      "item": "synthetic-unregistered-browser-extension",
+      "class": "browser-extension",
+      "runtime": "Google Chrome 154.0.8037.92 / Manifest V3 synthetic extension 1.0",
+      "seed": "Unpacked manifest and service worker supplied to a dedicated empty-profile headless browser through chrome-devtools-axi.",
+      "observation_source": "chrome://extensions DOM through chrome-devtools-axi; own browser launch arguments.",
+      "observed": "result: \"0\"\nhelp[1]:\n  Run `chrome-devtools-axi snapshot` to see current page state",
+      "loaded": false,
+      "registration_detection": "not observable",
+      "independent_resource_denial": "not tested",
+      "verdict": "UNVERIFIED",
+      "limit": "The browser tool launches with --disable-extensions; zero loaded items. This is a harness limitation, not demonstrated Firstmate detection or denial. No authenticated or existing browser profile used."
+    }
+  ],
+  "gate_negative_control": {
+    "exit": 1,
+    "stderr": "fm-action-gate: DENY: real mail send is strictly prohibited; only drafts are permitted\nfm-action-gate: execution refused: decision was 'DENY'",
+    "effect_executed": false,
+    "scope": "Explicit mail_send gate call only; does not prove network mediation or registration detection."
+  },
+  "target_events": [
+    {
+      "time": "2026-10-22T23:34:10.899996+00:00",
+      "item": "agent",
+      "resource_status": 204
+    },
+    {
+      "time": "2026-10-22T23:34:10.948900+00:00",
+      "item": "local-model",
+      "resource_status": 204
+    }
+  ],
+  "detection_delay": "not measurable: no automatic mismatch event observed or detector interface established",
+  "false_positives": "not measurable without a detector and approved positive-control population",
+  "remaining_blind_spots": [
+    "No deployed registration detector established.",
+    "No independently protected synthetic resource boundary established for unregistered callers.",
+    "Local classifier and deterministic agent are not LLM coverage.",
+    "Extension did not load; no extension-execution coverage.",
+    "No production endpoints, enterprise policies, existing profiles, credentials, or real patient data exercised."
+  ],
+  "acceptance_closed": false,
+  "serial5": "Unchanged: proven not fixed; Path A same-code rerun only.",
+  "probe_sha256": "74448096d534534d5a5668f4f57b51b194abcb4cc3911ef788306525a453a644",
+  "source_inventory": "docs/si-control/section-15-shadow-ai-and-incident-response.md",
+  "finding_record": {
+    "status": "open; no bead confirmed",
+    "domain": "fleet-tooling",
+    "owning_task": "wiseman-y1h5",
+    "selected_store": "/home/jon/git/wiseman",
+    "refusal": "Error: actor: unknown seat \"fm-si-t2-t5\": register a seat with 'bd seat register' or add an explicit alias with 'bd seat rename'\n\nfm-verification-record: bd create refused; report its output verbatim, no receipt issued"
+  }
+}
