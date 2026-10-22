@@ -1,0 +1,26 @@
+=== BEFORE (baseline 519817f4 bin/fm-watch.sh executed, lab FM_HOME) ===
+/tmp/fm-base.r8JfgS/bin/fm-watch.sh: line 77: wedge_jev_triage: command not found
+/tmp/fm-base.r8JfgS/bin/fm-watch.sh: line 1723: escalation_file: unbound variable
+/tmp/fm-base.r8JfgS/bin/fm-watch.sh: line 1725: win: unbound variable
+exit=1
+
+=== AFTER (2fc5937f bin/fm-watch.sh executed, lab FM_HOME) ===
+Terminated
+exit=124
+state files after run:
+.
+..
+home-summary.json
+.jev-artifact-dedup-last
+.jev-cache-watchdog-last
+.jev-cache-watchdog-telemetry.json
+.jev-doorbell-vacuum-last
+.jev-pane-reaper-last
+.jev-ref-aligner-last
+.jev-ref-aligner-telemetry.json
+.jev-runner-balancer-last
+.jev-runner-balancer-telemetry.json
+.last-heartbeat
+.last-watcher-beat
+.secondmate-liveness-tick
+.watcher-down

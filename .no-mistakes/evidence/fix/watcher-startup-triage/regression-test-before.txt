@@ -1,0 +1,12 @@
+=== new regression test vs BASELINE production code ===
+ok - absent key and .env-only key fail open without a network call
+ok - true_wedge escalates, stamps telemetry, and logs calibration
+ok - pipeline_wait suppresses and stamps suppressed telemetry
+ok - healthy_idle suppresses with the secondmate class
+ok - Infisical JEV proxy works without TYPESAFE_API_KEY in environment
+ok - Jev HTTP and transport errors fail open to unavailable
+ok - a malformed Jev answer fail-opens
+ok - calibration logs the first N decisions; telemetry keeps counting
+ok - telemetry class is coerced to the known set
+not ok - watcher source initialization failed before a wedge exists: /tmp/fm-base2.99uywn/bin/fm-watch.sh: line 77: wedge_jev_triage: command not found
+FM_TEST_END 2026-10-22T15:36:34Z tests/fm-jev-wake-triage.test.sh exit=1 duration_ms=606 gate_skip=false
