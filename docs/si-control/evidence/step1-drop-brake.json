@@ -27,8 +27,15 @@
       },
       {
         "criterion": "c",
-        "verdict": "NOT_RUN_PRIVILEGE_REQUIRED",
-        "output": "skip: root-store integration requires noninteractive sudo; set FM_ACTION_GATE_PRIVILEGED=1 to require it"
+        "verdict": "ACCEPTANCE_PENDING_POST_MERGE_E2E",
+        "verification_source": "verified by SI seat E2E on the installed root-owned store post-merge",
+        "execution_status": "pending_post_merge",
+        "seat_commitment": "SI seat runs booking-admission E2E on the installed root-owned grant store after merge; on failure it reverts and reports a finding",
+        "local_fixture": {
+          "verdict": "NOT_RUN_PRIVILEGE_REQUIRED",
+          "output": "skip: root-store integration requires noninteractive sudo; set FM_ACTION_GATE_PRIVILEGED=1 to require it",
+          "sudo_check": "sudo -n true -> sudo: a password is required"
+        }
       },
       {
         "criterion": "d",
@@ -44,7 +51,7 @@
     "fm-doc-audience-check: ok surfaces=132 local_links=831"
   ],
   "limits": [
-    "Positive execution of plain root-owned grants requires the privileged fixture and remains unverified on this worker",
+    "Positive execution of plain root-owned grants was not run locally (no noninteractive sudo); it is acceptance-pending on the SI seat post-merge E2E, which has not yet run",
     "Installed enforcement and all ancestor paths must remain administrator protected",
     "The independent seat must rerun each case against the installed gate before acceptance closure",
     "The previous nine T2-T5 findings are not closed by this change"
