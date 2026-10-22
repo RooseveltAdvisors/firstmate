@@ -13,7 +13,7 @@ It proves an absent `TYPESAFE_API_KEY`, and a key present only in `.env`, print 
 It proves a `true_wedge` Choice returns `action=escalate`, a `pipeline_wait` or `healthy_idle` Choice returns `action=suppress`, and HTTP 500, transport failure, and a malformed answer fail-open to `action=unavailable`.
 It proves the request uses `https://api.typesafe.ai/v1/systemone`, asks one Choice with `pipeline_wait`/`true_wedge`/`healthy_idle` and one Noul, and sends the key only as the bearer header.
 It proves the first N calibration rows include the input summary and Jev answer, and that telemetry keeps counting after that cap.
-Watcher cases replace the helper through `FM_JEV_WAKE_TRIAGE_BIN` and prove `pipeline_wait` suppresses without advancing the escalation counter, `true_wedge` and `action=unavailable` keep today's possible-wedge wake, and `config/jev-wake-triage=off` skips the helper entirely.
+Watcher cases replace the helper through `FM_JEV_WAKE_TRIAGE_BIN` and prove sourcing the watcher with no wedge context never calls the helper, takes the runtime lock, or emits a wake, `pipeline_wait` suppresses without advancing the escalation counter, `true_wedge` and `action=unavailable` keep today's possible-wedge wake, and `config/jev-wake-triage=off` skips the helper entirely.
 
 ```console
 $ bash tests/fm-jev-wake-triage.test.sh | tail -1
