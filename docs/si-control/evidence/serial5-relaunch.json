@@ -1,0 +1,86 @@
+{
+  "schema": "si-control.prerequisite-evidence.v1",
+  "subject": "Serial 5 remote-secondmate auto-relaunch latency",
+  "synthetic_only": true,
+  "scope_decision": {
+    "kind": "CAPTAIN_OVERSEER_DECISION",
+    "lane_inference": false,
+    "correlation": "intent-ruling-recorded",
+    "branch": "fix/serial5-relaunch-exit",
+    "delivers": "Only the serial 5 CI prerequisite: the serial remote-inherit path, so the watcher exits within the existing bound and main can turn green.",
+    "excludes": "The nine T2-T5 SI Control acceptance FAIL closures. They are separate work with their own intents and PRs, opened after this merges and main CI passes on all jobs.",
+    "rationale": "The T2-T5 gate changes are verified by the same portable suite that serial 5 keeps red, so a gate-change pass cannot be trusted until main is green."
+  },
+  "root_cause": {
+    "integration_commit": "519817f4fede020476f1020496ad83902d4c1b8d",
+    "origin_commit": "63fc5ebda735f31bd453ffebe70e80e93731df25",
+    "mechanism": "The remote inheritance sender schedules background sends and polls completion even with FM_REMOTE_INHERIT_PUSH_JOBS=1. Sixteen sequential fake-SSH transfers incur scheduler sleeps and extra plan-reading processes on the guarded relaunch path. The watcher exits promptly after respawn; latency consumes the test deadline.",
+    "mask": "The integration also introduced top-level watcher errors that prevented this test from reaching auto-relaunch until the preceding watcher fix landed.",
+    "isolation_limitation": "The wedge-removal patch does not apply to the historical parent: its erroneous top-level blocks are absent and its function-scoped increment already matches the correction. The control therefore runs that parent unchanged. A separate sender-only counterfactual holds the transport and remaining current code constant."
+  },
+  "before": {
+    "verdict": "FAIL",
+    "source": "GitHub main CI",
+    "commit": "a59bbd5beeed23e671b226c13b4061f4e70b3f31",
+    "run_id": 39814260337,
+    "job_id": 119980650870,
+    "url": "https://github.com/RooseveltAdvisors/firstmate/actions/runs/39814260337",
+    "observation": "not ok - the watcher did not exit on its auto-relaunch wake within the bound: check: secondmate ios auto-relaunched after remote endpoint dead on its configured host (host=remote-mac)"
+  },
+  "control": {
+    "commit": "a50a4561e3e25f0f42fe16b99d6edc564a29f503",
+    "command": "bash bin/fm-test-run.sh tests/fm-remote-secondmate-lifecycle-e2e.test.sh",
+    "local_execution_id": "83874",
+    "verdict": "PASS",
+    "exit": 0,
+    "duration_ms": 498092
+  },
+  "unmodified_main_local_trace": {
+    "verdict": "PASS",
+    "duration_ms": 502188,
+    "watcher_elapsed_seconds": 29.859243,
+    "guarded_respawn_seconds": 28.320281,
+    "wake_and_cleanup_seconds": 0.056096,
+    "interpretation": "The CI failure is load-sensitive latency, not a deterministic failure to exit. This local pass does not close the main-CI finding."
+  },
+  "sender_counterfactual": {
+    "setup": "Same current public executable dependencies and synthetic SSH transport, 16 items, one job, 0.2-second transport delay per item; replace only fm-remote-inherit-push.sh with historical or current version.",
+    "historical_seconds": 3.690437,
+    "unmodified_main_seconds": 4.234938,
+    "historical_scheduler_sleep_calls": 0,
+    "unmodified_main_scheduler_sleep_calls": 75,
+    "fixed_repeat_historical_seconds": 3.657557,
+    "fixed_seconds": 3.695381,
+    "fixed_scheduler_sleep_calls": 0,
+    "transport_calls_each": 16
+  },
+  "fix": {
+    "file": "bin/fm-remote-inherit-push.sh",
+    "change": "Execute serial sends directly and read staged plan/relative-path records with shell builtins. Preserve prevalidation, ordered output, concurrency, and failure propagation.",
+    "test_bound_changed": false,
+    "watcher_changed": false
+  },
+  "after": {
+    "status": "LOCAL_PASS_MAIN_ACCEPTANCE_PENDING",
+    "command": "bash bin/fm-test-run.sh --jobs 1 tests/fm-bootstrap-network-parallel.test.sh tests/fm-remote-secondmate-lifecycle-e2e.test.sh",
+    "verdict": "PASS",
+    "exit": 0,
+    "inheritance_suite_duration_ms": 74558,
+    "remote_lifecycle_suite_duration_ms": 510616,
+    "total_duration_ms": 585238,
+    "gate_skips": 0,
+    "target_assertion": "ok - watch liveness: a dead remote secondmate is auto-relaunched on its own host with one wake",
+    "lint": {
+      "command": "bash bin/fm-lint.sh",
+      "verdict": "PASS"
+    },
+    "documentation": {
+      "command": "bash bin/fm-doc-audience-check.sh",
+      "verdict": "PASS"
+    }
+  },
+  "main_ci": {
+    "status": "PENDING_MERGE_AND_CI",
+    "acceptance": "All main jobs, including portable serial 5, must pass. PR CI or local passes alone do not close this finding."
+  }
+}

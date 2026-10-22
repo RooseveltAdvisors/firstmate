@@ -10,7 +10,7 @@
 # convergence push into an already-running home and skips session-scoped items,
 # exactly as the local propagation path does. Every item is validated and
 # snapshotted locally before any is sent; the sends then overlap up to
-# FM_REMOTE_INHERIT_PUSH_JOBS (default 4, 1 for strictly one at a time), and
+# FM_REMOTE_INHERIT_PUSH_JOBS (default 4, 1 for direct serial execution), and
 # their output is replayed in allowlist order.
 set -eu
 
@@ -110,7 +110,7 @@ case "$JOBS" in ''|*[!0-9]*|0) JOBS=1 ;; esac
 
 send_item() {  # <n>
   local n=$1 rel plan bytes hash rc=0
-  rel=$(cat "$TMP/item.$n.rel")
+  IFS= read -r rel < "$TMP/item.$n.rel"
   read -r plan bytes hash < "$TMP/item.$n.plan"
   if [ "$plan" = put ]; then
     "$SCRIPT_DIR/fm-on.sh" --stdin "$ID" fm-remote-inherit.sh put "$rel" "$bytes" "$hash" "$GENERATION" \
@@ -146,11 +146,18 @@ while [ "$next" -le "$N" ] || [ "$running" -gt 0 ]; do
   done
   if [ "$stop" -eq 0 ] && [ "$next" -le "$N" ] && [ "$running" -lt "$JOBS" ]; then
     launched=$next
-    if [ "$(cut -d' ' -f1 "$TMP/item.$next.plan")" = skip ]; then
+    read -r plan bytes hash < "$TMP/item.$next.plan"
+    if [ "$plan" = skip ]; then
       printf '0\n' > "$TMP/item.$next.rc"
     else
       : > "$TMP/item.$next.started"
-      send_item "$next" &
+      # A serial transport already waits for completion. Polling a background
+      # copy adds a scheduler delay after every item on the relaunch path.
+      if [ "$JOBS" -eq 1 ]; then
+        send_item "$next"
+      else
+        send_item "$next" &
+      fi
     fi
     next=$((next + 1))
     continue
@@ -166,8 +173,10 @@ wait
 status=0
 i=1
 while [ "$i" -le "$launched" ]; do
-  if [ "$(cut -d' ' -f1 "$TMP/item.$i.plan")" = skip ]; then
-    printf 'unchanged: %s\n' "$(cat "$TMP/item.$i.rel")"
+  read -r plan bytes hash < "$TMP/item.$i.plan"
+  if [ "$plan" = skip ]; then
+    IFS= read -r rel < "$TMP/item.$i.rel"
+    printf 'unchanged: %s\n' "$rel"
   else
     cat "$TMP/item.$i.out"
     cat "$TMP/item.$i.err" >&2
