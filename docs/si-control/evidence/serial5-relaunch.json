@@ -2,6 +2,15 @@
   "schema": "si-control.prerequisite-evidence.v1",
   "subject": "Serial 5 remote-secondmate auto-relaunch latency",
   "synthetic_only": true,
+  "scope_decision": {
+    "kind": "CAPTAIN_OVERSEER_DECISION",
+    "lane_inference": false,
+    "correlation": "intent-ruling-recorded",
+    "branch": "fix/serial5-relaunch-exit",
+    "delivers": "Only the serial 5 CI prerequisite: the serial remote-inherit path, so the watcher exits within the existing bound and main can turn green.",
+    "excludes": "The nine T2-T5 SI Control acceptance FAIL closures. They are separate work with their own intents and PRs, opened after this merges and main CI passes on all jobs.",
+    "rationale": "The T2-T5 gate changes are verified by the same portable suite that serial 5 keeps red, so a gate-change pass cannot be trusted until main is green."
+  },
   "root_cause": {
     "integration_commit": "519817f4fede020476f1020496ad83902d4c1b8d",
     "origin_commit": "63fc5ebda735f31bd453ffebe70e80e93731df25",
