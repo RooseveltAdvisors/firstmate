@@ -1,0 +1,52 @@
+{
+  "date_utc": "2026-10-22",
+  "correlation": "drop-brake",
+  "baseline_sha": "519817f4fede020476f1020496ad83902d4c1b8d",
+  "status": "IMPLEMENTED_PARTIALLY_VERIFIED",
+  "scope": "Disposable installation with synthetic draft/grant data; no installed-gate or privileged-positive acceptance claim",
+  "before": {
+    "command": "FM_ACTION_GATE_TEST_SOURCE=<baseline-copy> bash tests/fm-action-gate.test.sh",
+    "source": "baseline bin/fm-action-gate.sh, bin/fm-action-gate-lib.sh and bin/fm-gate-refuse-lib.sh copied with git show",
+    "exit": 1,
+    "output": "fm-action-gate: DENY: brake state missing",
+    "verdict": "FAIL"
+  },
+  "after": {
+    "command": "bash bin/fm-test-run.sh tests/fm-action-gate.test.sh tests/fm-gate-refuse.test.sh",
+    "summary": "FM_TEST_SUMMARY total=2 failed=0 skipped_gate=0 duration_ms=23717",
+    "cases": [
+      {
+        "criterion": "a",
+        "verdict": "PASS",
+        "output": "ok - step1(a): mail_draft admitted with no keypair or brake.json"
+      },
+      {
+        "criterion": "b",
+        "verdict": "PASS",
+        "output": "ok - step1(b): mail_send and send remain hard denied"
+      },
+      {
+        "criterion": "c",
+        "verdict": "NOT_RUN_PRIVILEGE_REQUIRED",
+        "output": "skip: root-store integration requires noninteractive sudo; set FM_ACTION_GATE_PRIVILEGED=1 to require it"
+      },
+      {
+        "criterion": "d",
+        "verdict": "PASS",
+        "output": "ok - step1(d): writable or altered enforcement denied; restored enforcement evaluates"
+      }
+    ]
+  },
+  "privileged_verification_command": "FM_ACTION_GATE_PRIVILEGED=1 bash bin/fm-test-run.sh tests/fm-action-gate.test.sh",
+  "checks": [
+    "fm-lint.sh: ShellCheck 0.11.0 (pinned 0.11.0)",
+    "fm-lint-workflows.sh: actionlint 1.7.12 (pinned 1.7.12)",
+    "fm-doc-audience-check: ok surfaces=132 local_links=831"
+  ],
+  "limits": [
+    "Positive execution of plain root-owned grants requires the privileged fixture and remains unverified on this worker",
+    "Installed enforcement and all ancestor paths must remain administrator protected",
+    "The independent seat must rerun each case against the installed gate before acceptance closure",
+    "The previous nine T2-T5 findings are not closed by this change"
+  ]
+}

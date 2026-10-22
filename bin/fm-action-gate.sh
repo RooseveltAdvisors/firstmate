@@ -8,19 +8,16 @@
 #   fm-action-gate.sh check <action_class> <target> <task> [grant_file]
 #   fm-action-gate.sh execute <action_class> <target> <task> <grant_file> [cmd...]
 #     drafts: pass "" as grant, then draft-json '{"to":"...","subject":"...","body":"..."}'
-#     consequential argv must equal the exact signed request.argv.
-#   fm-action-gate.sh mint-grant <out_file> <action_class> <target> <task> <expires_at> <approval_ref> <request_json_file> <private_key>
+#     consequential argv must equal the exact approved request.argv.
+#   fm-action-gate.sh grant-store
+#     Prints the home-bound grant store; root provisions that directory and its
+#     two parents as root-owned 0755 beneath the protected checkout.
+#   fm-action-gate.sh mint-grant <out_file> <action_class> <target> <task> <expires_at> <approval_ref> <request_json_file>
+#     Administrator only; creates plain root-owned JSON (0444) in that store.
 #     request: {"provenance":{"kind":"trusted|untrusted-forwarded","origin_action_class":"booking"},"argv":[...]}
-#   fm-action-gate.sh init-control <private_key> <approval_ref>
-#   fm-action-gate.sh brake set|clear <private_key> <approval_ref>
-#   fm-action-gate.sh brake status
-#     Signed state is home-bound. Set reconciles and revokes queued grants;
-#     clearing permits fresh grants without reviving the reconciled queue.
-# Install the administrator's public key as bin/fm-action-authority.pem and pin
-# it in the protected checkout's Git HEAD. OpenSSL and Python 3 are required. Keep its private
-# key outside every filesystem readable by the worker. Provision signed clear
-# state with init-control before admitting requests. Runtime state and ancestor
-# paths must be protected against worker replacement by the administrator.
+# No keypair, authority.pem or brake.json is required. Python 3 and jq are required.
+# Root must protect the enforcement, Git baseline, grant store and ancestor paths
+# against worker replacement. Worker-created or worker-writable grants deny.
 # Internal tools use the system path. A read-only, Git-pinned bin/runtime-bin
 # can supply missing platform dependencies; its tools and linked libraries must
 # be administrator-controlled too. Caller PATH and exported functions are not
@@ -39,12 +36,12 @@ export PATH
 SCRIPT_DIR="$(cd "${BASH_SOURCE[0]%/*}" && pwd -P)"
 
 # Clear imported command functions before using runtime tools.
-builtin unset -f git jq openssl python3 stat cat dirname mktemp chmod mkdir mv ln rm date sed printf read exec pwd cd command 2>/dev/null || true
+builtin unset -f git jq python3 stat cat dirname mktemp chmod mkdir mv ln rm date sed printf read exec pwd cd command 2>/dev/null || true
 # Verify before sourcing either library. Ignore caller Git-location overrides
 # and replacement objects: the baseline belongs to this physical checkout.
 fm_action_gate_integrity() {
   local root file expected actual admin=false owner mode metadata node
-  local files=(fm-action-gate.sh fm-action-gate-lib.sh fm-gate-refuse-lib.sh fm-action-authority.pem)
+  local files=(fm-action-gate.sh fm-action-gate-lib.sh fm-gate-refuse-lib.sh)
   if [ -e "$SCRIPT_DIR/runtime-bin" ]; then
     files+=(runtime-bin)
     for node in "$SCRIPT_DIR/runtime-bin"/*; do
@@ -56,13 +53,10 @@ fm_action_gate_integrity() {
   # root-owned files without group/other write permission qualify. The worker
   # path always checks actual writability, including ACLs.
   if [ "$EUID" -eq 0 ]; then
-    case "${1:-}" in init-control|mint-grant|brake|-h|--help) admin=true ;; esac
+    case "${1:-}" in mint-grant|grant-store|-h|--help) admin=true ;; esac
   fi
   root=$(cd "$SCRIPT_DIR/.." && pwd -P) || return 1
   for file in "${files[@]}"; do
-    # The key is required for control provisioning and signed grants; an absent
-    # key cannot authorize anything and is diagnosed by those operations.
-    [ "$file" != fm-action-authority.pem ] || [ -e "$SCRIPT_DIR/$file" ] || continue
     if { [ ! -f "$SCRIPT_DIR/$file" ] && [ "$file" != runtime-bin ]; } || [ -L "$SCRIPT_DIR/$file" ]; then
       echo "fm-action-gate: DENY: enforcement tamper check: missing, symlinked or writable enforcement: $file" >&2
       return 1
@@ -104,7 +98,7 @@ fi
 if [ -d "$SCRIPT_DIR/runtime-bin" ]; then
   PATH="$PATH:$SCRIPT_DIR/runtime-bin"
 fi
-for dependency in git jq openssl python3; do
+for dependency in git jq python3; do
   if ! command -v "$dependency" >/dev/null; then
     echo "fm-action-gate: DENY: missing trusted runtime dependency: $dependency" >&2
     exit 1
@@ -129,30 +123,6 @@ case "$cmd" in
     ;;
 esac
 
-# The protected control inode carries the admission lock, outside the mutable
-# operational home. flock(2) locks the inherited open-file description, so it
-# remains held by this shell after the Python helper exits on Linux and macOS.
-# No environment flag bypasses locking. Initial provisioning publishes a new
-# directory atomically and is the only operation with no existing lock inode.
-if [ "$cmd" != init-control ]; then
-  control=$(fm_action_gate_control_file) || exit 1
-  fm_action_gate_control_read >/dev/null || exit 1
-  lock="$(dirname "$control")/admission.lock"
-  if ! fm_action_gate_readonly "$lock" || [ ! -f "$lock" ] || ! exec 9< "$lock"; then
-    echo 'fm-action-gate: DENY: protected admission lock missing or writable' >&2
-    exit 1
-  fi
-  if ! python3 -c 'import fcntl, sys
-try:
-    fcntl.flock(9, fcntl.LOCK_EX | fcntl.LOCK_NB)
-except OSError as error:
-    print("fm-action-gate: DENY: action admission busy or lock failed: " + str(error), file=sys.stderr)
-    sys.exit(1)
-'; then
-    exit 1
-  fi
-fi
-
 case "$cmd" in
   check)
     shift
@@ -171,14 +141,13 @@ case "$cmd" in
     grant_file=${4:-}
     if [ $# -ge 4 ]; then shift 4; else shift $#; fi
 
-    # One immutable in-memory snapshot feeds policy, payload and consumption.
-    # Later changes to the caller-owned grant path cannot substitute authority.
+    # Load one protected plain JSON snapshot for policy and payload checks.
     case "$action_class" in
-      mail_draft|draft) ;;
+      mail_draft|draft|mail_send|send) ;;
       *)
         if [ -f "$grant_file" ] && ! fm_action_gate_load_grant "$grant_file"; then
-          fm_action_gate_record_evidence "$FM_ACTION_DENY" "$action_class" "$target" "$task_id" "$grant_file" "invalid-grant-signature"
-          echo 'fm-action-gate: DENY: unsigned or altered grant' >&2
+          fm_action_gate_record_evidence "$FM_ACTION_DENY" "$action_class" "$target" "$task_id" "$grant_file" "invalid-plain-grant"
+          echo 'fm-action-gate: DENY: grant is unprotected or malformed JSON' >&2
           exit 1
         fi
         ;;
@@ -213,7 +182,7 @@ case "$cmd" in
       mail_draft|draft)
         printf '%s' "$2" | jq --arg target "$target" --arg task "$task_id" '{operation:"mail_draft",target:$target,task_id:$task,draft:.}'
         ;;
-      *) "$@" 9<&- ;;
+      *) "$@" ;;
     esac
     exit $?
     ;;
@@ -225,24 +194,15 @@ case "$cmd" in
     task_id=${4:-}
     expires_at=${5:-}
     approval_ref=${6:-}
-    fm_action_gate_mint_grant "$out_file" "$action_class" "$target" "$task_id" "$expires_at" "$approval_ref" "${7:-}" "${8:-}"
+    fm_action_gate_mint_grant "$out_file" "$action_class" "$target" "$task_id" "$expires_at" "$approval_ref" "${7:-}"
     exit $?
     ;;
-  init-control)
-    fm_action_gate_brake init "${2:-}" "${3:-}"
-    exit $?
-    ;;
-  brake)
-    if [ "${2:-}" = status ]; then
-      fm_action_gate_control_read
-      exit $?
-    fi
-    case "${2:-}" in set|clear) ;; *) echo 'usage: brake set|clear <private_key> <approval_ref>' >&2; exit 2 ;; esac
-    fm_action_gate_brake "$2" "${3:-}" "${4:-}"
-    exit $?
+  grant-store)
+    fm_action_gate_store || exit 1
+    printf '\n'
     ;;
   *)
-    echo "usage: fm-action-gate.sh check|execute|mint-grant|init-control|brake <args...>" >&2
+    echo "usage: fm-action-gate.sh check|execute|mint-grant|grant-store <args...>" >&2
     exit 2
     ;;
 esac

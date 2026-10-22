@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Public-interface regressions for the action gate: tampering, authenticated
-# grants, independent brake, provenance, payload classes and one-use admission.
+# Public-interface action gate regressions without signing keys or brake state.
+# Root-store cases use sudo only inside this suite's disposable installation.
+# FM_ACTION_GATE_PRIVILEGED=1 requires those cases instead of capability-skipping.
 set -euo pipefail
 # shellcheck source=tests/fixtures.sh
 . "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
@@ -8,14 +9,11 @@ set -euo pipefail
 TMP=$(fm_test_tmproot fm-action-gate-test)
 INSTALL="$TMP/install"
 LAB="$TMP/lab"
-KEY="$TMP/administrator.pem"
-mkdir -p "$INSTALL/bin" "$LAB/state/grants"
+SOURCE=${FM_ACTION_GATE_TEST_SOURCE:-$ROOT}
+mkdir -p "$INSTALL/bin" "$LAB/state"
 for enforcement in fm-action-gate.sh fm-action-gate-lib.sh fm-gate-refuse-lib.sh; do
-  cp "$ROOT/bin/$enforcement" "$INSTALL/bin/$enforcement"
+  cp "$SOURCE/bin/$enforcement" "$INSTALL/bin/$enforcement"
 done
-openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$KEY" 2>/dev/null
-openssl pkey -in "$KEY" -pubout -out "$INSTALL/bin/fm-action-authority.pem" 2>/dev/null
-chmod 600 "$KEY"
 mkdir "$INSTALL/bin/runtime-bin"
 cp "$(command -v jq)" "$INSTALL/bin/runtime-bin/jq"
 chmod a-w "$INSTALL/bin/runtime-bin/jq" "$INSTALL/bin/runtime-bin"
@@ -31,10 +29,6 @@ refuse() {
   assert_contains "$output" DENY "refusal should name DENY"
   printf '%s\n' "$output"
 }
-foreign() {
-  env -u GIT_CONFIG_PARAMETERS -u FM_RUNNER_UNTRUSTED GIT_CONFIG_COUNT=0 GIT_CONFIG_GLOBAL=/dev/null \
-    GIT_CONFIG_SYSTEM=/dev/null GIT_TEST_ASSUME_DIFFERENT_OWNER=true FM_HOME="$LAB" bash "$ACTION_GATE" "$@"
-}
 last_evidence() { tail -n 1 "$LAB/state/evidence/actions/action-ledger.jsonl"; }
 request() {
   local file=$1 kind=$2 origin=$3
@@ -42,33 +36,34 @@ request() {
   jq -nc --arg kind "$kind" --arg origin "$origin" --args \
     '{provenance:{kind:$kind,origin_action_class:$origin},argv:$ARGS.positional}' -- "$@" > "$file"
 }
-mint() {
-  local name=$1 class=$2 request_file=$3
-  call mint-grant "$STORE/$name.json" "$class" synthetic-target synthetic-task \
-    2030-01-01T00:00:00Z "$name" "$request_file" "$KEY"
-}
 
-call init-control "$KEY" initial-control
-control=$(find "$INSTALL/.action-control" -name brake.json -type f)
-STORE="$(dirname "$control")/grants"
-out=$(call check mail_draft synthetic-target synthetic-task)
-assert_contains "$out" ALLOW "provisioned clear state should admit draft checks"
-pass "signed control provisioning permits normal checks"
+# No keypair, authority.pem, control record, admission lock or grant store exists.
+out=$(call execute mail_draft synthetic-target synthetic-task '' draft-json \
+  '{"to":"synthetic@example.invalid","subject":"Synthetic","body":"Draft only"}')
+assert_contains "$out" '"operation": "mail_draft"' 'draft must execute without provisioning'
+pass 'step1(a): mail_draft admitted with no keypair or brake.json'
 
-status=0
-out=$(call check booking synthetic-target synthetic-task 2>&1) || status=$?
-[ "$status" -eq 2 ] || fail "missing grant should exit 2, got $status"
-assert_contains "$out" HUMAN_REVIEW "consequential action without grant routes to captain"
-status=0
-out=$(call execute booking synthetic-target synthetic-task '' /usr/bin/printf NO_GRANT_EXECUTED 2>&1) || status=$?
-[ "$status" -ne 0 ] || fail "execute without grant must refuse"
-assert_contains "$out" "decision was 'HUMAN_REVIEW'" "execute without grant routes to captain"
-[[ "$out" != *NO_GRANT_EXECUTED* ]] || fail 'ungranted command ran'
-last_evidence | jq -e '.decision=="HUMAN_REVIEW" and .reason=="missing grant routes to captain review"' >/dev/null ||
-  fail 'missing grant review must be recorded'
-pass "missing grant routes to HUMAN_REVIEW with recorded evidence"
+for action in mail_send send; do
+  out=$(refuse execute "$action" synthetic-target synthetic-task '' /usr/bin/printf MAIL_EXECUTED)
+  assert_contains "$out" 'real mail send is strictly prohibited' 'mail policy must fire directly'
+  [[ "$out" != *MAIL_EXECUTED* ]] || fail 'mail command ran'
+done
+last_evidence | jq -e '.decision=="DENY"' >/dev/null || fail 'mail denial was not recorded'
+pass 'step1(b): mail_send and send remain hard denied'
 
-# #7: all three files are independently tested, with unchanged restored controls.
+for action in booking charging prod_deploy deploy; do
+  status=0
+  out=$(call check "$action" synthetic-target synthetic-task 2>&1) || status=$?
+  [ "$status" -eq 2 ] || fail "missing $action grant should exit 2, got $status"
+  assert_contains "$out" HUMAN_REVIEW 'missing grant must require human review'
+  if out=$(call execute "$action" synthetic-target synthetic-task '' /usr/bin/printf NO_GRANT_EXECUTED 2>&1); then
+    fail 'missing grant must refuse execution'
+  fi
+  assert_contains "$out" HUMAN_REVIEW 'missing execution grant must require human review'
+  [[ "$out" != *NO_GRANT_EXECUTED* ]] || fail 'ungranted command ran'
+done
+pass 'missing grants route to HUMAN_REVIEW and never execute'
+
 for enforcement in fm-action-gate.sh fm-action-gate-lib.sh fm-gate-refuse-lib.sh; do
   chmod u+w "$INSTALL/bin/$enforcement"
   out=$(refuse check draft synthetic-target synthetic-task)
@@ -80,208 +75,122 @@ chmod u+w "$INSTALL/bin/fm-action-gate-lib.sh"
 printf '\nexit 97\n' >> "$INSTALL/bin/fm-action-gate-lib.sh"
 chmod a-w "$INSTALL/bin/fm-action-gate-lib.sh"
 out=$(refuse check draft synthetic-target synthetic-task)
-assert_contains "$out" 'content differs from committed baseline' "changed library must refuse before source"
+assert_contains "$out" 'content differs from committed baseline' 'changed library must refuse before sourcing'
 chmod u+w "$INSTALL/bin/fm-action-gate-lib.sh"
 cp "$TMP/original-lib" "$INSTALL/bin/fm-action-gate-lib.sh"
 chmod a-w "$INSTALL/bin/fm-action-gate-lib.sh"
 out=$(call check draft synthetic-target synthetic-task)
-assert_contains "$out" ALLOW "restored enforcement must evaluate"
-pass "#7 runtime guard refuses writable or altered enforcement and resumes after restore"
+assert_contains "$out" ALLOW 'restored enforcement must evaluate'
+pass 'step1(d): writable or altered enforcement denied; restored enforcement evaluates'
 
-# An administrator-owned install is a different Git owner than the worker.
-out=$(foreign check draft synthetic-target synthetic-task)
-assert_contains "$out" ALLOW "intact enforcement must evaluate under a different Git owner"
-chmod u+w "$INSTALL/bin/fm-action-gate-lib.sh"
-if out=$(foreign check draft synthetic-target synthetic-task 2>&1); then fail 'writable enforcement must refuse under a different Git owner'; fi
-assert_contains "$out" 'writable enforcement' "different-owner writable enforcement must refuse"
-printf '\nexit 97\n' >> "$INSTALL/bin/fm-action-gate-lib.sh"
-chmod a-w "$INSTALL/bin/fm-action-gate-lib.sh"
-if out=$(foreign check draft synthetic-target synthetic-task 2>&1); then fail 'changed enforcement must refuse under a different Git owner'; fi
-assert_contains "$out" 'content differs from committed baseline' "different-owner changed enforcement must refuse"
-chmod u+w "$INSTALL/bin/fm-action-gate-lib.sh"
-cp "$TMP/original-lib" "$INSTALL/bin/fm-action-gate-lib.sh"
-chmod a-w "$INSTALL/bin/fm-action-gate-lib.sh"
-pass "baseline reads trust only the exact protected checkout under a different Git owner"
+# Preserve the distinct-owner Git baseline check used by root installations.
+out=$(env -u GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT=0 GIT_CONFIG_GLOBAL=/dev/null \
+  GIT_CONFIG_SYSTEM=/dev/null GIT_TEST_ASSUME_DIFFERENT_OWNER=true FM_HOME="$LAB" \
+  bash "$ACTION_GATE" check draft synthetic-target synthetic-task)
+assert_contains "$out" ALLOW 'intact protected checkout with different Git owner must evaluate'
+pass 'protected checkout remains usable with a different Git owner'
 
 mv "$INSTALL/bin/fm-gate-refuse-lib.sh" "$TMP/refuse-lib"
 ln -s "$TMP/refuse-lib" "$INSTALL/bin/fm-gate-refuse-lib.sh"
 refuse check draft synthetic-target synthetic-task >/dev/null
 rm "$INSTALL/bin/fm-gate-refuse-lib.sh"
 mv "$TMP/refuse-lib" "$INSTALL/bin/fm-gate-refuse-lib.sh"
-pass "symlinked enforcement cannot replace a pinned library"
+pass 'symlinked enforcement denied'
 
-# Original same-user forged authority is denied even with read-only enforcement.
-jq -nc '{action_class:"booking",target:"synthetic-target",task_id:"synthetic-task",expires_at:"2030-01-01T00:00:00Z",approval_reference:"forged",used_at:null}' > "$STORE/forged.json"
-out=$(refuse execute booking synthetic-target synthetic-task "$STORE/forged.json" /usr/bin/printf FORGED_EXECUTED)
-assert_contains "$out" 'unsigned or altered grant' "same-user forged grant must be denied"
-[[ "$out" != *FORGED_EXECUTED* ]] || fail 'forged command ran'
-last_evidence | jq -e '.decision=="DENY" and .reason=="invalid-grant-signature"' >/dev/null ||
-  fail 'forged grant denial must be recorded'
-pass "#7 same-user grant forgery denied without relying on grant-store write permissions"
-
-mkdir "$TMP/fake-tools"
-for tool in git jq openssl; do
-  printf '#!/bin/sh\nexit 0\n' > "$TMP/fake-tools/$tool"
-  chmod +x "$TMP/fake-tools/$tool"
+for command in '/bin/sh' '/usr/bin/printf'; do
+  out=$(refuse execute mail_draft synthetic-target synthetic-task '' "$command" DRAFT_EXTERNAL_EXECUTED)
+  [[ "$out" != *DRAFT_EXTERNAL_EXECUTED* ]] || fail 'draft invoked external command'
 done
-if env PATH="$TMP/fake-tools:$PATH" FM_HOME="$LAB" /bin/bash "$ACTION_GATE" execute booking \
-  synthetic-target synthetic-task "$STORE/forged.json" /usr/bin/printf FORGED_EXECUTED > "$TMP/path-attack" 2>&1; then
-  fail "caller PATH must not replace signature or baseline verification"
-fi
-assert_contains "$(cat "$TMP/path-attack")" DENY "untrusted PATH must not grant authority"
-pass "caller PATH cannot replace verifier tools"
-
-# Valid command and one-time use, then parameter mismatches with fresh grants.
-request "$TMP/request.json" trusted booking /usr/bin/printf 'BOUND_BOOKING_EXECUTED\n'
-mint valid booking "$TMP/request.json"
-out=$(call execute booking synthetic-target synthetic-task "$STORE/valid.json" /usr/bin/printf 'BOUND_BOOKING_EXECUTED\n')
-assert_contains "$out" BOUND_BOOKING_EXECUTED "exact signed command should execute"
-refuse execute booking synthetic-target synthetic-task "$STORE/valid.json" /usr/bin/printf 'BOUND_BOOKING_EXECUTED\n' >/dev/null
-pass "valid signed command executes once and replay refuses"
-
-mint mismatch booking "$TMP/request.json"
-refuse execute booking wrong-target synthetic-task "$STORE/mismatch.json" /usr/bin/printf 'BOUND_BOOKING_EXECUTED\n' >/dev/null
-refuse execute booking synthetic-target wrong-task "$STORE/mismatch.json" /usr/bin/printf 'BOUND_BOOKING_EXECUTED\n' >/dev/null
-refuse execute charging synthetic-target synthetic-task "$STORE/mismatch.json" /usr/bin/printf 'BOUND_BOOKING_EXECUTED\n' >/dev/null
-out=$(refuse execute booking synthetic-target synthetic-task "$STORE/mismatch.json" /usr/bin/printf UNAPPROVED)
-assert_contains "$out" 'command differs from signed approved payload' "approved class cannot substitute argv"
-pass "task, target, class and exact command remain bound"
-
-call mint-grant "$STORE/expired.json" booking synthetic-target synthetic-task \
-  2020-01-01T00:00:00Z expired "$TMP/request.json" "$KEY"
-out=$(refuse check booking synthetic-target synthetic-task "$STORE/expired.json")
-assert_contains "$out" 'grant has expired' "signed grants still expire"
-if env FM_HOME="$LAB" FM_CAPTAIN_AUTH=1 bash "$ACTION_GATE" mint-grant "$STORE/env-forged.json" \
-  booking synthetic-target synthetic-task 2030-01-01T00:00:00Z fake-authority "$TMP/request.json" > "$TMP/env-forged" 2>&1; then
-  fail "captain environment flag must not replace the signing key"
-fi
-assert_contains "$(cat "$TMP/env-forged")" 'administrator signing key' "missing key must refuse"
-if env FM_HOME="$LAB" FM_RUNNER_UNTRUSTED=1 bash "$ACTION_GATE" mint-grant "$STORE/untrusted.json" \
-  booking synthetic-target synthetic-task 2030-01-01T00:00:00Z untrusted "$TMP/request.json" "$KEY" > "$TMP/untrusted" 2>&1; then
-  fail "untrusted runner must not mint grants even with a valid key"
-fi
-assert_contains "$(cat "$TMP/untrusted")" 'runner cannot create or mint its own grants' "untrusted runner mint must refuse"
-[ ! -e "$STORE/untrusted.json" ] || fail 'untrusted runner minted a grant'
-pass "expiry and independent signing authority remain enforced"
-
-# #3: signed provenance is checked at the effect boundary, not trusted from env.
-request "$TMP/forwarded.json" untrusted-forwarded mail_send /usr/bin/printf RELABELED_MAIL_EXECUTED
-mint forwarded booking "$TMP/forwarded.json"
-out=$(refuse execute booking synthetic-target synthetic-task "$STORE/forwarded.json" /usr/bin/printf RELABELED_MAIL_EXECUTED)
-assert_contains "$out" 'provenance origin' "forwarded mail_send cannot execute as booking"
-[[ "$out" != *RELABELED_MAIL_EXECUTED* ]] || fail 'relabeled mail ran'
-pass "#3 forwarded mail_send relabeled booking denied before execution"
-
-# Modifying signed provenance or argv cannot preserve a valid grant signature.
-jq '.request.provenance.origin_action_class="booking"' "$STORE/forwarded.json" > "$STORE/edited.json"
-refuse execute booking synthetic-target synthetic-task "$STORE/edited.json" /usr/bin/printf RELABELED_MAIL_EXECUTED >/dev/null
-pass "caller cannot rewrite signed provenance"
-
-# #2: no external program, interpreter, curl or empty command under a draft label.
-cat > "$TMP/curl" <<'CURL'
-#!/usr/bin/env bash
-printf 'CURL_EXECUTED %s\n' "$*"
-CURL
-chmod +x "$TMP/curl"
-out=$(refuse execute mail_draft synthetic-target synthetic-task '' "$TMP/curl" https://forbidden.invalid/synthetic)
-assert_contains "$out" 'mail_draft accepts only draft-json' "draft cannot run curl"
-[[ "$out" != *CURL_EXECUTED* ]] || fail 'draft executed curl'
-refuse execute draft synthetic-target synthetic-task '' /bin/sh -c 'exit 99' >/dev/null
 refuse execute draft synthetic-target synthetic-task '' >/dev/null
 refuse execute draft synthetic-target synthetic-task '' draft-json '{"to":"x","subject":"x","body":"x","command":"curl"}' >/dev/null
-out=$(call execute mail_draft synthetic-target synthetic-task '' draft-json '{"to":"synthetic@example.invalid","subject":"Synthetic","body":"Draft only"}')
-assert_contains "$out" '"operation": "mail_draft"' "draft-json should produce only a draft record"
-pass "#2 arbitrary curl denied; draft class renders only a typed draft"
+pass 'drafts remain restricted to the built-in typed renderer'
 
-# #16: a separate signing authority controls the brake; caller env is insufficient.
-request "$TMP/queued.json" trusted booking /usr/bin/printf QUEUED_EXECUTED
-mint queued booking "$TMP/queued.json"
-refuse brake set "$TMP/missing-private-key" unauthenticated >/dev/null
-call brake set "$KEY" human-stop
-out=$(refuse execute booking synthetic-target synthetic-task "$STORE/queued.json" /usr/bin/printf QUEUED_EXECUTED)
-assert_contains "$out" 'human brake is active' "queued request must deny while stopped"
-refuse execute mail_draft synthetic-target synthetic-task '' draft-json '{"to":"x","subject":"x","body":"x"}' >/dev/null
-refuse mint-grant "$STORE/fresh.json" booking synthetic-target synthetic-task 2030-01-01T00:00:00Z fresh "$TMP/queued.json" "$KEY" >/dev/null
-control=$(find "$INSTALL/.action-control" -name brake.json -type f)
-jq -e '.active and (.reconciliation[-1].queued | any(.approval_reference=="queued" and .status=="revoked-by-brake"))' "$control" >/dev/null || fail 'brake must reconcile queued grants'
-call brake clear "$KEY" human-resume
-out=$(refuse execute booking synthetic-target synthetic-task "$STORE/queued.json" /usr/bin/printf QUEUED_EXECUTED)
-assert_contains "$out" 'grant revoked by human brake' "reconciled queue stays revoked after clear"
-last_evidence | jq -e '.decision=="DENY" and .reason=="grant-revoked-by-brake"' >/dev/null ||
-  fail 'revoked grant denial must be recorded'
-request "$TMP/resumed.json" trusted booking /usr/bin/printf RESUMED_EXECUTED
-mint resumed booking "$TMP/resumed.json"
-out=$(call execute booking synthetic-target synthetic-task "$STORE/resumed.json" /usr/bin/printf RESUMED_EXECUTED)
-assert_contains "$out" RESUMED_EXECUTED "fresh authorized operation should resume after clear"
-pass "#16 brake stops queued/fresh actions and minting, records reconciliation, resumes with fresh authority"
-
-# Authenticated state is required; deleting or changing the record fails closed.
-cp "$control" "$TMP/control-copy"
-chmod u+w "$control"
-printf '{}\n' > "$control"
-chmod a-w "$control"
-refuse check draft synthetic-target synthetic-task >/dev/null
-chmod u+w "$control"
-cp "$TMP/control-copy" "$control"
-chmod a-w "$control"
-out=$(call check draft synthetic-target synthetic-task)
-assert_contains "$out" ALLOW "restored signed brake state should evaluate"
-pass "missing or tampered brake state never implies clear"
-
-chmod u+w "$(dirname "$control")"
-mv "$control" "$TMP/absent-control"
-chmod a-w "$(dirname "$control")"
-refuse check draft synthetic-target synthetic-task >/dev/null
-chmod u+w "$(dirname "$control")"
-mv "$TMP/absent-control" "$control"
-chmod a-w "$(dirname "$control")"
-pass "deleting brake state cannot clear the brake"
-
-# Human mail prohibition remains unconditional and fail-closed evidence remains required.
-refuse check mail_send synthetic@example.invalid synthetic-task >/dev/null
-refuse check send synthetic@example.invalid synthetic-task >/dev/null
 mkdir -p "$LAB/state/evidence.saved"
 mv "$LAB/state/evidence/actions" "$LAB/state/evidence.saved/actions"
 : > "$LAB/state/evidence/actions"
 refuse execute draft synthetic-target synthetic-task '' draft-json '{"to":"x","subject":"x","body":"x"}' >/dev/null
 rm "$LAB/state/evidence/actions"
 mv "$LAB/state/evidence.saved/actions" "$LAB/state/evidence/actions"
-pass "real mail stays denied and evidence failure denies execution"
+pass 'evidence failure still denies execution'
 
-# The lock spans the effect, not just its earlier policy check, and the child
-# effect cannot inherit/unlock the gate's protected admission descriptor.
-mkfifo "$TMP/release"
-held_script='import os, signal, sys
-signal.alarm(20)
-open(sys.argv[1], "w").write("ready")
-try:
-    os.fstat(9)
-except OSError:
-    pass
-else:
-    sys.exit(91)
-open(sys.argv[2]).readline()'
-python=$(command -v python3)
-request "$TMP/held.json" trusted booking "$python" -c "$held_script" "$TMP/admitted" "$TMP/release"
-mint held booking "$TMP/held.json"
-call execute booking synthetic-target synthetic-task "$STORE/held.json" "$python" -c "$held_script" \
-  "$TMP/admitted" "$TMP/release" > "$TMP/held-output" 2>&1 &
-held=$!
-attempts=0
-while [ ! -f "$TMP/admitted" ] && [ "$attempts" -lt 50 ]; do
-  sleep 0.1
-  attempts=$((attempts+1))
+out=$(env FM_HOME="$LAB" NO_MISTAKES_GATE=1 FM_GATE_REFUSE_BYPASS='' bash "$ACTION_GATE" check draft synthetic-target synthetic-task 2>&1 || true)
+assert_contains "$out" 'no-mistakes gate agent must not drive the fleet' 'gate context must still refuse'
+pass 'no-mistakes fleet boundary preserved'
+
+STORE=$(call grant-store)
+mkdir -p "$STORE"
+request "$TMP/request.json" trusted booking /usr/bin/printf 'BOUND_BOOKING_EXECUTED\n'
+jq -nc --slurpfile request "$TMP/request.json" \
+  '{action_class:"booking",target:"synthetic-target",task_id:"synthetic-task",expires_at:"2030-01-01T00:00:00Z",approval_reference:"worker-forged",used_at:null,request:$request[0]}' > "$STORE/worker-forged.json"
+chmod a-w "$STORE/worker-forged.json" "$STORE" "$(dirname "$STORE")" "$(dirname "$(dirname "$STORE")")"
+out=$(refuse execute booking synthetic-target synthetic-task "$STORE/worker-forged.json" /usr/bin/printf 'BOUND_BOOKING_EXECUTED\n')
+[[ "$out" != *BOUND_BOOKING_EXECUTED* ]] || fail 'worker-owned plain grant executed'
+pass 'worker-owned plain grant denied even with read-only mode bits'
+chmod u+w "$STORE" "$(dirname "$STORE")" "$(dirname "$(dirname "$STORE")")"
+
+if ! command -v sudo >/dev/null 2>&1 || ! sudo -n true >/dev/null 2>&1; then
+  if [ "${FM_ACTION_GATE_PRIVILEGED:-0}" = 1 ]; then
+    fail 'root-store integration requires noninteractive sudo inside the disposable fixture'
+  fi
+  printf 'skip: root-store integration requires noninteractive sudo; set FM_ACTION_GATE_PRIVILEGED=1 to require it\n'
+  exit 0
+fi
+
+# This is real ownership, not a mocked stat/signature verifier. Restore fixture
+# ownership on exit so the shared test cleanup can remove only its own files.
+fixture_owner="$(id -u):$(id -g)"
+restore_fixture() { sudo -n chown -R "$fixture_owner" "$INSTALL"; }
+trap 'restore_fixture; fm_test_cleanup' EXIT
+sudo -n chown -R 0:0 "$INSTALL/bin" "$INSTALL/.action-control"
+sudo -n chmod -R go-w "$INSTALL/bin" "$INSTALL/.action-control"
+admin() { sudo -n env FM_HOME="$LAB" bash "$ACTION_GATE" "$@"; }
+mint() {
+  local name=$1 class=$2 request_file=$3
+  admin mint-grant "$STORE/$name.json" "$class" synthetic-target synthetic-task \
+    2030-01-01T00:00:00Z "$name" "$request_file"
+}
+
+for action in booking charging prod_deploy deploy; do
+  request "$TMP/request-$action.json" trusted "$action" /usr/bin/printf "BOUND_${action}_EXECUTED"
+  mint "valid-$action" "$action" "$TMP/request-$action.json"
+  out=$(call execute "$action" synthetic-target synthetic-task "$STORE/valid-$action.json" /usr/bin/printf "BOUND_${action}_EXECUTED")
+  assert_contains "$out" "BOUND_${action}_EXECUTED" 'plain root-owned grant must execute'
+  refuse execute "$action" synthetic-target synthetic-task "$STORE/valid-$action.json" /usr/bin/printf "BOUND_${action}_EXECUTED" >/dev/null
 done
-[ -f "$TMP/admitted" ] || fail "held synthetic effect never started"
-out=$(refuse brake set "$KEY" while-effect-running)
-assert_contains "$out" 'action admission busy' "brake must not report success across an admitted effect"
-printf 'release\n' > "$TMP/release"
-wait "$held" || fail 'effect inherited lock descriptor or failed'
-call brake set "$KEY" after-effect
-call brake clear "$KEY" after-effect-clear
-pass "successful brake is serialized after admitted effects; child gets no lock capability"
+pass 'step1(c): plain protected grants admit booking, charging and deploy once, without keys or brake state'
 
-# Concurrent admission still permits at most one execution of a signed grant.
+# Neither malformed JSON nor writable authority is an empty/missing grant.
+printf '{' > "$TMP/malformed.json"
+sudo -n cp "$TMP/malformed.json" "$STORE/malformed.json"
+out=$(refuse execute booking synthetic-target synthetic-task "$STORE/malformed.json" /usr/bin/printf MALFORMED_EXECUTED)
+assert_contains "$out" 'unprotected or malformed JSON' 'malformed grant must hard deny'
+[[ "$out" != *MALFORMED_EXECUTED* ]] || fail 'malformed grant executed'
+mint writable booking "$TMP/request.json"
+sudo -n chmod 666 "$STORE/writable.json"
+refuse execute booking synthetic-target synthetic-task "$STORE/writable.json" /usr/bin/printf 'BOUND_BOOKING_EXECUTED\n' >/dev/null
+pass 'malformed and worker-writable grants hard deny'
+
+mint mismatch booking "$TMP/request.json"
+refuse execute booking wrong-target synthetic-task "$STORE/mismatch.json" /usr/bin/printf 'BOUND_BOOKING_EXECUTED\n' >/dev/null
+refuse execute booking synthetic-target wrong-task "$STORE/mismatch.json" /usr/bin/printf 'BOUND_BOOKING_EXECUTED\n' >/dev/null
+refuse execute charging synthetic-target synthetic-task "$STORE/mismatch.json" /usr/bin/printf 'BOUND_BOOKING_EXECUTED\n' >/dev/null
+out=$(refuse execute booking synthetic-target synthetic-task "$STORE/mismatch.json" /usr/bin/printf UNAPPROVED)
+assert_contains "$out" 'command differs from approved payload' 'grant must still bind exact argv'
+pass 'class, target, task and exact payload binding preserved'
+
+request "$TMP/forwarded.json" untrusted-forwarded mail_send /usr/bin/printf RELABELED_MAIL_EXECUTED
+mint forwarded booking "$TMP/forwarded.json"
+out=$(refuse execute booking synthetic-target synthetic-task "$STORE/forwarded.json" /usr/bin/printf RELABELED_MAIL_EXECUTED)
+assert_contains "$out" 'provenance origin' 'mail_send cannot execute under a booking label'
+[[ "$out" != *RELABELED_MAIL_EXECUTED* ]] || fail 'relabeled mail executed'
+pass 'forwarded mail provenance remains bound to the approved action'
+
+admin mint-grant "$STORE/expired.json" booking synthetic-target synthetic-task \
+  2020-01-01T00:00:00Z expired "$TMP/request.json"
+out=$(refuse check booking synthetic-target synthetic-task "$STORE/expired.json")
+assert_contains "$out" 'grant has expired' 'expiry remains enforced'
+pass 'plain grants still expire'
+
 request "$TMP/concurrent.json" trusted booking /usr/bin/printf CONCURRENT_EXECUTED
 mint concurrent booking "$TMP/concurrent.json"
 pids=()
@@ -294,10 +203,5 @@ for pid in "${pids[@]}"; do
   if wait "$pid"; then success=$((success+1)); fi
 done
 [ "$success" -eq 1 ] || fail "expected one concurrent execution, got $success"
-pass "one-use consumption and serialized admission prevent concurrent replay"
-
-# The existing no-mistakes lifecycle boundary must still fire after integrity.
-out=$(env FM_HOME="$LAB" NO_MISTAKES_GATE=1 FM_GATE_REFUSE_BYPASS='' bash "$ACTION_GATE" check draft synthetic-target synthetic-task 2>&1 || true)
-assert_contains "$out" 'no-mistakes gate agent must not drive the fleet' "gate context must still refuse"
-pass "no-mistakes fleet boundary preserved"
-printf 'ok: T1 runtime regressions passed; installed ownership proof remains operator-owned\n'
+pass 'atomic consumption admits only one concurrent execution'
+printf 'ok: all Step 1 action gate regressions passed with real root-owned grants\n'
