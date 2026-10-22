@@ -1,6 +1,9 @@
 {
   "date_utc": "2026-10-18",
-  "protocol_versions": ["fm-action-grant.v1", "fm-action-control.v1"],
+  "protocol_versions": [
+    "fm-action-grant.v1",
+    "fm-action-control.v1"
+  ],
   "scope": "Disposable installation with synthetic administrator keys and synthetic effects; runtime regression evidence only",
   "command": "bash bin/fm-test-run.sh tests/fm-action-gate.test.sh tests/fm-gate-refuse.test.sh",
   "scenarios": [
@@ -16,17 +19,23 @@
     {
       "requirement": 16,
       "runtime_verdict": "PASS",
-      "output": ["ok - #16 brake stops queued/fresh actions and minting, records reconciliation, resumes with fresh authority"]
+      "output": [
+        "ok - #16 brake stops queued/fresh actions and minting, records reconciliation, resumes with fresh authority"
+      ]
     },
     {
       "requirement": 3,
       "runtime_verdict": "PASS",
-      "output": ["ok - #3 forwarded mail_send relabeled booking denied before execution"]
+      "output": [
+        "ok - #3 forwarded mail_send relabeled booking denied before execution"
+      ]
     },
     {
       "requirement": 2,
       "runtime_verdict": "PASS",
-      "output": ["ok - #2 arbitrary curl denied; draft class renders only a typed draft"]
+      "output": [
+        "ok - #2 arbitrary curl denied; draft class renders only a typed draft"
+      ]
     }
   ],
   "installation_requirements": [
@@ -39,5 +48,7 @@
     "This executor does not mediate effects invoked outside it",
     "Consumption markers in the operational home do not survive a hostile owner erasing that state",
     "Root administrator provisioning and installed ownership were not exercised by the unprivileged disposable-copy test"
-  ]
+  ],
+  "status": "HISTORICAL_SUPERSEDED_FOR_BRAKE_AND_SIGNATURE_BEHAVIOR",
+  "superseded_by": "docs/si-control/evidence/step1-drop-brake.json"
 }
