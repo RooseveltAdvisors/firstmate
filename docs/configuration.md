@@ -1740,6 +1740,8 @@ Protect the enforcement checkout, its Git baseline, the grant store printed by `
 Use the protected code installation with a separate writable operational `FM_HOME`.
 Root provisions the grant store and mints grants into it with `mint-grant`.
 Consumption markers remain in the operational home and do not protect against a hostile owner deleting that operational state.
+The general action ledger retains policy decision and action codes while redacting target, task and grant values and refusing arbitrary reason text before writing.
+This field minimization does not make the worker-owned ledger append-only at storage.
 The runtime guard is a tripwire, not a replacement for ownership hardening or mandatory mediation of effects outside this executor.
 The installed ownership check and independent installed scenario reruns remain operator verification; disposable-copy regression results do not establish those host properties.
 

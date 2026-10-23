@@ -193,7 +193,25 @@ fm_action_gate_record_evidence() {
     --arg task "$task_id" \
     --arg gr "$grant_ref" \
     --arg rsn "$reason" \
-    '{timestamp: $ts, decision: $dec, action_class: $cls, target: $tgt, task_id: $task, grant_ref: $gr, reason: $rsn}') || return 1
+    '
+    # This general ledger accepts only closed policy vocabulary. Targets,
+    # task/grant references and arbitrary reasons can contain sensitive data;
+    # omit their values rather than guessing credential/patient patterns.
+    def permitted($values; $value): $values | index($value) != null;
+    {timestamp: $ts,
+     decision: (if permitted(["ALLOW","DENY","HUMAN_REVIEW"]; $dec) then $dec else "DENY" end),
+     action_class: (if permitted(["mail_send","send","mail_draft","draft","booking","charging","prod_deploy","deploy"]; $cls) then $cls else "unknown" end),
+     target: "[redacted]", task_id: "[redacted]", grant_ref: "[redacted]",
+     reason: (if permitted([
+       "payload-and-provenance-verified", "missing-required-parameters",
+       "drafting permitted", "mail_send strictly prohibited", "unknown action class",
+       "missing grant routes to captain review", "grant-outside-store",
+       "invalid-plain-grant", "jev-cannot-grant", "jev-flagged-risky",
+       "missing-approval-reference", "action-class-mismatch", "target-mismatch",
+       "task-id-mismatch", "missing-expiry", "unparseable-expiry", "grant-expired",
+       "grant-already-used", "grant-consumed-directory-exists", "request-binding-invalid",
+       "grant verified", "payload-or-provenance-refused", "grant-consumption-failed"
+     ]; $rsn) then $rsn else "[redacted]" end)}') || return 1
 
   # This writer appends; OS ownership determines protection against tampering.
   printf '%s\n' "$entry" >> "$log_file" 2>/dev/null

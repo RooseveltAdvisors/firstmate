@@ -51,6 +51,20 @@ done
 last_evidence | jq -e '.decision=="DENY"' >/dev/null || fail 'mail denial was not recorded'
 pass 'step1(b): mail_send and send remain hard denied'
 
+# Redact before serialization, including fields outside the original target.
+marker='SYNTHETIC_PATIENT_NAME_TestPerson_CREDENTIAL_test-only-123'
+refuse check mail_send "$marker" "$marker" >/dev/null
+last_evidence | jq -e --arg marker "$marker" '
+  .decision=="DENY" and .action_class=="mail_send" and
+  .target=="[redacted]" and .task_id=="[redacted]" and
+  ([.. | strings | contains($marker)] | any | not)' >/dev/null || fail 'sensitive target or task reached the ledger'
+FM_HOME="$LAB" bash -c '. "$1"; fm_action_gate_record_evidence "$2" "$2" "$2" "$2" "$2" "$2"' \
+  bash "$INSTALL/bin/fm-action-gate-lib.sh" "$marker"
+last_evidence | jq -e --arg marker "$marker" '
+  .decision=="DENY" and .action_class=="unknown" and .reason=="[redacted]" and
+  ([.. | strings | contains($marker)] | any | not)' >/dev/null || fail 'free-text ledger fields leaked sensitive data'
+pass 'scenario20: all untrusted ledger fields are minimized before writing'
+
 for action in booking charging prod_deploy deploy; do
   status=0
   out=$(call check "$action" synthetic-target synthetic-task 2>&1) || status=$?
@@ -384,7 +398,10 @@ mint command-substitution prod_deploy "$TMP/deploy-command.json"
 refuse execute prod_deploy synthetic-target synthetic-task "$STORE/command-substitution.json" "$ADAPTER_EXEC" changed-service "$ADAPTER_INPUT" >/dev/null
 out=$(call execute prod_deploy synthetic-target synthetic-task "$STORE/command-substitution.json" "$ADAPTER_EXEC" synthetic-service "$ADAPTER_INPUT")
 assert_contains "$out" 'SYNTHETIC_DEPLOY_EXECUTED' 'argument refusal must not consume a valid command approval'
+# The separate worker shell expands its positional argument.
+# shellcheck disable=SC2016
 if worker -c 'printf "WORKER_CHANGED_CONFIG\n" >> "$1"' _ "$ADAPTER_INPUT" 2>/dev/null; then fail 'worker modified registered adapter input'; fi
+# shellcheck disable=SC2016
 if worker -c 'mv "$1" "$1.changed"' _ "$ADAPTER_EXEC" 2>/dev/null; then fail 'worker replaced registered adapter code'; fi
 pass 'protected-grant command integration: approved deployment runs without an HTTP gateway; changed args and inherited account settings cannot alter it; worker cannot modify its code or input'
 
