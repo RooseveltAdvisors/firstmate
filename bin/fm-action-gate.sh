@@ -8,13 +8,18 @@
 #   fm-action-gate.sh check <action_class> <target> <task> [grant_file]
 #   fm-action-gate.sh execute <action_class> <target> <task> <grant_file> [cmd...]
 #     drafts: pass "" as grant, then draft-json '{"to":"...","subject":"...","body":"..."}'
-#     consequential argv must equal the exact approved request.argv.
+#     consequential argv: http-json '<JSON object>', exactly as approved.
 #   fm-action-gate.sh grant-store
 #     Prints the home-bound grant store; root provisions that directory and its
 #     two parents as root-owned 0755 beneath the protected checkout.
 #   fm-action-gate.sh mint-grant <out_file> <action_class> <target> <task> <expires_at> <approval_ref> <request_json_file>
 #     Administrator only; creates plain root-owned JSON (0444) in that store.
-#     request: {"provenance":{"kind":"trusted|untrusted-forwarded","origin_action_class":"booking"},"argv":[...]}
+#     request: {"provenance":{"kind":"trusted|untrusted-forwarded","origin_action_class":"booking"},"argv":["http-json","<HTTP JSON>"]}
+#     HTTP JSON: {"url":"https://...","method":"POST|PUT|PATCH|DELETE","account_id":"...","credential_id":"...","headers":{"Authorization":"..."},"body":{...}}
+#     HTTP is accepted only for literal loopback test targets. Redirects refuse.
+#     request_sha256 binds provenance, exact argv, URL, account, credential,
+#     headers and body; payload_sha256 binds the canonical UTF-8 body bytes.
+#     Legacy grants and arbitrary external commands refuse.
 # No keypair, authority.pem or brake.json is required. Python 3 and jq are required.
 # Root must protect the enforcement, Git baseline, grant store and ancestor paths
 # against worker replacement. Worker-created or worker-writable grants deny.
@@ -24,7 +29,7 @@
 # an authority source. Invoke with a trusted Bash interpreter and clean startup
 # environment; a shell startup hook runs before a shell script can check itself.
 #
-# Deployment: all three enforcement files below must be read-only to the
+# Deployment: all enforcement files below must be read-only to the
 # operating principal and match this checkout's HEAD. This runtime tripwire
 # does not protect itself or HEAD from an owner who can replace them. An
 # administrator must protect the installed files, baseline and parent paths;
@@ -41,7 +46,7 @@ builtin unset -f git jq python3 stat cat dirname mktemp chmod mkdir mv ln rm dat
 # and replacement objects: the baseline belongs to this physical checkout.
 fm_action_gate_integrity() {
   local root file expected actual admin=false owner mode metadata node
-  local files=(fm-action-gate.sh fm-action-gate-lib.sh fm-gate-refuse-lib.sh)
+  local files=(fm-action-gate.sh fm-action-gate-lib.sh fm-action-request.py fm-gate-refuse-lib.sh)
   if [ -e "$SCRIPT_DIR/runtime-bin" ]; then
     files+=(runtime-bin)
     for node in "$SCRIPT_DIR/runtime-bin"/*; do
@@ -116,6 +121,7 @@ cmd=${1:-}
 # Never accept a caller-supplied cache of verified data.
 FM_ACTION_GRANT_PATH=''
 FM_ACTION_GRANT_JSON=''
+FM_ACTION_HTTP_REQUEST=''
 case "$cmd" in
   -h|--help)
     sed -n '2,/^set /{ /^set /d; s/^# \{0,1\}//; p; }' "$0"
@@ -182,7 +188,7 @@ case "$cmd" in
       mail_draft|draft)
         printf '%s' "$2" | jq --arg target "$target" --arg task "$task_id" '{operation:"mail_draft",target:$target,task_id:$task,draft:.}'
         ;;
-      *) "$@" ;;
+      *) fm_action_gate_http_execute ;;
     esac
     exit $?
     ;;

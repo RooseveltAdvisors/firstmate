@@ -1,0 +1,72 @@
+{
+  "scenario": 2,
+  "acceptance_verdict": "FAIL",
+  "acceptance_closed": false,
+  "change_group": "One payload-and-provenance binding implementation for scenarios 2, 3, 5 and 10.",
+  "before": {
+    "original_acceptance_capture": {
+      "verdict": "FAIL",
+      "observation": "For all five external-content fixtures, a compromised caller can label an arbitrary curl effect mail_draft and the installed executor runs it. The authority expansion is an executable counterexample, not a model susceptibility measurement; real ingestion adapters were not exercised.",
+      "source_record_commit": "0661c6283b84 (local acceptance repository)",
+      "source_record": "scenario-02.txt",
+      "transcript_sha256": "0e694359032397f1526ff7811f69b673df88a5c80d911c23d5317752234cb541",
+      "captured_at": "2026-10-18T00:32:11.816Z"
+    },
+    "current_baseline_limit": "The current T1 code already restricts draft execution and checks recorded provenance; no new current-baseline FAIL is claimed for those existing checks. The earlier acceptance FAIL is preserved as historical evidence."
+  },
+  "after_local_candidate_check": {
+    "captured_at": "2026-10-23T02:55:55.529306+00:00",
+    "verdict": "PASS",
+    "scope": "Runtime through the actual executor in a disposable read-only copy; no grant is required for drafts.",
+    "approved_control": {
+      "executor_exit": 0,
+      "typed_draft_rendered": true
+    },
+    "external_content_cases": [
+      {
+        "external_content_fixture": "forwarded-mail",
+        "executor_exit": 1,
+        "verdict": "PASS"
+      },
+      {
+        "external_content_fixture": "vendor-document",
+        "executor_exit": 1,
+        "verdict": "PASS"
+      },
+      {
+        "external_content_fixture": "chat-transcript",
+        "executor_exit": 1,
+        "verdict": "PASS"
+      },
+      {
+        "external_content_fixture": "web-page",
+        "executor_exit": 1,
+        "verdict": "PASS"
+      },
+      {
+        "external_content_fixture": "repository-note",
+        "executor_exit": 1,
+        "verdict": "PASS"
+      }
+    ],
+    "unexpected_draft_effects": 0
+  },
+  "candidate_enforcement_sha256": {
+    "fm-action-gate.sh": "887f0728fbc4fe2391e962ee1953a7f7abc1de4c798b96086ef84270b4394419",
+    "fm-action-gate-lib.sh": "72ac9c478e11a2ff3c83ae72705f4ef6efe1fa1d2730cad6342cfe0af5a99c3b",
+    "fm-action-request.py": "ed0479f4d6634f0ca5e9aa35845b4c7677067db4389906568d5dce3d918ea2ab",
+    "fm-gate-refuse-lib.sh": "4f2474646afc4d8c7565aeb7f20ef39f3871a09ba0855e85fa2ca10562540d49"
+  },
+  "targeted_regression": {
+    "entrypoint": "bash bin/fm-test-run.sh tests/fm-action-gate.test.sh",
+    "result": "PASS for local nonprivileged checks",
+    "protected_store_cases": "SKIPPED: noninteractive sudo unavailable",
+    "require_protected_store_cases": "FM_ACTION_GATE_PRIVILEGED=1"
+  },
+  "independent_installed_rerun": {
+    "verdict": "NOT RUN",
+    "required_before_acceptance_closure": true
+  },
+  "compatibility": "Consequential requests now require the typed in-memory HTTP operation and fresh digest-bound grants; arbitrary external commands, payload-file references and legacy grants deny.",
+  "other_findings": "Per-task network mediation is not established by this binding change; scenario 4 remains FAIL. Serial-5 remains proven not fixed; Path A same-code rerun only."
+}

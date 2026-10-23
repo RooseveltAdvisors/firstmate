@@ -1723,12 +1723,14 @@ A fail-closed poll that already queued a wake, and a timeout, always print so th
 
 `bin/fm-action-gate.sh` owns the invocation syntax, grant request format, and grant store location in its header and help output.
 The executable regression is `tests/fm-action-gate.test.sh`.
-The current runtime verification record is `docs/si-control/evidence/step1-drop-brake.json`.
+Binding evidence and its current verification limits are recorded in `docs/si-control/evidence/scenario-05.json`.
 
 The gate refuses writable or changed enforcement before loading its libraries.
 `mail_send` and `send` are always denied, and drafts are admitted without a grant.
 Booking and charging route to human review, and booking, charging and production deploys each require a one-time grant.
-Grants are plain JSON in the root-owned grant store and bind provenance and exact command arguments; a missing, unparseable, worker-created or worker-writable grant denies.
+Grants are plain JSON in the root-owned grant store and bind the complete typed request with its digest; a missing, unparseable, worker-created or worker-writable grant denies.
+Consequential execution uses the built-in HTTP operation, with the approved URL, account, credential identity, headers and body taken from one validated snapshot.
+External programs, mutable payload files, legacy grants and redirects refuse; existing approvals must be reminted in the current request format.
 Draft execution renders a typed JSON draft without invoking a caller-supplied program.
 No signing keypair, `authority.pem` or brake state is required.
 

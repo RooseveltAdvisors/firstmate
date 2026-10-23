@@ -1,0 +1,93 @@
+{
+  "scenario": 5,
+  "acceptance_verdict": "FAIL",
+  "acceptance_closed": false,
+  "change_group": "One payload-and-provenance binding implementation for scenarios 2, 3, 5 and 10.",
+  "before": {
+    "original_acceptance_capture": {
+      "verdict": "FAIL",
+      "observation": "Target-label mismatch is denied, but keeping the approved label while changing the actual URL/account and synthetic credential executes. The executor has no payload/account binding; the live Infisical proxy and real credentials were neither read nor tested, so this does not claim a proxy defect.",
+      "source_record_commit": "0661c6283b84 (local acceptance repository)",
+      "source_record": "scenario-05.txt",
+      "transcript_sha256": "855f0aba30424a9747a0265581968e7a0d3e71d44608824e81887674a1ce2af9",
+      "captured_at": "2026-10-18T00:37:41.593Z"
+    },
+    "fresh_component_capture": {
+      "captured_at": "2026-10-23T02:44:21.529342+00:00",
+      "source_head": "d80314327a06bb48f035a26e578085bb21cdfeb5",
+      "phase": "BEFORE source edits",
+      "method": "Component execution of the actual payload-policy function, with an already-authenticated synthetic grant snapshot as its explicit precondition; not a protected-store or installed-executor integration test.",
+      "acceptance_closed": false,
+      "case": {
+        "finding": 5,
+        "changed": "Inherited destination, account and credential settings changed while target label and approved argv were held fixed.",
+        "approved_control": "https://approved.example.invalid/booking|synthetic-approved|synthetic-approved",
+        "policy_exit": 0,
+        "effect": "https://changed.example.invalid/booking|synthetic-changed|synthetic-changed",
+        "verdict": "FAIL"
+      }
+    }
+  },
+  "after_local_candidate_check": {
+    "captured_at": "2026-10-23T02:55:55.529306+00:00",
+    "verdict": "PASS",
+    "scope": "Runtime payload-policy and HTTP-adapter component check with an authenticated grant snapshot as its explicit precondition; not a protected-store admission test.",
+    "approved_control": {
+      "exit": 0,
+      "status": 204,
+      "observed_account": "synthetic-approved",
+      "observed_credential": "synthetic-approved",
+      "observed_payload_sha256": "28e80581a7f959efbbc13090717ee7a967b595ca4d589872d7bb6d56d2f01df6",
+      "approved_payload_sha256": "28e80581a7f959efbbc13090717ee7a967b595ca4d589872d7bb6d56d2f01df6",
+      "hostile_inherited_settings_ignored": true
+    },
+    "substitution_cases": [
+      {
+        "changed": "url",
+        "policy_exit": 1,
+        "verdict": "PASS"
+      },
+      {
+        "changed": "account_id",
+        "policy_exit": 1,
+        "verdict": "PASS"
+      },
+      {
+        "changed": "credential_id",
+        "policy_exit": 1,
+        "verdict": "PASS"
+      },
+      {
+        "changed": "headers",
+        "policy_exit": 1,
+        "verdict": "PASS"
+      }
+    ],
+    "legacy_executable_case": {
+      "case": "account",
+      "policy_exit": 1,
+      "changed_effect_executed": false,
+      "verdict": "PASS"
+    },
+    "total_target_effects": 1,
+    "unexpected_target_effects": 0
+  },
+  "candidate_enforcement_sha256": {
+    "fm-action-gate.sh": "887f0728fbc4fe2391e962ee1953a7f7abc1de4c798b96086ef84270b4394419",
+    "fm-action-gate-lib.sh": "72ac9c478e11a2ff3c83ae72705f4ef6efe1fa1d2730cad6342cfe0af5a99c3b",
+    "fm-action-request.py": "ed0479f4d6634f0ca5e9aa35845b4c7677067db4389906568d5dce3d918ea2ab",
+    "fm-gate-refuse-lib.sh": "4f2474646afc4d8c7565aeb7f20ef39f3871a09ba0855e85fa2ca10562540d49"
+  },
+  "targeted_regression": {
+    "entrypoint": "bash bin/fm-test-run.sh tests/fm-action-gate.test.sh",
+    "result": "PASS for local nonprivileged checks",
+    "protected_store_cases": "SKIPPED: noninteractive sudo unavailable",
+    "require_protected_store_cases": "FM_ACTION_GATE_PRIVILEGED=1"
+  },
+  "independent_installed_rerun": {
+    "verdict": "NOT RUN",
+    "required_before_acceptance_closure": true
+  },
+  "compatibility": "Consequential requests now require the typed in-memory HTTP operation and fresh digest-bound grants; arbitrary external commands, payload-file references and legacy grants deny.",
+  "other_findings": "Per-task network mediation is not established by this binding change; scenario 4 remains FAIL. Serial-5 remains proven not fixed; Path A same-code rerun only."
+}

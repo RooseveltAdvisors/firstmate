@@ -75,11 +75,11 @@ fm_action_gate_grant_get() {
   printf '%s' "$FM_ACTION_GRANT_JSON" | jq -r "$1"
 }
 
-# Payload binding is checked before grant consumption. Consequential commands
-# must match the exact approved argv; provenance is part of the same protected record.
+# Payload binding is checked before grant consumption. Consequential requests
+# use a built-in operation with no external command, file or inherited environment.
 # Drafts use a built-in JSON draft renderer and never invoke caller programs.
 fm_action_gate_payload() {
-  local action=$1 target=$2 task=$3 grant=$4 argv request origin kind
+  local action=$1 target=$2 task=$3 grant=$4 prepared
   shift 4
   case "$action" in
     mail_draft|draft)
@@ -91,25 +91,46 @@ fm_action_gate_payload() {
       ;;
     *)
       fm_action_gate_load_grant "$grant" || { echo 'fm-action-gate: DENY: unprotected or malformed grant payload' >&2; return 1; }
-      request=$(fm_action_gate_grant_get '.request') || return 1
-      kind=$(printf '%s' "$request" | jq -r '.provenance.kind // empty')
-      origin=$(printf '%s' "$request" | jq -r '.provenance.origin_action_class // empty')
-      [ "$origin" != deploy ] || origin=prod_deploy
-      [ "$action" != deploy ] || action=prod_deploy
-      case "$kind" in trusted|untrusted-forwarded) ;; *) echo 'fm-action-gate: DENY: missing bound provenance' >&2; return 1 ;; esac
-      if [ "$origin" != "$action" ]; then
-        echo "fm-action-gate: DENY: provenance origin '$origin' cannot be relabeled '$action'" >&2
-        return 1
-      fi
-      argv=$(jq -nc --args '$ARGS.positional' -- "$@") || return 1
-      if [ "$#" -eq 0 ] || ! printf '%s' "$request" | jq -e --argjson argv "$argv" '.argv==$argv' >/dev/null; then
-        echo 'fm-action-gate: DENY: command differs from approved payload' >&2
-        return 1
-      fi
+      prepared=$(printf '%s' "$FM_ACTION_GRANT_JSON" | python3 -I "$FM_ACTION_GATE_ROOT/bin/fm-action-request.py" match "$action" "$@") || return 1
+      FM_ACTION_HTTP_REQUEST=$prepared
       ;;
   esac
   # Keep bindings visible to evidence without logging command arguments.
   fm_action_gate_record_evidence "$FM_ACTION_ALLOW" "$action" "$target" "$task" "$grant" "payload-and-provenance-verified"
+}
+
+# Execute the validated in-memory snapshot. No proxy, startup module, external
+# executable or mutable payload file supplies destination/account/body data.
+fm_action_gate_http_execute() {
+  printf '%s' "$FM_ACTION_HTTP_REQUEST" | command -p env -i PATH="$PATH" python3 -I -c '
+import http.client, json, ssl, sys
+from urllib.parse import urlsplit
+connection = None
+try:
+    request = json.load(sys.stdin)
+    url = urlsplit(request["url"])
+    connection_type = http.client.HTTPSConnection if url.scheme == "https" else http.client.HTTPConnection
+    options = {"timeout": 30}
+    if url.scheme == "https":
+        options["context"] = ssl.create_default_context()
+    connection = connection_type(url.hostname, url.port, **options)
+    headers = dict(request["headers"])
+    headers.update({"Content-Type": "application/json", "X-Account-ID": request["account_id"], "X-Credential-ID": request["credential_id"]})
+    body = json.dumps(request["body"], sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+    path = (url.path or "/") + (("?" + url.query) if url.query else "")
+    connection.request(request["method"], path, body=body, headers=headers)
+    response = connection.getresponse()
+    if not 200 <= response.status < 300:
+        print("fm-action-gate: DENY: approved endpoint returned HTTP " + str(response.status) + "; redirects and fallback refuse", file=sys.stderr)
+        sys.exit(1)
+    print("ok: approved HTTP action completed, status=" + str(response.status))
+except (OSError, ValueError, http.client.HTTPException) as error:
+    print("fm-action-gate: DENY: approved HTTP request failed (" + type(error).__name__ + ")", file=sys.stderr)
+    sys.exit(1)
+finally:
+    if connection is not None:
+        connection.close()
+'
 }
 
 # Usage: fm_action_gate_in_store <file> - true when file sits directly in the grant store
@@ -179,7 +200,7 @@ fm_action_gate_allow() {
 # Usage: fm_action_gate_mint_grant <out_file> <action_class> <target> <task_id> <expires_at> <approval_ref> <request_json_file>
 fm_action_gate_mint_grant() {
   local out_file=$1 action_class=$2 target=$3 task_id=$4 expires_at=$5 approval_ref=$6
-  local request_file=${7:-} tmp
+  local request_file=${7:-} tmp approved
   if [ "$EUID" -ne 0 ] || [ -n "${FM_RUNNER_UNTRUSTED:-}" ]; then
     echo 'fm-action-gate: DENY: only the administrator can mint grants' >&2
     return 1
@@ -191,10 +212,11 @@ fm_action_gate_mint_grant() {
   case "$action_class" in booking|charging|prod_deploy|deploy) ;;
     *) echo 'fm-action-gate: DENY: unsupported grant action class' >&2; return 1 ;;
   esac
-  if ! [ -f "$request_file" ] || ! jq -e 'type=="object" and (.provenance.kind|type)=="string" and (.argv|type)=="array"' "$request_file" >/dev/null; then
+  if ! [ -f "$request_file" ]; then
     echo 'fm-action-gate: DENY: mint requires bound request JSON' >&2
     return 1
   fi
+  approved=$(python3 -I "$FM_ACTION_GATE_ROOT/bin/fm-action-request.py" mint "$action_class" < "$request_file") || return 1
   if ! fm_action_gate_in_store "$out_file"; then
     echo 'fm-action-gate: DENY: grant requires a protected store' >&2
     return 1
@@ -205,8 +227,8 @@ fm_action_gate_mint_grant() {
   }
   tmp=$(mktemp "$(fm_action_gate_store)/.mint.XXXXXX") || return 1
   if ! jq -nc --arg cls "$action_class" --arg tgt "$target" --arg task "$task_id" \
-    --arg exp "$expires_at" --arg app "$approval_ref" --slurpfile request "$request_file" \
-    '{schema:"fm-action-grant.v1",action_class:$cls,target:$tgt,task_id:$task,expires_at:$exp,approval_reference:$app,used_at:null,request:$request[0]}' > "$tmp" ||
+    --arg exp "$expires_at" --arg app "$approval_ref" --argjson approved "$approved" \
+    '{schema:"fm-action-grant.v2",action_class:$cls,target:$tgt,task_id:$task,expires_at:$exp,approval_reference:$app,used_at:null} + $approved' > "$tmp" ||
     ! chmod 444 "$tmp" || ! ln "$tmp" "$out_file"; then
     rm -f "$tmp"
     return 1
@@ -420,6 +442,14 @@ fm_action_gate_check() {
   if [ -d "$(fm_action_gate_home)/state/action-consumed/$g_approval" ]; then
     fm_action_gate_record_evidence "$FM_ACTION_DENY" "$action_class" "$target" "$task_id" "$g_approval" "grant-consumed-directory-exists"
     echo "fm-action-gate: DENY: grant already consumed" >&2
+    echo "$FM_ACTION_DENY"
+    return 1
+  fi
+
+  # Approval binds typed content as well as the label/task. Reject legacy or
+  # incomplete records even for a check that does not execute an action.
+  if ! printf '%s' "$FM_ACTION_GRANT_JSON" | python3 -I "$FM_ACTION_GATE_ROOT/bin/fm-action-request.py" check "$action_class" >/dev/null; then
+    fm_action_gate_record_evidence "$FM_ACTION_DENY" "$action_class" "$target" "$task_id" "$g_approval" "request-binding-invalid"
     echo "$FM_ACTION_DENY"
     return 1
   fi
