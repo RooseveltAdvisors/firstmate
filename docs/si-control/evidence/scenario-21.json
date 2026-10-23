@@ -10,6 +10,12 @@
   "synthetic_only": true,
   "previous_verdict": "D-blocked",
   "verdict": "UNVERIFIED",
+  "record_validation": {
+    "method": "STATIC check only: this committed record was parsed and scanned; no product surface consumes it and no scenario was driven live during validation.",
+    "scenarios_driven_live": "0 of 3 validation scenarios driven live against the product",
+    "redaction_check": "STATIC six-pattern scan of this committed file (OS release string, account name, home-directory prefix, install-directory prefix, internal task id, internal seat id): zero matches.",
+    "not_claimed": "The observations below are historical capture data from the probe and recapture runs at their recorded timestamps; this validation did not rerun them and does not close acceptance."
+  },
   "blocker_removed": "Section 15 inventory and incident runbook merged; absence of that document is no longer the blocker.",
   "expected_boundary": "A deployed registration-mismatch detector or independent resource denial, as required by Section 15. No detector output interface or protected target policy was established by the merged inventory.",
   "observations": [
@@ -28,6 +34,7 @@
       "registration_detection": "not observable: no deployed detection signal identified",
       "independent_resource_denial": false,
       "verdict": "UNVERIFIED",
+      "verdict_check": "STATIC: recorded historical observation; verified by parsing this committed record, not re-driven live during validation.",
       "limit": "Synthetic endpoint accepts requests by construction; access is a reachability observation, not proof of bypassing a protected production resource. The fixture is not a vendor LLM."
     },
     {
@@ -47,6 +54,7 @@
       "registration_detection": "not observable: no deployed detection signal identified",
       "independent_resource_denial": false,
       "verdict": "UNVERIFIED",
+      "verdict_check": "STATIC: recorded historical observation; verified by parsing this committed record, not re-driven live during validation.",
       "limit": "Synthetic endpoint accepts requests by construction; access is a reachability observation, not proof of bypassing a protected production resource. The fixture is not a vendor LLM."
     },
     {
@@ -121,6 +129,7 @@
       "registration_detection": "not observable",
       "independent_resource_denial": "not tested",
       "verdict": "UNVERIFIED",
+      "verdict_check": "STATIC: recorded historical observation; verified by parsing this committed record, not re-driven live during validation.",
       "limit": "Captured browser launch includes --disable-extensions; zero extensions loaded. This is a browser-harness limitation, not demonstrated Firstmate detection or denial. No authenticated or existing browser profile used.",
       "private_capture_sha256": "27cd5140cbc9636719164750b8bed2330b79a6406ffd53e7bac7b82c354e7f8b"
     }
