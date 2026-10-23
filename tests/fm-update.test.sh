@@ -556,6 +556,48 @@ test_primary_update_rebinds_local_watch() {
   pass "T12 a self-update rebinds a locally armed watch on the primary"
 }
 
+# Git tracks executable bits, not removal of owner-write permission. A newly
+# introduced enforcement helper must inherit an installed gate's protection.
+test_update_preserves_protected_action_gate() {
+  local w out file
+  w=$(new_world protected-action-gate)
+  for file in fm-action-gate.sh fm-action-gate-lib.sh fm-gate-refuse-lib.sh; do
+    cp "$ROOT/bin/$file" "$w/seed/bin/$file"
+  done
+  mkdir "$w/seed/bin/runtime-bin"
+  cp "$(command -v jq)" "$w/seed/bin/runtime-bin/jq"
+  git -C "$w/seed" add bin
+  git -C "$w/seed" commit -qm old-enforcement
+  git -C "$w/seed" push -q origin main
+  git -C "$w/main" pull -q origin main
+  chmod a-w "$w/main"/bin/fm-action-* "$w/main/bin/fm-gate-refuse-lib.sh" \
+    "$w/main/bin/runtime-bin/jq" "$w/main/bin/runtime-bin"
+
+  cp "$ROOT/bin/fm-action-request.py" "$w/seed/bin/fm-action-request.py"
+  git -C "$w/seed" add bin/fm-action-request.py
+  git -C "$w/seed" commit -qm new-enforcement-helper
+  git -C "$w/seed" push -q origin main
+  out=$(run_update "$w")
+  assert_contains "$out" 'firstmate: updated ' 'protected installation must advance'
+  out=$(FM_HOME="$w/home" bash "$w/main/bin/fm-action-gate.sh" check draft synthetic-target synthetic-task 2>&1) \
+    || fail "updated protected gate must evaluate: $out"
+  assert_contains "$out" ALLOW 'new helper must be protected before gate use'
+  [ ! -w "$w/main/bin/fm-action-request.py" ] || fail 'new enforcement helper is writable'
+
+  # An already-current protected installation repairs permission drift too.
+  chmod u+w "$w/main/bin/fm-action-request.py"
+  run_update "$w" >/dev/null
+  [ ! -w "$w/main/bin/fm-action-request.py" ] || fail 'current installation left helper writable'
+  [ -x "$w/main/bin/fm-action-gate.sh" ] || fail 'hardening removed gate executable permission'
+
+  # Ordinary development checkouts retain their deliberate writable/refusal state.
+  chmod u+w "$w/main"/bin/fm-action-* "$w/main/bin/fm-gate-refuse-lib.sh"
+  run_update "$w" >/dev/null
+  [ -w "$w/main/bin/fm-action-request.py" ] || fail 'update hardened a development checkout'
+  pass 'protected gate updates protect new helpers and repair drift without hardening development checkouts'
+}
+
+test_update_preserves_protected_action_gate
 test_updates_main_and_secondmate
 test_reread_gate_is_instruction_only
 test_bin_only_advance_restarts

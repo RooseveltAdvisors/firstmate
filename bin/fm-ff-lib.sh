@@ -362,6 +362,37 @@ live_secondmate_meta_records() {
   done
 }
 
+# Preserve an installed action gate's read-only tripwire across Git rewrites.
+# The gate entrypoint's existing protection distinguishes an installation from
+# an ordinary writable development checkout. This does not provision ownership
+# or protect the checkout/ancestors from the updating principal.
+fm_ff_action_gate_protected() {
+  local entry="$1/bin/fm-action-gate.sh" mode
+  [ -f "$entry" ] && [ ! -L "$entry" ] || return 1
+  if [ "$EUID" -ne 0 ]; then
+    [ ! -w "$entry" ]
+  else
+    mode=$(stat -c '%a' "$entry" 2>/dev/null || stat -f '%Lp' "$entry") || return 1
+    [ "$((8#$mode & 0222))" -eq 0 ]
+  fi
+}
+
+fm_ff_restore_action_gate_permissions() {
+  local dir=$1 protected=$2 file
+  [ "$protected" = yes ] || return 0
+  # Keep the enforcement set aligned with fm-action-gate.sh's integrity guard.
+  for file in fm-action-gate.sh fm-action-gate-lib.sh fm-action-request.py fm-gate-refuse-lib.sh; do
+    [ -f "$dir/bin/$file" ] && [ ! -L "$dir/bin/$file" ] || {
+      echo "action gate permissions: missing or symlinked enforcement: $file" >&2
+      return 1
+    }
+    if [ -w "$dir/bin/$file" ] && ! chmod a-w "$dir/bin/$file"; then
+      echo "action gate permissions: cannot protect enforcement: $file" >&2
+      return 1
+    fi
+  done
+}
+
 # Fast-forward one target to a base. Prints its status line. Sets globals for the
 # caller:
 #   FF_STATUS = updated|current|skipped
@@ -396,7 +427,7 @@ ff_target() {
     return 0
   fi
 
-  local default base cur instr local_rev base_rev before after out
+  local default base cur instr local_rev base_rev before after out protected_gate=no
   default=$(default_branch "$dir") || {
     echo "$label: skipped: cannot determine default branch"
     return 0
@@ -436,6 +467,7 @@ ff_target() {
     echo "$label: skipped: dirty working tree"
     return 0
   fi
+  if fm_ff_action_gate_protected "$dir"; then protected_gate=yes; fi
 
   local_rev=$(git -C "$dir" rev-parse HEAD 2>/dev/null) || {
     echo "$label: skipped: cannot read HEAD"
@@ -446,6 +478,10 @@ ff_target() {
     return 0
   }
   if [ "$local_rev" = "$base_rev" ]; then
+    if ! fm_ff_restore_action_gate_permissions "$dir" "$protected_gate"; then
+      echo "$label: skipped: current checkout's action gate protection could not be restored"
+      return 0
+    fi
     FF_STATUS="current"
     [ -z "$reconciliation_state" ] || secondmate_update_reconcile_clear "$reconciliation_state" "$secondmate_id" || true
     echo "$label: already current"
@@ -458,6 +494,10 @@ ff_target() {
       before=$(git -C "$dir" rev-parse --short HEAD)
       if git -C "$dir" reset --keep "$base" >/dev/null 2>&1; then
         after=$(git -C "$dir" rev-parse --short HEAD)
+        if ! fm_ff_restore_action_gate_permissions "$dir" "$protected_gate"; then
+          echo "$label: skipped: checkout advanced but action gate protection could not be restored"
+          return 0
+        fi
         FF_STATUS="updated"
         FF_INSTR="$instr"
         secondmate_update_reconcile_clear "$reconciliation_state" "$secondmate_id" || true
@@ -491,6 +531,10 @@ ff_target() {
     return 0
   fi
   after=$(git -C "$dir" rev-parse --short HEAD)
+  if ! fm_ff_restore_action_gate_permissions "$dir" "$protected_gate"; then
+    echo "$label: skipped: checkout advanced but action gate protection could not be restored"
+    return 0
+  fi
   FF_STATUS="updated"
   FF_INSTR="$instr"
   [ -z "$reconciliation_state" ] || secondmate_update_reconcile_clear "$reconciliation_state" "$secondmate_id" || true

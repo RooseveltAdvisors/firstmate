@@ -1,0 +1,33 @@
+{
+  "schema": "si-control.delivery-regression.v1",
+  "scenario": 7,
+  "assessed_at": "2026-10-23T10:12:06.309541+00:00",
+  "baseline_main": "05693a7ba65358f7a88329ce19be3bfedb386c22",
+  "trigger": "Git update introduces a new fm-action-request.py into a previously read-only enforcement installation; Git does not preserve removal of owner-write permission.",
+  "before": {
+    "command": "bash bin/fm-test-run.sh tests/fm-update.test.sh",
+    "verdict": "FAIL",
+    "exit": 1,
+    "output": "not ok - updated protected gate must evaluate: fm-action-gate: DENY: enforcement tamper check: writable enforcement: fm-action-request.py"
+  },
+  "after": {
+    "command": "bash bin/fm-test-run.sh tests/fm-update.test.sh (without an inherited data-directory override)",
+    "verdict": "PASS",
+    "exit": 0,
+    "summary": "FM_TEST_SUMMARY total=1 failed=0 skipped_gate=0 duration_ms=33909",
+    "behavior": [
+      "Previously protected gate still admits a synthetic draft check after a newly introduced helper is installed.",
+      "Already-current protected installation repairs helper permission drift.",
+      "Existing executable permission is retained.",
+      "Ordinary writable development checkout retains its writable/refusal state."
+    ]
+  },
+  "intervening_validation": "One invocation supplied a data-directory override that routed a remote registry fixture incorrectly. Its failure log is retained privately. Removing that operator-supplied override restored the existing remote test; no assertion or product behavior was changed to pass it.",
+  "changed_surfaces": [
+    "bin/fm-ff-lib.sh",
+    "tests/fm-update.test.sh"
+  ],
+  "scope": "Restore the existing runtime read-only tripwire during the shared fast-forward/update path; this does not establish independent ownership, make a worker-owned checkout immutable or protect arbitrary manual git operations.",
+  "installed_fix_rerun": "NOT RUN: candidate source fix is not yet installed",
+  "acceptance_closed": false
+}
