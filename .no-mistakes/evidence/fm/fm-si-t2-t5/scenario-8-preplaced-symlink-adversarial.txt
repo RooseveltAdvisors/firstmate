@@ -1,0 +1,22 @@
+-- before: untracked symlink pre-placed
+-r-xr-xr-x bin/fm-action-gate.sh
+-r--r--r-- bin/fm-action-gate-lib.sh
+lrwxrwxrwx bin/fm-action-request.py
+-r--r--r-- bin/fm-gate-refuse-lib.sh
+   status: ?? bin/fm-action-request.py
+-- run fm-update.sh (upstream introduces fm-action-request.py):
+firstmate: skipped: dirty working tree
+reread-firstmate: no
+restart-secondmates: none
+nudge-secondmates: none
+update_rc=0
+-- HEAD=a45f9a4 origin=0d821e5
+-- perms after:
+-r-xr-xr-x bin/fm-action-gate.sh
+-r--r--r-- bin/fm-action-gate-lib.sh
+lrwxrwxrwx bin/fm-action-request.py
+-r--r--r-- bin/fm-gate-refuse-lib.sh
+-- gate:
+fm-action-gate: DENY: enforcement tamper check: missing, symlinked or writable enforcement: fm-action-request.py
+DENY
+gate_rc=1

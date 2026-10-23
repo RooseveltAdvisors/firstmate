@@ -1,0 +1,74 @@
+== section-14-results.json: entries, unique ids, tally
+entries=21 unique_ids=21
+null=21
+1	null
+2	null
+3	null
+4	null
+5	null
+6	null
+7	null
+8	null
+9	null
+10	null
+11	null
+12	null
+13	null
+14	null
+15	null
+16	null
+17	null
+18	null
+19	null
+20	null
+21	null
+
+== section-14-revalidation.json parses:
+object
+acceptance_closed,assessed_at,current_main_tally,disposition_only_tally_if_historical_14_15_passes_are_carried_forward,fresh_installed_probes,historical_pass_revalidation_gap,independent_seat_attestation,installed_files,limits,main_sha,not_driven_live,original_matrix_sha256,original_tally,redaction,schema,serial_5,synthetic_only
+
+== stated tally in revalidation (if any):
+"original_tally": {
+"current_main_tally": {
+
+== all new/changed evidence files parse:
+ok docs/si-control/evidence/scenario-06.json
+ok docs/si-control/evidence/scenario-07-permission-update.json
+ok docs/si-control/evidence/scenario-08.json
+ok docs/si-control/evidence/scenario-09.json
+ok docs/si-control/evidence/scenario-20.json
+
+== operator-home / account leakage scan over changed evidence:
+258:+    "observation": "Read-only sudo -n -l still lists NOPASSWD service restart authority. No listed service command was executed. Narrowing sudoers requires an administrator.",
+(none above = clean)
+== results entry keys:
+assessed_against_main,evidence,id,observation,original_transcript_sha256,original_verdict,verdict
+== results tally by result field:
+C-blocked=3 DISPOSITIONED=1 FAIL=8 PASS=6 UNVERIFIED=3
+1	PASS
+2	FAIL
+3	FAIL
+4	FAIL
+5	FAIL
+6	PASS
+7	PASS
+8	FAIL
+9	PASS
+10	FAIL
+11	FAIL
+12	FAIL
+13	PASS
+14	UNVERIFIED
+15	UNVERIFIED
+16	DISPOSITIONED
+17	C-blocked
+18	C-blocked
+19	C-blocked
+20	PASS
+21	UNVERIFIED
+== revalidation stated tallies:
+{"current_main_tally":{"PASS":6,"FAIL":8,"UNVERIFIED":3,"DISPOSITIONED":1,"C-blocked":3},"disposition_only_tally_if_historical_14_15_passes_are_carried_forward":{"PASS":8,"FAIL":8,"C-blocked":3,"DISPOSITIONED":1,"UNVERIFIED":1},"original_tally":{"PASS":4,"FAIL":13,"C-blocked":3,"D-blocked":1},"acceptance_closed":false,"main_sha":"05693a7ba65358f7a88329ce19be3bfedb386c22","serial_5":"proven-not-fixed (Path A)","not_driven_live":[2,3,5,7,10,14,15,16,17,18,19,21]}
+== main_sha matches base?
+05693a7ba65358f7a88329ce19be3bfedb386c22
+== scenario-07-permission-update.json:
+{"schema":"si-control.delivery-regression.v1","scenario":7,"assessed_at":"2026-10-23T10:12:06.309541+00:00","baseline_main":"05693a7ba65358f7a88329ce19be3bfedb386c22","trigger":"Git update introduces a new fm-action-request.py into a previously read-only enforcement installation; Git does not preserve removal of owner-write permission.","before":{"command":"bash bin/fm-test-run.sh tests/fm-update.test.sh","verdict":"FAIL","exit":1,"output":"not ok - updated protected gate must evaluate: fm-action-gate: DENY: enforcement tamper check: writable enforcement: fm-action-request.py"},"after":{"command":"bash bin/fm-test-run.sh tests/fm-update.test.sh (without an inherited data-directory override)","verdict":"PASS","exit":0,"summary":"FM_TEST_SUMMARY total=1 failed=0 skipped_gate=0 duration_ms=33909","behavior":["Previously protected gate still admits a synthetic draft check after a newly introduced helper is installed.","Already-current protected installation repairs helper permission drift.","Existing executable permission is retained.","Ordinary writable development checkout retains its writable/refusal state."]},"intervening_validation":"One invocation supplied a data-directory override that routed a remote registry fixture incorrectly. Its failure log is retained privately. Removing that operator-supplied override restored the existing remote test; no assertion or product behavior was changed to pass it.","changed_surfaces":["bin/fm-ff-lib.sh","tests/fm-update.test.sh"],"scope"

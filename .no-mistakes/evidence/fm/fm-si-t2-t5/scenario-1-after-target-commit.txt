@@ -1,0 +1,21 @@
+== [after-target-b1eabd6] driver bin: /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5M6SEPN6EF1YD8A4VVBHF6G/bin
+== [after-target-b1eabd6] BEFORE update: perms
+-r-xr-xr-x bin/fm-action-gate.sh
+-r--r--r-- bin/fm-action-gate-lib.sh
+stat: cannot statx 'bin/fm-action-request.py': No such file or directory
+-r--r--r-- bin/fm-gate-refuse-lib.sh
+== [after-target-b1eabd6] run fm-update.sh (protected install, upstream adds fm-action-request.py + rewrites fm-gate-refuse-lib.sh)
+firstmate: updated 63c2792..c10934a (instructions changed: bin)
+no watches registered
+reread-firstmate: yes
+restart-secondmates: none
+nudge-secondmates: none
+update_rc=0
+== [after-target-b1eabd6] AFTER update: HEAD=c10934a origin=c10934a
+-r-xr-xr-x bin/fm-action-gate.sh
+-r--r--r-- bin/fm-action-gate-lib.sh
+-r--r--r-- bin/fm-action-request.py
+-r--r--r-- bin/fm-gate-refuse-lib.sh
+== [after-target-b1eabd6] gate check draft after update:
+error: refusing fleet lifecycle from inside a no-mistakes gate worktree (/home/jon/.no-mistakes/repos/46339c0817e0.git)
+gate_rc=3

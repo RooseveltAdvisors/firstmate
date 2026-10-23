@@ -1,0 +1,22 @@
+== [before-base-05693a7] driver bin: /tmp/fm-si-live.dFgDHJ/base-bin/bin
+== [before-base-05693a7] BEFORE update: perms
+-r-xr-xr-x bin/fm-action-gate.sh
+-r--r--r-- bin/fm-action-gate-lib.sh
+stat: cannot statx 'bin/fm-action-request.py': No such file or directory
+-r--r--r-- bin/fm-gate-refuse-lib.sh
+== [before-base-05693a7] run fm-update.sh (protected install, upstream adds fm-action-request.py + rewrites fm-gate-refuse-lib.sh)
+firstmate: updated 37e5264..799b4ae (instructions changed: bin)
+no watches registered
+reread-firstmate: yes
+restart-secondmates: none
+nudge-secondmates: none
+update_rc=0
+== [before-base-05693a7] AFTER update: HEAD=799b4ae origin=799b4ae
+-r-xr-xr-x bin/fm-action-gate.sh
+-r--r--r-- bin/fm-action-gate-lib.sh
+-rw-rw-r-- bin/fm-action-request.py
+-rw-rw-r-- bin/fm-gate-refuse-lib.sh
+== [before-base-05693a7] gate check draft after update:
+fm-action-gate: DENY: enforcement tamper check: writable enforcement: fm-action-request.py
+DENY
+gate_rc=1

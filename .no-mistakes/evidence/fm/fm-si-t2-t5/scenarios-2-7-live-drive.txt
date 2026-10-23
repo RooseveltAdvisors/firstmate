@@ -1,0 +1,120 @@
+===== S1 (cont.) gate check from inside the updated protected installation
+ALLOW
+gate_rc=0
+
+===== S2 already-current protected install repairs permission drift
+-- drift injected:
+-r-xr-xr-x bin/fm-action-gate.sh
+-rw-r--r-- bin/fm-action-gate-lib.sh
+-rw-r--r-- bin/fm-action-request.py
+-r--r--r-- bin/fm-gate-refuse-lib.sh
+-- gate before repair:
+fm-action-gate: DENY: enforcement tamper check: writable enforcement: fm-action-gate-lib.sh
+DENY
+gate_rc=1
+-- run fm-update.sh (nothing upstream):
+firstmate: already current
+reread-firstmate: no
+restart-secondmates: none
+nudge-secondmates: none
+update_rc=0
+-- perms after:
+-r-xr-xr-x bin/fm-action-gate.sh
+-r--r--r-- bin/fm-action-gate-lib.sh
+-r--r--r-- bin/fm-action-request.py
+-r--r--r-- bin/fm-gate-refuse-lib.sh
+-- gate after repair:
+ALLOW
+gate_rc=0
+
+===== S3 executable bit survives hardening
+-r-xr-xr-x bin/fm-action-gate.sh
+executable: yes
+
+===== S4 ordinary writable development checkout keeps its writable/refusal state
+-- dev checkout perms before:
+-rwxr-xr-x bin/fm-action-gate.sh
+-rw-r--r-- bin/fm-action-gate-lib.sh
+-rw-r--r-- bin/fm-action-request.py
+-rw-r--r-- bin/fm-gate-refuse-lib.sh
+-- run fm-update.sh (upstream README bump):
+firstmate: updated c10934a..3377cf2
+no watches registered
+reread-firstmate: no
+restart-secondmates: none
+nudge-secondmates: none
+update_rc=0
+-- perms after (must stay writable):
+-rwxr-xr-x bin/fm-action-gate.sh
+-rw-r--r-- bin/fm-action-gate-lib.sh
+-rw-r--r-- bin/fm-action-request.py
+-rw-r--r-- bin/fm-gate-refuse-lib.sh
+-- gate on a dev checkout (deliberate refusal expected):
+fm-action-gate: DENY: enforcement tamper check: writable enforcement: fm-action-gate.sh
+DENY
+gate_rc=1
+-- run fm-update.sh again (already current, dev checkout):
+firstmate: already current
+reread-firstmate: no
+restart-secondmates: none
+nudge-secondmates: none
+update_rc=0
+-- perms after second run:
+-rwxr-xr-x bin/fm-action-gate.sh
+-rw-r--r-- bin/fm-action-gate-lib.sh
+-rw-r--r-- bin/fm-action-request.py
+-rw-r--r-- bin/fm-gate-refuse-lib.sh
+
+===== S5 adversarial: protected entrypoint but an enforcement file replaced by an untracked symlink to attacker content
+-- run fm-update.sh with symlinked enforcement:
+firstmate: skipped: dirty working tree
+reread-firstmate: no
+restart-secondmates: none
+nudge-secondmates: none
+update_rc=0
+-- HEAD=3377cf2 origin=d57cce6
+-- perms:
+-r-xr-xr-x bin/fm-action-gate.sh
+-r--r--r-- bin/fm-action-gate-lib.sh
+lrwxrwxrwx bin/fm-action-request.py
+-r--r--r-- bin/fm-gate-refuse-lib.sh
+-- gate:
+fm-action-gate: DENY: enforcement tamper check: missing, symlinked or writable enforcement: fm-action-request.py
+DENY
+gate_rc=1
+
+===== S6 adversarial: protected entrypoint, sibling enforcement file DELETED by worker, upstream advance pending
+-- run fm-update.sh with a missing enforcement file:
+firstmate: skipped: dirty working tree
+reread-firstmate: no
+restart-secondmates: none
+nudge-secondmates: none
+update_rc=0
+-- HEAD=3377cf2 origin=d57cce6
+-- perms:
+-r-xr-xr-x bin/fm-action-gate.sh
+-r--r--r-- bin/fm-action-gate-lib.sh
+-r--r--r-- bin/fm-action-request.py
+stat: cannot statx 'bin/fm-gate-refuse-lib.sh': No such file or directory
+-- gate:
+fm-action-gate: DENY: enforcement tamper check: missing, symlinked or writable enforcement: fm-gate-refuse-lib.sh
+DENY
+gate_rc=1
+
+===== S7 clean protected install now advances the pending tool-bump and stays protected
+-- run fm-update.sh:
+firstmate: updated 3377cf2..d57cce6 (instructions changed: bin)
+no watches registered
+reread-firstmate: yes
+restart-secondmates: none
+nudge-secondmates: none
+update_rc=0
+-- HEAD=d57cce6 origin=d57cce6
+-- perms:
+-r-xr-xr-x bin/fm-action-gate.sh
+-r--r--r-- bin/fm-action-gate-lib.sh
+-r--r--r-- bin/fm-action-request.py
+-r--r--r-- bin/fm-gate-refuse-lib.sh
+-- gate:
+ALLOW
+gate_rc=0
