@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join, resolve, basename } from 'node:path';
@@ -257,15 +257,54 @@ test('an overlapping invocation refuses immediately without opening another cycl
   } finally { rmSync(lockFile(), {force: true}); }
 });
 
-test('only one run may take over a stale lock; a concurrent taker refuses', () => {
+const claimFile = () => `${lockFile()}.claim.${lstatSync(lockFile()).ino}`;
+test('only one run may take over a stale lock; a concurrent live taker refuses', () => {
   const dead = Bun.spawnSync(['true']).pid;
-  writeFileSync(lockFile(), String(dead)); writeFileSync(lockFile() + '.takeover', String(process.pid));
+  writeFileSync(lockFile(), String(dead)); writeFileSync(claimFile(), String(process.pid));
   try {
     const before = issue(), r = run();
-    expect(r.exitCode).not.toBe(0); expect(text(r)).toContain(`weekly driver lock is held: ${lockFile()}.takeover`);
+    expect(r.exitCode).not.toBe(0); expect(text(r)).toContain(`weekly driver locked by running pid ${process.pid}: ${claimFile()}`);
     expect(readFileSync(lockFile(), 'utf8')).toBe(String(dead));
+    expect(readFileSync(claimFile(), 'utf8')).toBe(String(process.pid));
     expect(issue()).toEqual(before); expect(calls().some(a => a.includes('update'))).toBe(false);
-  } finally { rmSync(lockFile(), {force: true}); rmSync(lockFile() + '.takeover', {force: true}); }
+  } finally { rmSync(claimFile(), {force: true}); rmSync(lockFile(), {force: true}); }
+});
+
+test('a run killed holding both the lock and its takeover claim leaves the next run able to complete the cycle', () => {
+  const dead = Bun.spawnSync(['true']).pid;
+  writeFileSync(lockFile(), String(dead)); writeFileSync(claimFile(), String(dead));
+  const claim = claimFile();
+  try {
+    const r = run(); success(r);
+    expect(text(r)).toContain(`taking over stale weekly lock from exited pid ${dead}: ${claim}`);
+    expect(text(r)).toContain(`taking over stale weekly lock from exited pid ${dead}: ${lockFile()}`);
+    expect(existsSync(lockFile())).toBe(false); expect(existsSync(claim)).toBe(false);
+    expect(issue().metadata.weekly_review.artifact_path).toBe(join(output, 'weekly-run.json'));
+  } finally { rmSync(claim, {force: true}); rmSync(lockFile(), {force: true}); }
+});
+
+test('simultaneous reclaimers of a dead-owner lock complete exactly one cycle', async () => {
+  const dead = Bun.spawnSync(['true']).pid;
+  writeFileSync(lockFile(), String(dead));
+  try {
+    const runs = [1, 2, 3].map(i => Bun.spawn(['bash', script, 'weekly', '--work-dir', join(root, 'data', `racer-${i}`), '--sources', sources],
+      {stdout: 'pipe', stderr: 'pipe', env: {...process.env, PATH: bin + ':' + process.env.PATH}}));
+    const results = await Promise.all(runs.map(async r => ({code: await r.exited, text: await new Response(r.stdout).text() + await new Response(r.stderr).text()})));
+    expect(results.filter(r => r.code === 0).length).toBeGreaterThanOrEqual(1);
+    for (const r of results.filter(r => r.code !== 0)) expect(r.text).toMatch(/weekly driver lock(ed by running pid \d+| changed during takeover):/);
+    expect(calls().filter(a => a.includes('update'))).toHaveLength(1);
+    expect(existsSync(lockFile())).toBe(false);
+  } finally { rmSync(lockFile(), {force: true}); }
+});
+
+test('a lock without a readable owner pid refuses rather than being reclaimed', () => {
+  writeFileSync(lockFile(), 'not-a-pid');
+  try {
+    const before = issue(), r = run();
+    expect(r.exitCode).not.toBe(0); expect(text(r)).toContain(`weekly driver locked by an unreadable pid: ${lockFile()}`);
+    expect(readFileSync(lockFile(), 'utf8')).toBe('not-a-pid');
+    expect(issue()).toEqual(before); expect(calls().some(a => a.includes('update'))).toBe(false);
+  } finally { rmSync(lockFile(), {force: true}); }
 });
 
 test('a run killed while holding the lock leaves the next run able to complete the cycle', async () => {
