@@ -185,7 +185,7 @@ else if (args.includes('show')) {
   console.log(JSON.stringify(rows));
 }
 else {
-  if (!args.includes('closed') || !args.includes('2026-10-12T00:00:00.000Z') || !args.includes('2026-10-19T00:00:00.000Z')) throw new Error('wrong weekly query');
+  if (!args.includes('closed') || !args.includes('2026-10-11T23:59:59.000Z') || !args.includes('2026-10-19T00:00:00.000Z')) throw new Error('wrong weekly query');
   if (process.env.TEST_BD_FAILURE) { console.error('fixture store unavailable'); process.exit(2); }
   if (process.env.TEST_BD_OVERFLOW) console.log('x'.repeat(4194305));
   else console.log(readFileSync(directory + '/rows.json', 'utf8'));
