@@ -8,13 +8,45 @@
 #   fm-action-gate.sh check <action_class> <target> <task> [grant_file]
 #   fm-action-gate.sh execute <action_class> <target> <task> <grant_file> [cmd...]
 #     drafts: pass "" as grant, then draft-json '{"to":"...","subject":"...","body":"..."}'
-#     consequential argv must equal the exact approved request.argv.
+#     consequential argv: http-json '<JSON object>' or a registered deployment
+#     adapter command, exactly as approved.
 #   fm-action-gate.sh grant-store
 #     Prints the home-bound grant store; root provisions that directory and its
 #     two parents as root-owned 0755 beneath the protected checkout.
-#   fm-action-gate.sh mint-grant <out_file> <action_class> <target> <task> <expires_at> <approval_ref> <request_json_file>
+#   fm-action-gate.sh adapter-store
+#     Prints the administrator-provisioned command adapter directory.
+#   fm-action-gate.sh mint-grant <out_file> <action_class> <target> <task> <expires_at> <approval_ref> <request_json_file> <subject_uid>
 #     Administrator only; creates plain root-owned JSON (0444) in that store.
-#     request: {"provenance":{"kind":"trusted|untrusted-forwarded","origin_action_class":"booking"},"argv":[...]}
+#     subject_uid is the executor's operating-system UID, not a session ID.
+#     Grants require subject {"kind":"unix-uid","id":"<uid>"}, revoked:false,
+#     revoked_at:null. Administrator revocation (revoked:true or revoked_at
+#     set) refuses in every session. Grants without these fields must be reminted.
+#     request: {"provenance":{"kind":"trusted|untrusted-forwarded","origin_action_class":"booking"},"argv":["http-json","<HTTP JSON>"]}
+#     HTTP JSON: {"url":"https://...","method":"POST|PUT|PATCH|DELETE","account_id":"...","credential_id":"...","credential":{"path":"/<canonical file>","sha256":"<digest of its bytes>"},"body":{...}}
+#     The credential file holds one Authorization header value line and must be
+#     a regular file at its canonical path, owned by the executing UID with no
+#     group or other access. The executor reads it, checks the approved digest
+#     and uses the value only in memory for the send. Raw Authorization material
+#     in the request refuses; no grant field, argument or output carries a secret.
+#     The owner-only file is readable by the executing OS principal itself, so
+#     this binding keeps the secret out of the store, argv and logs; it does not
+#     mediate direct use of the credential outside this executor.
+#     HTTP is accepted only for literal loopback test targets. Redirects refuse.
+#     request_sha256 binds provenance and exact argv; payload_sha256 binds the
+#     canonical UTF-8 HTTP body or command plan. adapter_sha256 additionally
+#     binds a command registration. HTTP URL/account/credential reference are
+#     included in the approved argv and are never inherited from the caller.
+#     For command deployment, add "adapter_id":"<id>" to the request and use
+#     the registered command argv. Registration is an administrator operation.
+#     <adapter-store>/<id>.exec is audited, root-owned adapter code; <id>.cwd is
+#     its protected working directory. <id>.json contains:
+#     {"schema":"fm-action-command-adapter.v1","action_class":"prod_deploy","target":"...","argv":["<adapter-store>/<id>.exec",...],"executable_sha256":"...","env":{},"input_files":[{"path":"<canonical root-protected file>","sha256":"..."}]}
+#     All adapter paths and ancestors must prevent worker replacement. Root-owned
+#     sticky temporary parents are allowed for disposable integration fixtures.
+#     Adapter code must not read worker-owned state and must declare its config
+#     inputs. The executor verifies the wrapper, declared inputs, fixed argv,
+#     target, environment and adapter digest; it adds no OS privileges.
+#     Legacy grants and unregistered external commands refuse.
 # No keypair, authority.pem or brake.json is required. Python 3 and jq are required.
 # Root must protect the enforcement, Git baseline, grant store and ancestor paths
 # against worker replacement. Worker-created or worker-writable grants deny.
@@ -24,7 +56,7 @@
 # an authority source. Invoke with a trusted Bash interpreter and clean startup
 # environment; a shell startup hook runs before a shell script can check itself.
 #
-# Deployment: all three enforcement files below must be read-only to the
+# Deployment: all enforcement files below must be read-only to the
 # operating principal and match this checkout's HEAD. This runtime tripwire
 # does not protect itself or HEAD from an owner who can replace them. An
 # administrator must protect the installed files, baseline and parent paths;
@@ -41,7 +73,7 @@ builtin unset -f git jq python3 stat cat dirname mktemp chmod mkdir mv ln rm dat
 # and replacement objects: the baseline belongs to this physical checkout.
 fm_action_gate_integrity() {
   local root file expected actual admin=false owner mode metadata node
-  local files=(fm-action-gate.sh fm-action-gate-lib.sh fm-gate-refuse-lib.sh)
+  local files=(fm-action-gate.sh fm-action-gate-lib.sh fm-action-request.py fm-gate-refuse-lib.sh)
   if [ -e "$SCRIPT_DIR/runtime-bin" ]; then
     files+=(runtime-bin)
     for node in "$SCRIPT_DIR/runtime-bin"/*; do
@@ -53,7 +85,7 @@ fm_action_gate_integrity() {
   # root-owned files without group/other write permission qualify. The worker
   # path always checks actual writability, including ACLs.
   if [ "$EUID" -eq 0 ]; then
-    case "${1:-}" in mint-grant|grant-store|-h|--help) admin=true ;; esac
+    case "${1:-}" in mint-grant|grant-store|adapter-store|-h|--help) admin=true ;; esac
   fi
   root=$(cd "$SCRIPT_DIR/.." && pwd -P) || return 1
   for file in "${files[@]}"; do
@@ -116,6 +148,7 @@ cmd=${1:-}
 # Never accept a caller-supplied cache of verified data.
 FM_ACTION_GRANT_PATH=''
 FM_ACTION_GRANT_JSON=''
+FM_ACTION_EXECUTION_PLAN=''
 case "$cmd" in
   -h|--help)
     sed -n '2,/^set /{ /^set /d; s/^# \{0,1\}//; p; }' "$0"
@@ -182,7 +215,7 @@ case "$cmd" in
       mail_draft|draft)
         printf '%s' "$2" | jq --arg target "$target" --arg task "$task_id" '{operation:"mail_draft",target:$target,task_id:$task,draft:.}'
         ;;
-      *) "$@" ;;
+      *) fm_action_gate_execute_request ;;
     esac
     exit $?
     ;;
@@ -194,15 +227,19 @@ case "$cmd" in
     task_id=${4:-}
     expires_at=${5:-}
     approval_ref=${6:-}
-    fm_action_gate_mint_grant "$out_file" "$action_class" "$target" "$task_id" "$expires_at" "$approval_ref" "${7:-}"
+    fm_action_gate_mint_grant "$out_file" "$action_class" "$target" "$task_id" "$expires_at" "$approval_ref" "${7:-}" "${8:-}"
     exit $?
     ;;
   grant-store)
     fm_action_gate_store || exit 1
     printf '\n'
     ;;
+  adapter-store)
+    fm_action_gate_adapter_store || exit 1
+    printf '\n'
+    ;;
   *)
-    echo "usage: fm-action-gate.sh check|execute|mint-grant|grant-store <args...>" >&2
+    echo "usage: fm-action-gate.sh check|execute|mint-grant|grant-store|adapter-store <args...>" >&2
     exit 2
     ;;
 esac

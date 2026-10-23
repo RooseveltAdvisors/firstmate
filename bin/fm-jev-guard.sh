@@ -5,6 +5,9 @@
 # Allows legitimate supervisory actions (draining wakes, beads, steering workers).
 # Denies hands-on implementation, remote SSH, package installations, service
 # restarts, and project edits, steering Firstmate to delegate to Second Mates.
+# Only the shell and read tool payloads this adapter governs are admitted; every
+# other tool transport (browser, MCP, unknown or unnamed) is refused in every
+# role because its effects cannot be authenticated as a permitted action here.
 #
 # Usage:
 #   <PreToolUse JSON on stdin> | bin/fm-jev-guard.sh [--claude|--cursor]
@@ -15,20 +18,42 @@ CMD=""
 CMD_SET=0
 CLAUDE_MODE=0
 CURSOR_MODE=0
+TOOL=""
 
 usage() {
   cat <<'EOF'
 Usage: fm-jev-guard.sh [--command <cmd>] [--claude|--cursor]
 
 With no --command, reads a PreToolUse-style JSON payload on stdin (Grok/Claude/Cursor/Codex).
-Fires only in the real primary firstmate checkout (w1); it is a silent no-op in a
-crewmate/scout task worktree or any non-firstmate repo.
+Tool payloads other than the exact names Bash, Shell, Read and run_terminal_command
+are denied before command extraction in every role.
+The shell delegation classifier fires only in the real primary checkout (w1);
+it is inert in task worktrees and secondmate homes.
 Exits 0 to allow and 2 to deny commands that violate supervisor delegation boundaries.
 The deny reason is written to stderr, with a Grok/Pi decision object on stdout
 unless --claude is supplied.
 With --cursor, a deny is Cursor's own decision object on stdout and exit 0.
 Malformed transport or unavailable classifier runtime fail open (exit 0).
 EOF
+}
+
+json_escape() {
+  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | tr '\n' ' '
+}
+
+# One deny rendering for every harness protocol: Cursor reads its own object on
+# stdout and exit 0; Claude requires empty stdout with the object on stderr;
+# Grok/Pi read the decision object on stdout; both of the latter exit 2.
+render_deny() {
+  local escaped
+  escaped=$(json_escape "$1")
+  if [ "$CURSOR_MODE" -eq 1 ]; then
+    printf '{"permission":"deny","user_message":"%s"}\n' "$escaped"
+    exit 0
+  fi
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"%s"}\n' "$escaped" >&2
+  [ "$CLAUDE_MODE" -eq 1 ] || printf '{"decision":"deny","reason":"%s"}\n' "$escaped"
+  exit 2
 }
 
 while [ "$#" -gt 0 ]; do
@@ -69,7 +94,16 @@ if [ "$CMD_SET" -eq 0 ]; then
   PAYLOAD=$(cat 2>/dev/null || true)
   [ -n "$PAYLOAD" ] || exit 0
   command -v jq >/dev/null 2>&1 || exit 0
-  
+  TOOL=$(printf '%s' "$PAYLOAD" | jq -r '(.tool_name // .toolName // empty) | select(type=="string")' 2>/dev/null) || exit 0
+  # No click label, session, command field or caller-supplied action class can
+  # prove what an unlisted tool will send. Deny every transport that is not one
+  # of the governed shell/read tools rather than letting it bypass mail_send
+  # through the shell-command empty-input fast path.
+  case "$TOOL" in
+    Bash|Shell|Read|run_terminal_command) ;;
+    *) render_deny "fm-action-gate: DENY: tool transport '${TOOL:-unnamed}' has no approved action adapter; mail_send is prohibited" ;;
+  esac
+
   HOOK_LIB="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/fm-hook-host-lib.sh"
   if [ -f "$HOOK_LIB" ]; then
     # shellcheck source=bin/fm-hook-host-lib.sh
@@ -125,10 +159,6 @@ REST3=${REST2#*"$TAB"}
 DOMAIN=${REST3%%"$TAB"*}
 SUGGESTED=${REST3#*"$TAB"}
 
-json_escape() {
-  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | tr '\n' ' '
-}
-
 if [ -n "$SUGGESTED" ] && [ "$SUGGESTED" != "$REST3" ]; then
   DETAIL="[$CODE] $REASON (Domain: $DOMAIN; Suggested: $SUGGESTED)"
 elif [ -n "$DOMAIN" ] && [ "$DOMAIN" != "$REST3" ]; then
@@ -137,14 +167,4 @@ else
   DETAIL="[$CODE] $REASON"
 fi
 
-ESCAPED=$(json_escape "$DETAIL")
-
-if [ "$CURSOR_MODE" -eq 1 ]; then
-  printf '{"permission":"deny","user_message":"%s"}\n' "$ESCAPED"
-  exit 0
-fi
-
-# Claude requires stdout to remain empty on deny, stderr receives systemMessage JSON
-printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"%s"}\n' "$ESCAPED" >&2
-[ "$CLAUDE_MODE" -eq 1 ] || printf '{"decision":"deny","reason":"%s"}\n' "$ESCAPED"
-exit 2
+render_deny "$DETAIL"

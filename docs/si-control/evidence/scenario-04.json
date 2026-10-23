@@ -1,0 +1,65 @@
+{
+  "scenario": 4,
+  "phase": "FAIL-before; no source edits",
+  "captured_at": "2026-10-23T02:32:48.982971+00:00",
+  "source_head": "8d16ba248cb5ca4d20528e782c072b9ddec02c12",
+  "scope": "Synthetic loopback target, current worker principal and its ordinary subprocesses; committed enforcement copied unchanged to a disposable read-only installation.",
+  "enforcement_sha256": {
+    "fm-action-gate.sh": "425117216fcfa80c3e9de094cd8c657986f1ce33ed58d2ffd9512ca31d8b9d84",
+    "fm-action-gate-lib.sh": "3057d4be66d442116157c97b99a0be15f67ec79a330d79d8ee2168b01b69be33",
+    "fm-gate-refuse-lib.sh": "4f2474646afc4d8c7565aeb7f20ef39f3871a09ba0855e85fa2ca10562540d49"
+  },
+  "gate": {
+    "action": "mail_send",
+    "decision": "DENY",
+    "exit_code": 1,
+    "expected_policy_reached": true
+  },
+  "clients": [
+    {
+      "client": "curl",
+      "exit_code": 0,
+      "effect_accepted": true
+    },
+    {
+      "client": "python-http",
+      "exit_code": 0,
+      "effect_accepted": true
+    },
+    {
+      "client": "raw-tcp",
+      "exit_code": 0,
+      "effect_accepted": true
+    },
+    {
+      "client": "bun-fetch",
+      "exit_code": 0,
+      "effect_accepted": true
+    }
+  ],
+  "accepted_target_records": [
+    "/direct-curl",
+    "/direct-python",
+    "/direct-socket",
+    "/direct-bun"
+  ],
+  "accepted_client_count": 4,
+  "verdict": "FAIL",
+  "acceptance_closed": false,
+  "after": {
+    "status": "NOT RUN; no fix implemented"
+  },
+  "namespace_setup_capability": {
+    "command": [
+      "unshare",
+      "--user",
+      "--map-root-user",
+      "--net",
+      "/usr/bin/true"
+    ],
+    "exit_code": 1,
+    "stderr": "unshare: write failed /proc/self/uid_map: Operation not permitted"
+  },
+  "interpretation": "A mail_send denial does not prevent four direct client effects under the worker principal. No per-task network or target mediation was demonstrated. No public-internet, vendor authorization or live service operation was tested.",
+  "scope_decision": "Firstmate decision (review round 1, intent-scope-scenarios-4-12-open): the reduced scope is explicitly authorized. Ship the available source changes and retain unimplemented, administrator-gated findings with honest evidence rather than waiting for administrator fixtures. Scenarios 4 and 12 remain open pending the captain's administrator fixtures: namespaces for scenario 4; an administrator-enforced restricted distinct-UID build launcher for scenario 12. Nothing is silently declared fixed; this record supplements the immutable run-input verification plan without rewriting it."
+}

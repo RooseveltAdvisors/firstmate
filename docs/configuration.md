@@ -1723,22 +1723,34 @@ A fail-closed poll that already queued a wake, and a timeout, always print so th
 
 `bin/fm-action-gate.sh` owns the invocation syntax, grant request format, and grant store location in its header and help output.
 The executable regression is `tests/fm-action-gate.test.sh`.
-The current runtime verification record is `docs/si-control/evidence/step1-drop-brake.json`.
+Binding evidence and its current verification limits are recorded in `docs/si-control/evidence/scenario-05.json`.
 
 The gate refuses writable or changed enforcement before loading its libraries.
 `mail_send` and `send` are always denied, and drafts are admitted without a grant.
 Booking and charging route to human review, and booking, charging and production deploys each require a one-time grant.
-Grants are plain JSON in the root-owned grant store and bind provenance and exact command arguments; a missing, unparseable, worker-created or worker-writable grant denies.
+Grants are plain JSON in the root-owned grant store and bind the complete typed request with its digest; a missing, unparseable, worker-created or worker-writable grant denies.
+Grants bind the executor's operating-system UID and require explicit, valid revocation fields; revoked grants refuse independently of session identity.
+This UID identifies an OS principal shared by any workers using that UID; it does not create distinct worker accounts or revoke every other grant belonging to the principal.
+HTTP execution takes the approved URL, account, credential identity, credential file reference and body from one validated snapshot.
+The Authorization value is read at execution from that canonical, executor-owned, owner-only file, checked against the approved digest and held only in memory for the send; raw Authorization material in a request refuses, and no grant field, argument or output carries the secret.
+The owner-only file remains readable by the executing OS principal, so this binding keeps the credential out of the grant store, process arguments and logs; it does not mediate direct use of the credential outside this executor and does not establish egress containment.
+Command-based deployment uses an explicitly registered, protected action adapter with bound arguments, declared inputs, working directory and environment.
+Unregistered programs, worker-writable adapter inputs, legacy grants and HTTP redirects refuse; existing approvals must be reminted in the current request format.
 Draft execution renders a typed JSON draft without invoking a caller-supplied program.
 No signing keypair, `authority.pem` or brake state is required.
 
 Installation is an administrator operation, separate from a repository change.
-Protect the enforcement checkout, its Git baseline, the grant store printed by `bin/fm-action-gate.sh grant-store` and every ancestor against worker replacement.
+Protect the enforcement checkout, its Git baseline, the grant store printed by `bin/fm-action-gate.sh grant-store`, the command adapter store printed by `bin/fm-action-gate.sh adapter-store` and every ancestor against worker replacement.
 Use the protected code installation with a separate writable operational `FM_HOME`.
 Root provisions the grant store and mints grants into it with `mint-grant`.
 Consumption markers remain in the operational home and do not protect against a hostile owner deleting that operational state.
+The general action ledger retains policy decision and action codes while redacting target, task and grant values and refusing arbitrary reason text before writing.
+This field minimization does not make the worker-owned ledger append-only at storage.
 The runtime guard is a tripwire, not a replacement for ownership hardening or mandatory mediation of effects outside this executor.
 The installed ownership check and independent installed scenario reruns remain operator verification; disposable-copy regression results do not establish those host properties.
+The shell-hook adapter `fm-jev-guard.sh` admits only the shell and read tool payloads it governs (`Bash`, `Shell`, `Read`, `run_terminal_command`) and denies every other tool payload, browser, MCP, unknown or unnamed, before extracting a shell command or applying supervisor-only scope.
+Every tracked registration routes only `Bash` or `Shell` to this adapter today, so the deny-by-default allowlist closes a gap those registrations cannot reach; it is not live browser mediation.
+This adapter denial does not establish browser-tool registration or mandatory mediation in every harness; `docs/si-control/evidence/scenario-06.json` records that coverage gap.
 
 ## Relay (.env)
 
