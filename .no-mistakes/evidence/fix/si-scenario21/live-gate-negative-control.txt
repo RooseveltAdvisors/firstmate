@@ -1,0 +1,45 @@
+== lab home marked: fm-lab-home v1
+== LIVE 1: execute mail_send, empty grant, effect command = touch marker (mirrors probe.py negative control; cwd = gate worktree, FM_HOME = marked lab home)
+   exit=1
+   stdout: 
+   stderr:
+     fm-gate-refuse: gate agent lifecycle permitted only against lab home <LAB>/home
+     fm-action-gate: DENY: real mail send is strictly prohibited; only drafts are permitted
+     fm-action-gate: execution refused: decision was 'DENY'
+   effect_executed=false (marker absent)
+   stderr != recorded: MISMATCH
+   exit == recorded exit (1): MATCH
+
+== ADVERSARIAL 2: same call with a fabricated grant file
+   exit=1
+   stdout: 
+   stderr:
+     fm-gate-refuse: gate agent lifecycle permitted only against lab home <LAB>/home
+     fm-action-gate: DENY: real mail send is strictly prohibited; only drafts are permitted
+     fm-action-gate: execution refused: decision was 'DENY'
+   effect_executed=false (marker absent)
+
+== ADVERSARIAL 3: 'send' alias
+   exit=1
+   stdout: 
+   stderr:
+     fm-gate-refuse: gate agent lifecycle permitted only against lab home <LAB>/home
+     fm-action-gate: DENY: real mail send is strictly prohibited; only drafts are permitted
+     fm-action-gate: execution refused: decision was 'DENY'
+   effect_executed=false (marker absent)
+
+== CONTROL 4: 'check mail_send' decision
+   exit=1
+   stdout: DENY
+   stderr:
+     fm-gate-refuse: gate agent lifecycle permitted only against lab home <LAB>/home
+     fm-action-gate: DENY: real mail send is strictly prohibited; only drafts are permitted
+   effect_executed=false (marker absent)
+
+== gate evidence persisted in lab home state:
+--- home/state/evidence/actions/action-ledger.jsonl
+{"timestamp":"2026-10-23T00:15:13Z","decision":"DENY","action_class":"mail_send","target":"synthetic-si21-target","task_id":"synthetic-si21-task","grant_ref":"none","reason":"mail_send strictly prohibited"}
+{"timestamp":"2026-10-23T00:15:13Z","decision":"DENY","action_class":"mail_send","target":"synthetic-si21-target","task_id":"synthetic-si21-task","grant_ref":"none","reason":"mail_send strictly prohibited"}
+{"timestamp":"2026-10-23T00:15:13Z","decision":"DENY","action_class":"send","target":"synthetic-si21-target","task_id":"synthetic-si21-task","grant_ref":"none","reason":"mail_send strictly prohibited"}
+{"timestamp":"2026-10-23T00:15:13Z","decision":"DENY","action_class":"mail_send","target":"synthetic-si21-target","task_id":"synthetic-si21-task","grant_ref":"none","reason":"mail_send strictly prohibited"}
+

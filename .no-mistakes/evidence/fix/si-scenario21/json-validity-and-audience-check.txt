@@ -1,0 +1,14 @@
+== python json consumer
+valid JSON; verdict= UNVERIFIED acceptance_closed= False items= 3
+== jq consumer
+"UNVERIFIED"
+false
+"Unchanged: proven not fixed; Path A same-code rerun only."
+[
+  "UNVERIFIED",
+  "UNVERIFIED",
+  "UNVERIFIED"
+]
+== bash bin/fm-doc-audience-check.sh
+fm-doc-audience-check: ok surfaces=133 local_links=833
+exit=0

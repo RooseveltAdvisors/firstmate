@@ -1,0 +1,117 @@
+== top-level keys only in public: ['capture_provenance', 'finding_record', 'probe_sha256', 'source_inventory']
+== top-level keys only in result: []
+== differs: host 
+   result: {"scope": "isolated disposable fixtures on development workstation", "kernel": "6.17.0-35-generic", "python": "3.14.7"} 
+   public: {"scope": "isolated disposable fixtures on development workstation", "kernel": "withheld as non-public", "python": "3.14.7"}
+== obs count public/result: 3 3
+== obs[0] identical: True synthetic-unregistered-agent
+== obs[1] identical: True synthetic-unregistered-local-model
+== obs[2] == extension-recapture-public.json: True
+== ext start/end match transcript: True True 2026-10-22T23:59:07.312561+00:00 2026-10-22T23:59:10.773002+00:00
+== transcript version output: 'result: "\\"154.0.8037.92 (Official Build) (x86_64) \\""\nhelp[1]:\n  Run `chrome-devtools-axi snapshot` to see current page state\n'
+== version matches: True
+== transcript count output: 'result: "0"\nhelp[1]:\n  Run `chrome-devtools-axi snapshot` to see current page state\n'
+== count 0 matches: True
+== raw command_line (paths redacted for evidence):
+   raw token count: 56  public args count: 45
+== token-by-token mismatches after redaction-normalising (expect only path-bearing flags):
+   raw: "\"<path> 
+   pub: --allow-pre-commit-input
+   raw: --allow-pre-commit-input 
+   pub: --disable-background-networking
+   raw: --disable-background-networking 
+   pub: --disable-background-timer-throttling
+   raw: --disable-background-timer-throttling 
+   pub: --disable-backgrounding-occluded-windows
+   raw: --disable-backgrounding-occluded-windows 
+   pub: --disable-breakpad
+   raw: --disable-breakpad 
+   pub: --disable-client-side-phishing-detection
+   raw: --disable-client-side-phishing-detection 
+   pub: --disable-component-extensions-with-background-pages
+   raw: --disable-component-extensions-with-background-pages 
+   pub: --disable-crash-reporter
+   raw: --disable-crash-reporter 
+   pub: --disable-default-apps
+   raw: --disable-default-apps 
+   pub: --disable-dev-shm-usage
+   raw: --disable-dev-shm-usage 
+   pub: --disable-hang-monitor
+   raw: --disable-hang-monitor 
+   pub: --disable-infobars
+   raw: --disable-infobars 
+   pub: --disable-ipc-flooding-protection
+   raw: --disable-ipc-flooding-protection 
+   pub: --disable-popup-blocking
+   raw: --disable-popup-blocking 
+   pub: --disable-prompt-on-repost
+   raw: --disable-prompt-on-repost 
+   pub: --disable-renderer-backgrounding
+   raw: --disable-renderer-backgrounding 
+   pub: --disable-search-engine-choice-screen
+   raw: --disable-search-engine-choice-screen 
+   pub: --disable-sync
+   raw: --disable-sync 
+   pub: --enable-automation
+   raw: --enable-automation 
+   pub: --export-tagged-pdf
+   raw: --export-tagged-pdf 
+   pub: --force-color-profile=srgb
+   raw: --force-color-profile=srgb 
+   pub: --generate-pdf-document-outline
+   raw: --generate-pdf-document-outline 
+   pub: --metrics-recording-only
+   raw: --metrics-recording-only 
+   pub: --no-first-run
+   raw: --no-first-run 
+   pub: --password-store=basic
+   raw: --password-store=basic 
+   pub: --use-mock-keychain
+   raw: --use-mock-keychain 
+   pub: --disable-features=Translate,AcceptCHFrame,MediaRouter,OptimizationHints,WebUIReloadButton,ProcessPerSiteUpToMainFrameThreshold,IsolateSandboxedIframes,DisableLoadExtensionCommandLineSwitch
+   raw: --disable-features=Translate,AcceptCHFrame,MediaRouter,OptimizationHints,WebUIReloadButton,ProcessPerSiteUpToMainFrameThreshold,IsolateSandboxedIframes,DisableLoadExtensionCommandLineSwitch 
+   pub: --enable-features=PdfOopif
+   raw: --enable-features=PdfOopif 
+   pub: --user-data-dir=<withheld-task-private-profile>
+   raw: --user-data-dir=<path> 
+   pub: --headless=new
+   raw: --headless=new 
+   pub: --hide-scrollbars
+   raw: --hide-scrollbars 
+   pub: --mute-audio
+   raw: --mute-audio 
+   pub: --disable-extensions
+   raw: --disable-extensions 
+   pub: --use-mock-keychain
+   raw: --use-mock-keychain 
+   pub: --password-store=basic
+   raw: --password-store=basic 
+   pub: --load-extension=<withheld-synthetic-extension-directory>
+   raw: --load-extension=<path> 
+   pub: --hide-crash-restore-bubble
+   raw: --hide-crash-restore-bubble 
+   pub: --screen-info={3840x2160}
+   raw: --screen-info={3840x2160} 
+   pub: --remote-debugging-pipe
+   raw: --remote-debugging-pipe 
+   pub: --noerrdialogs
+   raw: --noerrdialogs 
+   pub: --ozone-platform=headless
+   raw: --ozone-platform=headless 
+   pub: --use-angle=swiftshader-webgl
+   raw: --use-angle=swiftshader-webgl 
+   pub: --flag-switches-begin
+   raw: --flag-switches-begin 
+   pub: --flag-switches-end
+   raw: --flag-switches-end 
+   pub: about:blank
+== raw executable is a path: False | public executable: <withheld-browser-executable-path>
+== --disable-extensions in raw: True | in public: True
+== public contains '/home/' or '/opt/': False
+== public contains username 'jon': False
+== public contains kernel '6.17.0': False
+== public contains 'fm-si-t2-t5' seat/task id: False
+== verdicts: UNVERIFIED ['UNVERIFIED', 'UNVERIFIED', 'UNVERIFIED'] acceptance_closed: False
+== serial5: Unchanged: proven not fixed; Path A same-code rerun only.
+== finding_record: open; no bead confirmed
+== extension manifest version per transcript snapshot mentions MV3?: False
