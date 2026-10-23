@@ -367,6 +367,7 @@ sudo -n chown -R "$(id -u nobody):$(id -g nobody)" "$LAB"
 WORKER_CREDENTIAL="$(cd "$LAB" && pwd -P)/credential"
 sudo -n install -m 600 -o "$(id -u nobody)" -g "$(id -g nobody)" "$CREDENTIAL_FILE" "$WORKER_CREDENTIAL"
 HTTP_DOCUMENT=$(printf '%s' "$HTTP_DOCUMENT" | jq -c --arg path "$WORKER_CREDENTIAL" '.credential.path=$path')
+request "$TMP/request.json" trusted booking http-json "$HTTP_DOCUMENT"
 worker() {
   (
     cd "$ROOT_FIXTURE" || exit 1
@@ -446,15 +447,15 @@ pass 'forwarded mail provenance remains bound to the approved action'
 
 before_count=$(wc -l < "$TMP/requests.jsonl")
 mint substitutions booking "$TMP/request.json"
-for field in url account_id credential_id headers body; do
-  changed=$(printf '%s' "$HTTP_DOCUMENT" | jq -c --arg field "$field" 'if $field=="body" then .body={effect:"SYNTHETIC_CHANGED_PAYLOAD"} elif $field=="headers" then .headers={Authorization:"Bearer SYNTHETIC_CHANGED"} elif $field=="url" then .url+="-changed" else .[$field]="synthetic-changed" end')
+for field in url account_id credential_id credential.path credential.sha256 body; do
+  changed=$(printf '%s' "$HTTP_DOCUMENT" | jq -c --arg field "$field" 'if $field=="body" then .body={effect:"SYNTHETIC_CHANGED_PAYLOAD"} elif $field=="credential.path" then .credential.path+="-changed" elif $field=="credential.sha256" then .credential.sha256=("0"*64) elif $field=="url" then .url+="-changed" else .[$field]="synthetic-changed" end')
   refuse execute booking synthetic-target synthetic-task "$STORE/substitutions.json" http-json "$changed" >/dev/null
 done
 [ "$(wc -l < "$TMP/requests.jsonl")" -eq "$before_count" ] || fail 'substituted request reached the endpoint'
 out=$(HTTP_PROXY=http://127.0.0.1:1 HTTPS_PROXY=http://127.0.0.1:1 SYNTHETIC_ACCOUNT=synthetic-changed call execute booking synthetic-target synthetic-task "$STORE/substitutions.json" http-json "$HTTP_DOCUMENT")
 assert_contains "$out" 'status=204' 'unconsumed approved request must succeed independently of inherited account/proxy settings'
-tail -n 1 "$TMP/requests.jsonl" | jq -e '.path=="/approved" and .account=="synthetic-approved" and .credential=="synthetic-approved" and .authorization=="Bearer SYNTHETIC_APPROVED" and .body.effect=="SYNTHETIC_APPROVED_PAYLOAD"' >/dev/null || fail 'endpoint observed unapproved account, credential or payload'
-pass 'protected-grant integration: changed URL, account, credential, authorization and body deny without effects; unchanged request survives hostile inherited settings'
+tail -n 1 "$TMP/requests.jsonl" | jq -e --arg secret "$CREDENTIAL_SECRET" '.path=="/approved" and .account=="synthetic-approved" and .credential=="synthetic-approved" and .authorization==$secret and .body.effect=="SYNTHETIC_APPROVED_PAYLOAD"' >/dev/null || fail 'endpoint observed unapproved account, credential or payload'
+pass 'protected-grant integration: changed URL, account, credential identity, credential reference and body deny without effects; unchanged request survives hostile inherited settings'
 
 redirect_document=$(printf '%s' "$HTTP_DOCUMENT" | jq -c '.url|=sub("/approved$";"/redirect")')
 request "$TMP/redirect.json" trusted booking http-json "$redirect_document"

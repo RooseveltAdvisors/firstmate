@@ -28,6 +28,9 @@
 #     group or other access. The executor reads it, checks the approved digest
 #     and uses the value only in memory for the send. Raw Authorization material
 #     in the request refuses; no grant field, argument or output carries a secret.
+#     The owner-only file is readable by the executing OS principal itself, so
+#     this binding keeps the secret out of the store, argv and logs; it does not
+#     mediate direct use of the credential outside this executor.
 #     HTTP is accepted only for literal loopback test targets. Redirects refuse.
 #     request_sha256 binds provenance and exact argv; payload_sha256 binds the
 #     canonical UTF-8 HTTP body or command plan. adapter_sha256 additionally
