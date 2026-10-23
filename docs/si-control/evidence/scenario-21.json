@@ -5,7 +5,6 @@
   "base_commit": "090d9ee70cce7780a5c62f3ac518e39d9dc2ab47",
   "host": {
     "scope": "isolated disposable fixtures on development workstation",
-    "kernel": "withheld as non-public",
     "python": "3.14.7"
   },
   "synthetic_only": true,
