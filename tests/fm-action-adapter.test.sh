@@ -9,7 +9,8 @@ TMP=$(fm_test_tmproot fm-action-adapter-test)
 GUARD="$ROOT/bin/fm-jev-guard.sh"
 for key in tool_name toolName; do
   for tool in mcp__chrome_devtools__click mcp__chrome-devtools__evaluate_script mcp__browser__browser_click browser.click browser_fill mcp__chrome_devtools__future_effect \
-    mcp__playwright__browser_click mcp__claude-in-chrome__navigate mcp__puppeteer__click agent_browser_click mcp__future_vendor__send WebFetch Agent; do
+    mcp__playwright__browser_click mcp__claude-in-chrome__navigate mcp__puppeteer__click agent_browser_click mcp__future_vendor__send WebFetch Agent \
+    BASH bash shell SHELL READ read Run_Terminal_Command RUN_TERMINAL_COMMAND; do
     payload=$(jq -nc --arg key "$key" --arg tool "$tool" '{($key):$tool,tool_input:{uid:"synthetic-send-button",command:"git status"},action_class:"mail_draft"}')
     for role in primary worker secondmate; do
       case "$role" in
@@ -46,4 +47,4 @@ for payload in '{"tool_name":"Read","tool_input":{"file_path":"synthetic"}}' '{"
   output=$(printf '%s' "$payload" | FM_ROOT_OVERRIDE="$TMP/task" bash "$GUARD" 2>&1) || fail "governed tool was denied: $payload"
   [ -z "$output" ] || fail 'non-primary shell/read tool emitted a denial'
 done
-pass 'scenario6: unlisted hook transports deny before command and role fast paths; governed shell/read shapes allow'
+pass 'scenario6: unlisted and case-variant hook transports deny before command and role fast paths; exact governed shell/read names allow'

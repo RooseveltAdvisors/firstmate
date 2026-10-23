@@ -134,9 +134,11 @@ def request_document(request, action, target, adapter_root):
     if not isinstance(argv, list) or len(argv) != 2 or argv[0] != "http-json" or not isinstance(argv[1], str):
         raise ValueError("unregistered external commands and payload files deny; use http-json or a protected command adapter")
     document = decode(argv[1])
-    required = {"url", "method", "account_id", "credential_id", "headers", "body"}
+    if isinstance(document, dict) and "headers" in document:
+        raise ValueError("raw Authorization material is refused; reference an owner-only credential file by path and sha256")
+    required = {"url", "method", "account_id", "credential_id", "credential", "body"}
     if not isinstance(document, dict) or set(document) != required:
-        raise ValueError("HTTP request requires URL, method, account, credential, headers and body")
+        raise ValueError("HTTP request requires URL, method, account, credential identifier, credential file reference and body")
     if document["method"] not in ("POST", "PUT", "PATCH", "DELETE"):
         raise ValueError("unsupported HTTP action method")
     if not isinstance(document["url"], str) or any(ord(c) <= 32 or ord(c) == 127 for c in document["url"]):
@@ -156,11 +158,13 @@ def request_document(request, action, target, adapter_root):
     for key in ("account_id", "credential_id"):
         if not isinstance(document[key], str) or not re.fullmatch(r"[a-zA-Z0-9_:\-]+", document[key]):
             raise ValueError("invalid account or credential identifier")
-    headers = document["headers"]
-    if not isinstance(headers, dict) or set(headers) - {"Authorization"}:
-        raise ValueError("only the approved Authorization header may be supplied")
-    if any(not isinstance(v, str) or any(ord(c) < 32 or ord(c) == 127 for c in v) for v in headers.values()):
-        raise ValueError("invalid approved header")
+    credential = document["credential"]
+    if not isinstance(credential, dict) or set(credential) != {"path", "sha256"}:
+        raise ValueError("credential reference requires an owner-only file path and its sha256")
+    if not isinstance(credential["path"], str) or not credential["path"].startswith("/") or any(ord(c) <= 32 or ord(c) == 127 for c in credential["path"]):
+        raise ValueError("credential file path must be absolute")
+    if not isinstance(credential["sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", credential["sha256"]):
+        raise ValueError("credential reference requires a lowercase hex sha256 digest")
     if not isinstance(document["body"], dict):
         raise ValueError("action body must be a JSON object")
     canonical(document)

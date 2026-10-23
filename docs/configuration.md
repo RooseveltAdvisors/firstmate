@@ -1731,7 +1731,8 @@ Booking and charging route to human review, and booking, charging and production
 Grants are plain JSON in the root-owned grant store and bind the complete typed request with its digest; a missing, unparseable, worker-created or worker-writable grant denies.
 Grants bind the executor's operating-system UID and require explicit, valid revocation fields; revoked grants refuse independently of session identity.
 This UID identifies an OS principal shared by any workers using that UID; it does not create distinct worker accounts or revoke every other grant belonging to the principal.
-HTTP execution takes the approved URL, account, credential identity, headers and body from one validated snapshot.
+HTTP execution takes the approved URL, account, credential identity, credential file reference and body from one validated snapshot.
+The Authorization value is read at execution from that canonical, executor-owned, owner-only file, checked against the approved digest and held only in memory for the send; raw Authorization material in a request refuses, and no grant field, argument or output carries the secret.
 Command-based deployment uses an explicitly registered, protected action adapter with bound arguments, declared inputs, working directory and environment.
 Unregistered programs, worker-writable adapter inputs, legacy grants and HTTP redirects refuse; existing approvals must be reminted in the current request format.
 Draft execution renders a typed JSON draft without invoking a caller-supplied program.

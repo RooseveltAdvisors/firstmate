@@ -107,5 +107,41 @@
       "fm-gate-refuse-lib.sh": "4f2474646afc4d8c7565aeb7f20ef39f3871a09ba0855e85fa2ca10562540d49"
     },
     "independent_installed_verification": "NOT RUN; findings remain open"
+  },
+  "credential_reference": {
+    "decision": "Firstmate decision (review round 2, authorization-header-in-plain-grant): literal credentials are forbidden in the 0444 grant file and in any execute/helper argv. The typed HTTP request carries a reference to an owner-only credential file (canonical path plus sha256 of its bytes) bound into request_sha256 with the account and approved request; the executor resolves and checks that file at execution and places its value only in the in-memory Authorization header. Raw Authorization material in a request refuses with no fallback. This is a bounded extension of the existing typed HTTP adapter, not a credential broker or privileged service. Synthetic only; no host permissions, sudo or real credentials were touched.",
+    "before": {
+      "source_head": "c89f133e032f740c8a2eea8a01772127e4c85575",
+      "codec_sha256": "241d98115e582bbacc216c25aec4399434989113af04ec3740a594d8ef109903",
+      "lib_sha256": "da186fb765ca7cb51d0d6c886d8c741eb6a24ea6338d18101cc2903d75fa844b",
+      "captured_at": "2026-10-23T06:46:11.245673+00:00",
+      "method": "Component capture separate from the original accepted binding BEFORE captures above: synthetic request with headers.Authorization 'Bearer SYNTHETIC_APPROVED' minted through the request codec; the payload-policy function then run with a python3 shim recording every helper argv.",
+      "minted_grant_lines_containing_credential": 1,
+      "helper_argv_entries_containing_credential": 1,
+      "helper_observed": "fm-action-request.py match",
+      "verdict": "FAIL: the old binding persisted the synthetic credential in the grant and repeated it as a helper argument"
+    },
+    "after": {
+      "codec_sha256": "6efcf4c1b5cfacab63315573466d1977507734ac621e82106064337798dc2459",
+      "lib_sha256": "74359c2fa49b6a527893cd0e39d586ce49b5573590d710bf279fecbf44f8eff1",
+      "captured_at": "2026-10-23T06:49:28.094625+00:00",
+      "method": "Same component path with an owner-only 0600 credential file holding 'Bearer SYNTHETIC_CREDENTIAL_SECRET', referenced by canonical path and sha256; a synthetic loopback endpoint recorded the Authorization header it received.",
+      "minted_grant_lines_containing_credential": 0,
+      "helper_argv_entries_containing_credential": 0,
+      "execute_exit": 0,
+      "endpoint_observed_authorization": "Bearer SYNTHETIC_CREDENTIAL_SECRET",
+      "raw_authorization_request": {
+        "mint_exit": 1,
+        "stderr": "fm-action-gate: DENY: raw Authorization material is refused; reference an owner-only credential file by path and sha256"
+      },
+      "changed_file_contents": {
+        "execute_exit": 1,
+        "stderr": "fm-action-gate: DENY: credential file contents differ from the approved digest",
+        "endpoint_requests_after": "unchanged"
+      },
+      "verdict": "PASS"
+    },
+    "regression": "tests/fm-action-gate.test.sh: credential reference component (nonprivileged codec/component proof) asserts no credential material in grant, request, helper argv, ledger or refusal output; endpoint receives the file value; raw headers, changed path/digest, changed contents, group-readable mode and symlink alias refuse. The FM_ACTION_GATE_PRIVILEGED=1 root-store fixture additionally asserts the root-owned grant carries no credential material and the nobody-owned file value reaches the endpoint.",
+    "root_store_integration": "NOT RUN: noninteractive sudo is unavailable on this worker ('sudo: a password is required'); the protected-store credential assertions are skipped, not passed."
   }
 }

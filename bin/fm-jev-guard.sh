@@ -25,8 +25,8 @@ usage() {
 Usage: fm-jev-guard.sh [--command <cmd>] [--claude|--cursor]
 
 With no --command, reads a PreToolUse-style JSON payload on stdin (Grok/Claude/Cursor/Codex).
-Tool payloads other than Bash, Shell, Read and run_terminal_command are denied
-before command extraction in every role.
+Tool payloads other than the exact names Bash, Shell, Read and run_terminal_command
+are denied before command extraction in every role.
 The shell delegation classifier fires only in the real primary checkout (w1);
 it is inert in task worktrees and secondmate homes.
 Exits 0 to allow and 2 to deny commands that violate supervisor delegation boundaries.
@@ -35,6 +35,25 @@ unless --claude is supplied.
 With --cursor, a deny is Cursor's own decision object on stdout and exit 0.
 Malformed transport or unavailable classifier runtime fail open (exit 0).
 EOF
+}
+
+json_escape() {
+  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | tr '\n' ' '
+}
+
+# One deny rendering for every harness protocol: Cursor reads its own object on
+# stdout and exit 0; Claude requires empty stdout with the object on stderr;
+# Grok/Pi read the decision object on stdout; both of the latter exit 2.
+render_deny() {
+  local escaped
+  escaped=$(json_escape "$1")
+  if [ "$CURSOR_MODE" -eq 1 ]; then
+    printf '{"permission":"deny","user_message":"%s"}\n' "$escaped"
+    exit 0
+  fi
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"%s"}\n' "$escaped" >&2
+  [ "$CLAUDE_MODE" -eq 1 ] || printf '{"decision":"deny","reason":"%s"}\n' "$escaped"
+  exit 2
 }
 
 while [ "$#" -gt 0 ]; do
@@ -80,20 +99,9 @@ if [ "$CMD_SET" -eq 0 ]; then
   # prove what an unlisted tool will send. Deny every transport that is not one
   # of the governed shell/read tools rather than letting it bypass mail_send
   # through the shell-command empty-input fast path.
-  case "$(printf '%s' "$TOOL" | tr '[:upper:]' '[:lower:]')" in
-    bash|shell|read|run_terminal_command) ;;
-    *)
-      REASON="fm-action-gate: DENY: tool transport '${TOOL:-unnamed}' has no approved action adapter; mail_send is prohibited"
-      if [ "$CURSOR_MODE" -eq 1 ]; then
-        jq -nc --arg reason "$REASON" '{permission:"deny",user_message:$reason}'
-        exit 0
-      fi
-      jq -nc --arg reason "$REASON" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny"},systemMessage:$reason}' >&2
-      if [ "$CLAUDE_MODE" -eq 0 ]; then
-        jq -nc --arg reason "$REASON" '{decision:"deny",reason:$reason}'
-      fi
-      exit 2
-      ;;
+  case "$TOOL" in
+    Bash|Shell|Read|run_terminal_command) ;;
+    *) render_deny "fm-action-gate: DENY: tool transport '${TOOL:-unnamed}' has no approved action adapter; mail_send is prohibited" ;;
   esac
 
   HOOK_LIB="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/fm-hook-host-lib.sh"
@@ -151,10 +159,6 @@ REST3=${REST2#*"$TAB"}
 DOMAIN=${REST3%%"$TAB"*}
 SUGGESTED=${REST3#*"$TAB"}
 
-json_escape() {
-  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | tr '\n' ' '
-}
-
 if [ -n "$SUGGESTED" ] && [ "$SUGGESTED" != "$REST3" ]; then
   DETAIL="[$CODE] $REASON (Domain: $DOMAIN; Suggested: $SUGGESTED)"
 elif [ -n "$DOMAIN" ] && [ "$DOMAIN" != "$REST3" ]; then
@@ -163,14 +167,4 @@ else
   DETAIL="[$CODE] $REASON"
 fi
 
-ESCAPED=$(json_escape "$DETAIL")
-
-if [ "$CURSOR_MODE" -eq 1 ]; then
-  printf '{"permission":"deny","user_message":"%s"}\n' "$ESCAPED"
-  exit 0
-fi
-
-# Claude requires stdout to remain empty on deny, stderr receives systemMessage JSON
-printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"%s"}\n' "$ESCAPED" >&2
-[ "$CLAUDE_MODE" -eq 1 ] || printf '{"decision":"deny","reason":"%s"}\n' "$ESCAPED"
-exit 2
+render_deny "$DETAIL"

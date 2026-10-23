@@ -22,11 +22,16 @@
 #     revoked_at:null. Administrator revocation (revoked:true or revoked_at
 #     set) refuses in every session. Grants without these fields must be reminted.
 #     request: {"provenance":{"kind":"trusted|untrusted-forwarded","origin_action_class":"booking"},"argv":["http-json","<HTTP JSON>"]}
-#     HTTP JSON: {"url":"https://...","method":"POST|PUT|PATCH|DELETE","account_id":"...","credential_id":"...","headers":{"Authorization":"..."},"body":{...}}
+#     HTTP JSON: {"url":"https://...","method":"POST|PUT|PATCH|DELETE","account_id":"...","credential_id":"...","credential":{"path":"/<canonical file>","sha256":"<digest of its bytes>"},"body":{...}}
+#     The credential file holds one Authorization header value line and must be
+#     a regular file at its canonical path, owned by the executing UID with no
+#     group or other access. The executor reads it, checks the approved digest
+#     and uses the value only in memory for the send. Raw Authorization material
+#     in the request refuses; no grant field, argument or output carries a secret.
 #     HTTP is accepted only for literal loopback test targets. Redirects refuse.
 #     request_sha256 binds provenance and exact argv; payload_sha256 binds the
 #     canonical UTF-8 HTTP body or command plan. adapter_sha256 additionally
-#     binds a command registration. HTTP URL/account/credential/headers are
+#     binds a command registration. HTTP URL/account/credential reference are
 #     included in the approved argv and are never inherited from the caller.
 #     For command deployment, add "adapter_id":"<id>" to the request and use
 #     the registered command argv. Registration is an administrator operation.

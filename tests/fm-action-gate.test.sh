@@ -138,7 +138,15 @@ out=$(env FM_HOME="$LAB" NO_MISTAKES_GATE=1 FM_GATE_REFUSE_BYPASS='' bash "$ACTI
 assert_contains "$out" 'no-mistakes gate agent must not drive the fleet' 'gate context must still refuse'
 pass 'no-mistakes fleet boundary preserved'
 
-HTTP_DOCUMENT=$(jq -nc '{url:"http://127.0.0.1:1/approved",method:"POST",account_id:"synthetic-approved",credential_id:"synthetic-approved",headers:{Authorization:"Bearer SYNTHETIC_APPROVED"},body:{effect:"SYNTHETIC_APPROVED_PAYLOAD"}}')
+# The approved Authorization value lives only in an owner-only file; requests,
+# grants and argv carry its canonical path and digest.
+CREDENTIAL_SECRET='Bearer SYNTHETIC_CREDENTIAL_SECRET'
+CREDENTIAL_FILE="$(cd "$TMP" && pwd -P)/credential"
+credential_sha256() { python3 -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$1"; }
+printf '%s\n' "$CREDENTIAL_SECRET" > "$CREDENTIAL_FILE"
+chmod 600 "$CREDENTIAL_FILE"
+HTTP_DOCUMENT=$(jq -nc --arg path "$CREDENTIAL_FILE" --arg sha "$(credential_sha256 "$CREDENTIAL_FILE")" '{url:"http://127.0.0.1:1/approved",method:"POST",account_id:"synthetic-approved",credential_id:"synthetic-approved",credential:{path:$path,sha256:$sha},body:{effect:"SYNTHETIC_APPROVED_PAYLOAD"}}')
+[[ "$HTTP_DOCUMENT" != *SYNTHETIC_CREDENTIAL_SECRET* ]] || fail 'gate argv carries credential material'
 
 server_pid=''
 stop_server() {
@@ -233,14 +241,22 @@ component_policy "$TMP/component-grant.json" http-json "$HTTP_DOCUMENT"
 export SYNTHETIC_HOOK_MARKER="$TMP/unsafe-env-hook"
 env() { printf 'UNSAFE_ENV_HOOK\n' > "$SYNTHETIC_HOOK_MARKER"; return 0; }
 export -f env
-out=$(COMPONENT_SEND=1 HTTP_PROXY=http://127.0.0.1:1 HTTPS_PROXY=http://127.0.0.1:1 SYNTHETIC_ACCOUNT=synthetic-changed component_policy "$TMP/component-grant.json" http-json "$HTTP_DOCUMENT")
+# A python3 shim on the component PATH records every helper argv so credential
+# material can be shown absent from them; the executor still runs real python3.
+mkdir -p "$TMP/shim"
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$@" >> %q\nexec %q "$@"\n' "$TMP/helper-argv.log" "$(command -v python3)" > "$TMP/shim/python3"
+chmod +x "$TMP/shim/python3"
+out=$(PATH="$TMP/shim:$PATH" COMPONENT_SEND=1 HTTP_PROXY=http://127.0.0.1:1 HTTPS_PROXY=http://127.0.0.1:1 SYNTHETIC_ACCOUNT=synthetic-changed component_policy "$TMP/component-grant.json" http-json "$HTTP_DOCUMENT")
 unset -f env
 assert_contains "$out" 'status=204' 'typed HTTP adapter must use the approved snapshot independently of proxy, account or imported env hook'
 [ ! -e "$SYNTHETIC_HOOK_MARKER" ] || fail 'HTTP adapter invoked the caller env function'
-tail -n 1 "$TMP/requests.jsonl" | jq -e '.path=="/approved" and .account=="synthetic-approved" and .credential=="synthetic-approved" and .authorization=="Bearer SYNTHETIC_APPROVED" and .body.effect=="SYNTHETIC_APPROVED_PAYLOAD"' >/dev/null || fail 'typed HTTP adapter sent substituted account or payload data'
+tail -n 1 "$TMP/requests.jsonl" | jq -e --arg secret "$CREDENTIAL_SECRET" '.path=="/approved" and .account=="synthetic-approved" and .credential=="synthetic-approved" and .authorization==$secret and .body.effect=="SYNTHETIC_APPROVED_PAYLOAD"' >/dev/null || fail 'typed HTTP adapter sent substituted account, credential or payload data'
+grep -q '^match$' "$TMP/helper-argv.log" || fail 'helper argv shim did not observe the request codec'
+! grep -q SYNTHETIC_CREDENTIAL_SECRET "$TMP/helper-argv.log" "$TMP/component-bound.json" "$TMP/component-grant.json" "$TMP/component-request.json" || fail 'credential material appeared in a grant, request or helper argv'
+! grep -q SYNTHETIC_CREDENTIAL_SECRET "$LAB/state/evidence/actions/action-ledger.jsonl" || fail 'credential material reached the ledger'
 tail -n 1 "$TMP/requests.jsonl" | jq -e --arg digest "$(jq -r .payload_sha256 "$TMP/component-grant.json")" '.payload_sha256==$digest' >/dev/null || fail 'wire payload bytes differ from the approved payload digest'
-for field in url account_id credential_id body; do
-  changed=$(printf '%s' "$HTTP_DOCUMENT" | jq -c --arg field "$field" 'if $field=="body" then .body={effect:"SYNTHETIC_CHANGED_PAYLOAD"} else .[$field]="synthetic-changed" end')
+for field in url account_id credential_id body credential.path credential.sha256; do
+  changed=$(printf '%s' "$HTTP_DOCUMENT" | jq -c --arg field "$field" 'if $field=="body" then .body={effect:"SYNTHETIC_CHANGED_PAYLOAD"} elif $field=="credential.path" then .credential.path+="-changed" elif $field=="credential.sha256" then .credential.sha256=("0"*64) else .[$field]="synthetic-changed" end')
   if component_policy "$TMP/component-grant.json" http-json "$changed" > "$TMP/component-output" 2>&1; then
     fail "changed $field passed the approved request binding"
   fi
@@ -276,6 +292,37 @@ if COMPONENT_SEND=1 component_policy "$TMP/component-redirect-grant.json" http-j
 assert_contains "$(cat "$TMP/component-output")" 'redirects and fallback refuse' 'redirect refusal must be explicit'
 if jq -se 'any(.[]; .path=="/redirected-effect")' "$TMP/requests.jsonl" >/dev/null; then fail 'HTTP adapter followed a changed-destination redirect'; fi
 pass 'component binding: approved typed snapshot passes; destination, account, credential, body, executable file and provenance substitutions deny (not root-store proof)'
+
+# Credential reference policy component (not root-store proof): raw
+# Authorization material refuses at the codec; at execution the referenced
+# file must be canonical, executor-owned, owner-only and digest-matched.
+legacy=$(printf '%s' "$HTTP_DOCUMENT" | jq -c --arg secret "$CREDENTIAL_SECRET" 'del(.credential) | .headers={Authorization:$secret}')
+request "$TMP/legacy-request.json" trusted booking http-json "$legacy"
+if python3 -I "$SOURCE/bin/fm-action-request.py" mint booking synthetic-target "$TMP/adapters" < "$TMP/legacy-request.json" > "$TMP/component-output" 2>&1; then fail 'raw Authorization header request minted'; fi
+assert_contains "$(cat "$TMP/component-output")" 'raw Authorization material is refused' 'legacy header request must name the refusal'
+if component_policy "$TMP/component-grant.json" http-json "$legacy" > "$TMP/component-output" 2>&1; then fail 'raw Authorization argv passed the approved binding'; fi
+requests_before=$(wc -l < "$TMP/requests.jsonl")
+refuse_execution() {
+  local reason=$1
+  if COMPONENT_SEND=1 component_policy "$TMP/component-grant.json" http-json "$HTTP_DOCUMENT" > "$TMP/component-output" 2>&1; then fail "credential state executed: $reason"; fi
+  assert_contains "$(cat "$TMP/component-output")" "$reason" 'credential refusal must name its cause'
+  assert_not_contains "$(cat "$TMP/component-output")" SYNTHETIC_C 'credential refusal output must not carry secret material'
+}
+printf 'Bearer SYNTHETIC_CHANGED_SECRET\n' > "$CREDENTIAL_FILE"
+refuse_execution 'differ from the approved digest'
+printf '%s\n' "$CREDENTIAL_SECRET" > "$CREDENTIAL_FILE"
+chmod 640 "$CREDENTIAL_FILE"
+refuse_execution 'readable only by its owner'
+chmod 600 "$CREDENTIAL_FILE"
+mv "$CREDENTIAL_FILE" "$CREDENTIAL_FILE-real"
+ln -s "$CREDENTIAL_FILE-real" "$CREDENTIAL_FILE"
+refuse_execution 'not an alias'
+rm "$CREDENTIAL_FILE"
+mv "$CREDENTIAL_FILE-real" "$CREDENTIAL_FILE"
+[ "$(wc -l < "$TMP/requests.jsonl")" -eq "$requests_before" ] || fail 'a refused credential state reached the endpoint'
+out=$(COMPONENT_SEND=1 component_policy "$TMP/component-grant.json" http-json "$HTTP_DOCUMENT")
+assert_contains "$out" 'status=204' 'restored credential file must execute again'
+pass 'credential reference component: secrets stay out of grants, argv, ledger and output; raw headers, changed contents, loose modes and aliases refuse (not root-store proof)'
 
 STORE=$(call grant-store)
 mkdir -p "$STORE"
@@ -317,6 +364,9 @@ if (cd / && sudo -n -u nobody /usr/bin/env -i PATH=/usr/bin:/bin /usr/bin/sudo -
 LAB="$ROOT_FIXTURE/worker-home"
 sudo -n /bin/bash "$SOURCE/bin/fm-lab-home.sh" create "$LAB" >/dev/null
 sudo -n chown -R "$(id -u nobody):$(id -g nobody)" "$LAB"
+WORKER_CREDENTIAL="$(cd "$LAB" && pwd -P)/credential"
+sudo -n install -m 600 -o "$(id -u nobody)" -g "$(id -g nobody)" "$CREDENTIAL_FILE" "$WORKER_CREDENTIAL"
+HTTP_DOCUMENT=$(printf '%s' "$HTTP_DOCUMENT" | jq -c --arg path "$WORKER_CREDENTIAL" '.credential.path=$path')
 worker() {
   (
     cd "$ROOT_FIXTURE" || exit 1
@@ -347,6 +397,8 @@ for action in booking charging prod_deploy deploy; do
   out=$(call execute "$action" synthetic-target synthetic-task "$STORE/valid-$action.json" http-json "$HTTP_DOCUMENT")
   assert_contains "$out" 'approved HTTP action completed, status=204' 'plain root-owned grant must execute'
   tail -n 1 "$TMP/requests.jsonl" | jq -e --arg digest "$(jq -r .payload_sha256 "$STORE/valid-$action.json")" '.payload_sha256==$digest' >/dev/null || fail 'protected grant payload digest differs from actual wire bytes'
+  tail -n 1 "$TMP/requests.jsonl" | jq -e --arg secret "$CREDENTIAL_SECRET" '.authorization==$secret' >/dev/null || fail 'protected executor did not send the owner-only credential file value'
+  ! grep -q SYNTHETIC_CREDENTIAL_SECRET "$STORE/valid-$action.json" || fail 'protected grant carries credential material'
   refuse execute "$action" synthetic-target synthetic-task "$STORE/valid-$action.json" http-json "$HTTP_DOCUMENT" >/dev/null
 done
 pass 'step1(c): plain protected grants admit booking, charging and deploy once, without keys or brake state'

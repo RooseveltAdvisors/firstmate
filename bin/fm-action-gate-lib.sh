@@ -122,11 +122,39 @@ fm_action_gate_payload() {
 }
 
 # Execute the validated in-memory plan. HTTP uses its exact approved snapshot;
-# command adapters use a protected working directory and explicit environment.
+# its Authorization value is read from the approved owner-only credential file,
+# digest-checked and held only in this process. Command adapters use a
+# protected working directory and explicit environment.
 fm_action_gate_execute_request() {
   printf '%s' "$FM_ACTION_EXECUTION_PLAN" | command -p env -i PATH="$PATH" python3 -I -c '
-import http.client, json, os, ssl, sys
+import hashlib, http.client, json, os, ssl, stat, sys
 from urllib.parse import urlsplit
+
+
+def refuse(message):
+    print("fm-action-gate: DENY: " + message, file=sys.stderr)
+    sys.exit(1)
+
+
+def authorization(credential):
+    path = credential["path"]
+    if os.path.realpath(path) != path:
+        refuse("credential file path must be canonical, not an alias")
+    with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC), "rb") as source:
+        metadata = os.fstat(source.fileno())
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.geteuid() or metadata.st_mode & 0o077:
+            refuse("credential file must be a regular file owned by the executor and readable only by its owner")
+        secret = source.read()
+    if hashlib.sha256(secret).hexdigest() != credential["sha256"]:
+        refuse("credential file contents differ from the approved digest")
+    value = secret.decode("utf-8")
+    if value.endswith("\n"):
+        value = value[:-1]
+    if not value or any(ord(c) < 32 or ord(c) == 127 for c in value):
+        refuse("credential file must hold one header value line")
+    return value
+
+
 connection = None
 try:
     plan = json.load(sys.stdin)
@@ -144,8 +172,7 @@ try:
     if url.scheme == "https":
         options["context"] = ssl.create_default_context()
     connection = connection_type(url.hostname, url.port, **options)
-    headers = dict(request["headers"])
-    headers.update({"Content-Type": "application/json", "X-Account-ID": request["account_id"], "X-Credential-ID": request["credential_id"]})
+    headers = {"Authorization": authorization(request["credential"]), "Content-Type": "application/json", "X-Account-ID": request["account_id"], "X-Credential-ID": request["credential_id"]}
     body = json.dumps(request["body"], sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
     path = (url.path or "/") + (("?" + url.query) if url.query else "")
     connection.request(request["method"], path, body=body, headers=headers)

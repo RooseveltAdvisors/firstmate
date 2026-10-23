@@ -85,6 +85,8 @@
       ".opencode/plugins/fm-primary-jev-guard.js": "tool.execute.before bash only, --command adapter path unchanged"
     },
     "reach": "Every tracked registration routes only Bash/Shell to this adapter, so this hardens a gap UNREACHABLE through today's registrations; it is not a claimed live browser exploit fix and no registration was broadened.",
-    "regression": "tests/fm-action-adapter.test.sh: known and future/unrecognized browser and MCP names and unnamed payloads refuse; Claude/Codex Bash, Cursor Shell, Grok run_terminal_command and Read payloads continue"
+    "regression": "tests/fm-action-adapter.test.sh: known and future/unrecognized browser and MCP names and unnamed payloads refuse; Claude/Codex Bash, Cursor Shell, Grok run_terminal_command and Read payloads continue",
+    "exact_match_decision": "Firstmate decision (review round 2, allowlist-case-insensitive-match): the allowlist matches the exact registered names Bash (Claude/Codex), Shell (Cursor), run_terminal_command (Grok) and Read; case normalization was dropped and case variants such as BASH, shell and READ now deny. tests/fm-action-adapter.test.sh covers the variants.",
+    "denylist_removed": "The browser namespace denylist was replaced, not supplemented: the allowlist with deny-by-default is the only tool-name mechanism in bin/fm-jev-guard.sh. The broad-browser transport gap remains UNREACHABLE through today's Bash/Shell-only hook registrations; this is not a live exploit or universal mediation fix."
   }
 }
