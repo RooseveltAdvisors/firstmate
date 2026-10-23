@@ -239,6 +239,7 @@ pass 'scenario9 component: revocation follows the OS subject across sessions; mi
 
 component_policy "$TMP/component-grant.json" http-json "$HTTP_DOCUMENT"
 export SYNTHETIC_HOOK_MARKER="$TMP/unsafe-env-hook"
+# shellcheck disable=SC2329 # Exported below; the adapter must not inherit or invoke it.
 env() { printf 'UNSAFE_ENV_HOOK\n' > "$SYNTHETIC_HOOK_MARKER"; return 0; }
 export -f env
 # A python3 shim on the component PATH records every helper argv so credential
