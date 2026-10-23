@@ -1,0 +1,31 @@
+{
+  "schema": "si-control.finding-evidence.v1",
+  "scenario": 8,
+  "assessed_at": "2026-10-23T10:01:12.365231+00:00",
+  "installed_main": "05693a7ba65358f7a88329ce19be3bfedb386c22",
+  "original_acceptance_verdict": "FAIL",
+  "current_verdict": "FAIL",
+  "before": {
+    "command": "installed executor check mail_send in disposable writable operational home; worker opens the resulting ledger with truncate mode",
+    "gate_exit": 1,
+    "gate_stdout": "DENY",
+    "ledger_bytes_before": 193,
+    "ledger_bytes_after_worker_truncate": 0,
+    "ledger_uid_equals_worker_and_writer_uid": true,
+    "verdict": "FAIL"
+  },
+  "storage_capability_probe": {
+    "filesystem": "ext4",
+    "effective_capabilities": "none",
+    "append_flag_set_exit": 1,
+    "append_flag_refusal": "chattr: Operation not permitted while setting flags on <synthetic-ledger>",
+    "refusal_redaction": "Only the disposable task file path is replaced by <synthetic-ledger>.",
+    "separate_writer_setuid": "PermissionError: [Errno 1] Operation not permitted",
+    "separate_writer_setgid": "PermissionError: [Errno 1] Operation not permitted",
+    "independent_writer_provisioned": false
+  },
+  "determination": "ADMIN_REQUIRED",
+  "required_capability": "Administrator provisions and runs a separate-UID writer/collector with the only writable access to storage and non-worker-replaceable parents; worker receives an append-only submission interface. Linux filesystem append flags additionally require CAP_LINUX_IMMUTABLE on a supporting filesystem. Giving that capability to the worker would let it clear its own flag and would not meet independent-writer isolation.",
+  "after": "NOT RUN: no independent writer or protected storage provisioned",
+  "acceptance_closed": false
+}

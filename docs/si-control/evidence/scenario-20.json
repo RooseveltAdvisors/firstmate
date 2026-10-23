@@ -65,7 +65,13 @@
   },
   "regression": "tests/fm-action-gate.test.sh",
   "regression_result": "PASS; root-store cases explicitly skipped, not required by this redaction check",
-  "independent_installed_rerun": "NOT RUN",
+  "independent_installed_rerun": {
+    "verdict": "PASS",
+    "main_sha": "05693a7ba65358f7a88329ce19be3bfedb386c22",
+    "source": "Firstmate instruction 032 relays independent SI seat installed verification; section-14-revalidation.json quotes that evidence.",
+    "fresh_component_evidence": "section-14-revalidation.json",
+    "scope": "Independent SI seat reports installed ledger minimization PASS. Fresh installed denial records closed policy values and redacts the supplied synthetic patient/credential marker before logging. Storage integrity remains the separate FAIL #8."
+  },
   "acceptance_closed": false,
   "storage_append_only_finding_8": "OPEN; field minimization does not change ledger ownership",
   "serial_5": "proven-not-fixed (Path A)"
