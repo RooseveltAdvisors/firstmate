@@ -258,6 +258,37 @@ test('an overlapping invocation refuses immediately without opening another cycl
 });
 
 const claimFile = () => `${lockFile()}.claim.${lstatSync(lockFile()).ino}`;
+test.each([String(process.pid), 'not-a-pid'])('a takeover guard owned by %s refuses without touching the bead or dead main lock', owner => {
+  const dead = Bun.spawnSync(['true']).pid, guard = `${lockFile()}.takeover`;
+  writeFileSync(lockFile(), String(dead)); writeFileSync(guard, owner);
+  try {
+    const before = issue(), r = run();
+    expect(r.exitCode).not.toBe(0);
+    expect(text(r)).toContain(`weekly driver locked by ${owner === String(process.pid) ? `running pid ${owner}` : 'an unreadable pid'}: ${guard}`);
+    expect(readFileSync(lockFile(), 'utf8')).toBe(String(dead));
+    expect(readFileSync(guard, 'utf8')).toBe(owner);
+    expect(issue()).toEqual(before); expect(calls().some(a => a.includes('update'))).toBe(false);
+    expect(existsSync(join(output, 'weekly-run.json'))).toBe(false);
+  } finally { rmSync(guard, {force: true}); rmSync(lockFile(), {force: true}); }
+});
+
+test('dead main and takeover owners are both reclaimed and audited before completing one cycle', () => {
+  const dead = Bun.spawnSync(['true']).pid, guard = `${lockFile()}.takeover`;
+  let code: string | undefined;
+  try { process.kill(dead, 0); } catch (error: any) { code = error.code; }
+  expect(code).toBe('ESRCH');
+  writeFileSync(lockFile(), String(dead)); writeFileSync(guard, String(dead));
+  try {
+    const r = run(); success(r);
+    for (const path of [lockFile(), guard]) {
+      expect(text(r)).toContain(`taking over stale weekly lock from exited pid ${dead}: ${path}`);
+      expect(existsSync(path)).toBe(false);
+    }
+    expect(issue().metadata.weekly_review.artifact_path).toBe(join(output, 'weekly-run.json'));
+    expect(calls().filter(a => a.includes('update'))).toHaveLength(1);
+  } finally { rmSync(guard, {force: true}); rmSync(lockFile(), {force: true}); }
+});
+
 test('only one run may take over a stale lock; a concurrent live taker refuses', () => {
   const dead = Bun.spawnSync(['true']).pid;
   writeFileSync(lockFile(), String(dead)); writeFileSync(claimFile(), String(process.pid));

@@ -52,6 +52,8 @@ export function weeklyRun(file: string, driver: Driver) {
 // (ESRCH) is replaced; a live, unprobeable (EPERM) or unreadable owner keeps
 // it held. A claim keyed by the dead lock's inode makes one run its sole
 // replacer, and a claim left by a killed replacer is replaced the same way.
+// The takeover guard serializes lock acquisition and follows the same owner
+// checks, including recovery after a run dies holding both files.
 // Each cycle reviews [previous ran_at, ranAt) and re-dates the bead to
 // ranAt + 7d, so consecutive cycles tile time without gaps or overlap.
 export function completeWeeklyCycle(config: unknown, ranAt: string, invoke: (driver: Driver, window: Window) => string) {
@@ -94,7 +96,9 @@ export function completeWeeklyCycle(config: unknown, ranAt: string, invoke: (dri
       } finally { release(`${path}.claim.${ino}`); }
     } finally { if (existsSync(own)) unlinkSync(own); }
   }
-  acquire(lock);
+  const takeover = `${lock}.takeover`;
+  acquire(takeover);
+  try { acquire(lock); } finally { release(takeover); }
   try {
     function show() {
       const rows = bd(['show', `--id=${driver.id}`]);
