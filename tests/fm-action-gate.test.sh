@@ -182,11 +182,11 @@ component_policy() {
     FM_ACTION_GRANT_JSON=$(cat "$2")
     shift 2
     fm_action_gate_payload booking synthetic-target synthetic-task "$FM_ACTION_GRANT_PATH" "$@" || exit 1
-    if [ "${COMPONENT_SEND:-0}" = 1 ]; then fm_action_gate_http_execute; fi
+    if [ "${COMPONENT_SEND:-0}" = 1 ]; then fm_action_gate_execute_request; fi
   ' _ "$SOURCE" "$file" "$@"
 }
 request "$TMP/component-request.json" trusted booking http-json "$HTTP_DOCUMENT"
-python3 -I "$SOURCE/bin/fm-action-request.py" mint booking < "$TMP/component-request.json" > "$TMP/component-bound.json"
+python3 -I "$SOURCE/bin/fm-action-request.py" mint booking synthetic-target "$TMP/adapters" < "$TMP/component-request.json" > "$TMP/component-bound.json"
 jq '. + {schema:"fm-action-grant.v2"}' "$TMP/component-bound.json" > "$TMP/component-grant.json"
 component_policy "$TMP/component-grant.json" http-json "$HTTP_DOCUMENT"
 export SYNTHETIC_HOOK_MARKER="$TMP/unsafe-env-hook"
@@ -214,18 +214,23 @@ jq '.payload_sha256="invalid"' "$TMP/component-grant.json" > "$TMP/stale-payload
 if component_policy "$TMP/stale-payload-digest.json" http-json "$HTTP_DOCUMENT" > "$TMP/component-output" 2>&1; then fail 'invalid wire payload digest passed'; fi
 duplicate_document=$(printf '%s' "$HTTP_DOCUMENT" | sed 's/^{/{"account_id":"synthetic-conflicting",/')
 request "$TMP/duplicate.json" trusted booking http-json "$duplicate_document"
-if python3 -I "$SOURCE/bin/fm-action-request.py" mint booking < "$TMP/duplicate.json" > "$TMP/component-output" 2>&1; then fail 'ambiguous duplicate account field was approved'; fi
+if python3 -I "$SOURCE/bin/fm-action-request.py" mint booking synthetic-target "$TMP/adapters" < "$TMP/duplicate.json" > "$TMP/component-output" 2>&1; then fail 'ambiguous duplicate account field was approved'; fi
 request "$TMP/external-request.json" trusted booking /usr/bin/python3 "$TMP/mutable-payload.py"
-if python3 -I "$SOURCE/bin/fm-action-request.py" mint booking < "$TMP/external-request.json" > "$TMP/component-output" 2>&1; then
+if python3 -I "$SOURCE/bin/fm-action-request.py" mint booking synthetic-target "$TMP/adapters" < "$TMP/external-request.json" > "$TMP/component-output" 2>&1; then
   fail 'mutable executable payload request was approved'
 fi
+mkdir "$TMP/worker-adapters"
+worker_adapters=$(cd "$TMP/worker-adapters" && pwd -P)
+jq --arg executable "$worker_adapters/worker.exec" '. + {adapter_id:"worker",argv:[$executable]}' "$TMP/component-request.json" > "$TMP/worker-adapter-request.json"
+if python3 -I "$SOURCE/bin/fm-action-request.py" mint prod_deploy synthetic-target "$worker_adapters" < <(jq '.provenance.origin_action_class="prod_deploy"' "$TMP/worker-adapter-request.json") > "$TMP/component-output" 2>&1; then fail 'worker-owned adapter registration was approved'; fi
+assert_contains "$(cat "$TMP/component-output")" 'ownership must be protected' 'worker registry must fail at actual ownership boundary'
 request "$TMP/forwarded-request.json" untrusted-forwarded mail_send http-json "$HTTP_DOCUMENT"
-if python3 -I "$SOURCE/bin/fm-action-request.py" mint booking < "$TMP/forwarded-request.json" > "$TMP/component-output" 2>&1; then
+if python3 -I "$SOURCE/bin/fm-action-request.py" mint booking synthetic-target "$TMP/adapters" < "$TMP/forwarded-request.json" > "$TMP/component-output" 2>&1; then
   fail 'forwarded mail_send was relabeled as booking'
 fi
 redirect_document=$(printf '%s' "$HTTP_DOCUMENT" | jq -c '.url|=sub("/approved$";"/redirect")')
 request "$TMP/component-redirect.json" trusted booking http-json "$redirect_document"
-python3 -I "$SOURCE/bin/fm-action-request.py" mint booking < "$TMP/component-redirect.json" | jq '. + {schema:"fm-action-grant.v2"}' > "$TMP/component-redirect-grant.json"
+python3 -I "$SOURCE/bin/fm-action-request.py" mint booking synthetic-target "$TMP/adapters" < "$TMP/component-redirect.json" | jq '. + {schema:"fm-action-grant.v2"}' > "$TMP/component-redirect-grant.json"
 if COMPONENT_SEND=1 component_policy "$TMP/component-redirect-grant.json" http-json "$redirect_document" > "$TMP/component-output" 2>&1; then fail 'redirect completed as an approved action'; fi
 assert_contains "$(cat "$TMP/component-output")" 'redirects and fallback refuse' 'redirect refusal must be explicit'
 if jq -se 'any(.[]; .path=="/redirected-effect")' "$TMP/requests.jsonl" >/dev/null; then fail 'HTTP adapter followed a changed-destination redirect'; fi
@@ -252,11 +257,43 @@ fi
 # This is real ownership, not a mocked stat/signature verifier. Restore fixture
 # ownership on exit so the shared test cleanup can remove only its own files.
 fixture_owner="$(id -u):$(id -g)"
-restore_fixture() { sudo -n chown -R "$fixture_owner" "$INSTALL"; }
+ROOT_FIXTURE=$(sudo -n mktemp -d /tmp/fm-action-gate-root.XXXXXX)
+restore_fixture() {
+  sudo -n chown -R "$fixture_owner" "$ROOT_FIXTURE"
+  chmod -R u+w "$ROOT_FIXTURE"
+  rm -rf "$ROOT_FIXTURE"
+}
 trap 'stop_server; restore_fixture; fm_test_cleanup' EXIT
-sudo -n chown -R 0:0 "$INSTALL/bin" "$INSTALL/.action-control"
-sudo -n chmod -R go-w "$INSTALL/bin" "$INSTALL/.action-control"
-admin() { sudo -n /usr/bin/env FM_HOME="$LAB" bash "$ACTION_GATE" "$@"; }
+sudo -n chmod 755 "$ROOT_FIXTURE"
+ROOT_FIXTURE=$(cd "$ROOT_FIXTURE" && pwd -P)
+sudo -n mv "$INSTALL" "$ROOT_FIXTURE/install"
+INSTALL="$ROOT_FIXTURE/install"
+ACTION_GATE="$INSTALL/bin/fm-action-gate.sh"
+sudo -n chown -R 0:0 "$INSTALL"
+sudo -n chmod -R go-w "$INSTALL"
+if ! id nobody >/dev/null 2>&1; then fail 'protected integration requires an existing nonprivileged nobody account'; fi
+if (cd / && sudo -n -u nobody /usr/bin/env -i PATH=/usr/bin:/bin /usr/bin/sudo -n /usr/bin/true) >/dev/null 2>&1; then fail 'protected integration worker unexpectedly has root sudo authority'; fi
+LAB="$ROOT_FIXTURE/worker-home"
+sudo -n /bin/bash "$SOURCE/bin/fm-lab-home.sh" create "$LAB" >/dev/null
+sudo -n chown -R "$(id -u nobody):$(id -g nobody)" "$LAB"
+worker() {
+  (
+    cd "$ROOT_FIXTURE" || exit 1
+    sudo -n -u nobody /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin FM_HOME="$LAB" \
+      HTTP_PROXY="${HTTP_PROXY:-}" HTTPS_PROXY="${HTTPS_PROXY:-}" \
+      SYNTHETIC_ACCOUNT="${SYNTHETIC_ACCOUNT:-}" SYNTHETIC_DEPLOY_ACCOUNT="${SYNTHETIC_DEPLOY_ACCOUNT:-}" \
+      /bin/bash "$@"
+  )
+}
+call() { worker "$ACTION_GATE" "$@"; }
+STORE=$(call grant-store)
+sudo -n mkdir -p "$STORE"
+admin() {
+  (
+    cd "$ROOT_FIXTURE" || exit 1
+    sudo -n /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin FM_HOME="$LAB" /bin/bash "$ACTION_GATE" "$@"
+  )
+}
 mint() {
   local name=$1 class=$2 request_file=$3
   admin mint-grant "$STORE/$name.json" "$class" synthetic-target synthetic-task \
@@ -314,6 +351,62 @@ mint redirect booking "$TMP/redirect.json"
 refuse execute booking synthetic-target synthetic-task "$STORE/redirect.json" http-json "$redirect_document" >/dev/null
 if jq -se 'any(.[]; .path=="/redirected-effect")' "$TMP/requests.jsonl" >/dev/null; then fail 'approved endpoint redirect was followed'; fi
 pass 'approved destination cannot redirect execution to a different target'
+
+# Registered command deployment remains available without a replacement HTTP
+# gateway. Its files and every ancestor use real independent ownership.
+ADAPTER_STORE=$(call adapter-store)
+ADAPTER_EXEC="$ADAPTER_STORE/synthetic-deploy.exec"
+ADAPTER_INPUT="$ADAPTER_STORE/synthetic-config.txt"
+sudo -n mkdir -p "$ADAPTER_STORE/synthetic-deploy.cwd"
+cat > "$TMP/deploy-wrapper" <<'SH'
+#!/bin/sh
+printf 'SYNTHETIC_DEPLOY_EXECUTED|%s|%s\n' "$1" "$SYNTHETIC_DEPLOY_ACCOUNT"
+cat "$2"
+SH
+printf 'SYNTHETIC_APPROVED_CONFIG\n' > "$TMP/deploy-config"
+sudo -n cp "$TMP/deploy-wrapper" "$ADAPTER_EXEC"
+sudo -n cp "$TMP/deploy-config" "$ADAPTER_INPUT"
+sudo -n chmod 555 "$ADAPTER_EXEC"
+sudo -n chmod 444 "$ADAPTER_INPUT"
+file_sha256() { python3 -c 'import hashlib,pathlib,sys; print(hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest())' "$1"; }
+jq -nc --arg exe "$ADAPTER_EXEC" --arg config "$ADAPTER_INPUT" \
+  --arg executable_sha256 "$(file_sha256 "$ADAPTER_EXEC")" --arg config_sha256 "$(file_sha256 "$ADAPTER_INPUT")" \
+  '{schema:"fm-action-command-adapter.v1",action_class:"prod_deploy",target:"synthetic-target",argv:[$exe,"synthetic-service",$config],executable_sha256:$executable_sha256,env:{SYNTHETIC_DEPLOY_ACCOUNT:"synthetic-approved"},input_files:[{path:$config,sha256:$config_sha256}]}' > "$TMP/deploy-adapter.json"
+sudo -n cp "$TMP/deploy-adapter.json" "$ADAPTER_STORE/synthetic-deploy.json"
+sudo -n chmod 444 "$ADAPTER_STORE/synthetic-deploy.json"
+request "$TMP/deploy-command-request.json" trusted prod_deploy "$ADAPTER_EXEC" synthetic-service "$ADAPTER_INPUT"
+jq '. + {adapter_id:"synthetic-deploy"}' "$TMP/deploy-command-request.json" > "$TMP/deploy-command.json"
+mint command-valid prod_deploy "$TMP/deploy-command.json"
+out=$(SYNTHETIC_DEPLOY_ACCOUNT=synthetic-changed HTTP_PROXY=http://127.0.0.1:1 call execute prod_deploy synthetic-target synthetic-task "$STORE/command-valid.json" "$ADAPTER_EXEC" synthetic-service "$ADAPTER_INPUT")
+assert_contains "$out" 'SYNTHETIC_DEPLOY_EXECUTED|synthetic-service|synthetic-approved' 'registered command deployment must execute with its bound environment'
+assert_contains "$out" 'SYNTHETIC_APPROVED_CONFIG' 'command adapter must read its protected approved input'
+mint command-substitution prod_deploy "$TMP/deploy-command.json"
+refuse execute prod_deploy synthetic-target synthetic-task "$STORE/command-substitution.json" "$ADAPTER_EXEC" changed-service "$ADAPTER_INPUT" >/dev/null
+out=$(call execute prod_deploy synthetic-target synthetic-task "$STORE/command-substitution.json" "$ADAPTER_EXEC" synthetic-service "$ADAPTER_INPUT")
+assert_contains "$out" 'SYNTHETIC_DEPLOY_EXECUTED' 'argument refusal must not consume a valid command approval'
+if worker -c 'printf "WORKER_CHANGED_CONFIG\n" >> "$1"' _ "$ADAPTER_INPUT" 2>/dev/null; then fail 'worker modified registered adapter input'; fi
+if worker -c 'mv "$1" "$1.changed"' _ "$ADAPTER_EXEC" 2>/dev/null; then fail 'worker replaced registered adapter code'; fi
+pass 'protected-grant command integration: approved deployment runs without an HTTP gateway; changed args and inherited account settings cannot alter it; worker cannot modify its code or input'
+
+mint command-code-change prod_deploy "$TMP/deploy-command.json"
+printf '#!/bin/sh\nprintf SYNTHETIC_CHANGED_CODE\n' > "$TMP/changed-wrapper"
+sudo -n cp "$TMP/changed-wrapper" "$ADAPTER_EXEC"
+out=$(refuse execute prod_deploy synthetic-target synthetic-task "$STORE/command-code-change.json" "$ADAPTER_EXEC" synthetic-service "$ADAPTER_INPUT")
+assert_contains "$out" 'executable digest mismatch' 'changed protected executable must invalidate its approval'
+sudo -n cp "$TMP/deploy-wrapper" "$ADAPTER_EXEC"
+mint command-input-change prod_deploy "$TMP/deploy-command.json"
+printf 'SYNTHETIC_CHANGED_CONFIG\n' > "$TMP/changed-config"
+sudo -n cp "$TMP/changed-config" "$ADAPTER_INPUT"
+out=$(refuse execute prod_deploy synthetic-target synthetic-task "$STORE/command-input-change.json" "$ADAPTER_EXEC" synthetic-service "$ADAPTER_INPUT")
+assert_contains "$out" 'input digest mismatch' 'changed protected input must invalidate its approval'
+sudo -n cp "$TMP/deploy-config" "$ADAPTER_INPUT"
+mint command-registration-change prod_deploy "$TMP/deploy-command.json"
+jq '.env.SYNTHETIC_DEPLOY_ACCOUNT="synthetic-changed"' "$TMP/deploy-adapter.json" > "$TMP/changed-adapter.json"
+sudo -n cp "$TMP/changed-adapter.json" "$ADAPTER_STORE/synthetic-deploy.json"
+out=$(refuse execute prod_deploy synthetic-target synthetic-task "$STORE/command-registration-change.json" "$ADAPTER_EXEC" synthetic-service "$ADAPTER_INPUT")
+assert_contains "$out" 'mismatched approved request digest' 'changed registration must invalidate the old grant'
+sudo -n cp "$TMP/deploy-adapter.json" "$ADAPTER_STORE/synthetic-deploy.json"
+pass 'protected-grant command integration: code, declared input and registration changes invalidate earlier approvals'
 
 admin mint-grant "$STORE/expired.json" booking synthetic-target synthetic-task \
   2020-01-01T00:00:00Z expired "$TMP/request.json"

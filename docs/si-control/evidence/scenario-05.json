@@ -70,13 +70,9 @@
       "verdict": "PASS"
     },
     "total_target_effects": 1,
-    "unexpected_target_effects": 0
-  },
-  "candidate_enforcement_sha256": {
-    "fm-action-gate.sh": "887f0728fbc4fe2391e962ee1953a7f7abc1de4c798b96086ef84270b4394419",
-    "fm-action-gate-lib.sh": "72ac9c478e11a2ff3c83ae72705f4ef6efe1fa1d2730cad6342cfe0af5a99c3b",
-    "fm-action-request.py": "ed0479f4d6634f0ca5e9aa35845b4c7677067db4389906568d5dce3d918ea2ab",
-    "fm-gate-refuse-lib.sh": "4f2474646afc4d8c7565aeb7f20ef39f3871a09ba0855e85fa2ca10562540d49"
+    "unexpected_target_effects": 0,
+    "implementation_commit": "99b0e240d246aa89aae38baf1e88a5b8a1a26e58",
+    "historical_limit": "Earlier HTTP-adapter candidate capture, retained unchanged as evidence; not a protected-command integration result for Option B."
   },
   "targeted_regression": {
     "entrypoint": "bash bin/fm-test-run.sh tests/fm-action-gate.test.sh",
@@ -88,6 +84,28 @@
     "verdict": "NOT RUN",
     "required_before_acceptance_closure": true
   },
-  "compatibility": "Consequential requests now require the typed in-memory HTTP operation and fresh digest-bound grants; arbitrary external commands, payload-file references and legacy grants deny.",
-  "other_findings": "Per-task network mediation is not established by this binding change; scenario 4 remains FAIL. Serial-5 remains proven not fixed; Path A same-code rerun only."
+  "compatibility": "HTTP remains one adapter. Approved command-based deployment uses a registered protected action adapter with exact arguments, declared inputs and an explicit environment. Legacy unbound grants and unregistered commands deny.",
+  "other_findings": "Per-task network mediation is not established by this binding change; scenario 4 remains FAIL. Serial-5 remains proven not fixed; Path A same-code rerun only.",
+  "historical_http_candidate_enforcement_sha256": {
+    "fm-action-gate.sh": "887f0728fbc4fe2391e962ee1953a7f7abc1de4c798b96086ef84270b4394419",
+    "fm-action-gate-lib.sh": "72ac9c478e11a2ff3c83ae72705f4ef6efe1fa1d2730cad6342cfe0af5a99c3b",
+    "fm-action-request.py": "ed0479f4d6634f0ca5e9aa35845b4c7677067db4389906568d5dce3d918ea2ab",
+    "fm-gate-refuse-lib.sh": "4f2474646afc4d8c7565aeb7f20ef39f3871a09ba0855e85fa2ca10562540d49"
+  },
+  "option_b_candidate": {
+    "implementation_status": "IMPLEMENTED; protected-grant integration NOT RUN",
+    "local_check_status": "COMPONENT/ADAPTER CHECKS ONLY; NOT A FULL BINDING PASS",
+    "local_regression_finished_at": "2026-10-23T03:59:28Z",
+    "local_regression_exit": 0,
+    "protected_cases": "SKIPPED because noninteractive sudo is unavailable locally",
+    "required_protected_run": "FM_ACTION_GATE_PRIVILEGED=1 bash bin/fm-test-run.sh tests/fm-action-gate.test.sh",
+    "protected_fixture": "Administrator provisions root-owned enforcement, grants, command registration, executable and inputs; actual gate requests run as an existing nonprivileged account without sudo authority.",
+    "candidate_enforcement_sha256": {
+      "fm-action-gate.sh": "438a849f7518f9fdc9fb3731b3c0423a78b644b5151bb603c798da76d9ad1cb0",
+      "fm-action-gate-lib.sh": "fae526453169ef46b14f682fb471e538a2da1f457619d7b1e55b4a58315e405e",
+      "fm-action-request.py": "241d98115e582bbacc216c25aec4399434989113af04ec3740a594d8ef109903",
+      "fm-gate-refuse-lib.sh": "4f2474646afc4d8c7565aeb7f20ef39f3871a09ba0855e85fa2ca10562540d49"
+    },
+    "independent_installed_verification": "NOT RUN; findings remain open"
+  }
 }

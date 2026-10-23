@@ -46,6 +46,12 @@ fm_action_gate_store() {
   printf '%s/.action-control/%s/grants' "$FM_ACTION_GATE_ROOT" "$digest"
 }
 
+fm_action_gate_adapter_store() {
+  local store
+  store=$(fm_action_gate_store) || return 1
+  printf '%s/adapters' "$(dirname "$store")"
+}
+
 # Only a root-owned file/directory without worker write access can supply a
 # plain grant. Check real access too so a writable ACL cannot qualify.
 fm_action_gate_protected() {
@@ -76,10 +82,10 @@ fm_action_gate_grant_get() {
 }
 
 # Payload binding is checked before grant consumption. Consequential requests
-# use a built-in operation with no external command, file or inherited environment.
+# use HTTP or an explicitly registered protected deployment command adapter.
 # Drafts use a built-in JSON draft renderer and never invoke caller programs.
 fm_action_gate_payload() {
-  local action=$1 target=$2 task=$3 grant=$4 prepared
+  local action=$1 target=$2 task=$3 grant=$4 prepared adapter_store
   shift 4
   case "$action" in
     mail_draft|draft)
@@ -91,23 +97,32 @@ fm_action_gate_payload() {
       ;;
     *)
       fm_action_gate_load_grant "$grant" || { echo 'fm-action-gate: DENY: unprotected or malformed grant payload' >&2; return 1; }
-      prepared=$(printf '%s' "$FM_ACTION_GRANT_JSON" | python3 -I "$FM_ACTION_GATE_ROOT/bin/fm-action-request.py" match "$action" "$@") || return 1
-      FM_ACTION_HTTP_REQUEST=$prepared
+      adapter_store=$(fm_action_gate_adapter_store) || return 1
+      prepared=$(printf '%s' "$FM_ACTION_GRANT_JSON" | python3 -I "$FM_ACTION_GATE_ROOT/bin/fm-action-request.py" match "$action" "$target" "$adapter_store" "$@") || return 1
+      FM_ACTION_EXECUTION_PLAN=$prepared
       ;;
   esac
   # Keep bindings visible to evidence without logging command arguments.
   fm_action_gate_record_evidence "$FM_ACTION_ALLOW" "$action" "$target" "$task" "$grant" "payload-and-provenance-verified"
 }
 
-# Execute the validated in-memory snapshot. No proxy, startup module, external
-# executable or mutable payload file supplies destination/account/body data.
-fm_action_gate_http_execute() {
-  printf '%s' "$FM_ACTION_HTTP_REQUEST" | command -p env -i PATH="$PATH" python3 -I -c '
-import http.client, json, ssl, sys
+# Execute the validated in-memory plan. HTTP uses its exact approved snapshot;
+# command adapters use a protected working directory and explicit environment.
+fm_action_gate_execute_request() {
+  printf '%s' "$FM_ACTION_EXECUTION_PLAN" | command -p env -i PATH="$PATH" python3 -I -c '
+import http.client, json, os, ssl, sys
 from urllib.parse import urlsplit
 connection = None
 try:
-    request = json.load(sys.stdin)
+    plan = json.load(sys.stdin)
+    if plan["kind"] == "protected-command":
+        environment = {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": plan["cwd"], "TZ": "UTC"}
+        environment.update(plan["env"])
+        os.chdir(plan["cwd"])
+        os.execve(plan["argv"][0], plan["argv"], environment)
+    if plan["kind"] != "http-json":
+        raise ValueError("unknown approved adapter")
+    request = plan["request"]
     url = urlsplit(request["url"])
     connection_type = http.client.HTTPSConnection if url.scheme == "https" else http.client.HTTPConnection
     options = {"timeout": 30}
@@ -125,7 +140,7 @@ try:
         sys.exit(1)
     print("ok: approved HTTP action completed, status=" + str(response.status))
 except (OSError, ValueError, http.client.HTTPException) as error:
-    print("fm-action-gate: DENY: approved HTTP request failed (" + type(error).__name__ + ")", file=sys.stderr)
+    print("fm-action-gate: DENY: approved adapter request failed (" + type(error).__name__ + ")", file=sys.stderr)
     sys.exit(1)
 finally:
     if connection is not None:
@@ -216,7 +231,7 @@ fm_action_gate_mint_grant() {
     echo 'fm-action-gate: DENY: mint requires bound request JSON' >&2
     return 1
   fi
-  approved=$(python3 -I "$FM_ACTION_GATE_ROOT/bin/fm-action-request.py" mint "$action_class" < "$request_file") || return 1
+  approved=$(python3 -I "$FM_ACTION_GATE_ROOT/bin/fm-action-request.py" mint "$action_class" "$target" "$(fm_action_gate_adapter_store)" < "$request_file") || return 1
   if ! fm_action_gate_in_store "$out_file"; then
     echo 'fm-action-gate: DENY: grant requires a protected store' >&2
     return 1
@@ -448,7 +463,7 @@ fm_action_gate_check() {
 
   # Approval binds typed content as well as the label/task. Reject legacy or
   # incomplete records even for a check that does not execute an action.
-  if ! printf '%s' "$FM_ACTION_GRANT_JSON" | python3 -I "$FM_ACTION_GATE_ROOT/bin/fm-action-request.py" check "$action_class" >/dev/null; then
+  if ! printf '%s' "$FM_ACTION_GRANT_JSON" | python3 -I "$FM_ACTION_GATE_ROOT/bin/fm-action-request.py" check "$action_class" "$target" "$(fm_action_gate_adapter_store)" >/dev/null; then
     fm_action_gate_record_evidence "$FM_ACTION_DENY" "$action_class" "$target" "$task_id" "$g_approval" "request-binding-invalid"
     echo "$FM_ACTION_DENY"
     return 1
