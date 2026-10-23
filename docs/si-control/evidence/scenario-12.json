@@ -1,0 +1,36 @@
+{
+  "schema": "si-control.finding-evidence.v1",
+  "scenario": 12,
+  "original_acceptance_verdict": "FAIL",
+  "captured_at": "2026-10-23T05:36:57.479961+00:00",
+  "before": {
+    "build_uid_equals_installed_enforcement_owner": true,
+    "installed_gate_files_writable_at_check": false,
+    "source_checkout": {
+      "build_uid_equals_enforcement_owner": true,
+      "build_can_write_gate_files": true
+    },
+    "observation": "Installed enforcement reports nonwritable at observation time, but the build remains its owner UID. Source checkout gate files remain worker-writable. No distinct build principal or forced isolated build entrypoint is established; mode bits do not prove UID isolation."
+  },
+  "attempt": {
+    "checks": [
+      {
+        "syscall": "setgid",
+        "exit": 1,
+        "result": "PermissionError: [Errno 1] Operation not permitted"
+      },
+      {
+        "syscall": "setuid",
+        "exit": 1,
+        "result": "PermissionError: [Errno 1] Operation not permitted"
+      }
+    ],
+    "scope": "Disposable child processes only; no installed files, host ownership, accounts, sudoers or services changed"
+  },
+  "missing_capability": "CAP_SETGID and CAP_SETUID, or administrator-provisioned restricted launcher under a different build UID; this process cannot switch to existing nobody (EPERM). No sudoers, host ownership or services changed.",
+  "after": "NOT RUN: a separate build principal and administrator-enforced launcher are not provisioned",
+  "acceptance_verdict": "FAIL",
+  "acceptance_closed": false,
+  "serial_5": "proven-not-fixed (Path A)",
+  "original_transcript_sha256": "c54275bba525bc89fe5aa65d50b4f84ba9e886d1ac592e693be4c2987efc53b3"
+}
