@@ -1,0 +1,80 @@
+STATIC re-validation of the scenario 21 evidence record at head 98f93dbf (test round 2)
+
+Every check in this file is a STATIC check: parse and scan of the committed files and of the published PR body fetched
+fresh from the forge. 0 of 3 validation scenarios were driven live against the product. No capture was rerun, no private
+operator recapture material was read, and no runtime change was made. Supervisor ruling 018 decided to proceed on this basis.
+
+Pattern literals were taken from the pre-redaction revision in this branch's own git history (0c73260e) and are never printed
+here; only counts and generic categories appear. Order of the six-literal vector: kernel, username, /home, /opt, task-id, seat-name.
+
+== committed record docs/si-control/evidence/scenario-21.json, docs/si-control/section-15 doc, and published PR #37 body
+published body parsed from gh-axi indented body field: 37269 chars, 359 lines
+committed scenario-21.json: six-literal-pattern vector [kernel, username, /home, /opt, task-id, seat-name] = [0, 0, 0, 0, 0, 0]
+committed scenario-21.json: actual-private-value vector [OS release, home path, install path, task id, seat id] = [0, 0, 0, 0, 0]
+committed section-15 doc: six-literal-pattern vector [kernel, username, /home, /opt, task-id, seat-name] = [0, 13, 0, 0, 0, 0]
+committed section-15 doc: actual-private-value vector [OS release, home path, install path, task id, seat id] = [0, 0, 0, 0, 0]
+   username @line19: <username-pattern>, the human Arcs Health operator, owns this register and approval of additions, data routes, exceptions, and removals.
+   username @line24: Until <username-pattern> reconciles an unconfirmed item, do not grant it new sensitive resource access.
+   username @line114: <username-pattern> must reconcile tenant/account identifiers, owners, sign-in events, and invoices through independent administrator exports before claiming org
+   username @line150: <username-pattern> owns reconciliation before sensitive access expands, after tool/account/extension changes, and during each scenario #21 exercise.
+   username @line166: **Human incident owner: <username-pattern>, Arcs Health operator, `<username-pattern>@arcs.health`.**
+   username @line167: The responder contacts <username-pattern> directly from a human-controlled telephone or in person, using an independently verified contact, and can send a minim
+   username @line171: <username-pattern> must verify the direct contact path and designate a human alternate before an unattended incident exercise is credited as ready.
+   username @line173: For suspected clinical exposure, <username-pattern> immediately involves the clinic's human privacy/security leadership and applicable legal review through thei
+   username @line182:    Reach <username-pattern> through the independent path above and record human acknowledgement or that contact remains unconfirmed.
+   username @line190:    <username-pattern> or an independently authorized human administrator pauses the affected workload and suspends its target roles, executor grants, account se
+   username @line208:    <username-pattern> authorizes the bounded return to service after reviewing the result, residual gaps, monitoring window, and rollback criteria.
+published PR #37 body: six-literal-pattern vector [kernel, username, /home, /opt, task-id, seat-name] = [17, 0, 7, 0, 0, 0]
+published PR #37 body: actual-private-value vector [OS release, home path, install path, task id, seat id] = [0, 0, 0, 0, 0]
+   kernel @line29: | Redaction policy holds: no <kernel-pattern> version, username, workstation path, or internal seat/task id in the public record; only the three path-bearing la
+   kernel @line72:    result: {"scope": "isolated disposable fixtures on development workstation", "<kernel-pattern>": "<withheld-os-release>", "python": "3.14.7"} 
+   kernel @line73:    public: {"scope": "isolated disposable fixtures on development workstation", "<kernel-pattern>": "withheld as non-public", "python": "3.14.7"}
+   kernel @line180: == public contains <kernel-pattern> '<withheld-os-release>': False
+   kernel @line288: - ⚠️ `docs/si-control/evidence/scenario-21.json:7` - The public evidence record publishes detail the repo&#39;s own evidence policy withholds. `host.<kernel-pat
+   kernel @line296: - ⚠️ `docs/si-control/evidence/scenario-21.json:7` - The public evidence record publishes detail the repo&#39;s own evidence policy withholds. `host.<kernel-pat
+   kernel @line305: - ⚠️ `docs/si-control/evidence/scenario-21.json:7` - The public evidence record publishes detail the repo&#39;s own evidence policy withholds. `host.<kernel-pat
+   kernel @line326: | Redaction policy holds: no <kernel-pattern> version, username, workstation path, or internal seat/task id in the public record; only the three path-bearing la
+   /home @line217: <code>== LIVE 1: execute mail_send, empty grant, effect command = touch marker&#10;exit=1&#10;stderr:&#10;fm-gate-refuse: gate agent lifecycle permitted only ag
+   /home @line225:      fm-gate-refuse: gate agent lifecycle permitted only against lab home <LAB></home-pattern>
+   /home @line236:      fm-gate-refuse: gate agent lifecycle permitted only against lab home <LAB></home-pattern>
+   /home @line245:      fm-gate-refuse: gate agent lifecycle permitted only against lab home <LAB></home-pattern>
+   /home @line254:      fm-gate-refuse: gate agent lifecycle permitted only against lab home <LAB></home-pattern>
+   /home @line335: - <code>Live: `bin/fm-lab-home.sh create &lt;LAB&gt;</home-pattern>`; worktree bin/fm-action-gate.sh + libs copied to a read-only git-pinned disposable install;
+adversarial control, pre-redaction revision 0c73260e of scenario-21.json: [1, 1, 1, 0, 1, 1] [1, 1, 0, 1, 1]
+evidence-branch links in body: [('b2bfd07d', '.no-mistakes/evidence/fix/si-scenario21/README.md'), ('b2bfd07d', '.no-mistakes/evidence/fix/si-scenario21/json-validity-and-audience-check.txt'), ('b2bfd07d', '.no-mistakes/evidence/fix/si-scenario21/live-gate-negative-control.txt'), ('b2bfd07d', '.no-mistakes/evidence/fix/si-scenario21/scenario21-source-comparison.txt')]
+
+Notes on the non-zero counts:
+- section-15 doc username 13: the named human incident owner and public contact address in prose that predates this branch; no account path.
+- published body kernel 17: the generic category word in the redaction-policy row, pipeline review-history findings, the quoted JSON field name
+  and the withheld marker; actual OS release string count is 0.
+- published body /home 7: the "<LAB>/home" lab-home placeholder inside quoted gate stderr and lab commands; no account-bearing path.
+- published body does not yet carry the STATIC / "0 of 3" wording; the pipeline regenerates the body from this phase's report, so a final
+  fresh fetch and STATIC rescan after publication is still required.
+
+== semantic checks on current head (python -I over the committed JSON and doc)
+(see scenario-21-semantic-check output reproduced below)
+PASS verdict UNVERIFIED
+PASS acceptance_closed false
+PASS finding_record decided string
+PASS host has no kernel/platform keys
+PASS no owning_task/refusal/selected_store keys
+PASS record_validation.method STATIC
+PASS scenarios_driven_live 0 of 3
+PASS agent: UNVERIFIED + STATIC verdict_check
+PASS local-model: UNVERIFIED + STATIC verdict_check
+PASS browser-extension: UNVERIFIED + STATIC verdict_check
+PASS extension loaded:false, count 0, start<end, browser_version present
+PASS extension executable/profile/extension-dir withheld
+PASS serial5 Path A preserved
+PASS section 15 link target exists
+PASS section 15 line states UNVERIFIED, acceptance not closed, STATIC, 0 of 3
+
+== repository link consumer bin/fm-doc-audience-check.sh
+fm-doc-audience-check: ok surfaces=133 local_links=834
+exit=0
+
+== residuals outside the committed change (reported, not changed here)
+- Orphan evidence branch, commit b2bfd07d (earlier test round), file scenario21-source-comparison.txt: still contains the actual OS release
+  string once and the internal seat id once; it is linked from the current published PR body. Rewriting or purging published evidence history
+  is an operator decision.
+- The branch commit 0c73260e (pre-redaction record) is public history on the PR branch; a squash merge keeps it off main.

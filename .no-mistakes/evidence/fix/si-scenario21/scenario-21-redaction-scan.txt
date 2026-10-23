@@ -1,0 +1,22 @@
+redaction scan over public scenario-21 record and Section 15 doc (patterns: kernel version, username, /home, /opt, task id, seat names, raw tool error, commit-range only allowed sha)
+docs/si-control/evidence/scenario-21.json: 0 matching lines
+docs/si-control/section-15-shadow-ai-and-incident-response.md: 12 matching lines
+19:Jon, the human Arcs Health operator, owns this register and approval of additions, data routes, exceptions, and removals.
+24:Until Jon reconciles an unconfirmed item, do not grant it new sensitive resource access.
+114:Jon must reconcile tenant/account identifiers, owners, sign-in events, and invoices through independent administrator exports before claiming organization-wide coverage.
+150:Jon owns reconciliation before sensitive access expands, after tool/account/extension changes, and during each scenario #21 exercise.
+166:**Human incident owner: Jon, Arcs Health operator, `jon@arcs.health`.**
+167:The responder contacts Jon directly from a human-controlled telephone or in person, using an independently verified contact, and can send a minimal notice directly to `jon@arcs.health` from a human-operated mail client.
+168:This path does not call Firstmate, Wiseman, Relay, an agent inbox, a model, or an agent mail/Slack proxy.
+171:Jon must verify the direct contact path and designate a human alternate before an unattended incident exercise is credited as ready.
+173:For suspected clinical exposure, Jon immediately involves the clinic's human privacy/security leadership and applicable legal review through their human contact channels.
+182:   Reach Jon through the independent path above and record human acknowledgement or that contact remains unconfirmed.
+190:   Jon or an independently authorized human administrator pauses the affected workload and suspends its target roles, executor grants, account sessions, credentials, or network access at the independent enforcement boundary.
+208:   Jon authorizes the bounded return to service after reviewing the result, residual gaps, monitoring window, and rollback criteria.
+
+adversarial control: the pre-redaction revision (commit 0c73260e) of the same record must trip the scan
+0c73260e scenario-21.json: 4 matching lines
+7:    "kernel": "<kernel-redacted-in-evidence>",
+100:    "owning_task": "<internal-task-id-redacted-in-evidence>",
+101:    "selected_store": "/home/<REDACTED-IN-EVIDENCE>",
+102:    "refusal": "Error: actor: unknown seat \"<seat-name-redacted-in-evidence>\": register a seat with 'bd seat register' or add an explicit alias with 'bd seat rename'\n\nfm-verification-record: bd create refused; report its output verbatim, no receipt issued"

@@ -1,0 +1,29 @@
+STATIC validation of the scenario 21 evidence record (no live product scenario; 0 of 3 validation scenarios driven live)
+
+All checks below are STATIC: parse/scan of committed files and of the published PR body. Nothing was executed against a product surface,
+no capture was rerun, and no private operator recapture material was read.
+
+1. Committed record docs/si-control/evidence/scenario-21.json (parsed with python -I):
+   - verdict UNVERIFIED, acceptance_closed false, finding_record collapsed to the decided string, host OS release and platform absent (withheld, not backfilled)
+   - record_validation block present: method STATIC, scenarios_driven_live "0 of 3 ...", redaction_check zero matches, observations kept as historical capture data
+   - each of the 3 observations: verdict UNVERIFIED with a STATIC verdict_check label; browser-extension item loaded false, count 0, start/end timestamps preserved
+   - serial5 line unchanged: proven not fixed, Path A
+   - six-pattern redaction scan (OS release string, account name, home-directory prefix, install-directory prefix, internal task id, internal seat id): [0, 0, 0, 0, 0, 0]
+
+2. docs/si-control/section-15-shadow-ai-and-incident-response.md: result link resolves; wording now states STATIC-only validation and "0 of 3 validation scenarios were driven live".
+   bin/fm-doc-audience-check.sh (the repository's link consumer): ok surfaces=133 local_links=834, exit 0.
+
+3. Published PR body, RooseveltAdvisors/firstmate pull 37, fetched with gh-axi pr view 37 --full --repo RooseveltAdvisors/firstmate and the body field parsed exactly:
+   - before edit:  [19, 1, 10, 4, 0, 3]  (actual OS release string present once, actual account name once as a quoted scan literal, private install-directory probe path once, internal seat id three times)
+   - authorized redaction applied with gh-axi pr edit 37 --body-file: 8 lines changed, line count unchanged, pipeline attestation comment and validated head byte-identical, title unchanged
+   - fresh fetch after edit: [17, 0, 7, 0, 0, 0]; published body byte-identical to the prepared redaction
+   - residual 17 = the generic category word in pipeline-generated review-history findings, scenario table rows and the quoted JSON field name; none followed by a version string
+   - residual 7 = the "<LAB>" lab-home placeholder in quoted gate stderr; no account-bearing path remains
+   - zero actual private values or internal identifiers remain in the published body
+   Fetched body and scratch were kept outside the worktree under /tmp and deleted after the scan; nothing was committed or pasted into the repository.
+
+4. Residual outside this phase: the body links evidence files on the orphan no-mistakes/evidence branch at commit b2bfd07d (earlier test round). STATIC scan of those four
+   files via the GitHub contents API: README [1,0,1,1,0,0] and live-gate-negative-control [0,0,4,0,0,0] are generic words / lab placeholders only, but
+   scenario21-source-comparison.txt is [3,1,1,1,0,1] and still contains the actual OS release string, the account name and the internal seat id.
+   That is published git history owned by the pipeline's evidence publication; rewriting or purging it needs an operator decision, so it is reported, not changed here.
+   The pipeline regenerates the PR body later, so a final fresh fetch and STATIC scan after publication is still required.

@@ -1,0 +1,21 @@
+PASS verdict is UNVERIFIED  UNVERIFIED
+PASS acceptance_closed is false
+PASS finding_record collapsed to decided string  'open; no bead confirmed'
+PASS host.kernel absent (withheld, not backfilled)  {"scope": "isolated disposable fixtures on development workstation", "python": "3.14.7"}
+PASS host.platform absent (withheld)  {"scope": "isolated disposable fixtures on development workstation", "python": "3.14.7"}
+PASS no owning_task / refusal / selected_store keys anywhere
+PASS extension item has start/end timestamps  2026-10-22T23:59:07.312561+00:00 -> 2026-10-22T23:59:10.773002+00:00
+PASS extension start/end match supervisor-recorded capture
+PASS extension browser_version is captured real version  154.0.8037.92 (Official Build) (x86_64)
+PASS extension loaded:false, count 0, verdict UNVERIFIED
+PASS --disable-extensions present in captured args
+PASS every path-bearing arg is withheld marker
+PASS executable withheld
+PASS agent + local-model observations preserved with UNVERIFIED
+PASS serial5 Path A statement preserved  Unchanged: proven not fixed; Path A same-code rerun only.
+PASS capture_provenance note present
+PASS section 15 links to evidence/scenario-21.json  ['evidence/section-15-baseline-2026-10-19.json', 'evidence/t1-enforcement.json', 'evidence/scenario-21.json']
+PASS all evidence links in section 15 resolve on disk
+PASS section 15 states UNVERIFIED + acceptance not closed next to link
+
+summary: 19 pass / 19 total
