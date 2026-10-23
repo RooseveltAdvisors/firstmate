@@ -4,7 +4,7 @@
   "base_commit": "090d9ee70cce7780a5c62f3ac518e39d9dc2ab47",
   "host": {
     "scope": "isolated disposable fixtures on development workstation",
-    "kernel": "6.17.0-35-generic",
+    "kernel": "withheld as non-public",
     "python": "3.14.7"
   },
   "synthetic_only": true,
@@ -52,15 +52,77 @@
     {
       "item": "synthetic-unregistered-browser-extension",
       "class": "browser-extension",
-      "runtime": "Google Chrome 154.0.8037.92 / Manifest V3 synthetic extension 1.0",
-      "seed": "Unpacked manifest and service worker supplied to a dedicated empty-profile headless browser through chrome-devtools-axi.",
-      "observation_source": "chrome://extensions DOM through chrome-devtools-axi; own browser launch arguments.",
-      "observed": "result: \"0\"\nhelp[1]:\n  Run `chrome-devtools-axi snapshot` to see current page state",
+      "start": "2026-10-22T23:59:07.312561+00:00",
+      "end": "2026-10-22T23:59:10.773002+00:00",
+      "runtime": {
+        "browser_version": "154.0.8037.92 (Official Build) (x86_64)",
+        "extension_manifest_version": 3,
+        "synthetic_extension_version": "1.0"
+      },
+      "seed": "Unpacked synthetic manifest and service worker supplied to a dedicated empty-profile headless browser through chrome-devtools-axi.",
+      "observation_source": {
+        "browser_version": "chrome://version/ #version innerText, captured by chrome-devtools-axi eval",
+        "launch_arguments": "chrome://version/ #command_line innerText, captured by chrome-devtools-axi eval",
+        "loaded_extension_count": "chrome://extensions/ extensions-manager > extensions-item-list > extensions-item count, captured by chrome-devtools-axi eval"
+      },
+      "captured_launch_arguments": {
+        "executable": "<withheld-browser-executable-path>",
+        "arguments": [
+          "--allow-pre-commit-input",
+          "--disable-background-networking",
+          "--disable-background-timer-throttling",
+          "--disable-backgrounding-occluded-windows",
+          "--disable-breakpad",
+          "--disable-client-side-phishing-detection",
+          "--disable-component-extensions-with-background-pages",
+          "--disable-crash-reporter",
+          "--disable-default-apps",
+          "--disable-dev-shm-usage",
+          "--disable-hang-monitor",
+          "--disable-infobars",
+          "--disable-ipc-flooding-protection",
+          "--disable-popup-blocking",
+          "--disable-prompt-on-repost",
+          "--disable-renderer-backgrounding",
+          "--disable-search-engine-choice-screen",
+          "--disable-sync",
+          "--enable-automation",
+          "--export-tagged-pdf",
+          "--force-color-profile=srgb",
+          "--generate-pdf-document-outline",
+          "--metrics-recording-only",
+          "--no-first-run",
+          "--password-store=basic",
+          "--use-mock-keychain",
+          "--disable-features=Translate,AcceptCHFrame,MediaRouter,OptimizationHints,WebUIReloadButton,ProcessPerSiteUpToMainFrameThreshold,IsolateSandboxedIframes,DisableLoadExtensionCommandLineSwitch",
+          "--enable-features=PdfOopif",
+          "--user-data-dir=<withheld-task-private-profile>",
+          "--headless=new",
+          "--hide-scrollbars",
+          "--mute-audio",
+          "--disable-extensions",
+          "--use-mock-keychain",
+          "--password-store=basic",
+          "--load-extension=<withheld-synthetic-extension-directory>",
+          "--hide-crash-restore-bubble",
+          "--screen-info={3840x2160}",
+          "--remote-debugging-pipe",
+          "--noerrdialogs",
+          "--ozone-platform=headless",
+          "--use-angle=swiftshader-webgl",
+          "--flag-switches-begin",
+          "--flag-switches-end",
+          "about:blank"
+        ],
+        "redactions": "Executable, browser profile and unpacked extension filesystem paths withheld. Other launch arguments preserved from captured output."
+      },
+      "loaded_extension_count": 0,
       "loaded": false,
       "registration_detection": "not observable",
       "independent_resource_denial": "not tested",
       "verdict": "UNVERIFIED",
-      "limit": "The browser tool launches with --disable-extensions; zero loaded items. This is a harness limitation, not demonstrated Firstmate detection or denial. No authenticated or existing browser profile used."
+      "limit": "Captured browser launch includes --disable-extensions; zero extensions loaded. This is a browser-harness limitation, not demonstrated Firstmate detection or denial. No authenticated or existing browser profile used.",
+      "private_capture_sha256": "27cd5140cbc9636719164750b8bed2330b79a6406ffd53e7bac7b82c354e7f8b"
     }
   ],
   "gate_negative_control": {
@@ -94,11 +156,5 @@
   "serial5": "Unchanged: proven not fixed; Path A same-code rerun only.",
   "probe_sha256": "74448096d534534d5a5668f4f57b51b194abcb4cc3911ef788306525a453a644",
   "source_inventory": "docs/si-control/section-15-shadow-ai-and-incident-response.md",
-  "finding_record": {
-    "status": "open; no bead confirmed",
-    "domain": "fleet-tooling",
-    "owning_task": "wiseman-y1h5",
-    "selected_store": "/home/jon/git/wiseman",
-    "refusal": "Error: actor: unknown seat \"fm-si-t2-t5\": register a seat with 'bd seat register' or add an explicit alias with 'bd seat rename'\n\nfm-verification-record: bd create refused; report its output verbatim, no receipt issued"
-  }
+  "finding_record": "open; no bead confirmed"
 }
