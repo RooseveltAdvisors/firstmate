@@ -407,7 +407,10 @@ fm_ff_restore_action_gate_permissions() {
 #                  for a worktree of this same repo; a standalone clone that lacks
 #                  it is skipped rather than fetched.
 # Guards are identical in both modes: never force/merge/stash; skip a dirty or
-# wrong-branch target and leave its work untouched. An optional secondmate id
+# wrong-branch target and leave its work untouched. After an advance (or on an
+# already-current target) an installed read-only action gate has its enforcement
+# set re-protected; if that fails the status is "skipped" even though HEAD may
+# already have moved, and the line says so. An optional secondmate id
 # enables the content-equivalent divergence proof and durable marker described
 # in this file's header.
 FF_STATUS=""
