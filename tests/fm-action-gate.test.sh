@@ -201,7 +201,34 @@ component_policy() {
 }
 request "$TMP/component-request.json" trusted booking http-json "$HTTP_DOCUMENT"
 python3 -I "$SOURCE/bin/fm-action-request.py" mint booking synthetic-target "$TMP/adapters" < "$TMP/component-request.json" > "$TMP/component-bound.json"
-jq '. + {schema:"fm-action-grant.v2"}' "$TMP/component-bound.json" > "$TMP/component-grant.json"
+jq --arg uid "$EUID" '. + {schema:"fm-action-grant.v2",subject:{kind:"unix-uid",id:$uid},revoked:false,revoked_at:null}' "$TMP/component-bound.json" > "$TMP/component-grant.json"
+
+# Revocation policy component: store authentication is an explicit precondition,
+# not simulated ownership proof. Exercise the complete admission decision.
+component_admission() {
+  FM_HOME="$LAB" bash -c '
+    . "$1/bin/fm-action-gate-lib.sh"
+    FM_ACTION_GRANT_PATH=$2
+    FM_ACTION_GRANT_JSON=$(cat "$2")
+    fm_action_gate_in_store() { [ "$1" = "$FM_ACTION_GRANT_PATH" ]; }
+    fm_action_gate_check booking synthetic-target synthetic-task "$2"
+  ' _ "$SOURCE" "$1"
+}
+jq '. + {action_class:"booking",target:"synthetic-target",task_id:"synthetic-task",expires_at:"2035-01-01T00:00:00Z",approval_reference:"synthetic-subject",used_at:null,session_id:"original-session"}' \
+  "$TMP/component-grant.json" > "$TMP/subject-active.json"
+for session in original-session different-session; do
+  out=$(FM_SESSION="$session" component_admission "$TMP/subject-active.json")
+  assert_contains "$out" ALLOW 'active subject grant must survive a session change'
+  jq '.revoked=true | .revoked_at="2026-10-23T00:00:00Z"' "$TMP/subject-active.json" > "$TMP/subject-revoked.json"
+  if out=$(FM_SESSION="$session" component_admission "$TMP/subject-revoked.json" 2>&1); then fail 'revoked subject grant admitted'; fi
+  assert_contains "$out" 'grant revoked' 'revocation should cause refusal in every session'
+done
+for invalid in 'del(.subject)' '.subject.id="another-worker"' '.subject.id="0"' 'del(.revoked)' '.revoked="false"' 'del(.revoked_at)' '.revoked_at="2026-10-23T00:00:00Z"'; do
+  jq "$invalid" "$TMP/subject-active.json" > "$TMP/subject-invalid.json"
+  if out=$(FM_SESSION=original-session FM_SUBJECT="$EUID" component_admission "$TMP/subject-invalid.json" 2>&1); then fail 'invalid subject/revocation fields admitted'; fi
+done
+pass 'scenario9 component: revocation follows the OS subject across sessions; missing, spoofed and malformed identity/revocation fields deny (not root-store proof)'
+
 component_policy "$TMP/component-grant.json" http-json "$HTTP_DOCUMENT"
 export SYNTHETIC_HOOK_MARKER="$TMP/unsafe-env-hook"
 env() { printf 'UNSAFE_ENV_HOOK\n' > "$SYNTHETIC_HOOK_MARKER"; return 0; }
@@ -244,7 +271,7 @@ if python3 -I "$SOURCE/bin/fm-action-request.py" mint booking synthetic-target "
 fi
 redirect_document=$(printf '%s' "$HTTP_DOCUMENT" | jq -c '.url|=sub("/approved$";"/redirect")')
 request "$TMP/component-redirect.json" trusted booking http-json "$redirect_document"
-python3 -I "$SOURCE/bin/fm-action-request.py" mint booking synthetic-target "$TMP/adapters" < "$TMP/component-redirect.json" | jq '. + {schema:"fm-action-grant.v2"}' > "$TMP/component-redirect-grant.json"
+python3 -I "$SOURCE/bin/fm-action-request.py" mint booking synthetic-target "$TMP/adapters" < "$TMP/component-redirect.json" | jq --arg uid "$EUID" '. + {schema:"fm-action-grant.v2",subject:{kind:"unix-uid",id:$uid},revoked:false,revoked_at:null}' > "$TMP/component-redirect-grant.json"
 if COMPONENT_SEND=1 component_policy "$TMP/component-redirect-grant.json" http-json "$redirect_document" > "$TMP/component-output" 2>&1; then fail 'redirect completed as an approved action'; fi
 assert_contains "$(cat "$TMP/component-output")" 'redirects and fallback refuse' 'redirect refusal must be explicit'
 if jq -se 'any(.[]; .path=="/redirected-effect")' "$TMP/requests.jsonl" >/dev/null; then fail 'HTTP adapter followed a changed-destination redirect'; fi
@@ -293,7 +320,7 @@ sudo -n chown -R "$(id -u nobody):$(id -g nobody)" "$LAB"
 worker() {
   (
     cd "$ROOT_FIXTURE" || exit 1
-    sudo -n -u nobody /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin FM_HOME="$LAB" \
+    sudo -n -u nobody /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin FM_HOME="$LAB" FM_SESSION="${FM_SESSION:-}" \
       HTTP_PROXY="${HTTP_PROXY:-}" HTTPS_PROXY="${HTTPS_PROXY:-}" \
       SYNTHETIC_ACCOUNT="${SYNTHETIC_ACCOUNT:-}" SYNTHETIC_DEPLOY_ACCOUNT="${SYNTHETIC_DEPLOY_ACCOUNT:-}" \
       /bin/bash "$@"
@@ -311,7 +338,7 @@ admin() {
 mint() {
   local name=$1 class=$2 request_file=$3
   admin mint-grant "$STORE/$name.json" "$class" synthetic-target synthetic-task \
-    2030-01-01T00:00:00Z "$name" "$request_file"
+    2030-01-01T00:00:00Z "$name" "$request_file" "$(id -u nobody)"
 }
 
 for action in booking charging prod_deploy deploy; do
@@ -323,6 +350,24 @@ for action in booking charging prod_deploy deploy; do
   refuse execute "$action" synthetic-target synthetic-task "$STORE/valid-$action.json" http-json "$HTTP_DOCUMENT" >/dev/null
 done
 pass 'step1(c): plain protected grants admit booking, charging and deploy once, without keys or brake state'
+
+# Actual protected grant revocation is exercised under the separate worker UID.
+mint subject-revocation booking "$TMP/request-booking.json"
+out=$(FM_SESSION=original-session call check booking synthetic-target synthetic-task "$STORE/subject-revocation.json")
+assert_contains "$out" ALLOW 'active protected subject grant must pass'
+out=$(FM_SESSION=different-session call check booking synthetic-target synthetic-task "$STORE/subject-revocation.json")
+assert_contains "$out" ALLOW 'session change alone must not revoke the subject grant'
+jq '.revoked=true | .revoked_at="2026-10-23T00:00:00Z" | .session_id="original-session"' "$STORE/subject-revocation.json" > "$TMP/revoked-protected.json"
+sudo -n cp "$TMP/revoked-protected.json" "$STORE/subject-revocation.json"
+requests_before=$(wc -l < "$TMP/requests.jsonl")
+out=$(FM_SESSION=different-session refuse execute booking synthetic-target synthetic-task "$STORE/subject-revocation.json" http-json "$HTTP_DOCUMENT")
+assert_contains "$out" 'grant revoked' 'protected revoked grant must deny a different session'
+[ "$(wc -l < "$TMP/requests.jsonl")" -eq "$requests_before" ] || fail 'revoked grant reached the HTTP endpoint'
+mint subject-mismatch booking "$TMP/request-booking.json"
+jq '.subject.id="0"' "$STORE/subject-mismatch.json" > "$TMP/mismatched-subject.json"
+sudo -n cp "$TMP/mismatched-subject.json" "$STORE/subject-mismatch.json"
+refuse check booking synthetic-target synthetic-task "$STORE/subject-mismatch.json" >/dev/null
+pass 'protected subject integration: active grants survive session changes; revoked or different-UID grants deny without effects'
 
 # Neither malformed JSON nor writable authority is an empty/missing grant.
 printf '{' > "$TMP/malformed.json"
@@ -426,7 +471,7 @@ sudo -n cp "$TMP/deploy-adapter.json" "$ADAPTER_STORE/synthetic-deploy.json"
 pass 'protected-grant command integration: code, declared input and registration changes invalidate earlier approvals'
 
 admin mint-grant "$STORE/expired.json" booking synthetic-target synthetic-task \
-  2020-01-01T00:00:00Z expired "$TMP/request.json"
+  2020-01-01T00:00:00Z expired "$TMP/request.json" "$(id -u nobody)"
 out=$(refuse check booking synthetic-target synthetic-task "$STORE/expired.json")
 assert_contains "$out" 'grant has expired' 'expiry remains enforced'
 pass 'plain grants still expire'

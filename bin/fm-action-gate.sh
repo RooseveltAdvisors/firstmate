@@ -15,8 +15,12 @@
 #     two parents as root-owned 0755 beneath the protected checkout.
 #   fm-action-gate.sh adapter-store
 #     Prints the administrator-provisioned command adapter directory.
-#   fm-action-gate.sh mint-grant <out_file> <action_class> <target> <task> <expires_at> <approval_ref> <request_json_file>
+#   fm-action-gate.sh mint-grant <out_file> <action_class> <target> <task> <expires_at> <approval_ref> <request_json_file> <subject_uid>
 #     Administrator only; creates plain root-owned JSON (0444) in that store.
+#     subject_uid is the executor's operating-system UID, not a session ID.
+#     Grants require subject {"kind":"unix-uid","id":"<uid>"}, revoked:false,
+#     revoked_at:null. Administrator revocation (revoked:true or revoked_at
+#     set) refuses in every session. Grants without these fields must be reminted.
 #     request: {"provenance":{"kind":"trusted|untrusted-forwarded","origin_action_class":"booking"},"argv":["http-json","<HTTP JSON>"]}
 #     HTTP JSON: {"url":"https://...","method":"POST|PUT|PATCH|DELETE","account_id":"...","credential_id":"...","headers":{"Authorization":"..."},"body":{...}}
 #     HTTP is accepted only for literal loopback test targets. Redirects refuse.
@@ -215,7 +219,7 @@ case "$cmd" in
     task_id=${4:-}
     expires_at=${5:-}
     approval_ref=${6:-}
-    fm_action_gate_mint_grant "$out_file" "$action_class" "$target" "$task_id" "$expires_at" "$approval_ref" "${7:-}"
+    fm_action_gate_mint_grant "$out_file" "$action_class" "$target" "$task_id" "$expires_at" "$approval_ref" "${7:-}" "${8:-}"
     exit $?
     ;;
   grant-store)

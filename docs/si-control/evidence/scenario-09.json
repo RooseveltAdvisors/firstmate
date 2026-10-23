@@ -1,0 +1,104 @@
+{
+  "schema": "si-control.finding-evidence.v1",
+  "scenario": 9,
+  "original_acceptance_verdict": "FAIL",
+  "original_transcript_sha256": "5bd26435b04a593cc310c043ebf0cde80d6c5ad408b9e7fce3d3348ac593570e",
+  "before": {
+    "scenario": 9,
+    "phase": "before",
+    "captured_at": "2026-10-23T05:34:38.141916+00:00",
+    "source_head": "816c537c331cee5d3df95c272e442dc56883ea3c",
+    "library_sha256": "acc091d1a632cbff44a350c59eec766241821354e97797e829e1fa45485692fb",
+    "scope": "policy admission with an explicitly authenticated in-memory synthetic snapshot; protected store authentication is a precondition, not exercised; no network request or booking executed",
+    "results": [
+      {
+        "case": "active-original",
+        "session": "original-session",
+        "revoked": false,
+        "exit": 0,
+        "stdout": "ALLOW\n",
+        "stderr": ""
+      },
+      {
+        "case": "active-different",
+        "session": "different-session",
+        "revoked": false,
+        "exit": 0,
+        "stdout": "ALLOW\n",
+        "stderr": ""
+      },
+      {
+        "case": "revoked-original",
+        "session": "original-session",
+        "revoked": true,
+        "exit": 0,
+        "stdout": "ALLOW\n",
+        "stderr": ""
+      },
+      {
+        "case": "revoked-different",
+        "session": "different-session",
+        "revoked": true,
+        "exit": 0,
+        "stdout": "ALLOW\n",
+        "stderr": ""
+      }
+    ],
+    "verdict": "FAIL",
+    "protected_store_integration": "NOT RUN",
+    "acceptance_closed": false
+  },
+  "after": {
+    "scenario": 9,
+    "phase": "after",
+    "captured_at": "2026-10-23T05:35:35.839982+00:00",
+    "source_head": "816c537c331cee5d3df95c272e442dc56883ea3c",
+    "library_sha256": "da186fb765ca7cb51d0d6c886d8c741eb6a24ea6338d18101cc2903d75fa844b",
+    "scope": "policy admission with an explicitly authenticated in-memory synthetic snapshot; protected store authentication is a precondition, not exercised; no network request or booking executed",
+    "results": [
+      {
+        "case": "active-original",
+        "session": "original-session",
+        "revoked": false,
+        "exit": 0,
+        "stdout": "ALLOW\n",
+        "stderr": ""
+      },
+      {
+        "case": "active-different",
+        "session": "different-session",
+        "revoked": false,
+        "exit": 0,
+        "stdout": "ALLOW\n",
+        "stderr": ""
+      },
+      {
+        "case": "revoked-original",
+        "session": "original-session",
+        "revoked": true,
+        "exit": 1,
+        "stdout": "DENY\n",
+        "stderr": "fm-action-gate: DENY: grant revoked, invalid revocation state or operating subject mismatch\n"
+      },
+      {
+        "case": "revoked-different",
+        "session": "different-session",
+        "revoked": true,
+        "exit": 1,
+        "stdout": "DENY\n",
+        "stderr": "fm-action-gate: DENY: grant revoked, invalid revocation state or operating subject mismatch\n"
+      }
+    ],
+    "verdict": "PASS",
+    "protected_store_integration": "NOT RUN",
+    "acceptance_closed": false
+  },
+  "regression": "tests/fm-action-gate.test.sh",
+  "subject_identity": "Operating-system effective UID, compared with the administrator-minted protected grant; FM_SESSION and caller labels are not identity inputs. Workers sharing a UID share this OS principal.",
+  "revocation_scope": "A revoked grant denies in every session; revoking all grants for one UID is not implemented by this per-grant status.",
+  "protected_store_integration": "NOT RUN; requires existing administrator fixture request",
+  "independent_installed_rerun": "NOT RUN",
+  "acceptance_closed": false,
+  "serial_5": "proven-not-fixed (Path A)",
+  "regression_result": "PASS: targeted action-gate and adapter suites; protected-store cases explicitly skipped without administrator fixture"
+}

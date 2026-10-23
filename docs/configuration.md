@@ -1729,6 +1729,8 @@ The gate refuses writable or changed enforcement before loading its libraries.
 `mail_send` and `send` are always denied, and drafts are admitted without a grant.
 Booking and charging route to human review, and booking, charging and production deploys each require a one-time grant.
 Grants are plain JSON in the root-owned grant store and bind the complete typed request with its digest; a missing, unparseable, worker-created or worker-writable grant denies.
+Grants bind the executor's operating-system UID and require explicit, valid revocation fields; revoked grants refuse independently of session identity.
+This UID identifies an OS principal shared by any workers using that UID; it does not create distinct worker accounts or revoke every other grant belonging to the principal.
 HTTP execution takes the approved URL, account, credential identity, headers and body from one validated snapshot.
 Command-based deployment uses an explicitly registered, protected action adapter with bound arguments, declared inputs, working directory and environment.
 Unregistered programs, worker-writable adapter inputs, legacy grants and HTTP redirects refuse; existing approvals must be reminted in the current request format.

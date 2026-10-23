@@ -81,6 +81,20 @@ fm_action_gate_grant_get() {
   printf '%s' "$FM_ACTION_GRANT_JSON" | jq -r "$1"
 }
 
+# Subject identity comes from the operating system, never FM_SESSION or a
+# caller-supplied worker label. Revocation applies in every session, including
+# a session different from the grant's historical session_id.
+fm_action_gate_subject_check() {
+  if ! printf '%s' "$FM_ACTION_GRANT_JSON" | jq -e --arg uid "$EUID" '
+    .subject == {kind:"unix-uid",id:$uid} and
+    has("revoked") and .revoked == false and
+    has("revoked_at") and .revoked_at == null
+  ' >/dev/null; then
+    echo 'fm-action-gate: DENY: grant revoked, invalid revocation state or operating subject mismatch' >&2
+    return 1
+  fi
+}
+
 # Payload binding is checked before grant consumption. Consequential requests
 # use HTTP or an explicitly registered protected deployment command adapter.
 # Drafts use a built-in JSON draft renderer and never invoke caller programs.
@@ -97,6 +111,7 @@ fm_action_gate_payload() {
       ;;
     *)
       fm_action_gate_load_grant "$grant" || { echo 'fm-action-gate: DENY: unprotected or malformed grant payload' >&2; return 1; }
+      fm_action_gate_subject_check || return 1
       adapter_store=$(fm_action_gate_adapter_store) || return 1
       prepared=$(printf '%s' "$FM_ACTION_GRANT_JSON" | python3 -I "$FM_ACTION_GATE_ROOT/bin/fm-action-request.py" match "$action" "$target" "$adapter_store" "$@") || return 1
       FM_ACTION_EXECUTION_PLAN=$prepared
@@ -210,7 +225,8 @@ fm_action_gate_record_evidence() {
        "missing-approval-reference", "action-class-mismatch", "target-mismatch",
        "task-id-mismatch", "missing-expiry", "unparseable-expiry", "grant-expired",
        "grant-already-used", "grant-consumed-directory-exists", "request-binding-invalid",
-       "grant verified", "payload-or-provenance-refused", "grant-consumption-failed"
+       "grant verified", "payload-or-provenance-refused", "grant-consumption-failed",
+       "grant-subject-or-revocation-invalid"
      ]; $rsn) then $rsn else "[redacted]" end)}') || return 1
 
   # This writer appends; OS ownership determines protection against tampering.
@@ -230,16 +246,20 @@ fm_action_gate_allow() {
 
 # Mint a protected plain grant. Root provisions .action-control/<home>/grants
 # (0755, root-owned) before minting. The executor never provisions it for a worker.
-# Usage: fm_action_gate_mint_grant <out_file> <action_class> <target> <task_id> <expires_at> <approval_ref> <request_json_file>
+# Usage: fm_action_gate_mint_grant <out_file> <action_class> <target> <task_id> <expires_at> <approval_ref> <request_json_file> <subject_uid>
 fm_action_gate_mint_grant() {
   local out_file=$1 action_class=$2 target=$3 task_id=$4 expires_at=$5 approval_ref=$6
-  local request_file=${7:-} tmp approved
+  local request_file=${7:-} subject_uid=${8:-} tmp approved
   if [ "$EUID" -ne 0 ] || [ -n "${FM_RUNNER_UNTRUSTED:-}" ]; then
     echo 'fm-action-gate: DENY: only the administrator can mint grants' >&2
     return 1
   fi
   if ! fm_action_gate_valid_ref "$approval_ref" || ! fm_action_gate_valid_ref "$task_id"; then
     echo 'fm-action-gate: DENY: grant requires valid approval and task identifiers' >&2
+    return 1
+  fi
+  if ! printf '%s' "$subject_uid" | jq -eRs 'test("^(0|[1-9][0-9]{0,9})$") and (tonumber < 4294967295)' >/dev/null; then
+    echo 'fm-action-gate: DENY: mint requires an explicit canonical operating subject UID' >&2
     return 1
   fi
   case "$action_class" in booking|charging|prod_deploy|deploy) ;;
@@ -260,8 +280,8 @@ fm_action_gate_mint_grant() {
   }
   tmp=$(mktemp "$(fm_action_gate_store)/.mint.XXXXXX") || return 1
   if ! jq -nc --arg cls "$action_class" --arg tgt "$target" --arg task "$task_id" \
-    --arg exp "$expires_at" --arg app "$approval_ref" --argjson approved "$approved" \
-    '{schema:"fm-action-grant.v2",action_class:$cls,target:$tgt,task_id:$task,expires_at:$exp,approval_reference:$app,used_at:null} + $approved' > "$tmp" ||
+    --arg exp "$expires_at" --arg app "$approval_ref" --arg uid "$subject_uid" --argjson approved "$approved" \
+    '{schema:"fm-action-grant.v2",action_class:$cls,target:$tgt,task_id:$task,expires_at:$exp,approval_reference:$app,used_at:null,subject:{kind:"unix-uid",id:$uid},revoked:false,revoked_at:null} + $approved' > "$tmp" ||
     ! chmod 444 "$tmp" || ! ln "$tmp" "$out_file"; then
     rm -f "$tmp"
     return 1
@@ -280,6 +300,7 @@ fm_action_gate_consume() {
 
   local ref consumed_dir
   fm_action_gate_load_grant "$grant_file" || return 1
+  fm_action_gate_subject_check || return 1
   ref=$(fm_action_gate_grant_get '.approval_reference // empty') || return 1
   fm_action_gate_valid_ref "$ref" || return 1
   consumed_dir="$(fm_action_gate_home)/state/action-consumed"
@@ -370,6 +391,12 @@ fm_action_gate_check() {
   if ! fm_action_gate_load_grant "$grant_file"; then
     echo 'fm-action-gate: DENY: grant is unprotected or malformed JSON' >&2
     fm_action_gate_record_evidence "$FM_ACTION_DENY" "$action_class" "$target" "$task_id" "$grant_file" "invalid-plain-grant"
+    echo "$FM_ACTION_DENY"
+    return 1
+  fi
+
+  if ! fm_action_gate_subject_check; then
+    fm_action_gate_record_evidence "$FM_ACTION_DENY" "$action_class" "$target" "$task_id" "$grant_file" "grant-subject-or-revocation-invalid"
     echo "$FM_ACTION_DENY"
     return 1
   fi
