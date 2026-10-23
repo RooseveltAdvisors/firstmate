@@ -159,7 +159,7 @@ For each, record the seeded item, runtime/version, host, observation source, UTC
 An analyst identifying a mismatch in this document alone does not demonstrate a deployed detector.
 A missing signal must produce an unverified result unless an independently observed resource denial satisfies the scenario.
 Passing one form of unregistered execution does not establish coverage for the others.
-The acceptance lane records the actual scenario result after this deliverable lands.
+The recorded scenario #21 result is [`evidence/scenario-21.json`](evidence/scenario-21.json): verdict `UNVERIFIED`, acceptance not closed, because no deployed registration detector or independent resource denial was observed against synthetic unregistered items. That record was validated by STATIC check only (parse and redaction scan of the committed file); 0 of 3 validation scenarios were driven live against the product, and its observations remain historical capture data.
 
 ## Incident owner and independent escalation
 
