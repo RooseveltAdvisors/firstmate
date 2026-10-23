@@ -1,6 +1,7 @@
 {
   "scenario": 21,
   "tested_at": "2026-10-22T23:34:10.834972+00:00",
+  "capture_provenance": "The agent and local-model observations, gate_negative_control and target_events come from the original probe run at tested_at (probe_sha256). The browser-extension observation was separately re-captured afterwards by recapture-extension.py at its own start and end timestamps; its private_capture_sha256 is the hash of that private transcript.",
   "base_commit": "090d9ee70cce7780a5c62f3ac518e39d9dc2ab47",
   "host": {
     "scope": "isolated disposable fixtures on development workstation",
