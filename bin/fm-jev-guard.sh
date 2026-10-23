@@ -5,6 +5,8 @@
 # Allows legitimate supervisory actions (draining wakes, beads, steering workers).
 # Denies hands-on implementation, remote SSH, package installations, service
 # restarts, and project edits, steering Firstmate to delegate to Second Mates.
+# Browser tool transports are refused in every role: their effects cannot be
+# authenticated as a permitted action by this shell adapter.
 #
 # Usage:
 #   <PreToolUse JSON on stdin> | bin/fm-jev-guard.sh [--claude|--cursor]
@@ -15,14 +17,16 @@ CMD=""
 CMD_SET=0
 CLAUDE_MODE=0
 CURSOR_MODE=0
+TOOL=""
 
 usage() {
   cat <<'EOF'
 Usage: fm-jev-guard.sh [--command <cmd>] [--claude|--cursor]
 
 With no --command, reads a PreToolUse-style JSON payload on stdin (Grok/Claude/Cursor/Codex).
-Fires only in the real primary firstmate checkout (w1); it is a silent no-op in a
-crewmate/scout task worktree or any non-firstmate repo.
+Browser tool payloads are denied before command extraction in every role.
+The shell delegation classifier fires only in the real primary checkout (w1);
+it is inert in task worktrees and secondmate homes.
 Exits 0 to allow and 2 to deny commands that violate supervisor delegation boundaries.
 The deny reason is written to stderr, with a Grok/Pi decision object on stdout
 unless --claude is supplied.
@@ -69,7 +73,25 @@ if [ "$CMD_SET" -eq 0 ]; then
   PAYLOAD=$(cat 2>/dev/null || true)
   [ -n "$PAYLOAD" ] || exit 0
   command -v jq >/dev/null 2>&1 || exit 0
-  
+  TOOL=$(printf '%s' "$PAYLOAD" | jq -r '(.tool_name // .toolName // empty) | select(type=="string")' 2>/dev/null) || exit 0
+  # No click label, session, command field or caller-supplied action class can
+  # prove what a browser will send. Deny this transport rather than letting it
+  # bypass mail_send through the shell-command empty-input fast path.
+  case "$(printf '%s' "$TOOL" | tr '[:upper:]' '[:lower:]')" in
+    mcp__chrome_devtools__*|mcp__chrome-devtools__*|mcp__browser__*|browser.*|browser_*)
+      REASON='fm-action-gate: DENY: browser transport has no approved action adapter; mail_send is prohibited'
+      if [ "$CURSOR_MODE" -eq 1 ]; then
+        jq -nc --arg reason "$REASON" '{permission:"deny",user_message:$reason}'
+        exit 0
+      fi
+      jq -nc --arg reason "$REASON" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny"},systemMessage:$reason}' >&2
+      if [ "$CLAUDE_MODE" -eq 0 ]; then
+        jq -nc --arg reason "$REASON" '{decision:"deny",reason:$reason}'
+      fi
+      exit 2
+      ;;
+  esac
+
   HOOK_LIB="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/fm-hook-host-lib.sh"
   if [ -f "$HOOK_LIB" ]; then
     # shellcheck source=bin/fm-hook-host-lib.sh
