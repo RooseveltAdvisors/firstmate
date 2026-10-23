@@ -60,5 +60,6 @@
     "exit_code": 1,
     "stderr": "unshare: write failed /proc/self/uid_map: Operation not permitted"
   },
-  "interpretation": "A mail_send denial does not prevent four direct client effects under the worker principal. No per-task network or target mediation was demonstrated. No public-internet, vendor authorization or live service operation was tested."
+  "interpretation": "A mail_send denial does not prevent four direct client effects under the worker principal. No per-task network or target mediation was demonstrated. No public-internet, vendor authorization or live service operation was tested.",
+  "scope_decision": "Firstmate decision (review round 1, intent-scope-scenarios-4-12-open): the reduced scope is explicitly authorized. Ship the available source changes and retain unimplemented, administrator-gated findings with honest evidence rather than waiting for administrator fixtures. Scenarios 4 and 12 remain open pending the captain's administrator fixtures: namespaces for scenario 4; an administrator-enforced restricted distinct-UID build launcher for scenario 12. Nothing is silently declared fixed; this record supplements the immutable run-input verification plan without rewriting it."
 }

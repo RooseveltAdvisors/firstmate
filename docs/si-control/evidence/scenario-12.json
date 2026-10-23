@@ -32,5 +32,6 @@
   "acceptance_verdict": "FAIL",
   "acceptance_closed": false,
   "serial_5": "proven-not-fixed (Path A)",
-  "original_transcript_sha256": "c54275bba525bc89fe5aa65d50b4f84ba9e886d1ac592e693be4c2987efc53b3"
+  "original_transcript_sha256": "c54275bba525bc89fe5aa65d50b4f84ba9e886d1ac592e693be4c2987efc53b3",
+  "scope_decision": "Firstmate decision (review round 1, intent-scope-scenarios-4-12-open): the reduced scope is explicitly authorized. Ship the available source changes and retain unimplemented, administrator-gated findings with honest evidence rather than waiting for administrator fixtures. Scenarios 4 and 12 remain open pending the captain's administrator fixtures: namespaces for scenario 4; an administrator-enforced restricted distinct-UID build launcher for scenario 12. Nothing is silently declared fixed; this record supplements the immutable run-input verification plan without rewriting it."
 }

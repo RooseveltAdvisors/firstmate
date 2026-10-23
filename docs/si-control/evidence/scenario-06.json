@@ -37,8 +37,54 @@
     "OpenCode": "plugin currently selects bash; no browser callback coverage established",
     "other_harnesses": "no browser registration guarantee established"
   },
-  "scope": "The named shell-hook adapter refuses browser tool calls delivered to it. Registration and live browser mediation outside this adapter are not established by this regression. No authenticated browser was driven.",
+  "scope": "The named shell-hook adapter refuses every tool payload outside its shell/read allowlist. Registration and live browser mediation outside this adapter are not established by this regression. No authenticated browser was driven.",
   "independent_installed_rerun": "NOT RUN",
   "acceptance_closed": false,
-  "serial_5": "proven-not-fixed (Path A)"
+  "serial_5": "proven-not-fixed (Path A)",
+  "allowlist_hardening": {
+    "decision": "Firstmate decision (review round 1, browser-deny-namespace-list): replace the browser namespace denylist with an allowlist of the governed shell and read tools and deny every other tool payload by default. This is additional evidence for that policy choice; the original before/after binding captures above are retained unchanged.",
+    "allowlist": [
+      "Bash",
+      "Shell",
+      "Read",
+      "run_terminal_command"
+    ],
+    "before": {
+      "source_head": "2c464d0eb243aa4276a7b958509d203b3c526800",
+      "source_sha256": "625c978161c5f07befcc2360c52f55b20de44d8da5e8720065a01325c56feb1e",
+      "captured_at": "2026-10-23T06:22:32.178535+00:00",
+      "command": "synthetic {\"tool_name\":\"mcp__playwright__browser_click\",\"tool_input\":{\"ref\":\"synthetic-send-button\"},\"action_class\":\"mail_draft\"} piped to fm-jev-guard.sh (also mcp__claude-in-chrome__navigate and toolName mcp__puppeteer__click)",
+      "exit": 0,
+      "stdout": "",
+      "stderr": "",
+      "verdict": "FAIL: namespace absent from the denylist fell through to the empty-command path and was allowed"
+    },
+    "after": {
+      "source_sha256": "106c59297dbfe7a95fd38784a672a14d11c7371c8dacc4bf21374a5f94835e9a",
+      "captured_at": "2026-10-23T06:24:00.957931+00:00",
+      "command": "same synthetic payloads piped to fm-jev-guard.sh",
+      "exit": 2,
+      "stdout": {
+        "decision": "deny",
+        "reason": "fm-action-gate: DENY: tool transport 'mcp__playwright__browser_click' has no approved action adapter; mail_send is prohibited"
+      },
+      "stderr": {
+        "hookSpecificOutput": {
+          "hookEventName": "PreToolUse",
+          "permissionDecision": "deny"
+        },
+        "systemMessage": "fm-action-gate: DENY: tool transport 'mcp__playwright__browser_click' has no approved action adapter; mail_send is prohibited"
+      },
+      "verdict": "PASS: every tool name outside the allowlist, including unnamed payloads, is refused; the deny reason now names the refused tool"
+    },
+    "registrations_verified": {
+      ".claude/settings.json": "PreToolUse matcher Bash",
+      ".codex/hooks.json": "PreToolUse matcher Bash",
+      ".grok/hooks/fm-primary-jev-guard.json": "PreToolUse matcher Bash (payload toolName run_terminal_command)",
+      ".cursor/hooks.json": "preToolUse matcher Shell",
+      ".opencode/plugins/fm-primary-jev-guard.js": "tool.execute.before bash only, --command adapter path unchanged"
+    },
+    "reach": "Every tracked registration routes only Bash/Shell to this adapter, so this hardens a gap UNREACHABLE through today's registrations; it is not a claimed live browser exploit fix and no registration was broadened.",
+    "regression": "tests/fm-action-adapter.test.sh: known and future/unrecognized browser and MCP names and unnamed payloads refuse; Claude/Codex Bash, Cursor Shell, Grok run_terminal_command and Read payloads continue"
+  }
 }

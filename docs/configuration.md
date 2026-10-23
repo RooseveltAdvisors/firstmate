@@ -1746,7 +1746,8 @@ The general action ledger retains policy decision and action codes while redacti
 This field minimization does not make the worker-owned ledger append-only at storage.
 The runtime guard is a tripwire, not a replacement for ownership hardening or mandatory mediation of effects outside this executor.
 The installed ownership check and independent installed scenario reruns remain operator verification; disposable-copy regression results do not establish those host properties.
-The shell-hook adapter `fm-jev-guard.sh` denies browser tool payloads delivered to it before extracting a shell command or applying supervisor-only scope.
+The shell-hook adapter `fm-jev-guard.sh` admits only the shell and read tool payloads it governs (`Bash`, `Shell`, `Read`, `run_terminal_command`) and denies every other tool payload, browser, MCP, unknown or unnamed, before extracting a shell command or applying supervisor-only scope.
+Every tracked registration routes only `Bash` or `Shell` to this adapter today, so the deny-by-default allowlist closes a gap those registrations cannot reach; it is not live browser mediation.
 This adapter denial does not establish browser-tool registration or mandatory mediation in every harness; `docs/si-control/evidence/scenario-06.json` records that coverage gap.
 
 ## Relay (.env)

@@ -5,8 +5,9 @@
 # Allows legitimate supervisory actions (draining wakes, beads, steering workers).
 # Denies hands-on implementation, remote SSH, package installations, service
 # restarts, and project edits, steering Firstmate to delegate to Second Mates.
-# Browser tool transports are refused in every role: their effects cannot be
-# authenticated as a permitted action by this shell adapter.
+# Only the shell and read tool payloads this adapter governs are admitted; every
+# other tool transport (browser, MCP, unknown or unnamed) is refused in every
+# role because its effects cannot be authenticated as a permitted action here.
 #
 # Usage:
 #   <PreToolUse JSON on stdin> | bin/fm-jev-guard.sh [--claude|--cursor]
@@ -24,7 +25,8 @@ usage() {
 Usage: fm-jev-guard.sh [--command <cmd>] [--claude|--cursor]
 
 With no --command, reads a PreToolUse-style JSON payload on stdin (Grok/Claude/Cursor/Codex).
-Browser tool payloads are denied before command extraction in every role.
+Tool payloads other than Bash, Shell, Read and run_terminal_command are denied
+before command extraction in every role.
 The shell delegation classifier fires only in the real primary checkout (w1);
 it is inert in task worktrees and secondmate homes.
 Exits 0 to allow and 2 to deny commands that violate supervisor delegation boundaries.
@@ -75,11 +77,13 @@ if [ "$CMD_SET" -eq 0 ]; then
   command -v jq >/dev/null 2>&1 || exit 0
   TOOL=$(printf '%s' "$PAYLOAD" | jq -r '(.tool_name // .toolName // empty) | select(type=="string")' 2>/dev/null) || exit 0
   # No click label, session, command field or caller-supplied action class can
-  # prove what a browser will send. Deny this transport rather than letting it
-  # bypass mail_send through the shell-command empty-input fast path.
+  # prove what an unlisted tool will send. Deny every transport that is not one
+  # of the governed shell/read tools rather than letting it bypass mail_send
+  # through the shell-command empty-input fast path.
   case "$(printf '%s' "$TOOL" | tr '[:upper:]' '[:lower:]')" in
-    mcp__chrome_devtools__*|mcp__chrome-devtools__*|mcp__browser__*|browser.*|browser_*)
-      REASON='fm-action-gate: DENY: browser transport has no approved action adapter; mail_send is prohibited'
+    bash|shell|read|run_terminal_command) ;;
+    *)
+      REASON="fm-action-gate: DENY: tool transport '${TOOL:-unnamed}' has no approved action adapter; mail_send is prohibited"
       if [ "$CURSOR_MODE" -eq 1 ]; then
         jq -nc --arg reason "$REASON" '{permission:"deny",user_message:$reason}'
         exit 0

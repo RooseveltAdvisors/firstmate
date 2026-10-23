@@ -225,7 +225,7 @@ for session in original-session different-session; do
 done
 for invalid in 'del(.subject)' '.subject.id="another-worker"' '.subject.id="0"' 'del(.revoked)' '.revoked="false"' 'del(.revoked_at)' '.revoked_at="2026-10-23T00:00:00Z"'; do
   jq "$invalid" "$TMP/subject-active.json" > "$TMP/subject-invalid.json"
-  if out=$(FM_SESSION=original-session FM_SUBJECT="$EUID" component_admission "$TMP/subject-invalid.json" 2>&1); then fail 'invalid subject/revocation fields admitted'; fi
+  if out=$(FM_SESSION=original-session component_admission "$TMP/subject-invalid.json" 2>&1); then fail 'invalid subject/revocation fields admitted'; fi
 done
 pass 'scenario9 component: revocation follows the OS subject across sessions; missing, spoofed and malformed identity/revocation fields deny (not root-store proof)'
 

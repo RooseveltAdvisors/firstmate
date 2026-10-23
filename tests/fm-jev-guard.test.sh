@@ -69,7 +69,7 @@ if [ -x "${FM_JEV_PROXY_BIN:-/opt/ra/infisical/bin/jev-proxy.sh}" ]; then
   # Claude mode test: stderr gets JSON, stdout stays empty, exit code 2
   set +e
   claude_err=$(mktemp)
-  claude_out=$(jq -nc '{"tool_input":{"command":"ssh gpu \"docker ps\""}}' | "$GUARD_SH" --claude 2>"$claude_err")
+  claude_out=$(jq -nc '{"tool_name":"Bash","tool_input":{"command":"ssh gpu \"docker ps\""}}' | "$GUARD_SH" --claude 2>"$claude_err")
   claude_code=$?
   set -e
   [ "$claude_code" -eq 2 ] || fail "claude mode failed to exit 2 (got $claude_code)"
@@ -80,7 +80,7 @@ if [ -x "${FM_JEV_PROXY_BIN:-/opt/ra/infisical/bin/jev-proxy.sh}" ]; then
   assert_contains "$claude_errmsg" "gpu_ops" "claude stderr identified gpu_ops domain"
 
   # Cursor mode test: exits 0, user_message on stdout
-  cursor_out=$(jq -nc '{"tool_input":{"command":"ssh gpu \"docker ps\""}}' | "$GUARD_SH" --cursor)
+  cursor_out=$(jq -nc '{"tool_name":"Shell","tool_input":{"command":"ssh gpu \"docker ps\""}}' | "$GUARD_SH" --cursor)
   assert_contains "$cursor_out" '"permission":"deny"' "cursor stdout contains permission deny"
   assert_contains "$cursor_out" "gpu_ops" "cursor stdout identified gpu_ops"
 fi
