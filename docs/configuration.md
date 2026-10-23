@@ -1740,7 +1740,7 @@ Draft execution renders a typed JSON draft without invoking a caller-supplied pr
 No signing keypair, `authority.pem` or brake state is required.
 
 Installation is an administrator operation, separate from a repository change.
-Protect the enforcement checkout, its Git baseline, the grant store printed by `bin/fm-action-gate.sh grant-store` and every ancestor against worker replacement.
+Protect the enforcement checkout, its Git baseline, the grant store printed by `bin/fm-action-gate.sh grant-store`, the command adapter store printed by `bin/fm-action-gate.sh adapter-store` and every ancestor against worker replacement.
 Use the protected code installation with a separate writable operational `FM_HOME`.
 Root provisions the grant store and mints grants into it with `mint-grant`.
 Consumption markers remain in the operational home and do not protect against a hostile owner deleting that operational state.
