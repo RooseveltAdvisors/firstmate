@@ -1,0 +1,7 @@
+### bead now: {"due_at":"2026-10-23T04:22:29Z","metadata":{"unrelated":"preserved","weekly_review":{"ran_at":"2026-10-16T04:22:29.000Z","next_due_at":"2026-10-23T04:22:29.000Z","artifact_path":"/tmp/fm-weekly-live.E57si2/data/cycle1/weekly-run.json","artifact_sha256":"e9a7ff9c956fbde3cfaed75298a94f9ad66bef2a1cc16a28580d3d9d42cc960c"}}}
+$ weekly --work-dir data/cycle1  (reusing the completed cycle's work-dir now that the bead is due)
+fm-explained-twice: weekly artifact window does not continue the stamped cycle: /tmp/fm-weekly-live.E57si2/data/cycle1/weekly-run.json; use a new --work-dir
+error: "weekly artifact window does not continue the stamped cycle: /tmp/fm-weekly-live.E57si2/data/cycle1/weekly-run.json; use a new --work-dir"
+next: "bin/fm-explained-twice.sh --help"
+exit=1
+### bead unchanged: yes

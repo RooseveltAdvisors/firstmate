@@ -1,0 +1,14 @@
+### Fault injection: the FIRST link()/linkat() the CLI makes fails with EEXIST although no lock file exists.
+### This is the 'lock vanished between contention and owner read' window; the fix allows one immediate re-link.
+$ strace -f -e inject=link,linkat:error=EEXIST:when=1 ... weekly --work-dir data/cycle2 (before due)
+weekly_cycle: {"artifact":"/tmp/fm-weekly-live.E57si2/data/cycle2/weekly-run.json","due":"2026-10-30T05:22:32.000Z","already_complete":true}
+exit=0
+### link/linkat calls seen (first one injected EEXIST, then the retry succeeded):
+link("/tmp/fm-weekly-e2053b3804eb800d76e53046b99d764162253cb94dc604d26c5e0a6d692b53fc.lock.takeover.1287885", "/tmp/fm-weekly-e2053b3804eb800d76e53046b99d764162253cb94dc604d26c5e0a6d692b53fc.lock.takeover") = -1 EEXIST (File exists) (INJECTED)
+link("/tmp/fm-weekly-e2053b3804eb800d76e53046b99d764162253cb94dc604d26c5e0a6d692b53fc.lock.takeover.1287885", "/tmp/fm-weekly-e2053b3804eb800d76e53046b99d764162253cb94dc604d26c5e0a6d692b53fc.lock.takeover") = 0
+link("/tmp/fm-weekly-e2053b3804eb800d76e53046b99d764162253cb94dc604d26c5e0a6d692b53fc.lock.1287885", "/tmp/fm-weekly-e2053b3804eb800d76e53046b99d764162253cb94dc604d26c5e0a6d692b53fc.lock") = 0
+### openat on the lock path right after the injected EEXIST (owner read saw ENOENT):
+openat(AT_FDCWD, "/tmp/fm-weekly-e2053b3804eb800d76e53046b99d764162253cb94dc604d26c5e0a6d692b53fc.lock.takeover", O_RDONLY|O_LARGEFILE) = -1 ENOENT (No such file or directory)
+openat(AT_FDCWD, "/tmp/fm-weekly-e2053b3804eb800d76e53046b99d764162253cb94dc604d26c5e0a6d692b53fc.lock.takeover", O_RDONLY|O_LARGEFILE) = 9
+openat(AT_FDCWD, "/tmp/fm-weekly-e2053b3804eb800d76e53046b99d764162253cb94dc604d26c5e0a6d692b53fc.lock", O_RDONLY|O_LARGEFILE) = 9
+### bead unchanged: yes; lock files left: 0

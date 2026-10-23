@@ -1,0 +1,8 @@
+### a live process pid 684462 holds /tmp/fm-weekly-e2053b3804eb800d76e53046b99d764162253cb94dc604d26c5e0a6d692b53fc.lock
+$ weekly --work-dir data/contended
+fm-explained-twice: weekly driver locked by running pid 684462: /tmp/fm-weekly-e2053b3804eb800d76e53046b99d764162253cb94dc604d26c5e0a6d692b53fc.lock; remove it only if no weekly run is active
+error: "weekly driver locked by running pid 684462: /tmp/fm-weekly-e2053b3804eb800d76e53046b99d764162253cb94dc604d26c5e0a6d692b53fc.lock; remove it only if no weekly run is active"
+next: "bin/fm-explained-twice.sh --help"
+exit=1
+### lock still owned by 684462; bead unchanged: yes
+### contended dir exists: yes

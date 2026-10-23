@@ -1,0 +1,12 @@
+$ weekly --work-dir data/wk --sources sources.json --week 2026-10-19   (driver + explicit --week)
+fm-explained-twice: a driver cycle reviews since its last stamped run; omit --week
+error: "a driver cycle reviews since its last stamped run; omit --week"
+next: "bin/fm-explained-twice.sh --help"
+exit=1
+### data/wk written: 0 files
+
+### bead census in the disposable store (expect exactly the 3 beads created by hand: driver + 2 closed lessons; the cycles created none):
+{"id":"fm-wgw","status":"closed","title":"Closed lesson in cycle two"}
+{"id":"fm-a5g","status":"closed","title":"Closed lesson inside this window"}
+{"id":"fm-kr6","status":"open","title":"Weekly instruction review driver"}
+### final driver bead: {"id":"fm-kr6","status":"open","due_at":"2026-10-30T05:25:20Z","metadata":{"unrelated":"preserved","weekly_review":{"ran_at":"2026-10-23T05:25:20.000Z","next_due_at":"2026-10-30T05:25:20.000Z","artifact_path":"/tmp/fm-weekly-live.E57si2/data/cycle4/weekly-run.json","artifact_sha256":"b0ceaccdfaa41caec3eefb48adc4949e262964bfaed31b770ddead9cc60d2d6b"}}}

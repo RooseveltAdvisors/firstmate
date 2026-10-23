@@ -1,0 +1,8 @@
+### exited pid 957769 recorded in /tmp/fm-weekly-e2053b3804eb800d76e53046b99d764162253cb94dc604d26c5e0a6d692b53fc.lock and /tmp/fm-weekly-e2053b3804eb800d76e53046b99d764162253cb94dc604d26c5e0a6d692b53fc.lock.takeover (as if a run died holding both)
+$ weekly --work-dir data/cycle1 (before due)
+taking over stale weekly lock from exited pid 957769: /tmp/fm-weekly-e2053b3804eb800d76e53046b99d764162253cb94dc604d26c5e0a6d692b53fc.lock.takeover
+taking over stale weekly lock from exited pid 957769: /tmp/fm-weekly-e2053b3804eb800d76e53046b99d764162253cb94dc604d26c5e0a6d692b53fc.lock
+weekly_cycle: {"artifact":"/tmp/fm-weekly-live.E57si2/data/cycle1/weekly-run.json","due":"2026-10-30T05:20:40.000Z","already_complete":true}
+exit=0
+### lock files left behind: 0  (an earlier draft of this line printed "12": the glob matched nothing and ls listed the cwd; verified with find below)
+### find /tmp -maxdepth 1 -name 'fm-weekly-e2053b3804eb800d76e53046b99d764162253cb94dc604d26c5e0a6d692b53fc.lock*' -> 0 files

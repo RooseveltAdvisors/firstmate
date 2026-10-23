@@ -1,0 +1,16 @@
+### /tmp/fm-weekly-e2053b3804eb800d76e53046b99d764162253cb94dc604d26c5e0a6d692b53fc.lock is a dangling symlink: link() -> EEXIST, owner read -> ENOENT, re-link -> EEXIST again (disappearance repeats)
+$ weekly --work-dir data/cycle2
+fm-explained-twice: weekly driver lock changed during takeover: /tmp/fm-weekly-e2053b3804eb800d76e53046b99d764162253cb94dc604d26c5e0a6d692b53fc.lock
+error: "weekly driver lock changed during takeover: /tmp/fm-weekly-e2053b3804eb800d76e53046b99d764162253cb94dc604d26c5e0a6d692b53fc.lock"
+next: "bin/fm-explained-twice.sh --help"
+exit=1
+### raw ENOENT in output: 0
+### fixture untouched: still a symlink; bead unchanged: yes
+### /tmp/fm-weekly-e2053b3804eb800d76e53046b99d764162253cb94dc604d26c5e0a6d692b53fc.lock.takeover is a dangling symlink: link() -> EEXIST, owner read -> ENOENT, re-link -> EEXIST again (disappearance repeats)
+$ weekly --work-dir data/cycle2
+fm-explained-twice: weekly driver lock changed during takeover: /tmp/fm-weekly-e2053b3804eb800d76e53046b99d764162253cb94dc604d26c5e0a6d692b53fc.lock.takeover
+error: "weekly driver lock changed during takeover: /tmp/fm-weekly-e2053b3804eb800d76e53046b99d764162253cb94dc604d26c5e0a6d692b53fc.lock.takeover"
+next: "bin/fm-explained-twice.sh --help"
+exit=1
+### raw ENOENT in output: 0
+### fixture untouched: still a symlink; bead unchanged: yes

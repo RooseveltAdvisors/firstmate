@@ -1,0 +1,11 @@
+### bead before: {"due_at":"2026-10-30T05:20:40Z","metadata":{"unrelated":"preserved","weekly_review":{"ran_at":"2026-10-23T05:20:40.000Z","next_due_at":"2026-10-30T05:20:40.000Z","artifact_path":"/tmp/fm-weekly-live.E57si2/data/cycle1/weekly-run.json","artifact_sha256":"b4f35a24433b079f01978c27de717a831a3605746940462c10cde432bf30566c"}}}
+$ weekly --work-dir data/cycle1 (same dir, before due)
+weekly_cycle: {"artifact":"/tmp/fm-weekly-live.E57si2/data/cycle1/weekly-run.json","due":"2026-10-30T05:20:40.000Z","already_complete":true}
+exit=0
+$ weekly --work-dir data/other (different dir, before due)
+weekly_cycle: {"artifact":"/tmp/fm-weekly-live.E57si2/data/cycle1/weekly-run.json","due":"2026-10-30T05:20:40.000Z","already_complete":true}
+exit=0
+### bead after:  {"due_at":"2026-10-30T05:20:40Z","metadata":{"unrelated":"preserved","weekly_review":{"ran_at":"2026-10-23T05:20:40.000Z","next_due_at":"2026-10-30T05:20:40.000Z","artifact_path":"/tmp/fm-weekly-live.E57si2/data/cycle1/weekly-run.json","artifact_sha256":"b4f35a24433b079f01978c27de717a831a3605746940462c10cde432bf30566c"}}}
+### bead unchanged: yes
+### weekly-run.json unchanged: yes
+### data/other contents: (empty = no second corpus written)

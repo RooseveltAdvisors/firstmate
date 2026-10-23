@@ -1,0 +1,72 @@
+$ bin/fm-explained-twice.sh weekly --work-dir /tmp/fm-weekly-live.E57si2/data/cycle1 --sources sources.json   # real bd 1.3.1, disposable store
+corpus: "/tmp/fm-weekly-live.E57si2/data/cycle1/corpus.json"
+week: {"since":"2026-10-16T05:20:40.000Z","until":"2026-10-23T05:20:40.000Z"}
+closed_beads: 1
+user_messages: 0
+instruction_edits: 0
+next: "Review show --full, write review.json, then run report with this --work-dir; no classification is automatic."
+weekly_cycle: {"artifact":"/tmp/fm-weekly-live.E57si2/data/cycle1/weekly-run.json","due":"2026-10-30T05:20:40.000Z","already_complete":false}
+exit=0
+--- bead after (real bd show) ---
+{
+  "id": "fm-kr6",
+  "status": "open",
+  "due_at": "2026-10-30T05:20:40Z",
+  "metadata": {
+    "unrelated": "preserved",
+    "weekly_review": {
+      "ran_at": "2026-10-23T05:20:40.000Z",
+      "next_due_at": "2026-10-30T05:20:40.000Z",
+      "artifact_path": "/tmp/fm-weekly-live.E57si2/data/cycle1/weekly-run.json",
+      "artifact_sha256": "b4f35a24433b079f01978c27de717a831a3605746940462c10cde432bf30566c"
+    }
+  }
+}
+--- weekly-run.json ---
+{
+  "version": 2,
+  "kind": "weekly-instruction-review",
+  "window": {
+    "since": "2026-10-16T05:20:40.000Z",
+    "until": "2026-10-23T05:20:40.000Z"
+  },
+  "ran_at": "2026-10-23T05:20:40.000Z",
+  "sources_sha256": "e1cf81347c85742270b2046f9b12bc5c88cdaaea6012f262173a2a16f7587c49",
+  "driver": {
+    "id": "fm-kr6",
+    "directory": "/tmp/fm-weekly-live.E57si2/store",
+    "databasePath": "/tmp/fm-weekly-live.E57si2/store/.beads/embeddeddolt"
+  },
+  "artifacts": [
+    {
+      "path": "/tmp/fm-weekly-live.E57si2/data/cycle1/corpus.json",
+      "sha256": "21be09781fb823d962fab17fb41ac7aabaa8f6bddbc409552b139811209a717f"
+    }
+  ]
+}
+--- corpus events (closed lesson should be inside window) ---
+{
+  "week": {
+    "since": "2026-10-16T05:20:40.000Z",
+    "until": "2026-10-23T05:20:40.000Z"
+  },
+  "events": [
+    {
+      "id": "3f2874fb037686406a42",
+      "origin": "bead",
+      "timestamp": "2026-10-23T05:20:21Z"
+    }
+  ],
+  "notes": [
+    "Weekly review window: [2026-10-16T05:20:40.000Z, 2026-10-23T05:20:40.000Z). Invoked on demand; no schedule installed.",
+    "Store /tmp/fm-weekly-live.E57si2/store; database /tmp/fm-weekly-live.E57si2/store/.beads/embeddeddolt; bd where verified; 1 closed records including comments returned for [2026-10-16T05:20:40.000Z, 2026-10-23T05:20:40.000Z); limit 200.",
+    "Weekly events are restricted to the half-open review window; session window retained counts precede the upper-bound filter. Bead snapshots are reported evidence only; closed once is not recurrence."
+  ]
+}
+--- strace executables + scheduler path check ---
+      1 bash
+      7 bd
+      1 bun
+      1 dirname
+     16 git
+scheduler-path opens: 0
