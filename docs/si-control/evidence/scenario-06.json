@@ -38,7 +38,13 @@
     "other_harnesses": "no browser registration guarantee established"
   },
   "scope": "The named shell-hook adapter refuses every tool payload outside its shell/read allowlist. Registration and live browser mediation outside this adapter are not established by this regression. No authenticated browser was driven.",
-  "independent_installed_rerun": "NOT RUN",
+  "independent_installed_rerun": {
+    "verdict": "PASS",
+    "main_sha": "05693a7ba65358f7a88329ce19be3bfedb386c22",
+    "source": "Firstmate instruction 032 relays independent SI seat installed verification; section-14-revalidation.json quotes that evidence.",
+    "fresh_component_evidence": "section-14-revalidation.json",
+    "scope": "Independent SI seat reports installed adapter PASS; fresh installed payload denies browser click before role/command shortcuts. Scope is the named shell-hook adapter; no live browser registration is claimed."
+  },
   "acceptance_closed": false,
   "serial_5": "proven-not-fixed (Path A)",
   "allowlist_hardening": {

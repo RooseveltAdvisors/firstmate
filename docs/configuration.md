@@ -1726,6 +1726,8 @@ The executable regression is `tests/fm-action-gate.test.sh`.
 Binding evidence and its current verification limits are recorded in `docs/si-control/evidence/scenario-05.json`.
 
 The gate refuses writable or changed enforcement before loading its libraries.
+Managed fast-forward updates restore enforcement read-only permissions when the gate entrypoint was already protected; ordinary writable development checkouts retain their development state.
+This restoration preserves the runtime tripwire and does not provision ownership or protect manual Git operations.
 `mail_send` and `send` are always denied, and drafts are admitted without a grant.
 Booking and charging route to human review, and booking, charging and production deploys each require a one-time grant.
 Grants are plain JSON in the root-owned grant store and bind the complete typed request with its digest; a missing, unparseable, worker-created or worker-writable grant denies.

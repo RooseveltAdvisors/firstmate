@@ -97,7 +97,13 @@
   "subject_identity": "Operating-system effective UID, compared with the administrator-minted protected grant; FM_SESSION and caller labels are not identity inputs. Workers sharing a UID share this OS principal.",
   "revocation_scope": "A revoked grant denies in every session; revoking all grants for one UID is not implemented by this per-grant status.",
   "protected_store_integration": "NOT RUN; requires existing administrator fixture request",
-  "independent_installed_rerun": "NOT RUN",
+  "independent_installed_rerun": {
+    "verdict": "PASS",
+    "main_sha": "05693a7ba65358f7a88329ce19be3bfedb386c22",
+    "source": "Firstmate instruction 032 relays independent SI seat installed verification; section-14-revalidation.json quotes that evidence.",
+    "fresh_component_evidence": "section-14-revalidation.json",
+    "scope": "Independent SI seat reports installed subject revocation PASS. Fresh installed subject-policy checks allow an active UID in both sessions and deny a revoked grant in both. Protected-store authentication/integration is a separate NOT RUN precondition."
+  },
   "acceptance_closed": false,
   "serial_5": "proven-not-fixed (Path A)",
   "regression_result": "PASS: targeted action-gate and adapter suites; protected-store cases explicitly skipped without administrator fixture"
