@@ -1,5 +1,5 @@
 // Invoked-cycle completion only. fm-explained-twice.sh --help owns configuration.
-import { existsSync, linkSync, unlinkSync, writeFileSync, realpathSync, lstatSync, readFileSync } from 'node:fs';
+import { closeSync, existsSync, fstatSync, linkSync, openSync, renameSync, unlinkSync, writeFileSync, realpathSync, lstatSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -48,8 +48,10 @@ export function weeklyRun(file: string, driver: Driver) {
 
 // A transient per-bead lock serializes overlapping invocations, even with
 // different work directories. Contention refuses immediately; no polling.
-// A lock left by a killed run names its exited pid and is taken over; a
-// second short-lived lock lets only one run remove it.
+// Each lock file names its owner pid. A lock whose owner is confirmed exited
+// (ESRCH) is replaced; a live, unprobeable (EPERM) or unreadable owner keeps
+// it held. A claim keyed by the dead lock's inode makes one run its sole
+// replacer, and a claim left by a killed replacer is replaced the same way.
 // Each cycle reviews [previous ran_at, ranAt) and re-dates the bead to
 // ranAt + 7d, so consecutive cycles tile time without gaps or overlap.
 export function completeWeeklyCycle(config: unknown, ranAt: string, invoke: (driver: Driver, window: Window) => string) {
@@ -69,28 +71,30 @@ export function completeWeeklyCycle(config: unknown, ranAt: string, invoke: (dri
   check(typeof where.database_path === 'string' && realpathSync(where.database_path) === driver.databasePath &&
     typeof where.path === 'string' && realpathSync(where.path) === realpathSync(join(driver.directory, '.beads')), 'weekly driver store identity mismatch');
   const lock = join(tmpdir(), `fm-weekly-${sha(JSON.stringify(driver))}.lock`);
+  // One descriptor gives the owner pid and the inode of the same lock file.
+  function owner(path: string) {
+    const fd = openSync(path, 'r');
+    try { return {pid: Number(readFileSync(fd, 'utf8')), ino: fstatSync(fd).ino}; } finally { closeSync(fd); }
+  }
+  const release = (path: string) => { if (existsSync(path) && owner(path).pid === process.pid) unlinkSync(path); };
   function acquire(path: string) {
     const own = `${path}.${process.pid}`;
     writeFileSync(own, String(process.pid), {mode: 0o600});
-    try { linkSync(own, path); } catch (error: any) {
-      check(error?.code !== 'EEXIST', `weekly driver lock is held: ${path}`);
-      throw error;
-    } finally { unlinkSync(own); }
-  }
-  const holder = () => existsSync(lock) ? Number(readFileSync(lock, 'utf8')) : undefined;
-  if (existsSync(lock)) {
-    const pid = holder()!;
-    let alive = Number.isSafeInteger(pid) && pid > 0;
-    if (alive) try { process.kill(pid, 0); } catch (probe: any) { alive = probe?.code === 'EPERM'; }
-    check(!alive, `weekly driver locked by running pid ${pid}: ${lock}; remove it only if no weekly run is active`);
-    const takeover = `${lock}.takeover`;
-    acquire(takeover);
     try {
-      check(pid !== undefined && holder() === pid, `weekly driver lock changed during takeover: ${lock}`);
-      console.error(`taking over stale weekly lock from exited pid ${pid}: ${lock}`);
-      unlinkSync(lock); acquire(lock);
-    } finally { unlinkSync(takeover); }
-  } else acquire(lock);
+      try { linkSync(own, path); return; } catch (error: any) { if (error?.code !== 'EEXIST') throw error; }
+      const {pid, ino} = owner(path), valid = Number.isSafeInteger(pid) && pid > 0;
+      let gone = false;
+      if (valid) try { process.kill(pid, 0); } catch (probe: any) { gone = probe?.code === 'ESRCH'; }
+      check(gone, `weekly driver locked by ${valid ? `running pid ${pid}` : 'an unreadable pid'}: ${path}; remove it only if no weekly run is active`);
+      acquire(`${path}.claim.${ino}`);
+      try {
+        check(lstatSync(path).ino === ino, `weekly driver lock changed during takeover: ${path}`);
+        console.error(`taking over stale weekly lock from exited pid ${pid}: ${path}`);
+        renameSync(own, path);
+      } finally { release(`${path}.claim.${ino}`); }
+    } finally { if (existsSync(own)) unlinkSync(own); }
+  }
+  acquire(lock);
   try {
     function show() {
       const rows = bd(['show', `--id=${driver.id}`]);
@@ -132,5 +136,5 @@ export function completeWeeklyCycle(config: unknown, ranAt: string, invoke: (dri
     check(Object.entries(stamp).every(([key, value]) => after.metadata?.weekly_review?.[key] === value) &&
       Date.parse(after.due_at) === Date.parse(saved.next), 'weekly bead update not confirmed by readback');
     return {artifact, due: saved.next, already_complete: false};
-  } finally { unlinkSync(lock); }
+  } finally { release(lock); }
 }
