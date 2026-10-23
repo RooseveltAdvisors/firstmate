@@ -1,0 +1,118 @@
+
+### S1 mail_send is hard-denied and no command runs
+rc=1
+fm-action-gate: DENY: real mail send is strictly prohibited; only drafts are permitted
+fm-action-gate: execution refused: decision was 'DENY'
+PASS: S1
+
+### S2 ledger minimization: marker target never reaches ledger
+ledger: {"timestamp":"2026-10-23T07:12:38Z","decision":"DENY","action_class":"mail_send","target":"[redacted]","task_id":"[redacted]","grant_ref":"[redacted]","reason":"mail_send strictly prohibited"}
+PASS: S2
+
+### S3 missing grant -> HUMAN_REVIEW, legacy v1 grant document refuses binding
+fm-action-gate: HUMAN_REVIEW: action requires captain grant; routing to review
+HUMAN_REVIEW
+PASS: S3a
+rc=1 fm-action-gate: DENY: unregistered external commands and payload files deny; use http-json or a protected command adapter
+PASS: S3b-legacy-argv-refused
+rc=1 fm-action-gate: DENY: unregistered external commands and payload files deny; use http-json or a protected command adapter
+PASS: S3c-external-command-refused
+
+### S4 credential reference: synthetic endpoint, secret absent from grant/argv/ledger, present on wire
+grant (no secret expected): {"schema":"fm-action-grant.v2","request_sha256":"1d93349a0daeb122e04dce3e93c716d4bd8694119131a82154c31944d76dd7d7","payload_sha256":"28e80581a7f959efbbc13090717ee7a967b595ca4d589872d7bb6d56d2f01df6","subject":{"kind":"unix-uid","id":"1000"}}
+PASS: S4a-grant-carries-no-secret
+rc=0 ok: approved HTTP action completed, status=204
+endpoint observed: {"path": "/approved", "authorization": "Bearer SYNTHETIC_CREDENTIAL_SECRET", "account": "synthetic-approved", "body": {"effect": "SYNTHETIC_APPROVED_PAYLOAD"}}
+PASS: S4b-endpoint-received-file-credential
+PASS: S4c-helper-argv-carries-no-secret
+PASS: S4d-ledger-carries-no-secret
+raw-header mint rc=1 fm-action-gate: DENY: raw Authorization material is refused; reference an owner-only credential file by path and sha256
+PASS: S4e-raw-header-refused
+mode 644 rc=1 fm-action-gate: DENY: credential file must be a regular file owned by the executor and readable only by its owner
+PASS: S4f-loose-mode-refused
+rotated rc=1 fm-action-gate: DENY: credential file contents differ from the approved digest
+PASS: S4g-rotated-content-refused
+symlink rc=1 fm-action-gate: DENY: credential file path must be canonical, not an alias
+PASS: S4h-symlink-refused
+PASS: S4i-no-refused-state-reached-endpoint
+PASS: S4j-no-secret-in-argv-after-refusals
+
+### S5 payload substitution (url/account/body/credential ref) refuses; redirect refuses
+url rc=1 fm-action-gate: DENY: command differs from approved payload
+PASS: S5-url
+account_id rc=1 fm-action-gate: DENY: command differs from approved payload
+PASS: S5-account_id
+body rc=1 fm-action-gate: DENY: command differs from approved payload
+PASS: S5-body
+credential.sha256 rc=1 fm-action-gate: DENY: command differs from approved payload
+PASS: S5-credential.sha256
+redirect rc=1 fm-action-gate: DENY: approved endpoint returned HTTP 302; redirects and fallback refuse
+PASS: S5-redirect
+non-loopback http rc=1 fm-action-gate: DENY: HTTPS required except for a literal synthetic loopback destination
+PASS: S5-nonloopback-http-refused
+
+### S6 subject revocation across sessions (admission component; store auth is a precondition)
+active session=original: ALLOW
+PASS: S6-active-original
+active session=other: ALLOW
+PASS: S6-active-other
+revoked other-session rc=1 fm-action-gate: DENY: grant revoked, invalid revocation state or operating subject mismatch
+DENY
+PASS: S6-revoked-other-session
+uid mismatch rc=1 fm-action-gate: DENY: grant revoked, invalid revocation state or operating subject mismatch
+DENY
+PASS: S6-uid-mismatch
+no subject rc=1 fm-action-gate: DENY: grant revoked, invalid revocation state or operating subject mismatch
+DENY
+PASS: S6-missing-subject
+{"timestamp":"2026-10-23T07:12:39Z","decision":"DENY","action_class":"booking","target":"[redacted]","task_id":"[redacted]","grant_ref":"[redacted]","reason":"grant-subject-or-revocation-invalid"}
+
+### S7 end-to-end: worker-owned grant in the real store refuses even at 0444
+rc=1 fm-action-gate: DENY: grant is unprotected or malformed JSON
+PASS: S7
+worker adapter rc=1 fm-action-gate: DENY: adapter and ancestor ownership must be protected
+PASS: S7-worker-adapter-refused
+
+### S8 jev-guard tool allowlist: browser/MCP/case-variant deny in all protocols; exact names allow
+grok/pi rc=2 stdout={"decision":"deny","reason":"fm-action-gate: DENY: tool transport 'mcp__chrome_devtools__click' has no approved action adapter; mail_send is prohibited"} stderr={"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"fm-action-gate: DENY: tool transport 'mcp__chrome_devtools__click' has no approved action adapter; mail_send is prohibited"}
+PASS: S8a-grok-deny
+claude rc=2 stdout=[] stderr={"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"fm-action-gate: DENY: tool transport 'mcp__chrome_devtools__click' has no approved action adapter; mail_send is prohibited"}
+PASS: S8b-claude-deny
+cursor rc=0 stdout={"permission":"deny","user_message":"fm-action-gate: DENY: tool transport 'mcp__chrome_devtools__click' has no approved action adapter; mail_send is prohibited"}
+PASS: S8c-cursor-deny
+BASH rc=2 {"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"fm-action-gate: DENY: tool transport 'BASH' has no approved action adapter; mail_send is prohibited"}
+PASS: S8d-deny-BASH
+shell rc=2 {"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"fm-action-gate: DENY: tool transport 'shell' has no approved action adapter; mail_send is prohibited"}
+PASS: S8d-deny-shell
+READ rc=2 {"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"fm-action-gate: DENY: tool transport 'READ' has no approved action adapter; mail_send is prohibited"}
+PASS: S8d-deny-READ
+Run_Terminal_Command rc=2 {"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"fm-action-gate: DENY: tool transport 'Run_Terminal_Command' has no approved action adapter; mail_send is prohibited"}
+PASS: S8d-deny-Run_Terminal_Command
+WebFetch rc=2 {"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"fm-action-gate: DENY: tool transport 'WebFetch' has no approved action adapter; mail_send is prohibited"}
+PASS: S8d-deny-WebFetch
+mcp__playwright__browser_click rc=2 {"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"fm-action-gate: DENY: tool transport 'mcp__playwright__browser_click' has no approved action adapter; mail_send is prohibited"}
+PASS: S8d-deny-mcp__playwright__browser_click
+unnamed rc=2 {"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"fm-action-gate: DENY: tool transport 'unnamed' has no approved action adapter; mail_send is prohibited"}
+PASS: S8e-unnamed-deny
+governed {"tool_name":"Bash","tool_input":{"command":"git status"}} rc=0 out=[]
+PASS: S8f-allow
+governed {"tool_name":"Shell","tool_input":{"command":"git status"}} rc=0 out=[]
+PASS: S8f-allow
+governed {"toolName":"run_terminal_command","toolInput":{"command":"git status"}} rc=0 out=[]
+PASS: S8f-allow
+governed {"tool_name":"Read","tool_input":{"file_path":"x"}} rc=0 out=[]
+PASS: S8f-allow
+primary ssh rc=0 
+FAIL: S8g
+primary git status rc=0 []
+PASS: S8h-primary-benign-allowed
+
+TOTAL FAILS: 1
+
+### S8g re-drive (driver bug: printf collapsed \" so the first payload was invalid JSON and failed open by design; re-driven with jq-built payload)
+payload: {"tool_name":"Bash","tool_input":{"command":"ssh gpu \"docker ps\""}}
+grok/pi rc=2 stdout={"decision":"deny","reason":"[require_delegation] Command violates supervisor boundary in w1 (gpu_ops). Hands-on execution must be delegated to Second Mates. (Domain: gpu_ops; Suggested: bin/fm-send.sh gpu-ops '<task instructions>')"}
+stderr={"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"[require_delegation] Command violates supervisor boundary in w1 (gpu_ops). Hands-on execution must be delegated to Second Mates. (Domain: gpu_ops; Suggested: bin/fm-send.sh gpu-ops '<task instructions>')"}
+PASS: S8g-primary-classifier-still-fires-for-exact-Bash
+claude rc=2 stdout=[] stderr={"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"[require_delegation] Command violates supervisor boundary in w1 (gpu_ops). Hands-on execution must be delegated to Second Mates. (Domain: gpu_ops; Suggested: bin/fm-send.sh gpu-ops '<task instructions>')"}
+PASS: S8g-claude
