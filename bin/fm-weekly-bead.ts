@@ -74,23 +74,30 @@ export function completeWeeklyCycle(config: unknown, ranAt: string, invoke: (dri
     typeof where.path === 'string' && realpathSync(where.path) === realpathSync(join(driver.directory, '.beads')), 'weekly driver store identity mismatch');
   const lock = join(tmpdir(), `fm-weekly-${sha(JSON.stringify(driver))}.lock`);
   // One descriptor gives the owner pid and the inode of the same lock file.
+  const absent = (error: any) => { if (error?.code !== 'ENOENT') throw error; return undefined; };
   function owner(path: string) {
-    const fd = openSync(path, 'r');
+    let fd: number;
+    try { fd = openSync(path, 'r'); } catch (error) { return absent(error); }
     try { return {pid: Number(readFileSync(fd, 'utf8')), ino: fstatSync(fd).ino}; } finally { closeSync(fd); }
   }
-  const release = (path: string) => { if (existsSync(path) && owner(path).pid === process.pid) unlinkSync(path); };
+  const release = (path: string) => { if (owner(path)?.pid === process.pid) unlinkSync(path); };
   function acquire(path: string) {
     const own = `${path}.${process.pid}`;
     writeFileSync(own, String(process.pid), {mode: 0o600});
     try {
-      try { linkSync(own, path); return; } catch (error: any) { if (error?.code !== 'EEXIST') throw error; }
-      const {pid, ino} = owner(path), valid = Number.isSafeInteger(pid) && pid > 0;
+      const link = () => { try { linkSync(own, path); return true; } catch (error: any) { if (error?.code !== 'EEXIST') throw error; return false; } };
+      if (link()) return;
+      let held = owner(path);
+      if (!held) { if (link()) return; held = owner(path); }
+      check(held, `weekly driver lock changed during takeover: ${path}`);
+      const {pid, ino} = held, valid = Number.isSafeInteger(pid) && pid > 0;
       let gone = false;
       if (valid) try { process.kill(pid, 0); } catch (probe: any) { gone = probe?.code === 'ESRCH'; }
       check(gone, `weekly driver locked by ${valid ? `running pid ${pid}` : 'an unreadable pid'}: ${path}; remove it only if no weekly run is active`);
       acquire(`${path}.claim.${ino}`);
       try {
-        check(lstatSync(path).ino === ino, `weekly driver lock changed during takeover: ${path}`);
+        const current = (() => { try { return lstatSync(path).ino; } catch (error) { return absent(error); } })();
+        check(current === ino, `weekly driver lock changed during takeover: ${path}`);
         console.error(`taking over stale weekly lock from exited pid ${pid}: ${path}`);
         renameSync(own, path);
       } finally { release(`${path}.claim.${ino}`); }

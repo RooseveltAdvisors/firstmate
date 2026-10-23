@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test';
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join, resolve, basename } from 'node:path';
@@ -336,6 +336,23 @@ test('a lock without a readable owner pid refuses rather than being reclaimed', 
     expect(readFileSync(lockFile(), 'utf8')).toBe('not-a-pid');
     expect(issue()).toEqual(before); expect(calls().some(a => a.includes('update'))).toBe(false);
   } finally { rmSync(lockFile(), {force: true}); }
+});
+
+test.each(['lock', 'takeover', 'claim'])('a %s name present at link time but absent at its owner read refuses by name, never with a raw ENOENT', kind => {
+  const dead = Bun.spawnSync(['true']).pid;
+  if (kind !== 'lock') writeFileSync(lockFile(), String(dead));
+  const vanished = kind === 'lock' ? lockFile() : kind === 'takeover' ? `${lockFile()}.takeover` : claimFile();
+  symlinkSync(join(root, 'removed-by-another-run'), vanished);
+  try {
+    const before = issue(), r = run();
+    expect(r.exitCode).not.toBe(0);
+    expect(text(r)).toContain(`weekly driver lock changed during takeover: ${vanished}`);
+    expect(text(r)).not.toContain('ENOENT');
+    expect(lstatSync(vanished).isSymbolicLink()).toBe(true);
+    if (kind !== 'lock') expect(readFileSync(lockFile(), 'utf8')).toBe(String(dead));
+    expect(issue()).toEqual(before); expect(calls().some(a => a.includes('update'))).toBe(false);
+    expect(existsSync(join(output, 'weekly-run.json'))).toBe(false);
+  } finally { rmSync(vanished, {force: true}); rmSync(lockFile(), {force: true}); }
 });
 
 test('a run killed while holding the lock leaves the next run able to complete the cycle', async () => {
