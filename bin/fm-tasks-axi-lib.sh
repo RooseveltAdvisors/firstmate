@@ -242,10 +242,40 @@ fm_tasks_axi_backend_resolve() {  # <tasks-axi-working-directory>
 # unless a caller already exported an explicit actor: bin/fm-spawn.sh exports
 # the worker's task id (the registered secondmate name for a --secondmate
 # spawn) so the dispatch claim, the worker's pane, and everything the worker
-# claims, holds, or closes carry who did it.
+# claims, holds, or closes carry who did it. When registered seats are active
+# and firstmate@<basename> is not registered as a seat or alias, fall back to
+# the registered supervisor seat ('firstmate' or the home basename).
 fm_tasks_axi_export_actor() {
   [ -n "${BEADS_ACTOR:-}" ] && return 0
-  BEADS_ACTOR="firstmate@$(basename "${FM_HOME:-firstmate}")"
+  local home_base preferred
+  home_base=$(basename "${FM_HOME:-firstmate}")
+  preferred="firstmate@$home_base"
+  local bd_dir="${FM_HOME:-}" seats_json="" seats=""
+  [ -d "$bd_dir/.beads" ] || bd_dir="."
+  if [ -f "$bd_dir/.beads/notify/seats.json" ]; then
+    seats_json="$bd_dir/.beads/notify/seats.json"
+  elif [ -f "$bd_dir/.beads/seats.json" ]; then
+    seats_json="$bd_dir/.beads/seats.json"
+  fi
+  if [ -n "$seats_json" ]; then
+    seats=$(cat "$seats_json" 2>/dev/null || true)
+  fi
+  if [ -n "$seats" ] && [ "$seats" != "{}" ]; then
+    if command -v jq >/dev/null 2>&1; then
+      if printf '%s' "$seats" | jq -e --arg a "$preferred" 'has($a) or any(.[]; (.aliases // []) | index($a) != null)' >/dev/null 2>&1; then
+        BEADS_ACTOR="$preferred"
+      elif printf '%s' "$seats" | jq -e 'has("firstmate") or any(.[]; (.aliases // []) | index("firstmate") != null)' >/dev/null 2>&1; then
+        BEADS_ACTOR="firstmate"
+      elif printf '%s' "$seats" | jq -e --arg h "$home_base" 'has($h) or any(.[]; (.aliases // []) | index($h) != null)' >/dev/null 2>&1; then
+        BEADS_ACTOR="$home_base"
+      else
+        BEADS_ACTOR="$preferred"
+      fi
+      export BEADS_ACTOR
+      return 0
+    fi
+  fi
+  BEADS_ACTOR="$preferred"
   export BEADS_ACTOR
 }
 

@@ -4306,6 +4306,120 @@ herdr_projection_existing_meta_allows_flat() { # <meta>
   esac
 }
 
+# Ensure the task's actor seat exists in the Beads registry before dispatch.
+# Beads 1.3.1 enforces that mutating commands carry an actor matching a registered
+# seat or alias whenever seats.json has active seats.
+#   preflight: verifies or pre-registers the seat BEFORE creating the endpoint or
+#              worktree, failing closed if registration fails so no orphan pane
+#              is left behind.
+#   bind:      rebinds the seat to the real session and pane once the endpoint
+#              has been created, and prints a one-line receipt.
+spawn_ensure_beads_seat() {  # <preflight|bind>
+  local mode=$1
+  local bd_bin
+  bd_bin=$(command -v bd 2>/dev/null || true)
+  [ -n "$bd_bin" ] || return 0
+
+  local root
+  root=$(fm_backlog_root "$DATA" 2>/dev/null || echo "${FM_HOME:-.}")
+  local backend
+  backend=$(fm_tasks_axi_backend "$root" 2>/dev/null || true)
+  [ "$backend" = beads ] || return 0
+
+  local bd_dir="$root" seats_json="" seats=""
+  [ -d "$bd_dir/.beads" ] || bd_dir="${FM_HOME:-.}"
+  [ -d "$bd_dir/.beads" ] || bd_dir="$DATA"
+  [ -d "$bd_dir/.beads" ] || bd_dir="."
+  if [ -f "$bd_dir/.beads/notify/seats.json" ]; then
+    seats_json="$bd_dir/.beads/notify/seats.json"
+  elif [ -f "$bd_dir/.beads/seats.json" ]; then
+    seats_json="$bd_dir/.beads/seats.json"
+  fi
+  if [ -n "$seats_json" ]; then
+    seats=$(cat "$seats_json" 2>/dev/null || true)
+  fi
+  # If seats.json does not exist or has no registered seats, Beads 1.3.1 does
+  # not enforce seat registration.
+  [ -n "$seats" ] && [ "$seats" != "{}" ] || return 0
+
+  local existing_seat=""
+  if command -v jq >/dev/null 2>&1; then
+    existing_seat=$(printf '%s' "$seats" | jq -r --arg id "$ID" \
+      'to_entries[] | select(.key == $id or ((.value.aliases // []) | index($id) != null)) | .key' 2>/dev/null | head -n 1 || true)
+  fi
+
+  case "$mode" in
+  preflight)
+    [ -z "$existing_seat" ] || return 0
+    local preflight_session="${HERDR_SES:-firstmate}" reg_out
+    if ! reg_out=$("$bd_bin" -C "$bd_dir" seat register "$ID" \
+        --session "$preflight_session" --pane "$ID" --alias "$ID" 2>&1); then
+      echo "error: beads actor seat for $ID could not be registered ($reg_out); refusing before creating its endpoint or local copy" >&2
+      exit 1
+    fi
+    ;;
+  bind)
+    local bind_session="" bind_pane=""
+    case "$BACKEND" in
+    herdr)
+      bind_session="${HERDR_SES:-firstmate}"
+      bind_pane="${HERDR_PANE_ID:-${T#*:}}"
+      ;;
+    tmux)
+      bind_session="${SES:-firstmate}"
+      bind_pane="${W:-${T#*:}}"
+      ;;
+    zellij)
+      bind_session="${ZELLIJ_SES:-firstmate}"
+      bind_pane="${ZELLIJ_PANE_ID:-${T#*:}}"
+      ;;
+    cmux)
+      bind_session="${CMUX_WORKSPACE_ID:-firstmate}"
+      bind_pane="${CMUX_SURFACE_ID:-${T#*:}}"
+      ;;
+    paseo)
+      bind_session="${FM_PASEO_TASK_TERMINAL_ID:-firstmate}"
+      bind_pane="${FM_PASEO_TASK_WORKSPACE_ID:-${T#*:}}"
+      ;;
+    rex)
+      bind_session="${FM_REX_TASK_SESSION_ID:-firstmate}"
+      bind_pane="${FM_REX_TASK_BLOCK_ID:-${T#*:}}"
+      ;;
+    orca)
+      bind_session="firstmate"
+      bind_pane="${ORCA_TERMINAL:-$T}"
+      ;;
+    *)
+      if [ "$T" != "${T#*:}" ]; then
+        bind_session="${T%%:*}"
+        bind_pane="${T#*:}"
+      else
+        bind_session="firstmate"
+        bind_pane="$T"
+      fi
+      ;;
+    esac
+    [ -n "$bind_session" ] || bind_session="firstmate"
+    [ -n "$bind_pane" ] || bind_pane="${T:-$ID}"
+
+    local reg_out reg_status=0 target_seat="${existing_seat:-$ID}"
+    if [ -n "$existing_seat" ]; then
+      reg_out=$("$bd_bin" -C "$bd_dir" seat register "$target_seat" \
+        --session "$bind_session" --pane "$bind_pane" 2>&1) || reg_status=$?
+    else
+      reg_out=$("$bd_bin" -C "$bd_dir" seat register "$target_seat" \
+        --session "$bind_session" --pane "$bind_pane" --alias "$ID" 2>&1) || reg_status=$?
+    fi
+
+    if [ "$reg_status" -eq 0 ]; then
+      echo "beads: registered seat $ID (session=$bind_session pane=$bind_pane)"
+    else
+      echo "warning: beads seat registration for $ID failed ($reg_out)" >&2
+    fi
+    ;;
+  esac
+}
+
 # Backlog preflight (bin/fm-backlog-transition-lib.sh). This spawn is about to
 # become the sole owner of the row's In-flight transition, so prove the row is
 # transitionable BEFORE any endpoint, worktree, or record exists: a refusal here
@@ -4340,6 +4454,10 @@ else
     echo "error: task $ID cannot be dispatched because its backlog data directory is inaccessible: $DATA ($FM_BACKLOG_TRANSITION_ERROR)" >&2
     exit 1
   fi
+fi
+
+if [ "$BACKLOG_TRANSITION" = 1 ]; then
+  spawn_ensure_beads_seat preflight
 fi
 
 if [ "$SPAWN_META_LOCK_HELD" != 1 ]; then
@@ -4812,6 +4930,7 @@ fi
 # WT_TARGET to $T for them (and for any future backend) - the shared treehouse-get +
 # worktree-detection steps below must never reference an unbound WT_TARGET under set -u.
 : "${WT_TARGET:=$T}"
+spawn_ensure_beads_seat bind
 spawn_send_text_line() { # <target> <text>
   case "$BACKEND" in
   tmux) fm_backend_tmux_send_text_line "$1" "$2" ;;

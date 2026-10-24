@@ -94,6 +94,20 @@ make_home() {  # <name>
 case "\$*" in *"#{pane_current_path}"*) printf '%s\n' "\${FM_FAKE_PANE_PATH:-}"; exit 0 ;; esac
 case "\${1:-}" in
   display-message) printf 'firstmate\n'; exit 0 ;;
+  new-window)
+    args=("\$@")
+    for ((i=0; i<\${#args[@]}; i++)); do
+      if [ "\${args[i]}" = "-n" ]; then
+        printf '%s\n' "\${args[i+1]}" >> "$case_dir/windows"
+      fi
+    done
+    printf '@1\n'
+    exit 0
+    ;;
+  list-windows)
+    [ ! -f "$case_dir/windows" ] || cat "$case_dir/windows"
+    exit 0
+    ;;
   send-keys) printf '%s\n' "\$*" >> "$case_dir/tmux-sends" ; exit 0 ;;
 esac
 exit 0
@@ -249,6 +263,77 @@ test_an_explicitly_exported_actor_is_never_overridden() {
   pass "an explicitly exported BEADS_ACTOR is never overridden"
 }
 
+test_spawn_and_teardown_with_registered_seats() {
+  local case_dir home id out
+  id=actor-seat-b4
+  case_dir=$(make_home spawn-seats)
+  home=$(home_of "$case_dir")
+  # Register firstmate seat in the fixture database so seats are active.
+  (cd "$home" && bd seat register firstmate --session firstmate --pane w1:p1 --alias firstmate) >/dev/null 2>&1 \
+    || fail "could not register initial firstmate seat"
+  write_brief "$case_dir" "$id"
+  (cd "$home" && BEADS_ACTOR=firstmate tasks-axi add "$id" "item for $id" --kind ship) >/dev/null \
+    || fail "could not add backlog item under firstmate actor"
+
+  out=$(run_ship_spawn "$case_dir" "$id" "$TMP_ROOT/spawn-seats/project") \
+    || fail "beads spawn failed with registered seats: $out"
+  assert_contains "$out" "beads: registered seat $id (session=firstmate pane=fm-$id)" \
+    "spawn did not report beads seat registration"
+  assert_contains "$out" "spawned $id" "spawn did not report success"
+  [ "$(row_state "$case_dir" "$id")" = in_flight ] \
+    || fail "spawn reported success with its backlog item still $(row_state "$case_dir" "$id")"
+  [ "$(status_actor "$case_dir" in_progress)" = "$id" ] \
+    || fail "the dispatch claim records actor '$(status_actor "$case_dir" in_progress)' instead of $id"
+
+  detach_worktree "$case_dir" "$id"
+  out=$(run_teardown "$case_dir" "$id") || fail "teardown failed with registered seats: $out"
+  [ "$(row_state "$case_dir" "$id")" = "done" ] \
+    || fail "teardown reported success with the item still $(row_state "$case_dir" "$id")"
+  [ "$(status_actor "$case_dir" closed)" = "firstmate" ] \
+    || fail "teardown close records actor '$(status_actor "$case_dir" closed)' instead of firstmate"
+  pass "spawn registers worker seat and teardown closes under registered supervisor seat"
+}
+
+test_spawn_fails_before_endpoint_if_seat_registration_refused() {
+  local case_dir home id out rc fakebin real_bd
+  id=actor-refuse-b5
+  case_dir=$(make_home spawn-refuse)
+  home=$(home_of "$case_dir")
+  fakebin=$(fm_fakebin "$case_dir")
+  real_bd=$(command -v bd)
+  # Register firstmate seat in the fixture database so seats are active.
+  (cd "$home" && "$real_bd" seat register firstmate --session firstmate --pane w1:p1 --alias firstmate) >/dev/null 2>&1 \
+    || fail "could not register initial firstmate seat"
+  write_brief "$case_dir" "$id"
+  (cd "$home" && BEADS_ACTOR=firstmate tasks-axi add "$id" "item for $id" --kind ship) >/dev/null \
+    || fail "could not add backlog item under firstmate actor"
+
+  # Stub bd in fakebin to fail seat register during preflight.
+  cat > "$fakebin/bd" <<SH
+#!/usr/bin/env bash
+for arg in "\$@"; do
+  if [ "\$arg" = "register" ]; then
+    echo "mocked seat registration failure" >&2
+    exit 1
+  fi
+done
+exec "$real_bd" "\$@"
+SH
+  chmod +x "$fakebin/bd"
+
+  rc=0
+  out=$(run_ship_spawn "$case_dir" "$id" "$TMP_ROOT/spawn-refuse/project") || rc=$?
+  [ "$rc" -ne 0 ] || fail "spawn succeeded despite seat registration failure"
+  assert_contains "$out" "refusing before creating its endpoint or local copy" \
+    "spawn did not report refusal before endpoint creation"
+  if [ -f "$case_dir/windows" ] && grep -qx "fm-$id" "$case_dir/windows"; then
+    fail "orphan endpoint window was created despite preflight refusal"
+  fi
+  pass "spawn fails closed before creating an endpoint when seat registration fails"
+}
+
 test_spawn_attributes_the_claim_and_the_pane_to_the_task_id
 test_teardown_closes_as_firstmate_and_reads_two_distinct_actors
 test_an_explicitly_exported_actor_is_never_overridden
+test_spawn_and_teardown_with_registered_seats
+test_spawn_fails_before_endpoint_if_seat_registration_refused
