@@ -68,7 +68,7 @@ weekly --work-dir DIR --sources FILE [--week YYYY-MM-DD] [--bead-limit N]
   Each store is resolved and checked against databasePath using bd where;
   BEADS_* and BD_DATABASE overrides are removed; each read pins both directory
   and database.
-  Reads closed_at in the week, not updated_at; limit defaults to 200 per store,
+  Reads closed_at in the review window, not updated_at; limit defaults to 200 per store,
   maximum 1000. Extra rows, timeouts (30 seconds), errors, or output over 4 MiB
   refuse the run. bd show --include-comments in batches of ten supplies records;
   each record (maximum 4 MiB) becomes a private, verifiable snapshot.
