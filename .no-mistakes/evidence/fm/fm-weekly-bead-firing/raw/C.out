@@ -1,0 +1,9 @@
+taking over stale weekly lock from exited pid 547152: /tmp/fm-weekly-fd41970050820af389df2c573d428bb12efad0913450d1d593a5cb9081f237b2.lock.takeover
+taking over stale weekly lock from exited pid 547152: /tmp/fm-weekly-fd41970050820af389df2c573d428bb12efad0913450d1d593a5cb9081f237b2.lock
+corpus: "/tmp/fm-weekly-live.AuImj8/data/cycle2/corpus.json"
+week: {"since":"2026-10-24T13:50:25.000Z","until":"2026-10-24T13:51:54.000Z"}
+closed_beads: 0
+user_messages: 0
+instruction_edits: 0
+next: "Review show --full, write review.json, then run report with this --work-dir; no classification is automatic."
+weekly_cycle: {"artifact":"/tmp/fm-weekly-live.AuImj8/data/cycle2/weekly-run.json","due":"2026-10-31T13:51:54.000Z","already_complete":false}

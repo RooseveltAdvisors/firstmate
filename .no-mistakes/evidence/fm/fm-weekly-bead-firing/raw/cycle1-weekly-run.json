@@ -1,0 +1,21 @@
+{
+  "version": 2,
+  "kind": "weekly-instruction-review",
+  "window": {
+    "since": "2026-10-17T13:50:25.000Z",
+    "until": "2026-10-24T13:50:25.000Z"
+  },
+  "ran_at": "2026-10-24T13:50:25.000Z",
+  "sources_sha256": "ec45a56b7592d87a0538d274ba7c37d280d28ebc675965a32266061fac0c85e1",
+  "driver": {
+    "id": "fm-zon",
+    "directory": "/tmp/fm-weekly-live.AuImj8/store",
+    "databasePath": "/tmp/fm-weekly-live.AuImj8/store/.beads/embeddeddolt"
+  },
+  "artifacts": [
+    {
+      "path": "/tmp/fm-weekly-live.AuImj8/data/cycle1/corpus.json",
+      "sha256": "7d5bffb081adea9fdf342ca8b94f9af21fc52bc41728acdf0faa4df6d956adf6"
+    }
+  ]
+}

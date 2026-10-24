@@ -1,0 +1,4 @@
+fm-explained-twice: weekly driver locked by running pid 1025014: /tmp/fm-weekly-fd41970050820af389df2c573d428bb12efad0913450d1d593a5cb9081f237b2.lock.claim.116485217; remove it only if no weekly run is active
+error: "weekly driver locked by running pid 1025014: /tmp/fm-weekly-fd41970050820af389df2c573d428bb12efad0913450d1d593a5cb9081f237b2.lock.claim.116485217; remove it only if no weekly run is active"
+next: "bin/fm-explained-twice.sh --help"
+exit=1

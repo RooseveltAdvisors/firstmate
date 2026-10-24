@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "windows": [
+    {
+      "file": "/tmp/fm-weekly-live.AuImj8/data/cycle1/bead-0cc246c93d37b2756d4781cc2130447019bb0aad73cccb8738401cb8ba4a8721.json",
+      "size": 561,
+      "start": 0,
+      "end": 561,
+      "since": "2026-10-17T13:50:25.000Z",
+      "records": 1,
+      "retained": 1,
+      "malformed": 0,
+      "partialEdges": 0,
+      "oversized": false
+    }
+  ],
+  "events": [
+    {
+      "text": "{\n  \"id\": \"fm-s16\",\n  \"title\": \"Closed before cycle one\",\n  \"status\": \"closed\",\n  \"priority\": 3,\n  \"issue_type\": \"task\",\n  \"owner\": \"rooseveltadvisors@gmail.com\",\n  \"created_at\": \"2026-10-24T13:50:07Z\",\n  \"created_by\": \"Jon Roosevelt\",\n  \"updated_at\": \"2026-10-24T13:50:08Z\",\n  \"closed_at\": \"2026-10-24T13:50:08Z\",\n  \"close_reason\": \"fixture closed before cycle 1\",\n  \"due_source\": \"explicit\",\n  \"dependent_count\": 0,\n  \"dependency_count\": 0,\n  \"comment_count\": 0,\n  \"revision\": \"-4437635061310956861\"\n}",
+      "role": "record",
+      "corr": [],
+      "timestamp": "2026-10-24T13:50:08Z",
+      "bead": {
+        "id": "fm-s16",
+        "store": "/tmp/fm-weekly-live.AuImj8/store",
+        "databasePath": "/tmp/fm-weekly-live.AuImj8/store/.beads/embeddeddolt"
+      },
+      "file": "/tmp/fm-weekly-live.AuImj8/data/cycle1/bead-0cc246c93d37b2756d4781cc2130447019bb0aad73cccb8738401cb8ba4a8721.json",
+      "offset": 0,
+      "length": 561,
+      "hash": "47b000b30820dfc2a2790bdee6afc27091dbb3f381f8ac03367e8f545479ae18",
+      "id": "d0d7bc3d43126d020e4e",
+      "origin": "bead"
+    }
+  ],
+  "notes": [
+    "Weekly review window: [2026-10-17T13:50:25.000Z, 2026-10-24T13:50:25.000Z). Invoked on demand; no schedule installed.",
+    "Store /tmp/fm-weekly-live.AuImj8/store; database /tmp/fm-weekly-live.AuImj8/store/.beads/embeddeddolt; bd where verified; 1 closed records including comments returned for [2026-10-17T13:50:25.000Z, 2026-10-24T13:50:25.000Z); limit 200.",
+    "Weekly events are restricted to the half-open review window; session window retained counts precede the upper-bound filter. Bead snapshots are reported evidence only; closed once is not recurrence."
+  ],
+  "week": {
+    "since": "2026-10-17T13:50:25.000Z",
+    "until": "2026-10-24T13:50:25.000Z"
+  }
+}

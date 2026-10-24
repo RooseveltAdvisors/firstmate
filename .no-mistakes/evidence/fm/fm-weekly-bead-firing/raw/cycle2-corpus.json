@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "windows": [],
+  "events": [],
+  "notes": [
+    "Weekly review window: [2026-10-24T13:50:25.000Z, 2026-10-24T13:51:54.000Z). Invoked on demand; no schedule installed.",
+    "Store /tmp/fm-weekly-live.AuImj8/store; database /tmp/fm-weekly-live.AuImj8/store/.beads/embeddeddolt; bd where verified; 0 closed records including comments returned for [2026-10-24T13:50:25.000Z, 2026-10-24T13:51:54.000Z); limit 200.",
+    "Weekly events are restricted to the half-open review window; session window retained counts precede the upper-bound filter. Bead snapshots are reported evidence only; closed once is not recurrence."
+  ],
+  "week": {
+    "since": "2026-10-24T13:50:25.000Z",
+    "until": "2026-10-24T13:51:54.000Z"
+  }
+}

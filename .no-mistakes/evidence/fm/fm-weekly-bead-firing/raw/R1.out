@@ -1,0 +1,5 @@
+fm-explained-twice: weekly bead refused for /tmp/fm-weekly-live.AuImj8/store fm-nope: Issue fm-nope not found
+Hint: this ID may have never existed, or may reference a deleted/purged record with no trace left in the live database — try 'bd history fm-nope'
+
+error: "weekly bead refused for /tmp/fm-weekly-live.AuImj8/store fm-nope: Issue fm-nope not found\nHint: this ID may have never existed, or may reference a deleted/purged record with no trace left in the live database — try 'bd history fm-nope'\n"
+next: "bin/fm-explained-twice.sh --help"

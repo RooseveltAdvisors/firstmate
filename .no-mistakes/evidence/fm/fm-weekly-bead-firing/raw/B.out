@@ -1,0 +1,3 @@
+fm-explained-twice: weekly artifact window does not continue the stamped cycle: /tmp/fm-weekly-live.AuImj8/data/cycle1/weekly-run.json; use a new --work-dir
+error: "weekly artifact window does not continue the stamped cycle: /tmp/fm-weekly-live.AuImj8/data/cycle1/weekly-run.json; use a new --work-dir"
+next: "bin/fm-explained-twice.sh --help"

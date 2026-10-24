@@ -1,0 +1,4 @@
+fm-explained-twice: weekly driver lock changed during takeover: /tmp/fm-weekly-fd41970050820af389df2c573d428bb12efad0913450d1d593a5cb9081f237b2.lock
+error: "weekly driver lock changed during takeover: /tmp/fm-weekly-fd41970050820af389df2c573d428bb12efad0913450d1d593a5cb9081f237b2.lock"
+next: "bin/fm-explained-twice.sh --help"
+exit=1
