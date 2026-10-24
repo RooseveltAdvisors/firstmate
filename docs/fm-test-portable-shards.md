@@ -29,15 +29,11 @@ For each sample, the first segment runs from `FM_TEST_BEGIN` to the boundary's `
 Add the original trailing cleanup interval to the first segment and the original first-case interval to the second, conservatively covering repeated setup and cleanup.
 Round each interval up to milliseconds and retain the larger segment sample across both runs.
 This gives host hints of 768458 ms and 744724 ms, and watcher hints of 625799 ms and 598874 ms.
-These are CI-derived segment estimates; refresh them with whole-entry timing artifacts once CI has exercised the split.
+These are CI-derived segment estimates, and whole-entry timing artifacts will refresh them once CI has exercised the split.
 
 Ten serial runners fit the refreshed model without raising any timeout.
 Parallel membership is repacked by longest-processing-time assignment, retaining the Pi typecheck prerequisite on shard 1.
-The executable verification command is `bin/fm-test-run.sh --check-coverage`; its current output is:
-
-```text
-FM_TEST_COVERAGE ok total=559 parallel=24 parallel_max_ms=934258 parallel_imbalance_ms=150 parallel_unhinted=0 serial=519 serial_shards=10 serial_unhinted=0 serial_max_ms=1130301 serial_budget_ms=1200000 herdr=16
-```
+The executable verification command is `bin/fm-test-run.sh --check-coverage`.
 
 ### Retained baseline
 
@@ -46,8 +42,15 @@ The house baseline added successful artifacts from runs 36703559612, 36627768210
 The retained house hints also include the 25 previously unhinted or newly added serial scripts measured in runs [38930940577](https://github.com/RooseveltAdvisors/firstmate/actions/runs/38930940577) and [38938137822](https://github.com/RooseveltAdvisors/firstmate/actions/runs/38938137822), taking the larger measurement except for the documented split-suite estimates.
 The consequential action gate hints for `tests/fm-action-adapter.test.sh` and the regrown `tests/fm-action-gate.test.sh` take the slowest successful serial sample from runs [39916933506](https://github.com/RooseveltAdvisors/firstmate/actions/runs/39916933506) and [39920173201](https://github.com/RooseveltAdvisors/firstmate/actions/runs/39920173201).
 The native-Windows-only `tests/fm-pi-windows-shell-invocation.test.sh` retains its separate 5121 ms measurement from 2026-09-06T21:02Z rather than a portable capability skip.
-The 2026-10-07 polytoken adapter tests carry provisional local measurements instead - 21090 ms for `tests/fm-polytoken-harness.test.sh` and the 103 ms live-guard skip for `tests/fm-polytoken-signals-live-e2e.test.sh`, both measured on the adapter-verification macOS host - until the next CI refresh replaces them with Ubuntu measurements, because they postdate the 2026-09-30 baseline.
-The session-start hint retains its pre-optimization maximum until CI measures the shorter fixture-only home-summary bound; local speedups do not discount CI packing weights.
+The 2026-10-07 polytoken adapter tests carry provisional local measurements instead: 21090 ms for `tests/fm-polytoken-harness.test.sh` and the 103 ms live-guard skip for `tests/fm-polytoken-signals-live-e2e.test.sh`, both measured on the adapter-verification macOS host, until the next CI refresh replaces them with Ubuntu measurements, because they postdate the 2026-09-30 baseline.
+The 2026-10-23 `tests/fm-approval-failover.test.sh` serial hint is a provisional local measurement of 5410 ms, the slowest of five local `bin/fm-test-run.sh` samples (4991 to 5410 ms), until the next CI refresh replaces it with an Ubuntu timing-artifact maximum.
+The 2026-10-23 Kimi folder-prompt live guard, `tests/fm-kimi-trust-prompt-live-e2e.test.sh`, carries a provisional 60 ms skip measured on the Linux host that recorded its captures, until the next CI refresh replaces it with an Ubuntu measurement.
+The wedge-cap suite carries the Ubuntu measurements from CI run [39597689178](https://github.com/kunchenguid/firstmate/actions/runs/39597689178): 374225 ms for `tests/fm-watch-wedge-cap.test.sh` and the 74 ms live-guard skip for `tests/fm-watch-wedge-cap-live.test.sh`, in place of the provisional local measurements the suite first carried (1003000 ms and the 155 ms skip), which overstated the CI cost of both.
+They are not a formality: without a hint the suite is packed on the 45000 ms default, which puts it beside a shard already holding about 17 minutes of measured work, so that shard would really have run for about 23 minutes, past the 20-minute target the guard reserves, while the coverage guard still passed.
+The same run measured the wedge-cap parity suite at 27763 ms, which `bin/fm-test-run.sh` packs in place of the provisional 209000 ms local measurement.
+`test_portable_serial_packing_budget_boundary` now pins every other fixture script to 1 ms, so packing exactly at the 1200000 ms budget is accepted and one millisecond above it is refused even when real serial members have no hint.
+The coverage-guard test owns modeled real-hint headroom under that budget.
+The session-start hint retains its pre-optimization maximum until CI measures the shorter fixture-only home-summary bound, and local speedups do not discount CI packing weights.
 
 ## Parallel lanes
 
