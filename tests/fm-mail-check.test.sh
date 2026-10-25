@@ -163,6 +163,8 @@ printf "42\\t2026-09-05T00:00:00Z\\talice@example.com\\tHello\\n"'
   assert_contains "$(cat "$home/state/.mail-check")" "reported=new mail: woke for 42" "the record carries the reported new-mail finding"
   wakeq="$home/state/.wake-queue"
   assert_contains "$(cat "$wakeq" 2>/dev/null)" "mail from alice@example.com" "the check-run poll still surfaces new mail as a durable wake"
+  assert_contains "$(cat "$wakeq" 2>/dev/null)" "check: mail " "the mail wake keeps its queue shape"
+  assert_contains "$(cat "$wakeq" 2>/dev/null)" "verdict=captain" "the mail wake carries the captain verdict tag"
   assert_contains "$(cat "$home/state/.mail-seen" 2>/dev/null)" "42" "the check-run poll still advances the inbox cursor"
   pass "fm-mail-check: a successful poll that surfaces new mail emits one wake line"
 }

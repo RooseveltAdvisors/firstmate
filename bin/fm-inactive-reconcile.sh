@@ -550,6 +550,7 @@ reconcile_direct_child_locked() { # <id> <meta> <secondmate-id-or-empty> <timeou
   record_phase_set "$RECORD_PENDING" presentation || return 1
   payload="inactive terminal outcome awaiting captain presentation: child=$id state=$state"
   [ -z "$pr" ] || payload="$payload pr=$pr"
+  payload="$payload verdict=captain"
   queue_presentation "$RECORD_PENDING" "$fingerprint" "$payload" || true
 }
 

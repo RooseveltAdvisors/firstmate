@@ -160,6 +160,10 @@ test_main_direct_terminal_presentation_receipt() {
   make_world main-direct; write_child "$MAIN" child 'done: PR https://example.test/owner/repo/pull/1 checks green'
   FM_FAKE_CREW_STATE='done' run_reconcile "$MAIN" --startup
   [ "$(wake_count "$MAIN" 'inactive-outcome:')" = 1 ] || fail "main did not queue terminal presentation"
+  assert_contains "$(cat "$MAIN/state/.wake-queue" 2>/dev/null)" "awaiting captain presentation" \
+    "the presentation row keeps its queue shape"
+  assert_contains "$(cat "$MAIN/state/.wake-queue" 2>/dev/null)" "verdict=captain" \
+    "the presentation row carries the captain verdict tag"
   [ "$(outcome_count "$MAIN" pending)" = 1 ] || fail "main did not retain presentation receipt"
 
   err="$WORLD/drain.err"

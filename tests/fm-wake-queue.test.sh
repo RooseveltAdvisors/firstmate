@@ -58,6 +58,26 @@ test_captain_rows_lead_watcher_backlog() {
   pass "captain follow-up leads 50 checks; class/age ordering preserves durable rows and acknowledgement"
 }
 
+test_captain_verdict_rows_lead_watcher_backlog() {
+  local dir state i
+  dir=$(make_case captain-verdict)
+  state="$dir/state"
+  for ((i = 1; i <= 50; i++)); do
+    append_wake "$state" check "watcher-$i" "check: watcher $i" || fail "check append failed"
+  done
+  append_wake "$state" stale win 'stale: win (idle 30m possible wedge ...)' || fail "wedge append failed"
+  append_wake "$state" check "inbox:42" 'check: captain inbox note 42 - please dispatch wiseman-uukr verdict=captain' \
+    || fail "captain append failed"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/drain.out" 2> "$dir/drain.err" || fail "captain-first drain failed"
+  assert_contains "$(awk -F '\t' 'NR == 1 { print $5 }' "$dir/drain.out")" 'captain inbox note 42' \
+    "captain-tagged follow-up did not lead the drain"
+  assert_contains "$(awk -F '\t' 'NR == 2 { print $5 }' "$dir/drain.out")" 'possible wedge' \
+    "the stale wedge did not keep its rank beneath the captain row"
+  [ "$(awk -F '\t' 'NF == 5 { n++ } END { print n }' "$dir/drain.out")" = 52 ] \
+    || fail "captain-first presentation lost wake rows"
+  pass "captain-tagged follow-up leads fifty watcher checks and the stale wedge"
+}
+
 
 test_concurrent_append_and_drain() {
   local dir state out1 out2 pids i pid count unique malformed sequence generation
@@ -3658,6 +3678,7 @@ SH
 }
 
 test_captain_rows_lead_watcher_backlog
+test_captain_verdict_rows_lead_watcher_backlog
 test_self_held_lock_reclaims_instead_of_deadlocking
 test_lock_wait_returns_when_its_directory_is_removed
 test_subshell_lock_ownership_without_bashpid

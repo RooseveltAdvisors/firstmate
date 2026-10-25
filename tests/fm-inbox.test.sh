@@ -68,6 +68,10 @@ assert_contains "$out" "firstmate will pick this up at its next check." \
   "plain note should keep its human announcement line"
 assert_equals "1" "$(count_notes "$home")" "plain note should write one record"
 assert_equals "1" "$(count_wakes "$home")" "plain note should append one wake"
+assert_contains "$(cat "$home/state/.wake-queue")" "check: captain inbox note" \
+  "the inbox wake keeps its captain-note shape"
+assert_contains "$(cat "$home/state/.wake-queue")" "verdict=captain" \
+  "the inbox wake carries the captain verdict tag"
 list_out=$(run_inbox "$home" list) || fail "list should succeed"
 assert_contains "$list_out" "hello from the terminal" "list should show the body"
 pass "plain note, list, and wake stay on the historical human path"
