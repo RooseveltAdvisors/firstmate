@@ -28,12 +28,13 @@ With no --command, reads a PreToolUse-style JSON payload on stdin (Grok/Claude/C
 Tool payloads other than the exact names Bash, Shell, Read and run_terminal_command
 are denied before command extraction in every role.
 The shell delegation classifier fires only in the real primary checkout (w1);
-it is inert in task worktrees and secondmate homes.
+it also governs secondmate homes, while task worktrees remain inert.
 Exits 0 to allow and 2 to deny commands that violate supervisor delegation boundaries.
 The deny reason is written to stderr, with a Grok/Pi decision object on stdout
 unless --claude is supplied.
 With --cursor, a deny is Cursor's own decision object on stdout and exit 0.
-Malformed transport or unavailable classifier runtime fail open (exit 0).
+An unavailable classifier runtime denies commands in supervisor homes.
+Malformed transport is ignored (exit 0).
 EOF
 }
 
@@ -122,14 +123,12 @@ FM_ROOT=${FM_ROOT_OVERRIDE:-$(CDPATH='' cd -- "$SCRIPT_DIR/.." 2>/dev/null && pw
 
 # Scope check: apply only in the primary checkout (git-dir == git-common-dir).
 # Crewmate / scout task worktrees (linked git worktrees) are inert (exit 0).
-# Secondmate homes (carrying .fm-secondmate-home) are inert for charter work (exit 0).
+# Secondmate homes are supervisors too and use the same delegation policy.
 [ -f "$FM_ROOT/AGENTS.md" ] || exit 0
 [ -d "$FM_ROOT/bin" ] || exit 0
-if [ -f "$FM_ROOT/.fm-secondmate-home" ] || [ -f "${FM_HOME:-}/.fm-secondmate-home" ]; then
-  exit 0
-fi
 command -v git >/dev/null 2>&1 || exit 0
-if [ "${FM_TEST_PRIMARY:-0}" -ne 1 ]; then
+if [ "${FM_TEST_PRIMARY:-0}" -ne 1 ] && [ ! -f "$FM_ROOT/.fm-secondmate-home" ] \
+  && [ ! -f "${FM_HOME:-}/.fm-secondmate-home" ]; then
   GIT_DIR=$(git -C "$FM_ROOT" rev-parse --git-dir 2>/dev/null) || exit 0
   GIT_COMMON_DIR=$(git -C "$FM_ROOT" rev-parse --git-common-dir 2>/dev/null) || exit 0
   [ "$GIT_DIR" = "$GIT_COMMON_DIR" ] || exit 0
@@ -137,12 +136,12 @@ fi
 
 
 GUARD_PY="$FM_ROOT/bin/fm-jev-guard.py"
-command -v python3 >/dev/null 2>&1 || exit 0
-[ -f "$GUARD_PY" ] || exit 0
+command -v python3 >/dev/null 2>&1 || render_deny "[require_delegation] classifier runtime unavailable"
+[ -f "$GUARD_PY" ] || render_deny "[require_delegation] classifier unavailable"
 
 # Invoke python guard engine with --check-only
-POLICY_OUTPUT=$(python3 "$GUARD_PY" --command "$CMD" --check-only 2>/dev/null) || exit 0
-[ -n "$POLICY_OUTPUT" ] || exit 0
+POLICY_OUTPUT=$(python3 "$GUARD_PY" --command "$CMD" --check-only) || render_deny "[require_delegation] classifier failed"
+[ -n "$POLICY_OUTPUT" ] || render_deny "[require_delegation] classifier returned no decision"
 
 TAB=$(printf '\t')
 DECISION=${POLICY_OUTPUT%%"$TAB"*}

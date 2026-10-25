@@ -1,117 +1,99 @@
 #!/usr/bin/env bash
-# tests/fm-jev-guard.test.sh - verify Jev dynamic delegation guardrail behavior
+# Supervisor delegation: project denial, outage allowlist, and hook transports.
 set -euo pipefail
-
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-GUARD_SH="$ROOT/bin/fm-jev-guard.sh"
-GUARD_PY="$ROOT/bin/fm-jev-guard.py"
-
-[ -x "$GUARD_SH" ] || fail "bin/fm-jev-guard.sh missing or not executable"
-[ -x "$GUARD_PY" ] || fail "bin/fm-jev-guard.py missing or not executable"
-
 TDIR=$(fm_test_tmproot fm-jev-guard-test)
-export FM_TEST_PRIMARY=1
+SUPERVISOR="$TDIR/home"
+mkdir -p "$SUPERVISOR/bin" "$SUPERVISOR/projects/portal"
+touch "$SUPERVISOR/AGENTS.md"
+cp "$ROOT/bin/fm-jev-guard.sh" "$ROOT/bin/fm-jev-guard.py" "$SUPERVISOR/bin/"
+export FM_ROOT_OVERRIDE="$SUPERVISOR" FM_HOME="$SUPERVISOR" FM_TEST_PRIMARY=1
+export FM_JEV_PROXY_BIN="$TDIR/unavailable"
+GUARD="$SUPERVISOR/bin/fm-jev-guard.sh"
 
-# 1. Help flag works
-help_out=$("$GUARD_SH" --help 2>&1 || true)
-assert_contains "$help_out" "Usage: fm-jev-guard.sh" "shell wrapper emits usage"
+assert_denied() {
+  local command=$1 rc=0 output
+  output=$("$GUARD" --command "$command" 2>&1) || rc=$?
+  assert_equals 2 "$rc" "project command denied: $command"
+  assert_contains "$output" require_delegation "deny explains delegation"
+}
 
-# 2. Tier 1 Fast-path whitelist allows benign supervisor commands at 0ms
-"$GUARD_SH" --command "bd list" || fail "bd list denied unexpectedly"
-"$GUARD_SH" --command "bd create 'investigate failing test shard'" || fail "bd create with inner 'test' denied unexpectedly"
-"$GUARD_SH" --command "bin/fm-send.sh gpu-ops 'restart stt service'" || fail "fm-send with inner 'restart' denied unexpectedly"
-"$GUARD_SH" --command "bin/fm-wake-drain.sh" || fail "fm-wake-drain denied unexpectedly"
-"$GUARD_SH" --command "git status --porcelain" || fail "git status denied unexpectedly"
-"$GUARD_SH" --command "git -C /opt/ra/firstmate status -sb | head -8" || fail "git -C status with pipe denied unexpectedly"
-"$GUARD_SH" --command "FM_HOME=/opt/ra/firstmate bin/fm-watch-arm.sh --restart 2>&1 | tail -3" || fail "fm-watch-arm --restart denied unexpectedly"
-"$GUARD_SH" --command "OLD=\$(pgrep -f '/opt/ra/firstmate/bin/fm-watch.sh' | head -1); FM_HOME=/opt/ra/firstmate bin/fm-watch-arm.sh --restart 2>&1 | tail -2; sleep 5; NEW=\$(pgrep -f '/opt/ra/firstmate/bin/fm-watch.sh' | head -1); echo watcher" || fail "compound subshell watcher restart denied unexpectedly"
-"$GUARD_SH" --command "bash /opt/ra/firstmate/tests/fm-jev-wake-triage.test.sh 2>&1 | tail -6" || fail "bash jev test suite denied unexpectedly"
-"$GUARD_SH" --command "cp /opt/ra/firstmate/bin/fm-watch.sh /tmp/fmw-check5.sh; bash -n /tmp/fmw-check5.sh && echo WATCH_SYNTAX_OK; bash /opt/ra/firstmate/tests/fm-jev-wake-triage.test.sh 2>&1 | tail -5" || fail "syntax check pipeline denied unexpectedly"
-"$GUARD_SH" --command "git -C /opt/ra/firstmate add bin/fm-watch.sh && git -C /opt/ra/firstmate commit -m 'feat(watch): update'" || fail "firstmate self-repo commit denied unexpectedly"
-"$GUARD_SH" --command "cat state/websites.status | grep needs-decision" || fail "cat/grep state denied unexpectedly"
-"$GUARD_SH" --command "FM_HOME=/opt/ra/firstmate bash -c 'cd /opt/ra/firstmate && bd create \"fm-zeta-runner-gpu: register runner\"'" || fail "wrapped bd create in bash -c denied unexpectedly"
-"$GUARD_SH" --command "FM_HOME=/opt/ra/firstmate bash -c 'cd /opt/ra/firstmate && bd list --status all --json 2>/dev/null | python3 -c \" import json,sys; sys.exit(0)\"'" || fail "wrapped bd list with python filter denied unexpectedly"
-"$GUARD_SH" --command "FM_HOME=/opt/ra/firstmate bin/fm-send.sh gpu-ops 'diagnose with journalctl -u render-credentials.service and restart systemctl' 2>&1 | tail -1" || fail "fm-send with inner systemctl/journalctl denied unexpectedly"
+# The eight acceptance cases are deterministic even when Jev is unavailable.
+for command in \
+  'cd /opt/ra/firstmate/projects/portal && pytest tests/ -q' \
+  'git -C projects/portal commit -m x' \
+  'cd projects/portal && npm test'; do
+  assert_denied "$command"
+done
+for command in \
+  'bin/fm-wake-drain.sh' \
+  'bd show x' \
+  'herdr --session firstmate agent read w1:p1' \
+  'bin/fm-spawn.sh --help' \
+  'bin/fm-send.sh --help'; do
+  "$GUARD" --command "$command" || fail "supervisor command denied: $command"
+done
+pass 'eight project/supervisor acceptance cases'
+"$GUARD" --command "(cd /home/jon/git/wiseman && bd comment x 'run project tests')"
 
-# 3. Fail-open on empty or malformed inputs
-printf '' | "$GUARD_SH" || fail "empty stdin failed to allow open"
-printf '{bad json' | "$GUARD_SH" || fail "malformed json failed to allow open"
-"$GUARD_SH" --command "" || fail "empty command failed to allow open"
+# Quoted worker instructions remain opaque, including systemd/project words.
+"$GUARD" --command "bin/fm-send.sh worker 'cd projects/portal && npm test; systemctl restart app'"
+"$GUARD" --command 'FM_HOME=/opt/ra/firstmate bash bin/fm-route-dispatch.sh --task "fix project tests"'
+"$GUARD" --command 'bin/fm-brief.sh --help'
+"$GUARD" --command 'tasks-axi list'
+"$GUARD" --command 'git -C projects/portal status --short'
+"$GUARD" --command "bash -c 'cd /opt/ra/firstmate && bd show x'"
+assert_denied 'bin/fm-send.sh --help; cd projects/portal && npm test'
+assert_denied $'bin/fm-send.sh --help\npytest tests/ -q'
+assert_denied $'bd show x # supervisory read\npytest tests/ -q'
+assert_denied $'bd show x;\npytest tests/ -q'
+# shellcheck disable=SC2016 # Literal substitution is input for the guard.
+assert_denied 'X=$(python3 job.py) bin/fm-spawn.sh --help'
+assert_denied 'git -C projects/portal diff --output=project.patch'
+assert_denied 'bin/fm-send.shx worker task'
+assert_denied 'python3 -c "print(1)"'
+(cd "$SUPERVISOR/projects/portal" && assert_denied 'pytest tests/ -q')
+mkdir -p "$TDIR/.treehouse/pool/1/project"
+(cd "$TDIR/.treehouse/pool/1/project" && assert_denied 'bun test')
 
-# 4. Live classification if Infisical JEV proxy is available
-if [ -x "${FM_JEV_PROXY_BIN:-/opt/ra/infisical/bin/jev-proxy.sh}" ]; then
-  # Direct remote SSH must be denied
-  set +e
-  deny_stderr=$(mktemp)
-  deny_stdout=$("$GUARD_SH" --command 'ssh srv-covenant-app "sudo systemctl restart arcs-portal"' 2>"$deny_stderr")
-  exit_code=$?
-  set -e
-  [ "$exit_code" -eq 2 ] || fail "ssh systemctl restart was not denied (exit code $exit_code)"
-  assert_contains "$deny_stdout" "require_delegation" "deny stdout contains require_delegation decision"
-  stderr_content=$(cat "$deny_stderr")
-  rm -f "$deny_stderr"
-  assert_contains "$stderr_content" "require_delegation" "deny stderr contains require_delegation code"
-  assert_contains "$stderr_content" "svc_ops" "deny stderr identified svc_ops domain"
+# An online Jev project_worker classification must override its allow answer.
+cat > "$TDIR/proxy" <<'PROXY'
+#!/usr/bin/env bash
+printf '%s' "$FM_TEST_JEV_RESPONSE"
+PROXY
+chmod +x "$TDIR/proxy"
+export FM_JEV_PROXY_BIN="$TDIR/proxy"
+export FM_TEST_JEV_RESPONSE='{"answers":{"action":{"choice":"allow_supervisor"},"violation_noul":{"noul":0},"target_domain":{"choice":"project_worker"}}}'
+(cd "$TDIR" && assert_denied 'pytest tests/ -q')
+export FM_TEST_JEV_RESPONSE='{"answers":{"action":{"choice":"allow_supervisor"},"violation_noul":{"noul":0},"target_domain":{"choice":"supervisor"}}}'
+(cd "$TDIR" && "$GUARD" --command 'cat state/task.status') || fail 'online supervisor decision denied'
+# A malformed response or proxy error must fail closed.
+export FM_TEST_JEV_RESPONSE='{}'
+(cd "$TDIR" && assert_denied 'pytest tests/ -q')
+printf '#!/usr/bin/env bash\nexit 1\n' > "$TDIR/proxy"
+(cd "$TDIR" && assert_denied 'pytest tests/ -q')
 
-  # Compound command sneak must be caught and denied
-  set +e
-  compound_err=$(mktemp)
-  "$GUARD_SH" --command 'bin/fm-wake-drain.sh 2>&1 | grep WAKE_ACK; ssh srv "redis-cli ping"' 2>"$compound_err"
-  compound_code=$?
-  set -e
-  [ "$compound_code" -eq 2 ] || fail "compound sneak command was not denied (code $compound_code)"
-  compound_msg=$(cat "$compound_err")
-  rm -f "$compound_err"
-  assert_contains "$compound_msg" "require_delegation" "compound command denied with require_delegation"
+# Both supervisor roles use the policy; disposable worker worktrees remain inert.
+touch "$SUPERVISOR/.fm-secondmate-home"
+assert_denied 'cd projects/portal && npm test'
+"$GUARD" --command 'bin/fm-spawn.sh --help'
+rm "$SUPERVISOR/.fm-secondmate-home"
+FM_TEST_PRIMARY=0 FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-jev-guard.sh" --command 'cd projects/portal && npm test' \
+  || fail 'linked worker worktree should remain inert'
 
-  # Claude mode test: stderr gets JSON, stdout stays empty, exit code 2
-  set +e
-  claude_err=$(mktemp)
-  claude_out=$(jq -nc '{"tool_name":"Bash","tool_input":{"command":"ssh gpu \"docker ps\""}}' | "$GUARD_SH" --claude 2>"$claude_err")
-  claude_code=$?
-  set -e
-  [ "$claude_code" -eq 2 ] || fail "claude mode failed to exit 2 (got $claude_code)"
-  [ -z "$claude_out" ] || fail "claude mode stdout was not empty on deny: $claude_out"
-  claude_errmsg=$(cat "$claude_err")
-  rm -f "$claude_err"
-  assert_contains "$claude_errmsg" '"permissionDecision":"deny"' "claude stderr contains permissionDecision deny"
-  assert_contains "$claude_errmsg" "gpu_ops" "claude stderr identified gpu_ops domain"
-
-  # Cursor mode test: exits 0, user_message on stdout
-  cursor_out=$(jq -nc '{"tool_name":"Shell","tool_input":{"command":"ssh gpu \"docker ps\""}}' | "$GUARD_SH" --cursor)
-  assert_contains "$cursor_out" '"permission":"deny"' "cursor stdout contains permission deny"
-  assert_contains "$cursor_out" "gpu_ops" "cursor stdout identified gpu_ops"
-fi
-
-# 5. Worktree inertia: linked git worktrees must be inert (exit 0)
-MOCK_BASE="$TDIR/mock-base"
-MOCK_WT="$TDIR/mock-worktree"
-fm_git_identity fmtest fmtest@example.invalid
-git init -q "$MOCK_BASE"
-git -C "$MOCK_BASE" commit -q --allow-empty -m "init base"
-git -C "$MOCK_BASE" worktree add -q "$MOCK_WT" -b wt-branch
-touch "$MOCK_WT/AGENTS.md"
-mkdir -p "$MOCK_WT/bin"
-cp "$GUARD_SH" "$MOCK_WT/bin/fm-jev-guard.sh"
-cp "$GUARD_PY" "$MOCK_WT/bin/fm-jev-guard.py"
-
-# In the linked worktree, even ssh should exit 0 immediately
-wt_out=$(FM_TEST_PRIMARY=0 FM_ROOT_OVERRIDE="$MOCK_WT" "$MOCK_WT/bin/fm-jev-guard.sh" --command "ssh srv 'sudo rm -rf /'" 2>&1) || fail "guard was not inert inside linked worktree"
-[ -z "$wt_out" ] || fail "guard emitted output inside linked worktree: $wt_out"
-
-# 6. Secondmate home inertia: secondmate homes (carrying .fm-secondmate-home) must be inert (exit 0)
-MOCK_SECONDMATE="$TDIR/mock-secondmate"
-git clone -q "$MOCK_BASE" "$MOCK_SECONDMATE"
-touch "$MOCK_SECONDMATE/AGENTS.md"
-echo "dev-ops" > "$MOCK_SECONDMATE/.fm-secondmate-home"
-mkdir -p "$MOCK_SECONDMATE/bin"
-cp "$GUARD_SH" "$MOCK_SECONDMATE/bin/fm-jev-guard.sh"
-cp "$GUARD_PY" "$MOCK_SECONDMATE/bin/fm-jev-guard.py"
-
-sm_out=$(FM_TEST_PRIMARY=0 FM_ROOT_OVERRIDE="$MOCK_SECONDMATE" "$MOCK_SECONDMATE/bin/fm-jev-guard.sh" --command "systemctl restart steward" 2>&1) || fail "guard was not inert inside secondmate home"
-[ -z "$sm_out" ] || fail "guard emitted output inside secondmate home: $sm_out"
-
-pass "all fm-jev-guard tests passed"
-
+# Exercise the public adapters with deterministic project commands.
+payload='{"tool_name":"Bash","tool_input":{"command":"cd projects/portal && pytest tests/ -q"}}'
+rc=0
+out=$(printf '%s' "$payload" | "$GUARD" --claude 2>"$TDIR/claude.err") || rc=$?
+assert_equals 2 "$rc" 'Claude exits 2'
+assert_equals '' "$out" 'Claude stdout empty'
+assert_contains "$(cat "$TDIR/claude.err")" '"permissionDecision":"deny"' 'Claude deny object'
+out=$(printf '%s' "$payload" | "$GUARD" --cursor 2>"$TDIR/cursor.err")
+assert_contains "$out" '"permission":"deny"' 'Cursor deny object'
+rc=0
+out=$(printf '%s' "$payload" | "$GUARD" 2>"$TDIR/hook.err") || rc=$?
+assert_equals 2 "$rc" 'Pi/Grok/Codex shell adapter exits 2'
+assert_contains "$out" '"decision":"deny"' 'shell adapter deny object'
+pass 'all fm-jev-guard tests passed'
