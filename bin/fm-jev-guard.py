@@ -19,13 +19,14 @@ Deterministic scope contract; every clause is pinned in tests/fm-jev-guard.test.
               not file writes; any other redirect target refuses the fast path.
   pre-deny    A command the fast path does not allow and whose operative paths - cwd, cd
               target, program, file operand, redirect target, find action or file-output
-              operand, shell payload - lie under projects/ or a treehouse worktree is
-              denied require_delegation before any Jev query. Payload recursion covers
-              bash, sh, zsh, dash, ksh and ash with leading flags.
+              operand, shell payload, assignment value - lie under projects/ or a
+              treehouse worktree is denied require_delegation before any Jev query.
+              Payload recursion covers bash, sh, zsh, dash, ksh and ash with leading flags.
   mentions    Pattern and predicate words (grep patterns, find -path/-name without a
               transforming action, echo/printf values, task payloads) are mentions, not
               operands: a mention on an allowlisted tool fast-passes with that tool, and
-              every other mention reaches Jev instead of the pre-deny.
+              every other mention reaches Jev instead of the pre-deny. A project-resolving
+              assignment value is not a mention: it refuses the fast path and pre-denies.
   unparsable  Input that cannot be tokenized never fast-passes, and the pre-deny falls
               back to the project-path substring test.
   jev         Jev classifies everything else and project_worker always denies; outages
@@ -57,6 +58,14 @@ These four named option pairs are the complete list for this round; any further
 file-valued option of the nine joins only by another written amendment. The earlier
 consumption machinery exceeded its named mandate by covering file-valued options at
 all; this amendment legitimizes and bounds that overreach.
+
+Third written amendment - assignment values, deny side only: a leading NAME=value
+assignment whose value resolves under projects/ refuses the fast path and reaches the
+pre-deny before any query, the same operative-path rule the pre-deny uses for operands,
+over every assignment prefix including env's forms and env -S/--split-string payloads.
+An assignment-only segment executes nothing and stays out of the pre-deny; variable and
+glob expansions remain unresolved parser input that reaches Jev. Strictly additive:
+nothing becomes newly allowable.
 
 The firstmate invariant: anything the deterministic layer does not positively classify for fast-path or pre-deny REACHES JEV and outage keeps fail-closed deny - no third outcome, no spelling may end in a silent allow.
 
@@ -205,7 +214,7 @@ def peel_wrappers(args: list[str]) -> tuple[list[str], list[str], list[str]]:
                     args = args[1:]
                 else:
                     break
-            if args:
+            if args or payloads:
                 collected.extend(env_values)
             continue
         file_opts = WRAPPER_FILE_OPTS.get(wrapper, set())

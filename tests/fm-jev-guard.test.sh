@@ -230,6 +230,27 @@ for probe in 'D=projects/portal; rm $D/x' 'P=projects/portal; cd $P && npm test'
   assert_contains "$out" supervisor_approved "expansion form still reaches Jev: $probe"
   assert_not_contains "$out" 'Project work must be delegated' "expansion form is not pre-denied: $probe"
 done
+for probe in \
+  "env BASH_ENV=projects/evil.sh -S 'bash -c \"bd show x\"'" \
+  "env BASH_ENV=projects/evil.sh --split-string='bash -c \"bd show x\"'"; do
+  for answer in \
+    '{"answers":{"action":{"choice":"require_delegation"},"violation_noul":{"noul":1},"target_domain":{"choice":"project_worker"}}}' \
+    '{"answers":{"action":{"choice":"allow_supervisor"},"violation_noul":{"noul":0},"target_domain":{"choice":"supervisor"}}}'; do
+    export FM_TEST_JEV_RESPONSE="$answer"
+    export FM_TEST_QUERY_LOG="$TDIR/env-split.queries"
+    : > "$FM_TEST_QUERY_LOG"
+    out=$(cd "$SUPERVISOR" && python3 "$SUPERVISOR/bin/fm-jev-guard.py" --check-only --command "$probe")
+    assert_contains "$out" 'Project work must be delegated' "env split-string assignment pre-denies: $probe"
+    assert_equals 0 "$(wc -l < "$FM_TEST_QUERY_LOG" | tr -d '[:space:]')" "pre-deny runs before any query: $probe"
+  done
+done
+unset FM_TEST_QUERY_LOG
+export FM_TEST_JEV_RESPONSE='{"answers":{"action":{"choice":"allow_supervisor"},"violation_noul":{"noul":0},"target_domain":{"choice":"supervisor"}}}'
+out=$(cd "$SUPERVISOR" && python3 "$SUPERVISOR/bin/fm-jev-guard.py" --check-only --command "env -S 'bash -c \"bd show x\"'")
+assert_contains "$out" supervisor_approved 'bare env -S payload still reaches Jev'
+out=$(cd "$SUPERVISOR" && python3 "$SUPERVISOR/bin/fm-jev-guard.py" --check-only --command 'env BASH_ENV=projects/evil.sh')
+assert_contains "$out" supervisor_approved 'assignment-only env reaches Jev'
+assert_not_contains "$out" 'Project work must be delegated' 'assignment-only env is not pre-denied'
 # Inbox014: generic value consumption reaches the payload in every wrapper form.
 for probe in \
   "xargs --max-args 1 bash -c 'rm projects/portal/x'" \
