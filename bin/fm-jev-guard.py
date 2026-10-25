@@ -247,16 +247,15 @@ def operative_paths(cmd: str) -> list[str] | None:
         take = ""
         pattern_source = False
         for a in args[1:]:
-            if take:
-                if take == "file":
-                    values.append(a)
-                take = ""
-                continue
             if all(char in "<&>|" for char in a):
                 pending = True
             elif pending:
                 pending = False
                 redirects.append(a)
+            elif take:
+                if take == "file":
+                    values.append(a)
+                take = ""
             elif a.startswith("-"):
                 if a not in ("-H", "-L", "-P"):
                     expression = True
@@ -272,6 +271,8 @@ def operative_paths(cmd: str) -> list[str] | None:
                         pattern_source = True
                         if re.fullmatch(r"-f.+", a):
                             values.append(a[2:])
+                elif tool == "find" and a in ("-fls", "-fprintf", "-fprint", "-fprint0"):
+                    take = "file"
                 elif "=" in a:
                     values.append(a.split("=", 1)[1])
                 elif re.fullmatch(r"-[A-Za-z].+", a):
@@ -295,7 +296,7 @@ def operative_paths(cmd: str) -> list[str] | None:
         if tool in NO_FILE_OPERAND_TOOLS:
             continue
         if tool == "find":
-            words = words if any(a in ("-delete", "-exec", "-execdir", "-ok") for a in args) else roots
+            words = words if any(a in ("-delete", "-exec", "-execdir", "-ok", "-okdir") for a in args) else roots
         elif pattern_tool and not pattern_source:
             words = words[1:]
         for operand in values + words:
