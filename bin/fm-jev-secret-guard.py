@@ -24,7 +24,7 @@ from typing import Any, Dict, List, Optional, Pattern, Tuple
 
 DEFAULT_AUDIT_PATHS = [
     "/opt/ra/firstmate/scratch",
-    "/home/jon/git/jev/scratch",
+    "/opt/ra/firstmate/projects/jev-steward/scratch",
 ]
 
 SECRET_RULES: List[Tuple[str, Pattern[str]]] = [
@@ -170,7 +170,7 @@ def main() -> int:
         "--paths",
         nargs="+",
         default=None,
-        help="Paths to audit for exposed credentials (default: /opt/ra/firstmate/scratch, /home/jon/git/jev/scratch, /tmp)",
+        help="Paths to audit for exposed credentials (default: /opt/ra/firstmate/scratch, /opt/ra/firstmate/projects/jev-steward/scratch, /tmp)",
     )
     parser.add_argument(
         "--depth",
