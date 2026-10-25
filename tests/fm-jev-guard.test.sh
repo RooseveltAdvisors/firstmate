@@ -57,6 +57,9 @@ assert_denied 'bd list > /dev/null/x'
 "$GUARD" --command 'tasks-axi list'
 "$GUARD" --command 'git -C projects/portal status --short'
 "$GUARD" --command "bash -c 'cd /opt/ra/firstmate && bd show x'"
+"$GUARD" --command "bash -ec 'bd show x'" || fail 'supervisor payload denied: bash -ec'
+"$GUARD" --command "bash -euo pipefail -c 'bd show x'" || fail 'supervisor payload denied: bash -euo pipefail -c'
+"$GUARD" --command "zsh -c 'bd show x'" || fail 'supervisor payload denied: zsh -c'
 assert_denied 'bin/fm-send.sh --help; cd projects/portal && npm test'
 assert_denied $'bin/fm-send.sh --help\npytest tests/ -q'
 assert_denied $'bd show x # supervisory read\npytest tests/ -q'
@@ -93,7 +96,9 @@ for command in \
   "find . -path 'projects/portal*'" \
   "find . -name 'projects*'" \
   "find . \( -path 'projects/portal*' -o -name x \)" \
-  "echo projects/portal"; do
+  "echo projects/portal" \
+  "bash -ec 'pgrep -f projects/portal'" \
+  "zsh -c 'grep -l projects/portal state/x'"; do
   out=$(cd "$SUPERVISOR" && python3 "$SUPERVISOR/bin/fm-jev-guard.py" --check-only --command "$command")
   assert_contains "$out" supervisor_approved "mention-only project path reaches Jev: $command"
 done
@@ -122,7 +127,16 @@ for command in \
   "find . -path './projects/*' \( -name x -o -name y \) -delete" \
   "find . \( -path './projects/*' -o -name '*.bak' \) -exec rm {} +" \
   "find . \( -fprint projects/portal/listing \)" \
-  "find . -exec rm projects/portal/x {} \; -fprint projects/portal/listing"; do
+  "find . -exec rm projects/portal/x {} \; -fprint projects/portal/listing" \
+  "bash -ec 'rm projects/portal/x'" \
+  "bash -euc 'rm projects/portal/x'" \
+  "bash -euo pipefail -c 'rm projects/portal/x'" \
+  "bash -o errexit -c 'rm projects/portal/x'" \
+  "/bin/bash -ec 'rm projects/portal/x'" \
+  "env F=1 bash -ec 'rm projects/portal/x'" \
+  "zsh -c 'rm projects/portal/x'" \
+  "dash -c 'rm projects/portal/x'" \
+  "find . -execdir bash -c 'rm projects/portal/x' {} +"; do
   out=$(cd "$SUPERVISOR" && python3 "$SUPERVISOR/bin/fm-jev-guard.py" --check-only --command "$command")
   assert_contains "$out" 'Project work must be delegated' "operative project path pre-denied: $command"
 done

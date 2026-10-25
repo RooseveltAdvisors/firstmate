@@ -109,6 +109,44 @@ def post_jev_systemone(payload: dict, proxy_bin: Path | None = None) -> dict:
     return data
 
 
+SHELL_NAMES = {"bash", "sh", "zsh", "dash", "ksh", "ash"}
+SHELL_VALUE_OPTS = {"-o", "+o", "-O", "+O", "--rcfile", "--init-file"}
+
+
+def shell_payload(args: list[str]) -> str | None:
+    """The -c command string of a shell invocation, or None when args name a script file."""
+    if not args or Path(args[0]).name not in SHELL_NAMES:
+        return None
+    argv: list[str] = []
+    skip = False
+    for a in args:
+        if skip:
+            skip = False
+        elif a and all(char in "<&>|" for char in a):
+            skip = True
+        elif not a.isdigit():
+            argv.append(a)
+    command = False
+    i = 1
+    while i < len(argv):
+        a = argv[i]
+        if a in SHELL_VALUE_OPTS:
+            i += 2
+        elif a.startswith("--"):
+            if a == "--":
+                return None
+            i += 1
+        elif a[:1] in ("-", "+") and len(a) > 1:
+            if "c" in a[1:]:
+                command = True
+            i += 2 if a[-1] in ("o", "O") else 1
+        elif command:
+            return a
+        else:
+            return None
+    return None
+
+
 def is_whitelisted_command(cmd: str) -> bool:
     """Admit supervisor tools with opaque task payloads, refusing shell-substitution tokens."""
     try:
@@ -138,12 +176,23 @@ def is_whitelisted_command(cmd: str) -> bool:
                     args = args[1:]
             if not args:
                 return False
-            if Path(args[0]).name in ("bash", "sh"):
-                args = args[1:]
-                if len(args) == 2 and args[0] in ("-c", "-lc"):
-                    if not is_whitelisted_command(args[1]):
-                        return False
+            # Do not let a tool fast-pass shell substitutions or file writes.
+            for i, arg in enumerate(args):
+                if not arg or any(char not in "<&>|" for char in arg):
                     continue
+                target = args[i + 1] if i + 1 < len(args) else ""
+                if arg in (">&", "<&") and target.isdigit():
+                    continue
+                if target in DEV_SINKS:
+                    continue
+                return False
+            payload = shell_payload(args)
+            if payload is not None:
+                if not is_whitelisted_command(payload):
+                    return False
+                continue
+            if Path(args[0]).name in SHELL_NAMES:
+                args = args[1:]
             if not args:
                 return False
             # Navigation only sets context; every following operation is checked.
@@ -153,16 +202,6 @@ def is_whitelisted_command(cmd: str) -> bool:
             match = next((verbs for pattern, verbs in SUPERVISOR_ALLOWLIST.items()
                           if re.fullmatch(pattern, tool)), False)
             if match is False:
-                return False
-            # Do not let a tool fast-pass shell substitutions or file writes.
-            for i, arg in enumerate(args):
-                if not arg or any(char not in "<>&|" for char in arg):
-                    continue
-                target = args[i + 1] if i + 1 < len(args) else ""
-                if arg in (">&", "<&") and target.isdigit():
-                    continue
-                if target in DEV_SINKS:
-                    continue
                 return False
             if match is not None:
                 rest = args[1:]
@@ -201,6 +240,8 @@ PROJECT_PATH_RE = re.compile(r"(?:^|[/\s=])projects(?:/|$)|(?:^|/)\.treehouse/")
 NO_FILE_OPERAND_TOOLS = {"pgrep", "pkill", "echo", "printf"}
 # These tools name a pattern or program first; the words after it are files.
 PATTERN_FIRST_TOOLS = {"grep", "egrep", "fgrep", "rg", "ag", "ack", "awk", "sed"}
+# find primaries that execute or transform what they match.
+FIND_ACTIONS = ("-delete", "-exec", "-execdir", "-ok", "-okdir")
 
 
 def operative_paths(cmd: str) -> list[str] | None:
@@ -290,8 +331,9 @@ def operative_paths(cmd: str) -> list[str] | None:
                 if not expression:
                     roots.append(a)
         paths.extend(redirects)
-        if tool in ("bash", "sh") and len(args) >= 3 and args[1] in ("-c", "-lc"):
-            nested = operative_paths(args[2])
+        payload = shell_payload(args)
+        if payload is not None:
+            nested = operative_paths(payload)
             if nested is None:
                 return None
             paths.extend(nested)
@@ -304,7 +346,16 @@ def operative_paths(cmd: str) -> list[str] | None:
         if tool in NO_FILE_OPERAND_TOOLS:
             continue
         if tool == "find":
-            words = words if any(a in ("-delete", "-exec", "-execdir", "-ok", "-okdir") for a in args) else roots
+            for index, action in enumerate(args):
+                if action not in FIND_ACTIONS:
+                    continue
+                executed = shell_payload(args[index + 1:])
+                if executed is not None:
+                    nested = operative_paths(executed)
+                    if nested is None:
+                        return None
+                    paths.extend(nested)
+            words = words if any(a in FIND_ACTIONS for a in args) else roots
         elif pattern_tool and not pattern_source:
             words = words[1:]
         for operand in values + words:
