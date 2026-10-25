@@ -5,8 +5,29 @@ Prevents Firstmate and secondmates from falling into hands-on implementation and
 rabbit holes by intercepting commands, fast-passing legitimate supervisor tasks,
 and querying Jev System One on ambiguous or mutating commands.
 
-Project paths and project_worker classifications require delegation.
-Jev outages admit only SUPERVISOR_ALLOWLIST; allowed decisions are never cached.
+Deterministic scope contract; every clause is pinned in tests/fm-jev-guard.test.sh:
+
+  fast-path   Supervisor allowlist only: fm-*.sh scripts, bd, tasks-axi, herdr, gh read
+              verbs (pr view/status/list/checks/diff, run list/view), git read verbs
+              (status/log/diff/rev-parse/show/ls-files/ls-remote), and bash/sh/zsh/dash
+              payload forms with leading flags whose own command qualifies on that list.
+  not-writes  Bare fd duplication (2>&1) and the literal dev-sink redirect targets
+              /dev/null, /dev/stdout, /dev/stderr, /dev/fd/0, /dev/fd/1, /dev/fd/2 are
+              not file writes; any other redirect target refuses the fast path.
+  pre-deny    A command whose operative paths - cwd, cd target, program, file operand,
+              redirect target, find action or file-output operand, shell payload - lie
+              under projects/ or a treehouse worktree is denied require_delegation
+              before any Jev query.
+  mentions    Pattern and predicate words (grep patterns, find -path/-name without a
+              transforming action, echo/printf values, task payloads) are mentions, not
+              operands, and reach Jev instead of the pre-deny.
+  unparsable  Input that cannot be tokenized never fast-passes, and the pre-deny falls
+              back to the project-path substring test.
+  jev         Jev classifies everything else and project_worker always denies; outages
+              admit only SUPERVISOR_ALLOWLIST and fail closed; allowed decisions are
+              never cached.
+
+The firstmate invariant: anything the deterministic layer does not positively classify for fast-path or pre-deny REACHES JEV and outage keeps fail-closed deny - no third outcome, no spelling may end in a silent allow.
 
 Usage:
   fm-jev-guard.py [--command <cmd>] [--check-only] [--json] [--debug]

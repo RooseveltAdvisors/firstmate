@@ -60,6 +60,11 @@ assert_denied 'bd list > /dev/null/x'
 "$GUARD" --command "bash -ec 'bd show x'" || fail 'supervisor payload denied: bash -ec'
 "$GUARD" --command "bash -euo pipefail -c 'bd show x'" || fail 'supervisor payload denied: bash -euo pipefail -c'
 "$GUARD" --command "zsh -c 'bd show x'" || fail 'supervisor payload denied: zsh -c'
+"$GUARD" --command "bash -O extglob -c 'bd show x'" || fail 'supervisor payload denied: bash -O extglob -c'
+"$GUARD" --command "sh -ec 'bd show x'" || fail 'supervisor payload denied: sh -ec'
+"$GUARD" --command "zsh -eu -c 'bd show x'" || fail 'supervisor payload denied: zsh -eu -c'
+"$GUARD" --command "dash -e -c 'bd show x'" || fail 'supervisor payload denied: dash -e -c'
+assert_denied 'bd show "unterminated'
 assert_denied 'bin/fm-send.sh --help; cd projects/portal && npm test'
 assert_denied $'bin/fm-send.sh --help\npytest tests/ -q'
 assert_denied $'bd show x # supervisory read\npytest tests/ -q'
@@ -76,6 +81,7 @@ mkdir -p "$TDIR/.treehouse/pool/1/project"
 # An online Jev project_worker classification must override its allow answer.
 cat > "$TDIR/proxy" <<'PROXY'
 #!/usr/bin/env bash
+[ -n "${FM_TEST_QUERY_LOG:-}" ] && echo tick >> "$FM_TEST_QUERY_LOG"
 printf '%s' "$FM_TEST_JEV_RESPONSE"
 PROXY
 chmod +x "$TDIR/proxy"
@@ -83,7 +89,11 @@ export FM_JEV_PROXY_BIN="$TDIR/proxy"
 export FM_TEST_JEV_RESPONSE='{"answers":{"action":{"choice":"allow_supervisor"},"violation_noul":{"noul":0},"target_domain":{"choice":"project_worker"}}}'
 (cd "$TDIR" && assert_denied 'pytest tests/ -q')
 export FM_TEST_JEV_RESPONSE='{"answers":{"action":{"choice":"allow_supervisor"},"violation_noul":{"noul":0},"target_domain":{"choice":"supervisor"}}}'
+export FM_TEST_QUERY_LOG="$TDIR/queries"
 (cd "$TDIR" && "$GUARD" --command 'cat state/task.status') || fail 'online supervisor decision denied'
+(cd "$TDIR" && "$GUARD" --command 'cat state/task.status') || fail 'repeated supervisor decision denied'
+assert_equals 2 "$(wc -l < "$TDIR/queries" | tr -d '[:space:]')" 'Jev decisions are never cached'
+unset FM_TEST_QUERY_LOG
 out=$(cd "$SUPERVISOR" && python3 "$SUPERVISOR/bin/fm-jev-guard.py" --json --command 'bd list > /dev/null')
 assert_contains "$out" '"code": "fast_path_whitelist"' 'discard sink keeps the fast path'
 assert_contains "$out" '"tier": 1' 'discard sink is tier 1'
@@ -98,7 +108,8 @@ for command in \
   "find . \( -path 'projects/portal*' -o -name x \)" \
   "echo projects/portal" \
   "bash -ec 'pgrep -f projects/portal'" \
-  "zsh -c 'grep -l projects/portal state/x'"; do
+  "zsh -c 'grep -l projects/portal state/x'" \
+  'bash -c "rm state/x'; do
   out=$(cd "$SUPERVISOR" && python3 "$SUPERVISOR/bin/fm-jev-guard.py" --check-only --command "$command")
   assert_contains "$out" supervisor_approved "mention-only project path reaches Jev: $command"
 done
@@ -136,7 +147,14 @@ for command in \
   "env F=1 bash -ec 'rm projects/portal/x'" \
   "zsh -c 'rm projects/portal/x'" \
   "dash -c 'rm projects/portal/x'" \
-  "find . -execdir bash -c 'rm projects/portal/x' {} +"; do
+  "find . -execdir bash -c 'rm projects/portal/x' {} +" \
+  "bash -O extglob -c 'rm projects/portal/x'" \
+  "sh -ec 'rm projects/portal/x'" \
+  "zsh -eu -c 'rm projects/portal/x'" \
+  "dash -e -c 'rm projects/portal/x'" \
+  "find . -exec bash -c 'rm projects/portal/x' {} +" \
+  "find . -ok sh -c 'rm projects/portal/x' {} \;" \
+  'bash -c "rm projects/portal/x'; do
   out=$(cd "$SUPERVISOR" && python3 "$SUPERVISOR/bin/fm-jev-guard.py" --check-only --command "$command")
   assert_contains "$out" 'Project work must be delegated' "operative project path pre-denied: $command"
 done
