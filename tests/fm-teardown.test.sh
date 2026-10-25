@@ -5746,7 +5746,7 @@ test_status_archive_nested_secondmate_children() {
       ln -s "$case_dir/outside" "$case_dir/data/task-x1/children"
     fi
     rc=0
-    run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+    run_teardown "$case_dir" --force --retire-secondmate task-x1 > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
     if [ "$unsafe" = children ]; then
       expect_code 1 "$rc" "symlinked child archive directory"
       assert_present "$nested_home/state/grandchild.status" "unsafe child archive lost history"
