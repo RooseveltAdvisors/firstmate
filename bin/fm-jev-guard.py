@@ -59,6 +59,10 @@ SUPERVISOR_ALLOWLIST = {
     r"git": {"status", "log", "diff", "rev-parse", "show", "ls-files", "ls-remote"},
 }
 
+# Exact literal tokens only: these discard or duplicate standard streams rather
+# than write a file. No /dev/fd/N for N>=3: an inherited fd may be a real file.
+DEV_SINKS = {"/dev/null", "/dev/stdout", "/dev/stderr", "/dev/fd/0", "/dev/fd/1", "/dev/fd/2"}
+
 
 def get_jev_proxy() -> Path | None:
     """Resolve the executable Infisical JEV proxy wrapper."""
@@ -154,7 +158,10 @@ def is_whitelisted_command(cmd: str) -> bool:
             for i, arg in enumerate(args):
                 if not arg or any(char not in "<>&|" for char in arg):
                     continue
-                if arg in (">&", "<&") and i + 1 < len(args) and args[i + 1].isdigit():
+                target = args[i + 1] if i + 1 < len(args) else ""
+                if arg in (">&", "<&") and target.isdigit():
+                    continue
+                if target in DEV_SINKS:
                     continue
                 return False
             if match is not None:
@@ -229,29 +236,51 @@ def operative_paths(cmd: str) -> list[str] | None:
                 args = args[1:]
         if not args or args[0].startswith("-"):
             continue
+        tool = Path(args[0]).name
+        pattern_tool = tool in PATTERN_FIRST_TOOLS
         redirects: list[str] = []
         roots: list[str] = []
         words: list[str] = []
         values: list[str] = []
         pending = False
         expression = False
+        take = ""
+        pattern_source = False
         for a in args[1:]:
+            if take:
+                if take == "file":
+                    values.append(a)
+                take = ""
+                continue
             if all(char in "<&>|" for char in a):
                 pending = True
             elif pending:
                 pending = False
                 redirects.append(a)
             elif a.startswith("-"):
-                if "=" in a:
-                    values.append(a.split("=", 1)[1])
                 if a not in ("-H", "-L", "-P"):
                     expression = True
+                if pattern_tool:
+                    if a in ("-e", "--regexp"):
+                        take, pattern_source = "pattern", True
+                    elif a in ("-f", "--file"):
+                        take, pattern_source = "file", True
+                    elif a.startswith("--file="):
+                        values.append(a.split("=", 1)[1])
+                        pattern_source = True
+                    elif a.startswith(("-e", "-f", "--regexp")):
+                        pattern_source = True
+                        if re.fullmatch(r"-f.+", a):
+                            values.append(a[2:])
+                elif "=" in a:
+                    values.append(a.split("=", 1)[1])
+                elif re.fullmatch(r"-[A-Za-z].+", a):
+                    values.append(a[2:])
             else:
                 words.append(a)
                 if not expression:
                     roots.append(a)
         paths.extend(redirects)
-        tool = Path(args[0]).name
         if tool in ("bash", "sh") and len(args) >= 3 and args[1] in ("-c", "-lc"):
             nested = operative_paths(args[2])
             if nested is None:
@@ -266,12 +295,17 @@ def operative_paths(cmd: str) -> list[str] | None:
         if tool in NO_FILE_OPERAND_TOOLS:
             continue
         if tool == "find":
-            words = roots
-        elif tool in PATTERN_FIRST_TOOLS:
-            values, words = [], words[1:]
+            words = words if any(a in ("-delete", "-exec", "-execdir", "-ok") for a in args) else roots
+        elif pattern_tool and not pattern_source:
+            words = words[1:]
         for operand in values + words:
-            if not re.search(r"\s", operand):
-                paths.append(operand)
+            if re.search(r"\s", operand):
+                ancestor = Path(operand).expanduser()
+                while not ancestor.exists() and ancestor != ancestor.parent:
+                    ancestor = ancestor.parent
+                if not PROJECT_PATH_RE.search(str(ancestor)):
+                    continue
+            paths.append(operand)
     return paths
 
 

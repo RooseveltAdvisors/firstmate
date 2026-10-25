@@ -42,6 +42,11 @@ assert_denied 'gh pr merge 7'
 assert_denied 'git log &> /tmp/out'
 assert_denied 'bd list >& /tmp/out'
 assert_denied 'git show x >| /tmp/out'
+"$GUARD" --command 'bd list > /dev/null' || fail 'outage contract denies discard sink'
+assert_denied 'bd list > /tmp/out'
+assert_denied 'bd list > /dev/fd/9'
+assert_denied 'bd list > /dev/nullx'
+assert_denied 'bd list > /dev/null/x'
 "$GUARD" --command "(cd /home/jon/git/wiseman && bd comment x 'run project tests')"
 
 # Quoted worker instructions stay opaque, including systemd/project words;
@@ -76,6 +81,9 @@ export FM_TEST_JEV_RESPONSE='{"answers":{"action":{"choice":"allow_supervisor"},
 (cd "$TDIR" && assert_denied 'pytest tests/ -q')
 export FM_TEST_JEV_RESPONSE='{"answers":{"action":{"choice":"allow_supervisor"},"violation_noul":{"noul":0},"target_domain":{"choice":"supervisor"}}}'
 (cd "$TDIR" && "$GUARD" --command 'cat state/task.status') || fail 'online supervisor decision denied'
+out=$(cd "$SUPERVISOR" && python3 "$SUPERVISOR/bin/fm-jev-guard.py" --json --command 'bd list > /dev/null')
+assert_contains "$out" '"code": "fast_path_whitelist"' 'discard sink keeps the fast path'
+assert_contains "$out" '"tier": 1' 'discard sink is tier 1'
 # A project path the command only mentions reaches Jev; one it operates on is
 # denied before the query even when Jev would allow it.
 for command in \
@@ -95,7 +103,14 @@ for command in \
   'touch projects/portal/new-file' \
   'echo x > projects/portal/app.py' \
   "bash -c 'cat > projects/portal/new.py'" \
-  'test -d projects/portal'; do
+  'test -d projects/portal' \
+  "touch 'projects/portal/new file'" \
+  "cp state/task.status 'projects/portal/new file'" \
+  'find . -path "./projects/*" -delete' \
+  "find . -path './projects/*' -exec rm {} +" \
+  'tar -Cprojects/portal -cf /tmp/x .' \
+  'awk -f projects/portal/rules.awk state/task.status' \
+  'grep -f projects/portal/patterns state/x.status'; do
   out=$(cd "$SUPERVISOR" && python3 "$SUPERVISOR/bin/fm-jev-guard.py" --check-only --command "$command")
   assert_contains "$out" 'Project work must be delegated' "operative project path pre-denied: $command"
 done
