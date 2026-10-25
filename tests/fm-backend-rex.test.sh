@@ -756,7 +756,7 @@ test_teardown_retires_the_secondmate_session() {
   out=$(env -u TERM_PROGRAM -u REX_SESSION -u REX_BLOCK -u REX_SERVER \
     FM_REX_FAKE_DIR="$dir/fake" REX_BIN_DIR="$dir/bin" FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" \
     FM_REX_FAKE_DEAD_PID="$DEAD_PID" FM_BACKEND_REX_BUNDLE_BIN="$dir/no-bundle/rex" \
-    "$ROOT/bin/fm-teardown.sh" sm --force 2>&1); rc=$?
+    "$ROOT/bin/fm-teardown.sh" sm --force --retire-secondmate sm 2>&1); rc=$?
   expect_code 0 "$rc" "teardown of a rex secondmate must succeed: $out"
   assert_equals 0 "$(state_json "$dir" "[.sessions[] | select(.session_id == \"$sid\")] | length")" \
     "retiring the secondmate must retire its emptied per-home session"
