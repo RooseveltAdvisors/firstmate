@@ -154,10 +154,36 @@ for command in \
   "dash -e -c 'rm projects/portal/x'" \
   "find . -exec bash -c 'rm projects/portal/x' {} +" \
   "find . -ok sh -c 'rm projects/portal/x' {} \;" \
-  'bash -c "rm projects/portal/x'; do
+  'bash -c "rm projects/portal/x' \
+  'projects/portal/bin/tool arg' \
+  "sh -c 'cat \"\$1\"' _ projects/portal/x" \
+  "ksh -c 'rm projects/portal/x'" \
+  "ash -c 'rm projects/portal/x'"; do
   out=$(cd "$SUPERVISOR" && python3 "$SUPERVISOR/bin/fm-jev-guard.py" --check-only --command "$command")
   assert_contains "$out" 'Project work must be delegated' "operative project path pre-denied: $command"
 done
+# Written amendment: the nine wrapper words peel before the shell-name check, and
+# the pre-deny fires before any query under either Jev answer shape.
+for wrapper in nohup env 'env -i' 'env -u FOO' 'env -U FOO' timeout exec nice setsid xargs time command; do
+  for answer in \
+    '{"answers":{"action":{"choice":"require_delegation"},"violation_noul":{"noul":1},"target_domain":{"choice":"project_worker"}}}' \
+    '{"answers":{"action":{"choice":"allow_supervisor"},"violation_noul":{"noul":0},"target_domain":{"choice":"supervisor"}}}'; do
+    export FM_TEST_JEV_RESPONSE="$answer"
+    out=$(cd "$SUPERVISOR" && python3 "$SUPERVISOR/bin/fm-jev-guard.py" --check-only --command "$wrapper bash -c 'rm projects/portal/x'")
+    assert_contains "$out" 'Project work must be delegated' "wrapper $wrapper pre-denies before any query"
+  done
+  export FM_TEST_JEV_RESPONSE='{"answers":{"action":{"choice":"allow_supervisor"},"violation_noul":{"noul":0},"target_domain":{"choice":"supervisor"}}}'
+  out=$(cd "$SUPERVISOR" && python3 "$SUPERVISOR/bin/fm-jev-guard.py" --check-only --command "$wrapper bash -c 'cat state/task.status'")
+  assert_contains "$out" supervisor_approved "wrapper $wrapper benign payload reaches the normal path"
+done
+out=$(cd "$SUPERVISOR" && python3 "$SUPERVISOR/bin/fm-jev-guard.py" --check-only --command "ksh -c 'bd show x'")
+assert_contains "$out" supervisor_approved 'ksh payload form leaves the fast path'
+assert_not_contains "$out" fast_path_whitelist 'ksh payload form is not fast-path'
+out=$(cd "$SUPERVISOR" && python3 "$SUPERVISOR/bin/fm-jev-guard.py" --check-only --command "ash -c 'bd list'")
+assert_contains "$out" supervisor_approved 'ash payload form leaves the fast path'
+assert_not_contains "$out" fast_path_whitelist 'ash payload form is not fast-path'
+out=$(cd "$SUPERVISOR" && python3 "$SUPERVISOR/bin/fm-jev-guard.py" --json --command "bin/fm-send.sh worker 'touch projects/portal/new.py'")
+assert_contains "$out" '"code": "fast_path_whitelist"' 'task payload fast-passes with its allowlisted tool'
 # A malformed response or proxy error must fail closed.
 export FM_TEST_JEV_RESPONSE='{}'
 (cd "$TDIR" && assert_denied 'pytest tests/ -q')

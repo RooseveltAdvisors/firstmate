@@ -11,21 +11,38 @@ Deterministic scope contract; every clause is pinned in tests/fm-jev-guard.test.
               verbs (pr view/status/list/checks/diff, run list/view), git read verbs
               (status/log/diff/rev-parse/show/ls-files/ls-remote), and bash/sh/zsh/dash
               payload forms with leading flags whose own command qualifies on that list.
+              Only those four names take the payload fast path; ksh and ash stay
+              deny-side. The fast path runs first, so an allowlisted spelling is allowed
+              even when its paths lie under projects/ (git read verbs on a project repo).
   not-writes  Bare fd duplication (2>&1) and the literal dev-sink redirect targets
               /dev/null, /dev/stdout, /dev/stderr, /dev/fd/0, /dev/fd/1, /dev/fd/2 are
               not file writes; any other redirect target refuses the fast path.
-  pre-deny    A command whose operative paths - cwd, cd target, program, file operand,
-              redirect target, find action or file-output operand, shell payload - lie
-              under projects/ or a treehouse worktree is denied require_delegation
-              before any Jev query.
+  pre-deny    A command the fast path does not allow and whose operative paths - cwd, cd
+              target, program, file operand, redirect target, find action or file-output
+              operand, shell payload - lie under projects/ or a treehouse worktree is
+              denied require_delegation before any Jev query. Payload recursion covers
+              bash, sh, zsh, dash, ksh and ash with leading flags.
   mentions    Pattern and predicate words (grep patterns, find -path/-name without a
               transforming action, echo/printf values, task payloads) are mentions, not
-              operands, and reach Jev instead of the pre-deny.
+              operands: a mention on an allowlisted tool fast-passes with that tool, and
+              every other mention reaches Jev instead of the pre-deny.
   unparsable  Input that cannot be tokenized never fast-passes, and the pre-deny falls
               back to the project-path substring test.
   jev         Jev classifies everything else and project_worker always denies; outages
               admit only SUPERVISOR_ALLOWLIST and fail closed; allowed decisions are
               never cached.
+
+Written amendment - wrapper peeling, deny side only: before the shell-name check, peel
+the leading wrapper words nohup, env (including -i and -U forms), timeout, exec, nice,
+setsid, xargs, time and command - these nine and only these; any future wrapper word
+joins solely by a further written amendment. After peeling, the remaining command runs
+the existing recursion: the four commissioned shells including leading flags, then the
+project-op pre-deny. Rationale: a command operating under projects/ hard-denies BEFORE
+ANY QUERY - a deterministic guarantee independent of Jev's answer - and the
+pinned-permissive-answer allow of `nohup bash -c 'rm projects/portal/x'` is precisely
+the failure that clause exists to stop (a project file deleted while the guard stamps
+supervisor approval). Peeling widens the deny side only and never makes anything newly
+allowable.
 
 The firstmate invariant: anything the deterministic layer does not positively classify for fast-path or pre-deny REACHES JEV and outage keeps fail-closed deny - no third outcome, no spelling may end in a silent allow.
 
@@ -131,12 +148,30 @@ def post_jev_systemone(payload: dict, proxy_bin: Path | None = None) -> dict:
 
 
 SHELL_NAMES = {"bash", "sh", "zsh", "dash", "ksh", "ash"}
+FAST_PATH_SHELLS = {"bash", "sh", "zsh", "dash"}
 SHELL_VALUE_OPTS = {"-o", "+o", "-O", "+O", "--rcfile", "--init-file"}
+WRAPPER_WORDS = {"nohup", "env", "timeout", "exec", "nice", "setsid", "xargs", "time", "command"}
 
 
-def shell_payload(args: list[str]) -> str | None:
+def peel_wrappers(args: list[str]) -> list[str]:
+    """Strip leading wrapper words and env option forms from a command."""
+    while args and Path(args[0]).name in WRAPPER_WORDS:
+        wrapper = Path(args[0]).name
+        args = args[1:]
+        if wrapper == "env":
+            while args:
+                if args[0] in ("-i", "--") or re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", args[0]):
+                    args = args[1:]
+                elif args[0] in ("-u", "-U") and len(args) > 1:
+                    args = args[2:]
+                else:
+                    break
+    return args
+
+
+def shell_payload(args: list[str], shells: set[str] = SHELL_NAMES) -> str | None:
     """The -c command string of a shell invocation, or None when args name a script file."""
-    if not args or Path(args[0]).name not in SHELL_NAMES:
+    if not args or Path(args[0]).name not in shells:
         return None
     argv: list[str] = []
     skip = False
@@ -207,12 +242,12 @@ def is_whitelisted_command(cmd: str) -> bool:
                 if target in DEV_SINKS:
                     continue
                 return False
-            payload = shell_payload(args)
+            payload = shell_payload(args, FAST_PATH_SHELLS)
             if payload is not None:
                 if not is_whitelisted_command(payload):
                     return False
                 continue
-            if Path(args[0]).name in SHELL_NAMES:
+            if Path(args[0]).name in FAST_PATH_SHELLS:
                 args = args[1:]
             if not args:
                 return False
@@ -300,10 +335,9 @@ def operative_paths(cmd: str) -> list[str] | None:
     for args in merged:
         while args and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", args[0]):
             args = args[1:]
-        if args and Path(args[0]).name == "env":
+        args = peel_wrappers(args)
+        while args and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", args[0]):
             args = args[1:]
-            while args and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", args[0]):
-                args = args[1:]
         if not args:
             continue
         tool = Path(args[0]).name
@@ -358,7 +392,6 @@ def operative_paths(cmd: str) -> list[str] | None:
             if nested is None:
                 return None
             paths.extend(nested)
-            continue
         if tool in ("cd", "pushd"):
             if words:
                 paths.append(words[0])
@@ -370,7 +403,7 @@ def operative_paths(cmd: str) -> list[str] | None:
             for index, action in enumerate(args):
                 if action not in FIND_ACTIONS:
                     continue
-                executed = shell_payload(args[index + 1:])
+                executed = shell_payload(peel_wrappers(args[index + 1:]))
                 if executed is not None:
                     nested = operative_paths(executed)
                     if nested is None:
