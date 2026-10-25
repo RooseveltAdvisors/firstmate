@@ -110,8 +110,11 @@
 # verification/<script>.log so reruns share a stable evidence key and survive
 # temporary-run cleanup. A later pass of a script with that log resolves its
 # bead and removes that log once the receipt confirms it; a pass never creates
-# one and a gate skip neither creates nor resolves one. FM_HOME is required
-# unless FM_DATA_OVERRIDE is set. The default domain is firstmate;
+# one and a gate skip neither creates nor resolves one. FM_HOME or
+# FM_DATA_OVERRIDE locates the store; a task worker with neither resolves its
+# home from the Treehouse slot claim its spawn recorded beside the worktree
+# (bin/fm-wake-lib.sh owns that claim), and only a run with no resolvable home
+# is refused. The default domain is firstmate;
 # FM_VERIFICATION_DOMAIN and FM_VERIFICATION_STORE select another defect domain.
 # A filing refusal is printed verbatim and keeps the run red, never a receipt.
 # Without an owning task this runner is unchanged (including ordinary CI);
@@ -2835,17 +2838,46 @@ family_bump() {
   mv "$tmp" "$FAMILIES_TSV"
 }
 
+# Read the home bound to <task-id> by the task's Treehouse slot claim.
+# bin/fm-wake-lib.sh owns that claim's contract (a plain file beside the
+# worktree root holding task= and home= lines, replaced atomically by
+# bin/fm-spawn.sh); this is a read-only consumer. Any doubt - no claim, a claim
+# naming another task, an unreadable one, or a home without a data directory -
+# resolves nothing and the caller's refusal stands.
+verification_home_from_slot_claim() {
+  local task=$1 top marker line owner_id='' owner_home=''
+  top=$(cd "$ROOT" 2>/dev/null && pwd -P) || return 1
+  marker="$(dirname "$top")/.fm-slot-owner"
+  [ -f "$marker" ] && [ ! -L "$marker" ] || return 1
+  while IFS= read -r line || [ -n "$line" ]; do
+    case $line in
+      task=*) owner_id=${line#task=} ;;
+      home=*) owner_home=${line#home=} ;;
+    esac
+  done <"$marker" || return 1
+  [ "$owner_id" = "$task" ] || return 1
+  [ -n "$owner_home" ] && [ -d "$owner_home/data" ] || return 1
+  printf '%s\n' "$owner_home"
+}
+
 record_verification_bead() {
-  local script=$1 out=$2 rc=$3 task=${FM_TASK_ID:-} data evidence
+  local script=$1 out=$2 rc=$3 task=${FM_TASK_ID:-} data evidence home=
   [ -n "$task" ] || return 0
   [[ "$task" =~ ^[a-zA-Z0-9_:\-]+$ ]] || { log 'failure bead refused: invalid FM_TASK_ID'; return 1; }
+  # A worker lane launched without FM_HOME still reaches its store: the slot
+  # claim binds the task to its home, which is exactly the default
+  # fm-verification-record.sh documents for the firstmate domain.
+  if [ -z "${FM_HOME:-}" ]; then
+    home=$(verification_home_from_slot_claim "$task") || home=
+  fi
   data=${FM_DATA_OVERRIDE:-${FM_HOME:+$FM_HOME/data}}
+  [ -n "$data" ] || [ -z "$home" ] || data=$home/data
   [ -n "$data" ] || { log 'failure bead refused: set FM_HOME or FM_DATA_OVERRIDE; preserve the failed log before replying'; return 1; }
   evidence="$data/$task/verification/$(basename "$script").log"
   if [ "$rc" -eq 0 ]; then
     local receipt
     [ -f "$evidence" ] || return 0
-    receipt=$("$ROOT/bin/fm-verification-record.sh" --resolve --task "$task" \
+    receipt=$(FM_HOME="${FM_HOME:-$home}" "$ROOT/bin/fm-verification-record.sh" --resolve --task "$task" \
       --domain "${FM_VERIFICATION_DOMAIN:-firstmate}" --command "bash $script" --evidence "$evidence") || return 1
     [ -n "$receipt" ] || return 0
     printf '%s\n' "$receipt"
@@ -2854,7 +2886,7 @@ record_verification_bead() {
   fi
   mkdir -p "$(dirname "$evidence")" || return 1
   { printf 'Run: %s\n' "$RUN_ID"; cat "$out"; } >"$evidence" || return 1
-  "$ROOT/bin/fm-verification-record.sh" --task "$task" \
+  FM_HOME="${FM_HOME:-$home}" "$ROOT/bin/fm-verification-record.sh" --task "$task" \
     --domain "${FM_VERIFICATION_DOMAIN:-firstmate}" --command "bash $script" --evidence "$evidence"
 }
 

@@ -401,7 +401,10 @@
 #   An enabled task trace also retains TRACEPARENT. Explicit Firstmate launch
 #   assignments still apply inside the filtered environment, including the
 #   FM_TASK_INBOX export every launch carries (the absolute state/<id>.inbox
-#   path the steering doorbell names). Raw commands must
+#   path the steering doorbell names) and the FM_HOME export every ship or
+#   scout launch carries (the spawning home, so the worker lane's
+#   verification-bead filing in bin/fm-test-run.sh resolves that home's data
+#   store; a secondmate's launch prefix already names its own home). Raw commands must
 #   be POSIX sh compatible under this opt-in; the absent-file path is unchanged.
 #   This is an exec environment boundary, not a sandbox for the pane's startup
 #   shell, credential files, same-user processes, or later shell initialization.
@@ -7260,6 +7263,16 @@ fi
 # `/bin/sh` starts rather than only inside the command that shell runs.
 if [ "$LAVISH_AXI_HOST_CONFIG_PRESENT" = 1 ]; then
   LAUNCH="export LAVISH_AXI_HOST=$(shell_quote "$LAVISH_AXI_HOST"); $LAUNCH"
+fi
+# A ship or scout lane resolves its Firstmate data store from FM_HOME (the
+# verification-bead filing in bin/fm-test-run.sh is the load-bearing case), and
+# the launch-env-allowlist `env -i` floor drops an ambient FM_HOME, so the
+# launch exports the SPAWNING home explicitly - the same value a secondmate
+# launch carries for its own home above, and the home the worker's task record,
+# inbox, and evidence all belong to. An export statement, like the inbox line
+# below, so it survives a compound raw launch and the cleared floor.
+if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
+  LAUNCH="export FM_HOME=$(shell_quote "$FM_HOME"); $LAUNCH"
 fi
 # Every launch also exports the absolute path of this task's steering inbox, so
 # the constant doorbell line (bin/fm-task-inbox-lib.sh) can name

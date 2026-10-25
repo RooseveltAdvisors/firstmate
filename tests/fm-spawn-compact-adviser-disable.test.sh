@@ -225,6 +225,36 @@ test_launch_exports_task_inbox() {
   pass "ship and secondmate launches export their absolute steering inbox as FM_TASK_INBOX"
 }
 
+# A worker lane files its verification beads through bin/fm-test-run.sh, which
+# resolves the lane's data store from FM_HOME; a launch floor that drops it
+# loses every red-test finding (fm-m48wl). The launch must therefore hand a
+# ship or scout the SPAWNING home under either allowlist posture, exactly as a
+# secondmate launch names its own home (covered by test_secondmate_launch).
+test_worker_launch_carries_spawning_home_fm_home() {
+  local setting kind rec id out status seen
+  for kind in ship scout; do
+    for setting in absent enabled; do
+      id="fmhome-$kind-$setting-a1"
+      rec=$(make_case "fmhome-$kind-$setting" codex "$id")
+      read_case "$rec"
+      [ "$setting" = absent ] || : > "$HOME_DIR/config/launch-env-allowlist"
+      if [ "$kind" = ship ]; then
+        out=$(run_case_spawn "$id" "$PROJ_DIR" --mode no-mistakes --yolo off)
+      else
+        out=$(run_case_spawn "$id" "$PROJ_DIR" --scout)
+      fi
+      status=$?
+      expect_code 0 "$status" "$kind spawn with allowlist=$setting should succeed: $out"
+      install_env_probe "$FAKEBIN_DIR" codex FM_HOME
+      seen=$(emitted_launch_env "$FAKEBIN_DIR" "$LAUNCH_LOG" "$PANE_LOG") \
+        || fail "$kind, allowlist $setting: the emitted launch failed to run"
+      assert_equals "$HOME_DIR" "$seen" \
+        "a $kind launch with allowlist=$setting must start its agent with FM_HOME set to the spawning home"
+    done
+  done
+  pass "ship and scout launches hand their agent the spawning home as FM_HOME in both allowlist postures"
+}
+
 # --- relaunch ---------------------------------------------------------------
 #
 # bin/fm-control.sh relaunch stops the agent and rebuilds the launch through
@@ -387,5 +417,6 @@ test_ship_allowlist_enabled
 test_launch_command_carries_the_switch_without_the_pane_export
 test_secondmate_launch
 test_launch_exports_task_inbox
+test_worker_launch_carries_spawning_home_fm_home
 test_relaunch_rebuilds_the_switch
 test_raw_compound_launch_command_carries_the_switch
