@@ -189,19 +189,20 @@ def delegation_denial(reason: str, domain: str = "project_worker") -> dict:
 
 PROJECT_PATH_RE = re.compile(r"(?:^|[/\s=])projects(?:/|$)|(?:^|/)\.treehouse/")
 
-# These tools open no file operand: their words are patterns, search roots, or
-# values, so a project path named there is a mention, not an operation on it.
-NO_FILE_OPERAND_TOOLS = {"pgrep", "pkill", "find", "echo", "printf", "test", "["}
+# These tools open no file operand: their words are patterns or values, so a
+# project path named there is a mention, not an operation on it.
+NO_FILE_OPERAND_TOOLS = {"pgrep", "pkill", "echo", "printf"}
 # These tools name a pattern or program first; the words after it are files.
 PATTERN_FIRST_TOOLS = {"grep", "egrep", "fgrep", "rg", "ag", "ack", "awk", "sed"}
 
 
 def operative_paths(cmd: str) -> list[str] | None:
-    """The paths a command operates on: its program, cd targets, and file operands.
+    """The paths a command operates on: its program, cd targets, file operands,
+    and redirection targets, recursing into bash -c strings.
 
-    Returns None when the command cannot be parsed. An operand counts only when
-    it names an existing path; an argument that merely quotes a path (task
-    payload, match pattern, text in a bash -c string) is left out.
+    Returns None when the command cannot be parsed. Operative paths count even
+    when they do not exist yet; a word that merely mentions a path (match
+    pattern, task payload) is left out.
     """
     try:
         lexer = shlex.shlex(cmd, posix=True, punctuation_chars=";&|<>()\n")
@@ -214,8 +215,6 @@ def operative_paths(cmd: str) -> list[str] | None:
                 continue
             if all(char in ";&|()\n" for char in token):
                 segments.append([])
-            elif all(char in "<&>|()" for char in token):
-                continue
             else:
                 segments[-1].append(token)
     except ValueError:
@@ -228,8 +227,30 @@ def operative_paths(cmd: str) -> list[str] | None:
             args = args[1:]
             while args and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", args[0]):
                 args = args[1:]
-        if not args:
+        if not args or args[0].startswith("-"):
             continue
+        redirects: list[str] = []
+        roots: list[str] = []
+        words: list[str] = []
+        values: list[str] = []
+        pending = False
+        expression = False
+        for a in args[1:]:
+            if all(char in "<&>|" for char in a):
+                pending = True
+            elif pending:
+                pending = False
+                redirects.append(a)
+            elif a.startswith("-"):
+                if "=" in a:
+                    values.append(a.split("=", 1)[1])
+                if a not in ("-H", "-L", "-P"):
+                    expression = True
+            else:
+                words.append(a)
+                if not expression:
+                    roots.append(a)
+        paths.extend(redirects)
         tool = Path(args[0]).name
         if tool in ("bash", "sh") and len(args) >= 3 and args[1] in ("-c", "-lc"):
             nested = operative_paths(args[2])
@@ -238,19 +259,18 @@ def operative_paths(cmd: str) -> list[str] | None:
             paths.extend(nested)
             continue
         if tool in ("cd", "pushd"):
-            target = next((a for a in args[1:] if not a.startswith("-")), None)
-            if target:
-                paths.append(target)
+            if words:
+                paths.append(words[0])
             continue
         paths.append(args[0])
-        values = [a.split("=", 1)[1] for a in args[1:] if a.startswith("-") and "=" in a]
-        words = [a for a in args[1:] if not a.startswith("-")]
         if tool in NO_FILE_OPERAND_TOOLS:
             continue
-        if tool in PATTERN_FIRST_TOOLS:
+        if tool == "find":
+            words = roots
+        elif tool in PATTERN_FIRST_TOOLS:
             values, words = [], words[1:]
         for operand in values + words:
-            if Path(operand).expanduser().exists():
+            if not re.search(r"\s", operand):
                 paths.append(operand)
     return paths
 

@@ -82,6 +82,7 @@ for command in \
   'pgrep -f projects/portal' \
   'grep -l projects/portal state/*.status' \
   "bash -c 'grep projects/portal state/x'" \
+  "find . -path 'projects/portal*'" \
   "echo projects/portal"; do
   out=$(cd "$SUPERVISOR" && python3 "$SUPERVISOR/bin/fm-jev-guard.py" --check-only --command "$command")
   assert_contains "$out" supervisor_approved "mention-only project path reaches Jev: $command"
@@ -89,7 +90,12 @@ done
 for command in \
   'cd projects/portal && npm test' \
   'git -C projects/portal commit -m x' \
-  "bash -c 'cd projects/portal && npm test'"; do
+  "bash -c 'cd projects/portal && npm test'" \
+  'find projects/portal -type f' \
+  'touch projects/portal/new-file' \
+  'echo x > projects/portal/app.py' \
+  "bash -c 'cat > projects/portal/new.py'" \
+  'test -d projects/portal'; do
   out=$(cd "$SUPERVISOR" && python3 "$SUPERVISOR/bin/fm-jev-guard.py" --check-only --command "$command")
   assert_contains "$out" 'Project work must be delegated' "operative project path pre-denied: $command"
 done
