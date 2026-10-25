@@ -106,7 +106,7 @@ def post_jev_systemone(payload: dict, proxy_bin: Path | None = None) -> dict:
 
 
 def is_whitelisted_command(cmd: str) -> bool:
-    """Admit supervisor tools without inspecting their quoted task payloads."""
+    """Admit supervisor tools with opaque task payloads, refusing shell-substitution tokens."""
     try:
         cmd = cmd.strip()
         if cmd.startswith("(") and cmd.endswith(")"):
@@ -187,10 +187,82 @@ def delegation_denial(reason: str, domain: str = "project_worker") -> dict:
     }
 
 
+PROJECT_PATH_RE = re.compile(r"(?:^|[/\s=])projects(?:/|$)|(?:^|/)\.treehouse/")
+
+# These tools open no file operand: their words are patterns, search roots, or
+# values, so a project path named there is a mention, not an operation on it.
+NO_FILE_OPERAND_TOOLS = {"pgrep", "pkill", "find", "echo", "printf", "test", "["}
+# These tools name a pattern or program first; the words after it are files.
+PATTERN_FIRST_TOOLS = {"grep", "egrep", "fgrep", "rg", "ag", "ack", "awk", "sed"}
+
+
+def operative_paths(cmd: str) -> list[str] | None:
+    """The paths a command operates on: its program, cd targets, and file operands.
+
+    Returns None when the command cannot be parsed. An operand counts only when
+    it names an existing path; an argument that merely quotes a path (task
+    payload, match pattern, text in a bash -c string) is left out.
+    """
+    try:
+        lexer = shlex.shlex(cmd, posix=True, punctuation_chars=";&|<>()\n")
+        lexer.whitespace = " \t\r"
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        segments: list[list[str]] = [[]]
+        for token in lexer:
+            if not token:
+                continue
+            if all(char in ";&|()\n" for char in token):
+                segments.append([])
+            elif all(char in "<&>|()" for char in token):
+                continue
+            else:
+                segments[-1].append(token)
+    except ValueError:
+        return None
+    paths: list[str] = []
+    for args in segments:
+        while args and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", args[0]):
+            args = args[1:]
+        if args and Path(args[0]).name == "env":
+            args = args[1:]
+            while args and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", args[0]):
+                args = args[1:]
+        if not args:
+            continue
+        tool = Path(args[0]).name
+        if tool in ("bash", "sh") and len(args) >= 3 and args[1] in ("-c", "-lc"):
+            nested = operative_paths(args[2])
+            if nested is None:
+                return None
+            paths.extend(nested)
+            continue
+        if tool in ("cd", "pushd"):
+            target = next((a for a in args[1:] if not a.startswith("-")), None)
+            if target:
+                paths.append(target)
+            continue
+        paths.append(args[0])
+        values = [a.split("=", 1)[1] for a in args[1:] if a.startswith("-") and "=" in a]
+        words = [a for a in args[1:] if not a.startswith("-")]
+        if tool in NO_FILE_OPERAND_TOOLS:
+            continue
+        if tool in PATTERN_FIRST_TOOLS:
+            values, words = [], words[1:]
+        for operand in values + words:
+            if Path(operand).expanduser().exists():
+                paths.append(operand)
+    return paths
+
+
 def targets_project(cmd: str) -> bool:
-    # Resolve cwd too: a plain pytest inside a project carries no path in argv.
-    paths = str(Path.cwd().resolve()) + " " + cmd
-    return bool(re.search(r"(?:^|[/\s=])projects(?:/|$)|(?:^|/)\.treehouse/", paths))
+    # The cwd counts too: a plain pytest inside a project carries no path in argv.
+    if PROJECT_PATH_RE.search(str(Path.cwd().resolve())):
+        return True
+    paths = operative_paths(cmd)
+    if paths is None:
+        return bool(PROJECT_PATH_RE.search(cmd))
+    return any(PROJECT_PATH_RE.search(path) for path in paths)
 
 
 def get_suggested_dispatch(cmd: str, domain: str) -> str:

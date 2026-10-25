@@ -44,7 +44,8 @@ assert_denied 'bd list >& /tmp/out'
 assert_denied 'git show x >| /tmp/out'
 "$GUARD" --command "(cd /home/jon/git/wiseman && bd comment x 'run project tests')"
 
-# Quoted worker instructions remain opaque, including systemd/project words.
+# Quoted worker instructions stay opaque, including systemd/project words;
+# shell-substitution tokens are refused rather than passed through.
 "$GUARD" --command "bin/fm-send.sh worker 'cd projects/portal && npm test; systemctl restart app'"
 "$GUARD" --command 'FM_HOME=/opt/ra/firstmate bash bin/fm-route-dispatch.sh --task "fix project tests"'
 "$GUARD" --command 'bin/fm-brief.sh --help'
@@ -75,6 +76,23 @@ export FM_TEST_JEV_RESPONSE='{"answers":{"action":{"choice":"allow_supervisor"},
 (cd "$TDIR" && assert_denied 'pytest tests/ -q')
 export FM_TEST_JEV_RESPONSE='{"answers":{"action":{"choice":"allow_supervisor"},"violation_noul":{"noul":0},"target_domain":{"choice":"supervisor"}}}'
 (cd "$TDIR" && "$GUARD" --command 'cat state/task.status') || fail 'online supervisor decision denied'
+# A project path the command only mentions reaches Jev; one it operates on is
+# denied before the query even when Jev would allow it.
+for command in \
+  'pgrep -f projects/portal' \
+  'grep -l projects/portal state/*.status' \
+  "bash -c 'grep projects/portal state/x'" \
+  "echo projects/portal"; do
+  out=$(cd "$SUPERVISOR" && python3 "$SUPERVISOR/bin/fm-jev-guard.py" --check-only --command "$command")
+  assert_contains "$out" supervisor_approved "mention-only project path reaches Jev: $command"
+done
+for command in \
+  'cd projects/portal && npm test' \
+  'git -C projects/portal commit -m x' \
+  "bash -c 'cd projects/portal && npm test'"; do
+  out=$(cd "$SUPERVISOR" && python3 "$SUPERVISOR/bin/fm-jev-guard.py" --check-only --command "$command")
+  assert_contains "$out" 'Project work must be delegated' "operative project path pre-denied: $command"
+done
 # A malformed response or proxy error must fail closed.
 export FM_TEST_JEV_RESPONSE='{}'
 (cd "$TDIR" && assert_denied 'pytest tests/ -q')
