@@ -207,6 +207,28 @@ out=$(cd "$SUPERVISOR" && python3 "$SUPERVISOR/bin/fm-jev-guard.py" --check-only
 assert_not_contains "$out" 'Project work must be delegated' 'non-project file value is not pre-denied'
 assert_not_contains "$out" fast_path_whitelist 'non-project file value gains no fast path'
 assert_contains "$out" supervisor_approved 'non-project file value reaches Jev'
+# Inbox014: generic value consumption reaches the payload in every wrapper form.
+for probe in \
+  "xargs --max-args 1 bash -c 'rm projects/portal/x'" \
+  "xargs --max-chars 100 bash -c 'rm projects/portal/x'" \
+  "xargs --max-procs 2 bash -c 'rm projects/portal/x'" \
+  "xargs --process-slot-var FOO bash -c 'rm projects/portal/x'" \
+  "time --format '%R' bash -c 'rm projects/portal/x'" \
+  "env -S 'bash -c \"rm projects/portal/x\"'" \
+  "env --split-string='bash -c \"rm projects/portal/x\"'" \
+  "timeout --kill-after=5 5 bash -c 'rm projects/portal/x'" \
+  'projects/portal/bin/env foo' \
+  'projects/portal/bin/nohup foo' \
+  'projects/portal/bin/time foo' \
+  'projects/portal/bin/command foo'; do
+  for answer in \
+    '{"answers":{"action":{"choice":"require_delegation"},"violation_noul":{"noul":1},"target_domain":{"choice":"project_worker"}}}' \
+    '{"answers":{"action":{"choice":"allow_supervisor"},"violation_noul":{"noul":0},"target_domain":{"choice":"supervisor"}}}'; do
+    export FM_TEST_JEV_RESPONSE="$answer"
+    out=$(cd "$SUPERVISOR" && python3 "$SUPERVISOR/bin/fm-jev-guard.py" --check-only --command "$probe")
+    assert_contains "$out" 'Project work must be delegated' "wrapper peel reaches the pre-deny: $probe"
+  done
+done
 # A malformed response or proxy error must fail closed.
 export FM_TEST_JEV_RESPONSE='{}'
 (cd "$TDIR" && assert_denied 'pytest tests/ -q')
@@ -230,6 +252,14 @@ mkdir -p "$MOCK_WT/bin"
 cp "$ROOT/bin/fm-jev-guard.sh" "$ROOT/bin/fm-jev-guard.py" "$MOCK_WT/bin/"
 FM_TEST_PRIMARY=0 FM_ROOT_OVERRIDE="$MOCK_WT" "$MOCK_WT/bin/fm-jev-guard.sh" --command 'cd projects/portal && npm test' \
   || fail 'linked worker worktree should remain inert'
+transport_payload='{"tool_name":"mcp__chrome_devtools__click","tool_input":{"command":"git status"}}'
+rc=0
+out=$(printf '%s' "$transport_payload" | FM_TEST_PRIMARY=0 FM_ROOT_OVERRIDE="$MOCK_WT" "$MOCK_WT/bin/fm-jev-guard.sh" 2>"$TDIR/worktree-transport.err") || rc=$?
+assert_equals 2 "$rc" 'unlisted transport denies in a linked worktree'
+assert_contains "$out" 'has no approved action adapter' 'worktree transport denial is loud'
+rc=0
+out=$(printf '%s' '{"tool_input":{"command":"git status"}}' | FM_TEST_PRIMARY=0 FM_ROOT_OVERRIDE="$MOCK_WT" "$MOCK_WT/bin/fm-jev-guard.sh" 2>/dev/null) || rc=$?
+assert_equals 2 "$rc" 'unnamed transport denies in a linked worktree'
 # Classifier-runtime absence denies loudly in supervisor scope; only a payload
 # with no extractable command keeps the documented exit 0.
 NOJQ="$TDIR/nojqbin"

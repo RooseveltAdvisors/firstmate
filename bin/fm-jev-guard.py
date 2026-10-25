@@ -36,9 +36,9 @@ Written amendment - wrapper peeling, deny side only: before the shell-name check
 the leading wrapper words nohup, env (including -i and -U forms), timeout, exec, nice,
 setsid, xargs, time and command - these nine and only these; any future wrapper word
 joins solely by a further written amendment. Peeling consumes each wrapper's own
-arguments too: timeout's duration, xargs's flags (-I, -n, -0, -d and the flag values
-that follow), nice's and setsid's options, time -p if present; env already handled;
-nohup, exec and command carry none. After peeling, the remaining command runs
+arguments too: option flags and their values, timeout's duration, and env's -i,
+-u, -U and -S forms; nohup carries none, while exec and command carry their flags.
+After peeling, the remaining command runs
 the existing recursion: the four commissioned shells including leading flags, then the
 project-op pre-deny. Rationale: a command operating under projects/ hard-denies BEFORE
 ANY QUERY - a deterministic guarantee independent of Jev's answer - and the
@@ -165,59 +165,66 @@ SHELL_NAMES = {"bash", "sh", "zsh", "dash", "ksh", "ash"}
 FAST_PATH_SHELLS = {"bash", "sh", "zsh", "dash"}
 SHELL_VALUE_OPTS = {"-o", "+o", "-O", "+O", "--rcfile", "--init-file"}
 WRAPPER_WORDS = {"nohup", "env", "timeout", "exec", "nice", "setsid", "xargs", "time", "command"}
-WRAPPER_VALUE_OPTS = {
-    "env": {"-u", "-U", "--unset"},
-    "timeout": {"-s", "-k", "-K", "--signal", "--kill-after"},
-    "nice": {"-n", "--adjustment"},
-    "time": {"-f", "-o"},
-    "xargs": {"-I", "-i", "-L", "-l", "-n", "-d", "-P", "-s", "-E", "-e", "-a"},
-}
 WRAPPER_FILE_OPTS = {
     "time": {"-o", "--output"},
     "xargs": {"-a", "--arg-file"},
 }
 
 
-def peel_wrappers(args: list[str]) -> tuple[list[str], list[str]]:
-    """Strip leading wrapper words and their arguments; file-option values are operands."""
-    operands: list[str] = []
+def peel_wrappers(args: list[str]) -> tuple[list[str], list[str], list[str]]:
+    """Strip leading wrapper words and their arguments.
+
+    Returns the remaining args, the paths the peel consumed (wrapper programs and
+    file-option values), and command payloads carried by env -S.
+    """
+    collected: list[str] = []
+    payloads: list[str] = []
     while args and Path(args[0]).name in WRAPPER_WORDS:
         wrapper = Path(args[0]).name
+        collected.append(args[0])
         args = args[1:]
-        if wrapper in ("nohup", "exec", "command"):
+        if wrapper == "nohup":
             continue
         if wrapper == "env":
             while args:
                 if args[0] in ("-i", "--") or re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", args[0]):
                     args = args[1:]
-                elif args[0] in WRAPPER_VALUE_OPTS["env"] and len(args) > 1:
+                elif args[0] in ("-u", "-U", "--unset") and len(args) > 1:
                     args = args[2:]
                 elif args[0].startswith(("-u", "-U", "--unset=")):
+                    args = args[1:]
+                elif args[0] in ("-S", "--split-string") and len(args) > 1:
+                    payloads.append(args[1])
+                    args = args[2:]
+                elif args[0].startswith("--split-string="):
+                    payloads.append(args[0].split("=", 1)[1])
                     args = args[1:]
                 else:
                     break
             continue
-        value_opts = WRAPPER_VALUE_OPTS.get(wrapper, set())
         file_opts = WRAPPER_FILE_OPTS.get(wrapper, set())
         while args and args[0].startswith("-"):
             flag = args[0]
             name, sep, attached = flag.partition("=")
             if name in file_opts and sep:
-                operands.append(attached)
+                collected.append(attached)
                 args = args[1:]
             elif len(flag) > 2 and not flag.startswith("--") and flag[:2] in file_opts:
-                operands.append(flag[2:])
+                collected.append(flag[2:])
                 args = args[1:]
             elif flag in file_opts and len(args) > 1:
-                operands.append(args[1])
+                collected.append(args[1])
                 args = args[2:]
-            elif flag in value_opts and len(args) > 1:
+            elif sep:
+                args = args[1:]
+            elif (len(args) > 1 and Path(args[1]).name not in WRAPPER_WORDS | SHELL_NAMES
+                  and not PROJECT_PATH_RE.search(args[1])):
                 args = args[2:]
             else:
                 args = args[1:]
         if wrapper == "timeout" and len(args) > 1 and Path(args[1]).name in WRAPPER_WORDS | SHELL_NAMES:
             args = args[1:]
-    return args, operands
+    return args, collected, payloads
 
 
 def shell_payload(args: list[str], shells: set[str] = SHELL_NAMES) -> str | None:
@@ -395,7 +402,13 @@ def operative_paths(cmd: str) -> list[str] | None:
     for args in merged:
         while args and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", args[0]):
             args = args[1:]
-        args, peeled = peel_wrappers(args)
+        args, peeled, carried = peel_wrappers(args)
+        paths.extend(operand for operand in peeled if is_file_operand(operand))
+        for command in carried:
+            nested = operative_paths(command)
+            if nested is None:
+                return None
+            paths.extend(nested)
         while args and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", args[0]):
             args = args[1:]
         if not args:
@@ -446,7 +459,6 @@ def operative_paths(cmd: str) -> list[str] | None:
                 if not expression:
                     roots.append(a)
         paths.extend(redirects)
-        paths.extend(operand for operand in peeled if is_file_operand(operand))
         payload = shell_payload(args)
         if payload is not None:
             nested = operative_paths(payload)
