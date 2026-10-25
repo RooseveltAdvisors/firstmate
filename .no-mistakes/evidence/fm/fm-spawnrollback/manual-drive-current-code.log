@@ -1,0 +1,13 @@
+=== kind=ship exit=1
+--- spawn output (operator-visible):
+warning: /tmp/fm-backlog-atomicity.3g8USE/drive-treehouse-timeout-ship/home/data/drive-treehouse-timeout-ship/launch-brief.md records no ship branch; defaulting to legacy branch fm/drive-treehouse-timeout-ship
+error: treehouse get did not enter an isolated worktree within 60s (last seen '/tmp/fm-backlog-atomicity.3g8USE/drive-treehouse-timeout-ship/project': it is the spawning project itself; spawning project '/tmp/fm-backlog-atomicity.3g8USE/drive-treehouse-timeout-ship/project'); inspect window firstmate:fm-drive-treehouse-timeout-ship
+--- backlog row state: queued
+--- task records in state/: 0
+
+=== kind=scout exit=1
+--- spawn output (operator-visible):
+error: treehouse get did not enter an isolated worktree within 60s (last seen '/tmp/fm-backlog-atomicity.3g8USE/drive-treehouse-timeout-scout/project': it is the spawning project itself; spawning project '/tmp/fm-backlog-atomicity.3g8USE/drive-treehouse-timeout-scout/project'); inspect window firstmate:fm-drive-treehouse-timeout-scout
+--- backlog row state: queued
+--- task records in state/: 0
+
