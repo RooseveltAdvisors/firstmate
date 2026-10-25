@@ -34,7 +34,7 @@ The deny reason is written to stderr, with a Grok/Pi decision object on stdout
 unless --claude is supplied.
 With --cursor, a deny is Cursor's own decision object on stdout and exit 0.
 An unavailable classifier runtime denies commands in supervisor homes.
-Malformed transport is ignored (exit 0).
+A malformed payload with no extractable command is ignored (exit 0).
 EOF
 }
 
@@ -94,7 +94,28 @@ PAYLOAD=""
 if [ "$CMD_SET" -eq 0 ]; then
   PAYLOAD=$(cat 2>/dev/null || true)
   [ -n "$PAYLOAD" ] || exit 0
-  command -v jq >/dev/null 2>&1 || exit 0
+fi
+
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd -P) || exit 0
+FM_ROOT=${FM_ROOT_OVERRIDE:-$(CDPATH='' cd -- "$SCRIPT_DIR/.." 2>/dev/null && pwd -P)} || exit 0
+
+# Scope check: apply only in the primary checkout (git-dir == git-common-dir).
+# Crewmate / scout task worktrees (linked git worktrees) are inert (exit 0) only
+# when git positively identifies the linked worktree; a context that cannot be
+# established fails closed. Secondmate homes are supervisors too and use the
+# same delegation policy.
+[ -f "$FM_ROOT/AGENTS.md" ] || exit 0
+[ -d "$FM_ROOT/bin" ] || exit 0
+command -v git >/dev/null 2>&1 || render_deny "[require_delegation] classifier runtime unavailable"
+if [ "${FM_TEST_PRIMARY:-0}" -ne 1 ] && [ ! -f "$FM_ROOT/.fm-secondmate-home" ] \
+  && [ ! -f "${FM_HOME:-}/.fm-secondmate-home" ]; then
+  GIT_DIR=$(git -C "$FM_ROOT" rev-parse --git-dir 2>/dev/null) || render_deny "[require_delegation] classifier runtime unavailable"
+  GIT_COMMON_DIR=$(git -C "$FM_ROOT" rev-parse --git-common-dir 2>/dev/null) || render_deny "[require_delegation] classifier runtime unavailable"
+  [ "$GIT_DIR" = "$GIT_COMMON_DIR" ] || exit 0
+fi
+
+if [ "$CMD_SET" -eq 0 ]; then
+  command -v jq >/dev/null 2>&1 || render_deny "[require_delegation] classifier runtime unavailable"
   TOOL=$(printf '%s' "$PAYLOAD" | jq -r '(.tool_name // .toolName // empty) | select(type=="string")' 2>/dev/null) || exit 0
   # No click label, session, command field or caller-supplied action class can
   # prove what an unlisted tool will send. Deny every transport that is not one
@@ -117,23 +138,6 @@ if [ "$CMD_SET" -eq 0 ]; then
 fi
 
 [ -n "$CMD" ] || exit 0
-
-SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd -P) || exit 0
-FM_ROOT=${FM_ROOT_OVERRIDE:-$(CDPATH='' cd -- "$SCRIPT_DIR/.." 2>/dev/null && pwd -P)} || exit 0
-
-# Scope check: apply only in the primary checkout (git-dir == git-common-dir).
-# Crewmate / scout task worktrees (linked git worktrees) are inert (exit 0).
-# Secondmate homes are supervisors too and use the same delegation policy.
-[ -f "$FM_ROOT/AGENTS.md" ] || exit 0
-[ -d "$FM_ROOT/bin" ] || exit 0
-command -v git >/dev/null 2>&1 || exit 0
-if [ "${FM_TEST_PRIMARY:-0}" -ne 1 ] && [ ! -f "$FM_ROOT/.fm-secondmate-home" ] \
-  && [ ! -f "${FM_HOME:-}/.fm-secondmate-home" ]; then
-  GIT_DIR=$(git -C "$FM_ROOT" rev-parse --git-dir 2>/dev/null) || exit 0
-  GIT_COMMON_DIR=$(git -C "$FM_ROOT" rev-parse --git-common-dir 2>/dev/null) || exit 0
-  [ "$GIT_DIR" = "$GIT_COMMON_DIR" ] || exit 0
-fi
-
 
 GUARD_PY="$FM_ROOT/bin/fm-jev-guard.py"
 command -v python3 >/dev/null 2>&1 || render_deny "[require_delegation] classifier runtime unavailable"

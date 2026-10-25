@@ -164,7 +164,7 @@ for command in \
 done
 # Written amendment: the nine wrapper words peel before the shell-name check, and
 # the pre-deny fires before any query under either Jev answer shape.
-for wrapper in nohup env 'env -i' 'env -u FOO' 'env -U FOO' timeout exec nice setsid xargs time command; do
+for wrapper in nohup env 'env -i' 'env -u FOO' 'env -U FOO' 'env -uFOO' 'env --unset=FOO' timeout 'timeout 5' exec nice 'nice -n 5' setsid 'setsid -f' xargs 'xargs -I{}' 'xargs -n1' time 'time -p' command; do
   for answer in \
     '{"answers":{"action":{"choice":"require_delegation"},"violation_noul":{"noul":1},"target_domain":{"choice":"project_worker"}}}' \
     '{"answers":{"action":{"choice":"allow_supervisor"},"violation_noul":{"noul":0},"target_domain":{"choice":"supervisor"}}}'; do
@@ -207,6 +207,34 @@ mkdir -p "$MOCK_WT/bin"
 cp "$ROOT/bin/fm-jev-guard.sh" "$ROOT/bin/fm-jev-guard.py" "$MOCK_WT/bin/"
 FM_TEST_PRIMARY=0 FM_ROOT_OVERRIDE="$MOCK_WT" "$MOCK_WT/bin/fm-jev-guard.sh" --command 'cd projects/portal && npm test' \
   || fail 'linked worker worktree should remain inert'
+# Classifier-runtime absence denies loudly in supervisor scope; only a payload
+# with no extractable command keeps the documented exit 0.
+NOJQ="$TDIR/nojqbin"
+NOGIT="$TDIR/nogitbin"
+mkdir -p "$NOJQ" "$NOGIT"
+for tool in bash cat dirname git python3 sed tr; do
+  ln -s "$(command -v "$tool")" "$NOJQ/$tool"
+done
+for tool in bash cat dirname jq python3 sed tr; do
+  ln -s "$(command -v "$tool")" "$NOGIT/$tool"
+done
+runtime_payload='{"tool_name":"Bash","tool_input":{"command":"cd projects/portal && pytest tests/ -q"}}'
+rc=0
+printf '%s' "$runtime_payload" | PATH="$NOJQ" "$GUARD" >/dev/null 2>"$TDIR/nojq.err" || rc=$?
+assert_equals 2 "$rc" 'missing jq denies'
+assert_contains "$(cat "$TDIR/nojq.err")" 'classifier runtime unavailable' 'missing jq is loud'
+rc=0
+printf '%s' "$runtime_payload" | PATH="$NOGIT" "$GUARD" >/dev/null 2>"$TDIR/nogit.err" || rc=$?
+assert_equals 2 "$rc" 'missing git denies in supervisor scope'
+rc=0
+printf '%s' "$runtime_payload" | PATH="$NOGIT" FM_TEST_PRIMARY=0 FM_ROOT_OVERRIDE="$MOCK_WT" "$MOCK_WT/bin/fm-jev-guard.sh" >/dev/null 2>"$TDIR/broken-wt.err" || rc=$?
+assert_equals 2 "$rc" 'crewmate worktree with broken git fails visibly'
+rc=0
+printf 'not json' | "$GUARD" >/dev/null 2>&1 || rc=$?
+assert_equals 0 "$rc" 'malformed transport is ignored'
+rc=0
+printf '{"tool_name":"Bash"}' | "$GUARD" >/dev/null 2>&1 || rc=$?
+assert_equals 0 "$rc" 'payload without a command is ignored'
 
 # Exercise the public adapters with deterministic project commands.
 payload='{"tool_name":"Bash","tool_input":{"command":"cd projects/portal && pytest tests/ -q"}}'

@@ -35,7 +35,10 @@ Deterministic scope contract; every clause is pinned in tests/fm-jev-guard.test.
 Written amendment - wrapper peeling, deny side only: before the shell-name check, peel
 the leading wrapper words nohup, env (including -i and -U forms), timeout, exec, nice,
 setsid, xargs, time and command - these nine and only these; any future wrapper word
-joins solely by a further written amendment. After peeling, the remaining command runs
+joins solely by a further written amendment. Peeling consumes each wrapper's own
+arguments too: timeout's duration, xargs's flags (-I, -n, -0, -d and the flag values
+that follow), nice's and setsid's options, time -p if present; env already handled;
+nohup, exec and command carry none. After peeling, the remaining command runs
 the existing recursion: the four commissioned shells including leading flags, then the
 project-op pre-deny. Rationale: a command operating under projects/ hard-denies BEFORE
 ANY QUERY - a deterministic guarantee independent of Jev's answer - and the
@@ -151,21 +154,41 @@ SHELL_NAMES = {"bash", "sh", "zsh", "dash", "ksh", "ash"}
 FAST_PATH_SHELLS = {"bash", "sh", "zsh", "dash"}
 SHELL_VALUE_OPTS = {"-o", "+o", "-O", "+O", "--rcfile", "--init-file"}
 WRAPPER_WORDS = {"nohup", "env", "timeout", "exec", "nice", "setsid", "xargs", "time", "command"}
+WRAPPER_VALUE_OPTS = {
+    "env": {"-u", "-U", "--unset"},
+    "timeout": {"-s", "-k", "-K", "--signal", "--kill-after"},
+    "nice": {"-n", "--adjustment"},
+    "time": {"-f", "-o"},
+    "xargs": {"-I", "-i", "-L", "-l", "-n", "-d", "-P", "-s", "-E", "-e", "-a"},
+}
 
 
 def peel_wrappers(args: list[str]) -> list[str]:
-    """Strip leading wrapper words and env option forms from a command."""
+    """Strip leading wrapper words together with the arguments each one carries."""
     while args and Path(args[0]).name in WRAPPER_WORDS:
         wrapper = Path(args[0]).name
         args = args[1:]
+        if wrapper in ("nohup", "exec", "command"):
+            continue
         if wrapper == "env":
             while args:
                 if args[0] in ("-i", "--") or re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", args[0]):
                     args = args[1:]
-                elif args[0] in ("-u", "-U") and len(args) > 1:
+                elif args[0] in WRAPPER_VALUE_OPTS["env"] and len(args) > 1:
                     args = args[2:]
+                elif args[0].startswith(("-u", "-U", "--unset=")):
+                    args = args[1:]
                 else:
                     break
+            continue
+        value_opts = WRAPPER_VALUE_OPTS.get(wrapper, set())
+        while args and args[0].startswith("-"):
+            if args[0] in value_opts and len(args) > 1:
+                args = args[2:]
+            else:
+                args = args[1:]
+        if wrapper == "timeout" and len(args) > 1 and Path(args[1]).name in WRAPPER_WORDS | SHELL_NAMES:
+            args = args[1:]
     return args
 
 
