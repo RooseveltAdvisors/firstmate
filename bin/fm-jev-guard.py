@@ -226,15 +226,23 @@ def operative_paths(cmd: str) -> list[str] | None:
                 segments[-1].append(token)
     except ValueError:
         return None
+    merged: list[list[str]] = []
+    for segment in segments:
+        if not segment:
+            continue
+        if segment[0].startswith("-") and merged:
+            merged[-1].extend(segment)
+        else:
+            merged.append(segment)
     paths: list[str] = []
-    for args in segments:
+    for args in merged:
         while args and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", args[0]):
             args = args[1:]
         if args and Path(args[0]).name == "env":
             args = args[1:]
             while args and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", args[0]):
                 args = args[1:]
-        if not args or args[0].startswith("-"):
+        if not args:
             continue
         tool = Path(args[0]).name
         pattern_tool = tool in PATTERN_FIRST_TOOLS

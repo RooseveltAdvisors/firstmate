@@ -92,6 +92,7 @@ for command in \
   "bash -c 'grep projects/portal state/x'" \
   "find . -path 'projects/portal*'" \
   "find . -name 'projects*'" \
+  "find . \( -path 'projects/portal*' -o -name x \)" \
   "echo projects/portal"; do
   out=$(cd "$SUPERVISOR" && python3 "$SUPERVISOR/bin/fm-jev-guard.py" --check-only --command "$command")
   assert_contains "$out" supervisor_approved "mention-only project path reaches Jev: $command"
@@ -117,7 +118,11 @@ for command in \
   'find . -fprint projects/portal/listing' \
   'find . -fprint0 projects/portal/listing0' \
   'find . -okdir rm projects/portal/x {} +' \
-  'find . -fls > projects/portal/out'; do
+  'find . -fls > projects/portal/out' \
+  "find . -path './projects/*' \( -name x -o -name y \) -delete" \
+  "find . \( -path './projects/*' -o -name '*.bak' \) -exec rm {} +" \
+  "find . \( -fprint projects/portal/listing \)" \
+  "find . -exec rm projects/portal/x {} \; -fprint projects/portal/listing"; do
   out=$(cd "$SUPERVISOR" && python3 "$SUPERVISOR/bin/fm-jev-guard.py" --check-only --command "$command")
   assert_contains "$out" 'Project work must be delegated' "operative project path pre-denied: $command"
 done
