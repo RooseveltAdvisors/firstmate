@@ -39,9 +39,14 @@
 # side sharing no root) refuses rather than permits. The publication target is
 # compared only against a maintainer scope or task consent: the first remote
 # whose remote.<name>.gh-resolved is base, otherwise the first remote named
-# upstream, github, or origin, reduced to lowercase host/owner/repo; a local-path remote
+# origin, upstream, or github, reduced to lowercase host/owner/repo; a local-path remote
 # is resolved one hop through that repository's own origin, and left as
-# path:<abs> when unreadable. An unknown target never permits.
+# path:<abs> when unreadable. Origin leads the fallback order: a pull request
+# that lands on origin (a house PR) is gated against origin, so it never
+# requires upstream publication authority. A task's recorded upstream consent
+# names the target directly when no gh-resolved marker selects a remote, so
+# genuine upstream publication keeps its explicit path. An unknown target
+# never permits.
 #
 # Public functions:
 #   fm_role_file <config-dir>            - the role file path
@@ -221,24 +226,41 @@ fm_role_git_common_dir() {
   (CDPATH='' cd -- "$common" 2>/dev/null && pwd -P) || printf '%s\n' "$common"
 }
 
-# fm_role_publication_target <git-dir> - the repository a default publication
-# (gh pr/issue, a no-mistakes PR) would reach: the first remote whose
-# remote.<name>.gh-resolved is base, otherwise the first configured upstream,
-# github, or origin, normalized to host/owner/repo or path:<abs>. Empty when
-# the selected remote is unreadable or the repo has no such remote. Resolution
-# is entirely offline.
-fm_role_publication_target() {
-  local dir=$1 remote remotes url=
+# fm_role_pub_marker_remote <git-dir> - the first remote whose
+# remote.<name>.gh-resolved is base, empty when none is marked. This marker is
+# gh's own record of the selected default repository, so it outranks every
+# fallback and disables consent-directed target selection: a marker that names
+# a remote is the task's publication destination, and an unreadable marked
+# remote fails closed instead of falling back.
+fm_role_pub_marker_remote() {
+  local dir=$1 remote remotes
   remotes=$(git -C "$dir" remote 2>/dev/null) || return 0
   while IFS= read -r remote; do
     [ -n "$remote" ] || continue
     if [ "$(git -C "$dir" config --get "remote.$remote.gh-resolved" 2>/dev/null)" = base ]; then
-      url=$(git -C "$dir" remote get-url "$remote" 2>/dev/null) || return 0
-      fm_role_remote_identity "$url" "$dir"
+      printf '%s\n' "$remote"
       return
     fi
   done <<< "$remotes"
-  for remote in upstream github origin; do
+}
+
+# fm_role_publication_target <git-dir> - the repository a default publication
+# (gh pr/issue, a no-mistakes PR) would reach: the first remote whose
+# remote.<name>.gh-resolved is base, otherwise the first configured origin,
+# upstream, or github, normalized to host/owner/repo or path:<abs>. Origin
+# leads the fallback because it is where a default push and pull request land;
+# a house PR against origin is gated against origin and needs no upstream
+# authority. Empty when the selected remote is unreadable or the repo has no
+# such remote. Resolution is entirely offline.
+fm_role_publication_target() {
+  local dir=$1 remote url=
+  remote=$(fm_role_pub_marker_remote "$dir")
+  if [ -n "$remote" ]; then
+    url=$(git -C "$dir" remote get-url "$remote" 2>/dev/null) || return 0
+    fm_role_remote_identity "$url" "$dir"
+    return
+  fi
+  for remote in origin upstream github; do
     if url=$(git -C "$dir" remote get-url "$remote" 2>/dev/null) && [ -n "$url" ]; then
       break
     fi
@@ -496,9 +518,15 @@ fm_role_inherit_payload() (
 # source: maintainer scope or task consent); rc 1 refused (FM_ROLE_PUB_DENIAL
 # names the narrow reason); rc 2 the task is not on this firstmate repository
 # and the boundary does not apply. FM_ROLE_PUB_TARGET is the normalized
-# publication target when determinable.
+# publication target when determinable. Target selection is
+# fm_role_publication_target (marker, then origin before upstream), except
+# that a task's recorded consent names the target directly when no
+# gh-resolved marker selects a remote and the consent scope is one of the
+# project's own remotes: consent is the captain's explicit declaration of
+# where this one task publishes, and it never conjures a repository the
+# project cannot reach.
 fm_role_gate_self_publish() {
-  local home=$1 config=$2 proj=$3 root=$4 consent=${5:-} lineage=0
+  local home=$1 config=$2 proj=$3 root=$4 consent=${5:-} lineage=0 remote url ident
   FM_ROLE_PUB_TARGET=
   # shellcheck disable=SC2034 # Output global, read by the sourcing caller.
   FM_ROLE_PUB_AUTHORITY=
@@ -522,10 +550,25 @@ fm_role_gate_self_publish() {
       FM_ROLE_PUB_DENIAL="upstream consent '$consent' is not a valid <host>/<owner>/<repo> scope"
       return 1
     fi
+    if [ -z "$(fm_role_pub_marker_remote "$proj")" ]; then
+      # No marker selects a remote, so the consent names this one task's
+      # publication target when it matches one of the project's own remotes.
+      # A marker, when present, already records the destination, and an
+      # unreadable marked remote fails closed rather than falling back here.
+      while IFS= read -r remote; do
+        [ -n "$remote" ] || continue
+        url=$(git -C "$proj" remote get-url "$remote" 2>/dev/null) || continue
+        ident=$(fm_role_remote_identity "$url" "$proj")
+        if [ -n "$ident" ] && [ "$ident" = "$consent" ]; then
+          FM_ROLE_PUB_TARGET=$consent
+          break
+        fi
+      done <<< "$(git -C "$proj" remote 2>/dev/null)"
+    fi
   fi
   if [ -z "$FM_ROLE_PUB_TARGET" ]; then
     # shellcheck disable=SC2034 # Output global, read by the sourcing caller.
-    FM_ROLE_PUB_DENIAL="this task targets firstmate's own repository but no publication target can be determined (no upstream, github, or origin remote on $proj)"
+    FM_ROLE_PUB_DENIAL="this task targets firstmate's own repository but no publication target can be determined (no origin, upstream, or github remote on $proj)"
     return 1
   fi
   if [ -n "$consent" ] && [ "$consent" = "$FM_ROLE_PUB_TARGET" ]; then

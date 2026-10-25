@@ -278,7 +278,9 @@ test_check_fork_lineage_reaches_the_gate() {
 }
 
 # A fetch-only parent remote must not override gh's explicitly selected fork.
-# Without the selection marker the existing upstream/github/origin order holds.
+# Without the selection marker origin leads the fallback order (fm-jybyz): a
+# pull request that lands on origin is gated against origin, and upstream is
+# the target only for work that publishes there through recorded consent.
 test_check_gh_resolved_base_selects_fork() {
   local fork user_home fork_home out rc
   fork=$(make_lineage_root resolved-fork https://github.com/someone/firstmate-fork)
@@ -287,9 +289,9 @@ test_check_gh_resolved_base_selects_fork() {
   fork_home=$(make_role_home resolved-maint 'maintainer github.com/someone/firstmate-fork')
 
   out=$(check_as "$fork" "$fork_home" "$fork"); rc=$?
-  expect_code 1 "$rc" "without a marker the fork scope must not cover upstream (got: $out)"
-  assert_contains "$out" "no publication authority for github.com/kunchenguid/firstmate" \
-    "without a marker upstream must remain the publication target"
+  expect_code 0 "$rc" "without a marker the fork's own maintainer scope authorizes an origin pull request (got: $out)"
+  assert_contains "$out" "authorized: maintainer scope github.com/someone/firstmate-fork" \
+    "without a marker origin must be the publication target"
   out=$(check_as "$fork" "$user_home" "$fork" upstream-consent github.com/kunchenguid/firstmate); rc=$?
   expect_code 0 "$rc" "without a marker consent for upstream must authorize (got: $out)"
 
@@ -317,7 +319,70 @@ test_check_gh_resolved_base_selects_fork() {
   git -C "$fork" config --unset remote.publishing.url
   out=$(check_as "$fork" "$user_home" "$fork" upstream-consent github.com/kunchenguid/firstmate); rc=$?
   expect_code 1 "$rc" "a selected remote without a URL must not fall back to authorized upstream (got: $out)"
-  pass "fm-role.sh check: gh-resolved base selects the exact fork target, otherwise legacy precedence holds"
+  pass "fm-role.sh check: gh-resolved base selects the exact fork target, otherwise origin leads the fallback"
+}
+
+# fm-jybyz: a house pull request resolves to origin and is gated against
+# origin alone - no upstream authority applies. Genuine upstream publication
+# still requires the upstream maintainer grant or explicit task consent.
+test_check_house_pr_targets_origin_without_upstream_authority() {
+  local house user_home house_home upstream_home out rc
+  house=$(make_lineage_root house-root https://github.com/rooseveltadvisors/firstmate)
+  git -C "$house" remote add upstream https://github.com/kunchenguid/firstmate
+  user_home=$(make_role_home house-user)
+  house_home=$(make_role_home house-maint 'maintainer github.com/rooseveltadvisors/firstmate')
+  upstream_home=$(make_role_home house-upstream 'maintainer github.com/kunchenguid/firstmate')
+
+  # The house case: origin leads, the house maintainer scope covers it, and no
+  # upstream authority is asked for.
+  out=$(check_as "$house" "$house_home" "$house"); rc=$?
+  expect_code 0 "$rc" "a house PR resolves to origin and the house maintainer scope authorizes (got: $out)"
+  assert_contains "$out" "authorized: maintainer scope github.com/rooseveltadvisors/firstmate" \
+    "the authority must name the origin scope, not upstream"
+
+  # No grant still publishes nothing, and the refusal names the real target.
+  out=$(check_as "$house" "$user_home" "$house"); rc=$?
+  expect_code 1 "$rc" "a user home still cannot publish a house PR (got: $out)"
+  assert_contains "$out" "no publication authority for github.com/rooseveltadvisors/firstmate" \
+    "the refusal must name origin, not upstream"
+
+  # Genuine upstream publication keeps its explicit paths: recorded task
+  # consent names the upstream remote, and the upstream maintainer grant
+  # covers the task that carries it. The grant alone no longer retargets a
+  # default publication away from origin.
+  out=$(check_as "$house" "$user_home" "$house" upstream-consent github.com/kunchenguid/firstmate); rc=$?
+  expect_code 0 "$rc" "consent for upstream still authorizes genuine upstream publication (got: $out)"
+  assert_contains "$out" "authorized: task consent for github.com/kunchenguid/firstmate" \
+    "the authority must be recorded as task consent"
+  out=$(check_as "$house" "$upstream_home" "$house" upstream-consent github.com/kunchenguid/firstmate); rc=$?
+  expect_code 0 "$rc" "the upstream maintainer grant plus consent authorizes upstream publication (got: $out)"
+  out=$(check_as "$house" "$upstream_home" "$house"); rc=$?
+  expect_code 1 "$rc" "the upstream grant alone must not retarget a house PR to upstream (got: $out)"
+  assert_contains "$out" "no publication authority for github.com/rooseveltadvisors/firstmate" \
+    "a default house publication is gated against origin"
+
+  # Consent never conjures a repository the project cannot reach.
+  out=$(check_as "$house" "$user_home" "$house" upstream-consent github.com/unrelated/nope); rc=$?
+  expect_code 1 "$rc" "consent naming no configured remote must not authorize (got: $out)"
+  pass "fm-role.sh check: a house PR is gated against origin; upstream publication keeps grant-plus-consent"
+}
+
+# A project with only an origin remote - a task whose pull request has no
+# upstream to reach - keeps today's default behaviour: origin is the target,
+# the matching maintainer scope authorizes, and anything else is refused.
+test_check_origin_only_layout_unchanged() {
+  local proj user_home maint_home out rc
+  proj=$(make_lineage_root origin-only-root https://github.com/kunchenguid/firstmate)
+  user_home=$(make_role_home origin-only-user)
+  maint_home=$(make_role_home origin-only-maint 'maintainer github.com/kunchenguid/firstmate')
+
+  out=$(check_as "$proj" "$user_home" "$proj"); rc=$?
+  expect_code 1 "$rc" "a user home must still be refused on an origin-only checkout (got: $out)"
+  out=$(check_as "$proj" "$maint_home" "$proj"); rc=$?
+  expect_code 0 "$rc" "the maintainer scope must still authorize on an origin-only checkout (got: $out)"
+  out=$(check_as "$proj" "$user_home" "$proj" upstream-consent github.com/kunchenguid/firstmate); rc=$?
+  expect_code 0 "$rc" "consent matching origin must still authorize (got: $out)"
+  pass "fm-role.sh check: an origin-only layout keeps its default behaviour"
 }
 
 # Lineage that cannot be determined refuses, and a firstmate-lineage project
@@ -726,6 +791,8 @@ test_check_wrong_scope_and_remote_presence_do_not_authorize
 test_check_equivalent_remote_spellings_are_one_repo
 test_check_fork_lineage_reaches_the_gate
 test_check_gh_resolved_base_selects_fork
+test_check_house_pr_targets_origin_without_upstream_authority
+test_check_origin_only_layout_unchanged
 test_check_undeterminable_lineage_and_target_refuse
 test_check_task_consent_authorizes_one_task
 test_secondmate_cannot_self_grant
