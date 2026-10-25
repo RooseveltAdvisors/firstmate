@@ -55,7 +55,7 @@ SUPERVISOR_ALLOWLIST = {
     r"bd": None,
     r"tasks-axi": None,
     r"herdr": None,
-    r"gh(?:-axi)?": None,
+    r"gh(?:-axi)?": {"pr view", "pr status", "pr list", "pr checks", "pr diff", "run list", "run view"},
     r"git": {"status", "log", "diff", "rev-parse", "show", "ls-files", "ls-remote"},
 }
 
@@ -151,7 +151,11 @@ def is_whitelisted_command(cmd: str) -> bool:
             if match is False:
                 return False
             # Do not let a tool fast-pass shell substitutions or file writes.
-            if any(arg in (">", ">>", "<", "<<") for arg in args):
+            for i, arg in enumerate(args):
+                if not arg or any(char not in "<>&|" for char in arg):
+                    continue
+                if arg in (">&", "<&") and i + 1 < len(args) and args[i + 1].isdigit():
+                    continue
                 return False
             if match is not None:
                 rest = args[1:]
@@ -162,7 +166,8 @@ def is_whitelisted_command(cmd: str) -> bool:
                         rest = rest[1:]
                     else:
                         break
-                if not rest or rest[0] not in match:
+                verbs = {tuple(verb.split()) for verb in match}
+                if not any(tuple(rest[:len(verb)]) == verb for verb in verbs):
                     return False
                 if any(arg.startswith("--output") for arg in rest):
                     return False

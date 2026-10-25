@@ -17,7 +17,7 @@
 # FM_STATUS_PRESENTATION_LOCK_TIMEOUT sets the positive whole-second wait for
 # presentation-path locks (default 10); queue mutation locks remain blocking.
 # Present signal/corr=/bead= rows, stale, check, then heartbeat.
-# ponytail: oldest-first also puts rows older than 30 minutes ahead in each class.
+# ponytail: oldest-first within each class, then sequence order.
 set -u
 
 SCRIPT_DIR="$(d=${BASH_SOURCE[0]%/*}; [ "$d" != "${BASH_SOURCE[0]}" ] || d=.; cd "${d:-/}" && pwd)"

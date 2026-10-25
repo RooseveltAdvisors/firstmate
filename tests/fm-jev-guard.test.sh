@@ -36,6 +36,12 @@ for command in \
   "$GUARD" --command "$command" || fail "supervisor command denied: $command"
 done
 pass 'eight project/supervisor acceptance cases'
+"$GUARD" --command 'bd show x 2>&1' || fail 'fd-dup redirect denied: bd show x 2>&1'
+"$GUARD" --command 'gh pr view 7' || fail 'supervisor command denied: gh pr view 7'
+assert_denied 'gh pr merge 7'
+assert_denied 'git log &> /tmp/out'
+assert_denied 'bd list >& /tmp/out'
+assert_denied 'git show x >| /tmp/out'
 "$GUARD" --command "(cd /home/jon/git/wiseman && bd comment x 'run project tests')"
 
 # Quoted worker instructions remain opaque, including systemd/project words.
@@ -77,10 +83,20 @@ printf '#!/usr/bin/env bash\nexit 1\n' > "$TDIR/proxy"
 
 # Both supervisor roles use the policy; disposable worker worktrees remain inert.
 touch "$SUPERVISOR/.fm-secondmate-home"
-assert_denied 'cd projects/portal && npm test'
-"$GUARD" --command 'bin/fm-spawn.sh --help'
+FM_TEST_PRIMARY=0 assert_denied 'cd projects/portal && npm test'
+FM_TEST_PRIMARY=0 "$GUARD" --command 'bin/fm-spawn.sh --help' \
+  || fail 'secondmate supervisor command denied'
 rm "$SUPERVISOR/.fm-secondmate-home"
-FM_TEST_PRIMARY=0 FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-jev-guard.sh" --command 'cd projects/portal && npm test' \
+MOCK_BASE="$TDIR/mock-base"
+MOCK_WT="$TDIR/mock-worktree"
+fm_git_identity fmtest fmtest@example.invalid
+git init -q "$MOCK_BASE"
+git -C "$MOCK_BASE" commit -q --allow-empty -m "init base"
+git -C "$MOCK_BASE" worktree add -q "$MOCK_WT" -b wt-branch
+touch "$MOCK_WT/AGENTS.md"
+mkdir -p "$MOCK_WT/bin"
+cp "$ROOT/bin/fm-jev-guard.sh" "$ROOT/bin/fm-jev-guard.py" "$MOCK_WT/bin/"
+FM_TEST_PRIMARY=0 FM_ROOT_OVERRIDE="$MOCK_WT" "$MOCK_WT/bin/fm-jev-guard.sh" --command 'cd projects/portal && npm test' \
   || fail 'linked worker worktree should remain inert'
 
 # Exercise the public adapters with deterministic project commands.

@@ -66,7 +66,7 @@ Load `secondmate-provisioning` before any secondmate-home lifecycle action or `d
 At intake, classify with `bin/fm-route-domain.sh --task` or `bin/fm-route-dispatch.sh`; never spawn project workers in `w1`; if no scope fits or Jev says `create_secondmate`, charter a secondmate rather than doing that work in the main home.
 Keep `local-only` work in the main home; secondmates are idle by default; an empty queue never authorizes a survey; do not reconstruct a secondmate's child tree; firstmate never writes a project's `AGENTS.md` directly.
 A crewmate edits a project's `AGENTS.md` or `CLAUDE.md` only to correct factually wrong text, never to add missing knowledge and never through `bin/fm-ensure-agents-md.sh`; additions are a deliberate human choice.
-`bin/fm-jev-guard.sh` denies primary-console project implementation (`require_delegation`).
+`bin/fm-jev-guard.sh` denies project implementation (`require_delegation`) in the primary console and in secondmate homes.
 Load `stow` when filing durable knowledge or on `/stow`.
 
 ## 7. Task lifecycle
