@@ -113,6 +113,11 @@
 # infrastructure every lane shares - the no-mistakes daemon and the worktree pool
 # their own slot came from - so ship and scout cannot drift apart. A secondmate
 # charter omits it: that home allocates and returns slots for its own crewmates.
+# Both also carry the shared primary-checkout rule (bead fm-d2g5p, policy P1):
+# the primary checkout is merge-and-sync only, so lane work lives in the
+# meta-pointed worktree or on a pushed branch. Wording only - the ship
+# scaffold's isolation assertion and bin/fm-spawn.sh's worktree guard own
+# enforcement.
 # --mode, --forge, and --shape are refused on scout and secondmate scaffolds: a
 # scout's deliverable is a report rather than a merge, and a charter is not a
 # delivery contract.
@@ -692,6 +697,16 @@ IFS= read -r -d '' SHARED_NO_CD_RULE <<'EOF' || true
 EOF
 SHARED_NO_CD_RULE=${SHARED_NO_CD_RULE%$'\n'}
 
+# One shared string keeps the ship and scout primary-checkout rule identical.
+# Policy P1 of bead fm-d2g5p, carried verbatim so every lane reads the rule
+# before it can violate it. The secondmate charter omits it with the other
+# crewmate rules: a secondmate is the primary of its own home.
+IFS= read -r -d '' SHARED_PRIMARY_CHECKOUT_RULE <<'EOF' || true
+9. The primary checkout /opt/ra/firstmate is merge-and-sync only - never stage, keep, or commit work there.
+   Lane changes live in your meta-pointed worktree or a pushed branch, and a primary-checkout edit lands the same turn it is made or not at all.
+EOF
+SHARED_PRIMARY_CHECKOUT_RULE=${SHARED_PRIMARY_CHECKOUT_RULE%$'\n'}
+
 if [ -n "$BASE_BRANCH" ]; then
   SETUP_BASE="You are in a disposable git worktree of $REPO, at a detached HEAD on a clean copy of its base branch.
 Base branch: $BASE_BRANCH"
@@ -743,6 +758,7 @@ $CREWMATE_PAUSE_INSTRUCTIONS
    Firstmate's reply normally writes that closing line at answer time; when a blocker or wait clears WITHOUT a firstmate reply, append \`resolved [at=<epoch>]: {how it cleared}\` yourself (same \`[key=<slug>]\` if you opened it with one) as you resume.
 $SHARED_INFRA_RULE
 $SHARED_NO_CD_RULE
+$SHARED_PRIMARY_CHECKOUT_RULE
 
 $WAIT_BLOCK$INBOX_SECTION
 
@@ -827,6 +843,7 @@ $ASK_USER_BLOCK
    Firstmate's reply normally writes that closing line at answer time; when a blocker or wait clears WITHOUT a firstmate reply, append \`resolved [at=<epoch>]: {how it cleared}\` yourself (same \`[key=<slug>]\` if you opened it with one) as you resume.
 $SHARED_INFRA_RULE
 $SHARED_NO_CD_RULE
+$SHARED_PRIMARY_CHECKOUT_RULE
 
 $WAIT_BLOCK$INBOX_SECTION
 

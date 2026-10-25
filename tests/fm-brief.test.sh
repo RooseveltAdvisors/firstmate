@@ -1644,6 +1644,8 @@ test_crewmate_scaffolds_forbid_pool_administration() {
     # shellcheck disable=SC2016 # Literal backticks and braces must remain unexpanded.
     assert_grep 'blocked [at=<epoch>]: {what you need}' "$brief" \
       "$mode ship brief gave the prohibition no exit for a genuine second-checkout need"
+    assert_grep "merge-and-sync only" "$brief" \
+      "$mode ship brief did not carry the primary-checkout merge-and-sync rule"
   done
 
   FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-pool-scout alpha --scout >/dev/null 2>&1 \
@@ -1669,6 +1671,18 @@ test_crewmate_scaffolds_forbid_pool_administration() {
     || fail "scout brief leading-cd rule is missing or differs from the ship brief"
   assert_grep "every sub-agent you launch" "$brief" "scout brief did not pass the leading-cd rule to sub-agents"
 
+  # Same shared-string discipline for the primary-checkout merge-and-sync rule
+  # (bead fm-d2g5p, policy P1): one string, emitted by both scaffolds.
+  ship_primary_rule=$(awk '/^9\. The primary checkout/,/^$/' "$home/data/brief-pool-no-mistakes/brief.md")
+  scout_primary_rule=$(awk '/^9\. The primary checkout/,/^$/' "$brief")
+  [ -n "$ship_primary_rule" ] || fail "ship brief emitted no primary-checkout merge-and-sync rule"
+  [ "$ship_primary_rule" = "$scout_primary_rule" ] \
+    || fail "ship and scout primary-checkout merge-and-sync rules have drifted apart"
+  assert_grep "merge-and-sync only" "$brief" \
+    "scout brief lost the primary-checkout merge-and-sync rule"
+  assert_grep "lands the same turn it is made or not at all" "$brief" \
+    "scout brief lost the same-turn landing half of the primary-checkout rule"
+
   # The daemon half of the rule survived the fold.
   assert_grep "no-mistakes" "$brief" "scout brief lost the shared no-mistakes daemon rule"
   # shellcheck disable=SC2016 # Literal backticks and braces must remain unexpanded.
@@ -1683,6 +1697,9 @@ test_crewmate_scaffolds_forbid_pool_administration() {
   assert_no_grep "create, remove, return, prune, move, or reassign" \
     "$home/data/brief-pool-mate/brief.md" \
     "secondmate charter must not inherit the crewmate pool-administration prohibition"
+  assert_no_grep "merge-and-sync only" \
+    "$home/data/brief-pool-mate/brief.md" \
+    "secondmate charter must not inherit the crewmate primary-checkout rule"
 
   pass "fm-brief.sh: every crewmate scaffold forbids administering the shared worktree pool"
 }

@@ -630,6 +630,9 @@
 # active without a markdown file; any active automatic backend without
 # compatible tasks-axi refuses before creating lifecycle state.
 # On success prints: spawned <id> harness=<name> kind=<ship|scout|secondmate> [mode=<mode> yolo=<on|off>] window=<backend-target> worktree=<path>
+# A ship or scout launch also says the lane-side P1 rule aloud on stderr
+# (bead fm-d2g5p): the primary checkout is merge-and-sync only. A secondmate
+# launch omits it; a secondmate is the primary of its own home.
 # A ship task records the explicit mode/yolo it was passed; a secondmate spawn records
 # mode=secondmate, yolo=off, home=, and projects=; a scout records neither, and both the
 # success line and state/<id>.meta omit them.
@@ -7304,4 +7307,9 @@ SPAWN_ACCOUNT=
 # Opt-in Herdr project groups (docs/herdr-backend.md "Project groups") tag the
 # new endpoint now rather than at the next watcher poll; off costs one file test.
 [ ! -e "$CONFIG/herdr-project-groups" ] || [ "$BACKEND" != herdr ] || FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$CONFIG "$SCRIPT_DIR/fm-herdr-groups.sh" sync "$ID" || true
+# The spawn itself says the lane-side P1 rule aloud (bead fm-d2g5p): the
+# brief scaffold carries it as numbered rule 9, and every ship/scout launch
+# repeats it here so the operator sees it at dispatch, not only on a guard
+# refusal.
+[ "$KIND" = secondmate ] || echo "notice: the primary checkout /opt/ra/firstmate is merge-and-sync only - never stage, keep, or commit work there; lane work lives in the task worktree or a pushed branch, and a primary-checkout edit lands the same turn it is made or not at all" >&2
 echo "spawned $ID harness=$HARNESS kind=$KIND$SPAWN_DELIVERY window=$META_WINDOW worktree=$WT$SPAWN_ACCOUNT"
