@@ -18,6 +18,46 @@ GUARD="$ROOT/bin/fm-guard.sh"
 
 TMP_ROOT=$(fm_test_tmproot fm-wake-tests)
 
+test_captain_rows_lead_watcher_backlog() {
+  local dir state i sequence generation now
+  dir=$(make_case captain-first)
+  state="$dir/state"
+  for ((i = 1; i <= 50; i++)); do
+    append_wake "$state" check "watcher-$i" "check: watcher $i" || fail "check append failed"
+  done
+  append_wake "$state" signal captain 'signal: captain follow-up corr=x' || fail "captain append failed"
+  cp "$state/.wake-queue" "$dir/queue.before"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/drain.out" 2> "$dir/drain.err" || fail "captain-first drain failed"
+  [ "$(awk -F '\t' 'NR == 1 { print $2 }' "$dir/drain.out")" = 51 ] \
+    || fail "captain follow-up remained behind 50 checks"
+  [ "$(awk -F '\t' 'NF == 5 { n++ } END { print n }' "$dir/drain.out")" = 51 ] \
+    || fail "priority ordering lost wake rows"
+  cmp -s "$state/.wake-queue" "$dir/queue.before" || fail "presentation reordered the stored queue"
+  sequence=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation .*$/\1/p' "$dir/drain.err")
+  generation=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' "$dir/drain.err")
+  [ "$sequence" = 51 ] || fail "priority order changed the acknowledgement cutoff"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" --ack-through "$sequence" --recovery-generation "$generation" \
+    || fail "priority-ordered rows could not be acknowledged"
+  [ ! -s "$state/.wake-queue" ] || fail "priority acknowledgement left queued rows"
+
+  # Scramble timestamps to prove age, rather than insertion, orders each class.
+  now=$(date +%s)
+  {
+    printf '%s\t52\theartbeat\theartbeat\theartbeat\n' "$((now - 7200))"
+    printf '%s\t53\tcheck\tnew-check\tcheck: newer\n' "$now"
+    printf '%s\t54\tstale\tnew-stale\tstale: newer\n' "$now"
+    printf '%s\t55\tcheck\tcorrelated\tcheck: corr=x\n' "$now"
+    printf '%s\t56\tcheck\told-check\tcheck: older\n' "$((now - 1900))"
+    printf '%s\t57\tstale\told-stale\tstale: older\n' "$((now - 1900))"
+    printf '%s\t58\tstale\tbead\tstale: bead=x\n' "$((now - 1900))"
+    printf '%s\t59\tsignal\tplain\tsignal: no correlation\n' "$((now - 1900))"
+  } > "$state/.wake-queue"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/aged.out" 2> "$dir/aged.err" || fail "age-ordered drain failed"
+  [ "$(awk -F '\t' 'NF == 5 { print $2 }' "$dir/aged.out" | paste -sd, -)" = '58,59,55,57,54,56,53,52' ] \
+    || fail "captain/class/age/sequence ordering was incorrect"
+  pass "captain follow-up leads 50 checks; class/age ordering preserves durable rows and acknowledgement"
+}
+
 
 test_concurrent_append_and_drain() {
   local dir state out1 out2 pids i pid count unique malformed sequence generation
@@ -1318,12 +1358,12 @@ SH
   append_wake "$state" heartbeat heartbeat heartbeat || fail "heartbeat wake append failed"
 
   FM_STATE_OVERRIDE="$state" bash -c '. "$1"; fm_wake_print_deduped "$2"' _ \
-    "$ROOT/bin/fm-wake-lib.sh" "$state/.wake-queue" > "$expected"
+    "$ROOT/bin/fm-wake-lib.sh" "$state/.wake-queue" | LC_ALL=C sort > "$expected"
   PATH="$dir/fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_WAKE_ENRICH_SWAP_PATH="$state/task.status" \
     FM_WAKE_ENRICH_SWAP_TARGET="$outside" FM_WAKE_ENRICH_REAL_PERL="$perl_bin" "$DRAIN" > "$out" \
     || fail "structural enrichment drain failed"
-  awk -F '\t' 'NF == 5 { print }' "$out" > "$actual"
-  cmp -s "$expected" "$actual" || fail "enrichment changed or reordered an authoritative raw row"
+  awk -F '\t' 'NF == 5 { print }' "$out" | LC_ALL=C sort > "$actual"
+  cmp -s "$expected" "$actual" || fail "enrichment changed an authoritative raw row"
 
   annotation_count=$(grep -c '^wake annotation:' "$out" || true)
   [ "$annotation_count" -eq 1 ] || fail "expected only the unreadable-race-safe status annotation, got $annotation_count"
@@ -3617,6 +3657,7 @@ SH
   pass "watch liveness: an unreachable remote secondmate is probed, preserved, and never failed over"
 }
 
+test_captain_rows_lead_watcher_backlog
 test_self_held_lock_reclaims_instead_of_deadlocking
 test_lock_wait_returns_when_its_directory_is_removed
 test_subshell_lock_ownership_without_bashpid
