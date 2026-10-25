@@ -111,9 +111,16 @@ assert_grep "never-prune honored: $LISTED_DIR/data/$LISTED_ID" \
   "the honored exception was not recorded durably"
 assert_absent "$LISTED_DIR/state/$LISTED_ID.backlog-close" \
   "a replayed close left its marker behind"
-# shellcheck disable=SC1010 # 'done' inside the comparison is a literal word.
-[ "$(tasks-axi show "$LISTED_ID" --file "$LISTED_DIR/data/backlog.md" 2>/dev/null \
-    | sed -n 's/^  state: *//p' | head -1)" = done ] \
+# Close probe: row membership in the Done section of the canonical markdown
+# store, never a tasks-axi render. The backend records a closed row as a line
+# holding the id under the `## Done` heading the fixture seeds; `tasks-axi
+# show` output differs between installs (the B1 host render prints no
+# whitespace-pinned "state:" line) and no structured `show --json` exists.
+awk -v id="$LISTED_ID" '
+  /^##[[:space:]]/ { in_done = ($0 ~ /^##[[:space:]]+Done[[:space:]]*$/) }
+  in_done && index($0, id) { found = 1 }
+  END { exit(found ? 0 : 1) }
+' "$LISTED_DIR/data/backlog.md" \
   || fail "the listed row did not close"
 pass "never-prune: a listed preservation directory survives its row's close byte-identical"
 
