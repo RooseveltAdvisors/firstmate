@@ -207,6 +207,29 @@ out=$(cd "$SUPERVISOR" && python3 "$SUPERVISOR/bin/fm-jev-guard.py" --check-only
 assert_not_contains "$out" 'Project work must be delegated' 'non-project file value is not pre-denied'
 assert_not_contains "$out" fast_path_whitelist 'non-project file value gains no fast path'
 assert_contains "$out" supervisor_approved 'non-project file value reaches Jev'
+# Inbox017: assignment values that resolve under projects/ refuse the fast path
+# and pre-deny; the expansion remainder keeps reaching Jev.
+for probe in \
+  "BASH_ENV=projects/portal/evil.sh bash -c 'bd show x'" \
+  "env BASH_ENV=projects/portal/evil.sh bash -c 'bd show x'" \
+  "LD_PRELOAD=projects/portal/x.so bd show x" \
+  "GIT_EXTERNAL_DIFF=projects/portal/x git diff"; do
+  for answer in \
+    '{"answers":{"action":{"choice":"require_delegation"},"violation_noul":{"noul":1},"target_domain":{"choice":"project_worker"}}}' \
+    '{"answers":{"action":{"choice":"allow_supervisor"},"violation_noul":{"noul":0},"target_domain":{"choice":"supervisor"}}}'; do
+    export FM_TEST_JEV_RESPONSE="$answer"
+    out=$(cd "$SUPERVISOR" && python3 "$SUPERVISOR/bin/fm-jev-guard.py" --check-only --command "$probe")
+    assert_contains "$out" 'Project work must be delegated' "assignment value pre-denies: $probe"
+  done
+done
+export FM_TEST_JEV_RESPONSE='{"answers":{"action":{"choice":"allow_supervisor"},"violation_noul":{"noul":0},"target_domain":{"choice":"supervisor"}}}'
+out=$(cd "$SUPERVISOR" && python3 "$SUPERVISOR/bin/fm-jev-guard.py" --check-only --command 'FOO=bar bd show x')
+assert_contains "$out" fast_path_whitelist 'benign assignment keeps the fast path'
+for probe in 'D=projects/portal; rm $D/x' 'P=projects/portal; cd $P && npm test' 'rm proj*/x'; do
+  out=$(cd "$SUPERVISOR" && python3 "$SUPERVISOR/bin/fm-jev-guard.py" --check-only --command "$probe")
+  assert_contains "$out" supervisor_approved "expansion form still reaches Jev: $probe"
+  assert_not_contains "$out" 'Project work must be delegated' "expansion form is not pre-denied: $probe"
+done
 # Inbox014: generic value consumption reaches the payload in every wrapper form.
 for probe in \
   "xargs --max-args 1 bash -c 'rm projects/portal/x'" \

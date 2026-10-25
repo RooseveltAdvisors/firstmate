@@ -186,8 +186,12 @@ def peel_wrappers(args: list[str]) -> tuple[list[str], list[str], list[str]]:
         if wrapper == "nohup":
             continue
         if wrapper == "env":
+            env_values: list[str] = []
             while args:
-                if args[0] in ("-i", "--") or re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", args[0]):
+                if args[0] in ("-i", "--"):
+                    args = args[1:]
+                elif re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", args[0]):
+                    env_values.append(args[0].split("=", 1)[1])
                     args = args[1:]
                 elif args[0] in ("-u", "-U", "--unset") and len(args) > 1:
                     args = args[2:]
@@ -201,6 +205,8 @@ def peel_wrappers(args: list[str]) -> tuple[list[str], list[str], list[str]]:
                     args = args[1:]
                 else:
                     break
+            if args:
+                collected.extend(env_values)
             continue
         file_opts = WRAPPER_FILE_OPTS.get(wrapper, set())
         while args and args[0].startswith("-"):
@@ -280,14 +286,16 @@ def is_whitelisted_command(cmd: str) -> bool:
             else:
                 parts[-1].append(token)
         for args in parts:
-            while args and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", args[0]):
-                args = args[1:]
+            args, assigned = strip_assignments(args)
+            if any(resolves_under_projects(value) for value in assigned):
+                return False
             if not args:
                 continue
             if args[0] == "env":
                 args = args[1:]
-                while args and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", args[0]):
-                    args = args[1:]
+                args, assigned = strip_assignments(args)
+                if any(resolves_under_projects(value) for value in assigned):
+                    return False
             if not args:
                 return False
             # Do not let a tool fast-pass shell substitutions or file writes.
@@ -367,6 +375,18 @@ def is_file_operand(operand: str) -> bool:
     return bool(PROJECT_PATH_RE.search(str(ancestor)))
 
 
+def strip_assignments(args: list[str]) -> tuple[list[str], list[str]]:
+    values: list[str] = []
+    while args and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", args[0]):
+        values.append(args[0].split("=", 1)[1])
+        args = args[1:]
+    return args, values
+
+
+def resolves_under_projects(value: str) -> bool:
+    return is_file_operand(value) and bool(PROJECT_PATH_RE.search(value))
+
+
 def operative_paths(cmd: str) -> list[str] | None:
     """The paths a command operates on: its program, cd targets, file operands,
     and redirection targets, recursing into bash -c strings.
@@ -400,17 +420,18 @@ def operative_paths(cmd: str) -> list[str] | None:
             merged.append(segment)
     paths: list[str] = []
     for args in merged:
-        while args and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", args[0]):
-            args = args[1:]
+        args, assigned = strip_assignments(args)
         args, peeled, carried = peel_wrappers(args)
+        args, more_assigned = strip_assignments(args)
+        assigned += more_assigned
+        if args:
+            paths.extend(value for value in assigned if is_file_operand(value))
         paths.extend(operand for operand in peeled if is_file_operand(operand))
         for command in carried:
             nested = operative_paths(command)
             if nested is None:
                 return None
             paths.extend(nested)
-        while args and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", args[0]):
-            args = args[1:]
         if not args:
             continue
         tool = Path(args[0]).name

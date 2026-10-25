@@ -78,6 +78,57 @@ test_captain_verdict_rows_lead_watcher_backlog() {
   pass "captain-tagged follow-up leads fifty watcher checks and the stale wedge"
 }
 
+test_captain_tag_needs_exact_suffix() {
+  local dir state
+  dir=$(make_case captain-suffix)
+  state="$dir/state"
+  append_wake "$state" check "control:mid" 'check: mail 9 - verdict=captain inside subject text' \
+    || fail "mid-payload control append failed"
+  append_wake "$state" check "control:space" 'check: captain inbox note 7 - trailing verdict=captain ' \
+    || fail "trailing-space control append failed"
+  append_wake "$state" stale win 'stale: win (idle 30m possible wedge ...)' || fail "wedge append failed"
+  append_wake "$state" check "inbox:42" 'check: captain inbox note 42 - please dispatch wiseman-uukr verdict=captain' \
+    || fail "captain append failed"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/drain.out" 2> "$dir/drain.err" || fail "suffix drain failed"
+  assert_contains "$(awk -F '\t' 'NR == 1 { print $5 }' "$dir/drain.out")" 'inbox note 42' \
+    "only the exact suffix promotes"
+  assert_contains "$(awk -F '\t' 'NR == 2 { print $5 }' "$dir/drain.out")" 'possible wedge' \
+    "the stale wedge keeps its rank"
+  assert_contains "$(awk -F '\t' 'NR == 3 { print $5 }' "$dir/drain.out")" 'inside subject text' \
+    "a mid-payload marker must not promote"
+  assert_contains "$(awk -F '\t' 'NR == 4 { print $5 }' "$dir/drain.out")" 'trailing verdict=captain' \
+    "a trailing-space tag must not promote"
+  pass "the captain tag promotes only as an exact end-of-payload suffix"
+}
+
+test_inbox_producer_row_leads_watcher_backlog() {
+  local dir state home out i pos inbox="$ROOT/bin/fm-inbox.sh"
+  dir=$(make_case producer-first)
+  state="$dir/state"
+  home="$dir/home"
+  mkdir -p "$home/state" "$home/data" "$home/config"
+  for ((i = 1; i <= 50; i++)); do
+    append_wake "$state" check "watcher-$i" "check: watcher $i" || fail "check append failed"
+  done
+  append_wake "$state" stale win 'stale: win (idle 30m possible wedge ...)' || fail "wedge append failed"
+  append_wake "$state" check "control:captain-worded" 'check: captain inbox note 99 - untagged captain-worded control' \
+    || fail "control append failed"
+  append_wake "$state" check "procevent:1" 'check: procevent noise' || fail "noise append failed"
+  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$home/data" FM_CONFIG_OVERRIDE="$home/config" \
+    "$inbox" note 'please dispatch wiseman-uukr') || fail "fm-inbox note failed"
+  assert_contains "$out" "queued " "fm-inbox note queued its wake"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/drain.out" 2> "$dir/drain.err" || fail "producer-first drain failed"
+  assert_contains "$(awk -F '\t' 'NR == 1 { print $5 }' "$dir/drain.out")" 'wiseman-uukr verdict=captain' \
+    "the fm-inbox-emitted row must lead the drain"
+  [ "$(awk -F '\t' 'NF == 5 { n++ } END { print n }' "$dir/drain.out")" = 54 ] \
+    || fail "producer-first presentation lost wake rows"
+  pos=$(awk -F '\t' '$4 == "control:captain-worded" { print NR }' "$dir/drain.out")
+  [ -n "$pos" ] && [ "$pos" -gt 2 ] || fail "the untagged captain-worded control was promoted"
+  assert_not_contains "$(awk -F '\t' 'NR > 1 { print $5 }' "$dir/drain.out")" 'verdict=captain' \
+    "watcher, wedge and procevent rows stay untagged"
+  pass "a real fm-inbox-emitted row leads the drain above untagged noise"
+}
+
 
 test_concurrent_append_and_drain() {
   local dir state out1 out2 pids i pid count unique malformed sequence generation
@@ -3679,6 +3730,8 @@ SH
 
 test_captain_rows_lead_watcher_backlog
 test_captain_verdict_rows_lead_watcher_backlog
+test_captain_tag_needs_exact_suffix
+test_inbox_producer_row_leads_watcher_backlog
 test_self_held_lock_reclaims_instead_of_deadlocking
 test_lock_wait_returns_when_its_directory_is_removed
 test_subshell_lock_ownership_without_bashpid

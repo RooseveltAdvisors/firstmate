@@ -1055,7 +1055,7 @@ awk -F '\t' -v seqs="$ACTOR_ROWS_FILE" '
 RAW_ROWS=$(
   set -o pipefail
   fm_wake_print_deduped "$DRAIN_VIEW_TMP" | awk -F '\t' '
-    { priority = ($5 ~ /verdict=captain([[:space:]]|$)/) ? -1 : (($3 == "signal" || $5 ~ /corr=|bead=/) ? 0 : ($3 == "stale" ? 1 : ($3 == "check" ? 2 : 3)))
+    { priority = ($5 ~ /verdict=captain$/) ? -1 : (($3 == "signal" || $5 ~ /corr=|bead=/) ? 0 : ($3 == "stale" ? 1 : ($3 == "check" ? 2 : 3)))
       print priority "\t" $0 }
   ' | LC_ALL=C sort -t $'\t' -k1,1n -k2,2n -k3,3n | cut -f2-
 ) || exit "$?"
