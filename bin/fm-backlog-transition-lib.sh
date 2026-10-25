@@ -55,6 +55,19 @@
 # closes a row that reads as an open captain call. An answer that closes the row
 # first applies any supported retained artifact from the validated record, then
 # replay simply retires the record.
+#
+# NEVER-PRUNE. `<data>/.never-prune` is the durable exception class for
+# preservation data: one entry per line - an absolute path, a `data/<name>`
+# path resolved against the data directory's parent, or a shell glob matched
+# against the deletion candidate; blank lines and `#` comments are ignored.
+# Every code path that deletes a data/<task> directory as part of a backlog
+# close, spawn rollback, teardown, or stale sweep runs fm_never_prune_match
+# first, and a close replayed over a listed directory that still exists leaves
+# it intact and records a durable `never-prune honored: <path>` line in
+# `<state>/never-prune.log` and on the replay's own output. Sole-copy bundles
+# and preservation manifests must live in a directory listed in
+# data/.never-prune BEFORE any row holding them is closed; an unlisted
+# directory is cleanup-eligible the moment its row closes.
 
 # Set by fm_backlog_transition_applies for a return-1 exemption.
 # shellcheck disable=SC2034 # Output global, read by the sourcing caller.
@@ -142,6 +155,61 @@ fm_backlog_data_absolute() {
     return 1
   fi
   printf '%s\n' "$data"
+}
+
+# The single never-prune test every data/<task> deletion path runs first.
+# Returns 0 when <candidate-path> matches an entry of <data-dir>/.never-prune,
+# 1 when the list is absent, unreadable, or holds no matching entry. An
+# absolute entry matches the candidate as a shell glob; any other entry also
+# matches resolved against the data directory's parent, so `data/<name>` keeps
+# its meaning no matter which path shape the caller holds.
+fm_never_prune_match() {  # <data-dir> <candidate-path>
+  local data=$1 candidate=$2 list entry parent
+  list=$data/.never-prune
+  if [ -L "$list" ] || [ ! -f "$list" ]; then
+    return 1
+  fi
+  parent=${data%/}
+  case $parent in
+    */*) parent=${parent%/*} ;;
+    *) parent=/ ;;
+  esac
+  while IFS= read -r entry || [ -n "$entry" ]; do
+    entry=${entry%$'\r'}
+    case $entry in
+      ''|'#'*) continue ;;
+    esac
+    # shellcheck disable=SC2254 # Entries are operator globs by contract.
+    case $candidate in
+      $entry) return 0 ;;
+    esac
+    case $entry in
+      /*) ;;
+      *)
+        # shellcheck disable=SC2254
+        case $candidate in
+          $parent/$entry) return 0 ;;
+        esac
+        ;;
+    esac
+  done < "$list"
+  return 1
+}
+
+# Best-effort durable record of an honored exception: a matching candidate that
+# still exists gets one `never-prune honored: <path>` line on the caller's
+# output and one timestamped line in <state-dir>/never-prune.log. Never blocks
+# the caller: a failed log write warns and the honor still stands.
+fm_never_prune_record() {  # <state-dir> <data-dir> <candidate-path> <context>
+  local state=$1 data=$2 candidate=$3 context=$4 log
+  [ -e "$candidate" ] || [ -L "$candidate" ] || return 0
+  fm_never_prune_match "$data" "$candidate" || return 0
+  printf 'never-prune honored: %s\n' "$candidate"
+  log=$state/never-prune.log
+  printf '%s never-prune honored: %s (%s)\n' \
+    "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$candidate" "$context" >> "$log" 2>/dev/null \
+    || printf 'warning: could not record the never-prune honor in %s\n' "$log" >&2
+  return 0
 }
 
 fm_backlog_file() {  # <data-dir>
@@ -1224,6 +1292,11 @@ fm_backlog_close_marker_replay() {  # <state-dir> <marker-path> <authorized-data
   if [ "${args[0]-}" = --note ]; then
     args[1]="local main"
   fi
+  # A row close makes its task's data directory cleanup-eligible. Honor the
+  # never-prune list before any mutation so a preservation directory survives
+  # its row's close and the replay shows the exception was applied.
+  fm_never_prune_record "$state" "$3" "$data/$id" "backlog-close replay $id"
+  fm_never_prune_record "$state" "$3" "$data" "backlog-close replay $id"
   meta="$state/$id.meta"
   if [ -e "$meta" ] || [ -L "$meta" ]; then
     if ! fm_backlog_record_present "$meta" "task record" "$state"; then

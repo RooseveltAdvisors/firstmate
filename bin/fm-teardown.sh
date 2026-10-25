@@ -456,6 +456,13 @@ teardown_archive_directory() {  # <directory>
 teardown_prune_status_archives() {  # <task-directory>
   local dir=$1 child file suffix
   [ -d "$dir" ] && [ ! -L "$dir" ] || return 0
+  # The never-prune exception class (bin/fm-backlog-transition-lib.sh): a
+  # preservation directory listed in data/.never-prune keeps even its aged
+  # status archives; the honor is recorded, never silently skipped.
+  if fm_never_prune_match "$DATA" "$dir"; then
+    fm_never_prune_record "$STATE" "$DATA" "$dir" "teardown status-archive prune"
+    return 0
+  fi
   while IFS= read -r -d '' file; do
     suffix=${file##*/}
     case "$suffix" in
