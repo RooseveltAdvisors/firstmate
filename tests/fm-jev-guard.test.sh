@@ -184,6 +184,29 @@ assert_contains "$out" supervisor_approved 'ash payload form leaves the fast pat
 assert_not_contains "$out" fast_path_whitelist 'ash payload form is not fast-path'
 out=$(cd "$SUPERVISOR" && python3 "$SUPERVISOR/bin/fm-jev-guard.py" --json --command "bin/fm-send.sh worker 'touch projects/portal/new.py'")
 assert_contains "$out" '"code": "fast_path_whitelist"' 'task payload fast-passes with its allowlisted tool'
+# Second written amendment: file-valued wrapper options are operands in their
+# own right, in addition to the peel reaching the payload.
+for probe in \
+  'time -o projects/portal/out.log ls' \
+  'time --output=projects/portal/out.log ls' \
+  'xargs -a projects/portal/data echo hi' \
+  'xargs --arg-file=projects/portal/data echo' \
+  "time -o out sh -c 'rm projects/portal/x'" \
+  "xargs -I{} sh -c 'rm projects/portal/x'" \
+  'ls projects/portal/out.log'; do
+  for answer in \
+    '{"answers":{"action":{"choice":"require_delegation"},"violation_noul":{"noul":1},"target_domain":{"choice":"project_worker"}}}' \
+    '{"answers":{"action":{"choice":"allow_supervisor"},"violation_noul":{"noul":0},"target_domain":{"choice":"supervisor"}}}'; do
+    export FM_TEST_JEV_RESPONSE="$answer"
+    out=$(cd "$SUPERVISOR" && python3 "$SUPERVISOR/bin/fm-jev-guard.py" --check-only --command "$probe")
+    assert_contains "$out" 'Project work must be delegated' "file-valued wrapper option pre-denies: $probe"
+  done
+done
+export FM_TEST_JEV_RESPONSE='{"answers":{"action":{"choice":"allow_supervisor"},"violation_noul":{"noul":0},"target_domain":{"choice":"supervisor"}}}'
+out=$(cd "$SUPERVISOR" && python3 "$SUPERVISOR/bin/fm-jev-guard.py" --check-only --command 'time -o /tmp/x ls')
+assert_not_contains "$out" 'Project work must be delegated' 'non-project file value is not pre-denied'
+assert_not_contains "$out" fast_path_whitelist 'non-project file value gains no fast path'
+assert_contains "$out" supervisor_approved 'non-project file value reaches Jev'
 # A malformed response or proxy error must fail closed.
 export FM_TEST_JEV_RESPONSE='{}'
 (cd "$TDIR" && assert_denied 'pytest tests/ -q')
@@ -212,17 +235,17 @@ FM_TEST_PRIMARY=0 FM_ROOT_OVERRIDE="$MOCK_WT" "$MOCK_WT/bin/fm-jev-guard.sh" --c
 NOJQ="$TDIR/nojqbin"
 NOGIT="$TDIR/nogitbin"
 mkdir -p "$NOJQ" "$NOGIT"
-for tool in bash cat dirname git python3 sed tr; do
+for tool in bash git python3; do
   ln -s "$(command -v "$tool")" "$NOJQ/$tool"
 done
-for tool in bash cat dirname jq python3 sed tr; do
+for tool in bash jq python3; do
   ln -s "$(command -v "$tool")" "$NOGIT/$tool"
 done
 runtime_payload='{"tool_name":"Bash","tool_input":{"command":"cd projects/portal && pytest tests/ -q"}}'
 rc=0
 printf '%s' "$runtime_payload" | PATH="$NOJQ" "$GUARD" >/dev/null 2>"$TDIR/nojq.err" || rc=$?
-assert_equals 2 "$rc" 'missing jq denies'
-assert_contains "$(cat "$TDIR/nojq.err")" 'classifier runtime unavailable' 'missing jq is loud'
+assert_equals 2 "$rc" 'missing jq with early utils absent denies'
+assert_contains "$(cat "$TDIR/nojq.err")" 'classifier runtime unavailable' 'runtime-absence denial is loud'
 rc=0
 printf '%s' "$runtime_payload" | PATH="$NOGIT" "$GUARD" >/dev/null 2>"$TDIR/nogit.err" || rc=$?
 assert_equals 2 "$rc" 'missing git denies in supervisor scope'

@@ -47,6 +47,17 @@ the failure that clause exists to stop (a project file deleted while the guard s
 supervisor approval). Peeling widens the deny side only and never makes anything newly
 allowable.
 
+Second written amendment - file-valued wrapper options, deny side only: when peeling
+one of the nine wrapper words, a file-valued option's VALUE is an OPERAND - time -o and
+time --output, xargs -a and xargs --arg-file - and it routes into operative_paths
+exactly like a direct file operand, so it pre-denies when it points under projects/
+IN ADDITION TO (never instead of) continuing the peel onward to the shell-payload
+check. Consuming an option value may add a deny and may never remove or reroute one.
+These four named option pairs are the complete list for this round; any further
+file-valued option of the nine joins only by another written amendment. The earlier
+consumption machinery exceeded its named mandate by covering file-valued options at
+all; this amendment legitimizes and bounds that overreach.
+
 The firstmate invariant: anything the deterministic layer does not positively classify for fast-path or pre-deny REACHES JEV and outage keeps fail-closed deny - no third outcome, no spelling may end in a silent allow.
 
 Usage:
@@ -161,10 +172,15 @@ WRAPPER_VALUE_OPTS = {
     "time": {"-f", "-o"},
     "xargs": {"-I", "-i", "-L", "-l", "-n", "-d", "-P", "-s", "-E", "-e", "-a"},
 }
+WRAPPER_FILE_OPTS = {
+    "time": {"-o", "--output"},
+    "xargs": {"-a", "--arg-file"},
+}
 
 
-def peel_wrappers(args: list[str]) -> list[str]:
-    """Strip leading wrapper words together with the arguments each one carries."""
+def peel_wrappers(args: list[str]) -> tuple[list[str], list[str]]:
+    """Strip leading wrapper words and their arguments; file-option values are operands."""
+    operands: list[str] = []
     while args and Path(args[0]).name in WRAPPER_WORDS:
         wrapper = Path(args[0]).name
         args = args[1:]
@@ -182,14 +198,26 @@ def peel_wrappers(args: list[str]) -> list[str]:
                     break
             continue
         value_opts = WRAPPER_VALUE_OPTS.get(wrapper, set())
+        file_opts = WRAPPER_FILE_OPTS.get(wrapper, set())
         while args and args[0].startswith("-"):
-            if args[0] in value_opts and len(args) > 1:
+            flag = args[0]
+            name, sep, attached = flag.partition("=")
+            if name in file_opts and sep:
+                operands.append(attached)
+                args = args[1:]
+            elif len(flag) > 2 and not flag.startswith("--") and flag[:2] in file_opts:
+                operands.append(flag[2:])
+                args = args[1:]
+            elif flag in file_opts and len(args) > 1:
+                operands.append(args[1])
+                args = args[2:]
+            elif flag in value_opts and len(args) > 1:
                 args = args[2:]
             else:
                 args = args[1:]
         if wrapper == "timeout" and len(args) > 1 and Path(args[1]).name in WRAPPER_WORDS | SHELL_NAMES:
             args = args[1:]
-    return args
+    return args, operands
 
 
 def shell_payload(args: list[str], shells: set[str] = SHELL_NAMES) -> str | None:
@@ -323,6 +351,15 @@ PATTERN_FIRST_TOOLS = {"grep", "egrep", "fgrep", "rg", "ag", "ack", "awk", "sed"
 FIND_ACTIONS = ("-delete", "-exec", "-execdir", "-ok", "-okdir")
 
 
+def is_file_operand(operand: str) -> bool:
+    if not re.search(r"\s", operand):
+        return True
+    ancestor = Path(operand).expanduser()
+    while not ancestor.exists() and ancestor != ancestor.parent:
+        ancestor = ancestor.parent
+    return bool(PROJECT_PATH_RE.search(str(ancestor)))
+
+
 def operative_paths(cmd: str) -> list[str] | None:
     """The paths a command operates on: its program, cd targets, file operands,
     and redirection targets, recursing into bash -c strings.
@@ -358,7 +395,7 @@ def operative_paths(cmd: str) -> list[str] | None:
     for args in merged:
         while args and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", args[0]):
             args = args[1:]
-        args = peel_wrappers(args)
+        args, peeled = peel_wrappers(args)
         while args and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", args[0]):
             args = args[1:]
         if not args:
@@ -409,6 +446,7 @@ def operative_paths(cmd: str) -> list[str] | None:
                 if not expression:
                     roots.append(a)
         paths.extend(redirects)
+        paths.extend(operand for operand in peeled if is_file_operand(operand))
         payload = shell_payload(args)
         if payload is not None:
             nested = operative_paths(payload)
@@ -426,7 +464,7 @@ def operative_paths(cmd: str) -> list[str] | None:
             for index, action in enumerate(args):
                 if action not in FIND_ACTIONS:
                     continue
-                executed = shell_payload(peel_wrappers(args[index + 1:]))
+                executed = shell_payload(peel_wrappers(args[index + 1:])[0])
                 if executed is not None:
                     nested = operative_paths(executed)
                     if nested is None:
@@ -436,13 +474,8 @@ def operative_paths(cmd: str) -> list[str] | None:
         elif pattern_tool and not pattern_source:
             words = words[1:]
         for operand in values + words:
-            if re.search(r"\s", operand):
-                ancestor = Path(operand).expanduser()
-                while not ancestor.exists() and ancestor != ancestor.parent:
-                    ancestor = ancestor.parent
-                if not PROJECT_PATH_RE.search(str(ancestor)):
-                    continue
-            paths.append(operand)
+            if is_file_operand(operand):
+                paths.append(operand)
     return paths
 
 

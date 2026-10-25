@@ -39,7 +39,10 @@ EOF
 }
 
 json_escape() {
-  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | tr '\n' ' '
+  local bs='\' dq='"'
+  local s=${1//"$bs"/$bs$bs}
+  s=${s//"$dq"/$bs$dq}
+  printf '%s' "${s//$'\n'/ }"
 }
 
 # One deny rendering for every harness protocol: Cursor reads its own object on
@@ -92,12 +95,12 @@ done
 
 PAYLOAD=""
 if [ "$CMD_SET" -eq 0 ]; then
-  PAYLOAD=$(cat 2>/dev/null || true)
+  IFS= read -r -d '' PAYLOAD || true
   [ -n "$PAYLOAD" ] || exit 0
 fi
 
-SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd -P) || exit 0
-FM_ROOT=${FM_ROOT_OVERRIDE:-$(CDPATH='' cd -- "$SCRIPT_DIR/.." 2>/dev/null && pwd -P)} || exit 0
+SCRIPT_DIR=$(CDPATH='' cd -- "${BASH_SOURCE[0]%/*}" 2>/dev/null && pwd -P) || render_deny "[require_delegation] classifier runtime unavailable"
+FM_ROOT=${FM_ROOT_OVERRIDE:-$(CDPATH='' cd -- "$SCRIPT_DIR/.." 2>/dev/null && pwd -P)} || render_deny "[require_delegation] classifier runtime unavailable"
 
 # Scope check: apply only in the primary checkout (git-dir == git-common-dir).
 # Crewmate / scout task worktrees (linked git worktrees) are inert (exit 0) only
@@ -126,7 +129,7 @@ if [ "$CMD_SET" -eq 0 ]; then
     *) render_deny "fm-action-gate: DENY: tool transport '${TOOL:-unnamed}' has no approved action adapter; mail_send is prohibited" ;;
   esac
 
-  HOOK_LIB="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/fm-hook-host-lib.sh"
+  HOOK_LIB="$SCRIPT_DIR/fm-hook-host-lib.sh"
   if [ -f "$HOOK_LIB" ]; then
     # shellcheck source=bin/fm-hook-host-lib.sh
     . "$HOOK_LIB"
