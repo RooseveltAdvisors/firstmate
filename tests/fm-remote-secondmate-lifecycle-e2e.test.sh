@@ -843,6 +843,61 @@ cmp -s "$TMP_ROOT/inherit-complete" "$PROTOCOL_HOME/config/crew-harness" \
   || fail "superseded inheritance replaced the current payload"
 pass "remote inheritance rejects incomplete and superseded payload generations"
 
+# Allowlist parity for absence (fm-weioy): a sender from a newer code root
+# legitimately sends the absent verb for names this receiver's declared set
+# does not know yet (dispatch-never-send and herdr-project-groups are the two
+# measured fleet cases), and absence must converge instead of refusing the
+# push. FM_INHERITABLE_CONFIG pins the stale receiver declaration; production
+# receivers always run their own code root's declaration.
+empty_payload="$TMP_ROOT/inherit-empty"
+: > "$empty_payload"
+empty_hash=$(sha256_file "$empty_payload")
+stale_config='crew-dispatch.json crew-harness backlog-backend backend herdr-presentation-spaces startup-memory-budget trace-context launch-env-allowlist claude-permission-mode codex-approval-mode lavish-axi-host keep-ai-trailers supervision-host-off firstmate-role'
+out=$(FM_INHERITABLE_CONFIG="$stale_config" FM_HOME="$PROTOCOL_HOME" "$REMOTE_ROOT/bin/fm-remote-inherit.sh" \
+  absent config/dispatch-never-send 0 "$empty_hash" 1)
+[ "$out" = 'unchanged: config/dispatch-never-send' ] \
+  || fail "absent dispatch-never-send did not converge on a stale receiver: $out"
+assert_absent "$PROTOCOL_HOME/config/dispatch-never-send" \
+  "converged absence created a dispatch-never-send destination"
+assert_absent "$PROTOCOL_HOME/config/.fm-inherit-dispatch-never-send.generation" \
+  "converged absence recorded a generation for state it never changed"
+out=$(FM_INHERITABLE_CONFIG="$stale_config" FM_HOME="$PROTOCOL_HOME" "$REMOTE_ROOT/bin/fm-remote-inherit.sh" \
+  absent config/herdr-project-groups 0 "$empty_hash" 1)
+[ "$out" = 'unchanged: config/herdr-project-groups' ] \
+  || fail "absent herdr-project-groups did not converge on a stale receiver: $out"
+assert_absent "$PROTOCOL_HOME/config/herdr-project-groups" \
+  "converged absence created a herdr-project-groups destination"
+# A put for an undeclared name still fails closed on the stale receiver.
+if FM_INHERITABLE_CONFIG="$stale_config" FM_HOME="$PROTOCOL_HOME" "$REMOTE_ROOT/bin/fm-remote-inherit.sh" \
+  put config/herdr-project-groups "$inherit_bytes" "$inherit_hash" 1 \
+  < "$TMP_ROOT/inherit-complete" >/dev/null 2>&1; then
+  fail "remote inheritance accepted a put outside the receiver's declared set"
+fi
+assert_absent "$PROTOCOL_HOME/config/herdr-project-groups" \
+  "a refused put still published a herdr-project-groups destination"
+# Absence for an undeclared name with a PRESENT destination still fails
+# closed: the parity rule is a no-op, never a wider removal.
+printf 'receiver-local\n' > "$PROTOCOL_HOME/config/herdr-project-groups"
+if FM_INHERITABLE_CONFIG="$stale_config" FM_HOME="$PROTOCOL_HOME" "$REMOTE_ROOT/bin/fm-remote-inherit.sh" \
+  absent config/herdr-project-groups 0 "$empty_hash" 1 >/dev/null 2>&1; then
+  fail "remote inheritance removed a present destination outside its declared set"
+fi
+[ "$(cat "$PROTOCOL_HOME/config/herdr-project-groups")" = 'receiver-local' ] \
+  || fail "the parity rule touched a present undeclared destination"
+rm -f "$PROTOCOL_HOME/config/herdr-project-groups"
+# A present primary on the current code root still lands byte-exact, and its
+# later absence removes the destination through the ordinary declared path.
+FM_HOME="$PROTOCOL_HOME" "$REMOTE_ROOT/bin/fm-remote-inherit.sh" \
+  put config/herdr-project-groups "$inherit_bytes" "$inherit_hash" 1 \
+  < "$TMP_ROOT/inherit-complete" >/dev/null
+cmp -s "$TMP_ROOT/inherit-complete" "$PROTOCOL_HOME/config/herdr-project-groups" \
+  || fail "a present primary payload did not land byte-exact"
+FM_HOME="$PROTOCOL_HOME" "$REMOTE_ROOT/bin/fm-remote-inherit.sh" \
+  absent config/herdr-project-groups 0 "$empty_hash" 2 >/dev/null
+assert_absent "$PROTOCOL_HOME/config/herdr-project-groups" \
+  "a declared absence did not remove the destination"
+pass "remote inheritance converges a newer sender's absence and still fails closed for undeclared writes"
+
 # Add one local route to prove mixed fleets remain parseable and projected.
 mkdir -p "$LOCAL_HOME/data" "$LOCAL_HOME/state" "$LOCAL_HOME/config" "$LOCAL_HOME/projects" "$LOCAL_HOME/bin"
 printf 'local\n' > "$LOCAL_HOME/.fm-secondmate-home"

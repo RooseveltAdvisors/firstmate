@@ -32,7 +32,9 @@ sha256_file() {
 # receiver and sender cannot drift silently. This runs under the remote
 # entrypoint's fixed empty environment, so the declaration is this code root's
 # own, never something the caller can widen over SSH; a caller from a different
-# revision must match it or the transfer fails closed.
+# revision must match it or the transfer fails closed. The one narrow exception
+# is a fully converged absent directive from a newer sender, accepted as a
+# no-op by fm_config_inherit_absent_parity_converged.
 allowed() {
   local candidate
   while IFS= read -r candidate; do
@@ -49,7 +51,6 @@ REL=$2
 EXPECTED_BYTES=$3
 EXPECTED_HASH=$4
 GENERATION=$5
-allowed "$REL" || die "path is not inherited material: $REL"
 case "$EXPECTED_BYTES" in ''|*[!0-9]*) die "expected bytes must be a nonnegative integer" ;; esac
 [ "${#EXPECTED_BYTES}" -le 10 ] || die "expected bytes exceed the byte bound"
 [ "$EXPECTED_BYTES" -le "$MAX_BYTES" ] || die "expected bytes exceed the byte bound"
@@ -58,6 +59,20 @@ case "$EXPECTED_HASH" in ''|*[!A-Fa-f0-9]*) die "expected SHA-256 is invalid" ;;
 EXPECTED_HASH=$(printf '%s' "$EXPECTED_HASH" | tr 'A-F' 'a-f')
 case "$GENERATION" in ''|*[!0-9]*) die "generation must be a positive integer" ;; esac
 [ "${#GENERATION}" -le 18 ] && [ "$GENERATION" -ge 1 ] || die "generation is outside the supported range"
+if ! allowed "$REL"; then
+  # Allowlist parity: a sender from a newer code root may send absence for a
+  # name this root does not declare yet. When the commitment is the
+  # well-formed empty one and the destination is absent here too, absence has
+  # already converged, so accept the no-op; every other unlisted path still
+  # fails closed. No generation is recorded because no state changed, which
+  # keeps a later retry at the same generation idempotent.
+  if [ "$COMMAND" = absent ] \
+    && fm_config_inherit_absent_parity_converged "$FM_HOME" "$REL" "$EXPECTED_BYTES" "$EXPECTED_HASH"; then
+    printf 'unchanged: %s\n' "$REL"
+    exit 0
+  fi
+  die "path is not inherited material: $REL"
+fi
 HOME_REAL=$(CDPATH='' cd -- "$FM_HOME" 2>/dev/null && pwd -P) || die "FM_HOME is unavailable"
 PARENT="$HOME_REAL/$(dirname "$REL")"
 # The captain accepts this config/data parent TOCTOU within Firstmate's single-user trust boundary.

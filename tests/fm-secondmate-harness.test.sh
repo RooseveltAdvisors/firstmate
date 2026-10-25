@@ -592,7 +592,31 @@ test_propagate_lib() {
     "guard skip did not emit a stderr warning"
   [ ! -e "$guard_repo/config/crew-dispatch.json" ] || fail "guard skip still copied the unignored item"
 
-  pass "B1 propagate_inheritable_config: copy, idempotence, convergence, absence-mirror, exclusion, no-op, skip diagnostics"
+  # 8. the fm-weioy evidence names: an allowlisted item whose primary source is
+  # absent converges the destination to absence with a zero exit, and a present
+  # primary for the same names still lands byte-exact.
+  rm -rf "$d/home3"
+  mkdir -p "$d/home3/config" "$d/home3/state"
+  printf 'never-send-fixture\n' > "$d/home3/config/dispatch-never-send"
+  printf 'group-rules-fixture\n' > "$d/home3/config/herdr-project-groups"
+  rm -f "$src/dispatch-never-send" "$src/herdr-project-groups"
+  propagate_inheritable_config "$src" "$d/home3/config" \
+    || fail "absent-primary propagation refused the evidence names"
+  [ ! -e "$d/home3/config/dispatch-never-send" ] \
+    || fail "absent primary dispatch-never-send was not converged to absence downstream"
+  [ ! -e "$d/home3/config/herdr-project-groups" ] \
+    || fail "absent primary herdr-project-groups was not converged to absence downstream"
+  printf 'never-send-fixture\n' > "$src/dispatch-never-send"
+  printf 'group-rules-fixture\n' > "$src/herdr-project-groups"
+  propagate_inheritable_config "$src" "$d/home3/config" \
+    || fail "present-primary propagation refused the evidence names"
+  cmp -s "$src/dispatch-never-send" "$d/home3/config/dispatch-never-send" \
+    || fail "present primary dispatch-never-send did not land byte-exact"
+  cmp -s "$src/herdr-project-groups" "$d/home3/config/herdr-project-groups" \
+    || fail "present primary herdr-project-groups did not land byte-exact"
+  rm -f "$src/dispatch-never-send" "$src/herdr-project-groups"
+
+  pass "B1 propagate_inheritable_config: copy, idempotence, convergence, absence-mirror, exclusion, no-op, skip diagnostics, evidence-name absence convergence"
 }
 
 # ===========================================================================
