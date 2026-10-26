@@ -2888,7 +2888,7 @@ safe_rm_rf_child_worktree() {
 }
 
 validate_firstmate_home_for_removal() {
-  local home=$1 label=$2 expected_id=${3:-} abs_home_path marker_id conflict child_id child_home
+  local home=$1 label=$2 expected_id=${3:-} abs_home_path expected_home_key marker_id conflict child_id child_home
   [ -n "$home" ] || return 0
   [ -e "$home" ] || return 0
   abs_home_path=$(validate_removal_target "$home" "$label") || return 1
@@ -2903,7 +2903,7 @@ validate_firstmate_home_for_removal() {
       return 1
     fi
     if [ -e "$SECONDMATE_REG" ] || [ -L "$SECONDMATE_REG" ]; then
-      if ! secondmate_registry_validate_bindings "$SECONDMATE_REG" secondmate_registry_path_key "$expected_id" "$abs_home_path"; then
+      if ! secondmate_registry_validate_bindings "$SECONDMATE_REG" secondmate_registry_path_key "$expected_id"; then
         case "$SECONDMATE_REGISTRY_ERROR" in
           overlapping\ secondmate\ home\ assignment:*)
             echo "REFUSED: unsafe $label removal target $home contains registered secondmate home; $SECONDMATE_REGISTRY_ERROR" >&2
@@ -2911,6 +2911,15 @@ validate_firstmate_home_for_removal() {
           *) echo "REFUSED: $SECONDMATE_REGISTRY_ERROR" >&2 ;;
         esac
         return 1
+      fi
+      if [ "$SECONDMATE_REGISTRY_MATCH_REMOTE" -eq 1 ]; then
+        echo "warning: secondmate $expected_id is registered on the remote route $SECONDMATE_REGISTRY_MATCH_HOST:$SECONDMATE_REGISTRY_MATCH_HOME while its live home here is $abs_home_path; the recorded route stands as its durable parent binding" >&2
+      else
+        expected_home_key=$(secondmate_registry_path_key "$abs_home_path") || return 1
+        if [ "local:$expected_home_key" != "$SECONDMATE_REGISTRY_MATCH_HOME_KEY" ]; then
+          echo "REFUSED: secondmate $expected_id is registered at $SECONDMATE_REGISTRY_MATCH_HOME, not $abs_home_path" >&2
+          return 1
+        fi
       fi
     fi
   fi
