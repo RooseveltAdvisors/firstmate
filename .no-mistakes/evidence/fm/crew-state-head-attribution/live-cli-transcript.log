@@ -1,0 +1,29 @@
+########## DISPOSITION 1: daemon up ##########
+=== fixture shape ===
+local task-copy HEAD: acc690c (older failed row head)
+running row head:     d82c47ce
+pipeline head d82c47ce absent from the task copy: CONFIRMED
+=== run overview (both rows visible) ===
+count: 2 of 2 total
+runs[2]{id,branch,status,head,pr}:
+  01RUNNEW,fm/stt-cutover,running,d82c47ce,""
+  01RUNOLD,fm/stt-cutover,failed,acc690c,""
+  running    fm/stt-cutover d82c47ce  2026-08-14 11:30
+  failed     fm/stt-cutover acc690c  2026-08-14 10:05
+=== fm-crew-state.sh output record ===
+state: working · source: run-step · validating (fixing) · run: 01RUNNEW
+
+########## DISPOSITION 2: daemon provably down ##########
+=== fixture shape ===
+local task-copy HEAD: acc690c (older failed row head)
+running row head:     d82c47ce
+pipeline head d82c47ce absent from the task copy: CONFIRMED
+=== run overview (both rows visible) ===
+count: 2 of 2 total
+runs[2]{id,branch,status,head,pr}:
+  01RUNNEW,fm/stt-cutover,running,d82c47ce,""
+  01RUNOLD,fm/stt-cutover,failed,acc690c,""
+  running    fm/stt-cutover d82c47ce  2026-08-14 11:30
+  failed     fm/stt-cutover acc690c  2026-08-14 10:05
+=== fm-crew-state.sh output record ===
+state: unknown · source: run-step · no-mistakes daemon unreachable; last run record fixing - unverified · run: 01RUNNEW

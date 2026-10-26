@@ -1,0 +1,54 @@
+
+==============================================================
+CONTROL - pristine product at 9405b3eb: expect both incident-fixture tests PASS
+==============================================================
+ok - an unresolved running row beats an older failed row at the local head
+ok - a dead daemon under the unresolved running row reads unknown, never the stale failure
+targeted incident-fixture pair passed
+exit=0
+
+==============================================================
+MUTATION A - ledger-anchored continuation regressed (bin/fm-nm-run-lib.sh: fm_nm_runs_status_for_worktree anchor never answers 'running' for the unfetched newest row)
+==============================================================
+expect: daemon-down test RED on the strengthened anchored-wording assertion; its captured output shows the misleading 'code identity unverified' fallback that the pre-fix weak assertion (bare substring 'unverified') would have matched
+ok - an unresolved running row beats an older failed row at the local head
+not ok - the anchored ledger proves the pipeline-owned continuation with the dead instrument named (missing: 'no-mistakes daemon unreachable; last run record fixing - unverified')
+--- output ---
+state: unknown · source: run-step · selected run code identity unverified; run ids: 01RUNNEW, 01RUNOLD
+exit=1
+
+==============================================================
+MUTATION B - the older failed row's own status answers at the local head (bin/fm-nm-run-lib.sh: anchor reports the anchor row's status instead of the pipeline-owned continuation)
+==============================================================
+expect: daemon-down test RED (the anchored-ledger verdict is lost)
+ok - an unresolved running row beats an older failed row at the local head
+not ok - the anchored ledger proves the pipeline-owned continuation with the dead instrument named (missing: 'no-mistakes daemon unreachable; last run record fixing - unverified')
+--- output ---
+state: unknown · source: run-step · selected run code identity unverified; run ids: 01RUNNEW, 01RUNOLD
+exit=1
+
+==============================================================
+PRE-FIX PRODUCT - bin/fm-crew-state.sh + bin/fm-nm-run-lib.sh at b82d09f0f0^ (before PR #3681, the ledger-attribution fix this branch's tests pin)
+==============================================================
+expect: the tests FAIL before the fix (the unresolved running row does not answer for the crew)
+not ok - the unresolved running row answers for the crew (missing: 'state: working')
+--- output ---
+state: unknown · source: pane · harness state unavailable (unknown missing)
+exit=1
+
+==============================================================
+INCIDENT-DAY PRODUCT - bca584a8^ (before PR #3194; the 2026-08-14 stt-gpu-durable-cutover code shape: the coarse runs-list scan skips the unresolvable running row and matches the older failed row at the local head)
+==============================================================
+expect: the incident's false terminal-failure reproduces - 'state: failed' answers from the stale failed row
+not ok - the unresolved running row answers for the crew (missing: 'state: working')
+--- output ---
+state: failed · source: run-step · run failed
+exit=1
+
+==============================================================
+FINAL CONTROL - product restored: expect both incident-fixture tests PASS again
+==============================================================
+ok - an unresolved running row beats an older failed row at the local head
+ok - a dead daemon under the unresolved running row reads unknown, never the stale failure
+targeted incident-fixture pair passed
+exit=0
