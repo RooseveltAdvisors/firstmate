@@ -1090,6 +1090,8 @@ test_ship_and_scout_teach_validation_round_pause() {
       "$kind brief's Waiting section does not declare the validation round once and then hold it"
     assert_no_grep "is not a \`paused:\` wait" "$brief" \
       "$kind brief still tells workers never to declare a wait they hold in a command"
+    assert_no_grep "heavy-test slot" "$brief" \
+      "$kind brief names a heavy-test slot that nothing defines"
     assert_grep "your own validation round" "$brief" \
       "$kind brief did not teach workers to declare their validation-round wait"
     assert_grep 'Before ending your turn with your own background shell or monitor still running' "$brief" \
@@ -1277,6 +1279,35 @@ test_wait_no_turns_absent_keeps_the_previous_brief() {
   assert_no_grep "issue the same foreground call again" "$brief" \
     "an absent flag still asked for the foreground reattach"
   pass "fm-brief: without config/wait-no-turns the brief and drive text stay as they were"
+}
+
+test_inbox_guidance_explains_marked_body_terminator() {
+  local home brief kind id
+  home="$TMP_ROOT/inbox-guidance"
+  for kind in no-mistakes scout secondmate; do
+    id="inbox-$kind"
+    case "$kind" in
+      no-mistakes)
+        FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode no-mistakes >/dev/null \
+          || fail "ship scaffold failed"
+        ;;
+      scout)
+        FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --scout >/dev/null \
+          || fail "scout scaffold failed"
+        ;;
+      secondmate)
+        FM_HOME="$home" FM_SECONDMATE_CHARTER='Supervise assigned work.' \
+          "$ROOT/bin/fm-brief.sh" "$id" --secondmate --no-projects >/dev/null \
+          || fail "secondmate scaffold failed"
+        ;;
+    esac
+    brief="$home/data/$id/brief.md"
+    assert_grep 'fm_task_inbox_body' "$brief" "$kind scaffold omitted the format-aware inbox reader"
+    assert_grep 'body-terminator=1' "$brief" "$kind scaffold omitted the body terminator marker"
+    assert_grep 'not part of the logical message body' "$brief" "$kind scaffold omitted the synthetic terminator meaning"
+    assert_grep 'preserve any intentional trailing newlines' "$brief" "$kind scaffold omitted trailing-newline preservation"
+  done
+  pass "fm-brief: inbox guidance explains marked synthetic terminators in every scaffold"
 }
 
 test_worker_role_scope() {
@@ -1613,6 +1644,8 @@ test_crewmate_scaffolds_forbid_pool_administration() {
     # shellcheck disable=SC2016 # Literal backticks and braces must remain unexpanded.
     assert_grep 'blocked [at=<epoch>]: {what you need}' "$brief" \
       "$mode ship brief gave the prohibition no exit for a genuine second-checkout need"
+    assert_grep "merge-and-sync only" "$brief" \
+      "$mode ship brief did not carry the primary-checkout merge-and-sync rule"
   done
 
   FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-pool-scout alpha --scout >/dev/null 2>&1 \
@@ -1631,6 +1664,25 @@ test_crewmate_scaffolds_forbid_pool_administration() {
   [ "$ship_rule" = "$scout_rule" ] \
     || fail "ship and scout shared-infrastructure rules have drifted apart"
 
+  ship_cd_rule=$(awk '/^8\. Never start a shell command with/,/^$/' "$home/data/brief-pool-no-mistakes/brief.md")
+  scout_cd_rule=$(awk '/^8\. Never start a shell command with/,/^$/' "$brief")
+  [ -n "$ship_cd_rule" ] || fail "ship brief emitted no leading-cd rule"
+  [ "$ship_cd_rule" = "$scout_cd_rule" ] \
+    || fail "scout brief leading-cd rule is missing or differs from the ship brief"
+  assert_grep "every sub-agent you launch" "$brief" "scout brief did not pass the leading-cd rule to sub-agents"
+
+  # Same shared-string discipline for the primary-checkout merge-and-sync rule
+  # (bead fm-d2g5p, policy P1): one string, emitted by both scaffolds.
+  ship_primary_rule=$(awk '/^9\. The primary checkout/,/^$/' "$home/data/brief-pool-no-mistakes/brief.md")
+  scout_primary_rule=$(awk '/^9\. The primary checkout/,/^$/' "$brief")
+  [ -n "$ship_primary_rule" ] || fail "ship brief emitted no primary-checkout merge-and-sync rule"
+  [ "$ship_primary_rule" = "$scout_primary_rule" ] \
+    || fail "ship and scout primary-checkout merge-and-sync rules have drifted apart"
+  assert_grep "merge-and-sync only" "$brief" \
+    "scout brief lost the primary-checkout merge-and-sync rule"
+  assert_grep "lands the same turn it is made or not at all" "$brief" \
+    "scout brief lost the same-turn landing half of the primary-checkout rule"
+
   # The daemon half of the rule survived the fold.
   assert_grep "no-mistakes" "$brief" "scout brief lost the shared no-mistakes daemon rule"
   # shellcheck disable=SC2016 # Literal backticks and braces must remain unexpanded.
@@ -1645,6 +1697,9 @@ test_crewmate_scaffolds_forbid_pool_administration() {
   assert_no_grep "create, remove, return, prune, move, or reassign" \
     "$home/data/brief-pool-mate/brief.md" \
     "secondmate charter must not inherit the crewmate pool-administration prohibition"
+  assert_no_grep "merge-and-sync only" \
+    "$home/data/brief-pool-mate/brief.md" \
+    "secondmate charter must not inherit the crewmate primary-checkout rule"
 
   pass "fm-brief.sh: every crewmate scaffold forbids administering the shared worktree pool"
 }
@@ -1681,6 +1736,7 @@ test_scout_lavish_line_follows_presentation_floor
 test_inbox_listing_command_is_safe_on_empty_inbox
 test_workers_wait_without_spending_turns
 test_wait_no_turns_absent_keeps_the_previous_brief
+test_inbox_guidance_explains_marked_body_terminator
 test_home_brief_include_is_appended_last
 test_base_branch_is_rendered_and_bounded
 test_ship_branch_prefix_defaults_to_legacy_fm

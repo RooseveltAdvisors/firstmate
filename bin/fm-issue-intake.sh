@@ -87,7 +87,28 @@ set -euo pipefail
 BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_HOME="${FM_HOME:-/opt/ra/firstmate}"
 BRIDGE_URL="${FM_ISSUE_BRIDGE_URL:-http://127.0.0.1:8791}"
+# The ArcsHealth/Portal default is for READ paths only. Every WRITE path
+# (comment, label, close) must name its repo explicitly. A bare `gh-issue-<n>`
+# key carries no org/repo, so a silent default posted comments meant for
+# amd-control#58 onto the unrelated already-merged Portal#58 (bead fm-vqleb).
 GH_REPO="${FM_ISSUE_GH_REPO:-ArcsHealth/Portal}"
+GH_REPO_EXPLICIT=0
+if [ -n "${FM_ISSUE_GH_REPO:-}" ]; then GH_REPO_EXPLICIT=1; fi
+
+# Refuse a GitHub write unless the operator named the target repo. Failing
+# loudly here is the point: the alternative is posting to the wrong repo and
+# recording it in the ledger as if it were correct.
+require_explicit_repo() {
+  if [ "$GH_REPO_EXPLICIT" -eq 1 ]; then
+    return 0
+  fi
+  echo "fm-issue-intake: refusing to $1 with FM_ISSUE_GH_REPO unset." >&2
+  echo "fm-issue-intake: this task key carries no org/repo, so the write would" >&2
+  echo "fm-issue-intake: land on the default $GH_REPO. Set" >&2
+  echo "fm-issue-intake: FM_ISSUE_GH_REPO=<org>/<repo> and re-run." >&2
+  return 1
+}
+
 PROJECT_DIR="${FM_ISSUE_PROJECT:-$FM_HOME/projects/portal}"
 MODE="${FM_ISSUE_MODE:-no-mistakes}"
 YOLO="${FM_ISSUE_YOLO:-on}"
@@ -214,6 +235,10 @@ except Exception:
 
 gh_comment() {
   local issue="$1" body="$2"
+  # `|| return 1` is required, not decoration: gh_comment is invoked inside a
+  # `||` list, where set -e is suppressed, so a bare failing guard would print
+  # its warning and then fall through to the post anyway.
+  require_explicit_repo "comment on $GH_REPO#$issue" || return 1
   "$GH" issue comment "$issue" --repo "$GH_REPO" --body "$body" >/dev/null
 }
 
@@ -560,6 +585,7 @@ apply_decline() {  # <key> <issue> -> 0 only when the whole decline landed
       || return 1
     log_line "comment key=$key issue=$issue transition=declined"
   fi
+  require_explicit_repo "label and close $GH_REPO#$issue" || return 1
   "$GH" issue edit "$issue" --repo "$GH_REPO" --add-label "$DECLINE_LABEL" >/dev/null 2>&1 \
     || echo "warn: could not add label $DECLINE_LABEL to $GH_REPO#$issue; decline continues" >&2
   "$GH" issue close "$issue" --repo "$GH_REPO" >/dev/null 2>&1 || return 1

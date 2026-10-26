@@ -167,6 +167,7 @@ run_intake() { # <case-parts> <args...>
   fd=${parts##*|}
   FM_HOME="$home" \
   FM_ISSUE_FAKE_DIR="$fd" \
+  FM_ISSUE_GH_REPO="${FM_ISSUE_TEST_REPO:-ArcsHealth/Portal}" \
   FM_ISSUE_BRIDGE_URL="http://bridge.invalid:8791" \
   FM_ISSUE_TASKS="${TEST_TASKS_OVERRIDE:-$TASKS_AXI}" \
   FM_ISSUE_SPAWN="$fb/fm-spawn" \
@@ -174,6 +175,76 @@ run_intake() { # <case-parts> <args...>
   FM_ISSUE_WHEN="$ROOT/bin/fm-procevent-when.sh" \
   PATH="$fb:$PATH" \
     "$INTAKE" "$@"
+}
+
+run_intake_no_repo() { # <case-parts> <args...>: like run_intake but leaves
+  # FM_ISSUE_GH_REPO unset, which is the wrong-repo incident's precondition.
+  local parts=$1
+  shift
+  local home fb fd
+  home=${parts%%|*}
+  fb=$(printf '%s' "$parts" | cut -d'|' -f2)
+  fd=${parts##*|}
+  FM_HOME="$home" \
+  FM_ISSUE_FAKE_DIR="$fd" \
+  FM_ISSUE_BRIDGE_URL="http://bridge.invalid:8791" \
+  FM_ISSUE_TASKS="${TEST_TASKS_OVERRIDE:-$TASKS_AXI}" \
+  FM_ISSUE_SPAWN="$fb/fm-spawn" \
+  FM_ISSUE_BRIEF="$ROOT/bin/fm-brief.sh" \
+  FM_ISSUE_WHEN="$ROOT/bin/fm-procevent-when.sh" \
+  PATH="$fb:$PATH" \
+    env -u FM_ISSUE_GH_REPO "$INTAKE" "$@"
+}
+
+test_comment_with_unset_repo_refuses_instead_of_posting() {
+  local parts fd out rc
+  parts=$(setup_case unset-repo-guard)
+  fd=${parts##*|}
+
+  # The incident: a bare gh-issue-<n> key has no org/repo, so an unset
+  # FM_ISSUE_GH_REPO silently posted amd-control comments onto Portal#58.
+  # The write must fail loudly before any gh call reaches the wire.
+  rc=0
+  out=$(run_intake_no_repo "$parts" reconcile 2>&1) || rc=$?
+
+  assert_equals "0" "$(count_of 'issue comment' "$fd/gh.log" 2>/dev/null || echo 0)" \
+    "an unset repo must never call gh issue comment: $out"
+  assert_equals "0" "$(count_of 'Issue intake' "$fd/comments.log" 2>/dev/null || echo 0)" \
+    "an unset repo must never emit a comment: $out"
+  assert_contains "$out" "refusing to" "the refusal is loud, not silent: $out"
+  assert_contains "$out" "FM_ISSUE_GH_REPO" "the refusal names the fix: $out"
+  pass "an unset FM_ISSUE_GH_REPO refuses the comment write instead of posting to the default repo"
+}
+
+test_comment_with_explicit_repo_names_that_repo() {
+  local parts fd out
+  parts=$(setup_case explicit-repo)
+  fd=${parts##*|}
+
+  out=$(FM_ISSUE_TEST_REPO=acme/amd-control run_intake "$parts" reconcile) \
+    || fail "explicit-repo run failed: $out"
+
+  assert_equals "1" "$(count_of 'issue comment' "$fd/gh.log" 2>/dev/null || echo 0)" \
+    "an explicit repo still posts: $out"
+  assert_contains "$(cat "$fd/gh.log" 2>/dev/null)" "--repo acme/amd-control" \
+    "the comment targets the named repo, not the Portal default"
+  pass "FM_ISSUE_GH_REPO is honoured verbatim on the comment write"
+}
+
+test_decline_close_with_unset_repo_never_closes() {
+  local parts fd out rc
+  parts=$(setup_case unset-repo-decline)
+  fd=${parts##*|}
+  echo '{"state":"OPEN"}' > "$fd/gh-state-$GH_ISSUE"
+
+  rc=0
+  out=$(run_intake_no_repo "$parts" reconcile 2>&1) || rc=$?
+
+  assert_equals "0" "$(count_of 'issue close' "$fd/gh.log" 2>/dev/null || echo 0)" \
+    "an unset repo must never close an issue: $out"
+  assert_equals "0" "$(count_of 'issue edit' "$fd/gh.log" 2>/dev/null || echo 0)" \
+    "an unset repo must never relabel an issue: $out"
+  pass "the decline label/close writes are gated the same way as comments"
 }
 
 task_state_of() { # <case-parts> [task-id]
@@ -1538,3 +1609,6 @@ test_watch_fire_records_the_close_when_github_is_unreadable
 test_marker_twin_never_adopts_another_issues_row
 test_overlapping_reconcile_passes_never_both_dispatch
 test_ledger_bound_task_ids_are_reused
+test_comment_with_unset_repo_refuses_instead_of_posting
+test_comment_with_explicit_repo_names_that_repo
+test_decline_close_with_unset_repo_never_closes

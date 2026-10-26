@@ -25,9 +25,10 @@
 # to every worker so a worker never starts a second server on another interface.
 # The primary passes its frozen home-session decision into a newly launched
 # Secondmate; see docs/trace-context.md.
-# Primary config/claude-permission-mode is a captain-wide safety preference
-# (bypass or auto for every claude launch), so it flows down too and a
-# secondmate's own claude crewmates launch on the same permission posture.
+# Primary approval-mode settings follow the same inheritance rules as other
+# declared configuration.
+# Primary config/t3code-instances selects the T3 provider account for each
+# harness, so secondmates inherit it rather than falling back to a default.
 # Primary config/keep-ai-trailers is a home-wide commit-attribution choice, so
 # a secondmate's own crewmates keep AI co-author trailers too.
 # Primary config/supervision-host-off is the fleet's supervision-host opt-out,
@@ -73,7 +74,14 @@
 # so a new inheritable item cannot be accepted by one side and refused by the
 # other. A local and remote code root that disagree about this list must be
 # reconciled by the ordinary remote sync/update path before the transfer
-# succeeds; there is no separate allowlist version negotiation.
+# succeeds; there is no separate allowlist version negotiation. Absence is the
+# one narrow exception, and both ends own a piece of it: a newer receiver
+# converges a sender's absent directive for an undeclared name as a no-op when
+# the destination is absent there too
+# (fm_config_inherit_absent_parity_converged) - it never writes, never
+# removes, and still fails closed for everything else - and the sender counts
+# an older receiver's refusal of an absent record as unchanged, since that
+# code root cannot read the item anyway.
 #
 # shellcheck source=bin/fm-startup-memory-budget-lib.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fm-startup-memory-budget-lib.sh"
@@ -89,7 +97,7 @@ FM_SHARED_CAPTAIN_MODE="444"
 # The declared inheritable set (space-separated, config-dir-relative item paths).
 # Extend here to inherit more of the primary's local config; override via the
 # environment only in tests. Items must not contain whitespace.
-FM_INHERITABLE_CONFIG="${FM_INHERITABLE_CONFIG:-crew-dispatch.json dispatch-never-send crew-harness backlog-backend backend herdr-presentation-spaces herdr-project-groups startup-memory-budget trace-context launch-env-allowlist claude-permission-mode lavish-axi-host keep-ai-trailers supervision-host-off firstmate-role}"
+FM_INHERITABLE_CONFIG="${FM_INHERITABLE_CONFIG:-crew-dispatch.json dispatch-never-send crew-harness backlog-backend backend herdr-presentation-spaces herdr-project-groups startup-memory-budget trace-context launch-env-allowlist claude-permission-mode codex-approval-mode lavish-axi-host t3code-instances keep-ai-trailers supervision-host-off firstmate-role}"
 
 # firstmate-role additionally carries a proof-of-state receipt: a scoped role
 # grant (or its recorded absence) authorizes a secondmate home only while
@@ -131,6 +139,64 @@ fm_config_inherit_items() {
     printf 'config/%s\n' "$item"
   done
   printf '%s\n' "$FM_SHARED_CAPTAIN_REL"
+}
+
+# fm_config_inherit_absent_converged <home> <rel>
+# True when <rel> is a safe one-component config/ or data/ path whose
+# destination inside <home> is absent: no file, no link, and nothing to
+# create. A hidden or nested name could address the inheritance machinery's
+# own lock, generation, and receipt records, so only plain single components
+# qualify.
+fm_config_inherit_absent_converged() {
+  local home=$1 rel=$2 base home_real parent parent_real dest
+  [ -n "$home" ] && [ -n "$rel" ] || return 1
+  case "$rel" in
+    config/*) parent=config ;;
+    data/*) parent=data ;;
+    *) return 1 ;;
+  esac
+  base=${rel#*/}
+  case "$base" in
+    ''|.|..|.*|*/*|*[!A-Za-z0-9._-]*) return 1 ;;
+  esac
+  home_real=$(CDPATH='' cd -- "$home" 2>/dev/null && pwd -P) || return 1
+  if [ -e "$home_real/$parent" ] || [ -L "$home_real/$parent" ]; then
+    [ -d "$home_real/$parent" ] && [ ! -L "$home_real/$parent" ] || return 1
+    parent_real=$(CDPATH='' cd -- "$home_real/$parent" 2>/dev/null && pwd -P) || return 1
+    [ "$parent_real" = "$home_real/$parent" ] || return 1
+  else
+    parent_real=$home_real/$parent
+  fi
+  dest=$parent_real/$base
+  [ ! -e "$dest" ] && [ ! -L "$dest" ]
+}
+
+# fm_config_inherit_absent_parity_converged <home> <rel> <bytes> <sha256>
+# Allowlist parity for the remote receiver (bin/fm-remote-inherit.sh): a
+# sender running a NEWER code root may legitimately declare names this root
+# does not know yet, and the declared contract mirrors a primary absence
+# downstream, so refusing such absence blocks every remote launch until the
+# receiver updates. True only when the directive carries the well-formed empty
+# commitment (0 bytes, the empty-payload digest) and the destination is absent
+# here too: absence has already converged, so accepting is a no-op that writes
+# and removes nothing. Anything else stays fail-closed, because a stale
+# receiver must never extend its writable or removable surface beyond its own
+# declared set.
+fm_config_inherit_absent_parity_converged() {
+  local home=$1 rel=$2 bytes=$3 hash=$4 tmp empty
+  case "$bytes" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$bytes" -eq 0 ] || return 1
+  case "$hash" in ''|*[!A-Fa-f0-9]*) return 1 ;; esac
+  [ "${#hash}" -eq 64 ] || return 1
+  hash=$(printf '%s' "$hash" | tr 'A-F' 'a-f')
+  tmp=$(umask 077 && mktemp "${TMPDIR:-/tmp}/fm-inherit-empty.XXXXXX" 2>/dev/null) || return 1
+  empty=$(fm_inherit_sha256 "$tmp") || {
+    rm -f "$tmp" 2>/dev/null || true
+    return 1
+  }
+  rm -f "$tmp" 2>/dev/null || true
+  [ "$hash" = "$empty" ] || return 1
+  fm_config_inherit_absent_converged "$home" "$rel"
 }
 
 fm_config_source_present() {

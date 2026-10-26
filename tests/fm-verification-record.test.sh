@@ -200,4 +200,33 @@ assert_contains "$(jq -r '.[-1].description' "$FM_HOME/.beads/issues.json")" 'Fi
 assert_contains "$(jq -r '.[-1].description' "$FM_HOME/.beads/issues.json")" 'wiseman-6c5k' 'refused candidate was not named in the justification'
 assert_contains "$(jq -r '.[-1].description' "$FM_HOME/.beads/issues.json")" 'Owning task ID: t1' 'owning task missing from the filed body'
 pass 'prose-dedupe refusal files once with explicit differing-subject justification'
+
+# A lane launched before FM_HOME joined the worker launch floor holds only
+# FM_TASK_ID (fm-m48wl); the runner still reaches the store through the task's
+# Treehouse slot claim beside the worktree. A claim naming another task, or no
+# claim, resolves nothing and keeps the refusal verbatim.
+mkdir -p "$FM_HOME/data"
+claim_root=$(cd "$repo" && pwd -P)
+printf 'echo "not ok - sidebar"\nexit 1\n' >"$repo/tests/probe.test.sh"
+printf 'task=runner3\nhome=%s\n' "$FM_HOME" >"$(dirname "$claim_root")/.fm-slot-owner"
+before=$(jq length "$FM_HOME/.beads/issues.json")
+if env -u FM_HOME -u FM_DATA_OVERRIDE FM_TASK_ID=runner3 "$repo/bin/fm-test-run.sh" "$repo/tests/probe.test.sh" >"$TMP_ROOT/run" 2>&1; then fail 'red suite returned green'; fi
+assert_grep '"bead":' "$TMP_ROOT/run" 'lane without FM_HOME filed no bead through its slot claim'
+[ "$(jq length "$FM_HOME/.beads/issues.json")" = "$((before + 1))" ] || fail 'slot-claim filing did not create exactly one bead'
+assert_present "$FM_HOME/data/runner3/verification/probe.test.sh.log" 'slot-claim filing lost its evidence log'
+printf 'echo "ok - sidebar"\n' >"$repo/tests/probe.test.sh"
+env -u FM_HOME -u FM_DATA_OVERRIDE FM_TASK_ID=runner3 "$repo/bin/fm-test-run.sh" "$repo/tests/probe.test.sh" >"$TMP_ROOT/run" 2>&1
+assert_grep '"action":"resolved"' "$TMP_ROOT/run" 'slot-claim rerun did not resolve the red-first bead'
+printf 'task=someone-else\nhome=%s\n' "$FM_HOME" >"$(dirname "$claim_root")/.fm-slot-owner"
+printf 'echo "not ok - sidebar"\nexit 1\n' >"$repo/tests/probe.test.sh"
+if env -u FM_HOME -u FM_DATA_OVERRIDE FM_TASK_ID=runner4 "$repo/bin/fm-test-run.sh" "$repo/tests/probe.test.sh" >"$TMP_ROOT/run" 2>&1; then fail 'red suite returned green'; fi
+assert_grep 'failure bead refused: set FM_HOME or FM_DATA_OVERRIDE; preserve the failed log before replying' "$TMP_ROOT/run" 'mismatched claim lost the verbatim refusal'
+assert_no_grep '"bead":' "$TMP_ROOT/run" 'mismatched claim filed a bead'
+[ "$(jq length "$FM_HOME/.beads/issues.json")" = "$((before + 1))" ] || fail 'mismatched claim created a bead'
+rm -f "$(dirname "$claim_root")/.fm-slot-owner"
+if env -u FM_HOME -u FM_DATA_OVERRIDE FM_TASK_ID=runner5 "$repo/bin/fm-test-run.sh" "$repo/tests/probe.test.sh" >"$TMP_ROOT/run" 2>&1; then fail 'red suite returned green'; fi
+assert_grep 'failure bead refused: set FM_HOME or FM_DATA_OVERRIDE; preserve the failed log before replying' "$TMP_ROOT/run" 'claimless lane lost the verbatim refusal'
+assert_no_grep '"bead":' "$TMP_ROOT/run" 'claimless lane filed a bead'
+[ "$(jq length "$FM_HOME/.beads/issues.json")" = "$((before + 1))" ] || fail 'claimless lane created a bead'
+pass 'runner without FM_HOME files and resolves through the slot claim, and refuses verbatim without one'
 echo '# all verification-record tests passed'

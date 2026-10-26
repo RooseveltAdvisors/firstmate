@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 DEFAULT_AUDIT_PATHS = [
     "/opt/ra/firstmate",
     "/home/jon/git/wt-portal-visual-qa",
-    "/home/jon/git/jev",
+    "/opt/ra/firstmate/projects/jev-steward",
 ]
 
 DEFAULT_ORPHAN_WARN = 5
@@ -212,7 +212,7 @@ def main() -> int:
         "--paths",
         nargs="+",
         default=None,
-        help="Paths to audit for __pycache__ directories (default: /opt/ra/firstmate, /home/jon/git/wt-portal-visual-qa, /home/jon/git/jev)",
+        help="Paths to audit for __pycache__ directories (default: /opt/ra/firstmate, /home/jon/git/wt-portal-visual-qa, /opt/ra/firstmate/projects/jev-steward)",
     )
     parser.add_argument(
         "--orphan-warn",
