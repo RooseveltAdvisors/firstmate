@@ -10,15 +10,24 @@ and prevent git clutter.
 Safety invariants:
 - NEVER touches dirty worktrees (uncommitted changes or untracked files).
 - NEVER removes the main/root repository worktree.
-- NEVER deletes worktrees for active Firstmate seats with pending tasks.
+- NEVER deletes a worktree still referenced by the fleet: a Firstmate task
+  record (state/<task>.meta worktree=) naming it or a path above it, a durable
+  treehouse pool lease, or a running process with its cwd inside it all make a
+  worktree referenced, and a reference forbids reaping regardless of git state.
+- Treats an inconclusive process probe (no /proc and no lsof, or probe error)
+  as referenced: reaping is optional maintenance, so doubt resolves to keep.
 - Verifies that HEAD or branch is an ancestor of origin/main before reaping.
+  Merged ancestry alone is never sufficient - the reference proof above must
+  also pass, so a worktree is reaped only when it is provably unreferenced.
 - Fully supports dry-run mode for safe previewing.
 - Fails open gracefully on git errors.
 """
 
 import argparse
+import glob
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -44,6 +53,130 @@ def find_repo_dir(repo_name: str) -> Optional[str]:
         if wt.is_dir() and (wt / ".git").exists():
             return str(wt)
     return None
+
+
+def canon(path: str) -> str:
+    return os.path.realpath(os.path.expanduser(path))
+
+
+def default_fm_home() -> str:
+    # FM_HOME wins when set; otherwise the checkout holding this script is the
+    # main home (firstmate's repo root and its operational home coincide).
+    env_home = os.environ.get("FM_HOME", "")
+    if env_home:
+        return env_home
+    return str(Path(__file__).resolve().parent.parent)
+
+
+def registry_homes(fm_home: str) -> List[str]:
+    # Local secondmate routes from data/secondmates.md: "- <id> - ... (home:
+    # <path>; ...)". Lines starting with "host:" are wrapped continuation
+    # lines, not entries. A registered home that does not exist locally simply
+    # contributes nothing.
+    registry = Path(fm_home) / "data" / "secondmates.md"
+    homes: List[str] = []
+    if not registry.is_file():
+        return homes
+    try:
+        lines = registry.read_text(errors="replace").splitlines()
+    except OSError:
+        return homes
+    for line in lines:
+        if line.startswith("host:") or not line.startswith("- "):
+            continue
+        matches = re.findall(r"\(home: ([^);]+);", line)
+        if matches:
+            homes.append(matches[-1].strip())
+    return homes
+
+
+def collect_task_refs(fm_home: str) -> Dict[str, str]:
+    # Owning task ids: every state/<task>.meta worktree= value across the main
+    # home, registered secondmate homes, and the local .firstmate-homes
+    # catch-all. Returns canonical worktree path -> source description.
+    refs: Dict[str, str] = {}
+    homes = {canon(fm_home)}
+    for home in registry_homes(fm_home):
+        if os.path.isdir(home):
+            homes.add(canon(home))
+    for home in glob.glob("/home/*/.firstmate-homes/*"):
+        if os.path.isdir(home):
+            homes.add(canon(home))
+    for home in sorted(homes):
+        for meta in sorted(glob.glob(os.path.join(home, "state", "*.meta"))):
+            try:
+                with open(meta, errors="replace") as fh:
+                    for line in fh:
+                        if line.startswith("worktree="):
+                            value = line[len("worktree="):].strip()
+                            if value:
+                                task = os.path.splitext(os.path.basename(meta))[0]
+                                refs.setdefault(canon(value), f"task record {task} in {home}")
+            except OSError:
+                continue
+    return refs
+
+
+def collect_lease_refs() -> Dict[str, str]:
+    # Durable treehouse pool leases: ~/.treehouse/<pool>/treehouse-state.json
+    # entries with leased=true. Returns canonical slot path -> holder.
+    refs: Dict[str, str] = {}
+    treehouse_root = Path.home() / ".treehouse"
+    for state_file in sorted(glob.glob(str(treehouse_root / "*" / "treehouse-state.json"))):
+        try:
+            with open(state_file, errors="replace") as fh:
+                data = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        for entry in data.get("worktrees") or []:
+            path = entry.get("path")
+            if entry.get("leased") and path:
+                holder = entry.get("lease_holder") or "unknown"
+                refs[canon(path)] = f"treehouse lease held by {holder}"
+    return refs
+
+
+def reference_source(path: str, refs: Dict[str, str]) -> Optional[str]:
+    # A candidate is referenced when it equals a referenced path, sits under
+    # one (a nested clone inside a task slot), or contains one (a referenced
+    # worktree lives deeper inside the candidate).
+    candidate = canon(path)
+    for ref, source in refs.items():
+        if candidate == ref or candidate.startswith(ref + os.sep) or ref.startswith(candidate + os.sep):
+            return source
+    return None
+
+
+def processes_in(path: str) -> Optional[List[str]]:
+    # PIDs whose cwd is the candidate or under it. Returns None when the probe
+    # cannot run at all, which callers must treat as referenced.
+    candidate = canon(path)
+    proc_root = Path("/proc")
+    if proc_root.is_dir():
+        pids: List[str] = []
+        for entry in proc_root.iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                cwd = os.readlink(entry / "cwd")
+            except OSError:
+                continue
+            if cwd == candidate or cwd.startswith(candidate + os.sep):
+                pids.append(entry.name)
+        return pids
+    try:
+        res = subprocess.run(
+            ["lsof", "-t", "--", "+D", candidate],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if res.returncode not in (0, 1):
+        return None
+    return [pid for pid in res.stdout.split() if pid]
 
 
 def run_git(args: List[str], cwd: str) -> subprocess.CompletedProcess:
@@ -115,6 +248,8 @@ def reap_worktrees(
         "active_preserved": 0,
         "dirty_preserved": 0,
         "unmerged_preserved": 0,
+        "referenced_preserved": 0,
+        "referenced_worktrees": [],
         "reaped_worktrees": [],
         "reaped_branches": [],
     }
@@ -144,6 +279,12 @@ def reap_worktrees(
 
     base_sha = base_check.stdout.strip() if base_check.returncode == 0 else ""
 
+    # Reference proof (fm-av46m): a worktree is reaped only when provably
+    # unreferenced - no owning task record, no durable treehouse lease, and no
+    # running process inside it. Merged ancestry or age alone never suffices.
+    task_refs = collect_task_refs(default_fm_home())
+    lease_refs = collect_lease_refs()
+
     for wt in worktrees:
         path = os.path.realpath(wt["path"])
         # Invariant 1: never reap root repository
@@ -158,7 +299,14 @@ def reap_worktrees(
             report["reaped_worktrees"].append({"path": path, "reason": "missing_directory"})
             continue
 
-        # Invariant 2: never reap dirty worktrees
+        # Invariant 2: never reap a worktree the fleet still references
+        ref_source = reference_source(path, task_refs) or reference_source(path, lease_refs)
+        if ref_source:
+            report["referenced_preserved"] += 1
+            report["referenced_worktrees"].append({"path": path, "source": ref_source})
+            continue
+
+        # Invariant 3: never reap dirty worktrees
         if is_worktree_dirty(path):
             report["dirty_preserved"] += 1
             continue
@@ -167,13 +315,13 @@ def reap_worktrees(
         branch_name = wt.get("branch")
         is_detached = wt.get("detached", False)
 
-        # Invariant 3: never reap newly created or aligned active feature branches
+        # Invariant 4: never reap newly created or aligned active feature branches
         # If head_sha equals base_sha on a named branch, work is just starting or synchronized!
         if branch_name and head_sha and base_sha and head_sha == base_sha:
             report["active_preserved"] += 1
             continue
 
-        # Invariant 4: check if landed on base_branch
+        # Invariant 5: check if landed on base_branch
         is_merged = False
         if is_detached:
             if head_sha and is_ancestor(head_sha, base_branch, repo_path):
@@ -197,7 +345,21 @@ def reap_worktrees(
             report["unmerged_preserved"] += 1
             continue
 
-        # Clean and confirmed merged -> SAFE TO REAP
+        # Invariant 6: never reap a worktree with a live process inside it, and
+        # never reap when the process probe cannot answer - doubt keeps it.
+        pids = processes_in(path)
+        if pids is None:
+            report["referenced_preserved"] += 1
+            report["referenced_worktrees"].append({"path": path, "source": "process probe inconclusive"})
+            continue
+        if pids:
+            report["referenced_preserved"] += 1
+            report["referenced_worktrees"].append(
+                {"path": path, "source": "running process(es) " + ",".join(pids[:5])}
+            )
+            continue
+
+        # Clean, confirmed merged, and provably unreferenced -> SAFE TO REAP
         reap_record = {
             "path": path,
             "head": head_sha[:7] if head_sha else "",
@@ -281,6 +443,9 @@ def main() -> int:
         print(f"  • Preserved (Main): {report['active_preserved']}")
         print(f"  • Preserved (Dirty / In-Flight): {report['dirty_preserved']}")
         print(f"  • Preserved (Unmerged): {report['unmerged_preserved']}")
+        print(f"  • Preserved (Referenced): {report['referenced_preserved']}")
+        for r in report["referenced_worktrees"]:
+            print(f"     ↳ Referenced: {r['path']} ({r['source']})")
         print(f"  • Safe Worktrees Reaped: {len(report['reaped_worktrees'])}")
         for r in report["reaped_worktrees"]:
             print(f"     ↳ Reaped: {r['path']} ({r.get('branch', 'detached')} @ {r.get('head', '')})")
