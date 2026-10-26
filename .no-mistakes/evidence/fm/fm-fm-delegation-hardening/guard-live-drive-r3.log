@@ -1,0 +1,108 @@
+=== S1: supervisor reads fast-pass with zero Jev queries (allow, 0 queries) ===
+PASS | allow | queries=0 | bin/fm-wake-drain.sh
+PASS | allow | queries=0 | bd show x
+PASS | allow | queries=0 | herdr --session firstmate agent read w1:p1
+PASS | allow | queries=0 | gh pr view 7
+PASS | allow | queries=0 | gh pr diff 7
+PASS | allow | queries=0 | gh pr status
+PASS | allow | queries=0 | git status --short
+PASS | allow | queries=0 | git log --oneline -5
+PASS | allow | queries=0 | git -C projects/portal status --short
+PASS | allow | queries=0 | bin/fm-send.sh --help
+PASS | allow | queries=0 | bin/fm-spawn.sh --help
+PASS | allow | queries=0 | tasks-axi list
+PASS | allow | queries=0 | bash -ec 'bd show x'
+PASS | allow | queries=0 | zsh -c 'bd show x'
+PASS | allow | queries=0 | bd show x 2>&1
+PASS | allow | queries=0 | bd list > /dev/null
+PASS | allow | queries=0 | bin/fm-send.sh worker 'cd projects/portal && npm test; systemctl restart app'
+=== S2: project work is refused as delegation BEFORE any Jev query (deny, 0 queries) ===
+PASS | deny | queries=0 | cd projects/portal && npm test
+PASS | deny | queries=0 | git -C projects/portal commit -m x
+PASS | deny | queries=0 | cd /opt/ra/firstmate/projects/portal && pytest tests/ -q
+PASS | deny | queries=0 | bash -c 'cd projects/portal && npm test'
+PASS | deny | queries=0 | nohup bash -c 'rm projects/portal/x'
+PASS | deny | queries=0 | timeout 5 bash -c 'cd projects/portal && npm test'
+PASS | deny | queries=0 | xargs -a projects/portal/data echo hi
+PASS | deny | queries=0 | time -o projects/portal/out.log ls
+PASS | deny | queries=0 | BASH_ENV=projects/portal/evil.sh bash -c 'bd show x'
+PASS | deny | queries=0 | bash --init-file projects/portal/evil.sh -i -c 'bd show x'
+PASS | deny | queries=0 | projects/portal/fm-deploy.sh
+PASS | deny | queries=0 | bash -c 'cat > projects/portal/new.py'
+PASS | deny | queries=0 | echo x > projects/portal/app.py
+PASS | deny | queries=0 | env -S 'bash -c "rm projects/portal/x"'
+PASS | deny | queries=0 | find . -path "./projects/*" -delete
+PASS | deny | queries=0 | awk -f projects/portal/rules.awk state/task.status
+PASS | deny | queries=0 | ksh -c 'rm projects/portal/x'
+PASS | deny | queries=0 | bin/fm-send.sh --help; cd projects/portal && npm test
+PASS | deny | queries=0 | projects/portal/bash bin/fm-send.sh --help
+PASS | deny | queries=0 | find . -exec bash -c 'rm projects/portal/x' {} +
+--- project cwd itself is project work ---
+PASS | deny | queries=0 | pytest tests/ -q
+--- treehouse worktree cwd is project work ---
+PASS | deny | queries=0 | bun test
+=== S3: non-fast-path commands are CLASSIFIED (query) not fast-passed; Jev's verdict decides ===
+PASS | allow | queries=1 | gh pr merge 7
+PASS | allow | queries=1 | systemctl restart app
+PASS | allow | queries=1 | cat state/task.status
+PASS | allow | queries=1 | D=projects/portal; rm $D/x
+PASS | allow | queries=1 | git log &> /tmp/out
+PASS | allow | queries=1 | bd list > /tmp/out
+PASS | allow | queries=1 | git show x >| /tmp/out
+PASS | allow | queries=1 | bd list > /dev/fd/9
+PASS | deny | queries=1 | gh pr merge 7
+PASS | deny | queries=1 | systemctl restart app
+PASS | deny | queries=1 | git log &> /tmp/out
+=== S4: allowed decisions are never cached (two identical probes = two queries) ===
+PASS | uncached | queries=2 | repeated 'cat state/task.status'
+=== S5: Jev outage / broken / malformed answers FAIL CLOSED for non-allowlist commands ===
+PASS | deny | queries=0 | python3 -c "print(1)"
+PASS | deny | queries=0 | git log &> /tmp/out
+PASS | deny | queries=0 | python3 -c "print(1)"
+PASS | deny | queries=1 | python3 -c "print(1)"
+--- outage still allows the supervisor allowlist and still pre-denies project work ---
+PASS | allow | queries=0 | bd show x
+PASS | deny | queries=0 | cd projects/portal && npm test
+=== S6: PreToolUse transports: only governed shell/read tools are admitted ===
+PASS | transport allow | rc=0 | {"tool_name":"Bash","tool_input":{"command":"bd show x"}}
+PASS | transport allow | rc=0 | {"tool_name":"Shell","tool_input":{"command":"git status"}}
+PASS | transport allow | rc=0 | {"tool_name":"Read","tool_input":{"command":"state/task.status"}}
+PASS | transport allow | rc=0 | {"tool_name":"run_terminal_command","tool_input":{"command":"bd show x"}}
+PASS | transport deny | rc=2 | {"tool_name":"Bash","tool_input":{"command":"cd projects/portal && npm test"}}
+PASS | transport deny | rc=2 | {"tool_name":"mcp__chrome_devtools__click","tool_input":{"command":"git status"}}
+PASS | transport deny | rc=2 | {"tool_name":"browser","tool_input":{"command":"git status"}}
+PASS | transport deny | rc=2 | {"tool_input":{"command":"git status"}}
+PASS | transport allow | rc=0 | not json at all
+=== S7: scope: secondmate home governed, linked worker worktree inert ===
+PASS | secondmate home governed | project work denied
+PASS | secondmate home supervisory command allowed
+PASS | linked worker worktree inert | project command exit 0
+PASS | unlisted transport still refused inside inert worktree
+
+GUARD-LIVE RESULT: pass=70 fail=0
+telemetry tail (written by the real product into the lab state):
+2026-10-26T06:33:59Z	allow	tier3	supervisor_approved	supervisor	systemctl restart app
+2026-10-26T06:33:59Z	allow	tier3	supervisor_approved	supervisor	cat state/task.status
+2026-10-26T06:33:59Z	allow	tier3	supervisor_approved	supervisor	D=projects/portal; rm $D/x
+2026-10-26T06:33:59Z	allow	tier3	supervisor_approved	supervisor	git log &> /tmp/out
+2026-10-26T06:33:59Z	allow	tier3	supervisor_approved	supervisor	bd list > /tmp/out
+2026-10-26T06:33:59Z	allow	tier3	supervisor_approved	supervisor	git show x >| /tmp/out
+2026-10-26T06:33:59Z	allow	tier3	supervisor_approved	supervisor	bd list > /dev/fd/9
+2026-10-26T06:33:59Z	deny	tier3	require_delegation	project_worker	gh pr merge 7
+2026-10-26T06:33:59Z	deny	tier3	require_delegation	project_worker	systemctl restart app
+2026-10-26T06:33:59Z	deny	tier3	require_delegation	project_worker	git log &> /tmp/out
+2026-10-26T06:33:59Z	allow	tier3	supervisor_approved	supervisor	cat state/task.status
+2026-10-26T06:33:59Z	allow	tier3	supervisor_approved	supervisor	cat state/task.status
+2026-10-26T06:33:59Z	deny	tier1	require_delegation	project_worker	python3 -c "print(1)"
+2026-10-26T06:33:59Z	deny	tier1	require_delegation	project_worker	git log &> /tmp/out
+2026-10-26T06:33:59Z	deny	tier1	require_delegation	project_worker	python3 -c "print(1)"
+2026-10-26T06:34:00Z	deny	tier3	require_delegation	project_worker	python3 -c "print(1)"
+2026-10-26T06:34:00Z	allow	tier1	fast_path_whitelist	-	bd show x
+2026-10-26T06:34:00Z	deny	tier1	require_delegation	project_worker	cd projects/portal && npm test
+2026-10-26T06:34:00Z	allow	tier1	fast_path_whitelist	-	bd show x
+2026-10-26T06:34:00Z	allow	tier1	fast_path_whitelist	-	git status
+2026-10-26T06:34:00Z	allow	tier3	supervisor_approved	supervisor	state/task.status
+2026-10-26T06:34:00Z	allow	tier1	fast_path_whitelist	-	bd show x
+2026-10-26T06:34:00Z	deny	tier1	require_delegation	project_worker	cd projects/portal && npm test
+2026-10-26T06:34:00Z	deny	tier1	require_delegation	project_worker	cd projects/portal && npm test
+2026-10-26T06:34:00Z	allow	tier1	fast_path_whitelist	-	bin/fm-spawn.sh --help

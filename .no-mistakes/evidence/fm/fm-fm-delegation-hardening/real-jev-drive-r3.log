@@ -1,0 +1,16 @@
+=== R1: ambiguous supervisor read is CLASSIFIED by the REAL Jev service (tier 3) ===
+PASS | real-Jev tier-3 classification allows a supervisor read | rc=0 telemetry=2026-10-26T06:34:48Z	allow	tier3	supervisor_approved	supervisor	cat state/task.status
+=== R2: project work pre-denies WITHOUT a query even with the real proxy ===
+PASS | real-proxy project work pre-denied at tier 1 before any query | rc=2 telemetry=2026-10-26T06:34:48Z	deny	tier1	require_delegation	project_worker	cd projects/portal && npm test out={"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"[require_delegation] P
+=== R3: retained bin/fm-jev-wake-triage.sh answers from the REAL service ===
+    action=suppress
+    class=ship
+    choice=pipeline_wait
+    noul=0.11
+PASS | wake triage returns a real class decision (action=suppress choice=pipeline_wait noul=0.11) | rc=0 telemetry=jev_triage.suppressed	ship	2026-10-26T06:34:48Z
+=== R4: real-Jev project_worker answer forces the deny even when action allows ===
+    {"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"[require_delegation] Command violates supervisor boundary in w1 (project_worker). Hands-on execution m
+
+REAL-JEV-R3 RESULT: pass=3 fail=0
+calibration log (first decision recorded by the real tool):
+{"n":1,"class":"ship","action":"suppress","choice":"pipeline_wait","noul":0.11,"outcome":"pending","summary":{"task_id":"labtask","kind":"ship","idle_seconds":1800,"escalation_count":1,"last_status":"run step: waiting on CI","status_tail":[],"run_step":"run step: waiting on CI"}}

@@ -1,0 +1,9 @@
+ok - eight project/supervisor acceptance cases
+Jev guard: cannot parse command: No closing quotation
+Jev guard: cannot parse command: No closing quotation
+ok - all fm-jev-guard tests passed
+
+real	0m9.409s
+user	0m7.639s
+sys	0m1.678s
+rc=0

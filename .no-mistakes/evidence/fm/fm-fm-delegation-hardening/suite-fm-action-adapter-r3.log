@@ -1,0 +1,6 @@
+ok - scenario6: unlisted and case-variant hook transports deny before command and role fast paths; exact governed shell/read names allow
+
+real	0m1.318s
+user	0m0.659s
+sys	0m0.753s
+rc=0

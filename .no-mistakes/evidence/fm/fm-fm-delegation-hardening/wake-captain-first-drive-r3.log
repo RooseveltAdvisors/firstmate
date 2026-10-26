@@ -1,0 +1,26 @@
+=== W1: real fm-inbox.sh note emits the captain wake row ===
+    queued 1792996738-gFmFwB
+      please dispatch wiseman-uukr
+      firstmate will pick this up at its next check.
+PASS | inbox producer emits a verdict=captain wake row (1792996738-gFmFwB)
+=== W2: the drain presents the captain row FIRST, ahead of 50 watcher checks + stale wedge ===
+    row: 1792996739	56	check	inbox:1792996738-gFmFwB	check: captain inbox note 1792996738-gFmFwB - please dispatch wiseman-uukr verdict=captain
+    row: 1792993738	51	stale	win	stale: win (idle 30m possible wedge ...)
+    row: 1792993139	1	check	watcher-1	check: watcher 1
+PASS | captain row leads the drain at rank 1
+PASS | the stale wedge is second, ahead of watcher checks
+PASS | all 56 queued rows preserved by presentation (saw 56)
+=== W3: untagged look-alike rows are NOT promoted ===
+    suffix=1 mid=53 space=54 worded=55
+PASS | only the exact end-of-payload verdict=captain suffix is promoted (suffix=1, look-alikes at 53/54/55)
+=== W4: presentation does not reorder the durable queue; ack covers every shown row ===
+PASS | durable queue file byte-identical after presentation
+    WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 56 --recovery-generation 1511364.1792996739.PaMqnG
+PASS | acknowledgement cutoff equals the max shown sequence (56)
+=== W5: acknowledgement consumes every presented row ===
+PASS | ack through 56 emptied the durable queue (rc=0)
+=== W6: second wave keeps class/age/sequence order with a fresh captain row on top ===
+    order: 65,63,64,60,62,59,61,58,57  (captain seq 65)
+PASS | captain row first, then signal/corr=/bead=, stale, check, heartbeat by age (65,63,64,60,62,59,61,58,57)
+
+WAKE-DRIVE RESULT: pass=9 fail=0

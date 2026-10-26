@@ -1,0 +1,20 @@
+ok - absent key and .env-only key fail open without a network call
+ok - true_wedge escalates, stamps telemetry, and logs calibration
+ok - pipeline_wait suppresses and stamps suppressed telemetry
+ok - healthy_idle suppresses with the secondmate class
+ok - Infisical JEV proxy works without TYPESAFE_API_KEY in environment
+ok - Jev HTTP and transport errors fail open to unavailable
+ok - a malformed Jev answer fail-opens
+ok - calibration logs the first N decisions; telemetry keeps counting
+ok - telemetry class is coerced to the known set
+ok - watcher loads without wedge context, classifier calls or a runtime lock
+ok - watcher pipeline_wait suppresses the stale escalation and restarts the idle timer
+ok - watcher true_wedge still escalates on today's stale reason
+ok - watcher Jev error fails open to today's escalate path
+ok - config/jev-wake-triage=off disables triage and escalates as today
+# all fm-jev-wake-triage tests passed
+
+real	0m11.966s
+user	0m5.006s
+sys	0m7.126s
+rc=0

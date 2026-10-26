@@ -1,0 +1,16 @@
+ok - FM_WEDGE_MAX_ESCALATIONS=0 keeps the cap inert and never writes a cap marker
+ok - wedge cap fires PERMANENTLY-WEDGED at FM_WEDGE_MAX_ESCALATIONS and writes the window-scoped cap marker
+ok - subsequent polls on the same hash stay silent while the window-scoped cap marker stands
+ok - the window-scoped cap marker silences a hash-churning pane across all post-cap polls
+ok - the cap is bound by FM_CAP_HORIZON_SECS and re-fires after the horizon elapses
+ok - operator rm of the cap marker lifts the cap and the next wedge re-accumulates from 1
+ok - non-integer FM_WEDGE_MAX_ESCALATIONS falls back to 0 and the cap stays inert
+ok - an escalation counter the shell cannot compare is read as a fresh count of 1, never as a count the arithmetic wrapped around
+ok - the rollback-failed sentinel silences the wedge path within FM_ROLLBACK_SENTINEL_TTL_SECS and still reports a gone endpoint
+ok - an escalation count the state dir refuses fails safe under a configured cap and silences nothing without one
+ok - a window silenced by the rollback-failure sentinel keeps the probe on its escalation cadence, not once per poll
+ok - a counter reset the state dir refuses ends the cycle behind the sentinel instead of walking out with a saturated counter
+ok - a genuine recovery clears the cap marker and the re-wedged pane escalates again
+ok - a persistent marker-write failure across two cap cycles queues exactly one PERMANENTLY-WEDGED wake
+not ok - the re-wedged pane stayed silent after a declared wait ended: 
+rc=1
