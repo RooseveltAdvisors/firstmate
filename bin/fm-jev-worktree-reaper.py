@@ -202,7 +202,7 @@ def processes_in(path: str) -> Tuple[Optional[List[str]], str]:
     # found - so an unreadable pid is doubt (reported with its uid and pid) and
     # callers must keep.
     candidate = canon(path)
-    proc_root = Path(os.environ.get("FM_PROC_ROOT") or "/proc")
+    proc_root = Path(os.environ.get("FM_PROC_ROOT_OVERRIDE") or "/proc")
     if not proc_root.is_dir():
         return None, f"no process table at {proc_root}"
     try:

@@ -58,7 +58,7 @@ test -d "${WT2}"
 echo "PASS: Test 3 - Dry run mode preserves all worktrees"
 
 # Test 4: Live reap prunes merged worktree WT1 and strictly protects dirty WT2
-LIVE_OUTPUT=$(FM_PROC_ROOT="${PROC_CLEAN}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
+LIVE_OUTPUT=$(FM_PROC_ROOT_OVERRIDE="${PROC_CLEAN}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
 echo "${LIVE_OUTPUT}" | grep -q "\[REAPER_APPLIED\]"
 if [ -d "${WT1}" ]; then
   echo "FAIL: merged worktree WT1 was not removed" >&2
@@ -131,7 +131,7 @@ PROC9="${TEST_TMP}/proc-live"
 mkdir -p "${PROC9}/${SLEEP_PID}/fd"
 ln -s "${WT9}/sub" "${PROC9}/${SLEEP_PID}/cwd"
 printf 'Uid:\t1000\t1000\t1000\t1000\n' > "${PROC9}/${SLEEP_PID}/status"
-PROC_OUTPUT=$(FM_PROC_ROOT="${PROC9}" FM_HOME="${FAKE_HOME}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
+PROC_OUTPUT=$(FM_PROC_ROOT_OVERRIDE="${PROC9}" FM_HOME="${FAKE_HOME}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
 echo "${PROC_OUTPUT}" | grep -q "Referenced: ${WT9} (running process"
 test -d "${WT9}"
 kill "${SLEEP_PID}" 2>/dev/null || true
@@ -142,7 +142,7 @@ echo "PASS: Test 9 - worktree with a running process preserved"
 # Test 10 (fm-av46m): an unreferenced merged clean worktree is still reaped
 WT10="${TEST_TMP}/wt-unreferenced"
 git -C "${REPO}" worktree add --detach "${WT10}" main
-REAP_OUTPUT=$(FM_PROC_ROOT="${PROC_CLEAN}" FM_HOME="${FAKE_HOME}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
+REAP_OUTPUT=$(FM_PROC_ROOT_OVERRIDE="${PROC_CLEAN}" FM_HOME="${FAKE_HOME}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
 echo "${REAP_OUTPUT}" | grep -q "Reaped: ${WT10} "
 if [ -d "${WT10}" ]; then
   echo "FAIL: unreferenced merged worktree WT10 was not removed" >&2
@@ -182,7 +182,7 @@ mkdir -p "${PROC13}/5150/fd"
 ln -s / "${PROC13}/5150/cwd"
 ln -s "${WT13}/open" "${PROC13}/5150/fd/7"
 printf 'Uid:\t1000\t1000\t1000\t1000\n' > "${PROC13}/5150/status"
-FD_OUTPUT=$(FM_PROC_ROOT="${PROC13}" FM_HOME="${FAKE_HOME}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
+FD_OUTPUT=$(FM_PROC_ROOT_OVERRIDE="${PROC13}" FM_HOME="${FAKE_HOME}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
 echo "${FD_OUTPUT}" | grep -q "Referenced: ${WT13} (running process"
 test -d "${WT13}"
 echo "PASS: Test 13 - worktree with an open file preserved"
@@ -193,7 +193,7 @@ git -C "${REPO}" worktree add --detach "${WT14}" main
 PROC14="${TEST_TMP}/proc-doubt"
 mkdir -p "${PROC14}/777/cwd" "${PROC14}/777/fd"
 printf 'Uid:\t0\t0\t0\t0\n' > "${PROC14}/777/status"
-DOUBT_OUTPUT=$(FM_PROC_ROOT="${PROC14}" FM_HOME="${FAKE_HOME}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
+DOUBT_OUTPUT=$(FM_PROC_ROOT_OVERRIDE="${PROC14}" FM_HOME="${FAKE_HOME}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
 echo "${DOUBT_OUTPUT}" | grep -q "process probe inconclusive (unreadable pid 777 uid 0)"
 test -d "${WT14}"
 echo "PASS: Test 14 - unreadable pid refuses the reap with uid and pid detail"
