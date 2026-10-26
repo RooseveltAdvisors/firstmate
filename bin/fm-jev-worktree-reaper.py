@@ -12,10 +12,12 @@ Safety invariants:
 - NEVER removes the main/root repository worktree.
 - NEVER deletes a worktree still referenced by the fleet: a Firstmate task
   record (state/<task>.meta worktree=) naming it or a path above it, a durable
-  treehouse pool lease, or a running process with its cwd inside it all make a
-  worktree referenced, and a reference forbids reaping regardless of git state.
-- Treats an inconclusive process probe (no /proc and no lsof, or probe error)
-  as referenced: reaping is optional maintenance, so doubt resolves to keep.
+  treehouse pool lease, or a running process with its cwd or an open file
+  inside it all make a worktree referenced, and a reference forbids reaping
+  regardless of git state.
+- Treats an inconclusive process probe (no process table, or any pid whose
+  cwd or fds cannot be read) as referenced: reaping is optional maintenance,
+  so doubt resolves to keep.
 - Verifies that HEAD or branch is an ancestor of origin/main before reaping.
   Merged ancestry alone is never sufficient - the reference proof above must
   also pass, so a worktree is reaped only when it is provably unreferenced.
@@ -31,7 +33,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 
 
 def find_repo_dir(repo_name: str) -> Optional[str]:
@@ -175,38 +177,74 @@ def reference_source(path: str, refs: Dict[str, str]) -> Optional[str]:
     return None
 
 
-def processes_in(path: str) -> Optional[List[str]]:
-    # PIDs whose cwd is the candidate or under it. Returns None when the probe
-    # cannot run at all, which callers must treat as referenced.
+def proc_pid_uid(pid_dir: Path) -> str:
+    try:
+        for line in (pid_dir / "status").read_text().splitlines():
+            if line.startswith("Uid:"):
+                return line.split()[1]
+    except (OSError, IndexError):
+        pass
+    return "?"
+
+
+def target_inside(target: str, candidate: str) -> bool:
+    if target.endswith(" (deleted)"):
+        target = target[: -len(" (deleted)")]
+    if not target.startswith("/"):
+        return False
+    resolved = os.path.realpath(target)
+    return resolved == candidate or resolved.startswith(candidate + os.sep)
+
+
+def processes_in(path: str) -> Tuple[Optional[List[str]], str]:
+    # PIDs holding the candidate open: cwd or an fd under it. A confident zero
+    # needs a positive-clean proof - every pid's cwd and fds readable, nothing
+    # found - so an unreadable pid is doubt (reported with its uid and pid) and
+    # callers must keep.
     candidate = canon(path)
-    proc_root = Path("/proc")
-    if proc_root.is_dir():
-        pids: List[str] = []
-        for entry in proc_root.iterdir():
-            if not entry.name.isdigit():
-                continue
+    proc_root = Path(os.environ.get("FM_PROC_ROOT") or "/proc")
+    if not proc_root.is_dir():
+        return None, f"no process table at {proc_root}"
+    try:
+        entries = sorted(proc_root.iterdir())
+    except OSError:
+        return None, f"unenumerable process table at {proc_root}"
+    pids: List[str] = []
+    doubt: List[str] = []
+    for entry in entries:
+        if not entry.name.isdigit():
+            continue
+        try:
+            matched = target_inside(os.readlink(entry / "cwd"), candidate)
+        except FileNotFoundError:
+            continue
+        except OSError:
+            doubt.append(f"pid {entry.name} uid {proc_pid_uid(entry)}")
+            continue
+        try:
+            fds = sorted((entry / "fd").iterdir())
+        except FileNotFoundError:
+            fds = []
+        except OSError:
+            doubt.append(f"pid {entry.name} uid {proc_pid_uid(entry)}")
+            continue
+        for fd in fds:
+            if matched:
+                break
             try:
-                cwd = os.readlink(entry / "cwd")
-            except (FileNotFoundError, PermissionError):
+                matched = target_inside(os.readlink(fd), candidate)
+            except FileNotFoundError:
                 continue
             except OSError:
-                return None
-            if cwd == candidate or cwd.startswith(candidate + os.sep):
-                pids.append(entry.name)
-        return pids
-    try:
-        res = subprocess.run(
-            ["lsof", "-t", "+D", candidate],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=30,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    if res.returncode not in (0, 1) or res.stderr.strip():
-        return None
-    return [pid for pid in res.stdout.split() if pid]
+                doubt.append(f"pid {entry.name} uid {proc_pid_uid(entry)}")
+                break
+        if matched:
+            pids.append(entry.name)
+    if pids:
+        return pids, ""
+    if doubt:
+        return None, "unreadable " + ", ".join(doubt[:5])
+    return [], ""
 
 
 def run_git(args: List[str], cwd: str) -> subprocess.CompletedProcess:
@@ -380,10 +418,12 @@ def reap_worktrees(
 
         # Invariant 6: never reap a worktree with a live process inside it, and
         # never reap when the process probe cannot answer - doubt keeps it.
-        pids = processes_in(path)
+        pids, probe_doubt = processes_in(path)
         if pids is None:
             report["referenced_preserved"] += 1
-            report["referenced_worktrees"].append({"path": path, "source": "process probe inconclusive"})
+            report["referenced_worktrees"].append(
+                {"path": path, "source": f"process probe inconclusive ({probe_doubt})"}
+            )
             continue
         if pids:
             report["referenced_preserved"] += 1
