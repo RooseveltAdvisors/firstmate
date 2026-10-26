@@ -13,7 +13,8 @@ Deterministic scope contract; every clause is pinned in tests/fm-jev-guard.test.
               payload forms with leading flags whose own command qualifies on that list.
               Only those four names take the payload fast path; ksh and ash stay
               deny-side. The fast path runs first, so an allowlisted spelling is allowed
-              even when its paths lie under projects/ (git read verbs on a project repo).
+              even when its context paths lie under projects/ (git read verbs on a project
+              repo); a program token or startup-file value under projects/ refuses it.
   not-writes  Bare fd duplication (2>&1) and the literal dev-sink redirect targets
               /dev/null, /dev/stdout, /dev/stderr, /dev/fd/0, /dev/fd/1, /dev/fd/2 are
               not file writes; any other redirect target refuses the fast path.
@@ -21,7 +22,8 @@ Deterministic scope contract; every clause is pinned in tests/fm-jev-guard.test.
               target, program, file operand, redirect target, find action or file-output
               operand, shell payload, assignment value - lie under projects/ or a
               treehouse worktree is denied require_delegation before any Jev query.
-              Payload recursion covers bash, sh, zsh, dash, ksh and ash with leading flags.
+              Payload recursion covers bash, sh, zsh, dash, ksh and ash with leading flags,
+              at the top level and inside find actions.
   mentions    Pattern and predicate words (grep patterns, find -path/-name without a
               transforming action, echo/printf values, task payloads) are mentions, not
               operands: a mention on an allowlisted tool fast-passes with that tool, and
@@ -66,6 +68,18 @@ over every assignment prefix including env's forms and env -S/--split-string pay
 An assignment-only segment executes nothing and stays out of the pre-deny; variable and
 glob expansions remain unresolved parser input that reaches Jev. Strictly additive:
 nothing becomes newly allowable.
+
+Fourth written amendment - project programs and shell startup files, deny side only: a
+program token resolving under projects/ or a treehouse refuses the fast path and
+pre-denies before any query, in direct, script and shell-payload spellings; --init-file
+and --rcfile values under projects/ are data-path operands like the second amendment's
+pairs - these two option names are the complete list, and any future one joins only by
+another written amendment - and refuse the fast path the same way. Find actions recurse
+into their executed commands' env -S and --split-string payloads exactly like the main
+path. Non-project programs and non-project startup-file values keep their current
+paths, and enumerated git read verbs with project context operands stay exempt as
+supervision reads - program start is not that carve-out. Deny-side only: nothing becomes
+newly allowable.
 
 The firstmate invariant: anything the deterministic layer does not positively classify for fast-path or pre-deny REACHES JEV and outage keeps fail-closed deny - no third outcome, no spelling may end in a silent allow.
 
@@ -318,14 +332,24 @@ def is_whitelisted_command(cmd: str) -> bool:
                     continue
                 return False
             payload = shell_payload(args, FAST_PATH_SHELLS)
+            if payload is None and Path(args[0]).name in FAST_PATH_SHELLS:
+                args = args[1:]
+                if not args:
+                    return False
+            if resolves_under_projects(args[0]):
+                return False
+            for index, arg in enumerate(args):
+                startup = ""
+                if arg in ("--init-file", "--rcfile") and index + 1 < len(args):
+                    startup = args[index + 1]
+                elif arg.startswith(("--init-file=", "--rcfile=")):
+                    startup = arg.split("=", 1)[1]
+                if startup and resolves_under_projects(startup):
+                    return False
             if payload is not None:
                 if not is_whitelisted_command(payload):
                     return False
                 continue
-            if Path(args[0]).name in FAST_PATH_SHELLS:
-                args = args[1:]
-            if not args:
-                return False
             # Navigation only sets context; every following operation is checked.
             if args[0] == "cd" and len(args) <= 2:
                 continue
@@ -506,9 +530,12 @@ def operative_paths(cmd: str) -> list[str] | None:
             for index, action in enumerate(args):
                 if action not in FIND_ACTIONS:
                     continue
-                executed = shell_payload(peel_wrappers(args[index + 1:])[0])
+                exec_args, _, exec_payloads = peel_wrappers(args[index + 1:])
+                executed = shell_payload(exec_args)
                 if executed is not None:
-                    nested = operative_paths(executed)
+                    exec_payloads.append(executed)
+                for command in exec_payloads:
+                    nested = operative_paths(command)
                     if nested is None:
                         return None
                     paths.extend(nested)
