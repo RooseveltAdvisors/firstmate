@@ -2344,7 +2344,7 @@ EOF
 # at pipeline head d82c47ce while the task copy sat at 1b713baf: the
 # unresolved NEWEST running row must answer, and the OLDER failed row whose
 # head equals the local head must never be attributed instead. With the
-# daemon up the head-free executing bind reports the crew working.
+# daemon up the unresolved running row reports the crew working.
 test_unresolved_running_row_never_loses_to_older_failed_row() {
   reset_fakes
   local d base_head short_base unfetched out
@@ -2406,7 +2406,8 @@ EOF
   FM_FAKE_DAEMON_DOWN=1
   out=$(run_crew_state "$d" sttcut)
   assert_contains "$out" "state: unknown" "a dead instrument under a running record reads unknown"
-  assert_contains "$out" "unverified" "the dead instrument is named as the reason"
+  assert_contains "$out" "no-mistakes daemon unreachable; last run record fixing - unverified" "the anchored ledger proves the pipeline-owned continuation with the dead instrument named"
+  assert_not_contains "$out" "code identity unverified" "an anchored run's identity is proven, not unverified"
   assert_not_contains "$out" "state: failed" "the older failed row at the local head never answers"
   pass "a dead daemon under the unresolved running row reads unknown, never the stale failure"
 }
