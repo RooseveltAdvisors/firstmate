@@ -331,12 +331,13 @@ def is_whitelisted_command(cmd: str) -> bool:
                 if target in DEV_SINKS:
                     continue
                 return False
+            program = args[0]
             payload = shell_payload(args, FAST_PATH_SHELLS)
             if payload is None and Path(args[0]).name in FAST_PATH_SHELLS:
                 args = args[1:]
                 if not args:
                     return False
-            if resolves_under_projects(args[0]):
+            if resolves_under_projects(program) or resolves_under_projects(args[0]):
                 return False
             for index, arg in enumerate(args):
                 startup = ""

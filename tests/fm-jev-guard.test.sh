@@ -255,6 +255,7 @@ for probe in \
   'projects/portal/fm-deploy.sh' \
   'bash projects/portal/fm-deploy.sh' \
   "bash -c 'projects/portal/fm-deploy.sh'" \
+  'projects/portal/bash bin/fm-send.sh --help' \
   "bash --init-file projects/portal/evil.sh -i -c 'bd show x'" \
   "bash --rcfile projects/portal/evil.sh -i -c 'bd show x'" \
   "find . -exec env -S 'bash -c \"rm projects/portal/x\"' {} \;" \
@@ -275,6 +276,8 @@ unset FM_TEST_QUERY_LOG
 export FM_TEST_JEV_RESPONSE='{"answers":{"action":{"choice":"allow_supervisor"},"violation_noul":{"noul":0},"target_domain":{"choice":"supervisor"}}}'
 out=$(cd "$SUPERVISOR" && python3 "$SUPERVISOR/bin/fm-jev-guard.py" --check-only --command "bash --init-file /tmp/rc -i -c 'bd show x'")
 assert_contains "$out" fast_path_whitelist 'non-project startup file keeps the fast path'
+out=$(cd "$SUPERVISOR" && python3 "$SUPERVISOR/bin/fm-jev-guard.py" --check-only --command 'bash bin/fm-send.sh --help')
+assert_contains "$out" fast_path_whitelist 'non-project interpreter keeps the fast path'
 out=$(cd "$SUPERVISOR" && python3 "$SUPERVISOR/bin/fm-jev-guard.py" --check-only --command "find . -exec env -S 'bash -c \"cat state/task.status\"' {} \;")
 assert_contains "$out" supervisor_approved 'non-project env payload under find reaches Jev'
 # Inbox014: generic value consumption reaches the payload in every wrapper form.
