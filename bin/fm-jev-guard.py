@@ -12,9 +12,13 @@ Deterministic scope contract; every clause is pinned in tests/fm-jev-guard.test.
               (status/log/diff/rev-parse/show/ls-files/ls-remote), and bash/sh/zsh/dash
               payload forms with leading flags whose own command qualifies on that list.
               Only those four names take the payload fast path; ksh and ash stay
-              deny-side. The fast path runs first, so an allowlisted spelling is allowed
-              even when its context paths lie under projects/ (git read verbs on a project
-              repo); a program token or startup-file value under projects/ refuses it.
+              deny-side. Every shell segment of a compound must independently qualify
+              for the compound to fast-pass. Bare git grep and the attached -C<dir>
+              spelling are not part of this listed fast-path guarantee and fall through
+              to the pre-deny or Jev like any other unlisted spelling. The fast path
+              runs first, so an allowlisted spelling is allowed even when its context
+              paths lie under projects/ (git read verbs on a project repo); a program
+              token or startup-file value under projects/ refuses it.
   not-writes  Bare fd duplication (2>&1) and the literal dev-sink redirect targets
               /dev/null, /dev/stdout, /dev/stderr, /dev/fd/0, /dev/fd/1, /dev/fd/2 are
               not file writes; any other redirect target refuses the fast path.
@@ -23,7 +27,12 @@ Deterministic scope contract; every clause is pinned in tests/fm-jev-guard.test.
               operand, shell payload, assignment value - lie under projects/ or a
               treehouse worktree is denied require_delegation before any Jev query.
               Payload recursion covers bash, sh, zsh, dash, ksh and ash with leading flags,
-              at the top level and inside find actions.
+              at the top level and inside find actions. The fail-closed pre-deny governs
+              commands that execute, mutate, or write under projects/ - payloads, wrappers,
+              assignment values, file-write operands, and non-enumerated verbs such as
+              commit - while the enumerated read verbs with project context operands stay
+              exempt as supervision reads: data-path option values pre-deny, git context
+              operands for those read verbs do not.
   mentions    Pattern and predicate words (grep patterns, find -path/-name without a
               transforming action, echo/printf values, task payloads) are mentions, not
               operands: a mention on an allowlisted tool fast-passes with that tool, and
@@ -66,8 +75,8 @@ assignment whose value resolves under projects/ refuses the fast path and reache
 pre-deny before any query, the same operative-path rule the pre-deny uses for operands,
 over every assignment prefix including env's forms and env -S/--split-string payloads.
 An assignment-only segment executes nothing and stays out of the pre-deny; variable and
-glob expansions remain unresolved parser input that reaches Jev. Strictly additive:
-nothing becomes newly allowable.
+glob expansions remain unresolved parser input that reaches Jev, never an endorsed
+workaround. Strictly additive: nothing becomes newly allowable.
 
 Fourth written amendment - project programs and shell startup files, deny side only: a
 program token resolving under projects/ or a treehouse refuses the fast path and

@@ -2106,6 +2106,17 @@ The installed ownership check and independent installed scenario reruns remain o
 The shell-hook adapter `fm-jev-guard.sh` admits only the shell and read tool payloads it governs (`Bash`, `Shell`, `Read`, `run_terminal_command`) and denies every other tool payload, browser, MCP, unknown or unnamed, before extracting a shell command or applying supervisor-only scope.
 Its supervisor command policy also applies in secondmate homes; linked task worktrees remain exempt.
 `bin/fm-jev-guard.py` owns the command allowlist and requires delegation for project paths or a `project_worker` classification, with only allowlisted supervision admitted when Jev is unavailable.
+The guard's command decisions fall into four classes, and `bin/fm-jev-guard.py`'s scope contract pins each clause behaviorally in `tests/fm-jev-guard.test.sh`:
+
+| Class | Outcome |
+| --- | --- |
+| Allowlisted supervision reads | Fast-path allow: `fm-*.sh`, `bd`, `tasks-axi`, `herdr`, the `gh` read verbs (`pr view/status/list/checks/diff`, `run list/view`), and the git read forms `status`, `log`, `diff`, `rev-parse`, `show`, `ls-files`, `ls-remote`, including those reads' context operands under `projects/` as the supervision-read carve-out. Every shell segment of a compound must independently qualify or the compound does not fast-pass. |
+| Commands that execute, mutate, or write under `projects/` or a treehouse worktree | `require_delegation` pre-deny before any Jev query: shell payloads, wrapper words and their file-option values, assignment values, redirect targets, and non-enumerated verbs such as `git commit`. Data-path option values under `projects/` pre-deny; git context operands on the read forms above do not. |
+| Everything else | Jev classifies, a `project_worker` classification always denies, and when Jev is unreachable only the first class is admitted and the rest fail closed. |
+| Dispatch and delegation instructions that themselves name project work | Refused in observed deployment attempts across several `bin/fm-send.sh` phrasings and `bin/fm-route-dispatch.sh` routing. Those two remain the intended supervisory dispatch tools, their task payloads are instructions for a worker rather than authority for primary execution, and no alternate channel or bypass is sanctioned. These are observed refusals only and establish no end-to-end deployment guarantee. |
+
+Bare `git grep` and the attached `-C<dir>` spelling are not part of the listed fast-path guarantee and fall through to the pre-deny or Jev like any other unlisted spelling, and a variable-held path in a command outside the fast path is unresolved parser input that reaches Jev rather than an endorsed workaround for the pre-deny.
+Guard telemetry stores command prefixes truncated to 160 bytes, so a stored row cannot recover which clause refused a fast pass; the recorded receipt denials were tier-3 `project_worker` classification rather than a pre-deny, and no stored row supports inferring noun-based content rules.
 Every tracked registration routes only `Bash` or `Shell` to this adapter today, so the deny-by-default allowlist closes a gap those registrations cannot reach; it is not live browser mediation.
 This adapter denial does not establish browser-tool registration or mandatory mediation in every harness; `docs/si-control/evidence/scenario-06.json` records that coverage gap.
 
