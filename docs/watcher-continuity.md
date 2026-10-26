@@ -206,6 +206,7 @@ When the host instead hands the accepted close back to main and leaves that succ
 
 Presentation reorders nothing durable: `bin/fm-wake-drain.sh` sorts only its own view of the claimed rows, presenting a captain-tagged row first, then signal rows and rows carrying `corr=` or `bead=`, then stale, then check, then everything else, oldest timestamp first within each class and then sequence order.
 A captain-tagged row is one whose payload ends in the exact suffix `verdict=captain`, which the producers of captain-facing rows (mail, inbox notes, supervision-host outcome relays, and inactive-outcome presentations) append so a captain follow-up is never buried under watcher noise.
+Identical unstructured payload bytes cannot distinguish a subject-ending `verdict=captain` token from a genuine producer suffix, so that single indistinguishable case is an accepted limitation of the exact-suffix rule.
 `bin/fm-wake-drain.sh`'s header owns the exact sort and `tests/fm-wake-queue.test.sh` pins the ordering and the suffix rule.
 
 ### Manual recovery and other harnesses
