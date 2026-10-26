@@ -26,7 +26,6 @@ Safety invariants:
 """
 
 import argparse
-import glob
 import json
 import os
 import re
@@ -81,62 +80,144 @@ REGISTRY_REMOTE_RE = re.compile(
 )
 
 
+def parent_record(path: str) -> Optional[tuple]:
+    try:
+        if not os.path.isfile(path) or os.path.islink(path):
+            return None
+        with open(path, "rb") as fh:
+            raw = fh.read()
+    except OSError:
+        return None
+    if b"\x00" in raw:
+        return None
+    schema = route = parent_home = None
+    schema_n = route_n = parent_home_n = parent_host_n = 0
+    for line in raw.decode(errors="replace").splitlines():
+        if line.startswith("schema="):
+            schema_n += 1
+            schema = line[len("schema="):]
+        elif line.startswith("route="):
+            route_n += 1
+            route = line[len("route="):]
+        elif line.startswith("parent_home="):
+            parent_home_n += 1
+            parent_home = line[len("parent_home="):]
+        elif line.startswith("parent_host="):
+            parent_host_n += 1
+    if schema_n != 1 or route_n != 1 or schema != "fm-secondmate-parent.v1":
+        return None
+    if route == "local":
+        if parent_home_n != 1 or parent_host_n != 0 or not parent_home.startswith("/"):
+            return None
+        return "local", parent_home
+    if route == "remote":
+        if parent_home_n != 0:
+            return None
+        return "remote", None
+    return None
+
+
+def root_home(fm_home: str) -> Optional[str]:
+    home = canon(fm_home)
+    if not os.path.isdir(home):
+        return None
+    seen = set()
+    depth = 0
+    while True:
+        marker = os.path.join(home, ".fm-secondmate-parent")
+        if not os.path.lexists(marker):
+            return home
+        record = parent_record(marker)
+        if record is None:
+            return None
+        route, parent = record
+        if route == "remote":
+            return home
+        parent_real = canon(parent)
+        if not os.path.isdir(parent_real) or parent_real in seen:
+            return None
+        seen.add(home)
+        home = parent_real
+        depth += 1
+        if depth > 64:
+            return None
+
+
 def registry_homes(fm_home: str) -> Optional[List[str]]:
     # Local secondmate routes from data/secondmates.md: "- <id> - ... (home:
     # <path>; ...)". Lines starting with "host:" are wrapped continuation
-    # lines, not entries. A registered home that does not exist locally simply
-    # contributes nothing.
+    # lines, not entries. Remote records run on another machine and contribute
+    # nothing. None means the registry could not be proved - an unsafe file, a
+    # malformed entry, or an unavailable registered local home.
     registry = Path(fm_home) / "data" / "secondmates.md"
-    homes: List[str] = []
-    if not registry.is_file():
-        return homes
+    if not registry.exists() and not registry.is_symlink():
+        return []
+    if registry.is_symlink() or not registry.is_file():
+        return None
     try:
         lines = registry.read_text(errors="replace").splitlines()
     except OSError:
         return None
+    homes: List[str] = []
     for line in lines:
         if line.startswith("host:") or not line.startswith("- "):
             continue
         match = REGISTRY_LOCAL_RE.match(line)
         if match:
-            homes.append(match.group(3).strip())
+            child = match.group(3).strip()
+            if not os.path.isdir(child):
+                return None
+            homes.append(child)
             continue
-        match = REGISTRY_REMOTE_RE.match(line)
-        if match:
-            homes.append(match.group(5).strip())
+        if REGISTRY_REMOTE_RE.match(line):
+            continue
+        return None
     return homes
 
 
 def collect_task_refs(fm_home: str) -> Optional[Dict[str, str]]:
-    # Owning task ids: every state/<task>.meta worktree= value across the main
-    # home, registered secondmate homes, and local homes under the
-    # FM_SECONDMATE_HOMES_DIR root. Returns canonical worktree path -> source description, or None
-    # when a found record source could not be read (the proof is incomplete).
+    # Owning task ids: every state/<task>.meta worktree= value across the
+    # resolved root home and every local registered home walked breadth-first
+    # through each data/secondmates.md, plus local homes under the
+    # FM_SECONDMATE_HOMES_DIR root. Returns canonical worktree path -> source
+    # description, or None when the walk could not be proved (the proof is
+    # incomplete).
     refs: Dict[str, str] = {}
-    reg_homes = registry_homes(fm_home)
-    if reg_homes is None:
+    root = root_home(fm_home)
+    if root is None:
         return None
-    homes = {canon(fm_home)}
-    for home in reg_homes:
-        if os.path.isdir(home):
-            homes.add(canon(home))
     homes_base = os.environ.get("FM_SECONDMATE_HOMES_DIR", "/home/jon/.firstmate-homes")
     try:
-        home_names = sorted(os.listdir(homes_base))
+        sweep_names = sorted(os.listdir(homes_base))
     except FileNotFoundError:
-        home_names = []
+        sweep_names = []
     except OSError:
         return None
-    for name in home_names:
+    queue: List[str] = []
+    seen = set()
+
+    def enqueue(home: str) -> None:
+        real = canon(home)
+        if real not in seen:
+            seen.add(real)
+            queue.append(real)
+
+    enqueue(canon(fm_home))
+    enqueue(root)
+    for name in sweep_names:
         home = os.path.join(homes_base, name)
-        if os.path.isdir(home):
-            homes.add(canon(home))
-    for home in sorted(homes):
+        if not os.path.isdir(home):
+            return None
+        enqueue(home)
+    idx = 0
+    while idx < len(queue):
+        home = queue[idx]
+        idx += 1
         state_dir = os.path.join(home, "state")
         try:
             names = sorted(n for n in os.listdir(state_dir) if n.endswith(".meta"))
         except FileNotFoundError:
-            continue
+            names = []
         except OSError:
             return None
         for name in names:
@@ -151,27 +232,43 @@ def collect_task_refs(fm_home: str) -> Optional[Dict[str, str]]:
                                 refs.setdefault(canon(value), f"task record {task} in {home}")
             except OSError:
                 return None
-    return refs
-
-
-def collect_lease_refs() -> Optional[Dict[str, str]]:
-    # Durable treehouse pool leases: ~/.treehouse/<pool>/treehouse-state.json
-    # entries with leased=true. Returns canonical slot path -> holder, or None
-    # when a found state file could not be read (the proof is incomplete).
-    refs: Dict[str, str] = {}
-    treehouse_root = Path.home() / ".treehouse"
-    for state_file in sorted(glob.glob(str(treehouse_root / "*" / "treehouse-state.json"))):
-        try:
-            with open(state_file, errors="replace") as fh:
-                data = json.load(fh)
-            for entry in data.get("worktrees") or []:
-                path = entry.get("path")
-                if entry.get("leased") and path:
-                    holder = entry.get("lease_holder") or "unknown"
-                    refs[canon(path)] = f"treehouse lease held by {holder}"
-        except (OSError, ValueError, AttributeError, TypeError):
+        children = registry_homes(home)
+        if children is None:
             return None
+        for child in children:
+            enqueue(child)
     return refs
+
+
+def lease_reference(path: str) -> Tuple[Optional[str], Optional[str]]:
+    # Durable treehouse pool leases for the candidate, root-agnostic: every
+    # governing treehouse-state.json at or above the candidate (a pool is
+    # wherever the tool rooted it). Returns (source, None) when no lease names
+    # it, or (None, doubt) when a governing pool state cannot be proved.
+    candidate = canon(path)
+    probe = candidate
+    refs: Dict[str, str] = {}
+    while True:
+        state_file = os.path.join(probe, "treehouse-state.json")
+        if os.path.lexists(state_file):
+            doubt = f"reference scan inconclusive (treehouse pool state {state_file})"
+            if os.path.islink(state_file) or not os.path.isfile(state_file):
+                return None, doubt
+            try:
+                with open(state_file, errors="replace") as fh:
+                    data = json.load(fh)
+                for entry in data.get("worktrees") or []:
+                    entry_path = entry.get("path")
+                    if entry.get("leased") and entry_path:
+                        holder = entry.get("lease_holder") or "unknown"
+                        refs[canon(entry_path)] = f"treehouse lease held by {holder}"
+            except (OSError, ValueError, AttributeError, TypeError):
+                return None, doubt
+        parent = os.path.dirname(probe)
+        if parent == probe:
+            break
+        probe = parent
+    return reference_source(candidate, refs), None
 
 
 def reference_source(path: str, refs: Dict[str, str]) -> Optional[str]:
@@ -325,6 +422,7 @@ def reap_worktrees(
         "dirty_preserved": 0,
         "unmerged_preserved": 0,
         "referenced_preserved": 0,
+        "inconclusive_preserved": 0,
         "referenced_worktrees": [],
         "reaped_worktrees": [],
         "reaped_branches": [],
@@ -359,7 +457,6 @@ def reap_worktrees(
     # unreferenced - no owning task record, no durable treehouse lease, and no
     # running process inside it. Merged ancestry or age alone never suffices.
     task_refs = collect_task_refs(default_fm_home())
-    lease_refs = collect_lease_refs()
 
     for wt in worktrees:
         path = os.path.realpath(wt["path"])
@@ -376,10 +473,19 @@ def reap_worktrees(
             continue
 
         # Invariant 2: never reap a worktree the fleet still references
-        if task_refs is None or lease_refs is None:
-            ref_source = "reference scan inconclusive"
+        ref_source = None
+        doubt_source = None
+        if task_refs is None:
+            doubt_source = "reference scan inconclusive"
         else:
-            ref_source = reference_source(path, task_refs) or reference_source(path, lease_refs)
+            ref_source = reference_source(path, task_refs)
+        if ref_source is None and doubt_source is None:
+            ref_source, doubt_source = lease_reference(path)
+        if doubt_source:
+            report["referenced_preserved"] += 1
+            report["inconclusive_preserved"] += 1
+            report["referenced_worktrees"].append({"path": path, "source": doubt_source})
+            continue
         if ref_source:
             report["referenced_preserved"] += 1
             report["referenced_worktrees"].append({"path": path, "source": ref_source})
@@ -429,6 +535,7 @@ def reap_worktrees(
         pids, probe_doubt = processes_in(path)
         if pids is None:
             report["referenced_preserved"] += 1
+            report["inconclusive_preserved"] += 1
             report["referenced_worktrees"].append(
                 {"path": path, "source": f"process probe inconclusive ({probe_doubt})"}
             )
@@ -527,6 +634,7 @@ def main() -> int:
         print(f"  • Preserved (Referenced): {report['referenced_preserved']}")
         for r in report["referenced_worktrees"]:
             print(f"     ↳ Referenced: {r['path']} ({r['source']})")
+        print(f"  • Preserved (Inconclusive): {report['inconclusive_preserved']}")
         print(f"  • Safe Worktrees Reaped: {len(report['reaped_worktrees'])}")
         for r in report["reaped_worktrees"]:
             print(f"     ↳ Reaped: {r['path']} ({r.get('branch', 'detached')} @ {r.get('head', '')})")

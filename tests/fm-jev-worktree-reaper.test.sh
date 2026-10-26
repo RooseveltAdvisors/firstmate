@@ -67,6 +67,7 @@ echo "PASS: Test 3 - Dry run mode preserves all worktrees"
 # Test 4: Live reap prunes merged worktree WT1 and strictly protects dirty WT2
 LIVE_OUTPUT=$(FM_PROC_ROOT_OVERRIDE="${PROC_CLEAN}" HOME="${FAKE_USER_HOME}" FM_HOME="${FAKE_HOME}" FM_SECONDMATE_HOMES_DIR="${HOMES_DIR}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
 echo "${LIVE_OUTPUT}" | grep -q "\[REAPER_APPLIED\]"
+echo "${LIVE_OUTPUT}" | grep -q "Preserved (Inconclusive): 0"
 if [ -d "${WT1}" ]; then
   echo "FAIL: merged worktree WT1 was not removed" >&2
   exit 1
@@ -103,10 +104,9 @@ test -d "${WT7}"
 echo "PASS: Test 7 - nested clone under a task-recorded slot preserved"
 
 # Test 8 (fm-av46m): a durable treehouse lease on a merged clean worktree preserves it
-WT8="${TEST_TMP}/wt-leased"
+WT8="${TEST_TMP}/lab-root/treehouse/pool-lab/slot-1/wt-leased"
 git -C "${REPO}" worktree add --detach "${WT8}" main
-mkdir -p "${FAKE_USER_HOME}/.treehouse/pool-test"
-python3 - "${WT8}" "${FAKE_USER_HOME}/.treehouse/pool-test/treehouse-state.json" <<'EOF'
+python3 - "${WT8}" "${TEST_TMP}/lab-root/treehouse/pool-lab/treehouse-state.json" <<'EOF'
 import json, sys
 path, state = sys.argv[1], sys.argv[2]
 json.dump({"version": 1, "worktrees": [{"name": "1", "path": path, "leased": True,
@@ -199,6 +199,8 @@ mkdir -p "${PROC14}/777/cwd" "${PROC14}/777/fd"
 printf 'Uid:\t0\t0\t0\t0\n' > "${PROC14}/777/status"
 DOUBT_OUTPUT=$(FM_PROC_ROOT_OVERRIDE="${PROC14}" HOME="${FAKE_USER_HOME}" FM_HOME="${FAKE_HOME}" FM_SECONDMATE_HOMES_DIR="${HOMES_DIR}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
 echo "${DOUBT_OUTPUT}" | grep -q "process probe inconclusive (unreadable pid 777 uid 0)"
+INCONCLUSIVE_SHOWN=$(echo "${DOUBT_OUTPUT}" | grep -c "inconclusive" || true)
+echo "${DOUBT_OUTPUT}" | grep -q "Preserved (Inconclusive): ${INCONCLUSIVE_SHOWN}"
 test -d "${WT14}"
 echo "PASS: Test 14 - unreadable pid refuses the reap with uid and pid detail"
 
@@ -221,4 +223,62 @@ echo "${HOMES_DOUBT_OUTPUT}" | grep -q "Referenced: ${WT16} (reference scan inco
 test -d "${WT16}"
 echo "PASS: Test 16 - unenumerable homes root preserves worktrees"
 
-echo "=== All 16 fm-jev-worktree-reaper tests passed successfully! ==="
+# Test 17 (fm-av46m): a task record in a home registered by a child home's own
+# registry is honored
+WT17="${TEST_TMP}/wt-grand-referenced"
+git -C "${REPO}" worktree add --detach "${WT17}" main
+H1="${TEST_TMP}/home-one"
+H2="${TEST_TMP}/home-two"
+mkdir -p "${H1}/data" "${H2}/state"
+printf -- '- sm-two - worker (home: %s; scope: x; projects: y; added 2024-01-01)\n' "${H1}" >> "${FAKE_HOME}/data/secondmates.md"
+printf -- '- sm-three - worker (home: %s; scope: x; projects: y; added 2024-01-02)\n' "${H2}" > "${H1}/data/secondmates.md"
+printf 'worktree=%s\n' "${WT17}" > "${H2}/state/fm-grand-task.meta"
+GRAND_OUTPUT=$(FM_PROC_ROOT_OVERRIDE="${PROC_CLEAN}" HOME="${FAKE_USER_HOME}" FM_HOME="${FAKE_HOME}" FM_SECONDMATE_HOMES_DIR="${HOMES_DIR}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
+echo "${GRAND_OUTPUT}" | grep -q "Referenced: ${WT17} (task record fm-grand-task"
+test -d "${WT17}"
+echo "PASS: Test 17 - grandchild home task record preserves its worktree"
+
+# Test 18 (fm-av46m): a run from a child home still proves the root home's
+# task records
+WT18="${TEST_TMP}/wt-root-referenced"
+git -C "${REPO}" worktree add --detach "${WT18}" main
+printf 'worktree=%s\n' "${WT18}" > "${FAKE_HOME}/state/fm-root-task.meta"
+printf 'schema=fm-secondmate-parent.v1\nroute=local\nparent_home=%s\n' "${FAKE_HOME}" > "${H1}/.fm-secondmate-parent"
+ROOT_OUTPUT=$(FM_PROC_ROOT_OVERRIDE="${PROC_CLEAN}" HOME="${FAKE_USER_HOME}" FM_HOME="${H1}" FM_SECONDMATE_HOMES_DIR="${HOMES_DIR}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
+echo "${ROOT_OUTPUT}" | grep -q "Referenced: ${WT18} (task record fm-root-task"
+test -d "${WT18}"
+echo "PASS: Test 18 - child-home run honors the root home's task records"
+
+# Test 19 (fm-av46m): a malformed registry entry is doubt and keeps worktrees
+WT19="${TEST_TMP}/wt-malformed-registry"
+git -C "${REPO}" worktree add --detach "${WT19}" main
+FAKE2="${TEST_TMP}/fm-home-2"
+mkdir -p "${FAKE2}/data"
+printf -- '- broken entry without a home suffix\n' > "${FAKE2}/data/secondmates.md"
+MALFORMED_OUTPUT=$(FM_PROC_ROOT_OVERRIDE="${PROC_CLEAN}" HOME="${FAKE_USER_HOME}" FM_HOME="${FAKE2}" FM_SECONDMATE_HOMES_DIR="${HOMES_DIR}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
+echo "${MALFORMED_OUTPUT}" | grep -q "Referenced: ${WT19} (reference scan inconclusive"
+test -d "${WT19}"
+echo "PASS: Test 19 - malformed registry entry preserves worktrees"
+
+# Test 20 (fm-av46m): an unavailable registered home is doubt and keeps worktrees
+WT20="${TEST_TMP}/wt-unavailable-home"
+git -C "${REPO}" worktree add --detach "${WT20}" main
+FAKE3="${TEST_TMP}/fm-home-3"
+mkdir -p "${FAKE3}/data"
+printf -- '- sm-gone - worker (home: %s; scope: x; projects: y; added 2024-01-03)\n' "${TEST_TMP}/no-such-home" > "${FAKE3}/data/secondmates.md"
+GONE_OUTPUT=$(FM_PROC_ROOT_OVERRIDE="${PROC_CLEAN}" HOME="${FAKE_USER_HOME}" FM_HOME="${FAKE3}" FM_SECONDMATE_HOMES_DIR="${HOMES_DIR}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
+echo "${GONE_OUTPUT}" | grep -q "Referenced: ${WT20} (reference scan inconclusive"
+test -d "${WT20}"
+echo "PASS: Test 20 - unavailable registered home preserves worktrees"
+
+# Test 21 (fm-av46m): an unprovable treehouse pool state is doubt and keeps
+# worktrees
+WT21="${TEST_TMP}/lab-root/treehouse/pool-doubt/slot-1/wt-doubt"
+git -C "${REPO}" worktree add --detach "${WT21}" main
+mkdir -p "${TEST_TMP}/lab-root/treehouse/pool-doubt/treehouse-state.json"
+POOL_DOUBT_OUTPUT=$(FM_PROC_ROOT_OVERRIDE="${PROC_CLEAN}" HOME="${FAKE_USER_HOME}" FM_HOME="${FAKE_HOME}" FM_SECONDMATE_HOMES_DIR="${HOMES_DIR}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
+echo "${POOL_DOUBT_OUTPUT}" | grep -q "Referenced: ${WT21} (reference scan inconclusive"
+test -d "${WT21}"
+echo "PASS: Test 21 - unprovable treehouse pool state preserves worktrees"
+
+echo "=== All 21 fm-jev-worktree-reaper tests passed successfully! ==="
