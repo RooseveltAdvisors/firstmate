@@ -50,15 +50,22 @@ mkdir -p "${PROC_CLEAN}/1000/fd"
 ln -s / "${PROC_CLEAN}/1000/cwd"
 printf 'Uid:\t1000\t1000\t1000\t1000\n' > "${PROC_CLEAN}/1000/status"
 
+FAKE_HOME="${TEST_TMP}/fm-home"
+mkdir -p "${FAKE_HOME}/state"
+FAKE_USER_HOME="${TEST_TMP}/user-home"
+mkdir -p "${FAKE_USER_HOME}/.treehouse"
+HOMES_DIR="${TEST_TMP}/secondmate-homes"
+mkdir -p "${HOMES_DIR}"
+
 # Test 3: Dry run verifies identification without removing
-DRY_OUTPUT=$("${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main --dry-run)
+DRY_OUTPUT=$(HOME="${FAKE_USER_HOME}" FM_HOME="${FAKE_HOME}" FM_SECONDMATE_HOMES_DIR="${HOMES_DIR}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main --dry-run)
 echo "${DRY_OUTPUT}" | grep -q "\[DRY_RUN\]"
 test -d "${WT1}"
 test -d "${WT2}"
 echo "PASS: Test 3 - Dry run mode preserves all worktrees"
 
 # Test 4: Live reap prunes merged worktree WT1 and strictly protects dirty WT2
-LIVE_OUTPUT=$(FM_PROC_ROOT_OVERRIDE="${PROC_CLEAN}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
+LIVE_OUTPUT=$(FM_PROC_ROOT_OVERRIDE="${PROC_CLEAN}" HOME="${FAKE_USER_HOME}" FM_HOME="${FAKE_HOME}" FM_SECONDMATE_HOMES_DIR="${HOMES_DIR}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
 echo "${LIVE_OUTPUT}" | grep -q "\[REAPER_APPLIED\]"
 if [ -d "${WT1}" ]; then
   echo "FAIL: merged worktree WT1 was not removed" >&2
@@ -71,17 +78,15 @@ fi
 echo "PASS: Test 4 - Live reap removed merged worktree and preserved dirty worktree"
 
 # Test 5: JSON output telemetry
-JSON_OUTPUT=$("${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main --json)
+JSON_OUTPUT=$(HOME="${FAKE_USER_HOME}" FM_HOME="${FAKE_HOME}" FM_SECONDMATE_HOMES_DIR="${HOMES_DIR}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main --json)
 python3 -c "import json; d = json.loads('''${JSON_OUTPUT}'''); assert 'dirty_preserved' in d; assert d['dirty_preserved'] == 1"
 echo "PASS: Test 5 - JSON telemetry output validated"
 
 # Test 6 (fm-av46m): a merged clean worktree named by a task record is preserved
 WT6="${TEST_TMP}/wt-task-referenced"
 git -C "${REPO}" worktree add --detach "${WT6}" main
-FAKE_HOME="${TEST_TMP}/fm-home"
-mkdir -p "${FAKE_HOME}/state"
 printf 'worktree=%s\n' "${WT6}" > "${FAKE_HOME}/state/fm-test-task.meta"
-REF_OUTPUT=$(FM_HOME="${FAKE_HOME}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
+REF_OUTPUT=$(HOME="${FAKE_USER_HOME}" FM_HOME="${FAKE_HOME}" FM_SECONDMATE_HOMES_DIR="${HOMES_DIR}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
 echo "${REF_OUTPUT}" | grep -q "Referenced: ${WT6} (task record fm-test-task"
 test -d "${WT6}"
 echo "PASS: Test 6 - task-recorded worktree preserved"
@@ -92,7 +97,7 @@ WT7="${SLOT}/wt-nested"
 mkdir -p "${SLOT}"
 git -C "${REPO}" worktree add --detach "${WT7}" main
 printf 'worktree=%s\n' "${SLOT}" > "${FAKE_HOME}/state/fm-slot-task.meta"
-NESTED_OUTPUT=$(FM_HOME="${FAKE_HOME}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
+NESTED_OUTPUT=$(HOME="${FAKE_USER_HOME}" FM_HOME="${FAKE_HOME}" FM_SECONDMATE_HOMES_DIR="${HOMES_DIR}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
 echo "${NESTED_OUTPUT}" | grep -q "Referenced: ${WT7} "
 test -d "${WT7}"
 echo "PASS: Test 7 - nested clone under a task-recorded slot preserved"
@@ -100,7 +105,6 @@ echo "PASS: Test 7 - nested clone under a task-recorded slot preserved"
 # Test 8 (fm-av46m): a durable treehouse lease on a merged clean worktree preserves it
 WT8="${TEST_TMP}/wt-leased"
 git -C "${REPO}" worktree add --detach "${WT8}" main
-FAKE_USER_HOME="${TEST_TMP}/user-home"
 mkdir -p "${FAKE_USER_HOME}/.treehouse/pool-test"
 python3 - "${WT8}" "${FAKE_USER_HOME}/.treehouse/pool-test/treehouse-state.json" <<'EOF'
 import json, sys
@@ -108,7 +112,7 @@ path, state = sys.argv[1], sys.argv[2]
 json.dump({"version": 1, "worktrees": [{"name": "1", "path": path, "leased": True,
           "lease_id": "abc123", "lease_holder": "test-lease-holder"}]}, open(state, "w"))
 EOF
-LEASE_OUTPUT=$(HOME="${FAKE_USER_HOME}" FM_HOME="${FAKE_HOME}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
+LEASE_OUTPUT=$(HOME="${FAKE_USER_HOME}" FM_HOME="${FAKE_HOME}" FM_SECONDMATE_HOMES_DIR="${HOMES_DIR}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
 echo "${LEASE_OUTPUT}" | grep -q "Referenced: ${WT8} (treehouse lease held by test-lease-holder)"
 test -d "${WT8}"
 echo "PASS: Test 8 - treehouse-leased worktree preserved"
@@ -131,7 +135,7 @@ PROC9="${TEST_TMP}/proc-live"
 mkdir -p "${PROC9}/${SLEEP_PID}/fd"
 ln -s "${WT9}/sub" "${PROC9}/${SLEEP_PID}/cwd"
 printf 'Uid:\t1000\t1000\t1000\t1000\n' > "${PROC9}/${SLEEP_PID}/status"
-PROC_OUTPUT=$(FM_PROC_ROOT_OVERRIDE="${PROC9}" FM_HOME="${FAKE_HOME}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
+PROC_OUTPUT=$(FM_PROC_ROOT_OVERRIDE="${PROC9}" HOME="${FAKE_USER_HOME}" FM_HOME="${FAKE_HOME}" FM_SECONDMATE_HOMES_DIR="${HOMES_DIR}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
 echo "${PROC_OUTPUT}" | grep -q "Referenced: ${WT9} (running process"
 test -d "${WT9}"
 kill "${SLEEP_PID}" 2>/dev/null || true
@@ -142,7 +146,7 @@ echo "PASS: Test 9 - worktree with a running process preserved"
 # Test 10 (fm-av46m): an unreferenced merged clean worktree is still reaped
 WT10="${TEST_TMP}/wt-unreferenced"
 git -C "${REPO}" worktree add --detach "${WT10}" main
-REAP_OUTPUT=$(FM_PROC_ROOT_OVERRIDE="${PROC_CLEAN}" FM_HOME="${FAKE_HOME}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
+REAP_OUTPUT=$(FM_PROC_ROOT_OVERRIDE="${PROC_CLEAN}" HOME="${FAKE_USER_HOME}" FM_HOME="${FAKE_HOME}" FM_SECONDMATE_HOMES_DIR="${HOMES_DIR}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
 echo "${REAP_OUTPUT}" | grep -q "Reaped: ${WT10} "
 if [ -d "${WT10}" ]; then
   echo "FAIL: unreferenced merged worktree WT10 was not removed" >&2
@@ -158,7 +162,7 @@ SECOND_HOME="${TEST_TMP}/secondmate-home"
 mkdir -p "${SECOND_HOME}/state" "${FAKE_HOME}/data"
 printf 'worktree=%s\n' "${WT11}" > "${SECOND_HOME}/state/fm-real-task.meta"
 printf -- '- sm-one - worker (home:\t%s; scope: retired (home: /decoy; legacy) audits; projects: p1; added 2024-01-01)\n' "${SECOND_HOME}" > "${FAKE_HOME}/data/secondmates.md"
-REG_OUTPUT=$(FM_HOME="${FAKE_HOME}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
+REG_OUTPUT=$(HOME="${FAKE_USER_HOME}" FM_HOME="${FAKE_HOME}" FM_SECONDMATE_HOMES_DIR="${HOMES_DIR}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
 echo "${REG_OUTPUT}" | grep -q "Referenced: ${WT11} (task record fm-real-task"
 test -d "${WT11}"
 echo "PASS: Test 11 - decoy home text in registry scope prose cannot hide a real home"
@@ -166,12 +170,12 @@ echo "PASS: Test 11 - decoy home text in registry scope prose cannot hide a real
 # Test 12 (fm-av46m): a reference source that cannot be read keeps every worktree
 WT12="${TEST_TMP}/wt-scan-inconclusive"
 git -C "${REPO}" worktree add --detach "${WT12}" main
-chmod 000 "${FAKE_HOME}/data/secondmates.md"
-SCAN_OUTPUT=$(FM_HOME="${FAKE_HOME}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
+mkdir -p "${FAKE_HOME}/state/scan-blocked.meta"
+SCAN_OUTPUT=$(HOME="${FAKE_USER_HOME}" FM_HOME="${FAKE_HOME}" FM_SECONDMATE_HOMES_DIR="${HOMES_DIR}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
 echo "${SCAN_OUTPUT}" | grep -q "Referenced: ${WT12} (reference scan inconclusive"
 test -d "${WT12}"
 echo "PASS: Test 12 - unreadable reference source preserves worktrees"
-chmod 644 "${FAKE_HOME}/data/secondmates.md"
+rmdir "${FAKE_HOME}/state/scan-blocked.meta"
 
 # Test 13 (fm-av46m): an open file inside a merged clean worktree preserves it
 WT13="${TEST_TMP}/wt-fd-referenced"
@@ -182,7 +186,7 @@ mkdir -p "${PROC13}/5150/fd"
 ln -s / "${PROC13}/5150/cwd"
 ln -s "${WT13}/open" "${PROC13}/5150/fd/7"
 printf 'Uid:\t1000\t1000\t1000\t1000\n' > "${PROC13}/5150/status"
-FD_OUTPUT=$(FM_PROC_ROOT_OVERRIDE="${PROC13}" FM_HOME="${FAKE_HOME}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
+FD_OUTPUT=$(FM_PROC_ROOT_OVERRIDE="${PROC13}" HOME="${FAKE_USER_HOME}" FM_HOME="${FAKE_HOME}" FM_SECONDMATE_HOMES_DIR="${HOMES_DIR}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
 echo "${FD_OUTPUT}" | grep -q "Referenced: ${WT13} (running process"
 test -d "${WT13}"
 echo "PASS: Test 13 - worktree with an open file preserved"
@@ -193,9 +197,28 @@ git -C "${REPO}" worktree add --detach "${WT14}" main
 PROC14="${TEST_TMP}/proc-doubt"
 mkdir -p "${PROC14}/777/cwd" "${PROC14}/777/fd"
 printf 'Uid:\t0\t0\t0\t0\n' > "${PROC14}/777/status"
-DOUBT_OUTPUT=$(FM_PROC_ROOT_OVERRIDE="${PROC14}" FM_HOME="${FAKE_HOME}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
+DOUBT_OUTPUT=$(FM_PROC_ROOT_OVERRIDE="${PROC14}" HOME="${FAKE_USER_HOME}" FM_HOME="${FAKE_HOME}" FM_SECONDMATE_HOMES_DIR="${HOMES_DIR}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
 echo "${DOUBT_OUTPUT}" | grep -q "process probe inconclusive (unreadable pid 777 uid 0)"
 test -d "${WT14}"
 echo "PASS: Test 14 - unreadable pid refuses the reap with uid and pid detail"
 
-echo "=== All 14 fm-jev-worktree-reaper tests passed successfully! ==="
+# Test 15 (fm-av46m): a task record in a homes-dir home is honored
+WT15="${TEST_TMP}/wt-homes-dir-referenced"
+git -C "${REPO}" worktree add --detach "${WT15}" main
+mkdir -p "${HOMES_DIR}/domain-one/state"
+printf 'worktree=%s\n' "${WT15}" > "${HOMES_DIR}/domain-one/state/fm-homes-task.meta"
+HOMES_OUTPUT=$(FM_PROC_ROOT_OVERRIDE="${PROC_CLEAN}" HOME="${FAKE_USER_HOME}" FM_HOME="${FAKE_HOME}" FM_SECONDMATE_HOMES_DIR="${HOMES_DIR}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
+echo "${HOMES_OUTPUT}" | grep -q "Referenced: ${WT15} (task record fm-homes-task"
+test -d "${WT15}"
+echo "PASS: Test 15 - homes-dir task record preserves its worktree"
+
+# Test 16 (fm-av46m): an unenumerable homes root is doubt and keeps worktrees
+WT16="${TEST_TMP}/wt-homes-root-doubt"
+git -C "${REPO}" worktree add --detach "${WT16}" main
+printf 'not a directory\n' > "${TEST_TMP}/homes-blocked"
+HOMES_DOUBT_OUTPUT=$(FM_PROC_ROOT_OVERRIDE="${PROC_CLEAN}" HOME="${FAKE_USER_HOME}" FM_HOME="${FAKE_HOME}" FM_SECONDMATE_HOMES_DIR="${TEST_TMP}/homes-blocked" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
+echo "${HOMES_DOUBT_OUTPUT}" | grep -q "Referenced: ${WT16} (reference scan inconclusive"
+test -d "${WT16}"
+echo "PASS: Test 16 - unenumerable homes root preserves worktrees"
+
+echo "=== All 16 fm-jev-worktree-reaper tests passed successfully! ==="

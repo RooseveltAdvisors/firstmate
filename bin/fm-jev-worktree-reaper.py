@@ -109,8 +109,8 @@ def registry_homes(fm_home: str) -> Optional[List[str]]:
 
 def collect_task_refs(fm_home: str) -> Optional[Dict[str, str]]:
     # Owning task ids: every state/<task>.meta worktree= value across the main
-    # home, registered secondmate homes, and the local .firstmate-homes
-    # catch-all. Returns canonical worktree path -> source description, or None
+    # home, registered secondmate homes, and local homes under the
+    # FM_SECONDMATE_HOMES_DIR root. Returns canonical worktree path -> source description, or None
     # when a found record source could not be read (the proof is incomplete).
     refs: Dict[str, str] = {}
     reg_homes = registry_homes(fm_home)
@@ -120,7 +120,15 @@ def collect_task_refs(fm_home: str) -> Optional[Dict[str, str]]:
     for home in reg_homes:
         if os.path.isdir(home):
             homes.add(canon(home))
-    for home in glob.glob("/home/*/.firstmate-homes/*"):
+    homes_base = os.environ.get("FM_SECONDMATE_HOMES_DIR", "/home/jon/.firstmate-homes")
+    try:
+        home_names = sorted(os.listdir(homes_base))
+    except FileNotFoundError:
+        home_names = []
+    except OSError:
+        return None
+    for name in home_names:
+        home = os.path.join(homes_base, name)
         if os.path.isdir(home):
             homes.add(canon(home))
     for home in sorted(homes):
