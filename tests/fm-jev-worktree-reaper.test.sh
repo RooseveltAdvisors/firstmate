@@ -111,9 +111,17 @@ echo "PASS: Test 8 - treehouse-leased worktree preserved"
 # Test 9 (fm-av46m): a running process inside a merged clean worktree preserves it
 WT9="${TEST_TMP}/wt-live-process"
 git -C "${REPO}" worktree add --detach "${WT9}" main
-( cd "${WT9}" && exec sleep 300 ) &
+mkdir -p "${WT9}/sub"
+READY_MARKER="${TEST_TMP}/wt9-ready"
+( cd "${WT9}/sub" && : > "${READY_MARKER}" && exec sleep 300 ) &
 SLEEP_PID=$!
 trap 'kill "${SLEEP_PID}" 2>/dev/null || true; rm -rf "${TEST_TMP}"' EXIT
+WAITED=0
+while [ ! -e "${READY_MARKER}" ] && [ "${WAITED}" -lt 10 ]; do
+  WAITED=$((WAITED + 1))
+  sleep 1
+done
+test -e "${READY_MARKER}"
 PROC_OUTPUT=$(FM_HOME="${FAKE_HOME}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
 echo "${PROC_OUTPUT}" | grep -q "Referenced: ${WT9} (running process"
 test -d "${WT9}"
@@ -133,4 +141,26 @@ if [ -d "${WT10}" ]; then
 fi
 echo "PASS: Test 10 - unreferenced merged worktree still reaped"
 
-echo "=== All 10 fm-jev-worktree-reaper tests passed successfully! ==="
+# Test 11 (fm-av46m): a registry record whose scope prose contains a decoy
+# "(home: ...;" still contributes its real home
+WT11="${TEST_TMP}/wt-registry-referenced"
+git -C "${REPO}" worktree add --detach "${WT11}" main
+SECOND_HOME="${TEST_TMP}/secondmate-home"
+mkdir -p "${SECOND_HOME}/state" "${FAKE_HOME}/data"
+printf 'worktree=%s\n' "${WT11}" > "${SECOND_HOME}/state/fm-real-task.meta"
+printf -- '- sm-one - worker (home:\t%s; scope: retired (home: /decoy; legacy) audits; projects: p1; added 2024-01-01)\n' "${SECOND_HOME}" > "${FAKE_HOME}/data/secondmates.md"
+REG_OUTPUT=$(FM_HOME="${FAKE_HOME}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
+echo "${REG_OUTPUT}" | grep -q "Referenced: ${WT11} (task record fm-real-task"
+test -d "${WT11}"
+echo "PASS: Test 11 - decoy home text in registry scope prose cannot hide a real home"
+
+# Test 12 (fm-av46m): a reference source that cannot be read keeps every worktree
+WT12="${TEST_TMP}/wt-scan-inconclusive"
+git -C "${REPO}" worktree add --detach "${WT12}" main
+chmod 000 "${FAKE_HOME}/data/secondmates.md"
+SCAN_OUTPUT=$(FM_HOME="${FAKE_HOME}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
+echo "${SCAN_OUTPUT}" | grep -q "Referenced: ${WT12} (reference scan inconclusive"
+test -d "${WT12}"
+echo "PASS: Test 12 - unreadable reference source preserves worktrees"
+
+echo "=== All 12 fm-jev-worktree-reaper tests passed successfully! ==="
