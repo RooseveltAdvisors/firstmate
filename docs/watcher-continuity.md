@@ -204,6 +204,11 @@ Any row left for main then becomes a recoverable downtime episode, including one
 The successor closes once with the recovery wake only while that row is still queued; this is how a captain inbox note reaches main during handling-successor startup or while the host is parked on the handled wake's successor.
 When the host instead hands the accepted close back to main and leaves that successor running, it republishes the episode as announced downtime, because the close it hands back is that episode's delivery; the successor therefore does not announce it again, while a later durable append still opens a pending episode it recovers.
 
+Presentation reorders nothing durable: `bin/fm-wake-drain.sh` sorts only its own view of the claimed rows, presenting a captain-tagged row first, then signal rows and rows carrying `corr=` or `bead=`, then stale, then check, then everything else, oldest timestamp first within each class and then sequence order.
+A captain-tagged row is one whose payload ends in the exact suffix `verdict=captain`, which the producers of captain-facing rows (mail, inbox notes, supervision-host outcome relays, and inactive-outcome presentations) append so a captain follow-up is never buried under watcher noise.
+Identical unstructured payload bytes cannot distinguish a subject-ending `verdict=captain` token from a genuine producer suffix, so that single indistinguishable case is an accepted limitation of the exact-suffix rule.
+`bin/fm-wake-drain.sh`'s header owns the exact sort and `tests/fm-wake-queue.test.sh` pins the ordering and the suffix rule.
+
 ### Manual recovery and other harnesses
 
 - The model no longer re-arms after ordinary wakes.

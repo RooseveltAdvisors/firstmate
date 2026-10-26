@@ -6,6 +6,24 @@ This record contains reusable version-scoped evidence for active runtime guarant
 The backend guides own current setup, safety boundaries, and limitations.
 Exact task chronology, branch names, temporary homes, local paths, process ids, thread ids, and delivery transcripts remain in private reports or PR evidence.
 
+## Supervisor delegation hook policy
+
+Verified on 2026-10-25 with Python 3.14.7 and GNU Bash 5.2.21 on Linux through the public shell adapter with deterministic Jev responses and an unavailable proxy:
+
+```sh
+bash bin/fm-test-run.sh tests/fm-jev-guard.test.sh tests/fm-action-adapter.test.sh
+```
+
+```text
+ok - eight project/supervisor acceptance cases
+ok - all fm-jev-guard tests passed
+ok - scenario6: unlisted and case-variant hook transports deny before command and role fast paths; exact governed shell/read names allow
+```
+
+The regression exercises Claude's stderr denial, Cursor's stdout denial, and the exit-2 adapter used by Pi, omp, Grok, Codex, and OpenCode.
+Their tracked integration surfaces still call the same adapter; this verifies its command decisions and protocol rendering, without claiming a new live TUI or browser-mediation proof.
+The same policy denies project work in secondmate homes and exempts linked worker worktrees.
+
 ## Polytoken worker lifecycle
 
 Verified on 2026-10-14 with Polytoken 0.9.0 on macOS arm64 using the tmux worker path.

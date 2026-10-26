@@ -1,9 +1,96 @@
 #!/usr/bin/env python3
 """fm-jev-guard.py - dynamic delegation guardrail for Firstmate using Jev System One.
 
-Prevents Firstmate in w1 from falling into hands-on implementation and sysadmin
+Prevents Firstmate and secondmates from falling into hands-on implementation and sysadmin
 rabbit holes by intercepting commands, fast-passing legitimate supervisor tasks,
 and querying Jev System One on ambiguous or mutating commands.
+
+Deterministic scope contract; every clause is pinned in tests/fm-jev-guard.test.sh:
+
+  fast-path   Supervisor allowlist only: fm-*.sh scripts, bd, tasks-axi, herdr, gh read
+              verbs (pr view/status/list/checks/diff, run list/view), git read verbs
+              (status/log/diff/rev-parse/show/ls-files/ls-remote), and bash/sh/zsh/dash
+              payload forms with leading flags whose own command qualifies on that list.
+              Only those four names take the payload fast path; ksh and ash stay
+              deny-side. Every shell segment of a compound must independently qualify
+              for the compound to fast-pass. Bare git grep and the attached -C<dir>
+              spelling are not part of this listed fast-path guarantee and fall through
+              to the pre-deny or Jev like any other unlisted spelling. The fast path
+              runs first, so an allowlisted spelling is allowed even when its context
+              paths lie under projects/ (git read verbs on a project repo); a program
+              token or startup-file value under projects/ refuses it.
+  not-writes  Bare fd duplication (2>&1) and the literal dev-sink redirect targets
+              /dev/null, /dev/stdout, /dev/stderr, /dev/fd/0, /dev/fd/1, /dev/fd/2 are
+              not file writes; any other redirect target refuses the fast path.
+  pre-deny    A command the fast path does not allow and whose operative paths - cwd, cd
+              target, program, file operand, redirect target, find action or file-output
+              operand, shell payload, assignment value - lie under projects/ or a
+              treehouse worktree is denied require_delegation before any Jev query.
+              Payload recursion covers bash, sh, zsh, dash, ksh and ash with leading flags,
+              at the top level and inside find actions. The fail-closed pre-deny governs
+              commands that execute, mutate, or write under projects/ - payloads, wrappers,
+              assignment values, file-write operands, and non-enumerated verbs such as
+              commit - while the enumerated read verbs with project context operands stay
+              exempt as supervision reads: data-path option values pre-deny, git context
+              operands for those read verbs do not.
+  mentions    Pattern and predicate words (grep patterns, find -path/-name without a
+              transforming action, echo/printf values, task payloads) are mentions, not
+              operands: a mention on an allowlisted tool fast-passes with that tool, and
+              every other mention reaches Jev instead of the pre-deny. A project-resolving
+              assignment value is not a mention: it refuses the fast path and pre-denies.
+  unparsable  Input that cannot be tokenized never fast-passes, and the pre-deny falls
+              back to the project-path substring test.
+  jev         Jev classifies everything else and project_worker always denies; outages
+              admit only SUPERVISOR_ALLOWLIST and fail closed; allowed decisions are
+              never cached.
+
+Written amendment - wrapper peeling, deny side only: before the shell-name check, peel
+the leading wrapper words nohup, env (including -i and -U forms), timeout, exec, nice,
+setsid, xargs, time and command - these nine and only these; any future wrapper word
+joins solely by a further written amendment. Peeling consumes each wrapper's own
+arguments too: option flags and their values, timeout's duration, and env's -i,
+-u, -U and -S forms; nohup carries none, while exec and command carry their flags.
+After peeling, the remaining command runs
+the existing recursion: the four commissioned shells including leading flags, then the
+project-op pre-deny. Rationale: a command operating under projects/ hard-denies BEFORE
+ANY QUERY - a deterministic guarantee independent of Jev's answer - and the
+pinned-permissive-answer allow of `nohup bash -c 'rm projects/portal/x'` is precisely
+the failure that clause exists to stop (a project file deleted while the guard stamps
+supervisor approval). Peeling widens the deny side only and never makes anything newly
+allowable.
+
+Second written amendment - file-valued wrapper options, deny side only: when peeling
+one of the nine wrapper words, a file-valued option's VALUE is an OPERAND - time -o and
+time --output, xargs -a and xargs --arg-file - and it routes into operative_paths
+exactly like a direct file operand, so it pre-denies when it points under projects/
+IN ADDITION TO (never instead of) continuing the peel onward to the shell-payload
+check. Consuming an option value may add a deny and may never remove or reroute one.
+These four named option pairs are the complete list for this round; any further
+file-valued option of the nine joins only by another written amendment. The earlier
+consumption machinery exceeded its named mandate by covering file-valued options at
+all; this amendment legitimizes and bounds that overreach.
+
+Third written amendment - assignment values, deny side only: a leading NAME=value
+assignment whose value resolves under projects/ refuses the fast path and reaches the
+pre-deny before any query, the same operative-path rule the pre-deny uses for operands,
+over every assignment prefix including env's forms and env -S/--split-string payloads.
+An assignment-only segment executes nothing and stays out of the pre-deny; variable and
+glob expansions remain unresolved parser input that reaches Jev, never an endorsed
+workaround. Strictly additive: nothing becomes newly allowable.
+
+Fourth written amendment - project programs and shell startup files, deny side only: a
+program token resolving under projects/ or a treehouse refuses the fast path and
+pre-denies before any query, in direct, script and shell-payload spellings; --init-file
+and --rcfile values under projects/ are data-path operands like the second amendment's
+pairs - these two option names are the complete list, and any future one joins only by
+another written amendment - and refuse the fast path the same way. Find actions recurse
+into their executed commands' env -S and --split-string payloads exactly like the main
+path. Non-project programs and non-project startup-file values keep their current
+paths, and enumerated git read verbs with project context operands stay exempt as
+supervision reads - program start is not that carve-out. Deny-side only: nothing becomes
+newly allowable.
+
+The firstmate invariant: anything the deterministic layer does not positively classify for fast-path or pre-deny REACHES JEV and outage keeps fail-closed deny - no third outcome, no spelling may end in a silent allow.
 
 Usage:
   fm-jev-guard.py [--command <cmd>] [--check-only] [--json] [--debug]
@@ -11,7 +98,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -24,7 +110,6 @@ from pathlib import Path
 TS_BASE = os.environ.get("FM_JEV_TS_BASE", "https://api.typesafe.ai")
 TS_MODEL = os.environ.get("FM_JEV_TS_MODEL", "jev-latest")
 TS_TIMEOUT = float(os.environ.get("FM_JEV_GUARD_TIMEOUT", "3.0"))
-CACHE_FILE = Path(os.environ.get("FM_JEV_GUARD_CACHE", "/dev/shm/.fm-jev-guard-cache.json"))
 DEFAULT_JEV_PROXY = "/opt/ra/infisical/bin/jev-proxy.sh"
 
 CRITERIA_ACTION = {
@@ -48,70 +133,19 @@ CRITERIA_DOMAIN = {
     "firstmate_upstream": "Upstream firstmate pull requests and framework changes.",
 }
 
-# Approved supervisor prefix patterns for Tier 1 fast path
-SUPERVISOR_TOOL_PREFIXES = (
-    "bd ",
-    "tasks-axi",
-    "bin/fm-tasks-axi.sh",
-    "bin/fm-send.sh",
-    "bin/fm-route-",
-    "bin/fm-wake-drain.sh",
-    "bin/fm-brief.sh",
-    "bin/fm-spawn.sh",
-    "bin/fm-captain-hold.sh",
-    "bin/fm-check-register.sh",
-    "bin/fm-session",
-    "bin/fm-jev-",
-    "tests/fm-jev-",
-    "/opt/ra/firstmate/bin/fm-jev-",
-    "/opt/ra/firstmate/tests/fm-jev-",
-    "herdr",
-)
+# One allowlist for fast-path supervision and Jev outages. Values constrain verbs.
+SUPERVISOR_ALLOWLIST = {
+    r"fm-[A-Za-z0-9_-]+\.sh": None,
+    r"bd": None,
+    r"tasks-axi": None,
+    r"herdr": None,
+    r"gh(?:-axi)?": {"pr view", "pr status", "pr list", "pr checks", "pr diff", "run list", "run view"},
+    r"git": {"status", "log", "diff", "rev-parse", "show", "ls-files", "ls-remote"},
+}
 
-# Supervisor lifecycle scripts (AGENTS.md sections 4/7/8): seat relaunch/interrupt,
-# task PR merge and check, teardown, lease claim, current-state reads, fleet view,
-# watcher arm/restart, and local guard/sweep maintenance.
-# These are firstmate-owned supervision actions, never hands-on project work.
-SUPERVISOR_LIFECYCLE_PREFIXES = (
-    "bin/fm-control.sh",
-    "bin/fm-teardown.sh",
-    "bin/fm-pr-merge.sh",
-    "bin/fm-pr-check.sh",
-    "bin/fm-lease.sh",
-    "bin/fm-crew-state.sh",
-    "bin/fm-fleet-view.sh",
-    "bin/fm-watch-arm.sh",
-    "bin/fm-watch.sh",
-    "bin/fm-watch-checkpoint.sh",
-    "bin/fm-guard.sh",
-    "bin/fm-stale-sweep.sh",
-    "bin/fm-update.sh",
-    "bin/fm-lint.sh",
-)
-
-SAFE_READ_TOOLS = (
-    "cat ",
-    "head ",
-    "tail ",
-    "grep ",
-    "pgrep ",
-    "pgrep",
-    "rg ",
-    "sed ",
-    "awk ",
-    "cut ",
-    "tr ",
-    "wc ",
-    "ls ",
-    "echo ",
-    "printf ",
-    "sleep ",
-    "true",
-    "false",
-    "test ",
-    "[ ",
-    "jq ",
-)
+# Exact literal tokens only: these discard or duplicate standard streams rather
+# than write a file. No /dev/fd/N for N>=3: an inherited fd may be a real file.
+DEV_SINKS = {"/dev/null", "/dev/stdout", "/dev/stderr", "/dev/fd/0", "/dev/fd/1", "/dev/fd/2"}
 
 
 def get_jev_proxy() -> Path | None:
@@ -159,187 +193,379 @@ def post_jev_systemone(payload: dict, proxy_bin: Path | None = None) -> dict:
     return data
 
 
-def split_compound_commands(cmd: str) -> list[str]:
-    """Split compound bash commands (;, &&, ||, newlines, pipes) while preserving quoted strings and subshells."""
-    try:
-        lexer = shlex.shlex(cmd, posix=True, punctuation_chars=";&|")
-        lexer.whitespace_split = True
-        parts = []
-        current = []
-        paren_depth = 0
-        for tok in lexer:
-            paren_depth += tok.count("(") - tok.count(")")
-            if paren_depth <= 0 and tok in (";", "&&", "||", "\n", "|"):
-                paren_depth = 0
-                if current:
-                    parts.append(" ".join(current))
-                    current = []
+SHELL_NAMES = {"bash", "sh", "zsh", "dash", "ksh", "ash"}
+FAST_PATH_SHELLS = {"bash", "sh", "zsh", "dash"}
+SHELL_VALUE_OPTS = {"-o", "+o", "-O", "+O", "--rcfile", "--init-file"}
+WRAPPER_WORDS = {"nohup", "env", "timeout", "exec", "nice", "setsid", "xargs", "time", "command"}
+WRAPPER_FILE_OPTS = {
+    "time": {"-o", "--output"},
+    "xargs": {"-a", "--arg-file"},
+}
+
+
+def peel_wrappers(args: list[str]) -> tuple[list[str], list[str], list[str]]:
+    """Strip leading wrapper words and their arguments.
+
+    Returns the remaining args, the paths the peel consumed (wrapper programs and
+    file-option values), and command payloads carried by env -S.
+    """
+    collected: list[str] = []
+    payloads: list[str] = []
+    while args and Path(args[0]).name in WRAPPER_WORDS:
+        wrapper = Path(args[0]).name
+        collected.append(args[0])
+        args = args[1:]
+        if wrapper == "nohup":
+            continue
+        if wrapper == "env":
+            env_values: list[str] = []
+            while args:
+                if args[0] in ("-i", "--"):
+                    args = args[1:]
+                elif re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", args[0]):
+                    env_values.append(args[0].split("=", 1)[1])
+                    args = args[1:]
+                elif args[0] in ("-u", "-U", "--unset") and len(args) > 1:
+                    args = args[2:]
+                elif args[0].startswith(("-u", "-U", "--unset=")):
+                    args = args[1:]
+                elif args[0] in ("-S", "--split-string") and len(args) > 1:
+                    payloads.append(args[1])
+                    args = args[2:]
+                elif args[0].startswith("--split-string="):
+                    payloads.append(args[0].split("=", 1)[1])
+                    args = args[1:]
+                else:
+                    break
+            if args or payloads:
+                collected.extend(env_values)
+            continue
+        file_opts = WRAPPER_FILE_OPTS.get(wrapper, set())
+        while args and args[0].startswith("-"):
+            flag = args[0]
+            name, sep, attached = flag.partition("=")
+            if name in file_opts and sep:
+                collected.append(attached)
+                args = args[1:]
+            elif len(flag) > 2 and not flag.startswith("--") and flag[:2] in file_opts:
+                collected.append(flag[2:])
+                args = args[1:]
+            elif flag in file_opts and len(args) > 1:
+                collected.append(args[1])
+                args = args[2:]
+            elif sep:
+                args = args[1:]
+            elif (len(args) > 1 and Path(args[1]).name not in WRAPPER_WORDS | SHELL_NAMES
+                  and not PROJECT_PATH_RE.search(args[1])):
+                args = args[2:]
             else:
-                current.append(tok)
-        if current:
-            parts.append(" ".join(current))
-        return parts if parts else [cmd]
-    except Exception:
-        # Fallback: simple line/semicolon/pipe split if lexer encounters syntax errors
-        raw_parts = [p.strip() for p in re.split(r"[;\n|]|&&|\|\|", cmd) if p.strip()]
-        return raw_parts if raw_parts else [cmd]
+                args = args[1:]
+        if wrapper == "timeout" and len(args) > 1 and Path(args[1]).name in WRAPPER_WORDS | SHELL_NAMES:
+            args = args[1:]
+    return args, collected, payloads
 
 
-def clean_subcommand(subcmd: str) -> str:
-    """Strip leading variable assignments, redirects, and comments from a subcommand."""
-    s = subcmd.strip()
-    # Strip leading shell comments
-    s = re.sub(r"^#[^\n]*\n?", "", s).strip()
-    # Strip leading env assignments like export FOO=bar, FOO=bar, or FOO=$(...)
-    while True:
-        m = re.match(r"^(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*=(?:\$\([^\)]*\)|'[^']*'|\"[^\"]*\"|\S+)\s*", s)
-        if m:
-            s = s[m.end():].strip()
+def shell_payload(args: list[str], shells: set[str] = SHELL_NAMES) -> str | None:
+    """The -c command string of a shell invocation, or None when args name a script file."""
+    if not args or Path(args[0]).name not in shells:
+        return None
+    argv: list[str] = []
+    skip = False
+    for a in args:
+        if skip:
+            skip = False
+        elif a and all(char in "<&>|" for char in a):
+            skip = True
+        elif not a.isdigit():
+            argv.append(a)
+    command = False
+    i = 1
+    while i < len(argv):
+        a = argv[i]
+        if a in SHELL_VALUE_OPTS:
+            i += 2
+        elif a.startswith("--"):
+            if a == "--":
+                return None
+            i += 1
+        elif a[:1] in ("-", "+") and len(a) > 1:
+            if "c" in a[1:]:
+                command = True
+            i += 2 if a[-1] in ("o", "O") else 1
+        elif command:
+            return a
         else:
-            break
-    # Strip redirects (e.g. 2>&1, 2> & 1, >/dev/null)
-    s = re.sub(r"\s*(?:[0-9]*>\s*&\s*[0-9]+|[0-9]*>\s*\S+)+\s*$", "", s).strip()
-    return s
-
-
-def is_fast_pass_supervisor(subcmd: str) -> bool:
-    """Check if an individual subcommand is unequivocally an allowed supervisor operation."""
-    clean = clean_subcommand(subcmd)
-    if not clean:
-        return True
-    # Unwrap bash / sh wrappers around approved tools
-    unwrapped = re.sub(r"^(?:bash|sh)\s+", "", clean).strip()
-
-    # 0. Supervisor delegation and task messaging tools are always fast-path
-    # (Their message payloads may legitimately instruct Second Mates to run systemctl, journalctl, docker, etc.)
-    delegation_prefixes = (
-        "bin/fm-send.sh",
-        "/opt/ra/firstmate/bin/fm-send.sh",
-        "bd ",
-        "bd",
-        "tasks-axi",
-        "bin/fm-tasks-axi.sh",
-        "/opt/ra/firstmate/bin/fm-tasks-axi.sh",
-        "bin/fm-brief.sh",
-        "/opt/ra/firstmate/bin/fm-brief.sh",
-        "bin/fm-spawn.sh",
-        "/opt/ra/firstmate/bin/fm-spawn.sh",
-    )
-    if clean.startswith(delegation_prefixes) or unwrapped.startswith(delegation_prefixes):
-        return True
-
-    # 1. Immediate disallow for remote ssh or systemd/package mutations
-    if any(k in clean for k in ("ssh ", "ssh\t", "sudo ", "apt-get", "apt ", "systemctl", "journalctl", "docker ")):
-        return False
-
-    # 1a. Safe shell navigation (cd)
-    if clean == "cd" or clean.startswith("cd "):
-        return True
-
-    # 1b. Unwrap bash -c / sh -c subshells
-    if re.match(r"^(?:bash|sh)\s+-c\b", clean):
-        cmd_arg = re.sub(r"^(?:bash|sh)\s+-c\s*", "", clean).strip()
-        if (cmd_arg.startswith("'") and cmd_arg.endswith("'")) or (cmd_arg.startswith('"') and cmd_arg.endswith('"')):
-            inner_cmd = cmd_arg[1:-1].strip()
-        else:
-            inner_cmd = cmd_arg
-        if inner_cmd:
-            return is_whitelisted_command(inner_cmd)
-        return True
-
-    # 1c. Safe stream JSON / text processing with python -c
-    if re.match(r"^(?:python3|python)\s+-c\s+['\"]?\s*import\s+(?:json|sys|re)\b", clean):
-        return True
-
-    # Unwrap bash / sh wrappers around approved tools
-    unwrapped = re.sub(r"^(?:bash|sh)\s+", "", clean).strip()
-
-    # 2. Approved supervisor tools (beads, tasks, routing, wake drain, etc.)
-    #    plus the supervisor lifecycle scripts (control/merge/teardown/lease/state/watch).
-    if (
-        clean.startswith(SUPERVISOR_TOOL_PREFIXES)
-        or unwrapped.startswith(SUPERVISOR_TOOL_PREFIXES)
-        or clean.startswith(SUPERVISOR_LIFECYCLE_PREFIXES)
-        or unwrapped.startswith(SUPERVISOR_LIFECYCLE_PREFIXES)
-        or clean == "bd"
-        or clean == "tasks-axi"
-    ):
-        return True
-
-    # 3. Read-only or Firstmate-home git queries
-    if clean.startswith("git ") or clean == "git":
-        git_clean = re.sub(r"^git(?:\s+(?:-C\s+\S+|--no-pager\b|--git-dir=\S+|--work-tree=\S+))*\s*", "", clean).strip()
-        if re.match(r"^(status|log|diff|rev-parse|show|branch|remote)\b", git_clean):
-            return True
-        # Allow Firstmate repository commits and pushes to fork (never projects/)
-        if not re.search(r"\bprojects/\S+", clean):
-            if re.match(r"^(add\s+bin/|commit|push\s+fork)\b", git_clean):
-                return True
-        return False
-
-    # 4. Read-only GitHub PR queries
-    if clean.startswith("gh pr "):
-        gh_args = clean[6:].strip()
-        if re.match(r"^(view|status|list|checks)\b", gh_args):
-            return True
-        return False
-
-    # 5. Safe file inspection / shell utilities
-    if clean.startswith(SAFE_READ_TOOLS):
-        # Disallow reading remote or dangerous paths if specified
-        return True
-
-    # 6. Syntax validation and temp scratch copies for verification
-    if re.match(r"^(?:bash|sh)\s+-n\b", clean):
-        return True
-    if clean.startswith("cp ") and "/tmp/" in clean:
-        return True
-
-    return False
+            return None
+    return None
 
 
 def is_whitelisted_command(cmd: str) -> bool:
-    """Tier 1: Check if all components of the command belong to the supervisor whitelist."""
-    subcmds = split_compound_commands(cmd)
-    if not subcmds:
+    """Admit supervisor tools with opaque task payloads, refusing shell-substitution tokens."""
+    try:
+        cmd = cmd.strip()
+        if cmd.startswith("(") and cmd.endswith(")"):
+            return is_whitelisted_command(cmd[1:-1])
+        lexer = shlex.shlex(cmd, posix=True, punctuation_chars=";&|<>\n")
+        lexer.whitespace = " \t\r"
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        parts: list[list[str]] = [[]]
+        for token in lexer:
+            if "$(" in token or "`" in token:
+                return False
+            if token and all(char in ";&|\n" for char in token):
+                parts.append([])
+            else:
+                parts[-1].append(token)
+        for args in parts:
+            args, assigned = strip_assignments(args)
+            if any(resolves_under_projects(value) for value in assigned):
+                return False
+            if not args:
+                continue
+            if args[0] == "env":
+                args = args[1:]
+                args, assigned = strip_assignments(args)
+                if any(resolves_under_projects(value) for value in assigned):
+                    return False
+            if not args:
+                return False
+            # Do not let a tool fast-pass shell substitutions or file writes.
+            for i, arg in enumerate(args):
+                if not arg or any(char not in "<&>|" for char in arg):
+                    continue
+                target = args[i + 1] if i + 1 < len(args) else ""
+                if arg in (">&", "<&") and target.isdigit():
+                    continue
+                if target in DEV_SINKS:
+                    continue
+                return False
+            program = args[0]
+            payload = shell_payload(args, FAST_PATH_SHELLS)
+            if payload is None and Path(args[0]).name in FAST_PATH_SHELLS:
+                args = args[1:]
+                if not args:
+                    return False
+            if resolves_under_projects(program) or resolves_under_projects(args[0]):
+                return False
+            for index, arg in enumerate(args):
+                startup = ""
+                if arg in ("--init-file", "--rcfile") and index + 1 < len(args):
+                    startup = args[index + 1]
+                elif arg.startswith(("--init-file=", "--rcfile=")):
+                    startup = arg.split("=", 1)[1]
+                if startup and resolves_under_projects(startup):
+                    return False
+            if payload is not None:
+                if not is_whitelisted_command(payload):
+                    return False
+                continue
+            # Navigation only sets context; every following operation is checked.
+            if args[0] == "cd" and len(args) <= 2:
+                continue
+            tool = Path(args[0]).name
+            match = next((verbs for pattern, verbs in SUPERVISOR_ALLOWLIST.items()
+                          if re.fullmatch(pattern, tool)), False)
+            if match is False:
+                return False
+            if match is not None:
+                rest = args[1:]
+                while rest:
+                    if rest[0] in ("-C", "--git-dir", "--work-tree") and len(rest) > 1:
+                        rest = rest[2:]
+                    elif rest[0] in ("--no-pager", "--no-optional-locks") or rest[0].startswith(("--git-dir=", "--work-tree=")):
+                        rest = rest[1:]
+                    else:
+                        break
+                verbs = {tuple(verb.split()) for verb in match}
+                if not any(tuple(rest[:len(verb)]) == verb for verb in verbs):
+                    return False
+                if any(arg.startswith("--output") for arg in rest):
+                    return False
         return True
-    return all(is_fast_pass_supervisor(part) for part in subcmds)
+    except ValueError as exc:
+        print(f"Jev guard: cannot parse command: {exc}", file=sys.stderr)
+        return False
 
 
-def load_cache() -> dict[str, dict]:
+def delegation_denial(reason: str, domain: str = "project_worker") -> dict:
+    return {
+        "decision": "deny",
+        "code": "require_delegation",
+        "reason": reason,
+        "target_domain": domain,
+        "suggested_command": get_suggested_dispatch("", domain),
+    }
+
+
+PROJECT_PATH_RE = re.compile(r"(?:^|[/\s=])projects(?:/|$)|(?:^|/)\.treehouse/")
+
+# These tools open no file operand: their words are patterns or values, so a
+# project path named there is a mention, not an operation on it.
+NO_FILE_OPERAND_TOOLS = {"pgrep", "pkill", "echo", "printf"}
+# These tools name a pattern or program first; the words after it are files.
+PATTERN_FIRST_TOOLS = {"grep", "egrep", "fgrep", "rg", "ag", "ack", "awk", "sed"}
+# find primaries that execute or transform what they match.
+FIND_ACTIONS = ("-delete", "-exec", "-execdir", "-ok", "-okdir")
+
+
+def is_file_operand(operand: str) -> bool:
+    if not re.search(r"\s", operand):
+        return True
+    ancestor = Path(operand).expanduser()
+    while not ancestor.exists() and ancestor != ancestor.parent:
+        ancestor = ancestor.parent
+    return bool(PROJECT_PATH_RE.search(str(ancestor)))
+
+
+def strip_assignments(args: list[str]) -> tuple[list[str], list[str]]:
+    values: list[str] = []
+    while args and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", args[0]):
+        values.append(args[0].split("=", 1)[1])
+        args = args[1:]
+    return args, values
+
+
+def resolves_under_projects(value: str) -> bool:
+    return is_file_operand(value) and bool(PROJECT_PATH_RE.search(value))
+
+
+def operative_paths(cmd: str) -> list[str] | None:
+    """The paths a command operates on: its program, cd targets, file operands,
+    and redirection targets, recursing into bash -c strings.
+
+    Returns None when the command cannot be parsed. Operative paths count even
+    when they do not exist yet; a word that merely mentions a path (match
+    pattern, task payload) is left out.
+    """
     try:
-        if CACHE_FILE.exists():
-            with open(CACHE_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-    except Exception:
-        pass
-    return {}
+        lexer = shlex.shlex(cmd, posix=True, punctuation_chars=";&|<>()\n")
+        lexer.whitespace = " \t\r"
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        segments: list[list[str]] = [[]]
+        for token in lexer:
+            if not token:
+                continue
+            if all(char in ";&|()\n" for char in token):
+                segments.append([])
+            else:
+                segments[-1].append(token)
+    except ValueError:
+        return None
+    merged: list[list[str]] = []
+    for segment in segments:
+        if not segment:
+            continue
+        if segment[0].startswith("-") and merged:
+            merged[-1].extend(segment)
+        else:
+            merged.append(segment)
+    paths: list[str] = []
+    for args in merged:
+        args, assigned = strip_assignments(args)
+        args, peeled, carried = peel_wrappers(args)
+        args, more_assigned = strip_assignments(args)
+        assigned += more_assigned
+        if args:
+            paths.extend(value for value in assigned if is_file_operand(value))
+        paths.extend(operand for operand in peeled if is_file_operand(operand))
+        for command in carried:
+            nested = operative_paths(command)
+            if nested is None:
+                return None
+            paths.extend(nested)
+        if not args:
+            continue
+        tool = Path(args[0]).name
+        pattern_tool = tool in PATTERN_FIRST_TOOLS
+        redirects: list[str] = []
+        roots: list[str] = []
+        words: list[str] = []
+        values: list[str] = []
+        pending = False
+        expression = False
+        take = ""
+        pattern_source = False
+        for a in args[1:]:
+            if all(char in "<&>|" for char in a):
+                pending = True
+            elif pending:
+                pending = False
+                redirects.append(a)
+            elif take:
+                if take == "file":
+                    values.append(a)
+                take = ""
+            elif a.startswith("-"):
+                if a not in ("-H", "-L", "-P"):
+                    expression = True
+                if pattern_tool:
+                    if a in ("-e", "--regexp"):
+                        take, pattern_source = "pattern", True
+                    elif a in ("-f", "--file"):
+                        take, pattern_source = "file", True
+                    elif a.startswith("--file="):
+                        values.append(a.split("=", 1)[1])
+                        pattern_source = True
+                    elif a.startswith(("-e", "-f", "--regexp")):
+                        pattern_source = True
+                        if re.fullmatch(r"-f.+", a):
+                            values.append(a[2:])
+                elif tool == "find" and a in ("-fls", "-fprintf", "-fprint", "-fprint0"):
+                    take = "file"
+                elif "=" in a:
+                    values.append(a.split("=", 1)[1])
+                elif re.fullmatch(r"-[A-Za-z].+", a):
+                    values.append(a[2:])
+            else:
+                words.append(a)
+                if not expression:
+                    roots.append(a)
+        paths.extend(redirects)
+        payload = shell_payload(args)
+        if payload is not None:
+            nested = operative_paths(payload)
+            if nested is None:
+                return None
+            paths.extend(nested)
+        if tool in ("cd", "pushd"):
+            if words:
+                paths.append(words[0])
+            continue
+        paths.append(args[0])
+        if tool in NO_FILE_OPERAND_TOOLS:
+            continue
+        if tool == "find":
+            for index, action in enumerate(args):
+                if action not in FIND_ACTIONS:
+                    continue
+                exec_args, _, exec_payloads = peel_wrappers(args[index + 1:])
+                executed = shell_payload(exec_args)
+                if executed is not None:
+                    exec_payloads.append(executed)
+                for command in exec_payloads:
+                    nested = operative_paths(command)
+                    if nested is None:
+                        return None
+                    paths.extend(nested)
+            words = words if any(a in FIND_ACTIONS for a in args) else roots
+        elif pattern_tool and not pattern_source:
+            words = words[1:]
+        for operand in values + words:
+            if is_file_operand(operand):
+                paths.append(operand)
+    return paths
 
 
-def save_cache(cache: dict[str, dict]) -> None:
-    try:
-        CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        # Keep cache bounded to 500 entries
-        if len(cache) > 500:
-            keys = list(cache.keys())[-300:]
-            cache = {k: cache[k] for k in keys}
-        with open(CACHE_FILE, "w", encoding="utf-8") as f:
-            json.dump(cache, f)
-    except Exception:
-        pass
-
-
-def get_cached_decision(cmd: str) -> dict | None:
-    cache = load_cache()
-    cmd_hash = hashlib.sha256(cmd.strip().encode("utf-8")).hexdigest()
-    return cache.get(cmd_hash)
-
-
-def cache_decision(cmd: str, decision_data: dict) -> None:
-    cache = load_cache()
-    cmd_hash = hashlib.sha256(cmd.strip().encode("utf-8")).hexdigest()
-    cache[cmd_hash] = decision_data
-    save_cache(cache)
+def targets_project(cmd: str) -> bool:
+    # The cwd counts too: a plain pytest inside a project carries no path in argv.
+    if PROJECT_PATH_RE.search(str(Path.cwd().resolve())):
+        return True
+    paths = operative_paths(cmd)
+    if paths is None:
+        return bool(PROJECT_PATH_RE.search(cmd))
+    return any(PROJECT_PATH_RE.search(path) for path in paths)
 
 
 def get_suggested_dispatch(cmd: str, domain: str) -> str:
@@ -391,11 +617,11 @@ def query_jev_guard(cmd: str, proxy_bin: Path | None = None) -> dict:
     data = post_jev_systemone(payload, proxy_bin)
 
     answers = data.get("answers", {})
-    action = answers.get("action", {}).get("choice", "allow_supervisor")
-    violation_noul = float(answers.get("violation_noul", {}).get("noul", 0.0))
-    target_domain = answers.get("target_domain", {}).get("choice", "supervisor")
+    action = answers.get("action", {}).get("choice", "require_delegation")
+    violation_noul = float(answers.get("violation_noul", {}).get("noul", 1.0))
+    target_domain = answers.get("target_domain", {}).get("choice", "project_worker")
 
-    is_deny = (action == "require_delegation") or (violation_noul >= 0.70)
+    is_deny = (target_domain == "project_worker") or (action == "require_delegation") or (violation_noul >= 0.70)
     suggested = get_suggested_dispatch(cmd, target_domain)
 
     if is_deny:
@@ -437,31 +663,14 @@ def stamp_guard_telemetry(cmd: str, result: dict, fm_root: Path | None = None) -
         line = f"{ts}\t{decision}\ttier{tier}\t{code}\t{domain}\t{clean_cmd}\n"
         with open(telemetry_file, "a", encoding="utf-8") as f:
             f.write(line)
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"Jev guard: telemetry write failed: {exc}", file=sys.stderr)
 
 
 def _evaluate_command_inner(cmd: str, fm_root: Path | None = None) -> dict:
     cmd_clean = cmd.strip()
     if not cmd_clean:
         return {"decision": "allow", "code": "empty_cmd", "reason": "empty command"}
-
-    # Secondmate inertia: a secondmate home is not the supervisor workspace
-    if fm_root and (fm_root / ".fm-secondmate-home").exists():
-        return {
-            "decision": "allow",
-            "code": "secondmate_charter_scope",
-            "reason": "Secondmate executing on its own host/charter scope",
-            "tier": 1,
-        }
-    fm_home_env = os.environ.get("FM_HOME")
-    if fm_home_env and (Path(fm_home_env) / ".fm-secondmate-home").exists():
-        return {
-            "decision": "allow",
-            "code": "secondmate_charter_scope",
-            "reason": "Secondmate executing on its own host/charter scope",
-            "tier": 1,
-        }
 
     # Tier 1: Fast-path whitelist
     if is_whitelisted_command(cmd_clean):
@@ -472,38 +681,20 @@ def _evaluate_command_inner(cmd: str, fm_root: Path | None = None) -> dict:
             "tier": 1,
         }
 
-    # Tier 2: Cache check
-    cached = get_cached_decision(cmd_clean)
-    if cached:
-        cached["tier"] = 2
-        return cached
+    if targets_project(cmd_clean):
+        return delegation_denial("Project work must be delegated to a crewmate")
 
-    # Tier 3: Jev System One evaluation via Infisical JEV proxy
     proxy_bin = get_jev_proxy()
     if not proxy_bin:
-        # Fail-open if proxy is not configured
-        return {
-            "decision": "allow",
-            "code": "fail_open_no_key",
-            "reason": "Infisical JEV proxy unavailable; failing open",
-            "tier": 3,
-        }
+        return delegation_denial("Jev unavailable; only supervisor allowlist commands may run")
 
     try:
         res = query_jev_guard(cmd_clean, proxy_bin)
         res["tier"] = 3
-        # Cache allowed or benign results
-        if res.get("decision") == "allow":
-            cache_decision(cmd_clean, res)
         return res
     except Exception as exc:
-        # Fail-open on timeout or network errors
-        return {
-            "decision": "allow",
-            "code": "fail_open_error",
-            "reason": f"Jev query error ({exc}); failing open",
-            "tier": 3,
-        }
+        print(f"Jev guard: query failed: {exc}", file=sys.stderr)
+        return delegation_denial(f"Jev unavailable ({exc}); only supervisor allowlist commands may run")
 
 
 def evaluate_command(cmd: str, fm_root: Path | None = None) -> dict:

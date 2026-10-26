@@ -353,7 +353,7 @@ announce_note() {  # <id> <summary>
     fm_lock_release "$FM_WAKE_QUEUE_LOCK"
     return 2
   fi
-  if fm_wake_append_locked check "inbox:$id" "check: captain inbox note $id - $summary"; then
+  if fm_wake_append_locked check "inbox:$id" "check: captain inbox note $id - $summary verdict=captain"; then
     mark_announced "$id"
   else
     status=1

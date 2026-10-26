@@ -18,6 +18,117 @@ GUARD="$ROOT/bin/fm-guard.sh"
 
 TMP_ROOT=$(fm_test_tmproot fm-wake-tests)
 
+test_captain_rows_lead_watcher_backlog() {
+  local dir state i sequence generation now
+  dir=$(make_case captain-first)
+  state="$dir/state"
+  for ((i = 1; i <= 50; i++)); do
+    append_wake "$state" check "watcher-$i" "check: watcher $i" || fail "check append failed"
+  done
+  append_wake "$state" signal captain 'signal: captain follow-up corr=x' || fail "captain append failed"
+  cp "$state/.wake-queue" "$dir/queue.before"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/drain.out" 2> "$dir/drain.err" || fail "captain-first drain failed"
+  [ "$(awk -F '\t' 'NR == 1 { print $2 }' "$dir/drain.out")" = 51 ] \
+    || fail "captain follow-up remained behind 50 checks"
+  [ "$(awk -F '\t' 'NF == 5 { n++ } END { print n }' "$dir/drain.out")" = 51 ] \
+    || fail "priority ordering lost wake rows"
+  cmp -s "$state/.wake-queue" "$dir/queue.before" || fail "presentation reordered the stored queue"
+  sequence=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation .*$/\1/p' "$dir/drain.err")
+  generation=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' "$dir/drain.err")
+  [ "$sequence" = 51 ] || fail "priority order changed the acknowledgement cutoff"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" --ack-through "$sequence" --recovery-generation "$generation" \
+    || fail "priority-ordered rows could not be acknowledged"
+  [ ! -s "$state/.wake-queue" ] || fail "priority acknowledgement left queued rows"
+
+  # Scramble timestamps to prove age, rather than insertion, orders each class.
+  now=$(date +%s)
+  {
+    printf '%s\t52\theartbeat\theartbeat\theartbeat\n' "$((now - 7200))"
+    printf '%s\t53\tcheck\tnew-check\tcheck: newer\n' "$now"
+    printf '%s\t54\tstale\tnew-stale\tstale: newer\n' "$now"
+    printf '%s\t55\tcheck\tcorrelated\tcheck: corr=x\n' "$now"
+    printf '%s\t56\tcheck\told-check\tcheck: older\n' "$((now - 1900))"
+    printf '%s\t57\tstale\told-stale\tstale: older\n' "$((now - 1900))"
+    printf '%s\t58\tstale\tbead\tstale: bead=x\n' "$((now - 1900))"
+    printf '%s\t59\tsignal\tplain\tsignal: no correlation\n' "$((now - 1900))"
+  } > "$state/.wake-queue"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/aged.out" 2> "$dir/aged.err" || fail "age-ordered drain failed"
+  [ "$(awk -F '\t' 'NF == 5 { print $2 }' "$dir/aged.out" | paste -sd, -)" = '58,59,55,57,54,56,53,52' ] \
+    || fail "captain/class/age/sequence ordering was incorrect"
+  pass "captain follow-up leads 50 checks; class/age ordering preserves durable rows and acknowledgement"
+}
+
+test_captain_verdict_rows_lead_watcher_backlog() {
+  local dir state i
+  dir=$(make_case captain-verdict)
+  state="$dir/state"
+  for ((i = 1; i <= 50; i++)); do
+    append_wake "$state" check "watcher-$i" "check: watcher $i" || fail "check append failed"
+  done
+  append_wake "$state" stale win 'stale: win (idle 30m possible wedge ...)' || fail "wedge append failed"
+  append_wake "$state" check "inbox:42" 'check: captain inbox note 42 - please dispatch wiseman-uukr verdict=captain' \
+    || fail "captain append failed"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/drain.out" 2> "$dir/drain.err" || fail "captain-first drain failed"
+  assert_contains "$(awk -F '\t' 'NR == 1 { print $5 }' "$dir/drain.out")" 'captain inbox note 42' \
+    "captain-tagged follow-up did not lead the drain"
+  assert_contains "$(awk -F '\t' 'NR == 2 { print $5 }' "$dir/drain.out")" 'possible wedge' \
+    "the stale wedge did not keep its rank beneath the captain row"
+  [ "$(awk -F '\t' 'NF == 5 { n++ } END { print n }' "$dir/drain.out")" = 52 ] \
+    || fail "captain-first presentation lost wake rows"
+  pass "captain-tagged follow-up leads fifty watcher checks and the stale wedge"
+}
+
+test_captain_tag_needs_exact_suffix() {
+  local dir state
+  dir=$(make_case captain-suffix)
+  state="$dir/state"
+  append_wake "$state" check "control:mid" 'check: mail 9 - verdict=captain inside subject text' \
+    || fail "mid-payload control append failed"
+  append_wake "$state" check "control:space" 'check: captain inbox note 7 - trailing verdict=captain ' \
+    || fail "trailing-space control append failed"
+  append_wake "$state" stale win 'stale: win (idle 30m possible wedge ...)' || fail "wedge append failed"
+  append_wake "$state" check "inbox:42" 'check: captain inbox note 42 - please dispatch wiseman-uukr verdict=captain' \
+    || fail "captain append failed"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/drain.out" 2> "$dir/drain.err" || fail "suffix drain failed"
+  assert_contains "$(awk -F '\t' 'NR == 1 { print $5 }' "$dir/drain.out")" 'inbox note 42' \
+    "only the exact suffix promotes"
+  assert_contains "$(awk -F '\t' 'NR == 2 { print $5 }' "$dir/drain.out")" 'possible wedge' \
+    "the stale wedge keeps its rank"
+  assert_contains "$(awk -F '\t' 'NR == 3 { print $5 }' "$dir/drain.out")" 'inside subject text' \
+    "a mid-payload marker must not promote"
+  assert_contains "$(awk -F '\t' 'NR == 4 { print $5 }' "$dir/drain.out")" 'trailing verdict=captain' \
+    "a trailing-space tag must not promote"
+  pass "the captain tag promotes only as an exact end-of-payload suffix"
+}
+
+test_inbox_producer_row_leads_watcher_backlog() {
+  local dir state home out i pos inbox="$ROOT/bin/fm-inbox.sh"
+  dir=$(make_case producer-first)
+  state="$dir/state"
+  home="$dir/home"
+  mkdir -p "$home/state" "$home/data" "$home/config"
+  for ((i = 1; i <= 50; i++)); do
+    append_wake "$state" check "watcher-$i" "check: watcher $i" || fail "check append failed"
+  done
+  append_wake "$state" stale win 'stale: win (idle 30m possible wedge ...)' || fail "wedge append failed"
+  append_wake "$state" check "control:captain-worded" 'check: captain inbox note 99 - untagged captain-worded control' \
+    || fail "control append failed"
+  append_wake "$state" check "procevent:1" 'check: procevent noise' || fail "noise append failed"
+  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$home/data" FM_CONFIG_OVERRIDE="$home/config" \
+    "$inbox" note 'please dispatch wiseman-uukr') || fail "fm-inbox note failed"
+  assert_contains "$out" "queued " "fm-inbox note queued its wake"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/drain.out" 2> "$dir/drain.err" || fail "producer-first drain failed"
+  assert_contains "$(awk -F '\t' 'NR == 1 { print $5 }' "$dir/drain.out")" 'wiseman-uukr verdict=captain' \
+    "the fm-inbox-emitted row must lead the drain"
+  [ "$(awk -F '\t' 'NF == 5 { n++ } END { print n }' "$dir/drain.out")" = 54 ] \
+    || fail "producer-first presentation lost wake rows"
+  pos=$(awk -F '\t' '$4 == "control:captain-worded" { print NR }' "$dir/drain.out")
+  [ -n "$pos" ] && [ "$pos" -gt 2 ] || fail "the untagged captain-worded control was promoted"
+  assert_not_contains "$(awk -F '\t' 'NR > 1 { print $5 }' "$dir/drain.out")" 'verdict=captain' \
+    "watcher, wedge and procevent rows stay untagged"
+  pass "a real fm-inbox-emitted row leads the drain above untagged noise"
+}
+
 
 test_concurrent_append_and_drain() {
   local dir state out1 out2 pids i pid count unique malformed sequence generation
@@ -1318,12 +1429,12 @@ SH
   append_wake "$state" heartbeat heartbeat heartbeat || fail "heartbeat wake append failed"
 
   FM_STATE_OVERRIDE="$state" bash -c '. "$1"; fm_wake_print_deduped "$2"' _ \
-    "$ROOT/bin/fm-wake-lib.sh" "$state/.wake-queue" > "$expected"
+    "$ROOT/bin/fm-wake-lib.sh" "$state/.wake-queue" | LC_ALL=C sort > "$expected"
   PATH="$dir/fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_WAKE_ENRICH_SWAP_PATH="$state/task.status" \
     FM_WAKE_ENRICH_SWAP_TARGET="$outside" FM_WAKE_ENRICH_REAL_PERL="$perl_bin" "$DRAIN" > "$out" \
     || fail "structural enrichment drain failed"
-  awk -F '\t' 'NF == 5 { print }' "$out" > "$actual"
-  cmp -s "$expected" "$actual" || fail "enrichment changed or reordered an authoritative raw row"
+  awk -F '\t' 'NF == 5 { print }' "$out" | LC_ALL=C sort > "$actual"
+  cmp -s "$expected" "$actual" || fail "enrichment changed an authoritative raw row"
 
   annotation_count=$(grep -c '^wake annotation:' "$out" || true)
   [ "$annotation_count" -eq 1 ] || fail "expected only the unreadable-race-safe status annotation, got $annotation_count"
@@ -3617,6 +3728,10 @@ SH
   pass "watch liveness: an unreachable remote secondmate is probed, preserved, and never failed over"
 }
 
+test_captain_rows_lead_watcher_backlog
+test_captain_verdict_rows_lead_watcher_backlog
+test_captain_tag_needs_exact_suffix
+test_inbox_producer_row_leads_watcher_backlog
 test_self_held_lock_reclaims_instead_of_deadlocking
 test_lock_wait_returns_when_its_directory_is_removed
 test_subshell_lock_ownership_without_bashpid

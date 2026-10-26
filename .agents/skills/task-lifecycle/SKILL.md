@@ -24,7 +24,7 @@ At intake, classify with `bin/fm-route-domain.sh --task "<description>"` or `bin
 Never spawn project workers as direct reports in `w1`.
 Send in-scope work to the fitting secondmate unless it is blocked or the captain explicitly redirects it.
 If no secondmate scope fits, or Jev recommends `create_secondmate`, charter an appropriate persistent secondmate rather than doing that project work in the main home.
-`bin/fm-jev-guard.sh` is the primary-console supervisor boundary: it denies hands-on project implementation, remote service mutation, and similar work with `require_delegation`.
+`bin/fm-jev-guard.sh` is the supervisor boundary for the primary console and secondmate homes: it denies hands-on project implementation, remote service mutation, and similar work with `require_delegation`.
 
 ## Ship vs scout
 
