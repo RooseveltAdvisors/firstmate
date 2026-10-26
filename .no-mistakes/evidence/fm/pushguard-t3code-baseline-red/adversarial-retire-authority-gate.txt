@@ -1,0 +1,16 @@
+== 1. no authority at all ==
+OK   no-authority: refused as expected
+REFUSED: task fmadvretire1 is a persistent secondmate home, not a finished worker; nothing was changed.
+An idle queue is a healthy secondmate's normal state, never evidence it is done.
+Retiring it takes authority naming that exact home: bin/fm-teardown.sh fmadvretire1 --retire-secondmate fmadvretire1
+List candidates with their kinds using bin/fm-fleet-view.sh --cleanup-candidates rather than inferring persistence from a worktree path.
+== 2. authority naming a different home ==
+OK   wrong-target-authority: refused as expected
+REFUSED: --retire-secondmate names some-other-id, but this teardown targets fmadvretire1; nothing was changed.
+Authority for retiring a persistent home must name that exact home.
+== 3. empty authority value ==
+OK   empty-authority: refused as expected
+REFUSED: --retire-secondmate names <empty>, but this teardown targets fmadvretire1; nothing was changed.
+Authority for retiring a persistent home must name that exact home.
+
+== all retire-authority refusals hold; home and task record untouched ==

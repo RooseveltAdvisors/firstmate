@@ -1,0 +1,11 @@
+FM_TEST_BEGIN 2026-10-26T21:29:57Z tests/fm-git-push-guard.test.sh family=unclassified expected_gate_skip=none
+ok - push guard: origin, origin's URL, and a remote aliasing origin's URL are all refused
+ok - push guard: the backup remote takes only backup/<id>, never the task branch or prefix
+ok - push guard: with an empty task prefix the bare task branch is still refused anywhere
+ok - push guard: the repository's own pre-push hook runs after the guard passes and still blocks
+ok - push guard: an unreadable guard file refuses every push
+# all fm-git-push-guard tests passed
+FM_TEST_END 2026-10-26T21:29:58Z tests/fm-git-push-guard.test.sh exit=0 duration_ms=819 gate_skip=false
+FM_TEST_SUMMARY total=1 failed=0 skipped_gate=0 duration_ms=852
+FM_TEST_SUMMARY_FAMILY family=unclassified count=1 duration_ms=819 failed=0
+FM_TEST_SLOWEST rank=1 script=tests/fm-git-push-guard.test.sh duration_ms=819

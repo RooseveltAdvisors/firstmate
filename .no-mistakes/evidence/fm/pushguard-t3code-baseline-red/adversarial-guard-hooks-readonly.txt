@@ -1,0 +1,7 @@
+OK   install --push-guard installed the guard (real product scripts)
+OK   git rev-parse --git-path hooks resolves to the worktree-scoped guard dir (the path the old fixture wrote)
+OK   writing a pre-push hook there fails EACCES - exactly the failure the base fixture hit
+OK   the common dir's hooks path (/tmp/fm-adv-guard.ivEaEb/wt/.git/hooks) is writable and distinct from the guard dir
+OK   the installed guard pre-push wrapper is intact
+
+== guard hooks dir stays read-only while the chain hook installs at the common dir ==

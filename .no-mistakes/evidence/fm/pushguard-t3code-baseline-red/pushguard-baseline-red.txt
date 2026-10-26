@@ -1,0 +1,8 @@
+ok - push guard: origin, origin's URL, and a remote aliasing origin's URL are all refused
+ok - push guard: the backup remote takes only backup/<id>, never the task branch or prefix
+ok - push guard: with an empty task prefix the bare task branch is still refused anywhere
+tests/.baseline-fm-git-push-guard.test.sh: line 121: /tmp/fm-git-push-guard.YYjWc8/chain/hooks/pre-push: Permission denied
+cat: /tmp/fm-git-push-guard.YYjWc8/chain/pre-push-ran: No such file or directory
+not ok - the repository pre-push hook did not receive git's ref lines (missing: 'refs/heads/backup/t1')
+--- output ---
+
