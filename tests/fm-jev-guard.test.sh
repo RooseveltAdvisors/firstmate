@@ -225,6 +225,7 @@ done
 export FM_TEST_JEV_RESPONSE='{"answers":{"action":{"choice":"allow_supervisor"},"violation_noul":{"noul":0},"target_domain":{"choice":"supervisor"}}}'
 out=$(cd "$SUPERVISOR" && python3 "$SUPERVISOR/bin/fm-jev-guard.py" --check-only --command 'FOO=bar bd show x')
 assert_contains "$out" fast_path_whitelist 'benign assignment keeps the fast path'
+# shellcheck disable=SC2016  # single quotes keep literal $D/$P for the guard to parse.
 for probe in 'D=projects/portal; rm $D/x' 'P=projects/portal; cd $P && npm test' 'rm proj*/x'; do
   out=$(cd "$SUPERVISOR" && python3 "$SUPERVISOR/bin/fm-jev-guard.py" --check-only --command "$probe")
   assert_contains "$out" supervisor_approved "expansion form still reaches Jev: $probe"

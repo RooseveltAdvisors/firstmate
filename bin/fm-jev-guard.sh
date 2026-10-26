@@ -39,6 +39,7 @@ EOF
 }
 
 json_escape() {
+  # shellcheck disable=SC1003 # '\' is a literal backslash used to escape JSON.
   local bs='\' dq='"'
   local s=${1//"$bs"/$bs$bs}
   s=${s//"$dq"/$bs$dq}
