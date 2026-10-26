@@ -1176,6 +1176,70 @@ SH
   pass "a marked child proceeds without tasks-axi when its parent relay is disabled"
 }
 
+test_remote_registered_secondmate_teardown_accepts_the_route_binding() {
+  # fm-1777z: a secondmate whose registry record is a remote route (host/root/
+  # home form) but whose live home sits locally must still resolve its durable
+  # parent binding; the route form is the binding, and the local-only home
+  # match must not read a present-but-remote record as absent. Portal-ops
+  # stranded two landed lanes behind exactly this mismatch.
+  local parent child
+  parent=$(make_home teardown-remote-parent)
+  child=$(make_home teardown-remote-child)
+  printf '%s\n' remote-mate > "$child/.fm-secondmate-home"
+  printf -- '- remote-mate - synthetic (host: agt-test; root: /opt/ra/firstmate; home: /remote/home/remote-mate; scope: synthetic; projects: ; added 2026-07-30)\n' \
+    > "$parent/data/secondmates.md"
+  seed_commitment "$parent" pf-remote req-remote x secondmate:remote-mate work-remote
+  fm_write_meta "$parent/state/remote-mate.meta" "kind=secondmate" "home=$child"
+  fm_write_meta "$child/state/work-remote.meta" \
+    "window=firstmate:fm-work-remote" "endpoint_task_id=work-remote" \
+    "worktree=$child" "project=$child" "kind=ship" "mode=local-only" "spawn_gen=public-followup-fixture"
+
+  # Without the fix this refused with "cannot resolve the primary home": the
+  # remote registry record could never equal the local live home path. With
+  # the route form accepted, resolution succeeds and the parent's owed public
+  # commitment is enforced instead - the binding's protective instinct holds.
+  PATH="$child/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$child" \
+    FM_STATE_OVERRIDE="$child/state" FM_DATA_OVERRIDE="$child/data" \
+    FM_PUBLIC_FOLLOWUP_PRIMARY_HOME="$parent" \
+    expect_failure "a present-but-remote registry binding must resolve, not read as absent" \
+    "$TEARDOWN" work-remote
+  assert_contains "$EXPECT_OUT" "still owes a public reply" \
+    "a resolved remote-route binding must route cleanup through the parent commitment"
+  case "$EXPECT_OUT" in
+    *"cannot resolve the primary home"*) fail "a present-but-remote registry binding was reported as an absent parent" ;;
+  esac
+  assert_contains "$EXPECT_OUT" "registered on the remote route agt-test:/remote/home/remote-mate" \
+    "accepting the remote route must surface which binding stood"
+  assert_present "$child/state/work-remote.meta" \
+    "an owed parent commitment must preserve the child work metadata"
+  pass "a remote registry route stands as the durable parent binding for a locally seated secondmate"
+}
+
+test_remote_registered_secondmate_teardown_still_refuses_a_missing_binding() {
+  local parent child
+  parent=$(make_home teardown-remote-missing-parent)
+  child=$(make_home teardown-remote-missing-child)
+  printf '%s\n' remote-mate > "$child/.fm-secondmate-home"
+  printf -- '- other-mate - synthetic (host: agt-test; root: /opt/ra/firstmate; home: /remote/home/other-mate; scope: synthetic; projects: ; added 2026-07-30)\n' \
+    > "$parent/data/secondmates.md"
+  seed_commitment "$parent" pf-remote-missing req-remote-missing x secondmate:remote-mate work-remote-missing
+  fm_write_meta "$parent/state/remote-mate.meta" "kind=secondmate" "home=$child"
+  fm_write_meta "$child/state/work-remote-missing.meta" \
+    "window=firstmate:fm-work-remote-missing" "endpoint_task_id=work-remote-missing" \
+    "worktree=$child" "project=$child" "kind=ship" "mode=local-only" "spawn_gen=public-followup-fixture"
+
+  PATH="$child/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$child" \
+    FM_STATE_OVERRIDE="$child/state" FM_DATA_OVERRIDE="$child/data" \
+    FM_PUBLIC_FOLLOWUP_PRIMARY_HOME="$parent" \
+    expect_failure "a registry without this secondmate's binding must still refuse cleanup" \
+    "$TEARDOWN" work-remote-missing
+  assert_contains "$EXPECT_OUT" "cannot resolve the primary home for marked secondmate remote-mate" \
+    "a missing binding must stay an actionable teardown refusal"
+  assert_present "$child/state/work-remote-missing.meta" \
+    "a missing binding must preserve the child work metadata"
+  pass "remote-route acceptance keeps the no-binding refusal intact"
+}
+
 test_secondmate_parent_binding_matches_literal_id() {
   local parent child
   parent=$(make_home teardown-literal-parent)
@@ -3942,6 +4006,8 @@ test_secondmate_teardown_rejects_unsafe_durable_parent_records
 test_secondmate_teardown_rejects_nul_bearing_durable_parent_record
 test_relay_disabled_unmarked_teardown_skips_public_path
 test_relay_disabled_parent_allows_marked_child_teardown
+test_remote_registered_secondmate_teardown_accepts_the_route_binding
+test_remote_registered_secondmate_teardown_still_refuses_a_missing_binding
 test_secondmate_parent_binding_matches_literal_id
 test_traversal_registration_is_refused_before_delivery
 test_pending_rejects_malformed_listing

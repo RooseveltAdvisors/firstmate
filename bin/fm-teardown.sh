@@ -1459,7 +1459,22 @@ public_followup_resolve_primary_home() {
   meta_home=$(CDPATH='' cd -- "$meta_home" 2>/dev/null && pwd -P) || return 1
   [ "$meta_home" = "$child" ] || return 1
   registry="$parent/data/secondmates.md"
-  secondmate_registry_validate_bindings "$registry" secondmate_registry_path_key "$id" "$child" || return 1
+  # Validate the whole registry and require a binding for this id, but without
+  # naming the child home as the expected home yet: a remote record can never
+  # equal a local live home path, and a present-but-remote binding must not
+  # read as absent (fm-1777z: landed lanes of a remote-registered secondmate
+  # stranded behind exactly that mismatch). Which home is authoritative is a
+  # recorded captain call; the guard accepts either form and stays strict
+  # about everything else (registry shape, duplicates, overlaps, the parent
+  # meta proofs above).
+  secondmate_registry_validate_bindings "$registry" secondmate_registry_path_key "$id" || return 1
+  if [ "$SECONDMATE_REGISTRY_MATCH_REMOTE" -eq 1 ]; then
+    echo "warning: secondmate $id is registered on the remote route $SECONDMATE_REGISTRY_MATCH_HOST:$SECONDMATE_REGISTRY_MATCH_HOME while its live home here is $child; the recorded route stands as its durable parent binding" >&2
+  else
+    local child_key
+    child_key=$(secondmate_registry_path_key "$child") || return 1
+    [ "local:$child_key" = "$SECONDMATE_REGISTRY_MATCH_HOME_KEY" ] || return 1
+  fi
   printf '%s\n' "$parent"
 }
 if [ -f "$FM_HOME/$SUB_HOME_MARKER" ]; then
