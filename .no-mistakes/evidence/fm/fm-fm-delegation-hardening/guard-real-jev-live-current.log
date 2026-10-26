@@ -1,0 +1,15 @@
+=== R1: guard tier-3 with the REAL Jev service (default proxy, no stub) ===
+rc=0 out=
+telemetry tail: 2026-10-26T04:12:44Z	allow	tier3	supervisor_approved	supervisor	cat state/task.status
+=== R2: project work pre-denies WITHOUT querying even with the real proxy ===
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"[require_delegation] Project work must be delegated to a crewmate (Domain: project_worker; Suggested: bin/fm-route-dispatch.sh --task '<task instructions>')"}
+{"decision":"deny","reason":"[require_delegation] Project work must be delegated to a crewmate (Domain: project_worker; Suggested: bin/fm-route-dispatch.sh --task '<task instructions>')"}
+rc=2
+=== R3: retained fm-jev-wake-triage against the REAL service ===
+action=suppress
+class=ship
+choice=healthy_idle
+noul=0.3
+rc=0
+
+REAL-JEV RESULT: pass=5 fail=0

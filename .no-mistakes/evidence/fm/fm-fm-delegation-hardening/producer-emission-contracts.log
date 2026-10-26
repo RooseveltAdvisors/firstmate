@@ -1,0 +1,10 @@
+=== tests/fm-inbox.test.sh rc=0 ===
+ok - plain note, list, and wake stay on the historical human path
+ok - plain note keeps exit 1 for a saved-but-unannounced failure
+=== tests/fm-mail-check.test.sh rc=0 ===
+ok - fm-mail-check: a successful poll that surfaces new mail emits one wake line
+=== tests/fm-inactive-reconcile.test.sh rc=0 ===
+ok - main direct terminal presentation has a durable receipt
+=== tests/fm-supervision-host.test.sh rc=0 ===
+=== tests/fm-supervision-host.test.sh rc=0 (branch-report emission case) ===
+ok - report surface: visible late outcomes queue a relay, while silent outcomes remain stored without a wake or note

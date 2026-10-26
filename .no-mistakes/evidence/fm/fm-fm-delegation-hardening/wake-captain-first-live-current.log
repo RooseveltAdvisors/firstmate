@@ -1,0 +1,11 @@
+fm-inbox note -> queued 1792987906-G5AFCD
+  please dispatch wiseman-uukr
+  firstmate will pick this up at its next check.
+drain row1: check: captain inbox note 1792987906-G5AFCD - please dispatch wiseman-uukr verdict=captain
+drain row2: stale: win (idle 30m possible wedge ...)
+drain rows: 56
+control ranks: mid=53 space=54 worded=55
+ack-through=56 generation=3422651.1792987904.YK0TdN
+class/age order: 66,64,65,61,63,60,62,59,58
+
+WAKE-DRIVE RESULT: pass=11 fail=0

@@ -1,0 +1,8 @@
+CASE tag=target case=test_turn_ended_malformed_prior_hash_surfaced pass=10 fail=0
+CASE tag=target case=test_separate_self_announced_answers_after_fold_wake_once pass=10 fail=0
+CASE tag=target case=test_unreadable_status_reports_once_per_file_state pass=10 fail=0
+CASE tag=target case=test_permission_recovery_surfaces_preserved_status pass=10 fail=0
+CASE tag=target case=test_stale_terminal_status_overridden_by_active_run pass=10 fail=0
+CASE tag=target case=test_nonterminal_stale_provably_working_absorbed_then_escalated pass=10 fail=0
+CASE tag=target case=test_nonterminal_stale_paused_absorbed_then_resurfaced pass=10 fail=0
+FLAKE-CASES tag=target reps_per_case=10 total_case_runs=70 fails=0

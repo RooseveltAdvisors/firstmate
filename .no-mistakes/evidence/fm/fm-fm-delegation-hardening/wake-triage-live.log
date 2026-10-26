@@ -1,0 +1,44 @@
+=== S7a: real default Jev proxy (live query attempt through platform-session-curl) ===
+action=suppress
+class=ship
+choice=pipeline_wait
+noul=0.12
+rc=0
+
+=== S7b: decision contract, true_wedge -> escalate ===
+action=escalate
+class=ship
+choice=true_wedge
+noul=0.85
+rc=0
+
+=== S7c: decision contract, pipeline_wait -> suppress ===
+action=suppress
+class=ship
+choice=pipeline_wait
+noul=0.1
+rc=0
+
+=== S7d: decision contract, healthy_idle -> suppress ===
+action=suppress
+class=secondmate
+choice=healthy_idle
+noul=0.05
+rc=0
+
+=== S7e: malformed Jev answer fails open to action=unavailable ===
+action=unavailable
+class=ship
+rc=0
+
+=== S7f: missing proxy fails open ===
+action=unavailable
+class=ship
+rc=0
+
+=== telemetry recorded in lab state ===
+jev_triage.escalated	ship	2026-10-26T01:43:42Z
+jev_triage.suppressed	ship	2026-10-26T01:43:42Z
+jev_triage.suppressed	secondmate	2026-10-26T01:43:42Z
+jev_triage.unavailable	ship	2026-10-26T01:43:42Z
+jev_triage.unavailable	ship	2026-10-26T01:43:42Z

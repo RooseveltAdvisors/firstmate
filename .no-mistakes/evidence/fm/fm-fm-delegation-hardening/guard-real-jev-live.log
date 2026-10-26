@@ -1,0 +1,14 @@
+=== S8a: guard tier-3 with the REAL Jev service (default proxy, no stub) ===
+rc=0
+
+=== S8b: project work pre-denies WITHOUT querying even with the real proxy ===
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"[require_delegation] Project work must be delegated to a crewmate (Domain: project_worker; Suggested: bin/fm-route-dispatch.sh --task '<task instructions>')"}
+{"decision":"deny","reason":"[require_delegation] Project work must be delegated to a crewmate (Domain: project_worker; Suggested: bin/fm-route-dispatch.sh --task '<task instructions>')"}
+rc=2
+
+=== guard telemetry stamped in the lab primary (first rows) ===
+2026-10-26T01:35:21Z	allow	tier1	fast_path_whitelist	-	bin/fm-wake-drain.sh
+2026-10-26T01:35:21Z	deny	tier1	require_delegation	project_worker	cd projects/portal && npm test
+2026-10-26T01:37:38Z	allow	tier1	fast_path_whitelist	-	bin/fm-wake-drain.sh
+2026-10-26T01:37:38Z	allow	tier1	fast_path_whitelist	-	bd show x
+2026-10-26T01:37:38Z	allow	tier1	fast_path_whitelist	-	herdr --session firstmate agent read w1:p1

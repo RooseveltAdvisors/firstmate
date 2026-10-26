@@ -1,0 +1,14 @@
+=== tests/fm-jev-guard.test.sh ===
+ok - eight project/supervisor acceptance cases
+Jev guard: cannot parse command: No closing quotation
+Jev guard: cannot parse command: No closing quotation
+ok - all fm-jev-guard tests passed
+rc=0
+=== tests/fm-action-adapter.test.sh ===
+ok - scenario6: unlisted and case-variant hook transports deny before command and role fast paths; exact governed shell/read names allow
+rc=0
+=== tests/fm-jev-wake-triage.test.sh ===
+ok - watcher Jev error fails open to today's escalate path
+ok - config/jev-wake-triage=off disables triage and escalates as today
+# all fm-jev-wake-triage tests passed
+rc=0

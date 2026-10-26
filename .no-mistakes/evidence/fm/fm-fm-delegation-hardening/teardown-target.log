@@ -1,0 +1,6 @@
+ok - teardown leaves opencode's busy plugin in the returned pool worktree as on main
+ok - status archival is opt-in and preserves the complete log
+not ok - nested secondmate status archive: REFUSED: task task-x1 is a persistent secondmate home, not a finished worker; nothing was changed.
+An idle queue is a healthy secondmate's normal state, never evidence it is done.
+Retiring it takes authority naming that exact home: bin/fm-teardown.sh task-x1 --retire-secondmate task-x1
+List candidates with their kinds using bin/fm-fleet-view.sh --cleanup-candidates rather than inferring persistence from a worktree path.: expected exit 0, got 1
