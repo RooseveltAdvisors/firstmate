@@ -600,7 +600,7 @@ fm_send_resolve_close_note() { # <key> <excerpt>
 # pointer to the complete answer under state/resolved-answers/, which
 # fm_send_store_full_answer writes before any close is appended, so the
 # durable record never holds a decision's words only as a fragment.
-FM_SEND_FULL_ANSWER_DIR=resolved-answers
+FM_SEND_FULL_ANSWER_DIR="resolved-answers"
 fm_send_close_line_var() { # <key> <note> <answer-id>
   local k=$1 note=$2 id=$3 line pointer
   line="resolved [key=$k]: $(fm_send_resolve_close_note "$k" "$note")"
