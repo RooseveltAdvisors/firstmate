@@ -2339,6 +2339,78 @@ EOF
   pass "an older unfetched live sibling does not hide a newer failure"
 }
 
+# The 2026-08-14 stt-gpu-durable-cutover incident (bead
+# crew-state-pipeline-head-attribution), run 01KZZ8SK7S868VK2X9RXGMG1FA fixing
+# at pipeline head d82c47ce while the task copy sat at 1b713baf: the
+# unresolved NEWEST running row must answer, and the OLDER failed row whose
+# head equals the local head must never be attributed instead. With the
+# daemon up the head-free executing bind reports the crew working.
+test_unresolved_running_row_never_loses_to_older_failed_row() {
+  reset_fakes
+  local d base_head short_base unfetched out
+  d=$(new_case unresolved-running-row)
+  make_repo_on_branch "$d/wt" fm/stt-cutover
+  base_head=$(git -C "$d/wt" rev-parse HEAD)
+  short_base=$(git -C "$d/wt" rev-parse --short=7 "$base_head")
+  unfetched=d82c47ce
+  git -C "$d/wt" rev-parse --verify --quiet "${unfetched}^{commit}" >/dev/null 2>&1 \
+    && fail "the unfetched pipeline head must not resolve in the task copy"
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/sttcut.meta" "window=fm:fm-sttcut" "worktree=$d/wt" "kind=ship"
+  FM_FAKE_RUN_HEAD="$unfetched"
+  FM_FAKE_AXI_STATUS="$(run_fixing fm/stt-cutover)"
+  FM_FAKE_AXI_STATUS_RUN="$(run_fixing fm/stt-cutover | sed 's/01RUN/01RUNNEW/')"
+  FM_FAKE_AXI_HOME="count: 2 of 2 total
+runs[2]{id,branch,status,head,pr}:
+  01RUNNEW,fm/stt-cutover,running,$unfetched,\"\"
+  01RUNOLD,fm/stt-cutover,failed,$short_base,\"\""
+  FM_FAKE_RUNS_LIST="$(cat <<EOF
+  running    fm/stt-cutover ${unfetched}  2026-08-14 11:30
+  failed     fm/stt-cutover ${short_base}  2026-08-14 10:05
+EOF
+)"
+  out=$(run_crew_state "$d" sttcut)
+  assert_contains "$out" "state: working" "the unresolved running row answers for the crew"
+  assert_contains "$out" "source: run-step" "the running row keeps its run-step verdict"
+  assert_not_contains "$out" "state: failed" "the older failed row at the local head never answers"
+  pass "an unresolved running row beats an older failed row at the local head"
+}
+
+# The same incident shape with the daemon provably down: the anchored ledger
+# still proves the pipeline-owned continuation, so the record reads unknown
+# with the dead instrument named - never the older row's terminal failure.
+test_unresolved_running_row_daemon_down_never_reads_failed() {
+  reset_fakes
+  local d base_head short_base unfetched out
+  d=$(new_case unresolved-running-row-dead-daemon)
+  make_repo_on_branch "$d/wt" fm/stt-cutover
+  base_head=$(git -C "$d/wt" rev-parse HEAD)
+  short_base=$(git -C "$d/wt" rev-parse --short=7 "$base_head")
+  unfetched=d82c47ce
+  git -C "$d/wt" rev-parse --verify --quiet "${unfetched}^{commit}" >/dev/null 2>&1 \
+    && fail "the unfetched pipeline head must not resolve in the task copy"
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/sttcut.meta" "window=fm:fm-sttcut" "worktree=$d/wt" "kind=ship"
+  FM_FAKE_RUN_HEAD="$unfetched"
+  FM_FAKE_AXI_STATUS="$(run_fixing fm/stt-cutover)"
+  FM_FAKE_AXI_STATUS_RUN="$(run_fixing fm/stt-cutover | sed 's/01RUN/01RUNNEW/')"
+  FM_FAKE_AXI_HOME="count: 2 of 2 total
+runs[2]{id,branch,status,head,pr}:
+  01RUNNEW,fm/stt-cutover,running,$unfetched,\"\"
+  01RUNOLD,fm/stt-cutover,failed,$short_base,\"\""
+  FM_FAKE_RUNS_LIST="$(cat <<EOF
+  running    fm/stt-cutover ${unfetched}  2026-08-14 11:30
+  failed     fm/stt-cutover ${short_base}  2026-08-14 10:05
+EOF
+)"
+  FM_FAKE_DAEMON_DOWN=1
+  out=$(run_crew_state "$d" sttcut)
+  assert_contains "$out" "state: unknown" "a dead instrument under a running record reads unknown"
+  assert_contains "$out" "unverified" "the dead instrument is named as the reason"
+  assert_not_contains "$out" "state: failed" "the older failed row at the local head never answers"
+  pass "a dead daemon under the unresolved running row reads unknown, never the stale failure"
+}
+
 # The preference must not widen: candidates of the SAME liveness class keep the
 # listing's existing newest-first precedence, so two terminal rows still resolve
 # to the newer one rather than to whichever the scan happens to reach last.
@@ -5904,6 +5976,8 @@ test_cross_branch_attribution_picks_most_recent_row
 test_terminal_run_keeps_newer_failure_over_live_sibling
 test_runs_list_newer_failure_outranks_older_live_row
 test_unfetched_older_live_sibling_does_not_hide_failure
+test_unresolved_running_row_never_loses_to_older_failed_row
+test_unresolved_running_row_daemon_down_never_reads_failed
 test_only_terminal_rows_keep_newest_first_precedence
 test_unknown_status_row_keeps_newest_first_precedence
 test_terminal_run_without_live_sibling_is_unchanged
