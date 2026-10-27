@@ -289,6 +289,8 @@ NOTE=
 NOTE_SET=0
 PARK_UNTIL=
 PARK_REASON=
+PARK_UNTIL_SET=0
+PARK_REASON_SET=0
 control_want_value=
 for control_arg in "$@"; do
   if [ -n "$control_want_value" ]; then
@@ -300,8 +302,8 @@ for control_arg in "$@"; do
       model) NEW_MODEL=$control_arg; MODEL_SET=1 ;;
       effort) NEW_EFFORT=$control_arg; EFFORT_SET=1 ;;
       note) NOTE=$control_arg; NOTE_SET=1 ;;
-      until) PARK_UNTIL=$control_arg ;;
-      reason) PARK_REASON=$control_arg ;;
+      until) PARK_UNTIL=$control_arg; PARK_UNTIL_SET=1 ;;
+      reason) PARK_REASON=$control_arg; PARK_REASON_SET=1 ;;
       note_file)
         [ -f "$control_arg" ] || die "--note-file '$control_arg' is not a readable file"
         NOTE=$(cat "$control_arg")
@@ -321,9 +323,9 @@ for control_arg in "$@"; do
     --note) control_want_value=note ;;
     --note=*) NOTE=${control_arg#--note=}; NOTE_SET=1 ;;
     --until) control_want_value=until ;;
-    --until=*) PARK_UNTIL=${control_arg#--until=} ;;
+    --until=*) PARK_UNTIL=${control_arg#--until=}; PARK_UNTIL_SET=1 ;;
     --reason) control_want_value=reason ;;
-    --reason=*) PARK_REASON=${control_arg#--reason=} ;;
+    --reason=*) PARK_REASON=${control_arg#--reason=}; PARK_REASON_SET=1 ;;
     --note-file) control_want_value=note_file ;;
     --note-file=*)
       [ -f "${control_arg#--note-file=}" ] || die "--note-file '${control_arg#--note-file=}' is not a readable file"
@@ -352,7 +354,7 @@ if [ "$VERB" = park ]; then
     || die "--until '$PARK_UNTIL' is not a UTC time of the form YYYY-MM-DDTHH:MM[:SS]Z"
   [ "$PARK_UNTIL_EPOCH" -gt "$(date +%s)" ] || die "--until '$PARK_UNTIL' is not in the future"
 else
-  [ -z "$PARK_UNTIL" ] && [ -z "$PARK_REASON" ] || die "--until and --reason apply to 'park' only"
+  [ "$PARK_UNTIL_SET" = 0 ] && [ "$PARK_REASON_SET" = 0 ] || die "--until and --reason apply to 'park' only"
 fi
 [ "$HARNESS_SET" = 0 ] || [ -n "$NEW_HARNESS" ] || die "--harness requires a non-empty value"
 [ "$MODEL_SET" = 0 ] || [ -n "$NEW_MODEL" ] || die "--model requires a non-empty value"

@@ -316,7 +316,27 @@ case " $* " in
   *) exit 1 ;;
 esac
 SH
-  chmod +x "$fb/no-mistakes" "$fb/gh" "$fb/gh-axi" "$fb/glab" "$fb/tea" "$fb/gerrit-axi" "$fb/tmux" "$fb/herdr" "$fb/rex"
+  cat > "$fb/node" <<'SH'
+#!/usr/bin/env bash
+set -u
+# A stopped T3 thread: every helper read but `state` fails, and `state` names
+# the thread's failed run, which bin/backends/t3code.sh reads as `dead`.
+case "${1:-}" in
+  *fm-t3-mcp.mjs)
+    case "${2:-}" in
+      state)
+        printf '{"ok":true,"exists":true,"archived":false,"pendingRequestCount":0,"status":"failed","activeRunId":null}\n'
+        ;;
+      *) exit 1 ;;
+    esac
+    exit 0
+    ;;
+esac
+exec "$(dirname "$0")/node-real" "$@"
+SH
+  real_node=$(command -v node 2>/dev/null || true)
+  [ -z "$real_node" ] || ln -sf "$real_node" "$fb/node-real"
+  chmod +x "$fb/no-mistakes" "$fb/gh" "$fb/gh-axi" "$fb/glab" "$fb/tea" "$fb/gerrit-axi" "$fb/tmux" "$fb/herdr" "$fb/rex" "$fb/node"
   printf '%s\n' "$fb"
 }
 
@@ -3247,8 +3267,8 @@ test_no_run_idle_secondmate_resolved_event_not_state() {
 }
 
 # park admits every recovery-grade backend (tmux, herdr, rex, t3code), so the
-# paused reporting covers the same set: a parked rex-backed stopped seat
-# reports its declared wait with its recheck time instead of unknown.
+# paused reporting covers the same set: parked rex-backed and t3code-backed
+# stopped seats report their declared wait with its recheck time, not unknown.
 test_parked_stopped_seat_reports_its_declared_wait() {
   command -v jq >/dev/null 2>&1 || { pass "parked rex test skipped without jq"; return; }
   reset_fakes
@@ -3273,7 +3293,58 @@ test_parked_stopped_seat_reports_its_declared_wait() {
   out=$(run_crew_state "$d" feat-parked)
   assert_contains "$out" "state: unknown" "an expired park falls back to unknown"
   assert_contains "$out" "backend target gone" "an expired park keeps the gone-class evidence"
+  reset_fakes
+  d=$(new_case parked-seat-t3)
+  make_repo_on_branch "$d/wt" fm/feat-parked-t3
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-parked-t3.meta" "window=fm:fm-feat-parked-t3" \
+    "t3_thread_id=thread-parked" "worktree=$d/wt" "kind=ship" "backend=t3code" "harness=claude"
+  printf 'paused [at=1]: parked by the supervisor with the seat stopped - overnight until 2099-01-01T00:00Z\n' \
+    > "$d/state/feat-parked-t3.status"
+  FM_FAKE_AXI_STATUS=""
+  FM_FAKE_RUNS_LIST=""
+  out=$(run_crew_state "$d" feat-parked-t3)
+  assert_contains "$out" "state: paused" "a parked stopped t3code seat reports its declared wait"
+  assert_contains "$out" "source: status-log" "the t3code wait is read from the status log"
+  assert_contains "$out" "2099-01-01T00:00Z" "the t3code report carries the declared recheck time"
   pass "a parked stopped seat reports paused until its recheck time passes"
+}
+
+# The declaration window rides every surface of the no-run fallback, not just
+# the gated unknown arm: a stale busy record must not out-shout the declared
+# wait of a proven-stopped seat, an idle surface carries the same wait, and an
+# expired park surfaces the seat again on whichever surface reports it.
+test_parked_window_carries_every_surface_and_then_surfaces() {
+  reset_fakes
+  local d out gen
+  d=$(new_case parked-surfaces)
+  make_repo_on_branch "$d/wt" fm/feat-parked-surfaces
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-parked-surfaces.meta" "window=fm:fm-feat-parked-surfaces" \
+    "worktree=$d/wt" "kind=ship" "harness=claude"
+  printf 'paused [at=1]: parked by the supervisor with the seat stopped - overnight until 2099-01-01T00:00Z\n' \
+    > "$d/state/feat-parked-surfaces.status"
+  FM_FAKE_AXI_STATUS=""
+  FM_FAKE_RUNS_LIST=""
+  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" feat-parked-surfaces)
+  "$ROOT/bin/fm-busy-event.sh" apply "$d/state" feat-parked-surfaces busy --gen "$gen" \
+    --source claude-hook --event user-prompt-submit
+  out=$(run_crew_state "$d" feat-parked-surfaces)
+  assert_contains "$out" "state: paused" "a stale busy record does not out-shout the declared wait"
+  assert_contains "$out" "source: status-log" "the declared wait owns the report inside its window"
+  assert_contains "$out" "2099-01-01T00:00Z" "the busy surface still carries the declared recheck time"
+  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" feat-parked-surfaces)
+  "$ROOT/bin/fm-busy-event.sh" apply "$d/state" feat-parked-surfaces idle --gen "$gen" \
+    --source claude-hook --event stop
+  out=$(run_crew_state "$d" feat-parked-surfaces)
+  assert_contains "$out" "state: paused" "an idle surface carries the same declared wait"
+  assert_contains "$out" "2099-01-01T00:00Z" "the idle surface carries the declared recheck time"
+  printf 'paused [at=1]: parked by the supervisor with the seat stopped - overnight until 2000-01-01T00:00Z\n' \
+    > "$d/state/feat-parked-surfaces.status"
+  out=$(run_crew_state "$d" feat-parked-surfaces)
+  assert_not_contains "$out" "state: paused" "an expired park no longer reports paused"
+  assert_contains "$out" "state: unknown" "an expired park surfaces the seat again"
+  pass "the park window carries every surface and surfaces the seat again once it passes"
 }
 
 # The stopped claim is made only where the absence is proven. A herdr seat
@@ -6084,6 +6155,7 @@ test_no_run_idle_secondmate_resolved_event_not_state
 test_dead_window_ignores_stale_status_log
 test_gone_window_in_live_session_ignores_stale_status_log
 test_parked_stopped_seat_reports_its_declared_wait
+test_parked_window_carries_every_surface_and_then_surfaces
 test_parked_pause_claims_a_stop_only_on_proven_absence
 test_parked_declaration_carries_through_an_inconclusive_read
 test_parked_stopped_seat_with_readable_shell_pane

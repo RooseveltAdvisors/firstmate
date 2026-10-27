@@ -1373,6 +1373,32 @@ test_park_reason_until_token_cannot_shadow_the_recheck_time() {
   pass "fm-control park: a shadowing --reason token refuses before any declaration is written"
 }
 
+test_park_until_flag_is_refused_on_other_verbs_even_empty() {
+  local dir out rc
+  dir=$(new_case park-empty-until)
+  add_task "$dir" t1 claude
+  alive_as "$dir" zsh
+  out=$(run_control "$dir" t1 exit --until=); rc=$?
+  [ "$rc" -ne 0 ] || fail "an empty --until on a non-park verb should refuse"
+  out=$(run_control "$dir" t1 exit --until ''); rc=$?
+  [ "$rc" -ne 0 ] || fail "an empty --until value on a non-park verb should refuse"
+  [ -z "$(literals "$dir")" ] || fail "a refused flag must send nothing to the endpoint"
+  pass "fm-control: --until on a non-park verb is refused by presence, empty or not"
+}
+
+test_park_reason_flag_is_refused_on_other_verbs_even_empty() {
+  local dir out rc
+  dir=$(new_case park-empty-reason)
+  add_task "$dir" t1 claude
+  alive_as "$dir" zsh
+  out=$(run_control "$dir" t1 exit --reason=); rc=$?
+  [ "$rc" -ne 0 ] || fail "an empty --reason on a non-park verb should refuse"
+  out=$(run_control "$dir" t1 exit --reason ''); rc=$?
+  [ "$rc" -ne 0 ] || fail "an empty --reason value on a non-park verb should refuse"
+  [ -z "$(literals "$dir")" ] || fail "a refused flag must send nothing to the endpoint"
+  pass "fm-control: --reason on a non-park verb is refused by presence, empty or not"
+}
+
 test_exit_types_each_harness_verified_command
 test_opencode_exit_matches_recorded_major
 test_opencode2_exit_retries_ctrl_c_once
@@ -1424,3 +1450,5 @@ test_fm_send_still_marks_the_same_secondmate_task
 test_park_declares_a_wait_and_touches_nothing_else
 test_park_refuses_a_live_or_unbounded_seat
 test_park_reason_until_token_cannot_shadow_the_recheck_time
+test_park_until_flag_is_refused_on_other_verbs_even_empty
+test_park_reason_flag_is_refused_on_other_verbs_even_empty

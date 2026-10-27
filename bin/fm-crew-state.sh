@@ -268,7 +268,12 @@ emit_ship_status_done() {  # [extra-detail]
 }
 
 map_log_state() {  # <line>
+  local until_epoch
   if status_is_paused "$1"; then
+    if until_epoch=$(status_paused_until "$1") && [ "$(date +%s)" -ge "$until_epoch" ]; then
+      echo unknown
+      return
+    fi
     echo paused
     return
   fi
@@ -1407,7 +1412,10 @@ fi
 if [ "$KIND" != secondmate ]; then
   BUSY_VERDICT=$(crew_busy_verdict "$BACKEND_TARGET")
   case "${BUSY_VERDICT%% *}" in
-    busy) emit working pane "harness busy (${BUSY_VERDICT#* })" ;;
+    busy)
+      emit_if_parked
+      emit working pane "harness busy (${BUSY_VERDICT#* })"
+      ;;
     idle) ;;
     *)
       # A stopped seat's shell pane stays readable after exit (classifier dead).
