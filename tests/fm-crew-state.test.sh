@@ -3289,7 +3289,7 @@ test_parked_stopped_seat_reports_its_declared_wait() {
   local out; out=$(run_crew_state "$d" feat-parked)
   assert_contains "$out" "state: paused" "a parked stopped rex seat reports its declared wait"
   assert_contains "$out" "source: status-log" "the wait is read from the status log"
-  assert_contains "$out" "seat stopped" "the detail says the seat is stopped"
+  assert_contains "$out" "2099-01-01T00:00Z · seat stopped" "the proven stop appends the seat-stopped claim"
   assert_contains "$out" "2099-01-01T00:00Z" "the report carries the declared recheck time"
   # Control: once the declared recheck time has passed, death evidence wins again.
   printf 'paused [at=1]: parked by the supervisor with the seat stopped - overnight until 2000-01-01T00:00Z\n' \
@@ -3470,7 +3470,7 @@ test_parked_declaration_carries_through_an_inconclusive_read() {
   out=$(run_crew_state "$d" feat-parked-flip)
   assert_contains "$out" "state: paused" "a parked seat keeps its declared wait when the endpoint read flips missing"
   assert_contains "$out" "source: status-log" "the declaration carries the report through the declared span"
-  assert_contains "$out" "seat stopped" "the parked stop claim stays through the declared span"
+  assert_not_contains "$out" "2099-01-01T00:00Z · seat stopped" "an unproven absence appends no seat-stopped claim"
   assert_contains "$out" "2099-01-01T00:00Z" "the report carries the declared recheck time"
   reset_fakes
   d=$(new_case parked-flip-rex)
@@ -3507,7 +3507,7 @@ test_parked_stopped_seat_with_readable_shell_pane() {
   FM_FAKE_HERDR_PROCESS=shell
   local out; out=$(run_crew_state "$d" feat-parked-shell)
   assert_contains "$out" "state: paused" "a parked seat with its shell pane open reports its declared wait"
-  assert_contains "$out" "seat stopped" "the detail says the seat is stopped"
+  assert_contains "$out" "2099-01-01T00:00Z · seat stopped" "the proven stop appends the seat-stopped claim"
   # Control: an expired park on the same readable shell pane is not paused.
   printf 'paused [at=1]: parked by the supervisor with the seat stopped - overnight until 2000-01-01T00:00Z\n' \
     > "$d/state/feat-parked-shell.status"
