@@ -189,8 +189,6 @@ def collect_task_refs(fm_home: str) -> Optional[Dict[str, str]]:
     homes_base = os.environ.get("FM_SECONDMATE_HOMES_DIR", "/home/jon/.firstmate-homes")
     try:
         sweep_names = sorted(os.listdir(homes_base))
-    except FileNotFoundError:
-        sweep_names = []
     except OSError:
         return None
     queue: List[str] = []
@@ -240,34 +238,56 @@ def collect_task_refs(fm_home: str) -> Optional[Dict[str, str]]:
     return refs
 
 
+def pool_lease_refs(state_file: str, refs: Dict[str, str]) -> Optional[str]:
+    if not os.path.lexists(state_file):
+        return None
+    doubt = f"reference scan inconclusive (treehouse pool state {state_file})"
+    if os.path.islink(state_file) or not os.path.isfile(state_file):
+        return doubt
+    try:
+        with open(state_file, errors="replace") as fh:
+            data = json.load(fh)
+        for entry in data.get("worktrees") or []:
+            entry_path = entry.get("path")
+            if entry.get("leased") and entry_path:
+                holder = entry.get("lease_holder") or "unknown"
+                refs[canon(entry_path)] = f"treehouse lease held by {holder}"
+    except (OSError, ValueError, AttributeError, TypeError):
+        return doubt
+    return None
+
+
 def lease_reference(path: str) -> Tuple[Optional[str], Optional[str]]:
-    # Durable treehouse pool leases for the candidate, root-agnostic: every
-    # governing treehouse-state.json at or above the candidate (a pool is
-    # wherever the tool rooted it). Returns (source, None) when no lease names
-    # it, or (None, doubt) when a governing pool state cannot be proved.
+    # Durable treehouse pool leases for the candidate: every governing
+    # treehouse-state.json at or above the candidate (a pool is wherever the
+    # tool rooted it) and every pool under the treehouse root (TREEHOUSE_ROOT,
+    # default ~/.treehouse). Returns (source, None) when no lease names it, or
+    # (None, doubt) when a governing pool state cannot be proved.
     candidate = canon(path)
-    probe = candidate
     refs: Dict[str, str] = {}
+    probe = candidate
     while True:
-        state_file = os.path.join(probe, "treehouse-state.json")
-        if os.path.lexists(state_file):
-            doubt = f"reference scan inconclusive (treehouse pool state {state_file})"
-            if os.path.islink(state_file) or not os.path.isfile(state_file):
-                return None, doubt
-            try:
-                with open(state_file, errors="replace") as fh:
-                    data = json.load(fh)
-                for entry in data.get("worktrees") or []:
-                    entry_path = entry.get("path")
-                    if entry.get("leased") and entry_path:
-                        holder = entry.get("lease_holder") or "unknown"
-                        refs[canon(entry_path)] = f"treehouse lease held by {holder}"
-            except (OSError, ValueError, AttributeError, TypeError):
-                return None, doubt
+        doubt = pool_lease_refs(os.path.join(probe, "treehouse-state.json"), refs)
+        if doubt:
+            return None, doubt
         parent = os.path.dirname(probe)
         if parent == probe:
             break
         probe = parent
+    treehouse_root = os.environ.get("TREEHOUSE_ROOT") or str(Path.home() / ".treehouse")
+    doubt = pool_lease_refs(os.path.join(treehouse_root, "treehouse-state.json"), refs)
+    if doubt:
+        return None, doubt
+    try:
+        pool_names = sorted(os.listdir(treehouse_root))
+    except FileNotFoundError:
+        pool_names = []
+    except OSError:
+        return None, f"reference scan inconclusive (treehouse root {treehouse_root})"
+    for name in pool_names:
+        doubt = pool_lease_refs(os.path.join(treehouse_root, name, "treehouse-state.json"), refs)
+        if doubt:
+            return None, doubt
     return reference_source(candidate, refs), None
 
 

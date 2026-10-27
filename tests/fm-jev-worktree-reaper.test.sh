@@ -112,7 +112,7 @@ path, state = sys.argv[1], sys.argv[2]
 json.dump({"version": 1, "worktrees": [{"name": "1", "path": path, "leased": True,
           "lease_id": "abc123", "lease_holder": "test-lease-holder"}]}, open(state, "w"))
 EOF
-LEASE_OUTPUT=$(HOME="${FAKE_USER_HOME}" FM_HOME="${FAKE_HOME}" FM_SECONDMATE_HOMES_DIR="${HOMES_DIR}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
+LEASE_OUTPUT=$(TREEHOUSE_ROOT="${TEST_TMP}/lab-root/treehouse" HOME="${FAKE_USER_HOME}" FM_HOME="${FAKE_HOME}" FM_SECONDMATE_HOMES_DIR="${HOMES_DIR}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
 echo "${LEASE_OUTPUT}" | grep -q "Referenced: ${WT8} (treehouse lease held by test-lease-holder)"
 test -d "${WT8}"
 echo "PASS: Test 8 - treehouse-leased worktree preserved"
@@ -281,4 +281,31 @@ echo "${POOL_DOUBT_OUTPUT}" | grep -q "Referenced: ${WT21} (reference scan incon
 test -d "${WT21}"
 echo "PASS: Test 21 - unprovable treehouse pool state preserves worktrees"
 
-echo "=== All 21 fm-jev-worktree-reaper tests passed successfully! ==="
+# Test 22 (fm-av46m): a missing homes root is doubt and keeps worktrees
+WT22="${TEST_TMP}/wt-missing-homes"
+git -C "${REPO}" worktree add --detach "${WT22}" main
+MISSING_HOMES_OUTPUT=$(FM_PROC_ROOT_OVERRIDE="${PROC_CLEAN}" HOME="${FAKE_USER_HOME}" FM_HOME="${FAKE_HOME}" FM_SECONDMATE_HOMES_DIR="${TEST_TMP}/no-such-homes" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
+echo "${MISSING_HOMES_OUTPUT}" | grep -q "Referenced: ${WT22} (reference scan inconclusive"
+test -d "${WT22}"
+echo "PASS: Test 22 - missing homes root preserves worktrees"
+
+# Test 23 (fm-av46m): a /proc-less host keeps every candidate and prints the
+# inconclusive-keeps count
+REPO2="${TEST_TMP}/repo-procless"
+mkdir -p "${REPO2}"
+git -C "${REPO2}" init -b main
+git -C "${REPO2}" config user.name "Test User"
+git -C "${REPO2}" config user.email "test@example.com"
+echo init > "${REPO2}/README.md"
+git -C "${REPO2}" add README.md
+git -C "${REPO2}" commit -m "init"
+WT23="${TEST_TMP}/wt-procless"
+git -C "${REPO2}" worktree add --detach "${WT23}" main
+PROCLESS_OUTPUT=$(FM_PROC_ROOT_OVERRIDE="${TEST_TMP}/proc-absent" HOME="${FAKE_USER_HOME}" FM_HOME="${FAKE_HOME}" FM_SECONDMATE_HOMES_DIR="${HOMES_DIR}" "${REAPER_WRAPPER}" --repo-dir "${REPO2}" --base-branch main)
+echo "${PROCLESS_OUTPUT}" | grep -q "Safe Worktrees Reaped: 0"
+echo "${PROCLESS_OUTPUT}" | grep -q "Referenced: ${WT23} (process probe inconclusive"
+echo "${PROCLESS_OUTPUT}" | grep -q "Preserved (Inconclusive): 1"
+test -d "${WT23}"
+echo "PASS: Test 23 - /proc-less host keeps all candidates with visible count"
+
+echo "=== All 23 fm-jev-worktree-reaper tests passed successfully! ==="
