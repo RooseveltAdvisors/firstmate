@@ -152,7 +152,7 @@
 #      `resolved` never become current state or detail.
 #   5. Missing meta or torn-down worktree: report unknown · none. If no run is
 #      attributed to this crew, a dead endpoint also reports unknown · none rather
-#      than trusting a stale status log, except that a stopped seat whose
+#      than trusting a stale status log, except that a seat whose
 #      declared pause names a recheck time still ahead reports paused ·
 #      status-log (bin/fm-control.sh park). On tmux, herdr, and rex, which own a
 #      recovery-grade classifier, only its positive death evidence reads as gone
@@ -1314,27 +1314,34 @@ fi
 # the classifier-backed backends (tmux, herdr, rex, and t3code) - and every death-class
 # verdict reports unknown rather than trusting a possibly-stale status log as
 # the current state.
-# A confidently stopped seat whose declared pause names a recheck time that has
-# not passed is parked on purpose (bin/fm-control.sh park), the same admission
-# the watcher's pause cadence makes for a dead crew. Report that declared wait
-# rather than unknown; once the stated time passes, the death-class verdicts
-# apply again. `dead` proves the seat stopped; a raw `missing` claims one only
-# where the one absence proof (bin/fm-control-lib.sh's
-# fm_control_endpoint_absence_verdict) proves the endpoint gone or agent-free,
-# because an unreachable endpoint is doubt, not a stop. The classifier runs
-# only when a live park exists, unless the caller already has its verdict.
+# A standing declared pause names a recheck time still ahead (bin/fm-control.sh
+# park writes one on a stop its admission already proved), the same admission
+# the watcher's pause cadence makes for a dead crew. The declaration, not the
+# live re-read, carries the paused report through that span: whatever the
+# endpoint reads short of `alive`, the seat reports its declared wait rather
+# than unknown, so a suppressed stale can never pass for health. The `seat
+# stopped` claim is appended only where the current read proves one (`dead`, or
+# an absence bin/fm-control-lib.sh's fm_control_endpoint_absence_verdict
+# confirms gone or agent-free); an unproven absence is doubt, not a stop. Once
+# the stated time passes, the death-class verdicts apply again. The classifier
+# runs only when a live park exists, unless the caller already has its verdict.
 emit_if_parked() {  # [agent-state]
-  local park_line park_until state absence
+  local park_line park_until state absence note
   park_line=$(status_declared_wait_line "$LOG")
   park_until=$(status_paused_until "$park_line") && [ "$(date +%s)" -lt "$park_until" ] || return 0
   state=${1:-$(fm_backend_agent_state "$TASK_BACKEND" "$BACKEND_TARGET")}
+  note=$(status_line_note "$park_line")
   case "$state" in
-    dead) emit paused status-log "$(status_line_note "$park_line")${SEP}seat stopped" ;;
-    missing)
-      absence=$(fm_control_endpoint_absence_verdict "$TASK_BACKEND" "$BACKEND_TARGET" "$META")
-      case "${absence%%$'\t'*}" in
-        gone|dead) emit paused status-log "$(status_line_note "$park_line")${SEP}seat stopped" ;;
-      esac
+    alive) return 0 ;;
+    dead) emit paused status-log "$note${SEP}seat stopped" ;;
+    *)
+      if fm_control_absence_recheck_applies "$TASK_BACKEND" "$state"; then
+        absence=$(fm_control_endpoint_absence_verdict "$TASK_BACKEND" "$BACKEND_TARGET" "$META")
+        case "${absence%%$'\t'*}" in
+          gone|dead) emit paused status-log "$note${SEP}seat stopped" ;;
+        esac
+      fi
+      emit paused status-log "$note"
       ;;
   esac
 }

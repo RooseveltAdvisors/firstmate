@@ -305,7 +305,10 @@ SH
 #!/usr/bin/env bash
 set -u
 # One canned classifier read: a kept-open block whose foreground is a bare
-# shell, which bin/backends/rex.sh reads as `dead`. Every other read fails.
+# shell, which bin/backends/rex.sh reads as `dead`. Every other read fails;
+# FM_FAKE_REX_DOWN=1 fails them all with the unreachable-server exit, so the
+# passive classifier reads `unreadable`.
+[ "${FM_FAKE_REX_DOWN:-0}" = 1 ] && exit 4
 case " $* " in
   *" process "*)
     printf '{"foreground":{"pid":99999999,"name":"zsh","path":"/bin/zsh","argv0":"-zsh","cwd":"/tmp"},"ancestors":[],"last_exit":null}\n'
@@ -365,6 +368,7 @@ reset_fakes() {
   FM_FAKE_TMUX_MISSING=0
   FM_FAKE_TMUX_WINDOW_GONE=0
   FM_FAKE_TMUX_UNREADABLE=0
+  FM_FAKE_REX_DOWN=0
   FM_FAKE_HERDR_BUSY=0
   FM_FAKE_HERDR_MISSING=0
   FM_FAKE_HERDR_READ_FAIL=0
@@ -395,7 +399,7 @@ reset_fakes() {
   FM_FAKE_GERRIT_READ_FAIL=0
   FM_FAKE_GERRIT_READ_LOG=
   unset FM_FAKE_PR_47_STATE FM_FAKE_PR_47_MERGED FM_FAKE_PR_48_STATE FM_FAKE_PR_48_MERGED
-  export FM_FAKE_AXI_STATUS FM_FAKE_AXI_STATUS_RUN FM_FAKE_RUNS_LIST FM_FAKE_BUSY FM_FAKE_BUSY_TEXT FM_FAKE_TMUX_MISSING FM_FAKE_TMUX_WINDOW_GONE FM_FAKE_TMUX_UNREADABLE
+  export FM_FAKE_AXI_STATUS FM_FAKE_AXI_STATUS_RUN FM_FAKE_RUNS_LIST FM_FAKE_BUSY FM_FAKE_BUSY_TEXT FM_FAKE_TMUX_MISSING FM_FAKE_TMUX_WINDOW_GONE FM_FAKE_TMUX_UNREADABLE FM_FAKE_REX_DOWN
   export FM_FAKE_HERDR_BUSY FM_FAKE_HERDR_MISSING FM_FAKE_HERDR_READ_FAIL FM_FAKE_HERDR_HUSK FM_FAKE_HERDR_AGENT_STATUS FM_FAKE_HERDR_PROCESS FM_FAKE_HERDR_SHELL_PID FM_FAKE_CI_LOGS
   export FM_FAKE_DAEMON_DOWN FM_FAKE_DAEMON_TIMEOUT FM_FAKE_DAEMON_PROBE_LOG FM_FAKE_AXI_HOME
   export FM_FAKE_DAEMON_OUTPUT
@@ -3305,10 +3309,50 @@ test_parked_pause_claims_a_stop_only_on_proven_absence() {
   FM_FAKE_RUNS_LIST=""
   FM_FAKE_TMUX_MISSING=1
   out=$(run_crew_state "$d" feat-parked-doubt)
-  assert_contains "$out" "state: unknown" "an unproven absence is doubt, not a stopped seat"
-  assert_not_contains "$out" "state: paused" "an unproven absence never reads paused"
+  assert_contains "$out" "state: paused" "the declared wait carries the report through an unproven absence"
+  assert_contains "$out" "source: status-log" "the declaration, not the live re-read, carries the report"
+  assert_contains "$out" "2099-01-01T00:00Z" "the report carries the declared recheck time"
   assert_not_contains "$out" "seat stopped" "an unproven absence never claims the seat stopped"
   pass "a parked pause claims a stop only where the absence is proven"
+}
+
+# The park admission proved the stop once; the declaration carries the paused
+# report through its whole declared span even when the endpoint read later
+# turns inconclusive or missing (a tmux server restart, a stopped Rex server),
+# so a watcher suppression can never pass for health.
+test_parked_declaration_carries_through_an_inconclusive_read() {
+  command -v jq >/dev/null 2>&1 || { pass "parked flip test skipped without jq"; return; }
+  reset_fakes
+  local d out; d=$(new_case parked-flip)
+  make_repo_on_branch "$d/wt" fm/feat-parked-flip
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-parked-flip.meta" "window=fm:fm-feat-parked-flip" "worktree=$d/wt" "kind=ship"
+  printf 'paused [at=1]: parked by the supervisor with the seat stopped - overnight until 2099-01-01T00:00Z\n' \
+    > "$d/state/feat-parked-flip.status"
+  FM_FAKE_AXI_STATUS=""
+  FM_FAKE_RUNS_LIST=""
+  FM_FAKE_TMUX_MISSING=1
+  out=$(run_crew_state "$d" feat-parked-flip)
+  assert_contains "$out" "state: paused" "a parked seat keeps its declared wait when the endpoint read flips missing"
+  assert_contains "$out" "source: status-log" "the declaration carries the report through the declared span"
+  assert_contains "$out" "seat stopped" "the parked stop claim stays through the declared span"
+  assert_contains "$out" "2099-01-01T00:00Z" "the report carries the declared recheck time"
+  reset_fakes
+  d=$(new_case parked-flip-rex)
+  make_repo_on_branch "$d/wt" fm/feat-parked-flip-rex
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-parked-flip-rex.meta" \
+    "window=00000000-0000-7000-8000-00000000000a:00000000-0000-7000-8000-00000000000b" \
+    "worktree=$d/wt" "kind=ship" "backend=rex" "harness=claude"
+  printf 'paused [at=1]: parked by the supervisor with the seat stopped - overnight until 2099-01-01T00:00Z\n' \
+    > "$d/state/feat-parked-flip-rex.status"
+  FM_FAKE_AXI_STATUS=""
+  FM_FAKE_RUNS_LIST=""
+  FM_FAKE_REX_DOWN=1
+  out=$(run_crew_state "$d" feat-parked-flip-rex)
+  assert_contains "$out" "state: paused" "a parked rex seat keeps its declared wait while its server is unreachable"
+  assert_contains "$out" "2099-01-01T00:00Z" "the report carries the declared recheck time"
+  pass "a parked declaration carries the paused report through an inconclusive endpoint read"
 }
 
 # The common park case: `exit` leaves the seat's shell pane open, so the pane is
@@ -6041,6 +6085,7 @@ test_dead_window_ignores_stale_status_log
 test_gone_window_in_live_session_ignores_stale_status_log
 test_parked_stopped_seat_reports_its_declared_wait
 test_parked_pause_claims_a_stop_only_on_proven_absence
+test_parked_declaration_carries_through_an_inconclusive_read
 test_parked_stopped_seat_with_readable_shell_pane
 test_no_run_tmux_unreadable_reads_unreachable_not_gone
 test_dead_window_still_reports_terminal_run_step
