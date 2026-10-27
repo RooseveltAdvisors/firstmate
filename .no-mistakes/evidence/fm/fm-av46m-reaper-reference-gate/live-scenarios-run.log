@@ -1,0 +1,204 @@
+=== S1: unreferenced merged clean worktree is still reaped ===
+Jev Worktree Stale Prune & Branch Reaper [REAPER_APPLIED]:
+  • Repository: /tmp/fm-reaper-live/s1/repo
+  • Total Worktrees: 2
+  • Preserved (Main): 1
+  • Preserved (Dirty / In-Flight): 0
+  • Preserved (Unmerged): 0
+  • Preserved (Referenced): 0
+  • Preserved (Inconclusive): 0
+  • Safe Worktrees Reaped: 1
+     ↳ Reaped: /tmp/fm-reaper-live/s1/wt-unreferenced (detached @ fe52492)
+  ok: exit 0
+  ok: reported as Reaped
+  ok: worktree directory removed
+=== S2: task-record-referenced merged clean worktree is preserved ===
+Jev Worktree Stale Prune & Branch Reaper [REAPER_APPLIED]:
+  • Repository: /tmp/fm-reaper-live/s2/repo
+  • Total Worktrees: 2
+  • Preserved (Main): 1
+  • Preserved (Dirty / In-Flight): 0
+  • Preserved (Unmerged): 0
+  • Preserved (Referenced): 1
+     ↳ Referenced: /tmp/fm-reaper-live/s2/wt-task-referenced (task record fm-live-task in /tmp/fm-reaper-live/s2/home)
+  • Preserved (Inconclusive): 0
+  • Safe Worktrees Reaped: 0
+  ok: exit 0
+  ok: reported as Referenced by task record
+  ok: worktree preserved
+=== S3: grandchild-registry walk refuses the reap (pin) ===
+Jev Worktree Stale Prune & Branch Reaper [REAPER_APPLIED]:
+  • Repository: /tmp/fm-reaper-live/s3/repo
+  • Total Worktrees: 2
+  • Preserved (Main): 1
+  • Preserved (Dirty / In-Flight): 0
+  • Preserved (Unmerged): 0
+  • Preserved (Referenced): 1
+     ↳ Referenced: /tmp/fm-reaper-live/s3/wt-grand-referenced (task record fm-grand-task in /tmp/fm-reaper-live/s3/h2)
+  • Preserved (Inconclusive): 0
+  • Safe Worktrees Reaped: 0
+  ok: run from root home refuses the reap (grandchild record found)
+  ok: worktree preserved (root-home run)
+Jev Worktree Stale Prune & Branch Reaper [REAPER_APPLIED]:
+  • Repository: /tmp/fm-reaper-live/s3/repo
+  • Total Worktrees: 2
+  • Preserved (Main): 1
+  • Preserved (Dirty / In-Flight): 0
+  • Preserved (Unmerged): 0
+  • Preserved (Referenced): 1
+     ↳ Referenced: /tmp/fm-reaper-live/s3/wt-grand-referenced (task record fm-root-task in /tmp/fm-reaper-live/s3/homeR)
+  • Preserved (Inconclusive): 0
+  • Safe Worktrees Reaped: 0
+  ok: run from child home honors the root home's task record
+  ok: worktree preserved (child-home run)
+=== S4: absent or unreadable FM_SECONDMATE_HOMES_DIR root is doubt (pin) ===
+Jev Worktree Stale Prune & Branch Reaper [REAPER_APPLIED]:
+  • Repository: /tmp/fm-reaper-live/s4/repo
+  • Total Worktrees: 2
+  • Preserved (Main): 1
+  • Preserved (Dirty / In-Flight): 0
+  • Preserved (Unmerged): 0
+  • Preserved (Referenced): 1
+     ↳ Referenced: /tmp/fm-reaper-live/s4/wt-homes-doubt (reference scan inconclusive)
+  • Preserved (Inconclusive): 1
+  • Safe Worktrees Reaped: 0
+  ok: missing homes root resolves to doubt
+  ok: nothing reaped on missing root
+  ok: worktree preserved (missing root)
+  ok: non-directory homes root resolves to doubt
+  ok: worktree preserved (non-directory root)
+  ok: chmod-000 homes root resolves to doubt
+  ok: worktree preserved (unreadable root)
+  ok: homes-dir task record honored
+=== S5: TREEHOUSE_ROOT lease preserves; unprovable pool state is doubt (pin) ===
+Jev Worktree Stale Prune & Branch Reaper [REAPER_APPLIED]:
+  • Repository: /tmp/fm-reaper-live/s5/repo
+  • Total Worktrees: 2
+  • Preserved (Main): 1
+  • Preserved (Dirty / In-Flight): 0
+  • Preserved (Unmerged): 0
+  • Preserved (Referenced): 1
+     ↳ Referenced: /tmp/fm-reaper-live/s5/treehouse/pool-a/slot-1/wt-leased (treehouse lease held by live-lease-holder)
+  • Preserved (Inconclusive): 0
+  • Safe Worktrees Reaped: 0
+  ok: TREEHOUSE_ROOT durable lease preserves worktree
+  ok: leased worktree preserved
+Jev Worktree Stale Prune & Branch Reaper [REAPER_APPLIED]:
+  • Repository: /tmp/fm-reaper-live/s5b/repo
+  • Total Worktrees: 2
+  • Preserved (Main): 1
+  • Preserved (Dirty / In-Flight): 0
+  • Preserved (Unmerged): 0
+  • Preserved (Referenced): 1
+     ↳ Referenced: /tmp/fm-reaper-live/s5b/wt-pool-doubt (reference scan inconclusive (treehouse pool state /tmp/fm-reaper-live/s5/treehouse/pool-b/treehouse-state.json))
+  • Preserved (Inconclusive): 1
+  • Safe Worktrees Reaped: 0
+  ok: unprovable pool state resolves to doubt
+  ok: doubt names the unprovable pool state file
+  ok: worktree preserved (pool state doubt)
+  ok: corrupt pool state resolves to doubt
+  ok: doubt names the corrupt pool state file
+=== S6: real /proc: live process and open fd preserve; probe doubt refuses ===
+  sleep pid 4064919 cwd = /tmp/fm-reaper-live/s6/wt-live-process/sub
+Jev Worktree Stale Prune & Branch Reaper [REAPER_APPLIED]:
+  • Repository: /tmp/fm-reaper-live/s6/repo
+  • Total Worktrees: 2
+  • Preserved (Main): 1
+  • Preserved (Dirty / In-Flight): 0
+  • Preserved (Unmerged): 0
+  • Preserved (Referenced): 1
+     ↳ Referenced: /tmp/fm-reaper-live/s6/wt-live-process (running process(es) 4064919)
+  • Preserved (Inconclusive): 0
+  • Safe Worktrees Reaped: 0
+  ok: real /proc: live process inside preserves worktree
+  ok: worktree preserved (live process)
+  sleep pid 4065853 fd3 = /tmp/fm-reaper-live/s6/wt-live-process/README.md, cwd = /tmp/fm-reaper-live/s6
+Jev Worktree Stale Prune & Branch Reaper [REAPER_APPLIED]:
+  • Repository: /tmp/fm-reaper-live/s6/repo
+  • Total Worktrees: 2
+  • Preserved (Main): 1
+  • Preserved (Dirty / In-Flight): 0
+  • Preserved (Unmerged): 0
+  • Preserved (Referenced): 1
+     ↳ Referenced: /tmp/fm-reaper-live/s6/wt-live-process (running process(es) 4065853)
+  • Preserved (Inconclusive): 0
+  • Safe Worktrees Reaped: 0
+  ok: real /proc: open fd inside preserves worktree
+  ok: worktree preserved (open fd)
+  ok: worktree still clean after fd hold
+Jev Worktree Stale Prune & Branch Reaper [REAPER_APPLIED]:
+  • Repository: /tmp/fm-reaper-live/s6/repo
+  • Total Worktrees: 2
+  • Preserved (Main): 1
+  • Preserved (Dirty / In-Flight): 0
+  • Preserved (Unmerged): 0
+  • Preserved (Referenced): 1
+     ↳ Referenced: /tmp/fm-reaper-live/s6/wt-live-process (process probe inconclusive (unreadable pid 1 uid 0, pid 100 uid 0, pid 1005704 uid 0, pid 1007234 uid 0, pid 101 uid 0))
+  • Preserved (Inconclusive): 1
+  • Safe Worktrees Reaped: 0
+  ok: real /proc probe doubt refuses the reap
+  ok: nothing reaped when probe cannot answer
+  ok: worktree preserved (probe doubt)
+  ok: absent process table refuses the reap
+  ok: worktree preserved (absent process table)
+=== S7: corrupt task meta (embedded NUL) resolves to doubt, no crash (review-7 pin) ===
+Jev Worktree Stale Prune & Branch Reaper [REAPER_APPLIED]:
+  • Repository: /tmp/fm-reaper-live/s7/repo
+  • Total Worktrees: 2
+  • Preserved (Main): 1
+  • Preserved (Dirty / In-Flight): 0
+  • Preserved (Unmerged): 0
+  • Preserved (Referenced): 1
+     ↳ Referenced: /tmp/fm-reaper-live/s7/wt-corrupt-meta (reference scan inconclusive)
+  • Preserved (Inconclusive): 1
+  • Safe Worktrees Reaped: 0
+  ok: exit 0 (no crash)
+  ok: no traceback in output
+  ok: corrupt meta resolves to doubt
+  ok: worktree preserved (corrupt meta)
+  pre-fix engine exit code: 1
+                    ~~~~~^^^^^^^
+  File "/tmp/fm-reaper-live/s7/pre-fix-engine.py", line 60, in canon
+    return os.path.realpath(os.path.expanduser(path))
+           ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen posixpath>", line 457, in realpath
+ValueError: lstat: embedded null character in path
+  ok: reproduced the pre-fix crash (ValueError traceback) on the same meta
+  ok: worktree intact after pre-fix crash (fail-closed)
+=== S8: run summary shows the per-host inconclusive-keeps count (pin) ===
+JSON counts ok: referenced=1 inconclusive=0 reaped=1
+  ok: JSON telemetry counts match the per-worktree dispositions
+  ok: referenced kept, unreferenced reaped
+Jev Worktree Stale Prune & Branch Reaper [REAPER_APPLIED]:
+  • Repository: /tmp/fm-reaper-live/s8b/repo
+  • Total Worktrees: 4
+  • Preserved (Main): 1
+  • Preserved (Dirty / In-Flight): 0
+  • Preserved (Unmerged): 0
+  • Preserved (Referenced): 3
+     ↳ Referenced: /tmp/fm-reaper-live/s8b/wt-inconclusive-1 (process probe inconclusive (unreadable pid 1 uid 0, pid 100 uid 0, pid 1005704 uid 0, pid 1007234 uid 0, pid 101 uid 0))
+     ↳ Referenced: /tmp/fm-reaper-live/s8b/wt-inconclusive-2 (process probe inconclusive (unreadable pid 1 uid 0, pid 100 uid 0, pid 1005704 uid 0, pid 1007234 uid 0, pid 101 uid 0))
+     ↳ Referenced: /tmp/fm-reaper-live/s8b/wt-task-referenced (task record fm-mixed-task in /tmp/fm-reaper-live/s8b/home)
+  • Preserved (Inconclusive): 2
+  • Safe Worktrees Reaped: 0
+  ok: summary shows the visible per-host inconclusive-keeps count (2)
+  ok: all three kept worktrees counted as referenced
+  ok: task-referenced line still attributed to its task record
+  ok: every worktree preserved
+=== S9: merge-hook-shape invocation consults the wrapper-resolved FM_HOME ===
+Jev Worktree Stale Prune & Branch Reaper [REAPER_APPLIED]:
+  • Repository: /tmp/fm-reaper-live/s9/repo
+  • Total Worktrees: 2
+  • Preserved (Main): 1
+  • Preserved (Dirty / In-Flight): 0
+  • Preserved (Unmerged): 0
+  • Preserved (Referenced): 1
+     ↳ Referenced: /tmp/fm-reaper-live/s9/wt-hook-referenced (task record fm-hook-task in /tmp/fm-reaper-live/s9/hook-home)
+  • Preserved (Inconclusive): 0
+  • Safe Worktrees Reaped: 0
+  ok: exit 0
+  ok: hook-resolved FM_HOME task record honored
+  ok: worktree preserved
+  ok: record removal changes the verdict (reaped)
+
+=== RESULT: 0 failed assertion(s) ===

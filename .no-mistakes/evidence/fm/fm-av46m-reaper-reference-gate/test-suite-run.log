@@ -1,0 +1,83 @@
+=== Running fm-jev-worktree-reaper test suite ===
+PASS: Test 1 - py_compile syntax valid
+PASS: Test 2 - ShellCheck clean on wrapper
+Initialized empty Git repository in /tmp/tmp.Lcv2VAPpDU/repo/.git/
+[main (root-commit) a458e6d] init
+ 1 file changed, 1 insertion(+)
+ create mode 100644 README.md
+Preparing worktree (checking out 'merged-feature')
+HEAD is now at a458e6d init
+[merged-feature 0e6adff] feature commit
+ 1 file changed, 1 insertion(+)
+ create mode 100644 feature.txt
+Merge made by the 'ort' strategy.
+ feature.txt | 1 +
+ 1 file changed, 1 insertion(+)
+ create mode 100644 feature.txt
+Preparing worktree (checking out 'dirty-feature')
+HEAD is now at 8b10418 merge feature
+PASS: Test 3 - Dry run mode preserves all worktrees
+PASS: Test 4 - Live reap removed merged worktree and preserved dirty worktree
+PASS: Test 5 - JSON telemetry output validated
+Preparing worktree (detached HEAD 8b10418)
+HEAD is now at 8b10418 merge feature
+PASS: Test 6 - task-recorded worktree preserved
+Preparing worktree (detached HEAD 8b10418)
+HEAD is now at 8b10418 merge feature
+PASS: Test 7 - nested clone under a task-recorded slot preserved
+Preparing worktree (detached HEAD 8b10418)
+HEAD is now at 8b10418 merge feature
+PASS: Test 8 - treehouse-leased worktree preserved
+Preparing worktree (detached HEAD 8b10418)
+HEAD is now at 8b10418 merge feature
+PASS: Test 9 - worktree with a running process preserved
+Preparing worktree (detached HEAD 8b10418)
+HEAD is now at 8b10418 merge feature
+PASS: Test 10 - unreferenced merged worktree still reaped
+Preparing worktree (detached HEAD 8b10418)
+HEAD is now at 8b10418 merge feature
+PASS: Test 11 - decoy home text in registry scope prose cannot hide a real home
+Preparing worktree (detached HEAD 8b10418)
+HEAD is now at 8b10418 merge feature
+PASS: Test 12 - unreadable reference source preserves worktrees
+Preparing worktree (detached HEAD 8b10418)
+HEAD is now at 8b10418 merge feature
+PASS: Test 13 - worktree with an open file preserved
+Preparing worktree (detached HEAD 8b10418)
+HEAD is now at 8b10418 merge feature
+PASS: Test 14 - unreadable pid refuses the reap with uid and pid detail
+Preparing worktree (detached HEAD 8b10418)
+HEAD is now at 8b10418 merge feature
+PASS: Test 15 - homes-dir task record preserves its worktree
+Preparing worktree (detached HEAD 8b10418)
+HEAD is now at 8b10418 merge feature
+PASS: Test 16 - unenumerable homes root preserves worktrees
+Preparing worktree (detached HEAD 8b10418)
+HEAD is now at 8b10418 merge feature
+PASS: Test 17 - grandchild home task record preserves its worktree
+Preparing worktree (detached HEAD 8b10418)
+HEAD is now at 8b10418 merge feature
+PASS: Test 18 - child-home run honors the root home's task records
+Preparing worktree (detached HEAD 8b10418)
+HEAD is now at 8b10418 merge feature
+PASS: Test 19 - malformed registry entry preserves worktrees
+Preparing worktree (detached HEAD 8b10418)
+HEAD is now at 8b10418 merge feature
+PASS: Test 20 - unavailable registered home preserves worktrees
+Preparing worktree (detached HEAD 8b10418)
+HEAD is now at 8b10418 merge feature
+PASS: Test 21 - unprovable treehouse pool state preserves worktrees
+Preparing worktree (detached HEAD 8b10418)
+HEAD is now at 8b10418 merge feature
+PASS: Test 22 - missing homes root preserves worktrees
+Initialized empty Git repository in /tmp/tmp.Lcv2VAPpDU/repo-procless/.git/
+[main (root-commit) 8923115] init
+ 1 file changed, 1 insertion(+)
+ create mode 100644 README.md
+Preparing worktree (detached HEAD 8923115)
+HEAD is now at 8923115 init
+PASS: Test 23 - /proc-less host keeps all candidates with visible count
+Preparing worktree (detached HEAD 8b10418)
+HEAD is now at 8b10418 merge feature
+PASS: Test 24 - corrupt task meta preserves worktrees
+=== All 24 fm-jev-worktree-reaper tests passed successfully! ===

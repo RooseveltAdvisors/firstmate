@@ -1,0 +1,10 @@
+Jev Worktree Stale Prune & Branch Reaper [REAPER_APPLIED]:
+  • Repository: /tmp/fm-reaper-live/s5/repo
+  • Total Worktrees: 2
+  • Preserved (Main): 1
+  • Preserved (Dirty / In-Flight): 0
+  • Preserved (Unmerged): 0
+  • Preserved (Referenced): 1
+     ↳ Referenced: /tmp/fm-reaper-live/s5/treehouse/pool-a/slot-1/wt-leased (treehouse lease held by live-lease-holder)
+  • Preserved (Inconclusive): 0
+  • Safe Worktrees Reaped: 0

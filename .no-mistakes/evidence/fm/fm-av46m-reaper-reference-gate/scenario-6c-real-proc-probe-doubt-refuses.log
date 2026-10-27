@@ -1,0 +1,10 @@
+Jev Worktree Stale Prune & Branch Reaper [REAPER_APPLIED]:
+  • Repository: /tmp/fm-reaper-live/s6/repo
+  • Total Worktrees: 2
+  • Preserved (Main): 1
+  • Preserved (Dirty / In-Flight): 0
+  • Preserved (Unmerged): 0
+  • Preserved (Referenced): 1
+     ↳ Referenced: /tmp/fm-reaper-live/s6/wt-live-process (process probe inconclusive (unreadable pid 1 uid 0, pid 100 uid 0, pid 1005704 uid 0, pid 1007234 uid 0, pid 101 uid 0))
+  • Preserved (Inconclusive): 1
+  • Safe Worktrees Reaped: 0

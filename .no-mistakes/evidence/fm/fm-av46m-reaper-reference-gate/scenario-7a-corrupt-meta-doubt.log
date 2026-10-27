@@ -1,0 +1,10 @@
+Jev Worktree Stale Prune & Branch Reaper [REAPER_APPLIED]:
+  • Repository: /tmp/fm-reaper-live/s7/repo
+  • Total Worktrees: 2
+  • Preserved (Main): 1
+  • Preserved (Dirty / In-Flight): 0
+  • Preserved (Unmerged): 0
+  • Preserved (Referenced): 1
+     ↳ Referenced: /tmp/fm-reaper-live/s7/wt-corrupt-meta (reference scan inconclusive)
+  • Preserved (Inconclusive): 1
+  • Safe Worktrees Reaped: 0

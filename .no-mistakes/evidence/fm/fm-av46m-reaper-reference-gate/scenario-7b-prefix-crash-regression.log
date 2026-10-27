@@ -1,0 +1,20 @@
+Traceback (most recent call last):
+  File "/tmp/fm-reaper-live/s7/pre-fix-engine.py", line 666, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/tmp/fm-reaper-live/s7/pre-fix-engine.py", line 637, in main
+    report = reap_worktrees(
+        repo_path=repo_dir,
+    ...<2 lines>...
+        prune_branches=args.prune_branches,
+    )
+  File "/tmp/fm-reaper-live/s7/pre-fix-engine.py", line 479, in reap_worktrees
+    task_refs = collect_task_refs(default_fm_home())
+  File "/tmp/fm-reaper-live/s7/pre-fix-engine.py", line 230, in collect_task_refs
+    refs.setdefault(canon(value), f"task record {task} in {home}")
+                    ~~~~~^^^^^^^
+  File "/tmp/fm-reaper-live/s7/pre-fix-engine.py", line 60, in canon
+    return os.path.realpath(os.path.expanduser(path))
+           ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen posixpath>", line 457, in realpath
+ValueError: lstat: embedded null character in path

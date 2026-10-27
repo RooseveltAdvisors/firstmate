@@ -1,0 +1,26 @@
+{
+  "repo_path": "/tmp/fm-reaper-live/s8/repo",
+  "base_branch": "main",
+  "dry_run": false,
+  "total_worktrees": 3,
+  "active_preserved": 1,
+  "dirty_preserved": 0,
+  "unmerged_preserved": 0,
+  "referenced_preserved": 1,
+  "inconclusive_preserved": 0,
+  "referenced_worktrees": [
+    {
+      "path": "/tmp/fm-reaper-live/s8/wt-task-referenced",
+      "source": "task record fm-mixed-task in /tmp/fm-reaper-live/s8/home"
+    }
+  ],
+  "reaped_worktrees": [
+    {
+      "path": "/tmp/fm-reaper-live/s8/wt-reapable",
+      "head": "69b6d71",
+      "branch": "detached",
+      "reason": "ancestor_of_main"
+    }
+  ],
+  "reaped_branches": []
+}
