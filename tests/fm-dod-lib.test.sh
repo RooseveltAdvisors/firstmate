@@ -488,6 +488,24 @@ test_worker_role_names_skill_and_fallback_file() {
   pass "worker role names the skill and its fallback skill file"
 }
 
+# The launch role must fence off the contribution ledger: a brief that
+# authorizes the task data directory for proof and scratch output otherwise
+# invites a lane to hand-write data/<task>/contributions.json, and a record
+# written outside bin/fm-contributions.sh corrupts the v1 shape the fleet
+# reads (fm-hdvj, bead fm-contrib-shape).
+test_worker_role_fences_the_contribution_ledger() {
+  local role_file
+  role_file="$TMP_ROOT/worker-role-contributions.txt"
+  fm_brief_worker_role "$TMP_ROOT/state" upstream-4751 "$ROOT" >"$role_file"
+  assert_grep "Every \`contributions.json\` record belongs to firstmate's contribution observer" "$role_file" \
+    "worker role did not fence the contribution ledger"
+  assert_grep "never create or edit one by hand" "$role_file" \
+    "worker role did not prohibit a hand-written contribution record"
+  assert_grep "full https URL in your status line and final report" "$role_file" \
+    "worker role did not name the pull request reporting path"
+  pass "worker role fences the contribution ledger against lane hand-writes"
+}
+
 # forge=external: a review tool uploads its own snapshot, so nothing is pushed.
 # The fixtures name an invented tool and an RFC 6761 reserved host only.
 EXT_CFG="$TMP_ROOT/external-config"
@@ -707,6 +725,7 @@ EOF
 }
 
 test_worker_role_names_skill_and_fallback_file
+test_worker_role_fences_the_contribution_ledger
 test_ui_live_image_gate_renders_only_for_surface_ui
 test_ui_ship_done_needs_a_live_image_and_spec_verdicts
 

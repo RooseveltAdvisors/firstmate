@@ -141,7 +141,11 @@ case "$*" in
   'api graphql '*)
     jq '[{data:{repository:{pullRequest:{reviewThreads:{nodes:.,pageInfo:{hasNextPage:false,endCursor:null}}}}}}]' "$FORGE/threads.json" ;;
   'api repos/o/r/commits/'*'/check-runs?'*)
-    printf '[{"check_runs":[{"name":"test","id":1,"status":"completed","conclusion":"success","started_at":"2026-09-16T08:00:00Z"}]}]\n' ;;
+    if [ -e "$FORGE/no-checks" ]; then
+      printf '[{"check_runs":[]}]\n'
+    else
+      printf '[{"check_runs":[{"name":"test","id":1,"status":"completed","conclusion":"success","started_at":"2026-09-16T08:00:00Z"}]}]\n'
+    fi ;;
   'api repos/o/r/commits/'*'/statuses?'*) printf '[[]]\n' ;;
   'api repos/o/r') printf '{"permissions":{"push":false}}\n' ;;
   *) printf 'unexpected gh fixture call: %s\n' "$*" >&2; exit 1 ;;
@@ -1254,6 +1258,80 @@ test_terminal_contribution_settles() {
   pass 'a merged or closed contribution settles once, is not re-read, and never wakes again'
 }
 
+# A no-CI pull request settles with an empty checks array, and the stored
+# record must still pass the v1 shape every fleet reader applies
+# (fm-contributions.jq valid_record). Regression for bead fm-contrib-shape:
+# the fm-hdvj lane hand-wrote a no-CI settlement record with a bare-string
+# verdict and a partial observation, which every valid_record reader then
+# counted as unreadable.
+test_no_ci_settlement_record_stays_valid() {
+  local home out
+  home=$(new_home no-ci-settle)
+  forge_home "$home"
+  wrap_forge "$home"
+  : > "$home/forge/no-checks"
+  printf 'merged\n' > "$home/forge/state"
+  out=$(with_home "$home" "$ROOT/bin/fm-contributions.sh" poll) || fail 'a no-CI terminal poll failed'
+  [ -z "$out" ] || fail "a no-CI settlement printed: $out"
+  jq -L "$ROOT/bin" -ne --slurpfile record "$home/data/delivery/contributions.json" \
+    'include "fm-contributions"; $record[0] | valid_record' >/dev/null \
+    || fail "a no-CI settlement wrote a record that fails valid_record: $(cat "$home/data/delivery/contributions.json")"
+  jq -e '.records[0] | .observation.state == "merged" and (.observation.checks | length) == 0 and .error == null' \
+    "$home/data/delivery/contributions.json" >/dev/null \
+    || fail 'a no-CI settlement did not record a merged state with empty checks'
+  pass 'a no-CI settlement writes a record that passes valid_record'
+}
+
+# Regression for bead fm-contrib-shape: a lane hand-wrote the no-CI settlement
+# record with a bare-string verdict and a partial observation. Settlement must
+# complete and converge the ledger on a v1 record without hand repair, keeping
+# the non-v1 bytes aside instead of wedging on them.
+test_hand_written_record_cannot_wedge_settlement() {
+  local home out
+  home=$(new_home hand-written-ledger)
+  forge_home "$home"
+  wrap_forge "$home"
+  : > "$home/forge/no-checks"
+  printf 'merged\n' > "$home/forge/state"
+  jq -n '{schema:"fm-contributions.v1",task:"delivery",records:[{url:"https://github.com/o/r/pull/8",
+    kind:"pr",verdict:"merged",observation:{state:"merged"}}]}' > "$home/data/delivery/contributions.json"
+  out=$(with_home "$home" "$ROOT/bin/fm-contributions.sh" poll) \
+    || fail 'a hand-written non-v1 record wedged settlement'
+  [ "$out" = 'contributions: 1 unreadable durable record(s)' ] \
+    || fail "settlement did not report the unreadable record once: $out"
+  jq -L "$ROOT/bin" -ne --slurpfile record "$home/data/delivery/contributions.json" \
+    'include "fm-contributions"; $record[0] | valid_record' >/dev/null \
+    || fail "settlement left a record that fails valid_record: $(cat "$home/data/delivery/contributions.json")"
+  jq -e '.records[0].observation.state == "merged" and .records[0].verdict == null' \
+    "$home/data/delivery/contributions.json" >/dev/null \
+    || fail 'settlement did not rebuild the record from its own observation'
+  compgen -G "$home/data/delivery/contributions.json.invalid.*" >/dev/null \
+    || fail 'the hand-written record was dropped instead of kept aside'
+  pass 'a hand-written non-v1 record cannot wedge settlement'
+}
+
+# The same non-v1 record must not wedge a sibling mutation either: enrolling a
+# new contribution consults the ledger under the same lock and must converge it
+# rather than refuse with unverified ownership.
+test_unreadable_record_cannot_wedge_enrollment() {
+  local home
+  home=$(new_home unreadable-enrollment)
+  mkdir -p "$home/data/stranger"
+  printf 'incomplete JSON\n' > "$home/data/stranger/contributions.json"
+  with_home "$home" "$ROOT/bin/fm-contributions.sh" enroll delivery https://github.com/o/r/pull/9 \
+    || fail 'an unreadable record wedged enrollment of a new contribution'
+  jq -L "$ROOT/bin" -ne --slurpfile record "$home/data/delivery/contributions.json" \
+    'include "fm-contributions"; $record[0] | valid_record' >/dev/null \
+    || fail 'enrollment wrote a record that fails valid_record'
+  jq -e '.records[0].url == "https://github.com/o/r/pull/9"' "$home/data/delivery/contributions.json" >/dev/null \
+    || fail 'enrollment did not record the enrolled URL'
+  [ ! -e "$home/data/stranger/contributions.json" ] \
+    || fail 'enrollment left the unreadable record in the ledger'
+  compgen -G "$home/data/stranger/contributions.json.invalid.*" >/dev/null \
+    || fail 'the unreadable record was dropped instead of kept aside'
+  pass 'an unreadable record cannot wedge enrollment of a new contribution'
+}
+
 test_late_owner_inherits_terminal_observation() {
   local home out later=2026-09-17T08:00:00Z
   home=$(new_home terminal-late-owner)
@@ -1940,7 +2018,7 @@ test_arm_plumbs_the_reply_age_into_the_check_shim() {
 }
 
 failures=0
-for test_name in test_actor_coverage test_stale_verdict test_unchecked_is_not_silence test_newest_check_has_no_verdict test_comment_wake test_review_wake test_inline_wake test_review_bot_inline_wake test_review_bot_watching_is_opt_in test_review_bot_allowlist_is_configurable test_ready_issue_wake test_fresh_issue_requires_maintainer test_missing_lane_remains_missing test_partial_freshness_keeps_measured_rows test_malformed_record_cannot_prove_silence test_issue_timeline_and_exact_ack test_verdict_retains_judged_head test_verdict_actor_values_are_discoverable test_observed_replacement_refreshes_verdict test_unobserved_head_leaves_verdict_unknown test_away_yolo_is_fleet_work test_away_yolo_cross_home_is_fleet_work test_retired_and_unsupported_coverage test_unsupported_forge_is_not_fleet_work test_held_unsupported_forge_is_not_captain_work test_unsupported_poll_is_silent_and_clears_legacy_errors test_legacy_cleanup_preserves_supported_failure test_shared_contribution_signal_wakes_once test_watcher_keeps_diagnostics_separate_from_contribution_wakes test_expired_child_unsupported_forge_stays_unmeasured test_watcher_surfaces_new_contribution_once test_home_summary_coverage test_unreadable_pending_is_not_empty test_record_task_identity_matches_dirname_basename test_read_only_views_create_no_state test_budget_refusal_between_calls test_budget_bounded_call_timeout test_genuine_failure_near_deadline_is_unavailable test_http_500_once_retries_without_waking test_http_500_twice_records_the_failed_read test_http_404_is_not_retried test_real_gh_errors_drive_retry_and_summary test_next_url_does_not_inherit_a_forge_diagnostic test_shared_url_observed_once test_terminal_contribution_settles test_late_owner_inherits_terminal_observation test_interrupted_multi_owner_poll_settles_every_owner test_done_task_open_pr_still_observed test_reservation_defers_later_url_when_fifteen_seconds_do_not_remain test_three_second_pr_reads_complete_fresh_in_one_cycle test_slow_read_deadline_kill_is_budget_refusal test_unmeasured_url_does_not_starve_the_tail test_budget_is_cut_down_to_the_watcher_check_bound test_arm_plumbs_a_configured_budget_into_the_check_shim test_unavailable_forge_records_error_and_wakes_once_per_episode test_late_owner_keeps_failure_episode_suppressed test_retire_ends_observation_of_a_gone_contribution test_late_owner_of_a_retired_final_contribution_is_not_retired test_retire_is_idempotent_and_refuses_unknown_pairs test_unanswered_thread_is_raised_again_under_hold test_resolved_thread_is_answered test_reply_rules test_reply_age_is_configurable_and_validated test_closed_pull_request_drops_its_threads test_unanswered_reraise_is_off_unless_configured test_arm_plumbs_the_reply_age_into_the_check_shim test_many_reviews_stay_readable; do
+for test_name in test_actor_coverage test_stale_verdict test_unchecked_is_not_silence test_newest_check_has_no_verdict test_comment_wake test_review_wake test_inline_wake test_review_bot_inline_wake test_review_bot_watching_is_opt_in test_review_bot_allowlist_is_configurable test_ready_issue_wake test_fresh_issue_requires_maintainer test_missing_lane_remains_missing test_partial_freshness_keeps_measured_rows test_malformed_record_cannot_prove_silence test_issue_timeline_and_exact_ack test_verdict_retains_judged_head test_verdict_actor_values_are_discoverable test_observed_replacement_refreshes_verdict test_unobserved_head_leaves_verdict_unknown test_away_yolo_is_fleet_work test_away_yolo_cross_home_is_fleet_work test_retired_and_unsupported_coverage test_unsupported_forge_is_not_fleet_work test_held_unsupported_forge_is_not_captain_work test_unsupported_poll_is_silent_and_clears_legacy_errors test_legacy_cleanup_preserves_supported_failure test_shared_contribution_signal_wakes_once test_watcher_keeps_diagnostics_separate_from_contribution_wakes test_expired_child_unsupported_forge_stays_unmeasured test_watcher_surfaces_new_contribution_once test_home_summary_coverage test_unreadable_pending_is_not_empty test_record_task_identity_matches_dirname_basename test_read_only_views_create_no_state test_budget_refusal_between_calls test_budget_bounded_call_timeout test_genuine_failure_near_deadline_is_unavailable test_http_500_once_retries_without_waking test_http_500_twice_records_the_failed_read test_http_404_is_not_retried test_real_gh_errors_drive_retry_and_summary test_next_url_does_not_inherit_a_forge_diagnostic test_shared_url_observed_once test_terminal_contribution_settles test_no_ci_settlement_record_stays_valid test_hand_written_record_cannot_wedge_settlement test_unreadable_record_cannot_wedge_enrollment test_late_owner_inherits_terminal_observation test_interrupted_multi_owner_poll_settles_every_owner test_done_task_open_pr_still_observed test_reservation_defers_later_url_when_fifteen_seconds_do_not_remain test_three_second_pr_reads_complete_fresh_in_one_cycle test_slow_read_deadline_kill_is_budget_refusal test_unmeasured_url_does_not_starve_the_tail test_budget_is_cut_down_to_the_watcher_check_bound test_arm_plumbs_a_configured_budget_into_the_check_shim test_unavailable_forge_records_error_and_wakes_once_per_episode test_late_owner_keeps_failure_episode_suppressed test_retire_ends_observation_of_a_gone_contribution test_late_owner_of_a_retired_final_contribution_is_not_retired test_retire_is_idempotent_and_refuses_unknown_pairs test_unanswered_thread_is_raised_again_under_hold test_resolved_thread_is_answered test_reply_rules test_reply_age_is_configurable_and_validated test_closed_pull_request_drops_its_threads test_unanswered_reraise_is_off_unless_configured test_arm_plumbs_the_reply_age_into_the_check_shim test_many_reviews_stay_readable; do
   ( "$test_name" ) || failures=$((failures + 1))
 done
 [ "$failures" -eq 0 ] || fail "$failures contribution regressions"

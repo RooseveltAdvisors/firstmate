@@ -156,6 +156,11 @@
 # Source bodies are data, never commands.
 # All mutations serialize on this home's .contributions.lock. Writes refuse
 # symlinks and publish by rename. No forge writes are performed.
+# A stored record that fails the v1 shape is set aside as
+# contributions.json.invalid.* when a mutation meets it, and that task's record
+# is rebuilt from observed evidence, so a hand-written ledger entry never
+# wedges a settlement or forces hand repair. A read-only view never moves it:
+# an unreadable record keeps failing the unverified-ownership views.
 #
 # arm registers the existing authenticated custom-check path. Startup and PR
 # registration call it; when filing a linked upstream issue, call arm as well.
@@ -221,10 +226,27 @@ jq_lib() { # jq options/program via final argument
   jq -L "$SCRIPT_DIR" "$@" "include \"fm-contributions\"; $program"
 }
 
+stored_record_valid() { # record-file task : v1 shape and the task identity its directory names
+  local file=$1 task=$2 dir
+  fm_dirname_to dir "$file"
+  [ ! -L "$file" ] && [ ! -L "$dir" ] && [ -f "$file" ] \
+    && [ "$(wc -c < "$file")" -le 1048576 ] \
+    && jq_lib -ne --arg task "$task" --slurpfile record "$file" \
+      '($record | length) == 1 and ($record[0] | valid_record and .task == $task)' >/dev/null 2>&1
+}
+
+quarantine_stored_record() { # record-file : keep non-v1 bytes aside, out of the ledger
+  local file=$1 dir slot
+  fm_dirname_to dir "$file"
+  slot=$(umask 077; mktemp "$dir/contributions.json.invalid.XXXXXX") || return 1
+  mv -f -- "$file" "$slot"
+}
+
 read_saved() {
   local file dir task
   : > "$TMP/saved.jsonl"
   ERRORS=0
+  QUARANTINED=0
   if [ -L "$DATA" ]; then
     ERRORS=1; printf '[]\n' > "$TMP/saved.json"; return 0
   fi
@@ -232,15 +254,13 @@ read_saved() {
     [ -e "$file" ] || [ -L "$file" ] || continue
     fm_dirname_to dir "$file"
     fm_basename_to task "$dir"
-    if [ -L "$file" ] || [ -L "$dir" ] || [ ! -f "$file" ] \
-      || [ "$(wc -c < "$file")" -gt 1048576 ] \
-      || ! jq_lib -ne --slurpfile record "$file" '($record | length) == 1 and ($record[0] | valid_record)' >/dev/null 2>&1; then
+    if ! stored_record_valid "$file" "$task"; then
+      if [ "$LOCK_HELD" = 1 ] && [ ! -L "$dir" ] && [ -f "$file" ] && [ ! -L "$file" ] \
+        && quarantine_stored_record "$file"; then
+        QUARANTINED=$((QUARANTINED + 1)); continue
+      fi
       ERRORS=$((ERRORS + 1))
       continue
-    fi
-    # A file's task identity must match its durable directory, not arbitrary JSON.
-    if ! jq -e --arg task "$task" '.task == $task' "$file" >/dev/null; then
-      ERRORS=$((ERRORS + 1)); continue
     fi
     jq -c . "$file" >> "$TMP/saved.jsonl"
   done
@@ -287,10 +307,12 @@ write_record() { # task record-json-file
   fm_pr_regular_destination_on_device_or_absent "$file" "$device" || fail 'unsafe contribution record destination'
   staged=$(umask 077; mktemp "$dir/.contributions.XXXXXX")
   # Preserve other contributions owned by this same task.
-  if [ -f "$file" ]; then
-    jq_lib -ne --arg task "$task" --slurpfile record "$file" '$record[0] | valid_record and .task == $task' >/dev/null || fail 'invalid stored contribution record'
+  if [ -f "$file" ] && stored_record_valid "$file" "$task"; then
     jq --slurpfile row "$2" '.records = ([.records[] | select(.url != $row[0].url)] + $row)' "$file" > "$staged"
   else
+    if [ -f "$file" ] && [ ! -L "$file" ]; then
+      quarantine_stored_record "$file" || fail 'unusable contribution record destination'
+    fi
     jq -n --arg task "$task" --slurpfile row "$2" '{schema:"fm-contributions.v1",task:$task,records:$row}' > "$staged"
   fi
   chmod 600 "$staged"
@@ -581,12 +603,13 @@ clear_unsupported_errors() {
 }
 
 poll() {
-  local task url old kind error observed why
+  local task url old kind error observed why unreadable
   local -a row
   acquire
   get_input
   read_saved
-  [ "$ERRORS" -eq 0 ] || printf 'contributions: %s unreadable durable record(s)\n' "$ERRORS"
+  unreadable=$((ERRORS + QUARANTINED))
+  [ "$unreadable" -eq 0 ] || printf 'contributions: %s unreadable durable record(s)\n' "$unreadable"
   clear_unsupported_errors
   # Only supported URLs enter final settlement and the forge-read rotation.
   # One line per distinct URL: the URL, then every owning task.
@@ -673,7 +696,7 @@ arm() {
   acquire
   if [ "${1:-}" = --if-owned ]; then
     get_input; read_saved
-    if [ "$ERRORS" -eq 0 ] && ! jq_lib -ne --slurpfile input "$TMP/input.json" \
+    if [ "$((ERRORS + QUARANTINED))" -eq 0 ] && ! jq_lib -ne --slurpfile input "$TMP/input.json" \
       --slurpfile saved "$TMP/saved.json" 'known($input[0];$saved[0]) | length > 0' >/dev/null; then
       return 0
     fi
