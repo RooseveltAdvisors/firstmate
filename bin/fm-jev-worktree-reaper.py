@@ -11,10 +11,10 @@ Safety invariants:
 - NEVER touches dirty worktrees (uncommitted changes or untracked files).
 - NEVER removes the main/root repository worktree.
 - NEVER deletes a worktree still referenced by the fleet: a Firstmate task
-  record (state/<task>.meta worktree=) naming it or a path above it, a durable
-  treehouse pool lease, or a running process with its cwd or an open file
-  inside it all make a worktree referenced, and a reference forbids reaping
-  regardless of git state.
+  record (state/<task>.meta worktree=) naming it, a path above it, or a path
+  inside it, a durable treehouse pool lease, or a running process with its cwd
+  or an open file inside it all make a worktree referenced, and a reference
+  forbids reaping regardless of git state.
 - Treats an inconclusive process probe (no process table, or any pid whose
   cwd or fds cannot be read) as referenced: reaping is optional maintenance,
   so doubt resolves to keep.
