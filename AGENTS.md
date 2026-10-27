@@ -63,7 +63,7 @@ Reconcile only this home's recorded direct reports; load `stuck-crewmate-recover
 
 Load `project-management` before adding, creating, removing, or initializing a project.
 Load `secondmate-provisioning` before any secondmate-home lifecycle action or `data/secondmates.md` edit.
-At intake, classify with `bin/fm-route-domain.sh --task` or `bin/fm-route-dispatch.sh`; never spawn project workers in `w1`; if no scope fits or Jev says `create_secondmate`, charter a secondmate rather than doing that work in the main home.
+At intake, classify with `bin/fm-route-domain.sh --task` or `bin/fm-route-dispatch.sh`; never spawn project workers in `w1`; if no scope fits or Jev says `create_secondmate`, charter a secondmate rather than doing that work in the main home. When chartering is not justified or the router scores nothing, still delegate: spawn a crewmate with `bin/fm-spawn.sh` (pass a repo URL for a not-yet-cloned project) instead of doing project work in the primary pane.
 Keep `local-only` work in the main home; secondmates are idle by default; an empty queue never authorizes a survey; do not reconstruct a secondmate's child tree; firstmate never writes a project's `AGENTS.md` directly.
 A crewmate edits a project's `AGENTS.md` or `CLAUDE.md` only to correct factually wrong text, never to add missing knowledge and never through `bin/fm-ensure-agents-md.sh`; additions are a deliberate human choice.
 `bin/fm-jev-guard.sh` denies project implementation (`require_delegation`) in the primary console and in secondmate homes.

@@ -3638,6 +3638,32 @@ resolve_project_dir_arg() {
   esac
 }
 
+# ponytail: bootstrap a not-yet-cloned project from a repo URL or owner/name
+# shorthand so delegation never deadlocks on a missing checkout; the trusted
+# fm-* tool clones, the primary pane never does. Ceiling: plain clone, no
+# submodules/auth handling; add those when a spawn actually needs them.
+bootstrap_project_arg() {
+  local arg=$1 src name dest
+  case "$arg" in
+  https://*|http://*|git@*|ssh://*) src=$arg ;;
+  */*)
+    case "$arg" in
+    */*/*|projects/*|./*|/*|../*) return 1 ;;
+    esac
+    [ ! -e "$arg" ] || return 1
+    src="https://github.com/$arg"
+    ;;
+  *) return 1 ;;
+  esac
+  name=$(basename "$arg"); name=${name%.git}
+  [ -n "$name" ] && [ "$name" != "." ] && [ "$name" != ".." ] || return 1
+  dest="$PROJECTS/$name"
+  [ -d "$dest" ] && { printf '%s\n' "$dest"; return 0; }
+  echo "fm-spawn: bootstrapping project $name from $src into $dest" >&2
+  git clone --quiet "$src" "$dest" 1>&2 || return 1
+  printf '%s\n' "$dest"
+}
+
 path_is_ancestor_of() {
   local ancestor=$1 path=$2
   [ -n "$ancestor" ] || return 1
@@ -3814,7 +3840,12 @@ if [ "$KIND" = secondmate ]; then
     BRIEF="$DATA/$ID/brief.md"
   fi
 else
-  PROJ_ABS="$(cd "$(resolve_project_dir_arg "$PROJ")" && pwd)"
+  PROJ_ABS=$(resolve_project_dir_arg "$PROJ")
+  if [ ! -d "$PROJ_ABS" ]; then
+    # ponytail: missing checkout + URL/shorthand arg -> clone it, never deadlock.
+    BOOTSTRAPPED=$(bootstrap_project_arg "$PROJ") && { PROJ=$BOOTSTRAPPED; PROJ_ABS=$BOOTSTRAPPED; }
+  fi
+  PROJ_ABS="$(cd "$PROJ_ABS" && pwd)"
   WT=""
   BRIEF="$DATA/$ID/brief.md"
 fi

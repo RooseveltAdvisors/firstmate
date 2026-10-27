@@ -578,7 +578,13 @@ def get_suggested_dispatch(cmd: str, domain: str) -> str:
     elif domain == "firstmate_upstream":
         return "bin/fm-send.sh 2ndmate-firstmate-upstream '<task instructions>'"
     else:
-        return "bin/fm-route-dispatch.sh --task '<task instructions>'"
+        # ponytail: a crewmate spawn works with or without a secondmate (pass a
+        # repo URL for a not-yet-cloned project); the router is classification,
+        # not the delegation path, so it is no longer the suggested escape.
+        return (
+            "bin/fm-spawn.sh <task-id> <project-dir-or-repo-url> "
+            "--mode no-mistakes --yolo <on|off>"
+        )
 
 
 def query_jev_guard(cmd: str, proxy_bin: Path | None = None) -> dict:
