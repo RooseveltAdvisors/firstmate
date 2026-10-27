@@ -301,7 +301,19 @@ case "${1:-}" in
 esac
 exit 0
 SH
-  chmod +x "$fb/no-mistakes" "$fb/gh" "$fb/gh-axi" "$fb/glab" "$fb/tea" "$fb/gerrit-axi" "$fb/tmux" "$fb/herdr"
+  cat > "$fb/rex" <<'SH'
+#!/usr/bin/env bash
+set -u
+# One canned classifier read: a kept-open block whose foreground is a bare
+# shell, which bin/backends/rex.sh reads as `dead`. Every other read fails.
+case " $* " in
+  *" process "*)
+    printf '{"foreground":{"pid":99999999,"name":"zsh","path":"/bin/zsh","argv0":"-zsh","cwd":"/tmp"},"ancestors":[],"last_exit":null}\n'
+    ;;
+  *) exit 1 ;;
+esac
+SH
+  chmod +x "$fb/no-mistakes" "$fb/gh" "$fb/gh-axi" "$fb/glab" "$fb/tea" "$fb/gerrit-axi" "$fb/tmux" "$fb/herdr" "$fb/rex"
   printf '%s\n' "$fb"
 }
 
@@ -3230,21 +3242,27 @@ test_no_run_idle_secondmate_resolved_event_not_state() {
   pass "a trailing resolved: event does not corrupt state render (idle stays idle)"
 }
 
+# park admits every recovery-grade backend (tmux, herdr, rex, t3code), so the
+# paused reporting covers the same set: a parked rex-backed stopped seat
+# reports its declared wait with its recheck time instead of unknown.
 test_parked_stopped_seat_reports_its_declared_wait() {
+  command -v jq >/dev/null 2>&1 || { pass "parked rex test skipped without jq"; return; }
   reset_fakes
   local d; d=$(new_case parked-seat)
   make_repo_on_branch "$d/wt" fm/feat-parked
   make_fakebin "$d" >/dev/null
-  fm_write_meta "$d/state/feat-parked.meta" "window=fm:fm-feat-parked" "worktree=$d/wt" "kind=ship"
+  fm_write_meta "$d/state/feat-parked.meta" \
+    "window=00000000-0000-7000-8000-00000000000a:00000000-0000-7000-8000-00000000000b" \
+    "worktree=$d/wt" "kind=ship" "backend=rex" "harness=claude"
   printf 'paused [at=1]: parked by the supervisor with the seat stopped - overnight until 2099-01-01T00:00Z\n' \
     > "$d/state/feat-parked.status"
   FM_FAKE_AXI_STATUS=""
   FM_FAKE_RUNS_LIST=""
-  FM_FAKE_TMUX_MISSING=1
   local out; out=$(run_crew_state "$d" feat-parked)
-  assert_contains "$out" "state: paused" "a parked stopped seat reports its declared wait"
+  assert_contains "$out" "state: paused" "a parked stopped rex seat reports its declared wait"
   assert_contains "$out" "source: status-log" "the wait is read from the status log"
   assert_contains "$out" "seat stopped" "the detail says the seat is stopped"
+  assert_contains "$out" "2099-01-01T00:00Z" "the report carries the declared recheck time"
   # Control: once the declared recheck time has passed, death evidence wins again.
   printf 'paused [at=1]: parked by the supervisor with the seat stopped - overnight until 2000-01-01T00:00Z\n' \
     > "$d/state/feat-parked.status"
@@ -3252,6 +3270,45 @@ test_parked_stopped_seat_reports_its_declared_wait() {
   assert_contains "$out" "state: unknown" "an expired park falls back to unknown"
   assert_contains "$out" "backend target gone" "an expired park keeps the gone-class evidence"
   pass "a parked stopped seat reports paused until its recheck time passes"
+}
+
+# The stopped claim is made only where the absence is proven. A herdr seat
+# whose pane the recorded session's own server confirms gone reads paused with
+# the stop claim; the same declared wait on a tmux seat whose absence no read
+# can prove is doubt, so it stays unknown and claims no stop.
+test_parked_pause_claims_a_stop_only_on_proven_absence() {
+  command -v jq >/dev/null 2>&1 || { pass "parked absence-proof test skipped without jq"; return; }
+  reset_fakes
+  local d out; d=$(new_case parked-absence)
+  make_repo_on_branch "$d/wt" fm/feat-parked-gone
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-parked-gone.meta" "window=default:w1:p2" "worktree=$d/wt" \
+    "kind=ship" "backend=herdr" "harness=claude"
+  printf 'paused [at=1]: awaiting the vendor window until 2099-01-01T00:00Z\n' \
+    > "$d/state/feat-parked-gone.status"
+  FM_FAKE_AXI_STATUS=""
+  FM_FAKE_RUNS_LIST=""
+  FM_FAKE_TMUX_MISSING=1
+  FM_FAKE_HERDR_MISSING=1
+  out=$(run_crew_state "$d" feat-parked-gone)
+  assert_contains "$out" "state: paused" "a proven-gone parked seat reports its declared wait"
+  assert_contains "$out" "seat stopped" "a proven absence may claim the seat stopped"
+  reset_fakes
+  d=$(new_case parked-doubt)
+  make_repo_on_branch "$d/wt" fm/feat-parked-doubt
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-parked-doubt.meta" "window=fm:fm-feat-parked-doubt" "worktree=$d/wt" \
+    "kind=ship"
+  printf 'paused [at=1]: awaiting the vendor window until 2099-01-01T00:00Z\n' \
+    > "$d/state/feat-parked-doubt.status"
+  FM_FAKE_AXI_STATUS=""
+  FM_FAKE_RUNS_LIST=""
+  FM_FAKE_TMUX_MISSING=1
+  out=$(run_crew_state "$d" feat-parked-doubt)
+  assert_contains "$out" "state: unknown" "an unproven absence is doubt, not a stopped seat"
+  assert_not_contains "$out" "state: paused" "an unproven absence never reads paused"
+  assert_not_contains "$out" "seat stopped" "an unproven absence never claims the seat stopped"
+  pass "a parked pause claims a stop only where the absence is proven"
 }
 
 # The common park case: `exit` leaves the seat's shell pane open, so the pane is
@@ -5983,6 +6040,7 @@ test_no_run_idle_secondmate_resolved_event_not_state
 test_dead_window_ignores_stale_status_log
 test_gone_window_in_live_session_ignores_stale_status_log
 test_parked_stopped_seat_reports_its_declared_wait
+test_parked_pause_claims_a_stop_only_on_proven_absence
 test_parked_stopped_seat_with_readable_shell_pane
 test_no_run_tmux_unreadable_reads_unreachable_not_gone
 test_dead_window_still_reports_terminal_run_step

@@ -177,6 +177,8 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 . "$SCRIPT_DIR/fm-backend.sh"
 # shellcheck source=bin/fm-classify-lib.sh
 . "$SCRIPT_DIR/fm-classify-lib.sh"
+# shellcheck source=bin/fm-control-lib.sh
+. "$SCRIPT_DIR/fm-control-lib.sh"
 # shellcheck source=bin/fm-busy-lib.sh
 . "$SCRIPT_DIR/fm-busy-lib.sh"
 # shellcheck source=bin/fm-nm-run-lib.sh
@@ -1316,15 +1318,24 @@ fi
 # not passed is parked on purpose (bin/fm-control.sh park), the same admission
 # the watcher's pause cadence makes for a dead crew. Report that declared wait
 # rather than unknown; once the stated time passes, the death-class verdicts
-# apply again. The classifier runs only when a live park exists, unless the
-# caller already has its verdict.
+# apply again. `dead` proves the seat stopped; a raw `missing` claims one only
+# where the one absence proof (bin/fm-control-lib.sh's
+# fm_control_endpoint_absence_verdict) proves the endpoint gone or agent-free,
+# because an unreachable endpoint is doubt, not a stop. The classifier runs
+# only when a live park exists, unless the caller already has its verdict.
 emit_if_parked() {  # [agent-state]
-  local park_line park_until
-  case "$TASK_BACKEND" in tmux|herdr) ;; *) return 0 ;; esac
+  local park_line park_until state absence
   park_line=$(status_declared_wait_line "$LOG")
   park_until=$(status_paused_until "$park_line") && [ "$(date +%s)" -lt "$park_until" ] || return 0
-  case "${1:-$(fm_backend_agent_state "$TASK_BACKEND" "$BACKEND_TARGET")}" in
-    missing|dead) emit paused status-log "$(status_line_note "$park_line")${SEP}seat stopped" ;;
+  state=${1:-$(fm_backend_agent_state "$TASK_BACKEND" "$BACKEND_TARGET")}
+  case "$state" in
+    dead) emit paused status-log "$(status_line_note "$park_line")${SEP}seat stopped" ;;
+    missing)
+      absence=$(fm_control_endpoint_absence_verdict "$TASK_BACKEND" "$BACKEND_TARGET" "$META")
+      case "${absence%%$'\t'*}" in
+        gone|dead) emit paused status-log "$(status_line_note "$park_line")${SEP}seat stopped" ;;
+      esac
+      ;;
   esac
 }
 

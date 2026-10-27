@@ -1336,13 +1336,41 @@ test_park_refuses_a_live_or_unbounded_seat() {
   out=$(run_control "$dir" t1 exit --until 2099-01-01T00:00Z); rc=$?
   [ "$rc" -ne 0 ] || fail "--until on another verb should refuse"
   [ ! -e "$dir/home/state/t1.status" ] || fail "a refused park must not write a declaration"
+  dir=$(new_case park-unproven)
+  add_task "$dir" t1 claude
+  : > "$dir/fake/windows"
+  out=$(run_control "$dir" t1 park --until 2099-01-01T00:00Z --reason "held for a later dispatch"); rc=$?
+  [ "$rc" -ne 0 ] || fail "parking a seat whose absence cannot be proven should refuse"
+  assert_contains "$out" "cannot trust" "the refusal should name the unprovable absence"
+  assert_not_contains "$out" "parked t1" "an unproven absence must not be parked"
+  [ ! -e "$dir/home/state/t1.status" ] || fail "a refused park must not write a declaration"
   dir=$(new_case park-mate)
   add_task "$dir" m1 claude secondmate
   alive_as "$dir" zsh
   out=$(run_control "$dir" m1 park --until 2099-01-01T00:00Z --reason r); rc=$?
   [ "$rc" -ne 0 ] || fail "parking a secondmate should refuse"
   assert_contains "$out" "secondmate" "the refusal should name the secondmate"
-  pass "fm-control park: refuses a live agent, a missing or past recheck time, and a secondmate"
+  pass "fm-control park: refuses a live agent, an unproven absence, a missing or past recheck time, and a secondmate"
+}
+
+test_park_reason_until_token_cannot_shadow_the_recheck_time() {
+  local dir out rc last until_epoch
+  dir=$(new_case park-shadow)
+  add_task "$dir" t1 claude
+  alive_as "$dir" zsh
+  out=$(run_control "$dir" t1 park --until 2099-01-01T00:00:00Z \
+    --reason "waiting until 2026-06-01T00:00Z on PR7045"); rc=$?
+  [ "$rc" -ne 0 ] || fail "a --reason whose until token shadows the recheck time should refuse"$'\n'"$out"
+  [ ! -e "$dir/home/state/t1.status" ] || fail "a refused park must not leave a declaration behind"
+  out=$(run_control "$dir" t1 park --until 2099-01-01T00:00Z \
+    --reason "waiting until 2099-01-01T00:00Z on PR7045"); rc=$?
+  expect_code 0 "$rc" "a reason whose token matches the stated time should park"$'\n'"$out"
+  last=$(tail -n 1 "$dir/home/state/t1.status")
+  until_epoch=$(bash -c '. "$1/bin/fm-classify-lib.sh"; status_paused_until "$2"' _ "$ROOT" "$last") \
+    || fail "the shared classifier should read the park line's recheck time"
+  [ "$until_epoch" = "$(bash -c '. "$1/bin/fm-classify-lib.sh"; fm_utc_iso_to_epoch 2099-01-01T00:00Z' _ "$ROOT")" ] \
+    || fail "the declared recheck time must read back exactly, got: $until_epoch"
+  pass "fm-control park: a shadowing --reason token refuses before any declaration is written"
 }
 
 test_exit_types_each_harness_verified_command
@@ -1395,3 +1423,4 @@ test_secondmate_control_command_carries_no_marker
 test_fm_send_still_marks_the_same_secondmate_task
 test_park_declares_a_wait_and_touches_nothing_else
 test_park_refuses_a_live_or_unbounded_seat
+test_park_reason_until_token_cannot_shadow_the_recheck_time
