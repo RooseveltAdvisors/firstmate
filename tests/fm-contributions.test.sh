@@ -1305,7 +1305,7 @@ test_hand_written_record_cannot_wedge_settlement() {
   jq -e '.records[0].observation.state == "merged" and .records[0].verdict == null' \
     "$home/data/delivery/contributions.json" >/dev/null \
     || fail 'settlement did not rebuild the record from its own observation'
-  ls "$home/data/delivery/" | grep -q '^contributions\.json\.invalid\.' \
+  compgen -G "$home/data/delivery/contributions.json.invalid.*" >/dev/null \
     || fail 'the hand-written record was dropped instead of kept aside'
   pass 'a hand-written non-v1 record cannot wedge settlement'
 }
@@ -1327,7 +1327,7 @@ test_unreadable_record_cannot_wedge_enrollment() {
     || fail 'enrollment did not record the enrolled URL'
   [ ! -e "$home/data/stranger/contributions.json" ] \
     || fail 'enrollment left the unreadable record in the ledger'
-  ls "$home/data/stranger/" | grep -q '^contributions\.json\.invalid\.' \
+  compgen -G "$home/data/stranger/contributions.json.invalid.*" >/dev/null \
     || fail 'the unreadable record was dropped instead of kept aside'
   pass 'an unreadable record cannot wedge enrollment of a new contribution'
 }
