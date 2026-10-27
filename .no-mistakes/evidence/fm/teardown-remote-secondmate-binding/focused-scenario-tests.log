@@ -1,0 +1,10 @@
+== FM_TEST_ONLY=test_remote_registered_secondmate_teardown_accepts_the_route_binding bash tests/fm-public-followup.test.sh
+ok - a remote registry route stands as the durable parent binding for a locally seated secondmate
+== FM_TEST_ONLY=test_remote_registered_secondmate_teardown_still_refuses_a_missing_binding bash tests/fm-public-followup.test.sh
+ok - remote-route acceptance keeps the no-binding refusal intact
+== FM_TEST_ONLY=test_secondmate_retirement_accepts_the_remote_route_binding bash tests/fm-public-followup.test.sh
+ok - a remote registry route stands as the removal identity for a locally seated secondmate
+== FM_TEST_ONLY=test_secondmate_retirement_local_binding_matches_key_for_key bash tests/fm-public-followup.test.sh
+ok - secondmate retirement keeps local bindings key-for-key and missing bindings fail closed
+== FM_TEST_ONLY=test_secondmate_promotion_uses_teardown_parent_resolution bash tests/fm-public-followup.test.sh
+ok - secondmate promotion matches teardown parent resolution

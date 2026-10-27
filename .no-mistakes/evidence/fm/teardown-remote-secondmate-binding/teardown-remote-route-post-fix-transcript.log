@@ -1,0 +1,98 @@
+==============================================================
+DRV_MODE=post  teardown=/home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X38FEAYF4BVGZ2CEMJCCFK/bin/fm-teardown.sh
+==============================================================
+
+### A: lane teardown 'work-drv' for remote-registered secondmate remote-mate
+--- exit: 1
+--- raw teardown output:
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X38FEAYF4BVGZ2CEMJCCFK/.pi/extensions/fm-primary-turnend-guard.ts -e /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X38FEAYF4BVGZ2CEMJCCFK/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+warning: secondmate remote-mate is registered on the remote route agt-test:/remote/home/remote-mate while its live home here is /tmp/fm-public-followup.Kt96cD/drv-lane-child; the recorded route stands as its durable parent binding
+REFUSED: task work-drv still owes a public reply through the myfirstmate relay.
+public commitment pf-drv is still pending-work for secondmate:remote-mate/work-drv
+Deliver it with bin/fm-public-followup.sh deliver <obligation-id>, waive it with bin/fm-tasks-axi.sh public-followup waive, or use --force after explicit discard approval.
+--- post-state: child work metadata preserved?
+present: /tmp/fm-public-followup.Kt96cD/drv-lane-child/state/work-drv.meta
+
+### B: retire secondmate 'remote-mate' from the parent (removal-identity guard)
+--- exit: 0
+--- raw teardown output:
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X38FEAYF4BVGZ2CEMJCCFK/.pi/extensions/fm-primary-turnend-guard.ts -e /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X38FEAYF4BVGZ2CEMJCCFK/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+warning: secondmate remote-mate is registered on the remote route agt-test:/remote/home/remote-mate while its live home here is /tmp/fm-public-followup.Kt96cD/drv-retire-child; the recorded route stands as its durable parent binding
+warning: secondmate remote-mate is registered on the remote route agt-test:/remote/home/remote-mate while its live home here is /tmp/fm-public-followup.Kt96cD/drv-retire-child; the recorded route stands as its durable parent binding
+teardown remote-mate complete (window firstmate:fm-remote-mate, worktree /tmp/fm-public-followup.Kt96cD/drv-retire-child)
+--- post-state:
+child home removed: /tmp/fm-public-followup.Kt96cD/drv-retire-child
+parent meta removed
+registry entry removed
+
+### C: retire 'remote-mate' while its LOCAL registry record names another home (must refuse)
+--- exit: 1
+--- raw teardown output:
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X38FEAYF4BVGZ2CEMJCCFK/.pi/extensions/fm-primary-turnend-guard.ts -e /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X38FEAYF4BVGZ2CEMJCCFK/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: secondmate remote-mate is registered at /tmp/fm-public-followup.Kt96cD/drv-mismatch-other, not /tmp/fm-public-followup.Kt96cD/drv-mismatch-child
+--- post-state:
+child home preserved: /tmp/fm-public-followup.Kt96cD/drv-mismatch-child
+parent meta preserved
+no endpoint action logged
+
+### D1: promote a scout in a remote-registered secondmate home (doc claims NO route acceptance)
+--- exit: 0
+--- raw promote output:
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X38FEAYF4BVGZ2CEMJCCFK/.pi/extensions/fm-primary-turnend-guard.ts -e /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X38FEAYF4BVGZ2CEMJCCFK/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+promoted drv-promote to ship mode=local-only yolo=off (teardown protection restored)
+wrote ship instructions for mode=local-only: /tmp/fm-public-followup.Kt96cD/drv-promote-child/data/drv-promote/ship-instructions.md
+next: FM_HOME=/tmp/fm-public-followup.Kt96cD/drv-promote-child bin/fm-send.sh fm-drv-promote "$(cat /tmp/fm-public-followup.Kt96cD/drv-promote-child/data/drv-promote/ship-instructions.md)"
+warning: could not resolve the consent-holding parent home for secondmate remote-mate; promotion succeeded, but any open public loop must be inspected and rechained from the parent.
+
+### D2: same promotion with a LOCAL registry record matching the live home (doc claims local comparison stands)
+--- exit: 0
+--- raw promote output:
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X38FEAYF4BVGZ2CEMJCCFK/.pi/extensions/fm-primary-turnend-guard.ts -e /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X38FEAYF4BVGZ2CEMJCCFK/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+promoted drv-promote2 to ship mode=local-only yolo=off (teardown protection restored)
+wrote ship instructions for mode=local-only: /tmp/fm-public-followup.Kt96cD/drv-promote2-child/data/drv-promote2/ship-instructions.md
+next: FM_HOME=/tmp/fm-public-followup.Kt96cD/drv-promote2-child bin/fm-send.sh fm-drv-promote2 "$(cat /tmp/fm-public-followup.Kt96cD/drv-promote2-child/data/drv-promote2/ship-instructions.md)"
+next: FM_HOME=/tmp/fm-public-followup.Kt96cD/drv-promote2-parent bin/fm-public-followup.sh rechain <new-obligation-id> --from pf-drv2 --work-home secondmate:remote-mate --work-id drv-promote2 --expected pr-merged
+
+### E: relaunch secondmate 'remote-mate' from the parent (doc claims NO route acceptance)
+--- exit: 1
+--- raw spawn output:
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X38FEAYF4BVGZ2CEMJCCFK/.pi/extensions/fm-primary-turnend-guard.ts -e /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X38FEAYF4BVGZ2CEMJCCFK/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+error: task remote-mate's endpoint reads 'ambiguous'; a relaunch requires a positively agent-free endpoint (stop the agent first with bin/fm-control.sh remote-mate exit)
+--- post-state:
+no endpoint launch logged

@@ -1,0 +1,11 @@
+== FM_TEST_ONLY=test_remote_registered_secondmate_teardown_accepts_the_route_binding bash tests/fm-public-followup.test.sh   (bin/fm-teardown.sh replaced with a049d301 = pre-fix)
+not ok - a resolved remote-route binding must route cleanup through the parent commitment (missing: 'still owes a public reply')
+REFUSED: cannot resolve the primary home for marked secondmate remote-mate; refusing cleanup without its durable parent binding.
+   exit=1
+== FM_TEST_ONLY=test_secondmate_retirement_accepts_the_remote_route_binding bash tests/fm-public-followup.test.sh   (bin/fm-teardown.sh replaced with a049d301 = pre-fix)
+not ok - a remote registry route must stand as the removal identity (rc=1): ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: secondmate remote-mate is registered at /remote/home/remote-mate, not /tmp/fm-public-followup.tQchUS/retire-remote-child
+   exit=1
+== FM_TEST_ONLY=test_secondmate_retirement_local_binding_matches_key_for_key bash tests/fm-public-followup.test.sh   (bin/fm-teardown.sh replaced with a049d301 = pre-fix)
+ok - secondmate retirement keeps local bindings key-for-key and missing bindings fail closed
+   exit=0
