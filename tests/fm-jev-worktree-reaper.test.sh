@@ -308,4 +308,19 @@ echo "${PROCLESS_OUTPUT}" | grep -q "Preserved (Inconclusive): 1"
 test -d "${WT23}"
 echo "PASS: Test 23 - /proc-less host keeps all candidates with visible count"
 
-echo "=== All 23 fm-jev-worktree-reaper tests passed successfully! ==="
+# Test 24 (fm-av46m): a corrupt task meta resolves to doubt and keeps worktrees
+WT24="${TEST_TMP}/wt-corrupt-meta"
+git -C "${REPO}" worktree add --detach "${WT24}" main
+FAKE4="${TEST_TMP}/fm-home-4"
+mkdir -p "${FAKE4}/state"
+python3 - "${WT24}" "${FAKE4}/state/fm-corrupt-task.meta" <<'EOF'
+import sys
+path, meta = sys.argv[1], sys.argv[2]
+open(meta, "wb").write(b"worktree=" + path.encode() + b"\x00\n")
+EOF
+CORRUPT_OUTPUT=$(FM_PROC_ROOT_OVERRIDE="${PROC_CLEAN}" HOME="${FAKE_USER_HOME}" FM_HOME="${FAKE4}" FM_SECONDMATE_HOMES_DIR="${HOMES_DIR}" "${REAPER_WRAPPER}" --repo-dir "${REPO}" --base-branch main)
+echo "${CORRUPT_OUTPUT}" | grep -q "Referenced: ${WT24} (reference scan inconclusive"
+test -d "${WT24}"
+echo "PASS: Test 24 - corrupt task meta preserves worktrees"
+
+echo "=== All 24 fm-jev-worktree-reaper tests passed successfully! ==="

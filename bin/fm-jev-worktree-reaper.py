@@ -228,7 +228,7 @@ def collect_task_refs(fm_home: str) -> Optional[Dict[str, str]]:
                             if value:
                                 task = os.path.splitext(name)[0]
                                 refs.setdefault(canon(value), f"task record {task} in {home}")
-            except OSError:
+            except (OSError, ValueError):
                 return None
         children = registry_homes(home)
         if children is None:
