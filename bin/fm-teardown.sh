@@ -1459,7 +1459,22 @@ public_followup_resolve_primary_home() {
   meta_home=$(CDPATH='' cd -- "$meta_home" 2>/dev/null && pwd -P) || return 1
   [ "$meta_home" = "$child" ] || return 1
   registry="$parent/data/secondmates.md"
-  secondmate_registry_validate_bindings "$registry" secondmate_registry_path_key "$id" "$child" || return 1
+  # Validate the whole registry and require a binding for this id, but without
+  # naming the child home as the expected home yet: a remote record can never
+  # equal a local live home path, and a present-but-remote binding must not
+  # read as absent (fm-1777z: landed lanes of a remote-registered secondmate
+  # stranded behind exactly that mismatch). Which home is authoritative is a
+  # recorded captain call; the guard accepts either form and stays strict
+  # about everything else (registry shape, duplicates, overlaps, the parent
+  # meta proofs above).
+  secondmate_registry_validate_bindings "$registry" secondmate_registry_path_key "$id" || return 1
+  if [ "$SECONDMATE_REGISTRY_MATCH_REMOTE" -eq 1 ]; then
+    echo "warning: secondmate $id is registered on the remote route $SECONDMATE_REGISTRY_MATCH_HOST:$SECONDMATE_REGISTRY_MATCH_HOME while its live home here is $child; the recorded route stands as its durable parent binding" >&2
+  else
+    local child_key
+    child_key=$(secondmate_registry_path_key "$child") || return 1
+    [ "local:$child_key" = "$SECONDMATE_REGISTRY_MATCH_HOME_KEY" ] || return 1
+  fi
   printf '%s\n' "$parent"
 }
 if [ -f "$FM_HOME/$SUB_HOME_MARKER" ]; then
@@ -2873,7 +2888,7 @@ safe_rm_rf_child_worktree() {
 }
 
 validate_firstmate_home_for_removal() {
-  local home=$1 label=$2 expected_id=${3:-} abs_home_path marker_id conflict child_id child_home
+  local home=$1 label=$2 expected_id=${3:-} abs_home_path expected_home_key marker_id conflict child_id child_home
   [ -n "$home" ] || return 0
   [ -e "$home" ] || return 0
   abs_home_path=$(validate_removal_target "$home" "$label") || return 1
@@ -2888,7 +2903,7 @@ validate_firstmate_home_for_removal() {
       return 1
     fi
     if [ -e "$SECONDMATE_REG" ] || [ -L "$SECONDMATE_REG" ]; then
-      if ! secondmate_registry_validate_bindings "$SECONDMATE_REG" secondmate_registry_path_key "$expected_id" "$abs_home_path"; then
+      if ! secondmate_registry_validate_bindings "$SECONDMATE_REG" secondmate_registry_path_key "$expected_id"; then
         case "$SECONDMATE_REGISTRY_ERROR" in
           overlapping\ secondmate\ home\ assignment:*)
             echo "REFUSED: unsafe $label removal target $home contains registered secondmate home; $SECONDMATE_REGISTRY_ERROR" >&2
@@ -2896,6 +2911,20 @@ validate_firstmate_home_for_removal() {
           *) echo "REFUSED: $SECONDMATE_REGISTRY_ERROR" >&2 ;;
         esac
         return 1
+      fi
+      # Route-form acceptance shared with public_followup_resolve_primary_home
+      # above (fm-1777z): a remote registry record can never equal a live local
+      # home path, so the recorded route stands as this removal identity and the
+      # warning names it; a local record still matches the live home key for
+      # key, and a missing or mismatched binding refuses before any removal.
+      if [ "$SECONDMATE_REGISTRY_MATCH_REMOTE" -eq 1 ]; then
+        echo "warning: secondmate $expected_id is registered on the remote route $SECONDMATE_REGISTRY_MATCH_HOST:$SECONDMATE_REGISTRY_MATCH_HOME while its live home here is $abs_home_path; the recorded route stands as its durable parent binding" >&2
+      else
+        expected_home_key=$(secondmate_registry_path_key "$abs_home_path") || return 1
+        if [ "local:$expected_home_key" != "$SECONDMATE_REGISTRY_MATCH_HOME_KEY" ]; then
+          echo "REFUSED: secondmate $expected_id is registered at $SECONDMATE_REGISTRY_MATCH_HOME, not $abs_home_path" >&2
+          return 1
+        fi
       fi
     fi
   fi

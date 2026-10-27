@@ -129,6 +129,10 @@ The concurrency and interrupted-bind cases verify that one delivered source cann
 A pre-change on-disk record (no `state=`, no `request_context_b64`) is an open loop and un-rechainable rather than a crash.
 The stock macOS Bash lane in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) sets `FM_TEST_ONLY=test_first_register_succeeds_with_empty_lock_list_under_bash32` and runs `tests/fm-public-followup.test.sh` through real `/bin/bash` 3.2, proving the first `register` path is safe when its registry lock list starts empty.
 
+Registry route-form acceptance is scoped to two `bin/fm-teardown.sh` resolutions of a secondmate's durable parent binding: lane teardown's parent resolution (`public_followup_resolve_primary_home`) and the secondmate removal-identity guard (`validate_firstmate_home_for_removal`).
+Each validates the registry and requires the id's binding, then accepts a remote record by its route form with a warning naming the route that stood, while a local record must still match the live home key for key; a missing or mismatched binding still refuses before any cleanup or removal.
+Promotion (`bin/fm-promote.sh`) and secondmate spawn and relaunch (`bin/fm-spawn.sh`) keep the local-only comparison instead, so `secondmate promotion matches teardown parent resolution` above never claims the route-form acceptance: teardown's parent resolution has it and promotion and relaunch do not, and that sibling gap is recorded on fm-1777z as the follow-up.
+
 The eight remote-route cases are the proof of guarantee 5.
 A remote secondmate home exists only on its own machine, so its registration records no local path, and every close that must first clear the bound legacy Relay link had nothing local to act on.
 The first case pins that empty recorded path so it cannot go vacuous, then drives `deliver` and `retire` end to end and asserts the matching link inside the remote home is actually gone and the retirement receipt is written.

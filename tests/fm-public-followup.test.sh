@@ -15,6 +15,9 @@ set -u
 # shellcheck source=tests/lib.sh
 # shellcheck disable=SC1091
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=tests/secondmate-helpers.sh
+# shellcheck disable=SC1091
+. "$(dirname "${BASH_SOURCE[0]}")/secondmate-helpers.sh"
 # shellcheck source=bin/fm-timeout-lib.sh
 . "$ROOT/bin/fm-timeout-lib.sh"
 # shellcheck source=bin/fm-remote-job-lib.sh
@@ -1174,6 +1177,167 @@ SH
   assert_absent "$child/state/public-followup" \
     "relay-disabled parent must not create a public-followup artifact"
   pass "a marked child proceeds without tasks-axi when its parent relay is disabled"
+}
+
+test_remote_registered_secondmate_teardown_accepts_the_route_binding() {
+  # fm-1777z: a secondmate whose registry record is a remote route (host/root/
+  # home form) but whose live home sits locally must still resolve its durable
+  # parent binding; the route form is the binding, and the local-only home
+  # match must not read a present-but-remote record as absent. Portal-ops
+  # stranded two landed lanes behind exactly this mismatch.
+  local parent child
+  parent=$(make_home teardown-remote-parent)
+  child=$(make_home teardown-remote-child)
+  printf '%s\n' remote-mate > "$child/.fm-secondmate-home"
+  printf -- '- remote-mate - synthetic (host: agt-test; root: /opt/ra/firstmate; home: /remote/home/remote-mate; scope: synthetic; projects: ; added 2026-07-30)\n' \
+    > "$parent/data/secondmates.md"
+  seed_commitment "$parent" pf-remote req-remote x secondmate:remote-mate work-remote
+  fm_write_meta "$parent/state/remote-mate.meta" "kind=secondmate" "home=$child"
+  fm_write_meta "$child/state/work-remote.meta" \
+    "window=firstmate:fm-work-remote" "endpoint_task_id=work-remote" \
+    "worktree=$child" "project=$child" "kind=ship" "mode=local-only" "spawn_gen=public-followup-fixture"
+
+  # Without the fix this refused with "cannot resolve the primary home": the
+  # remote registry record could never equal the local live home path. With
+  # the route form accepted, resolution succeeds and the parent's owed public
+  # commitment is enforced instead - the binding's protective instinct holds.
+  PATH="$child/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$child" \
+    FM_STATE_OVERRIDE="$child/state" FM_DATA_OVERRIDE="$child/data" \
+    FM_PUBLIC_FOLLOWUP_PRIMARY_HOME="$parent" \
+    expect_failure "a present-but-remote registry binding must resolve, not read as absent" \
+    "$TEARDOWN" work-remote
+  assert_contains "$EXPECT_OUT" "still owes a public reply" \
+    "a resolved remote-route binding must route cleanup through the parent commitment"
+  case "$EXPECT_OUT" in
+    *"cannot resolve the primary home"*) fail "a present-but-remote registry binding was reported as an absent parent" ;;
+  esac
+  assert_contains "$EXPECT_OUT" "registered on the remote route agt-test:/remote/home/remote-mate" \
+    "accepting the remote route must surface which binding stood"
+  assert_present "$child/state/work-remote.meta" \
+    "an owed parent commitment must preserve the child work metadata"
+  pass "a remote registry route stands as the durable parent binding for a locally seated secondmate"
+}
+
+test_remote_registered_secondmate_teardown_still_refuses_a_missing_binding() {
+  local parent child
+  parent=$(make_home teardown-remote-missing-parent)
+  child=$(make_home teardown-remote-missing-child)
+  printf '%s\n' remote-mate > "$child/.fm-secondmate-home"
+  printf -- '- other-mate - synthetic (host: agt-test; root: /opt/ra/firstmate; home: /remote/home/other-mate; scope: synthetic; projects: ; added 2026-07-30)\n' \
+    > "$parent/data/secondmates.md"
+  seed_commitment "$parent" pf-remote-missing req-remote-missing x secondmate:remote-mate work-remote-missing
+  fm_write_meta "$parent/state/remote-mate.meta" "kind=secondmate" "home=$child"
+  fm_write_meta "$child/state/work-remote-missing.meta" \
+    "window=firstmate:fm-work-remote-missing" "endpoint_task_id=work-remote-missing" \
+    "worktree=$child" "project=$child" "kind=ship" "mode=local-only" "spawn_gen=public-followup-fixture"
+
+  PATH="$child/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$child" \
+    FM_STATE_OVERRIDE="$child/state" FM_DATA_OVERRIDE="$child/data" \
+    FM_PUBLIC_FOLLOWUP_PRIMARY_HOME="$parent" \
+    expect_failure "a registry without this secondmate's binding must still refuse cleanup" \
+    "$TEARDOWN" work-remote-missing
+  assert_contains "$EXPECT_OUT" "cannot resolve the primary home for marked secondmate remote-mate" \
+    "a missing binding must stay an actionable teardown refusal"
+  assert_present "$child/state/work-remote-missing.meta" \
+    "a missing binding must preserve the child work metadata"
+  pass "remote-route acceptance keeps the no-binding refusal intact"
+}
+
+test_secondmate_retirement_accepts_the_remote_route_binding() {
+  # fm-1777z: the removal-identity guard carried the same can-never-match
+  # comparison lane teardown had - retiring the secondmate itself refused its
+  # remote registry record because a route can never equal a local home path.
+  # The route form is the durable binding here too, so retirement accepts it,
+  # warns which route stood, and clears the home, meta, and registry entry.
+  local parent child fakebin log out rc
+  parent=$(make_home retire-remote-parent relay-off)
+  child=$(make_home retire-remote-child relay-off)
+  mark_firstmate_home "$child"
+  printf '%s\n' remote-mate > "$child/.fm-secondmate-home"
+  printf -- '- remote-mate - synthetic (host: agt-test; root: /opt/ra/firstmate; home: /remote/home/remote-mate; scope: synthetic; projects: ; added 2026-07-30)\n' \
+    > "$parent/data/secondmates.md"
+  fm_write_secondmate_meta "$parent/state/remote-mate.meta" "$child"
+  fakebin=$(make_fake_tmux "$TMP_ROOT/retire-remote-fake")
+  log="$TMP_ROOT/retire-remote-fake/tmux.log"
+
+  rc=0
+  out=$(PATH="$fakebin:$PATH" FM_HOME="$parent" \
+    FM_FAKE_TMUX_LOG="$log" FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/retire-remote-fake/pane.txt" \
+    FM_PROCEVENT_CLAIM_ROOT="$TMP_ROOT/retire-remote-claims" \
+    "$TEARDOWN" remote-mate --retire-secondmate remote-mate 2>&1) || rc=$?
+  [ "$rc" -eq 0 ] || fail "a remote registry route must stand as the removal identity (rc=$rc): $out"
+  assert_contains "$out" "registered on the remote route agt-test:/remote/home/remote-mate" \
+    "accepting the remote route must surface which binding stood"
+  assert_absent "$child" "a route-accepted retirement must remove the secondmate home"
+  assert_absent "$parent/state/remote-mate.meta" "a route-accepted retirement must clear the parent meta"
+  assert_no_grep '- remote-mate ' "$parent/data/secondmates.md" \
+    "a route-accepted retirement must remove the registry entry"
+  pass "a remote registry route stands as the removal identity for a locally seated secondmate"
+}
+
+test_secondmate_retirement_local_binding_matches_key_for_key() {
+  # The route form is accepted, not widened: a local record must still match
+  # the live home key for key, and a missing or mismatched binding must still
+  # refuse the removal before anything is touched.
+  local case_name parent child other fakebin log out rc
+  for case_name in match mismatch missing; do
+    parent=$(make_home "retire-binding-$case_name-parent" relay-off)
+    child=$(make_home "retire-binding-$case_name-child" relay-off)
+    other=$(make_home "retire-binding-$case_name-other" relay-off)
+    mark_firstmate_home "$child"
+    printf '%s\n' remote-mate > "$child/.fm-secondmate-home"
+    case "$case_name" in
+      match)
+        printf -- '- remote-mate - synthetic (home: %s; scope: synthetic; projects: ; added 2026-07-30)\n' \
+          "$child" > "$parent/data/secondmates.md"
+        ;;
+      mismatch)
+        printf -- '- remote-mate - synthetic (home: %s; scope: synthetic; projects: ; added 2026-07-30)\n' \
+          "$other" > "$parent/data/secondmates.md"
+        ;;
+      missing)
+        printf -- '- other-mate - synthetic (home: %s; scope: synthetic; projects: ; added 2026-07-30)\n' \
+          "$other" > "$parent/data/secondmates.md"
+        ;;
+    esac
+    fm_write_secondmate_meta "$parent/state/remote-mate.meta" "$child"
+    fakebin=$(make_fake_tmux "$TMP_ROOT/retire-binding-$case_name-fake")
+    log="$TMP_ROOT/retire-binding-$case_name-fake/tmux.log"
+
+    rc=0
+    out=$(PATH="$fakebin:$PATH" FM_HOME="$parent" \
+      FM_FAKE_TMUX_LOG="$log" FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/retire-binding-$case_name-fake/pane.txt" \
+      FM_PROCEVENT_CLAIM_ROOT="$TMP_ROOT/retire-binding-$case_name-claims" \
+      "$TEARDOWN" remote-mate --retire-secondmate remote-mate 2>&1) || rc=$?
+    case "$case_name" in
+      match)
+        [ "$rc" -eq 0 ] || fail "a local record matching the live home must retire (rc=$rc): $out"
+        assert_absent "$child" "a matching local binding must allow home removal"
+        assert_absent "$parent/state/remote-mate.meta" "a matching local binding must clear the parent meta"
+        assert_no_grep '- remote-mate ' "$parent/data/secondmates.md" \
+          "a matching local binding must let the registry entry retire"
+        ;;
+      mismatch)
+        [ "$rc" -ne 0 ] || fail "a local record naming another home must refuse retirement"
+        assert_contains "$out" "REFUSED: secondmate remote-mate is registered at $other, not " \
+          "a mismatched local binding must keep its identity refusal"
+        ;;
+      missing)
+        [ "$rc" -ne 0 ] || fail "a registry without this id's binding must refuse retirement"
+        assert_contains "$out" "REFUSED: no registry binding for secondmate remote-mate" \
+          "a missing binding must keep its actionable refusal"
+        ;;
+    esac
+    case "$case_name" in
+      match) ;;
+      *)
+        assert_present "$child" "a refused retirement must preserve the secondmate home"
+        assert_present "$parent/state/remote-mate.meta" "a refused retirement must preserve the parent meta"
+        assert_no_grep 'kill-window' "$log" "a refused retirement must not act on the endpoint"
+        ;;
+    esac
+  done
+  pass "secondmate retirement keeps local bindings key-for-key and missing bindings fail closed"
 }
 
 test_secondmate_parent_binding_matches_literal_id() {
@@ -3942,6 +4106,10 @@ test_secondmate_teardown_rejects_unsafe_durable_parent_records
 test_secondmate_teardown_rejects_nul_bearing_durable_parent_record
 test_relay_disabled_unmarked_teardown_skips_public_path
 test_relay_disabled_parent_allows_marked_child_teardown
+test_remote_registered_secondmate_teardown_accepts_the_route_binding
+test_remote_registered_secondmate_teardown_still_refuses_a_missing_binding
+test_secondmate_retirement_accepts_the_remote_route_binding
+test_secondmate_retirement_local_binding_matches_key_for_key
 test_secondmate_parent_binding_matches_literal_id
 test_traversal_registration_is_refused_before_delivery
 test_pending_rejects_malformed_listing
