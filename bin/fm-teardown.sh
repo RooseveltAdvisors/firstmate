@@ -2912,6 +2912,11 @@ validate_firstmate_home_for_removal() {
         esac
         return 1
       fi
+      # Route-form acceptance shared with public_followup_resolve_primary_home
+      # above (fm-1777z): a remote registry record can never equal a live local
+      # home path, so the recorded route stands as this removal identity and the
+      # warning names it; a local record still matches the live home key for
+      # key, and a missing or mismatched binding refuses before any removal.
       if [ "$SECONDMATE_REGISTRY_MATCH_REMOTE" -eq 1 ]; then
         echo "warning: secondmate $expected_id is registered on the remote route $SECONDMATE_REGISTRY_MATCH_HOST:$SECONDMATE_REGISTRY_MATCH_HOME while its live home here is $abs_home_path; the recorded route stands as its durable parent binding" >&2
       else
