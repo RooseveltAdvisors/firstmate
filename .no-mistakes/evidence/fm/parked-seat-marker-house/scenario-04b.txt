@@ -1,0 +1,9 @@
+--- S3b: park must refuse an endpoint whose absence no read can prove (window fm-t3 does not exist)
+=== $ /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-control.sh t3 park --until 2099-01-01T00:00Z --reason 'held for a later dispatch'
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.wX6HMY
+error: task t3's endpoint primary:fm-t3 reads 'missing', but tmux absence cannot be proven from a task record: the record does not carry the endpoint's socket identity, and a server-wide window inventory only describes the tmux server this process addresses, so a window absent from it may still be alive on another; park will not claim a seat stopped at an address it cannot trust
+--- rc=1
+=== $ ls /tmp/fm-lab.wX6HMY/state/t3.status 2>&1
+ls: cannot access '/tmp/fm-lab.wX6HMY/state/t3.status': No such file or directory
+--- rc=2
+__DONE__

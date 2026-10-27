@@ -1,0 +1,17 @@
+--- S7/S9: park with a real near-future recheck time (t5 tmux, t6 rex)
+### now=2026-10-27T04:47:52Z until=2026-10-27T04:49:07Z
+=== $ /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-control.sh t5 park --until 2026-10-27T04:49:07Z --reason 'waiting for the vendor window'
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.wX6HMY
+parked t5 until=2026-10-27T04:49:07Z agent=dead backend=tmux endpoint=primary:fm-t5 worktree=/tmp/fm-lab.wX6HMY/wt-t5
+--- rc=0
+=== $ /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-crew-state.sh t5
+state: paused · source: status-log · parked by the supervisor with the seat stopped - waiting for the vendor window until 2026-10-27T04:49:07Z · seat stopped
+--- rc=0
+=== $ PATH=/tmp/fm-lab.wX6HMY/fakebin:$PATH /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-control.sh t6 park --until 2026-10-27T04:49:07Z --reason 'waiting for the vendor window'
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.wX6HMY
+REFUSED: Rex endpoint metadata for task t6 is malformed or inconsistent; preserving task state.
+--- rc=1
+=== $ PATH=/tmp/fm-lab.wX6HMY/fakebin:$PATH /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-crew-state.sh t6
+state: unknown · source: none · backend target gone: 00000000-0000-7000-8000-00000000006a:00000000-0000-7000-8000-00000000006b (agent gone, pane shell remains)
+--- rc=0
+__DONE__

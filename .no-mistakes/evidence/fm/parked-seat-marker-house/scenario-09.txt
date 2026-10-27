@@ -1,0 +1,12 @@
+--- S9: a t3code-backed parked stopped seat (PIN A backend coverage)
+=== $ PATH=/tmp/fm-lab.wX6HMY/fakebin:$PATH /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-control.sh t7 park --until 2099-01-01T00:00Z --reason 'held for a later dispatch'
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.wX6HMY
+REFUSED: T3 endpoint metadata for task t7 is malformed or inconsistent; preserving task state.
+--- rc=1
+=== $ PATH=/tmp/fm-lab.wX6HMY/fakebin:$PATH /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-crew-state.sh t7
+state: unknown · source: none · backend target gone: thread-t7 (agent gone, pane shell remains)
+--- rc=0
+=== $ PATH=/tmp/fm-lab.wX6HMY/fakebin:$PATH /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-crew-state.sh t7 | grep -q '2099-01-01T00:00Z · seat stopped' && echo CLAIM_PRESENT || echo CLAIM_ABSENT
+CLAIM_ABSENT
+--- rc=0
+__DONE__

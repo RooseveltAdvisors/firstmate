@@ -1,0 +1,14 @@
+--- S4: the park window carries the busy and idle surfaces of the fallback
+### stale busy record standing:
+=== $ /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-busy-event.sh apply /tmp/fm-lab.wX6HMY/state t1 busy --gen g1793076429.2653523.2787 --source claude-hook --event user-prompt-submit
+--- rc=0
+=== $ /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-crew-state.sh t1
+state: paused · source: status-log · parked by the supervisor with the seat stopped - held for a later dispatch until 2099-01-01T00:00Z · seat stopped
+--- rc=0
+### idle record standing:
+=== $ /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-busy-event.sh apply /tmp/fm-lab.wX6HMY/state t1 idle --gen g1793076429.2653523.2787 --source claude-hook --event stop
+--- rc=0
+=== $ /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-crew-state.sh t1
+state: paused · source: status-log · parked by the supervisor with the seat stopped - held for a later dispatch until 2099-01-01T00:00Z
+--- rc=0
+__DONE__

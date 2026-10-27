@@ -1,0 +1,8 @@
+== FM_TEST_ONLY=test_paused_until_near_future_is_quiet_before_the_cadence bash tests/fm-watch-triage-waits.test.sh
+ok - a declared wait naming a near-future until time stays quiet until that time
+== FM_TEST_ONLY=test_paused_until_wrong_year_is_bounded_by_the_cadence bash tests/fm-watch-triage-waits.test.sh
+ok - a wrong-year declared time cannot silence the watcher beyond the recheck cadence
+== FM_TEST_ONLY=test_paused_until_that_passed_is_rechecked_before_the_cadence bash tests/fm-watch-triage-waits.test.sh
+ok - a declared wait whose until time has passed is rechecked at once, then held to the cadence
+== FM_TEST_ONLY=test_nonterminal_paused_rechecks_authoritative_state bash tests/fm-watch-triage-waits.test.sh
+ok - a declared pause is periodically rechecked against authoritative active-run state

@@ -1,0 +1,19 @@
+--- S7: once the declared recheck time passes, the seat surfaces again (no expiry rewrite: real wall clock)
+=== $ echo now=$(date -u +%Y-%m-%dT%H:%M:%SZ) t5-until=$(cat /tmp/fm-lab.wX6HMY/out/expiry-until.txt) t6-until=$(cat /tmp/fm-lab.wX6HMY/out/expiry-until-t6.txt)
+now=2026-10-27T04:50:41Z t5-until=2026-10-27T04:49:07Z t6-until=2026-10-27T04:50:37Z
+--- rc=0
+### t5 (tmux seat, expired declaration)
+=== $ /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-crew-state.sh t5
+state: unknown · source: pane · harness state unavailable (unknown missing)
+--- rc=0
+=== $ /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-crew-state.sh t5 | grep -q 'state: paused' && echo PAUSED_SEEN || echo NO_PAUSED
+NO_PAUSED
+--- rc=0
+### t6 (rex-backed seat, expired declaration)
+=== $ PATH=/tmp/fm-lab.wX6HMY/fakebin:$PATH /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-crew-state.sh t6
+state: unknown · source: none · backend target gone: 00000000-0000-7000-8000-00000000006a:00000000-0000-7000-8000-00000000006b (agent gone, pane shell remains)
+--- rc=0
+=== $ PATH=/tmp/fm-lab.wX6HMY/fakebin:$PATH /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-crew-state.sh t6 | grep -q 'state: paused' && echo PAUSED_SEEN || echo NO_PAUSED
+NO_PAUSED
+--- rc=0
+__DONE__

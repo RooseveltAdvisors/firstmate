@@ -1,0 +1,10 @@
+--- S8: the declaration carries the window through an inconclusive read, claiming no stop it cannot prove
+=== $ TMUX_TMPDIR=/tmp/fm-lab.wX6HMY/tmux tmux -L fm-lab kill-window -t primary:fm-t1
+--- rc=0
+=== $ /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-crew-state.sh t1
+state: paused · source: status-log · parked by the supervisor with the seat stopped - held for a later dispatch until 2099-01-01T00:00Z
+--- rc=0
+=== $ /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-crew-state.sh t1 | grep -q '2099-01-01T00:00Z · seat stopped' && echo CLAIM_PRESENT || echo CLAIM_ABSENT
+CLAIM_ABSENT
+--- rc=0
+__DONE__

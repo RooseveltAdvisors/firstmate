@@ -1,0 +1,32 @@
+--- S6: a still-open decision outranks the park window on both paths
+### t8b: readable idle pane
+=== $ printf 'needs-decision [key=api]: pick the queue order\n' >> /tmp/fm-lab.wX6HMY/state/t8b.status
+--- rc=0
+=== $ /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-control.sh t8b park --until 2099-01-01T00:00Z --reason 'held for a later dispatch'
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.wX6HMY
+parked t8b until=2099-01-01T00:00Z agent=dead backend=tmux endpoint=primary:fm-t8b worktree=/tmp/fm-lab.wX6HMY/wt-t8b
+--- rc=0
+=== $ /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-busy-event.sh apply /tmp/fm-lab.wX6HMY/state t8b idle --gen g1793076462.2846978.20982 --source claude-hook --event stop
+--- rc=0
+=== $ /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-crew-state.sh t8b
+state: parked · source: status-log · pick the queue order
+--- rc=0
+=== $ /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-crew-state.sh t8b | grep -q 'state: paused' && echo PAUSED_SEEN || echo NO_PAUSED
+NO_PAUSED
+--- rc=0
+### t8a: same declaration on an unavailable endpoint (its window is gone)
+=== $ printf 'needs-decision [key=api]: pick the queue order\n' >> /tmp/fm-lab.wX6HMY/state/t8a.status
+--- rc=0
+=== $ /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-control.sh t8a park --until 2099-01-01T00:00Z --reason 'held for a later dispatch'
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.wX6HMY
+parked t8a until=2099-01-01T00:00Z agent=dead backend=tmux endpoint=primary:fm-t8a worktree=/tmp/fm-lab.wX6HMY/wt-t8a
+--- rc=0
+=== $ TMUX_TMPDIR=/tmp/fm-lab.wX6HMY/tmux tmux -L fm-lab kill-window -t primary:fm-t8a
+--- rc=0
+=== $ /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-crew-state.sh t8a
+state: parked · source: status-log · pick the queue order
+--- rc=0
+=== $ /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-crew-state.sh t8a | grep -q 'state: paused' && echo PAUSED_SEEN || echo NO_PAUSED
+NO_PAUSED
+--- rc=0
+__DONE__

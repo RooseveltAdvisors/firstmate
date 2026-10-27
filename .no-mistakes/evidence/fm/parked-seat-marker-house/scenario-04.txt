@@ -1,0 +1,55 @@
+--- S3 (adversarial): every un-parkable shape refuses and writes no declaration
+### secondmate is refused by name
+=== $ /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-control.sh t2 park --until 2099-01-01T00:00Z --reason r
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.wX6HMY
+error: task t2 is a secondmate, whose idle endpoint is healthy by design and never needs parking
+--- rc=1
+=== $ ls /tmp/fm-lab.wX6HMY/state/t2.status 2>&1
+ls: cannot access '/tmp/fm-lab.wX6HMY/state/t2.status': No such file or directory
+--- rc=2
+### an unproven absence (tmux window gone) refuses: doubt, not a stop
+=== $ /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-control.sh t3 park --until 2099-01-01T00:00Z --reason r
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.wX6HMY
+REFUSED: tmux endpoint 'primary:fm-t3-gone' is malformed or does not belong to task t3; preserving task state.
+--- rc=1
+=== $ ls /tmp/fm-lab.wX6HMY/state/t3.status 2>&1
+ls: cannot access '/tmp/fm-lab.wX6HMY/state/t3.status': No such file or directory
+--- rc=2
+### missing / past / malformed --until and missing --reason all refuse
+=== $ /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-control.sh t1 park --reason r
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.wX6HMY
+error: park requires --until <YYYY-MM-DDTHH:MM[:SS]Z>; a parked seat must name when it is rechecked
+--- rc=1
+=== $ /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-control.sh t1 park --until 2000-01-01T00:00Z --reason r
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.wX6HMY
+error: --until '2000-01-01T00:00Z' is not in the future
+--- rc=1
+=== $ /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-control.sh t1 park --until tomorrow --reason r
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.wX6HMY
+error: --until 'tomorrow' is not a UTC time of the form YYYY-MM-DDTHH:MM[:SS]Z
+--- rc=1
+=== $ /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-control.sh t1 park --until 2099-01-01T00:00Z
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.wX6HMY
+error: park requires a non-empty --reason
+--- rc=1
+### --until / --reason belong to park only
+=== $ /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-control.sh t1 exit --until 2099-01-01T00:00Z
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.wX6HMY
+error: --until and --reason apply to 'park' only
+--- rc=1
+=== $ /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-control.sh t1 exit --reason=
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.wX6HMY
+error: --until and --reason apply to 'park' only
+--- rc=1
+### a --reason whose until token shadows the recheck time refuses before writing
+=== $ /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-control.sh t5 park --until 2099-01-01T00:00:00Z --reason 'waiting until 2026-06-01T00:00Z on PR7045'
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.wX6HMY
+error: the park declaration would not read back its stated recheck time - an 'until <time>' inside --reason shadows it; reword --reason
+--- rc=1
+=== $ ls /tmp/fm-lab.wX6HMY/state/t5.status 2>&1
+ls: cannot access '/tmp/fm-lab.wX6HMY/state/t5.status': No such file or directory
+--- rc=2
+=== $ tail -n 1 /tmp/fm-lab.wX6HMY/state/t1.status
+paused [at=1793076368]: parked by the supervisor with the seat stopped - held for a later dispatch until 2099-01-01T00:00Z
+--- rc=0
+__DONE__

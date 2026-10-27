@@ -1,0 +1,41 @@
+
+01M5X5P3YREHQKZWRS8Z3YTJB2 ➜ echo OPS_OK FM_HOME=$FM_HOME TMUX_SOCK=${TMUX%%,*}
+OPS_OK FM_HOME=/tmp/fm-lab.wX6HMY TMUX_SOCK=/tmp/fm-lab.wX6HMY/tmux/tmux-1000/fm-lab
+01M5X5P3YREHQKZWRS8Z3YTJB2 ➜ echo OPS_OK FM_HOME=$FM_HOME
+OPS_OK FM_HOME=/tmp/fm-lab.wX6HMY
+01M5X5P3YREHQKZWRS8Z3YTJB2 ➜ bash /tmp/fm-lab.wX6HMY/drv/01-refuse-live-agent.sh > /tmp/fm-lab.wX6HMY/out/01.txt 2>&1; e
+cho __DONE__ >> /tmp/fm-lab.wX6HMY/out/01.txt
+01M5X5P3YREHQKZWRS8Z3YTJB2 ➜ bash /tmp/fm-lab.wX6HMY/drv/02-exit-stop.sh > /tmp/fm-lab.wX6HMY/out/02.txt 2>&1; echo __DO
+NE__ >> /tmp/fm-lab.wX6HMY/out/02.txt
+01M5X5P3YREHQKZWRS8Z3YTJB2 ➜ bash /tmp/fm-lab.wX6HMY/drv/03-park-stopped.sh > /tmp/fm-lab.wX6HMY/out/03.txt 2>&1; echo _
+_DONE__ >> /tmp/fm-lab.wX6HMY/out/03.txt
+01M5X5P3YREHQKZWRS8Z3YTJB2 ➜ bash /tmp/fm-lab.wX6HMY/drv/04-refusals.sh > /tmp/fm-lab.wX6HMY/out/04.txt 2>&1; echo __DON
+E__ >> /tmp/fm-lab.wX6HMY/out/04.txt
+01M5X5P3YREHQKZWRS8Z3YTJB2 ➜ bash /tmp/fm-lab.wX6HMY/drv/04b-unproven-absence.sh > /tmp/fm-lab.wX6HMY/out/04b.txt 2>&1;
+echo __DONE__ >> /tmp/fm-lab.wX6HMY/out/04b.txt
+01M5X5P3YREHQKZWRS8Z3YTJB2 ➜ bash /tmp/fm-lab.wX6HMY/drv/05-surfaces.sh > /tmp/fm-lab.wX6HMY/out/05.txt 2>&1; echo __DON
+E__ >> /tmp/fm-lab.wX6HMY/out/05.txt
+01M5X5P3YREHQKZWRS8Z3YTJB2 ➜ bash /tmp/fm-lab.wX6HMY/drv/06-alive-yield.sh > /tmp/fm-lab.wX6HMY/out/06.txt 2>&1; echo __
+DONE__ >> /tmp/fm-lab.wX6HMY/out/06.txt
+01M5X5P3YREHQKZWRS8Z3YTJB2 ➜ bash /tmp/fm-lab.wX6HMY/drv/07-decision.sh > /tmp/fm-lab.wX6HMY/out/07.txt 2>&1; echo __DON
+E__ >> /tmp/fm-lab.wX6HMY/out/07.txt
+01M5X5P3YREHQKZWRS8Z3YTJB2 ➜ bash /tmp/fm-lab.wX6HMY/drv/08-expiry-park.sh > /tmp/fm-lab.wX6HMY/out/08.txt 2>&1; echo __
+DONE__ >> /tmp/fm-lab.wX6HMY/out/08.txt
+01M5X5P3YREHQKZWRS8Z3YTJB2 ➜ bash /tmp/fm-lab.wX6HMY/drv/09-t3code.sh > /tmp/fm-lab.wX6HMY/out/09.txt 2>&1; echo __DONE_
+_ >> /tmp/fm-lab.wX6HMY/out/09.txt
+01M5X5P3YREHQKZWRS8Z3YTJB2 ➜ bash /tmp/fm-lab.wX6HMY/drv/08b-rex-park.sh > /tmp/fm-lab.wX6HMY/out/08b.txt 2>&1; echo __D
+ONE__ >> /tmp/fm-lab.wX6HMY/out/08b.txt
+01M5X5P3YREHQKZWRS8Z3YTJB2 ➜ bash /tmp/fm-lab.wX6HMY/drv/09b-t3code-park.sh > /tmp/fm-lab.wX6HMY/out/09b.txt 2>&1; echo
+__DONE__ >> /tmp/fm-lab.wX6HMY/out/09b.txt
+01M5X5P3YREHQKZWRS8Z3YTJB2 ➜ bash /tmp/fm-lab.wX6HMY/drv/11-flip-no-claim.sh > /tmp/fm-lab.wX6HMY/out/11.txt 2>&1; echo
+__DONE__ >> /tmp/fm-lab.wX6HMY/out/11.txt
+01M5X5P3YREHQKZWRS8Z3YTJB2 ➜ bash /tmp/fm-lab.wX6HMY/drv/10b-expiry-read.sh > /tmp/fm-lab.wX6HMY/out/10b.txt 2>&1; echo
+__DONE__ >> /tmp/fm-lab.wX6HMY/out/10b.txt
+01M5X5P3YREHQKZWRS8Z3YTJB2 ➜
+
+
+
+
+
+
+

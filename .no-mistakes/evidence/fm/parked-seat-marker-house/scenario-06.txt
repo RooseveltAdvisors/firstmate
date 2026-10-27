@@ -1,0 +1,37 @@
+--- S5: a proven-alive seat never reports its declared wait
+### park the stopped t4 seat
+=== $ /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-control.sh t4 park --until 2099-01-01T00:00Z --reason 'held for a later dispatch'
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.wX6HMY
+parked t4 until=2099-01-01T00:00Z agent=dead backend=tmux endpoint=primary:fm-t4 worktree=/tmp/fm-lab.wX6HMY/wt-t4
+--- rc=0
+=== $ /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-crew-state.sh t4
+state: paused · source: status-log · parked by the supervisor with the seat stopped - held for a later dispatch until 2099-01-01T00:00Z · seat stopped
+--- rc=0
+### the supervisor relaunches an agent into the seat (real claude CLI in the pane)
+=== $ TMUX_TMPDIR=/tmp/fm-lab.wX6HMY/tmux tmux -L fm-lab send-keys -t primary:fm-t4 "env CLAUDE_CONFIG_DIR=/tmp/fm-lab.wX6HMY/claude-config claude" Enter
+--- rc=0
+=== $ TMUX_TMPDIR=/tmp/fm-lab.wX6HMY/tmux tmux -L fm-lab capture-pane -p -t primary:fm-t4 | tail -n 6
+  2 +  console.log("Hello, Claude!");
+  3  }
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+  Syntax theme: Monokai Extended (ctrl+t to disable)
+
+
+--- rc=0
+### same standing park + live agent: the seat must not report paused
+=== $ /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-crew-state.sh t4
+state: unknown · source: pane · harness state unavailable (unknown missing)
+--- rc=0
+=== $ /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-crew-state.sh t4 | grep -q 'state: paused' && echo PAUSED_SEEN || echo NO_PAUSED
+NO_PAUSED
+--- rc=0
+### with the harness hook reporting busy, the seat reports working
+=== $ /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-busy-event.sh apply /tmp/fm-lab.wX6HMY/state t4 busy --gen g1793076450.2791912.12339 --source claude-hook --event user-prompt-submit
+--- rc=0
+=== $ /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-crew-state.sh t4
+state: working · source: pane · harness busy (claude-hook)
+--- rc=0
+=== $ /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-crew-state.sh t4 | grep -q 'seat stopped' && echo STOP_CLAIM_SEEN || echo NO_STOP_CLAIM
+NO_STOP_CLAIM
+--- rc=0
+__DONE__

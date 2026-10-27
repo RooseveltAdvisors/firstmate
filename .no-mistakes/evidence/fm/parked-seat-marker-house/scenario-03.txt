@@ -1,0 +1,49 @@
+--- S2: park the stopped seat: one declared wait, nothing else changes
+=== $ /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-control.sh t1 park --until 2099-01-01T00:00Z --reason 'held for a later dispatch'
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.wX6HMY
+parked t1 until=2099-01-01T00:00Z agent=dead backend=tmux endpoint=primary:fm-t1 worktree=/tmp/fm-lab.wX6HMY/wt-t1
+--- rc=0
+=== $ tail -n 1 /tmp/fm-lab.wX6HMY/state/t1.status
+paused [at=1793076368]: parked by the supervisor with the seat stopped - held for a later dispatch until 2099-01-01T00:00Z
+--- rc=0
+=== $ grep -c 'parked by the supervisor' /tmp/fm-lab.wX6HMY/state/t1.status
+1
+--- rc=0
+=== $ ls -A /tmp/fm-lab.wX6HMY/state | tr '\n' ' '; echo
+t1.meta t1.status t2.meta t3.meta t4.meta t5.meta t6.meta t7.meta t8a.meta t8b.meta 
+--- rc=0
+=== $ cat /tmp/fm-lab.wX6HMY/state/t1.meta
+window=primary:fm-t1
+endpoint_task_id=t1
+worktree=/tmp/fm-lab.wX6HMY/wt-t1
+project=/tmp/fm-lab.wX6HMY/proj
+harness=claude
+kind=ship
+mode=no-mistakes
+yolo=off
+model=default
+effort=default
+--- rc=0
+=== $ ls -A /tmp/fm-lab.wX6HMY/wt-t1
+.git
+.seat-marker
+unlanded.txt
+--- rc=0
+=== $ TMUX_TMPDIR=/tmp/fm-lab.wX6HMY/tmux tmux -L fm-lab capture-pane -p -t primary:fm-t1 | tail -n 8
+  2 -  console.log("Hello, World!");
+  2 +  console.log("Hello, Claude!");
+  3  }
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+  Syntax theme: Monokai Extended (ctrl+t to disable)
+wt-t1 ➜
+
+
+--- rc=0
+--- S2: fm-crew-state must report the declared wait (paused, status-log, recheck time, proven stop claim)
+=== $ /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-crew-state.sh t1
+state: paused · source: status-log · parked by the supervisor with the seat stopped - held for a later dispatch until 2099-01-01T00:00Z · seat stopped
+--- rc=0
+=== $ /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-crew-state.sh t1 | grep -q '2099-01-01T00:00Z · seat stopped' && echo CLAIM_PRESENT || echo CLAIM_ABSENT
+CLAIM_PRESENT
+--- rc=0
+__DONE__

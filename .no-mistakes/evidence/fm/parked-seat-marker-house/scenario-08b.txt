@@ -1,0 +1,13 @@
+--- S9: a rex-backed parked stopped seat (PIN A backend coverage) with a real near-future recheck time
+### now=2026-10-27T04:49:22Z until=2026-10-27T04:50:37Z
+=== $ PATH=/tmp/fm-lab.wX6HMY/fakebin:$PATH /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-control.sh t6 park --until 2026-10-27T04:50:37Z --reason 'waiting for the vendor window'
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.wX6HMY
+parked t6 until=2026-10-27T04:50:37Z agent=dead backend=rex endpoint=00000000-0000-7000-8000-00000000006a:00000000-0000-7000-8000-00000000006b worktree=/tmp/fm-lab.wX6HMY/wt-t6
+--- rc=0
+=== $ PATH=/tmp/fm-lab.wX6HMY/fakebin:$PATH /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-crew-state.sh t6
+state: paused · source: status-log · parked by the supervisor with the seat stopped - waiting for the vendor window until 2026-10-27T04:50:37Z · seat stopped
+--- rc=0
+=== $ PATH=/tmp/fm-lab.wX6HMY/fakebin:$PATH /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-crew-state.sh t6 | grep -q '2026-10-27T04:50:37Z · seat stopped' && echo CLAIM_PRESENT || echo CLAIM_ABSENT
+CLAIM_PRESENT
+--- rc=0
+__DONE__

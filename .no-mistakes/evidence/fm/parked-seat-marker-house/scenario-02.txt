@@ -1,0 +1,16 @@
+--- S2 setup: stop the agent through the product's own exit verb, seat stays (shell pane remains)
+=== $ FM_CONTROL_POLL=0.2 FM_CONTROL_SETTLE_WAIT=1 FM_CONTROL_EXIT_WAIT=8 /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X5P3YREHQKZWRS8Z3YTJB2/bin/fm-control.sh t1 exit
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.wX6HMY
+error: task t1's composer visibly holds pending text; refusing to type the /exit exit command because it would concatenate onto that text. Clear or submit the pending text, then retry 'exit'
+--- rc=1
+=== $ TMUX_TMPDIR=/tmp/fm-lab.wX6HMY/tmux tmux -L fm-lab capture-pane -p -t primary:fm-t1 | tail -n 8
+  2 -  console.log("Hello, World!");
+  2 +  console.log("Hello, Claude!");
+  3  }
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+  Syntax theme: Monokai Extended (ctrl+t to disable)
+
+
+
+--- rc=0
+__DONE__
