@@ -154,8 +154,9 @@
 #      attributed to this crew, a dead endpoint also reports unknown · none rather
 #      than trusting a stale status log, except that a seat whose
 #      declared pause names a recheck time still ahead reports paused ·
-#      status-log (bin/fm-control.sh park). On tmux, herdr, and rex, which own a
-#      recovery-grade classifier, only its positive death evidence reads as gone
+#      status-log (bin/fm-control.sh park). On tmux, herdr, rex, and t3code,
+#      which own a recovery-grade classifier, only its positive death evidence
+#      reads as gone
 #      (the endpoint is authoritatively absent, or its pane holds no agent); an
 #      endpoint that merely failed to answer reports unknown · none as
 #      unreachable, and an alive endpoint whose scrollback read failed is still

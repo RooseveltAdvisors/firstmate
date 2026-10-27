@@ -2337,8 +2337,8 @@ if [ "$RELAUNCH" -eq 1 ]; then
   # Every transient or self-contradicting read stays `unreadable`/`ambiguous`
   # and refuses as it always did (bin/fm-backend.sh's fm_backend_agent_state
   # owns that vocabulary). The proof itself lives in one place for the whole
-  # control plane - fm_control_endpoint_absence_verdict - so `exit` and
-  # `relaunch` cannot reach two different answers about one endpoint.
+  # control plane - fm_control_endpoint_absence_verdict - so no two callers
+  # can reach two different answers about one endpoint.
   RELAUNCH_STATE=$(fm_backend_agent_state "$BACKEND" "$RELAUNCH_TARGET")
   if fm_control_absence_recheck_applies "$BACKEND" "$RELAUNCH_STATE"; then
     RELAUNCH_ABSENCE=$(fm_control_endpoint_absence_verdict "$BACKEND" "$RELAUNCH_TARGET" "$RELAUNCH_META")
