@@ -1,0 +1,14 @@
+== Scenario 4 (adversarial boundary): read-only fleet views keep failing on a corrupt record ==
+$ fm /tmp/fm-live.6IRIVw/s4-readonly /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5Y1A4N1TAT4AA89M1E05CEH/bin/fm-contributions.sh owned
+fm-contributions: 1 unreadable contribution record(s); ownership is unverified
+[exit 1]
+$ fm /tmp/fm-live.6IRIVw/s4-readonly /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5Y1A4N1TAT4AA89M1E05CEH/bin/fm-contributions.sh pending
+fm-contributions: 1 unreadable contribution record(s); pending signals are unverified
+[exit 1]
+PASS: owned view refuses with unverified ownership (exit non-zero)
+PASS: owned view names the unreadable record
+PASS: pending view refuses with unverified signals (exit non-zero)
+PASS: pending view names the unreadable record
+stranger directory after both read-only calls: contributions.json
+PASS: read-only views never move the corrupt record (file still at its ledger path)
+PASS: read-only views quarantine nothing

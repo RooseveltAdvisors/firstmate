@@ -1,0 +1,21 @@
+== Scenario 6: the launch brief a lane receives fences the contribution ledger ==
+product path: bin/fm-brief.sh scaffolds the authored brief -> bin/fm-spawn.sh renders data/s6-fence/launch-brief.md (fm_brief_worker_role) -> harness launch command -> decoded worker prompt
+$ fm-spawn.sh s6-fence /tmp/fm-brief-live.nMxwEr/case/project --mode no-mistakes --yolo off
+notice: the primary checkout /opt/ra/firstmate is merge-and-sync only - never stage, keep, or commit work there; lane work lives in the task worktree or a pushed branch, and a primary-checkout edit lands the same turn it is made or not at all
+spawned s6-fence harness=codex kind=ship mode=no-mistakes yolo=off window=firstmate:fm-s6-fence worktree=/tmp/fm-brief-live.nMxwEr/case/wt
+[exit 0]
+PASS: fm-spawn renders and launches (exit 0)
+PASS: spawn rendered data/<id>/launch-brief.md
+delivered worker prompt saved to: /home/jon/.no-mistakes/evidence/01M5Y1A4N1TAT4AA89M1E05CEH/07-scenario6-delivered-launch-prompt.md
+--- fence lines in the delivered prompt ---
+7:Every `contributions.json` record belongs to firstmate's contribution observer, including one inside the task data directory your brief authorizes for proof and scratch output; never create or edit one by hand.
+8:Report a pull request by its full https URL in your status line and final report, and the observer owns its record.
+9-When this task works on Firstmate itself, the repository root `AGENTS.md` (also imported by `CLAUDE.md`) is project content and the supervisor contract for the firstmate managing you: follow this brief instead of that supervisor contract.
+--- end excerpt ---
+PASS: delivered prompt fences the contribution ledger (observer ownership)
+PASS: delivered prompt forbids hand-written records
+PASS: delivered prompt names the PR reporting path that keeps the record machine-readable
+PASS: the fence sits inside the worker role contract section
+PASS: authored brief was not rewritten by spawn
+
+ALL SCENARIO CHECKS PASSED

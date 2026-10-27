@@ -1,0 +1,17 @@
+== Scenario 7 (adversarial): arm --if-owned converges on a corrupt record and keeps its ownership gate ==
+fixture: only durable state is a corrupt data/ghost/contributions.json (ownership unprovable from it)
+$ fm /tmp/fm-live.6IRIVw/s7-arm /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5Y1A4N1TAT4AA89M1E05CEH/bin/fm-contributions.sh arm --if-owned
+registered: state/contributions.check.sh
+[exit 0]
+PASS: arm --if-owned completes instead of wedging (exit 0)
+ghost directory after arm: contributions.json.invalid.vSK2C2
+PASS: corrupt record is quarantined out of the ledger during arm
+PASS: quarantine kept the bytes aside
+PASS: the ownership gate cannot prove the empty ledger unowned after quarantine, so the check is registered
+$ fm /tmp/fm-live.6IRIVw/s7-arm-clean /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5Y1A4N1TAT4AA89M1E05CEH/bin/fm-contributions.sh arm --if-owned
+
+[exit 0]
+PASS: arm --if-owned on a record-free home exits 0
+PASS: a record-free home stays unowned: no check is registered
+
+ALL SCENARIO CHECKS PASSED

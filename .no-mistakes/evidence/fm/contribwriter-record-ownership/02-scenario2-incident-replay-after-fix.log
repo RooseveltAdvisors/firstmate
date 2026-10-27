@@ -1,0 +1,65 @@
+== Scenario 2 (adversarial): a lane hand-writes the no-CI settlement record ==
+seeded data/delivery/contributions.json with the incident shape: bare-string verdict 'merged', partial observation
+bytes: {
+  "schema": "fm-contributions.v1",
+  "task": "delivery",
+  "records": [
+    {
+      "url": "https://github.com/o/r/pull/8",
+      "kind": "pr",
+      "verdict": "merged",
+      "observation": {
+        "state": "merged"
+      }
+    }
+  ]
+}
+$ fm /tmp/fm-live.6IRIVw/s2-incident /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5Y1A4N1TAT4AA89M1E05CEH/bin/fm-contributions.sh poll
+contributions: 1 unreadable durable record(s)
+[exit 0]
+PASS: settlement poll completes without hand repair (exit 0)
+PASS: settlement reports exactly one unreadable durable record
+ledger after settlement: {
+  "schema": "fm-contributions.v1",
+  "task": "delivery",
+  "records": [
+    {
+      "url": "https://github.com/o/r/pull/8",
+      "kind": "pr",
+      "checked_at": "2026-09-16T08:00:00Z",
+      "observation": {
+        "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "state": "merged",
+        "draft": false,
+        "mergeable": "unknown",
+        "can_merge": false,
+        "review_decision": "APPROVED",
+        "reviews": [],
+        "checks": [],
+        "events": [],
+        "absent_checks": []
+      },
+      "verdict": null,
+      "seen": [],
+      "pending": [],
+      "notified": [],
+      "error": null
+    }
+  ]
+}
+PASS: ledger converges to a v1 record (product validator)
+PASS: record is rebuilt from observed evidence: merged state, verdict null
+PASS: hand-written bytes are kept aside as contributions.json.invalid.*
+PASS: kept-aside bytes equal the hand-written record exactly
+$ fm /tmp/fm-live.6IRIVw/s2-incident /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5Y1A4N1TAT4AA89M1E05CEH/bin/fm-contributions.sh owned
+[
+  {
+    "url": "https://github.com/o/r/pull/8",
+    "tasks": [
+      "delivery"
+    ],
+    "final": true
+  }
+]
+[exit 0]
+PASS: fleet owned view now reads the rebuilt record (machine-readable again)

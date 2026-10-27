@@ -1,0 +1,48 @@
+== Scenario 3 (adversarial): a corrupt ledger entry in another task cannot wedge enrollment ==
+seeded data/stranger/contributions.json with garbage: 'incomplete JSON'
+$ fm /tmp/fm-live.6IRIVw/s3-enroll /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5Y1A4N1TAT4AA89M1E05CEH/bin/fm-contributions.sh enroll delivery https://github.com/o/r/pull/9
+
+[exit 0]
+PASS: enrollment of a new contribution completes (exit 0)
+delivery ledger: {
+  "schema": "fm-contributions.v1",
+  "task": "delivery",
+  "records": [
+    {
+      "url": "https://github.com/o/r/pull/9",
+      "kind": "pr",
+      "checked_at": null,
+      "error": null,
+      "observation": null,
+      "verdict": null,
+      "seen": [],
+      "pending": [],
+      "notified": []
+    }
+  ]
+}
+stranger directory now: contributions.json.invalid.sabRSV
+PASS: enrolled record passes the product validator
+PASS: enrollment recorded the enrolled URL
+PASS: corrupt record is out of the ledger path
+PASS: corrupt bytes are kept aside as contributions.json.invalid.*
+PASS: kept-aside bytes are the original garbage
+$ fm /tmp/fm-live.6IRIVw/s3-enroll /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5Y1A4N1TAT4AA89M1E05CEH/bin/fm-contributions.sh owned
+[
+  {
+    "url": "https://github.com/o/r/pull/8",
+    "tasks": [
+      "delivery"
+    ],
+    "final": false
+  },
+  {
+    "url": "https://github.com/o/r/pull/9",
+    "tasks": [
+      "delivery"
+    ],
+    "final": false
+  }
+]
+[exit 0]
+PASS: fleet owned view reads the converged ledger

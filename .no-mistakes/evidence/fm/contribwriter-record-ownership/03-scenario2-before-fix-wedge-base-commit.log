@@ -1,0 +1,24 @@
+== Scenario 2 before-fix repro against base commit a049d301907329c628b73dea4d6722a4ee203ce7 ==
+$ fm /tmp/fm-live.6IRIVw/s2-base /tmp/fm-live.6IRIVw/base/bin/fm-contributions.sh poll
+contributions: 1 unreadable durable record(s)
+fm-contributions: invalid stored contribution record
+[exit 1]
+observable result: settlement poll exit=1, ledger file after the failed run:
+{
+  "schema": "fm-contributions.v1",
+  "task": "delivery",
+  "records": [
+    {
+      "url": "https://github.com/o/r/pull/8",
+      "kind": "pr",
+      "verdict": "merged",
+      "observation": {
+        "state": "merged"
+      }
+    }
+  ]
+}
+PASS: base commit wedges: settlement poll fails
+PASS: base commit fails with invalid stored contribution record
+PASS: base commit leaves the corrupt record in place (hand repair required)
+PASS: base commit quarantines nothing

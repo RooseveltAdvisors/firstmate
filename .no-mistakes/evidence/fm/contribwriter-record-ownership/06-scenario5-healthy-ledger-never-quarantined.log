@@ -1,0 +1,114 @@
+== Scenario 5 (adversarial boundary): a healthy ledger is never quarantined or truncated ==
+seeded a valid ledger: pull/8 with a recorded captain verdict + pull/10
+$ fm /tmp/fm-live.6IRIVw/s5-healthy /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5Y1A4N1TAT4AA89M1E05CEH/bin/fm-contributions.sh enroll delivery https://github.com/o/r/pull/9
+
+[exit 0]
+PASS: enrollment merges a third row instead of rebuilding
+$ fm /tmp/fm-live.6IRIVw/s5-healthy /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5Y1A4N1TAT4AA89M1E05CEH/bin/fm-contributions.sh poll
+
+[exit 0]
+PASS: settlement poll over the healthy ledger exits 0
+ledger after enrollment and re-observation: {
+  "schema": "fm-contributions.v1",
+  "task": "delivery",
+  "records": [
+    {
+      "url": "https://github.com/o/r/pull/10",
+      "kind": "pr",
+      "checked_at": "2026-09-16T08:00:00Z",
+      "error": null,
+      "pending": [],
+      "seen": [],
+      "verdict": null,
+      "observation": {
+        "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "state": "open",
+        "draft": false,
+        "mergeable": "mergeable",
+        "can_merge": false,
+        "review_decision": "APPROVED",
+        "reviews": [],
+        "checks": [
+          {
+            "name": "test",
+            "id": 1,
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-16T08:00:00Z"
+          }
+        ],
+        "events": [],
+        "absent_checks": []
+      }
+    },
+    {
+      "url": "https://github.com/o/r/pull/8",
+      "kind": "pr",
+      "checked_at": "2026-09-16T08:00:00Z",
+      "error": null,
+      "pending": [],
+      "seen": [],
+      "verdict": {
+        "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "source": "https://github.com/o/r/pull/8#issuecomment-1",
+        "actor": "captain",
+        "summary": "choose contract"
+      },
+      "observation": {
+        "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "state": "open",
+        "draft": false,
+        "mergeable": "mergeable",
+        "can_merge": false,
+        "review_decision": "APPROVED",
+        "reviews": [],
+        "checks": [
+          {
+            "name": "test",
+            "id": 1,
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-16T08:00:00Z"
+          }
+        ],
+        "events": [],
+        "absent_checks": []
+      }
+    },
+    {
+      "url": "https://github.com/o/r/pull/9",
+      "kind": "pr",
+      "checked_at": "2026-09-16T08:00:00Z",
+      "error": null,
+      "observation": {
+        "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "state": "open",
+        "draft": false,
+        "mergeable": "mergeable",
+        "can_merge": false,
+        "review_decision": "APPROVED",
+        "reviews": [],
+        "checks": [
+          {
+            "name": "test",
+            "id": 1,
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-09-16T08:00:00Z"
+          }
+        ],
+        "events": [],
+        "absent_checks": []
+      },
+      "verdict": null,
+      "seen": [],
+      "pending": [],
+      "notified": []
+    }
+  ]
+}
+PASS: all three URLs survive the mutations
+PASS: the recorded captain verdict survives re-observation
+PASS: re-observation refreshed pull/8 from the forge (open state recorded)
+PASS: no record was quarantined anywhere in the healthy home
+PASS: ledger still passes the product validator

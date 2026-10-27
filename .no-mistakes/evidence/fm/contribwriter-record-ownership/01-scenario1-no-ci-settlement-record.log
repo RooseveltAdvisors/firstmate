@@ -1,0 +1,54 @@
+== Scenario 1: a no-CI merged pull request settles into a v1 ledger record ==
+fixture: task delivery owns https://github.com/o/r/pull/8; forge reports merged with zero check runs
+$ fm /tmp/fm-live.6IRIVw/s1-no-ci-settle /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5Y1A4N1TAT4AA89M1E05CEH/bin/fm-contributions.sh poll
+
+[exit 0]
+PASS: settlement poll exits 0
+PASS: settlement poll is silent (no unreadable record reported)
+persisted ledger: {
+  "schema": "fm-contributions.v1",
+  "task": "delivery",
+  "records": [
+    {
+      "url": "https://github.com/o/r/pull/8",
+      "kind": "pr",
+      "checked_at": "2026-09-16T08:00:00Z",
+      "observation": {
+        "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "state": "merged",
+        "draft": false,
+        "mergeable": "unknown",
+        "can_merge": false,
+        "review_decision": "APPROVED",
+        "reviews": [],
+        "checks": [],
+        "events": [],
+        "absent_checks": []
+      },
+      "verdict": null,
+      "seen": [],
+      "pending": [],
+      "notified": [],
+      "error": null
+    }
+  ]
+}
+PASS: stored record passes the product validator fm-contributions.jq valid_record
+PASS: record observes merged state with an empty checks array and no error
+$ fm /tmp/fm-live.6IRIVw/s1-no-ci-settle /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5Y1A4N1TAT4AA89M1E05CEH/bin/fm-contributions.sh owned
+[
+  {
+    "url": "https://github.com/o/r/pull/8",
+    "tasks": [
+      "delivery"
+    ],
+    "final": true
+  }
+]
+[exit 0]
+PASS: fleet owned view (read-only consumer) reads the settled record
+$ fm /tmp/fm-live.6IRIVw/s1-no-ci-settle /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5Y1A4N1TAT4AA89M1E05CEH/bin/fm-contributions.sh poll
+
+[exit 0]
+PASS: re-poll leaves the settled record byte-identical (settles once)
+PASS: re-poll makes no forge calls (terminal record is not re-read)
