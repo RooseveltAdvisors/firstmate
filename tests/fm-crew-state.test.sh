@@ -254,6 +254,8 @@ set -u
 case "${1:-}" in
   status)
     [ "${2:-}" = --json ] && {
+      [ "${FM_FAKE_HERDR_RECHECK_COMES_BACK:-0}" = 1 ] \
+        && : > "${FM_STATE_OVERRIDE:?}/.fake-herdr-recheck-replied"
       printf '{"client":{"version":"0.7.1","protocol":14},"server":{"running":true}}\n'
       exit 0
     } ;;
@@ -268,7 +270,8 @@ case "${1:-}" in
         else printf 'all quiet\n> \n'; fi
         exit 0 ;;
       get)
-        if [ "${FM_FAKE_HERDR_MISSING:-0}" = 1 ]; then
+        if [ "${FM_FAKE_HERDR_MISSING:-0}" = 1 ] \
+          && [ ! -e "${FM_STATE_OVERRIDE:?}/.fake-herdr-recheck-replied" ]; then
           printf '{"error":{"code":"pane_not_found","message":"no such pane"}}\n'
           exit 1
         fi
@@ -396,6 +399,7 @@ reset_fakes() {
   FM_FAKE_HERDR_AGENT_STATUS=""
   FM_FAKE_HERDR_PROCESS=agent
   FM_FAKE_HERDR_SHELL_PID=$$
+  FM_FAKE_HERDR_RECHECK_COMES_BACK=0
   FM_FAKE_CI_LOGS=""
   FM_FAKE_DAEMON_DOWN=0
   FM_FAKE_DAEMON_TIMEOUT=0
@@ -420,7 +424,7 @@ reset_fakes() {
   FM_FAKE_GERRIT_READ_LOG=
   unset FM_FAKE_PR_47_STATE FM_FAKE_PR_47_MERGED FM_FAKE_PR_48_STATE FM_FAKE_PR_48_MERGED
   export FM_FAKE_AXI_STATUS FM_FAKE_AXI_STATUS_RUN FM_FAKE_RUNS_LIST FM_FAKE_BUSY FM_FAKE_BUSY_TEXT FM_FAKE_TMUX_MISSING FM_FAKE_TMUX_WINDOW_GONE FM_FAKE_TMUX_UNREADABLE FM_FAKE_REX_DOWN
-  export FM_FAKE_HERDR_BUSY FM_FAKE_HERDR_MISSING FM_FAKE_HERDR_READ_FAIL FM_FAKE_HERDR_HUSK FM_FAKE_HERDR_AGENT_STATUS FM_FAKE_HERDR_PROCESS FM_FAKE_HERDR_SHELL_PID FM_FAKE_CI_LOGS
+  export FM_FAKE_HERDR_BUSY FM_FAKE_HERDR_MISSING FM_FAKE_HERDR_READ_FAIL FM_FAKE_HERDR_HUSK FM_FAKE_HERDR_AGENT_STATUS FM_FAKE_HERDR_PROCESS FM_FAKE_HERDR_SHELL_PID FM_FAKE_HERDR_RECHECK_COMES_BACK FM_FAKE_CI_LOGS
   export FM_FAKE_DAEMON_DOWN FM_FAKE_DAEMON_TIMEOUT FM_FAKE_DAEMON_PROBE_LOG FM_FAKE_AXI_HOME
   export FM_FAKE_DAEMON_OUTPUT
   export FM_FAKE_AXI_HOME_ERROR FM_FAKE_AXI_STATUS_RUN_ERROR FM_FAKE_AXI_STATUS_ERROR
@@ -3347,6 +3351,66 @@ test_parked_window_carries_every_surface_and_then_surfaces() {
   pass "the park window carries every surface and surfaces the seat again once it passes"
 }
 
+# A recheck verdict of alive is the agent being back: the declaration carries
+# the window only short of alive, so the seat resumes the ordinary live flow
+# instead of reporting its declared wait.
+test_parked_pause_yields_to_a_returning_agent() {
+  command -v jq >/dev/null 2>&1 || { pass "parked returning-agent test skipped without jq"; return; }
+  reset_fakes
+  local d out gen
+  d=$(new_case parked-return)
+  make_repo_on_branch "$d/wt" fm/feat-parked-return
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-parked-return.meta" "window=default:w1:p9" "worktree=$d/wt" \
+    "kind=ship" "backend=herdr" "harness=claude"
+  printf 'paused [at=1]: awaiting the vendor window until 2099-01-01T00:00Z\n' \
+    > "$d/state/feat-parked-return.status"
+  FM_FAKE_AXI_STATUS=""
+  FM_FAKE_RUNS_LIST=""
+  FM_FAKE_HERDR_MISSING=1
+  FM_FAKE_HERDR_RECHECK_COMES_BACK=1
+  FM_FAKE_HERDR_AGENT_STATUS=working
+  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" feat-parked-return)
+  "$ROOT/bin/fm-busy-event.sh" apply "$d/state" feat-parked-return busy --gen "$gen" \
+    --source claude-hook --event user-prompt-submit
+  out=$(run_crew_state "$d" feat-parked-return)
+  assert_contains "$out" "state: working" "an agent the absence recheck found back resumes the ordinary live flow"
+  assert_not_contains "$out" "state: paused" "a proven-alive seat never reports its declared wait"
+  assert_not_contains "$out" "seat stopped" "a proven-alive seat claims no stop"
+  pass "a recheck verdict of alive never reports the declared wait"
+}
+
+# A still-open decision outranks the park window on every surface (the fold's
+# own precedence): the seat surfaces the decision, never the parked wait.
+test_parked_pause_yields_to_an_open_decision() {
+  reset_fakes
+  local d out
+  d=$(new_case parked-decision)
+  make_repo_on_branch "$d/wt" fm/feat-parked-decision
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-parked-decision.meta" "window=fm:fm-feat-parked-decision" \
+    "worktree=$d/wt" "kind=ship" "harness=claude"
+  printf 'needs-decision [key=api]: pick the queue order\npaused [at=1]: parked by the supervisor with the seat stopped - overnight until 2099-01-01T00:00Z\n' \
+    > "$d/state/feat-parked-decision.status"
+  FM_FAKE_AXI_STATUS=""
+  FM_FAKE_RUNS_LIST=""
+  FM_FAKE_TMUX_MISSING=1
+  out=$(run_crew_state "$d" feat-parked-decision)
+  assert_contains "$out" "state: parked" "an open decision surfaces on the unavailable-endpoint path"
+  assert_contains "$out" "pick the queue order" "the decision note is what surfaces"
+  assert_not_contains "$out" "state: paused" "the park window never masks the open decision"
+  reset_fakes
+  FM_FAKE_AXI_STATUS=""
+  FM_FAKE_RUNS_LIST=""
+  FM_FAKE_BUSY=0
+  arm_idle_record "$d/state" feat-parked-decision
+  out=$(run_crew_state "$d" feat-parked-decision)
+  assert_contains "$out" "state: parked" "an open decision surfaces on the readable-idle path"
+  assert_contains "$out" "pick the queue order" "the decision note is what surfaces"
+  assert_not_contains "$out" "state: paused" "the park window never masks the open decision"
+  pass "a parked seat with an open decision surfaces the decision on every path"
+}
+
 # The stopped claim is made only where the absence is proven. A herdr seat
 # whose pane the recorded session's own server confirms gone reads paused with
 # the stop claim; the same declared wait on a tmux seat whose absence no read
@@ -6156,6 +6220,8 @@ test_dead_window_ignores_stale_status_log
 test_gone_window_in_live_session_ignores_stale_status_log
 test_parked_stopped_seat_reports_its_declared_wait
 test_parked_window_carries_every_surface_and_then_surfaces
+test_parked_pause_yields_to_a_returning_agent
+test_parked_pause_yields_to_an_open_decision
 test_parked_pause_claims_a_stop_only_on_proven_absence
 test_parked_declaration_carries_through_an_inconclusive_read
 test_parked_stopped_seat_with_readable_shell_pane

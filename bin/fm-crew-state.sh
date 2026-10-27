@@ -1324,31 +1324,43 @@ fi
 # the watcher's pause cadence makes for a dead crew. The declaration, not the
 # live re-read, carries the paused report through that span: whatever the
 # endpoint reads short of `alive`, the seat reports its declared wait rather
-# than unknown, so a suppressed stale can never pass for health. The `seat
-# stopped` claim is appended only where the current read proves one (`dead`, or
-# an absence bin/fm-control-lib.sh's fm_control_endpoint_absence_verdict
-# confirms gone or agent-free); an unproven absence is doubt, not a stop. Once
-# the stated time passes, the death-class verdicts apply again. The classifier
-# runs only when a live park exists, unless the caller already has its verdict.
+# than unknown, so a suppressed stale can never pass for health. A still-open
+# decision outranks that wait (status_current_line's own precedence). The
+# `seat stopped` claim is appended only where the current read proves one
+# (`dead`, or an absence bin/fm-control-lib.sh's
+# fm_control_endpoint_absence_verdict confirms gone or agent-free); an unproven
+# absence is doubt, not a stop, and a proof that the agent is back folds the
+# seat into the alive path instead. Once the stated time passes, the
+# death-class verdicts apply again. The classifier runs only when a live park
+# exists, unless the caller already has its verdict.
 emit_if_parked() {  # [agent-state]
-  local park_line park_until state absence note
+  local park_line park_until state absence note current_state proven=0
   park_line=$(status_declared_wait_line "$LOG")
   park_until=$(status_paused_until "$park_line") && [ "$(date +%s)" -lt "$park_until" ] || return 0
   state=${1:-$(fm_backend_agent_state "$TASK_BACKEND" "$BACKEND_TARGET")}
-  note=$(status_line_note "$park_line")
   case "$state" in
     alive) return 0 ;;
-    dead) emit paused status-log "$note${SEP}seat stopped" ;;
+    dead) proven=1 ;;
     *)
       if fm_control_absence_recheck_applies "$TASK_BACKEND" "$state"; then
         absence=$(fm_control_endpoint_absence_verdict "$TASK_BACKEND" "$BACKEND_TARGET" "$META")
         case "${absence%%$'\t'*}" in
-          gone|dead) emit paused status-log "$note${SEP}seat stopped" ;;
+          gone|dead) proven=1 ;;
+          alive) AGENT_STATE=alive; return 0 ;;
         esac
       fi
-      emit paused status-log "$note"
       ;;
   esac
+  if [ "$LOG_LINE" != "$park_line" ]; then
+    current_state=$(map_log_state "$LOG_LINE")
+    [ "$current_state" = unknown ] || emit "$current_state" status-log "$(status_line_note "$LOG_LINE")"
+    return 0
+  fi
+  note=$(status_line_note "$park_line")
+  if [ "$proven" = 1 ]; then
+    emit paused status-log "$note${SEP}seat stopped"
+  fi
+  emit paused status-log "$note"
 }
 
 [ -n "$BACKEND_TARGET" ] || emit unknown none "no backend target recorded"
