@@ -1,0 +1,33 @@
+########## mode=pre product=/tmp/fm-prefix.4nmYSL/bin/fm-teardown.sh ##########
+
+=== SCENARIO A: lane teardown of a remote-registered, locally seated secondmate ===
+--- operator command: FM_HOME=/tmp/fm-public-followup.SLeE3o/manual-lane-pre-child bin/fm-teardown.sh work-manual-pre ---
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X38FEAYF4BVGZ2CEMJCCFK/.pi/extensions/fm-primary-turnend-guard.ts -e /home/jon/.no-mistakes/worktrees/46339c0817e0/01M5X38FEAYF4BVGZ2CEMJCCFK/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: cannot resolve the primary home for marked secondmate remote-mate; refusing cleanup without its durable parent binding.
+--- exit code: 1 ---
+--- child work metadata afterwards: ---
+    work-manual-pre.meta
+OBSERVED: incident refusal 'cannot resolve the primary home'
+
+=== SCENARIO B: retirement of the secondmate itself (the removal-identity guard) ===
+--- operator command: FM_HOME=/tmp/fm-public-followup.SLeE3o/manual-retire-pre-parent bin/fm-teardown.sh remote-mate --retire-secondmate remote-mate ---
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e /tmp/fm-prefix.4nmYSL/.pi/extensions/fm-primary-turnend-guard.ts -e /tmp/fm-prefix.4nmYSL/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: secondmate remote-mate is registered at /remote/home/remote-mate, not /tmp/fm-public-followup.SLeE3o/manual-retire-pre-child
+--- exit code: 1 ---
+--- afterwards: child home present? meta present? registry entry present? ---
+    child home: PRESENT
+    parent meta: PRESENT
+    registry entry: PRESENT
+OBSERVED: incident refusal 'is registered at <route>, not <local home>'
