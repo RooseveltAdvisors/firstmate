@@ -69,7 +69,7 @@ After spawning, confirm the worker is processing the brief and handle any trust 
 A persistent secondmate is recorded in the secondmate registry and runtime state, never as a backlog work item.
 Steer a worker with ordinary text through fail-closed `fm-send`; `bin/fm-send.sh` owns the durable-inbox, remote-resend, and `--resolve-key` contracts.
 Never use `fm-send` for interrupt, exit, or other lifecycle control.
-Drive a worker's lifecycle through `bin/fm-control.sh <task-id> interrupt|exit|relaunch` ([`docs/agent-control.md`](../../../docs/agent-control.md)).
+Drive a worker's lifecycle through `bin/fm-control.sh <task-id> interrupt|exit|relaunch|park` ([`docs/agent-control.md`](../../../docs/agent-control.md)).
 Supervise all live work under `AGENTS.md` section 8 and `supervision-protocol`.
 
 ## Delivery paths

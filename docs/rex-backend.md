@@ -109,7 +109,7 @@ An omitted `windows` field is treated as an empty session for both retirement an
 When main retires a local secondmate, it checks and retires that secondmate's session using the secondmate home's identity; sessions with tabs or renamed labels are preserved.
 Spawning, reclaiming, and that retirement share one home-wide lock (`state/.rex-session.lock`), so a new tab can never land in a session between its empty check and its kill.
 
-`bin/fm-control.sh` `exit` and `relaunch` work on Rex; [`agent-control.md`](agent-control.md#reclaiming-a-task-whose-endpoint-is-gone) owns the recorded-server absence proof, stopped-server recovery, reclaim placement, and reclaim-only shell-husk cleanup.
+`bin/fm-control.sh` `exit`, `park`, and `relaunch` work on Rex; [`agent-control.md`](agent-control.md#reclaiming-a-task-whose-endpoint-is-gone) owns the recorded-server absence proof, stopped-server recovery, reclaim placement, and reclaim-only shell-husk cleanup.
 An ordinary spawn refuses any block carrying the task's scoped label.
 
 ## Attention marks
