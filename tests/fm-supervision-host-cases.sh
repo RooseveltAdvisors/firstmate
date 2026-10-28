@@ -2076,7 +2076,9 @@ quiet_pass_through_successor() {  # <home>
 park_after_stop() {  # <home>
   rm -f "$1/host.rc"
   : > "$1/park.go"
-  wait_until 150 host_exited "$1" || fail "the watcher's downtime resurface did not reach main: $(cat "$1/host.out")"
+  # A hang guard only, as in park_again; this park also verifies a successor
+  # cycle before it exits.
+  wait_until 600 host_exited "$1" || fail "the watcher's downtime resurface did not reach main: $(cat "$1/host.out")"
   assert_re '^check: rearm-resurface' "$1/host.out" "fixture: the first close after the watcher stopped was not its resurface"
   main_drain_and_ack "$1"
   quiet_pass_through_successor "$1"
@@ -2936,7 +2938,10 @@ start_session() {  # <home>
 park_again() {  # <home>
   rm -f "$1/host.rc"
   : > "$1/park.go"
-  wait_until 150 watcher_live "$1" \
+  # A hang guard only: each park first replays every mirror seed the case has
+  # written so far, so a park grows across a case, and the later parks can take
+  # most of 15 seconds on a loaded CI runner.
+  wait_until 600 watcher_live "$1" \
     || fail "the next park never started a watcher cycle: $(cat "$1/host.out"; tail -n 5 "$1/state/.supervision-host.log" 2>/dev/null)"
 }
 
