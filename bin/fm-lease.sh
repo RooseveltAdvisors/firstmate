@@ -155,11 +155,8 @@ case "$CMD" in
     # one fm-branch-report.sh validates; a value that fails its charset is no
     # token at all, never a recorded attacker string. Main never carries one.
     TOKEN=
-    if [ "$ACTOR" = branch ]; then
-      case "${FM_BRANCH_REPORT_TURN:-}" in
-        '' | *[!A-Za-z0-9._-]*) ;;
-        *) TOKEN="turn:${FM_BRANCH_REPORT_TURN}" ;;
-      esac
+    if [ "$ACTOR" = branch ] && fm_lease_valid_id "${FM_BRANCH_REPORT_TURN:-}"; then
+      TOKEN="turn:${FM_BRANCH_REPORT_TURN}"
     fi
     TMP=$(mktemp "$STATE/.fm-lease-tmp.XXXXXX")
     if [ -n "$TOKEN" ]; then

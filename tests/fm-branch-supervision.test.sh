@@ -771,12 +771,14 @@ test_branch_lease_turn_retirement_reclaims() {
   out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=main FM_LEASE_HOLDER_PID=$$ "$ROOT/bin/fm-lease.sh" claim task-turn 2>&1)
   status=$?
   [ "$status" -eq 6 ] || fail "live-turn branch lease did not refuse main: $out"
+  assert_contains "$out" "error: claim refused - task 'task-turn' is leased to the branch supervision actor (state/.lease-task-turn)" \
+    "live-turn refusal is not the incident's refusal"
 
   # The turn dies mid-handling: the host removes its turn record; the session
   # pid and the lock stay alive. Main's claim must now clear and take it.
   rm -f "$home/state/.supervision-host-turn"
-  FM_HOME="$home" FM_SUPERVISION_ACTOR=main FM_LEASE_HOLDER_PID=$$ "$ROOT/bin/fm-lease.sh" claim task-turn \
-    || fail "a lease whose branch turn is over still locks main out"
+  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=main FM_LEASE_HOLDER_PID=$$ "$ROOT/bin/fm-lease.sh" claim task-turn 2>&1) \
+    || fail "a lease whose branch turn is over still locks main out: $out"
   out=$(FM_HOME="$home" "$ROOT/bin/fm-lease.sh" check task-turn)
   case "$out" in "main $$ "*) ;; *) fail "main did not take over the dead-turn lease: $out" ;; esac
 
@@ -794,15 +796,18 @@ test_branch_lease_turn_retirement_reclaims() {
   FM_HOME="$home" FM_SUPERVISION_ACTOR=branch FM_LEASE_HOLDER_PID=$$ FM_BRANCH_REPORT_TURN=host-77-1.4 \
     "$ROOT/bin/fm-lease.sh" claim task-replaced --actor branch || fail "replacement turn claim failed"
   printf 'turn=host-77-1.5\nrows=\ntasks=\nunscoped=0\nwake=\nposture=attended\n' > "$home/state/.supervision-host-turn"
-  FM_HOME="$home" FM_SUPERVISION_ACTOR=main FM_LEASE_HOLDER_PID=$$ "$ROOT/bin/fm-lease.sh" claim task-replaced \
-    || fail "a superseded turn's lease still locks main out"
+  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=main FM_LEASE_HOLDER_PID=$$ "$ROOT/bin/fm-lease.sh" claim task-replaced 2>&1) \
+    || fail "a superseded turn's lease still locks main out: $out"
 
   # A legacy 3-field branch lease (no recorded token) keeps the pid-only
-  # verdict byte for byte: live pid plus lock holder means live.
+  # verdict byte for byte: live pid plus lock holder means live. That is the
+  # pre-fix shape, so its dead turn still meets the incident's refusal.
   printf 'branch\t%s\t123\n' "$$" > "$home/state/.lease-task-legacy"
   out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=main FM_LEASE_HOLDER_PID=$$ "$ROOT/bin/fm-lease.sh" claim task-legacy 2>&1)
   status=$?
   [ "$status" -eq 6 ] || fail "a tokenless live-pid branch lease must still refuse main: $out"
+  assert_contains "$out" "error: claim refused - task 'task-legacy' is leased to the branch supervision actor (state/.lease-task-legacy)" \
+    "pre-fix-shape refusal is not the incident's refusal"
 
   # A token that fails charset validation is never recorded: the claim falls
   # back to the legacy shape rather than carrying an attacker string.

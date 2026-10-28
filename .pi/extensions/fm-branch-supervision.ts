@@ -1592,14 +1592,8 @@ ${context.command}
         // The turn record names this handling until settlement, so a lease
         // claimed from the branch's shell during it dies with the turn.
         wakeTurn = `${acceptedGeneration}.${++branchTurnCounter}`;
-        try {
-          writeFileSync(branchTurnFile, `turn=${wakeTurn}\n`);
-          currentBranchTurn = wakeTurn;
-        } catch {
-          // A record that cannot be written degrades the branch's leases to
-          // the pid-only verdict; handling is never blocked by it.
-          wakeTurn = null;
-        }
+        writeFileSync(branchTurnFile, `turn=${wakeTurn}\n`);
+        currentBranchTurn = wakeTurn;
         // A row can still arrive between this re-check and the model starting
         // the drain; that residual is accepted by the confused-agent-grade boundary.
         const reportRevisionBeforePrompt = durableReportRevision;
@@ -1957,8 +1951,11 @@ ${context.command}
       }
       branch = null;
     }
-    currentBranchTurn = null;
-    clearBranchTurn((recorded) => recorded.startsWith(`turn=${closingGeneration}.`));
+    const closingTurn = currentBranchTurn;
+    if (activatedGeneration === closingGeneration && closingTurn !== null) {
+      currentBranchTurn = null;
+      clearBranchTurn((recorded) => recorded === `turn=${closingTurn}`);
+    }
     await deactivateEligibleRowsOwner(state, wakeGrantScript, process.pid, String(closingGeneration));
   });
 

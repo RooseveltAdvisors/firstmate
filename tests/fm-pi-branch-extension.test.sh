@@ -4462,18 +4462,26 @@ const offer = dispatch("signal: task-turn done");
 if (!offer.accepted) throw new Error("branch did not accept the wake");
 await settle(() => (globalThis.__fmPrompts ?? []).length === 1, "branch wake prompt");
 
-// Mid-turn: the record exists, and the branch's bash env carries exactly it.
+// Mid-turn: the record exists, and the branch's bash env carries exactly it,
+// readonly inside the branch's own shell.
 const turnFile = `${home}/state/.branch-turn`;
 if (!existsSync(turnFile)) throw new Error("mid-wake branch turn record is missing");
 const recorded = readFileSync(turnFile, "utf8").trim();
 if (!/^turn=[0-9]+\.[0-9]+$/.test(recorded)) throw new Error(`unexpected turn record: ${recorded}`);
 const turnId = recorded.slice("turn=".length);
 const bashTool = globalThis.__fmSessions[0].options.customTools.find((tool) => tool.name === "bash");
-const hooked = bashTool.__options.spawnHook({ command: "true", cwd: "/x", env: {} });
+const hooked = bashTool.__options.spawnHook({
+  command: 'export FM_BRANCH_REPORT_TURN=forged; printf %s "$FM_BRANCH_REPORT_TURN"',
+  cwd: "/x",
+  env: {},
+});
 if (hooked.env.FM_BRANCH_REPORT_TURN !== turnId) {
   throw new Error(`branch bash env does not carry the live turn: ${JSON.stringify(hooked.env)}`);
 }
-if (!hooked.command.includes("FM_BRANCH_REPORT_TURN")) throw new Error("branch shell does not pin the turn env readonly");
+const forged = spawnSync("bash", ["-c", hooked.command], { encoding: "utf8", env: hooked.env });
+if (forged.stdout !== turnId || !forged.stderr.includes("FM_BRANCH_REPORT_TURN: readonly variable")) {
+  throw new Error(`branch shell let the turn env be reassigned: stdout=${forged.stdout} stderr=${forged.stderr}`);
+}
 
 // A claim from the branch's real shell records the token and refuses main
 // for as long as the turn record names it.
@@ -4483,7 +4491,12 @@ if (!readFileSync(`${home}/state/.lease-task-turn`, "utf8").includes(`turn:${tur
   throw new Error("branch claim did not record the turn token");
 }
 const blocked = lease(["claim", "task-turn"], { FM_SUPERVISION_ACTOR: "main", FM_LEASE_HOLDER_PID: String(process.ppid) });
-if (blocked.status !== 6) throw new Error(`main was not refused while the turn lives: rc=${blocked.status} ${blocked.stderr}`);
+if (
+  blocked.status !== 6 ||
+  !blocked.stderr.includes("claim refused - task 'task-turn' is leased to the branch supervision actor (state/.lease-task-turn)")
+) {
+  throw new Error(`main was not refused while the turn lives: rc=${blocked.status} ${blocked.stderr}`);
+}
 
 // The wake settles: the record must come down with it, and the stranded
 // lease must free for main without any sweep.
@@ -4723,23 +4736,31 @@ test_secondary_session_stays_inert() {
   install_pi_branch_extension_fixture "$repo"
   # The fleet lock is owned by ANOTHER live process that is NOT in the
   # driver's ancestry (a sibling sleeper), so the driver is a secondary
-  # session: it must accept nothing, write no marker, and release no leases.
+  # session: it must accept nothing, write no marker, release no leases, and
+  # never remove the owner's live turn record, even one named under the same
+  # generation number this session counts.
   sleep 60 &
   foreign_pid=$!
   printf 'branch\t%s\t123\n' "$foreign_pid" > "$home/state/.lease-task-x"
   PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
     FM_TEST_SKIP_LOCK=1 FM_TEST_LOCK_PID=$foreign_pid DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 const prelude = process.env.DRIVER_PRELUDE;
-await eval(`(async () => { ${prelude}; globalThis.__t = { dispatch, home }; })()`);
-const { dispatch, home } = globalThis.__t;
-import { existsSync, writeFileSync } from "node:fs";
+await eval(`(async () => { ${prelude}; globalThis.__t = { fire, dispatch, home, defaultSessionCtx }; })()`);
+const { fire, dispatch, home, defaultSessionCtx } = globalThis.__t;
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 writeFileSync(`${home}/state/.lock`, `${process.env.FM_TEST_LOCK_PID}\n`);
+writeFileSync(`${home}/state/.branch-turn`, "turn=1.1\n");
+await fire("session_start", {}, defaultSessionCtx);
 if (dispatch("signal: secondary probe").accepted) throw new Error("secondary session accepted a wake it does not own");
 if (existsSync(`${home}/state/.pi-branch-extension-loaded`)) {
   throw new Error("secondary session wrote the primary's marker");
 }
 if (!existsSync(`${home}/state/.lease-task-x`)) {
   throw new Error("secondary session released the primary's branch lease");
+}
+await fire("session_shutdown", {});
+if (!existsSync(`${home}/state/.branch-turn`) || readFileSync(`${home}/state/.branch-turn`, "utf8") !== "turn=1.1\n") {
+  throw new Error("secondary session removed the owner's live branch turn record");
 }
 process.exit(0);
 EOF

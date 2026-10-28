@@ -205,11 +205,7 @@ fm_lease_read() {
   # token, so a torn or forged fourth field falls back to the pid-only
   # verdict instead of locking the task behind an unverifiable claim.
   case "$FM_LEASE_TOKEN" in
-    turn:*)
-      case "${FM_LEASE_TOKEN#turn:}" in
-        '' | *[!A-Za-z0-9._-]*) FM_LEASE_TOKEN= ;;
-      esac
-      ;;
+    turn:*) fm_lease_valid_id "${FM_LEASE_TOKEN#turn:}" || FM_LEASE_TOKEN= ;;
     *) FM_LEASE_TOKEN= ;;
   esac
   case "$FM_LEASE_ACTOR" in
@@ -236,9 +232,6 @@ fm_lease_read() {
 # the session pid says.
 fm_lease_branch_token_live() {
   local token=$1 file recorded
-  case "$token" in
-    '' | *[!A-Za-z0-9._-]*) return 1 ;;
-  esac
   for file in "$STATE/.supervision-host-turn" "$STATE/.branch-turn"; do
     [ -f "$file" ] && [ ! -L "$file" ] || continue
     recorded=$(sed -n 's/^turn=//p' "$file" 2>/dev/null | head -n 1)
