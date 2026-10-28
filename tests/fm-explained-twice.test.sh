@@ -11,6 +11,7 @@ if ! command -v bun >/dev/null 2>&1; then
 fi
 TMP_ROOT=$(fm_test_tmproot fm-explained-twice)
 export DETECTOR="$ROOT/bin/fm-explained-twice.sh" DETECTOR_TEST_ROOT="$TMP_ROOT"
+bun test "$ROOT/tests/fm-weekly-bead.test.ts"
 bun run - <<'JS'
 import {mkdirSync, writeFileSync, readFileSync, existsSync, symlinkSync, linkSync, chmodSync, realpathSync} from 'node:fs';
 import {join} from 'node:path';
@@ -184,7 +185,7 @@ else if (args.includes('show')) {
   console.log(JSON.stringify(rows));
 }
 else {
-  if (!args.includes('closed') || !args.includes('2026-10-12T00:00:00.000Z') || !args.includes('2026-10-19T00:00:00.000Z')) throw new Error('wrong weekly query');
+  if (!args.includes('closed') || !args.includes('2026-10-11T23:59:59.000Z') || !args.includes('2026-10-19T00:00:00.000Z')) throw new Error('wrong weekly query');
   if (process.env.TEST_BD_FAILURE) { console.error('fixture store unavailable'); process.exit(2); }
   if (process.env.TEST_BD_OVERFLOW) console.log('x'.repeat(4194305));
   else console.log(readFileSync(directory + '/rows.json', 'utf8'));

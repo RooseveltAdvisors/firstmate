@@ -46,7 +46,7 @@ The shared no-mistakes gate lifecycle boundary is summarized in [architecture.md
 | `fm-rex-marks.sh`        | Opt-in: turn each Rex task's latest status into one badge and notification on its pane, plus validation progress and an optional tint (`plan`, `sync`, `clear`), with the watcher running `sync` each poll while the option or a cached record exists, and cleanup running `clear` |
 | `fm-test-run.sh`         | Behavior-test runner: selection, portable lanes, bounded concurrency, budgets, coverage guard, timing/JSON, refusing to execute in the repository primary checkout when `FM_TASK_ID` marks a task worker, and recording or resolving that task's failure beads |
 | `fm-verification-record.sh` | Record a verification failure as a deduplicated domain-store bead with snapshotted evidence before any reply, or close it on a later pass |
-| `fm-explained-twice.sh`  | On-demand review of live captain corrections, weekly closed beads, and rule conformance, writing private reports and proposals only, never instruction files (procedure: `--help`) |
+| `fm-explained-twice.sh`  | On-demand review of live captain corrections, weekly closed beads, and rule conformance, writing private reports and proposals and optionally stamping/re-dating one named driving bead, never instruction files (procedure: `--help`) |
 | `fm-transcript-search.sh` | Optional bounded, read-only search of harness session transcripts for the search-before-ask checklist, never gating a question (bounds and roots: `--help`) |
 | `fm-test-isolation-proof.sh` | Concurrent isolation harness and portable candidate set owner |
 | `fm-ensure-agents-md.sh` | Manually initialize project agent-memory files (see the helper's header and help) |
