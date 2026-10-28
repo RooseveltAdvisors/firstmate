@@ -28,6 +28,7 @@ case "$op" in update|close) id=$1; shift ;; esac
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --external-ref) ref=$2; shift 2 ;;
+    --allow-duplicate) allow_dup=1; shift ;;
     --description) description=$2; shift 2 ;;
     --append-notes) note=$2; shift 2 ;;
     --status) status=$2; shift 2 ;;
@@ -45,6 +46,10 @@ case "$op" in
     if [ "${REFUSE_CREATE:-}" = 1 ]; then
       printf 'ACTION_GATE: project_worker cannot bd create\n' >&2
       printf 'Create refusal detail on stdout\n'; exit 17
+    fi
+    if [ "${DEDUPE_REFUSE:-}" = 1 ] && [ "${allow_dup:-}" != 1 ]; then
+      printf 'Error: blocked: potential duplicate of active issue wiseman-6c5k (58%% similar)\n' >&2
+      exit 20
     fi
     jq --arg ref "$ref" --arg body "$description" \
       '. + [{id:("fixture-" + ((length + 1)|tostring)),external_ref:$ref,description:$body,notes:"",status:"open",updated_at:1}]' \
@@ -183,6 +188,18 @@ printf 'echo "ok - other"\n' >"$repo/tests/other.test.sh"
 FM_TASK_ID=runner1 "$repo/bin/fm-test-run.sh" "$repo/tests/other.test.sh" >"$TMP_ROOT/run" 2>&1
 [ "$(jq length "$FM_HOME/.beads/issues.json")" = "$before" ] || fail 'green script without a failure created a bead'
 pass 'runner confirms bead before failure marker, keeps current-run logs, dedupes reruns, and closes on green'
+
+# A bd prose-dedupe refusal naming an UNRELATED candidate must not orphan the
+# finding: the recorder retries once with --allow-duplicate and a justification
+# that names the refused candidate and the differing owning task and key.
+before=$(jq length "$FM_HOME/.beads/issues.json")
+DEDUPE_REFUSE=1 record --command 'unrelated subject probe' >"$TMP_ROOT/out" 2>"$TMP_ROOT/dedupe-err"
+[ "$(jq length "$FM_HOME/.beads/issues.json")" = "$((before + 1))" ] || fail 'dedupe refusal blocked the filing'
+assert_grep 'potential duplicate of active issue wiseman-6c5k' "$TMP_ROOT/dedupe-err" 'first dedupe refusal stderr was swallowed'
+assert_contains "$(jq -r '.[-1].description' "$FM_HOME/.beads/issues.json")" 'Filed with --allow-duplicate' 'allow-duplicate justification missing'
+assert_contains "$(jq -r '.[-1].description' "$FM_HOME/.beads/issues.json")" 'wiseman-6c5k' 'refused candidate was not named in the justification'
+assert_contains "$(jq -r '.[-1].description' "$FM_HOME/.beads/issues.json")" 'Owning task ID: t1' 'owning task missing from the filed body'
+pass 'prose-dedupe refusal files once with explicit differing-subject justification'
 
 # A lane launched before FM_HOME joined the worker launch floor holds only
 # FM_TASK_ID (fm-m48wl); the runner still reaches the store through the task's
