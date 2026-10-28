@@ -15,7 +15,8 @@
 # while it exists.
 #
 # CONTRACT.
-#   - Lease file: $STATE/.lease-<task>, one line "<actor>\t<pid>\t<epoch>".
+#   - Lease file: $STATE/.lease-<task>, one line "<actor>\t<pid>\t<epoch>",
+#     with an optional fourth "\tturn:<id>" field (the turn token below).
 #     Written atomically (temp + ln for claim, temp + mv for a same-actor
 #     refresh), with inspection and mutation serialized by the home-local
 #     lease-command lock; leases never coordinate across firstmate homes.
@@ -31,9 +32,11 @@
 #     dead recorded pid means the supervising session died; the lease is
 #     cleared at the next claim, guard, or sweep. Liveness is the pure record
 #     test, identical in every calling context: the recorded pid is alive and
-#     IS the current state/.lock holder. So a lease left by an exited session
-#     goes stale for every reader, whichever harness now owns the home, and an
-#     unmarked main honors a live branch lease exactly as a Pi main does. A
+#     IS the current state/.lock holder, and a branch lease's recorded turn,
+#     when it carries one, is still live (the turn token below). So a lease
+#     left by an exited session goes stale for every reader, whichever
+#     harness now owns the home, and an unmarked main honors a live branch
+#     lease exactly as a Pi main does. A
 #     same-session re-anchor that moves lock line 1 off a live pid
 #     (bin/fm-lock.sh) moves the leases recorded against that pid with it
 #     (fm_lease_rekey_holder), so they stay live. The one residual is a
@@ -183,8 +186,19 @@ fm_lease_path() {
   printf '%s/.lease-%s\n' "$STATE" "$1"
 }
 
+# fm_lease_format <actor> <pid> <epoch> [<token>]: print one lease record
+# line; a non-empty <token> rides as the optional fourth field.
+fm_lease_format() {
+  if [ -n "${4:-}" ]; then
+    printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4"
+  else
+    printf '%s\t%s\t%s\n' "$1" "$2" "$3"
+  fi
+}
+
 # fm_lease_read <task>: read the lease into FM_LEASE_ACTOR/FM_LEASE_PID/
-# FM_LEASE_EPOCH. Returns 1 when no lease file exists. A malformed lease
+# FM_LEASE_EPOCH/FM_LEASE_TOKEN (the turn:<id> token, empty when the record
+# carries none). Returns 1 when no lease file exists. A malformed lease
 # (unreadable actor or pid) reads as actor "" so callers treat it as stale
 # rather than blocking forever on a torn record.
 fm_lease_read() {
@@ -274,9 +288,9 @@ fm_lease_live() {
 }
 
 # fm_lease_rekey_holder <old-pid> <new-pid>: rewrite every lease recorded
-# against <old-pid> to <new-pid>, keeping its actor and epoch. The caller holds
-# the lease-command lock. Returns 1 when any matching lease could not be
-# rewritten.
+# against <old-pid> to <new-pid>, keeping its actor, epoch, and turn token.
+# The caller holds the lease-command lock. Returns 1 when any matching lease
+# could not be rewritten.
 fm_lease_rekey_holder() {
   local old=$1 new=$2 lease task tmp rc=0
   for lease in "$STATE"/.lease-*; do
@@ -287,12 +301,7 @@ fm_lease_rekey_holder() {
     fm_lease_read "$task" || continue
     [ -n "$FM_LEASE_ACTOR" ] && [ "$FM_LEASE_PID" = "$old" ] || continue
     tmp=$(mktemp "$STATE/.fm-lease-tmp.XXXXXX" 2>/dev/null) || { rc=1; continue; }
-    if [ -n "$FM_LEASE_TOKEN" ]; then
-      printf '%s\t%s\t%s\t%s\n' "$FM_LEASE_ACTOR" "$new" "$FM_LEASE_EPOCH" "$FM_LEASE_TOKEN" > "$tmp" 2>/dev/null || { rm -f -- "$tmp"; rc=1; continue; }
-    else
-      printf '%s\t%s\t%s\n' "$FM_LEASE_ACTOR" "$new" "$FM_LEASE_EPOCH" > "$tmp" 2>/dev/null || { rm -f -- "$tmp"; rc=1; continue; }
-    fi
-    if ! mv -f -- "$tmp" "$lease" 2>/dev/null; then
+    if ! { fm_lease_format "$FM_LEASE_ACTOR" "$new" "$FM_LEASE_EPOCH" "$FM_LEASE_TOKEN" > "$tmp" && mv -f -- "$tmp" "$lease"; } 2>/dev/null; then
       rm -f -- "$tmp"
       rc=1
     fi

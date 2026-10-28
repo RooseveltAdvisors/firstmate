@@ -4431,7 +4431,8 @@ EOF
 # fm-v0kjm end to end: the wake's turn record gates the branch's leases.
 # While the wake is handled the record exists and the branch's bash env
 # carries its id; a claim then records the token and refuses main; the moment
-# the wake settles, the record is gone and the same lease frees for main.
+# the wake settles, the record is gone and the same lease frees for main, and
+# the owning session's own shutdown removes a mid-handling record the same way.
 test_branch_wake_turn_gates_its_leases() {
   local repo home out status
   repo="$TMP_ROOT/wake-turn-root"
@@ -4510,12 +4511,25 @@ const freed = lease(["claim", "task-turn"], { FM_SUPERVISION_ACTOR: "main", FM_L
 if (freed.status !== 0) throw new Error(`main could not reclaim after the turn ended: rc=${freed.status} ${freed.stderr}`);
 const mainClaim = readFileSync(`${home}/state/.lease-task-turn`, "utf8");
 if (!mainClaim.startsWith("main\t")) throw new Error(`main did not take the freed lease: ${mainClaim}`);
+
+// The owning session closes while a second wake is still being handled: its
+// own shutdown removes the record it wrote before the stranded prompt settles.
+let finishSecondPrompt;
+globalThis.__fmOnBranchPrompt = () => new Promise((resolve) => { finishSecondPrompt = resolve; });
+const second = dispatch("signal: task-turn again");
+if (!second.accepted) throw new Error("branch did not accept the second wake");
+await settle(() => (globalThis.__fmPrompts ?? []).length === 2, "second branch wake prompt");
+if (!existsSync(turnFile)) throw new Error("second wake has no turn record");
+await fire("session_shutdown", {});
+if (existsSync(turnFile)) throw new Error("the owner's shutdown left its own live turn record behind");
+finishSecondPrompt();
+await second.settlement.catch(() => {});
 process.exit(0);
 EOF
   status=$?
   out=$(cat "$TMP_ROOT/node-output")
   expect_code 0 "$status" "the wake turn must gate the branch's leases: $out"
-  pass "a wake's turn record gates the branch's leases and frees them at settlement"
+  pass "a wake's turn record gates the branch's leases and frees them at settlement or the owner's shutdown"
 }
 
 test_cold_start_activates_after_lock_acquisition() {

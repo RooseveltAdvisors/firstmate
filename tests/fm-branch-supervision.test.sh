@@ -815,6 +815,13 @@ test_branch_lease_turn_retirement_reclaims() {
     "$ROOT/bin/fm-lease.sh" claim task-badtok --actor branch || fail "branch claim with bad token env failed"
   out=$(FM_HOME="$home" "$ROOT/bin/fm-lease.sh" check task-badtok)
   case "$out" in "branch $$ "*" live") ;; *) fail "bad-token claim misrecorded: $out" ;; esac
+
+  # A same-session re-anchor moves a turn-bound lease with its token intact.
+  printf 'branch\t%s\t400\tturn:7.3\n' "$$" > "$home/state/.lease-task-rekey"
+  STATE="$home/state" bash -c '. "$1"; fm_lease_rekey_holder "$2" 4242' _ "$ROOT/bin/fm-lease-lib.sh" "$$" \
+    || fail "re-anchoring a turn-bound lease failed"
+  [ "$(cat "$home/state/.lease-task-rekey")" = "$(printf 'branch\t4242\t400\tturn:7.3')" ] \
+    || fail "a re-anchor dropped the lease's turn token: $(cat "$home/state/.lease-task-rekey")"
   pass "a branch lease dies with its recorded turn and stays live while that turn lives"
 }
 

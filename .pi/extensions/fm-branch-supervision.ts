@@ -152,13 +152,11 @@ const sessionPointer = join(state, ".branch-session");
 // and at shutdown.
 const branchTurnFile = join(state, ".branch-turn");
 
-// Remove the branch turn record only while it still names what the caller
-// means to clear: a later generation's record is never removed from under
-// its owner.
-function clearBranchTurn(match: (recorded: string) => boolean): void {
+// Remove the branch turn record only while it still names this turn: a record
+// a later turn or another session wrote is never removed from under its owner.
+function clearBranchTurn(turn: string): void {
   try {
-    const recorded = readFileSync(branchTurnFile, "utf8").trim();
-    if (match(recorded)) rmSync(branchTurnFile, { force: true });
+    if (readFileSync(branchTurnFile, "utf8").trim() === `turn=${turn}`) rmSync(branchTurnFile, { force: true });
   } catch {
     // Absent or unreadable: nothing to clear.
   }
@@ -1638,7 +1636,7 @@ ${context.command}
       .finally(() => {
         if (wakeTurn !== null && currentBranchTurn === wakeTurn) {
           currentBranchTurn = null;
-          clearBranchTurn((recorded) => recorded === `turn=${wakeTurn}`);
+          clearBranchTurn(wakeTurn);
         }
         if (recoveryProbe) finishProviderProbe(acceptedGeneration, acceptedSelectionRevision);
       });
@@ -1952,9 +1950,13 @@ ${context.command}
       branch = null;
     }
     const closingTurn = currentBranchTurn;
-    if (activatedGeneration === closingGeneration && closingTurn !== null) {
+    if (
+      activatedGeneration === closingGeneration &&
+      closingTurn !== null &&
+      closingTurn.startsWith(`${closingGeneration}.`)
+    ) {
       currentBranchTurn = null;
-      clearBranchTurn((recorded) => recorded === `turn=${closingTurn}`);
+      clearBranchTurn(closingTurn);
     }
     await deactivateEligibleRowsOwner(state, wakeGrantScript, process.pid, String(closingGeneration));
   });
