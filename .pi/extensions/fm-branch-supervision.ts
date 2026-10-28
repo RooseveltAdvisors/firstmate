@@ -144,6 +144,25 @@ const state = process.env.FM_STATE_OVERRIDE || `${fmHome}/state`;
 const config = process.env.FM_CONFIG_OVERRIDE || `${fmHome}/config`;
 const sessionsDir = join(state, "branch-session");
 const sessionPointer = join(state, ".branch-session");
+// Record of the wake turn the branch is handling right now, one turn=<id>
+// line: a lease the branch claims mid-turn carries that id (field 4 of the
+// lease record, bin/fm-lease.sh) and dies with the turn, so a mid-turn
+// branch death frees the task for main even though the session pid still
+// lives (fm-v0kjm). Written before the branch prompt, removed at settlement
+// and at shutdown.
+const branchTurnFile = join(state, ".branch-turn");
+
+// Remove the branch turn record only while it still names what the caller
+// means to clear: a later generation's record is never removed from under
+// its owner.
+function clearBranchTurn(match: (recorded: string) => boolean): void {
+  try {
+    const recorded = readFileSync(branchTurnFile, "utf8").trim();
+    if (match(recorded)) rmSync(branchTurnFile, { force: true });
+  } catch {
+    // Absent or unreadable: nothing to clear.
+  }
+}
 const mirrorCursorFile = join(state, ".branch-mirror-cursor");
 const promptScript = join(fmRoot, "bin", "fm-branch-prompt.sh");
 const afkContractScript = join(fmRoot, "bin", "fm-afk-contract.sh");
@@ -631,6 +650,10 @@ export default function (pi: ExtensionAPI) {
   // One-time per-generation activation work (marker write + stray branch
   // lease cleanup); ownership itself is re-read lazily at every boundary.
   let activatedGeneration = -1;
+  // Minted per handled wake as <generation>.<n>; the branch's bash env
+  // carries it as FM_BRANCH_REPORT_TURN for the lease turn-token contract.
+  let branchTurnCounter = 0;
+  let currentBranchTurn: string | null = null;
   // Serializes branch work: mirror appends and wake turns run strictly in
   // dispatch order, one at a time (the branch runs drain -> handle -> ack
   // serially by design).
@@ -1386,7 +1409,7 @@ export default function (pi: ExtensionAPI) {
           // accidental in-shell reassignment fails loudly instead of silently
           // impersonating main. Confused-agent-grade by design; the threat
           // model lives in bin/fm-lease-lib.sh.
-          command: `readonly FM_SUPERVISION_ACTOR FM_LEASE_HOLDER_PID
+          command: `readonly FM_SUPERVISION_ACTOR FM_LEASE_HOLDER_PID FM_BRANCH_REPORT_TURN
 (
 ${context.command}
 )`,
@@ -1395,6 +1418,9 @@ ${context.command}
             ...scriptEnv,
             FM_SUPERVISION_ACTOR: "branch",
             FM_LEASE_HOLDER_PID: leaseHolderPid,
+            // Empty between turns: the claim then records no token, exactly
+            // the lease shape that predates the turn-token contract.
+            FM_BRANCH_REPORT_TURN: currentBranchTurn ?? "",
           },
         };
       },
@@ -1503,6 +1529,7 @@ ${context.command}
 
   function enqueueWake(message: string, acceptedGeneration: number, recoveryProbe = false, acceptedAwayOnly = false): Promise<void> {
     const acceptedSelectionRevision = branchSelectionRevision;
+    let wakeTurn: string | null = null;
     const delivery = branchChain
       .then(async () => {
         if (shuttingDown || acceptedGeneration !== generation) {
@@ -1562,6 +1589,17 @@ ${context.command}
         );
         if (grant === "main-owned") throw new Error("the wake rows are already claimed by main");
         if (grant !== "published") throw new Error("could not record the branch's eligible row snapshot");
+        // The turn record names this handling until settlement, so a lease
+        // claimed from the branch's shell during it dies with the turn.
+        wakeTurn = `${acceptedGeneration}.${++branchTurnCounter}`;
+        try {
+          writeFileSync(branchTurnFile, `turn=${wakeTurn}\n`);
+          currentBranchTurn = wakeTurn;
+        } catch {
+          // A record that cannot be written degrades the branch's leases to
+          // the pid-only verdict; handling is never blocked by it.
+          wakeTurn = null;
+        }
         // A row can still arrive between this re-check and the model starting
         // the drain; that residual is accepted by the confused-agent-grade boundary.
         const reportRevisionBeforePrompt = durableReportRevision;
@@ -1604,6 +1642,10 @@ ${context.command}
         throw error;
       })
       .finally(() => {
+        if (wakeTurn !== null && currentBranchTurn === wakeTurn) {
+          currentBranchTurn = null;
+          clearBranchTurn((recorded) => recorded === `turn=${wakeTurn}`);
+        }
         if (recoveryProbe) finishProviderProbe(acceptedGeneration, acceptedSelectionRevision);
       });
     branchChain = delivery.catch(() => {});
@@ -1915,6 +1957,8 @@ ${context.command}
       }
       branch = null;
     }
+    currentBranchTurn = null;
+    clearBranchTurn((recorded) => recorded.startsWith(`turn=${closingGeneration}.`));
     await deactivateEligibleRowsOwner(state, wakeGrantScript, process.pid, String(closingGeneration));
   });
 

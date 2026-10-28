@@ -748,6 +748,71 @@ test_lease_exclusivity_release_stale_and_sweep() {
   pass "lease exclusivity, same-actor refresh, release, staleness, and sweep hold"
 }
 
+# fm-v0kjm (incident: home pi-enforcement, task fm-g2jj0, 2026-09-21): the
+# branch claimed the task mid-turn, the turn died, the session pid stayed
+# alive and kept the lock, and main stayed refused forever. A branch lease
+# records its owning turn token; once no live turn record names that token
+# the lease is reclaimable by claim, guard, and sweep alike.
+test_branch_lease_turn_retirement_reclaims() {
+  local home out status
+  local -x PI_CODING_AGENT=true
+  home="$TMP_ROOT/lease-turn-home"
+  mkdir -p "$home/state"
+  printf '%s\n' "$$" > "$home/state/.lock"
+
+  # Host-path shape: the branch claims while its turn record is live.
+  printf 'turn=host-77-1.3\nrows=\ntasks=\nunscoped=0\nwake=\nposture=attended\n' > "$home/state/.supervision-host-turn"
+  FM_HOME="$home" FM_SUPERVISION_ACTOR=branch FM_LEASE_HOLDER_PID=$$ FM_BRANCH_REPORT_TURN=host-77-1.3 \
+    "$ROOT/bin/fm-lease.sh" claim task-turn --actor branch || fail "branch turn claim failed"
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-lease.sh" check task-turn) || fail "check missed the turn lease"
+  case "$out" in *" live") ;; *) fail "a lease whose turn record is live must read live: $out" ;; esac
+
+  # While the turn lives, main stays refused: exclusivity is unchanged.
+  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=main FM_LEASE_HOLDER_PID=$$ "$ROOT/bin/fm-lease.sh" claim task-turn 2>&1)
+  status=$?
+  [ "$status" -eq 6 ] || fail "live-turn branch lease did not refuse main: $out"
+
+  # The turn dies mid-handling: the host removes its turn record; the session
+  # pid and the lock stay alive. Main's claim must now clear and take it.
+  rm -f "$home/state/.supervision-host-turn"
+  FM_HOME="$home" FM_SUPERVISION_ACTOR=main FM_LEASE_HOLDER_PID=$$ "$ROOT/bin/fm-lease.sh" claim task-turn \
+    || fail "a lease whose branch turn is over still locks main out"
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-lease.sh" check task-turn)
+  case "$out" in "main $$ "*) ;; *) fail "main did not take over the dead-turn lease: $out" ;; esac
+
+  # Pi-path shape: the extension's own turn record liveness gates the same way.
+  printf 'turn=7.2\n' > "$home/state/.branch-turn"
+  FM_HOME="$home" FM_SUPERVISION_ACTOR=branch FM_LEASE_HOLDER_PID=$$ FM_BRANCH_REPORT_TURN=7.2 \
+    "$ROOT/bin/fm-lease.sh" claim task-pi-turn --actor branch || fail "Pi branch turn claim failed"
+  rm -f "$home/state/.branch-turn"
+  FM_HOME="$home" "$ROOT/bin/fm-lease.sh" sweep || fail "sweep failed"
+  [ ! -e "$home/state/.lease-task-pi-turn" ] || fail "sweep left a lease whose branch turn is over"
+
+  # A lease whose recorded turn is simply not the live one (replaced, not
+  # ended) is equally reclaimable.
+  printf 'turn=host-77-1.4\nrows=\ntasks=\nunscoped=0\nwake=\nposture=attended\n' > "$home/state/.supervision-host-turn"
+  FM_HOME="$home" FM_SUPERVISION_ACTOR=branch FM_LEASE_HOLDER_PID=$$ FM_BRANCH_REPORT_TURN=host-77-1.4 \
+    "$ROOT/bin/fm-lease.sh" claim task-replaced --actor branch || fail "replacement turn claim failed"
+  printf 'turn=host-77-1.5\nrows=\ntasks=\nunscoped=0\nwake=\nposture=attended\n' > "$home/state/.supervision-host-turn"
+  FM_HOME="$home" FM_SUPERVISION_ACTOR=main FM_LEASE_HOLDER_PID=$$ "$ROOT/bin/fm-lease.sh" claim task-replaced \
+    || fail "a superseded turn's lease still locks main out"
+
+  # A legacy 3-field branch lease (no recorded token) keeps the pid-only
+  # verdict byte for byte: live pid plus lock holder means live.
+  printf 'branch\t%s\t123\n' "$$" > "$home/state/.lease-task-legacy"
+  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=main FM_LEASE_HOLDER_PID=$$ "$ROOT/bin/fm-lease.sh" claim task-legacy 2>&1)
+  status=$?
+  [ "$status" -eq 6 ] || fail "a tokenless live-pid branch lease must still refuse main: $out"
+
+  # A token that fails charset validation is never recorded: the claim falls
+  # back to the legacy shape rather than carrying an attacker string.
+  FM_HOME="$home" FM_SUPERVISION_ACTOR=branch FM_LEASE_HOLDER_PID=$$ FM_BRANCH_REPORT_TURN='bad token!' \
+    "$ROOT/bin/fm-lease.sh" claim task-badtok --actor branch || fail "branch claim with bad token env failed"
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-lease.sh" check task-badtok)
+  case "$out" in "branch $$ "*" live") ;; *) fail "bad-token claim misrecorded: $out" ;; esac
+  pass "a branch lease dies with its recorded turn and stays live while that turn lives"
+}
+
 # --- guards in the mutating entrypoints ---------------------------------------
 
 test_mutating_scripts_refuse_the_other_actors_lease() {
@@ -1629,6 +1694,7 @@ test_outcome_processed_marker_is_sequence_bound
 test_outcome_present_reads_without_advancing
 test_outcome_rows_carry_their_recorded_age
 test_lease_exclusivity_release_stale_and_sweep
+test_branch_lease_turn_retirement_reclaims
 test_mutating_scripts_refuse_the_other_actors_lease
 test_main_owned_actions_refuse_the_branch_actor
 test_home_without_branch_is_untouched

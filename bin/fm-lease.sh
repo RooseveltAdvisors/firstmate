@@ -149,8 +149,24 @@ case "$CMD" in
       HOLDER_PID=$LOCK_PID
     fi
     [ -n "$HOLDER_PID" ] || HOLDER_PID=$$
+    # A branch claim mid-turn records the owning turn as a fourth field, so
+    # the lease dies with that turn instead of with the session (the
+    # turn-token contract in bin/fm-lease-lib.sh's header). The env is the
+    # one fm-branch-report.sh validates; a value that fails its charset is no
+    # token at all, never a recorded attacker string. Main never carries one.
+    TOKEN=
+    if [ "$ACTOR" = branch ]; then
+      case "${FM_BRANCH_REPORT_TURN:-}" in
+        '' | *[!A-Za-z0-9._-]*) ;;
+        *) TOKEN="turn:${FM_BRANCH_REPORT_TURN}" ;;
+      esac
+    fi
     TMP=$(mktemp "$STATE/.fm-lease-tmp.XXXXXX")
-    printf '%s\t%s\t%s\n' "$ACTOR" "$HOLDER_PID" "$(date +%s)" > "$TMP"
+    if [ -n "$TOKEN" ]; then
+      printf '%s\t%s\t%s\t%s\n' "$ACTOR" "$HOLDER_PID" "$(date +%s)" "$TOKEN" > "$TMP"
+    else
+      printf '%s\t%s\t%s\n' "$ACTOR" "$HOLDER_PID" "$(date +%s)" > "$TMP"
+    fi
     if [ -e "$LEASE" ]; then
       # Same-actor refresh, or a stale/torn record: replace atomically.
       mv -f -- "$TMP" "$LEASE"
@@ -162,7 +178,11 @@ case "$CMD" in
         exit "$FM_LEASE_REFUSE_EXIT"
       fi
       TMP=$(mktemp "$STATE/.fm-lease-tmp.XXXXXX")
-      printf '%s\t%s\t%s\n' "$ACTOR" "$HOLDER_PID" "$(date +%s)" > "$TMP"
+      if [ -n "$TOKEN" ]; then
+        printf '%s\t%s\t%s\t%s\n' "$ACTOR" "$HOLDER_PID" "$(date +%s)" "$TOKEN" > "$TMP"
+      else
+        printf '%s\t%s\t%s\n' "$ACTOR" "$HOLDER_PID" "$(date +%s)" > "$TMP"
+      fi
       mv -f -- "$TMP" "$LEASE"
     else
       rm -f -- "$TMP"

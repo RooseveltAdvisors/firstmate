@@ -43,6 +43,18 @@
 #     generation-activation cleanup; the supervision host also releases them
 #     after every engine turn), which also recovers a lease held by the live
 #     session but an abandoned branch conversation.
+#   - Turn token (field 4, optional): the branch claims mid-turn, and its
+#     lease records the owning turn as turn:<id> - the supervision host's
+#     FM_BRANCH_REPORT_TURN (host turn record $STATE/.supervision-host-turn)
+#     or the Pi branch extension's wake turn (record $STATE/.branch-turn).
+#     Both records name exactly the live turn and are removed when that turn
+#     ends, so a branch lease whose recorded token no record names belongs to
+#     a turn that is over: stale for every reader, reclaimed by claim, guard,
+#     or sweep even though the session pid still lives and holds the lock
+#     (fm-v0kjm: a mid-turn branch death used to lock the task against main
+#     repair until the branch happened to resume). A lease with no fourth
+#     field keeps the pid-only verdict byte for byte. Main never carries a
+#     turn token, so a main lease is never turn-bound.
 #
 # THREAT MODEL (deliberate, captain-decided): these guards are
 # CONFUSED-AGENT-GRADE, the same grade bin/fm-gate-refuse-lib.sh documents
@@ -181,12 +193,25 @@ fm_lease_read() {
   FM_LEASE_ACTOR=
   FM_LEASE_PID=
   FM_LEASE_EPOCH=
+  FM_LEASE_TOKEN=
   [ -e "$file" ] || return 1
   IFS= read -r line < "$file" 2>/dev/null || line=
   FM_LEASE_ACTOR=$(printf '%s' "$line" | cut -f1)
   FM_LEASE_PID=$(printf '%s' "$line" | cut -f2)
   # shellcheck disable=SC2034 # Consumed by sourcing callers (bin/fm-lease.sh check).
   FM_LEASE_EPOCH=$(printf '%s' "$line" | cut -f3)
+  FM_LEASE_TOKEN=$(printf '%s' "$line" | cut -f4)
+  # Only a well-formed turn token rides the record; anything else reads as no
+  # token, so a torn or forged fourth field falls back to the pid-only
+  # verdict instead of locking the task behind an unverifiable claim.
+  case "$FM_LEASE_TOKEN" in
+    turn:*)
+      case "${FM_LEASE_TOKEN#turn:}" in
+        '' | *[!A-Za-z0-9._-]*) FM_LEASE_TOKEN= ;;
+      esac
+      ;;
+    *) FM_LEASE_TOKEN= ;;
+  esac
   case "$FM_LEASE_ACTOR" in
     main|branch) ;;
     *) FM_LEASE_ACTOR= ;;
@@ -202,9 +227,31 @@ fm_lease_read() {
   return 0
 }
 
+# fm_lease_branch_token_live <id>: 0 iff a current branch turn record names
+# <id>. The supervision host writes $STATE/.supervision-host-turn at each
+# engine turn and removes it when the turn ends (bin/fm-supervision-host.sh);
+# the Pi branch extension writes $STATE/.branch-turn around each wake's
+# handling (.pi/extensions/fm-branch-supervision.ts). Both carry one turn=<id>
+# line. A token neither record names belongs to a turn that is over, whatever
+# the session pid says.
+fm_lease_branch_token_live() {
+  local token=$1 file recorded
+  case "$token" in
+    '' | *[!A-Za-z0-9._-]*) return 1 ;;
+  esac
+  for file in "$STATE/.supervision-host-turn" "$STATE/.branch-turn"; do
+    [ -f "$file" ] && [ ! -L "$file" ] || continue
+    recorded=$(sed -n 's/^turn=//p' "$file" 2>/dev/null | head -n 1)
+    [ "$recorded" = "$token" ] && return 0
+  done
+  return 1
+}
+
 # fm_lease_live <task>: 0 iff a well-formed lease exists, its recorded pid is
 # alive, and that pid IS the current session-lock holder (the staleness
-# contract above). The calling context never enters the verdict.
+# contract above), and - for a branch lease that carries a turn token - the
+# owning turn is still live (the turn-token contract above). The calling
+# context never enters the verdict.
 fm_lease_live() {
   local lock_pid
   fm_lease_read "$1" || return 1
@@ -217,13 +264,20 @@ fm_lease_live() {
   case "$FM_LEASE_PID" in
     win:*)
       [ "$FM_LEASE_PID" = "$lock_pid" ] || return 1
-      fm_lease_tagged_holder_live "$lock_pid"
-      return
+      fm_lease_tagged_holder_live "$lock_pid" || return 1
+      ;;
+    *)
+      kill -0 "$FM_LEASE_PID" 2>/dev/null || return 1
+      case "$lock_pid" in ''|0|1|*[!0-9]*) return 1 ;; esac
+      [ "$FM_LEASE_PID" = "$lock_pid" ] || return 1
       ;;
   esac
-  kill -0 "$FM_LEASE_PID" 2>/dev/null || return 1
-  case "$lock_pid" in ''|0|1|*[!0-9]*) return 1 ;; esac
-  [ "$FM_LEASE_PID" = "$lock_pid" ]
+  if [ "$FM_LEASE_ACTOR" = branch ]; then
+    case "$FM_LEASE_TOKEN" in
+      turn:*) fm_lease_branch_token_live "${FM_LEASE_TOKEN#turn:}" || return 1 ;;
+    esac
+  fi
+  return 0
 }
 
 # fm_lease_rekey_holder <old-pid> <new-pid>: rewrite every lease recorded
@@ -240,7 +294,12 @@ fm_lease_rekey_holder() {
     fm_lease_read "$task" || continue
     [ -n "$FM_LEASE_ACTOR" ] && [ "$FM_LEASE_PID" = "$old" ] || continue
     tmp=$(mktemp "$STATE/.fm-lease-tmp.XXXXXX" 2>/dev/null) || { rc=1; continue; }
-    if ! { printf '%s\t%s\t%s\n' "$FM_LEASE_ACTOR" "$new" "$FM_LEASE_EPOCH" > "$tmp" && mv -f -- "$tmp" "$lease"; } 2>/dev/null; then
+    if [ -n "$FM_LEASE_TOKEN" ]; then
+      printf '%s\t%s\t%s\t%s\n' "$FM_LEASE_ACTOR" "$new" "$FM_LEASE_EPOCH" "$FM_LEASE_TOKEN" > "$tmp" 2>/dev/null || { rm -f -- "$tmp"; rc=1; continue; }
+    else
+      printf '%s\t%s\t%s\n' "$FM_LEASE_ACTOR" "$new" "$FM_LEASE_EPOCH" > "$tmp" 2>/dev/null || { rm -f -- "$tmp"; rc=1; continue; }
+    fi
+    if ! mv -f -- "$tmp" "$lease" 2>/dev/null; then
       rm -f -- "$tmp"
       rc=1
     fi

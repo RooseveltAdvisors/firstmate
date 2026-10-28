@@ -4428,6 +4428,83 @@ EOF
   pass "replacement activation cleans old branch leases and retries failed cleanup"
 }
 
+# fm-v0kjm end to end: the wake's turn record gates the branch's leases.
+# While the wake is handled the record exists and the branch's bash env
+# carries its id; a claim then records the token and refuses main; the moment
+# the wake settles, the record is gone and the same lease frees for main.
+test_branch_wake_turn_gates_its_leases() {
+  local repo home out status
+  repo="$TMP_ROOT/wake-turn-root"
+  home="$TMP_ROOT/wake-turn-home"
+  mkdir -p "$home/state" "$home/config"
+  install_pi_branch_extension_fixture "$repo"
+  PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+const prelude = process.env.DRIVER_PRELUDE;
+await eval(`(async () => { ${prelude}; globalThis.__t = { fire, dispatch, settle, home, realRoot, defaultSessionCtx }; })()`);
+const { fire, dispatch, settle, home, realRoot, defaultSessionCtx } = globalThis.__t;
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+
+writeFileSync(`${home}/state/.lock`, `${process.ppid}\n`);
+await fire("session_start", {}, defaultSessionCtx);
+
+const lease = (args, extraEnv = {}) =>
+  spawnSync("bash", [`${realRoot}/bin/fm-lease.sh`, ...args], {
+    encoding: "utf8",
+    env: { ...process.env, FM_HOME: home, PI_CODING_AGENT: "true", ...extraEnv },
+  });
+const branchEnv = { FM_SUPERVISION_ACTOR: "branch", FM_LEASE_HOLDER_PID: String(process.ppid) };
+
+let finishWakePrompt;
+globalThis.__fmOnBranchPrompt = () => new Promise((resolve) => { finishWakePrompt = resolve; });
+const offer = dispatch("signal: task-turn done");
+if (!offer.accepted) throw new Error("branch did not accept the wake");
+await settle(() => (globalThis.__fmPrompts ?? []).length === 1, "branch wake prompt");
+
+// Mid-turn: the record exists, and the branch's bash env carries exactly it.
+const turnFile = `${home}/state/.branch-turn`;
+if (!existsSync(turnFile)) throw new Error("mid-wake branch turn record is missing");
+const recorded = readFileSync(turnFile, "utf8").trim();
+if (!/^turn=[0-9]+\.[0-9]+$/.test(recorded)) throw new Error(`unexpected turn record: ${recorded}`);
+const turnId = recorded.slice("turn=".length);
+const bashTool = globalThis.__fmSessions[0].options.customTools.find((tool) => tool.name === "bash");
+const hooked = bashTool.__options.spawnHook({ command: "true", cwd: "/x", env: {} });
+if (hooked.env.FM_BRANCH_REPORT_TURN !== turnId) {
+  throw new Error(`branch bash env does not carry the live turn: ${JSON.stringify(hooked.env)}`);
+}
+if (!hooked.command.includes("FM_BRANCH_REPORT_TURN")) throw new Error("branch shell does not pin the turn env readonly");
+
+// A claim from the branch's real shell records the token and refuses main
+// for as long as the turn record names it.
+const claim = lease(["claim", "task-turn", "--actor", "branch"], { ...branchEnv, FM_BRANCH_REPORT_TURN: turnId });
+if (claim.status !== 0) throw new Error(`branch claim failed: ${claim.stderr}`);
+if (!readFileSync(`${home}/state/.lease-task-turn`, "utf8").includes(`turn:${turnId}`)) {
+  throw new Error("branch claim did not record the turn token");
+}
+const blocked = lease(["claim", "task-turn"], { FM_SUPERVISION_ACTOR: "main", FM_LEASE_HOLDER_PID: String(process.ppid) });
+if (blocked.status !== 6) throw new Error(`main was not refused while the turn lives: rc=${blocked.status} ${blocked.stderr}`);
+
+// The wake settles: the record must come down with it, and the stranded
+// lease must free for main without any sweep.
+const report = globalThis.__fmSessions[0].options.customTools.find((tool) => tool.name === "fm_branch_report");
+const r1 = await report.execute("call-1", { task: "branch-driver", verdict: "routine", summary: "handled", wake: "signal: task-turn done" }, undefined, undefined, {});
+if (r1.isError) throw new Error(`report failed: ${JSON.stringify(r1)}`);
+finishWakePrompt();
+await offer.settlement;
+if (existsSync(turnFile)) throw new Error("settled wake left its turn record behind");
+const freed = lease(["claim", "task-turn"], { FM_SUPERVISION_ACTOR: "main", FM_LEASE_HOLDER_PID: String(process.ppid) });
+if (freed.status !== 0) throw new Error(`main could not reclaim after the turn ended: rc=${freed.status} ${freed.stderr}`);
+const mainClaim = readFileSync(`${home}/state/.lease-task-turn`, "utf8");
+if (!mainClaim.startsWith("main\t")) throw new Error(`main did not take the freed lease: ${mainClaim}`);
+process.exit(0);
+EOF
+  status=$?
+  out=$(cat "$TMP_ROOT/node-output")
+  expect_code 0 "$status" "the wake turn must gate the branch's leases: $out"
+  pass "a wake's turn record gates the branch's leases and frees them at settlement"
+}
+
 test_cold_start_activates_after_lock_acquisition() {
   local repo home out status
   repo="$TMP_ROOT/coldstart-root"
@@ -6275,6 +6352,7 @@ test_extension_registered_provider_resolves_in_the_branch
 test_supervision_model_command_picks_effort_after_the_model
 test_unusable_model_pin_falls_back_to_main
 test_replacement_activation_cleans_leases_and_retries_failure
+test_branch_wake_turn_gates_its_leases
 test_cold_start_activates_after_lock_acquisition
 test_branch_activates_for_a_windows_tagged_session_lock
 test_queued_actions_recheck_lock_ownership
