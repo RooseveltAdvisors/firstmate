@@ -1,0 +1,14 @@
+== /tmp/fm-lab.MkaR50/state/fm-g2jj0.inbox/001.msg
+schema=fm-task-inbox.v1
+at=2026-10-28T16:32:44Z
+body-terminator=1
+--
+repair from main: resume from your last checkpoint
+
+== /tmp/fm-lab.MkaR50/state/fm-g2jj0.inbox/002.msg
+schema=fm-task-inbox.v1
+at=2026-10-28T16:32:46Z
+body-terminator=1
+--
+branch: carry on from the checkpoint
+

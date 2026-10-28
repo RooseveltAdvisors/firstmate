@@ -1,0 +1,52 @@
+== C1/C2 supervision-host turn record: live turn refuses main, ended turn frees it
+PASS host-path branch claim records turn:host-4242-1793200000.3 as field 4
+     branch|2156086|1793205310|turn:host-4242-1793200000.3
+PASS lease is live while .supervision-host-turn names it
+     branch 2156086 1793205310 live
+PASS main claim refused (rc 6) with the incident's exact refusal
+     error: claim refused - task 'fm-g2jj0' is leased to the branch supervision actor (state/.lease-fm-g2jj0)
+PASS main repair (fm-control interrupt) refused by the lease guard (rc 6)
+     error: lifecycle control (fm-control) refused - task 'fm-g2jj0' is leased to the branch supervision actor (state/.lease-fm-g2jj0), which is handling that task right now; leave the lease alone (never remove or clear it) and retry after that actor releases it, which it does when its handling ends
+PASS turn record gone: same lease reads stale while holder pid 2156086 lives and holds the lock
+     branch 2156086 1793205310 stale
+PASS main repair (fm-control interrupt) passes the lease guard after the turn ended (rc 1)
+     error: task fm-g2jj0's endpoint reads 'ambiguous' rather than a positively classified state; refusing to send a lifecycle key into an unattributed endpoint
+PASS main claims the task
+     main 2156086 1793205310 live
+== C3 a symlinked turn record never vouches for a token
+PASS symlinked .branch-turn naming turn=9.1 leaves lease turn:9.1 stale
+PASS the same content as a regular file makes it live (only the symlink differed)
+== C4/C5 exact-match only: no prefix, superset, or non-turn-line match
+PASS record turn=9.2 does not vouch for lease turn:9.21
+PASS record turn=9.2 does not vouch for lease turn:9
+PASS record turn=9.2 does not vouch for lease turn:9.2.1
+PASS record turn=9.2 does not vouch for lease turn:9.20
+PASS record turn=9.2 vouches for exactly turn:9.2
+PASS a token named only on rows=/tasks=/wake= lines is not a live turn
+== C6 malformed recorded field 4 falls back to the pre-token pid-only verdict
+PASS field 4 'turn:bad token!' reads as no token: live holder keeps the legacy verdict
+PASS field 4 'xturn:9.2' reads as no token: live holder keeps the legacy verdict
+PASS field 4 'turn:' reads as no token: live holder keeps the legacy verdict
+PASS field 4 'turn:9.2;id' reads as no token: live holder keeps the legacy verdict
+PASS field 4 'garbage' reads as no token: live holder keeps the legacy verdict
+== C7 forged FM_BRANCH_REPORT_TURN values are never recorded
+PASS env token 9.2\;rm\ -rf\ ~ -> 3-field lease, no token recorded
+PASS env token ../../etc -> 3-field lease, no token recorded
+PASS env token a\ b -> 3-field lease, no token recorded
+PASS env token \$\(id\) -> 3-field lease, no token recorded
+PASS env token turn:9.2 -> 3-field lease, no token recorded
+PASS env token $'9.2\tx' -> 3-field lease, no token recorded
+== C8 main never carries a turn token
+PASS main claim with FM_BRANCH_REPORT_TURN=9.2 in its env records 3 fields
+     main|2156086|1793205311
+== C9 a live turn record never revives a dead or non-holder pid
+PASS dead pid 2161370 with a live turn record is stale
+PASS live pid 2156087 that is not the lock holder is stale despite the live turn record
+== C10 a legacy 3-field branch lease keeps the pid-only verdict byte for byte
+PASS legacy lease with live lock holder reads live
+PASS main stays refused by the legacy lease, which is left untouched
+== C11 sweep removes exactly the provably stale leases
+PASS sweep kept live-turn, legacy, and main leases; removed only the ended turn's
+     .lease-legacy .lease-live-turn .lease-mainheld 
+
+CLI_SUMMARY passes=32 fails=0

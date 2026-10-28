@@ -1,0 +1,13 @@
+arm pid=1842096
+trigger pid=1842096 reason=signal: fm-g2jj0 blocked - waiting on a steer
+retire pid=1842096
+arm pid=1842551
+confirmed generation=live-sdk-generation watcher=1842551
+trigger pid=1842551 reason=signal: fm-g2jj0 checkpoint written - continue
+retire pid=1842551
+arm pid=1855804
+confirmed generation=live-sdk-generation watcher=1855804
+trigger pid=1855804 reason=signal: fm-g2jj0 needs a nudge
+retire pid=1855804
+arm pid=1865612
+confirmed generation=live-sdk-generation watcher=1865612

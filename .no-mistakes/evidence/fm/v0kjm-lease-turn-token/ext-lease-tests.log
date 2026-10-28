@@ -1,0 +1,4 @@
+ok - replacement activation cleans old branch leases and retries failed cleanup
+ok - a wake's turn record gates the branch's leases and frees them at settlement or the owner's shutdown
+ok - a Pi session that does not own the lock accepts nothing and mutates no branch state
+bash "$F"  1.09s user 1.54s system 108% cpu 2.428 total

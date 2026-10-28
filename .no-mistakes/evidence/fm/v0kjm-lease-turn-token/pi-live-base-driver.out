@@ -1,0 +1,27 @@
+DRIVE_OK mode=base checks=25 failed=0
+PASS real fm-lock.sh recorded this Pi process as the session-lock holder
+PASS wake 1 offered to and accepted by the branch
+PASS wake 1 branch turn died on the provider error (settlement rejected to the watcher)
+PASS mid-turn: the branch turn record names this wake
+PASS mid-turn: the branch's own bash env carried exactly that turn id
+PASS mid-turn: the branch's lease records the turn token as field 4
+PASS mid-turn: an operator check reads the branch lease live
+PASS mid-turn: main's claim is refused with the incident's exact refusal
+PASS mid-turn: main's guarded steer (fm-send) is refused by the lease guard
+PASS after the branch died: no branch turn record remains
+PASS after the branch died (pre-fix): main's claim is STILL refused with the incident's refusal
+PASS after the branch died (pre-fix): main's steer is STILL refused
+PASS main's repair steer left a durable inbox record (target) / none (base)
+PASS wake 2: a normal branch turn settles cleanly
+PASS wake 2 mid-turn: the branch claimed and steered under its own lease
+PASS wake 2 mid-turn: its lease carried the turn token
+PASS wake 2 settled: the branch turn record is removed
+PASS wake 2 settled: the unreleased branch lease reads stale (target) / live (base)
+PASS session-start sweep reclaims the ended turn's lease (target) / keeps it (base)
+PASS wake 3: the owner's turn settles cleanly after the secondary session came and went
+PASS wake 3: the secondary session did not own the lock
+PASS wake 3: the secondary session's shutdown left the owner's live turn record intact
+PASS wake 3: the owner's lease stayed live across the secondary shutdown
+PASS wake 3 settled: the owner's turn record is removed at settlement
+PASS no extension errors were raised
+INFO model requests served by the local endpoint

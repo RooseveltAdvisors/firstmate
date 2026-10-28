@@ -1,0 +1,25 @@
+== mid-turn capture
+lease-line: branch|2726187|1793205499|turn:host-2726193-1793205490.1
+check: branch 2726187 1793205499 live
+host-turn-record: turn=host-2726193-1793205490.1
+== after the turn
+lease file: absent
+host turn record: absent
+== host ledger
+1793205490	start	gen=host-2726193-1793205490	primary=claude
+1793205517	handled	turn=host-2726193-1793205490.1	posture=away	rc=0	reports=1
+== outcome store
+{"seq":1,"epoch":1793205508,"task":"fm-g2jj0","wake":"signal: /tmp/fm-lab.9zFsRa/state/fm-g2jj0.status","verdict":"routine","summary":"per your away instructions: \"If fm-g2jj0 is blocked waiting on a steer... steer it once\": the worker was blocked asking whether to carry on with the migration, so I sent \"carry on with the migration\" once. The doorbell didn't reach its window, but the steer is saved in its inbox and the watcher will re-ring. Its worktree appears gone, so it may need a look on return. Nothing merged or dispatched.","silent":false,"statusEndpoint":106,"statusIdent":"strong:66306:117383368:2026-10-28 12:38:10.673945913 -0400"}
+== steering inbox
+-- /tmp/fm-lab.9zFsRa/state/fm-g2jj0.inbox/001.msg
+--
+carry on with the migration
+== main woken?
+host.rc=none-still-parked
+== engine Bash commands (from the engine's own Claude transcript a317cfaf-d471-4627-8736-53cc098ecc42)
+bin/fm-wake-drain.sh
+bin/fm-crew-state.sh fm-g2jj0; bin/fm-lease.sh claim fm-g2jj0
+bin/fm-lease.sh claim fm-g2jj0; echo rc=$?; bin/fm-send.sh fm-g2jj0 "carry on with the migration"; echo rc=$?
+bin/fm-lease.sh release fm-g2jj0; bin/fm-branch-report.sh --help 2>&1 | head -20
+bin/fm-branch-report.sh --task fm-g2jj0 --verdict routine --summary "per your away instructions: \"If fm-g2jj0 is blocked waiting on a steer... steer it once\": the worker was blocked asking whether to carry on with the migration, so I sent \"carry on with the migration\" once. The doorbell didn't reach its window, but the steer is saved in its inbox and the watcher will re-ring. Its worktree appears gone, so it may need a look on return. Nothing merged or dispatched." && bin/fm-wake-drain.sh --ack-through 2 --recovery-generation 2727745.1793205490.QpedsC
+bin/fm-wake-drain.sh --ack-through 2 --recovery-generation 2727745.1793205490.QpedsC; echo rc=$?

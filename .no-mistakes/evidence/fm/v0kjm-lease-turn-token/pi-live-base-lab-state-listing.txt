@@ -1,0 +1,20 @@
+total 76
+drwxrwxr-x 4 jon jon 4096 Oct 28 12:33 .
+drwx------ 7 jon jon 4096 Oct 28 12:33 ..
+-rw-rw-r-- 1 jon jon  135 Oct 28 12:33 .branch-mirror-cursor
+-rw------- 1 jon jon    2 Oct 28 12:33 .branch-outcome-index-ready
+-rw------- 1 jon jon    2 Oct 28 12:33 .branch-outcomes-cursor
+-rw-rw-r-- 1 jon jon  540 Oct 28 12:33 branch-outcomes.jsonl
+-rw------- 1 jon jon  540 Oct 28 12:33 .branch-outcomes-tail.jsonl
+-rw-rw-r-- 1 jon jon  108 Oct 28 12:33 .branch-session
+drwxrwxr-x 2 jon jon 4096 Oct 28 12:33 branch-session
+-rw------- 1 jon jon   92 Oct 28 12:33 .fm-g2jj0.branch-outcome-index
+drwxrwxr-x 3 jon jon 4096 Oct 28 12:33 fm-g2jj0.inbox
+-rw-rw-r-- 1 jon jon   95 Oct 28 12:33 fm-g2jj0.meta
+-rw-rw-r-- 1 jon jon  124 Oct 28 12:33 fm-g2jj0.status
+-rw-rw-r-- 1 jon jon   13 Oct 28 12:33 .guard-watcher-stale-banner
+-rw-rw-r-- 1 jon jon    8 Oct 28 12:33 .lock
+-rw-rw-r-- 1 jon jon    8 Oct 28 12:33 .pi-branch-extension-loaded
+-rw-rw-r-- 1 jon jon  232 Oct 28 12:33 .wake-queue
+-rw-rw-r-- 1 jon jon    2 Oct 28 12:33 .wake-queue.seq
+-rw------- 1 jon jon   43 Oct 28 12:33 .watcher-down

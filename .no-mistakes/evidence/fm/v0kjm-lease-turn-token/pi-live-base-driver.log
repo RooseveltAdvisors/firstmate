@@ -1,0 +1,125 @@
+2026-10-28T16:33:15.738Z llm scripted model endpoint http://127.0.0.1:38413/v1 (mode=base, code root /tmp/fm-base-tree.9tG7s9)
+2026-10-28T16:33:16.051Z pi Pi SDK 1.4.0 primary pid=1924474 tools=read,bash,edit,write,fm_branch_outcomes,fm_branch_processed,fm_watch_arm_pi
+2026-10-28T16:33:16.092Z model-request main#1 {"lastRole":"user","last":"Captain: start the session."}
+2026-10-28T16:33:16.092Z model-reply main#1 {"tool":"bash","args":{"command":"bin/fm-lock.sh; echo lock-rc=$?; cat \"$FM_HOME/state/.lock\""}}
+2026-10-28T16:33:16.688Z model-request main#2 {"lastRole":"tool","last":"lock acquired: harness pid 1924474\nlock-rc=0\n1924474\n"}
+2026-10-28T16:33:16.688Z model-reply main#2 {"tool":"fm_watch_arm_pi","args":{}}
+2026-10-28T16:33:16.730Z model-request main#3 {"lastRole":"tool","last":"watcher: started Pi extension arm child 1; future ordinary re-arms are automatic; call fm_watch_arm_pi again only after a later notification says the cycle is missing, failed, or unhealthy"}
+2026-10-28T16:33:16.730Z model-reply main#3 {"kind":"text","text":"Session started; watcher armed."}
+2026-10-28T16:33:16.784Z observe PASS real fm-lock.sh recorded this Pi process as the session-lock holder 1924474
+2026-10-28T16:33:16.866Z observe PASS wake 1 offered to and accepted by the branch true
+2026-10-28T16:33:16.919Z model-request branch#1 {"lastRole":"user","last":"FIRSTMATE SUPERVISION WAKE: signal: fm-g2jj0 blocked - waiting on a steer\n\nHandle this per your operating procedure and finish with fm_branch_report."}
+2026-10-28T16:33:16.919Z model-reply branch#1 {"tool":"bash","args":{"command":"bin/fm-lease.sh claim fm-g2jj0; echo \"branch-claim-rc=$?\"; echo \"lease: $(cat \"$FM_HOME/state/.lease-fm-g2jj0\")\"; echo \"FM_BRANCH_REPORT_TURN=$FM_BRANCH_REPORT_TURN\"; echo \"branch-turn record: $(cat \"$FM_HOME/state/.branch-turn\" 2>/dev/null || echo absent)\""}}
+2026-10-28T16:33:16.945Z model-request branch#2 {"lastRole":"tool","last":"branch-claim-rc=0\nlease: branch\t1924474\t1793205196\nFM_BRANCH_REPORT_TURN=\nbranch-turn record: absent\n"}
+2026-10-28T16:33:16.975Z model-request main#4 {"lastRole":"user","last":"Captain: fm-g2jj0 looks stuck - steer it to resume."}
+2026-10-28T16:33:16.975Z model-reply main#4 {"tool":"bash","args":{"command":"echo \"== main mid-turn: lease before ==\"; bin/fm-lease.sh check fm-g2jj0; echo \"branch-turn record: $(cat \"$FM_HOME/state/.branch-turn\" 2>/dev/null || echo absent)\"; bin/fm-lease.sh claim fm-g2jj0; echo \"main-claim-rc=$?\"; bin/fm-send.sh fm-g2jj0 \"repair from main: resume from your last checkpoint\"; echo \"main-steer-rc=$?\"; bin/fm-lease.sh check fm-g2jj0; bin/fm-lease.sh release fm-g2jj0; echo \"main-release-rc=$?\""}}
+2026-10-28T16:33:18.202Z model-request main#5 {"lastRole":"tool","last":"== main mid-turn: lease before ==\nbranch 1924474 1793205196 live\nbranch-turn record: absent\nerror: claim refused - task 'fm-g2jj0' is leased to the branch supervision actor (state/.lease-fm-g2jj0)\nmain-claim-rc=6\n●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n●  WATCHER DOWN - SUPERVISION IS OFF\n●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).\n●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.\n●  This is a supervision warning only; the requested message WILL still be sent.\n●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e /tmp/fm-base-tree.9tG7s9/.pi/extensions/fm-primary-turnend-guard.ts -e /tmp/fm-base-tree.9tG7s9/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.\n●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nNOTICE: wake rows held by the live supervision branch - it presents and acknowledges them; do not drain them from here.\nerror: steer (fm-send) refused - task 'fm-g2jj0' is leased to the branch supervision actor (state/.lease-fm-g2jj0), which is handling that task ri"}
+2026-10-28T16:33:18.202Z model-reply main#5 {"kind":"text","text":"Main is refused while the branch handles fm-g2jj0."}
+2026-10-28T16:33:18.247Z model-reply branch#2 {"kind":"error","status":429,"body":{"error":{"message":"Monthly usage limit reached","type":"insufficient_quota"}}}
+2026-10-28T16:33:18.272Z observe PASS wake 1 branch turn died on the provider error (settlement rejected to the watcher) rejected: supervision branch provider failed after construction: 429: {"message":"Monthly usage limit reached","type":"insufficient_quota"}
+2026-10-28T16:33:18.279Z model-request main#6 {"lastRole":"user","last":"⁣FIRSTMATE_OP: v1 watcher: FIRSTMATE WATCHER WAKE: signal: fm-g2jj0 blocked - waiting on a steer\n\nRun bin/fm-wake-drain.sh first and handle the queued wake. Watcher continuity is extension-owned."}
+2026-10-28T16:33:18.279Z model-reply main#6 {"tool":"bash","args":{"command":"echo \"== main after the branch turn died: lease before ==\"; bin/fm-lease.sh check fm-g2jj0; echo \"branch-turn record: $(cat \"$FM_HOME/state/.branch-turn\" 2>/dev/null || echo absent)\"; bin/fm-lease.sh claim fm-g2jj0; echo \"main-claim-rc=$?\"; bin/fm-send.sh fm-g2jj0 \"repair from main: resume from your last checkpoint\"; echo \"main-steer-rc=$?\"; bin/fm-lease.sh check fm-g2jj0; bin/fm-lease.sh release fm-g2jj0; echo \"main-release-rc=$?\""}}
+2026-10-28T16:33:18.923Z model-request main#7 {"lastRole":"tool","last":"== main after the branch turn died: lease before ==\nbranch 1924474 1793205196 live\nbranch-turn record: absent\nerror: claim refused - task 'fm-g2jj0' is leased to the branch supervision actor (state/.lease-fm-g2jj0)\nmain-claim-rc=6\nWARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.\nWARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.\nerror: steer (fm-send) refused - task 'fm-g2jj0' is leased to the branch supervision actor (state/.lease-fm-g2jj0), which is handling that task right now; leave the lease alone (never remove or clear it) and retry after that actor releases it, which it does when its handling ends\nmain-steer-rc=6\nbranch 1924474 1793205196 live\nmain-release-rc=0\n"}
+2026-10-28T16:33:18.923Z model-reply main#7 {"kind":"text","text":"Repaired fm-g2jj0."}
+2026-10-28T16:33:18.975Z observe PASS mid-turn: the branch turn record names this wake null
+2026-10-28T16:33:18.975Z observe PASS mid-turn: the branch's own bash env carried exactly that turn id branch-claim-rc=0
+lease: branch	1924474	1793205196
+FM_BRANCH_REPORT_TURN=
+branch-turn record: absent
+
+2026-10-28T16:33:18.975Z observe PASS mid-turn: the branch's lease records the turn token as field 4 branch	1924474	1793205196
+
+2026-10-28T16:33:18.975Z observe PASS mid-turn: an operator check reads the branch lease live {"rc":0,"out":"branch 1924474 1793205196 live"}
+2026-10-28T16:33:18.975Z observe PASS mid-turn: main's claim is refused with the incident's exact refusal == main mid-turn: lease before ==
+branch 1924474 1793205196 live
+branch-turn record: absent
+error: claim refused - task 'fm-g2jj0' is leased to the branch supervision actor (state/.lease-fm-g2jj0)
+main-claim-rc=6
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the requested message WILL still be sent.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e /tmp/fm-base-tree.9tG7s9/.pi/extensions/fm-primary-turnend-guard.ts -e /tmp/fm-base-tree.9tG7s9/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+NOTICE: wake rows held by the live supervision branch - it presents and acknowledges them; do not drain them from here.
+error: steer (fm-send) refused - task 'fm-g2jj0' is leased to the branch supervision actor (state/.lease-fm-g2jj0), which is handling that task right now; leave the lease alone (never remove or clear it) and retry after that actor releases it, which it does when its handling ends
+main-steer-rc=6
+branch 1924474 1793205196 live
+main-release-rc=0
+
+2026-10-28T16:33:18.975Z observe PASS mid-turn: main's guarded steer (fm-send) is refused by the lease guard == main mid-turn: lease before ==
+branch 1924474 1793205196 live
+branch-turn record: absent
+error: claim refused - task 'fm-g2jj0' is leased to the branch supervision actor (state/.lease-fm-g2jj0)
+main-claim-rc=6
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the requested message WILL still be sent.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e /tmp/fm-base-tree.9tG7s9/.pi/extensions/fm-primary-turnend-guard.ts -e /tmp/fm-base-tree.9tG7s9/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+NOTICE: wake rows held by the live supervision branch - it presents and acknowledges them; do not drain them from here.
+error: steer (fm-send) refused - task 'fm-g2jj0' is leased to the branch supervision actor (state/.lease-fm-g2jj0), which is handling that task right now; leave the lease alone (never remove or clear it) and retry after that actor releases it, which it does when its handling ends
+main-steer-rc=6
+branch 1924474 1793205196 live
+main-release-rc=0
+
+2026-10-28T16:33:18.975Z observe PASS after the branch died: no branch turn record remains null
+2026-10-28T16:33:18.975Z observe PASS after the branch died (pre-fix): main's claim is STILL refused with the incident's refusal == main after the branch turn died: lease before ==
+branch 1924474 1793205196 live
+branch-turn record: absent
+error: claim refused - task 'fm-g2jj0' is leased to the branch supervision actor (state/.lease-fm-g2jj0)
+main-claim-rc=6
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+WARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.
+error: steer (fm-send) refused - task 'fm-g2jj0' is leased to the branch supervision actor (state/.lease-fm-g2jj0), which is handling that task right now; leave the lease alone (never remove or clear it) and retry after that actor releases it, which it does when its handling ends
+main-steer-rc=6
+branch 1924474 1793205196 live
+main-release-rc=0
+
+2026-10-28T16:33:18.975Z observe PASS after the branch died (pre-fix): main's steer is STILL refused == main after the branch turn died: lease before ==
+branch 1924474 1793205196 live
+branch-turn record: absent
+error: claim refused - task 'fm-g2jj0' is leased to the branch supervision actor (state/.lease-fm-g2jj0)
+main-claim-rc=6
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+WARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.
+error: steer (fm-send) refused - task 'fm-g2jj0' is leased to the branch supervision actor (state/.lease-fm-g2jj0), which is handling that task right now; leave the lease alone (never remove or clear it) and retry after that actor releases it, which it does when its handling ends
+main-steer-rc=6
+branch 1924474 1793205196 live
+main-release-rc=0
+
+2026-10-28T16:33:18.977Z observe PASS main's repair steer left a durable inbox record (target) / none (base) 0
+2026-10-28T16:33:19.119Z model-request branch#3 {"lastRole":"user","last":"FIRSTMATE SUPERVISION WAKE: signal: fm-g2jj0 checkpoint written - continue\n\nHandle this per your operating procedure and finish with fm_branch_report."}
+2026-10-28T16:33:19.119Z model-reply branch#3 {"tool":"bash","args":{"command":"bin/fm-lease.sh claim fm-g2jj0; echo \"branch-claim-rc=$?\"; bin/fm-send.sh fm-g2jj0 \"branch: carry on from the checkpoint\"; echo \"branch-steer-rc=$?\""}}
+2026-10-28T16:33:21.228Z model-request branch#4 {"lastRole":"tool","last":"branch-claim-rc=0\nbranch-steer-rc=0\n"}
+2026-10-28T16:33:21.228Z model-reply branch#4 {"tool":"fm_branch_report","args":{"task":"fm-g2jj0","verdict":"routine","summary":"steered fm-g2jj0 to carry on from its checkpoint","wake":"signal: fm-g2jj0 checkpoint written - continue"}}
+2026-10-28T16:33:21.340Z model-request branch#5 {"lastRole":"tool","last":"recorded seq 1 and delivered [routine] into main"}
+2026-10-28T16:33:21.340Z model-reply branch#5 {"kind":"text","text":"Handled the checkpoint wake."}
+2026-10-28T16:33:21.359Z observe PASS wake 2: a normal branch turn settles cleanly resolved
+2026-10-28T16:33:21.359Z observe PASS wake 2 mid-turn: the branch claimed and steered under its own lease branch-claim-rc=0
+branch-steer-rc=0
+
+2026-10-28T16:33:21.359Z observe PASS wake 2 mid-turn: its lease carried the turn token branch	1924474	1793205199
+
+2026-10-28T16:33:21.359Z observe PASS wake 2 settled: the branch turn record is removed null
+2026-10-28T16:33:21.382Z observe PASS wake 2 settled: the unreleased branch lease reads stale (target) / live (base) {"rc":0,"out":"branch 1924474 1793205199 live"}
+2026-10-28T16:33:21.402Z observe PASS session-start sweep reclaims the ended turn's lease (target) / keeps it (base) {"sweep":{"rc":0,"out":""},"leaseAfter":"branch\t1924474\t1793205199\n"}
+2026-10-28T16:33:21.554Z model-request branch#6 {"lastRole":"user","last":"FIRSTMATE SUPERVISION WAKE: signal: fm-g2jj0 needs a nudge\n\nHandle this per your operating procedure and finish with fm_branch_report."}
+2026-10-28T16:33:21.554Z model-reply branch#6 {"tool":"bash","args":{"command":"bin/fm-lease.sh claim fm-g2jj0; echo \"branch-claim-rc=$?\""}}
+2026-10-28T16:33:21.580Z model-request branch#7 {"lastRole":"tool","last":"branch-claim-rc=0\n"}
+2026-10-28T16:33:22.205Z model-reply branch#7 {"tool":"bash","args":{"command":"bin/fm-lease.sh release fm-g2jj0; echo \"branch-release-rc=$?\""}}
+2026-10-28T16:33:22.231Z model-request branch#8 {"lastRole":"tool","last":"branch-release-rc=0\n"}
+2026-10-28T16:33:22.231Z model-reply branch#8 {"tool":"fm_branch_report","args":{"task":"fm-g2jj0","verdict":"routine","summary":"nudged fm-g2jj0","wake":"signal: fm-g2jj0 needs a nudge"}}
+2026-10-28T16:33:22.346Z model-request branch#9 {"lastRole":"tool","last":"recorded seq 2 and delivered [routine] into main"}
+2026-10-28T16:33:22.346Z model-reply branch#9 {"kind":"text","text":"Handled the nudge wake."}
+2026-10-28T16:33:22.364Z observe PASS wake 3: the owner's turn settles cleanly after the secondary session came and went resolved
+2026-10-28T16:33:22.364Z observe PASS wake 3: the secondary session did not own the lock secondary pid=1940075 lockPid=1924474 owner=false turn-before=null turn-after=null
+
+2026-10-28T16:33:22.365Z observe PASS wake 3: the secondary session's shutdown left the owner's live turn record intact {"before":null,"after":null,"check":{"rc":0,"out":"branch 1924474 1793205201 live"},"secondary":"secondary pid=1940075 lockPid=1924474 owner=false turn-before=null turn-after=null\n"}
+2026-10-28T16:33:22.365Z observe PASS wake 3: the owner's lease stayed live across the secondary shutdown {"rc":0,"out":"branch 1924474 1793205201 live"}
+2026-10-28T16:33:22.365Z observe PASS wake 3 settled: the owner's turn record is removed at settlement null
+2026-10-28T16:33:22.401Z observe PASS no extension errors were raised []
+2026-10-28T16:33:22.401Z observe info model requests served by the local endpoint {"main":7,"branch":9}

@@ -1,0 +1,166 @@
+{
+  "mode": "target",
+  "observations": [
+    {
+      "name": "real fm-lock.sh recorded this Pi process as the session-lock holder",
+      "ok": true,
+      "actual": "1839130"
+    },
+    {
+      "name": "wake 1 offered to and accepted by the branch",
+      "ok": true,
+      "actual": true
+    },
+    {
+      "name": "wake 1 branch turn died on the provider error (settlement rejected to the watcher)",
+      "ok": true,
+      "actual": "rejected: supervision branch provider failed after construction: 429: {\"message\":\"Monthly usage limit reached\",\"type\":\"insufficient_quota\"}"
+    },
+    {
+      "name": "mid-turn: the branch turn record names this wake",
+      "ok": true,
+      "actual": "turn=1.1\n"
+    },
+    {
+      "name": "mid-turn: the branch's own bash env carried exactly that turn id",
+      "ok": true,
+      "actual": "branch-claim-rc=0\nlease: branch\t1839130\t1793205162\tturn:1.1\nFM_BRANCH_REPORT_TURN=1.1\nbranch-turn record: turn=1.1\n"
+    },
+    {
+      "name": "mid-turn: the branch's lease records the turn token as field 4",
+      "ok": true,
+      "actual": "branch\t1839130\t1793205162\tturn:1.1\n"
+    },
+    {
+      "name": "mid-turn: an operator check reads the branch lease live",
+      "ok": true,
+      "actual": {
+        "rc": 0,
+        "out": "branch 1839130 1793205162 live"
+      }
+    },
+    {
+      "name": "mid-turn: main's claim is refused with the incident's exact refusal",
+      "ok": true,
+      "actual": "== main mid-turn: lease before ==\nbranch 1839130 1793205162 live\nbranch-turn record: turn=1.1\nerror: claim refused - task 'fm-g2jj0' is leased to the branch supervision actor (state/.lease-fm-g2jj0)\nmain-claim-rc=6\nfm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.MkaR50\n●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n●  WATCHER DOWN - SUPERVISION IS OFF\n●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).\n●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.\n●  This is a supervision warning only; the requested message WILL still be sent.\n●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e /home/jon/.no-mistakes/worktrees/46339c0817e0/01M61GMRGC947HY8CV0GTKMS1V/.pi/extensions/fm-primary-turnend-guard.ts -e /home/jon/.no-mistakes/worktrees/46339c0817e0/01M61GMRGC947HY8CV0GTKMS1V/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.\n●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nNOTICE: wake rows held by the live supervision branch - it presents and acknowledges them; do not drain them from here.\nerror: steer (fm-send) refused - task 'fm-g2jj0' is leased to the branch supervision actor (state/.lease-fm-g2jj0), which is handling that task right now; leave the lease alone (never remove or clear it) and retry after that actor releases it, which it does when its handling ends\nmain-steer-rc=6\nbranch 1839130 1793205162 live\nmain-release-rc=0\n"
+    },
+    {
+      "name": "mid-turn: main's guarded steer (fm-send) is refused by the lease guard",
+      "ok": true,
+      "actual": "== main mid-turn: lease before ==\nbranch 1839130 1793205162 live\nbranch-turn record: turn=1.1\nerror: claim refused - task 'fm-g2jj0' is leased to the branch supervision actor (state/.lease-fm-g2jj0)\nmain-claim-rc=6\nfm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.MkaR50\n●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n●  WATCHER DOWN - SUPERVISION IS OFF\n●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).\n●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.\n●  This is a supervision warning only; the requested message WILL still be sent.\n●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e /home/jon/.no-mistakes/worktrees/46339c0817e0/01M61GMRGC947HY8CV0GTKMS1V/.pi/extensions/fm-primary-turnend-guard.ts -e /home/jon/.no-mistakes/worktrees/46339c0817e0/01M61GMRGC947HY8CV0GTKMS1V/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.\n●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nNOTICE: wake rows held by the live supervision branch - it presents and acknowledges them; do not drain them from here.\nerror: steer (fm-send) refused - task 'fm-g2jj0' is leased to the branch supervision actor (state/.lease-fm-g2jj0), which is handling that task right now; leave the lease alone (never remove or clear it) and retry after that actor releases it, which it does when its handling ends\nmain-steer-rc=6\nbranch 1839130 1793205162 live\nmain-release-rc=0\n"
+    },
+    {
+      "name": "after the branch died: no branch turn record remains",
+      "ok": true,
+      "actual": null
+    },
+    {
+      "name": "after the branch died: the leftover branch lease reads stale although the Pi pid lives and holds the lock",
+      "ok": true,
+      "actual": "== main after the branch turn died: lease before ==\nbranch 1839130 1793205162 stale\nbranch-turn record: absent\nmain-claim-rc=0\nfm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.MkaR50\nWARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.\nWARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.\nmain-steer-rc=0\nmain 1839130 1793205163 live\nmain-release-rc=0\n"
+    },
+    {
+      "name": "after the branch died: main's claim succeeds",
+      "ok": true,
+      "actual": "== main after the branch turn died: lease before ==\nbranch 1839130 1793205162 stale\nbranch-turn record: absent\nmain-claim-rc=0\nfm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.MkaR50\nWARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.\nWARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.\nmain-steer-rc=0\nmain 1839130 1793205163 live\nmain-release-rc=0\n"
+    },
+    {
+      "name": "after the branch died: main's guarded steer (fm-send) is durably delivered",
+      "ok": true,
+      "actual": "== main after the branch turn died: lease before ==\nbranch 1839130 1793205162 stale\nbranch-turn record: absent\nmain-claim-rc=0\nfm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.MkaR50\nWARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.\nWARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.\nmain-steer-rc=0\nmain 1839130 1793205163 live\nmain-release-rc=0\n"
+    },
+    {
+      "name": "main's repair steer left a durable inbox record (target) / none (base)",
+      "ok": true,
+      "actual": 1
+    },
+    {
+      "name": "wake 2: a normal branch turn settles cleanly",
+      "ok": true,
+      "actual": "resolved"
+    },
+    {
+      "name": "wake 2 mid-turn: the branch claimed and steered under its own lease",
+      "ok": true,
+      "actual": "branch-claim-rc=0\nfm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.MkaR50\nbranch-steer-rc=0\n"
+    },
+    {
+      "name": "wake 2 mid-turn: its lease carried the turn token",
+      "ok": true,
+      "actual": "branch\t1839130\t1793205165\tturn:1.2\n"
+    },
+    {
+      "name": "wake 2 settled: the branch turn record is removed",
+      "ok": true,
+      "actual": null
+    },
+    {
+      "name": "wake 2 settled: the unreleased branch lease reads stale (target) / live (base)",
+      "ok": true,
+      "actual": {
+        "rc": 0,
+        "out": "branch 1839130 1793205165 stale"
+      }
+    },
+    {
+      "name": "session-start sweep reclaims the ended turn's lease (target) / keeps it (base)",
+      "ok": true,
+      "actual": {
+        "sweep": {
+          "rc": 0,
+          "out": ""
+        },
+        "leaseAfter": null
+      }
+    },
+    {
+      "name": "wake 3: the owner's turn settles cleanly after the secondary session came and went",
+      "ok": true,
+      "actual": "resolved"
+    },
+    {
+      "name": "wake 3: the secondary session did not own the lock",
+      "ok": true,
+      "actual": "secondary pid=1866175 lockPid=1839130 owner=false turn-before=\"turn=1.3\\n\" turn-after=\"turn=1.3\\n\"\n"
+    },
+    {
+      "name": "wake 3: the secondary session's shutdown left the owner's live turn record intact",
+      "ok": true,
+      "actual": {
+        "before": "turn=1.3\n",
+        "after": "turn=1.3\n",
+        "check": {
+          "rc": 0,
+          "out": "branch 1839130 1793205168 live"
+        },
+        "secondary": "secondary pid=1866175 lockPid=1839130 owner=false turn-before=\"turn=1.3\\n\" turn-after=\"turn=1.3\\n\"\n"
+      }
+    },
+    {
+      "name": "wake 3: the owner's lease stayed live across the secondary shutdown",
+      "ok": true,
+      "actual": {
+        "rc": 0,
+        "out": "branch 1839130 1793205168 live"
+      }
+    },
+    {
+      "name": "wake 3 settled: the owner's turn record is removed at settlement",
+      "ok": true,
+      "actual": null
+    },
+    {
+      "name": "no extension errors were raised",
+      "ok": true,
+      "actual": []
+    },
+    {
+      "name": "model requests served by the local endpoint",
+      "ok": null,
+      "actual": {
+        "main": 7,
+        "branch": 9
+      }
+    }
+  ]
+}

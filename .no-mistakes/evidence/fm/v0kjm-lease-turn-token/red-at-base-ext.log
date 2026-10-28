@@ -1,0 +1,8 @@
+not ok - the wake turn must gate the branch's leases: file:///tmp/fm-base-tree.9tG7s9/[eval1]:26
+if (!existsSync(turnFile)) throw new Error("mid-wake branch turn record is missing");
+                                 ^
+
+Error: mid-wake branch turn record is missing
+    at file:///tmp/fm-base-tree.9tG7s9/[eval1]:26:34
+
+Node.js v26.5.0: expected exit 0, got 1

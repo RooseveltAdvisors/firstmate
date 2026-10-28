@@ -1,0 +1,40 @@
+: Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your 'fm-g2jj0.inbox' steering inbox, read and act on each in numeric order, then mv each into i
+ts handled/.
+: Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your 'fm-g2jj0.inbox' steering inbox, read and act on each in numeric order, then mv each into i
+ts handled/.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,7 @@
+== /tmp/fm-lab.aIcqld/state/fm-g2jj0.inbox/001.msg
+schema=fm-task-inbox.v1
+at=2026-10-28T16:33:19Z
+body-terminator=1
+--
+branch: carry on from the checkpoint
+
