@@ -249,10 +249,8 @@ That work is tracked as follow-up `fm-pi-routine-delivery-idempotency-followup-r
 
 `bin/fm-lease.sh` is the command surface.
 
-A branch claim made mid-turn records the owning turn as a fourth lease field.
-The extension writes `state/.branch-turn` (one `turn=<generation>.<n>` line) around each wake's handling and removes it at settlement and shutdown, exactly as the supervision host writes and removes `state/.supervision-host-turn` around each engine turn.
-A branch lease whose recorded turn no record names is stale for every reader - claim, guard, and sweep alike - even while the session pid still lives and holds the lock (fm-v0kjm: a mid-turn branch death used to lock the task against main repair until the branch happened to resume).
-A lease with no fourth field keeps the pid-only verdict unchanged, and main never carries a turn token.
+While the branch handles a wake, the extension keeps that turn's record in `state/.branch-turn` and gives the branch's shell the turn's id as `FM_BRANCH_REPORT_TURN`.
+Removing the record at settlement and at shutdown makes every lease the branch claimed during that turn stale, under the turn-token contract in `bin/fm-lease-lib.sh` (`tests/fm-pi-branch-extension.test.sh`).
 
 The guards are wired into these scripts:
 
