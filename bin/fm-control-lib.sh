@@ -50,12 +50,13 @@ fm_control_verbs() {
 interrupt
 exit
 relaunch
+park
 EOF
 }
 
 fm_control_verb_allowed() {  # <verb>
   case "${1-}" in
-    interrupt|exit|relaunch) return 0 ;;
+    interrupt|exit|relaunch|park) return 0 ;;
   esac
   return 1
 }
@@ -385,8 +386,9 @@ fm_control_backend_relaunch_supported() {  # <backend>
 }
 
 # Whether a raw fm_backend_agent_state reading on <backend> goes through
-# fm_control_endpoint_absence_verdict before a recovery verb (exit, relaunch)
-# acts or refuses. `missing` always does. A Rex `unreadable` does too: Rex's
+# fm_control_endpoint_absence_verdict before a recovery verb (`exit`,
+# `relaunch`, `park`) or `fm-crew-state`'s parked read acts or refuses.
+# `missing` always does. A Rex `unreadable` does too: Rex's
 # passive reads never start a server, so a stopped server - which ends every
 # session on it - reads as unreachable rather than not-found, and only the
 # recheck (which may start the personal server) can turn that into a proof.
@@ -421,8 +423,9 @@ fm_control_absence_recheck_applies() {  # <backend> <raw-state>
 # with "the endpoint is UNREACHABLE from here right now". An unreachable
 # endpoint can still hold a live agent on the task's worktree, so every caller
 # that would act on absence - `exit` claiming the agent stopped, `relaunch`
-# re-creating the endpoint - must come through here rather than trusting the
-# raw verdict.
+# re-creating the endpoint, `park` and `fm-crew-state`'s parked read claiming
+# the seat stopped - must come through here rather than trusting the raw
+# verdict.
 #
 # Whether absence is provable AT ALL is a property of the backend, not of the
 # reading:
@@ -439,17 +442,19 @@ fm_control_absence_recheck_applies() {  # <backend> <raw-state>
 #     then answers with authority - is that one.
 #   t3code has a native absence verdict: `missing` means archived or not found
 #     on the verified server, while an unreachable server reads `unreadable`.
-#     The proof re-reads the thread, but exit and relaunch refuse before it:
-#     V2 has no session stop and a thread cannot host a replacement.
+#     The proof re-reads the thread, but `exit` and `relaunch` refuse before
+#     it: V2 has no session stop and a thread cannot host a replacement. Only
+#     `park` and `fm-crew-state`'s parked read reach it, to settle a stopped
+#     seat.
 #   tmux CANNOT. `list-windows -a` describes only the server the CURRENT
 #     process addresses (its TMUX_TMPDIR/socket), and a task's record does not
 #     carry the endpoint's socket identity - so a different but running server
 #     would answer "not anywhere" about a window it was never able to see.
 #     There is no read available here that closes that gap, so tmux always
-#     returns `unproven` and both verbs refuse. tmux is left exactly as
+#     returns `unproven` and every caller refuses. tmux is left exactly as
 #     deadlocked as it was before this change - no worse - but deliberately.
 #
-# Both control-plane callers share this one implementation so the proof cannot
+# Every caller shares this one implementation so the proof cannot
 # drift into two answers for the same endpoint.
 fm_control_endpoint_absence_verdict() {  # <backend> <target> [meta]
   local backend=${1-} target=${2-} meta=${3-}
