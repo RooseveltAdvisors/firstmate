@@ -215,9 +215,8 @@ fm_lease_read() {
   # shellcheck disable=SC2034 # Consumed by sourcing callers (bin/fm-lease.sh check).
   FM_LEASE_EPOCH=$(printf '%s' "$line" | cut -f3)
   FM_LEASE_TOKEN=$(printf '%s' "$line" | cut -f4)
-  # Only a well-formed turn token rides the record; anything else reads as no
-  # token, so a torn or forged fourth field falls back to the pid-only
-  # verdict instead of locking the task behind an unverifiable claim.
+  # A malformed recorded token reads as no token, so the lease falls back to
+  # the pre-token pid-only verdict.
   case "$FM_LEASE_TOKEN" in
     turn:*) fm_lease_valid_id "${FM_LEASE_TOKEN#turn:}" || FM_LEASE_TOKEN= ;;
     *) FM_LEASE_TOKEN= ;;
