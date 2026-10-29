@@ -18,6 +18,10 @@ FM_WATCH_TRIAGE_HELPERS_SOURCED=1
 
 # shellcheck source=tests/wake-helpers.sh
 . "$(dirname "${BASH_SOURCE[0]}")/wake-helpers.sh"
+
+# These cases pin deterministic watcher decisions, independent of an installed
+# jev CLI. fm-jev-wake-triage.test.sh exercises the model gate with fake replies.
+export FM_JEV_WAKE_TRIAGE=off
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-classify-lib.sh"
 
