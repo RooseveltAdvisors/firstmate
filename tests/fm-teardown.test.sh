@@ -5723,7 +5723,7 @@ test_record_export_captures_forced_secondmate_sub_state() {
   printf 'pending child steer\n' > "$home/state/child.inbox/001.msg"
   printf 'handled child steer\n' > "$home/state/child.inbox/handled/002.msg"
   printf '%s\n' "$export_root" > "$case_dir/config/record-export-root"
-  run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  run_teardown "$case_dir" --force --retire-secondmate task-x1 > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
   expect_code 0 "$rc" "forced secondmate record export: $(cat "$case_dir/stderr")"
   archive="$export_root/archive/child/child-generation"
   assert_present "$archive/meta" "secondmate child archive lost metadata"
