@@ -882,7 +882,10 @@ start_session() {  # <home>
 park_again() {  # <home>
   rm -f "$1/host.rc"
   : > "$1/park.go"
-  wait_until 150 watcher_live "$1" \
+  # A hang guard only, as in house's PR #49: a park can replay every mirror
+  # seed the case has written, so later parks take most of 15 seconds on a
+  # loaded CI runner. 600 ticks = 60s.
+  wait_until 600 watcher_live "$1" \
     || fail "the next park never started a watcher cycle: $(cat "$1/host.out"; tail -n 5 "$1/state/.supervision-host.log" 2>/dev/null)"
 }
 
