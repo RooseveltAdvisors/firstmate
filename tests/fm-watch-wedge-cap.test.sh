@@ -9,6 +9,10 @@ set -u
 
 # shellcheck source=tests/wake-helpers.sh
 . "$(dirname "${BASH_SOURCE[0]}")/wake-helpers.sh"
+
+# Pin deterministic wedge decisions regardless of an installed jev CLI; the
+# model gate itself lives in fm-jev-wake-triage.test.sh with fake replies.
+export FM_JEV_WAKE_TRIAGE=off
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-classify-lib.sh"
 
