@@ -126,7 +126,7 @@ A pane-only probe would have observed `args codex`, passed, and gone on passing 
 Probing from below asks the question from the vantage a tool subprocess actually occupies, so the guard can require comm strength somewhere in the session and require every comm-strength vantage to name the same harness.
 The vantage set stops at the upward path rather than the whole subtree, because `harness_ancestry` only ever climbs and a sibling branch is therefore a vantage firstmate's own detection can never occupy.
 Eligible foreground leaves also drop a child that itself is a different harness at comm strength when the pane process already is the expected harness at comm strength.
-Pi 1.4.0 keeps a cursor-agent `models` helper in the pane's foreground process group; that helper is a sibling of where `detect_own` runs under the pi agent, so including it produced `comm cursor` beside `comm pi` as a false DETECTION DRIFT (bead fm-zpdvi / evidence data/fm-0x801/evidence-harness-drift.txt).
+Pi 1.4.0 keeps a cursor-agent `models` helper in the pane's foreground process group; that helper is a sibling of where `detect_own` runs under the pi agent, so including it produced `comm cursor` beside `comm pi` as a false DETECTION DRIFT (bead fm-zpdvi).
 A foreign harness leaf is still kept when the pane itself is not the expected harness at comm strength, so a renamed agent whose only remaining identity is a nested helper still fails the cross-check.
 Observed on 2026-11-03 for pi 1.4.0 after that filter:
 
@@ -440,7 +440,7 @@ Kimi 2.3.0 reworded its folder prompt: the options read `Trust and continue` and
 It also reads a root `.mcp.json` at the git worktree root as a project declaration, which its documentation does not name; the prompt's `Config:` line names whichever file declared the servers.
 Pressing Enter on an announcing prompt started the declared stdio command before any login, so `bin/fm-spawn.sh` never answers one.
 In a pane too short for the prompt Kimi shows only the title and `Enlarge terminal to review sources. Esc exit.`, and in a pane a few rows taller it keeps the complete dialog and pages the lines between the directory and the options, marked `←→ page · N / M`, which can hide the announcement.
-Kimi 2.1.1 used the earlier option pair `Trust this folder` / `Don't trust` and announced project MCP servers as `Project MCP targets:` under a `Project-level MCP servers are disabled until you explicitly choose Trust` disclosure (bead fm-8vs6t / evidence data/fm-0x801/evidence-kimi-drift.txt).
+Kimi 2.1.1 used the earlier option pair `Trust this folder` / `Don't trust` and announced project MCP servers as `Project MCP targets:` under a `Project-level MCP servers are disabled until you explicitly choose Trust` disclosure (bead fm-8vs6t; capture `tests/captures/kimi-2.1.1/`).
 `bin/fm-kimi-trust-lib.sh` owns the predicates for every recorded wording, and `tests/captures/kimi-code-2.3.0/README.md` owns the 2.3.0 recorded panes.
 The portable suite pins both the 2.1.1 and 2.3.0 announcement shapes, and that a plain dialog does not announce.
 The default-on live guard launches the installed Kimi bare in a private tmux server, spends no tokens, needs no login, and refreshes this evidence:

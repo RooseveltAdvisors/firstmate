@@ -1270,35 +1270,18 @@ test_kimi_230_prompt_that_pages_its_disclosure_receives_no_key() {
 }
 
 # Portable pin of kimi_pane_announces_project_mcp_servers across live wordings.
-# The 2.1.1 shape is the evidence from fm-8vs6t; the 2.3.0 shape is the recorded
-# capture family. A plain trust dialog must not announce.
+# The 2.1.1 and 2.3.0 shapes come from the committed capture families under
+# tests/captures/; a plain trust dialog must not announce.
 test_kimi_announce_predicate_recognizes_211_and_230_mcp_wordings() {
   # shellcheck source=/dev/null
   . "$ROOT/bin/fm-kimi-trust-lib.sh"
   local pane_211 pane_230 pane_plain
-  pane_211=$(printf '%s\n' \
-    'Trust this folder?' \
-    '↑↓ navigate · Enter select · Esc exit' \
-    '/tmp/fm-kimi-trust/root-mcp-json' \
-    'Project-level MCP servers are disabled until you explicitly choose Trust. Trust starts the listed project MCP' \
-    'targets and remembers this folder.' \
-    'Project MCP targets:' \
-    '  guard-marker (stdio): command=/tmp/marker.sh args=["--from-root-mcp-json"]' \
-    '❯ Trust this folder' \
-    "Don't trust")
-  pane_230=$(printf '%s\n' \
-    'Trust this folder?' \
-    '↑↓ navigate · Enter select · Esc exit' \
-    'Start 1 MCP server automatically' \
-    '  Config: .mcp.json' \
-    '❯ Trust and continue' \
-    'Exit')
-  pane_plain=$(printf '%s\n' \
-    'Trust this folder?' \
-    '↑↓ navigate · Enter select · Esc exit' \
-    'No project integrations or instructions to activate.' \
-    '❯ Trust and continue' \
-    'Exit')
+  pane_211=$(sed 's|{WORKDIR}|/tmp/fm-kimi-trust/root-mcp-json|g' \
+    "$ROOT/tests/captures/kimi-2.1.1/root-mcp-json.pane")
+  pane_230=$(sed 's|{WORKDIR}|/tmp/fm-kimi-trust/root-mcp-json|g' \
+    "$ROOT/tests/captures/kimi-code-2.3.0/root-mcp-json.pane")
+  pane_plain=$(sed 's|{WORKDIR}|/tmp/fm-kimi-trust/plain|g' \
+    "$ROOT/tests/captures/kimi-code-2.3.0/plain.pane")
   kimi_pane_announces_project_mcp_servers "$pane_211" \
     || fail "2.1.1 Project MCP targets disclosure was not recognized as an announcement"
   kimi_trust_dialog_is_visible "$pane_211" \

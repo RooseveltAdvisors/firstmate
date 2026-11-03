@@ -14,7 +14,8 @@
 #     `Don't trust`, and a directory that declares project MCP servers lists
 #     them as `Project MCP targets:` under a
 #     `Project-level MCP servers are disabled until you explicitly choose Trust`
-#     disclosure (evidence: data/fm-0x801/evidence-kimi-drift.txt).
+#     disclosure. tests/captures/kimi-2.1.1/README.md owns that capture
+#     (bead fm-8vs6t).
 #   2.3.0 (2026-10-23): the options read `❯ Trust and continue` and `Exit`,
 #     and a directory that declares project MCP servers, in a root `.mcp.json`
 #     or in `.kimi-code/mcp.json`, announces them above the options as

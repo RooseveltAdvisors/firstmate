@@ -192,7 +192,7 @@ for harness in claude codex opencode pi pi-signed grok kimi cursor muse; do
   # (under the pi agent), not a vantage on the upward path a tool subprocess
   # climbs. Including it made the reject-other cross-check report
   # `comm cursor` beside `comm pi` as DETECTION DRIFT even though the session
-  # identity is still `pi` (evidence: data/fm-0x801/evidence-harness-drift.txt).
+  # identity is still `pi` (bead fm-zpdvi).
   # A foreign harness leaf is still kept when the pane itself is NOT the
   # expected harness at comm strength, so a renamed agent whose only remaining
   # identity is a nested helper still fails the cross-check.
