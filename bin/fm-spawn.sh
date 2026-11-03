@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Spawn a direct report: a crewmate in a treehouse or Orca worktree, or a
 # secondmate in its isolated firstmate home.
-# Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--branch-prefix <prefix>] [--base-branch <branch>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--herdr-resume-lock-wait]
-#        fm-spawn.sh <task-id> <project-dir> --scout [--base-branch <branch>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--herdr-resume-lock-wait]
+# Usage: fm-spawn.sh <task-id> <project-dir-or-repo-url> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--branch-prefix <prefix>] [--base-branch <branch>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--herdr-resume-lock-wait]
+#        fm-spawn.sh <task-id> <project-dir-or-repo-url> --scout [--base-branch <branch>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--herdr-resume-lock-wait]
 #        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] --secondmate
+#   <project-dir-or-repo-url> is an existing project path, a git URL, or an
+#   owner/name GitHub shorthand; a missing checkout is cloned into projects/.
 #   --mode and --yolo are this task's delivery contract, REQUIRED for every ship
 #   spawn and refused on --scout and --secondmate spawns. Firstmate resolves both
 #   per task at intake (AGENTS.md section 7); data/projects.md holds the captain's
@@ -354,7 +356,7 @@
 #   containment test reads local refs only and never fetches, so this gate stays
 #   usable offline; a stale remote-tracking ref can therefore make an unpushed
 #   commit look contained, which is exactly why no remedy command is printed.
-# Batch dispatch: pass one or more `id=repo` pairs instead of a single <id> <project>, e.g.
+# Batch dispatch: pass one or more `id=repo` pairs instead of a single <id> <project-dir-or-repo-url>, e.g.
 #     fm-spawn.sh fix-a-k3=projects/foo add-b-q7=projects/bar [--scout]
 #   Each pair re-execs this script in single-task mode, so the single path stays the only
 #   source of truth; shared --scout/--harness/--model/--effort/--backend/--mode/--yolo
@@ -3638,6 +3640,55 @@ resolve_project_dir_arg() {
   esac
 }
 
+# ponytail: bootstrap a not-yet-cloned project from a repo URL or owner/name
+# shorthand so delegation never deadlocks on a missing checkout; the trusted
+# fm-* tool clones, the primary pane never does. Ceiling: plain clone, no
+# submodules/auth handling; add those when a spawn actually needs them.
+bootstrap_project_arg() {
+  local arg=$1 src name dest dest_top git_top
+  case "$arg" in
+  https://*|http://*|git@*|ssh://*) src=$arg ;;
+  */*)
+    case "$arg" in
+    */*/*|projects/*|./*|/*|../*) return 1 ;;
+    esac
+    [ ! -e "$arg" ] || return 1
+    src="https://github.com/$arg"
+    ;;
+  *) return 1 ;;
+  esac
+  name=$(basename "$arg"); name=${name%.git}
+  [ -n "$name" ] && [ "$name" != "." ] && [ "$name" != ".." ] || return 1
+  dest="$PROJECTS/$name"
+  if [ -d "$dest" ]; then
+    # Reuse only a git checkout whose stored origin matches the requested
+    # repo (strip a trailing .git). Same-basename forks must not silently
+    # adopt the wrong checkout.
+    [ -e "$dest/.git" ] &&
+      dest_top=$(cd "$dest" && pwd -P) &&
+      git_top=$(git -C "$dest" rev-parse --show-toplevel 2>/dev/null) &&
+      [ "$git_top" = "$dest_top" ] || {
+      echo "fm-spawn: refusing to reuse $dest: not a git work tree root" >&2
+      return 1
+    }
+    origin=$(git -C "$dest" config --get remote.origin.url 2>/dev/null) || {
+      echo "fm-spawn: refusing to reuse $dest: not a git checkout with origin" >&2
+      return 1
+    }
+    norm_origin=${origin%.git}
+    norm_src=${src%.git}
+    if [ "$norm_origin" != "$norm_src" ]; then
+      echo "fm-spawn: refusing to reuse $dest: origin $origin does not match $src" >&2
+      return 1
+    fi
+    printf '%s\n' "$dest"
+    return 0
+  fi
+  echo "fm-spawn: bootstrapping project $name from $src into $dest" >&2
+  git clone --quiet "$src" "$dest" 1>&2 || return 1
+  printf '%s\n' "$dest"
+}
+
 path_is_ancestor_of() {
   local ancestor=$1 path=$2
   [ -n "$ancestor" ] || return 1
@@ -3814,7 +3865,12 @@ if [ "$KIND" = secondmate ]; then
     BRIEF="$DATA/$ID/brief.md"
   fi
 else
-  PROJ_ABS="$(cd "$(resolve_project_dir_arg "$PROJ")" && pwd)"
+  PROJ_ABS=$(resolve_project_dir_arg "$PROJ")
+  if [ ! -d "$PROJ_ABS" ]; then
+    # ponytail: missing checkout + URL/shorthand arg -> clone it, never deadlock.
+    BOOTSTRAPPED=$(bootstrap_project_arg "$PROJ") && { PROJ=$BOOTSTRAPPED; PROJ_ABS=$BOOTSTRAPPED; }
+  fi
+  PROJ_ABS="$(cd "$PROJ_ABS" && pwd)"
   WT=""
   BRIEF="$DATA/$ID/brief.md"
 fi
