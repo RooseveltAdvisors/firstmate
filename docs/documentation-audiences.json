@@ -644,6 +644,10 @@
       "audience": "maintainer-verification"
     },
     {
+      "path": "tests/captures/kimi-2.1.1/README.md",
+      "audience": "maintainer-verification"
+    },
+    {
       "path": ".agents/skills/agent-skill-trigger-index/SKILL.md",
       "audience": "agent-runtime"
     },
