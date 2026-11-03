@@ -1,0 +1,34 @@
+=== full live liveness-drift guard runtime under bash 3.2.57 (bonus beyond the parse acceptance) ===
+# claude 2.1.317 (Claude Code): title='claude' foreground=[claude ]
+ok - harness liveness: claude 2.1.317 (Claude Code) classifies alive
+# claude 2.1.317 (Claude Code): ancestry verdicts=[comm claude]
+ok - harness detection: claude 2.1.317 (Claude Code) is identified by the ancestry walk at comm strength
+# codex codex-cli 0.165.0: title='codex' foreground=[codex ]
+ok - harness liveness: codex codex-cli 0.165.0 classifies alive
+# codex codex-cli 0.165.0: ancestry verdicts=[comm codex]
+ok - harness detection: codex codex-cli 0.165.0 is identified by the ancestry walk at comm strength
+# skip: opencode is not installed on this machine, so its classification is unverified here
+# pi 1.4.0: title='pi' foreground=[pi MainThread ]
+ok - harness liveness: pi 1.4.0 classifies alive
+# pi 1.4.0: ancestry verdicts=[comm pi]
+ok - harness detection: pi 1.4.0 is identified by the ancestry walk at comm strength
+# skip: pi-signed is not installed on this machine, so its classification is unverified here
+# grok grok 1.0.70 (f50904eaee6c) [stable]: title='grok' foreground=[grok ]
+ok - harness liveness: grok grok 1.0.70 (f50904eaee6c) [stable] classifies alive
+# grok grok 1.0.70 (f50904eaee6c) [stable]: ancestry verdicts=[comm grok]
+ok - harness detection: grok grok 1.0.70 (f50904eaee6c) [stable] is identified by the ancestry walk at comm strength
+# kimi 2.4.1: title='kimi' foreground=[MainThread ]
+ok - harness liveness: kimi 2.4.1 classifies alive
+# kimi 2.4.1: ancestry verdicts=[comm kimi]
+ok - harness detection: kimi 2.4.1 is identified by the ancestry walk at comm strength
+# cursor 2026.10.22-27dcf5f: title='cursor-agent' foreground=[MainThread ]
+ok - harness liveness: cursor 2026.10.22-27dcf5f classifies alive
+# cursor 2026.10.22-27dcf5f: ancestry verdicts=[comm cursor]
+ok - harness detection: cursor 2026.10.22-27dcf5f is identified by the ancestry walk at comm strength
+# muse Muse Code 1.4.14 (1.4.14-R7309.1): title='muse-bin-1.4.14-R7309.1' foreground=[muse-bin-1.4.14 ]
+ok - harness liveness: muse Muse Code 1.4.14 (1.4.14-R7309.1) classifies alive
+# muse Muse Code 1.4.14 (1.4.14-R7309.1): ancestry verdicts=[comm muse]
+ok - harness detection: muse Muse Code 1.4.14 (1.4.14-R7309.1) is identified by the ancestry walk at comm strength
+# unverified on this machine (not installed): opencode pi-signed
+# checked 7 installed harness(es)
+exit=0

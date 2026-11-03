@@ -1,0 +1,11 @@
+=== S6: bash 3.2.57 parseability of the pi helper filter (intent item 4) ===
+--- 1. current HEAD tests/fm-harness-liveness-drift-live-e2e.test.sh under bash 3.2.57 -n ---
+exit=0
+--- 2. regression control: pre-fix version (commit f5c9dcf5, case-;; inside $(...)) under bash 3.2.57 -n ---
+/tmp/fm211/liveness-prefix.sh: line 213: syntax error near unexpected token `;;'
+/tmp/fm211/liveness-prefix.sh: line 213: `                "comm $expect_harness") ;;'
+exit=2
+--- 3. same pre-fix version parses fine under bash 5.2 (why the drift is invisible on modern bash) ---
+exit=0
+--- 4. current HEAD version under the host bash 5.2 -n ---
+exit=0

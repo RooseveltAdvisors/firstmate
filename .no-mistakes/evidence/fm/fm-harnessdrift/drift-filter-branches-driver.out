@@ -1,0 +1,35 @@
+=== Case 1: pi pane with real foreign-harness helper children -> filter drops them (fm-zpdvi shape) ===
+pane_pid=2613744 pane_tty=/dev/pts/294 kimi_pid=2613760 models_pid=2646356 (SIGSTOPped)
+--- process sample on /dev/pts/294 (pid comm ppid pgid tpgid) ---
+2613744 pi              2609712 2613744 2613744
+2613758 bash            2613744 2613744 2613744
+2613760 kimi-code       2613744 2613744 2613744
+2646356 MainThread      2613758 2613744 2613744
+pane_self_verdict=[comm pi]
+ok - C1: pane process is the expected harness at comm strength
+unfiltered fg pids: [2613744 2613758 2613760 2646356 ]
+unfiltered ancestry verdicts: [comm cursor;comm pi]
+ok - C1: unfiltered vantage set reproduces the fm-zpdvi symptom (a foreign verdict beside comm pi)
+probe leaves=[2613760] (kimi): [comm kimi;comm pi]
+ok - C1: the kimi helper child is a comm-strength foreign vantage beside comm pi (the fm-zpdvi drift shape)
+probe leaves=[2646356] (cursor): [comm cursor;comm pi]
+ok - C1: the cursor-agent models helper is a comm-strength foreign vantage beside comm pi (the exact fm-zpdvi drift shape)
+filtered fg pids:   [2613744 2613758 ]
+filtered ancestry verdicts:   [comm pi]
+ok - C1: filtered vantage set still resolves comm pi (liveness identity kept)
+ok - C1: filtered vantage set drops the foreign helpers (no foreign verdict remains)
+ok - C1: reject-other cross-check passes on the filtered verdicts (no false DETECTION DRIFT)
+
+=== Case 2 (adversarial): renamed/anonymous pane + real kimi helper child -> leaf kept, drift still reported ===
+pane_pid=2656076 pane_tty=/dev/pts/295
+--- process sample on /dev/pts/295 (pid comm ppid pgid tpgid) ---
+2656076 sleep           2609712 2656076 2656076
+2656080 kimi-code       2656076 2656076 2656076
+pane_self_verdict=[]
+ok - C2: pane is NOT the expected harness at comm strength (renamed-agent shape)
+filtered fg pids:   [2656076 2656080 ]
+filtered ancestry verdicts:   [comm kimi]
+ok - C2: the foreign helper leaf is KEPT when the pane is not the expected harness
+ok - C2: reject-other cross-check still reports DETECTION DRIFT (reject-other not weakened)
+
+RESULT: 0 failure(s)

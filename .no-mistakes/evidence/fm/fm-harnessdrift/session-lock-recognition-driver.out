@@ -1,0 +1,34 @@
+FM_HARNESS_RE=[claude|codex|opencode|grok|kimi|^pi$|^pi-signed$|^omp$]
+FM_HARNESS_NAMES=[claude codex opencode grok kimi pi-signed pi omp]
+--- Kimi 2.4.1 process names resolve to the kimi family (oracle: intent item 3 + docs/verification/runtime-backends.md Kimi 2.4.1 process-name contract) ---
+ok - a process whose comm is kimi-code is recognized as a harness (via the unanchored kimi alternative)
+ok - a process whose comm is kimi is still recognized (historical name preserved)
+--- FM_HARNESS_NAMES / FM_HARNESS_RE sync (plausible wrong: a name table that drifts from the regex so one consumer recognizes what the other does not) ---
+ok - RE side accepts the FM_HARNESS_NAMES entry 'claude'
+ok - path side resolves the FM_HARNESS_NAMES entry 'claude'
+ok - RE side accepts the FM_HARNESS_NAMES entry 'codex'
+ok - path side resolves the FM_HARNESS_NAMES entry 'codex'
+ok - RE side accepts the FM_HARNESS_NAMES entry 'opencode'
+ok - path side resolves the FM_HARNESS_NAMES entry 'opencode'
+ok - RE side accepts the FM_HARNESS_NAMES entry 'grok'
+ok - path side resolves the FM_HARNESS_NAMES entry 'grok'
+ok - RE side accepts the FM_HARNESS_NAMES entry 'kimi'
+ok - path side resolves the FM_HARNESS_NAMES entry 'kimi'
+ok - RE side accepts the FM_HARNESS_NAMES entry 'pi-signed'
+ok - path side resolves the FM_HARNESS_NAMES entry 'pi-signed'
+ok - RE side accepts the FM_HARNESS_NAMES entry 'pi'
+ok - path side resolves the FM_HARNESS_NAMES entry 'pi'
+ok - RE side accepts the FM_HARNESS_NAMES entry 'omp'
+ok - path side resolves the FM_HARNESS_NAMES entry 'omp'
+ok - FM_HARNESS_NAMES carries the regex family 'claude'
+ok - FM_HARNESS_NAMES carries the regex family 'codex'
+ok - FM_HARNESS_NAMES carries the regex family 'opencode'
+ok - FM_HARNESS_NAMES carries the regex family 'grok'
+ok - FM_HARNESS_NAMES carries the regex family 'kimi'
+ok - FM_HARNESS_NAMES carries the regex family 'pi'
+--- negatives: unrelated commands are not claimed ---
+ok - an ordinary bash process is not claimed as a harness
+ok - an ordinary sleep process is not claimed as a harness
+ok - an ordinary path resolves no harness name
+
+RESULT: 0 failure(s)

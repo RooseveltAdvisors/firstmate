@@ -1,0 +1,32 @@
+=== Scenario A: 2.1.1 announcing prompt -> fm-spawn refuses ===
+warning: /tmp/fm-kimi-harness.ddAtIZ/trust-211-rootmcp/home/data/kimi-211-rootmcp-m1/launch-brief.md records no ship branch; defaulting to legacy branch fm/kimi-211-rootmcp-m1
+warning: /tmp/fm-kimi-harness.ddAtIZ/trust-211-rootmcp/home/data/kimi-211-rootmcp-m1/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+error: kimi's folder prompt announces project MCP servers, so Firstmate did not answer it and did not send the brief; answering would start those servers without a consent decision that covers them. Remove the project MCP servers this directory declares (the prompt's Config line names the file), or wait for a later consent design.; inspect window firstmate:fm-kimi-211-rootmcp-m1
+--- A observable side effects ---
+exit code: 1
+trust-enter.log: []
+pointer.log:     []
+marker.log:      []
+status:          [failed [at=1793704673]: kimi's folder prompt announces project MCP servers, so Firstmate did not answer it and did not send the brief; answering would start those servers without a consent decision that covers them. Remove the project MCP servers this directory declares (the prompt's Config line names the file), or wait for a later consent design.]
+ok - A: spawn refused (exit 1)
+ok - A: no Enter key sent to the 2.1.1 announcing prompt
+ok - A: brief pointer never delivered
+ok - A: declared project MCP command never started
+ok - A: refusal names the announcement
+
+=== Scenario B (adversarial control): same 2.1.1 dialog words, no MCP disclosure -> answered once ===
+warning: /tmp/fm-kimi-harness.ddAtIZ/trust-211-plain/home/data/kimi-211-plain-m2/launch-brief.md records no ship branch; defaulting to legacy branch fm/kimi-211-plain-m2
+warning: /tmp/fm-kimi-harness.ddAtIZ/trust-211-plain/home/data/kimi-211-plain-m2/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+notice: the primary checkout /opt/ra/firstmate is merge-and-sync only - never stage, keep, or commit work there; lane work lives in the task worktree or a pushed branch, and a primary-checkout edit lands the same turn it is made or not at all
+spawned kimi-211-plain-m2 harness=kimi kind=ship mode=no-mistakes yolo=off window=firstmate:fm-kimi-211-plain-m2 worktree=/tmp/fm-kimi-harness.ddAtIZ/trust-211-plain/wt
+--- B observable side effects ---
+exit code: 0
+trust-enter.log: [enter]
+pointer.log:     [Read the brief at /tmp/fm-kimi-harness.ddAtIZ/trust-211-plain/home/data/kimi-211-plain-m2/launch-brief.md and follow it exactly.]
+marker.log:      []
+ok - B: spawn completed (exit 0)
+ok - B: plain 2.1.1 dialog answered exactly once
+ok - B: brief pointer delivered
+ok - B: no MCP command started for a plain dialog
+
+RESULT: 0 failure(s)
