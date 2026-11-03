@@ -202,6 +202,7 @@ for harness in claude codex opencode pi pi-signed grok kimi cursor muse; do
     fg_pids=
     if [ -n "$pane_tty" ]; then
       pane_self_verdict=$("$ROOT/bin/fm-harness.sh" ancestry "$pane_pid" 2>/dev/null || true)
+      # Filter with string compares only: bash 3.2 cannot parse `;;` inside $(...).
       fg_pids=$(LC_ALL=C ps -t "${pane_tty#/dev/}" -o pid=,pgid=,tpgid= 2>/dev/null \
         | while read -r fg_pid fg_pgid fg_tpgid; do
             [ -n "$fg_pid" ] || continue
@@ -209,13 +210,12 @@ for harness in claude codex opencode pi pi-signed grok kimi cursor muse; do
             if [ "$fg_pid" != "$pane_pid" ] \
               && [ "$pane_self_verdict" = "comm $expect_harness" ]; then
               leaf_verdict=$("$ROOT/bin/fm-harness.sh" ancestry "$fg_pid" 2>/dev/null || true)
-              case "$leaf_verdict" in
-                "comm $expect_harness") ;;
-                comm\ *)
-                  # Foreign harness helper nested under the expected agent.
-                  continue
-                  ;;
-              esac
+              leaf_strength=${leaf_verdict%% *}
+              leaf_named=${leaf_verdict#* }
+              # Foreign harness helper nested under the expected agent.
+              if [ "$leaf_strength" = comm ] && [ "$leaf_named" != "$expect_harness" ]; then
+                continue
+              fi
             fi
             printf '%s ' "$fg_pid"
           done)
