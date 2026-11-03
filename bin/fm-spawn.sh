@@ -356,7 +356,7 @@
 #   containment test reads local refs only and never fetches, so this gate stays
 #   usable offline; a stale remote-tracking ref can therefore make an unpushed
 #   commit look contained, which is exactly why no remedy command is printed.
-# Batch dispatch: pass one or more `id=repo` pairs instead of a single <id> <project>, e.g.
+# Batch dispatch: pass one or more `id=repo` pairs instead of a single <id> <project-dir-or-repo-url>, e.g.
 #     fm-spawn.sh fix-a-k3=projects/foo add-b-q7=projects/bar [--scout]
 #   Each pair re-execs this script in single-task mode, so the single path stays the only
 #   source of truth; shared --scout/--harness/--model/--effort/--backend/--mode/--yolo

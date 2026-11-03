@@ -27,6 +27,18 @@ for command in \
   'cd projects/portal && npm test'; do
   assert_denied "$command"
 done
+# The denial is the still-delegate escape: a denied hands-on command must be
+# suggested a crewmate spawn naming the accepted project-dir-or-repo-url form
+# (the delegation path the primary pane is told to use instead of doing the
+# work itself).
+for command in \
+  'git -C projects/portal commit -m x' \
+  'python3 projects/portal/build.py'; do
+  guard_out=$("$GUARD" --command "$command" 2>&1) || true
+  assert_contains "$guard_out" \
+    'Suggested: bin/fm-spawn.sh <task-id> <project-dir-or-repo-url> --mode no-mistakes --yolo <on|off>' \
+    "denied command is suggested the still-delegate spawn escape with the URL form: $command"
+done
 for command in \
   'bin/fm-wake-drain.sh' \
   'bd show x' \
