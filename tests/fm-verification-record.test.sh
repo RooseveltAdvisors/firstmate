@@ -198,8 +198,15 @@ DEDUPE_REFUSE=1 record --command 'unrelated subject probe' >"$TMP_ROOT/out" 2>"$
 assert_grep 'potential duplicate of active issue wiseman-6c5k' "$TMP_ROOT/dedupe-err" 'first dedupe refusal stderr was swallowed'
 assert_contains "$(jq -r '.[-1].description' "$FM_HOME/.beads/issues.json")" 'Filed with --allow-duplicate' 'allow-duplicate justification missing'
 assert_contains "$(jq -r '.[-1].description' "$FM_HOME/.beads/issues.json")" 'wiseman-6c5k' 'refused candidate was not named in the justification'
-assert_contains "$(jq -r '.[-1].description' "$FM_HOME/.beads/issues.json")" 'Owning task ID: t1' 'owning task missing from the filed body'
+assert_contains "$(jq -r '.[-1].description' "$FM_HOME/.beads/issues.json")" 'this record owns task t1' 'owning task missing from the justification'
+assert_contains "$(jq -r '.[-1].description' "$FM_HOME/.beads/issues.json")" "dedupe key $(jq -r .key "$TMP_ROOT/out")" 'dedupe key missing from the justification'
 pass 'prose-dedupe refusal files once with explicit differing-subject justification'
+
+if DEDUPE_REFUSE=1 HIDE_READBACK=1 record --command 'unconfirmed retry' >"$TMP_ROOT/out" 2>"$TMP_ROOT/dedupe-err"; then fail 'unconfirmed retry succeeded'; fi
+[ ! -s "$TMP_ROOT/out" ] || fail 'unconfirmed retry emitted a receipt'
+assert_grep 'potential duplicate of active issue wiseman-6c5k' "$TMP_ROOT/dedupe-err" 'unconfirmed retry lost the verbatim refusal'
+assert_no_grep 'filed with --allow-duplicate' "$TMP_ROOT/dedupe-err" 'retry claimed a filing before the readback'
+pass 'retry never claims a filing before the readback confirms it'
 
 # A lane launched before FM_HOME joined the worker launch floor holds only
 # FM_TASK_ID (fm-m48wl); the runner still reaches the store through the task's

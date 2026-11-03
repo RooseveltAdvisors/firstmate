@@ -149,6 +149,7 @@ cp "$EVIDENCE" "$SNAPSHOT"
 STAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 NOTE=$(printf 'Recorded (UTC): %s\nOwning task ID: %s\nFailed command: %s\nEvidence path: %s\nAttached evidence: %s\nFinding: %s\n' \
   "$STAMP" "$TASK" "$FAILED_COMMAND" "$EVIDENCE" "$SNAPSHOT" "${SUMMARY:-Verification failed}")
+RETRY_NOTICE=''
 if [ -n "$ID" ]; then
   REOPEN=()
   [ "$STATUS" != closed ] || REOPEN=(--status open)
@@ -179,7 +180,7 @@ $JUSTIFY" --allow-duplicate 2>&1); then
       printf '%s\n' "$WRITE_OUTPUT" >&2
       die 'bd create refused; report its output verbatim, no receipt issued'
     fi
-    printf 'fm-verification-record: bd dedupe named %s; filed with --allow-duplicate and justification in the bead body\n' "$CANDIDATE" >&2
+    RETRY_NOTICE="fm-verification-record: bd dedupe named $CANDIDATE; filed with --allow-duplicate and justification in the bead body"
   fi
   ACTION=created
 fi
@@ -194,3 +195,4 @@ printf '%s' "$MATCH" | jq -e --arg attachment "$SNAPSHOT" \
 jq -cn --arg bead "$CONFIRMED_ID" --arg store "$STORE" --arg evidence "$SNAPSHOT" \
   --arg key "$KEY" --arg action "$ACTION" \
   '{bead:$bead,store:$store,evidence:$evidence,key:$key,action:$action}'
+[ -z "$RETRY_NOTICE" ] || printf '%s\n' "$RETRY_NOTICE" >&2
