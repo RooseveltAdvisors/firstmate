@@ -687,6 +687,58 @@ test_exhausted_settle_window_keeps_a_non_shell_foreground_live() {
   pass "herdr stale registration: an exhausted settle window still reads a non-shell foreground as live"
 }
 
+# send_line_ready_case: one fm_backend_herdr_send_text_line over a scripted
+# sequence of `pane process-info` samples, echoing "<samples> <run-after-proof>".
+send_line_ready_case() {  # <dir-suffix> <polls> <process-info-body>...
+  local dir="$TMP_ROOT/send-line-ready-$1" polls=$2 resp log fb n
+  shift 2
+  mkdir -p "$dir/responses"; resp="$dir/responses"; log="$dir/log"; : > "$log"
+  n=1
+  for body in "$@"; do
+    printf '%s\n' "$body" > "$resp/$n.out"
+    n=$((n + 1))
+  done
+  fb=$(make_herdr_fakebin "$dir")
+  PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
+    FM_BACKEND_HERDR_SEND_READY_POLLS="$polls" \
+    bash -c '. "$0/bin/backends/herdr.sh"
+      fm_backend_herdr_send_text_line fmtest:w1:p2 "export X=1" || exit 9
+      samples=$(grep -c "process-info" "$1")
+      last=$(tail -n 1 "$1")
+      case "$last" in *run*w1:p2*"export X=1"*) order=run-last ;; *) order=run-missing ;; esac
+      printf "%s %s" "$samples" "$order"' "$ROOT" "$log"
+}
+
+test_send_text_line_waits_for_the_idle_shell_before_running() {
+  local sleep_bin shell_pid out
+  sleep_bin=$(command -v sleep) || fail "sleep not found"
+  "$sleep_bin" 300 &
+  shell_pid=$!
+  # Sample 1: the shell is still busy with rc work (prompt helper in the
+  # foreground); sample 2: the shell is alone and idle. The line must be sent
+  # only after the idle sample, never into the busy rc phase.
+  out=$(send_line_ready_case settles 5 \
+    "$(prompt_helper_process_info "$shell_pid")" "$(shell_only_process_info "$shell_pid")")
+  kill "$shell_pid" 2>/dev/null || true
+  [ "$out" = "2 run-last" ] \
+    || fail "send_text_line must wait for the idle-shell proof and then run the line exactly once, got '$out'"
+  pass "herdr send_text_line: waits for the idle shell before running the line"
+}
+
+test_send_text_line_still_sends_when_the_idle_proof_never_lands() {
+  local sleep_bin shell_pid out
+  sleep_bin=$(command -v sleep) || fail "sleep not found"
+  "$sleep_bin" 300 &
+  shell_pid=$!
+  out=$(send_line_ready_case exhausted 3 \
+    "$(prompt_helper_process_info "$shell_pid")" "$(prompt_helper_process_info "$shell_pid")" \
+    "$(prompt_helper_process_info "$shell_pid")")
+  kill "$shell_pid" 2>/dev/null || true
+  [ "$out" = "3 run-last" ] \
+    || fail "an unprovable pane must still get the line after exactly the bounded sample count, got '$out'"
+  pass "herdr send_text_line: an exhausted readiness bound still sends the line"
+}
+
 test_registered_agent_with_an_agent_descendant_outside_the_foreground_stays_alive() {
   local lab standin sleep_bin shell_pid out shell_verdict
   sleep_bin=$(command -v sleep) || fail "sleep not found"
@@ -6163,6 +6215,8 @@ test_registered_agent_with_a_live_foreground_process_stays_alive
 test_registered_agent_with_a_non_shell_foreground_process_stays_alive
 test_transient_prompt_helper_settles_into_stale_agent
 test_exhausted_settle_window_keeps_a_non_shell_foreground_live
+test_send_text_line_waits_for_the_idle_shell_before_running
+test_send_text_line_still_sends_when_the_idle_proof_never_lands
 test_registered_agent_with_an_agent_descendant_outside_the_foreground_stays_alive
 test_agent_descendant_under_a_spaced_install_path_stays_alive
 test_registered_agent_with_an_unreadable_process_view_is_unknown

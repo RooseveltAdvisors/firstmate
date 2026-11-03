@@ -3289,8 +3289,17 @@ fm_backend_herdr_current_path() {  # <target>
 # ATOMICALLY - mirrors tmux's `send-keys -t T text Enter`. Used for the fixed
 # spawn-time commands (treehouse get, the GOTMPDIR export). `pane run` types
 # the command and submits it in one call (verified).
+# A fresh pane's shell can still be running its rc files when the first line
+# arrives, and an rc that flushes typeahead drops the submit, so the line merges
+# with the next send (observed live: `export X=1. '<launch file>'`). Wait up to
+# FM_BACKEND_HERDR_SEND_READY_POLLS x 0.1s for the idle-shell proof first, then
+# send regardless so a pane the proof cannot read still gets the line.
+# ponytail: one clean sample counts as ready; require two in a row if a
+# mid-rc false positive is ever observed.
 fm_backend_herdr_send_text_line() {  # <target> <text>
   fm_backend_herdr_target_ready "$1" || return 1
+  FM_BACKEND_HERDR_IDLE_SHELL_PROOF_POLLS=${FM_BACKEND_HERDR_SEND_READY_POLLS:-50} \
+    fm_backend_herdr_pane_idle_shell_pid "$FM_BACKEND_HERDR_SESSION" "$FM_BACKEND_HERDR_PANE" >/dev/null || :
   fm_backend_herdr_cli "$FM_BACKEND_HERDR_SESSION" pane run "$FM_BACKEND_HERDR_PANE" "$2" >/dev/null 2>&1
 }
 
