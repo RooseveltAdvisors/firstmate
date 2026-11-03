@@ -561,7 +561,7 @@
 # Kimi uses one surgically installed Firstmate region in $HOME/.kimi-code/config.toml,
 # a firstmate-owned global hook and registry, and a gitignored per-task pointer.
 # Kimi also gates a fresh worktree on an interactive folder-trust prompt, whose
-# wordings bin/fm-kimi-trust-lib.sh recognizes (2.0.0 and 2.3.0 recorded).
+# wordings bin/fm-kimi-trust-lib.sh recognizes (2.0.0, 2.1.1, and 2.3.0 recorded).
 # Its launch-readiness loop reads the visible viewport - so the spawn refuses at
 # preflight on a backend with no viewport-bounded capture - recognizes the
 # complete dialog, re-selects the already highlighted affirmative option on
