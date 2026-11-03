@@ -184,15 +184,39 @@ for harness in claude codex opencode pi pi-signed grok kimi cursor muse; do
   # because detect_own hands an args-strength verdict straight back to a retained
   # foreign marker.
   # The native binary can take a moment to appear, so poll for it.
+  #
+  # Eligible leaves omit a foreground child that itself is a DIFFERENT harness
+  # at comm strength when the pane process already is the expected harness at
+  # comm strength. Pi 1.4.0 keeps a cursor-agent `models` helper in the pane's
+  # foreground process group; that helper is a sibling of where detect_own runs
+  # (under the pi agent), not a vantage on the upward path a tool subprocess
+  # climbs. Including it made the reject-other cross-check report
+  # `comm cursor` beside `comm pi` as DETECTION DRIFT even though the session
+  # identity is still `pi` (evidence: data/fm-0x801/evidence-harness-drift.txt).
+  # A foreign harness leaf is still kept when the pane itself is NOT the
+  # expected harness at comm strength, so a renamed agent whose only remaining
+  # identity is a nested helper still fails the cross-check.
   pane_tty=$("$REAL_TMUX" -L "$SOCKET" display-message -p -t "$target" '#{pane_tty}' 2>/dev/null | tr -d ' ')
   verdicts=
   for _ in $(seq 1 150); do
     fg_pids=
     if [ -n "$pane_tty" ]; then
+      pane_self_verdict=$("$ROOT/bin/fm-harness.sh" ancestry "$pane_pid" 2>/dev/null || true)
       fg_pids=$(LC_ALL=C ps -t "${pane_tty#/dev/}" -o pid=,pgid=,tpgid= 2>/dev/null \
         | while read -r fg_pid fg_pgid fg_tpgid; do
             [ -n "$fg_pid" ] || continue
             [ "$fg_pgid" = "$fg_tpgid" ] || continue
+            if [ "$fg_pid" != "$pane_pid" ] \
+              && [ "$pane_self_verdict" = "comm $expect_harness" ]; then
+              leaf_verdict=$("$ROOT/bin/fm-harness.sh" ancestry "$fg_pid" 2>/dev/null || true)
+              case "$leaf_verdict" in
+                "comm $expect_harness") ;;
+                comm\ *)
+                  # Foreign harness helper nested under the expected agent.
+                  continue
+                  ;;
+              esac
+            fi
             printf '%s ' "$fg_pid"
           done)
     fi

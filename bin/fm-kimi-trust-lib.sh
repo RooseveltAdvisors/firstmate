@@ -10,6 +10,11 @@
 # The wordings recognized here were recorded from the real CLI:
 #   2.0.0 (2026-09-17): the options read `❯ Trust this folder` and
 #     `Don't trust`.
+#   2.1.1 (2026-10-25): the options still read `❯ Trust this folder` and
+#     `Don't trust`, and a directory that declares project MCP servers lists
+#     them as `Project MCP targets:` under a
+#     `Project-level MCP servers are disabled until you explicitly choose Trust`
+#     disclosure (evidence: data/fm-0x801/evidence-kimi-drift.txt).
 #   2.3.0 (2026-10-23): the options read `❯ Trust and continue` and `Exit`,
 #     and a directory that declares project MCP servers, in a root `.mcp.json`
 #     or in `.kimi-code/mcp.json`, announces them above the options as
@@ -76,14 +81,20 @@ kimi_trust_prompt_is_paged() {
 }
 
 # kimi_pane_announces_project_mcp_servers <plain-pane-capture>
-# Kimi 2.3.0 lists what trusting would activate between the directory and the
-# options; project MCP servers appear as `Start N MCP server(s) automatically`
-# over `Config: <declaring file>`. Either line alone carries the verdict, so a
-# capture that wrapped or clipped the other one still refuses.
+# True when the folder prompt discloses project MCP servers that Trust would
+# start. Recognized shapes:
+#   2.3.0+: `Start N MCP server(s) automatically` over `Config: <declaring file>`
+#   2.1.x:  `Project MCP targets:` under the project-level MCP disclosure
+# Either line of a shape alone carries the verdict, so a capture that wrapped
+# or clipped the other one still refuses. The trust decision path and the
+# MCP-target visibility are the behaviors that matter; the surface wording
+# moves with the live harness.
 kimi_pane_announces_project_mcp_servers() {
   case "$1" in
     *'Start '*' MCP server'*' automatically'*) return 0 ;;
     *'Config: '*'mcp.json'*) return 0 ;;
+    *'Project MCP targets:'*) return 0 ;;
+    *'Project-level MCP servers are disabled'*) return 0 ;;
   esac
   return 1
 }

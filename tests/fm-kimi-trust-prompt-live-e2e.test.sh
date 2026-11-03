@@ -171,7 +171,7 @@ $PANE"
   kimi_pane_announces_project_mcp_servers "$PANE" \
     || fail "$WHO: $case_name: the prompt does not announce the declared project MCP server; visible pane:
 $PANE"
-  note "$WHO: $case_name prompt announces: $(printf '%s\n' "$PANE" | grep -E 'MCP server|Config:' | sed 's/^[[:space:]]*//' | tr '\n' ';')"
+  note "$WHO: $case_name prompt announces: $(printf '%s\n' "$PANE" | grep -E 'MCP server|Config:|Project MCP' | sed 's/^[[:space:]]*//' | tr '\n' ';')"
   fm_backend_send_key tmux "$case_name" Escape || fail "$WHO: $case_name: Escape could not be sent"
   sleep 2
   assert_marker_log_empty "$case_name"

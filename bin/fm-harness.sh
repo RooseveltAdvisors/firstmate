@@ -210,7 +210,12 @@ harness_process_verdict() {  # <pid>
     *codex*) echo "comm codex"; return ;;
     *opencode*) echo "comm opencode"; return ;;
     *grok*) echo "comm grok"; return ;;
-    kimi) echo "comm kimi"; return ;;
+    # Kimi Code CLI 2.4.1 reports its process name as `kimi-code` (verified
+    # 2026-11-03: `ps -o comm=` is kimi-code while the launcher on PATH remains
+    # `kimi`). Match both the historical bare name and the current one.
+    # Anchored, never *kimi*, so unrelated commands are not misread as this
+    # harness.
+    kimi|kimi-code) echo "comm kimi"; return ;;
     rovo) echo "comm rovo"; return ;;
       # muse's installed launcher ~/.local/bin/muse execs ~/.local/bin/muse-bin-<version>
       # (verified in the published launcher, muse 0.1.0-R708.1), so the live process
