@@ -3645,7 +3645,7 @@ resolve_project_dir_arg() {
 # fm-* tool clones, the primary pane never does. Ceiling: plain clone, no
 # submodules/auth handling; add those when a spawn actually needs them.
 bootstrap_project_arg() {
-  local arg=$1 src name dest
+  local arg=$1 src name dest dest_top git_top
   case "$arg" in
   https://*|http://*|git@*|ssh://*) src=$arg ;;
   */*)
@@ -3664,6 +3664,13 @@ bootstrap_project_arg() {
     # Reuse only a git checkout whose stored origin matches the requested
     # repo (strip a trailing .git). Same-basename forks must not silently
     # adopt the wrong checkout.
+    [ -e "$dest/.git" ] &&
+      dest_top=$(cd "$dest" && pwd -P) &&
+      git_top=$(git -C "$dest" rev-parse --show-toplevel 2>/dev/null) &&
+      [ "$git_top" = "$dest_top" ] || {
+      echo "fm-spawn: refusing to reuse $dest: not a git work tree root" >&2
+      return 1
+    }
     origin=$(git -C "$dest" config --get remote.origin.url 2>/dev/null) || {
       echo "fm-spawn: refusing to reuse $dest: not a git checkout with origin" >&2
       return 1
