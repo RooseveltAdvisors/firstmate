@@ -1,0 +1,17 @@
+# Same two scenarios against the FIXED code on this branch (target commit
+# cd16e992): both are refused before any adoption, and no task record or
+# launch happens.
+
+=== fork-mismatch against bin/fm-spawn.sh ({run-worktree}/bin/fm-spawn.sh) ===
+fm-spawn: refusing to reuse /tmp/fm-prefix-repro/case-fork-cur/home/projects/tools: origin https://github.com/acme/tools.git does not match https://github.com/othercorp/tools
+{run-worktree}/bin/fm-spawn.sh: line 3873: cd: https://github.com/othercorp/tools: No such file or directory
+--- spawn exit: 1
+--- state/T1.meta:
+(no task metadata)
+
+=== stale-plain-dir against bin/fm-spawn.sh ({run-worktree}/bin/fm-spawn.sh) ===
+fm-spawn: refusing to reuse /tmp/fm-prefix-repro/case-plain-cur/home/projects/firstmate: not a git work tree root
+{run-worktree}/bin/fm-spawn.sh: line 3873: cd: https://github.com/acme/firstmate: No such file or directory
+--- spawn exit: 1
+--- state/T1.meta:
+(no task metadata)

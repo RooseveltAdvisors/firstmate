@@ -1,0 +1,20 @@
+$ bin/fm-spawn.sh T1 https://github.com/acme/tools --mode no-mistakes --yolo off
+fm-spawn: bootstrapping project tools from https://github.com/acme/tools into /tmp/fm-ev-happy.EQSIXE/home/projects/tools
+warning: /tmp/fm-ev-happy.EQSIXE/home/data/T1/launch-brief.md records no ship branch; defaulting to legacy branch fm/T1
+warning: /tmp/fm-ev-happy.EQSIXE/home/data/T1/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+notice: the primary checkout /opt/ra/firstmate is merge-and-sync only - never stage, keep, or commit work there; lane work lives in the task worktree or a pushed branch, and a primary-checkout edit lands the same turn it is made or not at all
+spawned T1 harness=codex kind=ship mode=no-mistakes yolo=off window=firstmate:fm-T1 worktree=/tmp/fm-ev-happy.EQSIXE/pane
+(exit 0)
+
+--- state/T1.meta (project= and worktree=):
+worktree=/tmp/fm-ev-happy.EQSIXE/pane
+project=/tmp/fm-ev-happy.EQSIXE/home/projects/tools
+kind=ship
+mode=no-mistakes
+
+--- git's own record of the bootstrapped clone's origin:
+https://github.com/acme/tools
+
+--- the launched worktree is a worktree OF that clone (git worktree list):
+/tmp/fm-ev-happy.EQSIXE/home/projects/tools  dc715f1 [main]
+/tmp/fm-ev-happy.EQSIXE/pane                 dc715f1 [fm/test-wt]

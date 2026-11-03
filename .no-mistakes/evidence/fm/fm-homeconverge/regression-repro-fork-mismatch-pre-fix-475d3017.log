@@ -1,0 +1,13 @@
+# Regression reproduction: the reported silent wrong-checkout reuse, driven
+# against the branch's PRE-FIX bootstrap (commit 475d3017: reuse accepted any
+# existing projects/<name> directory).
+
+=== fork-mismatch against bin/fm-spawn.sh (/tmp/fm-prefix-repro/475d3017/bin/fm-spawn.sh) ===
+warning: /tmp/fm-prefix-repro/case-fork/home/data/T1/launch-brief.md records no ship branch; defaulting to legacy branch fm/T1
+warning: /tmp/fm-prefix-repro/case-fork/home/data/T1/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+notice: the primary checkout /opt/ra/firstmate is merge-and-sync only - never stage, keep, or commit work there; lane work lives in the task worktree or a pushed branch, and a primary-checkout edit lands the same turn it is made or not at all
+spawned T1 harness=codex kind=ship mode=no-mistakes yolo=off window=firstmate:fm-T1 worktree=/tmp/fm-prefix-repro/case-fork/pane
+--- spawn exit: 0
+--- state/T1.meta:
+worktree=/tmp/fm-prefix-repro/case-fork/pane
+project=/tmp/fm-prefix-repro/case-fork/home/projects/tools

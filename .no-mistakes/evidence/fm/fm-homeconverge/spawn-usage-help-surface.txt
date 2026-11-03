@@ -1,0 +1,10 @@
+# The operator-facing help surface for the new project positional.
+$ bin/fm-spawn.sh --help (excerpt)
+Spawn a direct report: a crewmate in a treehouse or Orca worktree, or a
+secondmate in its isolated firstmate home.
+Usage: fm-spawn.sh <task-id> <project-dir-or-repo-url> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--branch-prefix <prefix>] [--base-branch <branch>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--herdr-resume-lock-wait]
+       fm-spawn.sh <task-id> <project-dir-or-repo-url> --scout [--base-branch <branch>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--herdr-resume-lock-wait]
+       fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] --secondmate
+  <project-dir-or-repo-url> is an existing project path, a git URL, or an
+  owner/name GitHub shorthand; a missing checkout is cloned into projects/.
+  --mode and --yolo are this task's delivery contract, REQUIRED for every ship

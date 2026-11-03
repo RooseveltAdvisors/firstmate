@@ -1,0 +1,9 @@
+$ bin/fm-jev-guard.sh --command "git -C projects/portal commit -m x"
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"[require_delegation] Project work must be delegated to a crewmate (Domain: project_worker; Suggested: bin/fm-spawn.sh <task-id> <project-dir-or-repo-url> --mode no-mistakes --yolo <on|off>)"}
+{"decision":"deny","reason":"[require_delegation] Project work must be delegated to a crewmate (Domain: project_worker; Suggested: bin/fm-spawn.sh <task-id> <project-dir-or-repo-url> --mode no-mistakes --yolo <on|off>)"}
+(exit 2)
+
+$ bin/fm-jev-guard.sh --command "python3 projects/portal/build.py"
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"[require_delegation] Project work must be delegated to a crewmate (Domain: project_worker; Suggested: bin/fm-spawn.sh <task-id> <project-dir-or-repo-url> --mode no-mistakes --yolo <on|off>)"}
+{"decision":"deny","reason":"[require_delegation] Project work must be delegated to a crewmate (Domain: project_worker; Suggested: bin/fm-spawn.sh <task-id> <project-dir-or-repo-url> --mode no-mistakes --yolo <on|off>)"}
+(exit 2)

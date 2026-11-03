@@ -1,0 +1,14 @@
+# Regression reproduction: the git walk-up adoption of a stale plain dir,
+# driven against the branch's pre-work-tree-root-gate code (commit 64d6c9dc:
+# origin check trusts git config discovery, which walks up to the enclosing
+# home checkout).
+
+=== stale-plain-dir against bin/fm-spawn.sh (/tmp/fm-prefix-repro/64d6c9dc/bin/fm-spawn.sh) ===
+warning: /tmp/fm-prefix-repro/case-plain/home/data/T1/launch-brief.md records no ship branch; defaulting to legacy branch fm/T1
+warning: /tmp/fm-prefix-repro/case-plain/home/data/T1/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+notice: the primary checkout /opt/ra/firstmate is merge-and-sync only - never stage, keep, or commit work there; lane work lives in the task worktree or a pushed branch, and a primary-checkout edit lands the same turn it is made or not at all
+spawned T1 harness=codex kind=ship mode=no-mistakes yolo=off window=firstmate:fm-T1 worktree=/tmp/fm-prefix-repro/case-plain/pane
+--- spawn exit: 0
+--- state/T1.meta:
+worktree=/tmp/fm-prefix-repro/case-plain/pane
+project=/tmp/fm-prefix-repro/case-plain/home/projects/firstmate
