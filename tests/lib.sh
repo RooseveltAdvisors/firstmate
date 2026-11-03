@@ -52,12 +52,6 @@ export FM_GATE_REFUSE_BYPASS=1
 # leaked harness pin alone stays inert outside a suite.
 export FM_TEST_SEAM=1
 
-# Every spawn runs bin/fm-jev-quota-prober.sh, which refuses a lane quota-axi
-# reports exhausted. Under the seam above it reads this all-healthy quota-axi
-# snapshot instead of the host's quota-axi; a case that needs other quota
-# evidence points FM_TEST_QUOTA_SNAPSHOT at its own file.
-export FM_TEST_QUOTA_SNAPSHOT="${FM_TEST_QUOTA_SNAPSHOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/assets/quota-axi-healthy.json}"
-
 # Clear the task-worker marker bin/fm-spawn.sh exports into ship and scout
 # panes. This suite builds git-init fixture repositories whose primary checkout
 # it runs a copied bin/fm-test-run.sh in, and that runner refuses the primary
@@ -68,10 +62,6 @@ unset FM_TASK_ID
 # shell would send live typesafe.ai calls from watcher tests on the fail-open
 # path; those suites unset it here and the helper never reads .env.
 unset TYPESAFE_API_KEY TYPESAFE_API_KEY_PRIVATE
-
-# Disable heavy Jev background sweeps and seat auto-reconciler during test suites
-export FM_TEST_DISABLE_JEV_RECONCILER=1
-export FM_DISABLE_JEV_WATCHER_GUARDS=1
 
 # Clear the tasks-axi env overrides. An operator shell exports TASKS_AXI_FILE
 # (and may export TASKS_AXI_BACKEND) at its real home's backlog, and tasks-axi

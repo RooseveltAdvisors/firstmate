@@ -12,8 +12,9 @@
 #   fm-lease.sh claim <task> [--actor main|branch]
 #       Take the lease for the calling actor. Idempotent for the holder (the
 #       claim refreshes its own lease). Refuses with exit 6 while the other
-#       actor holds a live lease. A stale lease (dead pid, or a torn record)
-#       is cleared and re-claimed.
+#       actor holds a live lease. A stale lease (dead pid, a branch lease
+#       whose recorded turn has ended, or a torn record) is cleared and
+#       re-claimed.
 #   fm-lease.sh release <task> [--actor main|branch]
 #       Drop the calling actor's lease. Releasing a lease the actor does not
 #       hold is a silent no-op, so a retry after a partial failure is safe.
@@ -149,8 +150,17 @@ case "$CMD" in
       HOLDER_PID=$LOCK_PID
     fi
     [ -n "$HOLDER_PID" ] || HOLDER_PID=$$
+    # A branch claim mid-turn records the owning turn as a fourth field, so
+    # the lease dies with that turn instead of with the session (the
+    # turn-token contract in bin/fm-lease-lib.sh's header). The env is the
+    # one fm-branch-report.sh validates; a value that fails its charset is no
+    # token at all, never a recorded attacker string. Main never carries one.
+    TOKEN=
+    if [ "$ACTOR" = branch ] && fm_lease_valid_id "${FM_BRANCH_REPORT_TURN:-}"; then
+      TOKEN="turn:${FM_BRANCH_REPORT_TURN}"
+    fi
     TMP=$(mktemp "$STATE/.fm-lease-tmp.XXXXXX")
-    printf '%s\t%s\t%s\n' "$ACTOR" "$HOLDER_PID" "$(date +%s)" > "$TMP"
+    fm_lease_format "$ACTOR" "$HOLDER_PID" "$(date +%s)" "$TOKEN" > "$TMP"
     if [ -e "$LEASE" ]; then
       # Same-actor refresh, or a stale/torn record: replace atomically.
       mv -f -- "$TMP" "$LEASE"
@@ -162,7 +172,7 @@ case "$CMD" in
         exit "$FM_LEASE_REFUSE_EXIT"
       fi
       TMP=$(mktemp "$STATE/.fm-lease-tmp.XXXXXX")
-      printf '%s\t%s\t%s\n' "$ACTOR" "$HOLDER_PID" "$(date +%s)" > "$TMP"
+      fm_lease_format "$ACTOR" "$HOLDER_PID" "$(date +%s)" "$TOKEN" > "$TMP"
       mv -f -- "$TMP" "$LEASE"
     else
       rm -f -- "$TMP"

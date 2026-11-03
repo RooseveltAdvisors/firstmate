@@ -16,6 +16,9 @@
 # locked drain rotates such leftovers away before doing anything else.
 # FM_STATUS_PRESENTATION_LOCK_TIMEOUT sets the positive whole-second wait for
 # presentation-path locks (default 10); queue mutation locks remain blocking.
+# Present verdict=captain rows first, then signal/corr=/bead= rows, stale,
+# check, then heartbeat.
+# ponytail: oldest-first within each class, then sequence order.
 set -u
 
 SCRIPT_DIR="$(d=${BASH_SOURCE[0]%/*}; [ "$d" != "${BASH_SOURCE[0]}" ] || d=.; cd "${d:-/}" && pwd)"
@@ -1049,7 +1052,13 @@ awk -F '\t' -v seqs="$ACTOR_ROWS_FILE" '
   BEGIN { while ((getline line < seqs) > 0) keep[line]=1 }
   NF >= 5 && ($2 in keep)
 ' "$FM_WAKE_QUEUE" > "$DRAIN_VIEW_TMP" || exit 1
-RAW_ROWS=$(fm_wake_print_deduped "$DRAIN_VIEW_TMP") || exit "$?"
+RAW_ROWS=$(
+  set -o pipefail
+  fm_wake_print_deduped "$DRAIN_VIEW_TMP" | awk -F '\t' '
+    { priority = ($5 ~ /verdict=captain$/) ? -1 : (($3 == "signal" || $5 ~ /corr=|bead=/) ? 0 : ($3 == "stale" ? 1 : ($3 == "check" ? 2 : 3)))
+      print priority "\t" $0 }
+  ' | LC_ALL=C sort -t $'\t' -k1,1n -k2,2n -k3,3n | cut -f2-
+) || exit "$?"
 rm -f -- "$DRAIN_VIEW_TMP" || exit 1
 DRAIN_VIEW_TMP=
 ACK_THROUGH=$(printf '%s\n' "$RAW_ROWS" | awk -F '\t' '$2 ~ /^[0-9]+$/ && $2 > max { max=$2 } END { print (max == "" ? 0 : max) }') || exit 1

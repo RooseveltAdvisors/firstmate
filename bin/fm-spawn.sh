@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Spawn a direct report: a crewmate in a treehouse or Orca worktree, or a
 # secondmate in its isolated firstmate home.
-# Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--branch-prefix <prefix>] [--base-branch <branch>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--herdr-resume-lock-wait]
-#        fm-spawn.sh <task-id> <project-dir> --scout [--base-branch <branch>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--herdr-resume-lock-wait]
+# Usage: fm-spawn.sh <task-id> <project-dir-or-repo-url> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--branch-prefix <prefix>] [--base-branch <branch>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--herdr-resume-lock-wait]
+#        fm-spawn.sh <task-id> <project-dir-or-repo-url> --scout [--base-branch <branch>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--herdr-resume-lock-wait]
 #        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] --secondmate
+#   <project-dir-or-repo-url> is an existing project path, a git URL, or an
+#   owner/name GitHub shorthand; a missing checkout is cloned into projects/.
 #   --mode and --yolo are this task's delivery contract, REQUIRED for every ship
 #   spawn and refused on --scout and --secondmate spawns. Firstmate resolves both
 #   per task at intake (AGENTS.md section 7); data/projects.md holds the captain's
@@ -354,7 +356,7 @@
 #   containment test reads local refs only and never fetches, so this gate stays
 #   usable offline; a stale remote-tracking ref can therefore make an unpushed
 #   commit look contained, which is exactly why no remedy command is printed.
-# Batch dispatch: pass one or more `id=repo` pairs instead of a single <id> <project>, e.g.
+# Batch dispatch: pass one or more `id=repo` pairs instead of a single <id> <project-dir-or-repo-url>, e.g.
 #     fm-spawn.sh fix-a-k3=projects/foo add-b-q7=projects/bar [--scout]
 #   Each pair re-execs this script in single-task mode, so the single path stays the only
 #   source of truth; shared --scout/--harness/--model/--effort/--backend/--mode/--yolo
@@ -3172,62 +3174,6 @@ if [ -n "$WORKER_ACCOUNT" ] && [ "$HARNESS" = claude ]; then
   fi
 fi
 
-# Jev Pattern 9: pre-flight quota verdict. bin/fm-jev-quota-prober.py's header
-# owns the verdicts; quota-axi is their only source and the prober's stderr
-# (unknown and refusal diagnostics) stays visible. Only exhausted refuses;
-# healthy, unmetered, unknown and a prober that returned no verdict launch as
-# requested, and nothing diverts blindly.
-# A divert target is re-probed here and must itself come back healthy, so an
-# exhausted lane cannot be launched even if a future prober path returned one.
-# The disable switch is a test seam only and is inert outside the suite.
-if ! { [ "${FM_TEST_SEAM:-}" = 1 ] && [ "${FM_TEST_DISABLE_JEV_PROBER:-0}" = 1 ]; } && [ -x "$SCRIPT_DIR/fm-jev-quota-prober.sh" ]; then
-  _pre_divert_harness=$HARNESS
-  _jev_rc=0
-  _jev_out=$("$SCRIPT_DIR/fm-jev-quota-prober.sh" --harness "$HARNESS" ${MODEL:+--model "$MODEL"} --auto-divert) || _jev_rc=$?
-  read -r _jev_verdict _jev_harness _jev_model <<< "$_jev_out" || :
-  case "${_jev_verdict:-}" in
-  healthy | unmetered | unknown) ;;
-  diverted)
-    _jev_check=$("$SCRIPT_DIR/fm-jev-quota-prober.sh" --harness "$_jev_harness" --model "$_jev_model") || :
-    if [ "$_jev_check" != "healthy $_jev_harness $_jev_model" ]; then
-      echo "error: jev-quota-prober divert target $_jev_harness:$_jev_model is not healthy in quota-axi (${_jev_check:-no verdict}); not launching" >&2
-      exit 1
-    fi
-    echo "jev-quota-prober: diverted $HARNESS${MODEL:+:$MODEL} to quota-axi-healthy lane $_jev_harness:$_jev_model" >&2
-    HARNESS=$_jev_harness
-    MODEL=$_jev_model
-    if [ "$HARNESS" != "$_pre_divert_harness" ]; then
-      # The launch template and per-harness resolution above were chosen
-      # for the original harness. A cross-harness divert must rebuild both,
-      # or the __PIBIN__ substitution below reads PI_BIN unbound under
-      # set -u and every diverted-to-pi spawn dies before launch. Divert
-      # targets are the prober's DIVERT_LANES (pi) only; another
-      # target harness needs its own resolution case added here.
-      LAUNCH=$(launch_template "$HARNESS" "$KIND") || {
-        echo "error: no launch template for diverted harness '$HARNESS'" >&2
-        exit 1
-      }
-      case "$HARNESS" in
-      pi | pi-signed) resolve_pi_harness_launch || exit 1 ;;
-      esac
-    fi
-    ;;
-  exhausted)
-    echo "error: jev-quota-prober refused $HARNESS${MODEL:+:$MODEL} (verdict: exhausted); not launching" >&2
-    exit 1
-    ;;
-  *)
-    echo "jev-quota-prober: prober returned no verdict for $HARNESS:${MODEL:--} (exit $_jev_rc); quota guard absent for this launch, launching as requested" >&2
-    ;;
-  esac
-fi
-
-# Jev Pattern 11: Auto-reconcile dormant completed babysitter seats
-if [ "${FM_TEST_DISABLE_JEV_RECONCILER:-0}" != 1 ] && [ -x "$SCRIPT_DIR/fm-jev-seat-reconciler.sh" ]; then
-  "$SCRIPT_DIR/fm-jev-seat-reconciler.sh" --reconcile >/dev/null 2>&1 || true
-fi
-
-
 secondmate_registry_value() {
   secondmate_registry_field "$DATA/secondmates.md" "$1" "$2"
 }
@@ -3694,6 +3640,55 @@ resolve_project_dir_arg() {
   esac
 }
 
+# ponytail: bootstrap a not-yet-cloned project from a repo URL or owner/name
+# shorthand so delegation never deadlocks on a missing checkout; the trusted
+# fm-* tool clones, the primary pane never does. Ceiling: plain clone, no
+# submodules/auth handling; add those when a spawn actually needs them.
+bootstrap_project_arg() {
+  local arg=$1 src name dest dest_top git_top
+  case "$arg" in
+  https://*|http://*|git@*|ssh://*) src=$arg ;;
+  */*)
+    case "$arg" in
+    */*/*|projects/*|./*|/*|../*) return 1 ;;
+    esac
+    [ ! -e "$arg" ] || return 1
+    src="https://github.com/$arg"
+    ;;
+  *) return 1 ;;
+  esac
+  name=$(basename "$arg"); name=${name%.git}
+  [ -n "$name" ] && [ "$name" != "." ] && [ "$name" != ".." ] || return 1
+  dest="$PROJECTS/$name"
+  if [ -d "$dest" ]; then
+    # Reuse only a git checkout whose stored origin matches the requested
+    # repo (strip a trailing .git). Same-basename forks must not silently
+    # adopt the wrong checkout.
+    [ -e "$dest/.git" ] &&
+      dest_top=$(cd "$dest" && pwd -P) &&
+      git_top=$(git -C "$dest" rev-parse --show-toplevel 2>/dev/null) &&
+      [ "$git_top" = "$dest_top" ] || {
+      echo "fm-spawn: refusing to reuse $dest: not a git work tree root" >&2
+      return 1
+    }
+    origin=$(git -C "$dest" config --get remote.origin.url 2>/dev/null) || {
+      echo "fm-spawn: refusing to reuse $dest: not a git checkout with origin" >&2
+      return 1
+    }
+    norm_origin=${origin%.git}
+    norm_src=${src%.git}
+    if [ "$norm_origin" != "$norm_src" ]; then
+      echo "fm-spawn: refusing to reuse $dest: origin $origin does not match $src" >&2
+      return 1
+    fi
+    printf '%s\n' "$dest"
+    return 0
+  fi
+  echo "fm-spawn: bootstrapping project $name from $src into $dest" >&2
+  git clone --quiet "$src" "$dest" 1>&2 || return 1
+  printf '%s\n' "$dest"
+}
+
 path_is_ancestor_of() {
   local ancestor=$1 path=$2
   [ -n "$ancestor" ] || return 1
@@ -3870,7 +3865,12 @@ if [ "$KIND" = secondmate ]; then
     BRIEF="$DATA/$ID/brief.md"
   fi
 else
-  PROJ_ABS="$(cd "$(resolve_project_dir_arg "$PROJ")" && pwd)"
+  PROJ_ABS=$(resolve_project_dir_arg "$PROJ")
+  if [ ! -d "$PROJ_ABS" ]; then
+    # ponytail: missing checkout + URL/shorthand arg -> clone it, never deadlock.
+    BOOTSTRAPPED=$(bootstrap_project_arg "$PROJ") && { PROJ=$BOOTSTRAPPED; PROJ_ABS=$BOOTSTRAPPED; }
+  fi
+  PROJ_ABS="$(cd "$PROJ_ABS" && pwd)"
   WT=""
   BRIEF="$DATA/$ID/brief.md"
 fi
@@ -5931,7 +5931,6 @@ esac
 # can plant or swap a file in it. The staged launch command lives in a sibling
 # directory namespaced by home identity, not in this shared per-id root.
 TASK_TMP="/tmp/fm-$ID"
-[ -x "$SCRIPT_DIR/fm-jev-temp-sanitizer.sh" ] && "$SCRIPT_DIR/fm-jev-temp-sanitizer.sh" --target "$ID" --sanitize >/dev/null 2>&1 || true
 if (umask 077 && mkdir "$TASK_TMP") 2>/dev/null; then
   [ "$HARNESS" != polytoken ] || SPAWN_TASK_TMP_CREATED=1
 else

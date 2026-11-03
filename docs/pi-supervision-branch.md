@@ -249,6 +249,9 @@ That work is tracked as follow-up `fm-pi-routine-delivery-idempotency-followup-r
 
 `bin/fm-lease.sh` is the command surface.
 
+While the branch handles a wake, the extension keeps that turn's record in `state/.branch-turn` and gives the branch's shell the turn's id as `FM_BRANCH_REPORT_TURN`.
+Removing the record at settlement and at shutdown makes every lease the branch claimed during that turn stale, under the turn-token contract in `bin/fm-lease-lib.sh` (`tests/fm-pi-branch-extension.test.sh`).
+
 The guards are wired into these scripts:
 
 | Scripts | Guard behavior |

@@ -376,7 +376,7 @@ wake_for() {
   # shellcheck disable=SC1091
   . "$lib"
   fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK"
-  if fm_wake_append_locked check "$wake_key" "check: mail $id - $summary"; then
+  if fm_wake_append_locked check "$wake_key" "check: mail $id - $summary verdict=captain"; then
     if mail_record_evidence "$generation" "$id" "$tag"; then
       :
     elif mail_rollback_wake_locked "$wake_key" "$generation" "$id"; then

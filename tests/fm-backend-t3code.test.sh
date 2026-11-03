@@ -2183,7 +2183,7 @@ test_secondmate_teardown_archives_thread_before_home_removal_without_project_del
   PROVIDER_PID=$!
   out=$( PATH="$(fm_test_base_path_sans "$PATH" lsof)" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$CASE_DIR/home" \
     FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" \
-    "$ROOT/bin/fm-teardown.sh" "$id" --force 2>&1 )
+    "$ROOT/bin/fm-teardown.sh" "$id" --force --retire-secondmate "$id" 2>&1 )
   rc=$?
   [ "$rc" -ne 0 ] || fail "teardown must refuse a T3 secondmate when lsof is unavailable"$'\n'"$out"
   assert_contains "$out" "lsof is unavailable" "the refusal names the missing lsof"
@@ -2196,7 +2196,7 @@ test_secondmate_teardown_archives_thread_before_home_removal_without_project_del
   chmod +x "$nolsof/lsof"
   out=$( PATH="$nolsof:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$CASE_DIR/home" \
     FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" \
-    "$ROOT/bin/fm-teardown.sh" "$id" --force 2>&1 )
+    "$ROOT/bin/fm-teardown.sh" "$id" --force --retire-secondmate "$id" 2>&1 )
   rc=$?
   [ "$rc" -ne 0 ] || fail "teardown must refuse when it cannot prove the home's processes ended"$'\n'"$out"
   assert_contains "$out" "cannot determine leaked processes" "the refusal names the unproven process scan"
@@ -2205,7 +2205,7 @@ test_secondmate_teardown_archives_thread_before_home_removal_without_project_del
   kill -0 "$PROVIDER_PID" 2>/dev/null || fail "the refused teardown must not have touched the provider"
   out=$( FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$CASE_DIR/home" \
     FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" \
-    "$ROOT/bin/fm-teardown.sh" "$id" --force 2>&1 )
+    "$ROOT/bin/fm-teardown.sh" "$id" --force --retire-secondmate "$id" 2>&1 )
   rc=$?
   expect_code 0 "$rc" "t3code secondmate teardown should succeed"$'\n'"$out"
   ! kill -0 "$PROVIDER_PID" 2>/dev/null || fail "a provider process rooted in the home must be ended before the home is removed"
@@ -2505,7 +2505,7 @@ TH
   chmod +x "$fb/treehouse"
   out=$( PATH="$fb:$PATH" FM_ROOT_OVERRIDE="$root" FM_HOME="$CASE_DIR/home" \
     FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$CONFIG" \
-    "$ROOT/bin/fm-teardown.sh" "$id" --force 2>&1 )
+    "$ROOT/bin/fm-teardown.sh" "$id" --force --retire-secondmate "$id" 2>&1 )
   rc=$?
   kill "$provider" 2>/dev/null || true
   wait "$provider" 2>/dev/null || true
@@ -2548,7 +2548,7 @@ test_nested_t3_secondmate_home_reaped_before_removal() {
   PROVIDER_PID=$!
   out=$( FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$CASE_DIR/home" \
     FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$CONFIG" \
-    "$ROOT/bin/fm-teardown.sh" "$id" --force 2>&1 )
+    "$ROOT/bin/fm-teardown.sh" "$id" --force --retire-secondmate "$id" 2>&1 )
   rc=$?
   expect_code 0 "$rc" "forced teardown of a T3 secondmate with a nested T3 secondmate should succeed"$'\n'"$out"
   ! kill -0 "$PROVIDER_PID" 2>/dev/null || fail "a provider process rooted in the nested secondmate's home must be ended before that home is removed"$'\n'"$out"

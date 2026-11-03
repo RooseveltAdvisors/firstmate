@@ -43,6 +43,16 @@ drain_and_ack() {  # <state>
   local state=$1 err sequence generation
   err="$state/.test-drain.err"
   FM_STATE_OVERRIDE="$state" "$DRAIN" >/dev/null 2> "$err" || return 1
+  if ! grep -q '^WAKE_ACK_REQUIRED:' "$err"; then
+    rm -f "$err"
+    # The drain offers the acknowledgement command exactly when one is
+    # required. An interrupted watcher whose EXIT cleanup could not republish
+    # its downtime episode (the bounded give-up) leaves nothing to consume, so
+    # nothing carries into the next arm only when the durable queue really is
+    # empty; a row left there would ride into the next arm unhandled.
+    [ ! -s "$state/.wake-queue" ]
+    return
+  fi
   sequence=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation [A-Za-z0-9._-][A-Za-z0-9._-]*$/\1/p' "$err")
   generation=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through [0-9][0-9]* --recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' "$err")
   rm -f "$err"

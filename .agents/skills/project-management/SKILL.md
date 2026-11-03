@@ -14,6 +14,7 @@ Use this procedure before adding, creating, removing, or initializing a project.
 Cloning or registering a project is add intake and uses the same trigger.
 This skill is the single owner of Firstmate's project-management procedure.
 It does not replace `secondmate-provisioning`, which owns project clones inside persistent secondmate homes.
+A spawn-time bootstrap clone of a not-yet-cloned repo URL into `projects/` is not add intake either: `bin/fm-spawn.sh`'s header owns that plain clone, which records no registry entry.
 
 ## Preconditions and registry
 

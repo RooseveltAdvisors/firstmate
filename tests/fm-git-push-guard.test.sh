@@ -115,7 +115,11 @@ test_empty_prefix_still_refuses_the_task_branch() {
 test_repository_pre_push_still_chains() {
   local hooks_dir marker
   fixture chain fm/ backup
-  hooks_dir=$(git -C "$FX_WT" rev-parse --path-format=absolute --git-path hooks)
+  # The repository's own hooks live at the common dir's hooks path, which is
+  # where the guard wrapper chains (it strips its own hooksPath binding first).
+  # `rev-parse --git-path hooks` would resolve the worktree-scoped guard dir
+  # instead, and install leaves that directory read-only on purpose.
+  hooks_dir=$(git -C "$FX_WT" rev-parse --path-format=absolute --git-common-dir)/hooks
   mkdir -p "$hooks_dir"
   marker="$TMP_ROOT/chain/pre-push-ran"
   cat >"$hooks_dir/pre-push" <<EOF

@@ -75,7 +75,7 @@ SH
 chmod +x "$FAKEBIN/gh"
 
 run_state() {
-  FM_DISABLE_JEV_TRIAGE=1 PATH="$FAKEBIN:$PATH" "$SCRIPT" https://github.com/o/r/pull/7
+  PATH="$FAKEBIN:$PATH" "$SCRIPT" https://github.com/o/r/pull/7
 }
 
 # reviews "<login> <state> <commit> <submitted_at>"... prints the JSON array

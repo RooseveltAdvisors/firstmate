@@ -240,7 +240,8 @@ It never initiates a survey or audit during recovery.
 
 A secondmate is persistent by default.
 An empty queue is healthy and does not trigger teardown.
-Run `bin/fm-teardown.sh <id>` for `kind=secondmate` only when the captain or main firstmate explicitly decides to retire that persistent second mate.
+Run `bin/fm-teardown.sh <id> --retire-secondmate <id>` for `kind=secondmate` only when the captain or main firstmate explicitly decides to retire that persistent second mate.
+The `--retire-secondmate` value must name that exact home and a teardown without it refuses before anything changes; [`bin/fm-teardown.sh`](../../../bin/fm-teardown.sh)'s header owns the flag's exact rules.
 
 The safety check is the secondmate's own home.
 Teardown refuses while its `state/*.meta` contains in-flight work.
