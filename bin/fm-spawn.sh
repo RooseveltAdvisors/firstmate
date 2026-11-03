@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Spawn a direct report: a crewmate in a treehouse or Orca worktree, or a
 # secondmate in its isolated firstmate home.
-# Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--branch-prefix <prefix>] [--base-branch <branch>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--herdr-resume-lock-wait]
-#        fm-spawn.sh <task-id> <project-dir> --scout [--base-branch <branch>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--herdr-resume-lock-wait]
+# Usage: fm-spawn.sh <task-id> <project-dir-or-repo-url> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--branch-prefix <prefix>] [--base-branch <branch>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--herdr-resume-lock-wait]
+#        fm-spawn.sh <task-id> <project-dir-or-repo-url> --scout [--base-branch <branch>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--herdr-resume-lock-wait]
 #        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] --secondmate
+#   <project-dir-or-repo-url> is an existing project path, a git URL, or an
+#   owner/name GitHub shorthand; a missing checkout is cloned into projects/.
 #   --mode and --yolo are this task's delivery contract, REQUIRED for every ship
 #   spawn and refused on --scout and --secondmate spawns. Firstmate resolves both
 #   per task at intake (AGENTS.md section 7); data/projects.md holds the captain's
@@ -3658,7 +3660,23 @@ bootstrap_project_arg() {
   name=$(basename "$arg"); name=${name%.git}
   [ -n "$name" ] && [ "$name" != "." ] && [ "$name" != ".." ] || return 1
   dest="$PROJECTS/$name"
-  [ -d "$dest" ] && { printf '%s\n' "$dest"; return 0; }
+  if [ -d "$dest" ]; then
+    # Reuse only a git checkout whose stored origin matches the requested
+    # repo (strip a trailing .git). Same-basename forks must not silently
+    # adopt the wrong checkout.
+    origin=$(git -C "$dest" config --get remote.origin.url 2>/dev/null) || {
+      echo "fm-spawn: refusing to reuse $dest: not a git checkout with origin" >&2
+      return 1
+    }
+    norm_origin=${origin%.git}
+    norm_src=${src%.git}
+    if [ "$norm_origin" != "$norm_src" ]; then
+      echo "fm-spawn: refusing to reuse $dest: origin $origin does not match $src" >&2
+      return 1
+    fi
+    printf '%s\n' "$dest"
+    return 0
+  fi
   echo "fm-spawn: bootstrapping project $name from $src into $dest" >&2
   git clone --quiet "$src" "$dest" 1>&2 || return 1
   printf '%s\n' "$dest"
