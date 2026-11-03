@@ -1029,8 +1029,9 @@ for arg in "$@"; do
 done
 case "$field:$pid" in
   comm=:4242) printf '/opt/kimi/bin/kimi\n' ;;
+  comm=:5252) printf 'kimi-code\n' ;;
   comm=:*) printf '/bin/bash\n' ;;
-  ppid=:4242) printf '1\n' ;;
+  ppid=:4242|ppid=:5252) printf '1\n' ;;
   ppid=:*) printf '4242\n' ;;
   args=:*) printf 'bash\n' ;;
 esac
@@ -1047,6 +1048,13 @@ SH
   out=$(env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI \
     CLAUDECODE=1 PATH="$fakebin:$BASE_PATH" FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh")
   [ "$out" = kimi ] || fail "an inherited CLAUDECODE renamed markerless kimi, got '$out'"
+  # Kimi 2.4.1 reports the live process name as `kimi-code` while the launcher
+  # on PATH remains `kimi`; both must resolve to the kimi family.
+  out=$(env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
+    -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI \
+    PATH="$fakebin:$BASE_PATH" FM_CONFIG_OVERRIDE="$cfg" \
+    "$ROOT/bin/fm-harness.sh" ancestry 5252)
+  [ "$out" = "comm kimi" ] || fail "kimi-code process name returned '$out', expected 'comm kimi'"
   pass "fm-harness: markerless kimi keeps its ancestry identity under an inherited marker"
 }
 
@@ -1261,6 +1269,31 @@ test_kimi_230_prompt_that_pages_its_disclosure_receives_no_key() {
   pass "fm-spawn: a recorded Kimi 2.3.0 prompt that pages its disclosure receives no key, because the announcement can sit on a hidden page"
 }
 
+# Portable pin of kimi_pane_announces_project_mcp_servers across live wordings.
+# The 2.1.1 and 2.3.0 shapes come from the committed capture families under
+# tests/captures/; a plain trust dialog must not announce.
+test_kimi_announce_predicate_recognizes_211_and_230_mcp_wordings() {
+  # shellcheck source=/dev/null
+  . "$ROOT/bin/fm-kimi-trust-lib.sh"
+  local pane_211 pane_230 pane_plain
+  pane_211=$(sed 's|{WORKDIR}|/tmp/fm-kimi-trust/root-mcp-json|g' \
+    "$ROOT/tests/captures/kimi-2.1.1/root-mcp-json.pane")
+  pane_230=$(sed 's|{WORKDIR}|/tmp/fm-kimi-trust/root-mcp-json|g' \
+    "$ROOT/tests/captures/kimi-code-2.3.0/root-mcp-json.pane")
+  pane_plain=$(sed 's|{WORKDIR}|/tmp/fm-kimi-trust/plain|g' \
+    "$ROOT/tests/captures/kimi-code-2.3.0/plain.pane")
+  kimi_pane_announces_project_mcp_servers "$pane_211" \
+    || fail "2.1.1 Project MCP targets disclosure was not recognized as an announcement"
+  kimi_trust_dialog_is_visible "$pane_211" \
+    || fail "2.1.1 Trust this folder / Don't trust dialog was not recognized as complete"
+  kimi_pane_announces_project_mcp_servers "$pane_230" \
+    || fail "2.3.0 Start N MCP server automatically disclosure was not recognized as an announcement"
+  if kimi_pane_announces_project_mcp_servers "$pane_plain"; then
+    fail "a plain trust dialog with no project MCP servers was misread as announcing them"
+  fi
+  pass "kimi_pane_announces_project_mcp_servers: 2.1.1 and 2.3.0 MCP wordings announce; a plain dialog does not"
+}
+
 test_kimi_hook_install_is_surgical_idempotent_and_removable
 test_kimi_hook_remove_preserves_owned_newline_boundary
 test_kimi_hook_fails_closed_on_missing_malformed_or_partial_config
@@ -1296,3 +1329,4 @@ test_kimi_230_prompt_announcing_a_root_mcp_json_server_receives_no_key
 test_kimi_230_prompt_announcing_a_kimi_code_mcp_json_server_receives_no_key
 test_kimi_230_prompt_in_a_terminal_too_small_to_confirm_receives_no_key
 test_kimi_230_prompt_that_pages_its_disclosure_receives_no_key
+test_kimi_announce_predicate_recognizes_211_and_230_mcp_wordings

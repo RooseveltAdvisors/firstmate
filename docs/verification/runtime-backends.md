@@ -125,6 +125,16 @@ The guarantee this guard holds is a strength claim, not only an identity one, be
 A pane-only probe would have observed `args codex`, passed, and gone on passing if a later release stopped spawning the native child, while real sessions silently regressed to the original bug.
 Probing from below asks the question from the vantage a tool subprocess actually occupies, so the guard can require comm strength somewhere in the session and require every comm-strength vantage to name the same harness.
 The vantage set stops at the upward path rather than the whole subtree, because `harness_ancestry` only ever climbs and a sibling branch is therefore a vantage firstmate's own detection can never occupy.
+Eligible foreground leaves also drop a child that itself is a different harness at comm strength when the pane process already is the expected harness at comm strength.
+Pi 1.4.0 keeps a cursor-agent `models` helper in the pane's foreground process group; that helper is a sibling of where `detect_own` runs under the pi agent, so including it produced `comm cursor` beside `comm pi` as a false DETECTION DRIFT (bead fm-zpdvi).
+A foreign harness leaf is still kept when the pane itself is not the expected harness at comm strength, so a renamed agent whose only remaining identity is a nested helper still fails the cross-check.
+Observed on 2026-11-03 for pi 1.4.0 after that filter:
+
+```text
+# pi 1.4.0: title='pi' foreground=[pi MainThread ]
+# pi 1.4.0: ancestry verdicts=[comm pi]
+```
+
 The reject-other-harness cross-check judges comm-strength vantages only, because an args-strength verdict is path-ambiguous by construction: a harness-spawned MCP server running as `node <home>/.claude/mcp/<server>.js` answers `args claude` purely from the `.claude` path component, and such a server is normally a child of the agent binary, so it can be the deepest descendant and sit on this path.
 That narrowing changes only which vantages the cross-check judges; the comm-strength requirement itself is unchanged.
 A single-process harness has no descendant that adds a distinct verdict, which is why `claude` reports one.
@@ -182,6 +192,7 @@ Observed identities, and the resulting verdict:
 
 In that 2026-08-03 seven-adapter run, Claude Code was the only harness whose title did not attribute it; every other adapter was attributed by both sources.
 Codex reported `codex-aarch64-a` at 0.145.0 and `codex` at 0.146.0, and Kimi Code reported `kimi-code` as its foreground `comm` at 0.29.1 and `kimi` at 0.31.1, so these identities move between ordinary patch releases in both directions.
+Kimi 2.4.1 again reports `kimi-code` (verified 2026-11-03), so `bin/fm-harness.sh` matches both `kimi` and `kimi-code` at comm strength.
 That is the evidence for treating any single process name as a surface under vendor control rather than a stable contract.
 
 The crewmate-only Muse Code 0.1.0-R708.1 adapter was verified separately on 2026-08-05 against tmux on macOS arm64.
@@ -429,7 +440,9 @@ Kimi 2.3.0 reworded its folder prompt: the options read `Trust and continue` and
 It also reads a root `.mcp.json` at the git worktree root as a project declaration, which its documentation does not name; the prompt's `Config:` line names whichever file declared the servers.
 Pressing Enter on an announcing prompt started the declared stdio command before any login, so `bin/fm-spawn.sh` never answers one.
 In a pane too short for the prompt Kimi shows only the title and `Enlarge terminal to review sources. Esc exit.`, and in a pane a few rows taller it keeps the complete dialog and pages the lines between the directory and the options, marked `←→ page · N / M`, which can hide the announcement.
-`bin/fm-kimi-trust-lib.sh` owns the predicates and `tests/captures/kimi-code-2.3.0/README.md` the recorded panes.
+Kimi 2.1.1 used the earlier option pair `Trust this folder` / `Don't trust` and announced project MCP servers as `Project MCP targets:` under a `Project-level MCP servers are disabled until you explicitly choose Trust` disclosure (bead fm-8vs6t; capture `tests/captures/kimi-2.1.1/`).
+`bin/fm-kimi-trust-lib.sh` owns the predicates for every recorded wording, and `tests/captures/kimi-code-2.3.0/README.md` owns the 2.3.0 recorded panes.
+The portable suite pins both the 2.1.1 and 2.3.0 announcement shapes, and that a plain dialog does not announce.
 The default-on live guard launches the installed Kimi bare in a private tmux server, spends no tokens, needs no login, and refreshes this evidence:
 
 ```sh

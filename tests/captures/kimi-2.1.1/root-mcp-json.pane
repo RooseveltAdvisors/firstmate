@@ -1,0 +1,14 @@
+ ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Trust this folder?
+  ↑↓ navigate · Enter select · Esc exit
+
+  {WORKDIR}
+
+  Project-level MCP servers are disabled until you explicitly choose Trust. Trust starts the listed project MCP
+  targets and remembers this folder.
+  Project MCP targets:
+    guard-marker (stdio): command={WORKDIR}/marker.sh args=["--from-root-mcp-json"]
+
+   ❯ Trust this folder
+     Don't trust
+ ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
