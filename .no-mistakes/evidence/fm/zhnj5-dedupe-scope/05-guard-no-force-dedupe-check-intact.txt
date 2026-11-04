@@ -1,0 +1,18 @@
+=== Scenario 5: Retry uses only --allow-duplicate; never --force; create.dedup-check stays enabled ===
+=== Oracle: user intent - 'Never use --force and never disable create.dedup-check' ===
+--- complete bd argv across the real-bd retry drive (scenario 1) ---
+where --json 
+list --all --limit 0 --external-ref fm-verification:f436233c8a23874be4a4a15bafe24d3c973bbce19c70b2bb18119241874eac93 --json 
+create --title Verification\ failure:\ t2 --type bug --priority 2 --external-ref fm-verification:f436233c8a23874be4a4a15bafe24d3c973bbce19c70b2bb18119241874eac93 --description $'Recorded (UTC): 2026-11-04T00:49:11Z\nOwning task ID: t2\nFailed command: unrelated subject probe\nEvidence path: /tmp/fm-vr-live.N3kjCZ/proof.png\nAttached evidence: /tmp/fm-vr-live.N3kjCZ/a/home/data/verification-evidence/f436233c8a23874be4a4a15bafe24d3c973bbce19c70b2bb18119241874eac93/evidence.e8HWzw\nFinding: Verification failed' 
+create --title Verification\ failure:\ t2 --type bug --priority 2 --external-ref fm-verification:f436233c8a23874be4a4a15bafe24d3c973bbce19c70b2bb18119241874eac93 --description $'Recorded (UTC): 2026-11-04T00:49:11Z\nOwning task ID: t2\nFailed command: unrelated subject probe\nEvidence path: /tmp/fm-vr-live.N3kjCZ/proof.png\nAttached evidence: /tmp/fm-vr-live.N3kjCZ/a/home/data/verification-evidence/f436233c8a23874be4a4a15bafe24d3c973bbce19c70b2bb18119241874eac93/evidence.e8HWzw\nFinding: Verification failed\nFiled with --allow-duplicate after a bd prose-dedupe refusal: candidate home-c7o shares only the verification-failure scaffolding; this record owns task t2, dedupe key f436233c8a23874be4a4a15bafe24d3c973bbce19c70b2bb18119241874eac93, and the external_ref lookup found no existing bead - different subject.' --allow-duplicate 
+list --all --limit 0 --external-ref fm-verification:f436233c8a23874be4a4a15bafe24d3c973bbce19c70b2bb18119241874eac93 --json 
+
+--- guard assertions over the observed external interface ---
+create calls: 2 (initial + exactly one retry)
+--allow-duplicate occurrences: 1 (only on the retry)
+--force occurrences: 0 (must be 0 across ALL drives)
+bd config calls: 0 (must be 0 across ALL drives; dedupe-check never toggled)
+
+--- store config after the retry (real bd) ---
+create.dedup-check = true
+--- plausible wrong behavior this rejects: a retry via bd create --force, or bd config set create.dedup-check false before filing ---

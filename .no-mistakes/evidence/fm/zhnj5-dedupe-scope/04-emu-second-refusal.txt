@@ -1,0 +1,25 @@
+=== Scenario 4: A second refusal on the retry exits nonzero with both refusals preserved (adversarial) ===
+=== Real recorder against a bd refusal emulator that refuses every create, including the --allow-duplicate retry ===
+--- stdout (must be empty) ---
+(end stdout)
+--- stderr (both attempts' refusals preserved verbatim) ---
+fm-verification-record: store=/tmp/fm-vr-live.N3kjCZ/d/home/.beads task=tA command=second refusal probe evidence=/tmp/fm-vr-live.N3kjCZ/proof.png
+Error: blocked: potential duplicate of active issue zzz-9999 (58% similar)
+
+Error: blocked: potential duplicate of active issue zzz-9999 (58% similar)
+
+fm-verification-record: bd create refused; report its output verbatim, no receipt issued
+--- bd argv log ---
+where --json 
+list --all --limit 0 --external-ref fm-verification:815bd4ae086044b7e96774f0d0b89ff285d1aec3228f82b2fbdb202d0e33fe9d --json 
+create --title Verification\ failure:\ tA --type bug --priority 2 --external-ref fm-verification:815bd4ae086044b7e96774f0d0b89ff285d1aec3228f82b2fbdb202d0e33fe9d --description $'Recorded (UTC): 2026-1
+create --title Verification\ failure:\ tA --type bug --priority 2 --external-ref fm-verification:815bd4ae086044b7e96774f0d0b89ff285d1aec3228f82b2fbdb202d0e33fe9d --description $'Recorded (UTC): 2026-1
+
+--- assertions (oracle: user intent - a second refusal still exits nonzero with the refusal preserved verbatim; one retry only) ---
+PASS:no-receipt
+refusal lines preserved: 2 (expect 2)
+PASS:refusal-die-line
+create calls: 2 (expect 2: initial + exactly one retry)
+allow-duplicate flags: 1 (expect 1, only on the retry)
+PASS:no-force
+DRIVE_D_EXIT=1 (nonzero)

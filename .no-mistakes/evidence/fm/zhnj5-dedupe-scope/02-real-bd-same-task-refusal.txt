@@ -1,0 +1,43 @@
+=== Scenario 2: Same-task candidate refusal exits nonzero with the refusal preserved (adversarial) ===
+=== Real recorder against real bd; --task equals the id the real refusal names ===
+--- seed bead ---
+home-05h  Verification failure: t1
+
+--- recorder run: --task home-05h (the seeded candidate id), exit code and streams ---
+RECORDER_EXIT=1 (nonzero)
+--- stdout (must be empty; no receipt) ---
+(end stdout)
+--- stderr (refusal preserved verbatim) ---
+fm-verification-record: store=/tmp/fm-vr-live.N3kjCZ/b/home/.beads task=home-05h command=same-task candidate probe evidence=/tmp/fm-vr-live.N3kjCZ/proof.png
+Error: blocked: potential duplicate of active issue home-05h (58% similar)
+  Conflict:
+    ID:       home-05h
+    Title:    Verification failure: t1
+    Status:   open
+    Priority: P2
+    Assignee: (unassigned)
+  Action:
+    View:     bd show home-05h
+    Claim:    bd update home-05h --claim
+
+To bypass this check:
+  --allow-duplicate    Allow creating this duplicate issue
+  --force              Force creation
+
+Configuration:
+  create.dedup-check (default true)
+  Disable check:       bd config set create.dedup-check false
+
+fm-verification-record: bd create refused; report its output verbatim, no receipt issued
+--- bd argv log (expect exactly one create, no --allow-duplicate retry) ---
+where --json 
+list --all --limit 0 --external-ref fm-verification:aed7bd5dcc7d4124e1108b0be31ce3cf99e8d81c53fba95a39300ab2a1dbd64d --json 
+create --title Verification\ failure:\ home-05h --type bug --priority 2 --external-ref fm-verification:aed7bd5dcc7d4124e1108b0be31ce3cf99e8d81c53fba95a39300ab2a1dbd64d --description $'Recorded (UTC): 2026-11-04T00:50:06Z\nOwning task ID: home-05h\nFailed command: same-task candidate probe\nEvidence path: /tmp/fm-vr-live.N3kjCZ/proof.png\nAttached evidence: /tmp/fm-vr-live.N3kjCZ/b/home/data/verification-evidence/aed7bd5dcc7d4124e1108b0be31ce3cf99e8d81c53fba95a39300ab2a1dbd64d/evidence.fna801\nFinding: Verification failed' 
+
+--- assertions (oracle: user intent - same-task candidates exit nonzero with refusal preserved verbatim) ---
+PASS:no-receipt
+PASS:refusal-verbatim
+PASS:refusal-die-line
+PASS:no-retry-attempted
+PASS:single-create-no-retry
+PASS:no-new-bead

@@ -1,0 +1,21 @@
+=== Scenario 3: Unparsable dedupe refusal text exits nonzero verbatim without a retry (adversarial) ===
+=== Real recorder against a bd refusal emulator emitting 'potential duplicate of active issue' with no parsable candidate id ===
+--- stdout (must be empty) ---
+(end stdout)
+--- stderr ---
+fm-verification-record: store=/tmp/fm-vr-live.N3kjCZ/c/home/.beads task=t9 command=unparsable refusal probe evidence=/tmp/fm-vr-live.N3kjCZ/proof.png
+Error: blocked: potential duplicate of active issue (58% similar)
+
+fm-verification-record: bd create refused; report its output verbatim, no receipt issued
+--- bd argv log ---
+where --json 
+list --all --limit 0 --external-ref fm-verification:a930e3440be713c213126c5fb1555d94d8275e74d67b4e6a7895555244846dd5 --json 
+create --title Verification\ failure:\ t9 --type bug --priority 2 --external-ref fm-verification:a930e3440be713c213126c5fb1555d94d8275e74d67b4e6a7895555244846dd5 --description $'Recorded (UTC): 2026-11-04T00:50:40Z\nOwning task ID: t9\nFailed command: unparsable refusal probe\nEvidence path: /tmp/fm-vr-live.N3kjCZ/proof.png\nAttached evidence: /tmp/fm-vr-live.N3kjCZ/c/home/data/verification-evidence/a930e3440be713c213126c5fb1555d94d8275e74d67b4e6a7895555244846dd5/evidence.ArDBEZ\nFinding: Verification failed' 
+
+--- assertions (oracle: user intent - unparsable refusal text exits nonzero with the refusal preserved verbatim) ---
+PASS:no-receipt
+PASS:refusal-verbatim
+PASS:refusal-die-line
+PASS:single-create-no-retry
+PASS:no-retry-in-argv
+DRIVE_C_EXIT=1 (nonzero)

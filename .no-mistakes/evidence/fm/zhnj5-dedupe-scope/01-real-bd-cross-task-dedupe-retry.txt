@@ -1,0 +1,56 @@
+=== Scenario 1: Cross-task prose-dedupe refusal retries once and files a justified bead ===
+=== Product: bin/fm-verification-record.sh (real) against real bd bd version 1.3.1 (437a50f) in disposable store /tmp/fm-vr-live.N3kjCZ/a/home ===
+--- seed bead (different task t1) ---
+home-xai  Verification failure: t2  external_ref=fm-verification:f436233c8a23874be4a4a15bafe24d3c973bbce19c70b2bb18119241874eac93
+home-c7o  Verification failure: t1  external_ref=seed:1
+
+--- recorder run: --task t2 --command 'unrelated subject probe' (merged stdout+stderr, verbatim, in write order) ---
+fm-verification-record: store=/tmp/fm-vr-live.N3kjCZ/a/home/.beads task=t2 command=unrelated subject probe evidence=/tmp/fm-vr-live.N3kjCZ/proof.png
+Error: blocked: potential duplicate of active issue home-c7o (58% similar)
+  Conflict:
+    ID:       home-c7o
+    Title:    Verification failure: t1
+    Status:   open
+    Priority: P2
+    Assignee: (unassigned)
+  Action:
+    View:     bd show home-c7o
+    Claim:    bd update home-c7o --claim
+
+To bypass this check:
+  --allow-duplicate    Allow creating this duplicate issue
+  --force              Force creation
+
+Configuration:
+  create.dedup-check (default true)
+  Disable check:       bd config set create.dedup-check false
+
+{"bead":"home-xai","store":"/tmp/fm-vr-live.N3kjCZ/a/home/.beads","evidence":"/tmp/fm-vr-live.N3kjCZ/a/home/data/verification-evidence/f436233c8a23874be4a4a15bafe24d3c973bbce19c70b2bb18119241874eac93/evidence.e8HWzw","key":"f436233c8a23874be4a4a15bafe24d3c973bbce19c70b2bb18119241874eac93","action":"created"}
+fm-verification-record: bd dedupe named home-c7o; filed with --allow-duplicate and justification in the bead body
+RECORDER_EXIT=0
+
+--- filed bead body read back from the real store ---
+Recorded (UTC): 2026-11-04T00:49:11Z
+Owning task ID: t2
+Failed command: unrelated subject probe
+Evidence path: /tmp/fm-vr-live.N3kjCZ/proof.png
+Attached evidence: /tmp/fm-vr-live.N3kjCZ/a/home/data/verification-evidence/f436233c8a23874be4a4a15bafe24d3c973bbce19c70b2bb18119241874eac93/evidence.e8HWzw
+Finding: Verification failed
+Filed with --allow-duplicate after a bd prose-dedupe refusal: candidate home-c7o shares only the verification-failure scaffolding; this record owns task t2, dedupe key f436233c8a23874be4a4a15bafe24d3c973bbce19c70b2bb18119241874eac93, and the external_ref lookup found no existing bead - different subject.
+
+--- bd argv log (external interface calls the recorder made) ---
+where --json 
+list --all --limit 0 --external-ref fm-verification:f436233c8a23874be4a4a15bafe24d3c973bbce19c70b2bb18119241874eac93 --json 
+create --title Verification\ failure:\ t2 --type bug --priority 2 --external-ref fm-verification:f436233c8a23874be4a4a15bafe24d3c973bbce19c70b2bb18119241874eac93 --description $'Recorded (UTC): 2026-11-04T00:49:11Z\nOwning task ID: t2\nFailed command: unrelated subject probe\nEvidence path: /tmp/fm-vr-live.N3kjCZ/proof.png\nAttached evidence: /tmp/fm-vr-live.N3kjCZ/a/home/data/verification-evidence/f436233c8a23874be4a4a15bafe24d3c973bbce19c70b2bb18119241874eac93/evidence.e8HWzw\nFinding: Verification failed' 
+create --title Verification\ failure:\ t2 --type bug --priority 2 --external-ref fm-verification:f436233c8a23874be4a4a15bafe24d3c973bbce19c70b2bb18119241874eac93 --description $'Recorded (UTC): 2026-11-04T00:49:11Z\nOwning task ID: t2\nFailed command: unrelated subject probe\nEvidence path: /tmp/fm-vr-live.N3kjCZ/proof.png\nAttached evidence: /tmp/fm-vr-live.N3kjCZ/a/home/data/verification-evidence/f436233c8a23874be4a4a15bafe24d3c973bbce19c70b2bb18119241874eac93/evidence.e8HWzw\nFinding: Verification failed\nFiled with --allow-duplicate after a bd prose-dedupe refusal: candidate home-c7o shares only the verification-failure scaffolding; this record owns task t2, dedupe key f436233c8a23874be4a4a15bafe24d3c973bbce19c70b2bb18119241874eac93, and the external_ref lookup found no existing bead - different subject.' --allow-duplicate 
+list --all --limit 0 --external-ref fm-verification:f436233c8a23874be4a4a15bafe24d3c973bbce19c70b2bb18119241874eac93 --json 
+
+--- assertions (oracle: user intent contract - retry once with --allow-duplicate and a justification naming candidate id, owning task id, dedupe key; receipt only after readback; notice after receipt) ---
+PASS:exactly-one-justified-filing
+PASS:justification-names-candidate
+PASS:justification-names-owning-task
+PASS:justification-key-matches-receipt-key
+PASS:receipt-action-created
+PASS:first-refusal-preserved-verbatim
+PASS:retry-notice-after-receipt
+ordering note: transcript lines - refusal block precedes the {"bead"...} receipt line, retry notice follows it (verifiable above by line order)

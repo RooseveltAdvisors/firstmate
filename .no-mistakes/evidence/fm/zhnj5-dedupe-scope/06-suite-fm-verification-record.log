@@ -1,0 +1,24 @@
+fm-verification-record: store=/tmp/fm-verification-record.K0BUYb/home/.beads task=t1 command=visual QA: sidebar evidence=/tmp/fm-verification-record.K0BUYb/proof.png
+fm-verification-record: store=/tmp/fm-verification-record.K0BUYb/home/.beads task=t1 command=visual QA: sidebar evidence=/tmp/fm-verification-record.K0BUYb/./proof.png
+ok - confirmed ID, immutable screenshot snapshot, normalized dedupe and append/update
+fm-verification-record: store=/tmp/fm-verification-record.K0BUYb/home/.beads task=t1 command=visual QA: sidebar evidence=/tmp/fm-verification-record.K0BUYb/proof.png
+fm-verification-record: store=/tmp/fm-verification-record.K0BUYb/home/.beads task=t1 command=CI check evidence=/tmp/fm-verification-record.K0BUYb/proof.png
+fm-verification-record: store=/tmp/fm-verification-record.K0BUYb/home/.beads task=t2 command=visual QA: sidebar evidence=/tmp/fm-verification-record.K0BUYb/proof.png
+fm-verification-record: store=/tmp/fm-verification-record.K0BUYb/home/.beads task=t1 command=visual QA: sidebar evidence=/tmp/fm-verification-record.K0BUYb/other.png
+ok - dedupe reopens closed findings and distinguishes all three key fields
+fm-verification-record: store=/tmp/fm-verification-record.K0BUYb/home/.beads task=t1 command=visual QA: sidebar evidence=/tmp/fm-verification-record.K0BUYb/absent.log
+fm-verification-record: store=/tmp/fm-verification-record.K0BUYb/home/.beads task=t1 command=visual QA: sidebar evidence=/tmp/fm-verification-record.K0BUYb/proof.png
+fm-verification-record: store=/tmp/fm-verification-record.K0BUYb/home/.beads task=t1 command=visual QA: sidebar evidence=/tmp/fm-verification-record.K0BUYb/proof.png
+fm-verification-record: store=/tmp/fm-verification-record.K0BUYb/home/.beads task=t1 command=visual QA: sidebar evidence=/tmp/fm-verification-record.K0BUYb/proof.png
+ok - resolve closes only an open match, never creates, and reports refusals
+fm-verification-record: store=/tmp/fm-verification-record.K0BUYb/wiseman/.beads task=t1 command=no fm data evidence=/tmp/fm-verification-record.K0BUYb/proof.png
+fm-verification-record: store=/tmp/fm-verification-record.K0BUYb/home/projects/portal/.beads task=t1 command=visual QA: sidebar evidence=/tmp/fm-verification-record.K0BUYb/proof.png
+fm-verification-record: store=/tmp/fm-verification-record.K0BUYb/wiseman/.beads task=t1 command=visual QA: sidebar evidence=/tmp/fm-verification-record.K0BUYb/proof.png
+ok - fallback evidence ignores itself; defect domains use distinct stores
+ok - gate, update, readback, store, ID and lock refusals emit no receipt
+ok - runner confirms bead before failure marker, keeps current-run logs, dedupes reruns, and closes on green
+ok - prose-dedupe refusal files once with explicit differing-subject justification
+ok - retry never claims a filing before the readback confirms it
+ok - create stderr advisory passes through beside the confirmed receipt
+ok - runner without FM_HOME files and resolves through the slot claim, and refuses verbatim without one
+# all verification-record tests passed
