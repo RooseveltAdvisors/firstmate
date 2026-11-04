@@ -165,10 +165,13 @@ else
   # already found no bead carrying it. A refusal naming a candidate other than
   # this owning task is therefore prose, not identity, and is retried once,
   # explicitly, with the differing task and key as justification.
+  CREATE_ERR=$(mktemp)
   if ! WRITE_OUTPUT=$(beads create --title "Verification failure: $TASK" --type bug --priority 2 \
-    --external-ref "$REF" --description "$NOTE" 2>&1); then
+    --external-ref "$REF" --description "$NOTE" 2>"$CREATE_ERR"); then
+    CANDIDATE=$({ cat "$CREATE_ERR"; printf '%s\n' "$WRITE_OUTPUT"; } | sed -n 's/.*potential duplicate of active issue \([A-Za-z0-9_:-]*\).*/\1/p')
+    cat "$CREATE_ERR" >&2
+    rm -f "$CREATE_ERR"
     printf '%s\n' "$WRITE_OUTPUT" >&2
-    CANDIDATE=$(printf '%s' "$WRITE_OUTPUT" | sed -n 's/.*potential duplicate of active issue \([A-Za-z0-9_:-]*\).*/\1/p')
     if [ -z "$CANDIDATE" ] || [ "$CANDIDATE" = "$TASK" ]; then
       die 'bd create refused; report its output verbatim, no receipt issued'
     fi
@@ -176,12 +179,16 @@ else
       "$CANDIDATE" "$TASK" "$KEY")
     if ! WRITE_OUTPUT=$(beads create --title "Verification failure: $TASK" --type bug --priority 2 \
       --external-ref "$REF" --description "$NOTE
-$JUSTIFY" --allow-duplicate 2>&1); then
+$JUSTIFY" --allow-duplicate 2>"$CREATE_ERR"); then
+      cat "$CREATE_ERR" >&2
+      rm -f "$CREATE_ERR"
       printf '%s\n' "$WRITE_OUTPUT" >&2
       die 'bd create refused; report its output verbatim, no receipt issued'
     fi
     RETRY_NOTICE="fm-verification-record: bd dedupe named $CANDIDATE; filed with --allow-duplicate and justification in the bead body"
   fi
+  cat "$CREATE_ERR" >&2
+  rm -f "$CREATE_ERR"
   ACTION=created
 fi
 # Readback is authoritative, including after an ambiguous successful create.

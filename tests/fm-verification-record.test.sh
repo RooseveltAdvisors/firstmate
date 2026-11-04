@@ -51,6 +51,7 @@ case "$op" in
       printf 'Error: blocked: potential duplicate of active issue wiseman-6c5k (58%% similar)\n' >&2
       exit 20
     fi
+    [ "${CREATE_ADVISORY:-}" != 1 ] || printf 'advisory: bd create completed with a warning\n' >&2
     jq --arg ref "$ref" --arg body "$description" \
       '. + [{id:("fixture-" + ((length + 1)|tostring)),external_ref:$ref,description:$body,notes:"",status:"open",updated_at:1}]' \
       "$db" >"$db.tmp"
@@ -200,6 +201,7 @@ assert_contains "$(jq -r '.[-1].description' "$FM_HOME/.beads/issues.json")" 'Fi
 assert_contains "$(jq -r '.[-1].description' "$FM_HOME/.beads/issues.json")" 'wiseman-6c5k' 'refused candidate was not named in the justification'
 assert_contains "$(jq -r '.[-1].description' "$FM_HOME/.beads/issues.json")" 'this record owns task t1' 'owning task missing from the justification'
 assert_contains "$(jq -r '.[-1].description' "$FM_HOME/.beads/issues.json")" "dedupe key $(jq -r .key "$TMP_ROOT/out")" 'dedupe key missing from the justification'
+assert_grep 'bd dedupe named wiseman-6c5k; filed with --allow-duplicate and justification in the bead body' "$TMP_ROOT/dedupe-err" 'confirmed retry did not report the filing'
 pass 'prose-dedupe refusal files once with explicit differing-subject justification'
 
 if DEDUPE_REFUSE=1 HIDE_READBACK=1 record --command 'unconfirmed retry' >"$TMP_ROOT/out" 2>"$TMP_ROOT/dedupe-err"; then fail 'unconfirmed retry succeeded'; fi
@@ -207,6 +209,11 @@ if DEDUPE_REFUSE=1 HIDE_READBACK=1 record --command 'unconfirmed retry' >"$TMP_R
 assert_grep 'potential duplicate of active issue wiseman-6c5k' "$TMP_ROOT/dedupe-err" 'unconfirmed retry lost the verbatim refusal'
 assert_no_grep 'filed with --allow-duplicate' "$TMP_ROOT/dedupe-err" 'retry claimed a filing before the readback'
 pass 'retry never claims a filing before the readback confirms it'
+
+CREATE_ADVISORY=1 record --command 'advisory probe' >"$TMP_ROOT/out" 2>"$TMP_ROOT/err"
+[ "$(jq -r .action "$TMP_ROOT/out")" = created ] || fail 'advisory create did not file a bead'
+assert_grep 'advisory: bd create completed with a warning' "$TMP_ROOT/err" 'create success stderr was swallowed'
+pass 'create stderr advisory passes through beside the confirmed receipt'
 
 # A lane launched before FM_HOME joined the worker launch floor holds only
 # FM_TASK_ID (fm-m48wl); the runner still reaches the store through the task's
