@@ -673,6 +673,9 @@ Explicit named-session routing and unrelated launch environment remain intact.
 Literal text and Enter are separate operations on `fm-send.sh`'s typed plane.
 Ordinary local text steers instead use the durable steering inbox and send only its best-effort constant doorbell through this adapter.
 Spawn-time fixed commands may use Herdr's atomic run primitive.
+Before each such run, the adapter waits a bounded time for two consecutive idle-shell samples, so a fresh shell still running its rc files cannot drop the submit and merge the line with the next one.
+A lone idle nested shell, such as the worktree shell an in-pane `treehouse get` leaves, also counts; when the bound expires, the line is sent anyway.
+`bin/backends/herdr.sh` (`fm_backend_herdr_send_text_line`) owns the bound and sample rules.
 Enter, Escape, and Ctrl-C are supported.
 
 Typed-plane slash input, and dollar-prefixed skill input for Codex, uses the shared harness-aware settle before the first Enter, so a completion popup cannot consume it.
