@@ -715,12 +715,13 @@ test_send_text_line_waits_for_the_idle_shell_before_running() {
   "$sleep_bin" 300 &
   shell_pid=$!
   # Sample 1: the shell is still busy with rc work (prompt helper in the
-  # foreground); sample 2: the shell is alone and idle. The line must be sent
-  # only after the idle sample, never into the busy rc phase.
+  # foreground); samples 2-3: the shell is alone and idle. The line must be
+  # sent only after two consecutive idle samples, never into the busy rc phase.
   out=$(send_line_ready_case settles 5 \
-    "$(prompt_helper_process_info "$shell_pid")" "$(shell_only_process_info "$shell_pid")")
+    "$(prompt_helper_process_info "$shell_pid")" "$(shell_only_process_info "$shell_pid")" \
+    "$(shell_only_process_info "$shell_pid")")
   kill "$shell_pid" 2>/dev/null || true
-  [ "$out" = "2 run-last" ] \
+  [ "$out" = "3 run-last" ] \
     || fail "send_text_line must wait for the idle-shell proof and then run the line exactly once, got '$out'"
   pass "herdr send_text_line: waits for the idle shell before running the line"
 }
@@ -737,6 +738,23 @@ test_send_text_line_still_sends_when_the_idle_proof_never_lands() {
   [ "$out" = "3 run-last" ] \
     || fail "an unprovable pane must still get the line after exactly the bounded sample count, got '$out'"
   pass "herdr send_text_line: an exhausted readiness bound still sends the line"
+}
+
+test_send_text_line_needs_two_consecutive_idle_samples() {
+  local sleep_bin shell_pid out
+  sleep_bin=$(command -v sleep) || fail "sleep not found"
+  "$sleep_bin" 300 &
+  shell_pid=$!
+  # A lone clean sample followed by a busy one (the observed mid-rc false
+  # positive) must not count as ready; the streak resets and only the next two
+  # consecutive clean samples release the line.
+  out=$(send_line_ready_case two-samples 6 \
+    "$(shell_only_process_info "$shell_pid")" "$(prompt_helper_process_info "$shell_pid")" \
+    "$(shell_only_process_info "$shell_pid")" "$(shell_only_process_info "$shell_pid")")
+  kill "$shell_pid" 2>/dev/null || true
+  [ "$out" = "4 run-last" ] \
+    || fail "one clean sample then a busy one must not read ready; two consecutive clean samples must, got '$out'"
+  pass "herdr send_text_line: requires two consecutive idle samples, a busy sample resets the streak"
 }
 
 # nested_shell_process_info: the crew shape after an in-pane `treehouse get`:
@@ -767,10 +785,11 @@ test_send_text_line_treats_an_idle_nested_shell_as_ready() {
   local pids top child out
   pids=$(start_nested_shell_standin)
   top=${pids% *}; child=${pids#* }
-  out=$(send_line_ready_case nested-idle 5 "$(nested_shell_process_info "$top" "$child")")
+  out=$(send_line_ready_case nested-idle 5 \
+    "$(nested_shell_process_info "$top" "$child")" "$(nested_shell_process_info "$top" "$child")")
   kill "$child" "$top" 2>/dev/null || true
-  [ "$out" = "1 run-last" ] \
-    || fail "an idle nested shell must read ready on the first sample, got '$out'"
+  [ "$out" = "2 run-last" ] \
+    || fail "an idle nested shell must read ready on the first two samples, got '$out'"
   pass "herdr send_text_line: an idle nested shell reads ready without burning the bound"
 }
 
@@ -779,9 +798,10 @@ test_send_text_line_waits_for_a_busy_nested_shell() {
   pids=$(start_nested_shell_standin)
   top=${pids% *}; child=${pids#* }
   out=$(send_line_ready_case nested-busy 5 \
-    "$(nested_shell_process_info "$top" "$child" busy)" "$(nested_shell_process_info "$top" "$child")")
+    "$(nested_shell_process_info "$top" "$child" busy)" "$(nested_shell_process_info "$top" "$child")" \
+    "$(nested_shell_process_info "$top" "$child")")
   kill "$child" "$top" 2>/dev/null || true
-  [ "$out" = "2 run-last" ] \
+  [ "$out" = "3 run-last" ] \
     || fail "a busy nested shell must be waited out before the line runs, got '$out'"
   pass "herdr send_text_line: waits for a busy nested shell before running the line"
 }
@@ -799,7 +819,7 @@ test_nested_shell_is_not_an_idle_pane_for_the_strict_proof() {
     FM_BACKEND_HERDR_IDLE_SHELL_PROOF_POLLS=1 \
     bash -c '. "$0/bin/backends/herdr.sh"
       if fm_backend_herdr_pane_idle_shell_pid fmtest w1:p2; then strict=pass; else strict=refuse; fi
-      printf "%s %s" "$strict" "$(fm_backend_herdr_pane_idle_shell_pid fmtest w1:p2 nested)"' "$ROOT")
+      printf "%s %s" "$strict" "$(fm_backend_herdr_pane_idle_shell_sample fmtest w1:p2 nested)"' "$ROOT")
   kill "$child" "$top" 2>/dev/null || true
   [ "$out" = "refuse $child" ] \
     || fail "the strict idle-shell proof must refuse a nested shell while the nested mode accepts it, got '$out'"
@@ -6284,6 +6304,7 @@ test_transient_prompt_helper_settles_into_stale_agent
 test_exhausted_settle_window_keeps_a_non_shell_foreground_live
 test_send_text_line_waits_for_the_idle_shell_before_running
 test_send_text_line_still_sends_when_the_idle_proof_never_lands
+test_send_text_line_needs_two_consecutive_idle_samples
 test_send_text_line_treats_an_idle_nested_shell_as_ready
 test_send_text_line_waits_for_a_busy_nested_shell
 test_nested_shell_is_not_an_idle_pane_for_the_strict_proof

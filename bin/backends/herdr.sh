@@ -1484,14 +1484,10 @@ fm_backend_herdr_pid_is_bare_shell() {  # <ps-bin> <pid>
 # fails every sample and still refuses.
 # This is the single owner of the idle-shell proof; the session-start
 # projection cleanup and every pane-death close path both rely on it.
-# Optional third argument `nested` (used only by the send readiness wait) also
-# accepts a lone idle recognized shell that leads the foreground process group
-# and descends from the pane shell, such as the worktree shell an in-pane
-# `treehouse get` leaves; it prints that foreground shell's pid instead.
-fm_backend_herdr_pane_idle_shell_pid() {  # <session> <pane-id> [nested]
+fm_backend_herdr_pane_idle_shell_pid() {  # <session> <pane-id>
   local attempt=0 max_attempts=${FM_BACKEND_HERDR_IDLE_SHELL_PROOF_POLLS:-10}
   while :; do
-    if fm_backend_herdr_pane_idle_shell_sample "$1" "$2" "${3:-}"; then
+    if fm_backend_herdr_pane_idle_shell_sample "$1" "$2"; then
       return 0
     fi
     attempt=$((attempt + 1))
@@ -1503,6 +1499,10 @@ fm_backend_herdr_pane_idle_shell_pid() {  # <session> <pane-id> [nested]
 # fm_backend_herdr_pane_idle_shell_sample: one strict instantaneous
 # observation for fm_backend_herdr_pane_idle_shell_pid, which owns the proof
 # contract and the settle retry.
+# Optional third argument `nested` (used only by the send readiness wait) also
+# accepts a lone idle recognized shell that leads the foreground process group
+# and descends from the pane shell, such as the worktree shell an in-pane
+# `treehouse get` leaves; it prints that foreground shell's pid instead.
 fm_backend_herdr_pane_idle_shell_sample() {  # <session> <pane-id> [nested]
   local session=$1 pane=$2 mode=${3:-} info shell_pid foreground_pgid count
   local process_pid name argv0 shell_name rows stat ps_bin
@@ -3301,15 +3301,25 @@ fm_backend_herdr_current_path() {  # <target>
 # A fresh pane's shell can still be running its rc files when the first line
 # arrives, and an rc that flushes typeahead drops the submit, so the line merges
 # with the next send (observed live: `export X=1. '<launch file>'`). Wait up to
-# FM_BACKEND_HERDR_SEND_READY_POLLS x 0.1s for the idle-shell proof (a lone idle
-# nested shell, as after an in-pane `treehouse get`, also counts) first, then
+# FM_BACKEND_HERDR_SEND_READY_POLLS samples, 0.1s apart, for two consecutive
+# clean idle-shell samples (a lone idle nested shell, as after an in-pane
+# `treehouse get`, also counts; a busy sample resets the streak) first, then
 # send regardless so a pane the proof cannot read still gets the line.
-# ponytail: one clean sample counts as ready; require two in a row if a
-# mid-rc false positive is ever observed.
+# ponytail: two samples, because one clean sample was observed mid-rc in 1 of
+# 18 live nested-shell trials (the line merged again); still a heuristic.
 fm_backend_herdr_send_text_line() {  # <target> <text>
   fm_backend_herdr_target_ready "$1" || return 1
-  FM_BACKEND_HERDR_IDLE_SHELL_PROOF_POLLS=${FM_BACKEND_HERDR_SEND_READY_POLLS:-50} \
-    fm_backend_herdr_pane_idle_shell_pid "$FM_BACKEND_HERDR_SESSION" "$FM_BACKEND_HERDR_PANE" nested >/dev/null || :
+  local attempt=0 streak=0 max_attempts=${FM_BACKEND_HERDR_SEND_READY_POLLS:-50}
+  while [ "$attempt" -lt "$max_attempts" ]; do
+    if fm_backend_herdr_pane_idle_shell_sample "$FM_BACKEND_HERDR_SESSION" "$FM_BACKEND_HERDR_PANE" nested >/dev/null; then
+      streak=$((streak + 1))
+      [ "$streak" -ge 2 ] && break
+    else
+      streak=0
+    fi
+    attempt=$((attempt + 1))
+    [ "$attempt" -lt "$max_attempts" ] && sleep 0.1
+  done
   fm_backend_herdr_cli "$FM_BACKEND_HERDR_SESSION" pane run "$FM_BACKEND_HERDR_PANE" "$2" >/dev/null 2>&1
 }
 
