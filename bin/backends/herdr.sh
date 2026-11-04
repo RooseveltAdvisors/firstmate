@@ -1484,10 +1484,14 @@ fm_backend_herdr_pid_is_bare_shell() {  # <ps-bin> <pid>
 # fails every sample and still refuses.
 # This is the single owner of the idle-shell proof; the session-start
 # projection cleanup and every pane-death close path both rely on it.
-fm_backend_herdr_pane_idle_shell_pid() {  # <session> <pane-id>
+# Optional third argument `nested` (used only by the send readiness wait) also
+# accepts a lone idle recognized shell that leads the foreground process group
+# and descends from the pane shell, such as the worktree shell an in-pane
+# `treehouse get` leaves; it prints that foreground shell's pid instead.
+fm_backend_herdr_pane_idle_shell_pid() {  # <session> <pane-id> [nested]
   local attempt=0 max_attempts=${FM_BACKEND_HERDR_IDLE_SHELL_PROOF_POLLS:-10}
   while :; do
-    if fm_backend_herdr_pane_idle_shell_sample "$1" "$2"; then
+    if fm_backend_herdr_pane_idle_shell_sample "$1" "$2" "${3:-}"; then
       return 0
     fi
     attempt=$((attempt + 1))
@@ -1499,8 +1503,8 @@ fm_backend_herdr_pane_idle_shell_pid() {  # <session> <pane-id>
 # fm_backend_herdr_pane_idle_shell_sample: one strict instantaneous
 # observation for fm_backend_herdr_pane_idle_shell_pid, which owns the proof
 # contract and the settle retry.
-fm_backend_herdr_pane_idle_shell_sample() {  # <session> <pane-id>
-  local session=$1 pane=$2 info shell_pid foreground_pgid count
+fm_backend_herdr_pane_idle_shell_sample() {  # <session> <pane-id> [nested]
+  local session=$1 pane=$2 mode=${3:-} info shell_pid foreground_pgid count
   local process_pid name argv0 shell_name rows stat ps_bin
   info=$(fm_backend_herdr_cli "$session" pane process-info --pane "$pane" 2>/dev/null) || return 1
   printf '%s' "$info" | jq -e --arg pane "$pane" '
@@ -1511,13 +1515,13 @@ fm_backend_herdr_pane_idle_shell_sample() {  # <session> <pane-id>
     '.result.process_info.shell_pid | select(type == "number" and . > 1) | floor' 2>/dev/null) || return 1
   foreground_pgid=$(printf '%s' "$info" | jq -er \
     '.result.process_info.foreground_process_group_id | select(type == "number" and . > 1) | floor' 2>/dev/null) || return 1
-  [ "$foreground_pgid" = "$shell_pid" ] || return 1
+  [ "$mode" = nested ] || [ "$foreground_pgid" = "$shell_pid" ] || return 1
   count=$(printf '%s' "$info" | jq -er \
     '.result.process_info.foreground_processes | select(type == "array") | length' 2>/dev/null) || return 1
   [ "$count" -eq 1 ] || return 1
   process_pid=$(printf '%s' "$info" | jq -er \
     '.result.process_info.foreground_processes[0].pid | select(type == "number") | floor' 2>/dev/null) || return 1
-  [ "$process_pid" = "$shell_pid" ] || return 1
+  [ "$process_pid" = "$foreground_pgid" ] || return 1
   name=$(printf '%s' "$info" | jq -er \
     '.result.process_info.foreground_processes[0].name | select(type == "string" and length > 0)' 2>/dev/null) || return 1
   argv0=$(printf '%s' "$info" | jq -er '
@@ -1534,14 +1538,19 @@ fm_backend_herdr_pane_idle_shell_sample() {  # <session> <pane-id>
   ps_bin=${FM_HERDR_PS_BIN:-ps}
   command -v "$ps_bin" >/dev/null 2>&1 || return 1
   rows=$("$ps_bin" -axo pid=,ppid= 2>/dev/null) || return 1
-  printf '%s\n' "$rows" | awk -v shell="$shell_pid" '
-    $1 == shell { found++ }
-    $2 == shell { child++ }
-    END { exit(found == 1 && child == 0 ? 0 : 1) }
+  printf '%s\n' "$rows" | awk -v fg="$process_pid" -v shell="$shell_pid" '
+    { parent[$1] = $2 }
+    $1 == fg { found++ }
+    $2 == fg { child++ }
+    END {
+      pid = fg
+      for (depth = 0; depth < 64 && pid != shell && pid in parent; depth++) pid = parent[pid]
+      exit(found == 1 && child == 0 && pid == shell ? 0 : 1)
+    }
   ' || return 1
-  stat=$("$ps_bin" -p "$shell_pid" -o stat= 2>/dev/null | tr -d '[:space:]') || return 1
+  stat=$("$ps_bin" -p "$process_pid" -o stat= 2>/dev/null | tr -d '[:space:]') || return 1
   case "$stat" in S*|I*) ;; *) return 1 ;; esac
-  printf '%s\n' "$shell_pid"
+  printf '%s\n' "$process_pid"
 }
 
 # fm_backend_herdr_projection_order_best_effort: place the exact workspace id
@@ -3292,14 +3301,15 @@ fm_backend_herdr_current_path() {  # <target>
 # A fresh pane's shell can still be running its rc files when the first line
 # arrives, and an rc that flushes typeahead drops the submit, so the line merges
 # with the next send (observed live: `export X=1. '<launch file>'`). Wait up to
-# FM_BACKEND_HERDR_SEND_READY_POLLS x 0.1s for the idle-shell proof first, then
+# FM_BACKEND_HERDR_SEND_READY_POLLS x 0.1s for the idle-shell proof (a lone idle
+# nested shell, as after an in-pane `treehouse get`, also counts) first, then
 # send regardless so a pane the proof cannot read still gets the line.
 # ponytail: one clean sample counts as ready; require two in a row if a
 # mid-rc false positive is ever observed.
 fm_backend_herdr_send_text_line() {  # <target> <text>
   fm_backend_herdr_target_ready "$1" || return 1
   FM_BACKEND_HERDR_IDLE_SHELL_PROOF_POLLS=${FM_BACKEND_HERDR_SEND_READY_POLLS:-50} \
-    fm_backend_herdr_pane_idle_shell_pid "$FM_BACKEND_HERDR_SESSION" "$FM_BACKEND_HERDR_PANE" >/dev/null || :
+    fm_backend_herdr_pane_idle_shell_pid "$FM_BACKEND_HERDR_SESSION" "$FM_BACKEND_HERDR_PANE" nested >/dev/null || :
   fm_backend_herdr_cli "$FM_BACKEND_HERDR_SESSION" pane run "$FM_BACKEND_HERDR_PANE" "$2" >/dev/null 2>&1
 }
 

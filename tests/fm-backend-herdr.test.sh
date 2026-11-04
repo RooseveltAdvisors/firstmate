@@ -739,6 +739,73 @@ test_send_text_line_still_sends_when_the_idle_proof_never_lands() {
   pass "herdr send_text_line: an exhausted readiness bound still sends the line"
 }
 
+# nested_shell_process_info: the crew shape after an in-pane `treehouse get`:
+# the pane's top shell stays shell_pid while a nested worktree shell leads the
+# foreground process group. Optional extra foreground entries mark it busy.
+nested_shell_process_info() {  # <top-shell-pid> <nested-shell-pid> [busy]
+  local helper=''
+  [ "${3:-}" = busy ] && helper='{"pid":99998,"name":"starship","argv":["/usr/local/bin/starship","prompt"]},'
+  printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":%s,"foreground_process_group_id":%s,"foreground_processes":[%s{"pid":%s,"name":"zsh","argv0":"zsh","argv":["zsh"],"cmdline":"zsh"}]}}}' "$1" "$2" "$helper" "$2"
+}
+
+# start_nested_shell_standin: a real top process with exactly one childless
+# sleeping child, echoing "<top-pid> <child-pid>".
+start_nested_shell_standin() {
+  local top child i
+  sh -c 'sleep 300 & wait' >/dev/null 2>&1 &
+  top=$!
+  for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    child=$(pgrep -P "$top" 2>/dev/null | head -n 1)
+    [ -n "$child" ] && break
+    sleep 0.05
+  done
+  [ -n "$child" ] || fail "nested shell stand-in child did not start"
+  printf '%s %s' "$top" "$child"
+}
+
+test_send_text_line_treats_an_idle_nested_shell_as_ready() {
+  local pids top child out
+  pids=$(start_nested_shell_standin)
+  top=${pids% *}; child=${pids#* }
+  out=$(send_line_ready_case nested-idle 5 "$(nested_shell_process_info "$top" "$child")")
+  kill "$child" "$top" 2>/dev/null || true
+  [ "$out" = "1 run-last" ] \
+    || fail "an idle nested shell must read ready on the first sample, got '$out'"
+  pass "herdr send_text_line: an idle nested shell reads ready without burning the bound"
+}
+
+test_send_text_line_waits_for_a_busy_nested_shell() {
+  local pids top child out
+  pids=$(start_nested_shell_standin)
+  top=${pids% *}; child=${pids#* }
+  out=$(send_line_ready_case nested-busy 5 \
+    "$(nested_shell_process_info "$top" "$child" busy)" "$(nested_shell_process_info "$top" "$child")")
+  kill "$child" "$top" 2>/dev/null || true
+  [ "$out" = "2 run-last" ] \
+    || fail "a busy nested shell must be waited out before the line runs, got '$out'"
+  pass "herdr send_text_line: waits for a busy nested shell before running the line"
+}
+
+test_nested_shell_is_not_an_idle_pane_for_the_strict_proof() {
+  local pids top child dir resp log fb out
+  pids=$(start_nested_shell_standin)
+  top=${pids% *}; child=${pids#* }
+  dir="$TMP_ROOT/nested-strict"; resp="$dir/responses"; log="$dir/log"
+  mkdir -p "$resp"; : > "$log"
+  nested_shell_process_info "$top" "$child" > "$resp/1.out"
+  nested_shell_process_info "$top" "$child" > "$resp/2.out"
+  fb=$(make_herdr_fakebin "$dir")
+  out=$(PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
+    FM_BACKEND_HERDR_IDLE_SHELL_PROOF_POLLS=1 \
+    bash -c '. "$0/bin/backends/herdr.sh"
+      if fm_backend_herdr_pane_idle_shell_pid fmtest w1:p2; then strict=pass; else strict=refuse; fi
+      printf "%s %s" "$strict" "$(fm_backend_herdr_pane_idle_shell_pid fmtest w1:p2 nested)"' "$ROOT")
+  kill "$child" "$top" 2>/dev/null || true
+  [ "$out" = "refuse $child" ] \
+    || fail "the strict idle-shell proof must refuse a nested shell while the nested mode accepts it, got '$out'"
+  pass "herdr idle-shell proof: strict mode refuses a nested shell, nested mode accepts it"
+}
+
 test_registered_agent_with_an_agent_descendant_outside_the_foreground_stays_alive() {
   local lab standin sleep_bin shell_pid out shell_verdict
   sleep_bin=$(command -v sleep) || fail "sleep not found"
@@ -6217,6 +6284,9 @@ test_transient_prompt_helper_settles_into_stale_agent
 test_exhausted_settle_window_keeps_a_non_shell_foreground_live
 test_send_text_line_waits_for_the_idle_shell_before_running
 test_send_text_line_still_sends_when_the_idle_proof_never_lands
+test_send_text_line_treats_an_idle_nested_shell_as_ready
+test_send_text_line_waits_for_a_busy_nested_shell
+test_nested_shell_is_not_an_idle_pane_for_the_strict_proof
 test_registered_agent_with_an_agent_descendant_outside_the_foreground_stays_alive
 test_agent_descendant_under_a_spaced_install_path_stays_alive
 test_registered_agent_with_an_unreadable_process_view_is_unknown
