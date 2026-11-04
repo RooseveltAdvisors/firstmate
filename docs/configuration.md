@@ -773,8 +773,8 @@ Absent, empty, or `on` keeps the gate; a first line of `off` disables it and the
 `FM_JEV_WAKE_TRIAGE` overrides the file: `off`/`0`/`false`/`no` disables, `on`/`1`/`true`/`yes` enables, and unset defers to the file.
 The gate runs only at the moment a provably-working stale pane would otherwise escalate, after the wait, worktree-write, and dead-record probes.
 It asks typesafe.ai's System One model (Jev) to classify `pipeline_wait`, `true_wedge`, or `healthy_idle`, plus a `wedge_probability` Noul, and escalates only on `true_wedge`.
-Any missing key, timeout, HTTP error, or malformed answer fail-opens to today's escalate path and stamps `jev_triage.unavailable`.
-The key is `TYPESAFE_API_KEY` from the watcher process environment only, vault-injected at runtime, never from `.env`.
+Any missing wrapper, timeout, HTTP error, or malformed answer fail-opens to today's escalate path and stamps `jev_triage.unavailable`.
+Requests flow through the agent-vault wrapper `~/.local/bin/jev-proxy.sh` (`FM_JEV_PROXY_BIN` overrides), which injects `TYPESAFE_API_KEY` from vault `wf38-fm` at the network boundary; the key never enters the caller's environment and is never read from `.env`.
 Telemetry under `state/.jev-triage-telemetry` records `jev_triage.suppressed|escalated|unavailable` with the task class (`ship`, `scout`, `secondmate`, or `unknown`) and no status content.
 The first 20 decisions append `state/.jev-triage-calibration.jsonl` so the captain can audit precision before the gate becomes load-bearing.
 The flag is a home-local supervision-noise preference and is not inherited by secondmate homes.

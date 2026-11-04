@@ -26,7 +26,7 @@ out=$(FM_JEV_PROXY_BIN="" python3 "$ROOT/bin/fm-route-domain.py" --task "Test ta
 assert_contains "$out" "action=unavailable" "router emits action=unavailable when proxy is missing"
 
 # 3. Live call: known domain (seller-outreach)
-if [ -x "${FM_JEV_PROXY_BIN:-/opt/ra/infisical/bin/jev-proxy.sh}" ]; then
+if [ -x "${FM_JEV_PROXY_BIN:-$HOME/.local/bin/jev-proxy.sh}" ]; then
   out=$(python3 "$ROOT/bin/fm-route-domain.py" --task "Urgent care acquisition seller email outreach campaign" --registry "$REG")
   assert_contains "$out" "action=dispatch" "known domain emits dispatch action"
   assert_contains "$out" "route=seller-outreach" "known domain routes to seller-outreach"

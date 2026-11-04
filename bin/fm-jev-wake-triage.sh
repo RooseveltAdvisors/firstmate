@@ -17,13 +17,14 @@
 #   SDK shape, not a runtime dependency. Endpoint https://api.typesafe.ai,
 #   model jev-latest, timeout 5 seconds.
 #
-# Key: TYPESAFE_API_KEY from this process environment only, vault-injected at
-#   runtime. Never read from .env (unlike typed dispatch resolution). The key
-#   is copied into a non-exported variable and unset before children run, then
-#   sent to curl as a header from a file descriptor, never on argv. Nothing
-#   logs or writes it.
+# Key: requests flow through the agent-vault wrapper (default
+#   ~/.local/bin/jev-proxy.sh, override FM_JEV_PROXY_BIN), which injects
+#   TYPESAFE_API_KEY from the vault at the network boundary. The key never
+#   enters this process environment and is never read from .env (unlike typed
+#   dispatch resolution). The FAKE_CURL_LOG branch is a test-only env-key seam.
+#   Nothing logs or writes the key.
 #
-# Fail-open: any missing key, missing curl/jq, HTTP/transport error, timeout,
+# Fail-open: any missing wrapper, missing curl/jq, HTTP/transport error, timeout,
 #   or malformed answer prints action=unavailable and exits 0 so the watcher
 #   escalates exactly as it did before this gate. Exit 2 only for usage.
 #
@@ -199,7 +200,7 @@ emit() {  # <action> [choice] [noul]
 
 emit_unavailable() { emit unavailable; }
 
-JEV_PROXY=${FM_JEV_PROXY_BIN:-/opt/ra/infisical/bin/jev-proxy.sh}
+JEV_PROXY=${FM_JEV_PROXY_BIN:-${HOME:-}/.local/bin/jev-proxy.sh}
 if [ -n "${FM_JEV_PROXY_BIN:-}" ]; then
   [ -x "$JEV_PROXY" ] || emit_unavailable
 elif [ -n "${FAKE_CURL_LOG:-}" ]; then

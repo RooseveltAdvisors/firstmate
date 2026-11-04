@@ -110,7 +110,7 @@ from pathlib import Path
 TS_BASE = os.environ.get("FM_JEV_TS_BASE", "https://api.typesafe.ai")
 TS_MODEL = os.environ.get("FM_JEV_TS_MODEL", "jev-latest")
 TS_TIMEOUT = float(os.environ.get("FM_JEV_GUARD_TIMEOUT", "3.0"))
-DEFAULT_JEV_PROXY = "/opt/ra/infisical/bin/jev-proxy.sh"
+DEFAULT_JEV_PROXY = os.path.expanduser("~/.local/bin/jev-proxy.sh")
 
 CRITERIA_ACTION = {
     "allow_supervisor": (
