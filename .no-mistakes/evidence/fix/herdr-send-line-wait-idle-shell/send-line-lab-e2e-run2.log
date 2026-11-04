@@ -1,0 +1,80 @@
+fix-nested trial 1: ran (send phase 0.68s)
+fix-nested trial 2: ran (send phase 0.77s)
+fix-nested trial 3: ran (send phase 0.65s)
+fix-nested trial 4: ran (send phase 0.70s)
+fix-nested trial 5: ran (send phase 0.98s)
+fix-nested trial 6: ran (send phase 2.04s)
+fix-nested trial 7: ran (send phase 1.27s)
+fix-nested trial 8: ran (send phase 0.74s)
+fix-nested trial 9: ran (send phase 0.67s)
+fix-nested trial 10: ran (send phase 0.62s)
+fix-nested trial 11: ran (send phase 0.92s)
+fix-nested trial 12: ran (send phase 0.57s)
+== fix-nested: 12/12 ran
+base-fresh trial 1: ran (send phase 0.20s)
+base-fresh trial 2: ran (send phase 0.31s)
+base-fresh trial 3: ran (send phase 0.40s)
+base-fresh trial 4: ran (send phase 0.19s)
+base-fresh trial 5: LOST (send phase 0.36s)
+  pane screen tail:
+    export FM_E2E_COMPACT=1
+    y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.7aQVfV ➜ export FM_E2E_COMPACT=1
+    y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.7aQVfV ➜ printf '%s\n' "$FM_E2E_COMPACT" > '/private/var/folders/jx/y0
+    _s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.7aQVfV/out/base-fresh.5'
+base-fresh trial 6: LOST (send phase 0.34s)
+  pane screen tail:
+    ase-fresh.6'
+    y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.7aQVfV ➜ export FM_E2E_COMPACT=1
+    y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.7aQVfV ➜ printf '%s\n' "$FM_E2E_COMPACT" > '/private/var/folders/jx/y0_
+    s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.7aQVfV/out/base-fresh.6'
+base-fresh trial 7: LOST (send phase 0.17s)
+  pane screen tail:
+    base-fresh.7'
+    y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.7aQVfV ➜ export FM_E2E_COMPACT=1
+    y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.7aQVfV ➜ printf '%s\n' "$FM_E2E_COMPACT" > '/private/var/folders/jx/y0
+    _s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.7aQVfV/out/base-fresh.7'
+base-fresh trial 8: LOST (send phase 0.17s)
+  pane screen tail:
+    base-fresh.8'
+    y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.7aQVfV ➜ export FM_E2E_COMPACT=1
+    y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.7aQVfV ➜ printf '%s\n' "$FM_E2E_COMPACT" > '/private/var/folders/jx/y0
+    _s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.7aQVfV/out/base-fresh.8'
+base-fresh trial 9: LOST (send phase 0.25s)
+  pane screen tail:
+    base-fresh.9'
+    y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.7aQVfV ➜ export FM_E2E_COMPACT=1
+    y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.7aQVfV ➜ printf '%s\n' "$FM_E2E_COMPACT" > '/private/var/folders/jx/y0
+    _s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.7aQVfV/out/base-fresh.9'
+base-fresh trial 10: LOST (send phase 0.23s)
+  pane screen tail:
+    ase-fresh.10'
+    y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.7aQVfV ➜ export FM_E2E_COMPACT=1
+    y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.7aQVfV ➜ printf '%s\n' "$FM_E2E_COMPACT" > '/private/var/folders/jx/y0_
+    s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.7aQVfV/out/base-fresh.10'
+base-fresh trial 11: LOST (send phase 0.16s)
+  pane screen tail:
+    base-fresh.11'
+    y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.7aQVfV ➜ export FM_E2E_COMPACT=1
+    y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.7aQVfV ➜ printf '%s\n' "$FM_E2E_COMPACT" > '/private/var/folders/jx/y0
+    _s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.7aQVfV/out/base-fresh.11'
+base-fresh trial 12: LOST (send phase 0.23s)
+  pane screen tail:
+    base-fresh.12'
+    y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.7aQVfV ➜ export FM_E2E_COMPACT=1
+    y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.7aQVfV ➜ printf '%s\n' "$FM_E2E_COMPACT" > '/private/var/folders/jx/y0
+    _s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.7aQVfV/out/base-fresh.12'
+== base-fresh: 4/12 ran
+fix-fresh trial 1: ran (send phase 0.90s)
+fix-fresh trial 2: ran (send phase 0.58s)
+fix-fresh trial 3: ran (send phase 0.38s)
+fix-fresh trial 4: ran (send phase 0.40s)
+fix-fresh trial 5: ran (send phase 0.59s)
+fix-fresh trial 6: ran (send phase 0.61s)
+fix-fresh trial 7: ran (send phase 0.67s)
+fix-fresh trial 8: ran (send phase 0.75s)
+fix-fresh trial 9: ran (send phase 0.71s)
+fix-fresh trial 10: ran (send phase 0.87s)
+fix-fresh trial 11: ran (send phase 2.85s)
+fix-fresh trial 12: ran (send phase 0.99s)
+== fix-fresh: 12/12 ran
+teardown rc=0

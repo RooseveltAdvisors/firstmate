@@ -1,0 +1,183 @@
+lab session: fm-lab-sendline-94566-19744
+base top          #1  FAIL first-send-wait=0.20s
+  --- pane screen ---
+  | export FM_E2E_X=1
+  | printf 'ok-%s\n' "$FM_E2E_X" > '/private/var/folders/jx/y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h/out/base-to
+  | p-1'
+  | y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h ➜ export FM_E2E_X=1
+  | y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h ➜ printf 'ok-%s\n' "$FM_E2E_X" > '/private/var/folders/jx/y0_s3zd55
+  | 6b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h/out/base-top-1'
+base top          #2  FAIL first-send-wait=0.09s
+  --- pane screen ---
+  | export FM_E2E_X=2
+  | printf 'ok-%s\n' "$FM_E2E_X" > '/private/var/folders/jx/y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h/out/base-top
+  | -2'
+  | y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h ➜ export FM_E2E_X=2
+  | y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h ➜ printf 'ok-%s\n' "$FM_E2E_X" > '/private/var/folders/jx/y0_s3zd556
+  | b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h/out/base-top-2'
+base top          #3  FAIL first-send-wait=0.06s
+  --- pane screen ---
+  | export FM_E2E_X=3
+  | printf 'ok-%s\n' "$FM_E2E_X" > '/private/var/folders/jx/y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h/out/base-top
+  | -3'
+  | y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h ➜ export FM_E2E_X=3
+  | y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h ➜ printf 'ok-%s\n' "$FM_E2E_X" > '/private/var/folders/jx/y0_s3zd556
+  | b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h/out/base-top-3'
+base top          #4  FAIL first-send-wait=0.06s
+  --- pane screen ---
+  | export FM_E2E_X=4
+  | printf 'ok-%s\n' "$FM_E2E_X" > '/private/var/folders/jx/y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h/out/base-top
+  | -4'
+  | y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h ➜ export FM_E2E_X=4
+  | y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h ➜ printf 'ok-%s\n' "$FM_E2E_X" > '/private/var/folders/jx/y0_s3zd556
+  | b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h/out/base-top-4'
+base top          #5  FAIL first-send-wait=0.09s
+  --- pane screen ---
+  | export FM_E2E_X=5
+  | printf 'ok-%s\n' "$FM_E2E_X" > '/private/var/folders/jx/y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h/out/base-top
+  | -5'
+  | y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h ➜ export FM_E2E_X=5
+  | y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h ➜ printf 'ok-%s\n' "$FM_E2E_X" > '/private/var/folders/jx/y0_s3zd556
+  | b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h/out/base-top-5'
+base top          #6  FAIL first-send-wait=0.08s
+  --- pane screen ---
+  | export FM_E2E_X=6
+  | printf 'ok-%s\n' "$FM_E2E_X" > '/private/var/folders/jx/y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h/out/base-top
+  | -6'
+  | y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h ➜ export FM_E2E_X=6
+  | y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h ➜ printf 'ok-%s\n' "$FM_E2E_X" > '/private/var/folders/jx/y0_s3zd556
+  | b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h/out/base-top-6'
+fix top          #1  PASS first-send-wait=0.58s
+fix top          #2  PASS first-send-wait=1.22s
+fix top          #3  PASS first-send-wait=0.95s
+fix top          #4  PASS first-send-wait=1.04s
+fix top          #5  PASS first-send-wait=0.79s
+fix top          #6  PASS first-send-wait=0.77s
+base nested-flush #1  FAIL first-send-wait=0.08s
+  --- pane screen ---
+  | y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h ➜ bash --noprofile --rcfile '/private/var/folders/jx/y0_s3zd556b5l8n
+  | 965ndcfxr0000gp/T/fm-sendline.vW8a8h/flushrc' -i
+  | export FM_E2E_X=1
+  | printf 'ok-%s\n' "$FM_E2E_X" > '/private/var/folders/jx/y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h/out/base-nes
+  | ted-flush-1'
+  | lab$
+base nested-flush #2  FAIL first-send-wait=0.13s
+  --- pane screen ---
+  | y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h ➜ bash --noprofile --rcfile '/private/var/folders/jx/y0_s3zd556b5l8n
+  | 965ndcfxr0000gp/T/fm-sendline.vW8a8h/flushrc' -i
+  | export FM_E2E_X=2
+  | printf 'ok-%s\n' "$FM_E2E_X" > '/private/var/folders/jx/y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h/out/base-nes
+  | ted-flush-2'
+  | lab$
+base nested-flush #3  FAIL first-send-wait=0.10s
+  --- pane screen ---
+  | y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h ➜ bash --noprofile --rcfile '/private/var/folders/jx/y0_s3zd556b5l8n
+  | 965ndcfxr0000gp/T/fm-sendline.vW8a8h/flushrc' -i
+  | export FM_E2E_X=3
+  | printf 'ok-%s\n' "$FM_E2E_X" > '/private/var/folders/jx/y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h/out/base-nes
+  | ted-flush-3'
+  | lab$
+base nested-flush #4  FAIL first-send-wait=0.10s
+  --- pane screen ---
+  | y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h ➜ bash --noprofile --rcfile '/private/var/folders/jx/y0_s3zd556b5l8n
+  | 965ndcfxr0000gp/T/fm-sendline.vW8a8h/flushrc' -i
+  | export FM_E2E_X=4
+  | printf 'ok-%s\n' "$FM_E2E_X" > '/private/var/folders/jx/y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h/out/base-nes
+  | ted-flush-4'
+  | lab$
+base nested-flush #5  FAIL first-send-wait=0.07s
+  --- pane screen ---
+  | y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h ➜ bash --noprofile --rcfile '/private/var/folders/jx/y0_s3zd556b5l8n
+  | 965ndcfxr0000gp/T/fm-sendline.vW8a8h/flushrc' -i
+  | export FM_E2E_X=5
+  | printf 'ok-%s\n' "$FM_E2E_X" > '/private/var/folders/jx/y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h/out/base-nes
+  | ted-flush-5'
+  | lab$
+base nested-flush #6  FAIL first-send-wait=0.07s
+  --- pane screen ---
+  | y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h ➜ bash --noprofile --rcfile '/private/var/folders/jx/y0_s3zd556b5l8n
+  | 965ndcfxr0000gp/T/fm-sendline.vW8a8h/flushrc' -i
+  | export FM_E2E_X=6
+  | printf 'ok-%s\n' "$FM_E2E_X" > '/private/var/folders/jx/y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h/out/base-nes
+  | ted-flush-6'
+  | lab$
+fix nested-flush #1  PASS first-send-wait=2.13s
+fix nested-flush #2  PASS first-send-wait=2.12s
+fix nested-flush #3  PASS first-send-wait=2.24s
+fix nested-flush #4  PASS first-send-wait=2.76s
+fix nested-flush #5  PASS first-send-wait=2.29s
+fix nested-flush #6  PASS first-send-wait=2.24s
+base nested-zsh   #1  FAIL first-send-wait=0.07s
+  --- pane screen ---
+  | y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h ➜ zsh -il
+  | export FM_E2E_X=1
+  | printf 'ok-%s\n' "$FM_E2E_X" > '/private/var/folders/jx/y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h/out/base-nes
+  | ted-zsh-1'
+  | y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h ➜ export FM_E2E_X=1
+  | y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h ➜ printf 'ok-%s\n' "$FM_E2E_X" > '/private/var/folders/jx/y0_s3zd556
+  | b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h/out/base-nested-zsh-1'
+base nested-zsh   #2  FAIL first-send-wait=0.05s
+  --- pane screen ---
+  | y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h ➜ zsh -il
+  | export FM_E2E_X=2
+  | printf 'ok-%s\n' "$FM_E2E_X" > '/private/var/folders/jx/y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h/out/base-nes
+  | ted-zsh-2'
+  | y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h ➜ export FM_E2E_X=2
+  | y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h ➜ printf 'ok-%s\n' "$FM_E2E_X" > '/private/var/folders/jx/y0_s3zd556
+  | b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h/out/base-nested-zsh-2'
+base nested-zsh   #3  FAIL first-send-wait=0.06s
+  --- pane screen ---
+  | y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h ➜ zsh -il
+  | export FM_E2E_X=3
+  | printf 'ok-%s\n' "$FM_E2E_X" > '/private/var/folders/jx/y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h/out/base-nes
+  | ted-zsh-3'
+  | y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h ➜ export FM_E2E_X=3
+  | y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h ➜ printf 'ok-%s\n' "$FM_E2E_X" > '/private/var/folders/jx/y0_s3zd556
+  | b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h/out/base-nested-zsh-3'
+base nested-zsh   #4  FAIL first-send-wait=0.09s
+  --- pane screen ---
+  | y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h ➜ zsh -il
+  | export FM_E2E_X=4
+  | printf 'ok-%s\n' "$FM_E2E_X" > '/private/var/folders/jx/y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h/out/base-nes
+  | ted-zsh-4'
+  | y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h ➜ export FM_E2E_X=4
+  | y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h ➜ printf 'ok-%s\n' "$FM_E2E_X" > '/private/var/folders/jx/y0_s3zd556
+  | b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h/out/base-nested-zsh-4'
+base nested-zsh   #5  FAIL first-send-wait=0.12s
+  --- pane screen ---
+  | y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h ➜ zsh -il
+  | export FM_E2E_X=5
+  | printf 'ok-%s\n' "$FM_E2E_X" > '/private/var/folders/jx/y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h/out/base-nes
+  | ted-zsh-5'
+  | y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h ➜ export FM_E2E_X=5
+  | y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h ➜ printf 'ok-%s\n' "$FM_E2E_X" > '/private/var/folders/jx/y0_s3zd556
+  | b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h/out/base-nested-zsh-5'
+base nested-zsh   #6  FAIL first-send-wait=0.07s
+  --- pane screen ---
+  | y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h ➜ zsh -il
+  | export FM_E2E_X=6
+  | printf 'ok-%s\n' "$FM_E2E_X" > '/private/var/folders/jx/y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h/out/base-nes
+  | ted-zsh-6'
+  | y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h ➜ export FM_E2E_X=6
+  | y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h ➜ printf 'ok-%s\n' "$FM_E2E_X" > '/private/var/folders/jx/y0_s3zd556
+  | b5l8n965ndcfxr0000gp/T/fm-sendline.vW8a8h/out/base-nested-zsh-6'
+fix nested-zsh   #1  PASS first-send-wait=1.03s
+fix nested-zsh   #2  PASS first-send-wait=1.32s
+fix nested-zsh   #3  PASS first-send-wait=0.65s
+fix nested-zsh   #4  PASS first-send-wait=0.75s
+fix nested-zsh   #5  PASS first-send-wait=0.90s
+fix nested-zsh   #6  PASS first-send-wait=1.02s
+fix nested-zsh   #7  PASS first-send-wait=0.69s
+fix nested-zsh   #8  PASS first-send-wait=0.68s
+fix nested-zsh   #9  PASS first-send-wait=0.67s
+fix nested-zsh   #10 PASS first-send-wait=0.96s
+fix nested-zsh   #11 PASS first-send-wait=0.62s
+fix nested-zsh   #12 PASS first-send-wait=0.64s
+fix nested-zsh   #13 PASS first-send-wait=0.69s
+fix nested-zsh   #14 PASS first-send-wait=0.77s
+fix nested-zsh   #15 PASS first-send-wait=0.83s
+fix nested-zsh   #16 PASS first-send-wait=1.68s
+fix nested-zsh   #17 PASS first-send-wait=0.79s
+fix nested-zsh   #18 PASS first-send-wait=0.93s
+bound-exhaustion POLLS=5 busy-pane: send rc=0 returned-after=2.12s line-ran=bound-ok
+teardown rc=0

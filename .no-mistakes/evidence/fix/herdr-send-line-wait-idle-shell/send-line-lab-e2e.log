@@ -1,0 +1,64 @@
+base-fresh trial 1: ran (send phase 0.34s)
+base-fresh trial 2: ran (send phase 0.16s)
+base-fresh trial 3: ran (send phase 0.18s)
+base-fresh trial 4: ran (send phase 0.15s)
+base-fresh trial 5: ran (send phase 0.28s)
+base-fresh trial 6: ran (send phase 0.22s)
+== base-fresh: 6/6 ran
+fix-fresh trial 1: ran (send phase 0.56s)
+fix-fresh trial 2: ran (send phase 0.53s)
+fix-fresh trial 3: ran (send phase 0.54s)
+fix-fresh trial 4: ran (send phase 0.32s)
+fix-fresh trial 5: ran (send phase 0.68s)
+fix-fresh trial 6: ran (send phase 0.58s)
+== fix-fresh: 6/6 ran
+base-nested trial 1: LOST (send phase 0.24s)
+  pane screen tail:
+    base-nested.1'
+    y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.3Hc9xs ➜ export FM_E2E_COMPACT=1
+    y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.3Hc9xs ➜ printf '%s\n' "$FM_E2E_COMPACT" > '/private/var/folders/jx/y0
+    _s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.3Hc9xs/out/base-nested.1'
+base-nested trial 2: LOST (send phase 0.16s)
+  pane screen tail:
+    base-nested.2'
+    y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.3Hc9xs ➜ export FM_E2E_COMPACT=1
+    y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.3Hc9xs ➜ printf '%s\n' "$FM_E2E_COMPACT" > '/private/var/folders/jx/y0
+    _s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.3Hc9xs/out/base-nested.2'
+base-nested trial 3: LOST (send phase 0.23s)
+  pane screen tail:
+    base-nested.3'
+    y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.3Hc9xs ➜ export FM_E2E_COMPACT=1
+    y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.3Hc9xs ➜ printf '%s\n' "$FM_E2E_COMPACT" > '/private/var/folders/jx/y0
+    _s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.3Hc9xs/out/base-nested.3'
+base-nested trial 4: LOST (send phase 0.22s)
+  pane screen tail:
+    base-nested.4'
+    y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.3Hc9xs ➜ export FM_E2E_COMPACT=1
+    y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.3Hc9xs ➜ printf '%s\n' "$FM_E2E_COMPACT" > '/private/var/folders/jx/y0
+    _s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.3Hc9xs/out/base-nested.4'
+base-nested trial 5: LOST (send phase 0.18s)
+  pane screen tail:
+    base-nested.5'
+    y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.3Hc9xs ➜ export FM_E2E_COMPACT=1
+    y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.3Hc9xs ➜ printf '%s\n' "$FM_E2E_COMPACT" > '/private/var/folders/jx/y0
+    _s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.3Hc9xs/out/base-nested.5'
+base-nested trial 6: LOST (send phase 0.25s)
+  pane screen tail:
+    base-nested.6'
+    y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.3Hc9xs ➜ export FM_E2E_COMPACT=1
+    y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.3Hc9xs ➜ printf '%s\n' "$FM_E2E_COMPACT" > '/private/var/folders/jx/y0
+    _s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.3Hc9xs/out/base-nested.6'
+== base-nested: 0/6 ran
+fix-nested trial 1: ran (send phase 0.64s)
+fix-nested trial 2: ran (send phase 0.70s)
+fix-nested trial 3: ran (send phase 0.56s)
+fix-nested trial 4: LOST (send phase 0.42s)
+  pane screen tail:
+    y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.3Hc9xs ➜ export FM_E2E_COMPACT=1printf '%s\n' "$FM_E2E_COMPACT" > '/pr
+    ivate/var/folders/jx/y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.3Hc9xs/out/fix-nested.4'
+    export: not valid in this context: %s\n
+    y0_s3zd556b5l8n965ndcfxr0000gp/T/fm-sendline-e2e.3Hc9xs ❯
+fix-nested trial 5: ran (send phase 2.12s)
+fix-nested trial 6: ran (send phase 0.95s)
+== fix-nested: 5/6 ran
+teardown rc=0
