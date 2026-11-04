@@ -29,6 +29,11 @@
 # Any refusal exits nonzero, preserves CLI stderr verbatim, and names the store
 # and original three fields for an authorized lane to file. No reply receipt is
 # emitted. Evidence snapshots survive a failed write for recovery.
+# A create refused as a prose duplicate of a DIFFERENT task is retried once
+# with --allow-duplicate and a justification naming the refused candidate; the
+# external_ref lookup already found no bead carrying this key, so the refusal
+# reflects shared scaffolding, not identity. Any other refusal still exits
+# nonzero with stderr verbatim.
 set -euo pipefail
 umask 077
 
@@ -144,6 +149,7 @@ cp "$EVIDENCE" "$SNAPSHOT"
 STAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 NOTE=$(printf 'Recorded (UTC): %s\nOwning task ID: %s\nFailed command: %s\nEvidence path: %s\nAttached evidence: %s\nFinding: %s\n' \
   "$STAMP" "$TASK" "$FAILED_COMMAND" "$EVIDENCE" "$SNAPSHOT" "${SUMMARY:-Verification failed}")
+RETRY_NOTICE=''
 if [ -n "$ID" ]; then
   REOPEN=()
   [ "$STATUS" != closed ] || REOPEN=(--status open)
@@ -153,11 +159,36 @@ if [ -n "$ID" ]; then
   fi
   ACTION=updated
 else
+  # bd's prose dedupe scores the title and description scaffolding this record
+  # shares with every other verification bead, so an unrelated finding can be
+  # refused as a duplicate. Identity here is the external_ref key: list_match
+  # already found no bead carrying it. A refusal naming a candidate other than
+  # this owning task is therefore prose, not identity, and is retried once,
+  # explicitly, with the differing task and key as justification.
+  CREATE_ERR=$(mktemp)
   if ! WRITE_OUTPUT=$(beads create --title "Verification failure: $TASK" --type bug --priority 2 \
-    --external-ref "$REF" --description "$NOTE"); then
+    --external-ref "$REF" --description "$NOTE" 2>"$CREATE_ERR"); then
+    CANDIDATE=$({ cat "$CREATE_ERR"; printf '%s\n' "$WRITE_OUTPUT"; } | sed -n 's/.*potential duplicate of active issue \([A-Za-z0-9_:-]*\).*/\1/p')
+    cat "$CREATE_ERR" >&2
+    rm -f "$CREATE_ERR"
     printf '%s\n' "$WRITE_OUTPUT" >&2
-    die 'bd create refused; report its output verbatim, no receipt issued'
+    if [ -z "$CANDIDATE" ] || [ "$CANDIDATE" = "$TASK" ]; then
+      die 'bd create refused; report its output verbatim, no receipt issued'
+    fi
+    JUSTIFY=$(printf 'Filed with --allow-duplicate after a bd prose-dedupe refusal: candidate %s shares only the verification-failure scaffolding; this record owns task %s, dedupe key %s, and the external_ref lookup found no existing bead - different subject.' \
+      "$CANDIDATE" "$TASK" "$KEY")
+    if ! WRITE_OUTPUT=$(beads create --title "Verification failure: $TASK" --type bug --priority 2 \
+      --external-ref "$REF" --description "$NOTE
+$JUSTIFY" --allow-duplicate 2>"$CREATE_ERR"); then
+      cat "$CREATE_ERR" >&2
+      rm -f "$CREATE_ERR"
+      printf '%s\n' "$WRITE_OUTPUT" >&2
+      die 'bd create refused; report its output verbatim, no receipt issued'
+    fi
+    RETRY_NOTICE="fm-verification-record: bd dedupe named $CANDIDATE; filed with --allow-duplicate and justification in the bead body"
   fi
+  cat "$CREATE_ERR" >&2
+  rm -f "$CREATE_ERR"
   ACTION=created
 fi
 # Readback is authoritative, including after an ambiguous successful create.
@@ -171,3 +202,4 @@ printf '%s' "$MATCH" | jq -e --arg attachment "$SNAPSHOT" \
 jq -cn --arg bead "$CONFIRMED_ID" --arg store "$STORE" --arg evidence "$SNAPSHOT" \
   --arg key "$KEY" --arg action "$ACTION" \
   '{bead:$bead,store:$store,evidence:$evidence,key:$key,action:$action}'
+[ -z "$RETRY_NOTICE" ] || printf '%s\n' "$RETRY_NOTICE" >&2
