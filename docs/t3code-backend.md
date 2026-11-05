@@ -146,6 +146,7 @@ The control plane ([`agent-control.md`](agent-control.md)) reads the same status
 T3 stops its latest active run asynchronously and names it, so the `cancel=` verdict waits on exactly that run: `confirmed` when it reached a terminal status, `not-running` when there was no active run, else `unconfirmed`, even when a later queued run is already terminal or has started meanwhile.
 `exit` is refused before anything is sent: the V2 `/mcp` tools have no session stop, and an interrupt leaves the thread idle and alive, so no stop could be proven.
 `relaunch` is refused before anything is stopped: a T3 thread keeps its conversation, so a new turn continues the same agent, and a provider or model change through `t3_thread_configure` is a context handoff on that same thread rather than the fresh agent a relaunch promises.
+`park` is the one seat-lifecycle verb that applies here: it writes only the status-log declaration and never stops or replaces anything on the thread, so it is admitted where the status table proves the seat stopped - a `failed` thread reads `dead`, and a `missing` verdict (archived or not found on the verified server) takes the shared [absence proof](agent-control.md#reclaiming-a-task-whose-endpoint-is-gone)'s re-read before the seat is called stopped.
 
 The watcher and `fm-crew-state.sh` use the adapter's [thread status table](#restart-and-liveness-behavior) ahead of harness gates and hook records (source `t3code-native`), so a codex crew settles from T3's status even though codex has no verified hook writer.
 Native uncertainty stays unknown instead of falling through to a hook record or rendered fallback.
@@ -265,7 +266,7 @@ If a task's thread no longer reads back, release the task by hand:
   Unless `config/keep-ai-trailers` is present, the per-worktree environment selects Firstmate's Git commit hook to strip known AI trailers, including on T3 workers.
 - T3 also owns the Codex provider command, so Firstmate cannot apply the pane-backed worker's hook-disable or turn-end notify options.
   Firstmate's pane-backed hook-trust workaround therefore does not apply; supervision uses T3's [thread status table](#restart-and-liveness-behavior).
-- `fm-control.sh exit` is refused because the V2 `/mcp` tools have no session stop, and `relaunch` is refused because a thread keeps its conversation, so no fresh agent can replace it.
+- `fm-control.sh exit` is refused because the V2 `/mcp` tools have no session stop, and `relaunch` is refused because a thread keeps its conversation, so no fresh agent can replace it; only `park` of the seat-lifecycle verbs applies.
 - The WebSocket event stream is not available to an `mcp-client` credential; the [run wait](#push-events-and-polling-fallback) stands in for it.
 - A permission approval cannot be answered through `/mcp`; it waits for T3 Code itself.
 - Request-id deduplication holds within one T3 auth session only: every sign-in starts a new session, so resending an unconfirmed send, or retrying a frozen away-mode digest, after the captain signs in again can deliver it twice; verify such a message in T3 Code first.

@@ -152,8 +152,11 @@
 #      `resolved` never become current state or detail.
 #   5. Missing meta or torn-down worktree: report unknown · none. If no run is
 #      attributed to this crew, a dead endpoint also reports unknown · none rather
-#      than trusting a stale status log. On tmux, herdr, and rex, which own a
-#      recovery-grade classifier, only its positive death evidence reads as gone
+#      than trusting a stale status log, except that a seat whose
+#      declared pause names a recheck time still ahead reports paused ·
+#      status-log (bin/fm-control.sh park). On tmux, herdr, rex, and t3code,
+#      which own a recovery-grade classifier, only its positive death evidence
+#      reads as gone
 #      (the endpoint is authoritatively absent, or its pane holds no agent); an
 #      endpoint that merely failed to answer reports unknown · none as
 #      unreachable, and an alive endpoint whose scrollback read failed is still
@@ -175,6 +178,8 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 . "$SCRIPT_DIR/fm-backend.sh"
 # shellcheck source=bin/fm-classify-lib.sh
 . "$SCRIPT_DIR/fm-classify-lib.sh"
+# shellcheck source=bin/fm-control-lib.sh
+. "$SCRIPT_DIR/fm-control-lib.sh"
 # shellcheck source=bin/fm-busy-lib.sh
 . "$SCRIPT_DIR/fm-busy-lib.sh"
 # shellcheck source=bin/fm-nm-run-lib.sh
@@ -264,7 +269,12 @@ emit_ship_status_done() {  # [extra-detail]
 }
 
 map_log_state() {  # <line>
+  local until_epoch
   if status_is_paused "$1"; then
+    if until_epoch=$(status_paused_until "$1") && [ "$(date +%s)" -ge "$until_epoch" ]; then
+      echo unknown
+      return
+    fi
     echo paused
     return
   fi
@@ -1310,6 +1320,50 @@ fi
 # the classifier-backed backends (tmux, herdr, rex, and t3code) - and every death-class
 # verdict reports unknown rather than trusting a possibly-stale status log as
 # the current state.
+# A standing declared pause names a recheck time still ahead (bin/fm-control.sh
+# park writes one on a stop its admission already proved), the same admission
+# the watcher's pause cadence makes for a dead crew. The declaration, not the
+# live re-read, carries the paused report through that span: whatever the
+# endpoint reads short of `alive`, the seat reports its declared wait rather
+# than unknown, so a suppressed stale can never pass for health. A still-open
+# decision outranks that wait (status_current_line's own precedence). The
+# `seat stopped` claim is appended only where the current read proves one
+# (`dead`, or an absence bin/fm-control-lib.sh's
+# fm_control_endpoint_absence_verdict confirms gone or agent-free); an unproven
+# absence is doubt, not a stop, and a proof that the agent is back folds the
+# seat into the alive path instead. Once the stated time passes, the
+# death-class verdicts apply again. The classifier runs only when a live park
+# exists, unless the caller already has its verdict.
+emit_if_parked() {  # [agent-state]
+  local park_line park_until state absence note current_state proven=0
+  park_line=$(status_declared_wait_line "$LOG")
+  park_until=$(status_paused_until "$park_line") && [ "$(date +%s)" -lt "$park_until" ] || return 0
+  state=${1:-$(fm_backend_agent_state "$TASK_BACKEND" "$BACKEND_TARGET")}
+  case "$state" in
+    alive) return 0 ;;
+    dead) proven=1 ;;
+    *)
+      if fm_control_absence_recheck_applies "$TASK_BACKEND" "$state"; then
+        absence=$(fm_control_endpoint_absence_verdict "$TASK_BACKEND" "$BACKEND_TARGET" "$META")
+        case "${absence%%$'\t'*}" in
+          gone|dead) proven=1 ;;
+          alive) AGENT_STATE=alive; return 0 ;;
+        esac
+      fi
+      ;;
+  esac
+  if [ "$LOG_LINE" != "$park_line" ]; then
+    current_state=$(map_log_state "$LOG_LINE")
+    [ "$current_state" = unknown ] || emit "$current_state" status-log "$(status_line_note "$LOG_LINE")"
+    return 0
+  fi
+  note=$(status_line_note "$park_line")
+  if [ "$proven" = 1 ]; then
+    emit paused status-log "$note${SEP}seat stopped"
+  fi
+  emit paused status-log "$note"
+}
+
 [ -n "$BACKEND_TARGET" ] || emit unknown none "no backend target recorded"
 if ! pane_readable "$BACKEND_TARGET"; then
   # A failed probe is not itself evidence the pane is gone: the herdr CLI can
@@ -1344,6 +1398,7 @@ if ! pane_readable "$BACKEND_TARGET"; then
     tmux|herdr|rex|t3code) AGENT_STATE=$(fm_backend_agent_state "$TASK_BACKEND" "$BACKEND_TARGET") ;;
     *) AGENT_STATE=none ;;
   esac
+  emit_if_parked "$AGENT_STATE"
   case "$TASK_BACKEND:$AGENT_STATE" in
     tmux:alive|herdr:alive|rex:alive|t3code:alive)
       ;;
@@ -1370,9 +1425,16 @@ fi
 if [ "$KIND" != secondmate ]; then
   BUSY_VERDICT=$(crew_busy_verdict "$BACKEND_TARGET")
   case "${BUSY_VERDICT%% *}" in
-    busy) emit working pane "harness busy (${BUSY_VERDICT#* })" ;;
+    busy)
+      emit_if_parked
+      emit working pane "harness busy (${BUSY_VERDICT#* })"
+      ;;
     idle) ;;
-    *) emit unknown pane "harness state unavailable ($BUSY_VERDICT)" ;;
+    *)
+      # A stopped seat's shell pane stays readable after exit (classifier dead).
+      emit_if_parked
+      emit unknown pane "harness state unavailable ($BUSY_VERDICT)"
+      ;;
   esac
 fi
 

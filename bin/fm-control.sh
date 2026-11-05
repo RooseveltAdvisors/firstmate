@@ -7,6 +7,8 @@
 #        fm-control.sh <task-id> relaunch [--harness <name>] [--model <name>]
 #                                         [--effort <level>]
 #                                         (--note <text> | --note-file <path>)
+#        fm-control.sh <task-id> park --until <YYYY-MM-DDTHH:MM[:SS]Z>
+#                                     --reason <text>
 #
 # Why this exists, and how it differs from fm-send.sh. bin/fm-send.sh is the
 # DATA plane: conversational text for the agent to read, always routing-marked
@@ -102,6 +104,24 @@
 #              the prior durable record in place and reports the concrete
 #              state; it never leaves a half-transitioned task claiming to be
 #              running.
+#   park       Record that a ship or scout whose agent is already stopped is
+#              intentionally parked until a stated time, so supervision stops
+#              treating its idle endpoint as a fresh stale every cycle. Only a
+#              stopped seat can be parked: the classifier must read the agent
+#              dead, or an absence the control plane's one absence proof proves
+#              gone or agent-free - a raw `missing` is doubt, not a stop -
+#              because a live worker declares its own wait. The verb appends
+#              one supervisor `paused: ... until <time>` declaration to the
+#              task's status log
+#              and changes nothing else - the record, endpoint, worktree, and
+#              any unlanded work stay exactly as they are, so bin/fm-teardown.sh
+#              keeps refusing unlanded work. The declaration rides the existing
+#              declared-wait cadence (bin/fm-classify-lib.sh owns the verb and
+#              `until` syntax): the watcher absorbs the stopped pane, rechecks
+#              it on the long pause cadence, and surfaces it again once the
+#              stated time passes, so a parked seat is never silent forever.
+#              --until is required and must be in the future. A secondmate is
+#              refused because its idle endpoint is already healthy by design.
 #
 # Teardown and discard are NOT verbs here and never will be. `exit` stops an
 # agent and preserves everything else; removing a worktree, killing an
@@ -128,10 +148,10 @@
 #     is refused rather than guessed at.
 #   - A backend that cannot deliver the harness's interrupt key is refused
 #     (Orca's terminal API has no Escape).
-#   - `exit` and `relaunch` require a backend with a recovery-grade agent-state
-#     classifier (tmux, herdr, rex, or t3code), because without one the "the
-#     agent stopped" postcondition cannot be proven. Relaunch also requires
-#     replacement support, which t3code lacks. zellij, orca, cmux, and paseo are refused
+#   - `exit`, `park`, and `relaunch` require a backend with a recovery-grade
+#     agent-state classifier (tmux, herdr, rex, or t3code), because without one
+#     the "the agent stopped" postcondition cannot be proven. Relaunch also
+#     requires replacement support, which t3code lacks. zellij, orca, cmux, and paseo are refused
 #     rather than reported as successful blind.
 #   - An ambiguous or unreadable endpoint state refuses; only a positively
 #     classified state acts (a Rex `unreadable` first goes through the absence
@@ -194,6 +214,8 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
+# shellcheck source=bin/fm-classify-lib.sh
+. "$SCRIPT_DIR/fm-classify-lib.sh"
 # shellcheck source=bin/fm-worker-account-lib.sh
 . "$SCRIPT_DIR/fm-worker-account-lib.sh"
 # shellcheck source=bin/fm-exclude-tools-lib.sh
@@ -265,6 +287,10 @@ MODEL_SET=0
 EFFORT_SET=0
 NOTE=
 NOTE_SET=0
+PARK_UNTIL=
+PARK_REASON=
+PARK_UNTIL_SET=0
+PARK_REASON_SET=0
 control_want_value=
 for control_arg in "$@"; do
   if [ -n "$control_want_value" ]; then
@@ -276,6 +302,8 @@ for control_arg in "$@"; do
       model) NEW_MODEL=$control_arg; MODEL_SET=1 ;;
       effort) NEW_EFFORT=$control_arg; EFFORT_SET=1 ;;
       note) NOTE=$control_arg; NOTE_SET=1 ;;
+      until) PARK_UNTIL=$control_arg; PARK_UNTIL_SET=1 ;;
+      reason) PARK_REASON=$control_arg; PARK_REASON_SET=1 ;;
       note_file)
         [ -f "$control_arg" ] || die "--note-file '$control_arg' is not a readable file"
         NOTE=$(cat "$control_arg")
@@ -294,6 +322,10 @@ for control_arg in "$@"; do
     --effort=*) NEW_EFFORT=${control_arg#--effort=}; EFFORT_SET=1 ;;
     --note) control_want_value=note ;;
     --note=*) NOTE=${control_arg#--note=}; NOTE_SET=1 ;;
+    --until) control_want_value=until ;;
+    --until=*) PARK_UNTIL=${control_arg#--until=}; PARK_UNTIL_SET=1 ;;
+    --reason) control_want_value=reason ;;
+    --reason=*) PARK_REASON=${control_arg#--reason=}; PARK_REASON_SET=1 ;;
     --note-file) control_want_value=note_file ;;
     --note-file=*)
       [ -f "${control_arg#--note-file=}" ] || die "--note-file '${control_arg#--note-file=}' is not a readable file"
@@ -311,6 +343,18 @@ fi
 if [ "$VERB" != relaunch ]; then
   [ "$HARNESS_SET" = 0 ] && [ "$MODEL_SET" = 0 ] && [ "$EFFORT_SET" = 0 ] && [ "$NOTE_SET" = 0 ] \
     || die "--harness, --model, --effort, and --note apply to 'relaunch' only"
+fi
+if [ "$VERB" = park ]; then
+  [ -n "$PARK_UNTIL" ] || die "park requires --until <YYYY-MM-DDTHH:MM[:SS]Z>; a parked seat must name when it is rechecked"
+  [ -n "$PARK_REASON" ] || die "park requires a non-empty --reason"
+  case "$PARK_REASON" in
+    *$'\n'*|*$'\r'*) die "--reason must be a single line" ;;
+  esac
+  PARK_UNTIL_EPOCH=$(fm_utc_iso_to_epoch "$PARK_UNTIL") \
+    || die "--until '$PARK_UNTIL' is not a UTC time of the form YYYY-MM-DDTHH:MM[:SS]Z"
+  [ "$PARK_UNTIL_EPOCH" -gt "$(date +%s)" ] || die "--until '$PARK_UNTIL' is not in the future"
+else
+  [ "$PARK_UNTIL_SET" = 0 ] && [ "$PARK_REASON_SET" = 0 ] || die "--until and --reason apply to 'park' only"
 fi
 [ "$HARNESS_SET" = 0 ] || [ -n "$NEW_HARNESS" ] || die "--harness requires a non-empty value"
 [ "$MODEL_SET" = 0 ] || [ -n "$NEW_MODEL" ] || die "--model requires a non-empty value"
@@ -1282,5 +1326,36 @@ case "$VERB" in
     ;;
   relaunch)
     do_relaunch
+    ;;
+  park)
+    [ "$KIND" != secondmate ] \
+      || die "task $ID is a secondmate, whose idle endpoint is healthy by design and never needs parking"
+    require_state_verified_backend park
+    state=$(agent_state)
+    case "$state" in
+      dead) ;;
+      alive) die "task $ID's agent is still running; a live worker declares its own wait, so stop it with 'exit' first if the seat is meant to be parked" ;;
+      *)
+        fm_control_absence_recheck_applies "$BACKEND" "$state" \
+          || die "task $ID's endpoint reads '$state' rather than a positively classified state; refusing to park a seat that is not proven stopped"
+        absence=$(fm_control_endpoint_absence_verdict "$BACKEND" "$T" "$META")
+        case "${absence%%$'\t'*}" in
+          gone|dead) ;;
+          alive) die "task $ID's agent came back on its endpoint; a live worker declares its own wait, so stop it with 'exit' first if the seat is meant to be parked" ;;
+          *) die "task $ID's endpoint $T reads '$state', but ${absence#*$'\t'}; park will not claim a seat stopped at an address it cannot trust" ;;
+        esac
+        ;;
+    esac
+    park_line=$(status_stamp_line "${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}: parked by the supervisor with the seat stopped - $PARK_REASON until $PARK_UNTIL")
+    [ "$(status_paused_until "$park_line")" = "$PARK_UNTIL_EPOCH" ] \
+      || die "the park declaration would not read back its stated recheck time - an 'until <time>' inside --reason shadows it; reword --reason"
+    printf '%s\n' "$park_line" >> "$STATE/$ID.status" \
+      || die "could not append the park declaration to $STATE/$ID.status"
+    # Postcondition: the shared classifier now reads this exact declaration as
+    # the task's declared wait, with the stated recheck time.
+    declared=$(status_declared_wait_line "$STATE/$ID.status")
+    [ "$declared" = "$park_line" ] \
+      || die "the park declaration was appended but the status log does not read it back as the declared wait; inspect $STATE/$ID.status"
+    echo "parked $ID until=$PARK_UNTIL agent=$state backend=$BACKEND endpoint=$T worktree=$WT"
     ;;
 esac
