@@ -51,6 +51,7 @@ If the session lock cannot be acquired and verified, report its exact diagnostic
 
 Load `harness-adapters` before spawn, recovery, trust, interrupt, exit, resume, or adapter verification.
 Never dispatch on an unverified adapter; if `config/crew-harness` or `config/secondmate-harness` names one, report it and fall back only to a verified adapter.
+Only the captain chooses or changes a worker account pin (`config/claude-account`, `config/pi-account`); a pin refusal reports the needed login and never edits or removes the file to unblock a spawn.
 Load `quota-array-dispatch` before choosing among a matched profile array.
 Refuse malformed profile configuration rather than selecting around it; never silently retry another backend.
 

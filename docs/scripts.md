@@ -71,7 +71,7 @@ The shared no-mistakes gate lifecycle boundary is summarized in [architecture.md
 | `fm-git-strip-ai-trailers.sh` | Strip known AI commit trailers at commit-msg time and install that hook, plus any forge=external push guard, for a fleet launch; bind it to the task worktree, and add the same strip's fail-open commit-msg to a no-mistakes mirror hooks directory (`install-mirror`) |
 | `fm-git-push-guard.sh`  | Refuse a forge=external task's pushes to the shared origin and of task-prefixed branches, and write its per-task guard record ([design](external-review-forge.md)) |
 | `fm-backend.sh`          | Runtime-backend selection, meta helpers, selector resolution, and operation dispatch |
-| `fm-backend-hometag-lib.sh` | Shared per-installation home-tag derivation for zellij tab and cmux workspace titles |
+| `fm-backend-hometag-lib.sh` | Shared per-installation home-tag derivation for zellij tab, cmux workspace, and tern session titles |
 | `fm-composer-lib.sh`     | Single fleet-wide owner of composer shapes, capability-aware screen classification, and verdicts |
 | `fm-agent-process-lib.sh` | Backend-neutral harness-process name classifier shared by recovery-grade adapters |
 | `backends/tmux.sh`       | Verified tmux session-provider adapter                                               |
@@ -82,10 +82,11 @@ The shared no-mistakes gate lifecycle boundary is summarized in [architecture.md
 | `backends/paseo.sh`      | Experimental Paseo session-provider adapter                                          |
 | `backends/rex.sh`        | Experimental Rex session-provider adapter                                            |
 | `backends/t3code.sh`     | Experimental T3 Code adapter driving the agent session through `fm-t3-mcp.mjs`       |
+| `backends/tern.sh`       | Experimental tern session-provider adapter                                           |
 | `fm-config-push.sh`      | Push declared inherited local material to live local or remote secondmates and send the placement-specific config reread when changed |
 | `fm-project-mode.sh`     | Resolve a project's registered delivery posture, forge binding, or ship-branch prefix from `data/projects.md` for fleet sync, home seeding, and the forge agreement a ship spawn or scout promotion applies |
 | `fm-forge-detect.sh`     | Propose a clone's forge binding from its origin remote for project-add intake, never recording it |
-| `fm-merge-local.sh`      | Fast-forward a `local-only` project's local default branch after approval            |
+| [`fm-merge-local.sh`](../bin/fm-merge-local.sh) | Fast-forward a `local-only` project's local default branch to the approved recorded commit |
 | `fm-review-diff.sh`      | Review a crewmate branch or resolved PR head against the authoritative base          |
 | `fm-marker-lib.sh`       | Compatibility entry point for the from-firstmate carrier owned by `fm-operational-input.sh` |
 | `fm-task-inbox-lib.sh`   | Single owner of durable steering-inbox records, acknowledgement, doorbells, and the delivery-attempt ladder |
