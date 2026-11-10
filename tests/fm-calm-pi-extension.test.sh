@@ -588,6 +588,11 @@ function makeHost(session) {
     // Pi reads its session through runtimeHost, which a session replacement swaps.
     runtimeHost: { session },
     compactionQueuedMessages: [],
+    // The stand-in skips Pi's constructor, so it must carry the class fields
+    // that constructor would initialize: every one the real prototype methods
+    // read through it. Pi 1.5.1's updatePendingMessagesDisplay draws the
+    // in-flight user bash output components from this list.
+    pendingBashComponents: [],
     statuses: [],
     warnings: [],
     editorText: "",
