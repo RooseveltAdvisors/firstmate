@@ -12,6 +12,12 @@ set -u
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-classify-lib.sh"
 
+# These cases pin deterministic wedge-cap decisions, independent of an installed
+# jev CLI. Without this, a live jev that answers healthy_idle/suppress resets the
+# idle timer on the post-declared-wait re-wedge and the watcher never exits
+# (fm-t7dzl). fm-jev-wake-triage.test.sh owns the model gate with fake replies.
+export FM_JEV_WAKE_TRIAGE=off
+
 WATCH="$ROOT/bin/fm-watch.sh"
 DRAIN="$ROOT/bin/fm-wake-drain.sh"
 # The fixture root for make_case, which reads TMP_ROOT at call time.
