@@ -201,7 +201,7 @@ puts YAML.load_file(ARGV[0]).fetch("jobs").fetch(ARGV[1]).fetch("timeout-minutes
 # one-off number the policy removed.
 FAST_TIER_JOBS='test-coverage invariants tests-timing-aggregate'
 NORMAL_TIER_JOBS='lint tests-portable-parallel-1 tests-portable-parallel-2 tests-portable-serial macos-stock-bash'
-HEAVY_TIER_JOBS='tests-herdr'
+HEAVY_TIER_JOBS='tests-herdr tests-portable-serial-8'
 
 # Print the one timeout every listed job shares; fail on any disagreement.
 tier_timeout() {  # <tier> <job>...
@@ -299,7 +299,7 @@ test_fast_tier_shares_one_short_tripwire() {
   pass "fast tier jobs share one $fast minute tripwire"
 }
 
-# Normal tier: every test or lint lane shares ONE fixed 30-minute budget,
+# Normal tier: every job in the tier shares ONE fixed 30-minute budget,
 # above the fast tier. That budget is a hang tripwire, not a packing estimate.
 test_normal_tier_shares_one_budget() {
   local fast normal
@@ -314,9 +314,10 @@ test_normal_tier_shares_one_budget() {
   pass "normal tier jobs share one $normal minute budget"
 }
 
-# Heavy tier: Herdr alone carries a job-level last-resort backstop above the
-# normal tier, while its family-run step owns a tighter tripwire so the
-# always() cleanup and timing upload still run after a hang.
+# Heavy tier: jobs carrying the shared job-level last-resort backstop above
+# the normal tier (Herdr and portable serial shard 8, whose pack outgrew the
+# normal cap). Herdr's family-run step owns a tighter tripwire so the always()
+# cleanup and timing upload still run after a hang.
 test_heavy_tier_keeps_a_step_tripwire_under_a_job_backstop() {
   local normal heavy step
   # shellcheck disable=SC2086
@@ -410,19 +411,34 @@ TABLE
 }
 
 test_ci_matrices_match_executable_partitions() {
-  ruby -ryaml -ropen3 - "$CI_WORKFLOW" "$ROOT" <<'RUBY' || fail "CI partition contract"
+  # shellcheck disable=SC2016  # the ${{ }} below is Ruby text, not a shell expansion
+  ruby -ryaml -ropen3 -e "$EXPRESSION_RUBY" -e '
 jobs = YAML.load_file(ARGV[0]).fetch("jobs")
 root = ARGV[1]
-serial = jobs.fetch("tests-portable-serial").fetch("strategy")
-raise "serial failures must not cancel other shards" unless serial.fetch("fail-fast") == false
-matrix = serial.fetch("matrix")
-raise "unexpected serial dimensions" unless matrix.keys == ["shard"]
-shards = matrix.fetch("shard")
 lanes, status = Open3.capture2(File.join(root, "bin/fm-test-run.sh"), "--list-lanes")
 raise "cannot list runner lanes" unless status.success?
 actual = lanes.lines.map(&:strip).select { |l| l.match?(/\Aportable-serial-\d+of\d+\z/) }
-expected = shards.map { |s| "portable-serial-#{s}of#{shards.length}" }
-raise "CI matrix and runner disagree" unless actual.sort == expected.sort
+
+interpolate = lambda do |raw, context|
+  raw.to_s.gsub(/\$\{\{(.+?)\}\}/) { Expression.evaluate(Regexp.last_match(1), context).to_s }
+end
+
+# Every portable serial job claims matrix.shard entries and spells the lane it
+# will request; the claimed lane names must cover the executable runner lanes
+# exactly once, so a split shard and the matrix never lose or duplicate
+# coverage of the required serial lane.
+claimed = jobs.keys.grep(/\Atests-portable-serial(-\d+)?\z/).flat_map do |id|
+  strategy = jobs.fetch(id).fetch("strategy")
+  raise "#{id}: serial failures must not cancel other shards" unless strategy.fetch("fail-fast") == false
+  matrix = strategy.fetch("matrix")
+  raise "#{id}: unexpected serial dimensions" unless matrix.keys == ["shard"]
+  templates = jobs.fetch(id).fetch("steps").filter_map { |s| s.dig("env", "FM_SERIAL_LANE") }
+  raise "#{id}: expected exactly one FM_SERIAL_LANE step" unless templates.length == 1
+  matrix.fetch("shard").map { |shard| interpolate.call(templates.first, "matrix.shard" => shard) }
+end
+raise "a portable serial lane is claimed twice: #{claimed.sort}" unless claimed.uniq.length == claimed.length
+raise "CI matrix and runner disagree" unless claimed.sort == actual.sort
+
 lint = jobs.fetch("lint").fetch("strategy")
 raise "lint failures must not cancel another partition" unless lint.fetch("fail-fast") == false
 matrix = lint.fetch("matrix")
@@ -435,7 +451,7 @@ roots = parts.flat_map do |p|
 end
 canonical, result = Open3.capture2({"CI" => "true"}, File.join(root, "bin/fm-lint.sh"), "--list-files")
 raise "lint matrix loses or duplicates canonical roots" unless result.success? && roots.sort == canonical.lines.map(&:strip).sort
-RUBY
+' "$CI_WORKFLOW" "$ROOT" || fail "CI partition contract"
   pass "CI matrices cover every executable serial lane and canonical lint root exactly once"
 }
 

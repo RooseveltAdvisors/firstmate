@@ -188,6 +188,8 @@ jobs:
   # a machine: each shard is still strictly serial in itself. Shard membership
   # and the shard count both belong to bin/fm-test-run.sh, which refuses a lane
   # whose "ofN" disagrees with it (docs/fm-test-portable-shards.md).
+  # Shard 8 runs as its own tests-portable-serial-8 job under the heavy-tier
+  # cap; every shard below keeps the normal-tier 30-minute bound.
   tests-portable-serial:
     name: Behavior portable serial ${{ matrix.shard }}
     runs-on: ubuntu-latest
@@ -198,7 +200,7 @@ jobs:
       # Every shard reports so one failure never hides another shard's result.
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        shard: [1, 2, 3, 4, 5, 6, 7, 9, 10]
     steps:
       - uses: actions/checkout@v6
         with:
@@ -246,10 +248,97 @@ jobs:
           npm ls -g --depth 0 @earendil-works/pi-coding-agent
       - name: Run portable serial shard ${{ matrix.shard }}
         env:
-          # job-total rather than a literal, so shrinking or growing the matrix
-          # without matching bin/fm-test-run.sh is refused instead of quietly
-          # leaving a shard of the required lane unrun.
-          FM_SERIAL_LANE: portable-serial-${{ matrix.shard }}of${{ strategy.job-total }}
+          # bin/fm-test-run.sh owns the shard count and refuses a lane whose
+          # "of<n>" disagrees with it. Shard 8 runs in tests-portable-serial-8,
+          # so strategy.job-total no longer counts every shard and the lane
+          # spells the runner's <n> directly; tests/fm-ci-workflow.test.sh
+          # compares the spelled lane names against the runner's --list-lanes,
+          # so changing the shard count in either file without the other fails
+          # loudly instead of quietly leaving a required shard unrun.
+          FM_SERIAL_LANE: portable-serial-${{ matrix.shard }}of10
+          FM_SERIAL_SHARD: ${{ matrix.shard }}
+        run: |
+          set -eu
+          mkdir -p "$RUNNER_TEMP/fm-test"
+          bin/fm-test-run.sh --lane "$FM_SERIAL_LANE" \
+            --fail-on-gate-skip 'Pi extension typecheck prerequisite not found' \
+            --json "$RUNNER_TEMP/fm-test/fm-test-timing-portable-serial-${FM_SERIAL_SHARD}.json"
+      - name: Upload portable serial shard ${{ matrix.shard }} timing artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fm-test-timing-portable-serial-${{ matrix.shard }}
+          path: ${{ runner.temp }}/fm-test/fm-test-timing-portable-serial-${{ matrix.shard }}.json
+          if-no-files-found: warn
+
+  # Shard 8's pack outgrew the normal-tier 30-minute cap: two runs were
+  # cancelled at that cap with every executed suite green, so the cap was a
+  # structural timeout rather than a red suite. It runs as its own job under
+  # the heavy-tier 75-minute bound while the hint refresh and rebalance stay
+  # scheduled (docs/fm-test-portable-shards.md "Timeouts").
+  tests-portable-serial-8:
+    name: Behavior portable serial ${{ matrix.shard }}
+    runs-on: ubuntu-latest
+    if: ${{ !(github.event_name == 'push' && vars.FM_CI_SKIP_PUSH == '1') }}
+    # Heavy tier (see the timeout policy above).
+    timeout-minutes: 75
+    strategy:
+      # Every shard reports so one failure never hides another shard's result.
+      fail-fast: false
+      matrix:
+        shard: [8]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Install pinned ShellCheck
+        run: |
+          set -eu
+          bin/fm-install-shellcheck.sh "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Install pinned actionlint
+        run: |
+          set -eu
+          bin/fm-install-actionlint.sh "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Require tmux for e2e tests
+        run: |
+          set -eu
+          command -v tmux >/dev/null || {
+            echo "::error::tmux is required for real afk injection e2e coverage"
+            exit 1
+          }
+          tmux -V
+      - name: Install tasks-axi for backlog-handoff delegation
+        run: |
+          set -eu
+          npm install -g tasks-axi
+          tasks-axi --version
+      # The stale-sweep suite drives a real scratch Beads graph through the
+      # real bd 1.2.x CLI; without bd every fixture row fails to create and
+      # the suite fails fast, so the binary is a required serial-lane tool.
+      # @beads/bd's postinstall skips the binary download whenever CI is set,
+      # so unset it for the install (GitHub Actions always exports CI=true).
+      - name: Install beads (bd) for the stale-sweep suite
+        run: |
+          set -eu
+          env -u CI npm install -g @beads/bd
+          bd version
+      # Runtime-facing Pi extension probes need the installed public package
+      # to avoid capability skips. tests/fm-pi-primary-types.test.sh owns its
+      # separate compiler dependencies.
+      - name: Install the Pi package for the Pi extension tests
+        run: |
+          set -eu
+          npm install -g @earendil-works/pi-coding-agent
+          npm ls -g --depth 0 @earendil-works/pi-coding-agent
+      - name: Run portable serial shard ${{ matrix.shard }}
+        env:
+          # Same lane contract as tests-portable-serial: bin/fm-test-run.sh
+          # owns the shard count and refuses a lane whose "of<n>" disagrees
+          # with it, and tests/fm-ci-workflow.test.sh compares the spelled
+          # lane names against the runner's --list-lanes.
+          FM_SERIAL_LANE: portable-serial-${{ matrix.shard }}of10
           FM_SERIAL_SHARD: ${{ matrix.shard }}
         run: |
           set -eu
@@ -400,6 +489,7 @@ jobs:
       - tests-portable-parallel-1
       - tests-portable-parallel-2
       - tests-portable-serial
+      - tests-portable-serial-8
       - tests-herdr
     if: ${{ always() && !(github.event_name == 'push' && vars.FM_CI_SKIP_PUSH == '1') }}
     steps:
