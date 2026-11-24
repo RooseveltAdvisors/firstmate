@@ -1,0 +1,19 @@
+Pre-fix starvation reproduction (base commit 427056c4, bin/fm-watch.sh at 65e2a1f47ab2cc3fdfe96ef3bf280834)
+vs fixed head (787bb52a, bin/fm-watch.sh at 2b305d91199bbd3e956fdd74ff55f5a4).
+Same driver (/tmp/fm-sweep-driver.sh, disposable), same native registered checks
+(a-early actionable, m-middle quiet, z-late quiet/actionable), real watcher subprocess.
+
+quiet mode (a-early actionable, later checks quiet):
+  pre-fix : sweep-runs = "a-early" ONLY. m-middle and z-late never ran. Watcher woke
+            immediately on a-early's reason alone -> the early actionable check starved
+            the rest of the alphabetical sweep. (see prefix/watcher-quiet.out)
+  fixed   : sweep-runs = a-early, m-middle, z-late (all ran, in order). One end-of-sweep
+            wake carrying both actionable reasons in order. (../watcher-quiet.out)
+
+actionable mode (all three actionable):
+  pre-fix : sweep-runs = "a-early" ONLY; only a-early's result surfaced.
+  fixed   : sweep-runs = a-early, m-middle, z-late; one wake with all three reasons in
+            alphabetical order; three durable drain records, exactly one per check.
+
+Conclusion: the durable regression reproduces the reported starvation pre-fix and passes
+post-fix. The batching change is what closes it.
